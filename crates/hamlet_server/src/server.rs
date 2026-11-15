@@ -29,105 +29,76 @@ use bevy_ecs::world::World;
 use hamlet_protocol::client::RequestId;
 use hamlet_sandbox::Sandbox;
 use notify::RecommendedWatcher;
-use tokio::net::{TcpListener, TcpStream};
+use tokio::net::TcpListener;
 use tokio::sync::{mpsc, watch};
+use tokio::task::AbortHandle;
 
-use crate::background::{BackgroundFinished, BackgroundResult};
-use crate::calls::{Ran, ToolRun, ToolRunEnded};
+use crate::calls::ToolRun;
 use crate::clients::Clients;
-use crate::clients::asked::{ClientConnected, ClientEvent};
-use crate::clients::connection::Event;
+use crate::clients::asked::ClientConnected;
 use crate::clock;
 use crate::core::{Confined, Core, Leftovers, Workspace};
 use crate::credentials::Credentials;
 use crate::diagnostic::{self, Secrets, tell};
 use crate::follow_up::discard;
-use crate::jobs::Job;
-use crate::knowledge::runner::{
-    JobsDone, RepositoryWriteLock, Runner,
-};
+use crate::knowledge::runner::{RepositoryWriteLock, Runner};
 use crate::providers::Providers;
 use crate::realm::Realm;
 use crate::society::agents;
 use crate::talk::Env;
-use crate::talk::heard::RuntimeLineReceived;
-use crate::talk::process::{Pi, Received};
+use crate::talk::process::Pi;
 use crate::talk::runtimes::{self, Harness, Runtimes};
-use crate::talk::sync::{FittedImages, ImagesFitted};
-use crate::timers::{self, TimerFired, TimerSystem};
-use crate::work::added::{self, AddedToolsChanged};
+use crate::timers::{self, TimerFired};
+use crate::work::added;
 use crate::work::tools::shell::Shells;
 use crate::workspace::Transport;
 
-/// The error handler, where each input begins, and who is told when
-/// one fails.
+/// The one channel inputs arrive on, the error handler, where each
+/// input begins, and who is told when one fails.
 pub(crate) fn plugin(app: &mut App) {
+    let (sender, receiver) = mpsc::unbounded_channel();
     app.set_error_handler(record)
+        .insert_resource(InputSender(sender))
+        .insert_resource(InputReceiver(Mutex::new(receiver)))
         .init_resource::<InputOrigin>()
         .add_systems(First, begin_input);
 }
 
-/// An input that wakes the server.
-pub(crate) enum Input {
-    /// A line from a runtime, or the end of its output.
-    RuntimeLine(Received),
-    /// A pass of the jobs runner that did jobs.
-    JobsDone(Vec<Job>),
-    /// An event of a client's connection.
-    ConnectionEvent(Event),
-    /// A client connected.
-    ClientConnected(TcpStream),
-    /// A tool run ended.
-    ToolRunEnded(Ran),
-    /// The images of an input were fitted to its model.
-    ImagesFitted(FittedImages),
-    /// A task finished, with what it awaited off the loop.
-    BackgroundWorkFinished(Box<BackgroundResult>),
-    /// The folder of the tools added by hand changed.
-    AddedToolsChanged,
-    /// A timer's deadline came.
-    TimerDue,
-    /// A timer that was due runs.
-    TimerFired(TimerSystem),
-}
+/// An input that wakes the server: the message it writes, for the
+/// systems of its kind to read.
+pub(crate) struct Input(Box<dyn FnOnce(&mut World) + Send>);
 
 impl Input {
-    /// Writes the input as the message its area's systems read.
-    fn write(self, world: &mut World) {
-        match self {
-            Input::RuntimeLine(received) => {
-                world.write_message(RuntimeLineReceived(received));
-            }
-            Input::JobsDone(done) => {
-                world.write_message(JobsDone(done));
-            }
-            Input::ConnectionEvent(event) => {
-                world.write_message(ClientEvent(event));
-            }
-            Input::ClientConnected(stream) => {
-                world.write_message(ClientConnected(stream));
-            }
-            Input::ToolRunEnded(ran) => {
-                world.write_message(ToolRunEnded(ran));
-            }
-            Input::ImagesFitted(fitted) => {
-                world.write_message(ImagesFitted(fitted));
-            }
-            Input::BackgroundWorkFinished(finished) => {
-                world.write_message(BackgroundFinished(*finished));
-            }
-            Input::AddedToolsChanged => {
-                world.write_message(AddedToolsChanged);
-            }
-            Input::TimerFired(fire) => {
-                world.write_message(TimerFired(fire));
-            }
-            // The input channels give a deadline as the timers it
-            // is.
-            Input::TimerDue => {}
-        }
+    pub fn of(message: impl Message) -> Self {
+        Self(Box::new(move |world: &mut World| {
+            world.write_message(message);
+        }))
     }
 }
+
+/// Where everything that wakes the server sends its input: a
+/// runtime's output, the jobs runner, a connection, a task, the
+/// folder of the tools added by hand, the listener.
+#[derive(Resource, Clone)]
+pub(crate) struct InputSender(mpsc::UnboundedSender<Input>);
+
+/// The runner stopped taking inputs: the server is stopping.
+#[derive(Debug)]
+pub(crate) struct RunnerGone;
+
+impl InputSender {
+    /// Sends `message` to the runner as an input of its own.
+    pub fn send(
+        &self,
+        message: impl Message,
+    ) -> Result<(), RunnerGone> {
+        self.0.send(Input::of(message)).map_err(|_| RunnerGone)
+    }
+}
+
+/// The receiving end of the inputs, until the runner takes it.
+#[derive(Resource)]
+struct InputReceiver(Mutex<mpsc::UnboundedReceiver<Input>>);
 
 /// Who sent the input being run, so a failure can tell them.
 #[derive(Resource, Default, Clone)]
@@ -191,107 +162,6 @@ impl AddHandler for App {
         let handler: ScheduleConfigs<ScheduleSystem> =
             handler.run_if(on_message::<T>);
         self.add_message::<T>().add_systems(Update, handler)
-    }
-}
-
-/// The time the changes to the tools added by hand settle before they
-/// load again.
-const ADDED_TOOLS_SETTLE_TIME: Duration = Duration::from_millis(200);
-
-/// The receiving end of a channel an area's plugin made for its
-/// inputs, until the runner's input channels take it.
-#[derive(Resource)]
-pub(crate) struct InputReceiver<T: Send + 'static>(
-    Mutex<mpsc::UnboundedReceiver<T>>,
-);
-
-/// A channel for inputs of `T`: its sending end, and the receiving
-/// end for the runner's input channels, kept in the world until it
-/// takes it.
-pub(crate) fn input_channel<T: Send + 'static>(
-    app: &mut App,
-) -> mpsc::UnboundedSender<T> {
-    let (to, from) = mpsc::unbounded_channel();
-    app.insert_resource(InputReceiver(Mutex::new(from)));
-    to
-}
-
-/// The receiving end of the inputs of `T`, taken from the world.
-fn take_input_receiver<T: Send + 'static>(
-    world: &mut World,
-) -> Result<mpsc::UnboundedReceiver<T>> {
-    let receiver = world
-        .remove_resource::<InputReceiver<T>>()
-        .context("a channel of inputs no plugin made")?;
-    Ok(receiver
-        .0
-        .into_inner()
-        .unwrap_or_else(PoisonError::into_inner))
-}
-
-/// The channels inputs arrive on.
-pub(crate) struct InputChannels {
-    runtime_lines: mpsc::UnboundedReceiver<Received>,
-    jobs_done: mpsc::UnboundedReceiver<Vec<Job>>,
-    connection_events: mpsc::Receiver<Event>,
-    ended_tool_runs: mpsc::UnboundedReceiver<Ran>,
-    fitted_images: mpsc::UnboundedReceiver<FittedImages>,
-    finished_background_work:
-        mpsc::UnboundedReceiver<BackgroundResult>,
-    added_tools_changes: mpsc::UnboundedReceiver<()>,
-    client_listener: Option<TcpListener>,
-}
-
-impl InputChannels {
-    /// The next input, or none after `wait`. The soonest timer is due
-    /// at `due`.
-    async fn next(
-        &mut self,
-        wait: Duration,
-        due: Option<Instant>,
-    ) -> Option<Input> {
-        let due = async move {
-            match due {
-                Some(at) => tokio::time::sleep_until(at.into()).await,
-                None => std::future::pending().await,
-            }
-        };
-        let listener = self.client_listener.as_ref();
-        tokio::select! {
-            Some(received) = self.runtime_lines.recv() => {
-                Some(Input::RuntimeLine(received))
-            }
-            Some(done) = self.jobs_done.recv() => {
-                Some(Input::JobsDone(done))
-            }
-            Some(event) = self.connection_events.recv() => {
-                Some(Input::ConnectionEvent(event))
-            }
-            Some(ran) = self.ended_tool_runs.recv() => {
-                Some(Input::ToolRunEnded(ran))
-            }
-            Some(fitted) = self.fitted_images.recv() => {
-                Some(Input::ImagesFitted(fitted))
-            }
-            Some(finished) = self.finished_background_work.recv() => {
-                Some(Input::BackgroundWorkFinished(Box::new(finished)))
-            }
-            Some(()) = self.added_tools_changes.recv() => {
-                // A save is many changes: once they settle, one load
-                // takes them all.
-                tokio::time::sleep(ADDED_TOOLS_SETTLE_TIME).await;
-                while self.added_tools_changes.try_recv().is_ok() {}
-                Some(Input::AddedToolsChanged)
-            }
-            Ok((stream, _)) = async {
-                match listener {
-                    Some(listener) => listener.accept().await,
-                    None => std::future::pending().await,
-                }
-            } => Some(Input::ClientConnected(stream)),
-            () = due => Some(Input::TimerDue),
-            () = tokio::time::sleep(wait) => None,
-        }
     }
 }
 
@@ -409,12 +279,14 @@ fn recorded() -> Vec<Failure> {
     FAILURES.with_borrow_mut(std::mem::take)
 }
 
-/// The served realm: the app whose world holds it, and the channels
+/// The served realm: the app whose world holds it, and the channel
 /// its inputs arrive on.
 pub(crate) struct Server {
     pub app: App,
     core: SystemState<Core<'static, 'static>>,
-    inbox: InputChannels,
+    inputs: mpsc::UnboundedReceiver<Input>,
+    /// The task taking clients' connections, while it listens.
+    listening: Option<AbortHandle>,
     /// The watch on the folder of the tools added by hand, which
     /// lasts as long as this; none when it could not begin.
     #[expect(dead_code, reason = "held, so the watch goes on")]
@@ -435,13 +307,11 @@ impl Server {
         closing: watch::Receiver<bool>,
     ) -> Result<Self> {
         let credentials = Credentials::open(realm.layout().root())?;
-        let (lines_to, lines) = mpsc::unbounded_channel();
-        let (worked_to, worked) = mpsc::unbounded_channel();
-        let (events_to, events) = mpsc::channel(128);
+        let inputs = app.world().resource::<InputSender>().clone();
         let writing = RepositoryWriteLock::default();
         let runner = Runner::start(
             realm.layout(),
-            worked_to,
+            inputs.clone(),
             writing.clone(),
         )?;
         let layout = realm.layout().clone();
@@ -452,8 +322,7 @@ impl Server {
                 format!("making {}", folder.display())
             })?;
         }
-        let (tools_to, tools) = mpsc::unbounded_channel();
-        let watching = added::watch(&layout.tools(), tools_to)
+        let watching = added::watch(&layout.tools(), inputs.clone())
             .inspect_err(|error| {
                 tell(
                     Secrets::Fixed,
@@ -474,11 +343,12 @@ impl Server {
             realm.store().connection(),
             agents::HARNESS,
         )?;
-        let clients = Clients::new(events_to, closing, clock::now())?;
+        let clients =
+            Clients::new(inputs.clone(), closing, clock::now())?;
         // What the areas start from, which only the start knows.
         app.insert_resource(realm)
             .insert_resource(env)
-            .insert_resource(Harness::new(pi, lines_to))
+            .insert_resource(Harness::new(pi, inputs))
             .insert_resource(credentials)
             .insert_resource(clients)
             .insert_resource(Confined(sandbox))
@@ -487,21 +357,18 @@ impl Server {
             .insert_resource(Workspace(workspace))
             .insert_resource(runner)
             .insert_resource(writing);
-        let world = app.world_mut();
-        let inbox = InputChannels {
-            runtime_lines: lines,
-            jobs_done: worked,
-            connection_events: events,
-            ended_tool_runs: take_input_receiver(world)?,
-            fitted_images: take_input_receiver(world)?,
-            finished_background_work: take_input_receiver(world)?,
-            added_tools_changes: tools,
-            client_listener: None,
-        };
+        let inputs = app
+            .world_mut()
+            .remove_resource::<InputReceiver>()
+            .context("the inputs are taken already")?
+            .0
+            .into_inner()
+            .unwrap_or_else(PoisonError::into_inner);
         let mut server = Self {
             core: SystemState::new(app.world_mut()),
             app,
-            inbox,
+            inputs,
+            listening: None,
             watching,
         };
         let failures = server.update().map_err(|fatal| fatal.0)?;
@@ -516,46 +383,63 @@ impl Server {
         Ok(self.core.get_mut(self.app.world_mut())?)
     }
 
-    /// Takes clients' connections from `listener` too.
+    /// Takes clients' connections from `listener` too, each an input.
     pub fn listen(&mut self, listener: TcpListener) {
-        self.inbox.client_listener = Some(listener);
+        let inputs =
+            self.app.world().resource::<InputSender>().clone();
+        let accepting = tokio::spawn(async move {
+            loop {
+                if let Ok((stream, _)) = listener.accept().await
+                    && inputs.send(ClientConnected(stream)).is_err()
+                {
+                    return;
+                }
+            }
+        });
+        self.listening = Some(accepting.abort_handle());
     }
 
-    /// Runs what woke the server next, or the idle work after `wait`.
-    /// Returns whether anything came.
+    /// Runs the next input, a timer that came due, or nothing after
+    /// `wait`. Returns whether anything ran.
     pub async fn step(
         &mut self,
         wait: Duration,
     ) -> Result<bool, Fatal> {
         let due =
             timers::next(self.app.world_mut()).map_err(Fatal)?;
-        match self.inbox.next(wait, due).await {
-            Some(Input::TimerDue) => {
+        let due = async move {
+            match due {
+                Some(at) => tokio::time::sleep_until(at.into()).await,
+                None => std::future::pending().await,
+            }
+        };
+        tokio::select! {
+            Some(input) = self.inputs.recv() => {
+                self.run(input)?;
+                Ok(true)
+            }
+            () = due => {
                 let world = self.app.world_mut();
                 let fires = timers::due(world, Instant::now())
                     .map_err(Fatal)?;
                 // Each timer is an input of its own: one that fails
                 // fails alone.
                 for fire in fires {
-                    self.run(Input::TimerFired(fire))?;
+                    self.run(Input::of(TimerFired(fire)))?;
                 }
                 Ok(true)
             }
-            Some(input) => {
-                self.run(input)?;
-                Ok(true)
-            }
-            None => Ok(false),
+            () = tokio::time::sleep(wait) => Ok(false),
         }
     }
 
-    /// Runs `input`: writes it as its message and updates the app
-    /// once, in one transaction. One that fails or panics is rolled
-    /// back whole, nothing it queued goes out, and it is logged; the
+    /// Runs `input`: writes its message and updates the app once, in
+    /// one transaction. One that fails or panics is rolled back
+    /// whole, nothing it queued goes out, and it is logged; the
     /// server goes on unless the realm cannot be served. Nothing here
     /// awaits: what awaits runs on a task, whose result is an input.
     pub fn run(&mut self, input: Input) -> Result<(), Fatal> {
-        input.write(self.app.world_mut());
+        (input.0)(self.app.world_mut());
         let failures = self.update()?;
         let core = self.core().map_err(Fatal)?;
         for failure in failures {
@@ -597,7 +481,9 @@ impl Server {
     /// credential rotation begun may finish within `grace`, so no
     /// refreshed token is lost.
     pub async fn close(&mut self, grace: Duration) -> Result<()> {
-        self.inbox.client_listener = None;
+        if let Some(listening) = self.listening.take() {
+            listening.abort();
+        }
         {
             let mut core = self.core()?;
             core.providers.close_all();

@@ -19,13 +19,13 @@ use hamlet_sandbox::{
 use notify::{RecommendedWatcher, RecursiveMode, Watcher};
 use serde::Deserialize;
 use serde_json::{Map, Value, json};
-use tokio::sync::mpsc::UnboundedSender;
+use tokio::sync::mpsc;
 
 use crate::core::{Catalogue, ModelTools};
 use crate::diagnostic::{Secrets, tell};
 use crate::follow_up::InputEffects;
 use crate::realm::Realm;
-use crate::server::AddHandler;
+use crate::server::{AddHandler, InputSender};
 use crate::talk::runtimes::Runtimes;
 use crate::work::tools::{Network, Outcome, diagnostic};
 
@@ -79,13 +79,19 @@ pub(crate) fn plugin(app: &mut App) {
 #[derive(Message)]
 pub(crate) struct AddedToolsChanged;
 
-/// Watches the folder of the tools added by hand, sending on
-/// `changed` whenever anything in it changes, so they load again
-/// while the server runs. The watch ends when the watcher drops.
+/// The time the changes to the tools added by hand settle before they
+/// load again.
+const SETTLE: Duration = Duration::from_millis(200);
+
+/// Watches the folder of the tools added by hand, sending `inputs`
+/// [`AddedToolsChanged`] once what changed in it settles, so they
+/// load again while the server runs. The watch ends when the watcher
+/// drops.
 pub(crate) fn watch(
     folder: &Path,
-    changed: UnboundedSender<()>,
+    inputs: InputSender,
 ) -> notify::Result<RecommendedWatcher> {
+    let (changed, mut changes) = mpsc::unbounded_channel();
     let mut watcher = notify::recommended_watcher(
         move |event: notify::Result<notify::Event>| {
             if event.is_ok_and(|event| !event.kind.is_access()) {
@@ -94,6 +100,17 @@ pub(crate) fn watch(
         },
     )?;
     watcher.watch(folder, RecursiveMode::Recursive)?;
+    tokio::spawn(async move {
+        while changes.recv().await.is_some() {
+            // A save is many changes: once they settle, one load
+            // takes them all.
+            tokio::time::sleep(SETTLE).await;
+            while changes.try_recv().is_ok() {}
+            if inputs.send(AddedToolsChanged).is_err() {
+                return;
+            }
+        }
+    });
     Ok(watcher)
 }
 

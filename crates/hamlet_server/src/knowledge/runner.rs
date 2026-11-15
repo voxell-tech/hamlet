@@ -13,7 +13,6 @@ use bevy_ecs::resource::Resource;
 use bevy_ecs::system::ResMut;
 use diesel::connection::SimpleConnection;
 use hamlet_store::Store;
-use tokio::sync::mpsc::UnboundedSender;
 
 use crate::clock;
 use crate::core::RemoteWorkspace;
@@ -22,7 +21,7 @@ use crate::follow_up::InputEffects;
 use crate::jobs::Job;
 use crate::layout::Layout;
 use crate::realm::Realm;
-use crate::server::{AddHandler, InputMessage};
+use crate::server::{AddHandler, InputMessage, InputSender};
 
 /// The longest the runner sleeps with nothing due.
 const IDLE: Duration = Duration::from_secs(60);
@@ -98,11 +97,11 @@ pub(crate) fn run_due(
 
 impl Runner {
     /// Starts the runner for the realm at `layout`, which runs again
-    /// the jobs that failed when their time comes. It sends `worked`
-    /// after each pass that ran a job.
+    /// the jobs that failed when their time comes. It sends `inputs`
+    /// [`JobsDone`] after each pass that ran a job.
     pub fn start(
         layout: &Layout,
-        worked: UnboundedSender<Vec<Job>>,
+        inputs: InputSender,
         writing: RepositoryWriteLock,
     ) -> Result<Self> {
         let mut store = open(layout)?;
@@ -122,7 +121,7 @@ impl Runner {
                     let failed = match pass {
                         Ok(Ok(done)) if done.is_empty() => None,
                         Ok(Ok(done)) => {
-                            if worked.send(done).is_err() {
+                            if inputs.send(JobsDone(done)).is_err() {
                                 return;
                             }
                             None

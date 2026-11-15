@@ -225,9 +225,10 @@ What differs from the window:
   (`ModelTools`, `RemoteWorkspace`, `Uploads`) that a narrower system
   takes alone. A
   new system takes only the resources and queries it reads.
-- **Each area's plugin inserts its own resources.** One whose tasks send
-  results back gets the sender from `server::input_channel`, and the runner
-  takes in what arrives as inputs.
+- **Each area's plugin inserts its own resources.** What sends the server
+  an input from off the loop, a task, a thread or a process's output,
+  holds a clone of the one `InputSender` and sends its area's message
+  through it; the runner writes it into the world and updates once.
 
 ## Failing
 

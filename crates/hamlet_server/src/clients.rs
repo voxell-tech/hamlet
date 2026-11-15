@@ -22,13 +22,14 @@ use hamlet_protocol::client::{
 };
 use hamlet_store::ids::ConversationId;
 use tokio::net::TcpStream;
-use tokio::sync::{mpsc, watch};
+use tokio::sync::watch;
 use tokio::task::JoinSet;
 
 use self::check::Protocol;
-use self::connection::{Connection, Event};
+use self::connection::Connection;
 use crate::credentials::Credentials;
 use crate::diagnostic::{Secrets, tell};
+use crate::server::InputSender;
 
 pub(crate) fn plugin(app: &mut bevy_app::App) {
     app.add_message::<OutgoingClientMessage>()
@@ -351,7 +352,8 @@ impl Connections<'_, '_> {
 pub(crate) struct Clients {
     pub protocol_schema: Protocol,
     next_client_id: u64,
-    connection_events: mpsc::Sender<Event>,
+    /// Where each connection's events go, as inputs.
+    inputs: InputSender,
     closing_signal: watch::Receiver<bool>,
     pub connection_tasks: JoinSet<()>,
     /// The state the clients were sent last.
@@ -362,14 +364,14 @@ pub(crate) struct Clients {
 
 impl Clients {
     pub fn new(
-        events: mpsc::Sender<Event>,
+        inputs: InputSender,
         closing: watch::Receiver<bool>,
         epoch: i64,
     ) -> Result<Self> {
         Ok(Self {
             protocol_schema: Protocol::new()?,
             next_client_id: 0,
-            connection_events: events,
+            inputs,
             closing_signal: closing,
             connection_tasks: JoinSet::new(),
             last_sent_state: None,
@@ -384,7 +386,7 @@ impl Clients {
         connection::accept(
             stream,
             self.next_client_id,
-            self.connection_events.clone(),
+            self.inputs.clone(),
             self.closing_signal.clone(),
             &mut self.connection_tasks,
         )

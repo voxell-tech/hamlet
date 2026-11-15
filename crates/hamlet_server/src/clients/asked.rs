@@ -109,7 +109,9 @@ fn take_in_client_event(
             }
             return Ok(());
         }
-        Event::Message(client, text) => (client, text),
+        // Its place among the connection's waiting messages frees
+        // once its request is written.
+        Event::Message(client, text, _place) => (client, text),
     };
     let Some(message) = core.checked(client, &text)? else {
         return Ok(());

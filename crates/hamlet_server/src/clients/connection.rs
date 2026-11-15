@@ -3,6 +3,7 @@
 //! codes. A message is only text here: what it asks is for the
 //! requests to read.
 
+use std::sync::Arc;
 use std::time::Duration;
 
 use anyhow::Result;
@@ -11,7 +12,7 @@ use bevy_ecs::entity::Entity;
 use futures::{SinkExt, StreamExt};
 use hamlet_protocol::client::ServerMessage;
 use tokio::net::TcpStream;
-use tokio::sync::{mpsc, watch};
+use tokio::sync::{OwnedSemaphorePermit, Semaphore, mpsc, watch};
 use tokio::task::JoinSet;
 use tokio_tungstenite::tungstenite::protocol::frame::coding::CloseCode;
 use tokio_tungstenite::tungstenite::protocol::{
@@ -19,15 +20,23 @@ use tokio_tungstenite::tungstenite::protocol::{
 };
 use tokio_tungstenite::tungstenite::{Error, Message};
 
+use super::asked::ClientEvent;
 use super::check::fault;
 use crate::credentials::Credentials;
+use crate::server::InputSender;
 
 const LARGEST: usize = 1_048_576;
 pub(crate) const GRACE: Duration = Duration::from_secs(1);
 
-/// A connection's event, for the serve loop.
+/// The most messages of one connection the server holds before it
+/// reads more from it, so a client that floods slows only itself.
+const WAITING: usize = 32;
+
+/// A connection's event, for the server.
 pub(crate) enum Event {
-    Message(u64, String),
+    /// A message, holding one of its connection's places among those
+    /// waiting until the server takes it in.
+    Message(u64, String, OwnedSemaphorePermit),
     Late(u64),
     Gone(u64),
 }
@@ -65,12 +74,12 @@ pub(crate) struct Uploading(Vec<Entity>);
 pub(crate) fn accept(
     stream: TcpStream,
     id: u64,
-    events: mpsc::Sender<Event>,
+    inputs: InputSender,
     closing: watch::Receiver<bool>,
     tasks: &mut JoinSet<()>,
 ) -> Connection {
     let (send, receive) = mpsc::channel(128);
-    tasks.spawn(connection(stream, id, events, receive, closing));
+    tasks.spawn(connection(stream, id, inputs, receive, closing));
     Connection {
         id,
         send,
@@ -110,13 +119,13 @@ pub(crate) fn refuse(
 async fn connection(
     stream: TcpStream,
     id: u64,
-    events: mpsc::Sender<Event>,
+    inputs: InputSender,
     mut outgoing: mpsc::Receiver<Out>,
     mut closing: watch::Receiver<bool>,
 ) {
     let _ =
-        talk(stream, id, &events, &mut outgoing, &mut closing).await;
-    let _ = events.send(Event::Gone(id)).await;
+        talk(stream, id, &inputs, &mut outgoing, &mut closing).await;
+    let _ = inputs.send(ClientEvent(Event::Gone(id)));
 }
 
 /// The cause that woke a connection's task.
@@ -131,10 +140,21 @@ enum Woke {
 async fn talk(
     stream: TcpStream,
     id: u64,
-    events: &mpsc::Sender<Event>,
+    inputs: &InputSender,
     outgoing: &mut mpsc::Receiver<Out>,
     closing: &mut watch::Receiver<bool>,
 ) -> Result<()> {
+    let waiting = Arc::new(Semaphore::new(WAITING));
+    // Holds a place among the waiting messages, then sends one.
+    let message = async |text: String| {
+        let Ok(place) = Arc::clone(&waiting).acquire_owned().await
+        else {
+            return false;
+        };
+        inputs
+            .send(ClientEvent(Event::Message(id, text, place)))
+            .is_ok()
+    };
     let config = WebSocketConfig::default()
         .max_message_size(Some(LARGEST))
         .max_frame_size(Some(LARGEST));
@@ -165,16 +185,11 @@ async fn talk(
             Woke::Out(out) => out,
             Woke::Late => {
                 timed = true;
-                let _ = events.send(Event::Late(id)).await;
+                let _ = inputs.send(ClientEvent(Event::Late(id)));
                 continue;
             }
             Woke::Frame(Some(Ok(Message::Text(text)))) => {
-                let text = text.to_string();
-                if events
-                    .send(Event::Message(id, text))
-                    .await
-                    .is_err()
-                {
+                if !message(text.to_string()).await {
                     break;
                 }
                 continue;
@@ -182,11 +197,7 @@ async fn talk(
             Woke::Frame(Some(Ok(Message::Binary(bytes)))) => {
                 let text =
                     String::from_utf8_lossy(&bytes).into_owned();
-                if events
-                    .send(Event::Message(id, text))
-                    .await
-                    .is_err()
-                {
+                if !message(text).await {
                     break;
                 }
                 continue;

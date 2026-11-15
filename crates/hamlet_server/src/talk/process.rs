@@ -11,6 +11,9 @@ use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 use tokio::process::{Child, Command};
 use tokio::sync::mpsc::{self, UnboundedSender};
 
+use super::heard::RuntimeLineReceived;
+use crate::server::InputSender;
+
 /// The pi harness: the Node and entry that start its runtimes.
 #[derive(Clone, Debug)]
 pub struct Pi {
@@ -100,13 +103,13 @@ pub(crate) struct Process {
 }
 
 impl Process {
-    /// Starts `launch`; its lines arrive on `sender` tagged with
+    /// Starts `launch`; its lines come to `inputs`, each tagged with
     /// `runtime` and `generation`.
     pub fn start(
         launch: &Launch<'_>,
         runtime: Entity,
         generation: u64,
-        sender: UnboundedSender<Received>,
+        inputs: InputSender,
     ) -> Result<Self> {
         let pi = launch.pi;
         #[expect(
@@ -170,15 +173,16 @@ impl Process {
                     generation,
                     line: Some(line),
                 };
-                if sender.send(received).is_err() {
+                if inputs.send(RuntimeLineReceived(received)).is_err()
+                {
                     return;
                 }
             }
-            let _ = sender.send(Received {
+            let _ = inputs.send(RuntimeLineReceived(Received {
                 runtime,
                 generation,
                 line: None,
-            });
+            }));
         });
         Ok(Self {
             child,

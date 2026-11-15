@@ -15,7 +15,6 @@ use hamlet_protocol::runtime::{
 };
 use hamlet_store::Db;
 use hamlet_store::ids::ConversationId;
-use tokio::sync::mpsc::UnboundedSender;
 
 use super::conversations::{self, Conversation};
 use super::inputs::{self, Input, Resend};
@@ -26,12 +25,12 @@ use crate::follow_up::InputEffects;
 use crate::images::Limits;
 use crate::images::fitting::pictures;
 use crate::providers::Providers;
-use crate::server::{AddHandler, InputMessage};
+use crate::server::{AddHandler, InputMessage, InputSender};
 
 /// The fitting of images, whose results come back as inputs.
 pub(crate) fn plugin(app: &mut bevy_app::App) {
-    let done = crate::server::input_channel::<FittedImages>(app);
-    app.insert_resource(FittedSender(done))
+    let inputs = app.world().resource::<InputSender>().clone();
+    app.insert_resource(FittedSender(inputs))
         .add_handler::<ImagesFitted, _>(take_in_fitted);
 }
 
@@ -60,7 +59,7 @@ pub(crate) struct FittedImages {
 
 /// The sender that brings fitted images back as inputs.
 #[derive(Resource)]
-pub(crate) struct FittedSender(UnboundedSender<FittedImages>);
+pub(crate) struct FittedSender(InputSender);
 
 /// An input whose images are being fitted, or were and are not sent
 /// yet: an entity until they are.
@@ -154,11 +153,11 @@ impl ImageFitting<'_, '_> {
                 );
                 Vec::new()
             });
-            let _ = done.send(FittedImages {
+            let _ = done.send(ImagesFitted(FittedImages {
                 conversation,
                 request,
                 pictures,
-            });
+            }));
         });
         Ok(None)
     }

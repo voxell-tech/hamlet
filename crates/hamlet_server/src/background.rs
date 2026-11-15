@@ -18,20 +18,18 @@ use hamlet_protocol::client::{
     ServerMessage, SettingsViewWorkspaceMove,
 };
 use hamlet_protocol::runtime::RuntimeMessage;
-use tokio::sync::mpsc::UnboundedSender;
 
 use crate::calls::CallId;
 use crate::calls::looks::Found;
 use crate::core::{Core, UnpushedLodge};
-use crate::server::InputMessage;
+use crate::server::{InputMessage, InputSender};
 use crate::talk::heard;
 
-/// The channel tasks send their results through, as inputs, and the
-/// system that takes them in.
+/// Where tasks send their results, as inputs, and the system that
+/// takes them in.
 pub(crate) fn plugin(app: &mut App) {
-    let finished =
-        crate::server::input_channel::<BackgroundResult>(app);
-    app.insert_resource(BackgroundWork::new(finished))
+    let inputs = app.world().resource::<InputSender>().clone();
+    app.insert_resource(BackgroundWork::new(inputs))
         .add_message::<BackgroundFinished>()
         .add_systems(
             PreUpdate,
@@ -116,30 +114,26 @@ pub(crate) struct RunAgainRequest {
 /// input sets none off.
 #[derive(Resource)]
 pub(crate) struct BackgroundWork {
-    finished_sender: UnboundedSender<BackgroundResult>,
+    inputs: InputSender,
     /// Reached only through `&mut`; the lock makes it `Sync`.
     queued_futures: Mutex<Vec<BoxFuture<'static, ()>>>,
 }
 
 /// A task's way to send more than one result.
 #[derive(Clone)]
-pub(crate) struct BackgroundReporter(
-    UnboundedSender<BackgroundResult>,
-);
+pub(crate) struct BackgroundReporter(InputSender);
 
 impl BackgroundReporter {
     pub fn send(&self, finished: BackgroundResult) {
-        // The loop is gone only as the server stops.
-        let _ = self.0.send(finished);
+        // The runner is gone only as the server stops.
+        let _ = self.0.send(BackgroundFinished(finished));
     }
 }
 
 impl BackgroundWork {
-    pub fn new(
-        finished_sender: UnboundedSender<BackgroundResult>,
-    ) -> Self {
+    pub fn new(inputs: InputSender) -> Self {
         Self {
-            finished_sender,
+            inputs,
             queued_futures: Mutex::new(Vec::new()),
         }
     }
@@ -156,9 +150,9 @@ impl BackgroundWork {
         &mut self,
         work: impl Future<Output = BackgroundResult> + Send + 'static,
     ) {
-        let done = self.finished_sender.clone();
+        let inputs = self.inputs.clone();
         self.queued().push(Box::pin(async move {
-            let _ = done.send(work.await);
+            let _ = inputs.send(BackgroundFinished(work.await));
         }));
     }
 
@@ -170,7 +164,7 @@ impl BackgroundWork {
     ) where
         Work: Future<Output = ()> + Send + 'static,
     {
-        let report = BackgroundReporter(self.finished_sender.clone());
+        let report = BackgroundReporter(self.inputs.clone());
         self.queued().push(Box::pin(make(report)));
     }
 

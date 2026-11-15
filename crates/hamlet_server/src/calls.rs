@@ -29,7 +29,6 @@ use hamlet_protocol::runtime::{
 use hamlet_store::ids::{Actor, AgentId, ConversationId};
 use hamlet_store::marker::{self, Identity, Marked, Request};
 use serde_json::{Map, Value, json};
-use tokio::sync::mpsc;
 use tokio::task::AbortHandle;
 
 use self::held::State;
@@ -42,7 +41,7 @@ use crate::images::fitting::kept_pictures;
 use crate::knowledge::CHARACTER;
 use crate::oversight::gate::{Asked, Session};
 use crate::oversight::{self, Raise, Ruling, WaitKind};
-use crate::server::{AddHandler, InputMessage};
+use crate::server::{AddHandler, InputMessage, InputSender};
 use crate::talk::conversations::{Conversation, Kind};
 use crate::talk::marks::Mark;
 use crate::talk::{asking, conversations, inputs, models};
@@ -65,10 +64,10 @@ const STOPPED: &str = "The chief stopped this turn.";
 const NO_CHIEF: &str =
     "No chief oversees this turn; go on with what you know.";
 
-/// The channel of ended tool runs.
+/// Where ended tool runs go, and the system that takes them in.
 pub(crate) fn plugin(app: &mut bevy_app::App) {
-    let ran = crate::server::input_channel::<Ran>(app);
-    app.insert_resource(Calls { ran })
+    let inputs = app.world().resource::<InputSender>().clone();
+    app.insert_resource(Calls { inputs })
         .add_handler::<ToolRunEnded, _>(take_in_ran);
 }
 
@@ -137,10 +136,10 @@ pub(crate) enum Answer {
     Result(Outcome),
 }
 
-/// The sender of ended tool runs, as inputs.
+/// Where ended tool runs go, as inputs.
 #[derive(bevy_ecs::resource::Resource)]
 pub(crate) struct Calls {
-    ran: mpsc::UnboundedSender<Ran>,
+    inputs: InputSender,
 }
 
 /// A tool run in progress: an entity of its own, despawned when it
@@ -212,11 +211,12 @@ impl Calls {
         request: Request,
         work: impl Future<Output = Outcome> + Send + 'static,
     ) -> (ToolRun, UnstartedToolRun) {
-        let ran = self.ran.clone();
+        let inputs = self.inputs.clone();
         let id = call.clone();
         let work = async move {
             let outcome = work.await;
-            let _ = ran.send(Ran { call: id, outcome });
+            let _ =
+                inputs.send(ToolRunEnded(Ran { call: id, outcome }));
         };
         let running = ToolRun {
             call,

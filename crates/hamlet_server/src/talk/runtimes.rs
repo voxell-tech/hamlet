@@ -18,11 +18,11 @@ use hamlet_protocol::runtime::{
 use hamlet_store::Db;
 use hamlet_store::ids::ConversationId;
 use hamlet_store::schema::runtime;
-use tokio::sync::mpsc::UnboundedSender;
 
 use super::process::{Launch, Pi, Process, Received};
 use crate::layout::Layout;
 use crate::realm::Realm;
+use crate::server::InputSender;
 use crate::timers::AddTimer;
 
 pub(crate) fn plugin(app: &mut bevy_app::App) {
@@ -131,15 +131,16 @@ pub(crate) enum Pending {
 pub(crate) struct Harness {
     pi: Pi,
     lines_sent: u64,
-    received_lines_sender: UnboundedSender<Received>,
+    /// Where the runtimes' lines go, as inputs.
+    inputs: InputSender,
 }
 
 impl Harness {
-    pub fn new(pi: Pi, lines: UnboundedSender<Received>) -> Self {
+    pub fn new(pi: Pi, inputs: InputSender) -> Self {
         Self {
             pi,
             lines_sent: 0,
-            received_lines_sender: lines,
+            inputs,
         }
     }
 }
@@ -563,7 +564,7 @@ fn launch(
         },
         entity,
         runtime.process_generation,
-        harness.received_lines_sender.clone(),
+        harness.inputs.clone(),
     )?;
     runtime.process = Some(process);
     runtime.phase = Phase::Starting;
