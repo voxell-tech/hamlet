@@ -469,6 +469,24 @@ mod tests {
     }
 
     #[tokio::test(flavor = "multi_thread")]
+    async fn a_wait_for_no_drive_ends_at_once() {
+        let started = Started::new().await;
+        let held =
+            change::Transaction::begin(&started.ctx).await.unwrap();
+        tokio::time::timeout(
+            Duration::from_secs(5),
+            Drives::default().finished(
+                ROW,
+                Duration::from_secs(60),
+                held.abandon(),
+            ),
+        )
+        .await
+        .expect("no drive runs, so the wait ends at once");
+        started.stop().await;
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
     async fn a_wait_for_a_drive_ends_after_its_commit() {
         let started = Started::new().await;
         let drives = Drives::default();
