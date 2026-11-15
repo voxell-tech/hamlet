@@ -378,6 +378,11 @@ fn run_once(
             (due + 1 - unix_ms()).max(0).unsigned_abs(),
         )
     });
+    ensure!(
+        to_due <= down + Duration::from_millis(scenario.down_ms),
+        "the one-shot is due {} ms after the planned restart",
+        to_due.saturating_sub(down).as_millis()
+    );
     std::thread::sleep(down.max(to_due));
     let past_due = due.map(|due| unix_ms() - due);
     if let Some(past_due) = past_due {
