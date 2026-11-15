@@ -3,7 +3,9 @@
 //! and the tasks an agent opens.
 
 use hamlet_messages::agent::BuiltIn;
-use hamlet_messages::agent::copies::{Copies, Versioned};
+use hamlet_messages::agent::copies::{
+    Copies, CopyVersion, Versioned,
+};
 use hamlet_messages::realm::budget::{
     OpenTask, TaskOpened, TaskTurn,
 };
@@ -411,10 +413,10 @@ fn the_documents(fixtures: &mut Fixtures) {
     fixtures.args(
         "realm/read_copies",
         &ReadCopies {
-            charter: Some(3),
-            character: Some(2),
-            model: Some(5),
-            settings: Some(1),
+            charter: Some(CopyVersion(3)),
+            character: Some(CopyVersion(2)),
+            model: Some(CopyVersion(5)),
+            settings: Some(CopyVersion(1)),
         },
     );
     fixtures.args("realm/read_copies.none", &ReadCopies::default());
@@ -422,7 +424,7 @@ fn the_documents(fixtures: &mut Fixtures) {
         "realm/read_copies",
         &Copies {
             charter: Some(Versioned {
-                version: 4,
+                version: CopyVersion(4),
                 value: "Be brief.".into(),
             }),
             ..Copies::default()

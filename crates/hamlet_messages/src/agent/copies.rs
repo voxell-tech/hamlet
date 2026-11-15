@@ -35,9 +35,24 @@ impl Message for Copies {
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct Versioned<T> {
-    pub version: u64,
+    pub version: CopyVersion,
     pub value: T,
 }
+
+/// The version of a part of the copies, which the agent sends back in
+/// [`ReadCopies`](crate::realm::documents::ReadCopies).
+#[derive(
+    Clone,
+    Copy,
+    Debug,
+    PartialEq,
+    Eq,
+    PartialOrd,
+    Ord,
+    Serialize,
+    Deserialize,
+)]
+pub struct CopyVersion(pub u32);
 
 /// The model the realm resolved for the agent (H29, H29a).
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]

@@ -3,21 +3,25 @@
 //! realm about its model.
 
 use hamlet_messages::agent::chat::{
-    Began, ChatEvent, ChatItem, ChatOp, ChatPage, History, Login,
-    LoginAnswer, NewSession, Prompt, ReadChat, ReadHistory,
+    Began, ChangeLine, ChatEvent, ChatFile, ChatImage, ChatItem,
+    ChatOp, ChatPage, ChatRef, ChatTool, Count, History, LineMark,
+    Login, LoginAnswer, NewSession, Prompt, ReadChat, ReadHistory,
     ReadPrompt, Reflect, Reflecting, Resume, ResumeAnswer,
     ResumeRefusal, Retry, RetryRefusal, Rewind, RewindAnswer,
-    RewindRefusal, Session, Stop, Stopped,
+    RewindRefusal, Session, Stop, Stopped, ToolChange, Usage,
 };
 use hamlet_messages::agent::copies::{
-    AgentSettings, Copies, ModelChoice, Price, Versioned,
+    AgentSettings, Copies, CopyVersion, ModelChoice, Price, Versioned,
 };
+use hamlet_messages::bytes::Sha256;
 use hamlet_messages::realm::Done;
 use hamlet_messages::realm::models::{
     Cause, Credential, CredentialAnswer, CredentialRefusal,
     KeepCredential, Kept, OauthLogin, TurnFailed,
 };
-use hamlet_messages::workspace::{ConversationId, RealmTask};
+use hamlet_messages::workspace::{
+    AgentNumber, ConversationId, RealmTask,
+};
 use hamlet_protocol::Effort;
 use hamlet_protocol::client::{self as protocol, RequestId};
 
@@ -37,6 +41,7 @@ pub fn enums() -> Vec<Cases> {
         tagged::<CredentialRefusal>(),
         tagged::<Kept>(),
         named::<Reflecting>(),
+        named::<LineMark>(),
         named::<Cause>(),
         named::<protocol::ItemKind>(),
         named::<protocol::ChatRefKind>(),
@@ -67,18 +72,78 @@ fn chat() -> protocol::ChatRef {
     }
 }
 
-fn usage() -> protocol::UsageView {
-    protocol::UsageView {
-        cached: 10,
-        calls: 2,
-        input: 1200,
-        last_input: 600,
-        micros: 4_500,
-        ms: 3_100,
-        output: 340,
-        reasoning: 0,
+fn usage() -> Usage {
+    Usage {
+        calls: Count(2),
+        unreported: Count(0),
+        input: Count(1200),
+        cached: Count(10),
+        output: Count(340),
+        reasoning: Count(0),
+        ms: Count(3_100),
+        micros: Count(4_500),
+        last_input: Count(600),
         summary: "2 calls, $0.0045".into(),
-        unreported: 0,
+    }
+}
+
+fn images() -> Vec<ChatImage> {
+    vec![
+        ChatImage {
+            at: Some(6),
+            id: Sha256([0xab; 32]),
+        },
+        ChatImage {
+            at: None,
+            id: Sha256([0xcd; 32]),
+        },
+    ]
+}
+
+fn files() -> Vec<ChatFile> {
+    vec![
+        ChatFile {
+            at: Some(0),
+            id: Sha256([0x12; 32]),
+            name: "notes/plan.md".into(),
+            size: 2_048,
+        },
+        ChatFile {
+            at: None,
+            id: Sha256([0x34; 32]),
+            name: "log.txt".into(),
+            size: 0,
+        },
+    ]
+}
+
+/// A tool with every field set: a command stopped with the code -1.
+fn tool() -> ChatTool {
+    ChatTool {
+        name: "edit".into(),
+        summary: "src/lib.rs".into(),
+        exit: Some(-1_i32 as u32),
+        ms: Some(840),
+        failure: Some("stopped".into()),
+        change: Some(ToolChange {
+            path: "/work/project/src/lib.rs".into(),
+            created: false,
+            added: 1,
+            removed: 1,
+            total: 3,
+            count: "+1 -1".into(),
+            lines: [
+                (LineMark::Same, "fn main() {"),
+                (LineMark::Removed, "    old();"),
+                (LineMark::Added, "    new();"),
+            ]
+            .into_iter()
+            .map(|(mark, text)| ChangeLine {
+                mark,
+                text: text.into(),
+            })
+            .collect(),
+        }),
     }
 }
 
@@ -155,8 +220,8 @@ fn the_clients_calls(fixtures: &mut Fixtures) {
         "agent/rewind.rewound",
         &RewindAnswer::Rewound {
             text: "Write the tests".into(),
-            images: Vec::new(),
-            files: Vec::new(),
+            images: images(),
+            files: files(),
         },
     );
     for (case, why) in [
@@ -200,7 +265,34 @@ fn the_clients_calls(fixtures: &mut Fixtures) {
         }),
     );
     fixtures.answer("agent/read_chat", &page());
-    fixtures.answer("agent/chat.event", &event());
+    fixtures.event("agent/chat.event", &event());
+    for (name, chat) in [
+        (
+            "letters",
+            ChatRef {
+                from: Some(AgentNumber(3)),
+                kind: Some(protocol::ChatRefKind::Letters),
+                ..chat_of()
+            },
+        ),
+        (
+            "past",
+            ChatRef {
+                past: Some(1),
+                ..chat_of()
+            },
+        ),
+    ] {
+        fixtures.event(
+            &format!("agent/chat.event.{name}"),
+            &ChatEvent {
+                chat,
+                epoch: 3,
+                number: 43,
+                ops: vec![ChatOp::Reset],
+            },
+        );
+    }
     fixtures.args("agent/read_history", &ReadHistory);
     fixtures.answer(
         "agent/read_history",
@@ -277,7 +369,29 @@ fn page() -> ChatPage {
             ("i7", Answered, "Allowed"),
         ]
         .into_iter()
-        .map(|(id, kind, text)| item(id, kind, text))
+        .map(|(id, kind, text)| match kind {
+            User => ChatItem {
+                images: images(),
+                files: files(),
+                ..item(id, kind, text)
+            },
+            Tool => ChatItem {
+                tool: Some(tool()),
+                ..item(id, kind, text)
+            },
+            _ => item(id, kind, text),
+        })
+        .chain([ChatItem {
+            tool: Some(ChatTool {
+                name: "read".into(),
+                summary: "src/main.rs".into(),
+                exit: None,
+                ms: None,
+                failure: None,
+                change: None,
+            }),
+            ..item("i3b", Tool, "read src/main.rs")
+        }])
         .collect(),
         earlier: Some("i0".into()),
         working: false,
@@ -286,9 +400,18 @@ fn page() -> ChatPage {
     }
 }
 
+fn chat_of() -> ChatRef {
+    ChatRef {
+        with: AgentNumber(TO.0 as u32),
+        from: None,
+        kind: None,
+        past: None,
+    }
+}
+
 fn event() -> ChatEvent {
     ChatEvent {
-        chat: chat(),
+        chat: chat_of(),
         epoch: 3,
         number: 42,
         ops: vec![
@@ -321,15 +444,15 @@ fn the_copies(fixtures: &mut Fixtures) {
         "agent/copies",
         &Copies {
             charter: Some(Versioned {
-                version: 3,
+                version: CopyVersion(3),
                 value: "Be brief.".into(),
             }),
             character: Some(Versioned {
-                version: 2,
+                version: CopyVersion(2),
                 value: "Calm.".into(),
             }),
             model: Some(Versioned {
-                version: 5,
+                version: CopyVersion(5),
                 value: ModelChoice {
                     model: "anthropic::claude-opus".into(),
                     effort: Some(High),
@@ -343,7 +466,7 @@ fn the_copies(fixtures: &mut Fixtures) {
                 },
             }),
             settings: Some(Versioned {
-                version: 1,
+                version: CopyVersion(1),
                 value: AgentSettings {
                     reflect_every: 20,
                     allow_net: false,
@@ -357,7 +480,7 @@ fn the_copies(fixtures: &mut Fixtures) {
             &format!("agent/copies.{}", name.as_str().unwrap()),
             &Copies {
                 model: Some(Versioned {
-                    version: 6,
+                    version: CopyVersion(6),
                     value: ModelChoice {
                         model: "faux::faux-1".into(),
                         effort: Some(effort),
@@ -436,4 +559,39 @@ fn the_calls_about_the_model(fixtures: &mut Fixtures) {
         );
     }
     fixtures.answer("realm/turn_failed", &());
+}
+
+/// The agent's encoder (cbor-x 1.6.9, through the host's
+/// `encodeCborCompat`) writes a `chat` event whose usage holds
+/// 2^32 + 5 and 2^53. As decimal text they read exactly; as numbers
+/// it writes them as floats, which do not read.
+#[test]
+fn a_count_past_2_32_reads_exactly() {
+    const TEXT: &str = "b900046463686174b9000164776974680c6565706f636803666e756d626572182c636f707381b900026474797065657573616765657573616765b9000a6563616c6c7361326a756e7265706f72746564613065696e7075747039303037313939323534373430393932666361636865646a34323934393637333031666f75747075746333343069726561736f6e696e676130626d736433313030666d6963726f7364343530306a6c6173745f696e707574633630306773756d6d61727967322063616c6c73";
+    const NUMBERS: &str = "b900046463686174b9000164776974680c6565706f636803666e756d626572182c636f707381b900026474797065657573616765657573616765b9000a6563616c6c73026a756e7265706f727465640065696e707574fb434000000000000066636163686564fb41f0000000500000666f757470757419015469726561736f6e696e6700626d73190c1c666d6963726f731911946a6c6173745f696e7075741902586773756d6d61727967322063616c6c73";
+    let bytes = |hex: &str| {
+        (0..hex.len())
+            .step_by(2)
+            .map(|at| {
+                u8::from_str_radix(&hex[at..at + 2], 16).unwrap()
+            })
+            .collect::<Vec<_>>()
+    };
+    let read =
+        ciborium::from_reader::<ChatEvent, _>(bytes(TEXT).as_slice())
+            .unwrap();
+    let [ChatOp::Usage { usage }] = read.ops.as_slice() else {
+        panic!("{read:?} holds one usage");
+    };
+    assert_eq!(
+        (usage.cached, usage.input),
+        (Count((1 << 32) + 5), Count(1 << 53))
+    );
+    assert!(NUMBERS.contains("fb41f0000000500000"));
+    assert!(
+        ciborium::from_reader::<ChatEvent, _>(
+            bytes(NUMBERS).as_slice()
+        )
+        .is_err()
+    );
 }

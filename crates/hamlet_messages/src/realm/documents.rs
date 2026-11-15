@@ -6,7 +6,7 @@ use serde::{Deserialize, Serialize};
 use super::{ChiefRequest, Done};
 use crate::Message;
 use crate::address::{Agent, Realm};
-use crate::agent::copies::Copies;
+use crate::agent::copies::{Copies, CopyVersion};
 use crate::sender::Client;
 
 /// Sets the realm's charter; absent text gives back the built-in one.
@@ -69,13 +69,13 @@ pub struct CharterRead {
 )]
 pub struct ReadCopies {
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub charter: Option<u32>,
+    pub charter: Option<CopyVersion>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub character: Option<u32>,
+    pub character: Option<CopyVersion>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub model: Option<u32>,
+    pub model: Option<CopyVersion>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub settings: Option<u32>,
+    pub settings: Option<CopyVersion>,
 }
 
 impl Action for ReadCopies {

@@ -3,11 +3,14 @@
 
 use hamlet_actor::Action;
 use hamlet_protocol::client as protocol;
-use serde::{Deserialize, Serialize};
+use serde::de::Error as _;
+use serde::{Deserialize, Deserializer, Serialize, Serializer};
 
 use crate::address::Agent;
+use crate::bytes::Sha256;
 use crate::realm::Done;
 use crate::sender::Client;
+use crate::workspace::AgentNumber;
 use crate::{Message, worded};
 
 macro_rules! from_client {
@@ -119,9 +122,9 @@ pub enum RewindAnswer {
     Rewound {
         text: String,
         #[serde(default, skip_serializing_if = "Vec::is_empty")]
-        images: Vec<protocol::AttachedImage>,
+        images: Vec<ChatImage>,
         #[serde(default, skip_serializing_if = "Vec::is_empty")]
-        files: Vec<protocol::AttachedFile>,
+        files: Vec<ChatFile>,
     },
     #[serde(serialize_with = "worded")]
     Refused { why: RewindRefusal },
@@ -171,7 +174,51 @@ pub struct ChatPage {
     pub earlier: Option<String>,
     pub working: bool,
     pub pending: u32,
-    pub usage: protocol::UsageView,
+    pub usage: Usage,
+}
+
+/// What a conversation's model calls used, summed over it.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Usage {
+    pub calls: Count,
+    /// The calls whose provider told no usage.
+    pub unreported: Count,
+    pub input: Count,
+    pub cached: Count,
+    pub output: Count,
+    pub reasoning: Count,
+    pub ms: Count,
+    /// Millionths of a dollar.
+    pub micros: Count,
+    /// The input of the last call.
+    pub last_input: Count,
+    pub summary: String,
+}
+
+/// A sum that can pass 2^32, written as decimal text: the agent's
+/// encoder writes a larger integer as a float.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct Count(pub u64);
+
+impl Serialize for Count {
+    fn serialize<S: Serializer>(
+        &self,
+        to: S,
+    ) -> Result<S::Ok, S::Error> {
+        to.collect_str(&self.0)
+    }
+}
+
+impl<'de> Deserialize<'de> for Count {
+    fn deserialize<D: Deserializer<'de>>(
+        from: D,
+    ) -> Result<Self, D::Error> {
+        String::deserialize(from)?.parse().map(Self).map_err(|_| {
+            D::Error::custom(
+                "a count is a whole number in decimal text",
+            )
+        })
+    }
 }
 
 /// One item of a chat, as the client protocol's `Item` but with its
@@ -185,24 +232,113 @@ pub struct ChatItem {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub author: Option<String>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
-    pub images: Vec<protocol::AttachedImage>,
+    pub images: Vec<ChatImage>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
-    pub files: Vec<protocol::AttachedFile>,
+    pub files: Vec<ChatFile>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub rewindable: Option<bool>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub tool: Option<protocol::ItemTool>,
+    pub tool: Option<ChatTool>,
+}
+
+/// An image a chief's line carried, as the client protocol's
+/// `AttachedImage`.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ChatImage {
+    /// The byte offset in the line's text where it sits; absent when
+    /// it goes after the text.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub at: Option<u32>,
+    pub id: Sha256,
+}
+
+/// A file a chief's line carried, as the client protocol's
+/// `AttachedFile`.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ChatFile {
+    /// The byte offset in the line's text where it sits; absent when
+    /// it goes after the text.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub at: Option<u32>,
+    pub id: Sha256,
+    pub name: String,
+    pub size: u32,
+}
+
+/// A tool call's details, as the client protocol's `ItemTool`.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ChatTool {
+    pub name: String,
+    pub summary: String,
+    /// The exit code's 32 bits, so a negative code `c` is
+    /// `c + 2^32`: TypeScript writes `c >>> 0` and Rust reads it
+    /// back with `as i32`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub exit: Option<u32>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub ms: Option<u32>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub failure: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub change: Option<ToolChange>,
+}
+
+/// The change a tool call made to a file, as the client protocol's
+/// `Change`.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ToolChange {
+    pub path: String,
+    pub created: bool,
+    pub added: u32,
+    pub removed: u32,
+    /// The lines of the changed stretch, with those around it.
+    pub total: u32,
+    /// `added` and `removed` in words.
+    pub count: String,
+    /// The first 200 lines of that stretch.
+    pub lines: Vec<ChangeLine>,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ChangeLine {
+    pub mark: LineMark,
+    pub text: String,
+}
+
+#[derive(
+    Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize,
+)]
+#[serde(rename_all = "snake_case")]
+pub enum LineMark {
+    Same,
+    Added,
+    Removed,
 }
 
 /// The event `chat` the agent publishes when a chat changes.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct ChatEvent {
-    pub chat: protocol::ChatRef,
+    pub chat: ChatRef,
     pub epoch: u32,
     /// One more than the agent's last change before it, in this
     /// epoch.
     pub number: u32,
     pub ops: Vec<ChatOp>,
+}
+
+/// The chat an event is of, as the client protocol's `ChatRef`.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct ChatRef {
+    /// The agent whose conversation it is.
+    pub with: AgentNumber,
+    /// The peer whose letters or questions it is.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub from: Option<AgentNumber>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub kind: Option<protocol::ChatRefKind>,
+    /// The number of an earlier session of the chief's chat.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub past: Option<u32>,
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
@@ -225,7 +361,7 @@ pub enum ChatOp {
         pending: u32,
     },
     Usage {
-        usage: protocol::UsageView,
+        usage: Usage,
     },
     /// The chat must be read again.
     Reset,

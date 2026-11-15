@@ -135,7 +135,12 @@ fn answers<A>(
     arms: impl IntoIterator<Item = (&'static str, A)>,
     refusals: Vec<(&'static str, A::Why)>,
 ) where
-    A: Refusable + Serialize + DeserializeOwned + PartialEq + Debug,
+    A: Refusable
+        + Serialize
+        + DeserializeOwned
+        + PartialEq
+        + Debug
+        + 'static,
 {
     for (arm, answer) in arms {
         fixtures.answer(&format!("{name}.{arm}"), &answer);
@@ -153,7 +158,12 @@ fn done<W>(
     name: &str,
     refusals: Vec<(&'static str, W)>,
 ) where
-    W: Serialize + DeserializeOwned + PartialEq + Debug + Display,
+    W: Serialize
+        + DeserializeOwned
+        + PartialEq
+        + Debug
+        + Display
+        + 'static,
 {
     answers(fixtures, name, [("done", Done::Done)], refusals);
 }
