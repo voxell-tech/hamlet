@@ -163,9 +163,6 @@ struct Local {
 impl Local {
     async fn next(&mut self) -> Result<Item, Failed> {
         tokio::select! {
-            // The feed first: what the actor broadcast before it
-            // began to stop is given before the end. It is pending
-            // whenever it holds nothing, so the end is never starved.
             biased;
             fed = self.feed.next() => match fed {
                 Ok(item) => Ok(item),
@@ -173,7 +170,6 @@ impl Local {
                 Err(Closed::Dropped) => Err(ended(None)),
             },
             stopped = self.stopped.wait_for(Option::is_some) => {
-                // A closed channel is a generation that is gone.
                 Err(ended(stopped.ok().and_then(|stopped| *stopped)))
             }
         }
@@ -203,7 +199,6 @@ struct Closing {
 impl Drop for Closing {
     fn drop(&mut self) {
         if let Some(conn) = self.conn.take() {
-            // A failure is the generation's end, which closed it.
             self.runtime.spawn(async move {
                 let _ = conn.close().await;
             });
@@ -366,8 +361,6 @@ impl HostInner {
         let params = stamp.bytes()?;
         let generation =
             self.ensure_started(to, &Open::Existing).await?;
-        // Taken before the connection opens, so a stop that begins
-        // from here on is seen, and one that began already is held.
         let stopped = generation.stopped.subscribe();
         let (sink, feed) = feed();
         let sink = Arc::new(sink);
@@ -379,10 +372,6 @@ impl HostInner {
                 params,
                 event,
                 move |args| pushed.push(args),
-                // A close while the generation runs is the actor's
-                // own. Every stop sets `stopped` before the core's
-                // grace closes the connection, and `Local::next`
-                // gives that stop's end.
                 move |_| {
                     if running.borrow().is_none() {
                         sink.close(&Disconnected.build());
@@ -390,8 +379,6 @@ impl HostInner {
                 },
             )
             .await
-            // A stop that overtook the subscribe fails it with the
-            // core's error, which names no stop.
             .map_err(|error| match *stopped.borrow() {
                 Some(how) => ended(Some(how)).to_error(),
                 None => error,

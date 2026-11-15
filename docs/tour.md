@@ -256,8 +256,8 @@ through the same path and writes `Event`, `Gap` and `SubscriptionEnded`
 frames (`link/port/follow.rs`); the Rust host's `Unsubscribe` ends it.
 When the child is lost, the subscription asks the next child once it is
 ready and gives one `Item::Gap`. Each hop's queue is `local/feed.rs`: it
-holds at most 1 MiB, never makes its writer wait, and drops what does
-not fit, with one gap where the loss was.
+holds up to 1 MiB, or one larger event alone, never makes its writer
+wait, and drops what does not fit, with one gap where the loss was.
 
 Each actor that is not stopped with no deadline is one `Life` in the
 host's map: read by boot, stopped with a deadline, starting, running,

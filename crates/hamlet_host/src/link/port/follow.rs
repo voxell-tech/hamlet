@@ -7,9 +7,9 @@ use std::time::Duration;
 use hamlet_actor_core::ActorLifecycle;
 use tokio::sync::oneshot;
 
-use super::{Forget, Session};
+use super::{Answered, Forget, Pending, Session};
 use crate::link::{Ask, Frame, Vetted, WireError};
-use crate::local::feed::{Closed, Feed, feed};
+use crate::local::feed::{Closed, Feed, Sink, feed};
 use crate::{Address, Caller, Item};
 
 /// One session's subscription, as the asking host holds it.
@@ -51,6 +51,13 @@ struct Route {
     sub: u64,
 }
 
+impl Route {
+    /// Stops routing the subscription, and sends no `Unsubscribe`.
+    fn forget(self) {
+        self.session.pending.lock().following.remove(&self.sub);
+    }
+}
+
 impl Drop for Route {
     fn drop(&mut self) {
         let routed =
@@ -65,6 +72,21 @@ impl Drop for Route {
         self.session.host.runtime().spawn(async move {
             let _ = out.write(&unsubscribe).await;
         });
+    }
+}
+
+impl Pending {
+    /// The waiter for the reply to the subscribe `id`, registered at
+    /// once with `sink`, where the subscription's frames go. Fails
+    /// with `link.down` on a lost session.
+    fn follow(
+        &mut self,
+        id: u64,
+        sink: Sink,
+    ) -> anyhow::Result<Answered> {
+        let answered = self.expect(id)?;
+        self.following.insert(id, sink);
+        Ok(answered)
     }
 }
 
@@ -84,15 +106,11 @@ impl Session {
             .request(caller, to, subscribe)
             .map_err(|error| Unanswered::Refused(error.into()))?;
         let (sink, feed) = feed();
-        let answered = {
-            let mut pending = self.pending.lock();
-            let answered =
-                pending.expect(id).map_err(Unanswered::Link)?;
-            // An `Event` may follow the `Reply` before this task runs
-            // again.
-            pending.following.insert(id, sink);
-            answered
-        };
+        let answered = self
+            .pending
+            .lock()
+            .follow(id, sink)
+            .map_err(Unanswered::Link)?;
         let route = Route {
             session: self.clone(),
             sub: id,
@@ -113,8 +131,6 @@ impl Session {
                     _route: route,
                 });
             }
-            // `route` drops: its `Unsubscribe` ends an answer that is
-            // still on its way.
             Err(_) => {
                 return Err(Unanswered::Refused(
                     ActorLifecycle::NotReady.build().context(
@@ -130,8 +146,7 @@ impl Session {
             }
             Ok(Err(link)) => Unanswered::Link(link),
         };
-        // The other host holds nothing of it.
-        self.pending.lock().following.remove(&id);
+        route.forget();
         Err(unanswered)
     }
 
@@ -172,11 +187,7 @@ impl Session {
         let session = self.clone();
         self.host.runtime().spawn(async move {
             tokio::select! {
-                // A subscribe unsubscribed before this task ran starts
-                // nothing.
                 biased;
-                // The pump drops where it waits: a subscribe that is
-                // opening closes once it has opened.
                 _ = cancelled => {}
                 () = session.pump(sub, from, &to, &event) => {
                     session.pending.lock().serving.remove(&sub);
@@ -201,8 +212,6 @@ impl Session {
                     return self.reply(sub, Err(error)).await;
                 }
             };
-        // Only this task writes frames of `sub`, so none comes before
-        // the reply.
         self.reply(sub, Ok(Vec::new())).await;
         let mut told = false;
         loop {
@@ -217,11 +226,8 @@ impl Session {
                     return;
                 }
             };
-            // While this waits for the writer's queue, the actor's
-            // events queue in `followed`, up to its budget.
             match self.out.write(&frame).await {
                 Ok(()) => {}
-                // Nothing of it was queued, and the link is whole.
                 Err(error)
                     if error.kind() == ErrorKind::InvalidInput =>
                 {

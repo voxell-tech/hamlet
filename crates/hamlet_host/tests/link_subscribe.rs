@@ -153,7 +153,6 @@ async fn a_subscription_gets_one_gap_when_the_node_host_dies_and_no_value_twice(
     host.create(&agent, agent_input(None)).await.unwrap();
     let mut ticks = subscribed(&host, &agent).await;
 
-    // A tick that meets the dead link fails, and is not repeated.
     let ticking = tokio::spawn({
         let (host, agent) = (host.clone(), agent.clone());
         async move {
@@ -178,8 +177,6 @@ async fn a_subscription_gets_one_gap_when_the_node_host_dies_and_no_value_twice(
     let mut after = Vec::new();
     while after.len() < 20 {
         match next(&mut ticks, WAIT).await {
-            // The old Node host's last events, written before it
-            // died.
             Item::Event(args) if gaps == 0 => {
                 before.push(value(&args));
             }
@@ -536,7 +533,6 @@ async fn a_reader_that_stalls_gets_a_gap_and_the_host_keeps_answering()
     let agent = at("agent", "a");
     host.create(&agent, agent_input(None)).await.unwrap();
     let mut ticks = subscribed(&host, &agent).await;
-    // 4 MiB of ticks, none read.
     let mut slowest = Duration::ZERO;
     for _ in 0..64 {
         let asked = Instant::now();

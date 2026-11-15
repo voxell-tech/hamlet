@@ -115,8 +115,6 @@ async fn run(start: ActorStart) -> anyhow::Result<()> {
                 "slow" => answer_after_weighs(reply),
                 _ => reply.send(Ok(())),
             },
-            // As the authoring layer answers it: the connection's
-            // transport closes.
             ActorEvent::DisconnectConn {
                 conn_id,
                 reason,

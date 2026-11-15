@@ -243,7 +243,6 @@ type Waiters = watch::Receiver<Option<Failed>>;
 /// return.
 #[derive(Clone)]
 pub(crate) struct Failed {
-    /// Boxed, so a `Result` that fails with it stays small.
     error: Box<ActorError>,
     /// The failure with its causes, as the work returned it.
     detail: String,

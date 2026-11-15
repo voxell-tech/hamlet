@@ -68,6 +68,23 @@ impl State {
         self.queue.push_back(item);
         true
     }
+
+    /// Queues `item` behind the gap of an earlier loss. What does not
+    /// fit is lost, and marked unless a gap already ends the queue.
+    fn put(&mut self, item: Item) {
+        if self.lagged {
+            if !self.take(Item::Gap) {
+                return;
+            }
+            self.lagged = false;
+            if item == Item::Gap {
+                return;
+            }
+        }
+        if !self.take(item) && self.queue.back() != Some(&Item::Gap) {
+            self.lagged = true;
+        }
+    }
 }
 
 fn cost(item: &Item) -> usize {
@@ -99,29 +116,7 @@ impl Sink {
     }
 
     fn put(&self, item: Item) {
-        {
-            let mut state = self.0.state.lock();
-            if state.lagged {
-                // The earlier loss goes in first, where it was. With
-                // no room, this item is lost too.
-                if !state.take(Item::Gap) {
-                    return;
-                }
-                state.lagged = false;
-                if item == Item::Gap {
-                    return self.0.wake.notify_one();
-                }
-            }
-            if !state.take(item) {
-                // A gap at the tail already stands for this loss.
-                // Otherwise the queue holds an item, so the reader
-                // comes and finds the mark behind it.
-                if state.queue.back() != Some(&Item::Gap) {
-                    state.lagged = true;
-                }
-                return;
-            }
-        }
+        self.0.state.lock().put(item);
         self.0.wake.notify_one();
     }
 
@@ -155,7 +150,6 @@ impl Feed {
                     state.weight -= cost(&item);
                     return Ok(item);
                 }
-                // A loss with no event after it to carry its mark.
                 if std::mem::take(&mut state.lagged) {
                     return Ok(Item::Gap);
                 }

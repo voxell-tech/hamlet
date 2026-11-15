@@ -223,7 +223,6 @@ async fn a_stop_that_overtakes_a_subscribe_while_its_connection_opens_fails_it_w
                 refusal(host.subscribe_for_client(&a, TICKED).await)
             }
         });
-        // Time for the subscribe to reach the actor's `onConnect`.
         tokio::time::sleep(Duration::from_millis(100)).await;
         let how = if destroy {
             ShutdownKind::Destroy
@@ -281,8 +280,6 @@ async fn the_stream_ends_with_stopping_when_the_actor_sleeps() {
         }
         let given = number(&next(&mut ticks, PROMPT).await);
         let ended = end(&mut ticks, PROMPT).await;
-        // The ended subscription keeps no generation's file: the
-        // actor starts again.
         let again = tick(&host, &a, 0).await;
         host.shutdown().await.unwrap();
         assert_eq!(given, Some(1));
@@ -314,8 +311,6 @@ async fn the_stream_ends_with_destroyed_when_the_actor_is_destroyed()
             async || !any_file_of(&dir, "ticker", "a"),
         )
         .await;
-        // The ended subscription, still held, keeps no host open: a
-        // second one opens the folder and makes the actor again.
         drop(host);
         let deadline = Instant::now() + Duration::from_secs(5);
         let second = loop {
@@ -390,7 +385,6 @@ async fn the_stream_ends_when_a_stop_that_misses_its_deadline_begins()
     let ended = end(&mut ticks, PROMPT).await;
     let took = begun.elapsed();
     let stopped = stop.await.unwrap();
-    // The actor is given up, so the shutdown names it.
     let _ = host.shutdown().await;
     assert_eq!(ended, "actor.stopping");
     assert!(took < Duration::from_millis(200), "{took:?}");
@@ -549,7 +543,6 @@ async fn the_stream_ends_with_disconnected_when_the_actor_closes_the_connection(
     let running = host.is_running(&a);
     let mut second = subscribe(&host, &a, TICKED).await;
     ask(&host, &a, "sleep").await.unwrap();
-    // Read once the stop's grace has closed the connection too.
     eventually("the actor is running", PROMPT, async || {
         !host.is_running(&a)
     })

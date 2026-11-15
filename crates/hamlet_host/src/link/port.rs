@@ -266,7 +266,6 @@ impl Port {
         };
         let theirs = self.0.theirs.role;
         match frame {
-            // Before the general arm, so nothing is vetted or run.
             frame @ Frame::Request {
                 ask: Ask::Subscribe { .. },
                 ..
@@ -447,8 +446,6 @@ impl Session {
                         .map(|()| Vec::new())
                 });
             }
-            // On the link's thread: an `Unsubscribe` taken next finds
-            // it.
             Ask::Subscribe { event } => {
                 self.serve(id, from, to, event);
             }

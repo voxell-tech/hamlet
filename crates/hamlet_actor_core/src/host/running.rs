@@ -252,7 +252,6 @@ impl RunningActor {
         let name = event.to_owned();
         let sender: EventSendCallback =
             Arc::new(move |sent: OutgoingEvent| {
-                // The actor's own `conn.send` may send any event.
                 if sent.name == name {
                     sink(sent.args);
                 }
@@ -300,8 +299,6 @@ impl RunningActor {
         )
         .await
         {
-            // `open` stays armed through the close, for a caller gone
-            // during it. A failed close is a generation that ended.
             let _ = conn.disconnect(None).await;
             open.disarm();
             return Err(refused);
