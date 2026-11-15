@@ -123,6 +123,7 @@ pub fn the_realms_messages(fixtures: &mut Fixtures) {
     the_founding_and_the_hires(fixtures);
     the_letters(fixtures);
     the_roads_and_the_tools(fixtures);
+    the_society_tools_named_in_a_gate(fixtures);
     the_limits_and_the_spending(fixtures);
     the_clients_calls(fixtures);
     the_calls_to_agents_and_profiles(fixtures);
@@ -573,9 +574,7 @@ fn only_a_hire() -> Vec<(&'static str, OnlyAHire)> {
     ]
 }
 
-fn the_roads_and_the_tools(fixtures: &mut Fixtures) {
-    // A society tool is on the wire by its name in `Gate::ToolOff`,
-    // which no act of the Hand's own tools gives.
+fn the_society_tools_named_in_a_gate(fixtures: &mut Fixtures) {
     fixtures.answer(
         "realm/society_tools",
         &vec![
@@ -591,6 +590,9 @@ fn the_roads_and_the_tools(fixtures: &mut Fixtures) {
             SocietyTool::SetTools,
         ],
     );
+}
+
+fn the_roads_and_the_tools(fixtures: &mut Fixtures) {
     let lay = || LayRoad {
         a: hire(),
         b: Named::Agent {

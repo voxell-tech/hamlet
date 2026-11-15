@@ -264,8 +264,7 @@ impl Coverage {
 }
 
 struct Fixtures {
-    /// Whether a fixture whose bytes changed is written.
-    write: bool,
+    writes_fixtures: bool,
     unions: Vec<Union>,
     written: BTreeSet<String>,
     rewritten: Vec<String>,
@@ -277,7 +276,6 @@ struct Fixtures {
     /// Each type a row keeps, with what reads a value as one.
     kept: BTreeMap<String, Under>,
     samples: Vec<Sample>,
-    /// The types of the answers to the calls the agent takes.
     agent_answers: BTreeSet<TypeId>,
 }
 
@@ -295,9 +293,9 @@ fn under<T: DeserializeOwned>(
 }
 
 impl Fixtures {
-    fn new(write: bool) -> Self {
+    fn new(writes_fixtures: bool) -> Self {
         Self {
-            write,
+            writes_fixtures,
             unions: unions(),
             written: BTreeSet::new(),
             rewritten: Vec::new(),
@@ -367,11 +365,12 @@ impl Fixtures {
         self.written_by(
             name,
             value,
-            Writer::Answerer(TypeId::of::<T>()),
+            Writer::Answerer {
+                answer: TypeId::of::<T>(),
+            },
         );
     }
 
-    /// Checks an event the agent publishes.
     fn event<T>(&mut self, name: &str, value: &T)
     where
         T: Serialize + DeserializeOwned + PartialEq + Debug + 'static,
@@ -433,7 +432,7 @@ impl Fixtures {
         ciborium::into_writer(value, &mut bytes).unwrap();
         let path = folder().join(format!("{name}.cbor"));
         let Ok(kept) = std::fs::read(&path) else {
-            if !self.write {
+            if !self.writes_fixtures {
                 return bytes;
             }
             std::fs::create_dir_all(path.parent().unwrap()).unwrap();
@@ -518,7 +517,7 @@ impl Fixtures {
     fn check(&mut self, name: &str, bytes: &[u8]) {
         self.written.insert(format!("{name}.cbor"));
         let path = folder().join(format!("{name}.cbor"));
-        if !self.write
+        if !self.writes_fixtures
             || std::fs::read(&path).ok().as_deref() == Some(bytes)
         {
             return;
@@ -665,8 +664,6 @@ fn is_snake_case(name: &str) -> bool {
         .all(|byte| matches!(byte, b'a'..=b'z' | b'0'..=b'9' | b'_'))
 }
 
-/// Every message, answer and event, in the order their fixtures are
-/// written.
 fn every_fixture(fixtures: &mut Fixtures) {
     the_workspaces_messages(fixtures);
     the_chiefs_answers(fixtures);
@@ -1833,8 +1830,6 @@ fn a_changed_file_is_told_by_its_hashes() {
     );
 }
 
-/// Each integer of each message, answer and event the agent writes
-/// reads up to 2^32 - 1 and fails from 2^32.
 #[test]
 fn an_integer_typescript_writes_is_a_u32() {
     let mut fixtures = Fixtures::new(false);

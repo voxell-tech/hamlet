@@ -1,7 +1,5 @@
 //! The integers of what the agent writes. Its encoder writes an
-//! integer from 2^32 as a float, so each one is read as a `u32`: the
-//! test puts `u32::MAX` and then 2^32 at each integer a fixture holds
-//! and reads the fixture back as its type.
+//! integer from 2^32 as a float, so each one is read as a `u32`.
 
 use std::any::TypeId;
 use std::collections::BTreeSet;
@@ -10,7 +8,6 @@ use ciborium::Value;
 use hamlet_actor::action::decode_positional;
 use serde::de::DeserializeOwned;
 
-/// Whether bytes read as a fixture's type.
 pub type Reads = fn(&[u8]) -> bool;
 
 pub fn reads_args<T: DeserializeOwned>(bytes: &[u8]) -> bool {
@@ -21,11 +18,9 @@ pub fn reads_answer<T: DeserializeOwned>(bytes: &[u8]) -> bool {
     ciborium::from_reader::<T, _>(bytes).is_ok()
 }
 
-/// Who writes a fixture.
 pub enum Writer {
     Agent,
-    /// The one who answers a call whose answer is of this type.
-    Answerer(TypeId),
+    Answerer { answer: TypeId },
 }
 
 pub struct Sample {
@@ -35,18 +30,17 @@ pub struct Sample {
     pub writer: Writer,
 }
 
-/// Each integer of a sample the agent writes that does not read as a
-/// `u32`, by the fixture and the path to it. `answers` are the types
-/// of the answers to the calls the agent takes.
 pub fn not_u32(
     samples: &[Sample],
-    answers: &BTreeSet<TypeId>,
+    agent_answers: &BTreeSet<TypeId>,
 ) -> Vec<String> {
     let mut problems = Vec::new();
     for sample in
         samples.iter().filter(|sample| match sample.writer {
             Writer::Agent => true,
-            Writer::Answerer(answer) => answers.contains(&answer),
+            Writer::Answerer { answer } => {
+                agent_answers.contains(&answer)
+            }
         })
     {
         let mut paths = Vec::new();
@@ -64,7 +58,7 @@ pub fn not_u32(
                 problems.push(format!(
                     "{} at {} is not a u32",
                     sample.name,
-                    shown(&sample.value, &path)
+                    dotted(&sample.value, &path)
                 ));
             }
         }
@@ -72,7 +66,6 @@ pub fn not_u32(
     problems
 }
 
-/// The index of each step into a list or a map's entries.
 type Path = Vec<usize>;
 
 fn integers(value: &Value, path: &mut Path, found: &mut Vec<Path>) {
@@ -102,8 +95,7 @@ fn at<'a>(value: &'a mut Value, path: &[usize]) -> &'a mut Value {
     })
 }
 
-/// `path` with each map's key named, as `items.0.tool.exit`.
-fn shown(mut value: &Value, path: &[usize]) -> String {
+fn dotted(mut value: &Value, path: &[usize]) -> String {
     let mut steps = Vec::new();
     for &index in path {
         value = match value {

@@ -117,7 +117,6 @@ fn files() -> Vec<ChatFile> {
     ]
 }
 
-/// A tool with every field set: a command stopped with the code -1.
 fn tool() -> ChatTool {
     ChatTool {
         name: "edit".into(),

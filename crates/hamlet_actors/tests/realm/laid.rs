@@ -208,9 +208,6 @@ async fn a_tool_turned_off_is_refused() {
 
 #[tokio::test(flavor = "multi_thread")]
 async fn a_tool_off_is_kept_by_its_name() {
-    // the mayor turns `bash` and `tell` off for its hire 3: 3's place
-    // lists both by name, and its tell is still refused `ToolOff`.
-    // Turned on again, `bash` leaves the place and `tell` stays.
     let (realm, _) = hamlet_with(1).await;
     let set = async |call, act| {
         realm.tool(MAYOR, &tool(call, act)).await.unwrap()
