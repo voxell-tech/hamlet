@@ -94,18 +94,17 @@ pub(super) async fn of(
 ) -> Result<Vec<(AgentNumber, Way)>> {
     let own = tree::lineage_of(rows, agent).await?;
     let laid = laid::of(rows, agent).await?;
+    // Every agent some way can join to `agent`; `way` decides.
     let mut others = own
         .agent
         .lead
         .into_iter()
         .chain(own.hires.iter().map(|hire| hire.agent))
         .chain(laid.iter().copied())
+        .chain(chiefs::mayors(rows).await?)
+        .chain([Hand::NUMBER])
         .collect::<BTreeSet<_>>();
     let own = end(&own);
-    if own.agent == Hand::NUMBER || own.is_mayor {
-        others.extend(chiefs::mayors(rows).await?);
-        others.insert(Hand::NUMBER);
-    }
     others.remove(&agent);
     let mut roads = Vec::new();
     for other in others {
@@ -130,5 +129,76 @@ fn end(lineage: &Lineage) -> End {
             .as_ref()
             .map(|hamlet| hamlet.id.clone()),
         is_mayor: lineage.is_mayor(),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::super::testing::Started;
+    use super::*;
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn of_holds_each_live_agent_way_admits() {
+        // The Hand 1; hamlet h: mayor 2, its hires 3 and 4, 7 under
+        // 3, and 8 still hiring; hamlet k: mayor 5 and its hire 6.
+        let started = Started::new().await;
+        let h = HamletId("h".to_owned());
+        let k = HamletId("k".to_owned());
+        started.found(&h, AgentNumber(2)).await;
+        started.found(&k, AgentNumber(5)).await;
+        for (agent, hamlet, lead) in [
+            (3, &h, 2),
+            (4, &h, 2),
+            (6, &k, 5),
+            (7, &h, 3),
+            (8, &h, 2),
+        ] {
+            started
+                .hire(
+                    hamlet,
+                    AgentNumber(agent),
+                    Some(AgentNumber(lead)),
+                )
+                .await;
+        }
+        for agent in 1..=7 {
+            started
+                .commit(tree::Change::Live {
+                    agent: AgentNumber(agent),
+                })
+                .await
+                .unwrap();
+        }
+        let rows = started.rows();
+        let mut all = Vec::new();
+        for agent in 1..=8 {
+            all.push(end(&tree::lineage_of(
+                &rows,
+                AgentNumber(agent),
+            )
+            .await
+            .unwrap()));
+        }
+
+        for own in &all {
+            // No laid road joins any two of them.
+            let admitted = all
+                .iter()
+                .filter(|other| {
+                    other.agent != own.agent
+                        && other.status == Status::Live
+                })
+                .filter_map(|other| {
+                    Some((other.agent, way(own, other, false)?))
+                })
+                .collect::<Vec<_>>();
+            assert_eq!(
+                of(&rows, own.agent).await.unwrap(),
+                admitted,
+                "agent {}",
+                own.agent.0
+            );
+        }
+        started.stop().await;
     }
 }
