@@ -237,6 +237,7 @@ async fn a_mode_reaches_every_agent_of_its_hamlet_and_their_workers()
         .await;
     let folder = realm.scratch.join("work");
     std::fs::create_dir(&folder).unwrap();
+    assert!(!realm.holds_reach(AgentNumber(9)));
 
     let set = chief(&realm, set_folder(&hamlet, Some(&folder))).await;
     let auto = chief(
