@@ -39,8 +39,7 @@ pub struct Versioned<T> {
     pub value: T,
 }
 
-/// The version of a part of the copies, which the agent sends back in
-/// [`ReadCopies`](crate::realm::documents::ReadCopies).
+/// The version of a part of the copies.
 #[derive(
     Clone,
     Copy,

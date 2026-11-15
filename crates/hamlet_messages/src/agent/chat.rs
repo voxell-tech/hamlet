@@ -384,7 +384,7 @@ pub struct Session {
     pub modified: u32,
     pub current: bool,
     pub messages: u32,
-    pub tokens: u32,
+    pub tokens: Count,
     pub title: String,
 }
 

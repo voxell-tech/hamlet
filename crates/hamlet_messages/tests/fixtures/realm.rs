@@ -708,7 +708,7 @@ fn the_roads_and_the_tools(fixtures: &mut Fixtures) {
         "realm/chief_set_tools",
         &asked(SetTools {
             hire: hire(),
-            off: vec![SocietyTool::Tell.into(), named_tool("bash")],
+            off: vec![named_tool("tell"), named_tool("bash")],
             on: vec![named_tool("$Set")],
             why: None,
         }),
@@ -717,7 +717,7 @@ fn the_roads_and_the_tools(fixtures: &mut Fixtures) {
         "realm/set_tools",
         &tool(SetTools {
             hire: hire(),
-            off: vec![SocietyTool::Tell.into()],
+            off: vec![named_tool("tell")],
             on: Vec::new(),
             why: None,
         }),
@@ -727,7 +727,7 @@ fn the_roads_and_the_tools(fixtures: &mut Fixtures) {
         &tool(SetTools {
             hire: hire(),
             off: Vec::new(),
-            on: vec![SocietyTool::Tell.into()],
+            on: vec![named_tool("tell")],
             why: Some(WHY.into()),
         }),
     );
@@ -1030,10 +1030,7 @@ fn place() -> Place {
         lead: Some(MAYOR),
         hires: vec![AgentNumber(13)],
         roads: vec![AgentNumber(14)],
-        tools_off: vec![
-            SocietyTool::Found.into(),
-            named_tool("bash"),
-        ],
+        tools_off: vec![named_tool("found"), named_tool("bash")],
         folder: Some("/work/orchard".into()),
     }
 }

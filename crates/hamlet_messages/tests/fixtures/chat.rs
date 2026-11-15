@@ -302,7 +302,7 @@ fn the_clients_calls(fixtures: &mut Fixtures) {
                 modified: 1_763_200_000,
                 current: true,
                 messages: 14,
-                tokens: 9_300,
+                tokens: Count(9_300),
                 title: "The tests".into(),
             }],
         },
@@ -586,11 +586,15 @@ fn a_count_past_2_32_reads_exactly() {
         (usage.cached, usage.input),
         (Count((1 << 32) + 5), Count(1 << 53))
     );
-    assert!(NUMBERS.contains("fb41f0000000500000"));
-    assert!(
-        ciborium::from_reader::<ChatEvent, _>(
-            bytes(NUMBERS).as_slice()
-        )
-        .is_err()
-    );
+    let numbers = ciborium::from_reader::<serde_json::Value, _>(
+        bytes(NUMBERS).as_slice(),
+    )
+    .unwrap();
+    for count in ["cached", "input"] {
+        let written = &numbers["ops"][0]["usage"][count];
+        assert!(written.is_f64(), "{count} is {written}");
+        assert!(
+            serde_json::from_value::<u64>(written.clone()).is_err()
+        );
+    }
 }

@@ -231,14 +231,6 @@ pub struct ToolName {
     pub name: String,
 }
 
-impl From<SocietyTool> for ToolName {
-    fn from(tool: SocietyTool) -> Self {
-        Self {
-            name: tool.name().to_owned(),
-        }
-    }
-}
-
 impl std::fmt::Display for SocietyTool {
     fn fmt(
         &self,
