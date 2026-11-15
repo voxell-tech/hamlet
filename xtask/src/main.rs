@@ -302,16 +302,12 @@ fn run(task: &str, rest: &[String]) -> Result<(), Failure> {
         }
         "workspace-image" => workspace_image(rest),
         "killkit" => {
-            // The linked rows start the Node host, which loads the
-            // native module from its crate's folder.
             install(&root, NODE_HOST)?;
-            match native_names() {
-                Some(names) => native(&root, names)?,
-                None => unnamed(
-                    "killkit",
-                    "the Node host's native module",
-                ),
-            }
+            native(
+                &root,
+                "killkit",
+                "the Node host's native module",
+            )?;
             status(&mut cargo(&[
                 "build",
                 "-p",
@@ -513,11 +509,9 @@ fn node(root: &Path) -> Result<(), Failure> {
     }
     status(&mut npm(NODE_HOST, &["run", "check"]))?;
     status(&mut npm(NODE_HOST, &["test"]))?;
-    let Some(names) = native_names() else {
-        unnamed("node", "the native module and its tests");
+    if !native(root, "node", "the native module and its tests")? {
         return Ok(());
-    };
-    native(root, names)?;
+    }
     status(&mut locked(
         "build",
         &["-p", "hamlet_os", "--example", "bound"],
@@ -572,11 +566,18 @@ fn native_names() -> Option<(&'static str, &'static str)> {
 }
 
 /// Builds the native module and puts it in its crate under the name
-/// its loader looks for, so the Node host loads this build.
+/// its loader looks for, so the Node host loads this build. Answers
+/// false, saying that `task` skips `what`, where the loader has no
+/// name for this system.
 fn native(
     root: &Path,
-    (library, loaded): (&str, &str),
-) -> Result<(), Failure> {
+    task: &str,
+    what: &str,
+) -> Result<bool, Failure> {
+    let Some((library, loaded)) = native_names() else {
+        unnamed(task, what);
+        return Ok(false);
+    };
     status(&mut locked("build", &["-p", "hamlet_actor_node"]))?;
     let target = env::var_os("CARGO_TARGET_DIR")
         .map_or_else(|| root.join("target"), PathBuf::from);
@@ -588,7 +589,8 @@ fn native(
     let partial = folder.join(format!("partial-{loaded}"));
     fs::copy(target.join("debug").join(library), &partial)
         .and_then(|_| fs::rename(&partial, folder.join(loaded)))
-        .map_err(Failure::Native)
+        .map_err(Failure::Native)?;
+    Ok(true)
 }
 
 fn declarations(root: &Path) -> Result<(), Failure> {
