@@ -7,13 +7,14 @@ use anyhow::{Context as _, Result, bail};
 use hamlet_actor::{BindParam, Ctx};
 use hamlet_messages::address::Workspace;
 use hamlet_messages::realm::client::{Answer, AnswerRefusal};
+use hamlet_messages::realm::world::WaitId;
 use hamlet_messages::realm::{Done, NeedsChief};
 use hamlet_messages::sender::Client;
 use hamlet_messages::workspace::{
     self, AgentNumber, CallId, ChiefAnswer,
 };
 use hamlet_protocol::client as protocol;
-use serde::{Deserialize, Serialize};
+use serde::Serialize;
 
 use super::act::{Act, Decided, Decision};
 use super::calls::{Calls, Delivery, Made};
@@ -22,21 +23,14 @@ use super::peer::When;
 use super::world::Part;
 use super::{Realm, tree};
 
-#[derive(
-    Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize,
-)]
-pub(super) struct WaitId(pub u64);
+/// The wait a client names: its number, as the client reads it,
+/// with or without a leading `#`.
+fn named(wait: &str) -> Option<WaitId> {
+    wait.trim_start_matches('#').parse().ok().map(WaitId)
+}
 
-impl WaitId {
-    /// The wait a client names: its number, as the client reads it,
-    /// with or without a leading `#`.
-    fn named(wait: &str) -> Option<Self> {
-        wait.trim_start_matches('#').parse().ok().map(Self)
-    }
-
-    fn param(self) -> Result<BindParam> {
-        Ok(BindParam::Integer(i64::try_from(self.0)?))
-    }
+fn param(wait: WaitId) -> Result<BindParam> {
+    Ok(BindParam::Integer(i64::try_from(wait.0)?))
 }
 
 /// How long an allow holds, as the row records it. The workspace
@@ -132,7 +126,7 @@ async fn close(
                 },
                 reason.map_or(BindParam::Null, BindParam::Text),
                 BindParam::Integer(writer.at().0),
-                wait.param()?,
+                param(wait)?,
             ],
         )
         .await
@@ -162,7 +156,7 @@ pub(super) async fn deliver(
         .row::<(u32, String, Option<String>, Option<String>)>(
             "SELECT agent, call, choice, reason FROM wait WHERE id \
              = ?1",
-            vec![wait.param()?],
+            vec![param(wait)?],
         )
         .await?
         .with_context(|| format!("wait {} has no row", wait.0))?;
@@ -232,14 +226,14 @@ impl Act<Client> for Answer {
         _by: &Client,
         rows: &Rows<'_>,
     ) -> Result<Option<WaitId>> {
-        let Some(wait) = WaitId::named(&self.0.wait) else {
+        let Some(wait) = named(&self.0.wait) else {
             return Ok(None);
         };
         Ok(rows
             .value::<u64>(
                 "SELECT id FROM wait WHERE id = ?1 AND closed_at IS \
                  NULL",
-                vec![wait.param()?],
+                vec![param(wait)?],
             )
             .await?
             .map(WaitId))

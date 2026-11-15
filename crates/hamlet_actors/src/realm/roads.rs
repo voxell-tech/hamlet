@@ -8,12 +8,14 @@ use hamlet_messages::address::Agent;
 use hamlet_messages::realm::{HamletId, Named};
 use hamlet_messages::sender::Hand;
 use hamlet_messages::workspace::AgentNumber;
+use serde::Serialize;
 
 use super::change::Rows;
 use super::tree::{self, Lineage, Status};
 use super::{chiefs, laid};
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "snake_case")]
 pub(super) enum Way {
     /// Between a lead and its hire, or the Hand and a mayor.
     Tree,

@@ -7,6 +7,7 @@ use hamlet_actor::Ctx;
 use hamlet_messages::address::Agent;
 use hamlet_messages::agent::Submit;
 use hamlet_messages::realm::LetterId;
+use hamlet_messages::realm::world::WaitId;
 use hamlet_messages::workspace::AgentNumber;
 use serde::{Deserialize, Serialize};
 
@@ -16,7 +17,6 @@ use super::{Realm, letters, place, reach, steps, waits};
 
 /// A call that carries an act's content.
 #[derive(Debug, PartialEq)]
-#[expect(dead_code, reason = "U5, U6 and U8 deliver these")]
 pub(super) enum Delivery {
     /// A chief's line.
     Line { to: AgentNumber, submit: Submit },
@@ -27,7 +27,7 @@ pub(super) enum Delivery {
     Answer(LetterId),
     /// The chief's answer to the wait `0`, from its row, to the
     /// workspace.
-    ChiefAnswer(waits::WaitId),
+    ChiefAnswer(WaitId),
 }
 
 #[derive(Debug, Default, PartialEq)]

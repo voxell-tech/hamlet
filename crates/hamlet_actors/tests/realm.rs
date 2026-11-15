@@ -75,6 +75,7 @@ enum Callee {
     Create,
     Fill,
     SetReach,
+    Submit,
 }
 
 #[derive(Default)]
@@ -198,6 +199,7 @@ impl Handler<Submit> for AgentStandIn {
         _: Ctx<Self>,
         submit: Submit,
     ) -> anyhow::Result<()> {
+        self.seen.called(Callee::Submit).await?;
         self.seen.submits.lock().unwrap().push((self.agent, submit));
         Ok(())
     }

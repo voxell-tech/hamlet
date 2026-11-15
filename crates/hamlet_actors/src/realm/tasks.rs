@@ -2,12 +2,12 @@
 //! charged to (H12, C31).
 
 use anyhow::{Context as _, Result};
-use hamlet_actor::BindParam;
+use hamlet_actor::{BindParam, ColumnValue};
 use hamlet_messages::realm::budget::Payer;
 use hamlet_messages::workspace::{AgentNumber, RealmTask};
 use serde::{Deserialize, Serialize};
 
-use super::change::{self, Affected, Rows, Writer, number};
+use super::change::{self, Affected, Column, Rows, Writer, number};
 
 #[derive(
     Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize,
@@ -24,6 +24,16 @@ impl TaskId {
     pub fn of(task: &RealmTask) -> Option<Self> {
         let n = task.0.parse::<u64>().ok()?;
         (n.to_string() == task.0).then_some(Self(n))
+    }
+
+    pub fn column(self) -> Result<BindParam> {
+        Ok(BindParam::Integer(i64::try_from(self.0)?))
+    }
+}
+
+impl Column for TaskId {
+    fn of(value: &ColumnValue) -> Result<Self> {
+        u64::of(value).map(Self)
     }
 }
 
@@ -80,7 +90,7 @@ async fn open(
     payer: Payer,
 ) -> Result<Affected> {
     let id = match id {
-        Id::Given(task) => BindParam::Integer(i64::try_from(task.0)?),
+        Id::Given(task) => task.column()?,
         Id::Next => BindParam::Null,
     };
     writer
@@ -128,7 +138,7 @@ pub(super) async fn payer(
 ) -> Result<Option<Payer>> {
     rows.value::<String>(
         "SELECT payer FROM task WHERE id = ?1",
-        vec![BindParam::Integer(i64::try_from(task.0)?)],
+        vec![task.column()?],
     )
     .await?
     .map(|payer| Ok(serde_json::from_str(&payer)?))

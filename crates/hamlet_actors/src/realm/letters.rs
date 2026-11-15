@@ -108,9 +108,11 @@ async fn keep(
                 BindParam::Text(change::case_name(&kind)?),
                 number(from),
                 number(to),
-                BindParam::Text(way_name(way).to_owned()),
+                BindParam::Text(change::case_name(&way)?),
                 BindParam::Text(text),
-                task_column(task)?,
+                task.map(TaskId::column)
+                    .transpose()?
+                    .unwrap_or(BindParam::Null),
                 conversation
                     .map_or(BindParam::Null, |conversation| {
                         BindParam::Text(conversation.0)
@@ -139,28 +141,6 @@ async fn keep_answer(
 
 fn id(letter: LetterId) -> BindParam {
     BindParam::Integer(i64::from(letter.0))
-}
-
-fn way_name(way: Way) -> &'static str {
-    match way {
-        Way::Tree => "tree",
-        Way::Mayors => "mayors",
-        Way::Laid => "laid",
-    }
-}
-
-// A task's column holds the number its wire form spells.
-fn task_column(task: Option<TaskId>) -> Result<BindParam> {
-    Ok(match task {
-        Some(task) => {
-            BindParam::Integer(task.on_the_wire().0.parse::<i64>()?)
-        }
-        None => BindParam::Null,
-    })
-}
-
-fn task_of(column: Option<u64>) -> Option<RealmTask> {
-    column.map(|task| RealmTask(task.to_string()))
 }
 
 /// The next letter's id.
@@ -197,7 +177,7 @@ async fn letter_input(
     letter: LetterId,
 ) -> Result<(AgentNumber, Submit)> {
     let (kind, sender, receiver, text, task) = rows
-        .row::<(String, u32, u32, String, Option<u64>)>(
+        .row::<(String, u32, u32, String, Option<TaskId>)>(
             "SELECT kind, sender, receiver, text, task FROM letter \
              WHERE id = ?1",
             vec![id(letter)],
@@ -211,7 +191,7 @@ async fn letter_input(
     };
     let submit = Submit {
         id: InputId(format!("letter/{}", letter.0)),
-        task: task_of(task),
+        task: task.map(TaskId::on_the_wire),
         input,
     };
     Ok((AgentNumber(receiver), submit))
@@ -222,10 +202,16 @@ async fn answer_input(
     rows: &Rows<'_>,
     question: LetterId,
 ) -> Result<(AgentNumber, Submit)> {
-    let found = rows
-        .row::<(u32, u32, Option<String>, Option<String>, Option<u64>)>(
-            "SELECT sender, receiver, answer, conversation, task FROM \
-             letter WHERE id = ?1",
+    let found =
+        rows.row::<(
+            u32,
+            u32,
+            Option<String>,
+            Option<String>,
+            Option<TaskId>,
+        )>(
+            "SELECT sender, receiver, answer, conversation, task \
+             FROM letter WHERE id = ?1",
             vec![id(question)],
         )
         .await?;
@@ -236,7 +222,7 @@ async fn answer_input(
     };
     let submit = Submit {
         id: InputId(format!("answer/{}", question.0)),
-        task: task_of(task),
+        task: task.map(TaskId::on_the_wire),
         input: Input::Answer {
             question,
             from: author(asked),

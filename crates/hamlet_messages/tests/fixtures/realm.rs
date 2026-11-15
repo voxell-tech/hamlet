@@ -18,7 +18,7 @@ use hamlet_messages::realm::client::{
 };
 use hamlet_messages::realm::world::{
     AgentSeen, HamletSeen, ReachSeen, Revision, RoadSeen, Seen,
-    Spend, Status, WaitSeen,
+    Spend, Status, WaitId, WaitSeen,
 };
 use hamlet_messages::realm::{
     AgentRefusal, Ask, Asked, Done, End, EndRefusal, Found,
@@ -763,7 +763,7 @@ fn the_clients_calls(fixtures: &mut Fixtures) {
                 .unwrap(),
             picks: None,
             text: Some("Yes, go on".into()),
-            wait: "wait-3".into(),
+            wait: "3".into(),
         }),
     );
     done(
@@ -772,9 +772,7 @@ fn the_clients_calls(fixtures: &mut Fixtures) {
         vec![
             (
                 "nothing_waits",
-                AnswerRefusal::NothingWaits {
-                    wait: "wait-3".into(),
-                },
+                AnswerRefusal::NothingWaits { wait: "3".into() },
             ),
             ("not_offered", AnswerRefusal::NotOffered),
         ],
@@ -835,6 +833,7 @@ fn seen() -> Seen {
         }],
         roads: vec![RoadSeen { a: MAYOR, b: HIRE }],
         waits: vec![WaitSeen {
+            wait: WaitId(3),
             agent: HIRE,
             call: call("call-1"),
             subject: "curl https://example.com".into(),

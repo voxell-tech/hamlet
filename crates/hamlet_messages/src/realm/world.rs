@@ -87,8 +87,16 @@ pub struct RoadSeen {
     pub b: AgentNumber,
 }
 
+/// The realm's number of a wait for a chief. A client names it in
+/// decimal, as the `wait` of its answer.
+#[derive(
+    Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize,
+)]
+pub struct WaitId(pub u64);
+
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct WaitSeen {
+    pub wait: WaitId,
     pub agent: AgentNumber,
     pub call: CallId,
     /// The call in words, as the workspace gave it.

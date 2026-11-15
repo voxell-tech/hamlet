@@ -40,7 +40,7 @@ async fn hires(realm: &Realm, lead: AgentNumber, call: &str) {
         hamlet: None,
         under: None,
         profile: None,
-        purpose: None,
+        purpose: Some("Write the docs".to_owned()),
     };
     let hired = realm.tool(lead, &tool(call, hire)).await;
     assert!(
