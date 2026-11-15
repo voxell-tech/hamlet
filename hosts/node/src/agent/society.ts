@@ -245,8 +245,9 @@ const TOOLS: { readonly [N in SocietyTool]: Definition<N> } = {
             under?: string;
             hamlet?: string;
         }) => {
-            // The address checks in today's order (`calls/society.rs`,
-            // `hire`); the realm finds the hamlet and the hire `under`.
+            // Today (`calls/society.rs`, `hire_tool`) finds the hamlet and
+            // `under` before it checks `scholar` and `name`; here the realm
+            // finds them after.
             const given = present(args.under);
             const under = given === undefined ? undefined : named(given);
             if (under !== undefined && "invalid" in under) return under;

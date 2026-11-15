@@ -310,23 +310,33 @@ test("a timer whose in-process wake comes early is admitted by the host's alarm"
         { type: "input", content: "Wake me.", requestId: "r1" },
         context,
     );
+    const admitted = async () =>
+        (await root.entries({}, 200, undefined, context)).items.filter(
+            (entry) => entry.kind === "hamlet.wake",
+        );
+    const timersSet = () =>
+        harness.commit(
+            async (tx) =>
+                (
+                    await tx.scanTasks(
+                        { conversationId: root.id, kind: "hamlet.wake" },
+                        10,
+                    )
+                ).items,
+            context,
+        );
     await until(
         async () =>
-            (await root.entries({}, 200, undefined, context)).items.some(
-                (entry) => entry.kind === "hamlet.wake",
-            ),
+            (await admitted()).length > 0 &&
+            (await timersSet()).every(
+                (task) => task.state.status === "terminal",
+            ) &&
+            (await harness.snapshot(LiveDoc, root.id, context))?.run ===
+                undefined,
         10_000,
     );
-    const [timer] = await harness.commit(
-        async (tx) =>
-            (
-                await tx.scanTasks(
-                    { conversationId: root.id, kind: "hamlet.wake" },
-                    10,
-                )
-            ).items,
-        context,
-    );
+    const [timer] = await timersSet();
+    const inputs = await admitted();
     await closeHarness(c, { reason: "destroy" });
 
     assert.ok(timer, "the wake set one timer");
@@ -335,6 +345,9 @@ test("a timer whose in-process wake comes early is admitted by the host's alarm"
         early.some((fired) => fired < at),
         "an in-process wake came before the timer's time",
     );
+    assert.equal(inputs.length, 1, "the timer admitted one input");
+    const timestamp = inputs[0]?.model?.[0]?.timestamp ?? 0;
+    assert.ok(timestamp >= at, "the input came at or after the timer's time");
 });
 
 test("a wake cut off after it set its timer sets no second one on its rerun, and the timer admits once", {
