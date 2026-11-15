@@ -459,8 +459,6 @@ impl Realm {
 
     /// Waits for `agent`'s hire to be live.
     async fn live(&self, agent: AgentNumber) {
-        // The reads below can still repeat `SetReach`: a stop before
-        // the reach step commits runs that step again.
         self.reach_held(agent).await;
         let begun = Instant::now();
         let n = i64::from(agent.0);
@@ -490,9 +488,6 @@ impl Realm {
         }
     }
 
-    /// Waits in memory for the workspace to hold `agent`'s reach, its
-    /// hire's last call. A stopped read before it starts the realm
-    /// again, which would do the rest of the steps itself.
     async fn reach_held(&self, agent: AgentNumber) {
         until(
             &format!("the workspace holds agent {}'s reach", agent.0),
@@ -526,8 +521,6 @@ impl Realm {
         .unwrap()
     }
 
-    /// Runs `sql` on the realm's file, which starts the realm again
-    /// as a stopped read does.
     async fn write(&self, sql: &str) {
         let realm = address::Realm.address().unwrap();
         stopped_open(

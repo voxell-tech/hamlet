@@ -192,8 +192,7 @@ async fn drive(realm: Arc<Realm>, ctx: Ctx<Realm>, row: StepId) {
     }
 }
 
-/// Runs each step of `S` after the row's last one done, and closes
-/// the row with the last step of `S`.
+/// Runs each step of `S` after the row's last one done.
 async fn walk<S: Steps>(
     cx: &Cx<'_>,
     id: StepId,
@@ -503,7 +502,6 @@ mod tests {
             change::Transaction::begin(&started.ctx).await.unwrap();
         let reserved = drives.take(&[ROW]);
         let committed = Cell::new(false);
-        // Its commit waits for `held` to roll back.
         let drive = async {
             started.commit(Change::Close { row: ROW }).await.unwrap();
             committed.set(true);

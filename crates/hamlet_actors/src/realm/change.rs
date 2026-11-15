@@ -337,7 +337,6 @@ mod handle {
 
     use super::Realm;
 
-    /// An open transaction's statements, which cannot end it.
     pub(super) struct Statements(SqliteTransaction);
 
     impl Statements {
@@ -350,8 +349,6 @@ mod handle {
         }
     }
 
-    /// An open transaction's end: its commit, or a rollback when
-    /// dropped.
     pub(super) struct Open {
         tx: Option<SqliteTransaction>,
         ctx: Ctx<Realm>,
@@ -395,7 +392,6 @@ mod handle {
     }
 }
 
-/// A [`Transaction`] given up, whose rollback may still be running.
 #[must_use]
 pub(super) struct Abandoned(());
 

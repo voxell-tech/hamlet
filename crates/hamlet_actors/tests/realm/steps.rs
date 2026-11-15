@@ -18,10 +18,8 @@ use super::{Callee, Realm, found, until};
 
 const MAYOR: AgentNumber = AgentNumber(2);
 
-/// The mayor's blank profile, which `Found` makes.
 const BLANK: ProfileId = ProfileId(2);
 
-/// What the stand-ins saw of the mayor's hire.
 #[derive(Debug, Default, PartialEq)]
 struct HireSeen {
     branches: Vec<Branch>,
@@ -68,8 +66,6 @@ fn hire_seen(realm: &Realm) -> HireSeen {
     }
 }
 
-/// A realm whose mayor's hire failed at `callee`. The Hand is live
-/// first, so its own steps take no failure.
 async fn failed_once_at(callee: Callee) -> Realm {
     let realm = Realm::start().await;
     realm.live(Hand::NUMBER).await;
@@ -92,10 +88,8 @@ async fn failed_once_at(callee: Callee) -> Realm {
 async fn a_hire_goes_live_through_its_steps() {
     // found; wait live(2); the stand-ins saw the profile made, one
     // Branch `hires/2`, `agent/2` made with its place and standing
-    // task, a Fill of `hires/2`, and a SetReach for agent 2; its row
-    // is closed.
+    // task, a Fill of `hires/2`, and a SetReach for agent 2.
     let realm = Realm::start().await;
-    // The Hand going live moves the mayor's place.
     realm.live(Hand::NUMBER).await;
 
     let answer = realm
@@ -134,8 +128,6 @@ async fn a_hire_goes_live_through_its_steps() {
     assert_eq!(
         seen,
         HireSeen {
-            // A call never makes its callee: a branch taken is a
-            // profile made.
             branches: vec![Branch {
                 name: branch.clone()
             }],
@@ -174,7 +166,6 @@ async fn a_hire_goes_live_through_its_steps() {
 async fn a_hiring_row_is_finished_at_the_realms_start() {
     // a profile that fails `Branch` once; found; restart; live(2).
     let realm = failed_once_at(Callee::Branch).await;
-    // Room for a step that would be tried again before the start.
     tokio::time::sleep(Duration::from_millis(200)).await;
     let before = hire_seen(&realm);
 
