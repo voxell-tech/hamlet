@@ -56,7 +56,8 @@ message!(ReadShelves, "read_shelves", Realm => Library, ShelfList);
 
 /// One part of the files of `skills/<skill>/` in the caller's
 /// filesystem, offered to the library. The parts of one offer share
-/// `call` and count `part` from 0; the `last` one keeps the offer.
+/// `call`, count `part` from 0 and come in order: a part whose
+/// earlier part was not kept fails. The `last` one keeps the offer.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Offer {
     pub call: CallId,
@@ -72,7 +73,7 @@ family!(
     BadOffer {
         #[error(
             "`skill` is its folder under skills/, in letters, digits, \
-             hyphens and underscores"
+             hyphens and underscores."
         )]
         NotASkillName { skill: String },
         #[error(
@@ -88,7 +89,7 @@ family!(
     /// What the library finds in the parts of an offer, once it holds
     /// them.
     BadSkill {
-        #[error("`{skill}` holds more than the library takes, {most} bytes")]
+        #[error("`{skill}` holds more than the library takes, 4 MB.")]
         SkillTooLarge { skill: String, most: u32 },
         #[error(
             "skills/{skill}/SKILL.md must open with a front matter \
@@ -100,13 +101,13 @@ family!(
 
 family!(OnTheShelves {
     #[error(
-        "the library has a skill named `{skill}` already; use it, or \
-         offer yours under another name"
+        "The library has a skill named `{skill}` already. Use it, or \
+         offer yours under another name if it does something else."
     )]
     AlreadyShelved { skill: String },
-    /// Another agent's whole offer of it waits for its verdict. An
-    /// offer whose last part never came is not one.
-    #[error("another offer of `{skill}` is being judged")]
+    /// A whole offer of it waits for its verdict, the caller's own
+    /// too. An offer whose last part never came is not one.
+    #[error("Another offer of that skill is being judged.")]
     BeingJudged { skill: String },
 });
 

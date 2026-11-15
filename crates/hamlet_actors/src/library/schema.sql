@@ -8,6 +8,8 @@ CREATE TABLE IF NOT EXISTS offer (
     call TEXT NOT NULL,
     skill TEXT NOT NULL,
     reason TEXT NOT NULL,
+    -- The part that comes next.
+    next INTEGER NOT NULL,
     -- NULL until its last part; then the commit `offers/<id>` names.
     commit_id TEXT,
     -- NULL until judged; then 1 or 0, with the librarian's words.

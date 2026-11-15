@@ -294,10 +294,16 @@ fn dreamt(
     hire: Option<&Hire>,
     summary: &str,
 ) -> Result<DreamEnd> {
+    let message = match hire {
+        Some(hire) => {
+            format!("Dream of hire#{}: {summary}", hire.agent.0)
+        }
+        None => format!("Dream: {summary}"),
+    };
     let main =
-        commit_side(writer, MAIN, found.main, MAIN_SIDE, summary)?;
+        commit_side(writer, MAIN, found.main, MAIN_SIDE, &message)?;
     if let (Some(hire), Some(base)) = (hire, found.hire_tip) {
-        commit_side(writer, &hire.branch, base, HIRE_SIDE, summary)?;
+        commit_side(writer, &hire.branch, base, HIRE_SIDE, &message)?;
         hires::take_in_main(writer, hire)?;
         let tip = writer
             .git()?
@@ -321,7 +327,7 @@ fn commit_side(
     branch: &str,
     base: hamlet_git::CommitId,
     side: &str,
-    summary: &str,
+    message: &str,
 ) -> Result<Option<hamlet_git::CommitId>> {
     let dream = writer.message().dream;
     let by = By::Dream(dream.0);
@@ -338,13 +344,9 @@ fn commit_side(
     } else {
         Wins::Onto
     };
-    let message = match summary {
-        "" => "Dreamt".to_owned(),
-        summary => format!("Dreamt: {summary}"),
-    };
-    writer.writes()?.commit_checkout(
-        branch, base, &changes, &message, by, wins,
-    )?;
+    writer
+        .writes()?
+        .commit_checkout(branch, base, &changes, message, by, wins)?;
     writer.git()?.made_by(branch, base, by)
 }
 

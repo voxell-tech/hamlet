@@ -10,6 +10,7 @@ use hamlet_messages::profile::{
     Branch, Character, Missing, Moved, NotAHire, Pin, PinAnswer,
     VersionName,
 };
+use hamlet_messages::realm::ProfileId;
 use hamlet_messages::workspace::AgentNumber;
 
 use super::{CHARACTER, Profile, commit_id};
@@ -19,8 +20,8 @@ use crate::repo::{
     Admits, Before, Call, Ended, Look, Reply, Settle, Takes, Writer,
 };
 
-/// The message of a take-in of `main`.
-const TOOK_IN: &str = "Took in main";
+/// The message of a take-in of `main` or of a pin.
+const TOOK_IN: &str = "Took in what its scholar learned";
 
 pub(super) struct Table(());
 
@@ -234,13 +235,18 @@ pub(super) fn follow_main(
 
 impl Takes<Pin> for Profile {
     async fn take(call: Call<Self, Pin>) -> Result<Reply<Pin>> {
-        call.once(pin).await
+        let own = call.owner().own.0;
+        call.once(move |unit| pin(unit, own)).await
     }
 }
 
 /// Keeps the hire's pin and takes the pinned commit, or `main`'s tip,
-/// into its branch, the hire's side winning.
-fn pin(unit: Before<'_, Profile, Pin>) -> Result<Ended<Pin>> {
+/// into its branch, the hire's side winning. `own` is the profile's
+/// number.
+fn pin(
+    unit: Before<'_, Profile, Pin>,
+    own: ProfileId,
+) -> Result<Ended<Pin>> {
     let Pin { hire, to, .. } = unit.message().clone();
     let Some(row) = of(&unit.rows(Table(())), hire)? else {
         return unit.refuse(NotAHire::NoHire { hire }.into());
@@ -249,8 +255,11 @@ fn pin(unit: Before<'_, Profile, Pin>) -> Result<Ended<Pin>> {
         Some(version) => {
             let Some(at) = version_at(unit.git()?, version)? else {
                 let version = version.clone();
-                return unit
-                    .refuse(Missing::NoVersion { version }.into());
+                let why = Missing::NoVersion {
+                    profile: own,
+                    version,
+                };
+                return unit.refuse(why.into());
             };
             at
         }
@@ -270,12 +279,8 @@ fn pin(unit: Before<'_, Profile, Pin>) -> Result<Ended<Pin>> {
         "UPDATE hire SET pin = ?1, pin_commit = ?2 WHERE agent = ?3",
         vec![pin, pin_commit, BindParam::Integer(i64::from(hire.0))],
     )?;
-    let message = match &to {
-        Some(version) => format!("Took in {}", version.0),
-        None => TOOK_IN.to_owned(),
-    };
     let merged =
-        writer.writes()?.take_in(&row.branch, at, &message)?;
+        writer.writes()?.take_in(&row.branch, at, TOOK_IN)?;
     if merged.joined != Joined::UpToDate {
         tell_moved(&mut writer, &row, merged.commit)?;
     }

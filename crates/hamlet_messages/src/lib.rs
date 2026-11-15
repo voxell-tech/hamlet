@@ -26,7 +26,9 @@
 //! - A call's arguments and its answer are each at most [`MOST_CALL`]
 //!   as the host carries them. No host checks it, so the sender does:
 //!   what is larger goes in parts of at most [`MOST_PART`], and the
-//!   taker refuses a part that holds more.
+//!   taker refuses a part that holds more. Three answers are not
+//!   split, and nothing bounds them: [`profile::VersionList`],
+//!   [`profile::PaperList`] and [`library::ShelfList`].
 //!
 //! A taker checks a call in this order:
 //!
@@ -81,8 +83,8 @@
 //! carries an id is matched by the SHA-256 of its request's stored
 //! bytes. The host keeps a profile's [`profile::ProfileInput`]; a
 //! profile and the library keep the answer of each call that carries
-//! an id, and the [`profile::Piece`]s of a save or an offer until its
-//! last part.
+//! an id; and a profile keeps the [`profile::DreamEnd`] of each dream
+//! in the dream's row.
 //!
 //! Until Hamlet's first release a message may change in any way. The
 //! change rewrites its fixtures, and a folder written before it is

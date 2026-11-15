@@ -7,8 +7,8 @@ use hamlet_git::Change;
 use hamlet_messages::bytes::Base64;
 use hamlet_messages::profile::{
     BadPath, Cursor, FileChange, Files, FilesAnswer, Gone, Missing,
-    NotAHire, Piece, Pin, PinAnswer, PinRefusal, Save, SaveAnswer,
-    SaveRefusal, TooLarge,
+    NotAHire, Piece, Pin, PinAnswer, PinRefusal, Protected, Save,
+    SaveAnswer, SaveRefusal, TooLarge,
 };
 use hamlet_messages::workspace::CallId;
 use hamlet_messages::{MOST_CALL, MOST_PART, PIECE_FRAME};
@@ -362,30 +362,93 @@ async fn a_save_in_parts_commits_once_and_its_repeat_answers_the_same()
 }
 
 #[tokio::test(flavor = "multi_thread")]
-async fn a_save_whose_first_parts_a_restart_dropped_commits_nothing()
-{
+async fn a_save_whose_parts_straddle_a_sleep_or_a_restart_commits_them_all()
+ {
     let dir = Scratch::new("profile-save-restart");
     let host = hired(&dir, &[], Arc::default()).await;
     let base = fill(&host, None).await.tip.unwrap();
     let first = save("s3", base, 0, false, vec![whole("a.md", b"a")]);
     let kept = call_as(&host, &agent(), &first).await.unwrap();
     assert_eq!(kept, SaveAnswer::Kept);
+    host.stop(&profile_at(1), ShutdownKind::Sleep)
+        .await
+        .unwrap();
+    assert!(!host.is_running(&profile_at(1)));
+    let second =
+        save("s3", base, 1, false, vec![whole("b.md", b"b")]);
+    let kept = call_as(&host, &agent(), &second).await.unwrap();
+    assert_eq!(kept, SaveAnswer::Kept);
     host.shutdown().await.unwrap();
     drop(host);
 
     let host = open(&dir);
-    let rest = save("s3", base, 1, true, vec![whole("b.md", b"b")]);
-    call_as(&host, &agent(), &rest).await.unwrap_err();
-    assert_eq!(commit_id(tip(&dir, "hires/7").unwrap()), base);
-
-    let again = save("s4", base, 0, true, vec![whole("b.md", b"b")]);
-    let answer = call_as(&host, &agent(), &again).await.unwrap();
+    let rest = save("s3", base, 2, true, vec![whole("c.md", b"c")]);
+    let answer = call_as(&host, &agent(), &rest).await.unwrap();
     let SaveAnswer::Saved { tip: saved } = answer else {
         panic!("{answer:?}");
     };
     assert_eq!(
         given(&dir, saved).keys().collect::<Vec<_>>(),
-        ["b.md"]
+        ["a.md", "b.md", "c.md"]
+    );
+    assert_eq!(
+        last_words(&dir, 1, "hires/7"),
+        ("Kept what it learned".to_owned(), "agent:7".to_owned())
+    );
+    host.shutdown().await.unwrap();
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn a_save_s_last_part_commits_only_when_every_part_before_it_came()
+ {
+    let dir = Scratch::new("profile-save-order");
+    let host = hired(&dir, &[], Arc::default()).await;
+    let base = fill(&host, None).await.tip.unwrap();
+    let part = |call: &str, part: u32, last: bool, path: &str| {
+        save(call, base, part, last, vec![whole(path, b"x")])
+    };
+    let kept = async |asked: Save| {
+        let answer = call_as(&host, &agent(), &asked).await.unwrap();
+        assert_eq!(answer, SaveAnswer::Kept);
+    };
+
+    // The last part before the middle one.
+    kept(part("s5", 0, false, "a.md")).await;
+    call_as(&host, &agent(), &part("s5", 2, true, "c.md"))
+        .await
+        .unwrap_err();
+    // Another call's first part between two parts of one.
+    kept(part("s6", 0, false, "a.md")).await;
+    kept(part("s6", 1, false, "b.md")).await;
+    kept(part("s7", 0, false, "x.md")).await;
+    call_as(&host, &agent(), &part("s6", 2, true, "c.md"))
+        .await
+        .unwrap_err();
+    // A refused middle part.
+    kept(part("s8", 0, false, "a.md")).await;
+    let refused = part("s8", 1, false, "inbox/b.md");
+    let answer = call_as(&host, &agent(), &refused).await.unwrap();
+    assert!(
+        matches!(answer, SaveAnswer::Refused { .. }),
+        "{answer:?}"
+    );
+    call_as(&host, &agent(), &part("s8", 2, true, "c.md"))
+        .await
+        .unwrap_err();
+    assert_eq!(commit_id(tip(&dir, "hires/7").unwrap()), base);
+
+    kept(part("s9", 0, false, "a.md")).await;
+    kept(part("s9", 1, false, "b.md")).await;
+    let answer =
+        call_as(&host, &agent(), &part("s9", 2, true, "c.md"))
+            .await
+            .unwrap();
+    let SaveAnswer::Saved { tip: saved } = answer else {
+        panic!("{answer:?}");
+    };
+    assert_eq!(
+        given(&dir, saved).keys().collect::<Vec<_>>(),
+        ["a.md", "b.md", "c.md"]
     );
     host.shutdown().await.unwrap();
 }
@@ -433,6 +496,15 @@ async fn a_save_onto_a_moved_branch_keeps_both_and_its_side_wins() {
         text(&dir, saved, "saved.md").as_deref(),
         Some("from the agent")
     );
+    commit_main(&dir, &[write("later.md", "later")]);
+    settle(&host, "v2").await;
+    assert_eq!(
+        last_words(&dir, 1, "hires/7"),
+        (
+            "Took in what its scholar learned".to_owned(),
+            "realm".to_owned()
+        )
+    );
     host.shutdown().await.unwrap();
 }
 
@@ -442,7 +514,7 @@ async fn a_save_is_refused_what_it_may_not_change() {
     let host = hired(&dir, &[], Arc::default()).await;
     let base = fill(&host, None).await.tip.unwrap();
     let withheld = |path: &str| {
-        SaveRefusal::from(BadPath::Withheld { path: path.into() })
+        SaveRefusal::from(Protected::Withheld { path: path.into() })
     };
     let not_a_path = |path: &str| {
         SaveRefusal::from(BadPath::NotAPath { path: path.into() })
@@ -619,6 +691,7 @@ async fn a_pin_holds_a_hire_where_main_moves_the_others() {
         missing,
         PinAnswer::Refused {
             why: PinRefusal::from(Missing::NoVersion {
+                profile: ProfileId(1),
                 version: VersionName("v9".into())
             })
         }

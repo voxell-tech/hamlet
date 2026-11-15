@@ -108,6 +108,7 @@ async fn a_hire_s_dream_brings_its_learning_home_and_keeps_its_side()
         id: RequestId::new(),
         path: "memory/edited.md".into(),
         text: "edited".into(),
+        message: None,
         by: By::Chief { chief: 3 },
     };
     call_as(&host, &realm(), &edit).await.unwrap();
@@ -122,6 +123,14 @@ async fn a_hire_s_dream_brings_its_learning_home_and_keeps_its_side()
         }
     );
     assert_eq!(made_by(&dir, MAIN, "dream:5"), 1);
+    let messages = repository(&dir, 1)
+        .first_parents(main, None, 100)
+        .unwrap()
+        .into_iter()
+        .filter(|commit| commit.author == "dream:5")
+        .map(|commit| commit.message)
+        .collect::<Vec<_>>();
+    assert_eq!(messages, ["Dream of hire#7: tidied"]);
     let at = commit_id(main);
     assert_eq!(
         text(&dir, at, "memory/learned.md").as_deref(),
@@ -201,6 +210,10 @@ async fn a_profile_s_dream_is_one_commit_on_main_taken_in_by_unpinned_hires()
         }
     );
     assert_eq!(made_by(&dir, MAIN, "dream:6"), 1);
+    assert_eq!(
+        last_words(&dir, 1, MAIN),
+        ("Dream: tidied".to_owned(), "dream:6".to_owned())
+    );
     assert_eq!(tip(&dir, "hires/7"), Some(main));
     assert_eq!(tip(&dir, "hires/8"), pinned);
     host.shutdown().await.unwrap();

@@ -131,7 +131,7 @@ fn starters(git: &Git<'_>) -> Result<()> {
             })
         })
         .collect::<Vec<_>>();
-    git.commit(MAIN, None, &files, "The starter skills", By::Library)
+    git.commit(MAIN, None, &files, "The starter skills", By::Realm)
         .map(drop)
 }
 

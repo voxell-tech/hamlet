@@ -8,7 +8,7 @@ use std::time::Duration;
 
 use anyhow::Context;
 use hamlet_actor::{Action, Actor, Ctx, Handler, Registry};
-use hamlet_actor_core::{ActorConfig, ActorFactory};
+use hamlet_actor_core::{ActorConfig, ActorFactory, ShutdownKind};
 use hamlet_actor_error::ActorError;
 use hamlet_actors::library;
 use hamlet_host::{Address, Caller, Host, HostOptions, HostRef};
@@ -336,6 +336,11 @@ async fn the_first_start_writes_the_starter_skills_and_a_second_leaves_them()
     let dir = Scratch::new("library-start");
     let host = open(&dir, Arc::default()).await;
     let made = main_tip(&dir);
+    let first = repository(&dir).history(made, 1).unwrap().remove(0);
+    assert_eq!(
+        (first.message.as_str(), first.author.as_str()),
+        ("The starter skills", "realm")
+    );
     assert_eq!(checked_out(&dir), STARTERS);
     let script = dir.join("library/web-search/scripts/search.py");
     assert!(
@@ -688,16 +693,80 @@ async fn an_offer_is_refused_for_each_reason() {
             skill: "tidy".into()
         })
     );
-    // The offerer's own offer again takes the place of the first.
-    let replaced = offered(&host, 7, &tidy("again")).await;
-    assert_ne!(replaced, kept);
+    // The offerer's own offer again waits for the first's verdict.
+    assert_eq!(
+        refused(7, tidy("again")).await,
+        OfferRefusal::Shelves(OnTheShelves::BeingJudged {
+            skill: "tidy".into()
+        })
+    );
     assert_eq!(
         call_as(&host, &realm(), &verdict(kept, true))
             .await
             .unwrap(),
-        Done::Refused {
-            why: VerdictRefusal::NoSuchOffer { offer: kept }
-        }
+        Done::Done
+    );
+    host.shutdown().await.unwrap();
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn an_offer_s_last_part_keeps_it_only_when_every_part_before_it_came()
+ {
+    let dir = Scratch::new("library-offer-order");
+    let host = open(&dir, Arc::default()).await;
+    let part = |call: &str, part: u32, last: bool, path: &str| {
+        let bytes = match path {
+            "SKILL.md" => PAPER.as_bytes(),
+            _ => SCRIPT.as_bytes(),
+        };
+        offer(
+            call,
+            "tidy",
+            part,
+            last,
+            vec![piece(path, 0, bytes, true)],
+        )
+    };
+    let more = async |asked: Offer| {
+        let answer = call_as(&host, &agent(7), &asked).await.unwrap();
+        assert_eq!(answer, OfferAnswer::More);
+    };
+
+    // The last part before the middle one.
+    more(part("o1", 0, false, "SKILL.md")).await;
+    call_as(&host, &agent(7), &part("o1", 2, true, "c.py"))
+        .await
+        .unwrap_err();
+    // A refused middle part.
+    more(part("o2", 0, false, "SKILL.md")).await;
+    let answer =
+        call_as(&host, &agent(7), &part("o2", 1, false, "/b.py"))
+            .await
+            .unwrap();
+    assert!(
+        matches!(answer, OfferAnswer::Refused { .. }),
+        "{answer:?}"
+    );
+    call_as(&host, &agent(7), &part("o2", 2, true, "c.py"))
+        .await
+        .unwrap_err();
+
+    // Parts in order, the library asleep between two of them.
+    more(part("o3", 0, false, "SKILL.md")).await;
+    host.stop(&library_at(), ShutdownKind::Sleep).await.unwrap();
+    more(part("o3", 1, false, "b.py")).await;
+    let kept = offered(&host, 7, &part("o3", 2, true, "c.py")).await;
+    let offers = repository(&dir);
+    let at =
+        offers.tip(&format!("offers/{}", kept.0)).unwrap().unwrap();
+    let paths = offers.files(at).unwrap();
+    let paths =
+        paths.iter().map(|(path, _)| path).collect::<Vec<_>>();
+    assert_eq!(paths, ["SKILL.md", "b.py", "c.py"]);
+    let made = offers.history(at, 1).unwrap().remove(0);
+    assert_eq!(
+        (made.message.as_str(), made.author.as_str()),
+        ("Offered", "realm")
     );
     host.shutdown().await.unwrap();
 }

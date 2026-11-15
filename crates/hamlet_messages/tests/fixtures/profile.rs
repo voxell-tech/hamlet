@@ -4,13 +4,13 @@
 use hamlet_messages::MOST_PART;
 use hamlet_messages::bytes::Base64;
 use hamlet_messages::profile::{
-    BadCommit, BadPath, By, Character, CommitId, Cursor, DreamEnd,
-    DreamId, DreamOf, DreamOpen, Edit, EditRefusal, EndDream, Erase,
-    FileChange, Files, FilesAnswer, Gone, Missing, Moved, NotAHire,
-    Paper, PaperList, Papers, Path, Piece, Pin, PinAnswer,
-    PinRefusal, PrepareDream, Prepared, ProfileInput, Purge,
-    PurgeAnswer, PurgeRefusal, Removal, RemovePath, Revert,
-    RevertAnswer, RevertRefusal, Revision, Save, SaveAnswer,
+    BadCommit, BadPath, By, Character, CommitId, CommitSeen, Cursor,
+    DreamEnd, DreamId, DreamOf, DreamOpen, Edit, EditRefusal,
+    EndDream, Erase, FileChange, Files, FilesAnswer, Gone, Missing,
+    Moved, NotAHire, Paper, PaperList, Papers, Path, Piece, Pin,
+    PinAnswer, PinRefusal, PrepareDream, Prepared, ProfileInput,
+    Protected, Purge, PurgeAnswer, PurgeRefusal, Removal, RemovePath,
+    Revert, RevertAnswer, RevertRefusal, Revision, Save, SaveAnswer,
     SaveRefusal, Sha1, Tag, TagAnswer, TagRefusal, TooLarge, TooLong,
     VersionList, VersionName, VersionSeen, Versions,
 };
@@ -38,6 +38,7 @@ pub fn enums() -> Vec<Cases> {
         tagged::<SaveAnswer>(),
         tagged::<TagRefusal>(),
         tagged::<BadPath>(),
+        tagged::<Protected>(),
         tagged::<TooLong>(),
         tagged::<TooLarge>(),
         tagged::<Missing>(),
@@ -61,6 +62,7 @@ pub fn unions() -> Vec<Union> {
         }),
         union!(EditRefusal {
             Path: BadPath,
+            Protected: Protected,
             Size: TooLong,
         }),
         union!(PurgeRefusal {
@@ -69,6 +71,7 @@ pub fn unions() -> Vec<Union> {
         }),
         union!(SaveRefusal {
             Path: BadPath,
+            Protected: Protected,
             Size: TooLarge,
             Gone: Gone,
         }),
@@ -123,14 +126,21 @@ fn piece(path: &str) -> Piece {
     }
 }
 
+fn no_version() -> Missing {
+    Missing::NoVersion {
+        profile: ProfileId(4),
+        version: version(),
+    }
+}
+
 fn not_a_path() -> BadPath {
     BadPath::NotAPath {
         path: "../secrets".into(),
     }
 }
 
-fn withheld() -> BadPath {
-    BadPath::Withheld {
+fn withheld() -> Protected {
+    Protected::Withheld {
         path: "inbox/letter.md".into(),
     }
 }
@@ -203,6 +213,11 @@ fn the_versions(fixtures: &mut Fixtures) {
                 note: "Before the refactor".into(),
                 by: "chief:1".into(),
             }],
+            commits: vec![CommitSeen {
+                commit: commit(0xab),
+                message: "Edited the memory".into(),
+                by: "chief:1".into(),
+            }],
         },
     );
     let pin = |to| Pin {
@@ -224,9 +239,7 @@ fn the_versions(fixtures: &mut Fixtures) {
         ("follows_main", PinAnswer::FollowsMain),
         (
             "refused.no_version",
-            PinAnswer::refused(
-                Missing::NoVersion { version: version() }.into(),
-            ),
+            PinAnswer::refused(no_version().into()),
         ),
         (
             "refused.no_hire",
@@ -273,9 +286,7 @@ fn the_changes_of_main(fixtures: &mut Fixtures) {
         ("unchanged", RevertAnswer::Unchanged),
         (
             "refused.no_version",
-            RevertAnswer::refused(
-                Missing::NoVersion { version: version() }.into(),
-            ),
+            RevertAnswer::refused(no_version().into()),
         ),
         (
             "refused.no_commit",
@@ -304,7 +315,18 @@ fn the_changes_of_main(fixtures: &mut Fixtures) {
             id: request(),
             path: "CHARACTER.md".into(),
             text: "You write careful tests.".into(),
+            message: None,
             by: chief(),
+        },
+    );
+    fixtures.args(
+        "profile/edit.message",
+        &Edit {
+            id: request(),
+            path: "skills/tidy/SKILL.md".into(),
+            text: String::new(),
+            message: Some("Took out the tidy skill".into()),
+            by: By::Agent { agent: AGENT },
         },
     );
     for (arm, answer) in [
@@ -340,7 +362,6 @@ fn the_changes_of_main(fixtures: &mut Fixtures) {
             "refused.not_a_path",
             PurgeAnswer::refused(not_a_path().into()),
         ),
-        ("refused.withheld", PurgeAnswer::refused(withheld().into())),
         (
             "refused.dreaming",
             PurgeAnswer::refused(
@@ -425,7 +446,7 @@ fn the_dreams(fixtures: &mut Fixtures) {
         ("dreamt.main_unchanged", DreamEnd::Dreamt { main: None }),
         ("nothing", DreamEnd::Nothing),
     ] {
-        fixtures.answer(&format!("profile/end_dream.{arm}"), &answer);
+        fixtures.kept(&format!("profile/end_dream.{arm}"), &answer);
     }
 }
 
@@ -527,17 +548,6 @@ fn the_files_of_a_hire(fixtures: &mut Fixtures) {
     ] {
         fixtures.kept(&format!("profile/save.{arm}"), &answer);
     }
-    fixtures.stored("profile.piece", &piece("memory/tests.md"));
-    fixtures.stored(
-        "profile.piece.executable",
-        &Piece {
-            path: "skills/run/run.sh".into(),
-            offset: 65536,
-            bytes: Base64(b"exit 0\n".to_vec()),
-            last: false,
-            executable: true,
-        },
-    );
 }
 
 fn the_calls_on_an_agent(fixtures: &mut Fixtures) {

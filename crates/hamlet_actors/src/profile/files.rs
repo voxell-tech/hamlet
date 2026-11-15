@@ -1,17 +1,17 @@
 //! The calls a hire's agent makes on its own branch: its files in
 //! parts, and a save of what its filesystem changed, in parts. Also
-//! the `save` table, the parts of a save whose last part has not
-//! come.
+//! the `save` and `save_call` tables, the parts of a save whose last
+//! part has not come.
 
 use std::collections::BTreeMap;
 
 use anyhow::{Context, Result, bail, ensure};
-use hamlet_actor::BindParam;
+use hamlet_actor::{BindParam, ColumnValue};
 use hamlet_git::{BlobId, Entry};
 use hamlet_messages::bytes::Base64;
 use hamlet_messages::profile::{
     BadPath, Cursor, FileChange, Files, FilesAnswer, Gone, Path,
-    Piece, Save, SaveAnswer, SaveRefusal, TooLarge,
+    Piece, Protected, Save, SaveAnswer, SaveRefusal, TooLarge,
 };
 use hamlet_messages::workspace::{AgentNumber, CallId};
 use hamlet_messages::{MOST_PART, PIECE_FRAME};
@@ -23,14 +23,16 @@ use crate::repo::parts::{self, Kept, joined};
 use crate::repo::store::{self, Rows};
 use crate::repo::{Before, Call, Ended, Look, Reply, Takes};
 
-/// Removes the parts of every save a stop cut off, at the profile's
-/// start. Their agents save again under a new call.
-pub(super) const CUT_OFF: &str = "DELETE FROM save";
-
 struct Table(());
 
 impl store::Table for Table {
     const NAME: &'static str = "save";
+}
+
+struct Calls(());
+
+impl store::Table for Calls {
+    const NAME: &'static str = "save_call";
 }
 
 /// Whether `path` is one an agent's filesystem is never given and
@@ -247,7 +249,7 @@ fn fits(changes: &[FileChange]) -> Result<(), SaveRefusal> {
         pieces.clone().find(|(path, _)| withheld(path))
     {
         let path = path.to_owned();
-        return Err(BadPath::Withheld { path }.into());
+        return Err(Protected::Withheld { path }.into());
     }
     if size > MOST_PART {
         let most =
@@ -257,7 +259,8 @@ fn fits(changes: &[FileChange]) -> Result<(), SaveRefusal> {
     Ok(())
 }
 
-/// Keeps one part of a save as rows. The last one commits every part
+/// Keeps one part of a save as rows, in order: the first part of a
+/// call drops the agent's other call. The last one commits every part
 /// of the call onto `base` as one commit and joins it to the hire's
 /// branch, the save's side winning.
 fn save(unit: Before<'_, Profile, Save>) -> Result<Ended<Save>> {
@@ -275,12 +278,11 @@ fn save(unit: Before<'_, Profile, Save>) -> Result<Ended<Save>> {
     if !git.has(at)? || !git.holds(&branch, at)? {
         return unit.refuse(Gone::CommitGone { commit: base }.into());
     }
-    // A part's earlier parts are kept answers, but their rows went
-    // with a stop: committing the rest would lose them.
-    if part > 0 && !begun(&unit.rows(Table(())), agent, &call)? {
+    // Committing the rest without an earlier part would lose it.
+    if part != next(&unit.rows(Calls(())), agent, &call)? {
         bail!(
-            "the parts before part {part} of the save {} are gone; \
-             save again under a new call",
+            "the parts before part {part} of the save {} did not \
+             all come; save again under a new call",
             call.0
         );
     }
@@ -292,6 +294,13 @@ fn save(unit: Before<'_, Profile, Save>) -> Result<Ended<Save>> {
             of_call(agent, &call),
         )?;
     }
+    let mut row = of_call(agent, &call);
+    row.push(BindParam::Integer(i64::from(part) + 1));
+    writer.table(Calls(())).execute(
+        "INSERT OR REPLACE INTO save_call (agent, call, next) \
+         VALUES (?1, ?2, ?3)",
+        row,
+    )?;
     for change in changes {
         let (path, offset, bytes, last, executable) = match change {
             FileChange::Write(piece) => (
@@ -334,6 +343,10 @@ fn save(unit: Before<'_, Profile, Save>) -> Result<Ended<Save>> {
         "DELETE FROM save WHERE agent = ?1 AND call = ?2",
         of_call(agent, &call),
     )?;
+    writer.table(Calls(())).execute(
+        "DELETE FROM save_call WHERE agent = ?1",
+        vec![BindParam::Integer(i64::from(agent.0))],
+    )?;
     writer.kept(SaveAnswer::Saved {
         tip: commit_id(tip)?,
     })
@@ -346,16 +359,26 @@ fn of_call(agent: AgentNumber, call: &CallId) -> Vec<BindParam> {
     ]
 }
 
-fn begun(
-    rows: &Rows<'_, Table>,
+/// The part of `call` the agent's save takes next: 0 for a call it
+/// has not begun.
+fn next(
+    rows: &Rows<'_, Calls>,
     agent: AgentNumber,
     call: &CallId,
-) -> Result<bool> {
+) -> Result<u32> {
     let found = rows.select(
-        "SELECT 1 FROM save WHERE agent = ?1 AND call = ?2 LIMIT 1",
+        "SELECT next FROM save_call WHERE agent = ?1 AND call = ?2",
         of_call(agent, call),
     )?;
-    Ok(!found.is_empty())
+    match found.first().map(Vec::as_slice) {
+        None => Ok(0),
+        Some([ColumnValue::Integer(next)]) => {
+            Ok(u32::try_from(*next)?)
+        }
+        Some(row) => {
+            bail!("a save_call row of another shape: {row:?}")
+        }
+    }
 }
 
 fn pieces(

@@ -146,7 +146,8 @@ pub struct Path {
 
 /// What `profile/<n>` is created with. The host keeps it and gives it
 /// at every start, which makes the repository from it unless the
-/// repository exists or was erased.
+/// repository exists or was erased. A character of more than 4000
+/// characters fails the start, as no input does.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum ProfileInput {
@@ -158,14 +159,17 @@ pub enum ProfileInput {
 }
 
 family!(BadPath {
-    #[error("`{path}` is not a relative path inside the profile")]
+    #[error("there is no file `{path}` here")]
     NotAPath { path: String },
+});
+
+family!(Protected {
     #[error("`{path}` is not a file this call may change")]
     Withheld { path: String },
 });
 
 family!(TooLong {
-    #[error("a character holds at most {most} characters")]
+    #[error("a character may have at most {most} characters")]
     CharacterTooLong { most: u32 },
 });
 
@@ -175,8 +179,8 @@ family!(TooLarge {
 });
 
 family!(Missing {
-    #[error("there is no version `{}`", version.0)]
-    NoVersion { version: VersionName },
+    #[error("`scholar#{}` has no version `{}`", profile.0, version.0)]
+    NoVersion { profile: ProfileId, version: VersionName },
 });
 
 family!(NotAHire {
@@ -207,9 +211,18 @@ family!(DreamOpen {
 
 union!(PinRefusal { Missing(Missing), Hire(NotAHire) });
 union!(RevertRefusal { Missing(Missing), Commit(BadCommit) });
-union!(EditRefusal { Path(BadPath), Size(TooLong) });
+union!(EditRefusal {
+    Path(BadPath),
+    Protected(Protected),
+    Size(TooLong),
+});
 union!(PurgeRefusal { Path(BadPath), Dream(DreamOpen) });
-union!(SaveRefusal { Path(BadPath), Size(TooLarge), Gone(Gone) });
+union!(SaveRefusal {
+    Path(BadPath),
+    Protected(Protected),
+    Size(TooLarge),
+    Gone(Gone),
+});
 
 /// Makes the branch `name` when the profile does not have it. A
 /// repeat finds the branch and answers the same.
@@ -231,9 +244,13 @@ pub struct Tag {
 }
 
 family!(TagRefusal {
-    #[error("{} is not a version's name", version.0)]
+    #[error(
+        "`{}` is not a version's name: use at most 32 letters, digits, \
+         dots and hyphens",
+        version.0
+    )]
     BadName { version: VersionName },
-    #[error("the version {} is taken", version.0)]
+    #[error("the version `{}` exists already; choose another", version.0)]
     Taken { version: VersionName },
     #[error("the profile has no such commit")]
     NoSuchCommit,
@@ -303,12 +320,16 @@ message!(Purge, "purge", Realm => Profile, PurgeAnswer, |purge| {
     Repeat::Id(purge.id.as_str())
 });
 
-/// Writes one file on `main`: the character, or a file of memory.
+/// Writes one file on `main`, or removes it when `text` is empty. A
+/// chief writes the character or a file of memory; an agent writes
+/// any file, under its own `message`.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Edit {
     pub id: RequestId,
     pub path: String,
     pub text: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub message: Option<String>,
     pub by: By,
 }
 message!(Edit, "edit", Realm => Profile, Done<EditRefusal>, |edit| {
@@ -371,13 +392,28 @@ message!(EndDream, "end_dream", Realm => Profile, DreamEnd, |_| {
     Repeat::Finds
 });
 
-/// Reads the profile's versions.
+/// Reads the profile's versions and the latest commits of `main`.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Versions;
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct VersionList {
     pub versions: Vec<VersionSeen>,
+    /// The last [`MOST_COMMITS_SEEN`] commits of `main`, its tip
+    /// first.
+    pub commits: Vec<CommitSeen>,
+}
+
+/// The most commits a [`VersionList`] holds.
+pub const MOST_COMMITS_SEEN: usize = 12;
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct CommitSeen {
+    pub commit: CommitId,
+    /// The first line of its message.
+    pub message: String,
+    /// Its author, as [`VersionSeen::by`] names one.
+    pub by: String,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -466,9 +502,10 @@ pub enum FileChange {
 }
 
 /// One part of what the caller's filesystem changed since `base`, the
-/// commit it holds. The parts of one save share `call` and count
-/// `part` from 0. The `last` one commits them all on `base` as one
-/// commit and joins it to the branch, the hire's side winning.
+/// commit it holds. The parts of one save share `call`, count `part`
+/// from 0 and come in order: a part whose earlier part was not kept
+/// fails. The `last` one commits them all on `base` as one commit and
+/// joins it to the branch, the hire's side winning.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Save {
     pub call: CallId,

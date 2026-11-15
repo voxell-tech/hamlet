@@ -181,6 +181,7 @@ async fn on(
                 id: request_id()?,
                 path: path.clone(),
                 text: text.join(" "),
+                message: None,
                 by: CHIEF,
             };
             shown(host, &realm, &at, &edit).await
@@ -459,7 +460,7 @@ impl Handler<Moved> for StandIn {
         ctx: Ctx<Self>,
         moved: Moved,
     ) -> Result<()> {
-        told(&ctx, Moved::NAME, &moved.tip.0)
+        told(&ctx, Moved::NAME, &moved.tip.0.to_string())
     }
 }
 

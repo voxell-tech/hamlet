@@ -3,8 +3,8 @@
 
 use hamlet_messages::profile::{
     BadCommit, BadPath, Edit, EditRefusal, Erase, Missing, Paper,
-    PaperList, Papers, Pin, Purge, PurgeAnswer, Revert, RevertAnswer,
-    RevertRefusal, Revision, TooLong,
+    PaperList, Papers, Pin, Protected, Purge, PurgeAnswer, Revert,
+    RevertAnswer, RevertRefusal, Revision, TooLong,
 };
 use hamlet_messages::realm::Done;
 
@@ -34,6 +34,7 @@ fn edit(id: &RequestId, path: &str, text: &str) -> Edit {
         id: id.clone(),
         path: path.into(),
         text: text.into(),
+        message: None,
         by: chief(),
     }
 }
@@ -112,7 +113,10 @@ async fn a_revert_is_refused_a_commit_main_does_not_hold() {
             Revision::Version {
                 version: v9.clone(),
             },
-            RevertRefusal::from(Missing::NoVersion { version: v9 }),
+            RevertRefusal::from(Missing::NoVersion {
+                profile: ProfileId(1),
+                version: v9,
+            }),
         ),
         (
             Revision::Commit { commit: unknown },
@@ -222,14 +226,14 @@ async fn an_edit_commits_once_on_main_and_refuses_what_it_may_not_write()
         ),
         (
             edit(&RequestId::new(), "notes.md", "a"),
-            BadPath::Withheld {
+            Protected::Withheld {
                 path: path("notes.md"),
             }
             .into(),
         ),
         (
             edit(&RequestId::new(), "inbox/a.md", "a"),
-            BadPath::Withheld {
+            Protected::Withheld {
                 path: path("inbox/a.md"),
             }
             .into(),
@@ -248,6 +252,81 @@ async fn an_edit_commits_once_on_main_and_refuses_what_it_may_not_write()
         assert_eq!(answer, Done::Refused { why });
     }
     assert_eq!(main_tip(&dir), main);
+    host.shutdown().await.unwrap();
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn a_chief_s_edits_and_reverts_carry_today_s_words() {
+    let dir = Scratch::new("profile-edit-words");
+    let host = made(&dir).await;
+    let chief = || "chief:3".to_owned();
+    edited(&host, "CHARACTER.md", "A bolder reader.").await;
+    assert_eq!(
+        last_words(&dir, 1, MAIN),
+        ("Edited the character".to_owned(), chief())
+    );
+    let bolder = main_tip(&dir);
+    edited(&host, "memory/a.md", "a").await;
+    assert_eq!(
+        last_words(&dir, 1, MAIN),
+        ("Edited the memory".to_owned(), chief())
+    );
+
+    // Empty text removes a memory file, and one that is not there.
+    edited(&host, "memory/a.md", "").await;
+    let main = main_tip(&dir);
+    assert_eq!(text(&dir, commit_id(main), "memory/a.md"), None);
+    assert_eq!(
+        last_words(&dir, 1, MAIN),
+        ("Edited the memory".to_owned(), chief())
+    );
+    edited(&host, "memory/never.md", "").await;
+
+    let short = &bolder.to_string()[..8];
+    let asked = revert(&RequestId::new(), of_commit(bolder));
+    let answer = call_as(&host, &realm(), &asked).await.unwrap();
+    assert!(matches!(answer, RevertAnswer::Reverted { .. }));
+    assert_eq!(
+        last_words(&dir, 1, MAIN),
+        (format!("Reverted {short}:"), chief())
+    );
+    host.shutdown().await.unwrap();
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn the_hand_s_edit_writes_any_file_and_empty_text_removes_it() {
+    let dir = Scratch::new("profile-edit-hand");
+    let host = made(&dir).await;
+    let hand = |path: &str, text: &str| Edit {
+        by: By::Agent {
+            agent: AgentNumber(1),
+        },
+        ..edit(&RequestId::new(), path, text)
+    };
+    let words =
+        ("Edited by the Hand".to_owned(), "agent:1".to_owned());
+    for path in ["skills/tidy/SKILL.md", "notes.md"] {
+        let asked = hand(path, "written");
+        let done = call_as(&host, &realm(), &asked).await.unwrap();
+        assert_eq!(done, Done::Done);
+        let main = commit_id(main_tip(&dir));
+        assert_eq!(
+            text(&dir, main, path).as_deref(),
+            Some("written")
+        );
+        assert_eq!(last_words(&dir, 1, MAIN), words);
+    }
+    let asked = Edit {
+        message: Some("Took out the tidy skill".into()),
+        ..hand("skills/tidy/SKILL.md", "")
+    };
+    call_as(&host, &realm(), &asked).await.unwrap();
+    let main = commit_id(main_tip(&dir));
+    assert_eq!(text(&dir, main, "skills/tidy/SKILL.md"), None);
+    assert_eq!(
+        last_words(&dir, 1, MAIN),
+        ("Took out the tidy skill".to_owned(), "agent:1".to_owned())
+    );
     host.shutdown().await.unwrap();
 }
 

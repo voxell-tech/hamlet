@@ -15,16 +15,16 @@ use std::time::Duration;
 
 use anyhow::Context;
 use hamlet_actor::{Action, Actor, Ctx, Handler, Registry};
-use hamlet_actor_core::{ActorConfig, ActorFactory};
+use hamlet_actor_core::{ActorConfig, ActorFactory, ShutdownKind};
 use hamlet_actor_error::ActorError;
 use hamlet_actors::profile;
 use hamlet_git::{Change, MAIN};
 use hamlet_host::{Address, Caller, Host, HostOptions, HostRef};
 use hamlet_messages::address::{self, Party};
 use hamlet_messages::profile::{
-    Branch, By, Character, CommitId, Moved, ProfileInput, Removal,
-    RemovePath, Sha1, Tag, TagAnswer, TagRefusal, VersionList,
-    VersionName, VersionSeen, Versions,
+    Branch, By, Character, CommitId, CommitSeen, Moved, ProfileInput,
+    Removal, RemovePath, Sha1, Tag, TagAnswer, TagRefusal,
+    VersionList, VersionName, VersionSeen, Versions,
 };
 use hamlet_messages::realm::ProfileId;
 use hamlet_messages::workspace::AgentNumber;
@@ -290,6 +290,15 @@ fn commit_main(
         .unwrap()
 }
 
+/// The message and the author of the tip of `branch` in profile
+/// `id`.
+fn last_words(dir: &Path, id: u32, branch: &str) -> (String, String) {
+    let repository = repository(dir, id);
+    let tip = repository.tip(branch).unwrap().unwrap();
+    let commit = repository.history(tip, 1).unwrap().remove(0);
+    (commit.message, commit.author)
+}
+
 fn write(path: &str, bytes: impl Into<Vec<u8>>) -> Change {
     Change::Write {
         path: path.into(),
@@ -371,17 +380,16 @@ async fn a_tag_is_kept_and_its_repeat_answered_from_the_marker() {
         call_as(&host, &realm(), &tag(&id, "v1", "another note"))
             .await;
     assert_eq!(error_code(other), "message.id_reused");
-    let listed = call_as(&host, &realm(), &Versions).await.unwrap();
+    let listed: VersionList =
+        call_as(&host, &realm(), &Versions).await.unwrap();
     assert_eq!(
-        listed,
-        VersionList {
-            versions: vec![VersionSeen {
-                version: VersionName("v1".into()),
-                commit: tip,
-                note: "first".into(),
-                by: "chief:3".into(),
-            }]
-        }
+        listed.versions,
+        [VersionSeen {
+            version: VersionName("v1".into()),
+            commit: tip,
+            note: "first".into(),
+            by: "chief:3".into(),
+        }]
     );
     host.shutdown().await.unwrap();
 }
@@ -562,6 +570,85 @@ async fn a_profile_started_without_its_input_fails_and_makes_nothing()
 }
 
 #[tokio::test(flavor = "multi_thread")]
+async fn a_profile_made_with_a_character_too_long_fails_and_makes_nothing()
+ {
+    let dir = Scratch::new("profile-long-character");
+    let host = open(&dir);
+    let most = ProfileInput::Character {
+        text: "a".repeat(4000),
+    };
+    create(&host, 8, &most).await.unwrap();
+    let long = ProfileInput::Character {
+        text: "a".repeat(4001),
+    };
+    let made = create(&host, 9, &long).await.unwrap_err();
+    let reason =
+        format!("{:?}", ActorError::extract(&made).metadata());
+    assert!(
+        reason
+            .contains("a character may have at most 4000 characters"),
+        "{reason}"
+    );
+    assert!(!dir.join("scholars/9.git").exists());
+    assert_eq!(
+        last_words(&dir, 8, MAIN),
+        ("Made the scholar".to_owned(), "realm".to_owned())
+    );
+    host.shutdown().await.unwrap();
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn the_versions_list_main_s_latest_commits_by_their_first_line()
+{
+    let dir = Scratch::new("profile-versions-commits");
+    let host = made(&dir).await;
+    for n in 1..=13 {
+        let by = hamlet_git::Author {
+            name: "chief:3",
+            at: 5000 + n,
+        };
+        let change = write(&format!("memory/{n}.md"), "x");
+        repository(&dir, 1)
+            .commit(MAIN, &[change], &format!("Line {n}\nmore"), by)
+            .unwrap();
+    }
+    let listed: VersionList =
+        call_as(&host, &realm(), &Versions).await.unwrap();
+    assert_eq!(listed.commits.len(), 12);
+    assert_eq!(
+        listed.commits[0],
+        CommitSeen {
+            commit: commit_id(main_tip(&dir)),
+            message: "Line 13".into(),
+            by: "chief:3".into(),
+        }
+    );
+    assert_eq!(listed.commits[11].message, "Line 2");
+    host.shutdown().await.unwrap();
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn a_tag_of_a_version_that_exists_is_refused_once_main_moved() {
+    let dir = Scratch::new("profile-tag-again");
+    let host = made(&dir).await;
+    let first = tag(&RequestId::new(), "v1", "");
+    let tagged = call_as(&host, &realm(), &first).await.unwrap();
+    assert!(matches!(tagged, TagAnswer::Tagged { .. }), "{tagged:?}");
+    commit_main(&dir, &[write("memory/a.md", "a")]);
+
+    let again = tag(&RequestId::new(), "v1", "");
+    assert_eq!(
+        call_as(&host, &realm(), &again).await.unwrap(),
+        TagAnswer::Refused {
+            why: TagRefusal::Taken {
+                version: VersionName("v1".into())
+            }
+        }
+    );
+    host.shutdown().await.unwrap();
+}
+
+#[tokio::test(flavor = "multi_thread")]
 async fn a_profile_keeps_its_repository_under_its_own_number() {
     let dir = Scratch::new("profile-own");
     let host = open(&dir);
@@ -607,6 +694,10 @@ async fn a_fork_starts_from_the_files_of_another_profile_s_commit() {
         [("CHARACTER.md".to_owned(), CHARACTER.as_bytes().to_vec())]
     );
     assert_eq!(forked.history(main, 10).unwrap().len(), 1);
+    assert_eq!(
+        last_words(&dir, 2, MAIN),
+        ("Forked".to_owned(), "realm".to_owned())
+    );
     host.shutdown().await.unwrap();
 }
 

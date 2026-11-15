@@ -6,27 +6,26 @@ use anyhow::{Context, Result};
 use hamlet_git::{Change, Joined, MAIN};
 use hamlet_messages::address::Agent;
 use hamlet_messages::profile::{
-    BadCommit, BadPath, DreamId, DreamOpen, Edit, EditRefusal, Erase,
-    Missing, Paper, PaperList, Papers, Path, Purge, PurgeAnswer,
-    Removal, RemovePath, Revert, RevertAnswer, RevertRefusal,
-    Revision, Tag, TagAnswer, TagRefusal, TooLong, VersionList,
-    VersionName, VersionSeen, Versions,
+    BadCommit, BadPath, By as Who, CommitSeen, DreamId, DreamOpen,
+    Edit, EditRefusal, Erase, MOST_COMMITS_SEEN, Missing, Paper,
+    PaperList, Papers, Path, Protected, Purge, PurgeAnswer, Removal,
+    RemovePath, Revert, RevertAnswer, RevertRefusal, Revision, Tag,
+    TagAnswer, TagRefusal, TooLong, VersionList, VersionName,
+    VersionSeen, Versions,
 };
-use hamlet_messages::realm::Done;
+use hamlet_messages::realm::{Done, ProfileId};
 use hamlet_messages::workspace::AgentNumber;
 use hamlet_os::fs::TreePath;
 
 use super::{
-    CHARACTER, Profile, commit_id, dreams, git_commit, hires,
+    CHARACTER, MOST_CHARACTER, Profile, commit_id, dreams,
+    git_commit, hires,
 };
 use crate::library;
 use crate::repo::git::{By, Reads};
 use crate::repo::{
     Before, Call, Checked, Ended, Look, Reply, Takes, parts,
 };
-
-/// The most characters a character holds.
-const MOST_CHARACTER: u32 = 4000;
 
 const MEMORY: &str = "memory/";
 
@@ -80,12 +79,12 @@ fn tag(unit: Before<'_, Profile, Tag>) -> Result<Ended<Tag>> {
         return unit.refuse(TagRefusal::NoSuchCommit);
     };
     match seen {
-        // Its own tag, from a run a kill cut off before the marker.
-        // With no `at`, `main` may have moved since.
+        // Its own tag, from a run a kill cut off before the marker:
+        // one at another commit, `main` moved since, is another's.
         Some(seen)
             if seen.note == tag.note
                 && seen.by == by.name()
-                && tag.at.is_none_or(|_| seen.commit == at) =>
+                && seen.commit == at =>
         {
             let tagged = TagAnswer::Tagged {
                 version: tag.version,
@@ -125,8 +124,25 @@ impl Takes<Versions> for Profile {
 fn versions(
     look: &Look<'_, Profile, Versions>,
 ) -> Result<VersionList> {
-    let versions = look
-        .git()?
+    let git = look.git()?;
+    let main = git.tip(MAIN)?.context("a profile has a main")?;
+    let commits = git
+        .history(main, MOST_COMMITS_SEEN)?
+        .into_iter()
+        .map(|commit| {
+            Ok(CommitSeen {
+                commit: commit_id(commit.id)?,
+                message: commit
+                    .message
+                    .lines()
+                    .next()
+                    .unwrap_or_default()
+                    .to_owned(),
+                by: commit.author,
+            })
+        })
+        .collect::<Result<_>>()?;
+    let versions = git
         .versions()?
         .into_iter()
         .map(|v| {
@@ -138,32 +154,34 @@ fn versions(
             })
         })
         .collect::<Result<_>>()?;
-    Ok(VersionList { versions })
+    Ok(VersionList { versions, commits })
 }
 
 impl Takes<Revert> for Profile {
     async fn take(call: Call<Self, Revert>) -> Result<Reply<Revert>> {
-        call.once(revert).await
+        let own = call.owner().own.0;
+        call.once(move |unit| revert(unit, own)).await
     }
 }
 
 /// Undoes a commit of `main` with one commit on `main`, the tip
-/// winning clashes.
+/// winning clashes. `own` is the profile's number.
 fn revert(
     unit: Before<'_, Profile, Revert>,
+    own: ProfileId,
 ) -> Result<Ended<Revert>> {
     let Revert {
         what, reason, by, ..
     } = unit.message().clone();
-    let commit = match undone(unit.git()?, &what)? {
+    let commit = match undone(unit.git()?, &what, own)? {
         Ok(commit) => commit,
         Err(why) => return unit.refuse(why),
     };
-    let short = &commit.to_string()[..12];
-    let message = match reason {
-        Some(reason) => format!("Reverted {short}: {reason}"),
-        None => format!("Reverted {short}"),
-    };
+    let message = format!(
+        "Reverted {}: {}",
+        &commit.to_string()[..8],
+        reason.unwrap_or_default()
+    );
     let writer = unit.write();
     let merged =
         writer.writes()?.revert(MAIN, commit, &message, by.into())?;
@@ -184,6 +202,7 @@ fn revert(
 fn undone(
     git: &Reads,
     what: &Revision,
+    profile: ProfileId,
 ) -> Result<Result<hamlet_git::CommitId, RevertRefusal>> {
     let commit = match what {
         Revision::Version { version } => {
@@ -191,9 +210,8 @@ fn undone(
                 Some(commit) => commit,
                 None => {
                     let version = version.clone();
-                    return Ok(Err(
-                        Missing::NoVersion { version }.into()
-                    ));
+                    let why = Missing::NoVersion { profile, version };
+                    return Ok(Err(why.into()));
                 }
             }
         }
@@ -217,37 +235,61 @@ fn undone(
 
 impl Takes<Edit> for Profile {
     async fn take(call: Call<Self, Edit>) -> Result<Reply<Edit>> {
-        if let Err(why) = editable(&call.path, &call.text) {
+        if let Err(why) = editable(&call) {
             return call.refuse(why).await;
         }
         call.once(edit).await
     }
 }
 
-fn editable(path: &str, text: &str) -> Result<(), EditRefusal> {
+/// A chief edits the character and memory; an agent, the Hand, any
+/// file.
+fn editable(edit: &Edit) -> Result<(), EditRefusal> {
+    let path = &edit.path;
     if !parts::is_file_path(path) {
-        let path = path.to_owned();
+        let path = path.clone();
         return Err(BadPath::NotAPath { path }.into());
     }
-    if path != CHARACTER && !path.starts_with(MEMORY) {
-        let path = path.to_owned();
-        return Err(BadPath::Withheld { path }.into());
+    let chief = matches!(edit.by, Who::Chief { .. });
+    if chief && path != CHARACTER && !path.starts_with(MEMORY) {
+        let path = path.clone();
+        return Err(Protected::Withheld { path }.into());
     }
     let most = MOST_CHARACTER;
-    if path == CHARACTER && text.chars().count() > most as usize {
+    if path == CHARACTER && edit.text.chars().count() > most as usize
+    {
         return Err(TooLong::CharacterTooLong { most }.into());
     }
     Ok(())
 }
 
+/// Writes the file, or removes it on empty text, but for a chief's
+/// character, which is written empty.
 fn edit(unit: Before<'_, Profile, Edit>) -> Result<Ended<Edit>> {
-    let Edit { path, text, by, .. } = unit.message().clone();
+    let Edit {
+        path,
+        text,
+        message,
+        by,
+        ..
+    } = unit.message().clone();
     let main =
         unit.git()?.tip(MAIN)?.context("a profile has a main")?;
-    let message = format!("Edited {path}");
-    let change = Change::Write {
-        path,
-        bytes: text.into_bytes(),
+    let (words, removes) = match by {
+        Who::Chief { .. } if path == CHARACTER => {
+            ("Edited the character", false)
+        }
+        Who::Chief { .. } => ("Edited the memory", text.is_empty()),
+        Who::Agent { .. } => ("Edited by the Hand", text.is_empty()),
+    };
+    let message = message.unwrap_or_else(|| words.to_owned());
+    let change = if removes {
+        Change::Remove { path }
+    } else {
+        Change::Write {
+            path,
+            bytes: text.into_bytes(),
+        }
     };
     let writer = unit.write();
     writer.writes()?.commit(

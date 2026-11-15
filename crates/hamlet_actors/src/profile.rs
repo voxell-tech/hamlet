@@ -9,7 +9,7 @@ mod versions;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
-use anyhow::{Context, Result};
+use anyhow::{Context, Result, ensure};
 use hamlet_actor::{Actor, Ctx, Handler, Registry};
 use hamlet_actor_core::{ActorConfig, ActorFactory};
 use hamlet_git::{Change, MAIN};
@@ -37,8 +37,11 @@ const REPOSITORIES: &str = "scholars";
 
 const CHARACTER: &str = "CHARACTER.md";
 
+/// The most characters a character holds.
+const MOST_CHARACTER: u32 = 4000;
+
 /// The message of a profile's first commit.
-const MADE: &str = "Made the profile";
+const MADE: &str = "Made the scholar";
 
 /// The factory of the `profile` kind.
 pub fn factory() -> ActorFactory {
@@ -58,6 +61,7 @@ pub fn factory() -> ActorFactory {
 
 pub(crate) struct Profile {
     repo: Repo,
+    own: address::Profile,
 }
 
 #[async_trait::async_trait]
@@ -86,6 +90,13 @@ impl Actor for Profile {
         let input = ctx
             .input()?
             .context("a profile is created with its input")?;
+        if let ProfileInput::Character { text } = &input {
+            ensure!(
+                text.chars().count() <= MOST_CHARACTER as usize,
+                "a character may have at most {MOST_CHARACTER} \
+                 characters"
+            );
+        }
         let own = address::Profile::own(ctx)?;
         let repositories =
             HostRef::of(ctx.inner())?.folder().join(REPOSITORIES);
@@ -98,8 +109,7 @@ impl Actor for Profile {
             |_| Ok(()),
         )
         .await?;
-        ctx.sql().exec(files::CUT_OFF).await?;
-        Ok(Self { repo })
+        Ok(Self { repo, own })
     }
 }
 
@@ -121,19 +131,17 @@ fn first_commit(
                 path: CHARACTER.to_owned(),
                 bytes: text.clone().into_bytes(),
             };
-            git.commit(MAIN, None, &[character], MADE, By::Profile)?;
+            git.commit(MAIN, None, &[character], MADE, By::Realm)?;
         }
         ProfileInput::Fork { profile, at } => {
             let source =
                 repository(repositories, address::Profile(*profile));
-            let message =
-                format!("Forked from profile {}", profile.0);
             git.start_from(
                 MAIN,
                 &source,
                 git_commit(*at)?,
-                &message,
-                By::Profile,
+                "Forked",
+                By::Realm,
             )?;
         }
     }
@@ -276,6 +284,7 @@ mod tests {
                 id: RequestId::new(),
                 path: "memory/a.md".into(),
                 text: "a".into(),
+                message: None,
                 by: By::Chief { chief: 3 },
             }),
             args(&Purge {

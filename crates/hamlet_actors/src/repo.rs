@@ -207,6 +207,11 @@ where
     M: Message,
     M::From: Send + Sync + 'static,
 {
+    /// The actor that takes the call.
+    pub fn owner(&self) -> &A {
+        &self.owner
+    }
+
     /// Answers `refused` to a request whose shape is refused, after
     /// its caller is admitted and before its id is looked at.
     pub async fn refuse(
@@ -881,8 +886,7 @@ mod tests {
             path: "a.md".into(),
             bytes: b"a".to_vec(),
         };
-        git.commit(MAIN, None, &[file], "made", By::Profile)
-            .map(drop)
+        git.commit(MAIN, None, &[file], "made", By::Realm).map(drop)
     }
 
     #[async_trait::async_trait]

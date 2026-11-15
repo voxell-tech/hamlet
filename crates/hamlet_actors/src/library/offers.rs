@@ -48,13 +48,16 @@ struct Row {
     agent: AgentNumber,
     skill: String,
     reason: String,
+    /// The part that comes next.
+    next: u32,
     /// The commit `offers/<id>` names, once its last part came.
     commit: Option<hamlet_git::CommitId>,
     /// `None` until it is judged.
     accepted: Option<bool>,
 }
 
-const COLUMNS: &str = "id, agent, skill, reason, commit_id, accepted";
+const COLUMNS: &str =
+    "id, agent, skill, reason, next, commit_id, accepted";
 
 impl Row {
     fn of(row: &[ColumnValue]) -> Result<Self> {
@@ -64,6 +67,7 @@ impl Row {
                 ColumnValue::Integer(agent),
                 ColumnValue::Text(skill),
                 ColumnValue::Text(reason),
+                ColumnValue::Integer(next),
                 commit,
                 accepted,
             ] => Ok(Self {
@@ -71,6 +75,7 @@ impl Row {
                 agent: AgentNumber(u32::try_from(*agent)?),
                 skill: skill.clone(),
                 reason: reason.clone(),
+                next: u32::try_from(*next)?,
                 commit: match commit {
                     ColumnValue::Text(commit) => Some(
                         commit.parse().map_err(anyhow::Error::msg)?,
@@ -166,10 +171,9 @@ impl Takes<Offer> for Library {
     }
 }
 
-/// Keeps one part. The first part of a call drops the caller's other
-/// offers that have no verdict and either never came whole or offer
-/// the same skill. The last commits the offer's files to
-/// `offers/<offer>`.
+/// Keeps one part, in order. The first part of a call drops the
+/// caller's other offers that never came whole. The last commits the
+/// offer's files to `offers/<offer>`.
 fn offer(unit: Before<'_, Library, Offer>) -> Result<Ended<Offer>> {
     let Offer {
         call,
@@ -189,10 +193,6 @@ fn offer(unit: Before<'_, Library, Offer>) -> Result<Ended<Offer>> {
         "WHERE agent = ?1 AND call = ?2",
         by_call.clone(),
     )?;
-    ensure!(
-        row.is_some() || part == 0,
-        "the part {part} of an offer the library does not hold"
-    );
     if let Some(row) = &row {
         ensure!(
             row.commit.is_none(),
@@ -204,6 +204,13 @@ fn offer(unit: Before<'_, Library, Offer>) -> Result<Ended<Offer>> {
             "the parts of one offer name one skill"
         );
     }
+    // Keeping the rest without an earlier part would lose it.
+    ensure!(
+        part == row.as_ref().map_or(0, |row| row.next),
+        "the parts before part {part} of the offer {} did not all \
+         come; offer again under a new call",
+        call.0
+    );
     let main = main(unit.git()?)?;
     if !skill_paths(unit.git()?, main, &skill)?.is_empty() {
         let why = OnTheShelves::AlreadyShelved { skill };
@@ -211,12 +218,9 @@ fn offer(unit: Before<'_, Library, Offer>) -> Result<Ended<Offer>> {
     }
     let judged = first(
         &unit.rows(Offers(())),
-        "WHERE skill = ?1 AND agent != ?2 AND commit_id IS NOT NULL \
-         AND accepted IS NULL",
-        vec![
-            BindParam::Text(skill.clone()),
-            BindParam::Integer(i64::from(agent.0)),
-        ],
+        "WHERE skill = ?1 AND commit_id IS NOT NULL AND accepted IS \
+         NULL",
+        vec![BindParam::Text(skill.clone())],
     )?;
     if judged.is_some() {
         let why = OnTheShelves::BeingJudged { skill };
@@ -257,12 +261,8 @@ fn offer(unit: Before<'_, Library, Offer>) -> Result<Ended<Offer>> {
     let id = match row {
         Some(row) => row.id,
         None => {
-            let mine = "agent = ?1 AND accepted IS NULL AND \
-                        (commit_id IS NULL OR skill = ?2)";
-            let params = vec![
-                BindParam::Integer(i64::from(agent.0)),
-                BindParam::Text(skill.clone()),
-            ];
+            let mine = "agent = ?1 AND commit_id IS NULL";
+            let params = vec![BindParam::Integer(i64::from(agent.0))];
             w.table(Pieces(())).execute(
                 &format!(
                     "DELETE FROM offer_piece WHERE offer IN (SELECT \
@@ -275,8 +275,8 @@ fn offer(unit: Before<'_, Library, Offer>) -> Result<Ended<Offer>> {
                 params,
             )?;
             offers.execute(
-                "INSERT INTO offer (agent, call, skill, reason) \
-                 VALUES (?1, ?2, ?3, ?4)",
+                "INSERT INTO offer (agent, call, skill, reason, \
+                 next) VALUES (?1, ?2, ?3, ?4, 0)",
                 vec![
                     by_call[0].clone(),
                     by_call[1].clone(),
@@ -295,6 +295,13 @@ fn offer(unit: Before<'_, Library, Offer>) -> Result<Ended<Offer>> {
     };
     let Some(whole) = whole else {
         keep_pieces(&w.table(Pieces(())), id, files)?;
+        offers.execute(
+            "UPDATE offer SET next = ?1 WHERE id = ?2",
+            vec![
+                BindParam::Integer(i64::from(part) + 1),
+                BindParam::Integer(i64::from(id)),
+            ],
+        )?;
         return w.kept(OfferAnswer::More);
     };
     let branch = format!("offers/{id}");
@@ -305,7 +312,7 @@ fn offer(unit: Before<'_, Library, Offer>) -> Result<Ended<Offer>> {
         was,
         &changes,
         "Offered",
-        By::Library,
+        By::Realm,
     )?;
     offers.execute(
         "UPDATE offer SET commit_id = ?1 WHERE id = ?2",

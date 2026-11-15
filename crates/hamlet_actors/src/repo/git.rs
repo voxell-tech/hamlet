@@ -16,7 +16,7 @@ use hamlet_messages::workspace::AgentNumber;
 use super::checkout;
 
 /// The message of a save's commit.
-const SAVED: &str = "Saved the agent's files";
+const SAVED: &str = "Kept what it learned";
 
 /// The suffix of the folder an erased repository is moved to.
 const ERASED: &str = "erased";
@@ -131,9 +131,8 @@ impl Reads {
 pub(crate) enum By {
     Chief(u32),
     Agent(AgentNumber),
-    Profile,
+    Realm,
     Dream(u32),
-    Library,
 }
 
 impl By {
@@ -141,9 +140,8 @@ impl By {
         match self {
             Self::Chief(chief) => format!("chief:{chief}"),
             Self::Agent(agent) => format!("agent:{}", agent.0),
-            Self::Profile => "profile".to_owned(),
+            Self::Realm => "realm".to_owned(),
             Self::Dream(dream) => format!("dream:{dream}"),
-            Self::Library => "library".to_owned(),
         }
     }
 }
@@ -199,7 +197,7 @@ impl Git<'_> {
         from: CommitId,
         message: &str,
     ) -> Result<Merged> {
-        let by = By::Profile.name();
+        let by = By::Realm.name();
         self.repo.merge(branch, from, message, self.author(&by))
     }
 
@@ -586,7 +584,7 @@ mod tests {
                     write("CHARACTER.md", "Careful."),
                     write("memory/notes.md", "one\ntwo\nthree\n"),
                 ];
-                git.commit(MAIN, None, &files, "made", By::Profile)
+                git.commit(MAIN, None, &files, "made", By::Realm)
                     .map(drop)
             },
         )
@@ -645,7 +643,7 @@ mod tests {
             Some(base),
             &taken,
             "took in",
-            By::Profile,
+            By::Realm,
         )
         .unwrap();
         let saved = [
