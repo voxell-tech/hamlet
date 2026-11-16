@@ -157,7 +157,6 @@ fn row(n: ErrandNumber) -> StepId {
 
 /// The change that starts errand `n`, committed with the caller's
 /// own.
-#[cfg_attr(not(test), expect(dead_code, reason = "U6 calls it"))]
 pub(in crate::realm) fn start(
     purpose: Purpose,
     input: ErrandInput,
@@ -167,7 +166,6 @@ pub(in crate::realm) fn start(
 }
 
 /// The number the next errand takes.
-#[cfg_attr(not(test), expect(dead_code, reason = "U6 calls it"))]
 pub(in crate::realm) async fn next(
     rows: &Rows<'_>,
 ) -> Result<ErrandNumber> {
