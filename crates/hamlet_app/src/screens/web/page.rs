@@ -189,11 +189,14 @@ fn docked(tree: &DockTree) -> Vec<(PanelId, bool)> {
 
 /// Gives each Web panel with an address a page, and closes the page
 /// and forgets the address of each panel neither the dock nor a desk
-/// holds any more.
+/// holds any more. The Files panel's page is kept when it closes, put
+/// away like a page behind another tab, so that the web IDE opens
+/// again as it was rather than loading anew.
 fn open(world: &mut World) {
     let docked = docked(world.resource::<DockTree>());
     let kept = |world: &World, panel: &str| {
-        docked.iter().any(|(id, _)| id.0 == panel)
+        panel == FILES
+            || docked.iter().any(|(id, _)| id.0 == panel)
             || on_a_desk(world, panel)
     };
     let closed = world
@@ -429,4 +432,52 @@ fn pace(
         *winit = crate::window::winit_settings();
     }
     *was = in_sight.0;
+}
+
+#[cfg(test)]
+mod tests {
+    use bevy::asset::{AssetApp, AssetPlugin};
+    use bevy::ecs::system::RunSystemOnce;
+
+    use super::*;
+
+    #[test]
+    fn the_files_panels_page_outlives_its_tab_and_a_web_panels_does_not()
+     {
+        let mut app = App::new();
+        app.add_plugins(AssetPlugin::default())
+            .init_asset::<WebviewUiMaterial>()
+            .init_resource::<DockTree>()
+            .init_resource::<AgentTabs>()
+            .insert_resource(Addresses(
+                [
+                    (
+                        FILES.to_owned(),
+                        "http://127.0.0.1:1/".to_owned(),
+                    ),
+                    (
+                        "web".to_owned(),
+                        "https://example.com".to_owned(),
+                    ),
+                ]
+                .into(),
+            ));
+        // Neither is in the dock: both panels are closed.
+        app.world_mut().run_system_once(open).unwrap();
+        let pages = |app: &mut App| {
+            let mut pages = app
+                .world_mut()
+                .query::<&Page>()
+                .iter(app.world())
+                .map(|page| page.0.0.clone())
+                .collect::<Vec<_>>();
+            pages.sort();
+            pages
+        };
+        assert_eq!(pages(&mut app), [FILES]);
+        app.world_mut().run_system_once(open).unwrap();
+        assert_eq!(pages(&mut app), [FILES]);
+        let kept = app.world().resource::<Addresses>().0.clone();
+        assert_eq!(kept.keys().collect::<Vec<_>>(), [FILES]);
+    }
 }

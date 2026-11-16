@@ -3,8 +3,12 @@
 use bevy::app::App;
 use bevy::ecs::component::Component;
 use bevy::ecs::entity::Entity;
+use bevy::ecs::hierarchy::Children;
 use bevy::ecs::world::World;
-use bevy::ui::{AlignItems, Overflow, UiRect, percent, px};
+use bevy::text::EditableText;
+use bevy::ui::{
+    AlignItems, Overflow, PositionType, UiRect, Val, percent, px,
+};
 use bevy_cef::prelude::{
     CefStatus, RequestGoBack, RequestGoForward, RequestReload,
     RequestShowDevTool,
@@ -19,7 +23,7 @@ use bevy_fynix::views::{
     text_field,
 };
 use bevy_fynix::{ScopedExt, ViewExt, derived, every_frame, keyed};
-use hamlet_protocol::client::web_address;
+use hamlet_protocol::client::web_page_or_search;
 use hamlet_ui::styles::{
     Fills, ICON, action, description, link_row, note, text_input,
 };
@@ -130,7 +134,7 @@ fn bar(panel: &PanelId) -> impl View + use<> {
             address(&panel),
             crop::crop_button(&panel),
             press(
-                Glyph::Lens,
+                Glyph::Code,
                 "Developer tools",
                 &panel,
                 |world, page| {
@@ -148,11 +152,13 @@ fn bar(panel: &PanelId) -> impl View + use<> {
     })
 }
 
-/// The field of `panel`'s address, which loads what is typed in it.
+/// The field of `panel`'s address, which loads what is typed in it,
+/// or searches for it, on Enter or from the search press at its end.
 fn address(panel: &PanelId) -> impl View + use<> {
     let shown = panel.clone();
     let typed = panel.clone();
-    text_field(
+    let searched = panel.clone();
+    let field = text_field(
         derived(move |world: &World| {
             world
                 .resource::<Addresses>()
@@ -166,8 +172,48 @@ fn address(panel: &PanelId) -> impl View + use<> {
     )
     .grow(1.0)
     .min_width(px(0.0))
+    .padding(UiRect::new(px(8.0), px(30.0), px(0.0), px(0.0)))
     .rules(text_input)
     .tagged(AddressField)
+    .tagged(AddressOf(panel.clone()));
+    let search =
+        row((button(glyph(Glyph::Lens, ICON).tone(Tone::Dim))
+            .padding(UiRect::all(px(4.0)))
+            .rules(link_row)
+            .on_activate_with(move |world, _| {
+                search(world, &searched);
+            })
+            .tooltip(|| {
+                note("Go, or search the web for what is typed")
+            }),))
+        .position(PositionType::Absolute)
+        .inset(UiRect::new(Val::Auto, px(3.0), px(0.0), px(0.0)))
+        .align(AlignItems::Center);
+    row((field, search)).grow(1.0).min_width(px(0.0)).gap(0.0)
+}
+
+/// Which panel's address a field is.
+#[derive(Component)]
+struct AddressOf(PanelId);
+
+/// Loads what is typed in `panel`'s bar, unless the field already
+/// loaded it as the press took the focus from it.
+fn search(world: &mut World, panel: &PanelId) {
+    let typed = world
+        .query::<(&AddressOf, &Children)>()
+        .iter(world)
+        .filter(|(of, _)| of.0 == *panel)
+        .flat_map(|(_, children)| children.iter().copied())
+        .find_map(|kid| world.get::<EditableText>(kid))
+        .map(|text| text.value().to_string());
+    let Some(address) = typed.as_deref().and_then(web_page_or_search)
+    else {
+        return;
+    };
+    if world.resource::<Addresses>().0.get(&panel.0) != Some(&address)
+    {
+        go(world, panel, &address);
+    }
 }
 
 /// A small press of `which`, named by a tooltip, that acts on the
@@ -191,9 +237,10 @@ fn press(
         .boxed()
 }
 
-/// Loads the address typed into `panel`'s bar.
+/// Loads the address typed into `panel`'s bar, or a search for what
+/// was typed when it is not one.
 pub(super) fn go(world: &mut World, panel: &PanelId, typed: &str) {
-    let Some(address) = web_address(typed) else {
+    let Some(address) = web_page_or_search(typed) else {
         return;
     };
     world

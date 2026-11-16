@@ -390,7 +390,8 @@ fn forget_on_reconnect(
 }
 
 /// Asks for the web IDE of the hamlet shown while the panel is open,
-/// and again when the hamlet or its folder changes.
+/// and again when the hamlet or its folder changes. One asked for is
+/// kept while the panel is closed, as its page is.
 fn ask(world: &mut World) {
     let open = world
         .resource::<DockTree>()
@@ -398,9 +399,6 @@ fn ask(world: &mut World) {
         .is_some()
         || on_a_desk(world, FILES);
     if !open {
-        if world.resource::<Asked>().for_.is_some() {
-            *world.resource_mut::<Asked>() = Asked::default();
-        }
         return;
     }
     let Some(hamlet) = shown(world) else {
