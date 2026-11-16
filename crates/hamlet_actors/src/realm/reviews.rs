@@ -4,7 +4,7 @@
 use std::sync::Arc;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
-use anyhow::{Context as _, Result, bail};
+use anyhow::{Context as _, Result, bail, ensure};
 use hamlet_actor::{BindParam, Ctx};
 use hamlet_host::HostRef;
 use hamlet_messages::address::Agent;
@@ -500,13 +500,17 @@ pub(super) async fn run(
                 });
             let due = kept.at + i64::try_from(deadline.as_millis())?;
             let left = u64::try_from(due - now()?).unwrap_or(0);
-            // A stop ends the wait, and the deadline is waited for
-            // again at the next start.
+            // A stop ends the wait; a review still open waits for its
+            // deadline again at the next start.
             let abort = cx.ctx.abort_signal();
             tokio::select! {
                 () = tokio::time::sleep(Duration::from_millis(left)) => {}
                 () = abort.cancelled() => {
-                    bail!("the realm stopped before review {n}'s deadline")
+                    let open = held(&cx.rows()?, task)
+                        .await?
+                        .is_some_and(|kept| kept.outcome.is_none());
+                    ensure!(!open, "the realm stopped before review {n}'s deadline");
+                    return Ok(Vec::new());
                 }
             }
             Ok(vec![
