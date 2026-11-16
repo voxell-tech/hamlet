@@ -27,7 +27,8 @@ use hamlet_store::ids::{Actor, ConversationId};
 use super::failure::{self, Failure};
 use super::input::InputOrigin;
 use super::tasks::BackgroundWork;
-use crate::calls::{ToolRuns, UnstartedToolRun, place};
+use crate::calls::place;
+use crate::calls::tool_runs::{self, ToolRuns, UnstartedToolRun};
 use crate::clients::check::{failed, fault};
 use crate::clients::{Connections, check};
 use crate::conversations::completion::follow;
@@ -70,7 +71,7 @@ pub(crate) fn plugin(app: &mut App) {
                 stop_cancelled_tool_runs
                     .in_set(FollowUpSystems::StopCancelledToolRuns)
                     .run_if(has_kept_change),
-                (crate::calls::start, super::tasks::start).in_set(
+                (tool_runs::start, super::tasks::start).in_set(
                     FollowUpSystems::StartToolRunsAndBackgroundWork,
                 ),
             ),

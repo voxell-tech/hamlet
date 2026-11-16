@@ -233,7 +233,7 @@ mod tests {
 
     #[test]
     fn the_specs_offer_every_society_tool_and_no_other() {
-        let mut specs = crate::calls::specs()
+        let mut specs = crate::calls::specs::specs()
             .into_iter()
             .map(|spec| spec.name)
             .collect::<Vec<_>>();

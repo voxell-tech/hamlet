@@ -23,8 +23,8 @@ use crate::app::input::InputSender;
 use crate::app::tasks::BackgroundWork;
 use crate::attachments::files::FileUpload;
 use crate::attachments::images::uploads::ImageUpload;
-use crate::calls::ToolRuns;
 use crate::calls::looks::LookFindings;
+use crate::calls::tool_runs::ToolRuns;
 use crate::clients::commands::Deeds;
 use crate::clients::connection::UploadOf;
 use crate::clients::fold::Fold;
@@ -92,7 +92,7 @@ impl Catalogue {
     /// ones.
     pub fn of(shells: &Shells, added: &[Manifest]) -> Vec<ToolSpec> {
         let mut catalogue = crate::tools::builtin::specs(shells);
-        catalogue.extend(crate::calls::specs());
+        catalogue.extend(crate::calls::specs::specs());
         catalogue.extend(
             added.iter().map(|manifest| manifest.spec.clone()),
         );
