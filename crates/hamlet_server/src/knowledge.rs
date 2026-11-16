@@ -18,6 +18,10 @@ use crate::realm::layout::Layout;
 use crate::society::agents::{self, AgentKind};
 use crate::society::{hand, hires};
 
+pub(crate) fn plugin(app: &mut bevy_app::App) {
+    app.add_plugins(worker::plugin);
+}
+
 /// The character's file in a scholar's repository.
 pub(crate) const CHARACTER: &str = "CHARACTER.md";
 

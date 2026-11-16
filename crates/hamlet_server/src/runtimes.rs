@@ -33,7 +33,8 @@ use crate::realm::layout::Layout;
 
 pub(crate) fn plugin(app: &mut bevy_app::App) {
     app.init_resource::<leases::Authority>()
-        .add_timer(restart_due, start);
+        .add_timer(restart_due, start)
+        .add_plugins((handlers::plugin, reconciliation::plugin));
 }
 
 /// The soonest a failed runtime starts again.

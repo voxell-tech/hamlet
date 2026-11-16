@@ -102,16 +102,10 @@ pub fn create_app(options: Options) -> App {
     })
     // The runner's side: inputs, what follows them, and what runs
     // off the loop.
-    .add_plugins((
-        app::plugin,
-        core::plugin,
-        knowledge::worker::plugin,
-    ))
+    .add_plugins((app::plugin, core::plugin, knowledge::plugin))
     // The areas, each with the systems for the inputs it takes.
     .add_plugins((
         calls::plugin,
-        runtimes::handlers::plugin,
-        runtimes::reconciliation::plugin,
         runtimes::plugin,
         clients::plugin,
         providers::plugin,
