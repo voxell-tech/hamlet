@@ -23,7 +23,8 @@ use super::act::{Act, Decided, Decision};
 use super::calls::Made;
 use super::change::{self, Affected, Rows, Writer};
 use super::peer::When;
-use super::{Realm, settings, tree};
+use super::tree::choices::{self, Choice, Chosen};
+use super::{Realm, chiefs, settings, tree};
 use crate::cbor;
 
 const CHARTER: &str =
@@ -252,10 +253,29 @@ async fn version(rows: &Rows<'_>, part: Part) -> Result<CopyVersion> {
     ))
 }
 
-/// The model an agent runs, with its card's price.
-async fn model(rows: &Rows<'_>) -> Result<Option<ModelChoice>> {
+/// The model `agent` runs, with its card's price: each part its own
+/// choice's, else its hamlet's, else the realm's.
+async fn model(
+    rows: &Rows<'_>,
+    agent: AgentNumber,
+) -> Result<Option<ModelChoice>> {
     let settings = settings::read(rows).await?;
-    let Some(model) = settings.model else {
+    let hamlet = match chiefs::hamlet::of_agent(rows, agent).await? {
+        Some(hamlet) => {
+            choices::choice(rows, &Chosen::Hamlet(hamlet)).await?
+        }
+        None => Choice::default(),
+    };
+    let realm = Choice {
+        model: settings.model,
+        effort: settings.effort,
+        fast: None,
+    };
+    let chosen = choices::choice(rows, &Chosen::Agent(agent))
+        .await?
+        .or(hamlet)
+        .or(realm);
+    let Some(model) = chosen.model else {
         return Ok(None);
     };
     let price = catalogue(rows)
@@ -264,17 +284,19 @@ async fn model(rows: &Rows<'_>) -> Result<Option<ModelChoice>> {
         .and_then(|card| card.price);
     Ok(Some(ModelChoice {
         model,
-        effort: settings.effort,
-        fast: false,
+        effort: chosen.effort,
+        fast: chosen.fast.unwrap_or(false),
         price,
     }))
 }
 
+/// Fills `part` of the copies `reader` reads.
 async fn fill(
     rows: &Rows<'_>,
     copies: &mut Copies,
     part: Part,
     version: CopyVersion,
+    reader: AgentNumber,
 ) -> Result<()> {
     match part {
         Part::Charter => {
@@ -291,7 +313,7 @@ async fn fill(
             });
         }
         Part::Model => {
-            copies.model = model(rows)
+            copies.model = model(rows, reader)
                 .await?
                 .map(|value| Versioned { version, value });
         }
@@ -315,11 +337,6 @@ pub(super) async fn send(
     // The version is read before the part, so a part never goes out
     // under a version newer than its own.
     let version = version(&rows, copied.part).await?;
-    let mut copies = Copies::default();
-    fill(&rows, &mut copies, copied.part, version).await?;
-    if copies == Copies::default() {
-        return Ok(());
-    }
     let readers = match copied.readers {
         Readers::Living => living(&rows).await?,
         Readers::Agent(agent) => {
@@ -331,6 +348,12 @@ pub(super) async fn send(
     };
     let mut failed = BTreeSet::new();
     for reader in readers {
+        let mut copies = Copies::default();
+        fill(&rows, &mut copies, copied.part, version, reader)
+            .await?;
+        if copies == Copies::default() {
+            continue;
+        }
         let sent = realm
             .peers
             .call(&Agent(reader), &copies, When::AfterAnswer)
@@ -496,7 +519,7 @@ impl Act<Agent> for ReadCopies {
 
     async fn load(
         &self,
-        _by: &Agent,
+        by: &Agent,
         rows: &Rows<'_>,
     ) -> Result<Copies> {
         let mut copies = Copies::default();
@@ -509,7 +532,7 @@ impl Act<Agent> for ReadCopies {
             };
             let version = version(rows, part).await?;
             if have != Some(version) {
-                fill(rows, &mut copies, part, version).await?;
+                fill(rows, &mut copies, part, version, by.0).await?;
             }
         }
         Ok(copies)

@@ -10,6 +10,9 @@ use hamlet_messages::realm::choices::{
     ModelOf, SetModel, SetNickname,
 };
 use hamlet_messages::realm::client::ReadWorld;
+use hamlet_messages::realm::documents::{
+    EditSettings, ReadCopies, Setting,
+};
 use hamlet_messages::realm::oversight::{AskChief, Object};
 use hamlet_messages::realm::workers::{
     Ended, ErrandDone, SetAllowance, StartWorker,
@@ -444,4 +447,30 @@ async fn an_errand_that_ended_before_it_was_made_is_driven_no_further()
     realm.tool(errand(0), &answered()).await.unwrap();
 
     assert!(step_closed(&realm, 0).await, "the errand's step closed");
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn an_errand_reads_the_realms_model() {
+    let (realm, _) = hamlet_with(0).await;
+    let task = standing(&realm, MAYOR);
+    seed(&realm, 0, &task, 10).await;
+    made_until(&realm, errand(0)).await;
+    super::chiefs::chief(
+        &realm,
+        EditSettings {
+            set: vec![Setting::Model {
+                model: "faux::faux-1".to_owned(),
+            }],
+        },
+    )
+    .await;
+
+    let copies =
+        realm.tool(errand(0), &ReadCopies::default()).await.unwrap();
+
+    assert_eq!(
+        copies.model.map(|part| part.value.model).as_deref(),
+        Some("faux::faux-1")
+    );
+    assert!(copies.charter.is_some());
 }

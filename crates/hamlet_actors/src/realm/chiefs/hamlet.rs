@@ -141,12 +141,23 @@ async fn remember(
 }
 
 /// The reaches a change of the hamlet's footing moves: those of its
-/// living hires and of their living workers.
+/// agents.
 async fn reached(
     rows: &Rows<'_>,
     hamlet: &HamletId,
 ) -> Result<Affected> {
-    let reaches = rows
+    Ok(Affected {
+        reaches: agents_of(rows, hamlet).await?,
+        ..Affected::seen([Part::Hamlets, Part::Reaches])
+    })
+}
+
+/// The hamlet's living hires and their living workers.
+pub(in crate::realm) async fn agents_of(
+    rows: &Rows<'_>,
+    hamlet: &HamletId,
+) -> Result<BTreeSet<AgentNumber>> {
+    Ok(rows
         .values::<u32>(
             "SELECT agent.id FROM agent LEFT JOIN hire ON \
              hire.agent = agent.id LEFT JOIN worker ON worker.agent \
@@ -159,11 +170,26 @@ async fn reached(
         .await?
         .into_iter()
         .map(AgentNumber)
-        .collect();
-    Ok(Affected {
-        reaches,
-        ..Affected::seen([Part::Hamlets, Part::Reaches])
-    })
+        .collect())
+}
+
+/// The hamlet `agent` works for: a hire's, or a worker's own or its
+/// starter's. `None` for the Hand, its workers and an errand.
+pub(in crate::realm) async fn of_agent(
+    rows: &Rows<'_>,
+    agent: AgentNumber,
+) -> Result<Option<HamletId>> {
+    Ok(rows
+        .value::<String>(
+            "SELECT hamlet FROM (SELECT hamlet FROM hire WHERE \
+             agent = ?1 UNION ALL SELECT COALESCE(worker.hamlet, \
+             (SELECT hamlet FROM hire WHERE agent = \
+             worker.starter)) FROM worker WHERE agent = ?1) WHERE \
+             hamlet IS NOT NULL",
+            vec![change::number(agent)],
+        )
+        .await?
+        .map(HamletId))
 }
 
 async fn hires_of(

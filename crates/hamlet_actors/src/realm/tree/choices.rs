@@ -1,6 +1,8 @@
 //! The choices a lead or a chief makes for an agent: the `nickname`
 //! and `model_choice` tables, `SetNickname` and `SetModel`.
 
+use std::collections::BTreeSet;
+
 use anyhow::Result;
 use hamlet_actor::BindParam;
 use hamlet_messages::agent::AgentKind;
@@ -15,6 +17,7 @@ use super::super::act::{Act, Decided, Decision};
 use super::super::callers::Lead;
 use super::super::calls::Made;
 use super::super::change::{self, Affected, Rows, Writer, number};
+use super::super::documents::{self, Copied, Readers};
 use super::super::world::Part;
 use super::super::{chiefs, record};
 use super::{Lineage, Status};
@@ -37,6 +40,47 @@ impl Chosen {
             Self::Hamlet(hamlet) => format!("hamlet/{}", hamlet.0),
         }
     }
+}
+
+/// A model choice as kept: each part absent is the next choice up's.
+#[derive(Debug, Default)]
+pub(in crate::realm) struct Choice {
+    pub model: Option<String>,
+    pub effort: Option<Effort>,
+    pub fast: Option<bool>,
+}
+
+impl Choice {
+    /// Each part of this choice, else `up`'s.
+    pub fn or(self, up: Self) -> Self {
+        Self {
+            model: self.model.or(up.model),
+            effort: self.effort.or(up.effort),
+            fast: self.fast.or(up.fast),
+        }
+    }
+}
+
+/// The choice kept for `of`.
+pub(in crate::realm) async fn choice(
+    rows: &Rows<'_>,
+    of: &Chosen,
+) -> Result<Choice> {
+    let Some((model, effort, fast)) = rows
+        .row::<(Option<String>, Option<String>, Option<bool>)>(
+            "SELECT model, effort, fast FROM model_choice WHERE of \
+             = ?1",
+            vec![BindParam::Text(of.key())],
+        )
+        .await?
+    else {
+        return Ok(Choice::default());
+    };
+    Ok(Choice {
+        model,
+        effort: effort.map(change::from_case_name).transpose()?,
+        fast,
+    })
 }
 
 #[derive(Debug, PartialEq)]
@@ -132,6 +176,23 @@ pub(in crate::realm) async fn apply(
                     ],
                 )
                 .await?;
+            let readers = match of {
+                Chosen::Agent(agent) => BTreeSet::from([agent]),
+                Chosen::Hamlet(hamlet) => {
+                    chiefs::hamlet::agents_of(&writer.rows(), &hamlet)
+                        .await?
+                }
+            };
+            return Ok(Affected {
+                copies: readers
+                    .into_iter()
+                    .map(|agent| Copied {
+                        part: documents::Part::Model,
+                        readers: Readers::Agent(agent),
+                    })
+                    .collect(),
+                ..Affected::seen([Part::Agents])
+            });
         }
     }
     Ok(Affected::seen([Part::Agents]))

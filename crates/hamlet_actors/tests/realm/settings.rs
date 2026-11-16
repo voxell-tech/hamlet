@@ -1,5 +1,8 @@
-use hamlet_messages::agent::copies::{Copies, CopyVersion, Price};
+use hamlet_messages::agent::copies::{
+    Copies, CopyVersion, ModelChoice, Price,
+};
 use hamlet_messages::realm::budget::{BudgetLimit, Payer};
+use hamlet_messages::realm::choices::{ModelOf, SetModel};
 use hamlet_messages::realm::documents::{
     CardSetting, CatalogueRefusal, EditCatalogue, EditCharter,
     EditSettings, Endpoint, ReadCharter, ReadCopies, Setting,
@@ -13,11 +16,13 @@ use hamlet_messages::realm::{
 use hamlet_messages::sender::Hand;
 use hamlet_messages::workspace::AgentNumber;
 use hamlet_messages::workspace::reach::Reach;
+use hamlet_protocol::Effort;
 use hamlet_protocol::client::RequestId;
 
 use super::world::seen_until;
 use super::{
-    Callee, MAYOR, Realm, copies_to, hamlet_with, until, words,
+    Callee, MAYOR, Realm, THREE, copies_to, hamlet_with, to, until,
+    words,
 };
 
 const FAUX: &str = "faux::faux-1";
@@ -460,5 +465,158 @@ async fn read_copies_gives_a_part_whose_version_differs() {
         Some("Be brief.".to_owned())
     );
     assert!(read.character.is_some() && read.settings.is_some());
+    realm.host.shutdown().await.unwrap();
+}
+
+const FAUX_2: &str = "faux::faux-2";
+
+fn set_model(of: ModelOf) -> SetModel {
+    SetModel {
+        of,
+        model: None,
+        effort: None,
+        fast: None,
+        why: None,
+    }
+}
+
+/// The model copy `agent` reads.
+async fn model_of(
+    realm: &Realm,
+    agent: AgentNumber,
+) -> Option<ModelChoice> {
+    realm
+        .tool(agent, &ReadCopies::default())
+        .await
+        .unwrap()
+        .model
+        .map(|part| part.value)
+}
+
+fn running(
+    model: &str,
+    effort: Option<Effort>,
+    fast: bool,
+    price: Option<Price>,
+) -> Option<ModelChoice> {
+    Some(ModelChoice {
+        model: model.to_owned(),
+        effort,
+        fast,
+        price,
+    })
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn each_agent_reads_the_model_it_runs() {
+    // the realm runs faux-1 at high effort; the hamlet chooses
+    // faux-2 at low effort; hire 3 chooses fast. Each part falls to
+    // the next choice up, and the price is the model's card's.
+    let (realm, hamlet) = hamlet_with(1).await;
+    chief(
+        &realm,
+        EditSettings {
+            set: vec![
+                Setting::Model { model: FAUX.into() },
+                Setting::Effort {
+                    effort: Some(Effort::High),
+                },
+            ],
+        },
+    )
+    .await;
+    chief(&realm, priced(FAUX_2, Some(price(0.5)))).await;
+    let of_hamlet = ModelOf::Hamlet { hamlet };
+
+    let chosen = (
+        chief(
+            &realm,
+            SetModel {
+                model: Some(FAUX_2.into()),
+                effort: Some(Effort::Low),
+                ..set_model(of_hamlet)
+            },
+        )
+        .await,
+        chief(
+            &realm,
+            SetModel {
+                fast: Some(true),
+                ..set_model(ModelOf::Hire { hire: to(THREE) })
+            },
+        )
+        .await,
+    );
+
+    assert_eq!(chosen, (Done::Done, Done::Done));
+    assert_eq!(
+        (
+            model_of(&realm, Hand::NUMBER).await,
+            model_of(&realm, MAYOR).await,
+            model_of(&realm, THREE).await,
+        ),
+        (
+            running(FAUX, Some(Effort::High), false, None),
+            running(
+                FAUX_2,
+                Some(Effort::Low),
+                false,
+                Some(price(0.5))
+            ),
+            running(
+                FAUX_2,
+                Some(Effort::Low),
+                true,
+                Some(price(0.5))
+            ),
+        )
+    );
+    realm.host.shutdown().await.unwrap();
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn a_model_choice_pushes_the_copy_to_its_agents() {
+    // hire 3's choice goes to hire 3 alone; the hamlet's goes to the
+    // mayor and hire 3, each with its own model; neither goes to the
+    // Hand.
+    let (realm, hamlet) = hamlet_with(1).await;
+    let models = |agent| {
+        copies_to(&realm, agent)
+            .into_iter()
+            .filter_map(|copies| copies.model)
+            .map(|part| part.value.model)
+            .collect::<Vec<_>>()
+    };
+
+    chief(
+        &realm,
+        SetModel {
+            model: Some(FAUX_2.into()),
+            ..set_model(ModelOf::Hire { hire: to(THREE) })
+        },
+    )
+    .await;
+    until("hire 3 is pushed its model", || models(THREE) == [FAUX_2])
+        .await;
+    chief(
+        &realm,
+        SetModel {
+            model: Some(FAUX.into()),
+            ..set_model(ModelOf::Hamlet { hamlet })
+        },
+    )
+    .await;
+    until("the hamlet's agents are pushed their models", || {
+        models(THREE).len() == 2 && models(MAYOR) == [FAUX]
+    })
+    .await;
+    chief(&realm, charter("Be brief.")).await;
+    until("the Hand is pushed the charter", || {
+        !copies_to(&realm, Hand::NUMBER).is_empty()
+    })
+    .await;
+
+    assert_eq!(models(THREE), [FAUX_2, FAUX_2]);
+    assert_eq!(models(Hand::NUMBER), Vec::<String>::new());
     realm.host.shutdown().await.unwrap();
 }
