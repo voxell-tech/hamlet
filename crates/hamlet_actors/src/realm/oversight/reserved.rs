@@ -3,6 +3,7 @@
 
 use anyhow::{Context as _, Result};
 use hamlet_messages::address::Agent;
+use hamlet_messages::agent::AgentKind;
 use hamlet_messages::realm::client::Answer;
 use hamlet_messages::realm::world::WaitId;
 use hamlet_messages::realm::{
@@ -76,9 +77,10 @@ pub(in crate::realm) async fn reserve(
     let Some(lineage) = tree::lineage(rows, by).await? else {
         return Ok(None);
     };
-    if !lineage
-        .hamlet
-        .is_some_and(|hamlet| reserves(&hamlet.limits.reserved))
+    if lineage.agent.kind != AgentKind::Hire
+        || !lineage
+            .hamlet
+            .is_some_and(|hamlet| reserves(&hamlet.limits.reserved))
     {
         return Ok(None);
     }
