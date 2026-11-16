@@ -60,18 +60,21 @@ impl Held {
                         format!("scholar#{}", profile.0)
                     }),
                 );
-                arg("under", hire.under.as_ref().map(address));
+                arg(
+                    "under",
+                    hire.under.as_ref().map(Named::to_string),
+                );
                 "hire"
             }
             Self::End(end) => {
-                arg("hire", Some(address(&end.hire)));
+                arg("hire", Some(end.hire.to_string()));
                 arg("reason", end.why.clone());
                 "end_hire"
             }
             Self::LayRoad(LayRoad { a, b, why })
             | Self::TakeUpRoad(TakeUpRoad { a, b, why }) => {
-                arg("a", Some(address(a)));
-                arg("b", Some(address(b)));
+                arg("a", Some(a.to_string()));
+                arg("b", Some(b.to_string()));
                 arg("reason", why.clone());
                 if matches!(self, Self::LayRoad(_)) {
                     "lay_road"
@@ -81,16 +84,6 @@ impl Held {
             }
         };
         format!("{tool} {}", Value::Object(args))
-    }
-}
-
-/// `named` as an agent writes it in a tool's arguments.
-fn address(named: &Named) -> String {
-    match named {
-        Named::Hand => "hand".to_owned(),
-        Named::Mayor => "mayor".to_owned(),
-        Named::MayorOf { hamlet } => format!("mayor@{}", hamlet.0),
-        Named::Agent { agent } => format!("hire#{}", agent.0),
     }
 }
 
