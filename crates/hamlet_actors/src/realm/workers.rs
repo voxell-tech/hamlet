@@ -12,6 +12,7 @@ use hamlet_messages::agent::{
     AgentInput, AgentKind, Brief, BuiltIn, Input, InputId, Submit,
 };
 use hamlet_messages::realm::budget::Payer;
+use hamlet_messages::realm::oversight::Permission;
 use hamlet_messages::realm::workers::{
     BUILT_IN, Ended, StartWorker, Started, WorkerDone, WorkerRefusal,
 };
@@ -28,7 +29,9 @@ use super::change::{self, Affected, Rows, Writer, number};
 use super::peer::When;
 use super::steps::{self, Cx, Kind, StepId, Steps};
 use super::tasks::{self, Origin, TaskId};
-use super::{Realm, chiefs, place, record, tree, versions, waits};
+use super::{
+    Realm, chiefs, oversight, place, record, tree, versions, waits,
+};
 
 #[derive(Debug, PartialEq)]
 pub(super) struct Worker {
@@ -129,6 +132,11 @@ pub(super) fn ending(
         .into(),
         Change::End { agent, how, answer }.into(),
         waits::Change::Lapse { agent }.into(),
+        oversight::Change::Revoke {
+            agent,
+            permission: Permission::Network,
+        }
+        .into(),
     ]
 }
 

@@ -342,3 +342,50 @@ async fn a_revoke_of_no_grant_is_refused_in_todays_words() {
     assert_eq!(words(nobody), "no agent has the address `77`");
     realm.host.shutdown().await.unwrap();
 }
+
+#[tokio::test(flavor = "multi_thread")]
+async fn an_end_revokes_a_workers_grants() {
+    // As today's end of any agent (society/agents.rs:271-281).
+    let (realm, _) = hamlet_in_a_folder().await;
+    hires(&realm, MAYOR, "h1").await;
+    realm.live(THREE).await;
+    let start = StartWorker {
+        brief: "fetch the page".to_owned(),
+        tools: Vec::new(),
+        task: None,
+        hamlet: None,
+    };
+    let started = realm.tool(THREE, &tool("w", start)).await.unwrap();
+    assert_eq!(started, Started::Started { worker: FOUR });
+    let asked = NeedsChief {
+        needs: vec![Need::Network],
+        ..needs(FOUR, "c1")
+    };
+    realm.call_as_workspace(&asked).await.unwrap();
+    let always = realm.ask(&answer("1", Choice::Always, None)).await;
+    assert_eq!(always.unwrap(), Done::Done);
+    let end = End {
+        hire: to(FOUR),
+        why: None,
+    };
+    assert_eq!(chief(&realm, end).await, Done::Done);
+    let open = realm
+        .rows(|db| {
+            db.query_row(
+                "SELECT COUNT(*) FROM grant WHERE agent = 4 AND \
+                 revoked_at IS NULL",
+                [],
+                |row| row.get::<_, i64>(0),
+            )
+        })
+        .await;
+    assert_eq!(open, 0);
+    let revoked = realm.ask(&revoke(FOUR)).await.unwrap();
+    assert_eq!(
+        revoked,
+        Done::Refused {
+            why: no_grant("worker#4")
+        }
+    );
+    realm.host.shutdown().await.unwrap();
+}
