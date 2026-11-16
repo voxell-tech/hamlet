@@ -1031,6 +1031,12 @@ fn the_limits_and_the_spending(fixtures: &mut Fixtures) {
                     task: standing_task(),
                 }),
             ),
+            (
+                "withdrawn",
+                SpendRefusal::Held(Hold::Withdrawn {
+                    task: standing_task(),
+                }),
+            ),
         ],
     );
     fixtures.args(
@@ -1126,6 +1132,13 @@ fn the_clients_calls(fixtures: &mut Fixtures) {
                 AnswerRefusal::NothingWaits { wait: "3".into() },
             ),
             ("not_offered", AnswerRefusal::NotOffered),
+            ("unequal", AnswerRefusal::Unequal),
+            ("no_option", AnswerRefusal::NoOption { question: 2 }),
+            (
+                "takes_option",
+                AnswerRefusal::TakesOption { question: 1 },
+            ),
+            ("no_words", AnswerRefusal::NoWords { question: 2 }),
         ],
     );
     fixtures.args("realm/read_world", &ReadWorld);

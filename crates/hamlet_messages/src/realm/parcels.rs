@@ -15,6 +15,13 @@ use crate::{MOST_PART, Message, worded};
 /// of three, so a part's answer is under [`crate::MOST_CALL`].
 pub const PARCEL_PART: usize = MOST_PART;
 
+/// Where part `part` of a file of `size` bytes begins, when the file
+/// has that part. An empty file has one part, which is empty.
+pub fn part_start(size: u64, part: u32) -> Option<u64> {
+    let start = u64::from(part) * PARCEL_PART as u64;
+    (start < size || start == 0).then_some(start)
+}
+
 /// The realm's id of a parcel.
 #[derive(
     Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize,

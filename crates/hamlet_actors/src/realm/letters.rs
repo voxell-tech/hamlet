@@ -253,6 +253,8 @@ pub(super) enum Route {
     Held(LetterId),
     /// Its parcel's steps deliver it once its files are copied.
     Parcel(LetterId),
+    /// Its task was withdrawn: it is never given.
+    Dropped(LetterId),
 }
 
 impl Route {
@@ -260,7 +262,7 @@ impl Route {
     /// or send its files.
     fn of(
         kept: Decided<LetterId>,
-        held: Option<asking::Change>,
+        holding: Option<asking::Holding>,
         parcel: Option<Vec<change::Change>>,
     ) -> Decided<Self> {
         let Decided {
@@ -268,14 +270,21 @@ impl Route {
             mut changes,
             entries,
         } = kept;
-        let done = if let Some(parcel) = parcel {
-            changes.extend(parcel);
-            Self::Parcel(letter)
-        } else if let Some(held) = held {
-            changes.push(held.into());
-            Self::Held(letter)
-        } else {
-            Self::Now(letter)
+        let done = match (holding, parcel) {
+            (Some(asking::Holding::Dropped), _) => {
+                Self::Dropped(letter)
+            }
+            // The parcel's steps hold the letter once its files are
+            // copied.
+            (_, Some(parcel)) => {
+                changes.extend(parcel);
+                Self::Parcel(letter)
+            }
+            (Some(asking::Holding::Held(held)), None) => {
+                changes.push(held.into());
+                Self::Held(letter)
+            }
+            (None, None) => Self::Now(letter),
         };
         Decided {
             done,
@@ -289,7 +298,9 @@ impl Route {
             Self::Now(letter) => {
                 Calls::after_answer(delivery(letter))
             }
-            Self::Held(_) | Self::Parcel(_) => Calls::none(),
+            Self::Held(_) | Self::Parcel(_) | Self::Dropped(_) => {
+                Calls::none()
+            }
         }
     }
 }
@@ -297,8 +308,8 @@ impl Route {
 pub(super) struct Letter {
     ends: Ends,
     id: LetterId,
-    /// The change that keeps it while its receiver's task is held.
-    held: Option<asking::Change>,
+    /// What becomes of it while its task is held or withdrawn.
+    held: Option<asking::Holding>,
     /// The changes that send its files.
     parcel: Option<Vec<change::Change>>,
 }
@@ -317,11 +328,14 @@ impl Letter {
             Some(to) => {
                 let task = task.and_then(TaskId::of);
                 let letter = Delivery::Letter(id);
-                asking::holds(rows, to.agent, task, letter).await?
+                asking::holds(rows, by.0, to.agent, task, letter)
+                    .await?
             }
             None => None,
         };
-        let parcel = if paths.is_empty() {
+        let parcel = if paths.is_empty()
+            || held == Some(asking::Holding::Dropped)
+        {
             None
         } else {
             parcels::start(rows, id, paths).await?
@@ -503,9 +517,9 @@ impl Act<Agent> for Ask {
 
 pub(super) struct Question {
     pub asked: AgentNumber,
-    /// The change that keeps the answer while the asker's task is
-    /// held.
-    pub held: Option<asking::Change>,
+    /// What becomes of the answer while its task is held or
+    /// withdrawn.
+    pub held: Option<asking::Holding>,
 }
 
 impl Act<Agent> for Reply {
@@ -534,15 +548,11 @@ impl Act<Agent> for Reply {
             return Ok(None);
         };
         let answer = Delivery::Answer(self.question);
+        let (asked, asker) = (AgentNumber(asked), AgentNumber(asker));
         Ok(Some(Question {
-            asked: AgentNumber(asked),
-            held: asking::holds(
-                rows,
-                AgentNumber(asker),
-                task,
-                answer,
-            )
-            .await?,
+            asked,
+            held: asking::holds(rows, asked, asker, task, answer)
+                .await?,
         }))
     }
 

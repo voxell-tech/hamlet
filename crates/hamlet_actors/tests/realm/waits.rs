@@ -4,7 +4,9 @@ use hamlet_messages::agent::Input;
 use hamlet_messages::realm::budget::{Payer, ResetBudget};
 use hamlet_messages::realm::client::AnswerRefusal;
 use hamlet_messages::realm::models::{Cause, TurnFailed};
-use hamlet_messages::realm::oversight::{Lapse, LapseReason};
+use hamlet_messages::realm::oversight::{
+    AskChief, Lapse, LapseReason, Object, Question,
+};
 use hamlet_messages::realm::{
     Asked, Done, End, HireAnswer, Limit, Named, NeedsChief,
     SecretList, Secrets, SetLimits,
@@ -20,7 +22,8 @@ use hamlet_protocol::client::{Choice, RequestId};
 
 use super::{
     Callee, MAYOR, Realm, answer, chief_hires, error_code, founded,
-    hamlet_with, hire, needs, say, seen_submits, standing, until,
+    hamlet_with, hire, needs, say, seen_submits, standing, tool,
+    until,
 };
 
 fn nothing_waits(wait: &str) -> Done<AnswerRefusal> {
@@ -472,11 +475,14 @@ async fn past_the_count_a_tool_wait_is_refused_unasked() {
         chief_answers(&realm).len() == 3
     })
     .await;
+    let third = chief_answers(&realm)
+        .into_iter()
+        .find(|answered| answered.call == mayors("c3", None).call);
 
     assert_eq!(limited, Done::Done);
     assert_eq!(
-        chief_answers(&realm)[2],
-        ChiefAnswer {
+        third,
+        Some(ChiefAnswer {
             agent: MAYOR,
             ..refused_unasked(
                 "c3",
@@ -484,7 +490,7 @@ async fn past_the_count_a_tool_wait_is_refused_unasked() {
                  will not be asked again in it. Stop and report \
                  what you could not do."
             )
-        }
+        })
     );
     let refused = Some("refuse".to_owned());
     assert_eq!(
@@ -611,6 +617,57 @@ async fn a_resumed_lapse_drops_the_conversations_trust() {
 }
 
 #[tokio::test(flavor = "multi_thread")]
+async fn a_second_always_answers_after_the_reach() {
+    // two network waits of the Hand. The chief answers always to the
+    // first while the workspace holds its set_reach, then always to
+    // the second, which grants nothing new: neither answer reaches
+    // the workspace before the reach is taken.
+    let realm = Realm::start().await;
+    realm.live(HAND).await;
+    for call in ["c1", "c2"] {
+        realm
+            .call_as_workspace(&asked(call, Need::Network, None, "c"))
+            .await
+            .unwrap();
+    }
+    realm.seen.hold(Callee::SetReach);
+
+    realm.ask(&answer("1", Choice::Always, None)).await.unwrap();
+    until("the Hand's new reach waits", || {
+        realm.seen.is_waiting(Callee::SetReach, HAND)
+    })
+    .await;
+    realm.ask(&answer("2", Choice::Always, None)).await.unwrap();
+    tokio::time::sleep(Duration::from_millis(200)).await;
+    let early = chief_answers(&realm);
+    realm.seen.release(Callee::SetReach);
+    until("the workspace has both answers", || {
+        chief_answers(&realm).len() == 2
+    })
+    .await;
+
+    assert!(early.is_empty(), "answered before the reach: {early:?}");
+    realm.host.shutdown().await.unwrap();
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn a_fault_on_no_known_task_opens_no_wait() {
+    let realm = Realm::start().await;
+    realm.live(HAND).await;
+
+    for task in ["x", "999"] {
+        let task = RealmTask(task.to_owned());
+        realm
+            .tool(HAND, &failed(&task, Cause::Budget))
+            .await
+            .unwrap();
+    }
+
+    assert!(kinds_of(&realm).await.is_empty());
+    realm.host.shutdown().await.unwrap();
+}
+
+#[tokio::test(flavor = "multi_thread")]
 async fn two_faults_open_two_waits() {
     let realm = Realm::start().await;
     realm.live(HAND).await;
@@ -699,18 +756,51 @@ async fn the_chiefs_text_with_an_allow_is_kept() {
 
 #[tokio::test(flavor = "multi_thread")]
 async fn a_ruling_on_a_question_or_an_objection_is_a_notice() {
-    // two questions, two objections and a reserved act of the Hand's,
-    // in conversation c. A reply, a dismiss, a go with words, a
-    // withdraw and a deny each give the Hand a notice in c, in
-    // today's words; a reply with no words is refused.
+    // on two chief's lines the Hand asks two questions and objects to
+    // each line, in conversation c, and a reserved act of its waits.
+    // A reply, a dismiss, a go with words, a withdraw and a deny each
+    // give the Hand a notice in c, in today's words; a reply with no
+    // words is refused.
     let realm = Realm::start().await;
     realm.live(HAND).await;
+    let first = chief_task(&realm, HAND).await;
+    realm
+        .ask(&say(&RequestId::new(), HAND, "and this"))
+        .await
+        .unwrap();
+    let second = seen_submits(&realm, HAND, 2).await[1]
+        .task
+        .clone()
+        .expect("a line carries its task");
+    let conversation = ConversationId("c".to_owned());
+    for call in ["a1", "a2"] {
+        let question = AskChief {
+            task: first.clone(),
+            conversation: conversation.clone(),
+            message: None,
+            questions: vec![Question {
+                question: "Oats or barley?".to_owned(),
+                description: None,
+                options: Vec::new(),
+                text_input: true,
+            }],
+        };
+        let asked = realm.tool(HAND, &tool(call, question)).await;
+        assert_eq!(asked.unwrap(), Done::Done);
+    }
+    for (call, task) in [("o1", &first), ("o2", &second)] {
+        let objection = Object {
+            task: task.clone(),
+            conversation: conversation.clone(),
+            reason: "no".to_owned(),
+        };
+        let objected = realm.tool(HAND, &tool(call, objection)).await;
+        assert_eq!(objected.unwrap(), Done::Done);
+    }
     realm
         .write(&format!(
             "INSERT INTO wait (agent, kind, conversation, at) \
-             VALUES ({0}, 'question', 'c', 0), ({0}, 'question', \
-             'c', 0), ({0}, 'objection', 'c', 0), ({0}, \
-             'objection', 'c', 0), ({0}, 'reserved', 'c', 0)",
+             VALUES ({}, 'reserved', 'c', 0)",
             HAND.0
         ))
         .await;
@@ -732,7 +822,7 @@ async fn a_ruling_on_a_question_or_an_objection_is_a_notice() {
     }
 
     assert_eq!(empty, not_offered());
-    let mut told = notices(&realm, HAND, 5)
+    let mut told = notices(&realm, HAND, 7)
         .await
         .into_iter()
         .map(|(text, conversation)| {

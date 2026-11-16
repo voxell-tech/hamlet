@@ -26,11 +26,14 @@ use serde::{Deserialize, Serialize};
 use super::act::{Act, Decided, Decision};
 use super::calls::{Calls, Delivery, Made};
 use super::change::{self, Affected, Rows, Writer, number};
+use super::chiefs::limits::Limits;
 use super::oversight::{asking, reserved};
 use super::peer::When;
 use super::tasks::TaskId;
 use super::world::Part;
-use super::{Realm, oversight, parcels, tree};
+use super::{
+    Realm, oversight, parcels, record, tasks, tree, versions,
+};
 
 fn named(wait: &str) -> Option<WaitId> {
     let n = wait.trim_start_matches('#').parse::<i64>().ok()?;
@@ -64,6 +67,8 @@ pub(super) enum Choice {
     Allow(Scope),
     Refuse,
     Reply,
+    /// A reply in the chief's picks.
+    Picked,
     Dismiss,
     Go,
     Withdraw,
@@ -82,6 +87,7 @@ impl Choice {
             }
             Self::Refuse => ("refuse", None, None),
             Self::Reply => ("reply", None, None),
+            Self::Picked => ("picked", None, None),
             Self::Dismiss => ("dismiss", None, None),
             Self::Go => ("go", None, None),
             Self::Withdraw => ("withdraw", None, None),
@@ -111,6 +117,7 @@ impl Choice {
             }
             ("refuse", ..) => Self::Refuse,
             ("reply", ..) => Self::Reply,
+            ("picked", ..) => Self::Picked,
             ("dismiss", ..) => Self::Dismiss,
             ("go", ..) => Self::Go,
             ("withdraw", ..) => Self::Withdraw,
@@ -298,14 +305,16 @@ async fn lapse(
     writer: &Writer<'_>,
     agent: AgentNumber,
 ) -> Result<u64> {
+    let [choice, scope, reason] =
+        Choice::Lapsed(workspace::Lapse::Ended).columns()?;
     writer
         .execute(
-            "UPDATE wait SET choice = 'lapsed', reason = ?1, \
-             closed_at = ?2 WHERE agent = ?3 AND closed_at IS NULL",
+            "UPDATE wait SET choice = ?1, scope = ?2, reason = ?3, \
+             closed_at = ?4 WHERE agent = ?5 AND closed_at IS NULL",
             vec![
-                BindParam::Text(change::case_name(
-                    &workspace::Lapse::Ended,
-                )?),
+                choice,
+                scope,
+                reason,
                 BindParam::Integer(writer.at().0),
                 number(agent),
             ],
@@ -327,6 +336,15 @@ pub(super) struct Told {
     notice: Option<WaitId>,
     /// The task whose held letters go on.
     held: Option<TaskId>,
+    /// What a reserved act did once allowed, told to its caller.
+    ran: Option<Ran>,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+struct Ran {
+    wait: WaitId,
+    agent: AgentNumber,
+    text: String,
 }
 
 impl Told {
@@ -342,9 +360,24 @@ impl Told {
             self.workspace.iter().copied().map(Delivery::ChiefAnswer);
         let notice = self.notice.map(Delivery::Notice);
         let held = self.held.map(Delivery::Held);
+        let ran = self.ran.iter().map(|ran| Delivery::Line {
+            to: ran.agent,
+            submit: Submit {
+                id: InputId(format!("wait/{}", ran.wait.0)),
+                task: None,
+                input: Input::Notice {
+                    text: ran.text.clone(),
+                    conversation: None,
+                },
+            },
+        });
         Calls {
             before_answer: Vec::new(),
-            after_answer: answers.chain(notice).chain(held).collect(),
+            after_answer: answers
+                .chain(notice)
+                .chain(held)
+                .chain(ran)
+                .collect(),
         }
     }
 }
@@ -466,6 +499,10 @@ pub(super) async fn notice(
             "The chief answers: {}",
             ruling.unwrap_or_default()
         ),
+        (Kind::Question, Choice::Picked) => format!(
+            "The chief answers:\n{}",
+            ruling.unwrap_or_default()
+        ),
         (Kind::Question, Choice::Dismiss) => {
             "The chief did not answer; go on with what you know."
                 .to_owned()
@@ -536,20 +573,25 @@ pub(super) async fn budget_faults(
     Ok(closes)
 }
 
+/// The limits of `agent`'s hamlet, the default ones for an agent
+/// with none.
+pub(super) async fn limits_of(
+    rows: &Rows<'_>,
+    agent: AgentNumber,
+) -> Result<Limits> {
+    let hamlet = tree::lineage(rows, agent)
+        .await?
+        .and_then(|lineage| lineage.hamlet);
+    Ok(hamlet.map(|hamlet| hamlet.limits).unwrap_or_default())
+}
+
 /// The most refusals a chief gives `agent` on one task before the
 /// realm refuses unasked.
 async fn most_refusals(
     rows: &Rows<'_>,
     agent: AgentNumber,
 ) -> Result<u32> {
-    let hamlet = tree::lineage(rows, agent)
-        .await?
-        .and_then(|lineage| lineage.hamlet);
-    Ok(hamlet
-        .map(|hamlet| hamlet.limits)
-        .unwrap_or_default()
-        .asking
-        .refusals)
+    Ok(limits_of(rows, agent).await?.asking.refusals)
 }
 
 /// A tool call of an agent's that a chief refused on a task.
@@ -711,12 +753,17 @@ impl Act<Workspace> for NeedsChief {
 }
 
 /// What the unit of a wait's kind adds to a chief's answer: the
-/// changes committed with the close, and the words the chief's picks
-/// stand for.
+/// changes and decisions committed with the close, the words the
+/// chief's picks stand for, and the words the wait's agent is told.
 #[derive(Default)]
 pub(super) struct Ruling {
     pub(super) changes: Vec<change::Change>,
+    pub(super) entries: Vec<record::Entry>,
     pub(super) picked: Option<String>,
+    pub(super) told: Option<String>,
+    /// The wait's agent is told nothing of the ruling: it never
+    /// heard of what was ruled on.
+    pub(super) unheard: bool,
 }
 
 /// The open wait a chief answers.
@@ -731,7 +778,7 @@ pub(super) struct Waiting {
     /// other open tool waits on the task, with the words they close
     /// with.
     past_the_count: Option<(Vec<WaitId>, String)>,
-    ruling: Ruling,
+    ruling: Result<Ruling, AnswerRefusal>,
 }
 
 impl Waiting {
@@ -835,14 +882,17 @@ impl Act<Client> for Answer {
         let agent = AgentNumber(agent);
         let kind = change::from_case_name::<Kind>(kind)?;
         let ruling = match kind {
-            Kind::Question | Kind::Objection => {
-                asking::ruling(rows, wait, self).await?
+            Kind::Question => asking::reply(rows, wait, self).await?,
+            Kind::Objection => {
+                Ok(asking::ruling(rows, wait, self).await?)
             }
             Kind::Reserved => {
-                reserved::ruling(rows, wait, self).await?
+                Ok(reserved::ruling(rows, wait, self).await?)
             }
-            Kind::Send => parcels::ruling(rows, wait, self).await?,
-            Kind::Tool | Kind::Fault => Ruling::default(),
+            Kind::Send => {
+                Ok(parcels::ruling(rows, wait, self).await?)
+            }
+            Kind::Tool | Kind::Fault => Ok(Ruling::default()),
         };
         let past_the_count = match (kind, &self.0.choice, task) {
             (Kind::Tool, protocol::Choice::Deny, Some(task)) => {
@@ -899,29 +949,51 @@ impl Act<Client> for Answer {
                 wait: self.0.wait.clone(),
             });
         };
+        let ruling = match std::mem::replace(
+            &mut open.ruling,
+            Ok(Ruling::default()),
+        ) {
+            Ok(ruling) => ruling,
+            Err(why) => return refuse(why),
+        };
         let text = self
             .0
             .text
             .as_deref()
             .map(str::trim)
             .filter(|text| !text.is_empty());
-        let ruling = std::mem::take(&mut open.ruling);
-        let text = ruling.picked.as_deref().or(text);
         let choice = match (&self.0.picks, &ruling.picked) {
+            (_, Some(_)) => Some(Choice::Picked),
             (Some(_), None) => None,
-            _ => open.takes(&self.0.choice, text),
+            (None, None) => open.takes(&self.0.choice, text),
         };
+        let text = ruling.picked.as_deref().or(text);
         let Some(choice) = choice else {
             return refuse(AnswerRefusal::NotOffered);
         };
         let mut decided = Decided::new(open.told(&choice));
+        if ruling.unheard {
+            decided.done.notice = None;
+        }
+        decided.done.ran = ruling.told.map(|text| Ran {
+            wait: open.wait,
+            agent: open.agent,
+            text,
+        });
         for change in ruling.changes {
             decided = decided.change(change);
+        }
+        for entry in ruling.entries {
+            decided = decided.record(entry);
         }
         if choice == Choice::Allow(Scope::Always)
             && let Some(lasting) = open.lasting()
         {
-            decided = decided.change(lasting);
+            // The answer waits for the reach even when the always
+            // keeps nothing new.
+            decided = decided
+                .change(lasting)
+                .change(versions::Change::WantReach(open.agent));
         }
         if let Some((others, words)) = open.past_the_count {
             for other in others {
@@ -952,7 +1024,7 @@ impl Act<Client> for Answer {
 impl Act<Agent> for TurnFailed {
     type Output = ();
     /// The fault's wait with its cause as CBOR; `None` for an agent
-    /// that ended.
+    /// that ended or a task the realm does not hold.
     type Loaded = Option<(WaitId, Vec<u8>)>;
     type Done = ();
 
@@ -962,6 +1034,12 @@ impl Act<Agent> for TurnFailed {
         rows: &Rows<'_>,
     ) -> Result<Option<(WaitId, Vec<u8>)>> {
         if tree::left(rows, by.0).await?.is_some() {
+            return Ok(None);
+        }
+        let Some(task) = TaskId::of(&self.task) else {
+            return Ok(None);
+        };
+        if tasks::payer(rows, task).await?.is_none() {
             return Ok(None);
         }
         let mut cause = Vec::new();
@@ -1006,38 +1084,53 @@ fn lapse_of(why: LapseReason) -> Option<workspace::Lapse> {
 
 impl Act<Agent> for Lapse {
     type Output = ();
-    /// The agent's open waits that lapse, with their kinds.
-    type Loaded = Vec<(WaitId, Kind)>;
+    /// The agent's open waits that lapse, with their kinds and what
+    /// lapses with each.
+    type Loaded = Vec<(WaitId, Kind, Option<change::Change>)>;
     type Done = Told;
 
     async fn load(
         &self,
         by: &Agent,
         rows: &Rows<'_>,
-    ) -> Result<Vec<(WaitId, Kind)>> {
+    ) -> Result<Self::Loaded> {
         if lapse_of(self.why).is_none() {
             return Ok(Vec::new());
         }
         let conversation =
             nullable(self.conversation.clone().map(|c| c.0));
-        rows.rows::<(u64, String)>(
-            "SELECT id, kind FROM wait WHERE agent = ?1 AND \
-             closed_at IS NULL AND (?2 IS NULL OR conversation = \
-             ?2) ORDER BY id",
-            vec![number(by.0), conversation],
-        )
-        .await?
-        .into_iter()
-        .map(|(wait, kind)| {
-            Ok((WaitId(wait), change::from_case_name(kind)?))
-        })
-        .collect()
+        let open = rows
+            .rows::<(u64, String, Option<TaskId>)>(
+                "SELECT id, kind, task FROM wait WHERE agent = ?1 \
+                 AND closed_at IS NULL AND (?2 IS NULL OR \
+                 conversation = ?2) ORDER BY id",
+                vec![number(by.0), conversation],
+            )
+            .await?;
+        let mut lapsing = Vec::new();
+        for (wait, kind, task) in open {
+            let wait = WaitId(wait);
+            let kind = change::from_case_name(kind)?;
+            // The letters an objection held are dropped with it, and
+            // a send's parcel is refused.
+            let with = match (kind, task) {
+                (Kind::Objection, Some(task)) => {
+                    Some(asking::Change::Lapse { task }.into())
+                }
+                (Kind::Send, _) => {
+                    Some(parcels::lapsed(rows, wait).await?)
+                }
+                _ => None,
+            };
+            lapsing.push((wait, kind, with));
+        }
+        Ok(lapsing)
     }
 
     fn decide(
         &self,
         by: &Agent,
-        open: Vec<(WaitId, Kind)>,
+        open: Self::Loaded,
     ) -> Decision<Told, ()> {
         let Some(lapse) = lapse_of(self.why) else {
             let Some(conversation) = self.conversation.clone() else {
@@ -1058,12 +1151,15 @@ impl Act<Agent> for Lapse {
         let mut decided = Decided::new(Told {
             workspace: open
                 .iter()
-                .filter(|(_, kind)| *kind == Kind::Tool)
-                .map(|(wait, _)| *wait)
+                .filter(|(_, kind, _)| *kind == Kind::Tool)
+                .map(|(wait, ..)| *wait)
                 .collect(),
             ..Told::default()
         });
-        for (wait, _) in open {
+        for (wait, _, with) in open {
+            if let Some(with) = with {
+                decided = decided.change(with);
+            }
             decided = decided.change(Change::Close {
                 wait,
                 choice: Choice::Lapsed(lapse),

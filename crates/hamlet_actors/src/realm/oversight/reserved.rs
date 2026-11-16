@@ -1,23 +1,27 @@
 //! The society tools the limits reserve for a chief: kept in a wait
 //! until one allows or denies them.
 
+use std::fmt::Display;
+
 use anyhow::{Context as _, Result};
 use hamlet_messages::address::Agent;
 use hamlet_messages::agent::AgentKind;
 use hamlet_messages::realm::client::Answer;
 use hamlet_messages::realm::world::WaitId;
 use hamlet_messages::realm::{
-    End, Hire, LayRoad, SocietyTool, TakeUpRoad,
+    Done, End, Hire, HireAnswer, LayRoad, Named, SocietyTool,
+    TakeUpRoad,
 };
 use hamlet_messages::workspace::AgentNumber;
 use hamlet_protocol::client::Choice;
 use serde::{Deserialize, Serialize};
+use serde_json::{Map, Value};
 
 use super::super::act::{Act, Decided, Decision};
 use super::super::change::{self, Rows};
 use super::super::chiefs::limits::Reserved;
-use super::super::tree;
 use super::super::waits::{self, Kind, Raised, Ruling};
+use super::super::{record, tree};
 
 /// A reservable act, as its wait's `detail` keeps it: written by
 /// [`Keeping`], whose `tool` names the case.
@@ -28,6 +32,63 @@ enum Held {
     End(End),
     LayRoad(LayRoad),
     TakeUpRoad(TakeUpRoad),
+}
+
+impl Held {
+    /// Today's tool and its arguments, as the chief reads them.
+    fn subject(&self) -> String {
+        let mut args = Map::new();
+        let mut arg = |name: &str, value: Option<String>| {
+            if let Some(value) = value {
+                args.insert(name.to_owned(), Value::String(value));
+            }
+        };
+        let tool = match self {
+            Self::Hire(hire) => {
+                arg(
+                    "hamlet",
+                    hire.hamlet.as_ref().map(|h| h.0.clone()),
+                );
+                arg("name", hire.name.clone());
+                arg("purpose", hire.purpose.clone());
+                arg(
+                    "scholar",
+                    hire.profile.map(|profile| {
+                        format!("scholar#{}", profile.0)
+                    }),
+                );
+                arg("under", hire.under.as_ref().map(address));
+                "hire"
+            }
+            Self::End(end) => {
+                arg("hire", Some(address(&end.hire)));
+                arg("reason", end.why.clone());
+                "end_hire"
+            }
+            Self::LayRoad(LayRoad { a, b, why })
+            | Self::TakeUpRoad(TakeUpRoad { a, b, why }) => {
+                arg("a", Some(address(a)));
+                arg("b", Some(address(b)));
+                arg("reason", why.clone());
+                if matches!(self, Self::LayRoad(_)) {
+                    "lay_road"
+                } else {
+                    "take_up_road"
+                }
+            }
+        };
+        format!("{tool} {}", Value::Object(args))
+    }
+}
+
+/// `named` as an agent writes it in a tool's arguments.
+fn address(named: &Named) -> String {
+    match named {
+        Named::Hand => "hand".to_owned(),
+        Named::Mayor => "mayor".to_owned(),
+        Named::MayorOf { hamlet } => format!("mayor@{}", hamlet.0),
+        Named::Agent { agent } => format!("hire#{}", agent.0),
+    }
 }
 
 #[derive(Serialize)]
@@ -86,6 +147,7 @@ pub(in crate::realm) async fn reserve(
     }
     let mut detail = Vec::new();
     ciborium::into_writer(&Keeping { tool, act }, &mut detail)?;
+    let held = ciborium::from_reader::<Held, _>(detail.as_slice())?;
     let wait = waits::next(rows).await?;
     Ok(Some(Decided::new(wait).change(waits::Change::Raise {
         wait,
@@ -94,18 +156,15 @@ pub(in crate::realm) async fn reserve(
             kind: Kind::Reserved,
             task: None,
             conversation: None,
-            subject: format!(
-                "{} {}",
-                tool.name(),
-                serde_json::to_string(act)?
-            ),
+            subject: held.subject(),
             detail,
         },
     })))
 }
 
 /// What a reserved act's wait adds to the chief's `answer` on wait
-/// `wait`: on allow, the act's changes, decided now as its caller.
+/// `wait`: on allow, the act's changes and decisions, decided now as
+/// its caller, and the words its caller is told.
 pub(in crate::realm) async fn ruling(
     rows: &Rows<'_>,
     wait: WaitId,
@@ -122,31 +181,97 @@ pub(in crate::realm) async fn ruling(
         .await?
         .with_context(|| format!("wait {} has no row", wait.0))?;
     let by = Agent(AgentNumber(agent));
-    let changes =
+    let mut ruling =
         match ciborium::from_reader::<Held, _>(detail.as_slice())? {
             Held::Hire(act) => replay(rows, &by, act).await?,
             Held::End(act) => replay(rows, &by, act).await?,
             Held::LayRoad(act) => replay(rows, &by, act).await?,
             Held::TakeUpRoad(act) => replay(rows, &by, act).await?,
         };
-    Ok(Ruling {
-        changes,
-        picked: None,
-    })
+    if ruling.told.is_none() {
+        ruling.told = ran(rows, &ruling.entries).await?;
+    }
+    Ok(ruling)
 }
 
-/// The changes of `act` decided now by `by`; none when it would not
-/// run.
-async fn replay<A: Act<Agent>>(
+/// What `act` decides now as `by`: its changes and decisions, or the
+/// words of the refusal it meets.
+async fn replay<A>(
     rows: &Rows<'_>,
     by: &Agent,
     act: A,
-) -> Result<Vec<change::Change>> {
+) -> Result<Ruling>
+where
+    A: Act<Agent>,
+    A::Output: Refused,
+{
     let loaded = act.load(by, rows).await?;
     Ok(match act.decide(by, loaded) {
-        Decision::Change(decided) => decided.changes,
-        Decision::Again(_)
-        | Decision::Answer(_)
-        | Decision::WaitFor { .. } => Vec::new(),
+        Decision::Change(decided) => Ruling {
+            changes: decided.changes,
+            entries: decided.entries,
+            ..Ruling::default()
+        },
+        Decision::Answer(output)
+        | Decision::WaitFor {
+            refusal: output, ..
+        } => Ruling {
+            told: output.words(),
+            ..Ruling::default()
+        },
+        Decision::Again(_) => Ruling::default(),
     })
+}
+
+/// Today's words for what a reserved act did, from its decision.
+async fn ran(
+    rows: &Rows<'_>,
+    entries: &[record::Entry],
+) -> Result<Option<String>> {
+    let name = async |agent| record::name_of(rows, agent).await;
+    for entry in entries {
+        return Ok(Some(match entry {
+            record::Entry::Hired { hire, .. } => {
+                format!("Hired hire#{}.", hire.0)
+            }
+            record::Entry::Ended { hire, .. } => {
+                format!("Ended {}.", name(*hire).await?)
+            }
+            record::Entry::Road { a, b, .. } => format!(
+                "Laid a road between {} and {}.",
+                name(*a).await?,
+                name(*b).await?
+            ),
+            record::Entry::Unroad { a, b, .. } => format!(
+                "Took up the road between {} and {}.",
+                name(*a).await?,
+                name(*b).await?
+            ),
+            _ => continue,
+        }));
+    }
+    Ok(None)
+}
+
+/// An act's answer, read for the words of its refusal.
+trait Refused {
+    fn words(self) -> Option<String>;
+}
+
+impl<W: Display> Refused for Done<W> {
+    fn words(self) -> Option<String> {
+        match self {
+            Self::Done => None,
+            Self::Refused { why } => Some(why.to_string()),
+        }
+    }
+}
+
+impl<W: Display> Refused for HireAnswer<W> {
+    fn words(self) -> Option<String> {
+        match self {
+            Self::Hired { .. } => None,
+            Self::Refused { why } => Some(why.to_string()),
+        }
+    }
 }

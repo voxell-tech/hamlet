@@ -13,22 +13,25 @@ use hamlet_messages::address::{self, Party};
 use hamlet_messages::agent::{Input, Submit};
 use hamlet_messages::bytes::{Base64, Sha256};
 use hamlet_messages::realm::client::AnswerRefusal;
+use hamlet_messages::realm::oversight::{Lapse, LapseReason};
 use hamlet_messages::realm::parcels::{
     FetchPart, PARCEL_PART, ParcelFile, ParcelId, Part, PartRefusal,
+    part_start,
 };
-use hamlet_messages::realm::{Done, Enclosed};
+use hamlet_messages::realm::{Done, Enclosed, Tell};
 use hamlet_messages::sender::Hand;
 use hamlet_messages::workspace::refusal::{PathRefusal, ToRead};
 use hamlet_messages::workspace::{
     AgentNumber, AnswerTaken, ChiefAnswer, InForce, Parcel,
     ParcelAnswer, ParcelEntry, ParcelFault, ParcelPart,
-    ParcelRefusal, SetReach,
+    ParcelRefusal, RealmTask, SetReach,
 };
 use hamlet_protocol::client::Choice;
 use hamlet_testing::Scratch;
 use sha2::Digest as _;
 use tokio::sync::watch;
 
+use super::asking::{chief_task, objection, on};
 use super::{
     AgentStandIn, Forward, MAYOR, ProfileStandIn, Realm, Seen, THREE,
     answer, forward, founded, hires, kind, seen, submits_to, tell,
@@ -66,10 +69,14 @@ impl Files {
         let mut files = Vec::new();
         for Enclosed { path: named } in paths {
             if !named.starts_with("/project") {
+                let outside = PathRefusal::OutsideReach {
+                    path: named.clone(),
+                    access: ToRead::Read,
+                };
                 return ParcelAnswer::Refused {
-                    why: PathRefusal::OutsideReach {
+                    why: ParcelFault::Unreadable {
                         path: named.clone(),
-                        access: ToRead::Read,
+                        words: outside.to_string(),
                     }
                     .into(),
                 };
@@ -95,10 +102,21 @@ impl Files {
         ParcelAnswer::Measured { files }
     }
 
+    /// Part `part` of the file at `path`, as the real workspace
+    /// reads it: a part past the file's end is refused.
     fn part(&self, path: &Path, part: u32) -> Part<ParcelRefusal> {
         let held = self.held.lock().unwrap();
         let bytes = &held[path];
-        let start = part as usize * PARCEL_PART;
+        let Some(start) = part_start(bytes.len() as u64, part) else {
+            return Part::Refused {
+                why: ParcelFault::NoSuchPart {
+                    path: path.to_owned(),
+                    part,
+                }
+                .into(),
+            };
+        };
+        let start = start as usize;
         let end = (start + PARCEL_PART).min(bytes.len());
         Part::Bytes {
             bytes: Base64(bytes[start..end].to_vec()),
@@ -545,8 +563,8 @@ async fn over_the_cap_a_parcel_waits_for_a_chief() {
 #[tokio::test(flavor = "multi_thread")]
 async fn a_parcel_outside_the_reach_is_told_to_the_sender() {
     // 2 names a file its reach does not read: tell answers at once,
-    // 2 is told the workspace's refusal in today's form, and 3 gets
-    // nothing.
+    // 2 is told the workspace's refusal in today's words, with no
+    // period added, and 3 gets nothing.
     let (realm, _) =
         sending(Files::with(&[("/project/a", b"a")])).await;
 
@@ -555,7 +573,8 @@ async fn a_parcel_outside_the_reach_is_told_to_the_sender() {
 
     assert_eq!(
         told,
-        "/outside/secret is out of this agent's reach to read."
+        "`/outside/secret` cannot be read: /outside/secret is out \
+         of this agent's reach to read"
     );
     assert!(letters_to_three(&realm).is_empty());
     assert!(submits_to(&realm, THREE).is_empty());
@@ -689,4 +708,264 @@ async fn a_file_that_changes_while_it_is_copied_is_not_sent() {
         "`report` cannot be read: it changed while it was sent."
     );
     assert!(letters_to_three(&realm).is_empty());
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn a_file_that_shrinks_while_it_is_copied_reads_as_one_that_changed()
+ {
+    // The file shrinks to less than a part between its measure and
+    // its copy's second part: 2 is told what it is told of a file
+    // that grows, and 3 gets nothing.
+    let report = bytes_of(PARCEL_PART + 10, 5);
+    let (realm, files) =
+        sending(Files::with(&[("/project/report", &report)])).await;
+    files.hold_from(1);
+
+    sends(&realm, "t1", "Report.", &["/project/report"]).await;
+    until("the copy waits on its second part", || {
+        *files.waiting.lock().unwrap()
+    })
+    .await;
+    files.add(&[("/project/report", b"short")]);
+    files.release();
+    let told = notice_to_mayor(&realm).await;
+
+    assert_eq!(
+        told,
+        "`report` cannot be read: it changed while it was sent."
+    );
+    assert!(letters_to_three(&realm).is_empty());
+}
+
+/// Mayor 2 tells 3 on `task`, with the files under `paths`.
+async fn sends_on(
+    realm: &Realm,
+    call: &str,
+    task: &RealmTask,
+    paths: &[&str],
+) {
+    let sent = Tell {
+        paths: paths
+            .iter()
+            .map(|path| Enclosed { path: path.into() })
+            .collect(),
+        ..on(task, "On the task.")
+    };
+    let answer = realm.tool(MAYOR, &tool(call, sent)).await.unwrap();
+    assert_eq!(answer, Done::Done, "tell answers at once");
+}
+
+/// 3 objects to a chief's new line, and the mayor sends it a file
+/// on that line's task. Returns the objection's wait.
+async fn held_with_a_file(realm: &Realm) -> String {
+    let task = chief_task(realm, THREE).await;
+    let objected = realm
+        .tool(THREE, &tool("o1", objection(&task, "no")))
+        .await
+        .unwrap();
+    assert_eq!(objected, Done::Done);
+    sends_on(realm, "t1", &task, &["/project/a"]).await;
+    "1".to_owned()
+}
+
+/// The rows of the `held` table. Reading them stops the realm, which
+/// first ends every drive of a parcel's steps.
+async fn held_count(realm: &Realm) -> i64 {
+    realm
+        .rows(|db| {
+            db.query_row("SELECT COUNT(*) FROM held", [], |row| {
+                row.get(0)
+            })
+        })
+        .await
+}
+
+async fn go(realm: &Realm, wait: &str) {
+    let ruled =
+        realm.ask(&answer(wait, Choice::Go, None)).await.unwrap();
+    assert_eq!(ruled, Done::Done, "go on wait {wait}");
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn a_held_letters_files_wait_for_go() {
+    // 3 objects to its task and the mayor sends it a file on that
+    // task: the file is copied, but the letter is held, and 3 may not
+    // fetch the file before the chief's go. After it, the letter
+    // comes, and its file is fetched.
+    let (realm, _) =
+        sending(Files::with(&[("/project/a", b"aaa")])).await;
+    let wait = held_with_a_file(&realm).await;
+
+    let held = held_count(&realm).await;
+    let letters_while_held = letters_to_three(&realm).len();
+    let early = fetch(&realm, THREE, ParcelId(1), 0, 0).await;
+    go(&realm, &wait).await;
+    let files = letter_files(&realm, 1).await;
+
+    assert_eq!((held, letters_while_held), (1, 0));
+    assert_eq!(
+        early,
+        Part::Refused {
+            why: PartRefusal::NoSuchParcel
+        }
+    );
+    assert_eq!(fetched(&realm, &files[0]).await, b"aaa");
+    assert_eq!(stored(&realm), [hash(b"aaa").to_string()]);
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn a_held_letters_files_outlive_a_day() {
+    // A letter with a file is held for over a day, and the realm
+    // sweeps its store as it starts: the file stays while the letter
+    // is held, and its day begins at the go, so 3 fetches it after a
+    // later sweep.
+    let (realm, _) =
+        sending(Files::with(&[("/project/a", b"aaa")])).await;
+    let wait = held_with_a_file(&realm).await;
+    held_count(&realm).await;
+
+    realm.write("UPDATE parcel SET at = 0 WHERE id = 1").await;
+    let after_a_day = stored(&realm);
+    go(&realm, &wait).await;
+    let files = letter_files(&realm, 1).await;
+    // Reading the rows starts the realm again, which sweeps.
+    held_count(&realm).await;
+
+    assert_eq!(after_a_day, [hash(b"aaa").to_string()]);
+    assert_eq!(fetched(&realm, &files[0]).await, b"aaa");
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn a_kill_after_ready_keeps_a_held_letter() {
+    // The parcel is ready and its letter given, then the realm is
+    // killed before its deliver step is marked done, and 3 objects to
+    // the letter's task before the step runs again: the letter is
+    // held until the go, as any letter on that task is.
+    let (realm, _) =
+        sending(Files::with(&[("/project/a", b"aaa")])).await;
+    let task = chief_task(&realm, THREE).await;
+    sends_on(&realm, "t1", &task, &["/project/a"]).await;
+    letter_files(&realm, 1).await;
+    realm
+        .tool(THREE, &tool("o1", objection(&task, "no")))
+        .await
+        .unwrap();
+    realm.seen.submits.lock().unwrap().retain(|(to, submit)| {
+        !(*to == THREE
+            && matches!(submit.input, Input::Letter { .. }))
+    });
+
+    realm
+        .write(
+            "UPDATE step SET done = 'copy', closed = 0 WHERE kind = \
+             'parcel' AND n = 1",
+        )
+        .await;
+    let held = held_count(&realm).await;
+    let letters_while_held = letters_to_three(&realm).len();
+    go(&realm, "1").await;
+    letter_files(&realm, 1).await;
+
+    assert_eq!((held, letters_while_held), (1, 0));
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn an_ended_receiver_fetches_nothing() {
+    // 3 is given a file, and then ends: its fetch is refused.
+    let (realm, _) =
+        sending(Files::with(&[("/project/a", b"aaa")])).await;
+    sends(&realm, "t1", "A.", &["/project/a"]).await;
+    let files = letter_files(&realm, 1).await;
+    realm
+        .write(
+            "UPDATE agent SET status = 'ended', ended_how = \
+             '{\"type\":\"by_the_chief\"}' WHERE id = 3",
+        )
+        .await;
+
+    let ended = fetch(&realm, THREE, files[0].parcel, 0, 0).await;
+
+    assert_eq!(
+        ended,
+        Part::Refused {
+            why: PartRefusal::NoSuchParcel
+        }
+    );
+}
+
+/// Each parcel's state, and whether it is swept.
+async fn parcel_states(realm: &Realm) -> Vec<(String, bool)> {
+    realm
+        .rows(|db| {
+            db.prepare(
+                "SELECT state, swept_at IS NOT NULL FROM parcel \
+                 ORDER BY id",
+            )?
+            .query_map([], |row| Ok((row.get(0)?, row.get(1)?)))?
+            .collect()
+        })
+        .await
+}
+
+fn over_the_cap() -> Files {
+    let names = (1..=1001)
+        .map(|n| format!("/project/big/{n:04}"))
+        .collect::<Vec<_>>();
+    let files = names
+        .iter()
+        .map(|name| (name.as_str(), &b"x"[..]))
+        .collect::<Vec<_>>();
+    Files::with(&files)
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn a_lapsed_send_wait_ends_its_parcel() {
+    // A parcel over the cap waits for a chief, and its sender's turn
+    // is stopped: its wait lapses, the parcel is refused, and the
+    // sweep at the next start takes it. An allow then finds nothing
+    // waiting.
+    let (realm, files) = sending(over_the_cap()).await;
+    sends(&realm, "t1", "Everything.", &["/project/big"]).await;
+    opens(&realm, "1").await;
+
+    let lapse = Lapse {
+        conversation: None,
+        why: LapseReason::Stopped,
+    };
+    realm.tool(MAYOR, &lapse).await.unwrap();
+    let realm = restart(realm, &files).await;
+    let states = parcel_states(&realm).await;
+    let allowed =
+        realm.ask(&answer("1", Choice::Allow, None)).await.unwrap();
+
+    assert_eq!(states, [("refused".to_owned(), true)]);
+    assert!(
+        matches!(
+            allowed,
+            Done::Refused {
+                why: AnswerRefusal::NothingWaits { .. }
+            }
+        ),
+        "{allowed:?}"
+    );
+    assert!(letters_to_three(&realm).is_empty());
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn a_parcel_whose_sender_ended_is_swept() {
+    // A parcel over the cap waits for a chief, and its sender ends:
+    // the sweep at the next start refuses the parcel and takes it.
+    let (realm, _) = sending(over_the_cap()).await;
+    sends(&realm, "t1", "Everything.", &["/project/big"]).await;
+    opens(&realm, "1").await;
+
+    realm
+        .write(
+            "UPDATE agent SET status = 'ended', ended_how = \
+             '{\"type\":\"by_the_chief\"}' WHERE id = 2",
+        )
+        .await;
+    let states = parcel_states(&realm).await;
+
+    assert_eq!(states, [("refused".to_owned(), true)]);
 }
