@@ -595,6 +595,11 @@ struct Sending {
     measure: Measure,
 }
 
+/// The measure a send wait's `detail` keeps.
+pub(super) fn measure_of(detail: &[u8]) -> Result<Measure> {
+    Ok(ciborium::from_reader::<Sending, _>(detail)?.measure)
+}
+
 /// The words a chief reads on a parcel's wait, as today's gate gave
 /// them: the size and the files, then the call.
 async fn subject(

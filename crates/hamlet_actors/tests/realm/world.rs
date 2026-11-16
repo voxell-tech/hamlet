@@ -324,22 +324,24 @@ async fn an_answered_wait_leaves_the_world() {
 }
 
 #[tokio::test(flavor = "multi_thread")]
-async fn a_wait_that_does_not_read_leaves_the_world_readable() {
+async fn a_wait_that_does_not_read_stops_the_realms_start() {
     // a question wait with neither words nor detail, as no writer
-    // keeps it, beside a tool wait: the world shows the tool wait.
+    // keeps it: the realm refuses to start.
     let (realm, _) = hamlet_with(1).await;
-    realm
-        .write(
-            "INSERT INTO wait (agent, kind, task, conversation, at) \
-             VALUES (3, 'question', 1, 'c', 1)",
-        )
-        .await;
-    realm.call_as_workspace(&needs(THREE, "c1")).await.unwrap();
-    let seen = realm.ask(&ReadWorld).await.unwrap();
-    assert_eq!(
-        seen.waits.iter().map(|wait| wait.wait).collect::<Vec<_>>(),
-        [WaitId(2)]
-    );
+    let started = super::stopped_open(
+        &realm.host,
+        &realm.scratch,
+        &address::Realm.address().unwrap(),
+        rusqlite::OpenFlags::default(),
+        |db| {
+            db.execute_batch(
+                "INSERT INTO wait (agent, kind, task, conversation, \
+                 at) VALUES (3, 'question', 1, 'c', 1)",
+            )
+        },
+    )
+    .await;
+    assert!(started.is_err(), "the realm started past the wait");
     realm.host.shutdown().await.unwrap();
 }
 

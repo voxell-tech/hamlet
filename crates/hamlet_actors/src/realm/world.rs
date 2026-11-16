@@ -7,20 +7,18 @@ use hamlet_actor::Ctx;
 use hamlet_messages::realm::HamletId;
 use hamlet_messages::realm::budget::Payer;
 use hamlet_messages::realm::client::ReadWorld;
-use hamlet_messages::realm::parcels::Measure;
 use hamlet_messages::realm::world::{
     AgentSeen, GrantSeen, HamletSeen, ReachSeen, Revision, Seen,
     Spend, Starter, Status, WaitId, WaitKind, WaitSeen,
 };
 use hamlet_messages::sender::Client;
 use hamlet_messages::workspace::{AgentNumber, CallId, ReachVersion};
-use serde::Deserialize;
 use tokio::sync::Mutex;
 
 use super::act::Look;
 use super::change::{self, Affected, Column as _, Rows};
 use super::tree::choices;
-use super::{Realm, budget, laid, tree, versions, waits};
+use super::{Realm, budget, laid, parcels, tree, versions, waits};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
 pub(super) enum Part {
@@ -260,12 +258,6 @@ async fn hamlets(rows: &Rows<'_>) -> Result<Vec<HamletSeen>> {
     .collect()
 }
 
-/// A send wait's detail, as `parcels` keeps it.
-#[derive(Deserialize)]
-struct Sending {
-    measure: Measure,
-}
-
 type WaitRow = (
     u64,
     u32,
@@ -275,29 +267,19 @@ type WaitRow = (
     Option<Vec<u8>>,
 );
 
-/// The open waits. A wait whose row does not read is left out, so one
-/// row never stops the realm's start or the copy's refresh.
 async fn waits(rows: &Rows<'_>) -> Result<Vec<WaitSeen>> {
-    Ok(rows
-        .rows::<WaitRow>(
-            "SELECT id, agent, kind, call, subject, detail FROM \
-             wait WHERE closed_at IS NULL ORDER BY id",
-            Vec::new(),
-        )
-        .await?
-        .into_iter()
-        .filter_map(|row| {
-            let wait = row.0;
-            wait_seen(row)
-                .inspect_err(|error| {
-                    tracing::warn!(
-                        "wait {wait} is left out of the world: \
-                         {error:#}"
-                    );
-                })
-                .ok()
-        })
-        .collect())
+    rows.rows::<WaitRow>(
+        "SELECT id, agent, kind, call, subject, detail FROM wait \
+         WHERE closed_at IS NULL ORDER BY id",
+        Vec::new(),
+    )
+    .await?
+    .into_iter()
+    .map(|row| {
+        let wait = row.0;
+        wait_seen(row).with_context(|| format!("wait {wait}"))
+    })
+    .collect()
 }
 
 fn wait_seen(
@@ -313,8 +295,7 @@ fn wait_seen(
         }
         waits::Kind::Reserved => WaitKind::Reserved,
         waits::Kind::Send => WaitKind::Send {
-            measure: ciborium::from_reader::<Sending, _>(detail()?)?
-                .measure,
+            measure: parcels::measure_of(detail()?)?,
         },
         waits::Kind::Fault => WaitKind::Fault,
     };
