@@ -247,6 +247,12 @@ another actor, a client, or none for the program that opened the host.
 A call made for a task carries that task in its own message. A call
 never makes its actor.
 
+**Subscription**:
+A client's following of one event of an actor: each broadcast of the
+event, in order, until the actor closes it or stops. Events a slow
+reader or a lost link misses are not kept; a gap in their place tells
+the reader to read the actor's state again.
+
 **Set-aside timer**:
 An actor's one-shot timer that used up its tries without its handler's
 reply. The actor keeps it, and nothing runs it again until a re-arm puts

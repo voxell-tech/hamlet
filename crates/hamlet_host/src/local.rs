@@ -33,7 +33,7 @@ use std::fs::{File, TryLockError};
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, AtomicU8, Ordering};
 use std::sync::{Arc, Weak};
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use anyhow::{Context, Result, bail, ensure};
 use hamlet_actor_core::actor::schedule::{
@@ -57,16 +57,21 @@ use rusqlite::{Connection, OptionalExtension};
 use tokio::sync::{broadcast, oneshot, watch};
 use tokio::task::{AbortHandle, JoinHandle};
 
-use self::access::Stamp;
 pub use self::access::{HostRef, Values};
+pub(crate) use self::access::{Inbound, Origin, Stamp};
 use self::create::DuplicateKey;
+pub use self::subscribe::{Item, Subscription};
 use crate::directory::{Directory, Place};
 use crate::event::HostEvent;
+use crate::link::Port;
 use crate::plain_sqlite::{self, PlainSqlite};
+use crate::route::Routes;
 
 mod access;
 mod call;
 mod create;
+pub(crate) mod feed;
+mod subscribe;
 
 /// The one session a local file has. The transaction code compares
 /// sessions to detect a lost connection, which a local file cannot
@@ -81,6 +86,13 @@ const START_GRACE_AT_SHUTDOWN: Duration = Duration::from_secs(1);
 /// waits for the actor's file to close. A file whose thread still
 /// runs a statement closes only once the statement ends.
 const CLOSE_GRACE: Duration = Duration::from_secs(1);
+
+/// How long a destroy tries again to remove an actor's files while
+/// another handle holds one.
+const REMOVE_GRACE: Duration = Duration::from_secs(1);
+
+/// The pause between two tries of a removal.
+const REMOVE_AGAIN: Duration = Duration::from_millis(20);
 
 /// The host's row in each actor file. Its version ladder is Hamlet's,
 /// apart from the core's `_actor_` tables.
@@ -237,23 +249,23 @@ type Waiters = watch::Receiver<Option<Failed>>;
 /// remove a destroyed actor's files, for each of its waiters to
 /// return.
 #[derive(Clone)]
-struct Failed {
-    error: ActorError,
+pub(crate) struct Failed {
+    error: Box<ActorError>,
     /// The failure with its causes, as the work returned it.
     detail: String,
 }
 
 impl Failed {
-    fn new(error: &anyhow::Error) -> Self {
+    pub(crate) fn new(error: &anyhow::Error) -> Self {
         Self {
-            error: ActorError::extract(error),
+            error: Box::new(ActorError::extract(error)),
             detail: format!("{error:#}"),
         }
     }
 
     /// The failure, with its code.
-    fn to_error(&self) -> anyhow::Error {
-        anyhow::Error::from(self.error.clone())
+    pub(crate) fn to_error(&self) -> anyhow::Error {
+        anyhow::Error::from(*self.error.clone())
             .context(self.detail.clone())
     }
 }
@@ -310,6 +322,20 @@ struct Generation {
     /// The last alarm the core pushed in this generation, `None`
     /// until it pushes one, as the core's own record starts.
     alarm: Arc<Mutex<Option<i64>>>,
+    /// The kind of stop the generation began, set once under the
+    /// map's lock by the transition that begins it: a destroy after
+    /// a sleep leaves it `Stopped`.
+    stopped: watch::Sender<Option<Ended>>,
+    /// The runtime the generation's core runs on.
+    runtime: tokio::runtime::Handle,
+}
+
+/// The kind of stop a generation began.
+#[derive(Clone, Copy)]
+enum Ended {
+    /// A sleep, a crash, a host's stop or its shutdown.
+    Stopped,
+    Destroyed,
 }
 
 impl Generation {
@@ -497,12 +523,7 @@ impl Stop {
         drop(replaced);
         if destroyed {
             let path = actor_path(&host.dir, &owned.at);
-            let removed = tokio::task::spawn_blocking(move || {
-                destroy_file(&path)
-            })
-            .await
-            .map_err(anyhow::Error::from)
-            .flatten();
+            let removed = destroy_file_off_runtime(path).await;
             // A destroy that joined this stop answers it too.
             if let Err(error) = &removed {
                 owned.fail(error);
@@ -615,6 +636,12 @@ pub struct HostOptions {
     /// What the host gives its actors, by type: none by default. See
     /// [`HostOptions::with_value`].
     pub values: Values,
+    /// The kinds each caller may reach by a call, a create, a
+    /// get-or-start or a subscribe. The host refuses any other with
+    /// `actor.refused` and reports it in [`HostEvent::Refused`]. An
+    /// operation with no caller is never refused. [`Routes::Any`] by
+    /// default.
+    pub routes: Routes,
 }
 
 impl Default for HostOptions {
@@ -625,6 +652,7 @@ impl Default for HostOptions {
             start_retry: Duration::from_secs(30),
             name: "host".to_owned(),
             values: Values::default(),
+            routes: Routes::Any,
         }
     }
 }
@@ -689,15 +717,10 @@ impl HostInner {
     /// starts under way after [`START_GRACE_AT_SHUTDOWN`].
     fn shut_down(&self) {
         self.actors.lock().shut_down();
-        self.starts_end.send_if_modified(|end| {
-            if end.is_some() {
-                return false;
-            }
-            *end = Some(
-                tokio::time::Instant::now() + START_GRACE_AT_SHUTDOWN,
-            );
-            true
-        });
+        set_once(
+            &self.starts_end,
+            tokio::time::Instant::now() + START_GRACE_AT_SHUTDOWN,
+        );
     }
 
     /// Awaits `start` until it ends, its start deadline passes, or
@@ -816,6 +839,17 @@ impl HostInner {
     }
 }
 
+/// Sets `sender` to `value` unless it holds one already.
+fn set_once<T>(sender: &watch::Sender<Option<T>>, value: T) {
+    sender.send_if_modified(|now| {
+        if now.is_some() {
+            return false;
+        }
+        *now = Some(value);
+        true
+    });
+}
+
 /// What a host that has shut down answers a start.
 fn host_shut_down() -> anyhow::Error {
     ActorLifecycle::Stopping
@@ -841,7 +875,10 @@ fn stopping(
 ) -> Life {
     let done = owned.waiters.clone();
     match reason {
-        ShutdownKind::Sleep => Life::Stopping { generation, done },
+        ShutdownKind::Sleep => {
+            set_once(&generation.stopped, Ended::Stopped);
+            Life::Stopping { generation, done }
+        }
         ShutdownKind::Destroy => destroying(generation, done),
     }
 }
@@ -852,6 +889,7 @@ fn stopping(
 /// its actor sends after, but those of a transaction open now: a kill
 /// from then on leaves a file whose next start finishes the destroy.
 fn destroying(generation: Arc<Generation>, done: Waiters) -> Life {
+    set_once(&generation.stopped, Ended::Destroyed);
     // A file already closed is marked as it is removed.
     let _ = generation.file.when_idle(|conn| {
         mark_destroyed(conn)?;
@@ -918,13 +956,23 @@ impl Host {
         factories: HashMap<String, ActorFactory>,
         options: HostOptions,
     ) -> Result<Self> {
+        Self::open_linked(dir, factories, options, None)
+    }
+
+    /// [`Host::open_with`], with a port to the other host.
+    pub(crate) fn open_linked(
+        dir: &Path,
+        factories: HashMap<String, ActorFactory>,
+        options: HostOptions,
+        linked: Option<Port>,
+    ) -> Result<Self> {
         plain(&options.name, Named::Host)?;
         for kind in factories.keys() {
             plain(kind, Named::Kind)?;
         }
         call::check_kinds(&factories)?;
         std::fs::create_dir_all(dir.join("actors"))?;
-        let directory = Directory::local(factories);
+        let directory = Directory::new(factories, linked)?;
         let mut locks = vec![FolderLock::take(
             &dir.join(format!("{}.lock", options.name)),
         )?];
@@ -1021,7 +1069,7 @@ impl Host {
                 }
             };
             if destroyed {
-                match destroy_file(&path) {
+                match destroy_file_off_runtime(path).await {
                     Ok(()) => tracing::info!(
                         actor_id = %at,
                         "boot finished a destroy that a kill cut off"
@@ -1087,7 +1135,9 @@ impl Host {
     }
 
     /// Starts the actor at `at` unless it runs, made first with no
-    /// input if its file holds none.
+    /// input if its file holds none. Fails with
+    /// `actor.invalid_operation` for a kind the other host of a link
+    /// runs.
     pub async fn get_or_start(&self, at: &Address) -> Result<()> {
         self.inner().start(Stamp::PROGRAM, at, Open::OrCreate).await
     }
@@ -1128,12 +1178,13 @@ impl Host {
 
     /// The one-shot timers the actor at `at` set aside after their
     /// last try. Starts the actor from its file if it is not running,
-    /// and never makes one.
+    /// and never makes one. Fails with `actor.invalid_operation` for
+    /// a kind the other host of a link runs.
     pub async fn set_aside_timers(
         &self,
         at: &Address,
     ) -> Result<Vec<SetAsideTimer>> {
-        let Place::Local(_) = self.inner().locate(at)?;
+        self.inner().directory.factory(at, "set_aside_timers")?;
         let generation =
             self.inner().ensure_started(at, &Open::Existing).await?;
         generation.actor.context().set_aside_timers().await
@@ -1143,14 +1194,16 @@ impl Host {
     /// due at `due_at` in ms since the Unix epoch, with its tries
     /// counted from none. Returns false when the actor holds no
     /// set-aside timer of that id. Starts the actor as
-    /// [`Host::set_aside_timers`] does.
+    /// [`Host::set_aside_timers`] does. Fails with
+    /// `actor.invalid_operation` for a kind the other host of a link
+    /// runs.
     pub async fn rearm_timer(
         &self,
         at: &Address,
         event_id: &str,
         due_at: i64,
     ) -> Result<bool> {
-        let Place::Local(_) = self.inner().locate(at)?;
+        self.inner().directory.factory(at, "rearm_timer")?;
         let generation =
             self.inner().ensure_started(at, &Open::Existing).await?;
         generation
@@ -1167,12 +1220,14 @@ impl Host {
     /// it a destroy. A sleep leaves a stopped actor as it is, its
     /// file and its timer with it; a destroy removes its files and
     /// cancels its timer, and one repeated after it ended ends the
-    /// same way. Fails for an actor of no kind of this host, before
-    /// anything reaches the folder, and a destroy of a stopped actor
-    /// fails in a host that has shut down, which may no longer hold
-    /// the folder. A destroy answers `Ok` only once the actor's files
-    /// are gone: a removal that fails fails the destroy and every
-    /// caller that waited for it, whichever stop removed them.
+    /// same way. Fails for an actor of no kind of this host, with
+    /// `actor.invalid_operation` for a kind the other host of a link
+    /// runs, before anything reaches the folder, and a destroy of a
+    /// stopped actor fails in a host that has shut down, which may no
+    /// longer hold the folder. A destroy answers `Ok` only once the
+    /// actor's files are gone: a removal that fails fails the destroy
+    /// and every caller that waited for it, whichever stop removed
+    /// them.
     ///
     /// A stop ends within [`HostOptions::stop_deadline`], whatever
     /// the actor does. An actor that does not stop by then is given
@@ -1193,7 +1248,7 @@ impl Host {
         reason: ShutdownKind,
     ) -> Result<()> {
         let host = self.inner();
-        let Place::Local(_) = host.locate(at)?;
+        host.directory.factory(at, "stop")?;
         loop {
             if let Some(stop) = host.ask_stop(at, None, reason.into())
             {
@@ -1703,22 +1758,51 @@ fn destroy_file(path: &Path) -> Result<()> {
         ensure!(busy == 0, "{} stayed busy", path.display());
         conn.close().map_err(|(_, error)| error)?;
     }
+    let deadline = Instant::now() + REMOVE_GRACE;
     for suffix in ["-wal", "-shm", ""] {
         crate::fault::point("destroy-remove");
         let mut file = path.as_os_str().to_owned();
         file.push(suffix);
-        match std::fs::remove_file(&file) {
-            Err(error)
-                if error.kind() != std::io::ErrorKind::NotFound =>
-            {
-                return Err(error).with_context(|| {
-                    format!("remove {}", Path::new(&file).display())
-                });
-            }
-            _ => {}
-        }
+        let file = Path::new(&file);
+        remove_by(file, deadline)
+            .with_context(|| format!("remove {}", file.display()))?;
     }
     Ok(())
+}
+
+/// Runs [`destroy_file`] on a blocking thread, where a removal that
+/// Windows refuses waits.
+async fn destroy_file_off_runtime(path: PathBuf) -> Result<()> {
+    tokio::task::spawn_blocking(move || destroy_file(&path))
+        .await
+        .map_err(anyhow::Error::from)
+        .flatten()
+}
+
+fn remove_by(file: &Path, deadline: Instant) -> std::io::Result<()> {
+    loop {
+        match std::fs::remove_file(file) {
+            Err(error)
+                if error.kind() == std::io::ErrorKind::NotFound =>
+            {
+                return Ok(());
+            }
+            Err(error)
+                if held(&error) && Instant::now() < deadline =>
+            {
+                std::thread::sleep(REMOVE_AGAIN);
+            }
+            removed => return removed,
+        }
+    }
+}
+
+/// Whether Windows refused a removal because another handle holds
+/// the file: `ERROR_SHARING_VIOLATION` (32) when it does not share
+/// the deletion, `ERROR_ACCESS_DENIED` (5) while an earlier deletion
+/// of the file waits for it to close.
+fn held(error: &std::io::Error) -> bool {
+    cfg!(windows) && matches!(error.raw_os_error(), Some(32 | 5))
 }
 
 /// What a start may do with the actor's file.
@@ -1969,7 +2053,8 @@ fn bump_generation(
 /// and is not tried again. A create's own start that fails removes
 /// the actor it made, its files with it, and tells its waiters
 /// nothing either, since no actor is left; unless the file did not
-/// close within the grace, when the actor stays, as for any start.
+/// close within the grace or could not be removed, when the actor
+/// stays, as for any start.
 async fn start_actor(
     owned: Owned,
     id: u64,
@@ -2012,6 +2097,13 @@ async fn start_actor(
                 Some(file) => close_within_grace(&file).await,
                 None => true,
             };
+            if !closed {
+                tracing::warn!(
+                    actor_id = %at,
+                    "host could not close the file of a start that \
+                     failed within the grace"
+                );
+            }
             // Not told to the waiters: each reads the map again.
             if let Some(found) = error.downcast_ref::<Found>() {
                 return Err(found.to_error(&at));
@@ -2096,12 +2188,8 @@ async fn close_within_grace(file: &PlainSqlite) -> bool {
 /// start, with its files, so the key is free again. Answers whether
 /// it did: a failure is logged, and leaves the actor made.
 async fn unmake(host: &HostInner, at: &Address) -> bool {
-    let path = actor_path(&host.dir, at);
     let removed =
-        tokio::task::spawn_blocking(move || destroy_file(&path))
-            .await
-            .map_err(anyhow::Error::from)
-            .flatten();
+        destroy_file_off_runtime(actor_path(&host.dir, at)).await;
     if let Err(error) = &removed {
         tracing::warn!(
             ?error,
@@ -2124,8 +2212,7 @@ async fn start_generation(
     opening: &mut Option<Opening>,
     opened: &Mutex<Option<PlainSqlite>>,
 ) -> Result<Arc<Generation>> {
-    let Place::Local(factory) = host.locate(at)?;
-    let factory = factory.clone();
+    let factory = host.directory.factory(at, "start")?.clone();
     let claim = Arc::new(OpenClaim::default());
     let task = tokio::task::spawn_blocking({
         let dir = host.dir.clone();
@@ -2161,6 +2248,8 @@ async fn start_generation(
         actor,
         file,
         alarm,
+        stopped: watch::Sender::new(None),
+        runtime: tokio::runtime::Handle::current(),
     }))
 }
 
@@ -2306,173 +2395,4 @@ fn now_ms() -> i64 {
 mod counter;
 
 #[cfg(test)]
-mod tests {
-    use hamlet_actor_core::{ActorConfig, ActorStart};
-    use hamlet_testing::Scratch;
-
-    use super::*;
-
-    /// The kind `waker`, whose run handler sets the run wake deadline
-    /// `wake_at` and then answers only lifecycle events.
-    fn waker(wake_at: i64) -> HashMap<String, ActorFactory> {
-        let config = ActorConfig {
-            name: Some("waker".to_owned()),
-            has_database: true,
-            ..ActorConfig::default()
-        };
-        HashMap::from([(
-            "waker".to_owned(),
-            ActorFactory::new(config, move |start: ActorStart| {
-                Box::pin(async move {
-                    let ActorStart {
-                        ctx, mut events, ..
-                    } = start;
-                    ctx.set_run_wake_at(Some(wake_at)).await?;
-                    while let Some(event) = events.recv().await {
-                        counter::answer(event);
-                    }
-                    Ok(())
-                })
-            }),
-        )])
-    }
-
-    /// The deadline a stop stores comes from the file as well as from
-    /// the generation's last alarm: none from a file whose core made
-    /// no tables, and the run wake deadline with no alarm pushed.
-    #[tokio::test(flavor = "multi_thread")]
-    async fn a_stop_reads_its_deadline_from_the_file() {
-        let dir = Scratch::new("host-stop-deadline");
-        let mut bare =
-            plain_sqlite::open(&dir.join("bare.sqlite"), true)
-                .unwrap();
-        bump_generation(
-            &mut bare,
-            "bare",
-            "a",
-            &Open::OrCreate,
-            &OpenClaim::default(),
-        )
-        .unwrap();
-        assert_eq!(mark_stopped(&bare, None).unwrap(), None);
-        assert_eq!(mark_stopped(&bare, Some(5)).unwrap(), Some(5));
-
-        let wake_at = now_ms() + 600_000;
-        let host = Host::open(&dir, waker(wake_at)).unwrap();
-        let a = Address::new("waker", "a").unwrap();
-        host.get_or_start(&a).await.unwrap();
-        host.stop(&a, ShutdownKind::Sleep).await.unwrap();
-        assert!(matches!(
-            host.inner().actors.lock().lives.get(&a),
-            Some(Life::Stopped { wake_at: stopped, .. })
-                if *stopped == wake_at
-        ));
-        drop(host);
-        let file =
-            plain_sqlite::open(&actor_path(&dir, &a), false).unwrap();
-        assert_eq!(mark_stopped(&file, None).unwrap(), Some(wake_at));
-    }
-
-    /// The core of an ended generation keeps its handle. Through it,
-    /// that generation can neither stop nor destroy the actor's
-    /// running generation, give it an alarm, nor reach its file. If
-    /// `made_again`, the actor is destroyed and its key made again
-    /// first: the new file counts its generations from the start
-    /// again.
-    async fn an_ended_generations_handle_reaches_nothing(
-        made_again: bool,
-    ) {
-        let dir = Scratch::new("host-ended-handle");
-        let host = Host::open(
-            &dir,
-            counter::factories(
-                &["counter"],
-                counter::Sleep::WhenIdle,
-            ),
-        )
-        .unwrap();
-        let counter_a = Address::new("counter", "a").unwrap();
-        host.get_or_start(&counter_a).await.unwrap();
-        let id = actor_id(&counter_a);
-        let running = || {
-            host.inner().actors.lock().lives[&counter_a]
-                .loaded()
-                .unwrap()
-                .clone()
-        };
-        let ended = {
-            let generation = running();
-            LocalHandle {
-                host: Arc::downgrade(host.inner()),
-                at: counter_a.clone(),
-                generation: generation.id,
-                file: generation.file.clone(),
-                alarm: generation.alarm.clone(),
-            }
-        };
-        host.stop(&counter_a, ShutdownKind::Sleep).await.unwrap();
-        host.get_or_start(&counter_a).await.unwrap();
-        if made_again {
-            host.stop(&counter_a, ShutdownKind::Destroy)
-                .await
-                .unwrap();
-            host.get_or_start(&counter_a).await.unwrap();
-        }
-        let next = running();
-        let call = |name: &'static str| {
-            host.call(
-                &counter_a,
-                name,
-                Vec::new(),
-                Duration::from_secs(600),
-            )
-        };
-        call("increment").await.unwrap();
-
-        ended.sleep_actor(id.clone(), Some(1), None);
-        ended.sleep_actor(id.clone(), Some(1), Some("crash".into()));
-        ended.stop_actor(id.clone(), Some(1));
-        let (ack, acked) = oneshot::channel();
-        ended.set_alarm_with_ack(
-            id.clone(),
-            Some(now_ms() + 60_000),
-            Some(1),
-            Some(ack),
-        );
-        acked
-            .await
-            .expect("the ended generation's alarm was not acked");
-        assert!(
-            ended
-                .sqlite_execute(
-                    id.clone(),
-                    "UPDATE counter SET value = 100".to_owned(),
-                    None,
-                )
-                .await
-                .is_err()
-        );
-
-        assert!(matches!(
-            host.inner().actors.lock().lives.get(&counter_a),
-            Some(Life::Running(generation))
-                if Arc::ptr_eq(generation, &next)
-                    && generation.alarm.lock().is_none()
-        ));
-        let reply = call("get").await.unwrap();
-        assert_eq!(counter::count(reply).unwrap(), 1);
-        host.shutdown().await.unwrap();
-    }
-
-    #[tokio::test(flavor = "multi_thread")]
-    async fn an_ended_generations_handle_reaches_nothing_of_the_next()
-    {
-        an_ended_generations_handle_reaches_nothing(false).await;
-    }
-
-    #[tokio::test(flavor = "multi_thread")]
-    async fn an_ended_generations_handle_reaches_nothing_of_its_key_made_again()
-     {
-        an_ended_generations_handle_reaches_nothing(true).await;
-    }
-}
+mod tests;

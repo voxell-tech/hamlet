@@ -116,6 +116,7 @@ pub const SCENARIOS: &[Scenario] = &[Scenario {
         max_ms: 500,
     },
     down_ms: 0,
+    due: None,
     restart: [
         &["agent 3 may-spend line:3"],
         &[

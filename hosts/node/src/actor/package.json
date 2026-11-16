@@ -1,0 +1,37 @@
+{
+    "//": "This file was changed for Hamlet. See NOTICE in this package.",
+    "name": "@hamlet/actor",
+    "version": "0.1.0",
+    "description": "Lightweight libraries for building stateful actors on edge platforms",
+    "license": "Apache-2.0",
+    "keywords": [
+        "hamlet_actor",
+        "stateful",
+        "serverless",
+        "actors",
+        "agents",
+        "realtime",
+        "websocket",
+        "actors",
+        "framework"
+    ],
+    "type": "module",
+    "engines": {
+        "node": ">=22.0.0"
+    },
+    "dependencies": {
+        "@hamlet/actor-node": "file:../../../crates/hamlet_actor_node",
+        "@hamlet/bare-ts": "npm:@bare-ts/lib@0.7.0",
+        "@opentelemetry/api": "1.10.0",
+        "cbor-x": "1.6.9",
+        "hono": "4.13.18",
+        "invariant": "2.2.4",
+        "on-change": "6.0.2",
+        "pino": "9.14.0",
+        "zod": "4.6.7"
+    },
+    "devDependencies": {
+        "@standard-schema/spec": "1.1.0",
+        "@types/invariant": "2.2.37"
+    }
+}

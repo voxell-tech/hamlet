@@ -1,0 +1,68 @@
+{
+    "$schema": "./node_modules/@biomejs/biome/configuration_schema.json",
+    "files": {
+        "includes": ["src/**", "test/**", "*.json", "*.jsonc"]
+    },
+    "formatter": {
+        "indentStyle": "space",
+        "indentWidth": 4,
+        "lineWidth": 80
+    },
+    "linter": {
+        "rules": {
+            "preset": "recommended"
+        }
+    },
+    "overrides": [
+        {
+            // The actor layer is ported code: the reference project turns
+            // noExplicitAny off for it too, and most of its explicit any
+            // are generic arguments where unknown does not type-check.
+            "includes": ["src/actor/**"],
+            "linter": {
+                "rules": {
+                    "suspicious": {
+                        "noExplicitAny": "off"
+                    }
+                }
+            }
+        },
+        {
+            "includes": ["src/**", "!src/actor/**"],
+            "linter": {
+                "rules": {
+                    "style": {
+                        "noRestrictedImports": {
+                            "level": "error",
+                            "options": {
+                                "patterns": [
+                                    {
+                                        "group": [
+                                            "**/actor/actor/calls.ts",
+                                            "**/actor/actor/calls.js"
+                                        ],
+                                        "message": "Import from actor/mod.ts instead."
+                                    },
+                                    {
+                                        "group": [
+                                            "**/actor/registry/native.ts"
+                                        ],
+                                        "importNamePattern": "(callThrough|callNative)",
+                                        "message": "Only the actor layer calls through the native module."
+                                    }
+                                ]
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    ],
+    "assist": {
+        "actions": {
+            "source": {
+                "organizeImports": "on"
+            }
+        }
+    }
+}

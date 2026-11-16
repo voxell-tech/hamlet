@@ -3,14 +3,18 @@
 
 use std::future::Future;
 use std::sync::Arc;
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::time::{Duration, Instant};
 
 use hamlet_actor_error::ActorError;
+use parking_lot::Mutex;
 use tokio::sync::oneshot;
+use tracing_subscriber::layer::{Context as LayerContext, Layer};
+use tracing_subscriber::prelude::*;
 
-use super::{RunningActor, StartRequest};
+use super::{RunningActor, StartRequest, Subscribed};
 use crate::actor::internal_storage::queries::TAKE_DUE_SCHEDULES_SQL;
+use crate::actor::sleep::CanSleep;
 use crate::testing::{TestHost, TestSqliteWriteGate};
 use crate::types::ActorKeySegment;
 use crate::{
@@ -442,4 +446,290 @@ async fn a_start_given_up_during_the_drain_ends() {
     })
     .await;
     release.add_permits(1);
+}
+
+/// The error [`watcher`] refuses a subscribe with.
+#[derive(ActorError)]
+#[error("auth", "forbidden", "Not allowed to follow this event.")]
+struct Forbidden;
+
+/// Connection parameters for which [`watcher`]'s `onConnect` is slow.
+const SLOW: &[u8] = b"slow";
+
+/// The time [`watcher`] takes over a slow `onConnect` or subscribe.
+const WEIGHS: Duration = Duration::from_millis(300);
+
+/// An actor that refuses a subscribe to the event `secret`, and takes
+/// [`WEIGHS`] over a subscribe to the event `slow` and over the
+/// `onConnect` of a connection whose parameters are [`SLOW`], sending
+/// on `began` as each of those begins. It closes a connection's
+/// transport when the core asks, as the authoring layer does, and
+/// counts the connections whose `on_disconnect` ran in
+/// `disconnected`.
+fn watcher(
+    began: tokio::sync::mpsc::UnboundedSender<()>,
+    disconnected: Arc<AtomicUsize>,
+) -> Arc<ActorFactory> {
+    let config = ActorConfig {
+        name: Some("watcher".to_owned()),
+        ..ActorConfig::default()
+    };
+    Arc::new(ActorFactory::new(config, move |start: ActorStart| {
+        let (began, disconnected) =
+            (began.clone(), disconnected.clone());
+        Box::pin(async move {
+            let ActorStart {
+                ctx, mut events, ..
+            } = start;
+            while let Some(event) = events.recv().await {
+                match event {
+                    ActorEvent::ConnectionOpen {
+                        conn,
+                        reply,
+                        ..
+                    } if conn.params() == SLOW => {
+                        let _ = began.send(());
+                        tokio::spawn(async move {
+                            tokio::time::sleep(WEIGHS).await;
+                            reply.send(Ok(()));
+                        });
+                    }
+                    ActorEvent::SubscribeRequest {
+                        event_name,
+                        reply,
+                        ..
+                    } => match event_name.as_str() {
+                        "secret" => {
+                            reply.send(Err(Forbidden.build()));
+                        }
+                        "slow" => {
+                            let _ = began.send(());
+                            tokio::spawn(async move {
+                                tokio::time::sleep(WEIGHS).await;
+                                reply.send(Ok(()));
+                            });
+                        }
+                        _ => reply.send(Ok(())),
+                    },
+                    ActorEvent::DisconnectConn {
+                        conn_id,
+                        reason,
+                        reply,
+                    } => {
+                        reply.send(
+                            ctx.disconnect_conn_with_reason(
+                                conn_id, reason,
+                            )
+                            .await,
+                        );
+                    }
+                    ActorEvent::ConnectionClosed { .. } => {
+                        disconnected.fetch_add(1, Ordering::SeqCst);
+                    }
+                    ActorEvent::SerializeState { reply, .. } => {
+                        reply.send(Ok(Vec::new()));
+                    }
+                    ActorEvent::RunGracefulCleanup {
+                        reply, ..
+                    }
+                    | ActorEvent::ConnectionPreflight {
+                        reply, ..
+                    }
+                    | ActorEvent::ConnectionOpen { reply, .. } => {
+                        reply.send(Ok(()));
+                    }
+                    _ => {}
+                }
+            }
+            Ok(())
+        })
+    }))
+}
+
+async fn start_watcher()
+-> (RunningActor, tokio::sync::mpsc::UnboundedReceiver<()>) {
+    let (began, begins) = tokio::sync::mpsc::unbounded_channel();
+    let actor =
+        start_with(watcher(began, Arc::default()), None).await;
+    (actor, begins)
+}
+
+/// Subscribes to `ticked` with a sink that does nothing, and records
+/// each close reason in the returned list.
+async fn subscribe_recording_closes(
+    actor: &RunningActor,
+) -> (Subscribed, Arc<Mutex<Vec<Option<String>>>>) {
+    let closes = Arc::new(Mutex::new(Vec::new()));
+    let subscribed = actor
+        .subscribe(Vec::new(), "ticked", |_| {}, {
+            let closes = closes.clone();
+            move |reason| closes.lock().push(reason)
+        })
+        .await
+        .unwrap();
+    (subscribed, closes)
+}
+
+/// Waits a second at most for `holds`.
+async fn within_a_second(what: &str, holds: impl Fn() -> bool) {
+    let deadline = Instant::now() + Duration::from_secs(1);
+    while !holds() {
+        assert!(Instant::now() < deadline, "after a second, {what}");
+        tokio::time::sleep(Duration::from_millis(10)).await;
+    }
+}
+
+#[tokio::test]
+async fn a_subscription_gets_each_broadcast_of_its_event_and_no_other()
+ {
+    let (actor, _begins) = start_watcher().await;
+    let sunk = Arc::new(Mutex::new(Vec::new()));
+    let subscribed = actor
+        .subscribe(
+            Vec::new(),
+            "ticked",
+            {
+                let sunk = sunk.clone();
+                move |args| sunk.lock().push(args)
+            },
+            |_| {},
+        )
+        .await
+        .unwrap();
+    actor.ctx.broadcast("ticked", &[1]);
+    actor.ctx.broadcast("other", &[9]);
+    actor.ctx.broadcast("ticked", &[2, 2]);
+    actor.ctx.broadcast("ticked", &[3]);
+    assert_eq!(*sunk.lock(), [vec![1], vec![2, 2], vec![3]]);
+    subscribed.close().await.unwrap();
+    actor.stop(ShutdownKind::Sleep).await;
+}
+
+#[tokio::test]
+async fn a_refused_subscribe_fails_with_the_actors_error_and_leaves_no_connection()
+ {
+    let (actor, _begins) = start_watcher().await;
+    let Err(error) =
+        actor.subscribe(Vec::new(), "secret", |_| {}, |_| {}).await
+    else {
+        panic!("the actor let a subscribe to `secret` through");
+    };
+    let error = ActorError::extract(&error);
+    assert_eq!((error.group(), error.code()), ("auth", "forbidden"));
+    assert!(actor.ctx.conns().is_empty());
+    actor.stop(ShutdownKind::Sleep).await;
+}
+
+#[tokio::test]
+async fn a_subscribe_dropped_while_its_connection_opens_leaves_no_connection()
+ {
+    let (actor, mut begins) = start_watcher().await;
+    for (params, event) in [(SLOW, "ticked"), (&[][..], "slow")] {
+        let mut subscribe = Box::pin(actor.subscribe(
+            params.to_vec(),
+            event,
+            |_| {},
+            |_| {},
+        ));
+        tokio::select! {
+            _ = &mut subscribe => panic!("the subscribe of `{event}` did not wait"),
+            Some(()) = begins.recv() => {}
+        }
+        assert!(!actor.ctx.conns().is_empty());
+        drop(subscribe);
+        within_a_second(
+            "the dropped subscribe's connection is open",
+            || actor.ctx.conns().is_empty(),
+        )
+        .await;
+    }
+    actor.stop(ShutdownKind::Sleep).await;
+}
+
+#[tokio::test]
+async fn an_open_subscription_keeps_the_actor_awake_and_a_closed_one_lets_it_sleep()
+ {
+    let (actor, _begins) = start_watcher().await;
+    let (subscribed, _) = subscribe_recording_closes(&actor).await;
+    assert_eq!(
+        actor.ctx.can_sleep().await,
+        CanSleep::ActiveConnections
+    );
+    subscribed.close().await.unwrap();
+    assert_eq!(actor.ctx.can_sleep().await, CanSleep::Yes);
+    actor.stop(ShutdownKind::Sleep).await;
+}
+
+/// Counts the events logged at ERROR.
+struct Errors(Arc<AtomicUsize>);
+
+impl<S: tracing::Subscriber> Layer<S> for Errors {
+    fn on_event(
+        &self,
+        event: &tracing::Event<'_>,
+        _: LayerContext<'_, S>,
+    ) {
+        if *event.metadata().level() == tracing::Level::ERROR {
+            self.0.fetch_add(1, Ordering::SeqCst);
+        }
+    }
+}
+
+#[tokio::test]
+async fn a_broadcast_to_a_subscription_logs_no_error() {
+    let errors = Arc::new(AtomicUsize::new(0));
+    let _recording = tracing::subscriber::set_default(
+        tracing_subscriber::registry().with(Errors(errors.clone())),
+    );
+    // With one dispatcher, tracing may cache a callsite as unseen
+    // from another test's thread.
+    let _second = tracing::Dispatch::new(
+        tracing::subscriber::NoSubscriber::default(),
+    );
+    let (actor, _begins) = start_watcher().await;
+    let (subscribed, _) = subscribe_recording_closes(&actor).await;
+    for n in 0..1000_u16 {
+        actor.ctx.broadcast("ticked", &n.to_le_bytes());
+    }
+    assert_eq!(errors.load(Ordering::SeqCst), 0);
+    subscribed.close().await.unwrap();
+    actor.stop(ShutdownKind::Sleep).await;
+}
+
+/// The actor's own close and a destroy's grace close the transport
+/// alone, so the actor's `on_disconnect` runs only for the holder's
+/// close.
+#[tokio::test]
+async fn closed_is_called_at_each_close_and_each_close_removes_the_connection()
+ {
+    let disconnected = Arc::new(AtomicUsize::new(0));
+    let (began, _begins) = tokio::sync::mpsc::unbounded_channel();
+    let actor =
+        start_with(watcher(began, disconnected.clone()), None).await;
+
+    let (closed_by_actor, closes) =
+        subscribe_recording_closes(&actor).await;
+    let id = actor.ctx.conns().next().unwrap().id().to_owned();
+    actor.ctx.disconnect_conn(id).await.unwrap();
+    assert_eq!(*closes.lock(), [None]);
+    assert!(actor.ctx.conns().is_empty());
+    let _ = closed_by_actor.close().await;
+
+    let (closed_by_holder, closes) =
+        subscribe_recording_closes(&actor).await;
+    closed_by_holder.close().await.unwrap();
+    assert_eq!(*closes.lock(), [None]);
+    assert!(actor.ctx.conns().is_empty());
+    within_a_second("the actor's on_disconnect did not run", || {
+        disconnected.load(Ordering::SeqCst) == 1
+    })
+    .await;
+
+    let (closed_by_destroy, closes) =
+        subscribe_recording_closes(&actor).await;
+    actor.stop(ShutdownKind::Destroy).await;
+    assert_eq!(*closes.lock(), [Some("actor.destroyed".to_owned())]);
+    assert!(actor.ctx.conns().is_empty());
+    let _ = closed_by_destroy.close().await;
+    assert_eq!(disconnected.load(Ordering::SeqCst), 1);
 }

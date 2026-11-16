@@ -10,12 +10,31 @@ use anyhow::{Context, Result};
 use hamlet_actor_core::ActorFactory;
 use hamlet_actor_core::error::ActorRuntime;
 use hamlet_actor_core::host::ActionTimedOut;
+use hamlet_actor_error::ActorError;
 use hamlet_address::{Address, Caller};
+use serde::Serialize;
 use tracing::Instrument;
 
-use super::access::Stamp;
+use super::access::{Origin, Stamp};
 use super::{Host, HostInner, Open, actor_id, host_shut_down};
-use crate::directory::Place;
+use crate::directory::{Place, not_registered};
+use crate::event::HostEvent;
+use crate::route::{CallerKind, Operation};
+
+/// An operation the route table does not let its caller make.
+#[derive(ActorError, Serialize)]
+#[error(
+    "actor",
+    "refused",
+    "Actor operation is refused.",
+    "Actor operation '{operation}' is refused: {from} may not reach \
+     the kind '{to}'."
+)]
+struct Refused {
+    operation: String,
+    from: CallerKind,
+    to: String,
+}
 
 impl Host {
     /// Calls the action `name` of the actor at `to`, with no caller,
@@ -38,6 +57,13 @@ impl Host {
     /// outcome is then unknown: the action may have run in part, or
     /// in full. So it is when a kill cuts a call off, and nothing
     /// calls again.
+    ///
+    /// For a kind that runs in the host's Node child (see
+    /// [`child::open`](crate::child::open)), the call goes to the
+    /// child. It fails at once with `link.down`, and nothing is sent,
+    /// while the link is not ready. It fails with `link.lost` when
+    /// the link goes down before the answer comes: its outcome is
+    /// then unknown.
     pub async fn call(
         &self,
         to: &Address,
@@ -77,56 +103,110 @@ impl HostInner {
         args: Vec<u8>,
         deadline: Duration,
     ) -> Result<Vec<u8>> {
-        admit("call", stamp.caller(), to)?;
-        let Place::Local(_) = self.locate(to)?;
-        let params = stamp.bytes()?;
+        self.admit(
+            Operation::Call {
+                action: name.to_owned(),
+            },
+            stamp.caller(),
+            to,
+        )?;
+        let place = self.locate(to)?;
         let span = tracing::debug_span!(
             "call",
             actor_id = actor_id(to).as_str(),
             action = name,
             caller = stamp.caller().map(tracing::field::display)
         );
-        let mut shut = self.starts_end.subscribe();
-        let call = async {
-            let begun = Instant::now();
-            let generation = tokio::time::timeout(
-                deadline,
-                self.ensure_started(to, &Open::Existing),
-            )
-            .await
-            .map_err(|_| ActionTimedOut.build())??;
-            let left = deadline.saturating_sub(begun.elapsed());
-            generation.actor.action(params, name, args, left).await
-        };
-        async {
-            tokio::select! {
-                called = call => called,
-                _ = shut.wait_for(Option::is_some) => {
-                    Err(host_shut_down())
+        let called = async {
+            match (place, stamp.origin()) {
+                (Place::Local(_), _) => {
+                    self.act(&stamp, to, name, args, deadline).await
+                }
+                (Place::Linked(port), Origin::Here) => {
+                    port.call(&stamp, to, name, args, deadline).await
+                }
+                (Place::Linked(_), Origin::Peer) => {
+                    Err(not_registered(to.kind()))
                 }
             }
-        }
-        .instrument(span)
-        .await
+        };
+        self.or_shut(called).instrument(span).await
     }
-}
 
-/// Refuses an actor's `operation` of itself, which would wait for its
-/// own handler or its own start.
-pub(super) fn admit(
-    operation: &str,
-    caller: Option<&Caller>,
-    to: &Address,
-) -> Result<()> {
-    match caller {
-        Some(Caller::Actor(from)) if from == to => {
-            Err(ActorRuntime::InvalidOperation {
-                operation: operation.to_owned(),
+    async fn act(
+        self: &Arc<Self>,
+        stamp: &Stamp,
+        to: &Address,
+        name: &str,
+        args: Vec<u8>,
+        deadline: Duration,
+    ) -> Result<Vec<u8>> {
+        let params = stamp.bytes()?;
+        let begun = Instant::now();
+        let generation = tokio::time::timeout(
+            deadline,
+            self.ensure_started(to, &Open::Existing),
+        )
+        .await
+        .map_err(|_| ActionTimedOut.build())??;
+        let left = deadline.saturating_sub(begun.elapsed());
+        generation.actor.action(params, name, args, left).await
+    }
+
+    async fn or_shut<T>(
+        &self,
+        work: impl Future<Output = Result<T>>,
+    ) -> Result<T> {
+        let mut shut = self.starts_end.subscribe();
+        tokio::select! {
+            done = work => done,
+            _ = shut.wait_for(Option::is_some) => Err(host_shut_down()),
+        }
+    }
+
+    /// Refuses an actor's `operation` of itself, which would wait for
+    /// its own handler or its own start, and reports and refuses an
+    /// operation the route table does not let its caller make.
+    pub(super) fn admit(
+        &self,
+        operation: Operation,
+        caller: Option<&Caller>,
+        to: &Address,
+    ) -> Result<()> {
+        let Some(from) = caller else {
+            return Ok(());
+        };
+        if let Caller::Actor(actor) = from
+            && actor == to
+        {
+            return Err(ActorRuntime::InvalidOperation {
+                operation: operation.to_string(),
                 reason: format!("the actor {to} is its own target"),
             }
-            .build())
+            .build());
         }
-        _ => Ok(()),
+        if self.options.routes.allows(from, to.kind()) {
+            return Ok(());
+        }
+        tracing::warn!(
+            caller = %from,
+            actor_id = actor_id(to).as_str(),
+            ?operation,
+            "the host refused an operation its route table does not \
+             allow"
+        );
+        let refused = Refused {
+            operation: operation.to_string(),
+            from: CallerKind::of(from),
+            to: to.kind().to_owned(),
+        }
+        .build();
+        let _ = self.events.send(HostEvent::Refused {
+            from: from.clone(),
+            to: to.clone(),
+            operation,
+        });
+        Err(refused)
     }
 }
 

@@ -1,0 +1,10 @@
+This crate contains code from Rivet (https://github.com/rivet-dev/rivet),
+taken at commit 236a0404f79b03517dcfaa13b160e7c5ee4776b1 and licensed
+under the Apache License, Version 2.0, which is in LICENSE beside this
+file.
+
+   Copyright 2023 Rivet Gaming, Inc.
+
+The files were changed for Hamlet: renamed, reformatted and edited by
+hand. Each changed file says so on its first line, or on the line after
+a script's shebang line, or, in package.json, in its "//" member.

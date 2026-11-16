@@ -224,10 +224,6 @@ fn is_workflow_not_configured_error(error: &anyhow::Error) -> bool {
     error.group() == "actor" && error.code() == "not_configured"
 }
 
-#[expect(
-    dead_code,
-    reason = "ported; nothing in Hamlet calls it yet"
-)]
 pub(crate) async fn dispatch_subscribe_request(
     ctx: &ActorContext,
     conn: ConnHandle,
