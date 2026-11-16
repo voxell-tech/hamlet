@@ -278,6 +278,7 @@ pub(in crate::realm) async fn deliver_held(
     ctx: &Ctx<Realm>,
     task: TaskId,
 ) -> Result<()> {
+    super::super::reviews::deliver(realm, ctx, task).await?;
     let rows = Rows::outside(ctx)?;
     let held = rows
         .rows::<(u32, String)>(

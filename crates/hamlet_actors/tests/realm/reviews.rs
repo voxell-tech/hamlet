@@ -249,9 +249,6 @@ async fn an_objection_holds_the_line_past_the_deadline() {
 }
 
 #[tokio::test(flavor = "multi_thread")]
-#[ignore = "go reaches the review's line only once \
-            `asking::deliver_held` calls `reviews::deliver` (U3's \
-            file)"]
 async fn an_objected_line_waits_for_go() {
     // the lead objects; go gives 3 the line, once, with no note.
     let (realm, _) =

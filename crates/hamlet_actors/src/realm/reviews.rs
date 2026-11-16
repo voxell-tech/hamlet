@@ -511,11 +511,6 @@ fn now() -> Result<i64> {
 
 /// Gives the hire its line, once the chief lets an objected line go
 /// on.
-#[expect(
-    dead_code,
-    reason = "`asking::deliver_held` calls it once U3's file takes \
-              the seam"
-)]
 pub(super) async fn deliver(
     realm: &Arc<Realm>,
     ctx: &Ctx<Realm>,
