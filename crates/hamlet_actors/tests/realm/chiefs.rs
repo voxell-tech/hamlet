@@ -1,11 +1,11 @@
 use std::path::{Path, PathBuf};
 
 use hamlet_messages::realm::hamlets::{
-    MoveHamlet, NameHamlet, SetFolder, SetMode,
+    MoveHamlet, NameHamlet, ReadRecord, Record, SetFolder, SetMode,
 };
 use hamlet_messages::realm::{
     Asked, ChiefRequest, Done, FoundAnswer, FoundRefusal, HamletId,
-    HamletRefusal,
+    HamletRefusal, Seat,
 };
 use hamlet_messages::sender::Hand;
 use hamlet_messages::workspace::AgentNumber;
@@ -13,7 +13,7 @@ use hamlet_messages::workspace::reach::{Mode, Project, Reach};
 use hamlet_protocol::client::RequestId;
 
 use super::{
-    MAYOR, Realm, THREE, found, hamlet_with, tool, until, words,
+    MAYOR, Realm, THREE, found, hamlet_with, to, tool, until, words,
     world,
 };
 
@@ -338,5 +338,36 @@ async fn a_bad_name_or_site_is_refused_in_todays_words() {
         })
         .await;
     assert_eq!(name, "Mill");
+    realm.host.shutdown().await.unwrap();
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn a_seat_records_its_reason() {
+    let (realm, hamlet) = hamlet_with(1).await;
+
+    let seated = chief(
+        &realm,
+        Seat {
+            hire: to(THREE),
+            why: Some("cy leads now".to_owned()),
+        },
+    )
+    .await;
+
+    assert_eq!(seated, Done::Done);
+    let Record::Read { lines } = chief(
+        &realm,
+        ReadRecord {
+            hamlet: Some(hamlet),
+        },
+    )
+    .await
+    else {
+        panic!("the hamlet's record is read");
+    };
+    assert_eq!(
+        lines.last().map(|line| line.text.as_str()),
+        Some("- chief gave the office to hire#3: cy leads now")
+    );
     realm.host.shutdown().await.unwrap();
 }

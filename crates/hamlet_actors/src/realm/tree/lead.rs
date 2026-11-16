@@ -298,7 +298,11 @@ impl<By: RealmWide> Act<By> for Seat {
                     hamlet: hamlet.id.clone(),
                     mayor: hire,
                 })
-                .record(record::Entry::Seated { hire, by: by.by() }),
+                .record(record::Entry::Seated {
+                    hire,
+                    by: by.by(),
+                    why: self.why.clone(),
+                }),
         )
     }
 

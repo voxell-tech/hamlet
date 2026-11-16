@@ -48,6 +48,7 @@ pub(super) enum Entry {
     Seated {
         hire: AgentNumber,
         by: By,
+        why: Option<String>,
     },
     Road {
         a: AgentNumber,
@@ -128,8 +129,8 @@ pub(super) async fn write(
             Entry::Ended { hire, by, why } => {
                 ("ended", by, Fields::of(hire, why))
             }
-            Entry::Seated { hire, by } => {
-                ("seated", by, Fields::of(hire, None))
+            Entry::Seated { hire, by, why } => {
+                ("seated", by, Fields::of(hire, why))
             }
             Entry::Road { a, b, by } => {
                 ("road", by, Fields::road(a, b))
