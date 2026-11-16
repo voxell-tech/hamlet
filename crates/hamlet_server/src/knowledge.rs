@@ -1,10 +1,10 @@
 //! What agents know: scholars' repositories, the lodges hires and the
 //! Hand work in, and the jobs that keep them.
 
-pub(crate) mod dreaming;
+pub(crate) mod dreams;
 pub(crate) mod folder;
 pub(crate) mod library;
-mod merging;
+mod merges;
 pub(crate) mod run;
 pub(crate) mod worker;
 

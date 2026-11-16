@@ -6,6 +6,7 @@ pub(crate) mod activity;
 pub(crate) mod briefs;
 pub(crate) mod chats;
 pub(crate) mod completion;
+pub(crate) mod dreams;
 pub(crate) mod errands;
 pub(crate) mod inputs;
 pub(crate) mod items;
@@ -34,6 +35,10 @@ use serde::{Deserialize, Serialize};
 use strum::{Display, EnumString, IntoStaticStr};
 
 use crate::realm::change::Change;
+
+pub(crate) fn plugin(app: &mut bevy_app::App) {
+    app.add_plugins(dreams::plugin);
+}
 
 #[derive(
     Clone,

@@ -50,7 +50,6 @@ mod society;
 // The agents' conversations, the questions they put, and their tools.
 mod calls;
 mod conversations;
-mod dreaming;
 mod providers;
 mod runtimes;
 mod tools;
@@ -121,7 +120,7 @@ pub fn create_app(options: Options) -> App {
         clients::plugin,
         commands::plugin,
         providers::plugin,
-        dreaming::plugin,
+        conversations::plugin,
         images::plugin,
         files::plugin,
         terminals::plugin,

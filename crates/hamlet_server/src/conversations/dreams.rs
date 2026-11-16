@@ -15,12 +15,11 @@ use crate::conversations::marks::Mark;
 use crate::conversations::tasks::{self, Origin};
 use crate::conversations::{self, Begin, Kind, models};
 use crate::core::Core;
-use crate::knowledge::{self, dreaming};
 use crate::realm::change::Done;
-use crate::runtimes;
 use crate::society::dreams::{self, DreamKind, Outcome};
 use crate::society::refusal::Refusal;
 use crate::society::{addresses, agents, city, hand, hires};
+use crate::{knowledge, runtimes};
 
 /// The least time between two dreams of one hire.
 const HIRE_REST: i64 = 6 * 3_600_000;
@@ -230,7 +229,7 @@ impl Core<'_, '_> {
         let writing = self.writing.clone();
         let held = writing.hold();
         let db = self.realm.store().connection();
-        let ready = dreaming::prepare(
+        let ready = knowledge::dreams::prepare(
             db,
             &layout,
             id,
@@ -249,7 +248,7 @@ impl Core<'_, '_> {
             )?;
             return Ok(None);
         }
-        let checkout = dreaming::checkout(&layout, id);
+        let checkout = knowledge::dreams::checkout(&layout, id);
         let label = city::get(db, scholar)?.label();
         let instructions = match hire {
             Some(hire) => {

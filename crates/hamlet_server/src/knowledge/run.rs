@@ -108,19 +108,19 @@ pub(crate) fn run(
             remove_folder(&layout.hamlet(hamlet))
         }
         Job::Merge { merge } => {
-            super::merging::merge(db, layout, *merge, at)
+            super::merges::merge(db, layout, *merge, at)
         }
         Job::Split { merge } => {
-            super::merging::split(db, layout, *merge, at)
+            super::merges::split(db, layout, *merge, at)
         }
         Job::Shelve { offer } => shelve(db, layout, *offer, at),
         Job::DreamEnd {
             dream,
             last,
             summary,
-        } => super::dreaming::end(
-            db, layout, *dream, *last, summary, at,
-        ),
+        } => {
+            super::dreams::end(db, layout, *dream, *last, summary, at)
+        }
     }
 }
 

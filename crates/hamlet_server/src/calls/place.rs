@@ -117,7 +117,7 @@ pub(crate) fn of_conversation(
             conversation.id,
         )?
     {
-        at.place.folder = Some(crate::knowledge::dreaming::checkout(
+        at.place.folder = Some(crate::knowledge::dreams::checkout(
             layout, dream.id,
         ));
         at.manual = false;
