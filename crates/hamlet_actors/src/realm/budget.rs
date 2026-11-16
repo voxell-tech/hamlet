@@ -14,7 +14,7 @@ use hamlet_messages::realm::{
 use hamlet_messages::sender::Client;
 use hamlet_messages::workspace::{AgentNumber, CallId};
 
-use super::act::{Act, Decided, Decision};
+use super::act::{Act, Decided, Decision, Unchanged};
 use super::calls::Made;
 use super::change::{self, Affected, Rows, Writer, number};
 use super::chiefs::{self, limits};
@@ -267,7 +267,7 @@ impl Act<Agent> for MaySpend {
     type Output = Done<SpendRefusal>;
     /// The refusal of the call, if any.
     type Loaded = Option<SpendRefusal>;
-    type Done = ();
+    type Done = Unchanged;
 
     async fn load(
         &self,
@@ -325,12 +325,12 @@ impl Act<Agent> for MaySpend {
         &self,
         _by: &Agent,
         refusal: Option<SpendRefusal>,
-    ) -> Decision<(), Self::Output> {
+    ) -> Decision<Unchanged, Self::Output> {
         Decision::Answer(refusal.map_or(Done::Done, Done::refused))
     }
 
-    fn answer(&self, (): (), _made: &Made) -> Self::Output {
-        Done::Done
+    fn answer(&self, done: Unchanged, _made: &Made) -> Self::Output {
+        match done {}
     }
 }
 

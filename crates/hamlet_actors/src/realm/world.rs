@@ -18,7 +18,9 @@ use tokio::sync::Mutex;
 use super::act::Look;
 use super::change::{self, Affected, Column as _, Rows};
 use super::tree::choices;
-use super::{Realm, budget, laid, parcels, tree, versions, waits};
+use super::{
+    Realm, budget, chiefs, laid, parcels, tree, versions, waits,
+};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
 pub(super) enum Part {
@@ -148,8 +150,7 @@ async fn agents(rows: &Rows<'_>) -> Result<Vec<AgentSeen>> {
         .select(
             &format!(
                 "SELECT agent.id, agent.status, agent.ended_how, \
-                 agent.ended_why, COALESCE(hire.hamlet, \
-                 worker.hamlet), hire.lead, reach.wanted, \
+                 agent.ended_why, hire.lead, reach.wanted, \
                  reach.applied, worker.agent, worker.starter, \
                  nickname.name, model_choice.model, \
                  model_choice.effort, model_choice.fast, \
@@ -171,7 +172,6 @@ async fn agents(rows: &Rows<'_>) -> Result<Vec<AgentSeen>> {
             status,
             how,
             why,
-            hamlet,
             lead,
             wanted,
             applied,
@@ -199,7 +199,7 @@ async fn agents(rows: &Rows<'_>) -> Result<Vec<AgentSeen>> {
         };
         agents.push(AgentSeen {
             agent,
-            hamlet: Option::of(hamlet)?.map(HamletId),
+            hamlet: chiefs::hamlet::of_agent(rows, agent).await?,
             lead: Option::of(lead)?.map(AgentNumber),
             status,
             reach: reach(Option::of(wanted)?, Option::of(applied)?),
