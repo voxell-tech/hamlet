@@ -196,7 +196,7 @@ pub(crate) fn of_agent(
     agent: AgentId,
     at: i64,
 ) -> Result<Amount> {
-    let payer = crate::talk::tasks::payer_of(db, agent)?;
+    let payer = crate::conversations::tasks::payer_of(db, agent)?;
     let period = budget_of(db, payer.as_ref())?.period;
     of_agents(db, &[agent], period_start(period, at)?)
 }

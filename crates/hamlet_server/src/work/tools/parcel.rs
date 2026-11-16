@@ -10,7 +10,7 @@ use hamlet_sandbox::{FileError, FileKind};
 
 use super::environment::Reach;
 use crate::change::Done;
-use crate::images::kept::Images;
+use crate::images::store::Images;
 use crate::inbox::Inbox;
 use crate::society::refusal::Refusal;
 

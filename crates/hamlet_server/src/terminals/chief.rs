@@ -9,7 +9,7 @@ use hamlet_protocol::client::{
 
 use super::screen::lock;
 use super::shell::{Key, open};
-use crate::clients::received::FromClient;
+use crate::clients::handlers::FromClient;
 use crate::core::Core;
 use crate::server::InputMessage;
 

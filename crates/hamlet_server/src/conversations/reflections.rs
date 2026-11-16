@@ -8,11 +8,11 @@ use hamlet_store::ids::ConversationId;
 use hamlet_store::schema::{chat, conversation, reflection};
 
 use super::chats;
-use super::conversations::{self, Kind};
 use super::inputs::{self, InputKind, Keep};
 use super::marks::Mark;
 use super::tasks::{self, Origin};
 use crate::change::Change;
+use crate::conversations::{self, Kind};
 
 /// The automatic instruction to keep a session's lessons (C5).
 pub(crate) const REFLECT: &str =

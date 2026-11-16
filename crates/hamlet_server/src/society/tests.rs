@@ -8,8 +8,8 @@ use super::refusal::Refusal;
 use super::roads::{self, Agreed, Way};
 use super::workers::{self, Start, Starter};
 use super::{authority, chiefs, city, merges, tree};
-use crate::settings::{Overrides, Settings};
-use crate::talk::{Env, chats, models};
+use crate::conversations::{chats, models};
+use crate::settings::{EffectiveSettings, Overrides, Settings};
 use crate::testing::Realm;
 
 /// Founds a hamlet named `name` under a new mayor named `mayor`:
@@ -522,7 +522,7 @@ fn a_lead_leaves_a_hire_on_a_chiefs_task_alone() {
     let (docs, mayor) = found(&mut realm, "docs", "ada");
     let bo = hire(&mut realm, &docs, mayor, new("bo")).unwrap().agent;
     let cy = hire(&mut realm, &docs, mayor, new("cy")).unwrap().agent;
-    let env = Env {
+    let env = EffectiveSettings {
         settings: Settings::default(),
         overrides: Overrides {
             faux: true,
@@ -582,7 +582,7 @@ fn a_hire_without_a_purpose_takes_its_first_message() {
         })
         .unwrap()
         .agent;
-    let env = Env {
+    let env = EffectiveSettings {
         settings: Settings::default(),
         overrides: Overrides {
             faux: true,

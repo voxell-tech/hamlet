@@ -94,8 +94,8 @@ uses `chief:<say id>` to admit it once in that conversation.
 A retry uses `retry:<UUID>`; this UUID is independent of the wire
 `retry` request's `id`. A reflection uses
 `reflection:<conversation>:<number>`. Clients send UUIDs, not these
-internal IDs. The server constructs them in `talk/chats.rs` and
-`talk/reflections.rs`.
+internal IDs. The server constructs them in `conversations/chats.rs` and
+`conversations/reflections.rs`.
 
 `State.epoch` identifies the running state watcher, using the server clock
 at its start. Revision starts at zero and increases when the realm state

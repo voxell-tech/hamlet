@@ -14,6 +14,7 @@ use hamlet_store::schema::document;
 
 use super::check::reply;
 use crate::change::{Done, done, refuse};
+use crate::conversations::{chats, items, prompt};
 use crate::core::{Core, UnpushedLodge};
 use crate::jobs::{self, Job};
 use crate::knowledge::folder::Folder;
@@ -25,7 +26,6 @@ use crate::society::limits::{self, Limits, RealmLimits};
 use crate::society::refusal::Refusal;
 use crate::society::{authority, hamlets, hires};
 use crate::spend::micros;
-use crate::talk::{chats, items, prompt};
 
 /// Refuses a memory path that is not a plain relative path under
 /// `memory/`.
@@ -429,7 +429,7 @@ impl Core<'_, '_> {
     ) -> Result<()> {
         self.change(by, |cx, _| {
             for hire in hires::living_of(cx.db, scholar)? {
-                if !crate::talk::inputs::is_agent_busy(
+                if !crate::conversations::inputs::is_agent_busy(
                     cx.db, hire.agent,
                 )? {
                     jobs::add(cx, &Job::TakeIn { hire: hire.agent })?;
@@ -506,10 +506,8 @@ impl Core<'_, '_> {
                         chats::current(cx, env, agent, chief)
                     })?;
                 let db = self.realm.store().connection();
-                let kept = crate::talk::conversations::get(
-                    db,
-                    conversation,
-                )?;
+                let kept =
+                    crate::conversations::get(db, conversation)?;
                 let prompt = self
                     .prompt(&kept)?
                     .into_iter()
@@ -673,10 +671,12 @@ impl Core<'_, '_> {
             for (_, item) in &page {
                 modified =
                     modified.max(i64::try_from(item.at).unwrap_or(0));
-                if let Ok(Some(crate::talk::marks::Mark::Chief {
-                    text,
-                    ..
-                })) = crate::talk::marks::Mark::of_item(
+                if let Ok(Some(
+                    crate::conversations::marks::Mark::Chief {
+                        text,
+                        ..
+                    },
+                )) = crate::conversations::marks::Mark::of_item(
                     item.mark.as_ref(),
                 ) {
                     messages += 1;

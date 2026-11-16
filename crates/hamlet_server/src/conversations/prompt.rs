@@ -18,7 +18,7 @@ use hamlet_protocol::runtime::Section;
 use hamlet_store::Db;
 use hamlet_store::schema::document;
 
-use super::conversations::Conversation;
+use crate::conversations::Conversation;
 use crate::knowledge::folder::Folder;
 use crate::knowledge::library::field;
 use crate::knowledge::{self, CHARACTER};

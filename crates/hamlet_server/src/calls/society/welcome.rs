@@ -6,10 +6,10 @@ use anyhow::Result;
 use hamlet_store::ids::{Actor, ScholarId};
 
 use crate::change::Change;
+use crate::conversations::errands::{self, Ended, Errand};
+use crate::conversations::tasks::{self, Origin};
+use crate::settings::EffectiveSettings;
 use crate::society::{addresses, city, hand};
-use crate::talk::Env;
-use crate::talk::errands::{self, Ended, Errand};
-use crate::talk::tasks::{self, Origin};
 
 /// The errand the Hand's verdicts on newcomers are.
 pub(crate) const WELCOME: &str = "welcome";
@@ -35,7 +35,7 @@ fn owner(id: ScholarId) -> String {
 /// moves into the city.
 pub(crate) fn judge(
     cx: &mut Change<'_>,
-    env: &Env,
+    env: &EffectiveSettings,
     id: ScholarId,
     character: &str,
 ) -> Result<()> {

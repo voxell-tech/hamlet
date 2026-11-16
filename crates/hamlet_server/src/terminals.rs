@@ -11,7 +11,7 @@
 //! output.
 
 pub(crate) mod chief;
-pub(crate) mod kept;
+pub(crate) mod persistence;
 mod screen;
 mod shell;
 
@@ -39,11 +39,11 @@ use self::screen::{LAST, Screen, lock};
 use self::shell::{Key, Launch, start};
 use crate::calls::place::Workplace;
 use crate::clients::Connections;
-use crate::clients::received::FromClient;
-use crate::closing::Serving;
+use crate::clients::handlers::FromClient;
 use crate::core::Core;
 use crate::follow_up::InputEffects;
 use crate::server::{AddHandler, InputMessage, InputSender};
+use crate::shutdown::Serving;
 use crate::timers::AddTimer;
 
 /// Messages a connection's queue keeps free before a terminal's

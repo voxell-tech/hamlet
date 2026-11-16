@@ -6,7 +6,7 @@ pub(crate) mod folder;
 pub(crate) mod library;
 mod merging;
 pub(crate) mod run;
-pub(crate) mod runner;
+pub(crate) mod worker;
 
 use std::path::PathBuf;
 

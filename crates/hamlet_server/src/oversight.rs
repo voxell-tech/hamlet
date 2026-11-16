@@ -23,8 +23,8 @@ use strum::{Display, EnumString, IntoStaticStr};
 
 use crate::change::Change;
 use crate::clients::state::{wire_agent, wire_scholar};
+use crate::conversations::{self, Kind};
 use crate::society::addresses;
-use crate::talk::conversations::{self, Kind};
 
 #[derive(
     Clone,
@@ -453,9 +453,10 @@ fn view(db: &mut Db, wait: &Wait) -> Result<protocol::Wait> {
             let kept = conversations::get(db, id)?;
             match (kept.kind, kept.chief, kept.session) {
                 (Kind::Chat, Some(chief), Some(session)) => {
-                    let current = crate::talk::chats::current_number(
-                        db, kept.agent, chief,
-                    )?;
+                    let current =
+                        conversations::chats::current_number(
+                            db, kept.agent, chief,
+                        )?;
                     Some(protocol::ChatRef {
                         with: wire_agent(kept.agent),
                         past: (current != Some(session))

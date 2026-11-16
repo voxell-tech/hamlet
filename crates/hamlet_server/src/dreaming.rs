@@ -10,16 +10,16 @@ use hamlet_git::{MAIN, Repository};
 use hamlet_store::ids::{Actor, AgentId, DreamId, ScholarId};
 
 use crate::change::Done;
+use crate::conversations::inputs::{self, InputKind, Keep};
+use crate::conversations::marks::Mark;
+use crate::conversations::tasks::{self, Origin};
+use crate::conversations::{self, Begin, Kind, models};
 use crate::core::Core;
 use crate::knowledge::{self, dreaming};
+use crate::runtimes;
 use crate::society::dreams::{self, DreamKind, Outcome};
 use crate::society::refusal::Refusal;
 use crate::society::{addresses, agents, city, hand, hires};
-use crate::talk::conversations::{self, Begin, Kind};
-use crate::talk::inputs::{self, InputKind, Keep};
-use crate::talk::marks::Mark;
-use crate::talk::tasks::{self, Origin};
-use crate::talk::{models, runtimes};
 use crate::timers::AddTimer;
 
 /// The least time between two dreams of one hire.

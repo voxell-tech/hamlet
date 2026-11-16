@@ -18,8 +18,8 @@ sections; the pi harness asks for them before each request.
 | The realm | For the Hand and mayors, the other hamlets, their mayors and hires; a realm with none says so and that a chief or the Hand can found one | The realm's record |
 | The scholars | For the Hand and a lead, the living scholars it may hire, each as `scholar#<id> (<name>)`, since no name finds one | The city |
 
-`crates/hamlet_server/src/talk/prompt.rs` composes the sections;
-`talk/prompt/place.rs` renders the place and the realm. The parts are built
+`crates/hamlet_server/src/conversations/prompt.rs` composes the sections;
+`conversations/prompt/place.rs` renders the place and the realm. The parts are built
 again before each request. None of them follows spending, so the prompt of one
 input matches the next's, and the provider's prompt cache holds across them;
 an agent reads what it may spend with the `read_budget` tool.

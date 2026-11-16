@@ -9,10 +9,10 @@ use hamlet_protocol::client::Choice;
 use hamlet_protocol::runtime::{self, Block, Yield};
 use hamlet_store::schema::answer_fault;
 
-use super::conversations::{Conversation, Kind};
 use super::inputs;
 use super::marks::Mark;
 use crate::change::Change;
+use crate::conversations::{Conversation, Kind};
 use crate::oversight::{self, Raise, WaitKind};
 
 /// The words of an answer with no text and no call.

@@ -18,13 +18,12 @@ use super::connection::Connection;
 use super::fold::Fold;
 use super::{OwedReply, changes};
 use crate::change::Done;
+use crate::conversations::activity::Activity;
+use crate::conversations::{self, Kind, chats, items, models};
 use crate::core::{Core, Live};
 use crate::society::agents::{self, AgentKind, Effort};
 use crate::society::refusal::Refusal;
 use crate::society::{authority, hires, workers};
-use crate::talk::activity::Activity;
-use crate::talk::conversations::{self, Kind};
-use crate::talk::{chats, items};
 
 /// The most transcript entries one page holds.
 const PAGE: usize = 100;
@@ -305,7 +304,7 @@ impl Core<'_, '_> {
         agent: AgentId,
     ) -> Result<bool> {
         let db = self.realm.store().connection();
-        crate::talk::models::has_model(
+        models::has_model(
             db,
             &self.env.settings,
             &self.env.overrides,

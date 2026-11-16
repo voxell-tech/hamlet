@@ -6,7 +6,7 @@ pub(crate) mod check;
 pub(crate) mod connection;
 pub(crate) mod documents;
 pub(crate) mod fold;
-pub(crate) mod received;
+pub(crate) mod handlers;
 pub(crate) mod requests;
 pub(crate) mod state;
 
@@ -30,14 +30,14 @@ use tokio::task::{AbortHandle, JoinSet};
 
 use self::check::Protocol;
 use self::connection::Connection;
-use self::received::ClientConnected;
+use self::handlers::ClientConnected;
 use crate::credentials::Credentials;
 use crate::server::InputSender;
 
 pub(crate) fn plugin(app: &mut bevy_app::App) {
     app.add_message::<OutgoingClientMessage>()
         .add_observer(requests::left)
-        .add_plugins(received::plugin);
+        .add_plugins(handlers::plugin);
 }
 
 /// A conversation a client watches, as one of its chats: an entity

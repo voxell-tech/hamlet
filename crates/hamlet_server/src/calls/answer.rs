@@ -7,14 +7,15 @@ use hamlet_store::ids::{Actor, ChiefId, WaitId};
 
 use super::{chat_session, held};
 use crate::change::Change;
+use crate::conversations::{
+    self, Conversation, chats, inputs, questions, tasks,
+};
 use crate::core::Core;
 use crate::follow_up::WakeHeldCall;
 use crate::oversight::gate::{self, TurnGate};
 use crate::oversight::{self, Danger, Ruling, Wait, WaitKind};
 use crate::society::addresses;
 use crate::society::refusal::Refusal;
-use crate::talk::conversations::Conversation;
-use crate::talk::{conversations, questions};
 
 /// The fault in a chief's choice that cannot answer a wait so.
 #[derive(Debug, thiserror::Error)]
@@ -85,16 +86,14 @@ fn withdraw(
     conversation: hamlet_store::ids::ConversationId,
     task: hamlet_store::ids::TaskId,
 ) -> Result<()> {
-    let text = crate::talk::tasks::get(cx.db, task)?
-        .text
-        .unwrap_or_default();
-    crate::talk::inputs::drop_kept(cx.db, conversation)?;
-    if crate::talk::inputs::is_busy(cx.db, conversation)? {
+    let text = tasks::get(cx.db, task)?.text.unwrap_or_default();
+    inputs::drop_kept(cx.db, conversation)?;
+    if inputs::is_busy(cx.db, conversation)? {
         conversations::set_cancelling(cx.db, conversation, true)?;
         conversations::set_stopped(cx.db, conversation, true)?;
     }
-    crate::talk::tasks::done(cx.db, task, cx.at)?;
-    crate::talk::chats::notice(
+    tasks::done(cx.db, task, cx.at)?;
+    chats::notice(
         cx,
         conversation,
         &format!("The chief withdrew the instruction: {text}"),

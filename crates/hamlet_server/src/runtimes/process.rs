@@ -11,7 +11,7 @@ use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 use tokio::process::{Child, Command};
 use tokio::sync::mpsc::{self, UnboundedSender};
 
-use super::heard::RuntimeLineReceived;
+use super::handlers::RuntimeLineReceived;
 use crate::server::InputSender;
 
 /// The pi harness: the Node and entry that start its runtimes.

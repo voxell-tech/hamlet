@@ -1,15 +1,15 @@
 //! The app's runner: the server from start to stop. Its first update
 //! opens and starts what it serves (`startup.rs`); then it runs the
 //! inputs one at a time until the app exits, which a stop signal
-//! leads to (`closing.rs`).
+//! leads to (`shutdown.rs`).
 
 use std::time::Duration;
 
 use anyhow::Result;
 use bevy_app::{App, AppExit};
 
-use crate::closing::StopRequested;
 use crate::server::{InputSender, Server};
+use crate::shutdown::StopRequested;
 
 /// The longest the runner sleeps with nothing coming.
 const IDLE: Duration = Duration::from_secs(60);

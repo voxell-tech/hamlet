@@ -26,20 +26,21 @@ use crate::clients::fold::Fold;
 use crate::clients::{Clients, Connections, ConversationWatcher};
 use crate::clock;
 use crate::commands::Deeds;
+use crate::conversations::activity::Activity;
+use crate::conversations::inputs::Resend;
+use crate::conversations::{self, prompt};
 use crate::credentials::Credentials;
 use crate::files::FileUpload;
 use crate::follow_up::{InputEffects, InputEnded, WakeHeldCall};
-use crate::images::sent::ImageUpload;
-use crate::knowledge::runner::RepositoryWriteLock;
+use crate::images::uploads::ImageUpload;
+use crate::knowledge::worker::RepositoryWriteLock;
 use crate::providers::Providers;
 use crate::realm::Realm;
+use crate::runtimes::Runtimes;
+use crate::runtimes::leases::Authority;
+use crate::runtimes::reconciliation::{self, ImageFitting};
 use crate::server::InputSender;
-use crate::talk::activity::Activity;
-use crate::talk::inputs::Resend;
-use crate::talk::leases::Authority;
-use crate::talk::runtimes::Runtimes;
-use crate::talk::sync::ImageFitting;
-use crate::talk::{Env, conversations, prompt, sync};
+use crate::settings::EffectiveSettings;
 use crate::terminals::Terminals;
 use crate::work::added::Manifest;
 use crate::work::tools::shell::Shells;
@@ -170,7 +171,7 @@ pub(crate) struct Core<'w, 's> {
     pub realm: ResMut<'w, Realm>,
     /// The clients' connections, one entity each.
     pub connections: Connections<'w, 's>,
-    pub env: ResMut<'w, Env>,
+    pub env: ResMut<'w, EffectiveSettings>,
     /// The harness's runtimes, one entity each.
     pub runtimes: Runtimes<'w, 's>,
     pub credentials: ResMut<'w, Credentials>,
@@ -225,7 +226,10 @@ impl Core<'_, '_> {
     pub fn change<T>(
         &mut self,
         actor: Actor,
-        make: impl FnOnce(&mut Change<'_>, &Env) -> Result<T>,
+        make: impl FnOnce(
+            &mut Change<'_>,
+            &EffectiveSettings,
+        ) -> Result<T>,
     ) -> Result<T> {
         let at = clock::now();
         let env = self.env.clone();
@@ -245,7 +249,7 @@ impl Core<'_, '_> {
     pub fn attempt<T>(
         &mut self,
         actor: Actor,
-        make: impl FnOnce(&mut Change<'_>, &Env) -> Done<T>,
+        make: impl FnOnce(&mut Change<'_>, &EffectiveSettings) -> Done<T>,
     ) -> Done<T> {
         let at = clock::now();
         let env = self.env.clone();
@@ -389,7 +393,7 @@ impl Core<'_, '_> {
         resend: Resend,
     ) -> Result<()> {
         let images = self.realm.layout().images();
-        let mut owed = sync::RuntimeDues {
+        let mut owed = reconciliation::RuntimeDues {
             db: self.realm.store().connection(),
             env: &self.env,
             runtimes: &mut self.runtimes,
@@ -397,7 +401,7 @@ impl Core<'_, '_> {
             fitting: &mut self.fitting,
             images: &images,
         };
-        sync::flush(&mut owed, runtime, resend)
+        reconciliation::flush(&mut owed, runtime, resend)
     }
 
     /// Answers the credential requests the leases let through.

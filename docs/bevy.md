@@ -199,7 +199,7 @@ What differs from the window:
   queued. The first update opens what the server serves in
   `PreStartup`, each as a resource, and starts it in `Startup`
   (`startup.rs`).
-  `create_app` sets the runner, `serve::runner`. Nothing updates that
+  `create_app` sets the runner, `runner::runner`. Nothing updates that
   an input or a timer did not ask for.
 - **A handler is a system for one kind of input, and never awaits.**
   A runtime's message is a `FromRuntime<M>` and a client's request a

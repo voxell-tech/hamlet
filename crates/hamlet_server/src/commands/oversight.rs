@@ -11,11 +11,11 @@ use hamlet_store::schema::permission_grant;
 
 use super::Line;
 use crate::change::Done;
+use crate::conversations::{chats, reflections};
 use crate::core::Core;
 use crate::oversight::{self, gate};
 use crate::society::addresses::{self, Reach};
 use crate::society::refusal::Refusal;
-use crate::talk::{chats, reflections};
 
 impl Core<'_, '_> {
     /// Answers a wait with `choice`: the one `#<id>` names, else the
@@ -264,7 +264,7 @@ impl Core<'_, '_> {
                 Err(refusal) => return Ok(Err(refusal)),
             };
             // A worker no model can run would never start.
-            if !crate::talk::models::has_model(
+            if !crate::conversations::models::has_model(
                 cx.db,
                 &env.settings,
                 &env.overrides,
@@ -272,7 +272,7 @@ impl Core<'_, '_> {
             )? {
                 return Ok(Err(Refusal::NoModelSetUp));
             }
-            crate::talk::briefs::give(
+            crate::conversations::briefs::give(
                 cx,
                 env,
                 id,

@@ -14,7 +14,7 @@ use hamlet_store::Db;
 use hamlet_store::schema::{input, item, marker};
 
 use super::SEEN;
-use super::kept::Images;
+use super::store::Images;
 use crate::layout::Layout;
 use crate::realm::Realm;
 

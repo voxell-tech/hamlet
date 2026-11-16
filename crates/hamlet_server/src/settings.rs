@@ -2,6 +2,7 @@
 //! process puts over them.
 
 use anyhow::Result;
+use bevy_ecs::resource::Resource;
 use diesel::prelude::*;
 use hamlet_protocol::client::{Link, LinkState, Newcomers};
 use hamlet_protocol::runtime::ModelRef;
@@ -11,6 +12,13 @@ use hamlet_store::schema::document;
 use serde::{Deserialize, Serialize};
 
 use crate::society::agents::Effort;
+
+/// The settings after this process's overrides.
+#[derive(Resource, Clone, Debug)]
+pub(crate) struct EffectiveSettings {
+    pub settings: Settings,
+    pub overrides: Overrides,
+}
 
 /// A model's endpoint by the name models are chosen through.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]

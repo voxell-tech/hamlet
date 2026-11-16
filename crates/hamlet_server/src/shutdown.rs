@@ -28,10 +28,10 @@ use crate::calls::ToolRun;
 use crate::clients::Listening;
 use crate::clients::connection::GRACE;
 use crate::core::{Core, Leftovers};
-use crate::knowledge::runner::Runner;
+use crate::knowledge::worker::Runner;
+use crate::runtimes::Runtimes;
+use crate::runtimes::leases::Authority;
 use crate::server::{AddHandler, InputSender};
-use crate::talk::leases::Authority;
-use crate::talk::runtimes::Runtimes;
 use crate::timers::AddTimer;
 
 /// The time a closing server waits for a credential rotation begun.

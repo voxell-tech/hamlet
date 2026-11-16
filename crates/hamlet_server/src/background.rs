@@ -22,8 +22,8 @@ use hamlet_protocol::runtime::RuntimeMessage;
 use crate::calls::CallId;
 use crate::calls::looks::Found;
 use crate::core::{Core, UnpushedLodge};
+use crate::runtimes::handlers;
 use crate::server::{InputMessage, InputSender};
-use crate::talk::heard;
 
 /// Where tasks send their results, as inputs, and the system that
 /// takes them in.
@@ -70,7 +70,7 @@ fn take_in_finished(
             if core.runtimes.generation(again.from)
                 == Some(again.generation)
             {
-                heard::write(
+                handlers::write(
                     &mut commands,
                     again.from,
                     again.message,

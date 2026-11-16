@@ -7,13 +7,15 @@ use hamlet_protocol::client::{AttachedFile, AttachedImage};
 use hamlet_store::ids::{AgentId, ChiefId, ConversationId, TaskId};
 use hamlet_store::schema::{chat, chat_session};
 
-use super::conversations::{self, Begin, Kind};
 use super::inputs::{self, InputKind, Keep};
 use super::marks::Mark;
+use super::models;
 use super::tasks::{self, Origin};
-use super::{Env, models, runtimes};
 use crate::attached::Line;
 use crate::change::Change;
+use crate::conversations::{self, Begin, Kind};
+use crate::runtimes;
+use crate::settings::EffectiveSettings;
 use crate::society::{agents, chiefs};
 
 /// A chief's line, kept.
@@ -29,7 +31,7 @@ pub(crate) struct Said {
 /// is every chief's chat with it.
 pub(crate) fn current(
     cx: &mut Change<'_>,
-    env: &Env,
+    env: &EffectiveSettings,
     agent: AgentId,
     chief: ChiefId,
 ) -> Result<ConversationId> {
@@ -75,7 +77,7 @@ pub(crate) fn current(
 /// runtime of the agent's harness, with the model it runs now.
 fn begin(
     cx: &mut Change<'_>,
-    env: &Env,
+    env: &EffectiveSettings,
     agent: AgentId,
     chief: ChiefId,
     session: i64,
@@ -94,7 +96,7 @@ fn begin(
 /// input to its chat's current session.
 pub(crate) fn say(
     cx: &mut Change<'_>,
-    env: &Env,
+    env: &EffectiveSettings,
     agent: AgentId,
     chief: ChiefId,
     request: &str,
@@ -108,7 +110,7 @@ pub(crate) fn say(
 /// the transcript the images and files at their places.
 pub(crate) fn say_with(
     cx: &mut Change<'_>,
-    env: &Env,
+    env: &EffectiveSettings,
     agent: AgentId,
     chief: ChiefId,
     request: &str,
@@ -230,7 +232,7 @@ pub(crate) fn notice(
 /// the old one finishes its queue (C24). Returns its number.
 pub(crate) fn new_session(
     cx: &mut Change<'_>,
-    env: &Env,
+    env: &EffectiveSettings,
     agent: AgentId,
     chief: ChiefId,
 ) -> Result<i64> {
@@ -304,7 +306,7 @@ pub(crate) fn resume(
 /// to send again.
 pub(crate) fn rewind(
     cx: &mut Change<'_>,
-    env: &Env,
+    env: &EffectiveSettings,
     agent: AgentId,
     chief: ChiefId,
     item: &str,
@@ -374,7 +376,7 @@ pub(crate) fn rewind(
 /// task (C26). Returns the input's request.
 pub(crate) fn retry(
     cx: &mut Change<'_>,
-    env: &Env,
+    env: &EffectiveSettings,
     agent: AgentId,
     chief: ChiefId,
 ) -> crate::change::Done<Said> {

@@ -17,7 +17,7 @@ use image::{
     ImageReader, Limits as DecodeLimits,
 };
 
-use super::kept::Images;
+use super::store::Images;
 use super::{Format, Limits, Unusable};
 
 /// The most pixels of an image that is opened.

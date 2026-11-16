@@ -1,6 +1,12 @@
-//! The harness's runtimes, one entity each: started, taken on or
-//! refused at their hello, started again after a failure (S22, S24),
-//! and the requests in flight to each.
+//! The harness runtime processes, their lines, and what each is sent.
+//! Each runtime is an entity: started, taken on or refused at its
+//! hello, started again after a failure (S22, S24), with the requests
+//! in flight to it.
+
+pub(crate) mod handlers;
+pub(crate) mod leases;
+pub(crate) mod process;
+pub(crate) mod reconciliation;
 
 use std::time::{Duration, Instant};
 
@@ -19,14 +25,14 @@ use hamlet_store::Db;
 use hamlet_store::ids::ConversationId;
 use hamlet_store::schema::runtime;
 
-use super::process::{Launch, Pi, Process, Received};
+use self::process::{Launch, Pi, Process, Received};
 use crate::layout::Layout;
 use crate::realm::Realm;
 use crate::server::InputSender;
 use crate::timers::AddTimer;
 
 pub(crate) fn plugin(app: &mut bevy_app::App) {
-    app.init_resource::<super::leases::Authority>()
+    app.init_resource::<leases::Authority>()
         .add_timer(restart_due, start);
 }
 

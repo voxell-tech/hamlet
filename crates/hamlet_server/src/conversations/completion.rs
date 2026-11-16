@@ -10,16 +10,17 @@ use hamlet_store::ids::{ConversationId, OfferId, TaskId};
 use hamlet_store::schema::{answer_fault, objection, review};
 use serde_json::Value;
 
-use super::conversations::{self, Conversation, Kind, Last};
 use super::errands::{self, Ended};
 use super::inputs::{self, Input, InputKind, Status};
-use super::{Env, items, letters, reflections, tasks};
+use super::{items, letters, reflections, tasks};
 use crate::calls::reviews::REVIEW;
 use crate::calls::society::library::LIBRARIAN;
 use crate::calls::society::welcome::{self, WELCOME};
 use crate::change::Change;
+use crate::conversations::{self, Conversation, Kind, Last};
 use crate::jobs::{self, Job};
 use crate::oversight::{self, Raise, WaitKind};
+use crate::settings::EffectiveSettings;
 use crate::society::agents::{self, AgentKind, EndHow};
 use crate::society::library::{self as shelf, Verdict};
 use crate::society::{dreams, workers};
@@ -34,7 +35,7 @@ pub(crate) struct Followed {
 /// Follows the end of input `request` of `conversation`, once.
 pub(crate) fn follow(
     cx: &mut Change<'_>,
-    env: &Env,
+    env: &EffectiveSettings,
     conversation: ConversationId,
     request: &str,
 ) -> Result<Followed> {

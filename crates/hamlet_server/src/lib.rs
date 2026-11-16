@@ -8,17 +8,17 @@
 //! 2. [`create_app`] adds the log, every area's plugin, the order of
 //!    the [`FollowUpSystems`] and the [`SendSystems`], and the
 //!    runner.
-//! 3. The runner, `serve::runner`, updates the app a first time:
+//! 3. The runner, `runner::runner`, updates the app a first time:
 //!    `PreStartup` opens what the server serves, from the sandbox and
 //!    the realm to the listener, and `Startup` starts it (`startup`).
 //!    It then runs each input until the app exits: a stop signal is
 //!    an input that takes the server from `Open` through `Closing` to
-//!    `Stopping` (`closing`).
+//!    `Stopping` (`shutdown`).
 //! 4. `server::Server::run` writes one input as a message and updates
 //!    the app once, in one transaction:
 //!    - `PreUpdate` takes the input in and reads it into a message of
-//!      its kind: a runtime's message in `talk::heard`, a client's
-//!      request in `clients::received`;
+//!      its kind: a runtime's message in `runtimes::handlers`, a
+//!      client's request in `clients::handlers`;
 //!    - `Update` runs the system for that kind;
 //!    - `PostUpdate` keeps the input, or rolls it back when a system
 //!      for it failed, then follows it and runs its jobs;
@@ -34,12 +34,12 @@ use crate::options::Options;
 
 // The app, its runner and what follows each input.
 mod background;
-mod closing;
 mod core;
 mod follow_up;
 pub mod options;
-mod serve;
+mod runner;
 mod server;
+mod shutdown;
 mod startup;
 mod timers;
 
@@ -61,9 +61,10 @@ mod spend;
 
 // The agents' conversations, the questions they put, and their tools.
 mod calls;
+mod conversations;
 mod dreaming;
 mod providers;
-mod talk;
+mod runtimes;
 mod work;
 
 // The clients, and what a chief sends and types.
@@ -86,7 +87,7 @@ mod testing;
 pub fn create_app(options: Options) -> App {
     let mut app = App::new();
 
-    app.set_runner(serve::runner).insert_resource(options);
+    app.set_runner(runner::runner).insert_resource(options);
 
     app.configure_sets(
         PostUpdate,
@@ -128,15 +129,15 @@ pub fn create_app(options: Options) -> App {
         startup::plugin,
         background::plugin,
         timers::plugin,
-        knowledge::runner::plugin,
-        closing::plugin,
+        knowledge::worker::plugin,
+        shutdown::plugin,
     ))
     // The areas, each with the systems for the inputs it takes.
     .add_plugins((
         calls::plugin,
-        talk::heard::plugin,
-        talk::sync::plugin,
-        talk::runtimes::plugin,
+        runtimes::handlers::plugin,
+        runtimes::reconciliation::plugin,
+        runtimes::plugin,
         clients::plugin,
         commands::plugin,
         providers::plugin,

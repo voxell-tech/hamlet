@@ -36,6 +36,10 @@ use self::held::State;
 use self::looks::Look;
 use self::objections::OBJECTING;
 use crate::background::{BackgroundResult, RunAgainRequest};
+use crate::conversations::marks::Mark;
+use crate::conversations::{
+    self, Conversation, Kind, inputs, models, questions,
+};
 use crate::core::Core;
 use crate::images::Limits;
 use crate::images::fitting::kept_pictures;
@@ -43,9 +47,6 @@ use crate::knowledge::CHARACTER;
 use crate::oversight::gate::{Session, TurnGate};
 use crate::oversight::{self, Raise, Ruling, WaitKind};
 use crate::server::{AddHandler, InputMessage, InputSender};
-use crate::talk::conversations::{Conversation, Kind};
-use crate::talk::marks::Mark;
-use crate::talk::{conversations, inputs, models, questions};
 use crate::work::catalogue::Society;
 use crate::work::tools::shell::Dialect;
 use crate::work::tools::{Network, Outcome, Sight, ToolSession};

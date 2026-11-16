@@ -3,8 +3,8 @@
 //! its request, written as a [`FromClient`] of its kind, and `Update`
 //! runs the system for that kind. Whatever awaits the disk or the
 //! workspace runs on a task, whose result comes back as an input of
-//! its own. It is the partner of `talk/heard.rs`, which takes in a
-//! runtime's lines.
+//! its own. It is the partner of `runtimes/handlers.rs`, which takes
+//! in a runtime's lines.
 
 use bevy_app::{App, PreUpdate};
 use bevy_ecs::error::Result;

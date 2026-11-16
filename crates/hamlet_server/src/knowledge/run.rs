@@ -7,7 +7,7 @@ use hamlet_store::Db;
 use hamlet_store::ids::{Actor, AgentId, OfferId, ScholarId};
 
 use super::folder::{Folder, remove_folder};
-use super::runner::RepositoryWriteLock;
+use super::worker::RepositoryWriteLock;
 use super::{CHARACTER, branch, lodging, outside_git};
 use crate::jobs::{Fork, Job};
 use crate::layout::Layout;

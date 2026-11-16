@@ -9,7 +9,7 @@ use hamlet_protocol::client::{
     ReadResult, RequestId, ServerMessage,
 };
 
-use super::kept::Images;
+use super::store::Images;
 use super::{MOST_BYTES, capitalised};
 use crate::background::BackgroundResult;
 use crate::clients::check::{failed, fault, reply};

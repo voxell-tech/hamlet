@@ -14,11 +14,13 @@ use hamlet_store::schema::{input, message, tool_call};
 use serde::{Deserialize, Serialize};
 use strum::{Display, EnumString, IntoStaticStr};
 
-use super::conversations::{self, Begin, Kind};
 use super::inputs::{self, InputKind, Keep};
 use super::marks::{From, Mark};
-use super::{Env, items, models, runtimes};
+use super::{items, models};
 use crate::change::Change;
+use crate::conversations::{self, Begin, Kind};
+use crate::runtimes;
+use crate::settings::EffectiveSettings;
 use crate::society::{addresses, agents};
 
 #[derive(
@@ -72,7 +74,7 @@ pub(crate) struct Message {
 /// begun with the first.
 pub(crate) fn with(
     cx: &mut Change<'_>,
-    env: &Env,
+    env: &EffectiveSettings,
     agent: AgentId,
     kind: Kind,
     peer: AgentId,
@@ -112,7 +114,7 @@ pub(crate) struct Send<'a> {
 /// Keeps `send` once per call: its row and its input to the receiver.
 pub(crate) fn send(
     cx: &mut Change<'_>,
-    env: &Env,
+    env: &EffectiveSettings,
     send: Send<'_>,
 ) -> Result<Message> {
     if let Some(found) = find(cx.db, send.runtime, send.key)? {

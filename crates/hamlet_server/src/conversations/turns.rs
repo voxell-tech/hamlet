@@ -9,9 +9,10 @@ use hamlet_store::Db;
 use hamlet_store::ids::ConversationId;
 use hamlet_store::schema::{attempt, usage};
 
-use super::conversations::{self, Conversation};
-use super::{Env, inputs, models, tasks};
+use super::{inputs, models, tasks};
+use crate::conversations::{self, Conversation};
 use crate::providers::Providers;
+use crate::settings::EffectiveSettings;
 
 /// The conversation `runtime` knows as `handle`.
 pub(crate) fn conversation(
@@ -38,7 +39,7 @@ pub(crate) enum Admission {
 /// H12). Who pays is its task's payer.
 pub(crate) fn allow(
     db: &mut Db,
-    env: &Env,
+    env: &EffectiveSettings,
     providers: &Providers,
     runtime: &str,
     call: &Attempt,

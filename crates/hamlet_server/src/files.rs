@@ -161,7 +161,12 @@ fn sweep(mut realm: ResMut<Realm>) -> Result<()> {
     let db = realm.store().connection();
     for (id, at) in files.kept() {
         let idle = at.elapsed().is_ok_and(|age| age >= GRACE);
-        if idle && !crate::images::sweep::is_used(db, id.as_str())? {
+        if idle
+            && !crate::images::garbage_collection::is_used(
+                db,
+                id.as_str(),
+            )?
+        {
             let _ = std::fs::remove_file(files.path(&id));
         }
     }

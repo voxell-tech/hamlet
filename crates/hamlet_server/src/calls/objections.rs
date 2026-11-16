@@ -10,10 +10,10 @@ use hamlet_store::schema::{objection, wait};
 
 use super::society::args::{Called, Object};
 use super::{Answer, Call, held, refused, said};
+use crate::conversations::marks::Mark;
+use crate::conversations::{inputs, tasks};
 use crate::core::Core;
 use crate::oversight::{self, Raise, Ruling, WaitKind};
-use crate::talk::marks::Mark;
-use crate::talk::{inputs, tasks};
 use crate::work::catalogue::Society;
 use crate::work::tools::Outcome;
 

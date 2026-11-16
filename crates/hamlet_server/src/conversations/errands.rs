@@ -7,11 +7,13 @@ use anyhow::Result;
 use hamlet_store::Db;
 use hamlet_store::ids::{AgentId, ConversationId, TaskId};
 
-use super::conversations::{self, Begin, Kind};
 use super::inputs::{self, InputKind, Keep};
 use super::marks::Mark;
-use super::{Env, items, models, runtimes};
+use super::{items, models};
 use crate::change::Change;
+use crate::conversations::{self, Begin, Kind};
+use crate::runtimes;
+use crate::settings::EffectiveSettings;
 use crate::society::agents;
 
 /// An errand to run.
@@ -36,7 +38,7 @@ fn request(owner: &str) -> String {
 /// Runs `errand` once: its conversation and its one input.
 pub(crate) fn run(
     cx: &mut Change<'_>,
-    env: &Env,
+    env: &EffectiveSettings,
     errand: Errand<'_>,
 ) -> Result<ConversationId> {
     if let Some(found) =

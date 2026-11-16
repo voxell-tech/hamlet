@@ -20,12 +20,12 @@ use hamlet_protocol::runtime::{
 };
 use hamlet_store::ids::Actor;
 
-use super::inputs::{self, Resend, Status};
 use super::leases::Authority;
 use super::process::Received;
-use super::runtimes::{Pending, Runtimes};
-use super::turns::{self, Admission};
-use super::{conversations, items, verdicts};
+use super::{Pending, Runtimes};
+use crate::conversations::inputs::{self, Resend, Status};
+use crate::conversations::turns::{self, Admission};
+use crate::conversations::{self, items, verdicts};
 use crate::core::Core;
 use crate::credentials::Credentials;
 use crate::follow_up::{InputEffects, keep_or_roll_back_input};
@@ -599,7 +599,7 @@ fn attempt(
         }
         Admission::Stopped(words) => {
             let notice = Some(
-                super::marks::Mark::Notice {
+                conversations::marks::Mark::Notice {
                     text: words.clone(),
                     at,
                 }

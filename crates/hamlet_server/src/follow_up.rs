@@ -28,22 +28,22 @@ use crate::background::BackgroundWork;
 use crate::calls::{ToolRuns, UnstartedToolRun, place};
 use crate::clients::check::{failed, fault};
 use crate::clients::{Connections, check};
+use crate::conversations::completion::follow;
+use crate::conversations::inputs::Resend;
 use crate::core::{Catalogue, Core, RemoteWorkspace};
 use crate::credentials::Credentials;
-use crate::knowledge::runner::{
+use crate::knowledge::worker::{
     RepositoryWriteLock, Runner, run_due,
 };
 use crate::providers::Providers;
 use crate::realm::Realm;
+use crate::runtimes::Runtimes;
+use crate::runtimes::reconciliation::{self, ImageFitting};
 use crate::server::{self, Failure, InputOrigin};
+use crate::settings::EffectiveSettings;
 use crate::society::agents;
 use crate::society::refusal::Refusal;
-use crate::talk::follow::follow;
-use crate::talk::inputs::Resend;
-use crate::talk::runtimes::Runtimes;
-use crate::talk::sync::{self, ImageFitting};
-use crate::talk::{Env, conversations};
-use crate::{FollowUpSystems, SendSystems};
+use crate::{FollowUpSystems, SendSystems, conversations};
 
 pub(crate) fn plugin(app: &mut App) {
     app.init_resource::<InputEffects>()
@@ -393,14 +393,14 @@ fn stop_cancelled_tool_runs(
 /// Sends every ready runtime what it is owed.
 fn send_runtimes_what_they_are_owed(
     mut realm: ResMut<Realm>,
-    env: Res<Env>,
+    env: Res<EffectiveSettings>,
     mut runtimes: Runtimes,
     providers: Res<Providers>,
     mut fitting: ImageFitting,
 ) -> Result {
     let images = realm.layout().images();
     let all = runtimes.all();
-    let mut owed = sync::RuntimeDues {
+    let mut owed = reconciliation::RuntimeDues {
         db: realm.store().connection(),
         env: &env,
         runtimes: &mut runtimes,
@@ -409,7 +409,7 @@ fn send_runtimes_what_they_are_owed(
         images: &images,
     };
     for runtime in all {
-        sync::flush(&mut owed, runtime, Resend::Nothing)?;
+        reconciliation::flush(&mut owed, runtime, Resend::Nothing)?;
     }
     Ok(())
 }

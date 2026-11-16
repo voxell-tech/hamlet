@@ -23,6 +23,7 @@ use super::looks::Look;
 use super::{Call, refused, said};
 use crate::change::{Change, Done, done, refuse};
 use crate::core::Core;
+use crate::settings::EffectiveSettings;
 use crate::society::addresses::{self, Reach};
 use crate::society::agents::{self, AgentKind, EndHow};
 use crate::society::hamlets::{self, Founding};
@@ -30,7 +31,6 @@ use crate::society::hires::{self, Hiring, Spec};
 use crate::society::refusal::Refusal;
 use crate::society::{authority, city, limits, record, roads};
 use crate::spend::{self, micros, money};
-use crate::talk::Env;
 use crate::work::catalogue::Society;
 use crate::work::tools::Outcome;
 
@@ -366,7 +366,10 @@ impl Core<'_, '_> {
     fn carry(
         &mut self,
         call: &Call<'_>,
-        make: impl FnOnce(&mut Change<'_>, &Env) -> Done<String>,
+        make: impl FnOnce(
+            &mut Change<'_>,
+            &EffectiveSettings,
+        ) -> Done<String>,
     ) -> Done<String> {
         let identity = call.call.identity();
         let request = &call.request;
@@ -613,7 +616,7 @@ impl Core<'_, '_> {
 /// when the realm leaves newcomers to the Hand.
 fn arrived(
     cx: &mut Change<'_>,
-    env: &Env,
+    env: &EffectiveSettings,
     id: ScholarId,
     character: &str,
 ) -> Result<String> {
@@ -640,7 +643,7 @@ fn budget(
     agent: AgentId,
 ) -> Result<String> {
     let at = crate::clock::now();
-    let payer = crate::talk::tasks::payer_of(db, agent)?;
+    let payer = crate::conversations::tasks::payer_of(db, agent)?;
     let report = spend::report(db, payer.as_ref(), at)?;
     let mut lines = vec![report.summary];
     let spent = spend::of_agent(db, agent, at)?;
@@ -666,7 +669,9 @@ pub(super) fn task_chief(
     task: Option<TaskId>,
 ) -> Result<Option<ChiefId>> {
     Ok(match task {
-        Some(task) => crate::talk::tasks::get(db, task)?.chief,
+        Some(task) => {
+            crate::conversations::tasks::get(db, task)?.chief
+        }
         None => None,
     })
 }

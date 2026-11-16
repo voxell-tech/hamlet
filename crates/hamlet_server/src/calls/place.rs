@@ -9,12 +9,12 @@ use hamlet_protocol::runtime::ConfigureTools;
 use hamlet_store::Db;
 use hamlet_store::ids::{AgentId, HamletId};
 
+use crate::conversations::Kind;
 use crate::layout::Layout;
 use crate::oversight::gate::Caller;
 use crate::society::agents::{self, AgentKind};
 use crate::society::hamlets::{self, Mode};
 use crate::society::{hires, workers};
-use crate::talk::conversations::Kind;
 use crate::work::catalogue::{Offered, Society};
 use crate::work::tools::Place;
 
@@ -106,7 +106,7 @@ pub(crate) fn of(
 pub(crate) fn of_conversation(
     db: &mut Db,
     layout: &Layout,
-    conversation: &crate::talk::conversations::Conversation,
+    conversation: &crate::conversations::Conversation,
 ) -> Result<Workplace> {
     let mut at = of(db, layout, conversation.agent)?;
     // A dream writes the checkout of its scholar's `main` in place of

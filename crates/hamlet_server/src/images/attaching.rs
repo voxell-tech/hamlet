@@ -6,14 +6,14 @@ use anyhow::Result;
 use hamlet_protocol::client::{AttachedFile, AttachedImage};
 use hamlet_store::ids::AgentId;
 
-use super::kept::Images;
+use super::store::Images;
 use super::{Limits, SEEN};
 use crate::attached::{Attached, Caption, is_place};
+use crate::conversations::models;
 use crate::core::{Core, UnpushedLodge};
 use crate::files::Files;
 use crate::inbox::INBOX;
 use crate::society::refusal::Refusal;
-use crate::talk::models;
 use crate::workspace::lodges::LODGE;
 
 impl Core<'_, '_> {

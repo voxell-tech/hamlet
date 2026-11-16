@@ -10,16 +10,17 @@ use super::args::{Ask, RequestRoad, StartWorker, Tell};
 use super::{Call, Step, refused, said, task_chief};
 use crate::calls::looks::Look;
 use crate::calls::place;
+use crate::conversations::letters::{
+    self, Message, MessageKind, Send,
+};
+use crate::conversations::tasks::{self, Origin};
+use crate::conversations::{Kind, briefs};
 use crate::core::Core;
 use crate::inbox::INBOX;
 use crate::society::agents::{self, EndHow};
 use crate::society::refusal::Refusal;
 use crate::society::workers::{self, Start, Starter};
 use crate::society::{addresses, hires, roads};
-use crate::talk::briefs;
-use crate::talk::conversations::Kind;
-use crate::talk::letters::{self, Message, MessageKind, Send};
-use crate::talk::tasks::{self, Origin};
 use crate::work::catalogue::Society;
 use crate::work::tools::Network;
 

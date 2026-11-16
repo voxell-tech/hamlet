@@ -72,7 +72,7 @@ impl Realm {
         let layout = self.layout();
         let at = self.at;
         let writing =
-            crate::knowledge::runner::RepositoryWriteLock::default();
+            crate::knowledge::worker::RepositoryWriteLock::default();
         crate::knowledge::run::due(self.db(), &layout, &writing, at)
             .unwrap();
         let left =

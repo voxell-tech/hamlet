@@ -374,7 +374,7 @@ impl Core<'_, '_> {
     /// runtime once it is ready.
     pub(crate) fn send_providers(&mut self) -> Result<()> {
         let db = self.realm.store().connection();
-        let id = crate::talk::runtimes::of_harness(
+        let id = crate::runtimes::of_harness(
             db,
             crate::society::agents::HARNESS,
         )?;

@@ -16,16 +16,16 @@ use hamlet_protocol::runtime::{
 use hamlet_store::Db;
 use hamlet_store::ids::ConversationId;
 
-use super::conversations::{self, Conversation};
-use super::inputs::{self, Input, Resend};
-use super::runtimes::{Pending, Runtimes};
-use super::{Env, models};
+use super::{Pending, Runtimes};
+use crate::conversations::inputs::{self, Input, Resend};
+use crate::conversations::{self, Conversation, models};
 use crate::diagnostic;
 use crate::follow_up::InputEffects;
 use crate::images::Limits;
 use crate::images::fitting::pictures;
 use crate::providers::Providers;
 use crate::server::{AddHandler, InputMessage, InputSender};
+use crate::settings::EffectiveSettings;
 
 /// The fitting of images, whose results come back as inputs.
 pub(crate) fn plugin(app: &mut bevy_app::App) {
@@ -157,7 +157,7 @@ impl ImageFitting<'_, '_> {
 /// The state a flush reaches.
 pub(crate) struct RuntimeDues<'a, 'w, 's, 'v, 't> {
     pub db: &'a mut Db,
-    pub env: &'a Env,
+    pub env: &'a EffectiveSettings,
     pub runtimes: &'a mut Runtimes<'w, 's>,
     pub providers: &'a Providers,
     pub fitting: &'a mut ImageFitting<'v, 't>,
@@ -277,7 +277,7 @@ pub(crate) fn flush(
 /// once the parent is made.
 fn make(
     db: &mut Db,
-    env: &Env,
+    env: &EffectiveSettings,
     runtimes: &mut Runtimes<'_, '_>,
     to: Entity,
     owed: &Conversation,

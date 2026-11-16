@@ -33,7 +33,7 @@ use crate::core::Core;
 use crate::follow_up::discard;
 use crate::realm::Realm;
 use crate::timers::{self, TimerFired};
-use crate::{closing, diagnostic};
+use crate::{diagnostic, shutdown};
 
 /// The one channel inputs arrive on, the error handler, where each
 /// input begins, and who is told when one fails.
@@ -305,7 +305,7 @@ impl Server {
         &mut self,
         wait: Duration,
     ) -> Result<bool, Fatal> {
-        let due = if closing::is_stopping(self.app.world()) {
+        let due = if shutdown::is_stopping(self.app.world()) {
             None
         } else {
             timers::next(self.app.world_mut()).map_err(Fatal)?
@@ -396,7 +396,7 @@ pub(crate) async fn shut_down(server: &mut Server) -> Result<()> {
     let deadline = Instant::now() + Duration::from_secs(60);
     server
         .inputs()
-        .send(closing::StopRequested)
+        .send(shutdown::StopRequested)
         .map_err(|_| anyhow::anyhow!("the server stopped already"))?;
     while !server.has_exited() {
         anyhow::ensure!(
@@ -443,8 +443,8 @@ mod tests {
     use hamlet_testing::Scratch;
 
     use super::*;
+    use crate::conversations::{chats, inputs, items};
     use crate::society::hand;
-    use crate::talk::{chats, inputs, items};
 
     /// A realm on `dir` served with the faux `script`, and a chief's
     /// line `text` to the Hand, answered.
@@ -641,7 +641,8 @@ mod tests {
                 .any(|(_, item)| item.text.contains("Hello, chief.")),
             "{page:#?}"
         );
-        let task = crate::talk::tasks::get(db, said.task).unwrap();
+        let task =
+            crate::conversations::tasks::get(db, said.task).unwrap();
         assert!(
             task.done_at.is_some(),
             "the instruction is answered"

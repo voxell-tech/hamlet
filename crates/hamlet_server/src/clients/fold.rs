@@ -13,7 +13,7 @@ use hamlet_protocol::runtime::{self, Block};
 use hamlet_sandbox::scrub::Scrubber;
 use serde_json::Value;
 
-use crate::talk::marks::Mark;
+use crate::conversations::marks::Mark;
 use crate::work::catalogue::Society;
 
 /// Characters of a tool's arguments a transcript shows.
@@ -137,7 +137,7 @@ impl Fold {
             if entry.tool.as_deref().and_then(Society::named)
                 == Some(Society::AskChief)
                 && let Some(text) =
-                    crate::talk::questions::said(&entry.text)
+                    crate::conversations::questions::said(&entry.text)
             {
                 self.add(
                     Item {

@@ -8,12 +8,12 @@ use hamlet_store::ids::Actor;
 use super::args::{AskLibrarian, SubmitSkill};
 use super::{Call, Step, refused, said};
 use crate::change::Done;
+use crate::conversations::errands::{self, Ended, Errand};
 use crate::core::Core;
 use crate::knowledge::folder::Folder;
 use crate::knowledge::{self, library};
 use crate::society::library::{self as shelf, Offering};
 use crate::society::refusal::Refusal;
-use crate::talk::errands::{self, Ended, Errand};
 
 /// The errand the librarian's calls are.
 pub(crate) const LIBRARIAN: &str = "librarian";

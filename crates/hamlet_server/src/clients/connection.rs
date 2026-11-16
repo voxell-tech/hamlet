@@ -21,7 +21,7 @@ use tokio_tungstenite::tungstenite::protocol::{
 use tokio_tungstenite::tungstenite::{Error, Message};
 
 use super::check::fault;
-use super::received::ClientEvent;
+use super::handlers::ClientEvent;
 use crate::credentials::Credentials;
 use crate::server::InputSender;
 

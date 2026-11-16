@@ -6,14 +6,13 @@ use anyhow::Result;
 use hamlet_store::Db;
 use hamlet_store::ids::{Actor, AgentId};
 
+use crate::conversations::{Conversation, Kind, tasks};
 use crate::society::agents::{self, AgentKind};
 use crate::society::roads::{self, Way};
 use crate::society::{
     addresses, authority, city, hamlets, hires, limits, record, tree,
     workers,
 };
-use crate::talk::conversations::{Conversation, Kind};
-use crate::talk::tasks;
 
 /// How an agent reads what another agent sends it.
 const MESSAGES: &str =

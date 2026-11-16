@@ -4,19 +4,21 @@
 use anyhow::Result;
 use hamlet_store::ids::{AgentId, ChiefId};
 
-use super::conversations::{self, Begin, Kind};
 use super::inputs::{self, InputKind, Keep};
 use super::marks::Mark;
+use super::models;
 use super::tasks::{self, Origin};
-use super::{Env, models, runtimes};
 use crate::change::Change;
+use crate::conversations::{self, Begin, Kind};
+use crate::runtimes;
+use crate::settings::EffectiveSettings;
 use crate::society::agents;
 
 /// Begins `worker`'s conversation with `brief` from `author`, as a
 /// task overseen by `chief`.
 pub(crate) fn give(
     cx: &mut Change<'_>,
-    env: &Env,
+    env: &EffectiveSettings,
     worker: AgentId,
     brief: &str,
     author: &str,

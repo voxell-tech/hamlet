@@ -319,7 +319,9 @@ pub(crate) fn unprotected(
     }
     let hamlet = get(cx.db, hire)?.hamlet;
     let minutes = limits::of(cx.db, &hamlet)?.protected_minutes;
-    if crate::talk::tasks::protects(cx.db, hire, cx.at, minutes)? {
+    if crate::conversations::tasks::protects(
+        cx.db, hire, cx.at, minutes,
+    )? {
         refuse!(Refusal::OnChiefsTask {
             name: super::addresses::name_of(cx.db, hire)?,
         });

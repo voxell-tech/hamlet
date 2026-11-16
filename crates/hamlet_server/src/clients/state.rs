@@ -11,7 +11,10 @@ use hamlet_store::Db;
 use hamlet_store::ids::{AgentId, HamletId, ScholarId};
 use hamlet_store::schema::{agent, message, permission_grant};
 
+use crate::conversations::activity::{self, Activity};
+use crate::conversations::{self, errands, inputs, models};
 use crate::layout::Layout;
+use crate::settings::EffectiveSettings;
 use crate::society::agents::{Agent, AgentKind, Effort, EndHow};
 use crate::society::city::{self, Arrival, Scholar};
 use crate::society::hamlets::{self, Hamlet, Mode};
@@ -20,14 +23,12 @@ use crate::society::limits::{
 };
 use crate::society::roads::{self, RoadKind, Way};
 use crate::society::{addresses, chiefs, hand, hires, workers};
-use crate::talk::activity::{self, Activity};
-use crate::talk::{Env, conversations, inputs};
 use crate::{knowledge, spend};
 
 /// What composing the state reads besides the database.
 pub(crate) struct Sources<'a> {
     pub layout: &'a Layout,
-    pub env: &'a Env,
+    pub env: &'a EffectiveSettings,
     pub chief: String,
     pub confinement: protocol::Confinement,
     pub activity: &'a BTreeMap<AgentId, Activity>,
@@ -155,7 +156,7 @@ fn agent_view(
             )
         }
     };
-    let model = crate::talk::models::choose(
+    let model = models::choose(
         db,
         &sources.env.settings,
         &sources.env.overrides,
@@ -236,7 +237,7 @@ fn agent_view(
         allowance,
         busy: found.is_living() && inputs::is_agent_busy(db, id)?,
         consulting: found.is_living()
-            && crate::talk::errands::is_waited_on(
+            && errands::is_waited_on(
                 db,
                 id,
                 crate::calls::society::library::LIBRARIAN,

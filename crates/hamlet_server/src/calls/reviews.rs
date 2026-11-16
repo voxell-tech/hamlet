@@ -9,14 +9,13 @@ use hamlet_store::ids::{Actor, AgentId, TaskId};
 use hamlet_store::schema::{objection, review, wait};
 
 use super::objections::OBJECTING;
+use crate::conversations::errands::{self, Errand};
+use crate::conversations::marks::Mark;
+use crate::conversations::{Conversation, Kind, inputs, models};
 use crate::core::Core;
 use crate::providers::{FAUX, is_local};
 use crate::society::limits::{self, Review};
 use crate::society::{addresses, hires};
-use crate::talk::conversations::{Conversation, Kind};
-use crate::talk::errands::{self, Errand};
-use crate::talk::marks::Mark;
-use crate::talk::{inputs, models};
 
 /// The errand a lead's review is.
 pub(crate) const REVIEW: &str = "review";

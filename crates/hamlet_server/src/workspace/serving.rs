@@ -24,7 +24,7 @@ use crate::clients::check::reply;
 use crate::core::{Core, RemoteWorkspace, UnpushedLodge};
 use crate::jobs::Job;
 use crate::knowledge;
-use crate::knowledge::runner::RepositoryWriteLock;
+use crate::knowledge::worker::RepositoryWriteLock;
 use crate::realm::Realm;
 use crate::society::refusal::Refusal;
 use crate::society::{agents, hamlets, hires};

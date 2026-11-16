@@ -322,7 +322,7 @@ A call has 1 to 10 questions, and a question at most 6 options with
 titles of its own. `description` is optional on a question and on an
 option. `text_input` lets the chief answer in words of their own and is
 true unless the agent says otherwise; a question with no options always
-takes words. `crates/hamlet_server/src/talk/questions.rs` reads and
+takes words. `crates/hamlet_server/src/conversations/questions.rs` reads and
 checks a call, and a call it refuses tells the agent why.
 
 **Where it is answered.** One card, `hamlet_app/src/asking.rs`, is shown

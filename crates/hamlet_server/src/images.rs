@@ -1,14 +1,14 @@
 //! The images the realm keeps, each once under the hash of its bytes
-//! ([`kept`]), and the making of one to fit a model ([`fitting`])
-//! (S29, S30): sent by a client ([`sent`]), carried by a chief's line
-//! to an agent ([`attaching`]), and swept once nothing uses them
-//! ([`sweep`]).
+//! ([`store`]), and the making of one to fit a model ([`fitting`])
+//! (S29, S30): sent by a client ([`uploads`]), carried by a chief's
+//! line to an agent ([`attaching`]), and swept once nothing uses them
+//! ([`garbage_collection`]).
 
 pub(crate) mod attaching;
 pub(crate) mod fitting;
-pub(crate) mod kept;
-pub(crate) mod sent;
-pub(crate) mod sweep;
+pub(crate) mod garbage_collection;
+pub(crate) mod store;
+pub(crate) mod uploads;
 
 use std::time::Duration;
 
@@ -25,7 +25,7 @@ pub(crate) const SEEN: &str = "inbox/images";
 const SWEEP_EVERY: Duration = Duration::from_secs(60 * 60);
 
 pub(crate) fn plugin(app: &mut bevy_app::App) {
-    app.add_every(SWEEP_EVERY, sweep::sweep);
+    app.add_every(SWEEP_EVERY, garbage_collection::sweep);
 }
 
 /// An image's format.

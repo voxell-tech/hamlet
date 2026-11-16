@@ -19,7 +19,7 @@ use hamlet_protocol::client::{self as protocol, Choice};
 use hamlet_store::ids::{Actor, AgentId, HamletId, ScholarId};
 
 use crate::change::Done;
-use crate::clients::received::FromClient;
+use crate::clients::handlers::FromClient;
 use crate::core::Core;
 use crate::server::AddHandler;
 use crate::society::addresses::{self, Reach};
@@ -466,7 +466,7 @@ fn resume(core: &mut Core<'_, '_>, line: &Line) -> Answer {
     let chief = core.realm.chief();
     let db = core.realm.store().connection();
     let sessions =
-        crate::talk::chats::sessions(db, line.agent, chief)?;
+        crate::conversations::chats::sessions(db, line.agent, chief)?;
     let list = sessions
         .iter()
         .map(|(number, _, _)| format!("- session {number}"))
