@@ -63,6 +63,11 @@ pub(super) trait Look<By>:
 #[derive(Debug, PartialEq, Serialize, Deserialize)]
 pub(super) enum Unbuilt {}
 
+/// The outcome of an act that only reads: there is none, so it
+/// answers from `decide`.
+#[derive(Debug, PartialEq, Serialize, Deserialize)]
+pub(super) enum Unchanged {}
+
 #[derive(Debug, PartialEq)]
 pub(super) enum Decision<D, O> {
     /// A first run.

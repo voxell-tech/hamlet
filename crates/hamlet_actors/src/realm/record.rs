@@ -12,9 +12,8 @@ use hamlet_messages::realm::{
     HamletId, HamletRefusal, Refusable, Tier,
 };
 use hamlet_messages::workspace::AgentNumber;
-use serde::{Deserialize, Serialize};
 
-use super::act::{Act, Decision};
+use super::act::{Act, Decision, Unchanged};
 use super::callers::{RealmWide, Witness};
 use super::calls::Made;
 use super::change::{self, Rows, Writer, number};
@@ -260,10 +259,6 @@ impl By {
 }
 
 const CHIEF: &str = "chief";
-
-/// The outcome of an act that only reads: there is none.
-#[derive(Serialize, Deserialize)]
-pub(super) enum Unchanged {}
 
 impl<By: RealmWide> Act<By> for ReadRecord {
     type Output = Record;

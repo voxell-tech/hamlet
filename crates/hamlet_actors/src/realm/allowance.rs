@@ -14,7 +14,7 @@ use hamlet_messages::realm::workers::{
 use hamlet_messages::realm::{AgentRefusal, Done, Refusable};
 use hamlet_messages::workspace::AgentNumber;
 
-use super::act::{Act, Decided, Decision};
+use super::act::{Act, Decided, Decision, Unchanged};
 use super::callers::Lead;
 use super::calls::Made;
 use super::change::{self, Affected, Rows, Writer, number};
@@ -249,7 +249,7 @@ impl<By: Lead> Act<By> for SetAllowance {
 impl Act<Agent> for ReadBudget {
     type Output = BudgetRead<AgentRefusal<ReadBudgetRefusal>>;
     type Loaded = Self::Output;
-    type Done = Self::Output;
+    type Done = Unchanged;
 
     async fn load(
         &self,
@@ -284,15 +284,11 @@ impl Act<Agent> for ReadBudget {
         &self,
         _by: &Agent,
         read: Self::Output,
-    ) -> Decision<Self::Output, Self::Output> {
+    ) -> Decision<Unchanged, Self::Output> {
         Decision::Answer(read)
     }
 
-    fn answer(
-        &self,
-        read: Self::Output,
-        _made: &Made,
-    ) -> Self::Output {
-        read
+    fn answer(&self, done: Unchanged, _made: &Made) -> Self::Output {
+        match done {}
     }
 }

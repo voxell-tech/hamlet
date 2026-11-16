@@ -19,7 +19,7 @@ use hamlet_messages::sender::Client;
 use hamlet_messages::workspace::AgentNumber;
 use serde::{Deserialize, Serialize};
 
-use super::act::{Act, Decided, Decision};
+use super::act::{Act, Decided, Decision, Unchanged};
 use super::calls::Made;
 use super::change::{self, Affected, Rows, Writer};
 use super::peer::When;
@@ -485,7 +485,7 @@ fn catalogue_fault(edit: &EditCatalogue) -> Option<CatalogueRefusal> {
 impl Act<Client> for ReadCharter {
     type Output = CharterRead;
     type Loaded = CharterRead;
-    type Done = CharterRead;
+    type Done = Unchanged;
 
     async fn load(
         &self,
@@ -503,19 +503,19 @@ impl Act<Client> for ReadCharter {
         &self,
         _by: &Client,
         read: CharterRead,
-    ) -> Decision<CharterRead, CharterRead> {
+    ) -> Decision<Unchanged, CharterRead> {
         Decision::Answer(read)
     }
 
-    fn answer(&self, read: CharterRead, _made: &Made) -> CharterRead {
-        read
+    fn answer(&self, done: Unchanged, _made: &Made) -> CharterRead {
+        match done {}
     }
 }
 
 impl Act<Agent> for ReadCopies {
     type Output = Copies;
     type Loaded = Copies;
-    type Done = Copies;
+    type Done = Unchanged;
 
     async fn load(
         &self,
@@ -542,11 +542,11 @@ impl Act<Agent> for ReadCopies {
         &self,
         _by: &Agent,
         copies: Copies,
-    ) -> Decision<Copies, Copies> {
+    ) -> Decision<Unchanged, Copies> {
         Decision::Answer(copies)
     }
 
-    fn answer(&self, copies: Copies, _made: &Made) -> Copies {
-        copies
+    fn answer(&self, done: Unchanged, _made: &Made) -> Copies {
+        match done {}
     }
 }
