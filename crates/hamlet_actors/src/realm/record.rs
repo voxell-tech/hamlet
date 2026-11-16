@@ -19,7 +19,7 @@ use super::callers::{RealmWide, Witness};
 use super::calls::Made;
 use super::change::{self, Rows, Writer, number};
 use super::chiefs;
-use super::tree::choices::{self, Chosen};
+use super::tree::choices;
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(super) enum By {
@@ -97,7 +97,7 @@ pub(super) enum Entry {
         why: Option<String>,
     },
     Model {
-        of: Chosen,
+        agent: AgentNumber,
         by: By,
         why: Option<String>,
     },
@@ -172,17 +172,9 @@ pub(super) async fn write(
             Entry::Nicknamed { agent, by, why } => {
                 ("nicknamed", by, Fields::of(agent, why))
             }
-            Entry::Model { of, by, why } => (
-                "model",
-                by,
-                match of {
-                    Chosen::Agent(agent) => Fields::of(agent, why),
-                    Chosen::Hamlet(hamlet) => Fields {
-                        why,
-                        ..Fields::hamlet(hamlet)
-                    },
-                },
-            ),
+            Entry::Model { agent, by, why } => {
+                ("model", by, Fields::of(agent, why))
+            }
         };
         writer
             .execute(

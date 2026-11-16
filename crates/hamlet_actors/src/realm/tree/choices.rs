@@ -46,8 +46,8 @@ pub(in crate::realm) enum Change {
         name: Option<String>,
         by: record::By,
     },
-    /// The whole choice for `of`: an absent part is the next choice
-    /// up's.
+    /// Sets the parts of `of`'s choice that are present, and keeps
+    /// the others; `by` chose the model when it is present.
     Model {
         of: Chosen,
         model: Option<String>,
@@ -96,20 +96,6 @@ pub(in crate::realm) async fn apply(
         }
         Change::Model {
             of,
-            model: None,
-            effort: None,
-            fast: None,
-            by: _,
-        } => {
-            writer
-                .execute(
-                    "DELETE FROM model_choice WHERE of = ?1",
-                    vec![BindParam::Text(of.key())],
-                )
-                .await?;
-        }
-        Change::Model {
-            of,
             model,
             effort,
             fast,
@@ -120,22 +106,28 @@ pub(in crate::realm) async fn apply(
                 .transpose()?;
             writer
                 .execute(
-                    "INSERT INTO model_choice (of, model, effort, \
-                     fast, by, at) VALUES (?1, ?2, ?3, ?4, ?5, ?6) \
-                     ON CONFLICT (of) DO UPDATE SET model = \
-                     excluded.model, effort = excluded.effort, fast \
-                     = excluded.fast, by = excluded.by, at = \
-                     excluded.at",
+                    "INSERT INTO model_choice (of, model, model_by, \
+                     effort, fast, at) VALUES (?1, ?2, ?3, ?4, ?5, \
+                     ?6) ON CONFLICT (of) DO UPDATE SET model = \
+                     COALESCE(excluded.model, model), model_by = \
+                     COALESCE(excluded.model_by, model_by), effort \
+                     = COALESCE(excluded.effort, effort), fast = \
+                     COALESCE(excluded.fast, fast), at = excluded.at",
                     vec![
                         BindParam::Text(of.key()),
                         model
-                            .map_or(BindParam::Null, BindParam::Text),
+                            .as_ref()
+                            .map_or(BindParam::Null, |model| {
+                                BindParam::Text(model.clone())
+                            }),
+                        model.map_or(BindParam::Null, |_| {
+                            BindParam::Text(by.name())
+                        }),
                         effort
                             .map_or(BindParam::Null, BindParam::Text),
                         fast.map_or(BindParam::Null, |fast| {
                             BindParam::Integer(i64::from(fast))
                         }),
-                        BindParam::Text(by.name()),
                         BindParam::Integer(writer.at().0),
                     ],
                 )
@@ -288,8 +280,8 @@ impl<By: Lead> Act<By> for SetModel {
                             subject.lineage.agent.agent,
                         );
                         rows.value::<String>(
-                            "SELECT by FROM model_choice WHERE of = \
-                             ?1 AND model IS NOT NULL",
+                            "SELECT model_by FROM model_choice \
+                             WHERE of = ?1 AND model_by IS NOT NULL",
                             vec![BindParam::Text(of.key())],
                         )
                         .await?
@@ -343,21 +335,31 @@ impl<By: Lead> Act<By> for SetModel {
                 }
             },
         };
-        Decision::Change(
-            Decided::new(())
-                .change(Change::Model {
-                    of: of.clone(),
-                    model: self.model.clone(),
-                    effort: self.effort,
-                    fast: self.fast,
-                    by: by.by(),
-                })
-                .record(record::Entry::Model {
-                    of,
-                    by: by.by(),
-                    why: self.why.clone(),
-                }),
-        )
+        // A lead's tool chooses only the model.
+        let (effort, fast) = if by_chief {
+            (self.effort, self.fast)
+        } else {
+            (None, None)
+        };
+        if self.model.is_none() && effort.is_none() && fast.is_none()
+        {
+            return Decision::Answer(Done::Done);
+        }
+        let mut decided = Decided::new(());
+        if let (Chosen::Agent(agent), Some(_)) = (&of, &self.model) {
+            decided = decided.record(record::Entry::Model {
+                agent: *agent,
+                by: by.by(),
+                why: self.why.clone(),
+            });
+        }
+        Decision::Change(decided.change(Change::Model {
+            of,
+            model: self.model.clone(),
+            effort,
+            fast,
+            by: by.by(),
+        }))
     }
 
     fn answer(&self, (): (), _made: &Made) -> Self::Output {

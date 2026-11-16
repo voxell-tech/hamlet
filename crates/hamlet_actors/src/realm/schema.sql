@@ -57,10 +57,11 @@ CREATE TABLE IF NOT EXISTS nickname (
 CREATE TABLE IF NOT EXISTS model_choice (
 	of TEXT PRIMARY KEY,
 	model TEXT,
+	model_by TEXT,
 	effort TEXT,
 	fast INTEGER,
-	by TEXT NOT NULL,
-	at INTEGER NOT NULL) STRICT;
+	at INTEGER NOT NULL,
+	CHECK ((model IS NULL) = (model_by IS NULL))) STRICT;
 
 -- versions.rs
 CREATE TABLE IF NOT EXISTS reach (
