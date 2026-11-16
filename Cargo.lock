@@ -696,7 +696,7 @@ dependencies = [
 [[package]]
 name = "bevy_cef"
 version = "0.15.0"
-source = "git+https://github.com/voxell-tech/bevy_cef?rev=f8423961f4794eba36293c5eb8b51bf8c1ba174f#f8423961f4794eba36293c5eb8b51bf8c1ba174f"
+source = "git+https://github.com/voxell-tech/bevy_cef?rev=1412306a5e80bbfe577666ee6f7af11a188ae04f#1412306a5e80bbfe577666ee6f7af11a188ae04f"
 dependencies = [
  "async-channel",
  "bevy",
@@ -712,7 +712,7 @@ dependencies = [
 [[package]]
 name = "bevy_cef_core"
 version = "0.15.0"
-source = "git+https://github.com/voxell-tech/bevy_cef?rev=f8423961f4794eba36293c5eb8b51bf8c1ba174f#f8423961f4794eba36293c5eb8b51bf8c1ba174f"
+source = "git+https://github.com/voxell-tech/bevy_cef?rev=1412306a5e80bbfe577666ee6f7af11a188ae04f#1412306a5e80bbfe577666ee6f7af11a188ae04f"
 dependencies = [
  "async-channel",
  "bevy",
