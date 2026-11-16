@@ -244,6 +244,8 @@ pub enum Glyph {
     Split,
     /// A window with a strip down its right: a panel's list.
     Sidebar,
+    /// Two corners crossing: a part of what shows, cut out.
+    Crop,
 }
 
 /// A part of an icon, in the units of its square, y downward. Angles
@@ -272,7 +274,7 @@ enum Shape {
 
 impl Glyph {
     /// Every icon.
-    pub const ALL: [Glyph; 77] = [
+    pub const ALL: [Glyph; 78] = [
         Glyph::Plus,
         Glyph::Cross,
         Glyph::Check,
@@ -350,6 +352,7 @@ impl Glyph {
         Glyph::Terminal,
         Glyph::Split,
         Glyph::Sidebar,
+        Glyph::Crop,
     ];
 
     /// Its image for a side of `size`, to be tinted.
@@ -862,6 +865,10 @@ impl Glyph {
             Glyph::Sidebar => &[
                 Round(1.75, 2.75, 14.25, 13.25, 1.5),
                 Line(10.25, 2.75, 10.25, 13.25),
+            ],
+            Glyph::Crop => &[
+                Path(&[[4.5, 1.5], [4.5, 11.5], [14.5, 11.5]]),
+                Path(&[[1.5, 4.5], [11.5, 4.5], [11.5, 14.5]]),
             ],
         }
     }

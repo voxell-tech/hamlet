@@ -7,6 +7,8 @@ mod agents;
 #[cfg(all(feature = "web", any(target_os = "macos", windows)))]
 mod bridge;
 #[cfg(all(feature = "web", any(target_os = "macos", windows)))]
+mod crop;
+#[cfg(all(feature = "web", any(target_os = "macos", windows)))]
 pub mod engine;
 #[cfg(all(feature = "web", any(target_os = "macos", windows)))]
 mod fetch;
@@ -40,6 +42,7 @@ pub fn plugin(app: &mut App) {
     {
         app.add_plugins((
             panel::plugin,
+            crop::plugin,
             fetch::plugin,
             files::plugin,
         ));
