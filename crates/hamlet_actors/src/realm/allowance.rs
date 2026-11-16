@@ -168,22 +168,30 @@ async fn charged(
     since: i64,
 ) -> Result<u64> {
     let agents = match counted {
-        Counted::Own => "SELECT ?1".to_owned(),
-        Counted::WithAllUnder => format!(
-            "WITH RECURSIVE under (agent) AS (SELECT ?1 UNION \
-             SELECT hire.agent FROM hire JOIN under ON hire.lead = \
-             under.agent JOIN agent ON agent.id = hire.agent WHERE \
-             agent.status != 'ended') SELECT agent FROM under UNION \
-             {}",
-            workers::living("SELECT agent FROM under")
-        ),
+        Counted::Own => vec![agent],
+        Counted::WithAllUnder => std::iter::once(agent)
+            .chain(tree::under(rows, agent).await?)
+            .collect(),
     };
+    let marks = (2..)
+        .zip(&agents)
+        .map(|(n, _)| format!("?{n}"))
+        .collect::<Vec<_>>()
+        .join(", ");
+    let and_workers = match counted {
+        Counted::Own => String::new(),
+        Counted::WithAllUnder => {
+            format!(" OR agent IN ({})", workers::living(&marks))
+        }
+    };
+    let mut params = vec![BindParam::Integer(since)];
+    params.extend(agents.into_iter().map(number));
     rows.value(
         &format!(
             "SELECT COALESCE(SUM(micros), 0) FROM charge WHERE at \
-             >= ?2 AND agent IN ({agents})"
+             >= ?1 AND (agent IN ({marks}){and_workers})"
         ),
-        vec![number(agent), BindParam::Integer(since)],
+        params,
     )
     .await?
     .context("the sum of the charges under an allowance")

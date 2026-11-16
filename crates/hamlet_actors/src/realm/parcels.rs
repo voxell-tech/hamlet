@@ -19,7 +19,7 @@ use anyhow::{Context as _, Result, bail};
 use hamlet_actor::{BindParam, Ctx, Handler};
 use hamlet_host::HostRef;
 use hamlet_messages::address::{self, Agent, Party as _, Workspace};
-use hamlet_messages::agent::{AgentKind, Input, InputId, Submit};
+use hamlet_messages::agent::{Input, InputId, Submit};
 use hamlet_messages::bytes::{Base64, Sha256};
 use hamlet_messages::realm::client::Answer;
 use hamlet_messages::realm::parcels::{
@@ -48,7 +48,7 @@ use super::peer::When;
 use super::steps::{self, Cx, StepId, Steps};
 use super::tasks::TaskId;
 use super::waits::{self, Raised, Ruling};
-use super::{Realm, tree};
+use super::{Realm, record, tree};
 
 /// How long a delivered parcel keeps its files: its `at` is when it
 /// was sent until it is ready, then when it became ready, or when a
@@ -607,7 +607,7 @@ async fn subject(
         Kind::Question => ("ask", "question"),
     };
     let args = serde_json::json!({
-        "to": address(rows, sent.receiver).await?,
+        "to": record::address(rows, sent.receiver).await?,
         said: sent.text,
         "paths": sent.paths,
     });
@@ -615,20 +615,6 @@ async fn subject(
         "{} in {files} files: {tool} {args}",
         AttachedFile::size_words(bytes)
     ))
-}
-
-/// `agent`'s address, as in `hire#3`.
-async fn address(
-    rows: &Rows<'_>,
-    agent: AgentNumber,
-) -> Result<String> {
-    let n = agent.0;
-    Ok(match tree::kind_of(rows, agent).await? {
-        AgentKind::Hand => "hand".to_owned(),
-        AgentKind::Hire => format!("hire#{n}"),
-        AgentKind::Worker => format!("worker#{n}"),
-        AgentKind::Errand => bail!("errand {n} sent a parcel"),
-    })
 }
 
 /// Copies each file the store lacks from the sender's workspace,
@@ -847,8 +833,9 @@ pub(super) async fn files(
     else {
         return Ok(Vec::new());
     };
-    let from =
-        address(rows, AgentNumber(sender)).await?.replace('#', "-");
+    let from = record::address(rows, AgentNumber(sender))
+        .await?
+        .replace('#', "-");
     let parcel = ParcelId(parcel);
     entries(rows, parcel)
         .await?
