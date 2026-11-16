@@ -19,6 +19,7 @@ use tokio::sync::Mutex;
 
 use super::act::Look;
 use super::change::{self, Affected, Column as _, Rows};
+use super::tree::choices;
 use super::{Realm, budget, laid, tree, versions, waits};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
@@ -147,18 +148,22 @@ async fn agents(rows: &Rows<'_>) -> Result<Vec<AgentSeen>> {
     let mut agents = Vec::new();
     for row in rows
         .select(
-            "SELECT agent.id, agent.status, agent.ended_how, \
-             agent.ended_why, COALESCE(hire.hamlet, worker.hamlet), \
-             hire.lead, reach.wanted, reach.applied, worker.agent, \
-             worker.starter, nickname.name, model_choice.model, \
-             model_choice.effort, model_choice.fast, \
-             allowance.micros FROM agent LEFT JOIN hire ON \
-             hire.agent = agent.id LEFT JOIN reach ON reach.agent = \
-             agent.id LEFT JOIN worker ON worker.agent = agent.id \
-             LEFT JOIN nickname ON nickname.agent = agent.id LEFT \
-             JOIN model_choice ON model_choice.of = 'agent/' || \
-             agent.id LEFT JOIN allowance ON allowance.hire = \
-             agent.id ORDER BY agent.id",
+            &format!(
+                "SELECT agent.id, agent.status, agent.ended_how, \
+                 agent.ended_why, COALESCE(hire.hamlet, \
+                 worker.hamlet), hire.lead, reach.wanted, \
+                 reach.applied, worker.agent, worker.starter, \
+                 nickname.name, model_choice.model, \
+                 model_choice.effort, model_choice.fast, \
+                 allowance.micros FROM agent LEFT JOIN hire ON \
+                 hire.agent = agent.id LEFT JOIN reach ON \
+                 reach.agent = agent.id LEFT JOIN worker ON \
+                 worker.agent = agent.id LEFT JOIN nickname ON \
+                 nickname.agent = agent.id LEFT JOIN model_choice \
+                 ON model_choice.of = {} LEFT JOIN allowance ON \
+                 allowance.hire = agent.id ORDER BY agent.id",
+                choices::agent_key("agent.id")
+            ),
             Vec::new(),
         )
         .await?

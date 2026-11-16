@@ -176,15 +176,18 @@ pub(super) enum Change {
     },
 }
 
-/// A client sees each, as `Part::Waits`.
+/// A client sees each that opens or closes a wait, as
+/// `Part::Waits`.
 pub(super) async fn apply(
     writer: &Writer<'_>,
     change: Change,
 ) -> Result<Affected> {
     let changed = match change {
         Change::Open { asked } => open(writer, None, asked).await?,
+        // A closed wait is never shown.
         Change::Unasked { wait, asked, words } => {
-            open(writer, Some((wait, words)), asked).await?
+            open(writer, Some((wait, words)), asked).await?;
+            0
         }
         Change::Raise { wait, raised } => {
             raise(writer, wait, raised).await?

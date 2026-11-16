@@ -33,13 +33,22 @@ pub(in crate::realm) enum Chosen {
     Hamlet(HamletId),
 }
 
+/// The start of an agent's choice's key, before its number.
+const AGENT_KEY: &str = "agent/";
+
 impl Chosen {
     fn key(&self) -> String {
         match self {
-            Self::Agent(agent) => format!("agent/{}", agent.0),
+            Self::Agent(agent) => format!("{AGENT_KEY}{}", agent.0),
             Self::Hamlet(hamlet) => format!("hamlet/{}", hamlet.0),
         }
     }
+}
+
+/// SQL for the key of the choice of the agent whose number is
+/// `column`.
+pub(in crate::realm) fn agent_key(column: &str) -> String {
+    format!("'{AGENT_KEY}' || {column}")
 }
 
 /// A model choice as kept: each part absent is the next choice up's.
@@ -105,7 +114,7 @@ pub(in crate::realm) async fn apply(
     writer: &Writer<'_>,
     change: Change,
 ) -> Result<Affected> {
-    match change {
+    let shown = match change {
         Change::Nickname {
             agent,
             name: None,
@@ -116,13 +125,16 @@ pub(in crate::realm) async fn apply(
                     "DELETE FROM nickname WHERE agent = ?1",
                     vec![number(agent)],
                 )
-                .await?;
+                .await?
+                > 0
         }
         Change::Nickname {
             agent,
             name: Some(name),
             by,
         } => {
+            let was = nickname(&writer.rows(), agent).await?;
+            let shown = was.as_ref() != Some(&name);
             writer
                 .execute(
                     "INSERT INTO nickname (agent, name, by, at) \
@@ -137,6 +149,7 @@ pub(in crate::realm) async fn apply(
                     ],
                 )
                 .await?;
+            shown
         }
         Change::Model {
             of,
@@ -145,6 +158,19 @@ pub(in crate::realm) async fn apply(
             fast,
             by,
         } => {
+            // The world shows an agent's own choice, not a hamlet's.
+            let shown = match of {
+                Chosen::Agent(_) => {
+                    let was = choice(&writer.rows(), &of).await?;
+                    model.as_ref().is_some_and(|model| {
+                        was.model.as_ref() != Some(model)
+                    }) || effort.is_some_and(|effort| {
+                        was.effort != Some(effort)
+                    }) || fast
+                        .is_some_and(|fast| was.fast != Some(fast))
+                }
+                Chosen::Hamlet(_) => false,
+            };
             let effort = effort
                 .map(|effort| change::case_name(&effort))
                 .transpose()?;
@@ -183,19 +209,28 @@ pub(in crate::realm) async fn apply(
                         .await?
                 }
             };
+            let copies = readers
+                .into_iter()
+                .map(|agent| Copied {
+                    part: documents::Part::Model,
+                    readers: Readers::Agent(agent),
+                })
+                .collect();
             return Ok(Affected {
-                copies: readers
-                    .into_iter()
-                    .map(|agent| Copied {
-                        part: documents::Part::Model,
-                        readers: Readers::Agent(agent),
-                    })
-                    .collect(),
-                ..Affected::seen([Part::Agents])
+                copies,
+                ..shown_agents(shown)
             });
         }
+    };
+    Ok(shown_agents(shown))
+}
+
+fn shown_agents(shown: bool) -> Affected {
+    if shown {
+        Affected::seen([Part::Agents])
+    } else {
+        Affected::default()
     }
-    Ok(Affected::seen([Part::Agents]))
 }
 
 pub(in crate::realm) async fn nickname(

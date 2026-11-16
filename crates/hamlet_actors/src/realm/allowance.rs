@@ -45,8 +45,9 @@ pub(super) async fn apply(
         why,
         by,
     } = change;
-    match micros {
+    let shown = match micros {
         Some(micros) => {
+            let was = of(&writer.rows(), hire).await?;
             writer
                 .execute(
                     "INSERT INTO allowance (hire, micros, why, by, \
@@ -62,7 +63,8 @@ pub(super) async fn apply(
                         BindParam::Integer(writer.at().0),
                     ],
                 )
-                .await?
+                .await?;
+            was != Some(micros)
         }
         None => {
             writer
@@ -71,9 +73,14 @@ pub(super) async fn apply(
                     vec![number(hire)],
                 )
                 .await?
+                > 0
         }
     };
-    Ok(Affected::seen([Part::Agents]))
+    Ok(if shown {
+        Affected::seen([Part::Agents])
+    } else {
+        Affected::default()
+    })
 }
 
 /// The first allowance on the way from `agent` up its leads that is
