@@ -19,8 +19,9 @@ use hamlet_messages::workspace::{AgentNumber, ConversationId};
 use super::act::{Act, Decided, Decision};
 use super::calls::Made;
 use super::change::{self, Affected, Rows, Writer, number};
+use super::workers::errands;
 use super::world::Part;
-use super::{chiefs, secrets, settings, tree};
+use super::{chiefs, record, secrets, settings, tree};
 
 /// Each raises the reach of its agent and of the agent's living
 /// workers, when it changes a row.
@@ -229,7 +230,13 @@ async fn trust(
 
 pub(super) enum Holding {
     Grant,
-    Nothing,
+    /// No grant: the agent's name, and whether the settings give the
+    /// permission to every agent.
+    Nothing {
+        name: String,
+        to_all: bool,
+    },
+    NoAgent,
 }
 
 impl Act<Client> for Revoke {
@@ -242,10 +249,20 @@ impl Act<Client> for Revoke {
         _by: &Client,
         rows: &Rows<'_>,
     ) -> Result<Holding> {
-        Ok(if holds(rows, self.agent, self.permission).await? {
-            Holding::Grant
-        } else {
-            Holding::Nothing
+        if errands::standing(rows, self.agent).await?.is_some() {
+            return Ok(Holding::NoAgent);
+        }
+        if holds(rows, self.agent, self.permission).await? {
+            return Ok(Holding::Grant);
+        }
+        let to_all = match self.permission {
+            Permission::Network => {
+                settings::read(rows).await?.allow_net
+            }
+        };
+        Ok(Holding::Nothing {
+            name: record::name_of(rows, self.agent).await?,
+            to_all,
         })
     }
 
@@ -254,17 +271,26 @@ impl Act<Client> for Revoke {
         _by: &Client,
         holding: Holding,
     ) -> Decision<(), Self::Output> {
-        match holding {
-            Holding::Grant => Decision::Change(
-                Decided::new(()).change(Change::Revoke {
-                    agent: self.agent,
-                    permission: self.permission,
-                }),
-            ),
-            Holding::Nothing => Decision::Answer(Done::Refused {
-                why: RevokeRefusal::NoGrant { agent: self.agent },
-            }),
-        }
+        let permission = self.permission;
+        let why = match holding {
+            Holding::Grant => {
+                return Decision::Change(Decided::new(()).change(
+                    Change::Revoke {
+                        agent: self.agent,
+                        permission,
+                    },
+                ));
+            }
+            Holding::Nothing {
+                name,
+                to_all: false,
+            } => RevokeRefusal::NoGrant { name, permission },
+            Holding::Nothing { name, to_all: true } => {
+                RevokeRefusal::AllowedToAll { name, permission }
+            }
+            Holding::NoAgent => RevokeRefusal::NoSuchAgent,
+        };
+        Decision::Answer(Done::Refused { why })
     }
 
     fn answer(&self, (): (), _made: &Made) -> Self::Output {

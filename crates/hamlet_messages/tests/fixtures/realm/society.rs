@@ -128,7 +128,23 @@ fn the_oversight(fixtures: &mut Fixtures) {
     done(
         fixtures,
         "realm/chief_revoke",
-        vec![("no_grant", RevokeRefusal::NoGrant { agent: HIRE })],
+        vec![
+            ("no_such_agent", RevokeRefusal::NoSuchAgent),
+            (
+                "no_grant",
+                RevokeRefusal::NoGrant {
+                    name: "hire#12 (Mira)".into(),
+                    permission: Permission::Network,
+                },
+            ),
+            (
+                "allowed_to_all",
+                RevokeRefusal::AllowedToAll {
+                    name: "hire#12 (Mira)".into(),
+                    permission: Permission::Network,
+                },
+            ),
+        ],
     );
     for (case, turn) in [
         ("retry", TaskTurn::Retry),
@@ -418,7 +434,12 @@ fn the_workers(fixtures: &mut Fixtures) {
     let allowance_refusals = || {
         vec![
             ("no_such_agent", AllowanceRefusal::NoSuchAgent),
-            ("not_a_hire", AllowanceRefusal::NotAHire),
+            (
+                "not_a_hire",
+                AllowanceRefusal::NotAHire {
+                    name: "hand".into(),
+                },
+            ),
             (
                 "left",
                 AllowanceRefusal::Left {
@@ -483,22 +504,44 @@ fn the_hamlets(fixtures: &mut Fixtures) {
             folder: None,
         }),
     );
-    for name in [
+    let no_such_hamlet = || {
+        (
+            "no_such_hamlet",
+            HamletRefusal::NoSuchHamlet { id: hamlet() },
+        )
+    };
+    done(
+        fixtures,
         "realm/chief_name_hamlet",
+        vec![
+            no_such_hamlet(),
+            (
+                "bad_name",
+                HamletRefusal::BadName {
+                    name: "Mill: east".into(),
+                },
+            ),
+        ],
+    );
+    done(
+        fixtures,
         "realm/chief_move_hamlet",
-        "realm/chief_set_mode",
-    ] {
-        done(
-            fixtures,
-            name,
-            vec![("no_such_hamlet", HamletRefusal::NoSuchHamlet)],
-        );
-    }
+        vec![
+            no_such_hamlet(),
+            (
+                "bad_site",
+                HamletRefusal::BadSite {
+                    site: "NaN, 4".into(),
+                },
+            ),
+        ],
+    );
+    done(fixtures, "realm/chief_set_mode", vec![no_such_hamlet()]);
     done(
         fixtures,
         "realm/chief_set_folder",
         vec![
-            ("no_such_hamlet", HamletRefusal::NoSuchHamlet),
+            no_such_hamlet(),
             (
                 "no_such_folder",
                 HamletRefusal::NoSuchFolder {
@@ -537,7 +580,7 @@ fn the_hamlets(fixtures: &mut Fixtures) {
                     }],
                 },
             )],
-            vec![("no_such_hamlet", HamletRefusal::NoSuchHamlet)],
+            vec![no_such_hamlet()],
         );
     }
 }
@@ -592,6 +635,12 @@ fn the_choices(fixtures: &mut Fixtures) {
             ("left.failed", left(HowEnded::Failed)),
             ("left.stopped", left(HowEnded::Stopped)),
             ("bad_nickname", ChoiceRefusal::BadNickname),
+            (
+                "not_a_hire",
+                ChoiceRefusal::NotAHire {
+                    name: "hand".into(),
+                },
+            ),
             (
                 "no_such_model",
                 ChoiceRefusal::NoSuchModel {

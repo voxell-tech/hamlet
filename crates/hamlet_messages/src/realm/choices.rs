@@ -84,8 +84,10 @@ pub enum ChoiceRefusal {
     NoSuchHamlet,
     #[error("`hire#{}` has left: {left}", hire.0)]
     Left { hire: AgentNumber, left: Left },
-    #[error("a nickname is one line of at most 24 letters")]
+    #[error("A nickname is one line of at most 24 letters.")]
     BadNickname,
+    #[error("`{name}` is not a hire")]
+    NotAHire { name: String },
     #[error("no model is named `{model}`")]
     NoSuchModel { model: String },
     #[error(

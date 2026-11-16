@@ -922,15 +922,20 @@ fn the_limits_and_the_spending(fixtures: &mut Fixtures) {
         fixtures,
         "realm/chief_set_limits",
         vec![
-            ("no_such_hamlet", HamletRefusal::NoSuchHamlet),
-            ("hamlets_limit", HamletRefusal::HamletsLimit),
-            ("realms_limit", HamletRefusal::RealmsLimit),
+            (
+                "no_such_hamlet",
+                HamletRefusal::NoSuchHamlet { id: hamlet() },
+            ),
+            ("misshapen_limits", HamletRefusal::MisshapenLimits),
         ],
     );
     done(
         fixtures,
         "realm/chief_reset_budget",
-        vec![("no_such_hamlet", HamletRefusal::NoSuchHamlet)],
+        vec![(
+            "no_such_hamlet",
+            HamletRefusal::NoSuchHamlet { id: hamlet() },
+        )],
     );
     fixtures.args(
         "realm/may_spend",
@@ -977,6 +982,7 @@ fn the_limits_and_the_spending(fixtures: &mut Fixtures) {
                 "over_allowance",
                 SpendRefusal::Budget(Budget::OverAllowance {
                     hire: HIRE,
+                    name: "hire#12 (Mira)".into(),
                     spent_micros: 2_000_300,
                     allowance_micros: 2_000_000,
                 }),

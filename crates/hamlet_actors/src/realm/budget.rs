@@ -367,7 +367,7 @@ pub(super) enum PayerRow {
     Held {
         faults: Vec<change::Change>,
     },
-    Missing,
+    Missing(HamletId),
 }
 
 impl Act<Client> for ResetBudget {
@@ -383,7 +383,7 @@ impl Act<Client> for ResetBudget {
         if let Payer::Hamlet { hamlet } = &self.payer
             && chiefs::hamlet(rows, hamlet).await?.is_none()
         {
-            return Ok(PayerRow::Missing);
+            return Ok(PayerRow::Missing(hamlet.clone()));
         }
         Ok(PayerRow::Held {
             faults: waits::budget_faults(rows, &self.payer).await?,
@@ -404,8 +404,8 @@ impl Act<Client> for ResetBudget {
                 decided.changes.extend(faults);
                 Decision::Change(decided)
             }
-            PayerRow::Missing => Decision::Answer(Done::refused(
-                HamletRefusal::NoSuchHamlet,
+            PayerRow::Missing(id) => Decision::Answer(Done::refused(
+                HamletRefusal::NoSuchHamlet { id },
             )),
         }
     }

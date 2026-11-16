@@ -134,16 +134,27 @@ pub enum Budget {
         budget_ms: u64,
     },
     #[error(
-        "the allowance of `hire#{}` has run out: {spent_micros} of \
-         {allowance_micros} millionths of a dollar spent; its lead or \
-         a chief can raise it",
-        hire.0
+        "`{name}`'s allowance of {} is spent. Its lead or a chief can \
+         raise it.",
+        money(*allowance_micros)
     )]
     OverAllowance {
         hire: AgentNumber,
+        /// The hire's name, as in `hire#3 (Mira)`.
+        name: String,
         spent_micros: u64,
         allowance_micros: u64,
     },
+}
+
+/// `micros` in dollars to the cent, as `$1.23`, or `<$0.01` for less
+/// than a cent and more than nothing.
+fn money(micros: u64) -> String {
+    if (1..10_000).contains(&micros) {
+        return "<$0.01".to_owned();
+    }
+    let cents = (u128::from(micros) + 5_000) / 10_000;
+    format!("${}.{:02}", cents / 100, cents % 100)
 }
 
 /// Charges one model call to `task`'s payer. A repeat with the same

@@ -18,7 +18,7 @@ use hamlet_protocol::client::RequestId;
 
 use super::{
     FOUR, MAYOR, Realm, THREE, charge, hamlet_with, limit, may_spend,
-    standing, to, tool,
+    standing, to, tool, words,
 };
 
 const WORKER: AgentNumber = AgentNumber(50);
@@ -76,6 +76,7 @@ fn over_allowance(
     Done::Refused {
         why: SpendRefusal::Budget(Budget::OverAllowance {
             hire,
+            name: format!("hire#{}", hire.0),
             spent_micros: spent,
             allowance_micros: allowance,
         }),
@@ -129,6 +130,11 @@ async fn over_its_allowance_a_hire_is_refused() {
     assert_eq!((set, own), (Done::Done, Done::Done));
     assert_eq!(under, Done::Done);
     assert_eq!(spent, over_allowance(MAYOR, 10, 10));
+    assert_eq!(
+        words(spent),
+        "`hire#2`'s allowance of <$0.01 is spent. Its lead or a \
+         chief can raise it."
+    );
     assert_eq!(reset, Done::Done);
     assert_eq!(after_reset, over_allowance(MAYOR, 10, 10));
     assert_eq!(taken, Done::Done);
@@ -221,7 +227,12 @@ async fn a_lead_sets_its_hires_allowance() {
     let refused = |why| Done::Refused {
         why: LeadRefusal::Act(why),
     };
-    assert_eq!(hand, refused(AllowanceRefusal::NotAHire));
+    assert_eq!(
+        hand,
+        refused(AllowanceRefusal::NotAHire {
+            name: "hand".to_owned()
+        })
+    );
     assert_eq!(nobody, refused(AllowanceRefusal::NoSuchAgent));
     assert_eq!(spent, over_allowance(THREE, 5, 5));
     assert!(

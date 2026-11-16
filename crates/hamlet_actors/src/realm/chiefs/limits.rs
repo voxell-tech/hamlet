@@ -63,13 +63,19 @@ impl Limits {
             Limit::Reserved { act, reserved } => {
                 *self.reserved.of(act) = reserved;
             }
-            Limit::RoadPrice { micros } => self.road.price = micros,
+            Limit::RoadPrice { micros } => {
+                // A price is kept as SQLite's integer.
+                if i64::try_from(micros).is_err() {
+                    return Err(HamletRefusal::MisshapenLimits);
+                }
+                self.road.price = micros;
+            }
             Limit::RoadsMost { most } => self.road.most = most,
             Limit::RoadsGrowOverDays { days } => {
                 self.road.grows_over_days = days;
             }
             Limit::RoadsBetween { .. } => {
-                return Err(HamletRefusal::RealmsLimit);
+                return Err(HamletRefusal::MisshapenLimits);
             }
         }
         Ok(())
@@ -272,7 +278,7 @@ impl Kept {
                 limits.roads_between = allowed;
                 Ok(())
             }
-            (Row::Realm(_), _) => Err(HamletRefusal::HamletsLimit),
+            (Row::Realm(_), _) => Err(HamletRefusal::MisshapenLimits),
             (Row::Hamlet(_, limits), limit) => limits.set(limit),
         }
     }
@@ -280,34 +286,37 @@ impl Kept {
 
 impl Act<Client> for SetLimits {
     type Output = Done<HamletRefusal>;
-    /// `None` for a hamlet the realm does not hold.
-    type Loaded = Option<Kept>;
+    type Loaded = Result<Kept, HamletRefusal>;
     type Done = ();
 
     async fn load(
         &self,
         _by: &Client,
         rows: &Rows<'_>,
-    ) -> Result<Option<Kept>> {
+    ) -> Result<Result<Kept, HamletRefusal>> {
         Ok(match &self.hamlet {
-            None => Some(Kept(Row::Realm(realm(rows).await?))),
-            Some(id) => {
-                super::hamlet(rows, id).await?.map(|hamlet| {
-                    Kept(Row::Hamlet(hamlet.id, hamlet.limits))
-                })
-            }
+            None => Ok(Kept(Row::Realm(realm(rows).await?))),
+            Some(id) => match super::hamlet(rows, id).await? {
+                Some(hamlet) => {
+                    Ok(Kept(Row::Hamlet(hamlet.id, hamlet.limits)))
+                }
+                None => Err(HamletRefusal::NoSuchHamlet {
+                    id: id.clone(),
+                }),
+            },
         })
     }
 
     fn decide(
         &self,
         by: &Client,
-        kept: Option<Kept>,
+        kept: Result<Kept, HamletRefusal>,
     ) -> Decision<(), Self::Output> {
-        let Some(mut kept) = kept else {
-            return Decision::Answer(Done::refused(
-                HamletRefusal::NoSuchHamlet,
-            ));
+        let mut kept = match kept {
+            Ok(kept) => kept,
+            Err(refusal) => {
+                return Decision::Answer(Done::refused(refusal));
+            }
         };
         if self.budget.is_empty() && self.limits.is_empty() {
             return Decision::Answer(Done::Done);
@@ -377,13 +386,7 @@ mod tests {
 
     #[test]
     fn set_limits_sets_each_limit_in_order() {
-        let realm = || Some(Kept(Row::Realm(RealmLimits::default())));
-        assert_eq!(
-            set(Some("x"), Vec::new()).decide(&Client, None),
-            Decision::Answer(Done::refused(
-                HamletRefusal::NoSuchHamlet
-            ))
-        );
+        let realm = || Ok(Kept(Row::Realm(RealmLimits::default())));
         assert_eq!(
             set(None, Vec::new()).decide(&Client, realm()),
             Decision::Answer(Done::Done)
@@ -466,7 +469,12 @@ mod tests {
             );
         }
         let missing = set(Some("x"), cost);
-        assert_eq!(missing.load(&Client, &rows).await.unwrap(), None);
+        assert_eq!(
+            missing.load(&Client, &rows).await.unwrap(),
+            Err(HamletRefusal::NoSuchHamlet {
+                id: HamletId("x".to_owned())
+            })
+        );
         started.stop().await;
     }
 }

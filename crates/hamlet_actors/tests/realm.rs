@@ -787,6 +787,14 @@ async fn limit(
     assert_eq!(set, Done::Done);
 }
 
+/// The words of a refusal, as the chief or the agent reads them.
+fn words<R: std::fmt::Display>(done: Done<R>) -> String {
+    match done {
+        Done::Refused { why } => why.to_string(),
+        Done::Done => panic!("refused, not done"),
+    }
+}
+
 /// The copies `agent` was pushed, oldest first.
 fn copies_to(realm: &Realm, agent: AgentNumber) -> Vec<Copies> {
     realm

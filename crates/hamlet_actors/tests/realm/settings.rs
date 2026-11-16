@@ -16,7 +16,9 @@ use hamlet_messages::workspace::reach::Reach;
 use hamlet_protocol::client::RequestId;
 
 use super::world::seen_until;
-use super::{Callee, MAYOR, Realm, copies_to, hamlet_with, until};
+use super::{
+    Callee, MAYOR, Realm, copies_to, hamlet_with, until, words,
+};
 
 const FAUX: &str = "faux::faux-1";
 
@@ -149,8 +151,9 @@ async fn read_copies_gives_only_newer_parts() {
 
 #[tokio::test(flavor = "multi_thread")]
 async fn a_misshapen_limit_changes_nothing() {
-    // a cost of $1 comes before a limit the other kind of row has, so
-    // each whole edit is refused and both budgets stay $50.
+    // a cost of $1 comes before a limit the other kind of row has, or
+    // a road price past what the realm counts, so each whole edit is
+    // refused and both budgets stay $50.
     let (realm, hamlet) = hamlet_with(0).await;
     let budget_of = async |payer: &Payer| {
         let seen =
@@ -183,9 +186,24 @@ async fn a_misshapen_limit_changes_nothing() {
     let on_realm =
         chief(&realm, limits(None, Limit::ToldDays { days: 2 }))
             .await;
+    let past_a_price = chief(
+        &realm,
+        limits(
+            Some(hamlet.clone()),
+            Limit::RoadPrice { micros: u64::MAX },
+        ),
+    )
+    .await;
 
-    assert_eq!(on_hamlet, Done::refused(HamletRefusal::RealmsLimit));
-    assert_eq!(on_realm, Done::refused(HamletRefusal::HamletsLimit));
+    let misshapen = Done::refused(HamletRefusal::MisshapenLimits);
+    assert_eq!(
+        [&on_hamlet, &on_realm, &past_a_price],
+        [&misshapen, &misshapen, &misshapen]
+    );
+    assert_eq!(
+        words(on_hamlet),
+        "Those limits do not fit their form."
+    );
     assert_eq!(budget_of(&hamlets).await, Some(50_000_000));
     assert_eq!(budget_of(&Payer::Realm).await, Some(50_000_000));
     let set = chief(

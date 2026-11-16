@@ -136,7 +136,7 @@ async fn spending_past_the_budget_is_refused() {
     assert_eq!(
         reset_nowhere,
         Done::Refused {
-            why: HamletRefusal::NoSuchHamlet
+            why: HamletRefusal::NoSuchHamlet { id: nowhere }
         }
     );
     realm.host.shutdown().await.unwrap();

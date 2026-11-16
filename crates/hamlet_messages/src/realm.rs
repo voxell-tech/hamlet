@@ -1141,15 +1141,18 @@ impl ChiefRequest for SetLimits {
 )]
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum HamletRefusal {
-    #[error("there is no such hamlet")]
-    NoSuchHamlet,
-    #[error("there is no folder `{}` here", path.display())]
+    #[error("no hamlet has the id `{}`", id.0)]
+    NoSuchHamlet { id: HamletId },
+    #[error("there is no file `{}` here", path.display())]
     NoSuchFolder { path: PathBuf },
     #[error(
-        "only a hamlet has that limit; the realm's are its budget \
-         and roads_between"
+        "`{name}` is not a name: use one line of 1 to 40 characters \
+         with no colon"
     )]
-    HamletsLimit,
-    #[error("only the realm has the limit roads_between")]
-    RealmsLimit,
+    BadName { name: String },
+    /// A site that is not a spot in the city, as `x, z`.
+    #[error("`{site}` is not an address")]
+    BadSite { site: String },
+    #[error("Those limits do not fit their form.")]
+    MisshapenLimits,
 }

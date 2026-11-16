@@ -117,6 +117,7 @@ pub(super) async fn over(
         if spent_micros >= allowance_micros {
             return Ok(Some(Budget::OverAllowance {
                 hire: hire.agent,
+                name: record::name_of(rows, hire.agent).await?,
                 spent_micros,
                 allowance_micros,
             }));
@@ -215,29 +216,35 @@ async fn began(
 
 impl<By: Lead> Act<By> for SetAllowance {
     type Output = Done<By::Why<AllowanceRefusal>>;
-    type Loaded = Option<Lineage>;
+    /// The agent named, with its name.
+    type Loaded = Option<(Lineage, String)>;
     type Done = ();
 
     async fn load(
         &self,
         by: &By,
         rows: &Rows<'_>,
-    ) -> Result<Option<Lineage>> {
-        tree::named(rows, by, &self.hire).await
+    ) -> Result<Self::Loaded> {
+        let Some(lineage) = tree::named(rows, by, &self.hire).await?
+        else {
+            return Ok(None);
+        };
+        let name = record::name_of(rows, lineage.agent.agent).await?;
+        Ok(Some((lineage, name)))
     }
 
     fn decide(
         &self,
         by: &By,
-        lineage: Option<Lineage>,
+        named: Self::Loaded,
     ) -> Decision<(), Self::Output> {
         let refuse =
             |why| Decision::Answer(Done::refused(By::refused(why)));
-        let Some(lineage) = lineage else {
+        let Some((lineage, name)) = named else {
             return refuse(AllowanceRefusal::NoSuchAgent);
         };
         if lineage.agent.kind != AgentKind::Hire {
-            return refuse(AllowanceRefusal::NotAHire);
+            return refuse(AllowanceRefusal::NotAHire { name });
         }
         let hire = lineage.agent.agent;
         if let Err(not_a_lead) = by.leads(&lineage, hire) {

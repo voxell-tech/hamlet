@@ -190,7 +190,28 @@ async fn missing(
     Ok(super::hamlet(rows, hamlet)
         .await?
         .is_none()
-        .then_some(HamletRefusal::NoSuchHamlet))
+        .then(|| HamletRefusal::NoSuchHamlet { id: hamlet.clone() }))
+}
+
+/// The most characters a hamlet's name has.
+const NAME_MOST: usize = 40;
+
+/// `name` trimmed, when it is one line of 1 to [`NAME_MOST`]
+/// characters with no colon.
+pub(in crate::realm) fn checked_name(
+    name: &str,
+) -> Result<&str, HamletRefusal> {
+    let name = name.trim();
+    let shaped = (1..=NAME_MOST).contains(&name.chars().count())
+        && !name.contains(char::is_control)
+        && !name.contains(':');
+    if shaped {
+        Ok(name)
+    } else {
+        Err(HamletRefusal::BadName {
+            name: name.to_owned(),
+        })
+    }
 }
 
 fn decided(
@@ -224,6 +245,8 @@ impl Act<Client> for NameHamlet {
         _by: &Client,
         refusal: Option<HamletRefusal>,
     ) -> Decision<(), Self::Output> {
+        let refusal =
+            refusal.or_else(|| checked_name(&self.name).err());
         let hamlet = self.hamlet.clone();
         decided(
             refusal,
@@ -261,6 +284,12 @@ impl Act<Client> for MoveHamlet {
         _by: &Client,
         refusal: Option<HamletRefusal>,
     ) -> Decision<(), Self::Output> {
+        let is_site = self.x.is_finite() && self.z.is_finite();
+        let refusal = refusal.or_else(|| {
+            (!is_site).then(|| HamletRefusal::BadSite {
+                site: format!("{}, {}", self.x, self.z),
+            })
+        });
         let hamlet = self.hamlet.clone();
         decided(
             refusal,
@@ -363,5 +392,27 @@ impl Act<Client> for SetFolder {
 
     fn answer(&self, (): (), _made: &Made) -> Self::Output {
         Done::Done
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_site_that_is_no_number_is_refused() {
+        // the host encodes no such number, so only the realm's own
+        // callers can send one.
+        let moved = MoveHamlet {
+            hamlet: HamletId("h".to_owned()),
+            x: f64::NAN,
+            z: 4.0,
+        };
+        let Decision::Answer(Done::Refused { why }) =
+            moved.decide(&Client, None)
+        else {
+            panic!("a site that is no number is refused");
+        };
+        assert_eq!(why.to_string(), "`NaN, 4` is not an address");
     }
 }

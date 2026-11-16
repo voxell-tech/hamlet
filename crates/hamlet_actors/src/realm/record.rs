@@ -277,7 +277,9 @@ impl<By: RealmWide> Act<By> for ReadRecord {
         if let Some(hamlet) = &self.hamlet
             && chiefs::hamlet(rows, hamlet).await?.is_none()
         {
-            return Ok(Record::refused(HamletRefusal::NoSuchHamlet));
+            return Ok(Record::refused(
+                HamletRefusal::NoSuchHamlet { id: hamlet.clone() },
+            ));
         }
         Ok(Record::Read {
             lines: lines(rows, self.hamlet.as_ref()).await?,
@@ -339,9 +341,9 @@ fn numbered(by: &str) -> Result<AgentNumber> {
     }
 }
 
-/// How `agent` is shown in the record: its address, with its
+/// How `agent` is shown to chiefs and agents: its address, with its
 /// nickname beside it when it has one, as in `hire#3 (Spade)`.
-async fn name_of(
+pub(super) async fn name_of(
     rows: &Rows<'_>,
     agent: AgentNumber,
 ) -> Result<String> {

@@ -2,6 +2,8 @@
 //! to a chief, the waits an agent closes, the spending the realm
 //! holds, and the grants a chief takes back.
 
+use std::fmt;
+
 use hamlet_actor::Action;
 use serde::{Deserialize, Serialize};
 
@@ -88,6 +90,14 @@ pub enum Permission {
     Network,
 }
 
+impl fmt::Display for Permission {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str(match self {
+            Self::Network => "network",
+        })
+    }
+}
+
 #[derive(
     Clone,
     Debug,
@@ -99,8 +109,22 @@ pub enum Permission {
 )]
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum RevokeRefusal {
-    #[error("`hire#{}` holds no such grant", agent.0)]
-    NoGrant { agent: AgentNumber },
+    #[error("no agent is at that address")]
+    NoSuchAgent,
+    #[error("{name} holds no grant of {permission}.")]
+    NoGrant {
+        name: String,
+        permission: Permission,
+    },
+    /// No grant, and the settings give the network to every agent.
+    #[error(
+        "{name} holds no grant of {permission}; the settings allow \
+         every agent the network."
+    )]
+    AllowedToAll {
+        name: String,
+        permission: Permission,
+    },
 }
 
 /// The most questions one [`AskChief`] asks.

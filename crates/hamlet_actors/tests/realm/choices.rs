@@ -8,7 +8,9 @@ use hamlet_messages::realm::{
 use hamlet_protocol::Effort;
 
 use super::chiefs::chief;
-use super::{FOUR, MAYOR, Realm, THREE, hamlet_with, to, tool};
+use super::{
+    FOUR, MAYOR, Realm, THREE, hamlet_with, to, tool, words,
+};
 
 fn nickname(name: Option<&str>, why: Option<&str>) -> SetNickname {
     SetNickname {
@@ -126,7 +128,7 @@ async fn a_model_choice_is_kept() {
     // the chief picks hire 3's model and effort; the mayor may not
     // change it, nor a hamlet's. A choice is whole: the chief's
     // fast-only choice leaves no model, which the mayor may then
-    // choose. The chief may choose the Hand's.
+    // choose.
     let (realm, hamlet) = hamlet_with(1).await;
     let mayor = async |call: &str, act: SetModel| {
         realm.tool(MAYOR, &tool(call, act)).await.unwrap()
@@ -174,14 +176,6 @@ async fn a_model_choice_is_kept() {
         },
     )
     .await;
-    let the_hands = chief(
-        &realm,
-        SetModel {
-            model: Some("faux::faux-1".to_owned()),
-            ..model_of(ModelOf::Hire { hire: Named::Hand })
-        },
-    )
-    .await;
 
     let three = "agent/3".to_owned();
     assert_eq!(picked, Done::Done);
@@ -210,18 +204,10 @@ async fn a_model_choice_is_kept() {
     );
     assert_eq!(fast_only, Done::Done);
     assert_eq!(after_fast, [(three.clone(), None, None, Some(true))]);
-    assert_eq!((by_the_mayor, the_hands), (Done::Done, Done::Done));
+    assert_eq!(by_the_mayor, Done::Done);
     assert_eq!(
         model_choices(&realm).await,
-        [
-            (
-                "agent/1".to_owned(),
-                Some("faux::faux-1".to_owned()),
-                None,
-                None
-            ),
-            (three, Some("faux::faux-2".to_owned()), None, None),
-        ]
+        [(three, Some("faux::faux-2".to_owned()), None, None)]
     );
     realm.host.shutdown().await.unwrap();
 }
@@ -302,5 +288,40 @@ async fn a_choice_for_a_hire_that_left_is_refused_as_left() {
         }),
     };
     assert_eq!((named, model), (refused.clone(), refused));
+    realm.host.shutdown().await.unwrap();
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn the_hand_takes_no_nickname_and_no_model() {
+    let (realm, _) = hamlet_with(0).await;
+
+    let nicknamed = chief(
+        &realm,
+        SetNickname {
+            hire: Named::Hand,
+            ..nickname(Some("Boss"), None)
+        },
+    )
+    .await;
+    let modelled = chief(
+        &realm,
+        SetModel {
+            model: Some("faux::faux-1".to_owned()),
+            ..model_of(ModelOf::Hire { hire: Named::Hand })
+        },
+    )
+    .await;
+
+    let not_a_hire = Done::Refused {
+        why: ChoiceRefusal::NotAHire {
+            name: "hand".to_owned(),
+        },
+    };
+    assert_eq!((&nicknamed, &modelled), (&not_a_hire, &not_a_hire));
+    assert_eq!(words(nicknamed), "`hand` is not a hire");
+    assert_eq!(
+        (nicknames(&realm).await, model_choices(&realm).await),
+        (Vec::new(), Vec::new())
+    );
     realm.host.shutdown().await.unwrap();
 }

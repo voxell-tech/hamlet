@@ -13,7 +13,8 @@ use hamlet_messages::workspace::reach::{Mode, Project, Reach};
 use hamlet_protocol::client::RequestId;
 
 use super::{
-    MAYOR, Realm, THREE, found, hamlet_with, tool, until, world,
+    MAYOR, Realm, THREE, found, hamlet_with, tool, until, words,
+    world,
 };
 
 pub(super) async fn chief<T: ChiefRequest>(
@@ -102,7 +103,9 @@ async fn a_hamlet_is_named_and_moved() {
             Done::Done,
             Done::Done,
             Done::Refused {
-                why: HamletRefusal::NoSuchHamlet
+                why: HamletRefusal::NoSuchHamlet {
+                    id: HamletId("x".to_owned())
+                }
             }
         )
     );
@@ -290,5 +293,50 @@ async fn a_found_with_no_purpose_is_refused_to_the_hand() {
         })
         .await;
     assert_eq!(hamlets, 0);
+    realm.host.shutdown().await.unwrap();
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn a_bad_name_or_site_is_refused_in_todays_words() {
+    // a name with a colon changes nothing; a hamlet that is not
+    // there is named by its id.
+    let (realm, hamlet) = hamlet_with(0).await;
+
+    let named = chief(
+        &realm,
+        NameHamlet {
+            hamlet: hamlet.clone(),
+            name: "Mill: east".to_owned(),
+        },
+    )
+    .await;
+    let nowhere = chief(
+        &realm,
+        MoveHamlet {
+            hamlet: HamletId("x".to_owned()),
+            x: 1.0,
+            z: 2.0,
+        },
+    )
+    .await;
+
+    assert_eq!(
+        [words(named), words(nowhere)],
+        [
+            "`Mill: east` is not a name: use one line of 1 to 40 \
+             characters with no colon",
+            "no hamlet has the id `x`",
+        ]
+    );
+    let name = realm
+        .rows(|db| {
+            db.query_row(
+                "SELECT name FROM hamlet WHERE id = ?1",
+                [&hamlet.0],
+                |row| row.get::<_, String>(0),
+            )
+        })
+        .await;
+    assert_eq!(name, "Mill");
     realm.host.shutdown().await.unwrap();
 }
