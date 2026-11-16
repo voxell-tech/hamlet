@@ -36,10 +36,11 @@ use hamlet_protocol::client::{Choice, RequestId};
 use serde::Serialize;
 use tokio::task::JoinSet;
 
+use super::asking::chief_task;
 use super::{
     Callee, DEADLINE, Forward, MAYOR, Realm, THREE, answer, call,
-    decoded, founded, hamlet_with, hire, needs, say, seen_submits,
-    standing, submits_to, tell, tool, until,
+    decoded, founded, hamlet_with, hire, needs, say, standing,
+    submits_to, tell, tool, until,
 };
 
 pub(super) async fn seen_until(
@@ -898,23 +899,6 @@ fn wait_of(seen: &Seen, kind: fn(&WaitKind) -> bool) -> String {
         .to_string()
 }
 
-/// A chief's `n`th line to `agent`, and its task.
-async fn chief_task(
-    realm: &Realm,
-    agent: AgentNumber,
-    n: usize,
-) -> RealmTask {
-    realm
-        .ask(&say(&RequestId::new(), agent, "go"))
-        .await
-        .unwrap();
-    let submits = seen_submits(realm, agent, n).await;
-    submits[n - 1]
-        .task
-        .clone()
-        .expect("a line carries its task")
-}
-
 fn allowance(micros: Option<u32>) -> SetAllowance {
     SetAllowance {
         hire: Named::Agent { agent: THREE },
@@ -1081,10 +1065,7 @@ async fn each_writer_moves_the_revision_only_with_the_world() {
         chief(&realm, allowance(None)).await;
     });
     let mut task: RealmTask;
-    step!(
-        "a chief's line",
-        task = chief_task(&realm, THREE, 1).await
-    );
+    step!("a chief's line", task = chief_task(&realm, THREE).await);
     step!("a question opens", {
         let ask = AskChief {
             task: task.clone(),
@@ -1159,7 +1140,7 @@ async fn each_writer_moves_the_revision_only_with_the_world() {
         chief(&realm, limits(vec![Limit::Refusals { most: 1 }]))
             .await;
     });
-    step!("a second line", task = chief_task(&realm, THREE, 2).await);
+    step!("a second line", task = chief_task(&realm, THREE).await);
     step!("a command wait on a task opens", {
         realm
             .call_as_workspace(&asked(
