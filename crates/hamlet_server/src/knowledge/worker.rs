@@ -20,9 +20,9 @@ use crate::app::failure::panicked;
 use crate::app::follow_up::InputEffects;
 use crate::app::input::{AddHandler, InputMessage, InputSender};
 use crate::core::RemoteWorkspace;
-use crate::jobs::Job;
-use crate::layout::Layout;
 use crate::realm::Realm;
+use crate::realm::jobs::Job;
+use crate::realm::layout::Layout;
 
 /// The longest the runner sleeps with nothing due.
 const IDLE: Duration = Duration::from_secs(60);

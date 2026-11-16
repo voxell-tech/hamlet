@@ -15,8 +15,8 @@ use hamlet_store::schema::{input, item, marker};
 
 use super::SEEN;
 use super::store::Images;
-use crate::layout::Layout;
 use crate::realm::Realm;
+use crate::realm::layout::Layout;
 
 /// The time an image nothing uses is kept.
 const GRACE: Duration = Duration::from_secs(24 * 60 * 60);

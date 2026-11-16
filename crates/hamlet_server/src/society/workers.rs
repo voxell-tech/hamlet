@@ -10,7 +10,7 @@ use hamlet_store::schema::{agent, worker};
 use super::agents::{self, AgentKind, EndHow};
 use super::hires;
 use super::refusal::Refusal;
-use crate::change::{Change, Done, done, refuse};
+use crate::realm::change::{Change, Done, done, refuse};
 
 /// Who starts a worker.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]

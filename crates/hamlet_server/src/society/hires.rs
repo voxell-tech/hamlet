@@ -15,8 +15,8 @@ use super::limits::{self, Micros};
 use super::record::{self, Decision, DecisionKind};
 use super::refusal::Refusal;
 use super::{city, hamlets, tree};
-use crate::change::{Change, Done, done, refuse};
-use crate::jobs::{self, Job};
+use crate::realm::change::{Change, Done, done, refuse};
+use crate::realm::jobs::{self, Job};
 
 #[derive(Clone, Debug, PartialEq, Queryable, Selectable)]
 #[diesel(table_name = hire)]

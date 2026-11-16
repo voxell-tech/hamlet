@@ -13,7 +13,7 @@ use hamlet_store::ids::{Actor, MergeId};
 use super::folder::Folder;
 use super::run::{check_out, commit};
 use super::{CHARACTER, branch, lodging};
-use crate::layout::Layout;
+use crate::realm::layout::Layout;
 use crate::society::{addresses, merges};
 
 /// The mark of a merge that only moved the kept branch forward, kept

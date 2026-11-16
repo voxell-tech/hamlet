@@ -10,7 +10,7 @@ use hamlet_protocol::runtime::{
     CredentialResult,
 };
 
-use crate::credentials::{Credentials, pack, unpack};
+use crate::realm::credentials::{Credentials, pack, unpack};
 
 /// The scopes each runtime, by `R`, may read or rotate a provider's
 /// credential in, and the leases held while one rotates.

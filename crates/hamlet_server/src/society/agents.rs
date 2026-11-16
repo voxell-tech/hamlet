@@ -13,7 +13,7 @@ use serde::{Deserialize, Serialize};
 use strum::{Display, EnumString, IntoStaticStr};
 
 use super::hires;
-use crate::change::{Change, Done, done};
+use crate::realm::change::{Change, Done, done};
 
 /// The harness an agent's conversations run in unless it is given
 /// another.

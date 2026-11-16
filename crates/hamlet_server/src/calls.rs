@@ -47,10 +47,10 @@ use crate::images::fitting::kept_pictures;
 use crate::knowledge::CHARACTER;
 use crate::oversight::gate::{Session, TurnGate};
 use crate::oversight::{self, Raise, Ruling, WaitKind};
+use crate::realm::workspace::serving::Lodging;
 use crate::work::catalogue::Society;
 use crate::work::tools::shell::Dialect;
 use crate::work::tools::{Network, Outcome, Sight, ToolSession};
-use crate::workspace::serving::Lodging;
 
 /// The words of a call that waits for a chief.
 const WAITING: &str = "This call waits for a chief's answer.";

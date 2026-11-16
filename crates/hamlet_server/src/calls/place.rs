@@ -10,8 +10,8 @@ use hamlet_store::Db;
 use hamlet_store::ids::{AgentId, HamletId};
 
 use crate::conversations::Kind;
-use crate::layout::Layout;
 use crate::oversight::gate::Caller;
+use crate::realm::layout::Layout;
 use crate::society::agents::{self, AgentKind};
 use crate::society::hamlets::{self, Mode};
 use crate::society::{hires, workers};

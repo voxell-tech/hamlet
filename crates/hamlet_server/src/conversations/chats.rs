@@ -12,10 +12,10 @@ use super::marks::Mark;
 use super::models;
 use super::tasks::{self, Origin};
 use crate::attached::Line;
-use crate::change::Change;
 use crate::conversations::{self, Begin, Kind};
+use crate::realm::change::Change;
+use crate::realm::settings::EffectiveSettings;
 use crate::runtimes;
-use crate::settings::EffectiveSettings;
 use crate::society::{agents, chiefs};
 
 /// A chief's line, kept.
@@ -266,10 +266,10 @@ pub(crate) fn resume(
     agent: AgentId,
     chief: ChiefId,
     number: i64,
-) -> crate::change::Done<()> {
+) -> crate::realm::change::Done<()> {
     let Some(conversation) = session(cx.db, agent, chief, number)?
     else {
-        crate::change::refuse!(
+        crate::realm::change::refuse!(
             crate::society::refusal::Refusal::NoSession { number }
         );
     };
@@ -310,7 +310,7 @@ pub(crate) fn rewind(
     agent: AgentId,
     chief: ChiefId,
     item: &str,
-) -> crate::change::Done<(
+) -> crate::realm::change::Done<(
     String,
     Vec<AttachedImage>,
     Vec<AttachedFile>,
@@ -319,7 +319,7 @@ pub(crate) fn rewind(
     let not_a_line = || Refusal::NotYourLine;
     let conversation = current(cx, env, agent, chief)?;
     if inputs::is_busy(cx.db, conversation)? {
-        crate::change::refuse!(Refusal::TurnRunning {
+        crate::realm::change::refuse!(Refusal::TurnRunning {
             then: "rewind".into()
         });
     }
@@ -329,7 +329,7 @@ pub(crate) fn rewind(
     let Some(target) =
         items.iter().position(|(_, kept)| kept.entry == entry)
     else {
-        crate::change::refuse!(not_a_line());
+        crate::realm::change::refuse!(not_a_line());
     };
     let name = chiefs::find(cx.db, chief)?
         .context("the chief is not in the realm")?
@@ -345,12 +345,12 @@ pub(crate) fn rewind(
         chief: by, text, ..
     }) = &mark
     else {
-        crate::change::refuse!(not_a_line());
+        crate::realm::change::refuse!(not_a_line());
     };
     let images = mark.as_ref().map(Mark::images).unwrap_or_default();
     let files = mark.as_ref().map(Mark::files).unwrap_or_default();
     if *by != name {
-        crate::change::refuse!(not_a_line());
+        crate::realm::change::refuse!(not_a_line());
     }
     let kept = conversations::get(cx.db, conversation)?;
     let session = kept.session.unwrap_or(1);
@@ -379,11 +379,11 @@ pub(crate) fn retry(
     env: &EffectiveSettings,
     agent: AgentId,
     chief: ChiefId,
-) -> crate::change::Done<Said> {
+) -> crate::realm::change::Done<Said> {
     use crate::society::refusal::Refusal;
     let conversation = current(cx, env, agent, chief)?;
     if inputs::is_busy(cx.db, conversation)? {
-        crate::change::refuse!(Refusal::TurnRunning {
+        crate::realm::change::refuse!(Refusal::TurnRunning {
             then: "retry".into()
         });
     }
@@ -396,7 +396,7 @@ pub(crate) fn retry(
                 )
         });
     if answered {
-        crate::change::refuse!(Refusal::Answered);
+        crate::realm::change::refuse!(Refusal::Answered);
     }
     let task =
         tasks::mint(cx, Origin::Retry, agent, Some(chief), None)?;

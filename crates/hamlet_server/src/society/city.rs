@@ -24,9 +24,9 @@ use super::names::check_name;
 use super::record::{self, Decision, DecisionKind};
 use super::refusal::Refusal;
 use super::{hand, hires};
-use crate::change::{Change, Done, done, refuse};
-use crate::jobs::{self, Fork, Job};
 use crate::oversight::{self, Raise, Ruling, WaitKind};
+use crate::realm::change::{Change, Done, done, refuse};
+use crate::realm::jobs::{self, Fork, Job};
 
 /// The most characters a character may have (C11, C13).
 pub(crate) const CHARACTER_MOST: usize = 4000;
@@ -271,7 +271,7 @@ fn newcomer(
     if maker == hand::id(cx.db)? {
         return Ok(None);
     }
-    let policy = crate::settings::stored(cx.db)?.newcomers;
+    let policy = crate::realm::settings::stored(cx.db)?.newcomers;
     Ok((policy != Newcomers::Open).then_some((maker, policy)))
 }
 
@@ -281,7 +281,8 @@ pub(crate) fn awaits_hand(
     id: ScholarId,
 ) -> Result<bool> {
     Ok(get(db, id)?.arrival == Arrival::Waiting
-        && crate::settings::stored(db)?.newcomers == Newcomers::Hand)
+        && crate::realm::settings::stored(db)?.newcomers
+            == Newcomers::Hand)
 }
 
 /// Gives the scholar `id` the next free spot in the city, its door

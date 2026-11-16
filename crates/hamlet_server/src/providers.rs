@@ -26,12 +26,12 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
 use crate::app::timers::AddTimer;
-use crate::change::Done;
 use crate::clients::check::reply;
 use crate::core::Core;
-use crate::credentials::write_whole;
-use crate::layout::Layout;
-use crate::settings::Settings;
+use crate::realm::change::Done;
+use crate::realm::credentials::write_whole;
+use crate::realm::layout::Layout;
+use crate::realm::settings::Settings;
 use crate::society::agents::Effort;
 use crate::society::refusal::Refusal;
 
@@ -323,7 +323,7 @@ impl Core<'_, '_> {
         let credential = self
             .credentials
             .model(provider, serving)
-            .map(crate::credentials::pack)
+            .map(crate::realm::credentials::pack)
             .transpose()?;
         let key = format!("provider:{}", uuid::Uuid::new_v4());
         let expires = match action {
@@ -705,7 +705,8 @@ impl Core<'_, '_> {
             if result.error.is_none()
                 && let Some(credential) = result.credential.clone()
             {
-                let value = crate::credentials::unpack(credential)?;
+                let value =
+                    crate::realm::credentials::unpack(credential)?;
                 self.credentials
                     .save_model(&pending.provider, Some(value))?;
             }
@@ -836,13 +837,13 @@ impl Core<'_, '_> {
     ) -> Result<()> {
         let words = words.map(|w| self.credentials.scrub_text(w));
         let db = self.realm.store().connection();
-        let mut settings = crate::settings::stored(db)?;
+        let mut settings = crate::realm::settings::stored(db)?;
         settings.link = hamlet_protocol::client::Link {
             state,
             models: count,
             words,
         };
-        crate::settings::keep(
+        crate::realm::settings::keep(
             db,
             &settings,
             crate::app::clock::now(),

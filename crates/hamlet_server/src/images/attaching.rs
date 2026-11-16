@@ -13,8 +13,8 @@ use crate::conversations::models;
 use crate::core::{Core, UnpushedLodge};
 use crate::files::Files;
 use crate::inbox::INBOX;
+use crate::realm::workspace::lodges::LODGE;
 use crate::society::refusal::Refusal;
-use crate::workspace::lodges::LODGE;
 
 impl Core<'_, '_> {
     /// The images `images` and the files `files` of the line `text`

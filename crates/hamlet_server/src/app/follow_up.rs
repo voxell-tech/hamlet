@@ -33,15 +33,15 @@ use crate::clients::{Connections, check};
 use crate::conversations::completion::follow;
 use crate::conversations::inputs::Resend;
 use crate::core::{Catalogue, Core, RemoteWorkspace};
-use crate::credentials::Credentials;
 use crate::knowledge::worker::{
     RepositoryWriteLock, Runner, run_due,
 };
 use crate::providers::Providers;
 use crate::realm::Realm;
+use crate::realm::credentials::Credentials;
+use crate::realm::settings::EffectiveSettings;
 use crate::runtimes::Runtimes;
 use crate::runtimes::reconciliation::{self, ImageFitting};
-use crate::settings::EffectiveSettings;
 use crate::society::agents;
 use crate::society::refusal::Refusal;
 use crate::{FollowUpSystems, SendSystems, conversations};

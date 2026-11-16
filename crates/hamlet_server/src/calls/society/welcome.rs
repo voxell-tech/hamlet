@@ -5,10 +5,10 @@
 use anyhow::Result;
 use hamlet_store::ids::{Actor, ScholarId};
 
-use crate::change::Change;
 use crate::conversations::errands::{self, Ended, Errand};
 use crate::conversations::tasks::{self, Origin};
-use crate::settings::EffectiveSettings;
+use crate::realm::change::Change;
+use crate::realm::settings::EffectiveSettings;
 use crate::society::{addresses, city, hand};
 
 /// The errand the Hand's verdicts on newcomers are.

@@ -32,7 +32,7 @@ use self::check::Protocol;
 use self::connection::Connection;
 use self::handlers::ClientConnected;
 use crate::app::input::InputSender;
-use crate::credentials::Credentials;
+use crate::realm::credentials::Credentials;
 
 pub(crate) fn plugin(app: &mut bevy_app::App) {
     app.add_message::<OutgoingClientMessage>()

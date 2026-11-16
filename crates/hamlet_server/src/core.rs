@@ -23,7 +23,6 @@ use crate::app::input::InputSender;
 use crate::app::tasks::BackgroundWork;
 use crate::calls::ToolRuns;
 use crate::calls::looks::LookFindings;
-use crate::change::{Change, Done, Touched};
 use crate::clients::connection::UploadOf;
 use crate::clients::fold::Fold;
 use crate::clients::{Clients, Connections, ConversationWatcher};
@@ -31,21 +30,22 @@ use crate::commands::Deeds;
 use crate::conversations::activity::Activity;
 use crate::conversations::inputs::Resend;
 use crate::conversations::{self, prompt};
-use crate::credentials::Credentials;
 use crate::files::FileUpload;
 use crate::images::uploads::ImageUpload;
 use crate::knowledge::worker::RepositoryWriteLock;
 use crate::providers::Providers;
 use crate::realm::Realm;
+use crate::realm::change::{Change, Done, Touched};
+use crate::realm::credentials::Credentials;
+use crate::realm::settings::EffectiveSettings;
+use crate::realm::workspace::Transport;
+use crate::realm::workspace::serving::RemoteCopy;
 use crate::runtimes::Runtimes;
 use crate::runtimes::leases::Authority;
 use crate::runtimes::reconciliation::{self, ImageFitting};
-use crate::settings::EffectiveSettings;
 use crate::terminals::Terminals;
 use crate::work::added::Manifest;
 use crate::work::tools::shell::Shells;
-use crate::workspace::Transport;
-use crate::workspace::serving::RemoteCopy;
 
 /// The live state no other area keeps, empty at the start; the tools
 /// added by hand are loaded into it once the server starts.
@@ -256,7 +256,9 @@ impl Core<'_, '_> {
         let db = self.realm.store().connection();
         hamlet_store::begin(db)?;
         let (made, touched) =
-            crate::change::run(db, at, actor, |cx| make(cx, &env))?;
+            crate::realm::change::run(db, at, actor, |cx| {
+                make(cx, &env)
+            })?;
         self.after(&touched);
         Ok(made)
     }

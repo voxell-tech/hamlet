@@ -31,9 +31,9 @@ use crate::conversations::inputs::{self, Resend, Status};
 use crate::conversations::turns::{self, Admission};
 use crate::conversations::{self, items, verdicts};
 use crate::core::Core;
-use crate::credentials::Credentials;
 use crate::providers::FAUX;
 use crate::realm::Realm;
+use crate::realm::credentials::Credentials;
 
 pub(crate) fn plugin(app: &mut App) {
     app.add_message::<RuntimeLineReceived>()
@@ -586,7 +586,7 @@ fn attempt(
             let credential = (provider != FAUX)
                 .then(|| core.credentials.model(&provider, &serving))
                 .flatten()
-                .map(crate::credentials::pack)
+                .map(crate::realm::credentials::pack)
                 .transpose()?;
             core.runtimes.send(from, |v, id| {
                 ServerMessage::Allowance(runtime::Allowance {

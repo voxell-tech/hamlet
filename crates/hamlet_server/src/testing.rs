@@ -4,8 +4,8 @@ use hamlet_store::ids::{Actor, AgentId, ChiefId};
 use hamlet_store::{Db, Store};
 use hamlet_testing::Scratch;
 
-use crate::change::{Change, Done, run};
-use crate::layout::Layout;
+use crate::realm::change::{Change, Done, run};
+use crate::realm::layout::Layout;
 use crate::society::hamlets::{self, Founding};
 use crate::society::hires::{Hired, Hiring};
 use crate::society::refusal::Refusal;

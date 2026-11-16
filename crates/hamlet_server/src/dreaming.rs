@@ -10,13 +10,13 @@ use hamlet_git::{MAIN, Repository};
 use hamlet_store::ids::{Actor, AgentId, DreamId, ScholarId};
 
 use crate::app::timers::AddTimer;
-use crate::change::Done;
 use crate::conversations::inputs::{self, InputKind, Keep};
 use crate::conversations::marks::Mark;
 use crate::conversations::tasks::{self, Origin};
 use crate::conversations::{self, Begin, Kind, models};
 use crate::core::Core;
 use crate::knowledge::{self, dreaming};
+use crate::realm::change::Done;
 use crate::runtimes;
 use crate::society::dreams::{self, DreamKind, Outcome};
 use crate::society::refusal::Refusal;

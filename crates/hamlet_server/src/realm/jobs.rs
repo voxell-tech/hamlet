@@ -7,7 +7,7 @@ use hamlet_store::ids::{
 };
 use serde::{Deserialize, Serialize};
 
-use crate::change::Change;
+use crate::realm::change::Change;
 use crate::society::dreams::Outcome;
 
 /// Declares [`Job`] with each job's kind written once: the tag it is

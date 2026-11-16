@@ -24,8 +24,8 @@ use super::limits::Limits;
 use super::names::{check_name, new_hamlet_id};
 use super::record::{self, Decision, DecisionKind};
 use super::refusal::Refusal;
-use crate::change::{Change, Done, done, refuse};
-use crate::jobs::{self, Job};
+use crate::realm::change::{Change, Done, done, refuse};
+use crate::realm::jobs::{self, Job};
 
 /// The tiers a hamlet's cap of hires may take.
 pub(crate) const TIERS: [i64; 4] = [50, 100, 200, 500];

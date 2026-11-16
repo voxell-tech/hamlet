@@ -25,7 +25,7 @@ use crate::conversations::{self, Conversation, models};
 use crate::images::Limits;
 use crate::images::fitting::pictures;
 use crate::providers::Providers;
-use crate::settings::EffectiveSettings;
+use crate::realm::settings::EffectiveSettings;
 
 /// The fitting of images, whose results come back as inputs.
 pub(crate) fn plugin(app: &mut bevy_app::App) {

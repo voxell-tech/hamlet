@@ -6,7 +6,7 @@ use hamlet_protocol::runtime::ModelRef;
 use hamlet_store::Db;
 use hamlet_store::ids::AgentId;
 
-use crate::settings::{self, Overrides, Settings};
+use crate::realm::settings::{self, Overrides, Settings};
 use crate::society::agents::{self, AgentKind, Effort};
 use crate::society::{hand, hires, limits, workers};
 

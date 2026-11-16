@@ -16,8 +16,8 @@ use hamlet_workspace_wire::{
 
 use super::truncate::{MAX_BYTES, MAX_LINES};
 use super::walk::{SKIPPED, VISITED};
-use crate::workspace::Session;
-use crate::workspace::lodges::LODGE;
+use crate::realm::workspace::Session;
+use crate::realm::workspace::lodges::LODGE;
 
 /// Said where a call lost the environment it works in.
 const LOST: &str = "The tool's environment was lost. Tell the chief.";

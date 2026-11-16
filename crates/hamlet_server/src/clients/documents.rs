@@ -13,13 +13,13 @@ use hamlet_store::ids::{Actor, AgentId, ScholarId};
 use hamlet_store::schema::document;
 
 use super::check::reply;
-use crate::change::{Done, done, refuse};
 use crate::conversations::{chats, items, prompt};
 use crate::core::{Core, UnpushedLodge};
-use crate::jobs::{self, Job};
 use crate::knowledge::folder::Folder;
 use crate::knowledge::library::field;
 use crate::knowledge::{self, CHARACTER, outside_git};
+use crate::realm::change::{Done, done, refuse};
+use crate::realm::jobs::{self, Job};
 use crate::society::agents::Effort;
 use crate::society::city::{self, CHARACTER_MOST};
 use crate::society::limits::{self, Limits, RealmLimits};
@@ -234,7 +234,7 @@ impl Core<'_, '_> {
         set: EditSettingsSet,
     ) -> Done<String> {
         let db = self.realm.store().connection();
-        let mut settings = crate::settings::stored(db)?;
+        let mut settings = crate::realm::settings::stored(db)?;
         if let Some(model) = set.model {
             settings.model = model;
             settings.picked = true;
@@ -267,7 +267,7 @@ impl Core<'_, '_> {
         if let Some(endpoints) = set.endpoints {
             let endpoints = endpoints
                 .into_iter()
-                .map(|e| crate::settings::Endpoint {
+                .map(|e| crate::realm::settings::Endpoint {
                     name: e.name.trim().to_owned(),
                     base_url: e.base_url.trim().to_owned(),
                 })
@@ -289,7 +289,7 @@ impl Core<'_, '_> {
             None => None,
             Some(None) => Some(None),
             Some(Some(workspace)) => {
-                let address = crate::settings::Endpoint {
+                let address = crate::realm::settings::Endpoint {
                     name: "workspace".into(),
                     base_url: workspace.url.trim().to_owned(),
                 };
@@ -298,15 +298,17 @@ impl Core<'_, '_> {
                 {
                     refuse!(Refusal::BadEndpoint { why });
                 }
-                Some(Some(crate::credentials::WorkspaceAddress {
-                    url: address.base_url,
-                    token: workspace.token,
-                }))
+                Some(Some(
+                    crate::realm::credentials::WorkspaceAddress {
+                        url: address.base_url,
+                        token: workspace.token,
+                    },
+                ))
             }
         };
         let chief = self.realm.chief();
         let db = self.realm.store().connection();
-        crate::settings::keep(
+        crate::realm::settings::keep(
             db,
             &settings,
             crate::app::clock::now(),
@@ -747,7 +749,7 @@ fn edit_id(edit: &Edit) -> &RequestId {
 /// The fault of `endpoints`, in words; none when they hold. A key
 /// goes in a sign-in, never in an address.
 fn endpoint_fault(
-    endpoints: &[crate::settings::Endpoint],
+    endpoints: &[crate::realm::settings::Endpoint],
 ) -> Option<String> {
     for (at, endpoint) in endpoints.iter().enumerate() {
         if endpoint.name.is_empty() || endpoint.name.contains("::") {

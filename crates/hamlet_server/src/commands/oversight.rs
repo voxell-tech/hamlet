@@ -10,10 +10,10 @@ use hamlet_store::ids::{Actor, AgentId, HamletId};
 use hamlet_store::schema::permission_grant;
 
 use super::Line;
-use crate::change::Done;
 use crate::conversations::{chats, reflections};
 use crate::core::Core;
 use crate::oversight::{self, gate};
+use crate::realm::change::Done;
 use crate::society::addresses::{self, Reach};
 use crate::society::refusal::Refusal;
 

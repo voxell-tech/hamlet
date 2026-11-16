@@ -9,7 +9,9 @@ use super::roads::{self, Agreed, Way};
 use super::workers::{self, Start, Starter};
 use super::{authority, chiefs, city, merges, tree};
 use crate::conversations::{chats, models};
-use crate::settings::{EffectiveSettings, Overrides, Settings};
+use crate::realm::settings::{
+    EffectiveSettings, Overrides, Settings,
+};
 use crate::testing::Realm;
 
 /// Founds a hamlet named `name` under a new mayor named `mayor`:

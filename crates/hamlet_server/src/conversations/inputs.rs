@@ -13,7 +13,7 @@ use serde::{Deserialize, Serialize};
 use strum::{Display, EnumString, IntoStaticStr};
 
 use super::marks::Mark;
-use crate::change::Change;
+use crate::realm::change::Change;
 
 #[derive(
     Clone,

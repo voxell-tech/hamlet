@@ -36,18 +36,18 @@ use crate::clients::{Clients, Listening};
 use crate::conversations::completion::follow;
 use crate::conversations::inputs;
 use crate::core::{Confined, Core, Workspace};
-use crate::credentials::{Credentials, write_whole};
 use crate::knowledge::worker::{RepositoryWriteLock, Runner};
 use crate::providers::Providers;
 use crate::realm::Realm;
+use crate::realm::credentials::{Credentials, write_whole};
+use crate::realm::settings::{self, EffectiveSettings, Overrides};
+use crate::realm::workspace::Transport;
 use crate::runtimes::process::Pi;
 use crate::runtimes::{self, Harness, Runtimes};
-use crate::settings::{self, EffectiveSettings, Overrides};
 use crate::society::agents;
 use crate::terminals::{Terminals, persistence};
 use crate::work::added::{self, AddedToolsWatch};
 use crate::work::tools::shell::Shells;
-use crate::workspace::Transport;
 
 pub(crate) fn plugin(app: &mut App) {
     app.add_systems(

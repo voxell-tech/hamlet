@@ -15,7 +15,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use strum::{Display, EnumString, IntoStaticStr};
 
-use crate::change::Change;
+use crate::realm::change::Change;
 
 #[derive(
     Clone,

@@ -11,8 +11,8 @@ use super::chats;
 use super::inputs::{self, InputKind, Keep};
 use super::marks::Mark;
 use super::tasks::{self, Origin};
-use crate::change::Change;
 use crate::conversations::{self, Kind};
+use crate::realm::change::Change;
 
 /// The automatic instruction to keep a session's lessons (C5).
 pub(crate) const REFLECT: &str =

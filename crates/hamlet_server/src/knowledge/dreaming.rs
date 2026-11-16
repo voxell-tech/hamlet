@@ -13,8 +13,8 @@ use hamlet_store::ids::DreamId;
 use super::folder::{Folder, remove_folder};
 use super::run::{check_out, commit};
 use super::{CHARACTER, branch, outside_git};
-use crate::jobs::Job;
-use crate::layout::Layout;
+use crate::realm::jobs::Job;
+use crate::realm::layout::Layout;
 use crate::society::dreams::{self, DreamKind, Outcome};
 use crate::society::{addresses, hires};
 

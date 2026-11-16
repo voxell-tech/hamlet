@@ -9,9 +9,9 @@ use hamlet_protocol::client::{AttachedFile, ImageId, ImageInput};
 use hamlet_sandbox::{FileError, FileKind};
 
 use super::environment::Reach;
-use crate::change::Done;
 use crate::images::store::Images;
 use crate::inbox::Inbox;
+use crate::realm::change::Done;
 use crate::society::refusal::Refusal;
 
 /// The most entries, files or not, that one send visits.

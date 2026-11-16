@@ -23,7 +23,7 @@ use tokio_tungstenite::tungstenite::{Error, Message};
 use super::check::fault;
 use super::handlers::ClientEvent;
 use crate::app::input::InputSender;
-use crate::credentials::Credentials;
+use crate::realm::credentials::Credentials;
 
 const LARGEST: usize = 1_048_576;
 pub(crate) const GRACE: Duration = Duration::from_secs(1);

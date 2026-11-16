@@ -19,7 +19,7 @@ use super::hires::{self, Hire};
 use super::record::{self, Decision, DecisionKind};
 use super::refusal::Refusal;
 use super::{hamlets, limits, tree};
-use crate::change::{Change, Done, done, refuse};
+use crate::realm::change::{Change, Done, done, refuse};
 
 #[derive(
     Clone,

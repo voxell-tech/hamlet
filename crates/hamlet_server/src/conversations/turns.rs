@@ -12,7 +12,7 @@ use hamlet_store::schema::{attempt, usage};
 use super::{inputs, models, tasks};
 use crate::conversations::{self, Conversation};
 use crate::providers::Providers;
-use crate::settings::EffectiveSettings;
+use crate::realm::settings::EffectiveSettings;
 
 /// The conversation `runtime` knows as `handle`.
 pub(crate) fn conversation(

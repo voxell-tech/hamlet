@@ -13,8 +13,8 @@ use hamlet_store::schema::{agent, message, permission_grant};
 
 use crate::conversations::activity::{self, Activity};
 use crate::conversations::{self, errands, inputs, models};
-use crate::layout::Layout;
-use crate::settings::EffectiveSettings;
+use crate::realm::layout::Layout;
+use crate::realm::settings::EffectiveSettings;
 use crate::society::agents::{Agent, AgentKind, Effort, EndHow};
 use crate::society::city::{self, Arrival, Scholar};
 use crate::society::hamlets::{self, Hamlet, Mode};

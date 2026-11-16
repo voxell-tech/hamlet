@@ -21,9 +21,9 @@ use hamlet_store::schema::wait;
 use serde::{Deserialize, Serialize};
 use strum::{Display, EnumString, IntoStaticStr};
 
-use crate::change::Change;
 use crate::clients::state::{wire_agent, wire_scholar};
 use crate::conversations::{self, Kind};
+use crate::realm::change::Change;
 use crate::society::addresses;
 
 #[derive(

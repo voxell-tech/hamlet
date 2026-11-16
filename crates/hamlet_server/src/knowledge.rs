@@ -14,7 +14,7 @@ use anyhow::Result;
 use hamlet_store::Db;
 use hamlet_store::ids::{AgentId, ScholarId};
 
-use crate::layout::Layout;
+use crate::realm::layout::Layout;
 use crate::society::agents::{self, AgentKind};
 use crate::society::{hand, hires};
 

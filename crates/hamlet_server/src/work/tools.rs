@@ -33,8 +33,8 @@ use serde_json::{Map, Value, json};
 
 use self::parcel::{Sent, To};
 use self::shell::{Dialect, Shells};
-use crate::change::Done;
 use crate::images::Limits;
+use crate::realm::change::Done;
 use crate::society::refusal::Refusal;
 
 const FILE_TOOLS: [&str; 5] =
@@ -325,7 +325,7 @@ pub(crate) enum ToolSession {
     },
     Remote {
         place: Place,
-        session: crate::workspace::Session,
+        session: crate::realm::workspace::Session,
         shells: Shells,
         sight: Sight,
     },
@@ -369,7 +369,7 @@ impl ToolSession {
     /// The tools of `session`, whose library is read from `place`.
     pub fn remote(
         place: Place,
-        session: crate::workspace::Session,
+        session: crate::realm::workspace::Session,
     ) -> Self {
         Self::Remote {
             place,

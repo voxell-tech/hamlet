@@ -4,9 +4,9 @@
 
 use hamlet_store::ids::Actor;
 
-use crate::change::Done;
 use crate::core::Core;
 use crate::knowledge::library;
+use crate::realm::change::Done;
 use crate::society::library::{self as shelf, Event, EventKind};
 use crate::society::refusal::Refusal;
 

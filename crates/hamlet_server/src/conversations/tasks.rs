@@ -14,7 +14,7 @@ use serde::{Deserialize, Serialize};
 use strum::{Display, EnumString, IntoStaticStr};
 
 use super::inputs::{State, Status};
-use crate::change::Change;
+use crate::realm::change::Change;
 use crate::society::agents::{self, AgentKind};
 use crate::society::{hires, workers};
 

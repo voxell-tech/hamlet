@@ -116,13 +116,13 @@ the server offers only `powershell`. On Linux and macOS it offers `bash`.
 ## Remote workspaces
 
 Settings can name a workspace URL and token (kept in `credentials.json`). The
-server then runs the agents' tools on that machine: `workspace.rs`
-and `workspace/` in `hamlet_server` send authenticated requests to the worker, which gives each agent a `/lodge`,
+server then runs the agents' tools on that machine: `realm/workspace.rs`
+and `realm/workspace/` in `hamlet_server` send authenticated requests to the worker, which gives each agent a `/lodge`,
 its hamlet's `/project` and the library at `/library`. The requests and their
 replies are typed once in `hamlet_workspace_wire`, and `hamlet_workspace`
 supplies the Linux worker. The server's lodge holds what git keeps; the remote
 `/lodge` is where the tools write during a turn, so the two are kept in step
-(`workspace/lodges.rs`) against the files they last held alike: a push sends
+(`realm/workspace/lodges.rs`) against the files they last held alike: a push sends
 what the server changed since, after the server changed it, and a pull brings
 home what the remote copy changed since, after a tool may have written it.
 Neither undoes the other's changes. A lodge not in step since the server

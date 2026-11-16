@@ -9,8 +9,8 @@ use hamlet_store::ids::{Actor, AgentId, OfferId, ScholarId};
 use super::folder::{Folder, remove_folder};
 use super::worker::RepositoryWriteLock;
 use super::{CHARACTER, branch, lodging, outside_git};
-use crate::jobs::{Fork, Job};
-use crate::layout::Layout;
+use crate::realm::jobs::{Fork, Job};
+use crate::realm::layout::Layout;
 use crate::society::{city, hires, library as shelf};
 
 /// The longest a failed job waits before it runs again.

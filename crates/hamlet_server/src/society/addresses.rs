@@ -14,7 +14,7 @@ use super::agents::{self, AgentKind};
 use super::names::hamlet_id;
 use super::refusal::Refusal;
 use super::{chiefs, hamlets, hand, tree};
-use crate::change::{Done, done, refuse};
+use crate::realm::change::{Done, done, refuse};
 
 /// A name for an agent.
 #[derive(Clone, Debug, PartialEq, Eq)]

@@ -940,7 +940,8 @@ fn kept_scholar(
     core: &mut Core<'_, '_>,
     line: &Line,
     reach: ScholarReach,
-) -> crate::change::Done<(hamlet_store::ids::ScholarId, String)> {
+) -> crate::realm::change::Done<(hamlet_store::ids::ScholarId, String)>
+{
     let Some(text) = line.words().first().copied() else {
         return Ok(Err(core.deeds.usage(&line.name)));
     };

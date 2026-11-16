@@ -21,9 +21,9 @@ use self::args::{
 };
 use super::looks::Look;
 use super::{Call, refused, said};
-use crate::change::{Change, Done, done, refuse};
 use crate::core::Core;
-use crate::settings::EffectiveSettings;
+use crate::realm::change::{Change, Done, done, refuse};
+use crate::realm::settings::EffectiveSettings;
 use crate::society::addresses::{self, Reach};
 use crate::society::agents::{self, AgentKind, EndHow};
 use crate::society::hamlets::{self, Founding};

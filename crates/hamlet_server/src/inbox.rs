@@ -13,8 +13,8 @@ use hamlet_store::ids::AgentId;
 use crate::attached::Caption;
 use crate::core::{Core, UnpushedLodge};
 use crate::knowledge::folder::Folder;
+use crate::realm::workspace::lodges::LODGE;
 use crate::society::refusal::Refusal;
-use crate::workspace::lodges::LODGE;
 
 /// The folder of a lodge that holds what was sent to its agent.
 pub(crate) const INBOX: &str = "inbox";

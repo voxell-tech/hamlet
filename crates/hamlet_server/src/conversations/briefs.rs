@@ -8,10 +8,10 @@ use super::inputs::{self, InputKind, Keep};
 use super::marks::Mark;
 use super::models;
 use super::tasks::{self, Origin};
-use crate::change::Change;
 use crate::conversations::{self, Begin, Kind};
+use crate::realm::change::Change;
+use crate::realm::settings::EffectiveSettings;
 use crate::runtimes;
-use crate::settings::EffectiveSettings;
 use crate::society::agents;
 
 /// Begins `worker`'s conversation with `brief` from `author`, as a

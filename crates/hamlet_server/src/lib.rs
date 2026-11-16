@@ -37,16 +37,10 @@ use crate::app::options::Options;
 pub mod app;
 mod core;
 
-// The realm on disk: its folder, database, jobs and knowledge.
-mod change;
-mod claim;
-mod credentials;
-mod jobs;
+// The realm on disk: its folder, database, jobs, settings and
+// workspace, and its knowledge.
 mod knowledge;
-mod layout;
 mod realm;
-mod settings;
-mod workspace;
 
 // The society, and what oversees and limits it.
 mod oversight;

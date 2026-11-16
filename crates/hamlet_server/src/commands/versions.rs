@@ -6,10 +6,10 @@ use hamlet_git::{Author, CommitId, MAIN, Repository};
 use hamlet_store::ids::{Actor, HamletId, ScholarId};
 
 use super::ScholarReach;
-use crate::change::Done;
 use crate::core::{Core, UnpushedLodge};
-use crate::jobs::Fork;
 use crate::knowledge::folder::Folder;
+use crate::realm::change::Done;
+use crate::realm::jobs::Fork;
 use crate::society::addresses::{self, Reach};
 use crate::society::refusal::Refusal;
 use crate::society::{authority, city, hires, names};

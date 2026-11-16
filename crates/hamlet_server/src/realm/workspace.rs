@@ -15,8 +15,8 @@ use hamlet_workspace_wire::{
     Message, Operation, Reply, Request, VERSION,
 };
 
-use crate::credentials::WorkspaceAddress;
 use crate::knowledge::folder::Folder;
+use crate::realm::credentials::WorkspaceAddress;
 
 /// The most bytes of a reply.
 const MAX_REPLY: usize = 6 * 1024 * 1024;

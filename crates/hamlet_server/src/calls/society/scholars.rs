@@ -10,9 +10,9 @@ use hamlet_store::ids::{Actor, ScholarId};
 
 use super::Call;
 use super::args::{EditScholar, ReadScholar, Revert, Tag};
-use crate::change::{Done, done};
 use crate::core::Core;
 use crate::knowledge::CHARACTER;
+use crate::realm::change::{Done, done};
 use crate::society::city::{self, CHARACTER_MOST};
 use crate::society::refusal::Refusal;
 use crate::society::{addresses, authority, names};

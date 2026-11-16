@@ -3,7 +3,7 @@
 The server keeps one realm, `~/.hamlet` unless `HAMLET_HOME` or
 `hamlet_server --home` selects another folder for it. Use a fresh scratch
 folder for development. `crates/hamlet_server/src/realm.rs` defines `Realm`
-and `layout.rs` defines `Layout`. The server's chief is named by
+and `realm/layout.rs` defines `Layout`. The server's chief is named by
 `HAMLET_USER`, else the account it runs as (`USER`, `USERNAME` or
 `LOGNAME`), else "chief".
 
@@ -35,7 +35,7 @@ by hand reaches the agents at the next start.
 
 ## Claim and storage
 
-`Realm::open` resolves the folder to its canonical path, and `claim.rs` takes
+`Realm::open` resolves the folder to its canonical path, and `realm/claim.rs` takes
 a local socket claim on that path, so a second server cannot open the same
 realm under another spelling. The claim outlives the open store and its
 harness processes.

@@ -33,7 +33,7 @@ use hamlet_store::schema::{conversation, item};
 use serde::{Deserialize, Serialize};
 use strum::{Display, EnumString, IntoStaticStr};
 
-use crate::change::Change;
+use crate::realm::change::Change;
 
 #[derive(
     Clone,
