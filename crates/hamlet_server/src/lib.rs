@@ -42,10 +42,8 @@ mod core;
 mod knowledge;
 mod realm;
 
-// The society, and what oversees and limits it.
-mod oversight;
+// The society, what it spends and what oversees it.
 mod society;
-mod spend;
 
 // The agents' conversations, the questions they put, and their tools.
 mod calls;

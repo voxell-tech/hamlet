@@ -69,7 +69,7 @@ pub(crate) fn allow(
         .get_result::<i64>(db)?
         > 0;
     if !charged
-        && let Some(words) = crate::spend::stopped(
+        && let Some(words) = crate::society::spend::stopped(
             db,
             conversation.agent,
             payer.as_ref(),
@@ -81,12 +81,12 @@ pub(crate) fn allow(
     if !charged
         && conversation.kind == conversations::Kind::Dream
         && let Some(task) = task
-        && crate::spend::of_task(db, task)?.micros
+        && crate::society::spend::of_task(db, task)?.micros
             >= env.settings.dreams.cost
     {
         return Ok(Admission::Stopped(format!(
             "This dream has spent the {} a dream may.",
-            crate::spend::money(env.settings.dreams.cost)
+            crate::society::spend::money(env.settings.dreams.cost)
         )));
     }
     let selection = providers.select(

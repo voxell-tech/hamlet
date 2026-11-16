@@ -17,12 +17,12 @@ use crate::calls::reviews::REVIEW;
 use crate::calls::society::library::LIBRARIAN;
 use crate::calls::society::welcome::{self, WELCOME};
 use crate::conversations::{self, Conversation, Kind, Last};
-use crate::oversight::{self, Raise, WaitKind};
 use crate::realm::change::Change;
 use crate::realm::jobs::{self, Job};
 use crate::realm::settings::EffectiveSettings;
 use crate::society::agents::{self, AgentKind, EndHow};
 use crate::society::library::{self as shelf, Verdict};
+use crate::society::oversight::{self, Raise, WaitKind};
 use crate::society::{dreams, workers};
 
 /// What a follow leaves to do once its change is kept.

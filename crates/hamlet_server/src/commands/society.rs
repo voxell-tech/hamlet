@@ -11,8 +11,9 @@ use crate::society::agents::{self, AgentKind, Effort, EndHow};
 use crate::society::hamlets::{self, Founding, Mode};
 use crate::society::hires::{self, Hiring, Spec};
 use crate::society::refusal::Refusal;
-use crate::society::{authority, city, record, roads, workers};
-use crate::spend;
+use crate::society::{
+    authority, city, record, roads, spend, workers,
+};
 
 /// The commands that shape the society: hamlets, hires and scholars.
 pub(super) const SOCIETY: &[Command] = &[

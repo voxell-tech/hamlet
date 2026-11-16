@@ -21,7 +21,7 @@ given to it; what another agent sends with `tell` or `ask` lands under
 `inbox/from-<sender>/`, read from the sender's own reach without following
 links. The realm's `images/` and `files/` folders are never in reach. The pi
 harness has no host-tool implementation; it submits operations to the
-server (see [the harness](harness.md)). `oversight/gate.rs` decides admission and `calls.rs` checks permissions at execution, including
+server (see [the harness](harness.md)). `society/oversight/gate.rs` decides admission and `calls.rs` checks permissions at execution, including
 after approval or replay.
 
 Without a folder, commands write in their own lodge and a private temporary

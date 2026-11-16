@@ -13,6 +13,7 @@ use hamlet_store::schema::{agent, message, permission_grant};
 
 use crate::conversations::activity::{self, Activity};
 use crate::conversations::{self, errands, inputs, models};
+use crate::knowledge;
 use crate::realm::layout::Layout;
 use crate::realm::settings::EffectiveSettings;
 use crate::society::agents::{Agent, AgentKind, Effort, EndHow};
@@ -22,8 +23,9 @@ use crate::society::limits::{
     self, Limits, Period, RealmLimits, Review,
 };
 use crate::society::roads::{self, RoadKind, Way};
-use crate::society::{addresses, chiefs, hand, hires, workers};
-use crate::{knowledge, spend};
+use crate::society::{
+    addresses, chiefs, hand, hires, spend, workers,
+};
 
 /// What composing the state reads besides the database.
 pub(crate) struct Sources<'a> {
@@ -575,7 +577,7 @@ fn grants(db: &mut Db) -> Result<Vec<protocol::Grant>> {
             agent: Some(wire_agent(agent)),
             by: chiefs::find(db, chief)?.map(|c| c.name),
             name: addresses::address_of(db, agent)?,
-            permission: crate::oversight::gate::permission(
+            permission: crate::society::oversight::gate::permission(
                 &permission,
             )
             .unwrap_or(protocol::Permission::Unconfined),

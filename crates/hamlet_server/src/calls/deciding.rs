@@ -16,8 +16,10 @@ use super::{
     Call, Decision, NOBODY, STOPPED, WAITING, chat_session, society,
 };
 use crate::core::Core;
-use crate::oversight::gate::{self, Standing, TurnGate, Verdict};
-use crate::oversight::{self, Raise, Ruling, WaitKind};
+use crate::society::oversight::gate::{
+    self, Standing, TurnGate, Verdict,
+};
+use crate::society::oversight::{self, Raise, Ruling, WaitKind};
 use crate::work::catalogue::Society;
 use crate::work::cut::change_between;
 use crate::work::tools::Network;

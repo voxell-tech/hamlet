@@ -24,8 +24,8 @@ use crate::society::agents::Effort;
 use crate::society::city::{self, CHARACTER_MOST};
 use crate::society::limits::{self, Limits, RealmLimits};
 use crate::society::refusal::Refusal;
+use crate::society::spend::micros;
 use crate::society::{authority, hamlets, hires};
-use crate::spend::micros;
 
 /// Refuses a memory path that is not a plain relative path under
 /// `memory/`.

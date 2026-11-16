@@ -468,7 +468,7 @@ fn houses_keep_apart_and_clear_of_the_middle() {
 
 #[test]
 fn a_scholar_a_hire_makes_waits_at_the_harbor_until_let_in() {
-    use crate::oversight::{self, WaitKind};
+    use crate::society::oversight::{self, WaitKind};
     let mut realm = Realm::new();
     let (_, mayor) = found(&mut realm, "docs", "ada");
     let chief = realm.chief;

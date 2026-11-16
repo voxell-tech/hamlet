@@ -431,16 +431,17 @@ mod tests {
         let (mut server, said) = say(&dir, script, "Fetch it");
         until(&mut server, "the approval", |core| {
             let db = core.realm.store().connection();
-            Ok(!crate::oversight::open(db)?.is_empty())
+            Ok(!crate::society::oversight::open(db)?.is_empty())
         })
         .await
         .unwrap();
         let mut core = server.core().unwrap();
         let db = core.realm.store().connection();
-        let wait = crate::oversight::open(db).unwrap().remove(0);
+        let wait =
+            crate::society::oversight::open(db).unwrap().remove(0);
         assert_eq!(
             wait.danger,
-            Some(crate::oversight::Danger::Network)
+            Some(crate::society::oversight::Danger::Network)
         );
         let answered = core
             .answer_wait(
@@ -463,7 +464,9 @@ mod tests {
             }),
             "{page:#?}"
         );
-        assert!(crate::oversight::open(db).unwrap().is_empty());
+        assert!(
+            crate::society::oversight::open(db).unwrap().is_empty()
+        );
         shut_down(&mut server).await.unwrap();
     }
 

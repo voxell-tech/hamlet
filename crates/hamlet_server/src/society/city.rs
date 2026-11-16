@@ -21,10 +21,10 @@ use strum::{Display, EnumString, IntoStaticStr};
 use super::addresses::scholar_address;
 use super::agents::EndHow;
 use super::names::check_name;
+use super::oversight::{self, Raise, Ruling, WaitKind};
 use super::record::{self, Decision, DecisionKind};
 use super::refusal::Refusal;
 use super::{hand, hires};
-use crate::oversight::{self, Raise, Ruling, WaitKind};
 use crate::realm::change::{Change, Done, done, refuse};
 use crate::realm::jobs::{self, Fork, Job};
 

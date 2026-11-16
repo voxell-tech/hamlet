@@ -365,7 +365,7 @@ impl Core<'_, '_> {
         if watching.is_empty() {
             return Ok(());
         }
-        let usage = crate::spend::usage_view(
+        let usage = crate::society::spend::usage_view(
             self.realm.store().connection(),
             conversation,
         )?;

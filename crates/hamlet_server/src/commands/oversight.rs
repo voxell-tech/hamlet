@@ -12,9 +12,9 @@ use hamlet_store::schema::permission_grant;
 use super::Line;
 use crate::conversations::{chats, reflections};
 use crate::core::Core;
-use crate::oversight::{self, gate};
 use crate::realm::change::Done;
 use crate::society::addresses::{self, Reach};
+use crate::society::oversight::{self, gate};
 use crate::society::refusal::Refusal;
 
 impl Core<'_, '_> {

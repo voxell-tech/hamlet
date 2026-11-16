@@ -29,8 +29,8 @@ use crate::society::agents::{self, AgentKind, EndHow};
 use crate::society::hamlets::{self, Founding};
 use crate::society::hires::{self, Hiring, Spec};
 use crate::society::refusal::Refusal;
+use crate::society::spend::{self, micros, money};
 use crate::society::{authority, city, limits, record, roads};
-use crate::spend::{self, micros, money};
 use crate::work::catalogue::Society;
 use crate::work::tools::Outcome;
 

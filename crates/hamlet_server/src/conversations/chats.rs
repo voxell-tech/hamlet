@@ -286,9 +286,9 @@ pub(crate) fn resume(
         .execute(cx.db)?;
     // A session gone back to gets held again for what it was trusted
     // with (H11).
-    crate::oversight::gate::reset_trust(
+    crate::society::oversight::gate::reset_trust(
         cx.db,
-        crate::oversight::gate::Session {
+        crate::society::oversight::gate::Session {
             agent,
             chief,
             session: number,
@@ -354,10 +354,10 @@ pub(crate) fn rewind(
     }
     let kept = conversations::get(cx.db, conversation)?;
     let session = kept.session.unwrap_or(1);
-    crate::oversight::lapse_in(
+    crate::society::oversight::lapse_in(
         cx,
         conversation,
-        crate::oversight::Ruling::Rewound,
+        crate::society::oversight::Ruling::Rewound,
     )?;
     let fork = match target.checked_sub(1).map(|at| &items[at].1) {
         Some(previous) => {
@@ -439,10 +439,10 @@ pub(crate) fn stop(
         }
         stopped += 1;
     }
-    crate::oversight::lapse(
+    crate::society::oversight::lapse(
         cx,
         agent,
-        crate::oversight::Ruling::Stopped,
+        crate::society::oversight::Ruling::Stopped,
     )?;
     cx.touched.agents.insert(agent);
     Ok(stopped)

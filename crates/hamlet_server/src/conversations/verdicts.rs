@@ -12,8 +12,8 @@ use hamlet_store::schema::answer_fault;
 use super::inputs;
 use super::marks::Mark;
 use crate::conversations::{Conversation, Kind};
-use crate::oversight::{self, Raise, WaitKind};
 use crate::realm::change::Change;
+use crate::society::oversight::{self, Raise, WaitKind};
 
 /// The words of an answer with no text and no call.
 const EMPTY: &str =

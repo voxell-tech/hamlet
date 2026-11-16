@@ -450,7 +450,7 @@ impl Core<'_, '_> {
         before: Option<&str>,
         to: Option<&RequestId>,
     ) -> Result<ServerMessage> {
-        let usage = crate::spend::usage_view(
+        let usage = crate::society::spend::usage_view(
             self.realm.store().connection(),
             conversation,
         )?;
@@ -581,7 +581,7 @@ impl Core<'_, '_> {
         let chief_name = crate::society::chiefs::find(db, chief)?
             .map(|c| c.name)
             .unwrap_or_default();
-        let waits = crate::oversight::views(db)?;
+        let waits = crate::society::oversight::views(db)?;
         let mut library = Vec::new();
         for (name, description) in
             crate::knowledge::library::skills(&layout)?

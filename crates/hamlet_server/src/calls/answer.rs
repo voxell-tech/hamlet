@@ -11,10 +11,12 @@ use crate::conversations::{
     self, Conversation, chats, inputs, questions, tasks,
 };
 use crate::core::Core;
-use crate::oversight::gate::{self, TurnGate};
-use crate::oversight::{self, Danger, Ruling, Wait, WaitKind};
 use crate::realm::change::Change;
 use crate::society::addresses;
+use crate::society::oversight::gate::{self, TurnGate};
+use crate::society::oversight::{
+    self, Danger, Ruling, Wait, WaitKind,
+};
 use crate::society::refusal::Refusal;
 
 /// The fault in a chief's choice that cannot answer a wait so.

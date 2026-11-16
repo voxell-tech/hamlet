@@ -336,7 +336,7 @@ pub(crate) fn end(
         permission_grant::revoked_by.eq(Actor::Realm),
     ))
     .execute(cx.db)?;
-    crate::oversight::lapse(cx, id, crate::oversight::Ruling::Ended)?;
+    super::oversight::lapse(cx, id, super::oversight::Ruling::Ended)?;
     cx.touched.agents.insert(id);
     Ok(())
 }
