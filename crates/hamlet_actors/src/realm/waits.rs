@@ -26,10 +26,11 @@ use serde::{Deserialize, Serialize};
 use super::act::{Act, Decided, Decision};
 use super::calls::{Calls, Delivery, Made};
 use super::change::{self, Affected, Rows, Writer, number};
+use super::oversight::{asking, reserved};
 use super::peer::When;
 use super::tasks::TaskId;
 use super::world::Part;
-use super::{Realm, oversight, tree};
+use super::{Realm, oversight, parcels, tree};
 
 fn named(wait: &str) -> Option<WaitId> {
     let n = wait.trim_start_matches('#').parse::<i64>().ok()?;
@@ -709,6 +710,15 @@ impl Act<Workspace> for NeedsChief {
     fn answer(&self, _told: Told, _made: &Made) {}
 }
 
+/// What the unit of a wait's kind adds to a chief's answer: the
+/// changes committed with the close, and the words the chief's picks
+/// stand for.
+#[derive(Default)]
+pub(super) struct Ruling {
+    pub(super) changes: Vec<change::Change>,
+    pub(super) picked: Option<String>,
+}
+
 /// The open wait a chief answers.
 pub(super) struct Waiting {
     wait: WaitId,
@@ -721,6 +731,7 @@ pub(super) struct Waiting {
     /// other open tool waits on the task, with the words they close
     /// with.
     past_the_count: Option<(Vec<WaitId>, String)>,
+    ruling: Ruling,
 }
 
 impl Waiting {
@@ -823,17 +834,16 @@ impl Act<Client> for Answer {
         };
         let agent = AgentNumber(agent);
         let kind = change::from_case_name::<Kind>(kind)?;
-        if let (
-            Kind::Reserved | Kind::Send,
-            protocol::Choice::Allow,
-        ) = (kind, &self.0.choice)
-        {
-            bail!(
-                "not built yet: U4 and U13, so the {kind:?} wait {} \
-                 is not allowed",
-                wait.0
-            );
-        }
+        let ruling = match kind {
+            Kind::Question | Kind::Objection => {
+                asking::ruling(rows, wait, self).await?
+            }
+            Kind::Reserved => {
+                reserved::ruling(rows, wait, self).await?
+            }
+            Kind::Send => parcels::ruling(rows, wait, self).await?,
+            Kind::Tool | Kind::Fault => Ruling::default(),
+        };
         let past_the_count = match (kind, &self.0.choice, task) {
             (Kind::Tool, protocol::Choice::Deny, Some(task)) => {
                 let refused =
@@ -869,6 +879,7 @@ impl Act<Client> for Answer {
             kind,
             task,
             past_the_count,
+            ruling,
             conversation: conversation.map(ConversationId),
             needs: needs
                 .map(|needs| serde_json::from_str(&needs))
@@ -883,7 +894,7 @@ impl Act<Client> for Answer {
         open: Option<Waiting>,
     ) -> Decision<Told, Self::Output> {
         let refuse = |why| Decision::Answer(Done::Refused { why });
-        let Some(open) = open else {
+        let Some(mut open) = open else {
             return refuse(AnswerRefusal::NothingWaits {
                 wait: self.0.wait.clone(),
             });
@@ -894,14 +905,19 @@ impl Act<Client> for Answer {
             .as_deref()
             .map(str::trim)
             .filter(|text| !text.is_empty());
-        let choice = match &self.0.picks {
-            None => open.takes(&self.0.choice, text),
-            Some(_) => None,
+        let ruling = std::mem::take(&mut open.ruling);
+        let text = ruling.picked.as_deref().or(text);
+        let choice = match (&self.0.picks, &ruling.picked) {
+            (Some(_), None) => None,
+            _ => open.takes(&self.0.choice, text),
         };
         let Some(choice) = choice else {
             return refuse(AnswerRefusal::NotOffered);
         };
         let mut decided = Decided::new(open.told(&choice));
+        for change in ruling.changes {
+            decided = decided.change(change);
+        }
         if choice == Choice::Allow(Scope::Always)
             && let Some(lasting) = open.lasting()
         {

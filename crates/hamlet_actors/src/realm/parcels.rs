@@ -3,13 +3,17 @@
 
 use anyhow::{Result, bail};
 use hamlet_messages::address::Agent;
+use hamlet_messages::realm::client::Answer;
 use hamlet_messages::realm::parcels::{FetchPart, Part, PartRefusal};
+use hamlet_messages::realm::world::WaitId;
 use hamlet_messages::realm::{Enclosed, LetterId};
+use hamlet_protocol::client::Choice;
 
 use super::act::{Act, Decision, Unbuilt};
 use super::calls::Made;
 use super::change::{self, Affected, Rows, Writer};
 use super::steps::{Cx, Steps};
+use super::waits::Ruling;
 
 #[derive(Debug, PartialEq)]
 pub(super) enum Change {}
@@ -89,4 +93,20 @@ impl Act<Agent> for FetchPart {
     fn answer(&self, done: Unbuilt, _made: &Made) -> Self::Output {
         match done {}
     }
+}
+
+/// What a parcel's send's wait adds to the chief's `answer` on wait
+/// `wait`.
+pub(super) async fn ruling(
+    _rows: &Rows<'_>,
+    wait: WaitId,
+    answer: &Answer,
+) -> Result<Ruling> {
+    if answer.0.choice == Choice::Allow {
+        bail!(
+            "not built yet: U13, so the send wait {} is not allowed",
+            wait.0
+        );
+    }
+    Ok(Ruling::default())
 }

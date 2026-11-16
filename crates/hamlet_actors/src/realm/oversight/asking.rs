@@ -6,9 +6,11 @@ use std::sync::Arc;
 use anyhow::{Result, bail};
 use hamlet_actor::Ctx;
 use hamlet_messages::address::Agent;
+use hamlet_messages::realm::client::Answer;
 use hamlet_messages::realm::oversight::{
     AskChief, AskChiefRefusal, Hold, Object, ObjectRefusal,
 };
+use hamlet_messages::realm::world::WaitId;
 use hamlet_messages::realm::{AgentRefusal, Done};
 use hamlet_messages::workspace::{AgentNumber, RealmTask};
 
@@ -17,6 +19,7 @@ use super::super::act::{Act, Decision, Unbuilt};
 use super::super::calls::{Delivery, Made};
 use super::super::change::{Affected, Rows, Writer};
 use super::super::tasks::TaskId;
+use super::super::waits::Ruling;
 
 #[derive(Debug, PartialEq)]
 pub(in crate::realm) enum Change {}
@@ -46,6 +49,17 @@ pub(in crate::realm) async fn holds(
     _delivery: Delivery,
 ) -> Result<Option<Change>> {
     Ok(None)
+}
+
+/// What a question or an objection adds to the chief's `answer` on
+/// wait `wait`: the words of the chief's picks, and for a withdraw
+/// the task's end and its dropped letters.
+pub(in crate::realm) async fn ruling(
+    _rows: &Rows<'_>,
+    _wait: WaitId,
+    _answer: &Answer,
+) -> Result<Ruling> {
+    Ok(Ruling::default())
 }
 
 /// Delivers the letters and answers held on `task`.
