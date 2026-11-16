@@ -12,14 +12,13 @@ use hamlet_messages::realm::{
     HamletId, HamletRefusal, Refusable, Tier,
 };
 use hamlet_messages::workspace::AgentNumber;
-use serde::{Deserialize, Serialize};
 
-use super::act::{Act, Decision};
+use super::act::{Act, Decision, Unchanged};
 use super::callers::{RealmWide, Witness};
 use super::calls::Made;
 use super::change::{self, Rows, Writer, number};
 use super::chiefs;
-use super::tree::choices::{self, Chosen};
+use super::tree::choices;
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(super) enum By {
@@ -48,6 +47,7 @@ pub(super) enum Entry {
     Seated {
         hire: AgentNumber,
         by: By,
+        why: Option<String>,
     },
     Road {
         a: AgentNumber,
@@ -97,7 +97,12 @@ pub(super) enum Entry {
         why: Option<String>,
     },
     Model {
-        of: Chosen,
+        agent: AgentNumber,
+        by: By,
+        why: Option<String>,
+    },
+    Allowance {
+        hire: AgentNumber,
         by: By,
         why: Option<String>,
     },
@@ -128,8 +133,8 @@ pub(super) async fn write(
             Entry::Ended { hire, by, why } => {
                 ("ended", by, Fields::of(hire, why))
             }
-            Entry::Seated { hire, by } => {
-                ("seated", by, Fields::of(hire, None))
+            Entry::Seated { hire, by, why } => {
+                ("seated", by, Fields::of(hire, why))
             }
             Entry::Road { a, b, by } => {
                 ("road", by, Fields::road(a, b))
@@ -172,17 +177,12 @@ pub(super) async fn write(
             Entry::Nicknamed { agent, by, why } => {
                 ("nicknamed", by, Fields::of(agent, why))
             }
-            Entry::Model { of, by, why } => (
-                "model",
-                by,
-                match of {
-                    Chosen::Agent(agent) => Fields::of(agent, why),
-                    Chosen::Hamlet(hamlet) => Fields {
-                        why,
-                        ..Fields::hamlet(hamlet)
-                    },
-                },
-            ),
+            Entry::Model { agent, by, why } => {
+                ("model", by, Fields::of(agent, why))
+            }
+            Entry::Allowance { hire, by, why } => {
+                ("allowance", by, Fields::of(hire, why))
+            }
         };
         writer
             .execute(
@@ -260,10 +260,6 @@ impl By {
 
 const CHIEF: &str = "chief";
 
-/// The outcome of an act that only reads: there is none.
-#[derive(Serialize, Deserialize)]
-pub(super) enum Unchanged {}
-
 impl<By: RealmWide> Act<By> for ReadRecord {
     type Output = Record;
     type Loaded = Record;
@@ -277,7 +273,9 @@ impl<By: RealmWide> Act<By> for ReadRecord {
         if let Some(hamlet) = &self.hamlet
             && chiefs::hamlet(rows, hamlet).await?.is_none()
         {
-            return Ok(Record::refused(HamletRefusal::NoSuchHamlet));
+            return Ok(Record::refused(
+                HamletRefusal::NoSuchHamlet { id: hamlet.clone() },
+            ));
         }
         Ok(Record::Read {
             lines: lines(rows, self.hamlet.as_ref()).await?,
@@ -339,9 +337,9 @@ fn numbered(by: &str) -> Result<AgentNumber> {
     }
 }
 
-/// How `agent` is shown in the record: its address, with its
+/// How `agent` is shown to chiefs and agents: its address, with its
 /// nickname beside it when it has one, as in `hire#3 (Spade)`.
-async fn name_of(
+pub(super) async fn name_of(
     rows: &Rows<'_>,
     agent: AgentNumber,
 ) -> Result<String> {

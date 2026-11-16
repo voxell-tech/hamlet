@@ -5,7 +5,7 @@ use hamlet_messages::realm::hamlets::{
     NameHamlet, ReadRecord, Record, RecordLine, SetMode,
 };
 use hamlet_messages::realm::{
-    Done, HamletId, HamletRefusal, Named, SetTools, ToolName,
+    Done, HamletId, HamletRefusal, SetTools, ToolName,
 };
 use hamlet_messages::sender::Hand;
 use hamlet_messages::workspace::reach::Mode;
@@ -27,10 +27,9 @@ fn read(lines: &[&str]) -> Record {
 #[tokio::test(flavor = "multi_thread")]
 async fn the_history_lists_the_decisions() {
     // found with hire 3, rename, set the mode, nickname and the tools
-    // of hire 3, choose its model and the Hand's: the chief and the
-    // Hand read the hamlet's lines in today's words, oldest first and
-    // with hire 3's nickname now; the realm's own record holds the
-    // Hand's model.
+    // of hire 3, choose its model: the chief and the Hand read the
+    // hamlet's lines in today's words, oldest first and with hire 3's
+    // nickname now; the realm's own record is empty.
     let (realm, hamlet) = hamlet_with(1).await;
     let some = |why: &str| Some(why.to_owned());
     assert_eq!(
@@ -106,20 +105,6 @@ async fn the_history_lists_the_decisions() {
         .await,
         Done::Done
     );
-    assert_eq!(
-        chief(
-            &realm,
-            SetModel {
-                of: ModelOf::Hire { hire: Named::Hand },
-                model: some("faux::faux-1"),
-                effort: None,
-                fast: None,
-                why: None,
-            },
-        )
-        .await,
-        Done::Done
-    );
 
     let by_chief = chief(
         &realm,
@@ -160,11 +145,13 @@ async fn the_history_lists_the_decisions() {
     ]);
     assert_eq!(by_chief, lines);
     assert_eq!(by_hand, lines);
-    assert_eq!(realms, read(&["- chief chose the model of hand"]));
+    assert_eq!(realms, read(&[]));
     assert_eq!(
         nowhere,
         Record::Refused {
-            why: HamletRefusal::NoSuchHamlet
+            why: HamletRefusal::NoSuchHamlet {
+                id: HamletId("x".to_owned())
+            }
         }
     );
     realm.host.shutdown().await.unwrap();

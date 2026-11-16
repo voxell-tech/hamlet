@@ -57,10 +57,11 @@ CREATE TABLE IF NOT EXISTS nickname (
 CREATE TABLE IF NOT EXISTS model_choice (
 	of TEXT PRIMARY KEY,
 	model TEXT,
+	model_by TEXT,
 	effort TEXT,
 	fast INTEGER,
-	by TEXT NOT NULL,
-	at INTEGER NOT NULL) STRICT;
+	at INTEGER NOT NULL,
+	CHECK ((model IS NULL) = (model_by IS NULL))) STRICT;
 
 -- versions.rs
 CREATE TABLE IF NOT EXISTS reach (
@@ -229,6 +230,9 @@ CREATE TABLE IF NOT EXISTS errand (
 	task INTEGER NOT NULL,
 	cap INTEGER NOT NULL,
 	subject INTEGER,
+	instructions TEXT,
+	text TEXT NOT NULL,
+	model TEXT,
 	ended TEXT,
 	answer TEXT,
 	at INTEGER NOT NULL) STRICT;
@@ -265,14 +269,12 @@ CREATE TABLE IF NOT EXISTS agreement (
 -- documents.rs
 CREATE TABLE IF NOT EXISTS document (
 	name TEXT PRIMARY KEY,
-	value BLOB NOT NULL,
-	version INTEGER NOT NULL) STRICT;
+	value BLOB NOT NULL) STRICT;
 
 -- settings.rs
 CREATE TABLE IF NOT EXISTS settings (
 	id INTEGER PRIMARY KEY CHECK (id = 1),
-	value BLOB NOT NULL,
-	version INTEGER NOT NULL) STRICT;
+	value BLOB NOT NULL) STRICT;
 
 -- parcels.rs
 CREATE TABLE IF NOT EXISTS parcel (

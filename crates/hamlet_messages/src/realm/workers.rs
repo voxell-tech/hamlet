@@ -163,8 +163,8 @@ impl ToolCall for SetAllowance {
 pub enum AllowanceRefusal {
     #[error("no agent is at that address")]
     NoSuchAgent,
-    #[error("only a hire has an allowance")]
-    NotAHire,
+    #[error("`{name}` is not a hire")]
+    NotAHire { name: String },
     #[error("`hire#{}` has left: {left}", hire.0)]
     Left { hire: AgentNumber, left: Left },
     #[error(

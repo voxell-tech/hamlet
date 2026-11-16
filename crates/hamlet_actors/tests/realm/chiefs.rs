@@ -1,11 +1,12 @@
 use std::path::{Path, PathBuf};
 
+use hamlet_messages::address::{Agent, Party};
 use hamlet_messages::realm::hamlets::{
-    MoveHamlet, NameHamlet, SetFolder, SetMode,
+    MoveHamlet, NameHamlet, ReadRecord, Record, SetFolder, SetMode,
 };
 use hamlet_messages::realm::{
     Asked, ChiefRequest, Done, FoundAnswer, FoundRefusal, HamletId,
-    HamletRefusal,
+    HamletRefusal, Seat,
 };
 use hamlet_messages::sender::Hand;
 use hamlet_messages::workspace::AgentNumber;
@@ -13,7 +14,8 @@ use hamlet_messages::workspace::reach::{Mode, Project, Reach};
 use hamlet_protocol::client::RequestId;
 
 use super::{
-    MAYOR, Realm, THREE, found, hamlet_with, tool, until, world,
+    MAYOR, Realm, THREE, found, hamlet_with, to, tool, until, words,
+    world,
 };
 
 pub(super) async fn chief<T: ChiefRequest>(
@@ -102,7 +104,9 @@ async fn a_hamlet_is_named_and_moved() {
             Done::Done,
             Done::Done,
             Done::Refused {
-                why: HamletRefusal::NoSuchHamlet
+                why: HamletRefusal::NoSuchHamlet {
+                    id: HamletId("x".to_owned())
+                }
             }
         )
     );
@@ -221,6 +225,41 @@ async fn a_folder_reaches_every_place_of_its_hamlet() {
 }
 
 #[tokio::test(flavor = "multi_thread")]
+async fn a_folder_reaches_the_places_of_the_hamlets_workers() {
+    // worker 9, started by hire 3, and worker 10, a chief's worker
+    // for the hamlet: each one's place follows the hamlet's folder.
+    let (realm, hamlet) = hamlet_with(1).await;
+    realm
+        .write(&format!(
+            "INSERT INTO agent (id, kind, status, at) VALUES (9, \
+             'worker', 'live', 0), (10, 'worker', 'live', 0); \
+             INSERT INTO worker (agent, starter, hamlet, brief, \
+             tools, task, at) VALUES (9, 3, NULL, 'dig', '[]', 1, \
+             0), (10, NULL, '{}', 'dig', '[]', 1, 0);",
+            hamlet.0
+        ))
+        .await;
+    for worker in [9, 10] {
+        let address = Agent(AgentNumber(worker)).address().unwrap();
+        realm.host.get_or_start(&address).await.unwrap();
+    }
+    let folder = realm.scratch.join("work");
+    std::fs::create_dir(&folder).unwrap();
+
+    let set = chief(&realm, set_folder(&hamlet, Some(&folder))).await;
+
+    assert_eq!(set, Done::Done);
+    until("the workers' places hold the folder", || {
+        [AgentNumber(9), AgentNumber(10)].iter().all(|&agent| {
+            folder_in_place(&realm, agent)
+                == Some(Some(folder.clone()))
+        })
+    })
+    .await;
+    realm.host.shutdown().await.unwrap();
+}
+
+#[tokio::test(flavor = "multi_thread")]
 async fn a_mode_reaches_every_agent_of_its_hamlet_and_their_workers()
 {
     // worker 9, started by hire 3; set a folder, then auto mode: the
@@ -290,5 +329,99 @@ async fn a_found_with_no_purpose_is_refused_to_the_hand() {
         })
         .await;
     assert_eq!(hamlets, 0);
+    realm.host.shutdown().await.unwrap();
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn a_bad_name_is_refused_in_todays_words() {
+    // a name with a colon changes nothing; a hamlet that is not
+    // there is named by its id; a good name is kept trimmed.
+    let (realm, hamlet) = hamlet_with(0).await;
+
+    let named = chief(
+        &realm,
+        NameHamlet {
+            hamlet: hamlet.clone(),
+            name: "Mill: east".to_owned(),
+        },
+    )
+    .await;
+    let nowhere = chief(
+        &realm,
+        MoveHamlet {
+            hamlet: HamletId("x".to_owned()),
+            x: 1.0,
+            z: 2.0,
+        },
+    )
+    .await;
+
+    assert_eq!(
+        [words(named), words(nowhere)],
+        [
+            "`Mill: east` is not a name: use one line of 1 to 40 \
+             characters with no colon",
+            "no hamlet has the id `x`",
+        ]
+    );
+    let name = realm
+        .rows(|db| {
+            db.query_row(
+                "SELECT name FROM hamlet WHERE id = ?1",
+                [&hamlet.0],
+                |row| row.get::<_, String>(0),
+            )
+        })
+        .await;
+    let trimmed = chief(
+        &realm,
+        NameHamlet {
+            hamlet: hamlet.clone(),
+            name: "  Weir  ".to_owned(),
+        },
+    )
+    .await;
+    let renamed = realm
+        .rows(|db| {
+            db.query_row(
+                "SELECT name FROM hamlet WHERE id = ?1",
+                [&hamlet.0],
+                |row| row.get::<_, String>(0),
+            )
+        })
+        .await;
+    assert_eq!(name, "Mill");
+    assert_eq!((trimmed, renamed.as_str()), (Done::Done, "Weir"));
+    realm.host.shutdown().await.unwrap();
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn a_seat_records_its_reason() {
+    let (realm, hamlet) = hamlet_with(1).await;
+
+    let seated = chief(
+        &realm,
+        Seat {
+            hire: to(THREE),
+            why: Some("cy leads now".to_owned()),
+        },
+    )
+    .await;
+
+    assert_eq!(seated, Done::Done);
+    let Record::Read { lines } = chief(
+        &realm,
+        ReadRecord {
+            hamlet: Some(hamlet),
+        },
+    )
+    .await
+    else {
+        panic!("the hamlet's record is read");
+    };
+    assert_eq!(
+        lines.last().map(|line| line.text.as_str()),
+        Some("- chief gave the office to hire#3: cy leads now")
+    );
     realm.host.shutdown().await.unwrap();
 }

@@ -80,10 +80,10 @@ pub(in crate::realm) async fn apply(
             if let Some(folder) = folder {
                 remember(writer, &hamlet, folder).await?;
             }
-            let rows = writer.rows();
+            let reached = reached(&writer.rows(), &hamlet).await?;
             Ok(Affected {
-                places: hires_of(&rows, &hamlet).await?,
-                ..reached(&rows, &hamlet).await?
+                places: reached.reaches.clone(),
+                ..reached
             })
         }
     }
@@ -141,12 +141,23 @@ async fn remember(
 }
 
 /// The reaches a change of the hamlet's footing moves: those of its
-/// living hires and of their living workers.
+/// agents.
 async fn reached(
     rows: &Rows<'_>,
     hamlet: &HamletId,
 ) -> Result<Affected> {
-    let reaches = rows
+    Ok(Affected {
+        reaches: agents_of(rows, hamlet).await?,
+        ..Affected::seen([Part::Hamlets, Part::Reaches])
+    })
+}
+
+/// The hamlet's living hires and their living workers.
+pub(in crate::realm) async fn agents_of(
+    rows: &Rows<'_>,
+    hamlet: &HamletId,
+) -> Result<BTreeSet<AgentNumber>> {
+    Ok(rows
         .values::<u32>(
             "SELECT agent.id FROM agent LEFT JOIN hire ON \
              hire.agent = agent.id LEFT JOIN worker ON worker.agent \
@@ -159,28 +170,26 @@ async fn reached(
         .await?
         .into_iter()
         .map(AgentNumber)
-        .collect();
-    Ok(Affected {
-        reaches,
-        ..Affected::seen([Part::Hamlets, Part::Reaches])
-    })
+        .collect())
 }
 
-async fn hires_of(
+/// The hamlet `agent` works for: a hire's, or a worker's own or its
+/// starter's. `None` for the Hand, its workers and an errand.
+pub(in crate::realm) async fn of_agent(
     rows: &Rows<'_>,
-    hamlet: &HamletId,
-) -> Result<BTreeSet<AgentNumber>> {
+    agent: AgentNumber,
+) -> Result<Option<HamletId>> {
     Ok(rows
-        .values::<u32>(
-            "SELECT hire.agent FROM hire JOIN agent ON agent.id = \
-             hire.agent WHERE hire.hamlet = ?1 AND agent.status IN \
-             ('hiring', 'live')",
-            vec![BindParam::Text(hamlet.0.clone())],
+        .value::<String>(
+            "SELECT hamlet FROM (SELECT hamlet FROM hire WHERE \
+             agent = ?1 UNION ALL SELECT COALESCE(worker.hamlet, \
+             (SELECT hamlet FROM hire WHERE agent = \
+             worker.starter)) FROM worker WHERE agent = ?1) WHERE \
+             hamlet IS NOT NULL",
+            vec![change::number(agent)],
         )
         .await?
-        .into_iter()
-        .map(AgentNumber)
-        .collect())
+        .map(HamletId))
 }
 
 async fn missing(
@@ -190,7 +199,28 @@ async fn missing(
     Ok(super::hamlet(rows, hamlet)
         .await?
         .is_none()
-        .then_some(HamletRefusal::NoSuchHamlet))
+        .then(|| HamletRefusal::NoSuchHamlet { id: hamlet.clone() }))
+}
+
+/// The most characters a hamlet's name has.
+const NAME_MOST: usize = 40;
+
+/// `name` trimmed, when it is one line of 1 to [`NAME_MOST`]
+/// characters with no colon.
+pub(in crate::realm) fn checked_name(
+    name: &str,
+) -> Result<&str, HamletRefusal> {
+    let name = name.trim();
+    let shaped = (1..=NAME_MOST).contains(&name.chars().count())
+        && !name.contains(char::is_control)
+        && !name.contains(':');
+    if shaped {
+        Ok(name)
+    } else {
+        Err(HamletRefusal::BadName {
+            name: name.to_owned(),
+        })
+    }
 }
 
 fn decided(
@@ -224,12 +254,14 @@ impl Act<Client> for NameHamlet {
         _by: &Client,
         refusal: Option<HamletRefusal>,
     ) -> Decision<(), Self::Output> {
+        let name = checked_name(&self.name);
+        let refusal = refusal.or_else(|| name.clone().err());
         let hamlet = self.hamlet.clone();
         decided(
             refusal,
             Change::Name {
                 hamlet: hamlet.clone(),
-                name: self.name.trim().to_owned(),
+                name: name.unwrap_or_default().to_owned(),
             },
             record::Entry::NamedHamlet {
                 hamlet,
@@ -261,6 +293,12 @@ impl Act<Client> for MoveHamlet {
         _by: &Client,
         refusal: Option<HamletRefusal>,
     ) -> Decision<(), Self::Output> {
+        let is_site = self.x.is_finite() && self.z.is_finite();
+        let refusal = refusal.or_else(|| {
+            (!is_site).then(|| HamletRefusal::BadSite {
+                site: format!("{}, {}", self.x, self.z),
+            })
+        });
         let hamlet = self.hamlet.clone();
         decided(
             refusal,
@@ -363,5 +401,27 @@ impl Act<Client> for SetFolder {
 
     fn answer(&self, (): (), _made: &Made) -> Self::Output {
         Done::Done
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_site_that_is_no_number_is_refused() {
+        // the host encodes no such number, so only the realm's own
+        // callers can send one.
+        let moved = MoveHamlet {
+            hamlet: HamletId("h".to_owned()),
+            x: f64::NAN,
+            z: 4.0,
+        };
+        let Decision::Answer(Done::Refused { why }) =
+            moved.decide(&Client, None)
+        else {
+            panic!("a site that is no number is refused");
+        };
+        assert_eq!(why.to_string(), "`NaN, 4` is not an address");
     }
 }

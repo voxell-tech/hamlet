@@ -11,14 +11,13 @@ use hamlet_messages::realm::budget::{
 use hamlet_messages::realm::workers::{
     AllowanceRefusal, SetAllowance,
 };
-use hamlet_messages::realm::world::Spend;
 use hamlet_messages::realm::{AgentRefusal, Done, Refusable};
 use hamlet_messages::workspace::AgentNumber;
 
-use super::act::{Act, Decided, Decision};
-use super::callers::{Lead, Witness};
+use super::act::{Act, Decided, Decision, Unchanged};
+use super::callers::Lead;
 use super::calls::Made;
-use super::change::{self, Affected, At, Rows, Writer, number};
+use super::change::{self, Affected, Rows, Writer, number};
 use super::chiefs::limits;
 use super::tree::{self, Lineage, Status};
 use super::world::Part;
@@ -59,7 +58,7 @@ pub(super) async fn apply(
                         number(hire),
                         change::integer(micros)?,
                         why.map_or(BindParam::Null, BindParam::Text),
-                        BindParam::Text(by_name(&by)),
+                        BindParam::Text(by.name()),
                         BindParam::Integer(writer.at().0),
                     ],
                 )
@@ -77,19 +76,11 @@ pub(super) async fn apply(
     Ok(Affected::seen([Part::Agents]))
 }
 
-fn by_name(by: &record::By) -> String {
-    match by {
-        record::By::Chief => "chief".to_owned(),
-        record::By::Agent(agent) => Agent(*agent).name(),
-    }
-}
-
 /// The first allowance on the way from `agent` up its leads that is
-/// spent as of `at`. A worker spends as its starter.
+/// spent as of `rows.at()`. A worker spends as its starter.
 pub(super) async fn over(
     rows: &Rows<'_>,
     agent: AgentNumber,
-    at: At,
 ) -> Result<Option<Budget>> {
     let Some(first) = bounded(rows, agent).await? else {
         return Ok(None);
@@ -104,7 +95,7 @@ pub(super) async fn over(
         hamlet: hamlet.id.clone(),
     };
     let period = limits::budget(rows, &payer).await?.period;
-    let since = began(rows, at, period).await?;
+    let since = super::budget::began(rows, period).await?;
     for hire in std::iter::once(&lineage.agent).chain(&lineage.leads)
     {
         let Some(allowance_micros) = of(rows, hire.agent).await?
@@ -117,6 +108,7 @@ pub(super) async fn over(
         if spent_micros >= allowance_micros {
             return Ok(Some(Budget::OverAllowance {
                 hire: hire.agent,
+                name: record::name_of(rows, hire.agent).await?,
                 spent_micros,
                 allowance_micros,
             }));
@@ -191,53 +183,37 @@ async fn charged(
     .context("the sum of the charges under an allowance")
 }
 
-/// The start of the period holding `at`, in ms.
-async fn began(
-    rows: &Rows<'_>,
-    at: At,
-    period: limits::Period,
-) -> Result<i64> {
-    let start = match period {
-        limits::Period::Day => "start of day",
-        limits::Period::Month => "start of month",
-    };
-    rows.value(
-        "SELECT CAST(strftime('%s', ?1 / 1000, 'unixepoch', \
-         'localtime', ?2, 'utc') AS INTEGER) * 1000",
-        vec![
-            BindParam::Integer(at.0),
-            BindParam::Text(start.to_owned()),
-        ],
-    )
-    .await?
-    .context("the start of a budget's period")
-}
-
 impl<By: Lead> Act<By> for SetAllowance {
     type Output = Done<By::Why<AllowanceRefusal>>;
-    type Loaded = Option<Lineage>;
+    /// The agent named, with its name.
+    type Loaded = Option<(Lineage, String)>;
     type Done = ();
 
     async fn load(
         &self,
         by: &By,
         rows: &Rows<'_>,
-    ) -> Result<Option<Lineage>> {
-        tree::named(rows, by, &self.hire).await
+    ) -> Result<Self::Loaded> {
+        let Some(lineage) = tree::named(rows, by, &self.hire).await?
+        else {
+            return Ok(None);
+        };
+        let name = record::name_of(rows, lineage.agent.agent).await?;
+        Ok(Some((lineage, name)))
     }
 
     fn decide(
         &self,
         by: &By,
-        lineage: Option<Lineage>,
+        named: Self::Loaded,
     ) -> Decision<(), Self::Output> {
         let refuse =
             |why| Decision::Answer(Done::refused(By::refused(why)));
-        let Some(lineage) = lineage else {
+        let Some((lineage, name)) = named else {
             return refuse(AllowanceRefusal::NoSuchAgent);
         };
         if lineage.agent.kind != AgentKind::Hire {
-            return refuse(AllowanceRefusal::NotAHire);
+            return refuse(AllowanceRefusal::NotAHire { name });
         }
         let hire = lineage.agent.agent;
         if let Err(not_a_lead) = by.leads(&lineage, hire) {
@@ -249,12 +225,20 @@ impl<By: Lead> Act<By> for SetAllowance {
                 left: left.clone(),
             });
         }
-        Decision::Change(Decided::new(()).change(Change::Set {
-            hire,
-            micros: self.micros.map(|micros| micros.0),
-            why: self.why.clone(),
-            by: by.by(),
-        }))
+        Decision::Change(
+            Decided::new(())
+                .change(Change::Set {
+                    hire,
+                    micros: self.micros.map(|micros| micros.0),
+                    why: self.why.clone(),
+                    by: by.by(),
+                })
+                .record(record::Entry::Allowance {
+                    hire,
+                    by: by.by(),
+                    why: self.why.clone(),
+                }),
+        )
     }
 
     fn answer(&self, (): (), _made: &Made) -> Self::Output {
@@ -265,7 +249,7 @@ impl<By: Lead> Act<By> for SetAllowance {
 impl Act<Agent> for ReadBudget {
     type Output = BudgetRead<AgentRefusal<ReadBudgetRefusal>>;
     type Loaded = Self::Output;
-    type Done = Self::Output;
+    type Done = Unchanged;
 
     async fn load(
         &self,
@@ -283,15 +267,9 @@ impl Act<Agent> for ReadBudget {
         };
         let spent = super::budget::spent(rows, &payer).await?;
         let period = spent.budget.period;
-        let since = began(rows, rows.at(), period).await?;
+        let since = super::budget::began(rows, period).await?;
         Ok(BudgetRead::Budget {
-            spend: Spend {
-                payer: spent.payer,
-                spent_micros: spent.micros,
-                budget_micros: spent.budget.micros,
-                spent_ms: spent.took_ms,
-                budget_ms: spent.budget.ms,
-            },
+            spend: spent.into(),
             period: match period {
                 limits::Period::Day => budget::Period::Day,
                 limits::Period::Month => budget::Period::Month,
@@ -306,15 +284,11 @@ impl Act<Agent> for ReadBudget {
         &self,
         _by: &Agent,
         read: Self::Output,
-    ) -> Decision<Self::Output, Self::Output> {
+    ) -> Decision<Unchanged, Self::Output> {
         Decision::Answer(read)
     }
 
-    fn answer(
-        &self,
-        read: Self::Output,
-        _made: &Made,
-    ) -> Self::Output {
-        read
+    fn answer(&self, done: Unchanged, _made: &Made) -> Self::Output {
+        match done {}
     }
 }

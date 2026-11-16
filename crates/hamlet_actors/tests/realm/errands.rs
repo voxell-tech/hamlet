@@ -4,27 +4,30 @@ use hamlet_messages::agent::{
     AgentInput, AgentKind, Brief, Place, PlaceVersion,
 };
 use hamlet_messages::realm::budget::{
-    Budget, Charge, MaySpend, ReadBudget, SpendRefusal,
+    Budget, ReadBudget, SpendRefusal,
 };
 use hamlet_messages::realm::choices::{
     ModelOf, SetModel, SetNickname,
 };
 use hamlet_messages::realm::client::ReadWorld;
+use hamlet_messages::realm::documents::{
+    EditSettings, ReadCopies, Setting,
+};
 use hamlet_messages::realm::oversight::{AskChief, Object};
 use hamlet_messages::realm::workers::{
     Ended, ErrandDone, SetAllowance, StartWorker,
 };
 use hamlet_messages::realm::{
-    AgreeRoad, Ask, Done, End, LayRoad, Refusable, RequestRoad,
-    SetTools, Standing, TakeUpRoad, ToolCall,
+    AgreeRoad, Ask, Done, End, HowEnded, LayRoad, Refusable,
+    RequestRoad, SetTools, Standing, TakeUpRoad, ToolCall,
 };
 use hamlet_messages::workspace::{
-    AgentNumber, CallId, ConversationId, ErrandNumber, RealmTask,
+    AgentNumber, ConversationId, ErrandNumber, RealmTask,
 };
 
 use super::{
-    MAYOR, Realm, THREE, hamlet_with, hire, standing, tell, to, tool,
-    until,
+    Callee, MAYOR, Realm, THREE, charge, hamlet_with, hire, made,
+    may_spend, standing, tell, to, tool, until,
 };
 
 fn errand(n: u32) -> AgentNumber {
@@ -46,29 +49,18 @@ fn brief() -> Brief {
 /// realm drives the step when it starts again.
 async fn seed(realm: &Realm, n: u32, task: &RealmTask, cap: u64) {
     let task = &task.0;
-    let kept = serde_json::json!({
-        "purpose": {"type": "review", "task": task.parse::<u64>().unwrap()},
-        "brief": brief(),
-    });
+    let Brief {
+        instructions, text, ..
+    } = brief();
+    let instructions = instructions.unwrap();
     realm
         .write(&format!(
             "INSERT INTO errand (n, purpose, task, cap, subject, \
-             at) VALUES ({n}, '{kept}', {task}, {cap}, {task}, 0); \
-             INSERT INTO step (kind, n, at) VALUES ('errand', {n}, \
-             0);"
+             instructions, text, at) VALUES ({n}, 'review', {task}, \
+             {cap}, {task}, '{instructions}', '{text}', 0); INSERT \
+             INTO step (kind, n, at) VALUES ('errand', {n}, 0);"
         ))
         .await;
-}
-
-fn made(realm: &Realm, agent: AgentNumber) -> Option<AgentInput> {
-    realm
-        .seen
-        .made
-        .lock()
-        .unwrap()
-        .iter()
-        .find(|(made, _)| *made == agent)
-        .map(|(_, input)| input.clone())
 }
 
 async fn made_until(realm: &Realm, agent: AgentNumber) -> AgentInput {
@@ -350,25 +342,6 @@ async fn an_errand_done_twice_ends_once() {
     assert!(by_a_hire.is_err(), "only an errand ends an errand");
 }
 
-fn charge(call: &str, task: &RealmTask, micros: u32) -> Charge {
-    Charge {
-        call: CallId(call.to_owned()),
-        task: task.clone(),
-        micros,
-        took_ms: 1,
-        tokens: None,
-    }
-}
-
-async fn may_spend(
-    realm: &Realm,
-    agent: AgentNumber,
-    task: &RealmTask,
-) -> Done<SpendRefusal> {
-    let may = MaySpend { task: task.clone() };
-    realm.tool(agent, &may).await.unwrap()
-}
-
 #[tokio::test(flavor = "multi_thread")]
 async fn an_errand_spends_under_its_cap() {
     let (realm, _) = hamlet_with(1).await;
@@ -379,7 +352,7 @@ async fn an_errand_spends_under_its_cap() {
 
     let under = may_spend(&realm, errand(0), &task).await;
     realm
-        .tool(errand(0), &charge("c1", &task, 10))
+        .tool(errand(0), &charge("c1", &task, 10, 1))
         .await
         .unwrap();
     let at_cap = may_spend(&realm, errand(0), &task).await;
@@ -403,4 +376,101 @@ async fn an_errand_spends_under_its_cap() {
             why: SpendRefusal::Budget(Budget::NoSuchTask)
         }
     );
+}
+
+async fn step_closed(realm: &Realm, n: u32) -> bool {
+    realm
+        .rows(|db| {
+            db.query_row(
+                "SELECT closed FROM step WHERE kind = 'errand' AND \
+                 n = ?1",
+                [n],
+                |row| row.get(0),
+            )
+        })
+        .await
+}
+
+fn answered() -> ErrandDone {
+    ErrandDone {
+        ended: Ended::Answered {
+            text: "PASS".to_owned(),
+        },
+    }
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn an_ended_errand_spends_no_more() {
+    let (realm, _) = hamlet_with(0).await;
+    let task = standing(&realm, MAYOR);
+    seed(&realm, 0, &task, 1_000).await;
+    made_until(&realm, errand(0)).await;
+
+    realm.tool(errand(0), &answered()).await.unwrap();
+
+    assert_eq!(
+        may_spend(&realm, errand(0), &task).await,
+        Done::Refused {
+            why: SpendRefusal::Standing(Standing::YouLeft {
+                how: HowEnded::Answered,
+                why: None,
+            })
+        }
+    );
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn an_errand_number_with_no_row_spends_nothing() {
+    let (realm, _) = hamlet_with(0).await;
+    let task = standing(&realm, MAYOR);
+
+    assert_eq!(
+        may_spend(&realm, errand(9), &task).await,
+        Done::Refused {
+            why: SpendRefusal::Budget(Budget::NoSuchTask)
+        }
+    );
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn an_errand_that_ended_before_it_was_made_is_driven_no_further()
+ {
+    let (realm, _) = hamlet_with(0).await;
+    let task = standing(&realm, MAYOR);
+    realm.seen.fail_once(Callee::Create, errand(0));
+    seed(&realm, 0, &task, 1_000).await;
+    until("the errand's create failed", || {
+        realm.seen.has_failed(Callee::Create, errand(0))
+    })
+    .await;
+
+    realm.tool(errand(0), &answered()).await.unwrap();
+
+    assert!(step_closed(&realm, 0).await, "the errand's step closed");
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn an_errand_reads_the_realms_model() {
+    let (realm, _) = hamlet_with(0).await;
+    let task = standing(&realm, MAYOR);
+    seed(&realm, 0, &task, 10).await;
+    made_until(&realm, errand(0)).await;
+    super::chiefs::chief(
+        &realm,
+        EditSettings {
+            set: vec![Setting::Model {
+                model: "faux::faux-1".to_owned(),
+            }],
+        },
+    )
+    .await;
+
+    let copies =
+        realm.tool(errand(0), &ReadCopies::default()).await.unwrap();
+
+    assert_eq!(
+        copies.model.map(|part| part.value.model).as_deref(),
+        Some("faux::faux-1")
+    );
+    assert!(copies.charter.is_some());
 }

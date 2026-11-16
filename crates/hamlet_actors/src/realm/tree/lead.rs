@@ -5,6 +5,7 @@ use std::collections::BTreeSet;
 use anyhow::{Context as _, Result};
 use hamlet_actor::BindParam;
 use hamlet_messages::agent::AgentKind;
+use hamlet_messages::realm::oversight::Permission;
 use hamlet_messages::realm::{
     Done, End, EndRefusal, HamletId, Hire, HireAnswer, HireRefusal,
     HowEnded, Named, OnlyAHire, ProfileId, Refusable, Seat,
@@ -18,7 +19,8 @@ use super::super::calls::Made;
 use super::super::change::{self, Affected, Rows, Writer, number};
 use super::super::world::Part;
 use super::super::{
-    chiefs, hire, laid, record, roads, steps, tasks, waits, workers,
+    chiefs, hire, laid, oversight, record, roads, steps, tasks,
+    waits, workers,
 };
 use super::{Change, Lineage, Member, Of, Status};
 
@@ -296,7 +298,11 @@ impl<By: RealmWide> Act<By> for Seat {
                     hamlet: hamlet.id.clone(),
                     mayor: hire,
                 })
-                .record(record::Entry::Seated { hire, by: by.by() }),
+                .record(record::Entry::Seated {
+                    hire,
+                    by: by.by(),
+                    why: self.why.clone(),
+                }),
         )
     }
 
@@ -343,9 +349,17 @@ pub(in crate::realm) async fn end(
     for hire in moved {
         set_lead(writer, hire, lead).await?;
     }
+    let revoked = oversight::apply(
+        writer,
+        oversight::Change::Revoke {
+            agent,
+            permission: Permission::Network,
+        },
+    )
+    .await?;
     Ok(Affected {
         places,
-        reaches: BTreeSet::from([agent]),
+        reaches: revoked.reaches.into_iter().chain([agent]).collect(),
         ..Affected::seen(
             [Part::Agents, Part::Reaches]
                 .into_iter()

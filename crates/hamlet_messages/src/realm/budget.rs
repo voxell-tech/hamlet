@@ -134,16 +134,27 @@ pub enum Budget {
         budget_ms: u64,
     },
     #[error(
-        "the allowance of `hire#{}` has run out: {spent_micros} of \
-         {allowance_micros} millionths of a dollar spent; its lead or \
-         a chief can raise it",
-        hire.0
+        "`{name}`'s allowance of {} is spent. Its lead or a chief can \
+         raise it.",
+        money(*allowance_micros)
     )]
     OverAllowance {
         hire: AgentNumber,
+        /// The hire's name, as in `hire#3 (Mira)`.
+        name: String,
         spent_micros: u64,
         allowance_micros: u64,
     },
+}
+
+/// `micros` in dollars to the cent, as `$1.23`, or `<$0.01` for less
+/// than a cent and more than nothing.
+fn money(micros: u64) -> String {
+    if (1..10_000).contains(&micros) {
+        return "<$0.01".to_owned();
+    }
+    let cents = (u128::from(micros) + 5_000) / 10_000;
+    format!("${}.{:02}", cents / 100, cents % 100)
 }
 
 /// Charges one model call to `task`'s payer. A repeat with the same
@@ -277,4 +288,34 @@ impl<W> Refusable for BudgetRead<W> {
 pub enum ReadBudgetRefusal {
     #[error("the realm holds no such task")]
     NoSuchTask,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn an_allowance_is_shown_in_dollars_to_the_cent() {
+        let spent = |allowance_micros| {
+            Budget::OverAllowance {
+                hire: AgentNumber(3),
+                name: "hire#3".to_owned(),
+                spent_micros: allowance_micros,
+                allowance_micros,
+            }
+            .to_string()
+        };
+
+        assert_eq!(
+            [spent(1_235_000), spent(9_999), spent(0)],
+            [
+                "`hire#3`'s allowance of $1.24 is spent. Its lead \
+                 or a chief can raise it.",
+                "`hire#3`'s allowance of <$0.01 is spent. Its lead \
+                 or a chief can raise it.",
+                "`hire#3`'s allowance of $0.00 is spent. Its lead \
+                 or a chief can raise it.",
+            ]
+        );
+    }
 }

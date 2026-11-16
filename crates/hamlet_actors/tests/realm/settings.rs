@@ -1,12 +1,8 @@
-use std::collections::HashMap;
-use std::sync::{Arc, Mutex};
-
-use hamlet_actor::{Actor, Ctx, Handler};
-use hamlet_host::{Caller, Host, HostOptions, HostRef};
-use hamlet_messages::address::{self, Party};
-use hamlet_messages::agent::copies::{Copies, CopyVersion, Price};
-use hamlet_messages::agent::{AgentInput, Fill, Place};
+use hamlet_messages::agent::copies::{
+    Copies, CopyVersion, ModelChoice, Price,
+};
 use hamlet_messages::realm::budget::{BudgetLimit, Payer};
+use hamlet_messages::realm::choices::{ModelOf, SetModel};
 use hamlet_messages::realm::documents::{
     CardSetting, CatalogueRefusal, EditCatalogue, EditCharter,
     EditSettings, Endpoint, ReadCharter, ReadCopies, Setting,
@@ -20,139 +16,22 @@ use hamlet_messages::realm::{
 use hamlet_messages::sender::Hand;
 use hamlet_messages::workspace::AgentNumber;
 use hamlet_messages::workspace::reach::Reach;
+use hamlet_protocol::Effort;
 use hamlet_protocol::client::RequestId;
-use hamlet_testing::Scratch;
 
 use super::world::seen_until;
 use super::{
-    Callee, Forward, MAYOR, ProfileStandIn, Realm, Seen,
-    WorkspaceStandIn, forward, hamlet_with, key, kind, until,
+    Callee, MAYOR, Realm, THREE, copies_to, hamlet_with, to, until,
+    words,
 };
 
 const FAUX: &str = "faux::faux-1";
 
-/// The copies each agent was pushed.
-#[derive(Default)]
-struct Pushed(Mutex<Vec<(AgentNumber, Copies)>>);
-
-impl Pushed {
-    fn to(&self, agent: AgentNumber) -> Vec<Copies> {
-        self.0
-            .lock()
-            .unwrap()
-            .iter()
-            .filter(|(to, _)| *to == agent)
-            .map(|(_, copies)| copies.clone())
-            .collect()
-    }
-}
-
-/// An agent that keeps the copies it is pushed and takes the calls a
-/// hire's steps make of it.
-struct CopiesStandIn {
-    pushed: Arc<Pushed>,
-    agent: AgentNumber,
-}
-
-#[async_trait::async_trait]
-impl Actor for CopiesStandIn {
-    type Input = Option<AgentInput>;
-    type Actions = (Copies, Place, Fill, Forward);
-    type Events = ();
-    type ConnParams = Option<Caller>;
-    type Action = ();
-
-    async fn create(ctx: &Ctx<Self>) -> anyhow::Result<Self> {
-        Ok(Self {
-            pushed: HostRef::of(ctx.inner())?
-                .value::<Pushed>()
-                .expect("the host holds the copies pushed"),
-            agent: AgentNumber(key(ctx)?),
-        })
-    }
-}
-
-impl Handler<Copies> for CopiesStandIn {
-    async fn handle(
-        self: Arc<Self>,
-        _: Ctx<Self>,
-        copies: Copies,
-    ) -> anyhow::Result<()> {
-        self.pushed.0.lock().unwrap().push((self.agent, copies));
-        Ok(())
-    }
-}
-
-impl Handler<Place> for CopiesStandIn {
-    async fn handle(
-        self: Arc<Self>,
-        _: Ctx<Self>,
-        _: Place,
-    ) -> anyhow::Result<()> {
-        Ok(())
-    }
-}
-
-impl Handler<Fill> for CopiesStandIn {
-    async fn handle(
-        self: Arc<Self>,
-        _: Ctx<Self>,
-        _: Fill,
-    ) -> anyhow::Result<()> {
-        Ok(())
-    }
-}
-
-impl Handler<Forward> for CopiesStandIn {
-    async fn handle(
-        self: Arc<Self>,
-        ctx: Ctx<Self>,
-        asked: Forward,
-    ) -> anyhow::Result<Vec<u8>> {
-        forward(&ctx, asked).await
-    }
-}
-
-/// A realm whose agents keep the copies they are pushed, with the
-/// Hand live.
-async fn realm_with_copies() -> (Realm, Arc<Pushed>) {
-    let scratch = Scratch::new("realm-copies");
-    let seen = Arc::new(Seen::default());
-    let pushed = Arc::new(Pushed::default());
-    let kinds = HashMap::from([
-        (
-            address::Realm::KIND.to_owned(),
-            hamlet_actors::realm::factory(),
-        ),
-        (
-            address::Agent::KIND.to_owned(),
-            kind::<CopiesStandIn>(address::Agent::KIND),
-        ),
-        (
-            address::Profile::KIND.to_owned(),
-            kind::<ProfileStandIn>(address::Profile::KIND),
-        ),
-        (
-            address::Workspace::KIND.to_owned(),
-            kind::<WorkspaceStandIn>(address::Workspace::KIND),
-        ),
-    ]);
-    let options = HostOptions::default()
-        .with_value(seen.clone())
-        .with_value(pushed.clone());
-    let host = Host::open_with(&scratch, kinds, options).unwrap();
-    for at in [address::Workspace.address(), address::Realm.address()]
-    {
-        host.get_or_start(&at.unwrap()).await.unwrap();
-    }
-    let realm = Realm {
-        host,
-        seen,
-        options: None,
-        scratch,
-    };
+/// A realm with the Hand live.
+async fn realm_with_hand() -> Realm {
+    let realm = Realm::start().await;
     realm.live(Hand::NUMBER).await;
-    (realm, pushed)
+    realm
 }
 
 async fn chief<T: ChiefRequest>(realm: &Realm, act: T) -> T::Answer {
@@ -197,13 +76,13 @@ fn priced(model: &str, price: Option<Price>) -> EditCatalogue {
 
 #[tokio::test(flavor = "multi_thread")]
 async fn a_charter_edit_pushes_a_copy() {
-    let (realm, pushed) = realm_with_copies().await;
+    let realm = realm_with_hand().await;
 
     let edited = chief(&realm, charter("Be brief.")).await;
 
     assert_eq!(edited, Done::Done);
     until("the Hand is pushed the new charter", || {
-        pushed.to(Hand::NUMBER).iter().any(|copies| {
+        copies_to(&realm, Hand::NUMBER).iter().any(|copies| {
             copies
                 .charter
                 .as_ref()
@@ -218,7 +97,7 @@ async fn a_charter_edit_pushes_a_copy() {
 
 #[tokio::test(flavor = "multi_thread")]
 async fn a_blank_charter_gives_back_the_built_in_one() {
-    let (realm, _) = realm_with_copies().await;
+    let realm = realm_with_hand().await;
     chief(&realm, charter("Be brief.")).await;
 
     let edited = chief(&realm, charter("  ")).await;
@@ -235,10 +114,10 @@ async fn a_blank_charter_gives_back_the_built_in_one() {
 }
 
 #[tokio::test(flavor = "multi_thread")]
-async fn read_copies_gives_only_newer_parts() {
+async fn read_copies_gives_only_moved_parts() {
     // the Hand holds every part as first read; one settings edit
     // moves only the settings part.
-    let (realm, _) = realm_with_copies().await;
+    let realm = realm_with_hand().await;
     chief(&realm, settings(Setting::Model { model: FAUX.into() }))
         .await;
     let first = read_copies(&realm, &ReadCopies::default()).await;
@@ -277,8 +156,9 @@ async fn read_copies_gives_only_newer_parts() {
 
 #[tokio::test(flavor = "multi_thread")]
 async fn a_misshapen_limit_changes_nothing() {
-    // a cost of $1 comes before a limit the other kind of row has, so
-    // each whole edit is refused and both budgets stay $50.
+    // a cost of $1 comes before a limit the other kind of row has, or
+    // a road price past what the realm counts, so each whole edit is
+    // refused and both budgets stay $50.
     let (realm, hamlet) = hamlet_with(0).await;
     let budget_of = async |payer: &Payer| {
         let seen =
@@ -311,9 +191,24 @@ async fn a_misshapen_limit_changes_nothing() {
     let on_realm =
         chief(&realm, limits(None, Limit::ToldDays { days: 2 }))
             .await;
+    let past_a_price = chief(
+        &realm,
+        limits(
+            Some(hamlet.clone()),
+            Limit::RoadPrice { micros: u64::MAX },
+        ),
+    )
+    .await;
 
-    assert_eq!(on_hamlet, Done::refused(HamletRefusal::RealmsLimit));
-    assert_eq!(on_realm, Done::refused(HamletRefusal::HamletsLimit));
+    let misshapen = Done::refused(HamletRefusal::MisshapenLimits);
+    assert_eq!(
+        [&on_hamlet, &on_realm, &past_a_price],
+        [&misshapen, &misshapen, &misshapen]
+    );
+    assert_eq!(
+        words(on_hamlet),
+        "Those limits do not fit their form."
+    );
     assert_eq!(budget_of(&hamlets).await, Some(50_000_000));
     assert_eq!(budget_of(&Payer::Realm).await, Some(50_000_000));
     let set = chief(
@@ -354,12 +249,11 @@ async fn allow_net_raises_every_reach() {
 
 #[tokio::test(flavor = "multi_thread")]
 async fn a_price_change_pushes_the_model_copy() {
-    let (realm, pushed) = realm_with_copies().await;
+    let realm = realm_with_hand().await;
     chief(&realm, settings(Setting::Model { model: FAUX.into() }))
         .await;
     let model_pushes = || {
-        pushed
-            .to(Hand::NUMBER)
+        copies_to(&realm, Hand::NUMBER)
             .into_iter()
             .filter_map(|copies| copies.model)
             .collect::<Vec<_>>()
@@ -394,7 +288,7 @@ async fn a_price_change_pushes_the_model_copy() {
 
 #[tokio::test(flavor = "multi_thread")]
 async fn a_refused_edit_changes_nothing() {
-    let (realm, _) = realm_with_copies().await;
+    let realm = realm_with_hand().await;
     let before = read_copies(&realm, &ReadCopies::default()).await;
     let blank = EditSettings {
         set: vec![
@@ -455,7 +349,7 @@ async fn allow_net_shows_each_reach_pending_until_the_workspace_answers()
 
 #[tokio::test(flavor = "multi_thread")]
 async fn an_endpoint_is_refused_in_todays_words() {
-    let (realm, _) = realm_with_copies().await;
+    let realm = realm_with_hand().await;
     let endpoint = |address: &str| {
         settings(Setting::Endpoints {
             endpoints: vec![Endpoint {
@@ -498,5 +392,231 @@ async fn an_endpoint_is_refused_in_todays_words() {
             Done::Done,
         ]
     );
+    realm.host.shutdown().await.unwrap();
+}
+
+/// The version of each part a first read gives.
+async fn versions(realm: &Realm) -> ReadCopies {
+    let copies = read_copies(realm, &ReadCopies::default()).await;
+    ReadCopies {
+        charter: copies.charter.map(|part| part.version),
+        character: copies.character.map(|part| part.version),
+        model: copies.model.map(|part| part.version),
+        settings: copies.settings.map(|part| part.version),
+    }
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn an_edit_that_changes_nothing_moves_no_copy() {
+    // a charter cleared when there is none, the settings as they
+    // are, a price for a model no one runs, and the same charter
+    // twice, which moves the charter once.
+    let realm = realm_with_hand().await;
+    chief(&realm, settings(Setting::Model { model: FAUX.into() }))
+        .await;
+    let before = versions(&realm).await;
+
+    let edits = (
+        chief(&realm, EditCharter { text: None }).await,
+        chief(&realm, settings(Setting::ReflectEvery { turns: 10 }))
+            .await,
+        chief(&realm, priced("nosuch::model", Some(price(1.0))))
+            .await,
+        chief(&realm, charter("Be brief.")).await,
+        chief(&realm, charter("Be brief.")).await,
+    );
+
+    assert_eq!(
+        edits,
+        (Done::Done, Done::Done, Done::Done, Done::Done, Done::Done)
+    );
+    let after = versions(&realm).await;
+    assert_eq!(
+        after.charter.map(|version| version.0),
+        before.charter.map(|version| version.0 + 1)
+    );
+    assert_eq!(
+        after,
+        ReadCopies {
+            charter: after.charter,
+            ..before
+        }
+    );
+    realm.host.shutdown().await.unwrap();
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn read_copies_gives_a_part_whose_version_differs() {
+    // an agent that holds versions the realm never gave, as after
+    // the realm's rows were made anew, is given every part.
+    let realm = realm_with_hand().await;
+    let ahead = ReadCopies {
+        charter: Some(CopyVersion(99)),
+        character: Some(CopyVersion(99)),
+        model: Some(CopyVersion(99)),
+        settings: Some(CopyVersion(99)),
+    };
+    chief(&realm, charter("Be brief.")).await;
+
+    let read = read_copies(&realm, &ahead).await;
+
+    assert_eq!(
+        read.charter.map(|part| part.value),
+        Some("Be brief.".to_owned())
+    );
+    assert!(read.character.is_some() && read.settings.is_some());
+    realm.host.shutdown().await.unwrap();
+}
+
+const FAUX_2: &str = "faux::faux-2";
+
+fn set_model(of: ModelOf) -> SetModel {
+    SetModel {
+        of,
+        model: None,
+        effort: None,
+        fast: None,
+        why: None,
+    }
+}
+
+/// The model copy `agent` reads.
+async fn model_of(
+    realm: &Realm,
+    agent: AgentNumber,
+) -> Option<ModelChoice> {
+    realm
+        .tool(agent, &ReadCopies::default())
+        .await
+        .unwrap()
+        .model
+        .map(|part| part.value)
+}
+
+fn running(
+    model: &str,
+    effort: Option<Effort>,
+    fast: bool,
+    price: Option<Price>,
+) -> Option<ModelChoice> {
+    Some(ModelChoice {
+        model: model.to_owned(),
+        effort,
+        fast,
+        price,
+    })
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn each_agent_reads_the_model_it_runs() {
+    // the realm runs faux-1 at high effort; the hamlet chooses
+    // faux-2 at low effort; hire 3 chooses fast. Each part falls to
+    // the next choice up, and the price is the model's card's.
+    let (realm, hamlet) = hamlet_with(1).await;
+    chief(
+        &realm,
+        EditSettings {
+            set: vec![
+                Setting::Model { model: FAUX.into() },
+                Setting::Effort {
+                    effort: Some(Effort::High),
+                },
+            ],
+        },
+    )
+    .await;
+    chief(&realm, priced(FAUX_2, Some(price(0.5)))).await;
+    let of_hamlet = ModelOf::Hamlet { hamlet };
+
+    let chosen = (
+        chief(
+            &realm,
+            SetModel {
+                model: Some(FAUX_2.into()),
+                effort: Some(Effort::Low),
+                ..set_model(of_hamlet)
+            },
+        )
+        .await,
+        chief(
+            &realm,
+            SetModel {
+                fast: Some(true),
+                ..set_model(ModelOf::Hire { hire: to(THREE) })
+            },
+        )
+        .await,
+    );
+
+    assert_eq!(chosen, (Done::Done, Done::Done));
+    assert_eq!(
+        (
+            model_of(&realm, Hand::NUMBER).await,
+            model_of(&realm, MAYOR).await,
+            model_of(&realm, THREE).await,
+        ),
+        (
+            running(FAUX, Some(Effort::High), false, None),
+            running(
+                FAUX_2,
+                Some(Effort::Low),
+                false,
+                Some(price(0.5))
+            ),
+            running(
+                FAUX_2,
+                Some(Effort::Low),
+                true,
+                Some(price(0.5))
+            ),
+        )
+    );
+    realm.host.shutdown().await.unwrap();
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn a_model_choice_pushes_the_copy_to_its_agents() {
+    // hire 3's choice goes to hire 3 alone; the hamlet's goes to the
+    // mayor and hire 3, each with its own model; neither goes to the
+    // Hand.
+    let (realm, hamlet) = hamlet_with(1).await;
+    let models = |agent| {
+        copies_to(&realm, agent)
+            .into_iter()
+            .filter_map(|copies| copies.model)
+            .map(|part| part.value.model)
+            .collect::<Vec<_>>()
+    };
+
+    chief(
+        &realm,
+        SetModel {
+            model: Some(FAUX_2.into()),
+            ..set_model(ModelOf::Hire { hire: to(THREE) })
+        },
+    )
+    .await;
+    until("hire 3 is pushed its model", || models(THREE) == [FAUX_2])
+        .await;
+    chief(
+        &realm,
+        SetModel {
+            model: Some(FAUX.into()),
+            ..set_model(ModelOf::Hamlet { hamlet })
+        },
+    )
+    .await;
+    until("the hamlet's agents are pushed their models", || {
+        models(THREE).len() == 2 && models(MAYOR) == [FAUX]
+    })
+    .await;
+    chief(&realm, charter("Be brief.")).await;
+    until("the Hand is pushed the charter", || {
+        !copies_to(&realm, Hand::NUMBER).is_empty()
+    })
+    .await;
+
+    assert_eq!(models(THREE), [FAUX_2, FAUX_2]);
+    assert_eq!(models(Hand::NUMBER), Vec::<String>::new());
     realm.host.shutdown().await.unwrap();
 }

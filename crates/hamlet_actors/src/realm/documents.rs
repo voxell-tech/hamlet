@@ -19,11 +19,12 @@ use hamlet_messages::sender::Client;
 use hamlet_messages::workspace::AgentNumber;
 use serde::{Deserialize, Serialize};
 
-use super::act::{Act, Decided, Decision};
+use super::act::{Act, Decided, Decision, Unchanged};
 use super::calls::Made;
 use super::change::{self, Affected, Rows, Writer};
 use super::peer::When;
-use super::{Realm, settings, tree};
+use super::tree::choices::{self, Choice, Chosen};
+use super::{Realm, chiefs, settings, tree};
 use crate::cbor;
 
 const CHARTER: &str =
@@ -149,9 +150,11 @@ pub(super) async fn apply(
         Change::Card { model, card } => {
             let mut cards = catalogue(&writer.rows()).await?;
             let price = card.price.clone();
-            let before = cards.insert(model, card);
+            let before = cards.insert(model.clone(), card);
             keep(writer, "catalogue", cbor(&cards)?).await?;
-            (before.and_then(|card| card.price) != price)
+            let repriced =
+                before.and_then(|card| card.price) != price;
+            (repriced && runs(&writer.rows(), &model).await?)
                 .then_some(Part::Model)
         }
     };
@@ -174,9 +177,8 @@ async fn keep(
 ) -> Result<()> {
     writer
         .execute(
-            "INSERT INTO document (name, value, version) VALUES \
-             (?1, ?2, 1) ON CONFLICT (name) DO UPDATE SET value = \
-             excluded.value, version = version + 1",
+            "INSERT INTO document (name, value) VALUES (?1, ?2) ON \
+             CONFLICT (name) DO UPDATE SET value = excluded.value",
             vec![
                 BindParam::Text(name.to_owned()),
                 BindParam::Blob(value),
@@ -184,6 +186,20 @@ async fn keep(
         )
         .await?;
     Ok(())
+}
+
+/// Whether `model` is the realm's or any agent's or hamlet's choice.
+async fn runs(rows: &Rows<'_>, model: &str) -> Result<bool> {
+    if settings::read(rows).await?.model.as_deref() == Some(model) {
+        return Ok(true);
+    }
+    Ok(rows
+        .value::<i64>(
+            "SELECT 1 FROM model_choice WHERE model = ?1",
+            vec![BindParam::Text(model.to_owned())],
+        )
+        .await?
+        .is_some())
 }
 
 async fn document(
@@ -237,10 +253,29 @@ async fn version(rows: &Rows<'_>, part: Part) -> Result<CopyVersion> {
     ))
 }
 
-/// The model an agent runs, with its card's price.
-async fn model(rows: &Rows<'_>) -> Result<Option<ModelChoice>> {
+/// The model `agent` runs, with its card's price: each part its own
+/// choice's, else its hamlet's, else the realm's.
+async fn model(
+    rows: &Rows<'_>,
+    agent: AgentNumber,
+) -> Result<Option<ModelChoice>> {
     let settings = settings::read(rows).await?;
-    let Some(model) = settings.model else {
+    let hamlet = match chiefs::hamlet::of_agent(rows, agent).await? {
+        Some(hamlet) => {
+            choices::choice(rows, &Chosen::Hamlet(hamlet)).await?
+        }
+        None => Choice::default(),
+    };
+    let realm = Choice {
+        model: settings.model,
+        effort: settings.effort,
+        fast: None,
+    };
+    let chosen = choices::choice(rows, &Chosen::Agent(agent))
+        .await?
+        .or(hamlet)
+        .or(realm);
+    let Some(model) = chosen.model else {
         return Ok(None);
     };
     let price = catalogue(rows)
@@ -249,17 +284,19 @@ async fn model(rows: &Rows<'_>) -> Result<Option<ModelChoice>> {
         .and_then(|card| card.price);
     Ok(Some(ModelChoice {
         model,
-        effort: settings.effort,
-        fast: false,
+        effort: chosen.effort,
+        fast: chosen.fast.unwrap_or(false),
         price,
     }))
 }
 
+/// Fills `part` of the copies `reader` reads.
 async fn fill(
     rows: &Rows<'_>,
     copies: &mut Copies,
     part: Part,
     version: CopyVersion,
+    reader: AgentNumber,
 ) -> Result<()> {
     match part {
         Part::Charter => {
@@ -276,7 +313,7 @@ async fn fill(
             });
         }
         Part::Model => {
-            copies.model = model(rows)
+            copies.model = model(rows, reader)
                 .await?
                 .map(|value| Versioned { version, value });
         }
@@ -300,11 +337,6 @@ pub(super) async fn send(
     // The version is read before the part, so a part never goes out
     // under a version newer than its own.
     let version = version(&rows, copied.part).await?;
-    let mut copies = Copies::default();
-    fill(&rows, &mut copies, copied.part, version).await?;
-    if copies == Copies::default() {
-        return Ok(());
-    }
     let readers = match copied.readers {
         Readers::Living => living(&rows).await?,
         Readers::Agent(agent) => {
@@ -316,6 +348,12 @@ pub(super) async fn send(
     };
     let mut failed = BTreeSet::new();
     for reader in readers {
+        let mut copies = Copies::default();
+        fill(&rows, &mut copies, copied.part, version, reader)
+            .await?;
+        if copies == Copies::default() {
+            continue;
+        }
         let sent = realm
             .peers
             .call(&Agent(reader), &copies, When::AfterAnswer)
@@ -334,24 +372,28 @@ pub(super) async fn send(
 
 impl Act<Client> for EditCharter {
     type Output = Done<EditRefusal>;
-    type Loaded = ();
+    /// The charter a chief wrote, if any.
+    type Loaded = Option<String>;
     type Done = ();
 
     async fn load(
         &self,
         _by: &Client,
-        _rows: &Rows<'_>,
-    ) -> Result<()> {
-        Ok(())
+        rows: &Rows<'_>,
+    ) -> Result<Option<String>> {
+        own_charter(rows).await
     }
 
     fn decide(
         &self,
         _by: &Client,
-        (): (),
+        own: Option<String>,
     ) -> Decision<(), Self::Output> {
         let text =
             self.text.clone().filter(|text| !text.trim().is_empty());
+        if text == own {
+            return Decision::Answer(Done::Done);
+        }
         Decision::Change(
             Decided::new(()).change(Change::Charter(text)),
         )
@@ -398,9 +440,8 @@ impl Act<Client> for EditCatalogue {
     }
 }
 
-// Today's checks in their order (the server's `providers.rs`,
-// `edit_catalogue`). The realm keeps no model listing, so any
-// `provider::model` names a model.
+// The realm keeps no model listing, so any `provider::model` names
+// a model.
 fn catalogue_fault(edit: &EditCatalogue) -> Option<CatalogueRefusal> {
     let negative = edit.set.iter().any(|setting| {
         let CardSetting::Price { price: Some(price) } = setting
@@ -444,7 +485,7 @@ fn catalogue_fault(edit: &EditCatalogue) -> Option<CatalogueRefusal> {
 impl Act<Client> for ReadCharter {
     type Output = CharterRead;
     type Loaded = CharterRead;
-    type Done = CharterRead;
+    type Done = Unchanged;
 
     async fn load(
         &self,
@@ -462,23 +503,23 @@ impl Act<Client> for ReadCharter {
         &self,
         _by: &Client,
         read: CharterRead,
-    ) -> Decision<CharterRead, CharterRead> {
+    ) -> Decision<Unchanged, CharterRead> {
         Decision::Answer(read)
     }
 
-    fn answer(&self, read: CharterRead, _made: &Made) -> CharterRead {
-        read
+    fn answer(&self, done: Unchanged, _made: &Made) -> CharterRead {
+        match done {}
     }
 }
 
 impl Act<Agent> for ReadCopies {
     type Output = Copies;
     type Loaded = Copies;
-    type Done = Copies;
+    type Done = Unchanged;
 
     async fn load(
         &self,
-        _by: &Agent,
+        by: &Agent,
         rows: &Rows<'_>,
     ) -> Result<Copies> {
         let mut copies = Copies::default();
@@ -490,8 +531,8 @@ impl Act<Agent> for ReadCopies {
                 Part::Settings => self.settings,
             };
             let version = version(rows, part).await?;
-            if have.is_none_or(|have| version > have) {
-                fill(rows, &mut copies, part, version).await?;
+            if have != Some(version) {
+                fill(rows, &mut copies, part, version, by.0).await?;
             }
         }
         Ok(copies)
@@ -501,11 +542,11 @@ impl Act<Agent> for ReadCopies {
         &self,
         _by: &Agent,
         copies: Copies,
-    ) -> Decision<Copies, Copies> {
+    ) -> Decision<Unchanged, Copies> {
         Decision::Answer(copies)
     }
 
-    fn answer(&self, copies: Copies, _made: &Made) -> Copies {
-        copies
+    fn answer(&self, done: Unchanged, _made: &Made) -> Copies {
+        match done {}
     }
 }

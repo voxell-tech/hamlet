@@ -1,7 +1,9 @@
+use hamlet_messages::realm::choices::SetNickname;
+use hamlet_messages::realm::documents::{EditSettings, Setting};
 use hamlet_messages::realm::oversight::{
     Permission, Revoke, RevokeRefusal,
 };
-use hamlet_messages::realm::{Asked, Done, HamletId};
+use hamlet_messages::realm::{Asked, Done, End, HamletId};
 use hamlet_messages::sender::Hand;
 use hamlet_messages::workspace::reach::{
     Footing, Mode, Project, Reach, SecretsVersion, Trust,
@@ -11,7 +13,10 @@ use hamlet_messages::workspace::{
 };
 use hamlet_protocol::client::RequestId;
 
-use super::{FOUR, MAYOR, Realm, THREE, founded, hires, until};
+use super::chiefs::chief;
+use super::{
+    FOUR, MAYOR, Realm, THREE, founded, hires, to, tool, until, words,
+};
 
 const FOLDER: &str = "/work/mill";
 
@@ -42,6 +47,13 @@ fn revoke(agent: AgentNumber) -> Asked<Revoke> {
             agent,
             permission: Permission::Network,
         },
+    }
+}
+
+fn no_grant(name: &str) -> RevokeRefusal {
+    RevokeRefusal::NoGrant {
+        name: name.to_owned(),
+        permission: Permission::Network,
     }
 }
 
@@ -146,10 +158,10 @@ async fn a_revoke_raises_the_reach() {
         (none_left, never_held),
         (
             Done::Refused {
-                why: RevokeRefusal::NoGrant { agent: THREE }
+                why: no_grant("hire#3")
             },
             Done::Refused {
-                why: RevokeRefusal::NoGrant { agent: MAYOR }
+                why: no_grant("hire#2")
             }
         )
     );
@@ -201,6 +213,97 @@ async fn a_worker_takes_its_starters_footing() {
                 trust: Vec::new(),
                 ..starter
             },
+        }
+    );
+    realm.host.shutdown().await.unwrap();
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn an_end_revokes_the_agents_grants() {
+    // agent 3 holds a grant and has a worker, 4. Its lead ends it:
+    // the worker ends with it or loses the network, and a revoke
+    // finds no grant.
+    let (realm, hamlet) = hamlet_in_a_folder().await;
+    trusted_hire(&realm).await;
+    realm
+        .write(&format!(
+            "INSERT INTO agent (id, kind, status, at) VALUES (4, \
+             'worker', 'live', 0); INSERT INTO worker (agent, \
+             starter, hamlet, brief, tools, task, at) VALUES (4, 3, \
+             '{}', 'Count the links', '[]', 1, 0)",
+            hamlet.0
+        ))
+        .await;
+    let end = End {
+        hire: to(THREE),
+        why: None,
+    };
+
+    let ended = realm.tool(MAYOR, &tool("e1", end)).await.unwrap();
+    until("the worker's reach has no network", || {
+        held(&realm, FOUR).is_some_and(|set| {
+            set.reach.footing().is_none_or(|footing| !footing.network)
+        })
+    })
+    .await;
+    let revoked = realm.ask(&revoke(THREE)).await.unwrap();
+
+    assert_eq!(ended, Done::Done);
+    assert_eq!(
+        revoked,
+        Done::Refused {
+            why: no_grant("hire#3")
+        }
+    );
+    realm.host.shutdown().await.unwrap();
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn a_revoke_of_no_grant_is_refused_in_todays_words() {
+    // the hire nicknamed Spade, the Hand, worker 9, the same hire
+    // once the settings allow every agent the network, and a number
+    // no agent has.
+    let (realm, _) = hamlet_in_a_folder().await;
+    hires(&realm, MAYOR, "h1").await;
+    realm
+        .write(
+            "INSERT INTO agent (id, kind, status, at) VALUES (9, \
+             'worker', 'live', 0); INSERT INTO worker (agent, \
+             starter, brief, tools, task, at) VALUES (9, 3, 'dig', \
+             '[]', 1, 0);",
+        )
+        .await;
+    let nickname = SetNickname {
+        hire: to(THREE),
+        name: Some("Spade".to_owned()),
+        why: None,
+    };
+    assert_eq!(chief(&realm, nickname).await, Done::Done);
+
+    let spade = realm.ask(&revoke(THREE)).await.unwrap();
+    let hand = realm.ask(&revoke(Hand::NUMBER)).await.unwrap();
+    let worker = realm.ask(&revoke(AgentNumber(9))).await.unwrap();
+    let allow = EditSettings {
+        set: vec![Setting::AllowNet { allow: true }],
+    };
+    assert_eq!(chief(&realm, allow).await, Done::Done);
+    let everyone = realm.ask(&revoke(THREE)).await.unwrap();
+    let nobody = realm.ask(&revoke(AgentNumber(77))).await.unwrap();
+
+    assert_eq!(
+        [words(spade), words(hand), words(worker), words(everyone)],
+        [
+            "hire#3 (Spade) holds no grant of network.",
+            "hand holds no grant of network.",
+            "worker#9 holds no grant of network.",
+            "hire#3 (Spade) holds no grant of network; the settings \
+             allow every agent the network.",
+        ]
+    );
+    assert_eq!(
+        nobody,
+        Done::Refused {
+            why: RevokeRefusal::NoSuchAgent
         }
     );
     realm.host.shutdown().await.unwrap();

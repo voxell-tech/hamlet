@@ -7,11 +7,12 @@ use hamlet_messages::address::Agent;
 use hamlet_messages::realm::budget::{
     Budget, Charge, MaySpend, Payer, ResetBudget, SpendRefusal,
 };
+use hamlet_messages::realm::world::Spend;
 use hamlet_messages::realm::{
     Done, HamletId, HamletRefusal, Left, Refusable, Standing,
 };
 use hamlet_messages::sender::Client;
-use hamlet_messages::workspace::{AgentNumber, CallId, RealmTask};
+use hamlet_messages::workspace::{AgentNumber, CallId};
 
 use super::act::{Act, Decided, Decision};
 use super::calls::Made;
@@ -19,7 +20,7 @@ use super::change::{self, Affected, Rows, Writer, number};
 use super::chiefs::{self, limits};
 use super::oversight::asking;
 use super::tasks::{self, TaskId};
-use super::workers::errands;
+use super::workers::errands::{self, Spending};
 use super::world::Part;
 use super::{allowance, laid, tree, waits};
 
@@ -189,6 +190,18 @@ impl Spent {
     }
 }
 
+impl From<Spent> for Spend {
+    fn from(spent: Spent) -> Self {
+        Self {
+            payer: spent.payer,
+            spent_micros: spent.micros,
+            budget_micros: spent.budget.micros,
+            spent_ms: spent.took_ms,
+            budget_ms: spent.budget.ms,
+        }
+    }
+}
+
 pub(super) async fn spent(
     rows: &Rows<'_>,
     payer: &Payer,
@@ -215,7 +228,8 @@ pub(super) async fn spent(
     })
 }
 
-async fn began(
+/// The start of the period holding `rows.at()`, in ms.
+pub(super) async fn began(
     rows: &Rows<'_>,
     period: limits::Period,
 ) -> Result<i64> {
@@ -233,17 +247,6 @@ async fn began(
     )
     .await?
     .context("the start of a budget's period")
-}
-
-/// `None` for a task the realm does not hold.
-async fn payer_of(
-    rows: &Rows<'_>,
-    task: &RealmTask,
-) -> Result<Option<Payer>> {
-    match TaskId::of(task) {
-        Some(task) => tasks::payer(rows, task).await,
-        None => Ok(None),
-    }
 }
 
 /// What an agent has spent, by its charges.
@@ -278,24 +281,30 @@ impl Act<Agent> for MaySpend {
                 Standing::YouLeft { how, why },
             )));
         }
-        let Some(payer) = payer_of(rows, &self.task).await? else {
+        let errand = match errands::spending(rows, by.0).await? {
+            Spending::NotAnErrand => None,
+            Spending::Open { task, cap } => Some((task, cap)),
+            Spending::Refused(refusal) => return Ok(Some(refusal)),
+        };
+        let Some(payer) = tasks::payer_of(rows, &self.task).await?
+        else {
             return Ok(Some(SpendRefusal::Budget(
                 Budget::NoSuchTask,
             )));
         };
-        if let Some(errand) = errands::spender(rows, by.0).await? {
-            if TaskId::of(&self.task) != Some(errand.task) {
+        if let Some((task, cap)) = errand {
+            if TaskId::of(&self.task) != Some(task) {
                 return Ok(Some(SpendRefusal::Budget(
                     Budget::NoSuchTask,
                 )));
             }
             let spent_micros = spent_by(rows, by.0).await?;
-            if spent_micros >= errand.cap {
+            if spent_micros >= cap {
                 return Ok(Some(SpendRefusal::Budget(
                     Budget::OverCost {
                         payer,
                         spent_micros,
-                        budget_micros: errand.cap,
+                        budget_micros: cap,
                     },
                 )));
             }
@@ -308,7 +317,7 @@ impl Act<Agent> for MaySpend {
         if let Some(over) = spent(rows, &payer).await?.over() {
             return Ok(Some(SpendRefusal::Budget(over)));
         }
-        let over = allowance::over(rows, by.0, rows.at()).await?;
+        let over = allowance::over(rows, by.0).await?;
         Ok(over.map(SpendRefusal::Budget))
     }
 
@@ -335,7 +344,7 @@ impl Act<Agent> for Charge {
         _by: &Agent,
         rows: &Rows<'_>,
     ) -> Result<Option<Payer>> {
-        payer_of(rows, &self.task).await
+        tasks::payer_of(rows, &self.task).await
     }
 
     fn decide(
@@ -362,7 +371,7 @@ pub(super) enum PayerRow {
     Held {
         faults: Vec<change::Change>,
     },
-    Missing,
+    Missing(HamletId),
 }
 
 impl Act<Client> for ResetBudget {
@@ -378,7 +387,7 @@ impl Act<Client> for ResetBudget {
         if let Payer::Hamlet { hamlet } = &self.payer
             && chiefs::hamlet(rows, hamlet).await?.is_none()
         {
-            return Ok(PayerRow::Missing);
+            return Ok(PayerRow::Missing(hamlet.clone()));
         }
         Ok(PayerRow::Held {
             faults: waits::budget_faults(rows, &self.payer).await?,
@@ -399,8 +408,8 @@ impl Act<Client> for ResetBudget {
                 decided.changes.extend(faults);
                 Decision::Change(decided)
             }
-            PayerRow::Missing => Decision::Answer(Done::refused(
-                HamletRefusal::NoSuchHamlet,
+            PayerRow::Missing(id) => Decision::Answer(Done::refused(
+                HamletRefusal::NoSuchHamlet { id },
             )),
         }
     }
