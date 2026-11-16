@@ -12,7 +12,7 @@ use bevy_ecs::message::Message;
 use bevy_ecs::resource::Resource;
 use bevy_ecs::schedule::IntoScheduleConfigs;
 use bevy_ecs::schedule::common_conditions::on_message;
-use bevy_ecs::system::{Commands, ResMut};
+use bevy_ecs::system::{Commands, Res, ResMut};
 use futures::future::BoxFuture;
 use hamlet_protocol::client::{
     ServerMessage, SettingsViewWorkspaceMove,
@@ -28,8 +28,7 @@ use crate::talk::heard;
 /// Where tasks send their results, as inputs, and the system that
 /// takes them in.
 pub(crate) fn plugin(app: &mut App) {
-    let inputs = app.world().resource::<InputSender>().clone();
-    app.insert_resource(BackgroundWork::new(inputs))
+    app.init_resource::<BackgroundWork>()
         .add_message::<BackgroundFinished>()
         .add_systems(
             PreUpdate,
@@ -112,12 +111,15 @@ pub(crate) struct RunAgainRequest {
 /// The tasks an input asked for, and where they send what they
 /// finished with. A task starts once its input is kept, so a failed
 /// input sets none off.
-#[derive(Resource)]
+#[derive(Resource, Default)]
 pub(crate) struct BackgroundWork {
-    inputs: InputSender,
     /// Reached only through `&mut`; the lock makes it `Sync`.
-    queued_futures: Mutex<Vec<BoxFuture<'static, ()>>>,
+    queued_work: Mutex<Vec<QueuedWork>>,
 }
+
+/// A task to start, given where it sends what it finishes with.
+type QueuedWork =
+    Box<dyn FnOnce(InputSender) -> BoxFuture<'static, ()> + Send>;
 
 /// A task's way to send more than one result.
 #[derive(Clone)]
@@ -131,15 +133,8 @@ impl BackgroundReporter {
 }
 
 impl BackgroundWork {
-    pub fn new(inputs: InputSender) -> Self {
-        Self {
-            inputs,
-            queued_futures: Mutex::new(Vec::new()),
-        }
-    }
-
-    fn queued(&mut self) -> &mut Vec<BoxFuture<'static, ()>> {
-        self.queued_futures
+    fn queued(&mut self) -> &mut Vec<QueuedWork> {
+        self.queued_work
             .get_mut()
             .unwrap_or_else(PoisonError::into_inner)
     }
@@ -150,9 +145,10 @@ impl BackgroundWork {
         &mut self,
         work: impl Future<Output = BackgroundResult> + Send + 'static,
     ) {
-        let inputs = self.inputs.clone();
-        self.queued().push(Box::pin(async move {
-            let _ = inputs.send(BackgroundFinished(work.await));
+        self.queued().push(Box::new(|inputs: InputSender| {
+            Box::pin(async move {
+                let _ = inputs.send(BackgroundFinished(work.await));
+            })
         }));
     }
 
@@ -160,19 +156,13 @@ impl BackgroundWork {
     /// which reports as it goes.
     pub fn spawn_many<Work>(
         &mut self,
-        make: impl FnOnce(BackgroundReporter) -> Work,
+        make: impl FnOnce(BackgroundReporter) -> Work + Send + 'static,
     ) where
         Work: Future<Output = ()> + Send + 'static,
     {
-        let report = BackgroundReporter(self.inputs.clone());
-        self.queued().push(Box::pin(make(report)));
-    }
-
-    /// Starts the tasks the kept input asked for.
-    pub fn start(&mut self) {
-        for work in self.queued().drain(..) {
-            tokio::spawn(work);
-        }
+        self.queued().push(Box::new(|inputs: InputSender| {
+            Box::pin(make(BackgroundReporter(inputs)))
+        }));
     }
 
     /// Drops the tasks of an input that failed.
@@ -182,6 +172,11 @@ impl BackgroundWork {
 }
 
 /// Starts the tasks the kept input asked for.
-pub(crate) fn start(mut later: ResMut<BackgroundWork>) {
-    later.start();
+pub(crate) fn start(
+    mut later: ResMut<BackgroundWork>,
+    inputs: Res<InputSender>,
+) {
+    for work in later.queued().drain(..) {
+        tokio::spawn(work(inputs.clone()));
+    }
 }

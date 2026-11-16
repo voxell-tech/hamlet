@@ -67,9 +67,7 @@ const NO_CHIEF: &str =
 
 /// Where ended tool runs go, and the system that takes them in.
 pub(crate) fn plugin(app: &mut bevy_app::App) {
-    let inputs = app.world().resource::<InputSender>().clone();
-    app.insert_resource(Calls { inputs })
-        .add_handler::<ToolRunEnded, _>(take_in_ran);
+    app.add_handler::<ToolRunEnded, _>(take_in_ran);
 }
 
 /// A tool run ended.
@@ -137,12 +135,6 @@ pub(crate) enum Answer {
     Result(Outcome),
 }
 
-/// Where ended tool runs go, as inputs.
-#[derive(bevy_ecs::resource::Resource)]
-pub(crate) struct Calls {
-    inputs: InputSender,
-}
-
 /// A tool run in progress: an entity of its own, despawned when it
 /// ends or its turn is stopped. Its task stops with it.
 #[derive(Component)]
@@ -201,33 +193,30 @@ fn stopped(world: DeferredWorld, context: HookContext) {
 pub(crate) type ToolRuns<'w, 's> =
     Query<'w, 's, (Entity, &'static mut ToolRun)>;
 
-impl Calls {
-    /// The run of `work` for `call`, to spawn; it starts once its
-    /// input is kept.
-    fn run(
-        &self,
-        call: CallId,
-        conversation: ConversationId,
-        reply: Reply,
-        request: Request,
-        work: impl Future<Output = Outcome> + Send + 'static,
-    ) -> (ToolRun, UnstartedToolRun) {
-        let inputs = self.inputs.clone();
-        let id = call.clone();
-        let work = async move {
-            let outcome = work.await;
-            let _ =
-                inputs.send(ToolRunEnded(Ran { call: id, outcome }));
-        };
-        let running = ToolRun {
-            call,
-            replies: vec![reply],
-            conversation,
-            request,
-            abort: None,
-        };
-        (running, UnstartedToolRun(Mutex::new(Some(Box::pin(work)))))
-    }
+/// The run of `work` for `call`, to spawn; it starts once its input
+/// is kept, and its end goes to `inputs`.
+fn tool_run(
+    inputs: &InputSender,
+    call: CallId,
+    conversation: ConversationId,
+    reply: Reply,
+    request: Request,
+    work: impl Future<Output = Outcome> + Send + 'static,
+) -> (ToolRun, UnstartedToolRun) {
+    let inputs = inputs.clone();
+    let id = call.clone();
+    let work = async move {
+        let outcome = work.await;
+        let _ = inputs.send(ToolRunEnded(Ran { call: id, outcome }));
+    };
+    let running = ToolRun {
+        call,
+        replies: vec![reply],
+        conversation,
+        request,
+        abort: None,
+    };
+    (running, UnstartedToolRun(Mutex::new(Some(Box::pin(work)))))
 }
 
 /// The tools the server adds to every runtime's own: `ask_chief` and
@@ -793,7 +782,8 @@ impl Core<'_, '_> {
         let arguments =
             call.arguments.clone().into_iter().collect::<Map<_, _>>();
         let name = call.tool.to_owned();
-        let running = self.calls.run(
+        let running = tool_run(
+            &self.inputs,
             call.call.clone(),
             call.conversation.id,
             reply,

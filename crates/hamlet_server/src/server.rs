@@ -375,7 +375,7 @@ impl Server {
         hamlet_store::unwind(
             self.core()?.realm.store().connection(),
         )?;
-        discard(self.app.world_mut())
+        Ok(self.app.world_mut().run_system_cached(discard)?)
     }
 
     /// Where the inputs go, for what sends them from off the loop.

@@ -93,20 +93,6 @@ pub(crate) enum OutgoingClientMessage {
     Refusal(u64, String, u16),
 }
 
-/// Drops the messages of an input that failed, whose changes they
-/// told of; its refusals of a client still go.
-pub(crate) fn discard(
-    outgoing: &mut Messages<OutgoingClientMessage>,
-) {
-    let refusals = outgoing
-        .drain()
-        .filter(|message| {
-            matches!(message, OutgoingClientMessage::Refusal(..))
-        })
-        .collect::<Vec<_>>();
-    outgoing.write_batch(refusals);
-}
-
 /// The connections as the handlers reach them, with what each client
 /// watches, the replies owed to it and the messages for it.
 #[derive(SystemParam)]
@@ -178,6 +164,19 @@ impl Connections<'_, '_> {
             text.into(),
             code,
         ));
+    }
+
+    /// Drops the messages of an input that failed, whose changes they
+    /// told of; its refusals of a client still go.
+    pub fn discard(&mut self) {
+        let refusals = self
+            .outgoing_messages
+            .drain()
+            .filter(|message| {
+                matches!(message, OutgoingClientMessage::Refusal(..))
+            })
+            .collect::<Vec<_>>();
+        self.outgoing_messages.write_batch(refusals);
     }
 
     /// Sends `message` to every welcomed client now.

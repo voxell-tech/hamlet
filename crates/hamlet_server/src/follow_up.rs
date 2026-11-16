@@ -16,8 +16,7 @@ use bevy_ecs::observer::On;
 use bevy_ecs::query::With;
 use bevy_ecs::resource::Resource;
 use bevy_ecs::schedule::IntoScheduleConfigs;
-use bevy_ecs::system::{Commands, In, Res, ResMut};
-use bevy_ecs::world::World;
+use bevy_ecs::system::{Commands, Query, Res, ResMut, SystemParam};
 use bevy_log::error;
 use hamlet_protocol::runtime::{
     ErrorCode, ProtocolError, ServerMessage,
@@ -29,7 +28,7 @@ use crate::ServerSystems;
 use crate::background::BackgroundWork;
 use crate::calls::{ToolRuns, UnstartedToolRun, place};
 use crate::clients::check::{failed, fault};
-use crate::clients::{Connections, OutgoingClientMessage, check};
+use crate::clients::{Connections, check};
 use crate::core::{Catalogue, Core, RemoteWorkspace};
 use crate::credentials::Credentials;
 use crate::knowledge::runner::{
@@ -106,29 +105,28 @@ pub(crate) fn plugin(app: &mut App) {
 /// Keeps the input's changes, or rolls them back when a system for it
 /// failed: nothing it queued goes out, and whoever sent it is told.
 /// A kept input stops at its crash test's fault point, if it has one.
-pub(crate) fn keep_or_roll_back_input(world: &mut World) -> Result {
+pub(crate) fn keep_or_roll_back_input(
+    mut realm: ResMut<Realm>,
+    mut queued: Queued,
+    origin: Res<InputOrigin>,
+    credentials: Res<Credentials>,
+) {
     if server::first_failure().is_none() {
-        let kept = hamlet_store::commit(
-            world.resource_mut::<Realm>().store().connection(),
-        );
-        match kept {
+        match hamlet_store::commit(realm.store().connection()) {
             Ok(()) => {
-                let point = world
-                    .resource::<InputEffects>()
-                    .crash_test_fault_point;
-                if let Some(point) = point {
+                if let Some(point) =
+                    queued.effects.crash_test_fault_point
+                {
                     crate::fault::point(point);
                 }
-                return Ok(());
+                return;
             }
             Err(error) => server::fail(Failure::of(&error)),
         }
     }
-    let unwound = hamlet_store::unwind(
-        world.resource_mut::<Realm>().store().connection(),
-    )
-    .and_then(|()| discard(world));
-    if let Err(error) = unwound {
+    if let Err(error) =
+        hamlet_store::unwind(realm.store().connection())
+    {
         // A connection that cannot roll back what failed cannot be
         // trusted with the next change.
         server::fail(Failure {
@@ -137,51 +135,85 @@ pub(crate) fn keep_or_roll_back_input(world: &mut World) -> Result {
                 &error.context("rolling back a failed input"),
             )
         });
-        return Ok(());
+        return;
     }
-    let Some(failure) = server::first_failure() else {
-        return Ok(());
-    };
-    let origin = world.resource::<InputOrigin>().clone();
-    world
-        .run_system_cached_with(tell_of_failure, (origin, failure))?
+    queued.discard();
+    if let Some(failure) = server::first_failure() {
+        queued.tell_of_failure(&origin, failure, &credentials);
+    }
 }
 
-/// Tells whoever sent a failed input that it failed: a client by its
-/// request, a runtime when it awaits an answer.
-fn tell_of_failure(
-    In((origin, failure)): In<(InputOrigin, Failure)>,
-    mut connections: Connections,
-    mut runtimes: Runtimes,
-    credentials: Res<Credentials>,
-) -> Result {
-    match origin {
-        InputOrigin::Client { client, request } => {
-            connections.send(
-                client,
-                fault(request.as_ref(), failed(failure.shown)),
-            );
+/// What an input queued to follow it, dropped when it failed.
+#[derive(SystemParam)]
+pub(crate) struct Queued<'w, 's> {
+    effects: ResMut<'w, InputEffects>,
+    wakes: ResMut<'w, Messages<WakeHeldCall>>,
+    ended: ResMut<'w, Messages<InputEnded>>,
+    background: ResMut<'w, BackgroundWork>,
+    unstarted_runs: Query<'w, 's, Entity, With<UnstartedToolRun>>,
+    connections: Connections<'w, 's>,
+    runtimes: Runtimes<'w, 's>,
+    commands: Commands<'w, 's>,
+}
+
+impl Queued<'_, '_> {
+    /// Drops what a failed input left to follow it: its transaction
+    /// was rolled back, so nothing it changed is so, and nothing it
+    /// asked for runs. Refusals still go, since they close a client.
+    fn discard(&mut self) {
+        *self.effects = InputEffects::default();
+        self.wakes.clear();
+        self.ended.clear();
+        self.connections.discard();
+        self.background.discard();
+        self.runtimes.discard();
+        for run in &self.unstarted_runs {
+            self.commands.entity(run).despawn();
         }
-        InputOrigin::Runtime {
-            runtime,
-            awaited: Some(awaited),
-        } => {
-            let message =
-                credentials.scrub_text(&failed(failure.logged));
-            runtimes.send(runtime, |v, id| {
-                ServerMessage::Error(ProtocolError {
-                    code: ErrorCode::Failed,
-                    id,
-                    message,
-                    re: Some(awaited),
-                    v,
-                })
-            });
-        }
-        InputOrigin::Runtime { awaited: None, .. }
-        | InputOrigin::Server => {}
     }
-    Ok(())
+
+    /// Tells whoever sent a failed input that it failed: a client by
+    /// its request, a runtime when it awaits an answer.
+    fn tell_of_failure(
+        &mut self,
+        origin: &InputOrigin,
+        failure: Failure,
+        credentials: &Credentials,
+    ) {
+        match origin {
+            InputOrigin::Client { client, request } => {
+                self.connections.send(
+                    *client,
+                    fault(request.as_ref(), failed(failure.shown)),
+                );
+            }
+            InputOrigin::Runtime {
+                runtime,
+                awaited: Some(awaited),
+            } => {
+                let message =
+                    credentials.scrub_text(&failed(failure.logged));
+                let awaited = awaited.clone();
+                self.runtimes.send(*runtime, |v, id| {
+                    ServerMessage::Error(ProtocolError {
+                        code: ErrorCode::Failed,
+                        id,
+                        message,
+                        re: Some(awaited),
+                        v,
+                    })
+                });
+            }
+            InputOrigin::Runtime { awaited: None, .. }
+            | InputOrigin::Server => {}
+        }
+    }
+}
+
+/// Drops what a failed input queued, for the runner when an update
+/// panicked past its systems.
+pub(crate) fn discard(mut queued: Queued) {
+    queued.discard();
 }
 
 /// A call held on a wait whose wait was answered: its runtime is
@@ -221,30 +253,6 @@ pub(crate) struct InputEffects {
     /// The fault point a crash test stops at once the input is kept,
     /// such as a society call's change kept with its answer.
     pub crash_test_fault_point: Option<&'static str>,
-}
-
-/// Drops what a failed input left to follow it: its transaction was
-/// rolled back, so nothing it changed is so, and nothing it asked
-/// for runs.
-pub(crate) fn discard(world: &mut World) -> anyhow::Result<()> {
-    *world.resource_mut::<InputEffects>() = InputEffects::default();
-    world.resource_mut::<Messages<WakeHeldCall>>().clear();
-    world.resource_mut::<Messages<InputEnded>>().clear();
-    crate::clients::discard(
-        &mut world.resource_mut::<Messages<OutgoingClientMessage>>(),
-    );
-    world.resource_mut::<BackgroundWork>().discard();
-    world.run_system_cached(|mut runtimes: Runtimes| {
-        runtimes.discard();
-    })?;
-    let starting = world
-        .query_filtered::<Entity, With<UnstartedToolRun>>()
-        .iter(world)
-        .collect::<Vec<_>>();
-    for run in starting {
-        world.despawn(run);
-    }
-    Ok(())
 }
 
 fn has_kept_change(effects: Res<InputEffects>) -> bool {

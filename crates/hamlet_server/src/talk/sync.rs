@@ -8,7 +8,6 @@ use std::path::Path;
 use anyhow::{Context, Result};
 use bevy_ecs::component::Component;
 use bevy_ecs::entity::Entity;
-use bevy_ecs::resource::Resource;
 use bevy_ecs::system::{Commands, Query, Res, ResMut, SystemParam};
 use bevy_log::error;
 use hamlet_protocol::runtime::{
@@ -30,9 +29,7 @@ use crate::server::{AddHandler, InputMessage, InputSender};
 
 /// The fitting of images, whose results come back as inputs.
 pub(crate) fn plugin(app: &mut bevy_app::App) {
-    let inputs = app.world().resource::<InputSender>().clone();
-    app.insert_resource(FittedSender(inputs))
-        .add_handler::<ImagesFitted, _>(take_in_fitted);
+    app.add_handler::<ImagesFitted, _>(take_in_fitted);
 }
 
 /// The images of an input were fitted to its model.
@@ -58,10 +55,6 @@ pub(crate) struct FittedImages {
     pub pictures: Vec<Picture>,
 }
 
-/// The sender that brings fitted images back as inputs.
-#[derive(Resource)]
-pub(crate) struct FittedSender(InputSender);
-
 /// An input whose images are being fitted, or were and are not sent
 /// yet: an entity until they are.
 #[derive(Component)]
@@ -74,7 +67,7 @@ pub(crate) struct FittingImages {
 /// The inputs whose images are fitted, as the flushes reach them.
 #[derive(SystemParam)]
 pub(crate) struct ImageFitting<'w, 's> {
-    done: Res<'w, FittedSender>,
+    inputs: Res<'w, InputSender>,
     list: Query<'w, 's, (Entity, &'static mut FittingImages)>,
     commands: Commands<'w, 's>,
 }
@@ -134,7 +127,7 @@ impl ImageFitting<'_, '_> {
             request: input.request.clone(),
             pictures: None,
         });
-        let done = self.done.0.clone();
+        let done = self.inputs.clone();
         let folder = images.to_owned();
         let (conversation, request) =
             (input.conversation, input.request.clone());

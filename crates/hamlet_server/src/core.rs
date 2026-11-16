@@ -18,8 +18,8 @@ use hamlet_protocol::runtime::{self, ServerMessage, ToolSpec};
 use hamlet_store::ids::{Actor, AgentId, ConversationId};
 
 use crate::background::BackgroundWork;
+use crate::calls::ToolRuns;
 use crate::calls::looks::LookFindings;
-use crate::calls::{Calls, ToolRuns};
 use crate::change::{Change, Done, Touched};
 use crate::clients::connection::UploadOf;
 use crate::clients::fold::Fold;
@@ -33,6 +33,7 @@ use crate::images::sent::ImageUpload;
 use crate::knowledge::runner::RepositoryWriteLock;
 use crate::providers::Providers;
 use crate::realm::Realm;
+use crate::server::InputSender;
 use crate::talk::activity::Activity;
 use crate::talk::inputs::Resend;
 use crate::talk::leases::Authority;
@@ -186,7 +187,8 @@ pub(crate) struct Core<'w, 's> {
     /// The input's spawns and despawns, applied after it.
     pub commands: Commands<'w, 's>,
     pub uploads: Uploads<'w, 's>,
-    pub calls: ResMut<'w, Calls>,
+    /// Where tasks send what they finish with, as inputs.
+    pub inputs: Res<'w, InputSender>,
     /// The tool runs in progress, one entity each.
     pub runs: ToolRuns<'w, 's>,
     /// The images of inputs being fitted to their models.
