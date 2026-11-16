@@ -3,10 +3,13 @@
 //! restart runs, and what each restart must show. A new scenario is a
 //! new row.
 
+mod realm;
+
 /// One way to kill the demo host and what must hold after it.
 pub struct Scenario {
     pub name: &'static str,
     pub about: &'static str,
+    pub demo: Demo,
     /// Lines `demo serve` runs before the kill. Each waits for its
     /// reply, which acknowledges it.
     pub setup: &'static [&'static str],
@@ -26,6 +29,15 @@ pub struct Scenario {
     pub probes: &'static [Probe],
     /// The values the first and the second restart must show.
     pub expect: [&'static [Expect]; 2],
+}
+
+/// How the demo host is started.
+pub enum Demo {
+    /// `demo serve`: the counters and the stub realm.
+    Local,
+    /// `demo --realm-actor serve`: the realm actor with stand-in
+    /// agents.
+    RealmActor,
 }
 
 /// When the kit kills the host, once the trigger was sent and, for a
@@ -288,12 +300,18 @@ const COMMAND_CUT_OFF: &[Expect] = &[
     },
 ];
 
-pub const SCENARIOS: &[Scenario] = &[
+/// Every scenario, in the order `--list` shows them.
+pub fn all() -> impl Iterator<Item = &'static Scenario> {
+    [SCENARIOS, realm::SCENARIOS].into_iter().flatten()
+}
+
+const SCENARIOS: &[Scenario] = &[
     Scenario {
         name: "counter-transaction",
         about: "kill inside an increment's open transaction, after \
                 three acknowledged increments; state and SQL equal \
                 the last acknowledged write",
+        demo: Demo::Local,
         setup: &["increment a 3"],
         trigger: "increment a",
         trigger_replies: false,
@@ -309,6 +327,7 @@ pub const SCENARIOS: &[Scenario] = &[
                 is acknowledged and before it is due, and restart \
                 after it is due; it fires exactly once, at the \
                 first start",
+        demo: Demo::Local,
         setup: &["increment a 2"],
         trigger: "schedule a 1500",
         trigger_replies: true,
@@ -328,6 +347,7 @@ pub const SCENARIOS: &[Scenario] = &[
                 are removed; the first restart finishes the destroy \
                 and starts nothing, and a new start of the key at \
                 the second reads 0",
+        demo: Demo::Local,
         setup: &["increment a 3"],
         trigger: "destroy a",
         trigger_replies: true,
@@ -344,6 +364,7 @@ pub const SCENARIOS: &[Scenario] = &[
                 process is gone under bubblewrap, and after each \
                 restart its row reads cut off, a status by its id \
                 answers cut off, and the agent was told nothing",
+        demo: Demo::Local,
         setup: &["realm reach 1 1"],
         trigger: "agent 1 run c1 sleep 8; touch late",
         trigger_replies: true,
@@ -365,6 +386,7 @@ pub const SCENARIOS: &[Scenario] = &[
                 restart's boot starts all five with no call, each \
                 reading its last acknowledged count, and the second \
                 starts none",
+        demo: Demo::Local,
         setup: &[
             "increment a 1",
             "increment b 2",
