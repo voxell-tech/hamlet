@@ -1,6 +1,6 @@
-//! The chief's model catalogue, what the server asks of a runtime's
-//! providers, and sign-ins owned by the connection that began them
-//! (S7).
+//! The chief's model catalogue, what the server requests of a
+//! runtime's providers, and sign-ins owned by the connection that
+//! began them (S7).
 
 use std::collections::{BTreeMap, HashMap};
 use std::path::PathBuf;
@@ -78,7 +78,7 @@ pub(crate) struct Providers {
 
 struct Pending {
     /// The connection and request it answers; unset when the server
-    /// asked.
+    /// sent it.
     from: Option<(u64, RequestId)>,
     provider: String,
     action: ProviderRequestAction,
@@ -250,7 +250,7 @@ impl Providers {
                 }),
             }
         };
-        // A model asked for an effort or tier it lacks gets the
+        // A model set to an effort or tier it lacks gets the
         // nearest effort it has, and the standard tier.
         let card =
             cards.get(&name).filter(|_| model.provider != FAUX);
@@ -274,10 +274,10 @@ impl Providers {
 }
 
 impl Core<'_, '_> {
-    /// Asks the providers what they offer, and each endpoint for its
+    /// Requests what the providers offer, and each endpoint's
     /// models.
     pub(crate) fn start_providers(&mut self) -> Result<()> {
-        self.ask_provider(
+        self.send_provider_request(
             None,
             "",
             ProviderRequestAction::Describe,
@@ -288,7 +288,7 @@ impl Core<'_, '_> {
         if !self.providers.faux {
             let endpoints = self.env.settings.endpoints.clone();
             for endpoint in &endpoints {
-                self.ask_provider(
+                self.send_provider_request(
                     None,
                     &endpoint.name,
                     ProviderRequestAction::Refresh,
@@ -301,7 +301,7 @@ impl Core<'_, '_> {
         Ok(())
     }
 
-    fn ask_provider(
+    fn send_provider_request(
         &mut self,
         from: Option<(u64, &RequestId)>,
         provider: &str,
@@ -453,7 +453,7 @@ impl Core<'_, '_> {
             }
         };
         self.model_link(LinkState::Testing, None, None)?;
-        self.ask_provider(
+        self.send_provider_request(
             Some((client, id)),
             &provider,
             action,
@@ -464,8 +464,8 @@ impl Core<'_, '_> {
         self.send_providers()
     }
 
-    /// Answers a client's read of the models, asking each endpoint
-    /// for its models first when `refresh` says so.
+    /// Answers a client's read of the models, requesting each
+    /// endpoint's models first when `refresh` says so.
     pub(crate) fn read_models(
         &mut self,
         client: u64,
@@ -484,7 +484,7 @@ impl Core<'_, '_> {
             self.answer(client, read)?;
         }
         for endpoint in &endpoints {
-            self.ask_provider(
+            self.send_provider_request(
                 Some((client, id)),
                 &endpoint.name,
                 ProviderRequestAction::Refresh,
@@ -497,7 +497,7 @@ impl Core<'_, '_> {
     }
 
     /// Takes a step of a client's sign-in: its start, its answer to
-    /// what the provider asked, or its cancel.
+    /// what the provider put to it, or its cancel.
     pub(crate) fn login(
         &mut self,
         client: u64,
@@ -553,7 +553,7 @@ impl Core<'_, '_> {
                 login_step(id, &key, LoginStep::Failed { failed }),
             );
         }
-        let scope = self.ask_provider(
+        let scope = self.send_provider_request(
             Some((client, id)),
             &start.provider,
             ProviderRequestAction::Login,
@@ -583,8 +583,8 @@ impl Core<'_, '_> {
         Ok(())
     }
 
-    /// Passes a client's answer to what its sign-in asked on to the
-    /// provider.
+    /// Passes a client's answer to what its sign-in put to it on to
+    /// the provider.
     fn login_reply(
         &mut self,
         client: u64,
@@ -1124,8 +1124,8 @@ struct Card {
     #[serde(default)]
     fast: bool,
     /// The images it takes, none when it takes none; unset in a card
-    /// kept before models were asked about images, which then takes
-    /// the images its provider lists.
+    /// kept before models were queried about images, which then
+    /// takes the images its provider lists.
     #[serde(
         default,
         deserialize_with = "set",
@@ -1147,7 +1147,7 @@ struct Card {
 
 impl Card {
     /// Takes in what pi says of `model`: what it is called, the
-    /// efforts it can be asked for, its default among them, whether
+    /// efforts it can be set to, its default among them, whether
     /// its API has a fast tier, and what it takes of images.
     fn learn(&mut self, model: &Listing) {
         model.name.trim().clone_into(&mut self.title);

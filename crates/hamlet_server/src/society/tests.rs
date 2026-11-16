@@ -494,18 +494,18 @@ fn a_scholar_a_hire_makes_waits_at_the_harbor_until_let_in() {
         arrival(&mut realm, sam),
         (city::Arrival::Waiting, false)
     );
-    let asks = |realm: &mut Realm| {
+    let waits = |realm: &mut Realm| {
         oversight::open(realm.db()).unwrap().iter().any(|w| {
             w.kind == WaitKind::Newcomer && w.scholar == Some(sam)
         })
     };
-    assert!(asks(&mut realm));
+    assert!(waits(&mut realm));
     realm.chief(|cx| city::welcome(cx, sam, "")).unwrap();
     assert_eq!(
         arrival(&mut realm, sam),
         (city::Arrival::Housed, true)
     );
-    assert!(!asks(&mut realm));
+    assert!(!waits(&mut realm));
     // A chief can send it back again.
     realm
         .chief(|cx| city::turn_away(cx, sam, "not yet"))

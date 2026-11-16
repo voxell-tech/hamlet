@@ -53,7 +53,7 @@ pub(crate) struct Task {
     pub id: TaskId,
     pub origin: Origin,
     pub agent: AgentId,
-    /// The chief overseeing it, who answers what it asks (H10).
+    /// The chief overseeing it, who answers its questions (H10).
     pub chief: Option<ChiefId>,
     /// The hamlet that pays for it; the realm when `None`.
     pub payer: Option<HamletId>,

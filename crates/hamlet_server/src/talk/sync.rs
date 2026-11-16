@@ -273,7 +273,7 @@ pub(crate) fn flush(
     Ok(())
 }
 
-/// Asks the runtime to make `owed`, or to fork it from its parent
+/// Tells the runtime to make `owed`, or to fork it from its parent
 /// once the parent is made.
 fn make(
     db: &mut Db,

@@ -1,6 +1,6 @@
-//! A runtime's asks while a turn runs: whether a tool call may run
-//! (C7, H11), and the call carried out once under its key (S19). A
-//! chief's answer to what waits lets held calls go on.
+//! A runtime's requests while a turn runs: whether a tool call may
+//! run (C7, H11), and the call carried out once under its key (S19).
+//! A chief's answer to what waits lets held calls go on.
 
 mod answer;
 mod deciding;
@@ -40,12 +40,12 @@ use crate::core::Core;
 use crate::images::Limits;
 use crate::images::fitting::kept_pictures;
 use crate::knowledge::CHARACTER;
-use crate::oversight::gate::{Asked, Session};
+use crate::oversight::gate::{Session, TurnGate};
 use crate::oversight::{self, Raise, Ruling, WaitKind};
 use crate::server::{AddHandler, InputMessage, InputSender};
 use crate::talk::conversations::{Conversation, Kind};
 use crate::talk::marks::Mark;
-use crate::talk::{asking, conversations, inputs, models};
+use crate::talk::{conversations, inputs, models, questions};
 use crate::work::catalogue::Society;
 use crate::work::tools::shell::Dialect;
 use crate::work::tools::{Network, Outcome, Sight, ToolSession};
@@ -102,8 +102,8 @@ impl CallId {
     }
 }
 
-/// The address of a call's answer: the runtime process that asked,
-/// and its request.
+/// The address of a call's answer: the runtime process that made
+/// the call, and its request.
 #[derive(Clone, Debug)]
 pub(crate) struct Reply {
     pub to: Entity,
@@ -150,7 +150,7 @@ pub(crate) struct ToolRun {
 }
 
 /// The work of a run not started yet: it starts once the input that
-/// asked for it is kept, so a failed input runs nothing.
+/// requested it is kept, so a failed input runs nothing.
 #[derive(Component)]
 pub(crate) struct UnstartedToolRun(
     Mutex<Option<BoxFuture<'static, ()>>>,
@@ -225,9 +225,10 @@ fn tool_run(
 pub(crate) fn specs() -> Vec<ToolSpec> {
     let mut specs = vec![spec(
         "ask_chief",
-        "Ask the chief a question you cannot go on without. Waits \
-         for the answer, so ask only when no agent and no file can \
-         tell you. Use object to argue against an instruction.",
+        "Put a question to the chief that you cannot go on without. \
+         Waits for the answer, so use it only when no agent and no \
+         file can tell you. Use object to argue against an \
+         instruction.",
         json!({
             "type": "object",
             "properties": {
@@ -235,7 +236,7 @@ pub(crate) fn specs() -> Vec<ToolSpec> {
                 "questions": {
                     "type": "array",
                     "minItems": 1,
-                    "maxItems": asking::MOST_QUESTIONS,
+                    "maxItems": questions::MOST_QUESTIONS,
                     "items": {
                         "type": "object",
                         "properties": {
@@ -243,7 +244,7 @@ pub(crate) fn specs() -> Vec<ToolSpec> {
                             "description": {"type": "string"},
                             "options": {
                                 "type": "array",
-                                "maxItems": asking::MOST_OPTIONS,
+                                "maxItems": questions::MOST_OPTIONS,
                                 "items": {"anyOf": [
                                     {"type": "string"},
                                     {
@@ -334,7 +335,7 @@ pub(crate) fn refused(text: impl Into<String>) -> Outcome {
     }
 }
 
-/// One call as a runtime asked it.
+/// One call as a runtime made it.
 struct Call<'a> {
     /// Its runtime and key.
     call: CallId,
@@ -369,7 +370,7 @@ enum Decision {
 
 impl Core<'_, '_> {
     /// Answers `reply` about the call `key`, unless its runtime
-    /// started again since it asked.
+    /// started again since it made the call.
     fn tell_call(
         &mut self,
         reply: &Reply,
@@ -431,7 +432,7 @@ impl Core<'_, '_> {
         });
     }
 
-    /// The call a runtime asked, with its key reserved for its
+    /// The call a runtime made, with its key reserved for its
     /// request; the reply to give when the call cannot go on.
     fn admit<'a>(
         &mut self,
@@ -484,26 +485,26 @@ impl Core<'_, '_> {
         }
     }
 
-    /// Answers a runtime whether the call `asked` may run, before it
-    /// is kept as begun.
+    /// Answers a runtime whether the call `request` may run, before
+    /// it is kept as begun.
     pub(crate) fn allow_call(
         &mut self,
         from: Entity,
-        asked: runtime::Allow,
+        request: runtime::Allow,
     ) -> Result<()> {
-        let again = RuntimeMessage::Allow(asked.clone());
-        let reply = self.reply_of(from, &asked.id);
+        let again = RuntimeMessage::Allow(request.clone());
+        let reply = self.reply_of(from, &request.id);
         let call = match self.admit(
             from,
-            &asked.conversation,
-            &asked.key,
-            asked.input.as_deref(),
-            &asked.tool,
-            &asked.arguments,
+            &request.conversation,
+            &request.key,
+            request.input.as_deref(),
+            &request.tool,
+            &request.arguments,
         )? {
             Ok(call) => call,
             Err(answer) => {
-                self.tell_call(&reply, &asked.key, answer);
+                self.tell_call(&reply, &request.key, answer);
                 return Ok(());
             }
         };
@@ -512,7 +513,7 @@ impl Core<'_, '_> {
         {
             self.tell_call(
                 &reply,
-                &asked.key,
+                &request.key,
                 Answer::Refusal(held::WITHDRAWN.into()),
             );
             return Ok(());
@@ -520,7 +521,7 @@ impl Core<'_, '_> {
         if self.is_objecting(&call)? {
             self.tell_call(
                 &reply,
-                &asked.key,
+                &request.key,
                 Answer::Waiting(OBJECTING.into()),
             );
             return Ok(());
@@ -544,7 +545,7 @@ impl Core<'_, '_> {
                 }
             }
         };
-        self.tell_call(&reply, &asked.key, answer);
+        self.tell_call(&reply, &request.key, answer);
         Ok(())
     }
 
@@ -573,26 +574,26 @@ impl Core<'_, '_> {
         });
     }
 
-    /// Carries out the call `asked`: its kept result when it ran,
+    /// Carries out the call `request`: its kept result when it ran,
     /// else as the gate decides now.
     pub(crate) fn operation(
         &mut self,
         from: Entity,
-        asked: runtime::Operation,
+        request: runtime::Operation,
     ) -> Result<()> {
-        let again = RuntimeMessage::Operation(asked.clone());
-        let reply = self.reply_of(from, &asked.id);
+        let again = RuntimeMessage::Operation(request.clone());
+        let reply = self.reply_of(from, &request.id);
         let call = match self.admit(
             from,
-            &asked.conversation,
-            &asked.key,
-            asked.input.as_deref(),
-            &asked.tool,
-            &asked.arguments,
+            &request.conversation,
+            &request.key,
+            request.input.as_deref(),
+            &request.tool,
+            &request.arguments,
         )? {
             Ok(call) => call,
             Err(answer) => {
-                self.tell_call(&reply, &asked.key, answer);
+                self.tell_call(&reply, &request.key, answer);
                 return Ok(());
             }
         };
@@ -606,7 +607,7 @@ impl Core<'_, '_> {
             return Ok(());
         }
         if let Some(answer) = self.kept_answer(&call)? {
-            self.tell_call(&reply, &asked.key, answer);
+            self.tell_call(&reply, &request.key, answer);
             return Ok(());
         }
         match self.carry_out(&call, &reply, from, again)? {
@@ -622,19 +623,19 @@ impl Core<'_, '_> {
                 self.looks.forget(&call.call);
                 self.tell_call(
                     &reply,
-                    &asked.key,
+                    &request.key,
                     Answer::Result(outcome),
                 );
             }
             CallOutcome::Answer(answer) => {
-                self.tell_call(&reply, &asked.key, answer);
+                self.tell_call(&reply, &request.key, answer);
             }
             CallOutcome::Later => {}
         }
         Ok(())
     }
 
-    /// The answer kept for `call` from when it was asked before: its
+    /// The answer kept for `call` from when it was made before: its
     /// outcome, or that a restart cut it off; none when it is new.
     fn kept_answer(
         &mut self,
@@ -926,7 +927,7 @@ impl Core<'_, '_> {
     }
 
     /// Keeps the outcome of a tool run that ended and answers each
-    /// runtime that asked.
+    /// runtime that made it.
     pub(crate) fn ran(&mut self, ran: Ran) -> Result<()> {
         let Some((entity, mut found)) = self
             .runs
@@ -977,9 +978,9 @@ impl Core<'_, '_> {
         .and_then(|input| input.task))
     }
 
-    /// Asks the chief the questions of `call`, or gives the chief's
-    /// answer once there is one. `Err` is the runtime's answer while
-    /// it waits or when it may not ask.
+    /// Puts the questions of `call` to the chief, or gives the
+    /// chief's answer once there is one. `Err` is the runtime's
+    /// answer while it waits or when it may put no more questions.
     fn ask_chief(
         &mut self,
         call: &Call<'_>,
@@ -1016,12 +1017,12 @@ impl Core<'_, '_> {
         if !self.is_overseen(call)? {
             return Ok(Ok(said(NO_CHIEF)));
         }
-        let questions = match asking::read(&serde_json::to_string(
+        let questions = match questions::read(&serde_json::to_string(
             call.arguments,
         )?) {
             Ok(questions) => questions,
-            Err(unasked) => {
-                return Ok(Ok(refused(unasked.to_string())));
+            Err(invalid) => {
+                return Ok(Ok(refused(invalid.to_string())));
             }
         };
         let mut questions = serde_json::to_value(questions)?;
@@ -1035,25 +1036,25 @@ impl Core<'_, '_> {
         let most = society::limits_of(db, at.hamlet.as_ref())?
             .asking
             .questions;
-        let mut asked =
-            Asked::of(db, call.conversation.id, call.input)?;
-        if asked.questions >= most {
+        let mut gate =
+            TurnGate::of(db, call.conversation.id, call.input)?;
+        if gate.questions >= most {
             let times = if most == 1 {
                 "once".into()
             } else {
                 format!("{most} times")
             };
             return Ok(Ok(said(format!(
-                "You have asked the chief {times} this turn; go on \
-                 with what you know."
+                "You have put questions to the chief {times} this \
+                 turn; go on with what you know."
             ))));
         }
-        asked.questions += 1;
+        gate.questions += 1;
         let (runtime, key) =
             (call.call.runtime.clone(), call.call.key.clone());
         let conversation = call.conversation.id;
         self.change(Actor::Realm, |cx, _| {
-            asked.keep(cx.db, conversation)?;
+            gate.keep(cx.db, conversation)?;
             let wait = oversight::raise(
                 cx,
                 Raise {
@@ -1063,7 +1064,7 @@ impl Core<'_, '_> {
                     scholar: None,
                     conversation: Some(conversation),
                     task,
-                    about: asking::about(&questions),
+                    about: questions::about(&questions),
                     change: None,
                     answers: vec![
                         hamlet_protocol::client::Choice::Reply,

@@ -361,7 +361,7 @@ impl Core<'_, '_> {
 
     /// Makes the change of `call` by its agent, and keeps the call's
     /// answer in the same transaction: a call cut off by a crash
-    /// after its change is answered the same when it is asked again,
+    /// after its change is answered the same when it is made again,
     /// and never changes anything twice.
     fn carry(
         &mut self,
@@ -405,7 +405,7 @@ impl Core<'_, '_> {
 
     /// Marks `call` begun before an effect outside the store, which
     /// no transaction keeps with its answer: cut off by a crash, it
-    /// is answered as interrupted when it is asked again, never run
+    /// is answered as interrupted when it is made again, never run
     /// twice.
     fn begin(&mut self, call: &Call<'_>) -> Result<()> {
         let db = self.realm.store().connection();
@@ -609,8 +609,8 @@ impl Core<'_, '_> {
 }
 
 /// The words for the agent that made a scholar: it lives in the
-/// city, or waits at the harbor, with the Hand asked to judge it when
-/// the realm leaves newcomers to the Hand.
+/// city, or waits at the harbor, with the Hand called on to judge it
+/// when the realm leaves newcomers to the Hand.
 fn arrived(
     cx: &mut Change<'_>,
     env: &Env,

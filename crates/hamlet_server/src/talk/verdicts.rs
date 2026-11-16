@@ -40,13 +40,13 @@ pub(crate) struct Ruled {
     pub notice: Option<runtime::Mark>,
 }
 
-/// Rules on the final answer `asked` gives in `conversation`.
+/// Rules on the final answer `yielded` gives in `conversation`.
 pub(crate) fn rule(
     cx: &mut Change<'_>,
     conversation: &Conversation,
-    asked: &Yield,
+    yielded: &Yield,
 ) -> Result<Ruled> {
-    let answer = &asked.answer;
+    let answer = &yielded.answer;
     let stands =
         answer.blocks.iter().flatten().any(|block| match block {
             Block::Call { .. } => true,
@@ -56,7 +56,7 @@ pub(crate) fn rule(
     if stands {
         return Ok(Ruled::default());
     }
-    let input = match &asked.input {
+    let input = match &yielded.input {
         Some(submission) => {
             inputs::by_submission(cx.db, conversation.id, submission)?
         }
@@ -75,15 +75,16 @@ pub(crate) fn rule(
             .is_some_and(|usage| usage.output < ROOMY)
         && !reflection
         && tasked;
-    let history = asked.history == Some(true);
-    let first = asked.retried != Some(true);
-    if cutoff && history && first && asked.summary_failure.is_none() {
+    let history = yielded.history == Some(true);
+    let first = yielded.retried != Some(true);
+    if cutoff && history && first && yielded.summary_failure.is_none()
+    {
         return Ok(Ruled {
             compact: true,
             ..Ruled::default()
         });
     }
-    let words = if let Some(error) = &asked.summary_failure {
+    let words = if let Some(error) = &yielded.summary_failure {
         match error.strip_prefix("Summarization failed: ") {
             Some(detail) => format!("provider error: {detail}"),
             None => NO_SUMMARY.into(),
@@ -95,7 +96,7 @@ pub(crate) fn rule(
     } else {
         EMPTY.into()
     };
-    if let Some(submission) = &asked.input {
+    if let Some(submission) = &yielded.input {
         let kept = diesel::insert_into(answer_fault::table)
             .values((
                 answer_fault::conversation.eq(conversation.id),

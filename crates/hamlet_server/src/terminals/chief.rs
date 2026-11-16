@@ -3,40 +3,37 @@
 use bevy_ecs::error::Result;
 use hamlet_os::process::pty::Size;
 use hamlet_protocol::client::{
-    Reply, ReplyKind, RequestId, ServerMessage, Terminal as Asked,
+    Reply, ReplyKind, RequestId, ServerMessage,
+    Terminal as TerminalRequest,
 };
 
 use super::screen::lock;
 use super::shell::{Key, open};
-use crate::clients::asked::FromClient;
+use crate::clients::received::FromClient;
 use crate::core::Core;
 use crate::server::InputMessage;
 
 /// Answers the chief's terminal request from a client.
-pub(super) fn asked(
-    mut asked: InputMessage<FromClient<Asked>>,
+pub(super) fn answer_request(
+    mut received: InputMessage<FromClient<TerminalRequest>>,
     mut core: Core,
 ) -> Result {
-    let Some(FromClient {
-        client,
-        request: asked,
-    }) = asked.take()
-    else {
+    let Some(FromClient { client, request }) = received.take() else {
         return Ok(());
     };
-    let answers = match asked {
-        Asked::Open { cols, id, rows } => {
+    let answers = match request {
+        TerminalRequest::Open { cols, id, rows } => {
             let terminal = open(&mut core, Size { rows, cols });
             let answer =
                 core.terminals.watch(client, &terminal, Some(&id));
             core.publish();
             answer.into_iter().collect()
         }
-        Asked::Input { data, terminal } => {
+        TerminalRequest::Input { data, terminal } => {
             core.terminals.type_in(&terminal, data.into_bytes());
             Vec::new()
         }
-        Asked::Resize {
+        TerminalRequest::Resize {
             cols,
             rows,
             terminal,
@@ -53,20 +50,20 @@ pub(super) fn asked(
             }
             Vec::new()
         }
-        Asked::Watch { id, terminal } => {
+        TerminalRequest::Watch { id, terminal } => {
             match core.terminals.watch(client, &terminal, Some(&id)) {
                 Some(output) => vec![output],
                 None => vec![said(&id, Err(gone(&terminal)))],
             }
         }
-        Asked::Unwatch { terminal } => {
+        TerminalRequest::Unwatch { terminal } => {
             if let Some(open) = core.terminals.open.get_mut(&terminal)
             {
                 open.watchers.remove(&client);
             }
             Vec::new()
         }
-        Asked::Close { id, terminal } => {
+        TerminalRequest::Close { id, terminal } => {
             let result = if core.terminals.close(&terminal) {
                 Ok("Closed.".into())
             } else {
@@ -75,7 +72,7 @@ pub(super) fn asked(
             core.publish();
             vec![said(&id, result)]
         }
-        Asked::Rename { id, name, terminal } => {
+        TerminalRequest::Rename { id, name, terminal } => {
             let name = name.trim();
             let result = if name.is_empty() {
                 Err("A terminal needs a name.".into())

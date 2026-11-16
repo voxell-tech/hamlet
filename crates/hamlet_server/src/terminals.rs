@@ -39,7 +39,7 @@ use self::screen::{LAST, Screen, lock};
 use self::shell::{Key, Launch, start};
 use crate::calls::place::Workplace;
 use crate::clients::Connections;
-use crate::clients::asked::FromClient;
+use crate::clients::received::FromClient;
 use crate::closing::Serving;
 use crate::core::Core;
 use crate::follow_up::InputEffects;
@@ -60,7 +60,7 @@ pub(crate) fn plugin(app: &mut App) {
     app.add_message::<TerminalsPrinted>()
         .add_handler::<TerminalsPrinted, _>(take_in_printed)
         .add_handler::<FromClient<protocol::Terminal>, _>(
-            chief::asked,
+            chief::answer_request,
         )
         .add_timer(catch_up_due, catch_up)
         .add_systems(OnEnter(Serving::Stopping), keep_all);

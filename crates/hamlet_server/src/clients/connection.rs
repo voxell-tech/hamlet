@@ -1,6 +1,6 @@
 //! The WebSocket connections: accepting them, carrying each one's
 //! frames to the serve loop and back, and closing them with their
-//! codes. A message is only text here: what it asks is for the
+//! codes. A message is only text here: what it requests is for the
 //! requests to read.
 
 use std::sync::Arc;
@@ -20,8 +20,8 @@ use tokio_tungstenite::tungstenite::protocol::{
 };
 use tokio_tungstenite::tungstenite::{Error, Message};
 
-use super::asked::ClientEvent;
 use super::check::fault;
+use super::received::ClientEvent;
 use crate::credentials::Credentials;
 use crate::server::InputSender;
 

@@ -104,7 +104,7 @@ impl Mark {
         }
     }
 
-    /// Whether its turn is one a chief asked for.
+    /// Whether its turn is one a chief requested.
     pub fn is_chief_turn(&self) -> bool {
         matches!(self, Self::Chief { .. } | Self::Retry { .. })
     }

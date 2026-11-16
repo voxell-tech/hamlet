@@ -1,5 +1,5 @@
-//! An agent's words to another along a road (H30, H31), its ask for a
-//! road, and the workers it starts, each kept once per call.
+//! An agent's words to another along a road (H30, H31), its request
+//! for a road, and the workers it starts, each kept once per call.
 
 use anyhow::Result;
 use diesel::prelude::*;
@@ -52,7 +52,7 @@ impl Core<'_, '_> {
         )
     }
 
-    /// Asks the caller's lead for a road, as a letter to it.
+    /// Requests a road from the caller's lead, as a letter to it.
     pub(in crate::calls) fn request_road(
         &mut self,
         call: &Call<'_>,
@@ -74,7 +74,7 @@ impl Core<'_, '_> {
         };
         let name = self.name(to)?;
         let words =
-            format!("I ask for a road to {name}: {}", args.reason);
+            format!("I request a road to {name}: {}", args.reason);
         self.deliver(
             call,
             MessageKind::Letter,

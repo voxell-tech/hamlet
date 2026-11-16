@@ -15,8 +15,8 @@ use crate::oversight::{Ruling, WaitKind};
 pub(crate) enum State {
     /// Reserved, not decided.
     Open,
-    /// Let run without asking; made again each time, as grants and
-    /// trust change.
+    /// Let run without a chief's answer; made again each time, as
+    /// grants and trust change.
     Allowed {
         net: bool,
     },

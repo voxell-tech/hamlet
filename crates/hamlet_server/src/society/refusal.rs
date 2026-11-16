@@ -323,13 +323,13 @@ pub(crate) enum Refusal {
     #[error("Say what to send.")]
     NothingToSend,
     #[error(
-        "You have no road to {other}. Ask your lead for one with \
-         request_road."
+        "You have no road to {other}. Request one from your lead \
+         with request_road."
     )]
     NoRoadTo { other: String },
     #[error(
         "{other} is waiting on your answer already; tell it what it \
-         needs instead of asking."
+         needs instead of putting a question."
     )]
     AlreadyWaitingOn { other: String },
     #[error("That is not one of your lines in this conversation.")]

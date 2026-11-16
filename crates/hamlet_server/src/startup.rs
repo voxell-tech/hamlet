@@ -8,9 +8,10 @@
 //!
 //! `Startup` then starts it: the runtimes start, the tools added by
 //! hand load, each agent's tools are narrowed to its role, the
-//! providers are asked what they serve, and the turns the last stop
-//! left are followed. `PostUpdate` keeps what they changed, and at
-//! the end of `Last` the server's address is published.
+//! providers are sent a request for what they serve, and the turns
+//! the last stop left are followed. `PostUpdate` keeps what they
+//! changed, and at the end of `Last` the server's address is
+//! published.
 
 use std::net::Ipv4Addr;
 use std::path::PathBuf;
@@ -45,7 +46,7 @@ use crate::terminals::{Terminals, kept};
 use crate::work::added::{self, AddedToolsWatch};
 use crate::work::tools::shell::Shells;
 use crate::workspace::Transport;
-use crate::{ServerSystems, clock};
+use crate::{SendSystems, clock};
 
 pub(crate) fn plugin(app: &mut App) {
     app.add_systems(
@@ -71,7 +72,7 @@ pub(crate) fn plugin(app: &mut App) {
             start_runtimes,
             added::reload,
             crate::follow_up::narrow_tools_to_roles,
-            ask_providers,
+            start_providers,
             follow_unfollowed,
         )
             .chain(),
@@ -79,7 +80,7 @@ pub(crate) fn plugin(app: &mut App) {
     .add_systems(
         Last,
         publish_address
-            .after(ServerSystems::ForgetInput)
+            .after(SendSystems::ForgetInput)
             .run_if(not(resource_exists::<Published>)),
     );
 }
@@ -292,7 +293,7 @@ fn start_runtimes(
     Ok(())
 }
 
-fn ask_providers(mut core: Core) -> Result {
+fn start_providers(mut core: Core) -> Result {
     core.start_providers()?;
     Ok(())
 }

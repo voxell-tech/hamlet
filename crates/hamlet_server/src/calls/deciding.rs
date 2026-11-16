@@ -16,19 +16,19 @@ use super::{
     Call, Decision, NOBODY, STOPPED, WAITING, chat_session, society,
 };
 use crate::core::Core;
-use crate::oversight::gate::{self, Asked, Standing, Verdict};
+use crate::oversight::gate::{self, Standing, TurnGate, Verdict};
 use crate::oversight::{self, Raise, Ruling, WaitKind};
 use crate::work::catalogue::Society;
 use crate::work::cut::change_between;
 use crate::work::tools::Network;
 
 /// A call as the gate rules on it, or the decision made before the
-/// gate is asked: a look to wait for, or a block.
+/// gate is consulted: a look to wait for, or a block.
 type Classified = Result<Result<gate::Call, Decision>>;
 
 impl Core<'_, '_> {
     /// The gate's decision of `call`: the one kept, else one made now
-    /// and kept, raising a wait when it asks a chief.
+    /// and kept, raising a wait when it needs a chief's answer.
     pub(super) fn decide(
         &mut self,
         call: &Call<'_>,
@@ -284,16 +284,17 @@ impl Core<'_, '_> {
                     agent,
                     &hamlet_protocol::client::Permission::Network,
                 )?,
-            asks_edits: at.manual && !edit,
-            asks_commands: at.manual && !command,
+            holds_edits: at.manual && !edit,
+            holds_commands: at.manual && !command,
         };
-        let asked = Asked::of(db, call.conversation.id, call.input)?;
+        let gate =
+            TurnGate::of(db, call.conversation.id, call.input)?;
         let verdict = gate::rule(
             &classified,
             &standing,
             at.caller,
             &limits.reserved,
-            &asked,
+            &gate,
             &about,
             limits.asking.refusals,
         );
@@ -308,14 +309,14 @@ impl Core<'_, '_> {
                     Decision::Run { net }
                 }
                 Verdict::Block(words) => {
-                    asked.keep(cx.db, conversation)?;
+                    gate.keep(cx.db, conversation)?;
                     held::block(
                         cx.db, &runtime, &key, &words, change,
                     )?;
                     Decision::Block(words)
                 }
-                Verdict::Ask(danger) => {
-                    asked.keep(cx.db, conversation)?;
+                Verdict::Hold(danger) => {
+                    gate.keep(cx.db, conversation)?;
                     let wait = oversight::raise(
                         cx,
                         Raise {

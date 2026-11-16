@@ -193,7 +193,7 @@ async fn a_lead_runs_the_hires_under_it_and_nothing_beyond_them() {
     );
     assert_eq!(
         s.chief.command(ada, "/fast hire#3 on").await,
-        "`hire#3` asks for the fast tier: on."
+        "`hire#3` calls for the fast tier: on."
     );
     assert_eq!(
         s.chief.command(ada, "/model hand faux::faux-1").await,

@@ -9,12 +9,12 @@ use super::{chat_session, held};
 use crate::change::Change;
 use crate::core::Core;
 use crate::follow_up::WakeHeldCall;
-use crate::oversight::gate::{self, Asked};
+use crate::oversight::gate::{self, TurnGate};
 use crate::oversight::{self, Danger, Ruling, Wait, WaitKind};
 use crate::society::addresses;
 use crate::society::refusal::Refusal;
 use crate::talk::conversations::Conversation;
-use crate::talk::{asking, conversations};
+use crate::talk::{conversations, questions};
 
 /// The fault in a chief's choice that cannot answer a wait so.
 #[derive(Debug, thiserror::Error)]
@@ -30,7 +30,7 @@ enum Unanswerable {
     #[error("This wait does not take a reply.")]
     NoReply,
     #[error(transparent)]
-    Picks(#[from] asking::Unanswered),
+    Picks(#[from] questions::Unanswered),
 }
 
 /// The words of `choice` on `wait`: a reply's text, or the answer its
@@ -59,7 +59,7 @@ fn words(
             return Ok(Err(Unanswerable::NoPicks));
         };
         return Ok(
-            asking::answer(questions, picks).map_err(Into::into)
+            questions::answer(questions, picks).map_err(Into::into)
         );
     }
     if *choice != Choice::Reply {
@@ -72,10 +72,10 @@ fn words(
         return Ok(Err(Unanswerable::NoReply));
     };
     let words = Pick::Words { text: text.into() };
-    if let Err(unanswered) = asking::answer(questions, &[words]) {
+    if let Err(unanswered) = questions::answer(questions, &[words]) {
         return Ok(Err(unanswered.into()));
     }
-    Ok(Ok(format!("{} {}", asking::ANSWERS, text.trim())))
+    Ok(Ok(format!("{} {}", questions::ANSWERS, text.trim())))
 }
 
 /// Withdraws the chief's instruction of `task`: its turn in
@@ -192,7 +192,7 @@ fn rule_calls(
             && let Some(danger) = wait.danger
             && !struck.contains(&conversation.id)
         {
-            let mut asked = Asked::of(
+            let mut gate = TurnGate::of(
                 cx.db,
                 conversation.id,
                 call.input.as_deref(),
@@ -202,8 +202,8 @@ fn rule_calls(
             } else {
                 text
             };
-            asked.refuse(danger, &wait.about, why);
-            asked.keep(cx.db, conversation.id)?;
+            gate.refuse(danger, &wait.about, why);
+            gate.keep(cx.db, conversation.id)?;
             struck.push(conversation.id);
         }
     }
@@ -332,8 +332,8 @@ impl Core<'_, '_> {
     }
 
     /// Tells the runtime of a held call that its wait was answered,
-    /// so asking again may get further, once the input's changes are
-    /// sent.
+    /// so a repeated request may get further, once the input's
+    /// changes are sent.
     pub(crate) fn wake_call(&mut self, runtime: &str, key: &str) {
         self.wakes.write(WakeHeldCall {
             runtime: runtime.to_owned(),

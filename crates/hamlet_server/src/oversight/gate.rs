@@ -202,8 +202,8 @@ pub(crate) struct Standing {
     /// (C21).
     pub lodge_edit: bool,
     pub net: bool,
-    pub asks_edits: bool,
-    pub asks_commands: bool,
+    pub holds_edits: bool,
+    pub holds_commands: bool,
 }
 
 /// The outcome of a call: run, with or without the network; wait for
@@ -211,7 +211,7 @@ pub(crate) struct Standing {
 #[derive(Clone, Debug, PartialEq)]
 pub(crate) enum Verdict {
     Run { net: bool },
-    Ask(Danger),
+    Hold(Danger),
     Block(String),
 }
 
@@ -243,19 +243,19 @@ pub(crate) fn rule(
     standing: &Standing,
     caller: Caller,
     reserved: &Reserved,
-    asked: &Asked,
+    gate: &TurnGate,
     about: &str,
     refusals: i64,
 ) -> Verdict {
     let verdict = if is_reserved(call, caller, reserved) {
-        Verdict::Ask(Danger::Reserved)
+        Verdict::Hold(Danger::Reserved)
     } else {
         reach(call, standing)
     };
-    let Verdict::Ask(danger) = verdict else {
+    let Verdict::Hold(danger) = verdict else {
         return verdict;
     };
-    match refused(asked, danger, about, refusals) {
+    match refused(gate, danger, about, refusals) {
         Some(words) => Verdict::Block(words),
         None => verdict,
     }
@@ -289,14 +289,14 @@ fn reach(call: &Call, standing: &Standing) -> Verdict {
             if *bytes > AttachedFile::CAP_BYTES
                 || *files > AttachedFile::CAP_FILES
             {
-                Verdict::Ask(Danger::Send)
+                Verdict::Hold(Danger::Send)
             } else {
                 Verdict::Run { net: false }
             }
         }
         Call::Edit { .. } => {
-            if standing.asks_edits && !standing.lodge_edit {
-                Verdict::Ask(Danger::Edit)
+            if standing.holds_edits && !standing.lodge_edit {
+                Verdict::Hold(Danger::Edit)
             } else {
                 Verdict::Run { net: false }
             }
@@ -309,9 +309,9 @@ fn reach(call: &Call, standing: &Standing) -> Verdict {
                 _ => false,
             };
             if !standing.net && (*net || named) {
-                Verdict::Ask(Danger::Network)
-            } else if standing.asks_commands {
-                Verdict::Ask(Danger::Command)
+                Verdict::Hold(Danger::Network)
+            } else if standing.holds_commands {
+                Verdict::Hold(Danger::Command)
             } else {
                 Verdict::Run { net: standing.net }
             }
@@ -341,7 +341,7 @@ fn has_mention(command: &str, needle: &str) -> bool {
 
 /// The refusals and questions of a conversation's current turn.
 #[derive(Clone, Debug, Default, PartialEq)]
-pub(crate) struct Asked {
+pub(crate) struct TurnGate {
     pub input: Option<String>,
     pub strikes: i64,
     pub questions: i64,
@@ -374,8 +374,8 @@ impl Covers {
     }
 }
 
-impl Asked {
-    /// The [`Asked`] of `conversation` in its turn of `input`.
+impl TurnGate {
+    /// The [`TurnGate`] of `conversation` in its turn of `input`.
     pub fn of(
         db: &mut Db,
         conversation: ConversationId,
@@ -436,7 +436,7 @@ impl Asked {
         Ok(())
     }
 
-    /// Keeps the chief's refusal of what was asked.
+    /// Keeps the chief's refusal of what was requested.
     pub fn refuse(
         &mut self,
         danger: Danger,
@@ -454,28 +454,28 @@ impl Asked {
 /// The denial of a request repeated in a turn, or of one past the
 /// cap.
 fn refused(
-    asked: &Asked,
+    gate: &TurnGate,
     danger: Danger,
     about: &str,
     cap: i64,
 ) -> Option<String> {
     let what = Covers::of(danger, about);
     if let Some(earlier) =
-        asked.refused.iter().find(|entry| entry.what == what)
+        gate.refused.iter().find(|entry| entry.what == what)
     {
         return Some(format!(
             "the chief already refused this in this turn ({}). Do \
-             not ask again: go on without it, or report that you \
-             could not.",
+             not request it again: go on without it, or report that \
+             you could not.",
             earlier.reason
         ));
     }
-    (asked.strikes >= cap).then(|| {
+    (gate.strikes >= cap).then(|| {
         format!(
             "the chief has refused {} requests this turn and will \
-             not be asked again in it. Stop and report what you \
+             not be sent another in it. Stop and report what you \
              could not do.",
-            asked.strikes
+            gate.strikes
         )
     })
 }
@@ -635,15 +635,15 @@ mod tests {
     }
 
     #[test]
-    fn a_refusal_is_not_asked_again_in_its_turn() {
-        let mut asked = Asked::default();
-        asked.refuse(Danger::Network, "echo curl", "no network");
+    fn a_refused_request_is_not_held_again_in_its_turn() {
+        let mut gate = TurnGate::default();
+        gate.refuse(Danger::Network, "echo curl", "no network");
         assert!(
-            refused(&asked, Danger::Network, "echo wget", 3)
+            refused(&gate, Danger::Network, "echo wget", 3)
                 .unwrap()
                 .contains("(no network)")
         );
-        assert_eq!(refused(&asked, Danger::Command, "ls", 3), None);
-        assert!(refused(&asked, Danger::Command, "ls", 1).is_some());
+        assert_eq!(refused(&gate, Danger::Command, "ls", 3), None);
+        assert!(refused(&gate, Danger::Command, "ls", 1).is_some());
     }
 }

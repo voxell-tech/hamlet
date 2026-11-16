@@ -21,7 +21,7 @@ pub(crate) struct Limits {
     pub model: Option<String>,
     /// How many days of decisions each hire is told (H17).
     pub told_days: i64,
-    pub asking: Asking,
+    pub asking: ChiefQuestions,
     /// How long after a chief's task a hire may not be ended or
     /// merged by a lead (H7).
     pub protected_minutes: i64,
@@ -35,7 +35,7 @@ impl Default for Limits {
             reserved: Reserved::default(),
             model: None,
             told_days: 7,
-            asking: Asking::default(),
+            asking: ChiefQuestions::default(),
             protected_minutes: 0,
         }
     }
@@ -50,7 +50,7 @@ impl Limits {
             ("the most roads", self.road.most),
             ("the days a road stays", self.road.grows_over_days),
             ("the days of decisions told", self.told_days),
-            ("the questions a turn asks", self.asking.questions),
+            ("the questions a turn puts", self.asking.questions),
             ("the refusals a turn takes", self.asking.refusals),
             ("the protected minutes", self.protected_minutes),
         ]
@@ -138,16 +138,17 @@ pub(crate) struct Reserved {
     pub merge: bool,
 }
 
-/// What may ask a chief in one turn (H10, H11).
+/// How much one turn may bring to a chief: its questions, its
+/// refused requests and its review (H10, H11).
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(default, rename_all = "camelCase")]
-pub(crate) struct Asking {
+pub(crate) struct ChiefQuestions {
     pub questions: i64,
     pub refusals: i64,
     pub review: Review,
 }
 
-impl Default for Asking {
+impl Default for ChiefQuestions {
     fn default() -> Self {
         Self {
             questions: 3,

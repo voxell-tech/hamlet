@@ -19,7 +19,7 @@ pub(super) struct Listing {
     /// Its provider's name for it.
     #[serde(deserialize_with = "fitting")]
     pub name: String,
-    /// The provider that serves it, when not the one asked.
+    /// The provider that serves it, when not the one requested.
     #[serde(deserialize_with = "fitting")]
     pub provider: Option<String>,
     #[serde(deserialize_with = "fitting")]
@@ -36,7 +36,7 @@ pub(super) struct Listing {
     pub listed_price: Option<ListedPrice>,
     #[serde(deserialize_with = "fitting")]
     cost: Cost,
-    /// Set when it can be asked to think.
+    /// Set when it can be set to think.
     #[serde(deserialize_with = "fitting")]
     pub reasoning: bool,
     /// Each effort's name for it; null for an effort it lacks.

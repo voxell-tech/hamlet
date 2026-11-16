@@ -1,5 +1,5 @@
 //! The model each agent runs (H29), how hard it thinks (H29a) and
-//! whether it asks for the provider's fast tier.
+//! whether it requests the provider's fast tier.
 
 use anyhow::Result;
 use hamlet_protocol::runtime::ModelRef;

@@ -184,10 +184,13 @@ the chief typed and for what is about the open chat or the whole realm.
 ([ADR 0015](adr/0015-the-server-runs-as-a-bevy-app-with-no-frame.md)).
 What differs from the window:
 
-- **`lib.rs` is the way in.** As in a Bevy crate, it holds the crate's
-  plugin, `ServerPlugin`, which `main` adds to `App::new()`, and the
-  `ServerSystems` every area adds its follow-up systems to. Its first
-  comment says in which order to read the rest.
+- **`lib.rs` is the way in.** It holds `create_app`, which makes the
+  app `main` runs from the server's `Options`, and the sets every area
+  adds its follow-up systems to, one enum per schedule:
+  `FollowUpSystems` in `PostUpdate` and `SendSystems` in `Last`. A set
+  orders systems only in the schedule it is configured in, so neither
+  is used in the other. Its first comment says in which order to read
+  the rest.
 - **An input is an update, not a frame.** `server.rs` sleeps until an
   input comes, writes it as a message and updates the app once, through
   Bevy's own `Main`: `PreUpdate` reads the input into a message of its
@@ -196,7 +199,7 @@ What differs from the window:
   queued. The first update opens what the server serves in
   `PreStartup`, each as a resource, and starts it in `Startup`
   (`startup.rs`).
-  `ServerPlugin` sets the runner, `serve::runner`. Nothing updates that
+  `create_app` sets the runner, `serve::runner`. Nothing updates that
   an input or a timer did not ask for.
 - **A handler is a system for one kind of input, and never awaits.**
   A runtime's message is a `FromRuntime<M>` and a client's request a

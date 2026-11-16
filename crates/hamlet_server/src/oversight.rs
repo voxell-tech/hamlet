@@ -1,6 +1,6 @@
 //! What waits for a chief (H11, H10, H34): approvals, questions,
 //! objections, faults and newcomers, each a row until a chief answers
-//! it or its asker goes.
+//! it or the agent that raised it goes.
 
 pub(crate) mod gate;
 
@@ -45,7 +45,7 @@ use crate::talk::conversations::{self, Kind};
 #[strum(serialize_all = "kebab-case")]
 #[diesel(sql_type = Text)]
 pub(crate) enum WaitKind {
-    /// A call the gate asks a chief to let run.
+    /// A call the gate holds for a chief to let run.
     Approval,
     /// A turn that failed, which a chief can only dismiss.
     Fault,
@@ -93,7 +93,7 @@ pub(crate) enum Danger {
 hamlet_store::named_text!(Danger);
 
 impl Danger {
-    /// The words after the asker's name.
+    /// The words after the agent's name.
     pub fn says(self) -> &'static str {
         match self {
             Self::Network => "wants network access to run",
@@ -137,7 +137,8 @@ impl Danger {
     }
 }
 
-/// How a wait ended: a chief's answer, or its asker gone.
+/// How a wait ended: a chief's answer, or the agent that raised it
+/// gone.
 #[derive(
     Clone,
     Copy,
@@ -166,11 +167,11 @@ pub(crate) enum Ruling {
     Dismiss,
     /// A newcomer was let into the city.
     Welcome,
-    /// The turn that asked was stopped.
+    /// The turn that raised it was stopped.
     Stopped,
-    /// The agent that asked ended.
+    /// The agent that raised it ended.
     Ended,
-    /// A rewind took the turn that asked back.
+    /// A rewind took the turn that raised it back.
     Rewound,
 }
 hamlet_store::named_text!(Ruling);
@@ -202,9 +203,9 @@ pub(crate) struct Wait {
     pub kind: WaitKind,
     pub danger: Option<Danger>,
     pub agent: Option<AgentId>,
-    /// The newcomer it asks about.
+    /// The newcomer it is about.
     pub scholar: Option<ScholarId>,
-    /// The conversation it was asked in.
+    /// The conversation it was raised in.
     pub conversation: Option<ConversationId>,
     pub task: Option<TaskId>,
     pub about: String,
@@ -255,7 +256,7 @@ pub(crate) struct Raise {
     pub kind: WaitKind,
     pub danger: Option<Danger>,
     pub agent: AgentId,
-    /// The newcomer a `newcomer` wait asks about.
+    /// The newcomer a `newcomer` wait is about.
     pub scholar: Option<ScholarId>,
     pub conversation: Option<ConversationId>,
     pub task: Option<TaskId>,
@@ -265,8 +266,8 @@ pub(crate) struct Raise {
     pub questions: Option<Questions>,
 }
 
-/// Raises `raise`, or asks again the open wait that asks the same of
-/// the same agent.
+/// Raises `raise`, or raises again the open wait that is about the
+/// same of the same agent.
 pub(crate) fn raise(
     cx: &mut Change<'_>,
     raise: Raise,
@@ -382,7 +383,7 @@ pub(crate) fn lapse(
     Ok(())
 }
 
-/// Ends every open wait asked in `conversation`, as `ruling`.
+/// Ends every open wait raised in `conversation`, as `ruling`.
 pub(crate) fn lapse_in(
     cx: &mut Change<'_>,
     conversation: ConversationId,
@@ -411,12 +412,14 @@ pub(crate) fn line(wait: &Wait, by: &str, most: usize) -> String {
             format!("{by} {} `{subject}`", danger.says())
         }
         (WaitKind::Approval, None) => {
-            format!("{by} asks `{subject}`")
+            format!("{by} wants to `{subject}`")
         }
         (WaitKind::Objection, _) => {
             format!("{by} objects: {subject}")
         }
-        (WaitKind::Question, _) => format!("{by} asks: {subject}"),
+        (WaitKind::Question, _) => {
+            format!("{by} has a question: {subject}")
+        }
         (WaitKind::Fault, _) => format!("{by} failed: {subject}"),
         (WaitKind::Newcomer, _) => {
             format!("{subject}, whom {by} made, waits at the harbor")

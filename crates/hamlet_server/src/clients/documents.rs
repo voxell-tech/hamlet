@@ -812,7 +812,7 @@ fn limits_of(shown: &protocol::Limits) -> Limits {
         },
         model: shown.model.clone(),
         told_days: shown.told_days,
-        asking: limits::Asking {
+        asking: limits::ChiefQuestions {
             questions: shown.asking.questions,
             refusals: shown.asking.refusals,
             review: match shown.asking.review {

@@ -2,11 +2,11 @@
 //! and the changes after it, the conversations each watches, and the
 //! replies owed to them.
 
-pub(crate) mod asked;
 pub(crate) mod check;
 pub(crate) mod connection;
 pub(crate) mod documents;
 pub(crate) mod fold;
+pub(crate) mod received;
 pub(crate) mod requests;
 pub(crate) mod state;
 
@@ -28,16 +28,16 @@ use tokio::net::{TcpListener, TcpStream};
 use tokio::sync::watch;
 use tokio::task::{AbortHandle, JoinSet};
 
-use self::asked::ClientConnected;
 use self::check::Protocol;
 use self::connection::Connection;
+use self::received::ClientConnected;
 use crate::credentials::Credentials;
 use crate::server::InputSender;
 
 pub(crate) fn plugin(app: &mut bevy_app::App) {
     app.add_message::<OutgoingClientMessage>()
         .add_observer(requests::left)
-        .add_plugins(asked::plugin);
+        .add_plugins(received::plugin);
 }
 
 /// A conversation a client watches, as one of its chats: an entity

@@ -1,5 +1,5 @@
 //! Work off the loop: what awaits the remote workspace or the disk
-//! runs as a task, started once the input that asked for it is kept,
+//! runs as a task, started once the input that set it off is kept,
 //! and its result comes back as an input of its own, so no handler
 //! awaits.
 
@@ -66,7 +66,7 @@ fn take_in_finished(
             if let Some(receiver) = core.looks.found(call, found) {
                 core.remote.unpushed.write(UnpushedLodge(receiver));
             }
-            // A runtime that started again since asks again.
+            // A runtime that started again since sends it again.
             if core.runtimes.generation(again.from)
                 == Some(again.generation)
             {
@@ -83,7 +83,7 @@ fn take_in_finished(
 
 /// A task's result.
 pub(crate) enum BackgroundResult {
-    /// A message for a client, such as an image it asked to read.
+    /// A message for a client, such as an image it requested to read.
     Reply { client: u64, message: ServerMessage },
     /// The progress of moving the lodges, and the answer once it is
     /// over.
@@ -101,14 +101,14 @@ pub(crate) enum BackgroundResult {
 }
 
 /// A runtime's request to run again: the runtime, the process that
-/// asked, and the message.
+/// sent it, and the message.
 pub(crate) struct RunAgainRequest {
     pub from: bevy_ecs::entity::Entity,
     pub generation: u64,
     pub message: RuntimeMessage,
 }
 
-/// The tasks an input asked for, and where they send what they
+/// The tasks an input set off, and where they send what they
 /// finished with. A task starts once its input is kept, so a failed
 /// input sets none off.
 #[derive(Resource, Default)]
@@ -171,7 +171,7 @@ impl BackgroundWork {
     }
 }
 
-/// Starts the tasks the kept input asked for.
+/// Starts the tasks the kept input set off.
 pub(crate) fn start(
     mut later: ResMut<BackgroundWork>,
     inputs: Res<InputSender>,

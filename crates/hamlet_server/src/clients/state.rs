@@ -419,11 +419,12 @@ fn hamlet_view(
             (_, false) => "Hires work in their lodges; no folder is \
                            chosen."
                 .into(),
-            (Mode::Manual, true) => "Hires ask you before each edit \
-                                     and command in the folder."
+            (Mode::Manual, true) => "Hires wait for your approval \
+                                     before each edit and command \
+                                     in the folder."
                 .into(),
             (Mode::Auto, true) => "Hires edit the folder and run \
-                                   commands without asking."
+                                   commands without approval."
                 .into(),
         },
         name: place.name.clone(),

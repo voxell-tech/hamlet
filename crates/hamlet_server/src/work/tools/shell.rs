@@ -24,8 +24,8 @@ use super::environment::Reach;
 use super::truncate::{MAX_BYTES, MAX_LINES, Tail};
 use super::{Arguments, Outcome, Place, diagnostic, number_words};
 
-/// Seconds a command may run, which a model can ask to shorten and
-/// never to lengthen.
+/// Seconds a command may run, which a model can request to shorten
+/// and never to lengthen.
 const WALL_SECS: u64 = 120;
 
 /// Words a sandbox refuses a write with: Seatbelt's, then

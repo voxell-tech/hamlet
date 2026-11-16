@@ -122,8 +122,8 @@ pub(crate) fn charter(db: &mut Db) -> Result<String> {
         .unwrap_or_else(|| CHARTER.to_owned()))
 }
 
-/// The folder `agent` works on, and whether its hamlet's mode asks
-/// first.
+/// The folder `agent` works on, and whether its hamlet's mode holds
+/// its work for approval first.
 fn folder_of(
     db: &mut Db,
     agent: hamlet_store::ids::AgentId,
@@ -183,7 +183,7 @@ fn project(folder: &str, manual: bool, lodge: &Path) -> String {
     let mut lines = vec![
         format!(
             "Your hamlet works on the folder {folder}. The work a \
-             chief asks for is done there:"
+             chief requests is done there:"
         ),
         format!(
             "- A command runs with {folder} as its working \

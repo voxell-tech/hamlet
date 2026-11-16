@@ -3,7 +3,8 @@
 //! its request, written as a [`FromClient`] of its kind, and `Update`
 //! runs the system for that kind. Whatever awaits the disk or the
 //! workspace runs on a task, whose result comes back as an input of
-//! its own.
+//! its own. It is the partner of `talk/heard.rs`, which takes in a
+//! runtime's lines.
 
 use bevy_app::{App, PreUpdate};
 use bevy_ecs::error::Result;
@@ -188,13 +189,13 @@ fn write(
 
 /// A sign-in's start, answer or cancel.
 fn login(
-    mut asked: InputMessage<FromClient<protocol::Login>>,
+    mut received: InputMessage<FromClient<protocol::Login>>,
     mut core: Core,
 ) -> Result {
     let Some(FromClient {
         client,
         request: login,
-    }) = asked.take()
+    }) = received.take()
     else {
         return Ok(());
     };
@@ -204,13 +205,13 @@ fn login(
 
 /// A try of the chosen model or of the connection.
 fn check(
-    mut asked: InputMessage<FromClient<protocol::Check>>,
+    mut received: InputMessage<FromClient<protocol::Check>>,
     mut core: Core,
 ) -> Result {
     let Some(FromClient {
         client,
         request: check,
-    }) = asked.take()
+    }) = received.take()
     else {
         return Ok(());
     };
@@ -220,13 +221,13 @@ fn check(
 
 /// A read of the model catalogue.
 fn read_models(
-    mut asked: InputMessage<FromClient<ReadModels>>,
+    mut received: InputMessage<FromClient<ReadModels>>,
     mut core: Core,
 ) -> Result {
     let Some(FromClient {
         client,
         request: ReadModels { id, refresh },
-    }) = asked.take()
+    }) = received.take()
     else {
         return Ok(());
     };
@@ -236,13 +237,13 @@ fn read_models(
 
 /// A chief's line to an agent.
 fn say(
-    mut asked: InputMessage<FromClient<protocol::Say>>,
+    mut received: InputMessage<FromClient<protocol::Say>>,
     mut core: Core,
 ) -> Result {
     let Some(FromClient {
         client,
         request: say,
-    }) = asked.take()
+    }) = received.take()
     else {
         return Ok(());
     };
@@ -251,13 +252,13 @@ fn say(
 }
 
 fn read(
-    mut asked: InputMessage<FromClient<protocol::Read>>,
+    mut received: InputMessage<FromClient<protocol::Read>>,
     mut core: Core,
 ) -> Result {
     let Some(FromClient {
         client,
         request: read,
-    }) = asked.take()
+    }) = received.take()
     else {
         return Ok(());
     };
@@ -266,25 +267,25 @@ fn read(
 }
 
 fn move_lodges(
-    mut asked: InputMessage<FromClient<protocol::MoveLodges>>,
+    mut received: InputMessage<FromClient<protocol::MoveLodges>>,
     mut core: Core,
 ) -> Result {
     let Some(FromClient {
         client,
-        request: asked,
-    }) = asked.take()
+        request: move_lodges,
+    }) = received.take()
     else {
         return Ok(());
     };
-    core.move_lodges(client, &asked.id)?;
+    core.move_lodges(client, &move_lodges.id)?;
     Ok(())
 }
 
 fn hello(
-    mut asked: InputMessage<FromClient<protocol::Hello>>,
+    mut received: InputMessage<FromClient<protocol::Hello>>,
     mut connections: Connections,
 ) -> Result {
-    let Some(FromClient { client, .. }) = asked.take() else {
+    let Some(FromClient { client, .. }) = received.take() else {
         return Ok(());
     };
     connections.send(
@@ -296,13 +297,13 @@ fn hello(
 
 /// A chat watched from now on, with its last page.
 fn open(
-    mut asked: InputMessage<FromClient<protocol::Open>>,
+    mut received: InputMessage<FromClient<protocol::Open>>,
     mut core: Core,
 ) -> Result {
     let Some(FromClient {
         client,
         request: open,
-    }) = asked.take()
+    }) = received.take()
     else {
         return Ok(());
     };
@@ -325,13 +326,13 @@ fn open(
 }
 
 fn close(
-    mut asked: InputMessage<FromClient<protocol::Close>>,
+    mut received: InputMessage<FromClient<protocol::Close>>,
     mut connections: Connections,
 ) -> Result {
     let Some(FromClient {
         client,
         request: close,
-    }) = asked.take()
+    }) = received.take()
     else {
         return Ok(());
     };
@@ -340,13 +341,13 @@ fn close(
 }
 
 fn new(
-    mut asked: InputMessage<FromClient<protocol::New>>,
+    mut received: InputMessage<FromClient<protocol::New>>,
     mut core: Core,
 ) -> Result {
     let Some(FromClient {
         client,
         request: new,
-    }) = asked.take()
+    }) = received.take()
     else {
         return Ok(());
     };
@@ -359,13 +360,13 @@ fn new(
 }
 
 fn resume(
-    mut asked: InputMessage<FromClient<protocol::Resume>>,
+    mut received: InputMessage<FromClient<protocol::Resume>>,
     mut core: Core,
 ) -> Result {
     let Some(FromClient {
         client,
         request: resume,
-    }) = asked.take()
+    }) = received.take()
     else {
         return Ok(());
     };
@@ -380,13 +381,13 @@ fn resume(
 }
 
 fn retry(
-    mut asked: InputMessage<FromClient<protocol::Retry>>,
+    mut received: InputMessage<FromClient<protocol::Retry>>,
     mut core: Core,
 ) -> Result {
     let Some(FromClient {
         client,
         request: retry,
-    }) = asked.take()
+    }) = received.take()
     else {
         return Ok(());
     };
@@ -400,13 +401,13 @@ fn retry(
 }
 
 fn stop(
-    mut asked: InputMessage<FromClient<protocol::Stop>>,
+    mut received: InputMessage<FromClient<protocol::Stop>>,
     mut core: Core,
 ) -> Result {
     let Some(FromClient {
         client,
         request: stop,
-    }) = asked.take()
+    }) = received.take()
     else {
         return Ok(());
     };
@@ -427,13 +428,13 @@ fn stop(
 }
 
 fn edit(
-    mut asked: InputMessage<FromClient<protocol::Edit>>,
+    mut received: InputMessage<FromClient<protocol::Edit>>,
     mut core: Core,
 ) -> Result {
     let Some(FromClient {
         client,
         request: edit,
-    }) = asked.take()
+    }) = received.take()
     else {
         return Ok(());
     };
@@ -443,13 +444,13 @@ fn edit(
 
 /// A chief's answer to what waits.
 fn answer(
-    mut asked: InputMessage<FromClient<protocol::Answer>>,
+    mut received: InputMessage<FromClient<protocol::Answer>>,
     mut core: Core,
 ) -> Result {
     let Some(FromClient {
         client,
         request: answer,
-    }) = asked.take()
+    }) = received.take()
     else {
         return Ok(());
     };
@@ -464,13 +465,13 @@ fn answer(
 }
 
 fn put_image(
-    mut asked: InputMessage<FromClient<protocol::PutImage>>,
+    mut received: InputMessage<FromClient<protocol::PutImage>>,
     mut core: Core,
 ) -> Result {
     let Some(FromClient {
         client,
         request: put,
-    }) = asked.take()
+    }) = received.take()
     else {
         return Ok(());
     };
@@ -480,13 +481,13 @@ fn put_image(
 }
 
 fn put_image_part(
-    mut asked: InputMessage<FromClient<protocol::PutImagePart>>,
+    mut received: InputMessage<FromClient<protocol::PutImagePart>>,
     mut core: Core,
 ) -> Result {
     let Some(FromClient {
         client,
         request: part,
-    }) = asked.take()
+    }) = received.take()
     else {
         return Ok(());
     };
@@ -496,13 +497,13 @@ fn put_image_part(
 }
 
 fn put_file(
-    mut asked: InputMessage<FromClient<protocol::PutFile>>,
+    mut received: InputMessage<FromClient<protocol::PutFile>>,
     mut core: Core,
 ) -> Result {
     let Some(FromClient {
         client,
         request: put,
-    }) = asked.take()
+    }) = received.take()
     else {
         return Ok(());
     };
@@ -512,13 +513,13 @@ fn put_file(
 }
 
 fn put_file_part(
-    mut asked: InputMessage<FromClient<protocol::PutFilePart>>,
+    mut received: InputMessage<FromClient<protocol::PutFilePart>>,
     mut core: Core,
 ) -> Result {
     let Some(FromClient {
         client,
         request: part,
-    }) = asked.take()
+    }) = received.take()
     else {
         return Ok(());
     };
@@ -530,13 +531,13 @@ fn put_file_part(
 /// The chief's chat taken back to before one of its lines, which is
 /// given back to be said again.
 fn rewind(
-    mut asked: InputMessage<FromClient<protocol::Rewind>>,
+    mut received: InputMessage<FromClient<protocol::Rewind>>,
     mut core: Core,
 ) -> Result {
     let Some(FromClient {
         client,
         request: rewind,
-    }) = asked.take()
+    }) = received.take()
     else {
         return Ok(());
     };

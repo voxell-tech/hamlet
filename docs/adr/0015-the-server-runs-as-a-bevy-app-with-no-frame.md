@@ -11,8 +11,8 @@ alone, such as the connections, the uploads, the tool runs, the runtimes
 and the conversations in memory. No row of the database is mirrored in
 the world.
 
-**No frame: one input, one update.** `ServerPlugin` adds every area and
-sets the runner. The runner sleeps until an input comes (a runtime's line,
+**No frame: one input, one update.** `create_app` makes the app: it adds
+every area and sets the runner. The runner sleeps until an input comes (a runtime's line,
 a client's message, a tool run that ended, a task that finished, the jobs
 runner's pass, a change to the tools added by hand, what a terminal
 printed, a timer that is due),
@@ -31,7 +31,7 @@ off waits for its end: the lines to the runtimes and the messages to the
 clients are queued, a tool run is spawned as an entity whose task starts
 later, and an input that ended in a runtime is written as a message.
 `PostUpdate` then keeps the input and runs, in a declared order
-(`ServerSystems`): the ended inputs are triggered for their observers,
+(`FollowUpSystems`): the ended inputs are triggered for their observers,
 which follow them; tools are narrowed to each role; those changes are
 kept; the jobs the kept changes left run; cancelled runs stop and the
 asked ones start. `Last` sends the runtimes what they are owed, the

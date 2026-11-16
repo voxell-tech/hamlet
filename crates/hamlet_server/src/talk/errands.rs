@@ -23,7 +23,7 @@ pub(crate) struct Errand<'a> {
     /// The agent it is run for and paid by.
     pub agent: AgentId,
     pub instructions: &'a str,
-    /// What it is asked.
+    /// The question put to it.
     pub question: &'a str,
     pub task: Option<TaskId>,
 }

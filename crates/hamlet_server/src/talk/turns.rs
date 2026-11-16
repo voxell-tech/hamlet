@@ -1,5 +1,6 @@
-//! What a runtime asks of the server during a turn: its prompt, leave
-//! for each model call and the charge of it, and the end of the turn.
+//! What a runtime requests of the server during a turn: its prompt,
+//! leave for each model call and the charge of it, and the end of the
+//! turn.
 
 use anyhow::{Context, Result};
 use diesel::prelude::*;
@@ -32,7 +33,7 @@ pub(crate) enum Admission {
     Stopped(String),
 }
 
-/// Admits the model call `asked` of `runtime`, once (S20), with the
+/// Admits the model call `call` of `runtime`, once (S20), with the
 /// model its agent runs now, unless what pays for it is spent (H8,
 /// H12). Who pays is its task's payer.
 pub(crate) fn allow(
@@ -40,18 +41,17 @@ pub(crate) fn allow(
     env: &Env,
     providers: &Providers,
     runtime: &str,
-    asked: &Attempt,
+    call: &Attempt,
     at: i64,
 ) -> Result<Admission> {
-    let conversation =
-        conversation(db, runtime, &asked.conversation)?;
+    let conversation = conversation(db, runtime, &call.conversation)?;
     let choice = models::choose(
         db,
         &env.settings,
         &env.overrides,
         conversation.agent,
     )?;
-    let task = match &asked.submission {
+    let task = match &call.submission {
         Some(submission) => {
             inputs::by_submission(db, conversation.id, submission)?
                 .and_then(|i| i.task)
@@ -63,7 +63,7 @@ pub(crate) fn allow(
         None => tasks::payer_of(db, conversation.agent)?,
     };
     let charged = attempt::table
-        .find((runtime, &asked.key))
+        .find((runtime, &call.key))
         .count()
         .get_result::<i64>(db)?
         > 0;
@@ -100,7 +100,7 @@ pub(crate) fn allow(
     diesel::insert_into(attempt::table)
         .values((
             attempt::runtime.eq(runtime),
-            attempt::key.eq(&asked.key),
+            attempt::key.eq(&call.key),
             attempt::conversation.eq(conversation.id),
             attempt::agent.eq(conversation.agent),
             attempt::payer.eq(&payer),

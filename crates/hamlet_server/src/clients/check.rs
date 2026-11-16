@@ -47,7 +47,7 @@ pub(crate) fn fault(
 }
 
 /// The words a client or a runtime is told when the server failed at
-/// what it asked, for `why`.
+/// what it requested, for `why`.
 pub(crate) fn failed(why: impl std::fmt::Display) -> String {
     format!("The server failed: {why}")
 }

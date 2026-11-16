@@ -1,6 +1,6 @@
 //! Letters and questions between agents along roads (H30, H31): each
 //! receiver's conversation with each sender, the message kept once
-//! per tool call, and a question's answer carried back to its asker.
+//! per tool call, and a question's answer carried back to its sender.
 
 use anyhow::Result;
 use diesel::deserialize::FromSqlRow;
@@ -197,11 +197,11 @@ pub(crate) fn find(
         .optional()?)
 }
 
-/// Whether `asker` asking `receiver` would close a loop of questions
-/// that wait on each other.
+/// Whether `sender` putting a question to `receiver` would close a
+/// loop of questions that wait on each other.
 pub(crate) fn would_loop(
     db: &mut Db,
-    asker: AgentId,
+    sender: AgentId,
     receiver: AgentId,
 ) -> Result<bool> {
     let open = message::table
@@ -213,7 +213,7 @@ pub(crate) fn would_loop(
     let mut seen = vec![receiver];
     let mut next = vec![receiver];
     while let Some(at) = next.pop() {
-        if at == asker {
+        if at == sender {
             return Ok(true);
         }
         for (_, waited) in
@@ -229,8 +229,8 @@ pub(crate) fn would_loop(
 }
 
 /// Keeps the answer to the question whose input `request` of
-/// `conversation` ended, once. Gives the asker's call to wake while
-/// it still waits; an asker whose turn ended gets the answer as a
+/// `conversation` ended, once. Gives the sender's call to wake while
+/// it still waits; a sender whose turn ended gets the answer as a
 /// reply.
 pub(crate) fn answered(
     cx: &mut Change<'_>,
@@ -323,13 +323,13 @@ pub(crate) fn carry(
         .select((tool_call::conversation, tool_call::input))
         .first::<(ConversationId, Option<String>)>(cx.db)
         .optional()?;
-    let Some((asker, submission)) = call else {
+    let Some((sender, submission)) = call else {
         return Ok(None);
     };
     let waiting = waits
         && match &submission {
             Some(submission) => input::table
-                .filter(input::conversation.eq(asker))
+                .filter(input::conversation.eq(sender))
                 .filter(input::submission.eq(submission))
                 .select(input::status)
                 .first::<Option<inputs::Status>>(cx.db)
@@ -348,7 +348,7 @@ pub(crate) fn carry(
     inputs::keep(
         cx,
         Keep {
-            conversation: asker,
+            conversation: sender,
             request: request.to_owned(),
             kind: InputKind::Reply,
             task: Some(task),

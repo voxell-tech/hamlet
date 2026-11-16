@@ -183,7 +183,8 @@ pub(crate) fn follow(
 }
 
 /// What follows an errand's end: the librarian's answer carried to
-/// the call that asked, or its verdict kept on the skill offered.
+/// the call that put the question, or its verdict kept on the skill
+/// offered.
 fn errand_ended(
     cx: &mut Change<'_>,
     kept: &Conversation,

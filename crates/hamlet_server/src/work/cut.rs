@@ -18,7 +18,7 @@ const AROUND: usize = 3;
 /// its old lines out and its new lines in.
 const PAIRS: usize = 1_000_000;
 
-/// The change the call of tool `name` with `args` asks for, when it
+/// The change the call of tool `name` with `args` calls for, when it
 /// is an edit or a write, from its arguments alone. A write changes
 /// `before`, the file's text when it is there, or else makes the
 /// file.

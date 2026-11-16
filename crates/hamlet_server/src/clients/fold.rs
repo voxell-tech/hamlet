@@ -137,7 +137,7 @@ impl Fold {
             if entry.tool.as_deref().and_then(Society::named)
                 == Some(Society::AskChief)
                 && let Some(text) =
-                    crate::talk::asking::said(&entry.text)
+                    crate::talk::questions::said(&entry.text)
             {
                 self.add(
                     Item {

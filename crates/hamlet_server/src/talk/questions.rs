@@ -5,7 +5,7 @@ use hamlet_protocol::client::{Offer, Pick, Question, Questions};
 use serde::Deserialize;
 use serde_json::Value;
 
-/// The most questions one call may ask.
+/// The most questions one call may put.
 pub(crate) const MOST_QUESTIONS: usize = 10;
 
 /// The most options one question may offer.
@@ -22,7 +22,7 @@ struct AskChief {
     questions: Vec<AskChiefQuestion>,
 }
 
-/// One question as the agent asks it.
+/// One question as the agent puts it.
 #[derive(Deserialize)]
 struct AskChiefQuestion {
     question: String,
@@ -53,14 +53,14 @@ enum AskChiefOption {
 /// The fault in an `ask_chief` call's arguments, for the agent to
 /// put right.
 #[derive(Debug, thiserror::Error)]
-pub(crate) enum Unasked {
+pub(crate) enum InvalidQuestions {
     #[error("the arguments are not JSON")]
     NotJson,
     #[error("the arguments are not valid: {0}")]
     Invalid(serde_json::Error),
     #[error("say what in `questions`")]
     NoQuestions,
-    #[error("ask at most {most} questions at once", most = MOST_QUESTIONS)]
+    #[error("put at most {most} questions at once", most = MOST_QUESTIONS)]
     TooMany,
     #[error("question {0} has no `question`")]
     Blank(usize),
@@ -89,22 +89,24 @@ pub(crate) enum Unanswered {
 }
 
 /// The questions in the arguments of an `ask_chief` call.
-pub(crate) fn read(args: &str) -> Result<Questions, Unasked> {
+pub(crate) fn read(
+    args: &str,
+) -> Result<Questions, InvalidQuestions> {
     let args = serde_json::from_str::<Value>(args)
-        .map_err(|_| Unasked::NotJson)?;
+        .map_err(|_| InvalidQuestions::NotJson)?;
     let args = serde_json::from_value::<AskChief>(args)
-        .map_err(Unasked::Invalid)?;
+        .map_err(InvalidQuestions::Invalid)?;
     if args.questions.is_empty() {
-        return Err(Unasked::NoQuestions);
+        return Err(InvalidQuestions::NoQuestions);
     }
     if args.questions.len() > MOST_QUESTIONS {
-        return Err(Unasked::TooMany);
+        return Err(InvalidQuestions::TooMany);
     }
     let questions = args
         .questions
         .into_iter()
         .enumerate()
-        .map(|(at, asked)| question(at + 1, asked))
+        .map(|(at, raw)| question(at + 1, raw))
         .collect::<Result<Vec<_>, _>>()?;
     Ok(Questions {
         message: args.message.trim().into(),
@@ -115,17 +117,17 @@ pub(crate) fn read(args: &str) -> Result<Questions, Unasked> {
 /// The question `n`, counted from one.
 fn question(
     n: usize,
-    asked: AskChiefQuestion,
-) -> Result<Question, Unasked> {
-    let question = asked.question.trim().to_string();
+    raw: AskChiefQuestion,
+) -> Result<Question, InvalidQuestions> {
+    let question = raw.question.trim().to_string();
     if question.is_empty() {
-        return Err(Unasked::Blank(n));
+        return Err(InvalidQuestions::Blank(n));
     }
-    if asked.options.len() > MOST_OPTIONS {
-        return Err(Unasked::Crowded(n));
+    if raw.options.len() > MOST_OPTIONS {
+        return Err(InvalidQuestions::Crowded(n));
     }
     let mut options = Vec::<Offer>::new();
-    for offer in asked.options {
+    for offer in raw.options {
         let (title, description) = match offer {
             AskChiefOption::Title(title) => (title, String::new()),
             AskChiefOption::Described { title, description } => {
@@ -137,19 +139,22 @@ fn question(
             description.trim().to_string(),
         );
         if title.is_empty() {
-            return Err(Unasked::Untitled(n));
+            return Err(InvalidQuestions::Untitled(n));
         }
         if options.iter().any(|o| o.title == title) {
-            return Err(Unasked::Twice { question: n, title });
+            return Err(InvalidQuestions::Twice {
+                question: n,
+                title,
+            });
         }
         options.push(Offer { title, description });
     }
     // A question with nothing to pick is answered in words.
     let text_input =
-        options.is_empty() || asked.text_input.unwrap_or(true);
+        options.is_empty() || raw.text_input.unwrap_or(true);
     Ok(Question {
         question,
-        description: asked.description.trim().into(),
+        description: raw.description.trim().into(),
         options,
         text_input,
     })
@@ -157,20 +162,20 @@ fn question(
 
 /// The questions as words, for a chief who reads them as text. One
 /// plain question is its own words.
-pub(crate) fn about(asked: &Questions) -> String {
-    if let [only] = asked.questions.as_slice()
-        && asked.message.is_empty()
+pub(crate) fn about(put: &Questions) -> String {
+    if let [only] = put.questions.as_slice()
+        && put.message.is_empty()
         && only.description.is_empty()
         && only.options.is_empty()
     {
         return only.question.clone();
     }
     let mut lines = Vec::new();
-    if !asked.message.is_empty() {
-        lines.push(asked.message.clone());
+    if !put.message.is_empty() {
+        lines.push(put.message.clone());
     }
-    let numbered = asked.questions.len() > 1;
-    for (at, q) in asked.questions.iter().enumerate() {
+    let numbered = put.questions.len() > 1;
+    for (at, q) in put.questions.iter().enumerate() {
         lines.push(match numbered {
             true => format!("{}. {}", at + 1, q.question),
             false => q.question.clone(),
@@ -196,16 +201,16 @@ pub(crate) fn about(asked: &Questions) -> String {
 }
 
 /// The answer the agent is given for `picks`, one for each question
-/// of `asked` in order: the chief's reply, each question quoted over
+/// of `put` in order: the chief's reply, each question quoted over
 /// its answer.
 pub(crate) fn answer(
-    asked: &Questions,
+    put: &Questions,
     picks: &[Pick],
 ) -> Result<String, Unanswered> {
-    if picks.len() != asked.questions.len() {
+    if picks.len() != put.questions.len() {
         return Err(Unanswered::Unequal);
     }
-    let answers = asked
+    let answers = put
         .questions
         .iter()
         .zip(picks)
@@ -225,14 +230,14 @@ pub(crate) fn answer(
             Pick::Words { text } => Ok(text.trim().to_string()),
         })
         .collect::<Result<Vec<_>, _>>()?;
-    let body = asked
+    let body = put
         .questions
         .iter()
         .zip(&answers)
         .map(|(q, answer)| {
-            let asked =
+            let words =
                 q.question.split_whitespace().collect::<Vec<_>>();
-            format!("> {}\n{answer}", asked.join(" "))
+            format!("> {}\n{answer}", words.join(" "))
         })
         .collect::<Vec<_>>();
     Ok(format!("{ANSWERS}\n{}", body.join("\n\n")))
@@ -282,9 +287,9 @@ mod tests {
 
     #[test]
     fn every_question_is_answered_as_it_allows() {
-        let asked = read(&grill()).unwrap();
+        let put = read(&grill()).unwrap();
         let answered = answer(
-            &asked,
+            &put,
             &[
                 words("both"),
                 Pick::Offer { index: 1 },
@@ -306,7 +311,7 @@ mod tests {
         );
         assert_eq!(said("The chief chose not to answer."), None);
         let wrong = |picks: &[Pick]| {
-            answer(&asked, picks).unwrap_err().to_string()
+            answer(&put, picks).unwrap_err().to_string()
         };
         let first = Pick::Offer { index: 0 };
         assert!(

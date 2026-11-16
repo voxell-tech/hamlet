@@ -31,7 +31,7 @@ fn owner(id: ScholarId) -> String {
     format!("newcomer:{id}")
 }
 
-/// Asks the Hand whether the newcomer `id`, made from `character`,
+/// Puts to the Hand whether the newcomer `id`, made from `character`,
 /// moves into the city.
 pub(crate) fn judge(
     cx: &mut Change<'_>,

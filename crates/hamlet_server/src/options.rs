@@ -11,7 +11,7 @@ const USAGE: &str = "usage: hamlet_server [--home <dir>] [--port \
                      <n>] [--faux <file>] [--insecure]";
 
 /// The options the server is started with.
-#[derive(Resource, Clone)]
+#[derive(Resource)]
 pub struct Options {
     pub home: PathBuf,
     pub port: u16,

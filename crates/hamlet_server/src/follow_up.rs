@@ -1,8 +1,8 @@
 //! What follows an input in `PostUpdate` and `Last`: its changes
 //! kept, or rolled back when a system for it failed; the inputs it
 //! ended followed, the tools narrowed to each agent's role, the jobs
-//! it left run, the stopped turns' tool runs ended and the asked ones
-//! started; then the runtimes sent what they are owed, and the
+//! it left run, the stopped turns' tool runs ended and the requested
+//! ones started; then the runtimes sent what they are owed, and the
 //! clients sent the state and then their replies. Each step is worked
 //! out again from the database, so one that fails is made good by the
 //! next input. An input that fails leaves nothing to follow.
@@ -24,7 +24,6 @@ use hamlet_protocol::runtime::{
 use hamlet_store::Db;
 use hamlet_store::ids::{Actor, ConversationId};
 
-use crate::ServerSystems;
 use crate::background::BackgroundWork;
 use crate::calls::{ToolRuns, UnstartedToolRun, place};
 use crate::clients::check::{failed, fault};
@@ -44,6 +43,7 @@ use crate::talk::inputs::Resend;
 use crate::talk::runtimes::Runtimes;
 use crate::talk::sync::{self, ImageFitting};
 use crate::talk::{Env, conversations};
+use crate::{FollowUpSystems, SendSystems};
 
 pub(crate) fn plugin(app: &mut App) {
     app.init_resource::<InputEffects>()
@@ -55,24 +55,24 @@ pub(crate) fn plugin(app: &mut App) {
             PostUpdate,
             (
                 keep_or_roll_back_input
-                    .in_set(ServerSystems::KeepOrRollBackInput),
+                    .in_set(FollowUpSystems::KeepOrRollBackInput),
                 trigger_ended_inputs
-                    .in_set(ServerSystems::FollowEndedInputs),
+                    .in_set(FollowUpSystems::FollowEndedInputs),
                 narrow_tools_to_roles
-                    .in_set(ServerSystems::NarrowToolsToRoles)
+                    .in_set(FollowUpSystems::NarrowToolsToRoles)
                     .run_if(has_agents_or_hamlets_changed),
                 commit_follow_ups
-                    .in_set(ServerSystems::CommitFollowUps),
+                    .in_set(FollowUpSystems::CommitFollowUps),
                 run_kept_jobs
-                    .in_set(ServerSystems::RunKeptJobs)
+                    .in_set(FollowUpSystems::RunKeptJobs)
                     .run_if(has_kept_jobs),
                 stop_cancelled_tool_runs
-                    .in_set(ServerSystems::StopCancelledToolRuns)
+                    .in_set(FollowUpSystems::StopCancelledToolRuns)
                     .run_if(has_kept_change),
                 (crate::calls::start, crate::background::start)
                     .in_set(
-                        ServerSystems::StartToolRunsAndBackgroundWork,
-                    ),
+                    FollowUpSystems::StartToolRunsAndBackgroundWork,
+                ),
             ),
         )
         .add_systems(
@@ -84,20 +84,16 @@ pub(crate) fn plugin(app: &mut App) {
                     wake_held_calls,
                 )
                     .chain()
-                    .in_set(
-                        ServerSystems::SendRuntimesWhatTheyAreOwed,
-                    ),
+                    .in_set(SendSystems::SendRuntimesWhatTheyAreOwed),
                 publish_state
-                    .in_set(ServerSystems::PublishState)
+                    .in_set(SendSystems::PublishState)
                     .run_if(has_shown_change),
                 send_client_messages
-                    .in_set(ServerSystems::SendClientMessages),
+                    .in_set(SendSystems::SendClientMessages),
                 write_runtime_lines
-                    .in_set(ServerSystems::WriteRuntimeLines),
-                push_owed_lodges
-                    .in_set(ServerSystems::PushOwedLodges),
-                reset_for_next_input
-                    .in_set(ServerSystems::ForgetInput),
+                    .in_set(SendSystems::WriteRuntimeLines),
+                push_owed_lodges.in_set(SendSystems::PushOwedLodges),
+                reset_for_next_input.in_set(SendSystems::ForgetInput),
             ),
         );
 }
@@ -159,7 +155,7 @@ pub(crate) struct Queued<'w, 's> {
 impl Queued<'_, '_> {
     /// Drops what a failed input left to follow it: its transaction
     /// was rolled back, so nothing it changed is so, and nothing it
-    /// asked for runs. Refusals still go, since they close a client.
+    /// requested runs. Refusals still go, since they close a client.
     fn discard(&mut self) {
         *self.effects = InputEffects::default();
         self.wakes.clear();
@@ -217,8 +213,8 @@ pub(crate) fn discard(mut queued: Queued) {
 }
 
 /// A call held on a wait whose wait was answered: its runtime is
-/// told after the input's changes are sent, so asking again may get
-/// further.
+/// told after the input's changes are sent, so a repeated request may
+/// get further.
 #[derive(Message)]
 pub(crate) struct WakeHeldCall {
     pub runtime: String,
@@ -229,7 +225,7 @@ pub(crate) struct WakeHeldCall {
 /// carry an answer back, and the replies owed for it come once what
 /// said so is kept. Written as a message by the input, it is
 /// triggered for the observers in
-/// [`ServerSystems::FollowEndedInputs`].
+/// [`FollowUpSystems::FollowEndedInputs`].
 #[derive(Message, Event, Clone)]
 pub(crate) struct InputEnded {
     pub conversation: ConversationId,

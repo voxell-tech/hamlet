@@ -126,14 +126,13 @@ they start in, and the most one may cost.
 ## Starting and stopping
 
 `hamlet_server --home <folder> --port 0` publishes a free loopback address.
-`main` runs a Bevy app with `bevy_log`'s `LogPlugin` and `ServerPlugin`
-(`lib.rs`), whose runner,
-`serve::runner`, serves. The app's first update opens the realm and
+`main` runs the Bevy app `create_app` makes (`lib.rs`), with
+`bevy_log`'s `LogPlugin`, whose runner, `serve::runner`, serves. The app's first update opens the realm and
 the rest in `PreStartup`, starts them in `Startup`, and only then
 publishes `server.json` (`startup.rs`). A stop signal takes the server
 through the `Serving` states, `Open`, `Closing` and `Stopping`, until the
 app exits (`closing.rs`); `clients/connection.rs` owns the sockets,
-`clients/requests.rs` authentication, and `clients/asked.rs` the system
+`clients/requests.rs` authentication, and `clients/received.rs` the system
 that answers each request. `--faux` selects an offline
 response script, not a harness entry. `HAMLET_PI_HARNESS` selects that entry
 instead.

@@ -27,7 +27,7 @@ const ROLE: &str =
      names, keys and paths, and you never invent a skill.";
 
 /// The owner of the errand that answers the call `key` of `runtime`.
-pub(crate) fn asked(runtime: &str, key: &str) -> String {
+pub(crate) fn owner_of_call(runtime: &str, key: &str) -> String {
     format!("ask:{runtime}/{key}")
 }
 
@@ -60,7 +60,7 @@ impl Core<'_, '_> {
         call: &Call<'_>,
         args: AskLibrarian,
     ) -> Result<Step> {
-        let owner = asked(&call.call.runtime, &call.call.key);
+        let owner = owner_of_call(&call.call.runtime, &call.call.key);
         let db = self.realm.store().connection();
         match errands::ended(db, LIBRARIAN, &owner)? {
             Some(Ended::Answered(answer)) => {
@@ -82,11 +82,11 @@ impl Core<'_, '_> {
         let by = self.name(call.conversation.agent)?;
         let instructions = format!(
             "{}\n\nName the skills on the shelves that do what is \
-             asked, with their exact commands. If nothing fits, say \
-             so.",
+             wanted, with their exact commands. If nothing fits, \
+             say so.",
             self.librarian()?
         );
-        let question = format!("{by} asks: {question}");
+        let question = format!("{by} wants to know: {question}");
         let task = self.task_of(call)?;
         let agent = call.conversation.agent;
         self.change(Actor::Agent(agent), |cx, env| {

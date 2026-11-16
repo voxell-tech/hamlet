@@ -1,6 +1,6 @@
-//! Reflection (C5): an agent asked to keep what a chat taught it, in
+//! Reflection (C5): an agent told to keep what a chat taught it, in
 //! its memory and its skills, after enough answered turns, when its
-//! session is put away, or when a chief asks.
+//! session is put away, or when a chief requests it.
 
 use anyhow::Result;
 use diesel::prelude::*;
@@ -23,9 +23,9 @@ pub(crate) const REFLECT: &str =
      to come up again. If nothing is worth keeping, say so in one \
      line.";
 
-/// Counts a chief's turn of `id` that was answered, and asks a
+/// Counts a chief's turn of `id` that was answered, and requests a
 /// reflection once `every` turns were, or at once when its session
-/// was put away. Returns the reflection's request when one was asked.
+/// was put away. Returns the reflection's request when one was made.
 pub(crate) fn answered(
     cx: &mut Change<'_>,
     id: ConversationId,
@@ -59,10 +59,10 @@ pub(crate) fn answered(
     if !put_away && (every == 0 || kept.unreflected < every) {
         return Ok(None);
     }
-    ask(cx, id)
+    reflect(cx, id)
 }
 
-/// Asks the chat `id` to reflect on the turns it answered since its
+/// Tells the chat `id` to reflect on the turns it answered since its
 /// last reflection, unless one is pending or none were answered.
 pub(crate) fn owed(
     cx: &mut Change<'_>,
@@ -71,11 +71,11 @@ pub(crate) fn owed(
     if conversations::get(cx.db, id)?.unreflected == 0 {
         return Ok(None);
     }
-    ask(cx, id)
+    reflect(cx, id)
 }
 
-/// Asks the chat `id` to reflect now.
-pub(crate) fn ask(
+/// Tells the chat `id` to reflect now.
+pub(crate) fn reflect(
     cx: &mut Change<'_>,
     id: ConversationId,
 ) -> Result<Option<String>> {

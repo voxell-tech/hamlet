@@ -270,7 +270,7 @@ pub(crate) struct Server {
 }
 
 impl Server {
-    /// Serves `app`, which has [`crate::ServerPlugin`]: its first
+    /// Serves `app`, which [`crate::create_app`] made: its first
     /// update opens what it serves in `PreStartup` and starts it in
     /// `Startup`.
     pub fn start(mut app: App) -> Result<Self> {
@@ -396,7 +396,7 @@ pub(crate) async fn shut_down(server: &mut Server) -> Result<()> {
     let deadline = Instant::now() + Duration::from_secs(60);
     server
         .inputs()
-        .send(closing::StopAsked)
+        .send(closing::StopRequested)
         .map_err(|_| anyhow::anyhow!("the server stopped already"))?;
     while !server.has_exited() {
         anyhow::ensure!(
@@ -478,14 +478,11 @@ mod tests {
     ) -> (Server, chats::Said) {
         let faux = dir.join("faux.json");
         std::fs::write(&faux, script).unwrap();
-        let mut app = App::new();
-        app.add_plugins(crate::ServerPlugin {
-            options: crate::options::Options {
-                home: dir.join("realm"),
-                port: 0,
-                faux: Some(faux),
-                isolation: hamlet_sandbox::Isolation::Sandboxed,
-            },
+        let app = crate::create_app(crate::options::Options {
+            home: dir.join("realm"),
+            port: 0,
+            faux: Some(faux),
+            isolation: hamlet_sandbox::Isolation::Sandboxed,
         });
         let mut server = Server::start(app).unwrap();
         let mut core = server.core().unwrap();

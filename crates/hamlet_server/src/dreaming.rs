@@ -1,7 +1,8 @@
 //! The dreams of agents: one dream at a time, while dreams are on and
-//! in the chief's hours, or when a chief asks with `/dream`. A hire
-//! dreams once it learned something its scholar lacks, an ended hire
-//! once more, and a scholar at most once a day to tidy its `main`.
+//! in the chief's hours, or when a chief calls for one with `/dream`.
+//! A hire dreams once it learned something its scholar lacks, an
+//! ended hire once more, and a scholar at most once a day to tidy its
+//! `main`.
 
 use anyhow::Result;
 use chrono::Timelike;

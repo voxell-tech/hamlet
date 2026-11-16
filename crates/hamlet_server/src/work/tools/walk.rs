@@ -142,7 +142,7 @@ pub(super) fn report(
 }
 
 /// True when the file at `at` under the searched folder is one
-/// `pattern` asks for: by its name, or by its path when `pattern` has
+/// `pattern` names: by its name, or by its path when `pattern` has
 /// a `/`.
 pub(super) fn is_wanted(pattern: &str, at: &str) -> bool {
     let name = if pattern.contains('/') {

@@ -42,12 +42,12 @@ const STOPPING: Duration = Duration::from_secs(30);
 pub(crate) fn plugin(app: &mut App) {
     app.add_plugins(StatesPlugin)
         .init_state::<Serving>()
-        .add_message::<StopAsked>()
+        .add_message::<StopRequested>()
         .add_message::<ClientsClosed>()
         .add_systems(
             PreUpdate,
             (
-                ask_to_close.run_if(on_message::<StopAsked>),
+                start_closing.run_if(on_message::<StopRequested>),
                 note_clients_closed
                     .run_if(on_message::<ClientsClosed>),
                 stop_once_settled.run_if(in_state(Serving::Closing)),
@@ -71,9 +71,9 @@ pub(crate) enum Serving {
     Stopping,
 }
 
-/// A signal asked the server to stop.
+/// A signal requested that the server stop.
 #[derive(Message)]
-pub(crate) struct StopAsked;
+pub(crate) struct StopRequested;
 
 /// The connections closed, or were given up on after `GRACE`.
 #[derive(Message)]
@@ -92,7 +92,7 @@ struct Closing {
 }
 
 /// A stop signal closes an open server.
-fn ask_to_close(
+fn start_closing(
     serving: Res<State<Serving>>,
     mut next: ResMut<NextState<Serving>>,
 ) {

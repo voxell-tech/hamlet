@@ -1,5 +1,5 @@
 //! The realm's folder of images: each kept once under the hash of its
-//! bytes, with a small copy made the first time one is asked for, and
+//! bytes, with a small copy made the first time one is requested, and
 //! handed over to an agent's own folder of images.
 
 use std::path::{Path, PathBuf};
@@ -98,7 +98,7 @@ impl Images {
     }
 
     /// The thumbnail of the image kept under `id`, made and kept the
-    /// first time it is asked for; the image itself when it is
+    /// first time it is requested; the image itself when it is
     /// small enough already.
     pub fn thumbnail(&self, id: &ImageId) -> Result<Option<Stored>> {
         if let Some(kept) = Self::find_in(&self.thumbnails(), id)? {

@@ -41,8 +41,8 @@ pub(crate) struct Tell {
     pub paths: Vec<String>,
 }
 
-/// Ask an agent you have a road to a question and wait for its
-/// answer. Ask only what you need; a question to someone waiting on
+/// Put a question to an agent you have a road to and wait for its
+/// answer. Put only what you need; a question to someone waiting on
 /// you is refused.
 #[derive(Deserialize, JsonSchema)]
 pub(crate) struct Ask {
@@ -82,7 +82,8 @@ pub(crate) struct SubmitSkill {
     pub reason: String,
 }
 
-/// Ask the librarian which skills in the library help with something.
+/// Put a question to the librarian about which skills in the library
+/// help with something.
 #[derive(Deserialize, JsonSchema)]
 pub(crate) struct AskLibrarian {
     /// What you need a skill for.
@@ -103,8 +104,8 @@ pub(crate) struct Object {
     pub reason: String,
 }
 
-/// Ask your lead for a road to an agent of your hamlet you need to
-/// reach.
+/// Request from your lead a road to an agent of your hamlet you need
+/// to reach.
 #[derive(Deserialize, JsonSchema)]
 pub(crate) struct RequestRoad {
     #[schemars(description = ADDRESS)]
@@ -228,8 +229,8 @@ pub(crate) struct Nickname {
     pub reason: String,
 }
 
-/// Lay a road between two hires under you, so they can write and ask
-/// each other.
+/// Lay a road between two hires under you, so they can write and put
+/// questions to each other.
 #[derive(Deserialize, JsonSchema)]
 pub(crate) struct LayRoad {
     #[schemars(description = ADDRESS)]

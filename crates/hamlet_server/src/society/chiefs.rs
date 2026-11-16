@@ -14,7 +14,7 @@ pub(crate) struct Chief {
     pub since: i64,
 }
 
-/// The chief named `name`, made the first time it is asked for.
+/// The chief named `name`, made the first time it is wanted.
 pub(crate) fn ensure(
     db: &mut Db,
     name: &str,

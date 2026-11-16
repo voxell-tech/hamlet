@@ -39,7 +39,7 @@ fn fire(world: &mut World) -> bevy_ecs::error::Result {
 /// A timer's next due time.
 enum TimerDueTime {
     /// As a system of its area says; none when nothing waits.
-    AskedOfSystem(SystemId<(), Option<Instant>>),
+    FromSystem(SystemId<(), Option<Instant>>),
     /// Every period, from the server's start.
     Every { period: Duration, next: Instant },
 }
@@ -76,7 +76,7 @@ impl AddTimer for App {
         world
             .get_resource_or_init::<Timers>()
             .0
-            .push((TimerDueTime::AskedOfSystem(due), fire));
+            .push((TimerDueTime::FromSystem(due), fire));
         self
     }
 
@@ -107,7 +107,7 @@ fn whens(
                 .0
                 .iter()
                 .map(|(when, fire)| match when {
-                    TimerDueTime::AskedOfSystem(due) => {
+                    TimerDueTime::FromSystem(due) => {
                         (Some(*due), None, *fire)
                     }
                     TimerDueTime::Every { next, .. } => {

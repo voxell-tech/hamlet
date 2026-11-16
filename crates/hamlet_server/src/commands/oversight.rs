@@ -1,6 +1,7 @@
 //! A chief's commands on what waits and on what agents were allowed:
 //! answering a wait, listing what waits and what was granted, taking
-//! a grant back, instructing another agent and asking a reflection.
+//! a grant back, instructing another agent and requesting a
+//! reflection.
 
 use anyhow::Result;
 use diesel::prelude::*;
@@ -215,13 +216,15 @@ impl Core<'_, '_> {
 
     pub(super) fn reflect(&mut self, agent: AgentId) -> Done<String> {
         let chief = self.realm.chief();
-        let asked = self.change(Actor::Chief(chief), |cx, env| {
-            let conversation = chats::current(cx, env, agent, chief)?;
-            reflections::ask(cx, conversation)
-        })?;
+        let reflection =
+            self.change(Actor::Chief(chief), |cx, env| {
+                let conversation =
+                    chats::current(cx, env, agent, chief)?;
+                reflections::reflect(cx, conversation)
+            })?;
         let name = self.name_of(agent)?;
-        Ok(Ok(match asked {
-            Some(_) => format!("Asked {name} to reflect."),
+        Ok(Ok(match reflection {
+            Some(_) => format!("Told {name} to reflect."),
             None => format!("{name} is reflecting already."),
         }))
     }

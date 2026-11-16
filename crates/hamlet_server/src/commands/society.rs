@@ -665,7 +665,7 @@ fn fast(core: &mut Core<'_, '_>, line: &Line) -> Answer {
         agents::set_fast(cx, agent, fast)
     })?;
     Ok(done.map(|()| {
-        format!("`{text}` asks for the fast tier: {value}.")
+        format!("`{text}` calls for the fast tier: {value}.")
     }))
 }
 

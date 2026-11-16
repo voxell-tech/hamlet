@@ -98,7 +98,7 @@ pub(super) fn place(
     }
     let ways = roads::ways(db, id)?;
     if !ways.is_empty() {
-        lines.push("You can write to and ask:".into());
+        lines.push("You can write to and put questions to:".into());
         for (other, way) in ways {
             let how = match way {
                 Way::Tree => "",

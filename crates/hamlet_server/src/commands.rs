@@ -19,7 +19,7 @@ use hamlet_protocol::client::{self as protocol, Choice};
 use hamlet_store::ids::{Actor, AgentId, HamletId, ScholarId};
 
 use crate::change::Done;
-use crate::clients::asked::FromClient;
+use crate::clients::received::FromClient;
 use crate::core::Core;
 use crate::server::AddHandler;
 use crate::society::addresses::{self, Reach};
@@ -125,7 +125,7 @@ const OVERSIGHT: &[Command] = &[
     Command {
         name: "reflect",
         usage: "/reflect",
-        does: "Ask the agent to keep what this session taught it",
+        does: "Have the agent keep what this session taught it",
         run: |core, line| core.reflect(line.agent),
     },
     Command {

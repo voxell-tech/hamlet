@@ -8,7 +8,7 @@ use std::time::Duration;
 use anyhow::Result;
 use bevy_app::{App, AppExit};
 
-use crate::closing::StopAsked;
+use crate::closing::StopRequested;
 use crate::server::{InputSender, Server};
 
 /// The longest the runner sleeps with nothing coming.
@@ -42,8 +42,7 @@ fn failed(error: &anyhow::Error) {
     eprintln!("Error: {error:?}");
 }
 
-/// Serves `app` until it exits. The first SIGTERM or Ctrl-C asks it
-/// to stop, and a second exits at once. A realm that can no longer be
+/// Serves `app` until it exits. A realm that can no longer be
 /// served is stopped too, and its error is the server's.
 async fn serve(app: App) -> Result<()> {
     let signals = Signals::new()?;
@@ -58,18 +57,18 @@ async fn serve(app: App) -> Result<()> {
             Err(error) if fatal.is_some() => return Err(error.0),
             Err(error) => {
                 fatal = Some(error.0);
-                let _ = server.inputs().send(StopAsked);
+                let _ = server.inputs().send(StopRequested);
             }
         }
     }
     fatal.map_or(Ok(()), Err)
 }
 
-/// Asks the server to stop at the first signal, and exits at the
-/// second.
+/// The first SIGTERM or Ctrl-C triggers [`StopRequested`], and a
+/// second exits at once.
 async fn stop_on_signals(mut signals: Signals, inputs: InputSender) {
     signals.next().await;
-    let _ = inputs.send(StopAsked);
+    let _ = inputs.send(StopRequested);
     signals.next().await;
     std::process::exit(130);
 }

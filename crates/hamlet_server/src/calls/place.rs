@@ -26,7 +26,8 @@ pub(crate) struct Workplace {
     pub place: Place,
     /// The hamlet whose limits and mode its calls are under.
     pub hamlet: Option<HamletId>,
-    /// Set when edits in the folder and commands ask a chief (C21).
+    /// Set when edits in the folder and commands wait for a chief's
+    /// answer (C21).
     pub manual: bool,
 }
 
@@ -109,7 +110,7 @@ pub(crate) fn of_conversation(
 ) -> Result<Workplace> {
     let mut at = of(db, layout, conversation.agent)?;
     // A dream writes the checkout of its scholar's `main` in place of
-    // a folder, and asks nothing.
+    // a folder, and needs no chief's answer.
     if conversation.kind == Kind::Dream
         && let Some(dream) = crate::society::dreams::of_conversation(
             db,
@@ -124,7 +125,8 @@ pub(crate) fn of_conversation(
     Ok(at)
 }
 
-/// The folder `hamlet` works on, and whether its work there asks.
+/// The folder `hamlet` works on, and whether its work there waits for
+/// a chief.
 fn folder(
     db: &mut Db,
     hamlet: &HamletId,

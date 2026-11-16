@@ -32,7 +32,7 @@ use crate::follow_up::{InputEffects, keep_or_roll_back_input};
 use crate::providers::FAUX;
 use crate::realm::Realm;
 use crate::server::{AddHandler, InputMessage, InputOrigin};
-use crate::{ServerSystems, clock};
+use crate::{FollowUpSystems, clock};
 
 pub(crate) fn plugin(app: &mut App) {
     app.add_message::<RuntimeLineReceived>()
@@ -46,7 +46,7 @@ pub(crate) fn plugin(app: &mut App) {
             answer_credentials
                 .run_if(is_from_runtime)
                 .after(keep_or_roll_back_input)
-                .in_set(ServerSystems::KeepOrRollBackInput),
+                .in_set(FollowUpSystems::KeepOrRollBackInput),
         )
         .add_handler::<FromRuntime<runtime::Allow>, _>(allow)
         .add_handler::<FromRuntime<runtime::Operation>, _>(operation)
@@ -167,13 +167,13 @@ pub(crate) fn write(
 /// The id of `message` when the runtime waits for its answer.
 fn awaited(message: &RuntimeMessage) -> Option<String> {
     let id = match message {
-        RuntimeMessage::Prompt(asked) => &asked.id,
-        RuntimeMessage::Attempt(asked) => &asked.id,
+        RuntimeMessage::Prompt(prompt) => &prompt.id,
+        RuntimeMessage::Attempt(attempt) => &attempt.id,
         RuntimeMessage::Usage(report) => &report.id,
-        RuntimeMessage::Allow(asked) => &asked.id,
-        RuntimeMessage::Operation(asked) => &asked.id,
+        RuntimeMessage::Allow(allow) => &allow.id,
+        RuntimeMessage::Operation(operation) => &operation.id,
         RuntimeMessage::Yield(answer) => &answer.id,
-        RuntimeMessage::Scrub(asked) => &asked.id,
+        RuntimeMessage::Scrub(scrub) => &scrub.id,
         RuntimeMessage::CredentialRequest(request) => &request.id,
         _ => return None,
     };
@@ -199,12 +199,12 @@ fn allow(
 ) -> Result {
     let Some(FromRuntime {
         runtime: from,
-        message: asked,
+        message: allow,
     }) = heard.take()
     else {
         return Ok(());
     };
-    core.allow_call(from, asked)?;
+    core.allow_call(from, allow)?;
     Ok(())
 }
 
@@ -215,12 +215,12 @@ fn operation(
 ) -> Result {
     let Some(FromRuntime {
         runtime: from,
-        message: asked,
+        message: operation,
     }) = heard.take()
     else {
         return Ok(());
     };
-    core.operation(from, asked)?;
+    core.operation(from, operation)?;
     Ok(())
 }
 
@@ -504,7 +504,7 @@ fn prompt(
 ) -> Result {
     let Some(FromRuntime {
         runtime: from,
-        message: asked,
+        message: prompt,
     }) = heard.take()
     else {
         return Ok(());
@@ -512,10 +512,10 @@ fn prompt(
     let runtime = core.runtimes.id(from)?;
     let db = core.realm.store().connection();
     let conversation =
-        turns::conversation(db, &runtime, &asked.conversation)?;
-    let re = asked.id.clone();
+        turns::conversation(db, &runtime, &prompt.conversation)?;
+    let re = prompt.id.clone();
     if let Some((key, words)) =
-        core.before_prompt(&conversation, asked.input.as_deref())?
+        core.before_prompt(&conversation, prompt.input.as_deref())?
     {
         core.runtimes.send(from, |v, id| {
             ServerMessage::Waiting(runtime::Waiting {
@@ -548,7 +548,7 @@ fn attempt(
 ) -> Result {
     let Some(FromRuntime {
         runtime: from,
-        message: asked,
+        message: attempt,
     }) = heard.take()
     else {
         return Ok(());
@@ -560,19 +560,19 @@ fn attempt(
         &core.env,
         &core.providers,
         &runtime,
-        &asked,
+        &attempt,
         at,
     )?;
-    let re = asked.id;
+    let re = attempt.id;
     match admission {
         Admission::Allowed(selection) => {
             let provider = selection.model.provider.clone();
-            core.leases.grant(from, &asked.key, &provider);
+            core.leases.grant(from, &attempt.key, &provider);
             let db = core.realm.store().connection();
             let conversation = turns::conversation(
                 db,
                 &runtime,
-                &asked.conversation,
+                &attempt.conversation,
             )?;
             core.live(conversation.id)?.activity.attempted();
             core.publish();
@@ -692,14 +692,14 @@ fn scrub(
 ) -> Result {
     let Some(FromRuntime {
         runtime: from,
-        message: asked,
+        message: scrub,
     }) = heard.take()
     else {
         return Ok(());
     };
-    let mut value = asked.value;
+    let mut value = scrub.value;
     credentials.scrub(&mut value);
-    let re = asked.id;
+    let re = scrub.id;
     runtimes.send(from, |v, id| {
         ServerMessage::Scrubbed(runtime::Scrubbed {
             id,
@@ -729,7 +729,7 @@ fn error(
     Ok(())
 }
 
-/// A credential asked for, answered once the leases let it through.
+/// A credential requested, answered once the leases let it through.
 fn credential_request(
     mut heard: InputMessage<FromRuntime<runtime::CredentialRequest>>,
     mut leases: ResMut<Authority>,
