@@ -27,6 +27,13 @@ const LETTERS: Probe = Probe {
     ),
 };
 
+/// The inputs hire 3 dropped as repeats of ones it took.
+const REPEATS: Probe = Probe {
+    name: "agent.repeats",
+    file: "actors/agent/3.sqlite",
+    read: Read::Sql("SELECT COUNT(*) FROM repeat"),
+};
+
 /// The objection still waits: the hire may not spend on its task, and
 /// the letter is kept, not given.
 const STILL_HELD: &[Expect] = &[
@@ -46,14 +53,18 @@ const STILL_HELD: &[Expect] = &[
         value: "agent.letters",
         is: Is::Exactly(0),
     },
+    Expect {
+        value: "agent.repeats",
+        is: Is::Exactly(0),
+    },
 ];
 
-/// One go ends the wait, a second finds nothing waiting, and the
-/// kept letter reaches the hire once.
+/// One go ends the wait and lets the hire spend again, a second
+/// finds nothing waiting, and the realm gives the kept letter once.
 const RULED_ONCE: &[Expect] = &[
     Expect {
         value: "may/3",
-        is: Is::Exactly(0),
+        is: Is::Exactly(1),
     },
     Expect {
         value: "answered/1",
@@ -75,6 +86,10 @@ const RULED_ONCE: &[Expect] = &[
         value: "agent.letters",
         is: Is::Exactly(1),
     },
+    Expect {
+        value: "agent.repeats",
+        is: Is::Exactly(0),
+    },
 ];
 
 pub const SCENARIOS: &[Scenario] = &[Scenario {
@@ -83,8 +98,8 @@ pub const SCENARIOS: &[Scenario] = &[Scenario {
             that task is kept, and the host is killed at a random \
             time after; after each restart the objection's wait is \
             open and the hire's spending held, one go at the second \
-            ends it, a second go finds nothing waiting, and the \
-            letter arrives once",
+            ends it and lets the hire spend, a second go finds \
+            nothing waiting, and the realm sends the letter once",
     demo: Demo::RealmActor,
     setup: &[
         "realm found docs",
@@ -108,8 +123,9 @@ pub const SCENARIOS: &[Scenario] = &[Scenario {
             "realm answer 1 go",
             "realm answer 1 go",
             "agent 3 await letter 1",
+            "agent 3 may-spend line:3",
         ],
     ],
-    probes: &[OPEN_OBJECTIONS, HELD, LETTERS],
+    probes: &[OPEN_OBJECTIONS, HELD, LETTERS, REPEATS],
     expect: [STILL_HELD, RULED_ONCE],
 }];
