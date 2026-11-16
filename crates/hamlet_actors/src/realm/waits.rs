@@ -1115,7 +1115,7 @@ impl Act<Agent> for Lapse {
             // a send's parcel is refused.
             let with = match (kind, task) {
                 (Kind::Objection, Some(task)) => {
-                    Some(asking::Change::Lapse { task }.into())
+                    Some(asking::Change::Unhold { task }.into())
                 }
                 (Kind::Send, _) => {
                     Some(parcels::lapsed(rows, wait).await?)

@@ -8,18 +8,22 @@ use hamlet_messages::realm::client::SayAnswer;
 use hamlet_messages::realm::documents::{
     EditSettings, Endpoint, Setting,
 };
+use hamlet_messages::realm::oversight::{Object, ObjectRefusal};
 use hamlet_messages::realm::workers::{Ended, ErrandDone};
 use hamlet_messages::realm::{
-    Asked, Done, HamletId, Limit, Review, SetLimits,
+    AgentRefusal, Asked, Done, End, HamletId, Limit, Refusable as _,
+    Review, SetLimits, Tell,
 };
 use hamlet_messages::sender::Hand;
-use hamlet_messages::workspace::{AgentNumber, ErrandNumber};
+use hamlet_messages::workspace::{
+    AgentNumber, ConversationId, ErrandNumber, RealmTask,
+};
 use hamlet_protocol::client::{Choice, RequestId};
 
 use super::chiefs::chief;
 use super::{
-    MAYOR, Realm, Seen, THREE, answer, founded, hires, say,
-    submits_to, to, until,
+    Callee, FOUR, MAYOR, Realm, Seen, THREE, answer, founded, hires,
+    say, submits_to, tell, to, tool, until,
 };
 
 /// A hamlet whose mayor leads 3 and 4, where a review lasts at most
@@ -557,5 +561,159 @@ async fn a_review_runs_on_the_leads_own_model() {
     assert_eq!((edited, chosen), (Done::Done, Done::Done));
     assert_eq!(brief.model.as_deref(), Some("far::big"));
     assert_eq!(outcomes(&realm).await, [Some("passed".to_owned())]);
+    realm.host.shutdown().await.unwrap();
+}
+
+/// The errands' ends: errand number and how it ended.
+async fn errands_ended(realm: &Realm) -> Vec<(u32, Option<String>)> {
+    realm
+        .rows(|db| {
+            db.prepare("SELECT n, ended FROM errand ORDER BY n")?
+                .query_map([], |row| Ok((row.get(0)?, row.get(1)?)))?
+                .collect()
+        })
+        .await
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn a_review_of_an_ended_hire_gives_nothing() {
+    // lines to 3 and to 4 wait for their reviews; a chief ends both
+    // hires. The lead passes 3's line and objects to 4's: neither
+    // hire is given its line, and no wait opens for a chief.
+    let (realm, _) =
+        hamlet(Duration::from_secs(60), Review::Always).await;
+    tells_three(&realm, "Plain line.").await;
+    briefed(&realm, 0).await;
+    realm
+        .ask(&say(&RequestId::new(), FOUR, "Odd line."))
+        .await
+        .unwrap();
+    briefed(&realm, 1).await;
+    for hire in [THREE, FOUR] {
+        let ended = chief(
+            &realm,
+            End {
+                hire: to(hire),
+                why: None,
+            },
+        )
+        .await;
+        assert_eq!(ended, Done::Done);
+    }
+
+    ends(&realm, 0, answered("PASS: fine")).await;
+    ends(&realm, 1, answered("OBJECT: odd")).await;
+    tokio::time::sleep(Duration::from_secs(1)).await;
+    let open = realm
+        .rows(|db| {
+            db.query_row(
+                "SELECT COUNT(*) FROM wait WHERE closed_at IS NULL",
+                [],
+                |row| row.get::<_, u32>(0),
+            )
+        })
+        .await;
+
+    assert_eq!(lines(&realm, THREE), []);
+    assert_eq!(lines(&realm, FOUR), []);
+    assert_eq!(open, 0);
+    assert_eq!(
+        outcomes(&realm).await,
+        [Some("passed".to_owned()), Some("objected".to_owned())]
+    );
+    realm.host.shutdown().await.unwrap();
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn a_hire_cannot_object_to_a_line_it_was_not_given() {
+    // 3 objects to the task of a line still in its review: refused,
+    // as it is no line 3 works on. The lead objects: the errand ends,
+    // and one objection waits for a chief, the review's.
+    let (realm, _) =
+        hamlet(Duration::from_secs(60), Review::Always).await;
+    tells_three(&realm, "Odd line.").await;
+    let (_, _, task) = briefed(&realm, 0).await;
+
+    let objected = realm
+        .tool(
+            THREE,
+            &tool(
+                "o1",
+                Object {
+                    task: RealmTask(task),
+                    conversation: ConversationId("c".to_owned()),
+                    reason: "no".to_owned(),
+                },
+            ),
+        )
+        .await
+        .unwrap();
+    ends(&realm, 0, answered("OBJECT: odd")).await;
+    let waits = waits_of_three(&realm).await;
+
+    assert_eq!(
+        objected,
+        Done::refused(AgentRefusal::Act(
+            ObjectRefusal::NotAChiefsLine
+        ))
+    );
+    assert_eq!(
+        errands_ended(&realm).await,
+        [(0, Some("answered".to_owned()))]
+    );
+    assert_eq!(waits.len(), 1, "{waits:?}");
+    assert_eq!(
+        waits[0].2,
+        "A chief told `hire#3`: Odd line.\nhire#2 objects: odd"
+    );
+    assert!(lines(&realm, THREE).is_empty());
+    realm.host.shutdown().await.unwrap();
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn a_failed_line_on_go_still_gives_the_held_letters() {
+    // the lead objects to 3's line and tells 4 a letter on its task,
+    // which is held. On go, giving 3 the line fails: 4 is given the
+    // letter all the same.
+    let (realm, _) =
+        hamlet(Duration::from_secs(60), Review::Always).await;
+    let wait = objected(&realm).await;
+    let (_, _, task) = briefed(&realm, 0).await;
+    let told = realm
+        .tool(
+            MAYOR,
+            &tool(
+                "t1",
+                Tell {
+                    task: Some(RealmTask(task)),
+                    ..tell(to(FOUR), "Wait for the chief.")
+                },
+            ),
+        )
+        .await
+        .unwrap();
+    let before = submits_to(&realm, FOUR);
+    realm.seen.fail_once(Callee::Submit, THREE);
+
+    let ruled =
+        realm.ask(&answer(&wait, Choice::Go, None)).await.unwrap();
+    until("giving 3 the line failed", || {
+        realm.seen.has_failed(Callee::Submit, THREE)
+    })
+    .await;
+    // Reading the rows stops the realm, which first makes every
+    // delivery the go started.
+    outcomes(&realm).await;
+    let letters = submits_to(&realm, FOUR)
+        .into_iter()
+        .filter_map(|Submit { input, .. }| match input {
+            Input::Letter { text, .. } => Some(text),
+            _ => None,
+        })
+        .collect::<Vec<_>>();
+
+    assert_eq!((told, ruled), (Done::Done, Done::Done));
+    assert_eq!(before, []);
+    assert_eq!(letters, ["Wait for the chief."]);
     realm.host.shutdown().await.unwrap();
 }

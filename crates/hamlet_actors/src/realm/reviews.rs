@@ -57,11 +57,13 @@ pub(super) enum Verdict {
     Failed,
 }
 
+const OBJECTED: &str = "objected";
+
 impl Verdict {
     fn outcome(&self) -> &'static str {
         match self {
             Self::Passed(_) => "passed",
-            Self::Objected(_) => "objected",
+            Self::Objected(_) => OBJECTED,
             Self::Failed => "failed",
         }
     }
@@ -126,6 +128,9 @@ async fn end(
     let mut kept = held(&writer.rows(), task)
         .await?
         .with_context(|| format!("no review of task {task:?}"))?;
+    if tree::left(&writer.rows(), kept.hire).await?.is_some() {
+        return Ok(Affected::default());
+    }
     match verdict {
         Verdict::Passed(Some(note)) => {
             let Input::Line { note: noted, .. } =
@@ -214,7 +219,7 @@ struct Held {
 
 impl Held {
     fn objected(&self) -> bool {
-        self.outcome.as_deref() == Some("objected")
+        self.outcome.as_deref() == Some(OBJECTED)
     }
 }
 
@@ -236,6 +241,28 @@ async fn held(rows: &Rows<'_>, task: TaskId) -> Result<Option<Held>> {
         at,
         outcome,
     }))
+}
+
+/// Whether the chief's line of `task` is kept from its hire: its
+/// review is open, or objected with no go from a chief.
+pub(super) async fn withholds(
+    rows: &Rows<'_>,
+    task: TaskId,
+) -> Result<bool> {
+    Ok(rows
+        .value::<bool>(
+            "SELECT EXISTS (SELECT 1 FROM review LEFT JOIN \
+             objection ON objection.task = review.task WHERE \
+             review.task = ?1 AND (review.outcome IS NULL OR \
+             (review.outcome = ?2 AND objection.ruling IS NOT \
+             'go')))",
+            vec![
+                task.column()?,
+                BindParam::Text(OBJECTED.to_owned()),
+            ],
+        )
+        .await?
+        .unwrap_or(false))
 }
 
 /// A hire's name as a chief reads it: the realm keeps no other.
