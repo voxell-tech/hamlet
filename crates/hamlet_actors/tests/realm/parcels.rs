@@ -12,7 +12,7 @@ use hamlet_host::{Caller, Host, HostOptions, HostRef};
 use hamlet_messages::address::{self, Party};
 use hamlet_messages::agent::{Input, Submit};
 use hamlet_messages::bytes::{Base64, Sha256};
-use hamlet_messages::realm::client::{AnswerRefusal, ReadWorld};
+use hamlet_messages::realm::client::AnswerRefusal;
 use hamlet_messages::realm::oversight::{Lapse, LapseReason};
 use hamlet_messages::realm::parcels::{
     FetchPart, Measure, PARCEL_PART, ParcelFile, ParcelId, Part,
@@ -518,7 +518,12 @@ async fn over_the_cap_a_parcel_waits_for_a_chief() {
 
     sends(&realm, "t1", "Everything.", &["/project/big"]).await;
     opens(&realm, "1").await;
-    let seen = realm.ask(&ReadWorld).await.unwrap();
+    let seen = super::world::seen_until(
+        &realm,
+        "the send wait shows",
+        |seen| !seen.waits.is_empty(),
+    )
+    .await;
     let realm = restart(realm, &files).await;
     realm.write("UPDATE parcel SET at = 0 WHERE id = 1").await;
     chief_answers(&realm, "1", Choice::Allow, None, 0).await;
