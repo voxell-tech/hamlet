@@ -8,6 +8,8 @@ mod menu;
 mod needs;
 pub(super) mod overview;
 mod settings;
+mod terminal;
+pub(super) use terminal::print;
 mod welcome;
 
 use std::path::PathBuf;
@@ -111,6 +113,7 @@ pub(super) fn setup(world: &mut World) {
         },
     ]);
     state.providers.sort_by(|a, b| a.id.cmp(&b.id));
+    terminal::state(&mut state, scene);
     hamlet_client::receive(
         world,
         protocol::ServerMessage::State(state),
@@ -189,6 +192,7 @@ pub(super) fn setup(world: &mut World) {
     if matches!(scene, Scene::Images | Scene::NoImages) {
         images::setup(world, scene, session);
     }
+    terminal::setup(world, scene);
     if matches!(scene, Scene::History | Scene::Reading) {
         world.insert_resource(hamlet_app::hub::Showing::Sessions);
         history::setup(world, scene == Scene::Reading);

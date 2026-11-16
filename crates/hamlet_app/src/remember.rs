@@ -1,6 +1,7 @@
 //! The view kept between launches: the desks, the sky as the Sight
 //! page sets it, the appearance and the selection.
 
+use std::collections::{BTreeMap, BTreeSet};
 use std::path::{Path, PathBuf};
 use std::time::Duration;
 
@@ -33,6 +34,7 @@ use crate::appearance::{Appearance, Pick, Zoom};
 use crate::convo::Convo;
 use crate::desk::{self, Desks, Part};
 use crate::roll::Roll;
+use crate::screens::terminal;
 use crate::world_menu::{Favorites, LastSide};
 use crate::world_view::{NorthTarget, TimeOfDay};
 
@@ -142,6 +144,15 @@ pub struct View {
     /// How large the panels are drawn.
     #[serde(default)]
     zoom: Zoom,
+    /// The terminal each Terminal panel showed, by panel id.
+    #[serde(default)]
+    terminals: BTreeMap<String, String>,
+    /// What each Terminal panel's list had folded away, by panel id.
+    #[serde(default)]
+    terminal_folds: BTreeMap<String, BTreeSet<String>>,
+    /// The agents whose bash logs the Terminal panels list.
+    #[serde(default)]
+    terminal_pins: BTreeSet<String>,
 }
 
 /// The view kept in the window's folder, as read at launch; none
@@ -342,6 +353,9 @@ pub fn restore(world: &mut World) {
     world.insert_resource(desks);
     world.insert_resource(view.favorite_models);
     world.insert_resource(view.model_side);
+    world.insert_resource(terminal::Restoring(view.terminals));
+    world.insert_resource(terminal::Folds(view.terminal_folds));
+    world.insert_resource(terminal::Pins(view.terminal_pins));
 }
 
 /// Puts back the kept appearance and zoom.
@@ -384,12 +398,15 @@ pub fn keep(
     sound: Res<SoundSettings>,
     quality: Res<Quality>,
     awake: Res<KeepAwake>,
-    (pending, kept, north, favorites, side): (
+    (pending, kept, north, favorites, side, terminals, folds, pins): (
         Res<Pending>,
         Res<Kept>,
         Res<NorthTarget>,
         Res<Favorites>,
         Res<LastSide>,
+        Res<terminal::Shown>,
+        Res<terminal::Folds>,
+        Res<terminal::Pins>,
     ),
     (fog, far, wind, appearance, zoom): (
         Res<VolumetricFogSettings>,
@@ -416,6 +433,9 @@ pub fn keep(
         || side.is_changed()
         || appearance.is_changed()
         || zoom.is_changed()
+        || terminals.is_changed()
+        || folds.is_changed()
+        || pins.is_changed()
     {
         *due = Some(now + SETTLE);
     }
@@ -445,6 +465,9 @@ pub fn keep(
         model_side: side.clone(),
         appearance: appearance.0.clone(),
         zoom: *zoom,
+        terminals: terminals.0.clone(),
+        terminal_folds: folds.0.clone(),
+        terminal_pins: pins.0.clone(),
     };
     if written.as_ref() == Some(&view) {
         return;
@@ -503,6 +526,15 @@ mod tests {
             model_side: LastSide("faux".into()),
             appearance: None,
             zoom: Zoom::default(),
+            terminals: BTreeMap::from([(
+                "terminal-2".into(),
+                "t-3f2a".into(),
+            )]),
+            terminal_folds: BTreeMap::from([(
+                "terminal".into(),
+                BTreeSet::from(["home".into(), "agent#3".into()]),
+            )]),
+            terminal_pins: BTreeSet::from(["agent#2".into()]),
         }
     }
 

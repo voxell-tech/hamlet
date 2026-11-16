@@ -27,6 +27,7 @@ mod settings;
 mod society;
 mod spend;
 mod talk;
+mod terminals;
 #[cfg(test)]
 mod testing;
 mod text;

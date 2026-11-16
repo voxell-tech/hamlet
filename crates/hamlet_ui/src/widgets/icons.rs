@@ -66,6 +66,16 @@ const BOLT: [[f32; 2]; 6] = [
 /// once.
 const SPIN_PERIOD: f64 = 1.2;
 
+/// The head of a pin: a cap, a neck and a flange, above its needle.
+const PIN: [[f32; 2]; 6] = [
+    [6.0, 2.0],
+    [10.0, 2.0],
+    [10.0, 6.0],
+    [12.0, 9.0],
+    [4.0, 9.0],
+    [6.0, 6.0],
+];
+
 pub fn plugin(app: &mut App) {
     app.insert_resource(dock()).add_systems(Startup, draw);
 }
@@ -163,6 +173,8 @@ pub enum Glyph {
     Chevron,
     /// A chevron to the right: this opens a page of its own.
     Into,
+    /// A chevron that points down: a list that is open.
+    Down,
     /// Three dots: the rest of what can be done.
     More,
     /// Three lines: a list folded away.
@@ -210,6 +222,16 @@ pub enum Glyph {
     Worker,
     /// A framed picture: an image to attach.
     Picture,
+    /// A pin, to keep something in the list.
+    Pin,
+    /// A pin that holds something already.
+    Pinned,
+    /// A prompt in a window: a terminal.
+    Terminal,
+    /// A window halved side by side: another panel beside this one.
+    Split,
+    /// A window with a strip down its right: a panel's list.
+    Sidebar,
 }
 
 /// A part of an icon, in the units of its square, y downward. Angles
@@ -238,7 +260,7 @@ enum Shape {
 
 impl Glyph {
     /// Every icon.
-    pub const ALL: [Glyph; 69] = [
+    pub const ALL: [Glyph; 75] = [
         Glyph::Plus,
         Glyph::Cross,
         Glyph::Check,
@@ -283,6 +305,7 @@ impl Glyph {
         Glyph::Globe,
         Glyph::Chevron,
         Glyph::Into,
+        Glyph::Down,
         Glyph::More,
         Glyph::Menu,
         Glyph::Folder,
@@ -308,6 +331,11 @@ impl Glyph {
         Glyph::Merge,
         Glyph::Worker,
         Glyph::Picture,
+        Glyph::Pin,
+        Glyph::Pinned,
+        Glyph::Terminal,
+        Glyph::Split,
+        Glyph::Sidebar,
     ];
 
     /// Its image for a side of `size`, to be tinted.
@@ -616,6 +644,9 @@ impl Glyph {
             Glyph::Into => {
                 &[Path(&[[6.0, 4.0], [10.0, 8.0], [6.0, 12.0]])]
             }
+            Glyph::Down => {
+                &[Path(&[[4.0, 6.0], [8.0, 10.0], [12.0, 6.0]])]
+            }
             Glyph::More => &[
                 Dot(3.5, 8.0, 1.25),
                 Dot(8.0, 8.0, 1.25),
@@ -790,6 +821,23 @@ impl Glyph {
                     [11.0, 9.5],
                     [13.5, 12.0],
                 ]),
+            ],
+            Glyph::Pin => &[Loop(&PIN), Line(8.0, 9.0, 8.0, 14.5)],
+            Glyph::Pinned => {
+                &[Loop(&PIN), Fill(&PIN), Line(8.0, 9.0, 8.0, 14.5)]
+            }
+            Glyph::Terminal => &[
+                Round(1.75, 2.75, 14.25, 13.25, 1.5),
+                Path(&[[4.5, 6.0], [6.75, 8.0], [4.5, 10.0]]),
+                Line(8.25, 10.25, 11.5, 10.25),
+            ],
+            Glyph::Split => &[
+                Round(1.75, 2.75, 14.25, 13.25, 1.5),
+                Line(8.0, 2.75, 8.0, 13.25),
+            ],
+            Glyph::Sidebar => &[
+                Round(1.75, 2.75, 14.25, 13.25, 1.5),
+                Line(10.25, 2.75, 10.25, 13.25),
             ],
         }
     }

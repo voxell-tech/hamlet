@@ -32,6 +32,19 @@ use is separately gated by the settings and permissions. A shell request that
 needs the network while it is off can wait for the chief's grant. An approval
 does not remove filesystem confinement.
 
+## Terminals
+
+`crates/hamlet_server/src/terminals/shell.rs` starts shells on pseudo-terminals
+(`hamlet_os::process::pty`). A terminal a person opens is the chief's own
+login shell (`$SHELL -l` in their home folder), run by the server's account
+with no sandbox, as any terminal emulator's is. Only the chief opens one; no
+agent tool reaches it, and nothing the chief types is gated. Agents have no
+shells of their own: each `bash` call runs under the sandbox as it always did,
+and the agent's commands terminal only shows it, read-only.
+
+A remote workspace has no terminals yet: opening one there is refused.
+Windows has none yet either.
+
 ## A folder a hamlet works on
 
 The chief chooses a local folder for a hamlet. Its agents then work there,

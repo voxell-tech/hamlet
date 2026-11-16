@@ -40,7 +40,7 @@ async fn call(
         Shells::local(),
         AllLeftovers::default().of(1),
     )
-    .run(&secrets, tool, &args)
+    .run(&secrets, tool, &args, None)
     .await
 }
 

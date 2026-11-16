@@ -37,7 +37,7 @@ use crate::talk::conversations::{Conversation, Kind};
 use crate::talk::marks::Mark;
 use crate::talk::{asking, conversations, inputs, models};
 use crate::work::cut::change_between;
-use crate::work::tools::{Outcome, Sight, ToolSession};
+use crate::work::tools::{Dialect, Outcome, Sight, ToolSession};
 
 /// The words of a call that waits for a chief.
 const WAITING: &str = "This call waits for a chief's answer.";
@@ -665,6 +665,18 @@ impl Core {
                 crate::clock::now(),
             )?;
         }
+        let commands = match Dialect::of_tool(call.tool) {
+            Some(_) => {
+                let command = call
+                    .arguments
+                    .get("command")
+                    .and_then(Value::as_str)
+                    .unwrap_or_default();
+                Some(self.commands(agent, &at, command)?)
+            }
+            None => None,
+        };
+        let db = self.realm.store().connection();
         let change =
             held::kept(db, &call.call.runtime, &call.call.key)?
                 .and_then(|kept| kept.change)
@@ -688,8 +700,22 @@ impl Core {
             request,
             (pull && once).then_some(agent),
             async move {
-                let mut outcome =
-                    session.run(&secrets, &name, &arguments).await;
+                let mut outcome = session
+                    .run(
+                        &secrets,
+                        &name,
+                        &arguments,
+                        commands.as_ref(),
+                    )
+                    .await;
+                if let Some(commands) = &commands {
+                    let code = outcome
+                        .details
+                        .as_ref()
+                        .and_then(|details| details.get("exitCode"))
+                        .and_then(Value::as_i64);
+                    commands.ended_run(code);
+                }
                 if let Some(change) = change {
                     outcome
                         .details

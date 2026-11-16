@@ -208,6 +208,22 @@ pub(crate) fn changes(
             });
         }
     }
+    for terminal in &new.terminals {
+        if old.terminals.iter().find(|t| t.id == terminal.id)
+            != Some(terminal)
+        {
+            out.push(Update::Terminal {
+                terminal: terminal.clone(),
+            });
+        }
+    }
+    for gone in &old.terminals {
+        if !new.terminals.iter().any(|t| t.id == gone.id) {
+            out.push(Update::TerminalGone {
+                id: gone.id.clone(),
+            });
+        }
+    }
     if old.grants != new.grants {
         out.push(Update::Grants {
             grants: new.grants.clone(),

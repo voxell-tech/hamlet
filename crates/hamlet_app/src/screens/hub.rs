@@ -7,6 +7,8 @@ mod gone;
 mod memory;
 mod papers;
 mod rail;
+
+pub(crate) use self::rail::guides;
 mod scholar;
 mod thread;
 mod visits;

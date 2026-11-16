@@ -5,6 +5,7 @@
 //! agent works and rests; only its mark changes.
 
 use bevy::app::{App, Update};
+use bevy::color::Color;
 use bevy::ecs::component::Component;
 use bevy::ecs::entity::Entity;
 use bevy::ecs::hierarchy::{ChildOf, Children};
@@ -1536,6 +1537,54 @@ fn washed(shown: impl View + 'static, held: bool) -> impl View {
             .min_width(px(0.0))
             .radius(cx.theme().space.round)
             .tagged(Wash::new(held, Edge::Left))
+    })
+}
+
+/// The lines in front of a nested row `height` tall, on a grid of
+/// [`STEP_IN`]: `rails` for the levels above, each with the guide of
+/// an agent that has more under it after this row, then the elbow
+/// from its parent, cut short when it is `last`.
+pub(crate) fn guides(
+    rails: Vec<bool>,
+    last: bool,
+    height: f32,
+) -> impl View {
+    with_cx(move |cx| {
+        let colour = cx.theme().palette.gold_6;
+        let half = height / 2.0;
+        // A column of the grid, with a guide down its middle where
+        // `on` says, over its top and bottom halves.
+        let column_of = |top: bool, bottom: bool, across: bool| {
+            let bar = |on: bool| {
+                frame().width(px(1.0)).height(px(half)).fill(if on {
+                    colour
+                } else {
+                    Color::NONE
+                })
+            };
+            row((
+                frame().width(px(CHEVRON / 2.0)),
+                column((bar(top), bar(bottom))).gap(0.0),
+                column((frame()
+                    .width(px(STEP_IN - CHEVRON / 2.0 - 1.0))
+                    .height(px(1.0))
+                    .fill(if across {
+                        colour
+                    } else {
+                        Color::NONE
+                    }),))
+                .height(px(height))
+                .justify(JustifyContent::Center),
+            ))
+            .gap(0.0)
+            .boxed()
+        };
+        let mut parts = rails
+            .iter()
+            .map(|on| column_of(*on, *on, false))
+            .collect::<Vec<_>>();
+        parts.push(column_of(true, !last, true));
+        row(parts).gap(0.0)
     })
 }
 

@@ -28,7 +28,7 @@ use hamlet_realm::sound::{Cue, SoundSettings};
 use hamlet_ui::theme::{self, HamletTheme, Measures, Theme, Themes};
 
 use self::dock::{open_settings, panels, seed_dock};
-use self::sample::{first_run, setup};
+use self::sample::{first_run, print, setup};
 use self::sheets::{
     ask_rewind, controls, hold, hold_message, icon_sheet,
     status_sheet,
@@ -100,6 +100,7 @@ impl Plugin for GalleryPlugin {
                 (
                     sample::overview::later,
                     hold,
+                    print,
                     (hold_message, ask_rewind).run_if(
                         |scene: Res<Scene>| *scene == Scene::Rewind,
                     ),
@@ -112,10 +113,10 @@ impl Plugin for GalleryPlugin {
             .add_plugins((
                 hamlet_app::world_menu::plugin,
                 hamlet_app::search::plugin,
-                hamlet_app::desk::plugin,
                 menu::plugin,
                 hamlet_app::toasts::plugin,
                 hamlet_app::secret::plugin,
+                hamlet_app::desk_still,
                 welcome::key_plugin,
                 hamlet_ui::widgets::plugin,
                 hamlet_app::screens::plugin,
@@ -256,6 +257,16 @@ pub enum Scene {
     Icons,
     /// The panels with the HAMLET menu open.
     Menu,
+    /// The Terminal panel showing an agent's commands.
+    Terminal,
+    /// The Terminal panel showing the chief's shell, typed in.
+    TerminalShell,
+    /// Two Terminal panels side by side, the second's list hidden.
+    TerminalPanels,
+    /// The Terminal panel with the menu of its "+" open.
+    TerminalPick,
+    /// The Hub's thread with the menu of its "..." open.
+    HubMenu,
     /// The first-run screen at one of its steps.
     Welcome(welcome::Step),
     /// The first-run provider step, every provider shown and searched

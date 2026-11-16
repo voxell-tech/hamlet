@@ -346,6 +346,25 @@ fn items(
                     crate::world_menu::ask_found,
                 ));
             }
+            items.push(item(
+                Glyph::Terminal,
+                "Terminal",
+                None,
+                |w| {
+                    show_tab(w, crate::terminal::PANEL);
+                },
+            ));
+            items.push(item(
+                Glyph::Split,
+                "New Terminal Panel",
+                None,
+                |w| {
+                    crate::terminal::new_panel(
+                        w,
+                        &crate::terminal::PanelId::first(),
+                    );
+                },
+            ));
             items.push(
                 with_cx(|cx| {
                     hairline(cx.theme().palette.gold_6)

@@ -9,6 +9,7 @@ mod index;
 pub mod messages;
 pub mod outbox;
 pub mod realm;
+pub mod terminals;
 pub mod waits;
 
 use std::path::PathBuf;
@@ -51,6 +52,7 @@ impl Plugin for ClientPlugin {
                 files::plugin,
                 images::plugin,
                 imports::plugin,
+                terminals::plugin,
             ));
     }
 }
@@ -72,6 +74,9 @@ pub fn receive(world: &mut World, message: protocol::ServerMessage) {
         }
         protocol::ServerMessage::Change(changes) => {
             realm::changes(world, changes);
+        }
+        protocol::ServerMessage::Terminal(output) => {
+            terminals::receive(world, output);
         }
         message @ (protocol::ServerMessage::Transcript(_)
         | protocol::ServerMessage::Turn(_)) => {
