@@ -36,26 +36,56 @@
 //! demo realm say <n> <id> <text ...>
 //!                    say a line to agent <n> as the chief, under the
 //!                    request id the word <id> stands for
-//! demo realm answer <wait> allow|refuse
+//! demo realm answer <wait> allow|always|refuse|go|withdraw|reply
+//!     |dismiss [<text ...>]
 //!                    answer the wait <wait> as the chief
 //! demo realm end <n>
 //!                    end agent <n> as the chief
 //! demo realm budget <hamlet> <micros>
 //!                    bound the hamlet <hamlet>'s spending
+//! demo realm review <hamlet> always|remote|never
+//! demo realm mode <hamlet> manual|auto
+//! demo realm folder <hamlet> <path>
+//!                    set the hamlet's review limit, mode or folder
+//! demo realm allowance <n> <micros>
+//!                    set hire <n>'s allowance
+//! demo realm charter <text ...>
+//! demo realm model <model>
+//! demo realm price <model> <input> <output>
+//!                    edit the charter, the realm's model, or the
+//!                    model's price in dollars per million tokens
+//! demo realm names <hamlet> <count>
+//!                    rename the hamlet <count> times, timing each
+//! demo realm live <n>
+//!                    wait until agent <n> is live in its reach
 //! demo realm world
 //!                    read the world a client shows
 //! demo realm reads <count> <ms> [<n>]
 //!                    read the world <count> times, <ms> apart
-//! demo agent <n> tell <call> <to> <text ...>
+//! demo agent <n> tell <call> <to> [task=<task>] [paths=<p>,...]
+//!     <text ...>
 //! demo agent <n> ask <call> <to> <text ...>
 //!                    send a letter or a question as agent <n>'s call
 //!                    <call>, to `hand`, `mayor` or `hire#<k>`
 //! demo agent <n> reply <question> <text ...>
 //!                    answer the question <question>
+//! demo agent <n> ask-chief <call> <task> <question ...>
+//! demo agent <n> object <call> <task> <reason ...>
+//!                    ask the chief, or object to its line, on <task>
+//! demo agent <n> start-worker <call> <brief ...>
+//! demo agent <n> worker-done|errand-done <text ...>
+//!                    start a worker, or end as a worker or an errand
+//!                    with an answer, and leave
+//! demo agent <n> agree <call> <mine> <theirs>
+//!                    agree a road between two hires as a mayor
 //! demo agent <n> may-spend [<task>]
 //! demo agent <n> charge <call> <micros> [<task>]
 //!                    ask whether agent <n> may spend, or charge its
 //!                    model call <call>, for <task> or its standing task
+//! demo agent <n> call <call> <tokens in> <tokens out> [<task>]
+//!                    a model call priced from the model copy: ask,
+//!                    then charge
+//! demo agent <n> read-budget <call> [<task>]
 //! demo agent <n> spend <micros> <times>
 //!                    up to <times> times, ask and charge <micros>
 //! demo agent <n> letters <count> <to>
@@ -63,32 +93,53 @@
 //! demo agent <n> run <call> [net] <script ...>
 //!                    run a script as agent <n>'s call <call>, with
 //!                    the network when `net` is given
+//! demo agent <n> copies
+//!                    read the realm's copies for agent <n>
+//! demo agent <n> fetch
+//!                    fetch the files of the parcels agent <n> was
+//!                    given into its folder's `inbox/`
+//! demo agent <n> keep-credential <provider> <key>
 //! demo agent <n> inputs
 //!                    list the inputs agent <n> took
+//! demo agent <n> await <kind> <count>
+//!                    wait until agent <n> took <count> inputs of
+//!                    <kind>
 //! demo agent <first>..<last> ...
 //!                    run the command as each agent at once
 //! demo ... &         run the command in the background
 //! ```
 //!
-//! Each prints `<name> <i64>` lines: `founded/<name> <mayor>`,
-//! `hired/<call> <agent>`, `taken/<id> <task>` or `not_taken/<id>
-//! <task>`, `answered/<wait> 1`, `ended/<n> 1`, `budget/<hamlet>
-//! <micros>`, `sent/<call> 1`, `replied/<question> 1`, `may/<n> 1`
-//! or `0`, `charged/<call> <micros>`, `spent/<n> <micros>`,
-//! `told/<n> <count>`, and for `run`, `done/<call>/<exit> <code>`,
-//! `running/<call> <command>` or `waits/<call> <needs>`. A refusal
-//! prints `refused/<name> 1` and logs why. `world` prints `world
-//! <revision>`, then `hamlet/<name> <mayor>`, `agent/<n>/<status>
-//! <lead>`, `reach/<n>/<none|applied|pending> <version>`,
-//! `wait/<n>/<call> <wait>`, and `spend/<payer> <micros>` with
-//! `budget/<payer> <micros>` where a budget bounds it.
-//! `reads` prints `read/<i> <us>`, the read's time, with `<n>`'s
-//! reach whenever it changes, and then `reads/longest <us>`.
-//! `inputs` prints `standing/<n> <task>`, then `input/<n>/<taken>/
-//! <kind> <task>` in the order taken, and `question/<n>/<taken>
-//! <letter>` for a question. The stand-in agent keeps its inputs, its
-//! newest place and the ends the workspace tells it of in its file,
-//! and prints `finished/<call>/<exit> <code>` for each end.
+//! A `<task>` is a task's number, or `line:<k>`: the task of the
+//! newest line agent `<k>` took. Each command prints `<name> <i64>`
+//! lines: `founded/<name> <mayor>`, `hired/<call> <agent>`,
+//! `taken/<id> <task>` or `not_taken/<id> <task>`, `answered/<wait>
+//! 1`, `ended/<n> 1`, `budget/<hamlet> <micros>`, `<verb>/<name> 1`
+//! for `review`, `mode`, `folder`, `allowance`, `charter`, `model`
+//! and `price`, `names/p50 <us>` and `names/p95 <us>`, `live/<n> 1`
+//! or `0`, `sent/<call> 1`, `replied/<question> 1`, `asked/<call> 1`,
+//! `objected/<call> 1`, `started/<call> <worker>`, `<verb>/<n> 1` for
+//! `worker-done` and `errand-done`, `waiting/<call> 1` or
+//! `laid/<call> 1`, `may/<n> 1` or `0`, `charged/<call> <micros>`,
+//! `called/<call> <micros>`, `own/<n> <micros>` and `allowance/<n>
+//! <micros>` (`-1` for none), `spent/<n> <micros>`, `told/<n>
+//! <count>`, `copy/<n>/<part> <version>`, `fetched/<n> <bytes>`,
+//! `kept/<provider> 1`, `took/<n>/<kind> <count>`, and for `run`,
+//! `done/<call>/<exit> <code>`, `running/<call> <command>` or
+//! `waits/<call> <needs>`. A refusal prints `refused/<name> 1` and
+//! logs why. `world` prints `world <revision>`, then `hamlet/<name>
+//! <mayor>`, `agent/<n>/<status> <lead>`,
+//! `reach/<n>/<none|applied|pending> <version>`, `wait/<n>/<call>
+//! <wait>` for a tool's wait, and `spend/<payer> <micros>` with
+//! `budget/<payer> <micros>` where a budget bounds it. `reads` prints
+//! `read/<i> <us>`, the read's time, with `<n>`'s reach whenever it
+//! changes, and then `reads/longest <us>`. `inputs` prints
+//! `standing/<n> <task>`, then `input/<n>/<taken>/<kind> <task>` in
+//! the order taken, and `question/<n>/<taken> <letter>` for a
+//! question. The stand-in agent keeps its inputs with a line's note,
+//! the files it was given, the copies the realm pushes, its newest
+//! place and the ends the workspace tells it of in its file, logs
+//! that it was made, and prints `finished/<call>/<exit> <code>` for
+//! each end.
 
 use std::io::Write;
 use std::sync::Arc;
@@ -105,24 +156,42 @@ use hamlet_actors::realm;
 use hamlet_host::{Caller, Host, HostRef};
 use hamlet_messages::Message;
 use hamlet_messages::address::{self, Party};
+use hamlet_messages::agent::chat::Count;
+use hamlet_messages::agent::copies::{Copies, Price, Versioned};
 use hamlet_messages::agent::{
     AgentInput, AgentKind, Fill, Finished, Input, Outcome, Place,
     Submit,
 };
 use hamlet_messages::profile::Branch;
 use hamlet_messages::realm::budget::{
-    BudgetLimit, Charge, MaySpend, Payer,
+    BudgetLimit, BudgetRead, Charge, MaySpend, Payer, ReadBudget,
 };
 use hamlet_messages::realm::client::{
     self, AnswerRefusal, ReadWorld, Say, SayAnswer,
+};
+use hamlet_messages::realm::documents::{
+    CardSetting, EditCatalogue, EditCharter, EditSettings,
+    ReadCopies, Setting,
+};
+use hamlet_messages::realm::hamlets::{
+    NameHamlet, SetFolder, SetMode,
+};
+use hamlet_messages::realm::models::{self, KeepCredential};
+use hamlet_messages::realm::oversight::{AskChief, Object, Question};
+use hamlet_messages::realm::parcels::{
+    FetchPart, ParcelFile, ParcelId, Part,
+};
+use hamlet_messages::realm::workers::{
+    Ended, ErrandDone, SetAllowance, StartWorker, Started, WorkerDone,
 };
 use hamlet_messages::realm::world::{
     ReachSeen, Seen, Status, WaitKind,
 };
 use hamlet_messages::realm::{
-    AgentRefusal, Ask, ChiefRequest, Done, End, Found, FoundAnswer,
-    Hire, HireAnswer, LetterId, LetterRefusal, Named, NeedsChief,
-    Reply, SecretList, Secrets, SetLimits, Tell, Tier, Tool,
+    AgentRefusal, AgreeRoad, Agreed, Ask, ChiefRequest, Done,
+    Enclosed, End, Found, FoundAnswer, HamletId, Hire, HireAnswer,
+    LetterId, LetterRefusal, Limit, Named, NeedsChief, Reply, Review,
+    SecretList, Secrets, SetLimits, Tell, Tier, Tool,
 };
 use hamlet_messages::sender::sender;
 use hamlet_messages::workspace::reach::{
@@ -483,15 +552,30 @@ const AGENT_TABLES: &str =
      hires TEXT NOT NULL, roads TEXT NOT NULL) STRICT; CREATE TABLE \
      IF NOT EXISTS input (taken INTEGER PRIMARY KEY, id TEXT NOT \
      NULL UNIQUE, kind TEXT NOT NULL, text TEXT NOT NULL, task \
-     TEXT, sender INTEGER, letter INTEGER, at INTEGER NOT NULL) \
-     STRICT; CREATE TABLE IF NOT EXISTS finished (call TEXT NOT \
-     NULL, exit TEXT NOT NULL, code INTEGER NOT NULL, at INTEGER \
-     NOT NULL) STRICT;";
+     TEXT, sender INTEGER, letter INTEGER, note TEXT, at INTEGER \
+     NOT NULL) STRICT; CREATE TABLE IF NOT EXISTS finished (call \
+     TEXT NOT NULL, exit TEXT NOT NULL, code INTEGER NOT NULL, at \
+     INTEGER NOT NULL) STRICT; CREATE TABLE IF NOT EXISTS given \
+     (parcel INTEGER NOT NULL, file INTEGER NOT NULL, path TEXT NOT \
+     NULL, size INTEGER NOT NULL, fetched_at INTEGER, PRIMARY KEY \
+     (parcel, file)) STRICT; CREATE TABLE IF NOT EXISTS copy (part \
+     TEXT PRIMARY KEY, version INTEGER NOT NULL, value TEXT NOT \
+     NULL, at INTEGER NOT NULL) STRICT;";
 
 #[async_trait::async_trait]
 impl Actor for StandInAgent {
     type Input = Option<AgentInput>;
-    type Actions = (Submit, Place, Fill, Finished, Forward, Kept);
+    type Actions = (
+        Submit,
+        Place,
+        Fill,
+        Finished,
+        Copies,
+        Forward,
+        Kept,
+        Fetch,
+        Leave,
+    );
     type Events = ();
     type ConnParams = Option<Caller>;
     type Action = ();
@@ -514,6 +598,11 @@ impl Actor for StandInAgent {
             AgentKind::Worker => "worker",
             AgentKind::Errand => "errand",
         };
+        tracing::info!(
+            task = input.task.0,
+            "{} was made, a {kind}",
+            ctx.actor_id()
+        );
         ctx.sql()
             .execute(
                 "INSERT INTO standing (id, kind, task) VALUES (1, \
@@ -535,33 +624,69 @@ impl Handler<Submit> for StandInAgent {
         submit: Submit,
     ) -> Result<()> {
         sender(&ctx, &submit)?;
-        let (kind, text, from, letter) = match &submit.input {
-            Input::Line { text, .. } => ("line", text, None, None),
+        let none: &[ParcelFile] = &[];
+        let (kind, text, from, letter, files) = match &submit.input {
+            Input::Line { text, .. } => {
+                ("line", text, None, None, none)
+            }
             Input::Notice { text, .. } => {
-                ("notice", text, None, None)
+                ("notice", text, None, None, none)
             }
             Input::WorkerAnswer { text, .. } => {
-                ("worker_answer", text, None, None)
+                ("worker_answer", text, None, None, none)
             }
-            Input::Letter { from, text, .. } => {
-                ("letter", text, Some(from), None)
+            Input::Letter { from, text, files } => {
+                ("letter", text, Some(from), None, files.as_slice())
             }
             Input::Question {
-                letter, from, text, ..
-            } => ("question", text, Some(from), Some(letter)),
+                letter,
+                from,
+                text,
+                files,
+            } => (
+                "question",
+                text,
+                Some(from),
+                Some(letter),
+                files.as_slice(),
+            ),
             Input::Answer {
                 question,
                 from,
                 text,
                 ..
-            } => ("answer", text, Some(from), Some(question)),
+            } => ("answer", text, Some(from), Some(question), none),
         };
+        let note = match &submit.input {
+            Input::Line {
+                note: Some(note), ..
+            } => BindParam::Text(note.clone()),
+            _ => BindParam::Null,
+        };
+        for given in files {
+            ctx.sql()
+                .execute(
+                    "INSERT INTO given (parcel, file, path, size) \
+                     VALUES (?1, ?2, ?3, ?4) ON CONFLICT DO NOTHING",
+                    Some(vec![
+                        BindParam::Integer(i64::from(given.parcel.0)),
+                        BindParam::Integer(i64::from(given.file)),
+                        BindParam::Text(
+                            given.path.to_string_lossy().into_owned(),
+                        ),
+                        BindParam::Integer(i64::try_from(
+                            given.size,
+                        )?),
+                    ]),
+                )
+                .await?;
+        }
         let kept = ctx
             .sql()
             .execute(
                 "INSERT INTO input (id, kind, text, task, sender, \
-                 letter, at) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7) ON \
-                 CONFLICT (id) DO NOTHING",
+                 letter, note, at) VALUES (?1, ?2, ?3, ?4, ?5, ?6, \
+                 ?7, ?8) ON CONFLICT (id) DO NOTHING",
                 Some(vec![
                     BindParam::Text(submit.id.0.clone()),
                     BindParam::Text(kind.to_owned()),
@@ -578,6 +703,7 @@ impl Handler<Submit> for StandInAgent {
                     letter.map_or(BindParam::Null, |letter| {
                         BindParam::Integer(i64::from(letter.0))
                     }),
+                    note,
                     BindParam::Integer(now_ms()?),
                 ]),
             )
@@ -586,6 +712,7 @@ impl Handler<Submit> for StandInAgent {
             id = submit.id.0,
             kind,
             text,
+            files = files.len(),
             repeat = kept.changes == 0,
             "{} took an input",
             ctx.actor_id()
@@ -643,14 +770,7 @@ impl Handler<Fill> for StandInAgent {
         fill: Fill,
     ) -> Result<()> {
         sender(&ctx, &fill)?;
-        let Some(ActorKeySegment::String(key)) = ctx.key().first()
-        else {
-            bail!("an agent's key is its number");
-        };
-        let folder = HostRef::of(ctx.inner())?
-            .folder()
-            .join(format!("actors/agent/{key}.fs"));
-        std::fs::create_dir_all(folder)?;
+        std::fs::create_dir_all(agent_folder(&ctx)?)?;
         Ok(())
     }
 }
@@ -697,6 +817,178 @@ impl Handler<Finished> for StandInAgent {
         writeln!(std::io::stdout(), "finished/{call}/{exit} {code}")?;
         Ok(())
     }
+}
+
+impl Handler<Copies> for StandInAgent {
+    async fn handle(
+        self: Arc<Self>,
+        ctx: Ctx<Self>,
+        copies: Copies,
+    ) -> Result<()> {
+        sender(&ctx, &copies)?;
+        for (part, version, value) in copy_parts(&copies) {
+            tracing::info!(
+                version,
+                value,
+                "{} took the copy of its {part}",
+                ctx.actor_id()
+            );
+            ctx.sql()
+                .execute(
+                    "INSERT INTO copy (part, version, value, at) \
+                     VALUES (?1, ?2, ?3, ?4) ON CONFLICT (part) DO \
+                     UPDATE SET version = excluded.version, value = \
+                     excluded.value, at = excluded.at",
+                    Some(vec![
+                        BindParam::Text(part.to_owned()),
+                        BindParam::Integer(i64::from(version)),
+                        BindParam::Text(value),
+                        BindParam::Integer(now_ms()?),
+                    ]),
+                )
+                .await?;
+        }
+        Ok(())
+    }
+}
+
+/// Each part `copies` holds: its name, version and value as shown.
+fn copy_parts(copies: &Copies) -> Vec<(&'static str, u32, String)> {
+    fn part<T: std::fmt::Debug>(
+        name: &'static str,
+        copy: Option<&Versioned<T>>,
+    ) -> Option<(&'static str, u32, String)> {
+        copy.map(|copy| {
+            (name, copy.version.0, format!("{:?}", copy.value))
+        })
+    }
+    [
+        part("charter", copies.charter.as_ref()),
+        part("character", copies.character.as_ref()),
+        part("model", copies.model.as_ref()),
+        part("settings", copies.settings.as_ref()),
+    ]
+    .into_iter()
+    .flatten()
+    .collect()
+}
+
+/// Fetches the files of the parcels the agent was given and has not
+/// fetched, part by part, into its folder's `inbox/`.
+#[derive(serde::Serialize, serde::Deserialize)]
+struct Fetch;
+
+impl Action for Fetch {
+    type Output = u64;
+    const NAME: &'static str = "fetch";
+}
+
+impl Handler<Fetch> for StandInAgent {
+    async fn handle(
+        self: Arc<Self>,
+        ctx: Ctx<Self>,
+        _: Fetch,
+    ) -> Result<u64> {
+        let host = HostRef::of(ctx.inner())?;
+        let inbox = agent_folder(&ctx)?.join("inbox");
+        let given = ctx
+            .sql()
+            .query(
+                "SELECT parcel, file, path FROM given WHERE \
+                 fetched_at IS NULL ORDER BY parcel, file",
+                None,
+            )
+            .await?
+            .rows;
+        let mut bytes = 0;
+        for row in given {
+            let [
+                ColumnValue::Integer(parcel),
+                ColumnValue::Integer(file),
+                path,
+            ] = row.as_slice()
+            else {
+                bail!("a given file's row reads as it was written");
+            };
+            let path = inbox.join(text(path).context("a path")?);
+            let partial = path.with_extension("part");
+            std::fs::create_dir_all(
+                path.parent().context("a file has a folder")?,
+            )?;
+            let mut out = std::fs::File::create(&partial)?;
+            for part in 0.. {
+                let fetch = FetchPart {
+                    parcel: ParcelId(u32::try_from(*parcel)?),
+                    file: u32::try_from(*file)?,
+                    part,
+                };
+                match call(
+                    &host,
+                    &address::Realm,
+                    &fetch,
+                    DRIVE_WITHIN,
+                )
+                .await?
+                {
+                    Part::Bytes { bytes: got, last } => {
+                        out.write_all(&got.0)?;
+                        bytes += u64::try_from(got.0.len())?;
+                        if last {
+                            break;
+                        }
+                    }
+                    Part::Refused { why } => {
+                        bail!("part {part} was refused: {why}")
+                    }
+                }
+            }
+            out.sync_all()?;
+            std::fs::rename(&partial, &path)?;
+            ctx.sql()
+                .execute(
+                    "UPDATE given SET fetched_at = ?3 WHERE parcel \
+                     = ?1 AND file = ?2",
+                    Some(vec![
+                        BindParam::Integer(*parcel),
+                        BindParam::Integer(*file),
+                        BindParam::Integer(now_ms()?),
+                    ]),
+                )
+                .await?;
+        }
+        Ok(bytes)
+    }
+}
+
+/// Ends the agent's actor, as a worker or an errand does once it has
+/// said it is done.
+#[derive(serde::Serialize, serde::Deserialize)]
+struct Leave;
+
+impl Action for Leave {
+    type Output = ();
+    const NAME: &'static str = "leave";
+}
+
+impl Handler<Leave> for StandInAgent {
+    async fn handle(
+        self: Arc<Self>,
+        ctx: Ctx<Self>,
+        _: Leave,
+    ) -> Result<()> {
+        ctx.destroy()
+    }
+}
+
+fn agent_folder(
+    ctx: &Ctx<StandInAgent>,
+) -> Result<std::path::PathBuf> {
+    let Some(ActorKeySegment::String(key)) = ctx.key().first() else {
+        bail!("an agent's key is its number");
+    };
+    Ok(HostRef::of(ctx.inner())?
+        .folder()
+        .join(format!("actors/agent/{key}.fs")))
 }
 
 fn exit_word(exit: &Exit) -> (&'static str, i64) {
@@ -849,6 +1141,9 @@ impl Handler<Branch> for StandInProfile {
 
 const DRIVE_WITHIN: Duration = Duration::from_secs(20);
 
+/// A fetch of a large parcel takes many calls.
+const FETCH_WITHIN: Duration = Duration::from_secs(600);
+
 const CONVERSATION: &str = "demo";
 
 pub async fn drive(host: &Host, words: &[String]) -> Result<()> {
@@ -966,14 +1261,23 @@ async fn as_chief(host: &Host, words: &[String]) -> Result<()> {
                 SayAnswer::Refused { why } => refused(id, &why)?,
             }
         }
-        [verb, wait, choice] if verb == "answer" => {
+        [verb, wait, choice, text @ ..] if verb == "answer" => {
             let choice = Choice {
                 choice: match choice.as_str() {
                     "allow" => "allow",
+                    "always" => "always",
                     "refuse" => "deny",
-                    _ => bail!("an answer is allow or refuse"),
+                    "go" => "go",
+                    "withdraw" => "withdraw",
+                    "reply" => "reply",
+                    "dismiss" => "dismiss",
+                    _ => bail!(
+                        "an answer is allow, always, refuse, go, \
+                         withdraw, reply or dismiss"
+                    ),
                 },
                 id: fresh_id()?,
+                text: (!text.is_empty()).then(|| text.join(" ")),
                 wait: wait.clone(),
             };
             match as_client(host, client::Answer::NAME, &choice)
@@ -998,16 +1302,8 @@ async fn as_chief(host: &Host, words: &[String]) -> Result<()> {
             }
         }
         [verb, name, micros] if verb == "budget" => {
-            let seen = read_world(host).await?;
-            let hamlet = seen
-                .hamlets
-                .iter()
-                .find(|hamlet| hamlet.name == *name)
-                .with_context(|| {
-                    format!("no hamlet is named `{name}`")
-                })?;
             let limits = SetLimits {
-                hamlet: Some(hamlet.hamlet.clone()),
+                hamlet: Some(hamlet_named(host, name).await?),
                 budget: vec![BudgetLimit::Cost {
                     micros: number(Some(micros))?,
                 }],
@@ -1019,6 +1315,131 @@ async fn as_chief(host: &Host, words: &[String]) -> Result<()> {
                 }
                 Done::Refused { why } => refused(name, &why)?,
             }
+        }
+        [verb, name, review] if verb == "review" => {
+            let limits = SetLimits {
+                hamlet: Some(hamlet_named(host, name).await?),
+                budget: Vec::new(),
+                limits: vec![Limit::Review {
+                    review: match review.as_str() {
+                        "always" => Review::Always,
+                        "remote" => Review::Remote,
+                        "never" => Review::Never,
+                        _ => {
+                            bail!("review is always, remote or never")
+                        }
+                    },
+                }],
+            };
+            done("review", name, request(host, limits).await?)?;
+        }
+        [verb, name, mode] if verb == "mode" => {
+            let mode = SetMode {
+                hamlet: hamlet_named(host, name).await?,
+                mode: match mode.as_str() {
+                    "manual" => Mode::Manual,
+                    "auto" => Mode::Auto,
+                    _ => bail!("a mode is manual or auto"),
+                },
+            };
+            done("mode", name, request(host, mode).await?)?;
+        }
+        [verb, name, folder] if verb == "folder" => {
+            let folder = SetFolder {
+                hamlet: hamlet_named(host, name).await?,
+                folder: Some(folder.into()),
+            };
+            done("folder", name, request(host, folder).await?)?;
+        }
+        [verb, name, count] if verb == "names" => {
+            let hamlet = hamlet_named(host, name).await?;
+            let mut took = Vec::new();
+            for time in 1..=number(Some(count))? {
+                let begun = Instant::now();
+                let named = NameHamlet {
+                    hamlet: hamlet.clone(),
+                    name: format!("{name}-{time}"),
+                };
+                if let Done::Refused { why } =
+                    request(host, named).await?
+                {
+                    bail!("naming {name} was refused: {why}");
+                }
+                took.push(begun.elapsed().as_micros());
+            }
+            took.sort_unstable();
+            let at =
+                |share: usize| took[(took.len() - 1) * share / 100];
+            writeln!(out, "names/p50 {}", at(50))?;
+            writeln!(out, "names/p95 {}", at(95))?;
+        }
+        [verb, agent, micros] if verb == "allowance" => {
+            let allowance = SetAllowance {
+                hire: Named::Agent {
+                    agent: AgentNumber(agent_number(agent)?),
+                },
+                micros: Some(Count(number(Some(micros))?)),
+                why: None,
+            };
+            done(
+                "allowance",
+                agent,
+                request(host, allowance).await?,
+            )?;
+        }
+        [verb, text @ ..]
+            if verb == "charter" && !text.is_empty() =>
+        {
+            let charter = EditCharter {
+                text: Some(text.join(" ")),
+            };
+            done("charter", "realm", request(host, charter).await?)?;
+        }
+        [verb, model] if verb == "model" => {
+            let settings = EditSettings {
+                set: vec![Setting::Model {
+                    model: model.clone(),
+                }],
+            };
+            done("model", model, request(host, settings).await?)?;
+        }
+        [verb, model, input, output] if verb == "price" => {
+            let catalogue = EditCatalogue {
+                model: model.clone(),
+                set: vec![CardSetting::Price {
+                    price: Some(Price {
+                        input: input.parse()?,
+                        output: output.parse()?,
+                        cache_read: 0.0,
+                        cache_write: 0.0,
+                    }),
+                }],
+            };
+            done("price", model, request(host, catalogue).await?)?;
+        }
+        [verb, agent] if verb == "live" => {
+            let agent = agent_number(agent)?;
+            let live = until(move || async move {
+                let seen = read_world(host).await?;
+                Ok(seen
+                    .agents
+                    .iter()
+                    .any(|seen| {
+                        seen.agent.0 == agent
+                            && matches!(seen.status, Status::Live)
+                            && matches!(
+                                seen.reach,
+                                ReachSeen::Applied { .. }
+                            )
+                    })
+                    .then_some(()))
+            })
+            .await?;
+            writeln!(
+                out,
+                "live/{agent} {}",
+                i64::from(live.is_some())
+            )?;
         }
         [verb] if verb == "world" => {
             print_world(&read_world(host).await?)?;
@@ -1054,8 +1475,9 @@ async fn as_chief(host: &Host, words: &[String]) -> Result<()> {
             writeln!(out, "reads/longest {}", longest.as_micros())?;
         }
         _ => bail!(
-            "usage: demo realm \
-             found|hire|say|answer|end|budget|world|reads ..."
+            "usage: demo realm found|hire|say|answer|end|budget|\
+             review|mode|folder|allowance|charter|model|price|names|\
+             live|world|reads ..."
         ),
     }
     Ok(())
@@ -1068,13 +1490,222 @@ async fn as_agent(
 ) -> Result<()> {
     let mut out = std::io::stdout();
     match words {
-        [verb, call, to, text @ ..] if verb == "tell" => {
-            match tell(host, me, call, named(to)?, text.join(" "))
+        [verb, call, to, words @ ..] if verb == "tell" => {
+            let mut tell = Tell {
+                to: named(to)?,
+                text: String::new(),
+                task: None,
+                paths: Vec::new(),
+            };
+            let mut text = words;
+            while let [word, rest @ ..] = text {
+                match word.split_once('=') {
+                    Some(("task", task)) => {
+                        tell.task =
+                            Some(task_word(host, task).await?);
+                    }
+                    Some(("paths", paths)) => {
+                        tell.paths = paths
+                            .split(',')
+                            .map(|path| Enclosed {
+                                path: path.into(),
+                            })
+                            .collect();
+                    }
+                    _ => break,
+                }
+                text = rest;
+            }
+            tell.text = text.join(" ");
+            match forward(host, me, Peer::Realm, &tool(call, tell))
                 .await?
             {
                 Done::Done => writeln!(out, "sent/{call} 1")?,
                 Done::Refused { why } => refused(call, &why)?,
             }
+        }
+        [verb, call, task, question @ ..]
+            if verb == "ask-chief" && !question.is_empty() =>
+        {
+            let ask = AskChief {
+                task: task_word(host, task).await?,
+                conversation: ConversationId(CONVERSATION.to_owned()),
+                message: None,
+                questions: vec![Question {
+                    question: question.join(" "),
+                    description: None,
+                    options: Vec::new(),
+                    text_input: true,
+                }],
+            };
+            done(
+                "asked",
+                call,
+                forward(host, me, Peer::Realm, &tool(call, ask))
+                    .await?,
+            )?;
+        }
+        [verb, call, task, reason @ ..] if verb == "object" => {
+            let object = Object {
+                task: task_word(host, task).await?,
+                conversation: ConversationId(CONVERSATION.to_owned()),
+                reason: reason.join(" "),
+            };
+            done(
+                "objected",
+                call,
+                forward(host, me, Peer::Realm, &tool(call, object))
+                    .await?,
+            )?;
+        }
+        [verb, call, brief @ ..] if verb == "start-worker" => {
+            let start = StartWorker {
+                brief: brief.join(" "),
+                tools: Vec::new(),
+                task: None,
+                hamlet: None,
+            };
+            match forward(host, me, Peer::Realm, &tool(call, start))
+                .await?
+            {
+                Started::Started { worker } => {
+                    writeln!(out, "started/{call} {}", worker.0)?;
+                }
+                Started::Refused { why } => refused(call, &why)?,
+            }
+        }
+        [verb, text @ ..]
+            if verb == "worker-done" || verb == "errand-done" =>
+        {
+            let ended = Ended::Answered {
+                text: text.join(" "),
+            };
+            if verb == "worker-done" {
+                forward(host, me, Peer::Realm, &WorkerDone { ended })
+                    .await?;
+            } else {
+                forward(host, me, Peer::Realm, &ErrandDone { ended })
+                    .await?;
+            }
+            at_agent(host, me, &Leave, DRIVE_WITHIN).await?;
+            writeln!(out, "{verb}/{me} 1")?;
+        }
+        [verb, call, tokens_in, tokens_out, task @ ..]
+            if verb == "call" =>
+        {
+            let price = read_copies(host, me)
+                .await?
+                .model
+                .and_then(|model| model.value.price)
+                .context("the agent's model copy holds no price")?;
+            let tokens_in = u32::try_from(number(Some(tokens_in))?)?;
+            let tokens_out =
+                u32::try_from(number(Some(tokens_out))?)?;
+            let micros = f64::from(tokens_in) * price.input
+                + f64::from(tokens_out) * price.output;
+            ensure!(
+                (0.0..=f64::from(u32::MAX)).contains(&micros),
+                "a call costs {micros} millionths of a dollar"
+            );
+            let micros = micros.round() as u32;
+            let task =
+                task_or_standing(host, me, task.first()).await?;
+            if may_spend(host, me, task.clone()).await? {
+                let tokens = Some(tokens_in + tokens_out);
+                charge(host, me, call, task, micros, tokens).await?;
+                writeln!(out, "called/{call} {micros}")?;
+            } else {
+                writeln!(out, "refused/{call} 1")?;
+            }
+        }
+        [verb, call, task @ ..] if verb == "read-budget" => {
+            let task = match task.first() {
+                Some(task) => Some(task_word(host, task).await?),
+                None => None,
+            };
+            let read = ReadBudget { task };
+            match forward(host, me, Peer::Realm, &tool(call, read))
+                .await?
+            {
+                BudgetRead::Budget {
+                    spend,
+                    own_micros,
+                    allowance_micros,
+                    ..
+                } => {
+                    tracing::info!(
+                        ?spend,
+                        own_micros,
+                        ?allowance_micros,
+                        "agent {me} read its budget"
+                    );
+                    writeln!(out, "own/{me} {own_micros}")?;
+                    writeln!(
+                        out,
+                        "allowance/{me} {}",
+                        allowance_micros
+                            .map_or(Ok(-1), i64::try_from)?
+                    )?;
+                }
+                BudgetRead::Refused { why } => refused(call, &why)?,
+            }
+        }
+        [verb] if verb == "copies" => {
+            for (part, version, value) in
+                copy_parts(&read_copies(host, me).await?)
+            {
+                tracing::info!(
+                    version,
+                    value,
+                    "agent {me} read the copy of its {part}"
+                );
+                writeln!(out, "copy/{me}/{part} {version}")?;
+            }
+        }
+        [verb] if verb == "fetch" => {
+            let bytes =
+                at_agent(host, me, &Fetch, FETCH_WITHIN).await?;
+            writeln!(out, "fetched/{me} {bytes}")?;
+        }
+        [verb, provider, key] if verb == "keep-credential" => {
+            let keep = KeepCredential {
+                provider: provider.clone(),
+                value: models::Kept::Key { key: key.clone() },
+            };
+            forward(host, me, Peer::Realm, &keep).await?;
+            writeln!(out, "kept/{provider} 1")?;
+        }
+        [verb, call, mine, theirs] if verb == "agree" => {
+            let agree = AgreeRoad {
+                mine: named(mine)?,
+                theirs: named(theirs)?,
+                why: None,
+            };
+            match forward(host, me, Peer::Realm, &tool(call, agree))
+                .await?
+            {
+                Agreed::Waiting => writeln!(out, "waiting/{call} 1")?,
+                Agreed::Laid => writeln!(out, "laid/{call} 1")?,
+                Agreed::Refused { why } => refused(call, &why)?,
+            }
+        }
+        [verb, kind, count] if verb == "await" => {
+            let count = usize::try_from(number(Some(count))?)?;
+            let took = move || async move {
+                let holding = kept(host, me).await?;
+                anyhow::Ok(
+                    holding
+                        .inputs
+                        .iter()
+                        .filter(|input| input.kind == *kind)
+                        .count(),
+                )
+            };
+            until(move || async move {
+                Ok((took().await? >= count).then_some(()))
+            })
+            .await?;
+            writeln!(out, "took/{me}/{kind} {}", took().await?)?;
         }
         [verb, call, to, text @ ..] if verb == "ask" => {
             let ask = Ask {
@@ -1113,7 +1744,7 @@ async fn as_agent(
             let task =
                 task_or_standing(host, me, task.first()).await?;
             let micros = u32::try_from(number(Some(micros))?)?;
-            charge(host, me, call, task, micros).await?;
+            charge(host, me, call, task, micros, None).await?;
             writeln!(out, "charged/{call} {micros}")?;
         }
         [verb, micros, times] if verb == "spend" => {
@@ -1125,7 +1756,8 @@ async fn as_agent(
                     break;
                 }
                 let call = format!("spend-{time}");
-                charge(host, me, &call, task.clone(), micros).await?;
+                charge(host, me, &call, task.clone(), micros, None)
+                    .await?;
                 spent += u64::from(micros);
             }
             writeln!(out, "spent/{me} {spent}")?;
@@ -1205,8 +1837,10 @@ async fn as_agent(
             }
         }
         _ => bail!(
-            "usage: demo agent <n> tell|ask|reply|may-spend|charge|\
-             spend|letters|run|inputs ..."
+            "usage: demo agent <n> tell|ask|reply|ask-chief|object|\
+             start-worker|worker-done|errand-done|agree|may-spend|\
+             charge|call|read-budget|spend|letters|run|copies|fetch|\
+             keep-credential|inputs|await ..."
         ),
     }
     Ok(())
@@ -1229,6 +1863,8 @@ struct Line {
 struct Choice {
     choice: &'static str,
     id: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    text: Option<String>,
     wait: String,
 }
 
@@ -1245,6 +1881,66 @@ async fn request<T: ChiefRequest>(
 
 async fn read_world(host: &Host) -> Result<Seen> {
     as_client(host, ReadWorld::NAME, &ReadWorld).await
+}
+
+async fn hamlet_named(host: &Host, name: &str) -> Result<HamletId> {
+    read_world(host)
+        .await?
+        .hamlets
+        .into_iter()
+        .find(|hamlet| hamlet.name == name)
+        .map(|hamlet| hamlet.hamlet)
+        .with_context(|| format!("no hamlet is named `{name}`"))
+}
+
+/// Calls `look` every 50 ms until it finds something, for at most
+/// [`DRIVE_WITHIN`].
+async fn until<T, F: Future<Output = Result<Option<T>>>>(
+    look: impl Fn() -> F,
+) -> Result<Option<T>> {
+    let end = Instant::now() + DRIVE_WITHIN;
+    loop {
+        if let Some(found) = look().await? {
+            return Ok(Some(found));
+        }
+        if Instant::now() >= end {
+            return Ok(None);
+        }
+        tokio::time::sleep(Duration::from_millis(50)).await;
+    }
+}
+
+/// The task a word names: `line:<n>` for the task of the newest line
+/// agent `<n>` took, waiting for one, or else the task's own name.
+async fn task_word(host: &Host, word: &str) -> Result<RealmTask> {
+    let Some(agent) = word.strip_prefix("line:") else {
+        return Ok(RealmTask(word.to_owned()));
+    };
+    let agent = agent_number(agent)?;
+    until(move || async move {
+        let holding = kept(host, agent).await?;
+        Ok(holding
+            .inputs
+            .into_iter()
+            .rev()
+            .find(|input| input.kind == "line")
+            .and_then(|input| input.task))
+    })
+    .await?
+    .with_context(|| format!("agent {agent} took no line"))
+}
+
+/// Prints `<verb>/<name> 1`, or the refusal.
+fn done<W: std::fmt::Display>(
+    verb: &str,
+    name: &str,
+    done: Done<W>,
+) -> Result<()> {
+    match done {
+        Done::Done => writeln!(std::io::stdout(), "{verb}/{name} 1")?,
+        Done::Refused { why } => refused(name, &why)?,
+    }
+    Ok(())
 }
 
 async fn as_client<T: serde::de::DeserializeOwned>(
@@ -1274,26 +1970,37 @@ async fn forward<A: Action>(
         name: A::NAME.to_owned(),
         args: hamlet_actor::action::encode_positional(action)?,
     };
-    let reply = host
-        .call(
-            &address::Agent(AgentNumber(me)).address()?,
-            Forward::NAME,
-            hamlet_actor::action::encode_positional(&forward)?,
-            DRIVE_WITHIN,
-        )
-        .await?;
-    let answer =
-        ciborium::from_reader::<Vec<u8>, _>(reply.as_slice())?;
+    let answer = at_agent(host, me, &forward, DRIVE_WITHIN).await?;
     Ok(ciborium::from_reader(answer.as_slice())?)
 }
 
 async fn kept(host: &Host, me: u32) -> Result<Holding> {
+    at_agent(host, me, &Kept, DRIVE_WITHIN).await
+}
+
+async fn read_copies(host: &Host, me: u32) -> Result<Copies> {
+    let have = ReadCopies {
+        charter: None,
+        character: None,
+        model: None,
+        settings: None,
+    };
+    forward(host, me, Peer::Realm, &have).await
+}
+
+/// Runs a stand-in agent's own action on agent `me`.
+async fn at_agent<A: Action>(
+    host: &Host,
+    me: u32,
+    action: &A,
+    within: Duration,
+) -> Result<A::Output> {
     let reply = host
         .call(
             &address::Agent(AgentNumber(me)).address()?,
-            Kept::NAME,
-            hamlet_actor::action::encode_positional(&Kept)?,
-            DRIVE_WITHIN,
+            A::NAME,
+            hamlet_actor::action::encode_positional(action)?,
+            within,
         )
         .await?;
     Ok(ciborium::from_reader(reply.as_slice())?)
@@ -1335,13 +2042,14 @@ async fn charge(
     call: &str,
     task: RealmTask,
     micros: u32,
+    tokens: Option<u32>,
 ) -> Result<()> {
     let charge = Charge {
         call: CallId(call.to_owned()),
         task,
         micros,
         took_ms: 1,
-        tokens: None,
+        tokens,
     };
     forward(host, me, Peer::Realm, &charge).await
 }
@@ -1351,10 +2059,10 @@ async fn task_or_standing(
     me: u32,
     task: Option<&String>,
 ) -> Result<RealmTask> {
-    Ok(match task {
-        Some(task) => RealmTask(task.clone()),
-        None => kept(host, me).await?.standing,
-    })
+    match task {
+        Some(task) => task_word(host, task).await,
+        None => Ok(kept(host, me).await?.standing),
+    }
 }
 
 fn tool<T>(call: &str, act: T) -> Tool<T> {

@@ -30,7 +30,7 @@ use anyhow::{Context, Result, anyhow, bail, ensure};
 use rand::Rng;
 use rusqlite::{Connection, OpenFlags};
 
-use crate::scenario::{Is, Kill, Probe, Read, SCENARIOS, Scenario};
+use crate::scenario::{Demo, Is, Kill, Probe, Read, Scenario};
 
 /// How long the kit waits for a reply, a fault point or a restart.
 const PATIENCE: Duration = Duration::from_secs(30);
@@ -58,7 +58,7 @@ struct Options {
 fn run() -> Result<bool> {
     let mut out = std::io::stdout();
     let Some(options) = options(std::env::args().skip(1))? else {
-        for scenario in SCENARIOS {
+        for scenario in scenario::all() {
             writeln!(out, "{:<22}{}", scenario.name, scenario.about)?;
         }
         return Ok(true);
@@ -148,8 +148,7 @@ fn options(
          hamlet_killkit <scenario> [--runs <n>] [--demo <path>] \
          [--keep]",
     )?;
-    let scenario = SCENARIOS
-        .iter()
+    let scenario = scenario::all()
         .find(|scenario| scenario.name == name)
         .ok_or_else(|| {
             anyhow!("no scenario `{name}`; --list lists them")
@@ -283,8 +282,13 @@ fn run_once(
         Kill::Fault(point) => Some((point, faults.as_path())),
         Kill::After { .. } => None,
     };
-    let mut host =
-        Host::start(demo, &home, fault, &dir.join("host.log"))?;
+    let mut host = Host::start(
+        demo,
+        &scenario.demo,
+        &home,
+        fault,
+        &dir.join("host.log"),
+    )?;
     let mut acked = BTreeMap::new();
     for line in scenario.setup {
         host.send(line)?;
@@ -314,6 +318,7 @@ fn run_once(
     for (n, lines) in (1..).zip(scenario.restart) {
         let mut host = Host::start(
             demo,
+            &scenario.demo,
             &home,
             None,
             &dir.join(format!("restart-{n}.log")),
@@ -421,15 +426,19 @@ struct Host {
 }
 
 impl Host {
-    /// Starts `demo serve` on `home`, stopping at `fault` when given,
-    /// with its standard error in `log`.
+    /// Starts `demo serve` on `home` as `how` says, stopping at
+    /// `fault` when given, with its standard error in `log`.
     fn start(
         demo: &Path,
+        how: &Demo,
         home: &Path,
         fault: Option<(&str, &Path)>,
         log: &Path,
     ) -> Result<Self> {
         let mut command = Command::new(demo);
+        if let Demo::RealmActor = how {
+            command.arg("--realm-actor");
+        }
         command
             .arg("serve")
             .env("HAMLET_HOME", home)
