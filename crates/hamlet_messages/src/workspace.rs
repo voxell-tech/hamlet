@@ -531,6 +531,9 @@ family!(
     ParcelFault {
         #[error("`{}` cannot be read: {words}", path.display())]
         Unreadable { path: PathBuf, words: String },
+        /// The agent's files could not be reached at all.
+        #[error("{words}")]
+        Unopened { words: String },
         #[error("`{}` is a link, and links are not sent", path.display())]
         Link { path: PathBuf },
         #[error("`{}` has no name to send", path.display())]

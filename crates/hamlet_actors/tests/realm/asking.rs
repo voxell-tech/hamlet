@@ -31,7 +31,10 @@ fn is_line(submit: &Submit) -> bool {
 
 /// The task of a new chief's line to `agent`, as the line carried
 /// it.
-async fn chief_task(realm: &Realm, agent: AgentNumber) -> RealmTask {
+pub(super) async fn chief_task(
+    realm: &Realm,
+    agent: AgentNumber,
+) -> RealmTask {
     let lines = || {
         submits_to(realm, agent)
             .iter()
@@ -83,7 +86,7 @@ fn offering(question: &str, titles: &[&str]) -> Question {
     }
 }
 
-fn objection(task: &RealmTask, reason: &str) -> Object {
+pub(super) fn objection(task: &RealmTask, reason: &str) -> Object {
     Object {
         task: task.clone(),
         conversation: conversation(),
@@ -194,7 +197,7 @@ async fn the_mayor_asks_three(
     question().unwrap()
 }
 
-fn on(task: &RealmTask, text: &str) -> Tell {
+pub(super) fn on(task: &RealmTask, text: &str) -> Tell {
     Tell {
         task: Some(task.clone()),
         ..tell(to(THREE), text)

@@ -10,7 +10,9 @@ use anyhow::{Context as _, Result, bail};
 use hamlet_actor::{Ctx, Handler};
 use hamlet_messages::address::Realm;
 use hamlet_messages::bytes::{Base64, Sha256};
-use hamlet_messages::realm::parcels::{PARCEL_PART, Part};
+use hamlet_messages::realm::parcels::{
+    PARCEL_PART, Part, part_start,
+};
 use hamlet_messages::sender::sender;
 use hamlet_messages::workspace::refusal::{InvalidPath, ReadRefusal};
 use hamlet_messages::workspace::{
@@ -20,10 +22,12 @@ use hamlet_messages::workspace::{
 use hamlet_os::fs::TreePath;
 use hamlet_os::fs::path::{self, is_absolute, text};
 use hamlet_protocol::client::AttachedFile;
+use hamlet_sandbox::scrub::scrub_text;
 use hamlet_sandbox::{Env, FileError, FileInfo, FileKind};
 use sha2::Digest as _;
 
-use super::reach::{self, Gate, Op, Placement, Purpose};
+use super::files::{Answered, Gated, Passed};
+use super::reach::{self, Op};
 use super::{Weighing, Workspace, read_only};
 
 /// The most entries, files or not, that one parcel's walk visits.
@@ -41,16 +45,15 @@ impl Handler<Parcel> for Workspace {
             .into_iter()
             .map(|enclosed| enclosed.path)
             .collect::<Vec<_>>();
-        let measured =
-            match self.reading(&ctx, parcel.agent, &paths).await? {
-                Ok(placement) => {
-                    self.on_env(placement, move |env| {
-                        measure(env, &paths)
-                    })
-                    .await?
-                }
-                Err(why) => Err(why),
-            };
+        let measured = match self
+            .reading(&ctx, parcel.agent, &paths)
+            .await?
+        {
+            Ok(passed) => {
+                passed.run(move |env| measure(env, &paths)).await?
+            }
+            Err(why) => Err(why),
+        };
         Ok(match measured {
             Ok(files) => ParcelAnswer::Measured { files },
             Err(why) => ParcelAnswer::Refused { why },
@@ -68,12 +71,11 @@ impl Handler<ParcelPart> for Workspace {
         let ParcelPart { agent, path, part } = asked;
         let paths = [path];
         let read = match self.reading(&ctx, agent, &paths).await? {
-            Ok(placement) => {
+            Ok(passed) => {
                 let [path] = paths;
-                self.on_env(placement, move |env| {
-                    read_part(env, &path, part)
-                })
-                .await?
+                passed
+                    .run(move |env| read_part(env, &path, part))
+                    .await?
             }
             Err(why) => Err(why),
         };
@@ -88,14 +90,14 @@ impl Handler<ParcelPart> for Workspace {
 }
 
 impl Workspace {
-    /// Where `agent`'s file tools run, when its reach lets it read
-    /// each of `paths`.
+    /// The file tools' pass for `agent`, when its reach lets it read
+    /// each of `paths`; else today's words for the first it may not.
     async fn reading(
         &self,
         ctx: &Ctx<Self>,
         agent: AgentNumber,
         paths: &[PathBuf],
-    ) -> Result<Result<Placement, ParcelRefusal>> {
+    ) -> Result<Result<Passed, ParcelRefusal>> {
         if let Some(path) =
             paths.iter().find(|path| !is_absolute(&text(path)))
         {
@@ -109,66 +111,69 @@ impl Workspace {
                 reach::read(tx, agent).await
             })
             .await?;
-            let (held, _) = self.held();
+            let mut passed = None;
             for path in paths {
-                let op = Op::Read { path };
-                match reach::gate(
-                    &self.home,
+                let gated = match self.gated(
                     agent,
                     reach.as_ref(),
-                    held,
-                    &op,
-                ) {
-                    Gate::Run { .. } => {}
-                    Gate::Refuse(refused) => {
-                        let why = of_read(refused.of_read()?);
-                        return Ok(Weighing::Done(Err(why)));
-                    }
-                    Gate::NeedsSecrets(version) => {
+                    &Op::Read { path },
+                )? {
+                    Weighing::Done(gated) => gated,
+                    Weighing::NeedsSecrets(version) => {
                         return Ok(Weighing::NeedsSecrets(version));
                     }
-                    Gate::NeedsChief(_) => {
+                };
+                match gated {
+                    Gated::Pass(pass) => passed = Some(pass),
+                    Gated::Refused(refused) => {
+                        let words = refused.of_read()?.to_string();
+                        return Ok(Weighing::Done(Err(unreadable(
+                            path, words,
+                        ))));
+                    }
+                    Gated::Chief(..) => {
                         bail!("the gate asked a chief for a read")
                     }
                 }
             }
-            let reach = reach
-                .context("the gate passed a read with no reach")?;
-            let placement =
-                self.placement(agent, &reach, Purpose::FileTool)?;
-            Ok(Weighing::Done(Ok(placement)))
+            let passed = passed.context("a parcel names no path")?;
+            Ok(Weighing::Done(Ok(passed)))
         })
         .await
-    }
-
-    /// The outcome of `work`, run off the runtime on the file tools'
-    /// environment at `placement`.
-    async fn on_env<T: Send + 'static>(
-        &self,
-        placement: Placement,
-        work: impl FnOnce(&Env) -> Result<T, ParcelRefusal>
-        + Send
-        + 'static,
-    ) -> Result<Result<T, ParcelRefusal>> {
-        let sandbox = self.sandbox;
-        tokio::task::spawn_blocking(move || {
-            let env = Env::new(
-                &text(&placement.cwd),
-                placement.policy,
-                sandbox,
-            )?;
-            Ok(work(&env))
-        })
-        .await
-        .context("a parcel's thread ended before it")?
     }
 }
 
-fn of_read(why: ReadRefusal) -> ParcelRefusal {
-    match why {
-        ReadRefusal::Invalid(why) => why.into(),
-        ReadRefusal::Path(why) => why.into(),
-        ReadRefusal::Reach(why) => why.into(),
+impl<T: Send + 'static> Answered for Result<T, ParcelRefusal> {
+    fn failed(words: String) -> Self {
+        Err(ParcelFault::Unopened { words }.into())
+    }
+
+    fn refused(why: ReadRefusal) -> Self {
+        Err(match why {
+            ReadRefusal::Invalid(why) => why.into(),
+            ReadRefusal::Path(why) => why.into(),
+            ReadRefusal::Reach(why) => why.into(),
+        })
+    }
+
+    fn scrubbed(self, secrets: &[String]) -> Self {
+        self.map_err(|why| match why {
+            ParcelRefusal::Parcel(ParcelFault::Unreadable {
+                path,
+                words,
+            }) => ParcelFault::Unreadable {
+                path,
+                words: scrub_text(secrets, &words),
+            }
+            .into(),
+            ParcelRefusal::Parcel(ParcelFault::Unopened {
+                words,
+            }) => ParcelFault::Unopened {
+                words: scrub_text(secrets, &words),
+            }
+            .into(),
+            why => why,
+        })
     }
 }
 
@@ -192,7 +197,6 @@ struct Found {
 }
 
 /// The files under `paths`, each hashed, within today's limits.
-// Ported from the server's `work/tools/parcel.rs` `find`.
 fn measure(
     env: &Env,
     paths: &[PathBuf],
@@ -319,14 +323,13 @@ fn read_part(
     let io =
         |error: std::io::Error| unreadable(path, error.to_string());
     let size = file.metadata().map_err(io)?.len();
-    let start = u64::from(part) * PARCEL_PART as u64;
-    if start > size || (start == size && size > 0) {
+    let Some(start) = part_start(size, part) else {
         return Err(ParcelFault::NoSuchPart {
             path: path.to_owned(),
             part,
         }
         .into());
-    }
+    };
     file.seek(SeekFrom::Start(start)).map_err(io)?;
     let mut bytes = Vec::new();
     file.take(PARCEL_PART as u64)

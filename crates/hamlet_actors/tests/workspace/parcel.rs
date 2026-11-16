@@ -7,7 +7,6 @@ use std::sync::Arc;
 use hamlet_messages::bytes::Base64;
 use hamlet_messages::realm::Enclosed;
 use hamlet_messages::realm::parcels::{PARCEL_PART, Part};
-use hamlet_messages::workspace::refusal::{PathRefusal, ToRead};
 use hamlet_messages::workspace::{
     Parcel, ParcelAnswer, ParcelEntry, ParcelFault, ParcelPart,
     ParcelRefusal,
@@ -173,7 +172,7 @@ async fn an_empty_file_is_one_empty_part() {
 }
 
 /// A path outside the agent's reach, as the realm's own files are,
-/// is refused as a read of it would be, whether measured or read.
+/// cannot be read, in today's words, whether measured or read.
 #[cfg(unix)]
 #[tokio::test(flavor = "multi_thread")]
 async fn a_path_outside_the_reach_is_refused() {
@@ -188,13 +187,49 @@ async fn a_path_outside_the_reach_is_refused() {
     let reading = ask(&host, &realm(), &part(&secret, 0)).await;
     host.shutdown().await.unwrap();
 
-    let outside: ParcelRefusal = PathRefusal::OutsideReach {
+    let outside: ParcelRefusal = ParcelFault::Unreadable {
         path: secret.clone(),
-        access: ToRead::Read,
+        words: format!(
+            "{} is out of this agent's reach to read",
+            secret.display()
+        ),
     }
     .into();
     assert_eq!(refused(measuring), outside);
     assert_eq!(reading, Part::Refused { why: outside });
+}
+
+/// When the agent's files cannot be reached at all, the parcel is
+/// refused in the words that say why, as today, whether measured or
+/// read.
+#[cfg(unix)]
+#[tokio::test(flavor = "multi_thread")]
+async fn a_workspace_that_cannot_be_opened_is_told() {
+    let dir = Scratch::new("workspace-parcel-unopened");
+    let (_project, folder) =
+        project("workspace-parcel-unopened-project", &[("a", "a")]);
+    let host = working_in(&dir, &folder, Arc::default()).await;
+    let a = folder.join("a");
+    std::fs::remove_dir_all(&folder).unwrap();
+    std::fs::write(&folder, "no longer a folder").unwrap();
+
+    let measuring = ask(&host, &realm(), &parcel(&[&a])).await;
+    let reading = ask(&host, &realm(), &part(&a, 0)).await;
+    host.shutdown().await.unwrap();
+
+    let unopened = |why: &ParcelRefusal| {
+        matches!(
+            why,
+            ParcelRefusal::Parcel(ParcelFault::Unopened { words })
+                if !words.is_empty()
+        )
+    };
+    let measuring = refused(measuring);
+    assert!(unopened(&measuring), "{measuring:?}");
+    assert!(
+        matches!(&reading, Part::Refused { why } if unopened(why)),
+        "{reading:?}"
+    );
 }
 
 /// A link named in the paths is refused, and so is a part of one,

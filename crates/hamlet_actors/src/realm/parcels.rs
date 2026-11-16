@@ -24,7 +24,7 @@ use hamlet_messages::bytes::{Base64, Sha256};
 use hamlet_messages::realm::client::Answer;
 use hamlet_messages::realm::parcels::{
     FetchPart, Measure, PARCEL_PART, ParcelFile, ParcelId, Part,
-    PartRefusal,
+    PartRefusal, part_start,
 };
 use hamlet_messages::realm::world::WaitId;
 use hamlet_messages::realm::{Enclosed, LetterId};
@@ -347,13 +347,6 @@ impl Sent {
         })
     }
 
-    /// Whether its sender or its receiver has ended, so that no one
-    /// is told of it.
-    async fn left(&self, rows: &Rows<'_>) -> Result<bool> {
-        Ok(tree::left(rows, self.sender).await?.is_some()
-            || tree::left(rows, self.receiver).await?.is_some())
-    }
-
     /// Whether this row's steps copy and deliver it: those a chief's
     /// allow begins when it waited for one, else the first row's.
     fn sends(&self, after_allow: bool) -> bool {
@@ -371,7 +364,7 @@ impl Sent {
             id: InputId(format!("parcel/{}", self.parcel.0)),
             task: self.task.map(TaskId::on_the_wire),
             input: Input::Notice {
-                text: sentence(&why.to_string()),
+                text: told(why),
                 conversation: self.conversation.clone(),
             },
         };
@@ -387,7 +380,20 @@ impl Sent {
     }
 }
 
-/// `words` as a sentence, as today's tools gave a refusal.
+/// The words the sender reads for `why`, as today's tools gave them:
+/// a file that cannot be read, or a workspace that cannot be opened,
+/// in the words that say so, and any other refusal as a sentence.
+fn told(why: &ParcelRefusal) -> String {
+    let words = why.to_string();
+    match why {
+        ParcelRefusal::Parcel(
+            ParcelFault::Unreadable { .. }
+            | ParcelFault::Unopened { .. },
+        ) => words,
+        _ => sentence(&words),
+    }
+}
+
 fn sentence(words: &str) -> String {
     let mut chars = words.chars();
     let first =
@@ -455,7 +461,7 @@ pub(super) async fn run(
         sent.state,
         State::Measuring | State::Waiting | State::Copying
     );
-    if open && sent.left(&rows).await? {
+    if open && either_left(&rows, sent.sender, sent.receiver).await? {
         return Ok(vec![Change::Refused { parcel }.into()]);
     }
     match step {
@@ -479,6 +485,17 @@ pub(super) async fn run(
         }
         Step::Measure | Step::Copy => Ok(Vec::new()),
     }
+}
+
+/// Whether `sender` or `receiver` has ended, so that no one is told
+/// of their parcel.
+async fn either_left(
+    rows: &Rows<'_>,
+    sender: AgentNumber,
+    receiver: AgentNumber,
+) -> Result<bool> {
+    Ok(tree::left(rows, sender).await?.is_some()
+        || tree::left(rows, receiver).await?.is_some())
 }
 
 /// What the parcel's measure makes of it: refused, waiting for a
@@ -644,6 +661,12 @@ async fn copy_file(
             .await?
         {
             Part::Bytes { bytes, last } => (bytes.0, last),
+            Part::Refused {
+                why:
+                    ParcelRefusal::Parcel(ParcelFault::NoSuchPart {
+                        ..
+                    }),
+            } => return Ok(Some(changed(entry))),
             Part::Refused { why } => return Ok(Some(why)),
         };
         written += bytes.len() as u64;
@@ -661,24 +684,30 @@ async fn copy_file(
     if written != entry.size
         || Sha256(hash.finalize().into()) != entry.sha256
     {
-        return Ok(Some(
-            ParcelFault::Unreadable {
-                path: entry.name.clone(),
-                words: "it changed while it was sent".to_owned(),
-            }
-            .into(),
-        ));
+        return Ok(Some(changed(entry)));
     }
     Ok(None)
 }
 
+/// Why `entry` is not sent when it grew or shrank, or its bytes
+/// changed, after its measure.
+fn changed(entry: &ParcelEntry) -> ParcelRefusal {
+    ParcelFault::Unreadable {
+        path: entry.name.clone(),
+        words: "it changed while it was sent.".to_owned(),
+    }
+    .into()
+}
+
 /// Marks the parcel ready and delivers its letter, or keeps it while
-/// the receiver's task is held. A drive again after a kill delivers
-/// it again, under the same input's id.
+/// its task is held. A drive again after a kill delivers it again,
+/// under the same input's id, or keeps it if its task is held by
+/// then.
 async fn deliver(cx: &Cx<'_>, sent: &Sent) -> Result<()> {
     let letter = || Delivery::Letter(sent.letter);
+    let tx = change::Transaction::begin(cx.ctx).await?;
     let holding = asking::holds(
-        &cx.rows()?,
+        &tx.rows(),
         sent.sender,
         sent.receiver,
         sent.task,
@@ -686,19 +715,29 @@ async fn deliver(cx: &Cx<'_>, sent: &Sent) -> Result<()> {
     )
     .await?;
     let delivers = holding.is_none();
-    let held = match holding {
-        Some(asking::Holding::Held(held)) => Some(held),
-        Some(asking::Holding::Dropped) | None => None,
-    };
+    let mut changes = Vec::new();
     if sent.state == State::Copying {
-        let ready = Change::Ready {
-            parcel: sent.parcel,
-        };
-        let changes = std::iter::once(ready.into())
-            .chain(held.map(Into::into))
-            .collect();
-        cx.commit(changes).await?;
+        changes.push(
+            Change::Ready {
+                parcel: sent.parcel,
+            }
+            .into(),
+        );
     }
+    if let Some(asking::Holding::Held(held)) = holding {
+        changes.push(held.into());
+    }
+    let pushes = tx
+        .commit(
+            cx.realm,
+            change::Write::<()> {
+                changes,
+                entries: Vec::new(),
+                marker: None,
+            },
+        )
+        .await?;
+    calls::push_all(cx.realm, cx.ctx, pushes).await;
     if delivers {
         letters::deliver(cx.realm, cx.ctx, letter()).await?;
     }
@@ -714,10 +753,10 @@ impl Handler<FetchPart> for Realm {
     ) -> Result<Part<PartRefusal>> {
         let Agent(by) = sender(&ctx, &fetch)?;
         let rows = Rows::outside(&ctx)?;
-        let Some((receiver, state, swept)) = rows
-            .row::<(u32, String, Option<i64>)>(
-                "SELECT receiver, state, swept_at FROM parcel WHERE \
-                 id = ?1",
+        let Some((receiver, letter, state, swept)) = rows
+            .row::<(u32, u32, String, Option<i64>)>(
+                "SELECT receiver, letter, state, swept_at FROM \
+                 parcel WHERE id = ?1",
                 vec![id(fetch.parcel)],
             )
             .await?
@@ -733,6 +772,8 @@ impl Handler<FetchPart> for Realm {
         }
         if change::from_case_name::<State>(state)? != State::Ready
             || swept.is_some()
+            || tree::left(&rows, by).await?.is_some()
+            || asking::still_held(&rows, LetterId(letter)).await?
         {
             return Ok(Part::Refused {
                 why: PartRefusal::NoSuchParcel,
@@ -750,12 +791,11 @@ impl Handler<FetchPart> for Realm {
                 why: PartRefusal::NoSuchPart,
             });
         };
-        let start = u64::from(fetch.part) * PARCEL_PART as u64;
-        if start > size || (start == size && size > 0) {
+        let Some(start) = part_start(size, fetch.part) else {
             return Ok(Part::Refused {
                 why: PartRefusal::NoSuchPart,
             });
-        }
+        };
         let kept = Store::of(&ctx)?.file(&hash_of(sha256)?);
         let mut file = tokio::fs::File::open(&kept).await?;
         file.seek(SeekFrom::Start(start)).await?;
@@ -772,7 +812,7 @@ impl Handler<FetchPart> for Realm {
 }
 
 /// The files of `letter`'s parcel, as its receiver is told of them:
-/// none until they are copied.
+/// none until they are copied, or once they are swept.
 pub(super) async fn files(
     rows: &Rows<'_>,
     letter: LetterId,
@@ -780,7 +820,7 @@ pub(super) async fn files(
     let Some((parcel, sender)) = rows
         .row::<(u32, u32)>(
             "SELECT id, sender FROM parcel WHERE letter = ?1 AND \
-             state = ?2",
+             state = ?2 AND swept_at IS NULL",
             vec![change::integer(letter.0)?, state(State::Ready)?],
         )
         .await?
@@ -807,38 +847,20 @@ pub(super) async fn files(
 }
 
 /// Removes the realm's files no unswept parcel names, and the
-/// temporary files no copy is writing. A parcel refused, or
-/// delivered a day ago, is swept first.
+/// temporary files no copy is writing. First it ends the parcels done
+/// with, as [`done`] says.
 pub(super) async fn sweep(
     realm: &Arc<Realm>,
     ctx: &Ctx<Realm>,
 ) -> Result<()> {
-    let rows = Rows::outside(ctx)?;
-    let done = rows
-        .values::<u32>(
-            "SELECT id FROM parcel WHERE swept_at IS NULL AND \
-             (state = ?1 OR (state = ?2 AND at < ?3))",
-            vec![
-                state(State::Refused)?,
-                state(State::Ready)?,
-                BindParam::Integer(rows.at().0 - KEPT_MS),
-            ],
-        )
-        .await?;
-    if !done.is_empty() {
-        let parcels = done.into_iter().map(ParcelId).collect();
-        change::commit(
-            realm,
-            ctx,
-            vec![Change::Swept { parcels }.into()],
-        )
-        .await?;
+    let changes = done(&Rows::outside(ctx)?).await?;
+    if !changes.is_empty() {
+        change::commit(realm, ctx, changes).await?;
     }
     let store = Store::of(ctx)?;
     // Listed before the rows are read: a file renamed in before the
     // listing has its parcel's measure committed, so the rows name
-    // it. A copy that finds its file kept, measured after this read,
-    // can still lose it to this sweep.
+    // it.
     let listed = match tokio::fs::read_dir(&store.0).await {
         Ok(listed) => listed,
         Err(error)
@@ -849,7 +871,12 @@ pub(super) async fn sweep(
         Err(error) => return Err(error.into()),
     };
     let names = names_in(listed).await?;
-    let rows = Rows::outside(ctx)?;
+    // Read and removed under the realm's write transaction, so no
+    // measure commits in between: a copy that finds its file kept
+    // was measured before this read, which names the file, or looks
+    // after the removals and copies it again.
+    let tx = change::Transaction::begin(ctx).await?;
+    let rows = tx.rows();
     let named = rows
         .values::<Vec<u8>>(
             "SELECT DISTINCT parcel_file.sha256 FROM parcel_file \
@@ -890,6 +917,57 @@ pub(super) async fn sweep(
     Ok(())
 }
 
+/// The changes that end the parcels done with: one waiting for a
+/// chief while its sender or receiver has ended is refused, and one
+/// refused, or delivered a day ago and not held, is swept.
+async fn done(rows: &Rows<'_>) -> Result<Vec<change::Change>> {
+    let unswept = rows
+        .rows::<(u32, u32, u32, u32, String, i64)>(
+            "SELECT id, letter, sender, receiver, state, at FROM \
+             parcel WHERE swept_at IS NULL AND state IN (?1, ?2, ?3)",
+            vec![
+                state(State::Waiting)?,
+                state(State::Ready)?,
+                state(State::Refused)?,
+            ],
+        )
+        .await?;
+    let old = rows.at().0 - KEPT_MS;
+    let mut changes = Vec::new();
+    let mut swept = Vec::new();
+    for (parcel, letter, sender, receiver, was, at) in unswept {
+        let parcel = ParcelId(parcel);
+        let sweeps = match change::from_case_name(was)? {
+            State::Refused => true,
+            State::Ready => {
+                at < old
+                    && !asking::still_held(rows, LetterId(letter))
+                        .await?
+            }
+            State::Waiting => {
+                let left = either_left(
+                    rows,
+                    AgentNumber(sender),
+                    AgentNumber(receiver),
+                )
+                .await?;
+                if left {
+                    changes.push(Change::Refused { parcel }.into());
+                }
+                left
+            }
+            State::Measuring | State::Copying => false,
+        };
+        if sweeps {
+            swept.push(parcel);
+        }
+    }
+    if !swept.is_empty() {
+        changes.push(Change::Swept { parcels: swept }.into());
+    }
+    Ok(changes)
+}
+
 async fn names_in(
     mut listed: tokio::fs::ReadDir,
 ) -> Result<Vec<String>> {
@@ -910,17 +988,7 @@ pub(super) async fn ruling(
     wait: WaitId,
     answer: &Answer,
 ) -> Result<Ruling> {
-    let detail = rows
-        .value::<Vec<u8>>(
-            "SELECT detail FROM wait WHERE id = ?1",
-            vec![change::integer(wait.0)?],
-        )
-        .await?
-        .with_context(|| {
-            format!("send wait {} has no detail", wait.0)
-        })?;
-    let Sending { parcel, .. } =
-        ciborium::from_reader(detail.as_slice())?;
+    let parcel = sending(rows, wait).await?;
     let changes = match answer.0.choice {
         Choice::Allow => vec![
             Change::Allowed { parcel }.into(),
@@ -936,6 +1004,32 @@ pub(super) async fn ruling(
         changes,
         ..Ruling::default()
     })
+}
+
+/// The change a send's wait `wait` makes as it lapses: its parcel is
+/// refused, for the sweep to take.
+pub(super) async fn lapsed(
+    rows: &Rows<'_>,
+    wait: WaitId,
+) -> Result<change::Change> {
+    let parcel = sending(rows, wait).await?;
+    Ok(Change::Refused { parcel }.into())
+}
+
+/// The parcel a send's wait `wait` waits on.
+async fn sending(rows: &Rows<'_>, wait: WaitId) -> Result<ParcelId> {
+    let detail = rows
+        .value::<Vec<u8>>(
+            "SELECT detail FROM wait WHERE id = ?1",
+            vec![change::integer(wait.0)?],
+        )
+        .await?
+        .with_context(|| {
+            format!("send wait {} has no detail", wait.0)
+        })?;
+    let Sending { parcel, .. } =
+        ciborium::from_reader(detail.as_slice())?;
+    Ok(parcel)
 }
 
 /// The realm's folder of parcels' files, `local.files` beside its

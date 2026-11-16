@@ -200,6 +200,24 @@ pub(in crate::realm) async fn held(
     })
 }
 
+/// Whether `letter`, or its answer, is held by an objection whose
+/// wait is open.
+pub(in crate::realm) async fn still_held(
+    rows: &Rows<'_>,
+    letter: LetterId,
+) -> Result<bool> {
+    Ok(rows
+        .value::<bool>(
+            "SELECT EXISTS (SELECT 1 FROM held JOIN objection ON \
+             objection.task = held.task JOIN wait ON wait.id = \
+             objection.wait WHERE held.letter = ?1 AND \
+             wait.closed_at IS NULL)",
+            vec![change::integer(letter.0)?],
+        )
+        .await?
+        .unwrap_or(false))
+}
+
 /// What becomes of a letter or an answer on a held or withdrawn task.
 #[derive(Debug, PartialEq)]
 pub(in crate::realm) enum Holding {

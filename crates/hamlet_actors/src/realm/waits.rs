@@ -1078,8 +1078,9 @@ fn lapse_of(why: LapseReason) -> Option<workspace::Lapse> {
 
 impl Act<Agent> for Lapse {
     type Output = ();
-    /// The agent's open waits that lapse, with their kinds and tasks.
-    type Loaded = Vec<(WaitId, Kind, Option<TaskId>)>;
+    /// The agent's open waits that lapse, with their kinds and what
+    /// lapses with each.
+    type Loaded = Vec<(WaitId, Kind, Option<change::Change>)>;
     type Done = Told;
 
     async fn load(
@@ -1092,18 +1093,32 @@ impl Act<Agent> for Lapse {
         }
         let conversation =
             nullable(self.conversation.clone().map(|c| c.0));
-        rows.rows::<(u64, String, Option<TaskId>)>(
-            "SELECT id, kind, task FROM wait WHERE agent = ?1 AND \
-             closed_at IS NULL AND (?2 IS NULL OR conversation = \
-             ?2) ORDER BY id",
-            vec![number(by.0), conversation],
-        )
-        .await?
-        .into_iter()
-        .map(|(wait, kind, task)| {
-            Ok((WaitId(wait), change::from_case_name(kind)?, task))
-        })
-        .collect()
+        let open = rows
+            .rows::<(u64, String, Option<TaskId>)>(
+                "SELECT id, kind, task FROM wait WHERE agent = ?1 \
+                 AND closed_at IS NULL AND (?2 IS NULL OR \
+                 conversation = ?2) ORDER BY id",
+                vec![number(by.0), conversation],
+            )
+            .await?;
+        let mut lapsing = Vec::new();
+        for (wait, kind, task) in open {
+            let wait = WaitId(wait);
+            let kind = change::from_case_name(kind)?;
+            // The letters an objection held are dropped with it, and
+            // a send's parcel is refused.
+            let with = match (kind, task) {
+                (Kind::Objection, Some(task)) => {
+                    Some(asking::Change::Lapse { task }.into())
+                }
+                (Kind::Send, _) => {
+                    Some(parcels::lapsed(rows, wait).await?)
+                }
+                _ => None,
+            };
+            lapsing.push((wait, kind, with));
+        }
+        Ok(lapsing)
     }
 
     fn decide(
@@ -1135,13 +1150,9 @@ impl Act<Agent> for Lapse {
                 .collect(),
             ..Told::default()
         });
-        for (wait, kind, task) in open {
-            // The letters an objection held are dropped with it.
-            if kind == Kind::Objection
-                && let Some(task) = task
-            {
-                decided =
-                    decided.change(asking::Change::Lapse { task });
+        for (wait, _, with) in open {
+            if let Some(with) = with {
+                decided = decided.change(with);
             }
             decided = decided.change(Change::Close {
                 wait,

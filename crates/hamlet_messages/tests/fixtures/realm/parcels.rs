@@ -122,6 +122,13 @@ fn refusals() -> Vec<(&'static str, ParcelRefusal)> {
             .into(),
         ),
         (
+            "unopened",
+            ParcelFault::Unopened {
+                words: "the project is not a directory".into(),
+            }
+            .into(),
+        ),
+        (
             "link",
             ParcelFault::Link {
                 path: "/work/latest".into(),
