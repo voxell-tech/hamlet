@@ -1,4 +1,4 @@
-//! Roads a lead lays between two hires: the `road` table, `LayRoad`,
+//! Roads between two hires: the `road` table, `LayRoad`,
 //! `TakeUpRoad` and `RequestRoad` (H3).
 
 use std::collections::BTreeSet;
@@ -15,19 +15,37 @@ use hamlet_messages::realm::{
 };
 use hamlet_messages::sender::Hand;
 use hamlet_messages::workspace::AgentNumber;
+use serde::{Deserialize, Serialize};
 
 use super::act::{Act, Decided, Decision};
 use super::callers::Lead;
 use super::calls::{Calls, Delivery, Made};
-use super::change::{Affected, At, Rows, Writer, number};
+use super::change::{self, Affected, At, Rows, Writer, number};
 use super::roads::{self, Way};
 use super::tree::{self, Lineage, Status};
 use super::world::Part;
 use super::{budget, hire, letters, record};
 
+#[derive(
+    Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize,
+)]
+#[serde(rename_all = "snake_case")]
+pub(super) enum Kind {
+    /// Laid by a lead or a chief between two hires of one hamlet.
+    Tree,
+    /// Agreed by the mayors of two hamlets.
+    Agreed,
+}
+
 #[derive(Debug, PartialEq)]
 pub(super) enum Change {
     Lay {
+        a: AgentNumber,
+        b: AgentNumber,
+        hamlet: HamletId,
+    },
+    /// `hamlet` is the one of the mayor who agreed last.
+    Agreed {
         a: AgentNumber,
         b: AgentNumber,
         hamlet: HamletId,
@@ -47,14 +65,18 @@ pub(super) async fn apply(
 ) -> Result<Affected> {
     match change {
         Change::Lay { a, b, hamlet } => {
-            lay(writer, a, b, hamlet).await
+            lay(writer, a, b, hamlet, Kind::Tree).await
+        }
+        Change::Agreed { a, b, hamlet } => {
+            lay(writer, a, b, hamlet, Kind::Agreed).await
         }
         Change::TakeUp { a, b } => take_up(writer, a, b).await,
         Change::Used { between } => used(writer, between).await,
     }
 }
 
-fn key(a: AgentNumber, b: AgentNumber) -> Vec<BindParam> {
+/// The `road` key of the pair `a`, `b`, which `agreement` shares.
+pub(super) fn key(a: AgentNumber, b: AgentNumber) -> Vec<BindParam> {
     vec![number(a.min(b)), number(a.max(b))]
 }
 
@@ -70,17 +92,20 @@ async fn lay(
     a: AgentNumber,
     b: AgentNumber,
     hamlet: HamletId,
+    kind: Kind,
 ) -> Result<Affected> {
     let mut params = key(a, b);
     params.extend([
         BindParam::Text(hamlet.0),
         BindParam::Integer(writer.at().0),
+        BindParam::Text(change::case_name(&kind)?),
     ]);
     writer
         .execute(
-            "INSERT INTO road (a, b, hamlet, at) VALUES (?1, ?2, \
-             ?3, ?4) ON CONFLICT (a, b) DO UPDATE SET hamlet = ?3, \
-             used_at = NULL, up_at = NULL, at = MAX(?4, at + 1)",
+            "INSERT INTO road (a, b, hamlet, at, kind) VALUES (?1, \
+             ?2, ?3, ?4, ?5) ON CONFLICT (a, b) DO UPDATE SET \
+             hamlet = ?3, kind = ?5, used_at = NULL, up_at = NULL, \
+             at = MAX(?4, at + 1)",
             params,
         )
         .await?;
@@ -120,37 +145,38 @@ async fn used(
     Ok(Affected::default())
 }
 
-/// Whether an open laid road joins `a` and `b`.
+/// The kind of the open road that joins `a` and `b`.
 pub(super) async fn between(
     rows: &Rows<'_>,
     a: AgentNumber,
     b: AgentNumber,
-) -> Result<bool> {
-    Ok(rows
-        .value::<i64>(
-            "SELECT 1 FROM road WHERE a = ?1 AND b = ?2 AND up_at \
-             IS NULL",
-            key(a, b),
-        )
-        .await?
-        .is_some())
+) -> Result<Option<Kind>> {
+    rows.value::<String>(
+        "SELECT kind FROM road WHERE a = ?1 AND b = ?2 AND up_at IS \
+         NULL",
+        key(a, b),
+    )
+    .await?
+    .map(change::from_case_name)
+    .transpose()
 }
 
-/// The other ends of `agent`'s open laid roads.
+/// The other ends of `agent`'s open roads, with each road's kind.
 pub(super) async fn of(
     rows: &Rows<'_>,
     agent: AgentNumber,
-) -> Result<Vec<AgentNumber>> {
-    Ok(rows
-        .values::<u32>(
-            "SELECT CASE WHEN a = ?1 THEN b ELSE a END FROM road \
-             WHERE (a = ?1 OR b = ?1) AND up_at IS NULL ORDER BY 1",
-            vec![number(agent)],
-        )
-        .await?
-        .into_iter()
-        .map(AgentNumber)
-        .collect())
+) -> Result<Vec<(AgentNumber, Kind)>> {
+    rows.rows::<(u32, String)>(
+        "SELECT CASE WHEN a = ?1 THEN b ELSE a END, kind FROM road \
+         WHERE (a = ?1 OR b = ?1) AND up_at IS NULL ORDER BY 1",
+        vec![number(agent)],
+    )
+    .await?
+    .into_iter()
+    .map(|(other, kind)| {
+        Ok((AgentNumber(other), change::from_case_name(kind)?))
+    })
+    .collect()
 }
 
 pub(super) async fn laid_at(
@@ -200,7 +226,7 @@ async fn live_roads_in(
         .value(
             &format!(
                 "SELECT COUNT(*) FROM {LIVE_ROADS} AND road.hamlet \
-                 = ?1"
+                 = ?1 AND road.kind = 'tree'"
             ),
             vec![BindParam::Text(hamlet.0.clone())],
         )
@@ -236,7 +262,9 @@ impl Laying {
             None => 0,
         };
         Ok(Self {
-            laid: between(rows, a.agent.agent, b.agent.agent).await?,
+            laid: between(rows, a.agent.agent, b.agent.agent)
+                .await?
+                .is_some(),
             ends: Some((a, b)),
             live_roads,
         })
@@ -410,7 +438,10 @@ impl Act<Agent> for RequestRoad {
             Decision::Answer(Done::refused(AgentRefusal::Act(why)))
         };
         let Asking { ends, lead, letter } = asking;
-        let Some(to) = ends.to else {
+        let Some(to) = ends
+            .to
+            .filter(|to| !matches!(to.status, Status::Ended(_)))
+        else {
             return refuse(RequestRoadRefusal::NoSuchAgent);
         };
         let Some(lead) = lead else {
@@ -433,7 +464,7 @@ impl Act<Agent> for RequestRoad {
         };
         let text = format!(
             "I ask for a road to {named}: {}",
-            self.why.as_deref().unwrap_or_default()
+            self.why.as_deref().unwrap_or_default().trim()
         );
         let written = letters::Written {
             kind: letters::Kind::Letter,

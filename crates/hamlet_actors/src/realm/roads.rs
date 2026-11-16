@@ -3,7 +3,7 @@
 
 use std::collections::BTreeSet;
 
-use anyhow::Result;
+use anyhow::{Context as _, Result};
 use hamlet_messages::address::Agent;
 use hamlet_messages::realm::{HamletId, Named};
 use hamlet_messages::sender::Hand;
@@ -11,6 +11,7 @@ use hamlet_messages::workspace::AgentNumber;
 use serde::Serialize;
 
 use super::change::Rows;
+use super::laid::Kind;
 use super::tree::{self, Lineage, Status};
 use super::{chiefs, laid};
 
@@ -37,7 +38,7 @@ pub(super) struct End {
 pub(super) struct Ends {
     pub from: End,
     pub to: Option<End>,
-    /// Whether an open laid road joins them.
+    /// Whether an open road joins them that carries letters now.
     pub laid: bool,
 }
 
@@ -80,7 +81,11 @@ pub(super) async fn ends(
         });
     };
     Ok(Ends {
-        laid: laid::between(rows, from.agent, to).await?,
+        laid: carries(
+            rows,
+            laid::between(rows, from.agent, to).await?,
+        )
+        .await?,
         to: Some(end_of(rows, to).await?),
         from,
     })
@@ -92,7 +97,12 @@ pub(super) async fn of(
     agent: AgentNumber,
 ) -> Result<Vec<(AgentNumber, Way)>> {
     let own = tree::lineage_of(rows, agent).await?;
-    let laid = laid::of(rows, agent).await?;
+    let mut laid = Vec::new();
+    for (other, kind) in laid::of(rows, agent).await? {
+        if carries(rows, Some(kind)).await? {
+            laid.push(other);
+        }
+    }
     let mut others = own
         .agent
         .lead
@@ -115,6 +125,34 @@ pub(super) async fn of(
         }
     }
     Ok(roads)
+}
+
+/// Whether a road of `kind` carries letters: an agreed one only
+/// while the chief allows roads between hamlets.
+async fn carries(
+    rows: &Rows<'_>,
+    kind: Option<Kind>,
+) -> Result<bool> {
+    match kind {
+        None => Ok(false),
+        Some(Kind::Tree) => Ok(true),
+        Some(Kind::Agreed) => allows_between_hamlets(rows).await,
+    }
+}
+
+/// Whether the realm's limits allow roads between hamlets.
+pub(super) async fn allows_between_hamlets(
+    rows: &Rows<'_>,
+) -> Result<bool> {
+    let allowed = rows
+        .value::<i64>(
+            "SELECT COALESCE(json_extract(limits, \
+             '$.roads_between'), 1) FROM realm WHERE id = 1",
+            Vec::new(),
+        )
+        .await?
+        .context("the realm's row")?;
+    Ok(allowed != 0)
 }
 
 pub(super) async fn end_of(
