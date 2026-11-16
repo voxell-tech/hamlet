@@ -57,7 +57,6 @@ mod tools;
 // The clients, and what a chief sends and types.
 mod attached;
 mod clients;
-mod commands;
 mod files;
 mod images;
 mod inbox;
@@ -118,7 +117,6 @@ pub fn create_app(options: Options) -> App {
         runtimes::reconciliation::plugin,
         runtimes::plugin,
         clients::plugin,
-        commands::plugin,
         providers::plugin,
         conversations::plugin,
         images::plugin,

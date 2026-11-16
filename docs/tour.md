@@ -22,7 +22,7 @@ The server is a Bevy app with no frame
 an input comes and updates the app once for it (`app/runner.rs`). A typed line
 is read into a request of its kind and reaches the system for that kind
 (`clients/handlers.rs`). A line that begins with `/` is a command, run by the
-system it was added with (`commands.rs`); other words become a kept input of
+system it was added with (`clients/commands.rs`); other words become a kept input of
 the agent's chat (`conversations/chats.rs`). Every change an input makes is in its one
 transaction, which also keeps the jobs its changes need; `PostUpdate` keeps it
 (`app/follow_up.rs`), follows the inputs that ended, runs the jobs and starts the
@@ -178,7 +178,7 @@ double of the remote workspace worker.
 | `conversations.rs`, `conversations/` | Conversations, their inputs and turns, prompts, and what follows an input's end. `conversations.rs` keeps the conversations; `inputs.rs` the inputs they are given and `items.rs` the entries their runtime kept; `turns.rs` answers what a runtime requests during a turn; `completion.rs` runs once after an input ends; `dreams.rs` is when agents dream: the hours, who is due, and `/dream`; `chats.rs`, `reflections.rs`, `letters.rs`, `errands.rs`, `briefs.rs`, `questions.rs`, `verdicts.rs` and `tasks.rs` are chats, reflection, letters and questions, one-off errands, a worker's brief, `ask_chief`, the check of a final answer, and tasks; `marks.rs` is what an input is, as its runtime keeps it; `models.rs` picks each agent's model; `activity.rs` folds what an agent is doing |
 | `conversations/prompt.rs`, `conversations/prompt/place.rs` | `sections` builds the prompt from the charter, machine, project, character, memory, skills, place, realm and scholars |
 | `calls.rs`, `calls/` | What a runtime asks while a turn runs: whether a tool call may run, and the call carried out once under its key; a run in progress is an entity whose task starts once its input is kept and stops with it. `deciding.rs` makes the gate's decision of a call in steps; `looks.rs` reads what a call waits on off the loop; `held.rs` keeps the gate's decision; `answer.rs` applies a chief's answer; `objections.rs` and `reviews.rs` are objections and a lead's review; `place.rs` says where an agent's tools work and which it is offered; `society.rs` and `society/` carry out the society's tools, each reading its arguments into a type of `society/args.rs`, whose schemas the tools are offered with |
-| `commands.rs`, `commands/` | The chief's `/` commands: each area's commands added with the system that runs them (`AddCommands`), listed to clients as deeds, each a row of a table with the function that runs it; `society.rs`, `oversight.rs`, `shelves.rs` and `versions.rs` hold those on the society, waits and grants, skills and a scholar's history |
+| `clients/commands.rs`, `clients/commands/` | The chief's `/` commands: each area's commands added with the system that runs them (`AddCommands`), listed to clients as deeds, each a row of a table with the function that runs it; `society.rs`, `oversight.rs`, `shelves.rs` and `versions.rs` hold those on the society, waits and grants, skills and a scholar's history |
 | `images.rs`, `images/` | Images (C33, S29): uploaded in parts, each upload an entity that goes with its connection (`uploads.rs`), checked and kept once by hash in the realm's `images/` folder (`store.rs`), fitted to a model's limits (`fitting.rs`), given to an agent in its own folder (`attaching.rs`), shown by a small copy, swept when nothing uses them (`garbage_collection.rs`), and read back by id |
 | `files.rs`, `inbox.rs` | Files a chief attaches (C33, S29): uploaded in parts and kept once by hash in the realm's `files/` folder; `inbox.rs` saves them, and what agents send with `tell` and `ask` (H30), in the receiver's `inbox/` and names where |
 | `attached.rs` | A chief's line with its attachments: each caption set in the words at its attachment's place (C33) |
@@ -227,20 +227,20 @@ built-in ones.
 
 | Change | Owner |
 |---|---|
-| Typed commands, command replies | `hamlet_server/src/commands.rs` and `commands/`; advertised deeds sent in `clients/requests.rs` |
+| Typed commands, command replies | `hamlet_server/src/clients/commands.rs` and `clients/commands/`; advertised deeds sent in `clients/requests.rs` |
 | Conversation stop/retry/resume/rewind | `hamlet_server/src/conversations/chats.rs` and `conversations/completion.rs`; the requests in `clients/requests.rs` |
 | Transcript rows, paging and peer watches | `hamlet_server/src/clients/fold.rs`, `conversations/items.rs`; `hamlet_client/src/chats.rs` |
 | Questions and their answer cards | `hamlet_server/src/conversations/questions.rs`, `calls/answer.rs`, `hamlet_app/src/asking.rs` |
 | Approvals, grants and waits | `hamlet_server/src/society/oversight/gate.rs`, `society/oversight.rs`, `calls/held.rs`, `calls/answer.rs` |
 | Selecting, quoting and replying to chat text | `hamlet_app/src/select.rs`, `screens/chat/quote.rs`, `screens/chat/reply.rs` |
 | Who may do what | `hamlet_server/src/society/authority.rs` |
-| Founding, hiring, ending, restoring, seating a mayor, the tree | `hamlet_server/src/society/hamlets.rs`, `hires.rs`, `tree.rs`; the tools in `calls/society.rs`, the commands in `commands.rs` |
-| Scholars and their versions | `hamlet_server/src/society/city.rs`, `commands/versions.rs`, `knowledge/`; the repositories in `hamlet_git` |
+| Founding, hiring, ending, restoring, seating a mayor, the tree | `hamlet_server/src/society/hamlets.rs`, `hires.rs`, `tree.rs`; the tools in `calls/society.rs`, the commands in `clients/commands.rs` |
+| Scholars and their versions | `hamlet_server/src/society/city.rs`, `clients/commands/versions.rs`, `knowledge/`; the repositories in `hamlet_git` |
 | Merging and splitting hires | `hamlet_server/src/society/merges.rs`, `knowledge/merges.rs` |
 | Workers | `hamlet_server/src/society/workers.rs`, `conversations/briefs.rs` |
 | Letters, questions and roads | `hamlet_server/src/conversations/letters.rs`, `calls/society/letters.rs`, `society/roads.rs` |
 | Instructions and objections | `hamlet_server/src/calls/objections.rs`, `calls/reviews.rs` |
-| The library and the librarian | `hamlet_server/src/knowledge/library.rs`, `calls/society/library.rs`, `society/library.rs`, `commands/shelves.rs` |
+| The library and the librarian | `hamlet_server/src/knowledge/library.rs`, `calls/society/library.rs`, `society/library.rs`, `clients/commands/shelves.rs` |
 | Dreams | `hamlet_server/src/conversations/dreams.rs`, `knowledge/dreams.rs`, `society/dreams.rs` |
 | Budgets, caps and allowances | `hamlet_server/src/society/spend.rs`, `society/limits.rs`, `conversations/tasks.rs` |
 | A prompt or chief document | `hamlet_server/src/conversations/prompt.rs`, `clients/documents.rs`; default charter and the Hand's character in `hamlet_server/assets/` |

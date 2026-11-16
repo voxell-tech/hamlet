@@ -18,10 +18,10 @@ use hamlet_protocol::client::{
 use tokio::net::TcpStream;
 
 use super::check::{fault, reply};
+use super::commands::ChiefCommand;
 use super::connection::Event;
 use super::{Clients, Connections};
 use crate::app::input::{AddHandler, InputMessage, InputOrigin};
-use crate::commands::ChiefCommand;
 use crate::core::Core;
 use crate::society::refusal::Refusal;
 

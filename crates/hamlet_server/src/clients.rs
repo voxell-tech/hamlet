@@ -3,6 +3,7 @@
 //! replies owed to them.
 
 pub(crate) mod check;
+pub(crate) mod commands;
 pub(crate) mod connection;
 pub(crate) mod documents;
 pub(crate) mod fold;
@@ -37,7 +38,7 @@ use crate::realm::credentials::Credentials;
 pub(crate) fn plugin(app: &mut bevy_app::App) {
     app.add_message::<OutgoingClientMessage>()
         .add_observer(requests::left)
-        .add_plugins(handlers::plugin);
+        .add_plugins((handlers::plugin, commands::plugin));
 }
 
 /// A conversation a client watches, as one of its chats: an entity
