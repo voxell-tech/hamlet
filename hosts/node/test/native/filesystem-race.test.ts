@@ -5,16 +5,22 @@ import {
     mkdirSync,
     readdirSync,
     readFileSync,
+    rmdirSync,
     watch,
     writeFileSync,
 } from "node:fs";
 import { join } from "node:path";
 import { test } from "node:test";
+import { setTimeout as sleep } from "node:timers/promises";
 import { openAgentFilesystem } from "../../src/agent/native-filesystem.ts";
 import { context, scratchFolder } from "../testing.ts";
 
 /** How many rounds of file tools run while the folder is swapped. */
 const ROUNDS = 2000;
+
+const WATCH_WAIT_MS = 10_000;
+
+type Touched = { event: string; name: string | null; at: number };
 
 test("a command that swaps a folder for a link while file tools run never lets a tool reach outside", {
     timeout: 120_000,
@@ -28,12 +34,13 @@ test("a command that swaps a folder for a link while file tools run never lets a
     mkdirSync(work);
     writeFileSync(join(work, "kept"), "kept");
 
-    // Anything made, changed or removed outside, for the whole run.
-    const touched: string[] = [];
+    const touched: Touched[] = [];
+    const watched = performance.now();
     const watcher = watch(outside, (event, name) =>
-        touched.push(`${event} ${name}`),
+        touched.push({ event, name, at: performance.now() }),
     );
     t.after(() => watcher.close());
+    const counted = await countFromHere(outside, touched);
 
     const stop = join(realm, "stop");
     const swapper = spawn(
@@ -54,9 +61,7 @@ test("a command that swaps a folder for a link while file tools run never lets a
     const exited = once(swapper, "exit");
     // Stops the swapper also when an assertion below fails.
     t.after(() => swapper.kill("SIGKILL"));
-    while (!printed.startsWith("ready\n")) {
-        await new Promise((resolve) => setTimeout(resolve, 10));
-    }
+    while (!printed.startsWith("ready\n")) await sleep(10);
 
     let written = 0;
     let refused = 0;
@@ -98,12 +103,63 @@ test("a command that swaps a folder for a link while file tools run never lets a
     }
     const swaps = Number(printed.split("\n")[1]);
     // Let the watcher report what the last rounds did.
-    await new Promise((resolve) => setTimeout(resolve, 200));
+    await sleep(200);
 
-    assert.deepEqual(touched, []);
     assert.deepEqual(readdirSync(outside), ["secret"]);
     assert.equal(readFileSync(join(outside, "secret"), "utf8"), "SECRET");
+    assert.deepEqual(
+        touched.map(
+            ({ event, name, at }) =>
+                `${event} ${name}, ${Math.round(at - watched)} ms after the watch began, ${Math.round(at - counted)} ms after the markers`,
+        ),
+        [],
+    );
     assert.ok(swaps > 100, `the link was in place ${swaps} times`);
     assert.ok(written > 0, "no write went through");
     assert.ok(refused > 0, "no write was refused");
 });
+
+/**
+ * Clears `touched` once the watch on `outside` has reported a marker folder
+ * and then its removal, the last setup change. The watch reports in order,
+ * so all it reports after that happened after the setup. On macOS it may
+ * begin late (https://github.com/nodejs/node/issues/52601) and may report
+ * changes from before it began.
+ */
+async function countFromHere(
+    outside: string,
+    touched: Touched[],
+): Promise<number> {
+    const end = performance.now() + WATCH_WAIT_MS;
+    const reported = (name: string, from = 0) =>
+        touched.slice(from).some((touch) => touch.name === name);
+    const made: string[] = [];
+    let shown: string | undefined;
+    while (shown === undefined) {
+        if (performance.now() > end) {
+            assert.fail(
+                `the watch on ${outside} reported none of ${made.length} marker folders in ${WATCH_WAIT_MS} ms`,
+            );
+        }
+        const name = `marker-${made.length}`;
+        mkdirSync(join(outside, name));
+        made.push(name);
+        await sleep(20);
+        shown = made.find((marker) => reported(marker));
+    }
+    for (const name of made) {
+        if (name !== shown) rmdirSync(join(outside, name));
+    }
+    const removed = touched.length;
+    rmdirSync(join(outside, shown));
+    while (!reported(shown, removed)) {
+        if (performance.now() > end) {
+            assert.fail(
+                `the watch on ${outside} did not report the removal of ${shown} in ${WATCH_WAIT_MS} ms`,
+            );
+        }
+        await sleep(20);
+    }
+    touched.length = 0;
+    return performance.now();
+}

@@ -547,9 +547,8 @@ async fn a_failed_start_tells_each_caller_why() {
 /// Of two creates of one key at once, one with an input the kind
 /// cannot read, the other makes the actor, also when it waited for
 /// the failed one's start: that start tells its waiters nothing,
-/// unless its file did not close within the host's grace, when the
-/// actor stays and the waiter is told why. A slow machine misses
-/// that grace in a few rounds, never in most.
+/// unless its file did not close within the host's grace, which a
+/// slow machine misses in a few rounds.
 #[test]
 fn a_create_that_fails_leaves_the_key_to_a_create_that_waited() {
     const ROUNDS: usize = 50;
