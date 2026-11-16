@@ -10,7 +10,6 @@
   "workbench.layoutControl.enabled": false,
   "workbench.activityBar.location": "hidden",
   "workbench.statusBar.visible": false,
-  "workbench.editor.showTabs": "multiple",
   "workbench.sideBar.location": "left",
   "workbench.secondarySideBar.defaultVisibility": "hidden",
   "workbench.panel.defaultLocation": "bottom",

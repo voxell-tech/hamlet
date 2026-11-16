@@ -132,7 +132,8 @@ pub fn plugin(app: &mut App) {
                 .chain()
                 .in_set(PanelSystems::Bind),
         )
-        .add_systems(Update, break_long_words)
+        .init_resource::<ToAdd>()
+        .add_systems(Update, (break_long_words, add_waiting))
         // The key that starts a message reaches the field it opens.
         .add_systems(
             PreUpdate,
@@ -404,6 +405,67 @@ pub(crate) fn quote_in_field(
         field.set_content(pieces);
     });
     focus(world, hub);
+}
+
+/// What waits to be put in a Hub's field until it shows one.
+#[derive(Resource, Default)]
+struct ToAdd(Vec<(Entity, String, Vec<Vec<u8>>)>);
+
+/// Puts `words` in `hub`'s field after what is typed, and `pictures`
+/// after them, as the chief's own, for the chief to send: once the
+/// Hub shows its field, when it does not yet.
+pub(crate) fn add_to_field(
+    world: &mut World,
+    hub: Entity,
+    words: &str,
+    pictures: Vec<Vec<u8>>,
+) {
+    let added = field::with_field(world, hub, |mut field| {
+        let mut pieces = field.pieces();
+        let lead = match pieces.last() {
+            None => "",
+            Some(Piece::Text(text)) if text.ends_with('\n') => "",
+            Some(_) => "\n",
+        };
+        pieces.push(Piece::Text(format!("{lead}{words}")));
+        field.set_content(pieces);
+    });
+    if added.is_none() {
+        world.resource_mut::<ToAdd>().0.push((
+            hub,
+            words.to_owned(),
+            pictures,
+        ));
+        return;
+    }
+    if !pictures.is_empty() {
+        let incoming = pictures
+            .into_iter()
+            .map(attach::Incoming::Picture)
+            .collect();
+        attach::attach(world, hub, incoming);
+    }
+    focus(world, hub);
+}
+
+/// Puts what waited in each Hub's field, once it shows one.
+fn add_waiting(world: &mut World) {
+    if world.resource::<ToAdd>().0.is_empty() {
+        return;
+    }
+    let shown = world
+        .query::<&ChatField>()
+        .iter(world)
+        .map(|field| field.0)
+        .collect::<Vec<_>>();
+    let (ready, waiting) =
+        std::mem::take(&mut world.resource_mut::<ToAdd>().0)
+            .into_iter()
+            .partition::<Vec<_>, _>(|(hub, ..)| shown.contains(hub));
+    world.resource_mut::<ToAdd>().0 = waiting;
+    for (hub, words, pictures) in ready {
+        add_to_field(world, hub, &words, pictures);
+    }
 }
 
 /// Sends `text` and its attachments to `hub`'s chat, if it can.

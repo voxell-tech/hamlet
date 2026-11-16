@@ -1,9 +1,14 @@
 //! The Files panel: the folder a hamlet works on, in the web IDE the
 //! server starts on it (`hamlet_server::web_ide`), drawn as a Web
 //! panel's page is. It shows the hamlet of the agent the chat is
-//! with, or the one chosen above it until the chat moves.
+//! with, or the one chosen in its tab until the chat moves. Its tab
+//! names the hamlet and opens the list of them; the bar ends with
+//! opening the folder again.
+
+mod context;
 
 use bevy::app::{App, Update};
+use bevy::color::Alpha;
 use bevy::ecs::entity::Entity;
 use bevy::ecs::name::Name;
 use bevy::ecs::observer::On;
@@ -11,14 +16,17 @@ use bevy::ecs::resource::Resource;
 use bevy::ecs::schedule::IntoScheduleConfigs;
 use bevy::ecs::system::{Commands, Local, Res, ResMut};
 use bevy::ecs::world::World;
-use bevy::ui::{AlignItems, UiRect, percent, px};
+use bevy::math::{Rect, Rot2};
+use bevy::ui::{AlignItems, UiRect, UiTransform, px};
 use bevy_fynix::dock::{DockTree, DockWindowKind};
-use bevy_fynix::tokens::Tone;
+use bevy_fynix::tokens::{MotionTokens, SurfaceTokens, Tone};
 use bevy_fynix::views::{
-    BehaviorExt, FrameProps, TooltipExt, button, column, dropdown,
-    row,
+    BehaviorExt, FrameProps, TooltipExt, button, column, frame,
+    label, overlay, popup, row,
 };
-use bevy_fynix::{ScopedExt, ViewExt, derived, every_frame, keyed};
+use bevy_fynix::{
+    ScopedExt, ViewExt, derived, every_frame, keyed, resource, style,
+};
 use hamlet_client::Connection;
 use hamlet_client::connection::Contact;
 use hamlet_client::messages::Response;
@@ -27,22 +35,25 @@ use hamlet_client::realm::{HamletId, LivesIn, Works};
 use hamlet_protocol::client::{
     ClientMessage, ReplyKind, RequestId, ServerMessage, WebIde,
 };
-use hamlet_ui::styles::{Fills, ICON, link_row, note};
+use hamlet_ui::styles::{Fills, ICON, hairline, link_row, note};
 use hamlet_ui::theme::HamletTheme;
 use hamlet_ui::widgets::icons::{Glyph, glyph};
-use hamlet_ui::{AnyView, View, with_cx};
+use hamlet_ui::widgets::platform::DisplayText;
+use hamlet_ui::{AnyView, Cx, View, with_cx};
 
 use super::panel::{self, PanelId};
 use super::{Addresses, FILES, page};
 use crate::convo::Convo;
 use crate::dock::{PanelAppExt, flush_panel, on_a_desk};
-use crate::roll::hamlets_moved;
+use crate::menu::rect_of;
 
 pub(super) fn plugin(app: &mut App) {
     // Closed until asked for from a tab bar's plus.
     app.add_panel(FILES, window())
         .init_resource::<Browsing>()
         .init_resource::<Asked>()
+        .init_resource::<Picking>()
+        .add_plugins(context::plugin)
         .add_observer(answered)
         .add_systems(
             Update,
@@ -55,11 +66,17 @@ pub(super) fn plugin(app: &mut App) {
 fn window() -> DockWindowKind<HamletTheme> {
     DockWindowKind::new("FILES", || flush_panel(contents()))
         .icon(Glyph::Folder.image(ICON))
+        .subtitle(|| subtitle().boxed())
+        .actions(|| actions().boxed())
 }
 
 /// The hamlet chosen above the panel, until the chat moves.
 #[derive(Resource, Default, Clone, Copy, PartialEq)]
 struct Browsing(Option<Entity>);
+
+/// Where the list of hamlets hangs from, while it is open.
+#[derive(Resource, Default)]
+struct Picking(Option<Rect>);
 
 /// The web IDE asked for, and how the server answered.
 #[derive(Resource, Default)]
@@ -73,7 +90,7 @@ struct Asked {
 }
 
 fn contents() -> impl View {
-    column((bar(), panel::body(&id(), blank)))
+    column((panel::body(&id(), blank), picker(), context::modal()))
         .fills_width()
         .fills_height()
         .gap(0.0)
@@ -83,54 +100,61 @@ fn id() -> PanelId {
     PanelId(FILES.to_owned())
 }
 
-/// The choice of hamlet, and the press that opens its web IDE again.
-fn bar() -> impl View {
-    with_cx(|cx| {
-        let gap = cx.theme().space.gap;
-        row((picker(), reload()))
-            .gap(gap / 2.0)
-            .padding(UiRect::all(px(gap / 2.0)))
-            .align(AlignItems::Center)
-            .width(percent(100.0))
-            .shrink(0.0)
+/// What the tab says after "FILES": the hamlet shown, whom the panel
+/// follows, and the chevron that lists the others.
+fn subtitle() -> impl View {
+    keyed(derived(heading).when(every_frame()), |heading| {
+        let Some((name, following)) = heading.clone() else {
+            return row(()).boxed();
+        };
+        let mut parts =
+            vec![label(name).wrap(false).tagged(DisplayText).boxed()];
+        if let Some(agent) = following {
+            parts.push(note(format!("following {agent}")).boxed());
+        }
+        // The chevron points up as drawn; the list opens below.
+        parts.push(
+            row((glyph(Glyph::Chevron, ICON).tone(Tone::Accent),))
+                .tagged(UiTransform {
+                    rotation: Rot2::degrees(180.0),
+                    ..UiTransform::IDENTITY
+                })
+                .boxed(),
+        );
+        button(row(parts).gap(6.0).align(AlignItems::Center))
+            .padding(UiRect::axes(px(6.0), px(2.0)))
+            .margin(UiRect::left(px(4.0)))
+            .on_activate_with(|world, node| {
+                let anchor = rect_of(world, node).unwrap_or_default();
+                world.resource_mut::<Picking>().0 = Some(anchor);
+            })
+            .tooltip(|| note("Show another hamlet's folder"))
+            .boxed()
     })
 }
 
-fn picker() -> impl View {
-    let list =
-        derived(|world: &World| hamlets(world)).when(hamlets_moved());
-    keyed(list, |list| {
-        if list.is_empty() {
-            return column(()).boxed();
-        }
-        let names = list.iter().map(|(_, name)| name.clone());
-        let entities = list
-            .iter()
-            .map(|(hamlet, _)| *hamlet)
-            .collect::<Vec<_>>();
-        let order = entities.clone();
-        let at = derived(move |world: &World| {
-            shown(world)
-                .and_then(|hamlet| {
-                    order.iter().position(|one| *one == hamlet)
-                })
-                .unwrap_or_default()
-        })
-        .when(every_frame());
-        dropdown(
-            names,
-            at,
-            Glyph::Chevron.image(ICON),
-            move |world, at| {
-                world.resource_mut::<Browsing>().0 =
-                    entities.get(at).copied();
-            },
-        )
-        .grow(1.0)
-        .min_width(px(0.0))
-        .boxed()
+/// The name of the hamlet shown, and the agent whose chat it follows
+/// while it follows one.
+fn heading(world: &World) -> Option<(String, Option<String>)> {
+    let hamlet = shown(world)?;
+    let name = world.get::<Name>(hamlet)?.as_str().to_owned();
+    let following = match world.resource::<Browsing>().0 {
+        Some(_) => None,
+        None => world
+            .get_resource::<Convo>()
+            .and_then(|convo| convo.with.clone()),
+    };
+    Some((name, following))
+}
+
+/// The bar's end while the panel shows: opening the folder again.
+fn actions() -> impl View {
+    with_cx(|cx| {
+        let gap = cx.theme().space.gap;
+        row((reload(),))
+            .padding(UiRect::right(px(gap / 2.0)))
+            .align(AlignItems::Center)
     })
-    .within(row(()).grow(1.0).min_width(px(0.0)))
 }
 
 fn reload() -> AnyView {
@@ -140,8 +164,153 @@ fn reload() -> AnyView {
         .on_activate_with(|world, _| {
             *world.resource_mut::<Asked>() = Asked::default();
         })
-        .tooltip(|| note("Open again"))
+        .tooltip(|| note("Open the folder again"))
         .boxed()
+}
+
+/// A press in the bar or the list: words in the body face's weight,
+/// dim at rest, with a faint fill under the pointer.
+fn quiet_link(cx: &mut Cx) {
+    style::<HamletTheme>()
+        .frame(|f, t| {
+            f.fill(t.palette.button.with_alpha(0.0)).radius(4.0)
+        })
+        .label(|l, t| {
+            l.tone(Tone::Dim).size(t.text.small).bold(false)
+        })
+        .icon(|i, _| i.tone(Tone::Dim))
+        .hovered(|s| {
+            s.frame(|f, t| f.fill(t.palette.button)).tone(Tone::Body)
+        })
+        .pressed(|s| {
+            s.frame(|f, t| f.fill(t.pressed())).tone(Tone::Body)
+        })
+        .transition(HamletTheme::interact)
+        .apply(cx);
+}
+
+/// The list of hamlets, hanging from the tab while it is open:
+/// following the chat, then each hamlet by name with its folder.
+fn picker() -> impl View {
+    keyed(resource::<Picking, _>(|picking| picking.0), |anchor| {
+        let Some(anchor) = *anchor else {
+            return frame().boxed();
+        };
+        popup(anchor, (choices(),))
+            .on_dismiss(|world, _| {
+                world.resource_mut::<Picking>().0 = None;
+            })
+            .min_width(px(340.0))
+            .padding(UiRect::all(px(8.0)))
+            .boxed()
+    })
+    .within(overlay(()))
+}
+
+fn choices() -> impl View {
+    let list =
+        derived(|world: &World| listed(world)).when(every_frame());
+    keyed(list, |list| {
+        let Listed {
+            following,
+            agent,
+            shown,
+            hamlets,
+        } = list.clone();
+        let follow_words = match &agent {
+            Some(agent) => format!(
+                "Show the hamlet of {agent}, whom you chat with"
+            ),
+            None => "Show the hamlet of the agent you chat with"
+                .to_owned(),
+        };
+        let mut rows = vec![
+            choice(
+                following,
+                label("Follow your chat").bold(true).boxed(),
+                note(follow_words).boxed(),
+                |world| {
+                    world.resource_mut::<Browsing>().0 = None;
+                    world.resource_mut::<Picking>().0 = None;
+                },
+            ),
+            with_cx(|cx| {
+                hairline(cx.theme().palette.gold_6)
+                    .margin(UiRect::vertical(px(4.0)))
+            })
+            .boxed(),
+        ];
+        for (hamlet, name, folder) in hamlets {
+            let current = shown == Some(hamlet);
+            rows.push(choice(
+                current && !following,
+                label(name).wrap(false).tagged(DisplayText).boxed(),
+                note(folder).boxed(),
+                move |world| {
+                    world.resource_mut::<Browsing>().0 = Some(hamlet);
+                    world.resource_mut::<Picking>().0 = None;
+                },
+            ));
+        }
+        column(rows).gap(2.0).fills_width().boxed()
+    })
+}
+
+/// One row of the list: a tick while it is the choice, its name and
+/// what it shows.
+fn choice(
+    ticked: bool,
+    name: AnyView,
+    detail: AnyView,
+    act: impl Fn(&mut World) + Send + Sync + 'static,
+) -> AnyView {
+    let tick = match ticked {
+        true => glyph(Glyph::Check, ICON).tone(Tone::Accent).boxed(),
+        false => frame().width(px(ICON)).height(px(ICON)).boxed(),
+    };
+    button(
+        row((tick, column((name, detail)).gap(1.0)))
+            .gap(10.0)
+            .align(AlignItems::Center),
+    )
+    .padding(UiRect::axes(px(8.0), px(6.0)))
+    .fills_width()
+    .rules(quiet_link)
+    .on_activate(act)
+    .boxed()
+}
+
+/// What the list of hamlets shows.
+#[derive(Clone, PartialEq)]
+struct Listed {
+    /// Whether the panel follows the chat.
+    following: bool,
+    /// The chat's agent, by name.
+    agent: Option<String>,
+    shown: Option<Entity>,
+    /// Each hamlet, its name and its folder, by name.
+    hamlets: Vec<(Entity, String, String)>,
+}
+
+fn listed(world: &World) -> Listed {
+    let hamlets = hamlets(world)
+        .into_iter()
+        .map(|(hamlet, name)| {
+            let folder = world
+                .get::<Works>(hamlet)
+                .and_then(|works| works.folder.clone())
+                .unwrap_or_else(|| "No folder yet".to_owned());
+            (hamlet, name, folder)
+        })
+        .collect();
+    Listed {
+        following: world.resource::<Browsing>().0.is_none(),
+        agent: world
+            .get_resource::<Convo>()
+            .and_then(|convo| convo.with.clone()),
+        shown: shown(world),
+        hamlets,
+    }
 }
 
 /// What the panel says while it has no page.
