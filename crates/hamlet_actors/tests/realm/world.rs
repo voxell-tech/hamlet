@@ -2,21 +2,43 @@ use std::time::{Duration, Instant};
 
 use hamlet_actor::Action as _;
 use hamlet_messages::address::{self, Party as _};
+use hamlet_messages::agent::Input;
+use hamlet_messages::agent::chat::Count;
 use hamlet_messages::realm::budget::{Charge, Payer};
-use hamlet_messages::realm::client::ReadWorld;
-use hamlet_messages::realm::world::{
-    AgentSeen, ReachSeen, Revision, Seen, Status, WaitId, WaitKind,
-    WaitSeen,
+use hamlet_messages::realm::choices::{
+    ModelOf, SetModel, SetNickname,
 };
-use hamlet_messages::realm::{Asked, Done, End, Named};
+use hamlet_messages::realm::client::{ReadWorld, SayAnswer};
+use hamlet_messages::realm::models::{Cause, TurnFailed};
+use hamlet_messages::realm::oversight::{
+    AskChief, Object, Permission, Question, Revoke,
+};
+use hamlet_messages::realm::parcels::{Measure, ParcelId};
+use hamlet_messages::realm::workers::{
+    Ended, SetAllowance, StartWorker, Started, WorkerDone,
+};
+use hamlet_messages::realm::world::{
+    AgentSeen, GrantSeen, ObjectionSource, ReachSeen, Revision, Seen,
+    Starter, Status, WaitId, WaitKind, WaitSeen,
+};
+use hamlet_messages::realm::{
+    Asked, ChiefRequest, Done, End, HireAnswer, HowEnded, Left,
+    Limit, Named, NeedsChief, ReservedAct, SetLimits,
+};
 use hamlet_messages::sender::Hand;
-use hamlet_messages::workspace::{AgentNumber, CallId, ReachVersion};
+use hamlet_messages::workspace::reach::Need;
+use hamlet_messages::workspace::{
+    AgentNumber, CallId, ConversationId, ReachVersion,
+};
+use hamlet_protocol::Effort;
 use hamlet_protocol::client::{Choice, RequestId};
+use serde::Serialize;
 use tokio::task::JoinSet;
 
 use super::{
     Callee, DEADLINE, Forward, MAYOR, Realm, THREE, answer, call,
-    decoded, founded, hamlet_with, needs, standing, tool, until,
+    decoded, founded, hamlet_with, hire, needs, say, standing,
+    submits_to, tell, tool, until,
 };
 
 pub(super) async fn seen_until(
@@ -118,9 +140,9 @@ async fn the_revision_survives_a_restart() {
         [WaitSeen {
             wait: WaitId(1),
             agent: MAYOR,
+            subject: "rm -rf build".to_owned(),
             kind: WaitKind::Tool {
                 call: CallId("c1".to_owned()),
-                subject: "rm -rf build".to_owned(),
             },
         }]
     );
@@ -301,7 +323,9 @@ async fn an_answered_wait_leaves_the_world() {
 }
 
 #[tokio::test(flavor = "multi_thread")]
-async fn a_wait_that_is_not_a_tools_leaves_the_world_readable() {
+async fn a_wait_that_does_not_read_leaves_the_world_readable() {
+    // a question wait with neither words nor detail, as no writer
+    // keeps it, beside a tool wait: the world shows the tool wait.
     let (realm, _) = hamlet_with(1).await;
     realm
         .write(
@@ -309,8 +333,12 @@ async fn a_wait_that_is_not_a_tools_leaves_the_world_readable() {
              VALUES (3, 'question', 1, 'c', 1)",
         )
         .await;
+    realm.call_as_workspace(&needs(THREE, "c1")).await.unwrap();
     let seen = realm.ask(&ReadWorld).await.unwrap();
-    assert!(seen.waits.is_empty(), "{:?}", seen.waits);
+    assert_eq!(
+        seen.waits.iter().map(|wait| wait.wait).collect::<Vec<_>>(),
+        [WaitId(2)]
+    );
     realm.host.shutdown().await.unwrap();
 }
 
@@ -330,5 +358,467 @@ async fn a_tool_wait_holds_its_call() {
     )
     .await;
     assert!(written.is_err(), "a tool wait with no call was kept");
+    realm.host.shutdown().await.unwrap();
+}
+
+fn worker_of(starter: Option<AgentNumber>) -> Option<Starter> {
+    Some(
+        starter
+            .map_or(Starter::Chief, |agent| Starter::Agent { agent }),
+    )
+}
+
+fn start(brief: &str) -> StartWorker {
+    StartWorker {
+        brief: brief.to_owned(),
+        tools: Vec::new(),
+        task: None,
+        hamlet: None,
+    }
+}
+
+fn network(agent: AgentNumber, call: &str) -> NeedsChief {
+    NeedsChief {
+        needs: vec![Need::Network],
+        ..needs(agent, call)
+    }
+}
+
+/// Hire 3 granted the network by a chief's always, with the reach it
+/// gives applied.
+async fn granted(realm: &Realm) -> Seen {
+    realm
+        .call_as_workspace(&network(THREE, "n1"))
+        .await
+        .unwrap();
+    let always =
+        realm.ask(&answer("1", Choice::Always, None)).await.unwrap();
+    assert_eq!(always, Done::Done);
+    seen_until(realm, "3's grant shows, its reach applied", |seen| {
+        !seen.grants.is_empty()
+            && agent(seen, THREE).is_some_and(|hire| {
+                hire.reach
+                    == ReachSeen::Applied {
+                        version: ReachVersion(2),
+                    }
+            })
+    })
+    .await
+}
+
+/// A worker hire 3 starts, made and with its reach applied.
+async fn started_by_three(realm: &Realm, call: &str) -> AgentNumber {
+    let started = realm
+        .tool(THREE, &tool(call, start("count the files")))
+        .await
+        .unwrap();
+    let Started::Started { worker } = started else {
+        panic!("hire 3 starts a worker: {started:?}");
+    };
+    realm.live(worker).await;
+    worker
+}
+
+async fn chief<A: ChiefRequest>(realm: &Realm, act: A) -> A::Answer {
+    realm
+        .ask(&Asked {
+            id: RequestId::new(),
+            act,
+        })
+        .await
+        .unwrap()
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn the_world_shows_grants_waits_and_workers() {
+    // hire 3 is granted the network; it starts worker 4, and a chief
+    // starts worker 5 in the hamlet; the mayor names 3, the chief
+    // gives it a model and an allowance. The world shows each, and
+    // each commit moves the revision. A revoke takes the grant away,
+    // and worker 4's end shows it ended with its starter.
+    let (realm, hamlet) = hamlet_with(1).await;
+    let mut revisions = Vec::new();
+
+    let granted = granted(&realm).await;
+    revisions.push(granted.revision);
+    let four = started_by_three(&realm, "w1").await;
+    let mut chiefs = start("tidy the shed");
+    chiefs.hamlet = Some(hamlet.clone());
+    let Started::Started { worker: five } =
+        chief(&realm, chiefs).await
+    else {
+        panic!("the chief starts a worker");
+    };
+    realm.live(five).await;
+    revisions.push(realm.ask(&ReadWorld).await.unwrap().revision);
+    let named = SetNickname {
+        hire: Named::Agent { agent: THREE },
+        name: Some("Spade".to_owned()),
+        why: None,
+    };
+    let named = realm.tool(MAYOR, &tool("s1", named)).await.unwrap();
+    revisions.push(realm.ask(&ReadWorld).await.unwrap().revision);
+    let model = SetModel {
+        of: ModelOf::Hire {
+            hire: Named::Agent { agent: THREE },
+        },
+        model: Some("faux::faux-2".to_owned()),
+        effort: Some(Effort::High),
+        fast: Some(true),
+        why: None,
+    };
+    let model = chief(&realm, model).await;
+    revisions.push(realm.ask(&ReadWorld).await.unwrap().revision);
+    let allowance = SetAllowance {
+        hire: Named::Agent { agent: THREE },
+        micros: Some(Count(500_000)),
+        why: None,
+    };
+    let allowance = chief(&realm, allowance).await;
+    let shown = realm.ask(&ReadWorld).await.unwrap();
+    revisions.push(shown.revision);
+    let revoked = chief(
+        &realm,
+        Revoke {
+            agent: THREE,
+            permission: Permission::Network,
+        },
+    )
+    .await;
+    let unrevoked = seen_until(&realm, "the grant is gone", |seen| {
+        seen.grants.is_empty()
+    })
+    .await;
+    revisions.push(unrevoked.revision);
+    realm
+        .tool(
+            four,
+            &WorkerDone {
+                ended: Ended::Answered {
+                    text: "Counted.".to_owned(),
+                },
+            },
+        )
+        .await
+        .unwrap();
+    let ended = seen_until(&realm, "worker 4 ended", |seen| {
+        agent(seen, four)
+            .is_some_and(|worker| worker.status != Status::Live)
+    })
+    .await;
+    revisions.push(ended.revision);
+
+    assert_eq!(
+        granted.grants,
+        [GrantSeen {
+            agent: THREE,
+            permission: Permission::Network,
+        }]
+    );
+    assert_eq!(
+        (named, model, allowance),
+        (Done::Done, Done::Done, Done::Done)
+    );
+    assert_eq!(revoked, Done::Done);
+    let three = agent(&shown, THREE).unwrap();
+    assert_eq!(
+        (
+            three.nickname.as_deref(),
+            three.model.as_deref(),
+            three.effort,
+            three.fast,
+            three.allowance_micros,
+        ),
+        (
+            Some("Spade"),
+            Some("faux::faux-2"),
+            Some(Effort::High),
+            Some(true),
+            Some(500_000)
+        )
+    );
+    let workers = |seen: &Seen| {
+        [four, five].map(|worker| {
+            agent(seen, worker).map(|seen| {
+                (seen.hamlet.clone(), seen.worker.clone())
+            })
+        })
+    };
+    assert_eq!(
+        workers(&shown),
+        [
+            Some((Some(hamlet.clone()), worker_of(Some(THREE)))),
+            Some((Some(hamlet.clone()), worker_of(None))),
+        ]
+    );
+    assert_eq!(
+        agent(&ended, four)
+            .map(|worker| (&worker.status, &worker.worker)),
+        Some((
+            &Status::Ended {
+                left: Left {
+                    how: HowEnded::Answered,
+                    why: None,
+                },
+            },
+            &worker_of(Some(THREE)),
+        ))
+    );
+    assert!(revisions.is_sorted_by(|a, b| a < b), "{revisions:?}");
+    realm.host.shutdown().await.unwrap();
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn every_wait_kind_reads_in_the_world() {
+    // one open wait of each kind: a tool call, a question and an
+    // objection of hire 3's on a chief's line, a reserved hire, a
+    // failed turn and a parcel over the cap. The world shows each
+    // with its words and its kind as each commits, and again after a
+    // restart.
+    let (realm, hamlet) = hamlet_with(1).await;
+    realm.call_as_workspace(&needs(THREE, "c1")).await.unwrap();
+    let said = realm
+        .ask(&say(&RequestId::new(), THREE, "Make the file."))
+        .await
+        .unwrap();
+    let SayAnswer::Taken { task } = said else {
+        panic!("hire 3 takes the chief's line: {said:?}");
+    };
+    let question = Question {
+        question: "Which seed?".to_owned(),
+        description: None,
+        options: Vec::new(),
+        text_input: true,
+    };
+    let asked = AskChief {
+        task: task.clone(),
+        conversation: ConversationId("c".to_owned()),
+        message: None,
+        questions: vec![question.clone()],
+    };
+    let asked = realm.tool(THREE, &tool("q1", asked)).await.unwrap();
+    let objected = Object {
+        task,
+        conversation: ConversationId("c".to_owned()),
+        reason: "the field is better left alone".to_owned(),
+    };
+    let objected =
+        realm.tool(THREE, &tool("o1", objected)).await.unwrap();
+    let reserved = SetLimits {
+        hamlet: Some(hamlet),
+        budget: Vec::new(),
+        limits: vec![Limit::Reserved {
+            act: ReservedAct::Hire,
+            reserved: true,
+        }],
+    };
+    assert_eq!(chief(&realm, reserved).await, Done::Done);
+    let hired = realm.tool(MAYOR, &tool("h9", hire(None))).await;
+    assert!(
+        matches!(hired, Ok(HireAnswer::Refused { .. })),
+        "{hired:?}"
+    );
+    let failed = TurnFailed {
+        task: standing(&realm, MAYOR),
+        conversation: ConversationId("c".to_owned()),
+        words: "the model fell over".to_owned(),
+        cause: Cause::Model,
+    };
+    realm.tool(MAYOR, &failed).await.unwrap();
+    let committed = realm.ask(&ReadWorld).await.unwrap();
+    // A parcel's wait needs a workspace that measures files, which
+    // these stand-ins do not: it is written as the parcel's step
+    // writes it.
+    let mut sending = Vec::new();
+    ciborium::into_writer(
+        &Sending {
+            parcel: ParcelId(1),
+            measure: Measure {
+                files: 1_001,
+                bytes: 1_001,
+            },
+        },
+        &mut sending,
+    )
+    .unwrap();
+    realm
+        .write(&format!(
+            "INSERT INTO wait (agent, kind, conversation, subject, \
+             detail, at) VALUES (2, 'send', 'c', 'too many files', \
+             X'{}', 1)",
+            hex(&sending)
+        ))
+        .await;
+
+    let seen = realm.ask(&ReadWorld).await.unwrap();
+    let realm = realm.restart().await;
+    let restarted = realm.ask(&ReadWorld).await.unwrap();
+
+    assert_eq!((asked, objected), (Done::Done, Done::Done));
+    let shown = seen
+        .waits
+        .iter()
+        .map(|wait| (wait.wait.0, wait.agent, wait.kind.clone()))
+        .collect::<Vec<_>>();
+    assert_eq!(
+        shown,
+        [
+            (
+                1,
+                THREE,
+                WaitKind::Tool {
+                    call: CallId("c1".to_owned())
+                }
+            ),
+            (
+                2,
+                THREE,
+                WaitKind::Question {
+                    message: None,
+                    questions: vec![question],
+                }
+            ),
+            (
+                3,
+                THREE,
+                WaitKind::Objection {
+                    reason: "the field is better left alone"
+                        .to_owned(),
+                    source: ObjectionSource::Agent,
+                }
+            ),
+            (4, MAYOR, WaitKind::Reserved),
+            (5, MAYOR, WaitKind::Fault),
+            (
+                6,
+                MAYOR,
+                WaitKind::Send {
+                    measure: Measure {
+                        files: 1_001,
+                        bytes: 1_001,
+                    },
+                }
+            ),
+        ]
+    );
+    let subjects = seen
+        .waits
+        .iter()
+        .map(|wait| wait.subject.as_str())
+        .collect::<Vec<_>>();
+    assert_eq!(
+        [subjects[0], subjects[1], subjects[4], subjects[5]],
+        [
+            "rm -rf build",
+            "Which seed?",
+            "the model fell over",
+            "too many files"
+        ]
+    );
+    assert!(
+        subjects[2]
+            .ends_with("objects: the field is better left alone"),
+        "{}",
+        subjects[2]
+    );
+    assert!(subjects[3].starts_with("hire {"), "{}", subjects[3]);
+    assert_eq!(committed.waits[..], seen.waits[..5]);
+    assert_eq!(restarted.waits, seen.waits);
+    realm.host.shutdown().await.unwrap();
+}
+
+/// A send wait's detail, as the parcel's step keeps it.
+#[derive(Serialize)]
+struct Sending {
+    parcel: ParcelId,
+    measure: Measure,
+}
+
+fn hex(bytes: &[u8]) -> String {
+    bytes.iter().map(|byte| format!("{byte:02x}")).collect()
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn an_unrelated_commit_leaves_the_world_as_it_was() {
+    // hire 3 holds a grant, asks the chief a question, and its worker
+    // 4 has ended. The mayor tells 3 a letter, 3 asks again under the
+    // same call, 4 says it is done again, and a chief revokes a grant
+    // the mayor never held: none changes what the world shows, so the
+    // world is as it was, revision and all.
+    let (realm, _) = hamlet_with(1).await;
+    granted(&realm).await;
+    let said = realm
+        .ask(&say(&RequestId::new(), THREE, "Make the file."))
+        .await
+        .unwrap();
+    let SayAnswer::Taken { task } = said else {
+        panic!("hire 3 takes the chief's line: {said:?}");
+    };
+    let asked = tool(
+        "q1",
+        AskChief {
+            task,
+            conversation: ConversationId("c".to_owned()),
+            message: None,
+            questions: vec![Question {
+                question: "Which seed?".to_owned(),
+                description: None,
+                options: Vec::new(),
+                text_input: true,
+            }],
+        },
+    );
+    realm.tool(THREE, &asked).await.unwrap();
+    let four = started_by_three(&realm, "w1").await;
+    let done = WorkerDone {
+        ended: Ended::Answered {
+            text: "Counted.".to_owned(),
+        },
+    };
+    realm.tool(four, &done).await.unwrap();
+    let before =
+        seen_until(&realm, "worker 4's end applied", |seen| {
+            agent(seen, four).is_some_and(|worker| {
+                worker.status != Status::Live
+                    && worker.reach
+                        == ReachSeen::Applied {
+                            version: ReachVersion(2),
+                        }
+            })
+        })
+        .await;
+
+    let told = realm
+        .tool(
+            MAYOR,
+            &tool(
+                "t1",
+                tell(Named::Agent { agent: THREE }, "Hello."),
+            ),
+        )
+        .await
+        .unwrap();
+    until("the letter reaches 3", || {
+        submits_to(&realm, THREE).iter().any(|submit| {
+            matches!(submit.input, Input::Letter { .. })
+        })
+    })
+    .await;
+    let asked_again = realm.tool(THREE, &asked).await.unwrap();
+    realm.tool(four, &done).await.unwrap();
+    let revoked = chief(
+        &realm,
+        Revoke {
+            agent: MAYOR,
+            permission: Permission::Network,
+        },
+    )
+    .await;
+    let after = realm.ask(&ReadWorld).await.unwrap();
+
+    assert_eq!((told, asked_again), (Done::Done, Done::Done));
+    assert!(matches!(revoked, Done::Refused { .. }), "{revoked:?}");
+    assert_eq!((before.grants.len(), before.waits.len()), (1, 1));
+    assert_eq!(after, before);
     realm.host.shutdown().await.unwrap();
 }
