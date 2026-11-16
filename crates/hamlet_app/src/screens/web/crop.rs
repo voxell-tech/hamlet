@@ -48,6 +48,7 @@ use bevy_fynix::{
 };
 use hamlet_ui::styles::{ICON, link_row, note};
 use hamlet_ui::theme::HamletTheme;
+use hamlet_ui::widgets::effects::Variant;
 use hamlet_ui::widgets::icons::{Glyph, glyph};
 use hamlet_ui::{AnyView, Cx, View, with_cx};
 use image::{ImageFormat, RgbaImage};
@@ -345,6 +346,9 @@ fn note_field() -> impl View {
                 .grow(1.0)
                 .min_width(px(0.0))
                 .rules(bare_field)
+                // The note's row is its frame, so the field has no
+                // glow of its own inside it.
+                .tagged(Variant::Subtle)
                 .tagged(NoteField),
                 placeholder(),
             ))
@@ -392,6 +396,12 @@ fn placeholder() -> impl View {
                 .boxed(),
             false => frame().boxed(),
         },
+    )
+    .within(
+        column(())
+            .position(PositionType::Absolute)
+            .inset(UiRect::all(px(0.0)))
+            .tagged(Pickable::IGNORE),
     )
 }
 
