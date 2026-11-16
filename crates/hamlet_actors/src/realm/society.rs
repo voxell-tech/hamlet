@@ -16,6 +16,7 @@ use super::act::{Act, Decided, Decision};
 use super::callers::Decider as _;
 use super::calls::Made;
 use super::change::{Affected, Rows, Writer, number};
+use super::chiefs::limits;
 use super::tree::{self, Lineage, Status};
 use super::{laid, record, roads};
 
@@ -69,12 +70,18 @@ pub(super) async fn apply(
 pub(super) struct Agreeing {
     /// The caller's hamlet, when it is its mayor.
     mayor_of: Option<HamletId>,
-    /// `mine` and `theirs`.
-    ends: Option<(Lineage, Lineage)>,
+    /// `mine` and `theirs`, or the name that names no agent.
+    ends: Result<(Lineage, Lineage), Named>,
     allowed: bool,
     has_road: bool,
-    /// Whether the mayor of the other end's hamlet agreed already.
-    agreed_there: bool,
+    /// The half the mayor of the other end's hamlet agreed already.
+    agreed_there: Option<Half>,
+}
+
+/// One mayor's agreement.
+pub(super) struct Half {
+    by: AgentNumber,
+    why: Option<String>,
 }
 
 impl Agreeing {
@@ -89,19 +96,23 @@ impl Agreeing {
             .filter(Lineage::is_mayor)
             .and_then(|caller| caller.hamlet)
             .map(|hamlet| hamlet.id);
-        let mine = tree::named(rows, by, mine).await?;
-        let theirs = match tree::resolve(rows, None, theirs).await? {
-            Some(theirs) => tree::lineage(rows, theirs).await?,
-            None => None,
-        };
         let mut agreeing = Self {
             mayor_of,
-            ends: None,
-            allowed: roads::allows_between_hamlets(rows).await?,
+            ends: Err(mine.clone()),
+            allowed: limits::roads_between(rows).await?,
             has_road: false,
-            agreed_there: false,
+            agreed_there: None,
         };
-        let (Some(mine), Some(theirs)) = (mine, theirs) else {
+        let Some(mine) = tree::named(rows, by, mine).await? else {
+            return Ok(agreeing);
+        };
+        let Some(theirs) =
+            (match tree::resolve(rows, None, theirs).await? {
+                Some(theirs) => tree::lineage(rows, theirs).await?,
+                None => None,
+            })
+        else {
+            agreeing.ends = Err(theirs.clone());
             return Ok(agreeing);
         };
         let (a, b) = (mine.agent.agent, theirs.agent.agent);
@@ -114,16 +125,20 @@ impl Agreeing {
             let mut params = laid::key(a, b);
             params.push(BindParam::Text(own.0.clone()));
             agreeing.agreed_there = rows
-                .value::<i64>(
-                    "SELECT 1 FROM agreement JOIN hire ON \
-                     hire.agent = agreement.by WHERE agreement.a = \
-                     ?1 AND agreement.b = ?2 AND hire.hamlet != ?3",
+                .row::<(u32, Option<String>)>(
+                    "SELECT agreement.by, agreement.why FROM \
+                     agreement JOIN hire ON hire.agent = \
+                     agreement.by WHERE agreement.a = ?1 AND \
+                     agreement.b = ?2 AND hire.hamlet != ?3",
                     params,
                 )
                 .await?
-                .is_some();
+                .map(|(by, why)| Half {
+                    by: AgentNumber(by),
+                    why,
+                });
         }
-        agreeing.ends = Some((mine, theirs));
+        agreeing.ends = Ok((mine, theirs));
         Ok(agreeing)
     }
 }
@@ -159,15 +174,22 @@ impl Act<Agent> for AgreeRoad {
         let Some(own) = &agreeing.mayor_of else {
             return refuse(AgreeRefusal::NotAMayor);
         };
-        let Some((mine, theirs)) = &agreeing.ends else {
-            return refuse(AgreeRefusal::NoSuchAgent);
+        let no_such = |named: &Named| {
+            refuse(AgreeRefusal::NoSuchAgent {
+                address: named.to_string(),
+            })
+        };
+        let (mine, theirs) = match &agreeing.ends {
+            Ok(ends) => ends,
+            Err(named) => return no_such(named),
         };
         let ends = [mine, theirs];
-        if ends
-            .iter()
-            .any(|end| matches!(end.agent.status, Status::Ended(_)))
+        for (end, named) in
+            [(mine, &self.mine), (theirs, &self.theirs)]
         {
-            return refuse(AgreeRefusal::NoSuchAgent);
+            if matches!(end.agent.status, Status::Ended(_)) {
+                return no_such(named);
+            }
         }
         if !agreeing.allowed {
             return refuse(AgreeRefusal::NoRoadsBetween);
@@ -192,7 +214,7 @@ impl Act<Agent> for AgreeRoad {
         if agreeing.has_road {
             return refuse(AgreeRefusal::RoadExists { a, b });
         }
-        if !agreeing.agreed_there {
+        let Some(first) = agreeing.agreed_there else {
             return Decision::Change(
                 Decided::new(Outcome::Waiting).change(
                     Change::Agree {
@@ -203,8 +225,9 @@ impl Act<Agent> for AgreeRoad {
                     },
                 ),
             );
-        }
-        let road = |a, b| record::Entry::Road { a, b, by: by.by() };
+        };
+        let (here, there) =
+            if hamlets[0] == own { (a, b) } else { (b, a) };
         Decision::Change(
             Decided::new(Outcome::Laid)
                 .change(laid::Change::Agreed {
@@ -213,8 +236,19 @@ impl Act<Agent> for AgreeRoad {
                     hamlet: own.clone(),
                 })
                 .change(Change::Spent { a, b })
-                .record(road(a, b))
-                .record(road(b, a)),
+                // Each mayor's half in its own hamlet's record.
+                .record(record::Entry::RoadAgreed {
+                    a: here,
+                    b: there,
+                    by: by.by(),
+                    why: self.why.clone(),
+                })
+                .record(record::Entry::RoadAgreed {
+                    a: there,
+                    b: here,
+                    by: record::By::Agent(first.by),
+                    why: first.why,
+                }),
         )
     }
 

@@ -34,29 +34,32 @@ pub(in crate::realm) async fn off_for(
 
 impl<By: Lead> Act<By> for SetTools {
     type Output = Done<By::Why<OnlyAHire>>;
-    type Loaded = Option<Lineage>;
+    type Loaded = Option<(Lineage, String)>;
     type Done = ();
 
     async fn load(
         &self,
         by: &By,
         rows: &Rows<'_>,
-    ) -> Result<Option<Lineage>> {
-        super::named(rows, by, &self.hire).await
+    ) -> Result<Self::Loaded> {
+        super::shown(rows, super::named(rows, by, &self.hire).await?)
+            .await
     }
 
     fn decide(
         &self,
         by: &By,
-        lineage: Option<Lineage>,
+        named: Self::Loaded,
     ) -> Decision<(), Self::Output> {
         let refuse =
             |why| Decision::Answer(Done::refused(By::refused(why)));
-        let Some(lineage) = lineage else {
-            return refuse(OnlyAHire::NoSuchAgent);
+        let Some((lineage, name)) = named else {
+            return refuse(OnlyAHire::NoSuchAgent {
+                address: self.hire.to_string(),
+            });
         };
-        if lineage.agent.kind == AgentKind::Hand {
-            return refuse(OnlyAHire::NotAHire);
+        if lineage.agent.kind != AgentKind::Hire {
+            return refuse(OnlyAHire::NotAHire { name });
         }
         let hire = lineage.agent.agent;
         if let Err(not_a_lead) = by.leads(&lineage, hire) {

@@ -484,13 +484,17 @@ async fn a_hire_under_the_hand_names_no_agent() {
     assert_eq!(
         by_the_chief,
         HireAnswer::Refused {
-            why: HireRefusal::NoSuchAgent
+            why: HireRefusal::NoSuchAgent {
+                address: "hand".to_owned()
+            }
         }
     );
     for answer in [by_the_hand, by_the_mayor] {
         assert_eq!(
             answer.unwrap(),
-            refused_to_an_agent(HireRefusal::NoSuchAgent)
+            refused_to_an_agent(HireRefusal::NoSuchAgent {
+                address: "hand".to_owned()
+            })
         );
     }
     realm.host.shutdown().await.unwrap();

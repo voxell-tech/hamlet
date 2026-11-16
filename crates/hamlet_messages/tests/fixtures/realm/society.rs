@@ -29,11 +29,13 @@ use hamlet_messages::realm::oversight::{
     RevokeRefusal,
 };
 use hamlet_messages::realm::workers::{
-    AllowanceRefusal, Ended, ErrandDone, SetAllowance, StartWorker,
-    Started, WorkerDone, WorkerRefusal,
+    Ended, ErrandDone, SetAllowance, StartWorker, Started,
+    WorkerDone, WorkerRefusal,
 };
 use hamlet_messages::realm::world::Spend;
-use hamlet_messages::realm::{HamletRefusal, HowEnded, SocietyTool};
+use hamlet_messages::realm::{
+    HamletRefusal, HowEnded, OnlyAHire, SocietyTool,
+};
 use hamlet_messages::workspace::reach::Mode;
 use hamlet_messages::workspace::{AgentNumber, ConversationId};
 use hamlet_protocol::Effort;
@@ -55,7 +57,6 @@ pub fn enums() -> Vec<Cases> {
         tagged::<Started<WorkerRefusal>>(),
         tagged::<WorkerRefusal>(),
         tagged::<Ended>(),
-        tagged::<AllowanceRefusal>(),
         tagged::<Record>(),
         tagged::<ModelOf>(),
         tagged::<ChoiceRefusal>(),
@@ -81,7 +82,6 @@ pub fn unions() -> Vec<Union> {
         agent_refusal::<ObjectRefusal>(),
         agent_refusal::<ReadBudgetRefusal>(),
         agent_refusal::<WorkerRefusal>(),
-        lead_refusal::<AllowanceRefusal>(),
         lead_refusal::<ChoiceRefusal>(),
     ]
 }
@@ -129,7 +129,12 @@ fn the_oversight(fixtures: &mut Fixtures) {
         fixtures,
         "realm/chief_revoke",
         vec![
-            ("no_such_agent", RevokeRefusal::NoSuchAgent),
+            (
+                "no_such_agent",
+                RevokeRefusal::NoSuchAgent {
+                    address: "9".into(),
+                },
+            ),
             (
                 "no_grant",
                 RevokeRefusal::NoGrant {
@@ -355,8 +360,12 @@ fn the_workers(fixtures: &mut Fixtures) {
             ("empty_brief", WorkerRefusal::EmptyBrief),
             (
                 "no_such_tool",
-                WorkerRefusal::NoSuchTool { tool: "fly".into() },
+                WorkerRefusal::NoSuchTool {
+                    name: "hire#2".into(),
+                    tool: "fly".into(),
+                },
             ),
+            ("a_society_tool", WorkerRefusal::ASocietyTool),
             ("a_worker", WorkerRefusal::AWorker),
             (
                 "hamlet_from_an_agent",
@@ -433,24 +442,23 @@ fn the_workers(fixtures: &mut Fixtures) {
     );
     let allowance_refusals = || {
         vec![
-            ("no_such_agent", AllowanceRefusal::NoSuchAgent),
+            (
+                "no_such_agent",
+                OnlyAHire::NoSuchAgent {
+                    address: "hire#9".into(),
+                },
+            ),
             (
                 "not_a_hire",
-                AllowanceRefusal::NotAHire {
+                OnlyAHire::NotAHire {
                     name: "hand".into(),
                 },
             ),
             (
                 "left",
-                AllowanceRefusal::Left {
+                OnlyAHire::Left {
                     hire: HIRE,
                     left: left(HowEnded::ByTheChief),
-                },
-            ),
-            (
-                "over_leads",
-                AllowanceRefusal::OverLeads {
-                    lead_micros: 2_000_000,
                 },
             ),
         ]

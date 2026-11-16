@@ -5,13 +5,25 @@ use hamlet_actor::Action;
 use serde::{Deserialize, Serialize};
 
 use super::{
-    AgentRefusal, ChiefRequest, Done, HamletId, LeadRefusal, Left,
-    Named, Refusable, SocietyTool, ToolCall, ToolName,
+    AgentRefusal, ChiefRequest, Done, HamletId, LeadRefusal, Named,
+    OnlyAHire, Refusable, SocietyTool, ToolCall, ToolName,
 };
 use crate::address::{Agent, Realm};
 use crate::agent::chat::Count;
 use crate::workspace::{AgentNumber, RealmTask};
 use crate::{Message, worded};
+
+/// The built-in tools a worker may be given: its file tools and its
+/// shells.
+pub const BUILT_IN: [&str; 7] = [
+    "read",
+    "write",
+    "edit",
+    "search",
+    "find",
+    "bash",
+    "powershell",
+];
 
 /// Starts a worker, a numbered agent that runs `brief` once, answers
 /// its starter and ends.
@@ -79,8 +91,10 @@ impl<W> Refusable for Started<W> {
 pub enum WorkerRefusal {
     #[error("say what the worker is to do")]
     EmptyBrief,
-    #[error("there is no built-in tool `{tool}`")]
-    NoSuchTool { tool: String },
+    #[error("`{name}` has no such tool: {tool}")]
+    NoSuchTool { name: String, tool: String },
+    #[error("a worker's tools are a part of its starter's")]
+    ASocietyTool,
     #[error("a worker cannot do that")]
     AWorker,
     #[error("only a chief names a worker's hamlet")]
@@ -142,34 +156,10 @@ pub struct SetAllowance {
 
 impl ChiefRequest for SetAllowance {
     const NAME: &'static str = "chief_set_allowance";
-    type Answer = Done<AllowanceRefusal>;
+    type Answer = Done<OnlyAHire>;
 }
 
 impl ToolCall for SetAllowance {
     const TOOL: SocietyTool = SocietyTool::SetAllowance;
-    type Answer = Done<LeadRefusal<AllowanceRefusal>>;
-}
-
-#[derive(
-    Clone,
-    Debug,
-    PartialEq,
-    Eq,
-    Serialize,
-    Deserialize,
-    thiserror::Error,
-)]
-#[serde(tag = "type", rename_all = "snake_case")]
-pub enum AllowanceRefusal {
-    #[error("no agent is at that address")]
-    NoSuchAgent,
-    #[error("`{name}` is not a hire")]
-    NotAHire { name: String },
-    #[error("`hire#{}` has left: {left}", hire.0)]
-    Left { hire: AgentNumber, left: Left },
-    #[error(
-        "an allowance is at most its lead's, {lead_micros} \
-         millionths of a dollar"
-    )]
-    OverLeads { lead_micros: u64 },
+    type Answer = Done<LeadRefusal<OnlyAHire>>;
 }

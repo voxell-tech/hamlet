@@ -13,14 +13,14 @@ use hamlet_messages::agent::{
 };
 use hamlet_messages::realm::budget::Payer;
 use hamlet_messages::realm::workers::{
-    Ended, StartWorker, Started, WorkerDone, WorkerRefusal,
+    BUILT_IN, Ended, StartWorker, Started, WorkerDone, WorkerRefusal,
 };
 use hamlet_messages::realm::{
-    AgentRefusal, HamletId, HowEnded, Refusable, ToolName,
+    AgentRefusal, HamletId, HowEnded, Refusable, SocietyTool,
+    ToolName,
 };
 use hamlet_messages::sender::Client;
 use hamlet_messages::workspace::AgentNumber;
-use serde::{Deserialize, Serialize};
 
 use super::act::{Act, Decided, Decision};
 use super::calls::{Calls, Delivery, Made};
@@ -28,42 +28,7 @@ use super::change::{self, Affected, Rows, Writer, number};
 use super::peer::When;
 use super::steps::{self, Cx, Kind, StepId, Steps};
 use super::tasks::{self, Origin, TaskId};
-use super::{Realm, chiefs, place, tree, versions, waits};
-
-/// The built-in tools a worker may be given, as today's catalogue
-/// names them: its file tools and its shells
-/// (`hamlet_server/src/work/tools.rs:575-577`).
-const BUILT_IN: [&str; 7] = [
-    "read",
-    "write",
-    "edit",
-    "search",
-    "find",
-    "bash",
-    "powershell",
-];
-
-/// How a worker ended, as its row keeps it.
-#[derive(
-    Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize,
-)]
-#[serde(rename_all = "snake_case")]
-pub(super) enum How {
-    Answered,
-    Failed,
-    /// It ended with its starter.
-    Stopped,
-}
-
-impl How {
-    fn ended(self) -> HowEnded {
-        match self {
-            Self::Answered => HowEnded::Answered,
-            Self::Failed => HowEnded::Failed,
-            Self::Stopped => HowEnded::Stopped,
-        }
-    }
-}
+use super::{Realm, chiefs, place, record, tree, versions, waits};
 
 #[derive(Debug, PartialEq)]
 pub(super) struct Worker {
@@ -86,7 +51,7 @@ pub(super) enum Change {
     /// had not.
     End {
         agent: AgentNumber,
-        how: How,
+        how: HowEnded,
         answer: Option<String>,
     },
 }
@@ -133,7 +98,7 @@ async fn start(writer: &Writer<'_>, worker: Worker) -> Result<()> {
 async fn end(
     writer: &Writer<'_>,
     agent: AgentNumber,
-    how: How,
+    how: HowEnded,
     answer: Option<String>,
 ) -> Result<()> {
     writer
@@ -142,7 +107,7 @@ async fn end(
              = ?1 AND ended IS NULL",
             vec![
                 number(agent),
-                BindParam::Text(change::case_name(&how)?),
+                BindParam::Text(serde_json::to_string(&how)?),
                 answer.map_or(BindParam::Null, BindParam::Text),
             ],
         )
@@ -150,22 +115,41 @@ async fn end(
     Ok(())
 }
 
-/// The changes that end worker `agent`: its row, its agent and so its
-/// reach, and its open waits.
-fn ending(
+/// The changes that end worker `agent`.
+pub(super) fn ending(
     agent: AgentNumber,
-    how: How,
+    how: HowEnded,
     answer: Option<String>,
 ) -> Vec<change::Change> {
     vec![
         tree::Change::WorkerEnded {
             agent,
-            how: how.ended(),
+            how: how.clone(),
         }
         .into(),
         Change::End { agent, how, answer }.into(),
         waits::Change::Lapse { agent }.into(),
     ]
+}
+
+/// The query of the living workers of the agents `starters` selects.
+pub(super) fn living(starters: &str) -> String {
+    format!(
+        "SELECT worker.agent FROM worker JOIN agent ON agent.id = \
+         worker.agent WHERE agent.status != 'ended' AND \
+         worker.starter IN ({starters})"
+    )
+}
+
+/// `starter`'s living workers.
+pub(super) async fn living_of(
+    rows: &Rows<'_>,
+    starter: AgentNumber,
+) -> Result<Vec<AgentNumber>> {
+    let living = rows
+        .values::<u32>(&living("?1"), vec![number(starter)])
+        .await?;
+    Ok(living.into_iter().map(AgentNumber).collect())
 }
 
 /// The changes that stop `starter`'s living workers, committed with
@@ -174,19 +158,10 @@ pub(super) async fn end_with(
     rows: &Rows<'_>,
     starter: AgentNumber,
 ) -> Result<Vec<change::Change>> {
-    let living = rows
-        .values::<u32>(
-            "SELECT worker.agent FROM worker JOIN agent ON agent.id \
-             = worker.agent WHERE worker.starter = ?1 AND \
-             agent.status != 'ended'",
-            vec![number(starter)],
-        )
-        .await?;
-    Ok(living
+    Ok(living_of(rows, starter)
+        .await?
         .into_iter()
-        .flat_map(|agent| {
-            ending(AgentNumber(agent), How::Stopped, None)
-        })
+        .flat_map(|agent| ending(agent, HowEnded::Stopped, None))
         .collect())
 }
 
@@ -195,7 +170,7 @@ struct Row {
     task: TaskId,
     brief: String,
     tools: Vec<String>,
-    ended: Option<How>,
+    ended: Option<HowEnded>,
     answer: Option<String>,
 }
 
@@ -220,7 +195,9 @@ async fn row_of(rows: &Rows<'_>, agent: AgentNumber) -> Result<Row> {
         task,
         brief,
         tools: serde_json::from_str(&tools)?,
-        ended: ended.map(change::from_case_name).transpose()?,
+        ended: ended
+            .map(|how| serde_json::from_str(&how))
+            .transpose()?,
         answer,
     })
 }
@@ -254,14 +231,15 @@ pub(super) async fn answer(
         .await
 }
 
-/// What the starter reads of its worker's end, in today's words
-/// (`hamlet_server/src/talk/follow.rs:133-139`).
-fn words(how: How, answer: Option<String>) -> String {
+/// What the starter reads of its worker's end.
+fn words(how: HowEnded, answer: Option<String>) -> String {
     match (how, answer) {
-        (How::Failed, Some(why)) => {
+        (HowEnded::Failed, Some(why)) => {
             format!("It could not answer: {why}")
         }
-        (How::Answered, Some(text)) if !text.trim().is_empty() => {
+        (HowEnded::Answered, Some(text))
+            if !text.trim().is_empty() =>
+        {
             text
         }
         _ => "It gave no answer.".to_owned(),
@@ -338,16 +316,27 @@ pub(super) async fn run(
 }
 
 /// The brief as the worker is given it, when it and the tools pass:
-/// each tool a built-in the starter has not turned off.
+/// each tool a built-in that `starter` has not turned off.
 fn checked(
     start: &StartWorker,
+    starter: &str,
     off: &[ToolName],
 ) -> Result<String, WorkerRefusal> {
+    let society = start.tools.iter().any(|tool| {
+        serde_json::from_value::<SocietyTool>(
+            tool.name.clone().into(),
+        )
+        .is_ok()
+    });
+    if society {
+        return Err(WorkerRefusal::ASocietyTool);
+    }
     let unknown = start.tools.iter().find(|tool| {
         !BUILT_IN.contains(&tool.name.as_str()) || off.contains(tool)
     });
     if let Some(tool) = unknown {
         return Err(WorkerRefusal::NoSuchTool {
+            name: starter.to_owned(),
             tool: tool.name.clone(),
         });
     }
@@ -373,6 +362,7 @@ pub(super) enum ByAgent {
     AWorker,
     Starter {
         worker: AgentNumber,
+        name: String,
         hamlet: Option<HamletId>,
         off: Vec<ToolName>,
         task: TaskId,
@@ -404,6 +394,7 @@ impl Act<Agent> for StartWorker {
         };
         Ok(ByAgent::Starter {
             worker: tree::fresh(rows).await?,
+            name: record::name_of(rows, by.0).await?,
             hamlet: starter.hamlet.map(|hamlet| hamlet.id),
             off: tree::tools::off_for(rows, by.0).await?,
             task,
@@ -420,6 +411,7 @@ impl Act<Agent> for StartWorker {
         };
         let ByAgent::Starter {
             worker,
+            name,
             hamlet,
             off,
             task,
@@ -427,7 +419,7 @@ impl Act<Agent> for StartWorker {
         else {
             return refuse(WorkerRefusal::AWorker);
         };
-        let brief = match checked(self, &off) {
+        let brief = match checked(self, &name, &off) {
             Ok(brief) => brief,
             Err(why) => return refuse(why),
         };
@@ -491,7 +483,7 @@ impl Act<Client> for StartWorker {
         loaded: ByChief,
     ) -> Decision<AgentNumber, Self::Output> {
         let refuse = |why| Decision::Answer(Started::refused(why));
-        let brief = match checked(self, &[]) {
+        let brief = match checked(self, "the chief", &[]) {
             Ok(brief) => brief,
             Err(why) => return refuse(why),
         };
@@ -549,8 +541,8 @@ impl Act<Agent> for WorkerDone {
             return Decision::Answer(());
         }
         let (how, answer) = match &self.ended {
-            Ended::Answered { text } => (How::Answered, text),
-            Ended::Failed { why } => (How::Failed, why),
+            Ended::Answered { text } => (HowEnded::Answered, text),
+            Ended::Failed { why } => (HowEnded::Failed, why),
         };
         let mut decided = Decided::new(());
         decided.changes = ending(by.0, how, Some(answer.clone()));

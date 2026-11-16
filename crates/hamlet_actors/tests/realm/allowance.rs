@@ -6,23 +6,22 @@ use hamlet_messages::realm::budget::{
 };
 use hamlet_messages::realm::hamlets::{ReadRecord, Record};
 use hamlet_messages::realm::workers::{
-    AllowanceRefusal, SetAllowance,
+    Ended, SetAllowance, StartWorker, Started, WorkerDone,
 };
 use hamlet_messages::realm::world::Spend;
 use hamlet_messages::realm::{
     AgentRefusal, Asked, Done, End, HowEnded, LeadRefusal, Named,
-    Rank, Standing,
+    OnlyAHire, Rank, Standing,
 };
 use hamlet_messages::sender::Hand;
 use hamlet_messages::workspace::{AgentNumber, RealmTask};
 use hamlet_protocol::client::RequestId;
 
+use super::chiefs::chief;
 use super::{
     FOUR, MAYOR, Realm, THREE, charge, hamlet_with, limit, may_spend,
     standing, to, tool, words,
 };
-
-const WORKER: AgentNumber = AgentNumber(50);
 
 fn allowance(hire: AgentNumber, micros: Option<u64>) -> SetAllowance {
     SetAllowance {
@@ -36,7 +35,7 @@ async fn chief_sets(
     realm: &Realm,
     hire: AgentNumber,
     micros: Option<u64>,
-) -> Done<AllowanceRefusal> {
+) -> Done<OnlyAHire> {
     realm
         .ask(&Asked {
             id: RequestId::new(),
@@ -51,7 +50,7 @@ async fn lead_sets(
     lead: AgentNumber,
     call: &str,
     act: SetAllowance,
-) -> Done<LeadRefusal<AllowanceRefusal>> {
+) -> Done<LeadRefusal<OnlyAHire>> {
     realm.tool(lead, &tool(call, act)).await.unwrap()
 }
 
@@ -85,17 +84,6 @@ fn over_allowance(
 }
 
 /// Keeps one worker row of `starter`'s, as a start commits it.
-async fn worker(realm: &Realm, starter: AgentNumber, ended: &str) {
-    realm
-        .write(&format!(
-            "DELETE FROM worker; INSERT INTO worker (agent, \
-             starter, brief, tools, task, ended, at) VALUES ({}, \
-             {}, 'b', '[]', 1, {ended}, 0)",
-            WORKER.0, starter.0
-        ))
-        .await;
-}
-
 #[tokio::test(flavor = "multi_thread")]
 async fn over_its_allowance_a_hire_is_refused() {
     // the mayor's allowance bounds the hire under it: their charges
@@ -147,25 +135,57 @@ async fn over_its_allowance_a_hire_is_refused() {
 async fn a_living_worker_spends_its_starters_allowance() {
     // a worker is bounded as its starter: its charge counts toward
     // the starter's allowance while it lives, and drops out once it
-    // has ended.
-    let (realm, _) = hamlet_with(1).await;
-    let task = standing(&realm, THREE);
-    assert_eq!(chief_sets(&realm, THREE, Some(10)).await, Done::Done);
-    worker(&realm, THREE, "NULL").await;
+    // has ended, by its answer or by a chief.
+    for chief_ends_it in [false, true] {
+        let (realm, _) = hamlet_with(1).await;
+        let task = standing(&realm, THREE);
+        assert_eq!(
+            chief_sets(&realm, THREE, Some(10)).await,
+            Done::Done
+        );
+        let started = realm
+            .tool(THREE, &tool("w", start("count")))
+            .await
+            .unwrap();
+        assert_eq!(started, Started::Started { worker: FOUR });
 
-    realm
-        .tool(WORKER, &charge("w1", &task, 10, 1))
-        .await
-        .unwrap();
-    let living = may_spend(&realm, WORKER, &task).await;
-    let starter = may_spend(&realm, THREE, &task).await;
-    worker(&realm, THREE, "'answered'").await;
-    let ended = may_spend(&realm, THREE, &task).await;
+        realm.tool(FOUR, &charge("w1", &task, 10, 1)).await.unwrap();
+        let living = may_spend(&realm, FOUR, &task).await;
+        let starter = may_spend(&realm, THREE, &task).await;
+        if chief_ends_it {
+            let end = End {
+                hire: to(FOUR),
+                why: None,
+            };
+            assert_eq!(chief(&realm, end).await, Done::Done);
+        } else {
+            let done = WorkerDone {
+                ended: Ended::Answered {
+                    text: "3".to_owned(),
+                },
+            };
+            realm.tool(FOUR, &done).await.unwrap();
+        }
+        let ended = may_spend(&realm, THREE, &task).await;
 
-    assert_eq!(living, over_allowance(THREE, 10, 10));
-    assert_eq!(starter, over_allowance(THREE, 10, 10));
-    assert_eq!(ended, Done::Done);
-    realm.host.shutdown().await.unwrap();
+        assert_eq!(living, over_allowance(THREE, 10, 10));
+        assert_eq!(starter, over_allowance(THREE, 10, 10));
+        assert_eq!(
+            ended,
+            Done::Done,
+            "chief_ends_it: {chief_ends_it}"
+        );
+        realm.host.shutdown().await.unwrap();
+    }
+}
+
+fn start(brief: &str) -> StartWorker {
+    StartWorker {
+        brief: brief.to_owned(),
+        tools: Vec::new(),
+        task: None,
+        hamlet: None,
+    }
 }
 
 #[tokio::test(flavor = "multi_thread")]
@@ -230,17 +250,17 @@ async fn a_lead_sets_its_hires_allowance() {
     };
     assert_eq!(
         hand,
-        refused(AllowanceRefusal::NotAHire {
+        refused(OnlyAHire::NotAHire {
             name: "hand".to_owned()
         })
     );
-    assert_eq!(nobody, refused(AllowanceRefusal::NoSuchAgent));
+    assert_eq!(words(nobody), "no agent has the address `hire#99`");
     assert_eq!(spent, over_allowance(THREE, 5, 5));
     assert!(
         matches!(
             &left,
             Done::Refused {
-                why: AllowanceRefusal::Left { hire, left }
+                why: OnlyAHire::Left { hire, left }
             } if *hire == FOUR && left.how == HowEnded::ByTheChief
         ),
         "{left:?}"
@@ -431,6 +451,89 @@ async fn setting_an_allowance_is_recorded() {
     assert_eq!(
         lines.last().map(|line| line.text.as_str()),
         Some("- hire#2 set the allowance of hire#3: small")
+    );
+    realm.host.shutdown().await.unwrap();
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn an_allowance_counts_the_period_of_the_tasks_payer() {
+    // the hamlet counts by the month and the realm by the day; a
+    // hire on the Hand's task is paid by the realm, so its charge of
+    // two days ago is outside the period, and read_budget agrees.
+    let (realm, hamlet) = hamlet_with(1).await;
+    limit(
+        &realm,
+        Some(&hamlet),
+        vec![BudgetLimit::Period {
+            period: Period::Month,
+        }],
+    )
+    .await;
+    assert_eq!(chief_sets(&realm, THREE, Some(10)).await, Done::Done);
+    let now = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap()
+        .as_millis();
+    let two_days_ago = i64::try_from(now).unwrap() - 2 * 86_400_000;
+    realm
+        .write(&format!(
+            "INSERT INTO charge (agent, call, payer, micros, \
+             took_ms, at) VALUES ({}, 'old', '\"realm\"', 10, 1, \
+             {two_days_ago})",
+            THREE.0
+        ))
+        .await;
+    let hands = standing(&realm, Hand::NUMBER);
+
+    let may = may_spend(&realm, THREE, &hands).await;
+    let read = realm
+        .tool(THREE, &tool("r1", ReadBudget { task: Some(hands) }))
+        .await
+        .unwrap();
+
+    assert_eq!(may, Done::Done);
+    assert!(
+        matches!(
+            read,
+            BudgetRead::Budget {
+                period: Period::Day,
+                own_micros: 0,
+                ..
+            }
+        ),
+        "{read:?}"
+    );
+    realm.host.shutdown().await.unwrap();
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn an_allowance_past_the_largest_is_kept_at_the_largest() {
+    let (realm, _) = hamlet_with(1).await;
+
+    let chief = chief_sets(&realm, THREE, Some(u64::MAX)).await;
+    let lead = lead_sets(
+        &realm,
+        MAYOR,
+        "a1",
+        allowance(THREE, Some(u64::MAX)),
+    )
+    .await;
+    let read = realm
+        .tool(THREE, &tool("r1", ReadBudget { task: None }))
+        .await
+        .unwrap();
+
+    assert_eq!((chief, lead), (Done::Done, Done::Done));
+    let largest = u64::try_from(i64::MAX).unwrap();
+    assert!(
+        matches!(
+            read,
+            BudgetRead::Budget {
+                allowance_micros: Some(micros),
+                ..
+            } if micros == largest
+        ),
+        "{read:?}"
     );
     realm.host.shutdown().await.unwrap();
 }

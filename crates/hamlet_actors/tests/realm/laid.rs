@@ -1,6 +1,7 @@
 use hamlet_messages::agent::{Author, Input, Place};
 use hamlet_messages::realm::budget::Payer;
 use hamlet_messages::realm::client::ReadWorld;
+use hamlet_messages::realm::hamlets::{ReadRecord, Record};
 use hamlet_messages::realm::world::{RoadSeen, Seen};
 use hamlet_messages::realm::{
     AgentRefusal, Asked, Done, End, FoundAnswer, HamletId, Hire,
@@ -12,6 +13,7 @@ use hamlet_messages::sender::Hand;
 use hamlet_messages::workspace::AgentNumber;
 use hamlet_protocol::client::RequestId;
 
+use super::chiefs::chief;
 use super::{
     Callee, FOUR, MAYOR, Realm, THREE, chief_hires, found,
     hamlet_with, hire, purpose_of, seen_submits, submits_to, tell,
@@ -275,13 +277,17 @@ async fn a_mayors_tools_are_set_by_the_chief_and_the_hand() {
     assert_eq!(
         hand_by_hand,
         Done::Refused {
-            why: LeadRefusal::Act(OnlyAHire::NotAHire)
+            why: LeadRefusal::Act(OnlyAHire::NotAHire {
+                name: "hand".to_owned()
+            })
         }
     );
     assert_eq!(
         hand_by_chief,
         Done::Refused {
-            why: OnlyAHire::NotAHire
+            why: OnlyAHire::NotAHire {
+                name: "hand".to_owned()
+            }
         }
     );
     realm.host.shutdown().await.unwrap();
@@ -317,7 +323,9 @@ async fn a_road_is_asked_for_by_a_letter_to_the_lead() {
         [by_hand, to_none],
         [
             refused(RequestRoadRefusal::NoLead),
-            refused(RequestRoadRefusal::NoSuchAgent)
+            refused(RequestRoadRefusal::NoSuchAgent {
+                address: "hire#99".to_owned()
+            })
         ]
     );
     for (letters, from) in [(to_mayor, THREE), (to_hand, MAYOR)] {
@@ -328,7 +336,7 @@ async fn a_road_is_asked_for_by_a_letter_to_the_lead() {
             panic!("a letter: {letters:?}");
         };
         assert_eq!(author.agent, from);
-        assert!(text.contains("`hire#4`"), "{text}");
+        assert!(text.contains(" hire#4: "), "{text}");
         assert!(text.contains("to share the notes"), "{text}");
     }
     realm.host.shutdown().await.unwrap();
@@ -363,7 +371,7 @@ async fn a_road_request_gives_a_lead_with_no_purpose_one() {
     assert_eq!(asked, Done::Done);
     assert_eq!(
         purpose_of(&realm, THREE).await.as_deref(),
-        Some("I ask for a road to `hire#2`: to report the well")
+        Some("I ask for a road to hire#2: to report the well")
     );
     realm.host.shutdown().await.unwrap();
 }
@@ -551,7 +559,9 @@ async fn a_road_joins_two_hires_of_one_hamlet_under_its_layer() {
                     why: None
                 }
             }),
-            refused(LayRefusal::NoSuchAgent),
+            refused(LayRefusal::NoSuchAgent {
+                address: "hire#99".to_owned()
+            }),
             refused(LayRefusal::RoadExists { a: MAYOR, b: THREE }),
         ]
     );
@@ -666,6 +676,46 @@ async fn a_tier_below_the_living_hires_is_refused() {
         Done::Refused {
             why: TierRefusal::NoSuchHamlet
         }
+    );
+    realm.host.shutdown().await.unwrap();
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn a_road_keeps_its_reasons_in_the_record() {
+    let (realm, hamlet) = hamlet_with(2).await;
+    let laying = LayRoad {
+        why: Some("share".to_owned()),
+        ..lay(THREE, FOUR)
+    };
+    let taking_up = TakeUpRoad {
+        a: to(THREE),
+        b: to(FOUR),
+        why: Some("done".to_owned()),
+    };
+
+    let laid = realm.tool(MAYOR, &tool("r1", laying)).await.unwrap();
+    let taken =
+        realm.tool(MAYOR, &tool("u1", taking_up)).await.unwrap();
+    let record = chief(
+        &realm,
+        ReadRecord {
+            hamlet: Some(hamlet),
+        },
+    )
+    .await;
+
+    assert_eq!(laid, Done::Done);
+    assert_eq!(taken, Done::Done);
+    let Record::Read { lines } = record else {
+        panic!("the hamlet's record: {record:?}");
+    };
+    let texts = lines.iter().map(|line| line.text.as_str());
+    assert_eq!(
+        texts.rev().take(2).collect::<Vec<_>>(),
+        [
+            "- hire#2 took up a road from hire#3: done",
+            "- hire#2 laid a road from hire#3: share",
+        ]
     );
     realm.host.shutdown().await.unwrap();
 }

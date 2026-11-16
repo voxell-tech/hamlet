@@ -1,24 +1,23 @@
 //! The realm's settings: the `settings` table and `EditSettings`.
 
 use std::collections::BTreeSet;
+use std::sync::Arc;
 
 use anyhow::Result;
-use hamlet_actor::BindParam;
+use hamlet_actor::{BindParam, Ctx, Handler};
 use hamlet_messages::agent::copies::AgentSettings;
 use hamlet_messages::realm::documents::{
     EditSettings, Endpoint, Newcomers, RemoteWorkspace, Setting,
     SettingRefusal,
 };
-use hamlet_messages::realm::{Done, Refusable};
-use hamlet_messages::sender::Client;
+use hamlet_messages::realm::{Asked, Done, Refusable};
+use hamlet_messages::sender::{Client, sender};
 use hamlet_protocol::Effort;
 use serde::{Deserialize, Serialize};
 
-use super::act::{Act, Decided, Decision};
-use super::calls::Made;
-use super::change::{Affected, Rows, Writer};
+use super::change::{self, Affected, Rows, Writer};
 use super::documents::{self, Copied, Part, Readers};
-use super::world;
+use super::{Realm, secrets, world};
 use crate::cbor;
 
 const CHARACTER: &str = "You are a scholar new to this realm. You \
@@ -42,7 +41,6 @@ pub(super) struct Settings {
     /// The character a blank agent starts from.
     pub character: String,
     pub endpoints: Vec<Endpoint>,
-    pub workspace: Option<RemoteWorkspace>,
 }
 
 impl Default for Settings {
@@ -55,7 +53,6 @@ impl Default for Settings {
             newcomers: Newcomers::Chief,
             character: CHARACTER.to_owned(),
             endpoints: Vec::new(),
-            workspace: None,
         }
     }
 }
@@ -88,10 +85,11 @@ impl Settings {
         .collect()
     }
 
+    /// Sets `setting` but the workspace, which it answers checked.
     fn set(
         &mut self,
         setting: Setting,
-    ) -> Result<(), SettingRefusal> {
+    ) -> Result<Option<Option<RemoteWorkspace>>, SettingRefusal> {
         match setting {
             Setting::Model { model } => self.model = Some(model),
             Setting::Effort { effort } => self.effort = effort,
@@ -131,10 +129,10 @@ impl Settings {
                 if let Some(workspace) = &workspace {
                     address_fault(&workspace.url)?;
                 }
-                self.workspace = workspace;
+                return Ok(Some(workspace));
             }
         }
-        Ok(())
+        Ok(None)
     }
 }
 
@@ -255,35 +253,30 @@ pub(super) async fn read(rows: &Rows<'_>) -> Result<Settings> {
     })
 }
 
-impl Act<Client> for EditSettings {
-    type Output = Done<SettingRefusal>;
-    type Loaded = Settings;
-    type Done = ();
-
-    async fn load(
-        &self,
-        _by: &Client,
-        rows: &Rows<'_>,
-    ) -> Result<Settings> {
-        read(rows).await
-    }
-
-    fn decide(
-        &self,
-        _by: &Client,
-        mut settings: Settings,
-    ) -> Decision<(), Self::Output> {
-        for setting in &self.set {
-            if let Err(refusal) = settings.set(setting.clone()) {
-                return Decision::Answer(Done::refused(refusal));
+/// Keeps a chosen workspace in `credentials.json` before it commits,
+/// as `KeepCredential` does, so it runs outside `Act`.
+impl Handler<Asked<EditSettings>> for Realm {
+    async fn handle(
+        self: Arc<Self>,
+        ctx: Ctx<Self>,
+        asked: Asked<EditSettings>,
+    ) -> Result<Done<SettingRefusal>> {
+        let Client = sender(&ctx, &asked)?;
+        let tx = change::Transaction::begin(&ctx).await?;
+        let mut settings = read(&tx.rows()).await?;
+        let mut chosen = None;
+        for setting in asked.act.set {
+            match settings.set(setting) {
+                Ok(workspace) => chosen = workspace.or(chosen),
+                Err(refusal) => return Ok(Done::refused(refusal)),
             }
         }
-        Decision::Change(
-            Decided::new(()).change(Change::Keep(settings)),
-        )
-    }
-
-    fn answer(&self, (): (), _made: &Made) -> Self::Output {
-        Done::Done
+        let mut changes = vec![Change::Keep(settings).into()];
+        if let Some(workspace) = chosen {
+            changes.extend(secrets::raises(&tx.rows()).await?);
+            self.secrets.choose_workspace(workspace)?;
+        }
+        secrets::commit(&self, &ctx, tx, changes).await?;
+        Ok(Done::Done)
     }
 }

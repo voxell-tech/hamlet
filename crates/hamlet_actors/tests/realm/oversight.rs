@@ -3,19 +3,23 @@ use hamlet_messages::realm::documents::{EditSettings, Setting};
 use hamlet_messages::realm::oversight::{
     Permission, Revoke, RevokeRefusal,
 };
-use hamlet_messages::realm::{Asked, Done, End, HamletId};
+use hamlet_messages::realm::workers::{StartWorker, Started};
+use hamlet_messages::realm::{
+    Asked, Done, End, HamletId, NeedsChief,
+};
 use hamlet_messages::sender::Hand;
 use hamlet_messages::workspace::reach::{
-    Footing, Mode, Project, Reach, SecretsVersion, Trust,
+    Footing, Mode, Need, Project, Reach, SecretsVersion, Trust,
 };
 use hamlet_messages::workspace::{
     AgentNumber, ConversationId, SetReach,
 };
-use hamlet_protocol::client::RequestId;
+use hamlet_protocol::client::{Choice, RequestId};
 
 use super::chiefs::chief;
 use super::{
-    FOUR, MAYOR, Realm, THREE, founded, hires, to, tool, until, words,
+    FOUR, MAYOR, Realm, THREE, answer, founded, hires, needs, to,
+    tool, until, words,
 };
 
 const FOLDER: &str = "/work/mill";
@@ -219,6 +223,41 @@ async fn a_worker_takes_its_starters_footing() {
 }
 
 #[tokio::test(flavor = "multi_thread")]
+async fn an_always_on_a_workers_network_wait_gives_it_the_network() {
+    // a worker of hire#3 asks for the network and the chief answers
+    // always: the worker's reach has the network, its starter's not.
+    let (realm, _) = hamlet_in_a_folder().await;
+    hires(&realm, MAYOR, "h1").await;
+    realm.live(THREE).await;
+    let start = StartWorker {
+        brief: "fetch the page".to_owned(),
+        tools: Vec::new(),
+        task: None,
+        hamlet: None,
+    };
+    let started = realm.tool(THREE, &tool("w", start)).await.unwrap();
+    assert_eq!(started, Started::Started { worker: FOUR });
+
+    let asked = NeedsChief {
+        needs: vec![Need::Network],
+        ..needs(FOUR, "c1")
+    };
+    realm.call_as_workspace(&asked).await.unwrap();
+    let always = realm.ask(&answer("1", Choice::Always, None)).await;
+
+    assert_eq!(always.unwrap(), Done::Done);
+    until("the worker's reach has the network", || {
+        matches!(
+            held(&realm, FOUR).map(|set| set.reach),
+            Some(Reach::Worker { footing, .. }) if footing.network
+        )
+    })
+    .await;
+    assert!(!footing(held(&realm, THREE)).network);
+    realm.host.shutdown().await.unwrap();
+}
+
+#[tokio::test(flavor = "multi_thread")]
 async fn an_end_revokes_the_agents_grants() {
     // agent 3 holds a grant and has a worker, 4. Its lead ends it:
     // the worker ends with it or loses the network, and a revoke
@@ -300,11 +339,6 @@ async fn a_revoke_of_no_grant_is_refused_in_todays_words() {
              allow every agent the network.",
         ]
     );
-    assert_eq!(
-        nobody,
-        Done::Refused {
-            why: RevokeRefusal::NoSuchAgent
-        }
-    );
+    assert_eq!(words(nobody), "no agent has the address `77`");
     realm.host.shutdown().await.unwrap();
 }

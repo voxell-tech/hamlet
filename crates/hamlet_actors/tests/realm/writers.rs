@@ -36,6 +36,7 @@ const WRITERS: &[(&str, &[&str])] = &[
 /// something other than rows.
 const OUTSIDE_ACT: &[(&str, &str)] = &[
     ("secrets.rs", "KeepCredential"),
+    ("settings.rs", "Asked"),
     ("parcels.rs", "FetchPart"),
 ];
 

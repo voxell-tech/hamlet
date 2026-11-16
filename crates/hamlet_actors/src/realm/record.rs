@@ -53,11 +53,21 @@ pub(super) enum Entry {
         a: AgentNumber,
         b: AgentNumber,
         by: By,
+        why: Option<String>,
     },
     Unroad {
         a: AgentNumber,
         b: AgentNumber,
         by: By,
+        why: Option<String>,
+    },
+    /// One mayor's half of a road between hamlets, kept in the
+    /// hamlet of `a`.
+    RoadAgreed {
+        a: AgentNumber,
+        b: AgentNumber,
+        by: By,
+        why: Option<String>,
     },
     Tools {
         hire: AgentNumber,
@@ -136,11 +146,14 @@ pub(super) async fn write(
             Entry::Seated { hire, by, why } => {
                 ("seated", by, Fields::of(hire, why))
             }
-            Entry::Road { a, b, by } => {
-                ("road", by, Fields::road(a, b))
+            Entry::Road { a, b, by, why } => {
+                ("road", by, Fields::road(a, b, why))
             }
-            Entry::Unroad { a, b, by } => {
-                ("unroad", by, Fields::road(a, b))
+            Entry::Unroad { a, b, by, why } => {
+                ("unroad", by, Fields::road(a, b, why))
+            }
+            Entry::RoadAgreed { a, b, by, why } => {
+                ("road-agreed", by, Fields::road(a, b, why))
             }
             Entry::Tools { hire, by, why } => {
                 ("tools", by, Fields::of(hire, why))
@@ -239,11 +252,14 @@ impl Fields {
         }
     }
 
-    fn road(a: AgentNumber, b: AgentNumber) -> Self {
+    fn road(
+        a: AgentNumber,
+        b: AgentNumber,
+        why: Option<String>,
+    ) -> Self {
         Self {
-            agent: Some(a),
             other: Some(b),
-            ..Self::default()
+            ..Self::of(a, why)
         }
     }
 }
@@ -398,11 +414,13 @@ mod tests {
                 a,
                 b,
                 by: By::Chief,
+                why: None,
             },
             Entry::Unroad {
                 a,
                 b,
                 by: By::Agent(a),
+                why: None,
             },
             Entry::Tier {
                 hamlet: hamlet.clone(),

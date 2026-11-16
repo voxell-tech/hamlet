@@ -21,7 +21,7 @@ use hamlet_messages::workspace::{AgentNumber, ConversationId};
 use super::act::{Act, Decided, Decision};
 use super::calls::Made;
 use super::change::{self, Affected, Rows, Writer, number};
-use super::workers::errands;
+use super::workers::{self, errands};
 use super::world::Part;
 use super::{chiefs, record, settings, tree};
 
@@ -145,16 +145,8 @@ async fn reached(
     rows: &Rows<'_>,
     agent: AgentNumber,
 ) -> Result<BTreeSet<AgentNumber>> {
-    let workers = rows
-        .values::<u32>(
-            "SELECT worker.agent FROM worker JOIN agent ON agent.id \
-             = worker.agent WHERE worker.starter = ?1 AND \
-             agent.status != 'ended'",
-            vec![number(agent)],
-        )
-        .await?;
     Ok(std::iter::once(agent)
-        .chain(workers.into_iter().map(AgentNumber))
+        .chain(workers::living_of(rows, agent).await?)
         .collect())
 }
 
@@ -194,7 +186,7 @@ pub(super) async fn hamlet_footing(
     })
 }
 
-async fn holds(
+pub(super) async fn holds(
     rows: &Rows<'_>,
     agent: AgentNumber,
     permission: Permission,
@@ -289,7 +281,9 @@ impl Act<Client> for Revoke {
             Holding::Nothing { name, to_all: true } => {
                 RevokeRefusal::AllowedToAll { name, permission }
             }
-            Holding::NoAgent => RevokeRefusal::NoSuchAgent,
+            Holding::NoAgent => RevokeRefusal::NoSuchAgent {
+                address: self.agent.0.to_string(),
+            },
         };
         Decision::Answer(Done::Refused { why })
     }
@@ -355,7 +349,7 @@ mod tests {
         started: &Started,
         agent: AgentNumber,
     ) -> SetReach {
-        reach::of(&started.rows(), agent, secrets::VERSION)
+        reach::of(&started.rows(), agent, &started.realm.secrets)
             .await
             .unwrap()
     }

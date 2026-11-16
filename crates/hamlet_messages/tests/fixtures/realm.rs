@@ -316,7 +316,12 @@ fn the_founding_and_the_hires(fixtures: &mut Fixtures) {
                 },
             )],
             vec![
-                ("empty_name", FoundRefusal::EmptyName),
+                (
+                    "bad_name",
+                    FoundRefusal::BadName {
+                        name: "a:b".to_owned(),
+                    },
+                ),
                 (
                     "no_such_profile",
                     FoundRefusal::NoSuchProfile {
@@ -371,7 +376,12 @@ fn the_founding_and_the_hires(fixtures: &mut Fixtures) {
         vec![
             ("no_hamlet", HireRefusal::NoHamlet),
             ("no_such_hamlet", HireRefusal::NoSuchHamlet),
-            ("no_such_agent", HireRefusal::NoSuchAgent),
+            (
+                "no_such_agent",
+                HireRefusal::NoSuchAgent {
+                    address: "hire#9".into(),
+                },
+            ),
             (
                 "other_hamlet",
                 HireRefusal::OtherHamlet { lead: MAYOR },
@@ -432,7 +442,12 @@ fn the_founding_and_the_hires(fixtures: &mut Fixtures) {
     );
     let end_refusals = || {
         vec![
-            ("no_such_agent", EndRefusal::NoSuchAgent),
+            (
+                "no_such_agent",
+                EndRefusal::NoSuchAgent {
+                    address: "hire#9".into(),
+                },
+            ),
             ("the_hand", EndRefusal::TheHand),
             ("the_mayor", EndRefusal::TheMayor),
             (
@@ -585,8 +600,18 @@ const WHY: &str = "To keep the tests apart";
 
 fn only_a_hire() -> Vec<(&'static str, OnlyAHire)> {
     vec![
-        ("no_such_agent", OnlyAHire::NoSuchAgent),
-        ("not_a_hire", OnlyAHire::NotAHire),
+        (
+            "no_such_agent",
+            OnlyAHire::NoSuchAgent {
+                address: "hire#9".into(),
+            },
+        ),
+        (
+            "not_a_hire",
+            OnlyAHire::NotAHire {
+                name: "worker#4".into(),
+            },
+        ),
         (
             "left",
             OnlyAHire::Left {
@@ -643,7 +668,12 @@ fn the_roads_and_the_tools(fixtures: &mut Fixtures) {
     );
     let lay_refusals = || {
         vec![
-            ("no_such_agent", LayRefusal::NoSuchAgent),
+            (
+                "no_such_agent",
+                LayRefusal::NoSuchAgent {
+                    address: "hire#9".into(),
+                },
+            ),
             (
                 "not_two_hires_of_one_hamlet",
                 LayRefusal::NotTwoHiresOfOneHamlet,
@@ -703,16 +733,14 @@ fn the_roads_and_the_tools(fixtures: &mut Fixtures) {
             SocietyTool::AgreeRoad,
             vec![
                 ("not_a_mayor", AgreeRefusal::NotAMayor),
-                ("no_such_agent", AgreeRefusal::NoSuchAgent),
-                ("no_roads_between", AgreeRefusal::NoRoadsBetween),
-                ("not_hires", AgreeRefusal::NotHires),
                 (
-                    "left",
-                    AgreeRefusal::Left {
-                        hire: HIRE,
-                        left: left(HowEnded::ByTheChief),
+                    "no_such_agent",
+                    AgreeRefusal::NoSuchAgent {
+                        address: "hire#9".into(),
                     },
                 ),
+                ("no_roads_between", AgreeRefusal::NoRoadsBetween),
+                ("not_hires", AgreeRefusal::NotHires),
                 ("same_hamlet", AgreeRefusal::SameHamlet),
                 (
                     "road_exists",
@@ -740,7 +768,12 @@ fn the_roads_and_the_tools(fixtures: &mut Fixtures) {
     );
     let take_up_refusals = || {
         vec![
-            ("no_such_agent", TakeUpRefusal::NoSuchAgent),
+            (
+                "no_such_agent",
+                TakeUpRefusal::NoSuchAgent {
+                    address: "hire#9".into(),
+                },
+            ),
             ("no_road", TakeUpRefusal::NoRoad { a: HIRE, b: MAYOR }),
         ]
     };
@@ -774,7 +807,12 @@ fn the_roads_and_the_tools(fixtures: &mut Fixtures) {
         by_an_agent(
             SocietyTool::RequestRoad,
             vec![
-                ("no_such_agent", RequestRoadRefusal::NoSuchAgent),
+                (
+                    "no_such_agent",
+                    RequestRoadRefusal::NoSuchAgent {
+                        address: "hire#9".into(),
+                    },
+                ),
                 ("no_lead", RequestRoadRefusal::NoLead),
                 (
                     "still_hiring",

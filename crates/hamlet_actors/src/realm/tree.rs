@@ -146,7 +146,7 @@ pub(super) async fn lineage(
                 .with_context(|| format!("the hire {hire}"))?,
         );
     }
-    let hamlet = match hamlet_of(rows, agent).await? {
+    let hamlet = match chiefs::hamlet::of_agent(rows, agent).await? {
         Some(id) => Some(
             chiefs::hamlet(rows, &id)
                 .await?
@@ -162,19 +162,6 @@ pub(super) async fn lineage(
     }))
 }
 
-async fn hamlet_of(
-    rows: &Rows<'_>,
-    agent: AgentNumber,
-) -> Result<Option<HamletId>> {
-    Ok(rows
-        .value::<String>(
-            "SELECT hamlet FROM hire WHERE agent = ?1",
-            vec![number(agent)],
-        )
-        .await?
-        .map(HamletId))
-}
-
 fn caller(by: &impl Decider) -> Option<AgentNumber> {
     match by.by() {
         record::By::Agent(agent) => Some(agent),
@@ -187,7 +174,7 @@ async fn own_hamlet(
     caller: Option<AgentNumber>,
 ) -> Result<Option<HamletId>> {
     match caller {
-        Some(caller) => hamlet_of(rows, caller).await,
+        Some(caller) => chiefs::hamlet::of_agent(rows, caller).await,
         None => Ok(None),
     }
 }
@@ -199,6 +186,18 @@ pub(in crate::realm) async fn named(
 ) -> Result<Option<Lineage>> {
     let own = own_hamlet(rows, caller(by)).await?;
     named_in(rows, own.as_ref(), named).await
+}
+
+/// `lineage` with the name a refusal shows its agent by.
+pub(in crate::realm) async fn shown(
+    rows: &Rows<'_>,
+    lineage: Option<Lineage>,
+) -> Result<Option<(Lineage, String)>> {
+    let Some(lineage) = lineage else {
+        return Ok(None);
+    };
+    let name = record::name_of(rows, lineage.agent.agent).await?;
+    Ok(Some((lineage, name)))
 }
 
 async fn named_in(
@@ -526,23 +525,34 @@ async fn worker_ended(
     agent: AgentNumber,
     how: HowEnded,
 ) -> Result<Affected> {
-    let ended = writer
-        .execute(
-            "UPDATE agent SET status = 'ended', ended_how = ?2 \
-             WHERE id = ?1 AND status != 'ended'",
-            vec![
-                number(agent),
-                BindParam::Text(serde_json::to_string(&how)?),
-            ],
-        )
-        .await?;
-    if ended == 0 {
+    if !set_ended(writer, agent, &how, None).await? {
         return Ok(Affected::default());
     }
     Ok(Affected {
         reaches: BTreeSet::from([agent]),
         ..Affected::seen([Part::Agents, Part::Reaches])
     })
+}
+
+/// Ends `agent` as `how`, for `why`; `false` when it had ended.
+async fn set_ended(
+    writer: &Writer<'_>,
+    agent: AgentNumber,
+    how: &HowEnded,
+    why: Option<String>,
+) -> Result<bool> {
+    let ended = writer
+        .execute(
+            "UPDATE agent SET status = 'ended', ended_how = ?2, \
+             ended_why = ?3 WHERE id = ?1 AND status != 'ended'",
+            vec![
+                number(agent),
+                BindParam::Text(serde_json::to_string(how)?),
+                why.map_or(BindParam::Null, BindParam::Text),
+            ],
+        )
+        .await?;
+    Ok(ended > 0)
 }
 
 async fn places_showing(
