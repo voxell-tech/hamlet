@@ -1471,10 +1471,14 @@ fn tabs_and_search() -> impl View {
 fn go(world: &mut World, target: Target) {
     match target {
         Target::Realm => show(world, Showing::Realm),
-        Target::Hand => talk_to_hand(world),
+        Target::Hand => {
+            talk_to_hand(world);
+            type_in_thread(world);
+        }
         // Its thread, and its house brought into view.
         Target::Agent(agent) => {
             talk_to(world, agent);
+            type_in_thread(world);
             if world.contains_resource::<Selected>() {
                 let home = crate::convo::home_of(world, agent);
                 bring_into_view(world, home);
@@ -1499,6 +1503,16 @@ fn go(world: &mut World, target: Target) {
         Target::Fold(group) => {
             world.resource_mut::<Rail>().toggle(group);
         }
+    }
+}
+
+/// Asks for the focus to go to the chat's field, so that what a chief
+/// types after choosing an agent in the rail goes to it.
+fn type_in_thread(world: &mut World) {
+    if let Some(mut draft) =
+        world.get_resource_mut::<crate::screens::chat::Draft>()
+    {
+        draft.focus = true;
     }
 }
 

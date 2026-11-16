@@ -786,6 +786,38 @@ mod tests {
     }
 
     #[test]
+    fn a_focus_asked_for_before_the_field_is_mounted_waits_for_it() {
+        let mut app = crate::testing::panel_app();
+        app.add_message::<Cue>()
+            .init_resource::<crate::menu::OpenMenu>()
+            .init_resource::<crate::world_menu::Open>()
+            .init_resource::<bevy_fynix::dock::DockDrag>()
+            .init_resource::<crate::hub::Showing>()
+            .init_resource::<crate::hover::Card>()
+            .add_plugins((plugin, crate::sounds::plugin));
+        app.update();
+        app.world_mut().resource_mut::<Draft>().focus = true;
+        app.update();
+        assert!(app.world().resource::<Draft>().focus);
+        bevy_fynix::mount::<HamletTheme>(
+            app.world_mut(),
+            message_bar(bevy_fynix::views::frame()),
+        );
+        app.update();
+        app.update();
+        let input = app
+            .world_mut()
+            .query_filtered::<Entity, With<RichField>>()
+            .single(app.world())
+            .unwrap();
+        assert_eq!(
+            app.world().resource::<InputFocus>().get(),
+            Some(input)
+        );
+        assert!(!app.world().resource::<Draft>().focus);
+    }
+
+    #[test]
     fn an_unaddressed_fault_shows_under_the_field_and_sounds_once() {
         let mut app = sounding_chat();
         heard(&mut app);
