@@ -90,7 +90,7 @@ struct Asked {
 }
 
 fn contents() -> impl View {
-    column((panel::body(&id(), blank), picker(), context::modal()))
+    column((panel::body(&id(), blank), picker()))
         .fills_width()
         .fills_height()
         .gap(0.0)

@@ -424,8 +424,10 @@ pub(crate) fn add_to_field(
         let mut pieces = field.pieces();
         let lead = match pieces.last() {
             None => "",
-            Some(Piece::Text(text)) if text.ends_with('\n') => "",
-            Some(_) => "\n",
+            Some(Piece::Text(text)) if text.trim().is_empty() => "",
+            Some(Piece::Text(text)) if text.ends_with("\n\n") => "",
+            Some(Piece::Text(text)) if text.ends_with('\n') => "\n",
+            Some(_) => "\n\n",
         };
         pieces.push(Piece::Text(format!("{lead}{words}")));
         field.set_content(pieces);
@@ -1720,6 +1722,50 @@ mod tests {
             crate::testing::words(&mut app)
                 .iter()
                 .any(|w| w.starts_with("Worked"))
+        );
+    }
+
+    #[test]
+    fn things_added_to_the_field_stand_apart_by_a_blank_line() {
+        use hamlet_client::chats::Transcript;
+
+        use crate::testing::panel_app;
+        let mut app = panel_app();
+        app.add_plugins(plugin);
+        let session = app.world().resource::<Convo>().session;
+        app.world_mut()
+            .entity_mut(session)
+            .insert(Transcript::default());
+        app.update();
+        bevy_fynix::mount::<HamletTheme>(
+            app.world_mut(),
+            column((
+                transcript(),
+                message_bar(bevy_fynix::views::frame()),
+            )),
+        );
+        app.update();
+        add_to_field(
+            app.world_mut(),
+            "From `a.rs`, line 1:",
+            Vec::new(),
+        );
+        add_to_field(
+            app.world_mut(),
+            "From `b.rs`, line 2:",
+            Vec::new(),
+        );
+        app.update();
+        let texts = app
+            .world_mut()
+            .query::<&RichField>()
+            .iter(app.world())
+            .map(|field| field.plain().text)
+            .collect::<Vec<_>>();
+        assert!(
+            texts.iter().any(|text| text
+                == "From `a.rs`, line 1:\n\nFrom `b.rs`, line 2:"),
+            "{texts:?}"
         );
     }
 }
