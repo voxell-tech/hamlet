@@ -137,9 +137,10 @@
 //! the order taken, and `question/<n>/<taken> <letter>` for a
 //! question. The stand-in agent keeps its inputs with a line's note,
 //! the files it was given, the copies the realm pushes, its newest
-//! place and the ends the workspace tells it of in its file, logs
-//! that it was made, and prints `finished/<call>/<exit> <code>` for
-//! each end.
+//! place and the ends the workspace tells it of in its file, keeps
+//! each input it drops as a repeat of one it took in its `repeat`
+//! table, logs that it was made, and prints
+//! `finished/<call>/<exit> <code>` for each end.
 
 use std::io::Write;
 use std::sync::Arc;
@@ -560,7 +561,9 @@ const AGENT_TABLES: &str =
      NULL, size INTEGER NOT NULL, fetched_at INTEGER, PRIMARY KEY \
      (parcel, file)) STRICT; CREATE TABLE IF NOT EXISTS copy (part \
      TEXT PRIMARY KEY, version INTEGER NOT NULL, value TEXT NOT \
-     NULL, at INTEGER NOT NULL) STRICT;";
+     NULL, at INTEGER NOT NULL) STRICT; CREATE TABLE IF NOT EXISTS \
+     repeat (id TEXT NOT NULL, kind TEXT NOT NULL, at INTEGER NOT \
+     NULL) STRICT;";
 
 #[async_trait::async_trait]
 impl Actor for StandInAgent {
@@ -708,12 +711,26 @@ impl Handler<Submit> for StandInAgent {
                 ]),
             )
             .await?;
+        let repeat = kept.changes == 0;
+        if repeat {
+            ctx.sql()
+                .execute(
+                    "INSERT INTO repeat (id, kind, at) VALUES (?1, \
+                     ?2, ?3)",
+                    Some(vec![
+                        BindParam::Text(submit.id.0.clone()),
+                        BindParam::Text(kind.to_owned()),
+                        BindParam::Integer(now_ms()?),
+                    ]),
+                )
+                .await?;
+        }
         tracing::info!(
             id = submit.id.0,
             kind,
             text,
             files = files.len(),
-            repeat = kept.changes == 0,
+            repeat,
             "{} took an input",
             ctx.actor_id()
         );
