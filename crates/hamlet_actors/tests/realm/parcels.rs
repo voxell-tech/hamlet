@@ -424,6 +424,29 @@ async fn chief_answers(
     }
 }
 
+/// Waits until the chief's wait `wait` is open: a reply, which a
+/// send's wait does not take, is refused as not offered.
+async fn opens(realm: &Realm, wait: &str) {
+    let begun = std::time::Instant::now();
+    loop {
+        let tried = realm
+            .ask(&answer(wait, Choice::Reply, Some("no")))
+            .await
+            .unwrap();
+        match tried {
+            Done::Refused {
+                why: AnswerRefusal::NotOffered,
+            } => return,
+            Done::Refused {
+                why: AnswerRefusal::NothingWaits { .. },
+            } => {}
+            other => panic!("the wait answers {other:?}"),
+        }
+        assert!(begun.elapsed() < super::DEADLINE, "no wait {wait}");
+        tokio::time::sleep(Duration::from_millis(20)).await;
+    }
+}
+
 #[tokio::test(flavor = "multi_thread")]
 async fn a_parcel_reaches_the_receiver_byte_for_byte() {
     // 2 tells 3 with a folder holding a file of three parts: tell
@@ -468,8 +491,9 @@ async fn a_parcel_reaches_the_receiver_byte_for_byte() {
 #[tokio::test(flavor = "multi_thread")]
 async fn over_the_cap_a_parcel_waits_for_a_chief() {
     // 1001 files: the parcel waits for a chief, whose wait reads
-    // "1001 files"; an allow sends the letter with every file. A
-    // second send is denied "too much": 2 is told, and 3 gets no
+    // "1001 files". The realm restarts, and the wait outlasts a day;
+    // an allow then sends the letter with every file, still fetched.
+    // A second send is denied "too much": 2 is told, and 3 gets no
     // second letter.
     let names = (1..=1001)
         .map(|n| format!("/project/big/{n:04}"))
@@ -478,11 +502,15 @@ async fn over_the_cap_a_parcel_waits_for_a_chief() {
         .iter()
         .map(|name| (name.as_str(), &b"x"[..]))
         .collect::<Vec<_>>();
-    let (realm, _) = sending(Files::with(&files)).await;
+    let (realm, files) = sending(Files::with(&files)).await;
 
     sends(&realm, "t1", "Everything.", &["/project/big"]).await;
+    opens(&realm, "1").await;
+    let realm = restart(realm, &files).await;
+    realm.write("UPDATE parcel SET at = 0 WHERE id = 1").await;
     chief_answers(&realm, "1", Choice::Allow, None, 0).await;
     let sent = letter_files(&realm, 1).await;
+    let first = fetched(&realm, &sent[0]).await;
     sends(&realm, "t2", "Again.", &["/project/big"]).await;
     chief_answers(&realm, "2", Choice::Deny, Some("too much"), 1)
         .await;
@@ -496,6 +524,7 @@ async fn over_the_cap_a_parcel_waits_for_a_chief() {
         .await;
 
     assert_eq!(sent.len(), 1001);
+    assert_eq!(first, b"x");
     assert_eq!(
         sent[1000].path,
         PathBuf::from("from-hire-2/big/1001")
@@ -633,4 +662,31 @@ async fn a_kill_mid_copy_leaves_no_partial_file() {
     );
     assert!(got == report, "the parts fetched make the file");
     assert_eq!(stored(&realm), [hash(&report).to_string()]);
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn a_file_that_changes_while_it_is_copied_is_not_sent() {
+    // The file changes between its measure and its copy: its hash
+    // differs, so 2 is told, 3 gets nothing, and the store keeps
+    // nothing of it.
+    let report = bytes_of(PARCEL_PART + 10, 5);
+    let (realm, files) =
+        sending(Files::with(&[("/project/report", &report)])).await;
+    files.hold_from(0);
+
+    sends(&realm, "t1", "Report.", &["/project/report"]).await;
+    until("the copy waits on its first part", || {
+        *files.waiting.lock().unwrap()
+    })
+    .await;
+    files.add(&[("/project/report", &bytes_of(report.len(), 9))]);
+    files.release();
+    let told = notice_to_mayor(&realm).await;
+    until("the store is swept", || stored(&realm).is_empty()).await;
+
+    assert_eq!(
+        told,
+        "`report` cannot be read: it changed while it was sent."
+    );
+    assert!(letters_to_three(&realm).is_empty());
 }

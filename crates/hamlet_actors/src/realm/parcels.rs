@@ -50,7 +50,8 @@ use super::tasks::TaskId;
 use super::waits::{self, Raised, Ruling};
 use super::{Realm, tree};
 
-/// How long after it was sent a delivered parcel keeps its files.
+/// How long a delivered parcel keeps its files: its `at` is when it
+/// was sent until it is ready, then when it became ready.
 const KEPT_MS: i64 = 24 * 60 * 60 * 1000;
 
 /// The bit of a step row's number that marks the steps a chief's
@@ -172,7 +173,17 @@ pub(super) async fn apply(
                 .await?;
         }
         Change::Ready { parcel } => {
-            moved(writer, parcel, &[State::Copying], State::Ready)
+            writer
+                .execute(
+                    "UPDATE parcel SET state = ?1, at = ?2 WHERE id \
+                     = ?3 AND state = ?4",
+                    vec![
+                        state(State::Ready)?,
+                        BindParam::Integer(writer.at().0),
+                        id(parcel),
+                        state(State::Copying)?,
+                    ],
+                )
                 .await?;
         }
         Change::Refused { parcel } => {
@@ -336,6 +347,13 @@ impl Sent {
         })
     }
 
+    /// Whether its sender or its receiver has ended, so that no one
+    /// is told of it.
+    async fn left(&self, rows: &Rows<'_>) -> Result<bool> {
+        Ok(tree::left(rows, self.sender).await?.is_some()
+            || tree::left(rows, self.receiver).await?.is_some())
+    }
+
     /// Whether this row's steps copy and deliver it: those a chief's
     /// allow begins when it waited for one, else the first row's.
     fn sends(&self, after_allow: bool) -> bool {
@@ -431,7 +449,15 @@ pub(super) async fn run(
 ) -> Result<Vec<change::Change>> {
     let parcel = ParcelId(u32::try_from(n & (AFTER_ALLOW - 1))?);
     let after_allow = n & AFTER_ALLOW != 0;
-    let sent = Sent::read(&cx.rows()?, parcel).await?;
+    let rows = cx.rows()?;
+    let sent = Sent::read(&rows, parcel).await?;
+    let open = matches!(
+        sent.state,
+        State::Measuring | State::Waiting | State::Copying
+    );
+    if open && sent.left(&rows).await? {
+        return Ok(vec![Change::Refused { parcel }.into()]);
+    }
     match step {
         Step::Measure if sent.state == State::Measuring => {
             measured(cx, &sent).await
@@ -806,7 +832,8 @@ pub(super) async fn sweep(
     let store = Store::of(ctx)?;
     // Listed before the rows are read: a file renamed in before the
     // listing has its parcel's measure committed, so the rows name
-    // it.
+    // it. A copy that finds its file kept, measured after this read,
+    // can still lose it to this sweep.
     let listed = match tokio::fs::read_dir(&store.0).await {
         Ok(listed) => listed,
         Err(error)
