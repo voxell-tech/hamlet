@@ -646,10 +646,10 @@ impl<W> Refusable for HireAnswer<W> {
 )]
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum HireRefusal {
-    #[error("say which hamlet")]
+    #[error("Say which hamlet to hire into.")]
     NoHamlet,
-    #[error("there is no such hamlet")]
-    NoSuchHamlet,
+    #[error("no hamlet has the id `{}`", id.0)]
+    NoSuchHamlet { id: HamletId },
     #[error("no agent has the address `{address}`")]
     NoSuchAgent { address: String },
     #[error("`hire#{}` is in another hamlet", lead.0)]
@@ -1071,8 +1071,8 @@ impl ChiefRequest for SetTier {
 )]
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum TierRefusal {
-    #[error("there is no such hamlet")]
-    NoSuchHamlet,
+    #[error("no hamlet has the id `{}`", id.0)]
+    NoSuchHamlet { id: HamletId },
     #[error("the hamlet holds {living} hires, more than that tier")]
     TooSmall { living: u32 },
 }

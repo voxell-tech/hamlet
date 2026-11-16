@@ -371,7 +371,10 @@ fn the_workers(fixtures: &mut Fixtures) {
                 "hamlet_from_an_agent",
                 WorkerRefusal::HamletFromAnAgent,
             ),
-            ("no_such_hamlet", WorkerRefusal::NoSuchHamlet),
+            (
+                "no_such_hamlet",
+                WorkerRefusal::NoSuchHamlet { id: hamlet() },
+            ),
         ]
     };
     answers(
@@ -642,7 +645,10 @@ fn the_choices(fixtures: &mut Fixtures) {
                     address: "hire#9".to_owned(),
                 },
             ),
-            ("no_such_hamlet", ChoiceRefusal::NoSuchHamlet),
+            (
+                "no_such_hamlet",
+                ChoiceRefusal::NoSuchHamlet { id: hamlet() },
+            ),
             ("left", left(HowEnded::ByTheChief)),
             ("left.answered", left(HowEnded::Answered)),
             ("left.failed", left(HowEnded::Failed)),
@@ -710,7 +716,6 @@ fn the_documents(fixtures: &mut Fixtures) {
         fixtures,
         "realm/chief_edit_charter",
         vec![
-            ("no_such_hamlet", EditRefusal::NoSuchHamlet),
             (
                 "no_such_model",
                 EditRefusal::NoSuchModel {

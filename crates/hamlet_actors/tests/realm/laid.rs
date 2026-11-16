@@ -674,7 +674,9 @@ async fn a_tier_below_the_living_hires_is_refused() {
     assert_eq!(
         missing,
         Done::Refused {
-            why: TierRefusal::NoSuchHamlet
+            why: TierRefusal::NoSuchHamlet {
+                id: HamletId("none".to_owned()),
+            }
         }
     );
     realm.host.shutdown().await.unwrap();

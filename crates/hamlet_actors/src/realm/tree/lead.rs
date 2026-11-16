@@ -27,7 +27,7 @@ use super::{Change, Lineage, Member, Of, Status};
 
 enum Joining {
     Hamlet(HamletId),
-    Missing,
+    Missing(HamletId),
     Unnamed,
 }
 
@@ -35,7 +35,7 @@ impl Joining {
     fn id(&self) -> Option<&HamletId> {
         match self {
             Self::Hamlet(id) => Some(id),
-            Self::Missing | Self::Unnamed => None,
+            Self::Missing(_) | Self::Unnamed => None,
         }
     }
 }
@@ -58,11 +58,12 @@ impl<By: Lead> Act<By> for Hire {
         let own = super::own_hamlet(rows, caller).await?;
         let hamlet = match (&own, &self.hamlet) {
             (Some(own), _) => Joining::Hamlet(own.clone()),
-            (None, Some(named)) => chiefs::hamlet(rows, named)
-                .await?
-                .map_or(Joining::Missing, |hamlet| {
-                    Joining::Hamlet(hamlet.id)
-                }),
+            (None, Some(named)) => {
+                chiefs::hamlet(rows, named).await?.map_or_else(
+                    || Joining::Missing(named.clone()),
+                    |hamlet| Joining::Hamlet(hamlet.id),
+                )
+            }
             (None, None) => Joining::Unnamed,
         };
         let under = match (&self.under, caller, own) {
@@ -99,8 +100,8 @@ impl<By: Lead> Act<By> for Hire {
             Decision::Answer(HireAnswer::refused(By::refused(why)))
         };
         let named = match hiring.hamlet {
-            Joining::Missing => {
-                return refuse(HireRefusal::NoSuchHamlet);
+            Joining::Missing(id) => {
+                return refuse(HireRefusal::NoSuchHamlet { id });
             }
             Joining::Hamlet(hamlet) => Some(hamlet),
             Joining::Unnamed => None,

@@ -456,7 +456,7 @@ impl Act<Agent> for StartWorker {
 pub(super) struct ByChief {
     worker: AgentNumber,
     /// `Err` for a hamlet named that the realm does not hold.
-    hamlet: Result<Option<HamletId>, ()>,
+    hamlet: Result<Option<HamletId>, HamletId>,
     /// The worker's own task.
     task: TaskId,
 }
@@ -475,7 +475,7 @@ impl Act<Client> for StartWorker {
             Some(id) => chiefs::hamlet(rows, id)
                 .await?
                 .map(|hamlet| Some(hamlet.id))
-                .ok_or(()),
+                .ok_or_else(|| id.clone()),
             None => Ok(None),
         };
         Ok(ByChief {
@@ -495,8 +495,11 @@ impl Act<Client> for StartWorker {
             Ok(brief) => brief,
             Err(why) => return refuse(why),
         };
-        let Ok(hamlet) = loaded.hamlet else {
-            return refuse(WorkerRefusal::NoSuchHamlet);
+        let hamlet = match loaded.hamlet {
+            Ok(hamlet) => hamlet,
+            Err(id) => {
+                return refuse(WorkerRefusal::NoSuchHamlet { id });
+            }
         };
         let payer = hamlet
             .clone()

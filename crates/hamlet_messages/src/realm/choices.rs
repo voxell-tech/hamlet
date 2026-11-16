@@ -80,8 +80,8 @@ pub enum ModelOf {
 pub enum ChoiceRefusal {
     #[error("no agent has the address `{address}`")]
     NoSuchAgent { address: String },
-    #[error("there is no such hamlet")]
-    NoSuchHamlet,
+    #[error("no hamlet has the id `{}`", id.0)]
+    NoSuchHamlet { id: HamletId },
     #[error("`hire#{}` has left: {left}", hire.0)]
     Left { hire: AgentNumber, left: Left },
     #[error("A nickname is one line of at most 24 letters.")]

@@ -414,8 +414,13 @@ impl<By: Lead> Act<By> for SetModel {
             Target::Hamlet { .. } if !by_chief => {
                 return refuse(ChoiceRefusal::HamletFromAnAgent);
             }
-            Target::Hamlet { found: false, .. } => {
-                return refuse(ChoiceRefusal::NoSuchHamlet);
+            Target::Hamlet {
+                hamlet,
+                found: false,
+            } => {
+                return refuse(ChoiceRefusal::NoSuchHamlet {
+                    id: hamlet,
+                });
             }
             Target::Hamlet {
                 hamlet,

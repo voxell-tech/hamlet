@@ -34,8 +34,6 @@ impl ChiefRequest for EditCharter {
 )]
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum EditRefusal {
-    #[error("there is no such hamlet")]
-    NoSuchHamlet,
     #[error("no model is named `{model}`")]
     NoSuchModel { model: String },
     #[error("a profile's documents are the profile's to edit")]

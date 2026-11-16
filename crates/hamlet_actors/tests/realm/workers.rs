@@ -456,7 +456,9 @@ async fn a_brief_and_a_hamlet_are_checked() {
     assert_eq!(
         missing,
         Started::Refused {
-            why: WorkerRefusal::NoSuchHamlet,
+            why: WorkerRefusal::NoSuchHamlet {
+                id: HamletId("nowhere".to_owned()),
+            },
         }
     );
 }

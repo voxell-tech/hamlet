@@ -399,7 +399,10 @@ fn the_founding_and_the_hires(fixtures: &mut Fixtures) {
     let hire_refusals = || {
         vec![
             ("no_hamlet", HireRefusal::NoHamlet),
-            ("no_such_hamlet", HireRefusal::NoSuchHamlet),
+            (
+                "no_such_hamlet",
+                HireRefusal::NoSuchHamlet { id: hamlet() },
+            ),
             (
                 "no_such_agent",
                 HireRefusal::NoSuchAgent {
@@ -897,7 +900,10 @@ fn the_limits_and_the_spending(fixtures: &mut Fixtures) {
         fixtures,
         "realm/chief_set_tier",
         vec![
-            ("no_such_hamlet", TierRefusal::NoSuchHamlet),
+            (
+                "no_such_hamlet",
+                TierRefusal::NoSuchHamlet { id: hamlet() },
+            ),
             ("too_small", TierRefusal::TooSmall { living: 120 }),
         ],
     );

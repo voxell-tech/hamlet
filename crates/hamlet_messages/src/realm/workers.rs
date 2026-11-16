@@ -99,8 +99,8 @@ pub enum WorkerRefusal {
     AWorker,
     #[error("only a chief names a worker's hamlet")]
     HamletFromAnAgent,
-    #[error("there is no such hamlet")]
-    NoSuchHamlet,
+    #[error("no hamlet has the id `{}`", id.0)]
+    NoSuchHamlet { id: HamletId },
 }
 
 /// The end of a worker's or an errand's one turn.

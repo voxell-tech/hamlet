@@ -40,7 +40,9 @@ impl Act<Client> for SetTier {
     ) -> Decision<(), Self::Output> {
         let Some(hamlet) = tiering.hamlet else {
             return Decision::Answer(Done::refused(
-                TierRefusal::NoSuchHamlet,
+                TierRefusal::NoSuchHamlet {
+                    id: self.hamlet.clone(),
+                },
             ));
         };
         if hamlet.tier == self.tier {
