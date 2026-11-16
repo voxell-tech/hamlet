@@ -41,7 +41,7 @@ use hamlet_messages::realm::{
 use hamlet_messages::workspace::{
     AgentNumber, ConversationId, ReachVersion, RealmTask,
 };
-use hamlet_protocol::client as protocol;
+use hamlet_protocol::{Effort, client as protocol};
 use serde::Serialize;
 use serde::de::DeserializeOwned;
 
@@ -1096,6 +1096,11 @@ fn seen() -> Seen {
         status,
         reach,
         worker: None,
+        nickname: None,
+        model: None,
+        effort: None,
+        fast: None,
+        allowance_micros: None,
     };
     Seen {
         revision: Revision(42),
@@ -1120,7 +1125,19 @@ fn seen() -> Seen {
                     wanted: ReachVersion(2),
                 },
             ),
-            agent(HIRE, Some(MAYOR), Status::Hiring, ReachSeen::None),
+            AgentSeen {
+                nickname: Some("ada".into()),
+                model: Some("anthropic::claude-opus".into()),
+                effort: Some(Effort::High),
+                fast: Some(true),
+                allowance_micros: Some(2_000_000),
+                ..agent(
+                    HIRE,
+                    Some(MAYOR),
+                    Status::Hiring,
+                    ReachSeen::None,
+                )
+            },
             agent(
                 AgentNumber(13),
                 Some(MAYOR),
@@ -1185,21 +1202,23 @@ fn seen() -> Seen {
 }
 
 fn waits() -> Vec<WaitSeen> {
-    let wait = |wait, kind| WaitSeen {
+    let wait = |wait, subject: &str, kind| WaitSeen {
         wait: WaitId(wait),
         agent: HIRE,
+        subject: subject.into(),
         kind,
     };
     vec![
         wait(
             3,
+            "curl https://example.com",
             WaitKind::Tool {
                 call: call("call-1"),
-                subject: "curl https://example.com".into(),
             },
         ),
         wait(
             4,
+            "Which seed?",
             WaitKind::Question {
                 message: Some("Before planting".into()),
                 questions: vec![Question {
@@ -1215,6 +1234,7 @@ fn waits() -> Vec<WaitSeen> {
         ),
         wait(
             5,
+            "`hire#3` objects: the field is better left alone",
             WaitKind::Objection {
                 reason: "the field is better left alone".into(),
                 source: ObjectionSource::Agent,
@@ -1222,19 +1242,16 @@ fn waits() -> Vec<WaitSeen> {
         ),
         wait(
             6,
+            "hire#2 objects: the odd line breaks the plan",
             WaitKind::Objection {
                 reason: "the odd line breaks the plan".into(),
                 source: ObjectionSource::Review,
             },
         ),
-        wait(
-            7,
-            WaitKind::Reserved {
-                act: "end hire#13: the docs are done".into(),
-            },
-        ),
+        wait(7, "end hire#13: the docs are done", WaitKind::Reserved),
         wait(
             8,
+            "40 MB in 1200 files: tell {}",
             WaitKind::Send {
                 measure: Measure {
                     files: 1_200,
@@ -1242,12 +1259,7 @@ fn waits() -> Vec<WaitSeen> {
                 },
             },
         ),
-        wait(
-            9,
-            WaitKind::Fault {
-                words: "the model failed: overloaded".into(),
-            },
-        ),
+        wait(9, "the model failed: overloaded", WaitKind::Fault),
     ]
 }
 

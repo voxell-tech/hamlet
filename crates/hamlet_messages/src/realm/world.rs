@@ -1,6 +1,7 @@
 //! The world a client shows, as the realm answers a
 //! [`super::client::ReadWorld`].
 
+use hamlet_protocol::Effort;
 use serde::{Deserialize, Serialize};
 
 use super::budget::Payer;
@@ -53,6 +54,19 @@ pub struct AgentSeen {
     /// Who started it, for a worker; absent for any other agent.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub worker: Option<Starter>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub nickname: Option<String>,
+    /// The model chosen for it; absent while it follows its hamlet's
+    /// or the realm's.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub model: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub effort: Option<Effort>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub fast: Option<bool>,
+    /// What a hire may spend in its hamlet's budget period.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub allowance_micros: Option<u64>,
 }
 
 /// Who started a worker.
@@ -113,6 +127,8 @@ pub struct WaitId(pub u64);
 pub struct WaitSeen {
     pub wait: WaitId,
     pub agent: AgentNumber,
+    /// The words a chief reads.
+    pub subject: String,
     pub kind: WaitKind,
 }
 
@@ -121,11 +137,7 @@ pub struct WaitSeen {
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum WaitKind {
     /// A call the workspace keeps until a chief allows it.
-    Tool {
-        call: CallId,
-        /// The call in words, as the workspace gave it.
-        subject: String,
-    },
+    Tool { call: CallId },
     Question {
         #[serde(default, skip_serializing_if = "Option::is_none")]
         message: Option<String>,
@@ -137,14 +149,11 @@ pub enum WaitKind {
         source: ObjectionSource,
     },
     /// A lead's act a chief keeps for itself.
-    Reserved {
-        /// The act in words.
-        act: String,
-    },
+    Reserved,
     /// Files an agent sends that are more than it may send alone.
     Send { measure: Measure },
     /// A turn that ended with no answer.
-    Fault { words: String },
+    Fault,
 }
 
 /// Who raised an objection.
