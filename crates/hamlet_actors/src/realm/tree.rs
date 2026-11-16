@@ -299,6 +299,31 @@ pub(super) async fn left(
     })
 }
 
+/// Every living hire under `lead`, at any depth: each hire's own
+/// hires follow the last of its hires, as today's tree walks them.
+pub(super) async fn under(
+    rows: &Rows<'_>,
+    lead: AgentNumber,
+) -> Result<Vec<AgentNumber>> {
+    let mut under = Vec::new();
+    let mut next = vec![lead];
+    while let Some(at) = next.pop() {
+        for hire in rows
+            .values::<u32>(
+                "SELECT hire.agent FROM hire JOIN agent ON agent.id \
+                 = hire.agent WHERE hire.lead = ?1 AND agent.status \
+                 != 'ended' ORDER BY hire.agent",
+                vec![number(at)],
+            )
+            .await?
+        {
+            under.push(AgentNumber(hire));
+            next.push(AgentNumber(hire));
+        }
+    }
+    Ok(under)
+}
+
 /// The hires of `hamlet` that count toward its tier: `hiring` and
 /// `live`.
 pub(super) async fn living(

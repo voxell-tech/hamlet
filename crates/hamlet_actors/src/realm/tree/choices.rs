@@ -33,13 +33,22 @@ pub(in crate::realm) enum Chosen {
     Hamlet(HamletId),
 }
 
+/// The start of an agent's choice's key, before its number.
+const AGENT_KEY: &str = "agent/";
+
 impl Chosen {
     fn key(&self) -> String {
         match self {
-            Self::Agent(agent) => format!("agent/{}", agent.0),
+            Self::Agent(agent) => format!("{AGENT_KEY}{}", agent.0),
             Self::Hamlet(hamlet) => format!("hamlet/{}", hamlet.0),
         }
     }
+}
+
+/// SQL for the key of the choice of the agent whose number is
+/// `column`.
+pub(in crate::realm) fn agent_key(column: &str) -> String {
+    format!("'{AGENT_KEY}' || {column}")
 }
 
 /// A model choice as kept: each part absent is the next choice up's.
@@ -105,7 +114,7 @@ pub(in crate::realm) async fn apply(
     writer: &Writer<'_>,
     change: Change,
 ) -> Result<Affected> {
-    match change {
+    let shown = match change {
         Change::Nickname {
             agent,
             name: None,
@@ -116,13 +125,16 @@ pub(in crate::realm) async fn apply(
                     "DELETE FROM nickname WHERE agent = ?1",
                     vec![number(agent)],
                 )
-                .await?;
+                .await?
+                > 0
         }
         Change::Nickname {
             agent,
             name: Some(name),
             by,
         } => {
+            let was = nickname(&writer.rows(), agent).await?;
+            let shown = was.as_ref() != Some(&name);
             writer
                 .execute(
                     "INSERT INTO nickname (agent, name, by, at) \
@@ -137,6 +149,7 @@ pub(in crate::realm) async fn apply(
                     ],
                 )
                 .await?;
+            shown
         }
         Change::Model {
             of,
@@ -145,6 +158,19 @@ pub(in crate::realm) async fn apply(
             fast,
             by,
         } => {
+            // The world shows an agent's own choice, not a hamlet's.
+            let shown = match of {
+                Chosen::Agent(_) => {
+                    let was = choice(&writer.rows(), &of).await?;
+                    model.as_ref().is_some_and(|model| {
+                        was.model.as_ref() != Some(model)
+                    }) || effort.is_some_and(|effort| {
+                        was.effort != Some(effort)
+                    }) || fast
+                        .is_some_and(|fast| was.fast != Some(fast))
+                }
+                Chosen::Hamlet(_) => false,
+            };
             let effort = effort
                 .map(|effort| change::case_name(&effort))
                 .transpose()?;
@@ -183,19 +209,28 @@ pub(in crate::realm) async fn apply(
                         .await?
                 }
             };
+            let copies = readers
+                .into_iter()
+                .map(|agent| Copied {
+                    part: documents::Part::Model,
+                    readers: Readers::Agent(agent),
+                })
+                .collect();
             return Ok(Affected {
-                copies: readers
-                    .into_iter()
-                    .map(|agent| Copied {
-                        part: documents::Part::Model,
-                        readers: Readers::Agent(agent),
-                    })
-                    .collect(),
-                ..Affected::seen([Part::Agents])
+                copies,
+                ..shown_agents(shown)
             });
         }
+    };
+    Ok(shown_agents(shown))
+}
+
+fn shown_agents(shown: bool) -> Affected {
+    if shown {
+        Affected::seen([Part::Agents])
+    } else {
+        Affected::default()
     }
-    Ok(Affected::seen([Part::Agents]))
 }
 
 pub(in crate::realm) async fn nickname(
@@ -233,10 +268,13 @@ async fn subject<By: Lead>(
 /// it leads.
 fn led<By: Lead>(
     by: &By,
+    named: &Named,
     subject: Option<Subject>,
 ) -> Result<AgentNumber, By::Why<ChoiceRefusal>> {
     let Some(Subject { lineage, name }) = subject else {
-        return Err(By::refused(ChoiceRefusal::NoSuchAgent));
+        return Err(By::refused(ChoiceRefusal::NoSuchAgent {
+            address: named.to_string(),
+        }));
     };
     let agent = lineage.agent.agent;
     by.leads(&lineage, agent)?;
@@ -287,7 +325,7 @@ impl<By: Lead> Act<By> for SetNickname {
         subject: Option<Subject>,
     ) -> Decision<(), Self::Output> {
         let refuse = |why| Decision::Answer(Done::refused(why));
-        let agent = match led(by, subject) {
+        let agent = match led(by, &self.hire, subject) {
             Ok(agent) => agent,
             Err(why) => return refuse(why),
         };
@@ -317,6 +355,7 @@ impl<By: Lead> Act<By> for SetNickname {
 
 pub(in crate::realm) enum Target {
     Agent {
+        hire: Named,
         subject: Option<Subject>,
         chief_chose: bool,
     },
@@ -351,6 +390,7 @@ impl<By: Lead> Act<By> for SetModel {
                     None => false,
                 };
                 Target::Agent {
+                    hire: hire.clone(),
                     subject,
                     chief_chose,
                 }
@@ -382,9 +422,10 @@ impl<By: Lead> Act<By> for SetModel {
                 found: true,
             } => Chosen::Hamlet(hamlet),
             Target::Agent {
+                hire,
                 subject,
                 chief_chose,
-            } => match led(by, subject) {
+            } => match led(by, &hire, subject) {
                 Ok(hire) if chief_chose && !by_chief => {
                     return refuse(ChoiceRefusal::ChiefChose {
                         hire,

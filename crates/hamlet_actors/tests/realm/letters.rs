@@ -15,7 +15,7 @@ use hamlet_protocol::client::RequestId;
 use super::{
     Callee, FOUR, MAYOR, Realm, Seen, THREE, error_code, found,
     founded, hamlet_with, hires, purpose_of, say, seen_submits,
-    standing, tell, to, tool,
+    standing, tell, to, tool, words,
 };
 
 fn from(agent: AgentNumber) -> Author {
@@ -359,5 +359,17 @@ async fn an_answer_reaches_the_asker_once() {
             conversation,
         }
     );
+    realm.host.shutdown().await.unwrap();
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn a_letter_to_no_agent_names_its_address() {
+    let (realm, _) = hamlet_with(0).await;
+    let sent = realm
+        .tool(MAYOR, &tool("t1", tell(to(AgentNumber(9)), "Hello.")))
+        .await
+        .unwrap();
+
+    assert_eq!(words(sent), "no agent has the address `hire#9`");
     realm.host.shutdown().await.unwrap();
 }

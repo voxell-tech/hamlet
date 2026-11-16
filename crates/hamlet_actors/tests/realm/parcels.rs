@@ -15,9 +15,10 @@ use hamlet_messages::bytes::{Base64, Sha256};
 use hamlet_messages::realm::client::AnswerRefusal;
 use hamlet_messages::realm::oversight::{Lapse, LapseReason};
 use hamlet_messages::realm::parcels::{
-    FetchPart, PARCEL_PART, ParcelFile, ParcelId, Part, PartRefusal,
-    part_start,
+    FetchPart, Measure, PARCEL_PART, ParcelFile, ParcelId, Part,
+    PartRefusal, part_start,
 };
+use hamlet_messages::realm::world::WaitKind;
 use hamlet_messages::realm::{Done, Enclosed, Tell};
 use hamlet_messages::sender::Hand;
 use hamlet_messages::workspace::refusal::{PathRefusal, ToRead};
@@ -512,18 +513,17 @@ async fn over_the_cap_a_parcel_waits_for_a_chief() {
     // "1001 files". The realm restarts, and the wait outlasts a day;
     // an allow then sends the letter with every file, still fetched.
     // A second send is denied "too much": 2 is told, and 3 gets no
-    // second letter.
-    let names = (1..=1001)
-        .map(|n| format!("/project/big/{n:04}"))
-        .collect::<Vec<_>>();
-    let files = names
-        .iter()
-        .map(|name| (name.as_str(), &b"x"[..]))
-        .collect::<Vec<_>>();
-    let (realm, files) = sending(Files::with(&files)).await;
+    // second letter. The world shows the wait with its measure.
+    let (realm, files) = sending(over_the_cap()).await;
 
     sends(&realm, "t1", "Everything.", &["/project/big"]).await;
     opens(&realm, "1").await;
+    let seen = super::world::seen_until(
+        &realm,
+        "the send wait shows",
+        |seen| !seen.waits.is_empty(),
+    )
+    .await;
     let realm = restart(realm, &files).await;
     realm.write("UPDATE parcel SET at = 0 WHERE id = 1").await;
     chief_answers(&realm, "1", Choice::Allow, None, 0).await;
@@ -558,6 +558,18 @@ async fn over_the_cap_a_parcel_waits_for_a_chief() {
         );
     }
     assert!(subjects[1].1.contains("Again."));
+    assert_eq!(
+        seen.waits
+            .iter()
+            .map(|wait| wait.kind.clone())
+            .collect::<Vec<_>>(),
+        [WaitKind::Send {
+            measure: Measure {
+                files: 1001,
+                bytes: 1001,
+            },
+        }]
+    );
 }
 
 #[tokio::test(flavor = "multi_thread")]

@@ -359,35 +359,45 @@ pub(super) async fn set(
     writer: &Writer<'_>,
     kept: Kept,
 ) -> Result<Affected> {
-    let mut affected = Affected::seen([Part::Spend]);
-    let (sql, params) = match kept.0 {
+    let rows = writer.rows();
+    let mut affected = Affected::default();
+    let (budget_moved, sql, params) = match kept.0 {
         Row::Realm(limits) => {
+            let was = stored(&rows).await?.unwrap_or_default();
             // Every living agent's roads to other hamlets open or
             // close with them.
-            if roads_between(&writer.rows()).await?
-                != limits.roads_between
-            {
-                affected.places = documents::living(&writer.rows())
+            if was.roads_between != limits.roads_between {
+                affected.places = documents::living(&rows)
                     .await?
                     .into_iter()
                     .collect();
                 affected.seen.insert(Part::Roads);
             }
             (
+                was.budget != limits.budget,
                 "UPDATE realm SET limits = ?1 WHERE id = 1",
                 vec![BindParam::Text(serde_json::to_string(
                     &limits,
                 )?)],
             )
         }
-        Row::Hamlet(id, limits) => (
-            "UPDATE hamlet SET limits = ?2 WHERE id = ?1",
-            vec![
-                BindParam::Text(id.0),
-                BindParam::Text(serde_json::to_string(&limits)?),
-            ],
-        ),
+        Row::Hamlet(id, limits) => {
+            let was = super::hamlet(&rows, &id)
+                .await?
+                .map(|hamlet| hamlet.limits.budget);
+            (
+                was.as_ref() != Some(&limits.budget),
+                "UPDATE hamlet SET limits = ?2 WHERE id = ?1",
+                vec![
+                    BindParam::Text(id.0),
+                    BindParam::Text(serde_json::to_string(&limits)?),
+                ],
+            )
+        }
     };
+    if budget_moved {
+        affected.seen.insert(Part::Spend);
+    }
     writer.execute(sql, params).await?;
     Ok(affected)
 }

@@ -353,19 +353,27 @@ fn numbered(by: &str) -> Result<AgentNumber> {
     }
 }
 
+/// `agent`'s address, as in `hire#3`.
+pub(super) async fn address(
+    rows: &Rows<'_>,
+    agent: AgentNumber,
+) -> Result<String> {
+    let n = agent.0;
+    Ok(match super::tree::kind_of(rows, agent).await? {
+        AgentKind::Hand => "hand".to_owned(),
+        AgentKind::Hire => format!("hire#{n}"),
+        AgentKind::Worker => format!("worker#{n}"),
+        AgentKind::Errand => bail!("errand {n} has no address"),
+    })
+}
+
 /// How `agent` is shown to chiefs and agents: its address, with its
 /// nickname beside it when it has one, as in `hire#3 (Spade)`.
 pub(super) async fn name_of(
     rows: &Rows<'_>,
     agent: AgentNumber,
 ) -> Result<String> {
-    let n = agent.0;
-    let address = match super::tree::kind_of(rows, agent).await? {
-        AgentKind::Hand => "hand".to_owned(),
-        AgentKind::Hire => format!("hire#{n}"),
-        AgentKind::Worker => format!("worker#{n}"),
-        AgentKind::Errand => bail!("errand {n} decided something"),
-    };
+    let address = address(rows, agent).await?;
     Ok(match choices::nickname(rows, agent).await? {
         Some(nickname) => format!("{address} ({nickname})"),
         None => address,

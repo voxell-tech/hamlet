@@ -483,6 +483,7 @@ async fn an_objection_holds_spending_and_letters_until_go() {
         .unwrap();
     let told = given_until(&realm, THREE, before, 3).await;
     let answered = given_until(&realm, MAYOR, mayor_before, 1).await;
+    let kept = held_rows(&realm).await;
 
     assert_eq!(objected, Done::Done);
     assert_eq!((spending, own), (held(&task), Done::Done));
@@ -507,6 +508,7 @@ async fn an_objection_holds_spending_and_letters_until_go() {
     );
     assert_eq!(answered, ["answer: the second"]);
     assert_eq!(may_spend(&realm, THREE, &task).await, Done::Done);
+    assert_eq!(kept, 0);
     realm.host.shutdown().await.unwrap();
 }
 

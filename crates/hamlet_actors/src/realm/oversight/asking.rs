@@ -27,7 +27,7 @@ use super::super::calls::{Delivery, Made};
 use super::super::change::{self, Affected, Rows, Writer, number};
 use super::super::tasks::{Origin, TaskId};
 use super::super::waits::{self, Raised, Ruling};
-use super::super::{Realm, letters, parcels, record, tree};
+use super::super::{Realm, letters, parcels, record, reviews, tree};
 
 #[derive(Debug, PartialEq)]
 pub(in crate::realm) enum Change {
@@ -52,9 +52,9 @@ pub(in crate::realm) enum Change {
     Withdraw {
         task: TaskId,
     },
-    /// The objection to `task` lapsed with its wait: the letters held
-    /// on it are dropped.
-    Lapse {
+    /// The rows of the letters held on `task` go: given after go, or
+    /// dropped as its objection lapsed with its wait.
+    Unhold {
         task: TaskId,
     },
 }
@@ -116,7 +116,7 @@ pub(in crate::realm) async fn apply(
             rule(writer, task, WITHDRAW).await?;
             drop_held(writer, task).await?;
         }
-        Change::Lapse { task } => {
+        Change::Unhold { task } => {
             drop_held(writer, task).await?;
         }
     }
@@ -386,7 +386,13 @@ pub(in crate::realm) async fn deliver_held(
     ctx: &Ctx<Realm>,
     task: TaskId,
 ) -> Result<()> {
-    super::super::reviews::deliver(realm, ctx, task).await?;
+    let mut failed = 0;
+    if let Err(error) = reviews::deliver(realm, ctx, task).await {
+        tracing::warn!(
+            "the line held on task {task:?} was not given: {error:#}"
+        );
+        failed += 1;
+    }
     let rows = Rows::outside(ctx)?;
     let held = rows
         .rows::<(u32, String)>(
@@ -395,7 +401,6 @@ pub(in crate::realm) async fn deliver_held(
             vec![task.column()?],
         )
         .await?;
-    let mut failed = 0;
     for (letter, kept) in held {
         let letter = LetterId(letter);
         let delivery = match change::from_case_name(kept)? {
@@ -412,14 +417,17 @@ pub(in crate::realm) async fn deliver_held(
             failed += 1;
         }
     }
+    change::commit(realm, ctx, vec![Change::Unhold { task }.into()])
+        .await?;
     ensure!(
         failed == 0,
-        "{failed} letters held on task {task:?} were not delivered"
+        "{failed} deliveries held on task {task:?} failed"
     );
     Ok(())
 }
 
-/// `task`, when it is `agent`'s own and of one of `origins`.
+/// `task`, when it is `agent`'s own, of one of `origins`, and given
+/// to it: a line its lead's review keeps is not yet.
 async fn own_task(
     rows: &Rows<'_>,
     agent: AgentNumber,
@@ -438,6 +446,9 @@ async fn own_task(
     else {
         return Ok(None);
     };
+    if reviews::withholds(rows, task).await? {
+        return Ok(None);
+    }
     for of in origins {
         if origin == change::case_name(of)? {
             return Ok(Some(task));

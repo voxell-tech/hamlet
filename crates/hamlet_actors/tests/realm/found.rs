@@ -1,11 +1,11 @@
 use hamlet_messages::realm::client::SayAnswer;
-use hamlet_messages::realm::{Asked, Found, FoundAnswer, Tool};
+use hamlet_messages::realm::{Asked, Found, FoundAnswer};
 use hamlet_messages::sender::Hand;
-use hamlet_messages::workspace::{AgentNumber, CallId};
+use hamlet_messages::workspace::AgentNumber;
 use hamlet_protocol::client::RequestId;
 use rusqlite::OptionalExtension;
 
-use super::{MAYOR, Realm, error_code, found, purpose_of, say};
+use super::{MAYOR, Realm, error_code, found, purpose_of, say, tool};
 
 fn count(
     db: &rusqlite::Connection,
@@ -107,15 +107,8 @@ async fn a_found_from_an_agent_that_is_not_the_hand_is_refused() {
     // tool ByHand<Tool<Found>> as agent 2: `message.wrong_caller`.
     let realm = Realm::start().await;
 
-    let called = realm
-        .tool(
-            AgentNumber(2),
-            &Tool {
-                call: CallId("t1".to_owned()),
-                act: found("Mill"),
-            },
-        )
-        .await;
+    let called =
+        realm.tool(AgentNumber(2), &tool("t1", found("Mill"))).await;
 
     assert_eq!(error_code(called), "message.wrong_caller");
     realm.host.shutdown().await.unwrap();

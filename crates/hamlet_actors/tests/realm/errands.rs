@@ -26,8 +26,8 @@ use hamlet_messages::workspace::{
 };
 
 use super::{
-    Callee, MAYOR, Realm, THREE, charge, hamlet_with, hire, made,
-    may_spend, standing, tell, to, tool, until,
+    Callee, MAYOR, Realm, THREE, charge, hamlet_with, hire,
+    made_until, may_spend, standing, tell, to, tool, until,
 };
 
 fn errand(n: u32) -> AgentNumber {
@@ -61,14 +61,6 @@ async fn seed(realm: &Realm, n: u32, task: &RealmTask, cap: u64) {
              INTO step (kind, n, at) VALUES ('errand', {n}, 0);"
         ))
         .await;
-}
-
-async fn made_until(realm: &Realm, agent: AgentNumber) -> AgentInput {
-    until(&format!("agent {} is made", agent.0), || {
-        made(realm, agent).is_some()
-    })
-    .await;
-    made(realm, agent).unwrap()
 }
 
 #[tokio::test(flavor = "multi_thread")]

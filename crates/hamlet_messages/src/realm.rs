@@ -109,6 +109,12 @@ pub struct Asked<T> {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Tool<T> {
     pub call: CallId,
+    /// The realm's task of the calling turn, as the turn carried it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub task: Option<RealmTask>,
+    /// The calling turn's conversation.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub conversation: Option<ConversationId>,
     pub act: T,
 }
 
@@ -282,7 +288,8 @@ pub enum Standing {
     NotAMember,
 }
 
-/// A tool a lead turned off for the caller (C16).
+/// Why a caller's tool does not run now: a lead turned it off (C16),
+/// a chief must allow it, or a chief's refusals refuse it (H11).
 #[derive(
     Clone,
     Debug,
@@ -303,6 +310,22 @@ pub enum Gate {
          are told"
     )]
     Reserved { wait: world::WaitId },
+    /// A chief refused the same request on the caller's task, or
+    /// every request for the network.
+    #[error(
+        "the chief already refused this in this turn ({reason}). Do \
+         not ask again: go on without it, or report that you could \
+         not."
+    )]
+    AlreadyRefused { reason: String },
+    /// The chief refused as many requests on the caller's task as its
+    /// limits allow.
+    #[error(
+        "the chief has refused {refused} requests this turn and \
+         will not be asked again in it. Stop and report what you \
+         could not do."
+    )]
+    PastTheCount { refused: u32 },
 }
 
 /// An act that needs a lead's powers over the hire it names (H41).
@@ -775,8 +798,8 @@ pub enum LetterRefusal {
     Yourself,
     #[error("say what to send")]
     Empty,
-    #[error("no agent is at that address")]
-    NoSuchAgent,
+    #[error("no agent has the address `{address}`")]
+    NoSuchAgent { address: String },
     #[error("you have no road to `hire#{}`; ask your lead for one with request_road", to.0)]
     NoRoad { to: AgentNumber },
     #[error("no road yet to `hire#{}`: it is still being hired", to.0)]

@@ -9,10 +9,12 @@ use hamlet_messages::agent::AgentKind;
 use hamlet_messages::realm::client::Answer;
 use hamlet_messages::realm::world::WaitId;
 use hamlet_messages::realm::{
-    Done, End, Hire, HireAnswer, LayRoad, Named, SocietyTool,
+    Done, End, Gate, Hire, HireAnswer, LayRoad, Named, SocietyTool,
     TakeUpRoad,
 };
-use hamlet_messages::workspace::AgentNumber;
+use hamlet_messages::workspace::{
+    AgentNumber, ConversationId, RealmTask,
+};
 use hamlet_protocol::client::Choice;
 use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value};
@@ -20,6 +22,7 @@ use serde_json::{Map, Value};
 use super::super::act::{Act, Decided, Decision};
 use super::super::change::{self, Rows};
 use super::super::chiefs::limits::Reserved;
+use super::super::tasks::TaskId;
 use super::super::waits::{self, Kind, Raised, Ruling};
 use super::super::{record, tree};
 
@@ -123,15 +126,26 @@ fn limit(tool: SocietyTool) -> Option<fn(&Reserved) -> bool> {
     }
 }
 
-/// The wait that keeps `act`, with the changes that open it, when the
-/// limits of `by`'s hamlet reserve `tool` for a chief. Only a hire
-/// has a hamlet: the Hand's and a worker's acts are never reserved.
+/// A call the limits reserve for a chief.
+pub(in crate::realm) enum Kept {
+    /// The wait that keeps it, with the changes that open it.
+    Waits(Decided<WaitId>),
+    /// A chief's refusals on its task refuse it unasked.
+    Refused(Gate),
+}
+
+/// What becomes of `act`, called by `by` in a turn on `task` and in
+/// `conversation`, when the limits of `by`'s hamlet reserve `tool`
+/// for a chief. Only a hire has a hamlet: the Hand's and a worker's
+/// acts are never reserved.
 pub(in crate::realm) async fn reserve(
     rows: &Rows<'_>,
     tool: SocietyTool,
     by: AgentNumber,
+    task: Option<&RealmTask>,
+    conversation: Option<&ConversationId>,
     act: &impl Serialize,
-) -> Result<Option<Decided<WaitId>>> {
+) -> Result<Option<Kept>> {
     let Some(reserves) = limit(tool) else {
         return Ok(None);
     };
@@ -147,19 +161,31 @@ pub(in crate::realm) async fn reserve(
     }
     let mut detail = Vec::new();
     ciborium::into_writer(&Keeping { tool, act }, &mut detail)?;
-    let held = ciborium::from_reader::<Held, _>(detail.as_slice())?;
+    let subject =
+        ciborium::from_reader::<Held, _>(detail.as_slice())?
+            .subject();
+    let task = task.and_then(TaskId::of);
+    if let Some(task) = task
+        && let Some(why) =
+            waits::refused_unasked(rows, by, task, &[], &subject)
+                .await?
+    {
+        return Ok(Some(Kept::Refused(why)));
+    }
     let wait = waits::next(rows).await?;
-    Ok(Some(Decided::new(wait).change(waits::Change::Raise {
-        wait,
-        raised: Raised {
-            agent: by,
-            kind: Kind::Reserved,
-            task: None,
-            conversation: None,
-            subject: held.subject(),
-            detail,
+    Ok(Some(Kept::Waits(Decided::new(wait).change(
+        waits::Change::Raise {
+            wait,
+            raised: Raised {
+                agent: by,
+                kind: Kind::Reserved,
+                task,
+                conversation: conversation.cloned(),
+                subject,
+                detail,
+            },
         },
-    })))
+    ))))
 }
 
 /// What a reserved act's wait adds to the chief's `answer` on wait

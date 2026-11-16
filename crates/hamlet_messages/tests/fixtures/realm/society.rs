@@ -636,7 +636,12 @@ fn the_choices(fixtures: &mut Fixtures) {
             left: left(how),
         };
         vec![
-            ("no_such_agent", ChoiceRefusal::NoSuchAgent),
+            (
+                "no_such_agent",
+                ChoiceRefusal::NoSuchAgent {
+                    address: "hire#9".to_owned(),
+                },
+            ),
             ("no_such_hamlet", ChoiceRefusal::NoSuchHamlet),
             ("left", left(HowEnded::ByTheChief)),
             ("left.answered", left(HowEnded::Answered)),

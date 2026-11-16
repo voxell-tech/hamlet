@@ -7,19 +7,20 @@ use hamlet_actor::Ctx;
 use hamlet_messages::realm::HamletId;
 use hamlet_messages::realm::budget::Payer;
 use hamlet_messages::realm::client::ReadWorld;
-use hamlet_messages::realm::parcels::Measure;
 use hamlet_messages::realm::world::{
     AgentSeen, GrantSeen, HamletSeen, ReachSeen, Revision, Seen,
     Spend, Starter, Status, WaitId, WaitKind, WaitSeen,
 };
 use hamlet_messages::sender::Client;
 use hamlet_messages::workspace::{AgentNumber, CallId, ReachVersion};
-use serde::Deserialize;
 use tokio::sync::Mutex;
 
 use super::act::Look;
 use super::change::{self, Affected, Column as _, Rows};
-use super::{Realm, budget, laid, tree, versions, waits};
+use super::tree::choices;
+use super::{
+    Realm, budget, chiefs, laid, parcels, tree, versions, waits,
+};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
 pub(super) enum Part {
@@ -147,18 +148,21 @@ async fn agents(rows: &Rows<'_>) -> Result<Vec<AgentSeen>> {
     let mut agents = Vec::new();
     for row in rows
         .select(
-            "SELECT agent.id, agent.status, agent.ended_how, \
-             agent.ended_why, COALESCE(hire.hamlet, worker.hamlet), \
-             hire.lead, reach.wanted, reach.applied, worker.agent, \
-             worker.starter, nickname.name, model_choice.model, \
-             model_choice.effort, model_choice.fast, \
-             allowance.micros FROM agent LEFT JOIN hire ON \
-             hire.agent = agent.id LEFT JOIN reach ON reach.agent = \
-             agent.id LEFT JOIN worker ON worker.agent = agent.id \
-             LEFT JOIN nickname ON nickname.agent = agent.id LEFT \
-             JOIN model_choice ON model_choice.of = 'agent/' || \
-             agent.id LEFT JOIN allowance ON allowance.hire = \
-             agent.id ORDER BY agent.id",
+            &format!(
+                "SELECT agent.id, agent.status, agent.ended_how, \
+                 agent.ended_why, hire.lead, reach.wanted, \
+                 reach.applied, worker.agent, worker.starter, \
+                 nickname.name, model_choice.model, \
+                 model_choice.effort, model_choice.fast, \
+                 allowance.micros FROM agent LEFT JOIN hire ON \
+                 hire.agent = agent.id LEFT JOIN reach ON \
+                 reach.agent = agent.id LEFT JOIN worker ON \
+                 worker.agent = agent.id LEFT JOIN nickname ON \
+                 nickname.agent = agent.id LEFT JOIN model_choice \
+                 ON model_choice.of = {} LEFT JOIN allowance ON \
+                 allowance.hire = agent.id ORDER BY agent.id",
+                choices::agent_key("agent.id")
+            ),
             Vec::new(),
         )
         .await?
@@ -168,7 +172,6 @@ async fn agents(rows: &Rows<'_>) -> Result<Vec<AgentSeen>> {
             status,
             how,
             why,
-            hamlet,
             lead,
             wanted,
             applied,
@@ -196,7 +199,7 @@ async fn agents(rows: &Rows<'_>) -> Result<Vec<AgentSeen>> {
         };
         agents.push(AgentSeen {
             agent,
-            hamlet: Option::of(hamlet)?.map(HamletId),
+            hamlet: chiefs::hamlet::of_agent(rows, agent).await?,
             lead: Option::of(lead)?.map(AgentNumber),
             status,
             reach: reach(Option::of(wanted)?, Option::of(applied)?),
@@ -255,12 +258,6 @@ async fn hamlets(rows: &Rows<'_>) -> Result<Vec<HamletSeen>> {
     .collect()
 }
 
-/// A send wait's detail, as `parcels` keeps it.
-#[derive(Deserialize)]
-struct Sending {
-    measure: Measure,
-}
-
 type WaitRow = (
     u64,
     u32,
@@ -270,29 +267,19 @@ type WaitRow = (
     Option<Vec<u8>>,
 );
 
-/// The open waits. A wait whose row does not read is left out, so one
-/// row never stops the realm's start or the copy's refresh.
 async fn waits(rows: &Rows<'_>) -> Result<Vec<WaitSeen>> {
-    Ok(rows
-        .rows::<WaitRow>(
-            "SELECT id, agent, kind, call, subject, detail FROM \
-             wait WHERE closed_at IS NULL ORDER BY id",
-            Vec::new(),
-        )
-        .await?
-        .into_iter()
-        .filter_map(|row| {
-            let wait = row.0;
-            wait_seen(row)
-                .inspect_err(|error| {
-                    tracing::warn!(
-                        "wait {wait} is left out of the world: \
-                         {error:#}"
-                    );
-                })
-                .ok()
-        })
-        .collect())
+    rows.rows::<WaitRow>(
+        "SELECT id, agent, kind, call, subject, detail FROM wait \
+         WHERE closed_at IS NULL ORDER BY id",
+        Vec::new(),
+    )
+    .await?
+    .into_iter()
+    .map(|row| {
+        let wait = row.0;
+        wait_seen(row).with_context(|| format!("wait {wait}"))
+    })
+    .collect()
 }
 
 fn wait_seen(
@@ -308,8 +295,7 @@ fn wait_seen(
         }
         waits::Kind::Reserved => WaitKind::Reserved,
         waits::Kind::Send => WaitKind::Send {
-            measure: ciborium::from_reader::<Sending, _>(detail()?)?
-                .measure,
+            measure: parcels::measure_of(detail()?)?,
         },
         waits::Kind::Fault => WaitKind::Fault,
     };

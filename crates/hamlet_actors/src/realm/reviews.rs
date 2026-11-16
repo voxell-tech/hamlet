@@ -2,7 +2,7 @@
 //! receives it: the `review` table and its deadline (H10).
 
 use std::sync::Arc;
-use std::time::{Duration, SystemTime, UNIX_EPOCH};
+use std::time::Duration;
 
 use anyhow::{Context as _, Result, bail, ensure};
 use hamlet_actor::{BindParam, Ctx};
@@ -12,11 +12,9 @@ use hamlet_messages::agent::{AgentKind, Input, Submit};
 use hamlet_messages::realm::Review;
 use hamlet_messages::realm::workers::Ended;
 use hamlet_messages::realm::world::{ObjectionSource, WaitKind};
-use hamlet_messages::workspace::{
-    AgentNumber, ErrandNumber, RealmTask,
-};
+use hamlet_messages::workspace::{AgentNumber, RealmTask};
 
-use super::change::{self, Affected, Rows, Writer, integer, number};
+use super::change::{self, Affected, Rows, Writer, number};
 use super::oversight::asking;
 use super::peer::When;
 use super::settings::{self, Settings};
@@ -24,7 +22,9 @@ use super::steps::{self, Cx, Kind, StepId, Steps};
 use super::tasks::TaskId;
 use super::tree::{self, Lineage};
 use super::workers::errands::{self, ErrandInput, Purpose};
-use super::{Options, REVIEW_DEADLINE, Realm, documents, waits};
+use super::{
+    Options, REVIEW_DEADLINE, Realm, documents, record, waits,
+};
 
 /// The most an errand may spend: today's review has no cap of its
 /// own, so only its task's budget bounds it.
@@ -36,12 +36,11 @@ const FAUX: &str = "faux";
 #[derive(Debug, PartialEq)]
 pub(super) enum Change {
     /// `line`, a chief's line on `task` to `hire`, waits for `lead`'s
-    /// review in errand `errand`.
+    /// review.
     Hold {
         task: TaskId,
         hire: AgentNumber,
         lead: AgentNumber,
-        errand: ErrandNumber,
         line: Submit,
     },
     /// The review of `task` ended as `verdict`, when it had not.
@@ -57,11 +56,13 @@ pub(super) enum Verdict {
     Failed,
 }
 
+const OBJECTED: &str = "objected";
+
 impl Verdict {
     fn outcome(&self) -> &'static str {
         match self {
             Self::Passed(_) => "passed",
-            Self::Objected(_) => "objected",
+            Self::Objected(_) => OBJECTED,
             Self::Failed => "failed",
         }
     }
@@ -76,18 +77,16 @@ pub(super) async fn apply(
             task,
             hire,
             lead,
-            errand,
             line,
         } => {
             writer
                 .execute(
-                    "INSERT INTO review (task, hire, lead, errand, \
-                     line, at) VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
+                    "INSERT INTO review (task, hire, lead, line, \
+                     at) VALUES (?1, ?2, ?3, ?4, ?5)",
                     vec![
                         task.column()?,
                         number(hire),
                         number(lead),
-                        integer(errand.get())?,
                         BindParam::Blob(crate::cbor(&line)?),
                         BindParam::Integer(writer.at().0),
                     ],
@@ -123,9 +122,13 @@ async fn end(
     if closed == 0 {
         return Ok(Affected::default());
     }
-    let mut kept = held(&writer.rows(), task)
+    let rows = writer.rows();
+    let mut kept = held(&rows, task)
         .await?
         .with_context(|| format!("no review of task {task:?}"))?;
+    if tree::left(&rows, kept.hire).await?.is_some() {
+        return Ok(Affected::default());
+    }
     match verdict {
         Verdict::Passed(Some(note)) => {
             let Input::Line { note: noted, .. } =
@@ -135,7 +138,7 @@ async fn end(
             };
             *noted = Some(format!(
                 "{} reviewed this line: {note}",
-                named(kept.lead)
+                record::address(&rows, kept.lead).await?
             ));
             writer
                 .execute(
@@ -149,7 +152,7 @@ async fn end(
             give_later(writer, task).await
         }
         Verdict::Objected(reason) => {
-            let wait = waits::next(&writer.rows()).await?;
+            let wait = waits::next(&rows).await?;
             let raised = waits::Raised {
                 agent: kept.hire,
                 kind: waits::Kind::Objection,
@@ -157,9 +160,9 @@ async fn end(
                 conversation: None,
                 subject: format!(
                     "A chief told `{}`: {}\n{} objects: {reason}",
-                    named(kept.hire),
+                    record::address(&rows, kept.hire).await?,
                     text_of(&kept.line)?,
-                    named(kept.lead)
+                    record::address(&rows, kept.lead).await?
                 ),
                 detail: crate::cbor(&WaitKind::Objection {
                     reason,
@@ -214,7 +217,7 @@ struct Held {
 
 impl Held {
     fn objected(&self) -> bool {
-        self.outcome.as_deref() == Some("objected")
+        self.outcome.as_deref() == Some(OBJECTED)
     }
 }
 
@@ -238,9 +241,26 @@ async fn held(rows: &Rows<'_>, task: TaskId) -> Result<Option<Held>> {
     }))
 }
 
-/// A hire's name as a chief reads it: the realm keeps no other.
-fn named(hire: AgentNumber) -> String {
-    format!("hire#{}", hire.0)
+/// Whether the chief's line of `task` is kept from its hire: its
+/// review is open, or objected with no go from a chief.
+pub(super) async fn withholds(
+    rows: &Rows<'_>,
+    task: TaskId,
+) -> Result<bool> {
+    Ok(rows
+        .value::<bool>(
+            "SELECT EXISTS (SELECT 1 FROM review LEFT JOIN \
+             objection ON objection.task = review.task WHERE \
+             review.task = ?1 AND (review.outcome IS NULL OR \
+             (review.outcome = ?2 AND objection.ruling IS NOT \
+             'go')))",
+            vec![
+                task.column()?,
+                BindParam::Text(OBJECTED.to_owned()),
+            ],
+        )
+        .await?
+        .unwrap_or(false))
 }
 
 fn text_of(line: &Submit) -> Result<&str> {
@@ -283,7 +303,10 @@ pub(super) async fn intercept(
         instructions: Some(
             instructions(rows, hire, lead, text).await?,
         ),
-        text: format!("A chief told `{}`: {text}", named(hire)),
+        text: format!(
+            "A chief told `{}`: {text}",
+            record::address(rows, hire).await?
+        ),
         task,
         model,
         cap: CAP,
@@ -293,7 +316,6 @@ pub(super) async fn intercept(
             task,
             hire,
             lead,
-            errand: n,
             line: line.clone(),
         }
         .into(),
@@ -370,27 +392,14 @@ async fn instructions(
         Ok(kept.or(given).unwrap_or_default())
     };
     let mut under = Vec::new();
-    let mut next = vec![lead];
-    while let Some(at) = next.pop() {
-        for child in rows
-            .values::<u32>(
-                "SELECT hire.agent FROM hire JOIN agent ON agent.id \
-                 = hire.agent WHERE hire.lead = ?1 AND agent.status \
-                 != 'ended' ORDER BY hire.agent",
-                vec![number(at)],
-            )
-            .await?
-        {
-            let child = AgentNumber(child);
-            under.push(format!(
-                "- {}: {}",
-                named(child),
-                purpose_of(child).await?
-            ));
-            next.push(child);
-        }
+    for hire in tree::under(rows, lead).await? {
+        under.push(format!(
+            "- {}: {}",
+            record::address(rows, hire).await?,
+            purpose_of(hire).await?
+        ));
     }
-    let name = named(hire);
+    let name = record::address(rows, hire).await?;
     Ok(format!(
         "You are `{}`, and you lead `{name}`, hired to {}. A chief \
          has just instructed `{name}` directly. The work has begun \
@@ -398,7 +407,7 @@ async fn instructions(
          is a mistake for the work you lead, answer `OBJECT: \
          <reason>`. Otherwise answer `PASS`. Most instructions are \
          fine.\n\n# The hires you lead\n{}",
-        named(lead),
+        record::address(rows, lead).await?,
         purpose_of(hire).await?.trim_end_matches('.'),
         under.join("\n")
     ))
@@ -490,7 +499,8 @@ pub(super) async fn run(
 ) -> Result<Vec<change::Change>> {
     let task = TaskId::of(&RealmTask((n & !GIVES).to_string()))
         .with_context(|| format!("no task {n} to review"))?;
-    let kept = held(&cx.rows()?, task)
+    let rows = cx.rows()?;
+    let kept = held(&rows, task)
         .await?
         .with_context(|| format!("no review of task {n}"))?;
     match (step, n & GIVES != 0) {
@@ -501,7 +511,7 @@ pub(super) async fn run(
                     options.review_deadline
                 });
             let due = kept.at + i64::try_from(deadline.as_millis())?;
-            let left = u64::try_from(due - now()?).unwrap_or(0);
+            let left = u64::try_from(due - rows.at().0).unwrap_or(0);
             // A stop ends the wait; a review still open waits for its
             // deadline again at the next start.
             let abort = cx.ctx.abort_signal();
@@ -529,13 +539,6 @@ pub(super) async fn run(
         }
         _ => Ok(Vec::new()),
     }
-}
-
-/// The time now, in ms since the Unix epoch.
-fn now() -> Result<i64> {
-    Ok(i64::try_from(
-        SystemTime::now().duration_since(UNIX_EPOCH)?.as_millis(),
-    )?)
 }
 
 /// Gives the hire its line, once the chief lets an objected line go

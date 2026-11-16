@@ -65,7 +65,9 @@ impl Act<Client> for Say {
     ) -> Decision<Said, Self::Output> {
         let Some(lineage) = target.lineage else {
             return Decision::Answer(SayAnswer::refused(
-                SayRefusal::NoSuchAgent,
+                SayRefusal::NoSuchAgent {
+                    address: self.0.to.0.to_string(),
+                },
             ));
         };
         let agent = &lineage.agent;
@@ -350,7 +352,9 @@ mod tests {
         assert_eq!(again, first);
         assert_eq!(
             beyond,
-            SayAnswer::refused(SayRefusal::NoSuchAgent)
+            SayAnswer::refused(SayRefusal::NoSuchAgent {
+                address: u64::MAX.to_string()
+            })
         );
         assert_eq!(tasks, Some(1));
         started.stop().await;
