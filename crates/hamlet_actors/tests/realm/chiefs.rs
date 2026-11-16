@@ -1,5 +1,6 @@
 use std::path::{Path, PathBuf};
 
+use hamlet_messages::address::{Agent, Party};
 use hamlet_messages::realm::hamlets::{
     MoveHamlet, NameHamlet, ReadRecord, Record, SetFolder, SetMode,
 };
@@ -220,6 +221,41 @@ async fn a_folder_reaches_every_place_of_its_hamlet() {
     remembered.sort();
     let shown = |path: &Path| path.to_string_lossy().into_owned();
     assert_eq!(remembered, [shown(&a), shown(&b)]);
+    realm.host.shutdown().await.unwrap();
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn a_folder_reaches_the_places_of_the_hamlets_workers() {
+    // worker 9, started by hire 3, and worker 10, a chief's worker
+    // for the hamlet: each one's place follows the hamlet's folder.
+    let (realm, hamlet) = hamlet_with(1).await;
+    realm
+        .write(&format!(
+            "INSERT INTO agent (id, kind, status, at) VALUES (9, \
+             'worker', 'live', 0), (10, 'worker', 'live', 0); \
+             INSERT INTO worker (agent, starter, hamlet, brief, \
+             tools, task, at) VALUES (9, 3, NULL, 'dig', '[]', 1, \
+             0), (10, NULL, '{}', 'dig', '[]', 1, 0);",
+            hamlet.0
+        ))
+        .await;
+    for worker in [9, 10] {
+        let address = Agent(AgentNumber(worker)).address().unwrap();
+        realm.host.get_or_start(&address).await.unwrap();
+    }
+    let folder = realm.scratch.join("work");
+    std::fs::create_dir(&folder).unwrap();
+
+    let set = chief(&realm, set_folder(&hamlet, Some(&folder))).await;
+
+    assert_eq!(set, Done::Done);
+    until("the workers' places hold the folder", || {
+        [AgentNumber(9), AgentNumber(10)].iter().all(|&agent| {
+            folder_in_place(&realm, agent)
+                == Some(Some(folder.clone()))
+        })
+    })
+    .await;
     realm.host.shutdown().await.unwrap();
 }
 

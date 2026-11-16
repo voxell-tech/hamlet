@@ -6,7 +6,7 @@ use hamlet_messages::workspace::AgentNumber;
 pub(super) use push::send;
 
 use super::change::Rows;
-use super::{roads, tree, versions};
+use super::{chiefs, roads, tree, versions};
 
 /// `agent`'s place as the rows give it now, under its version.
 pub(super) async fn of(
@@ -16,10 +16,12 @@ pub(super) async fn of(
     let version = PlaceVersion(versions::place(rows, agent).await?);
     let lineage = tree::lineage_of(rows, agent).await?;
     let lead = lineage.agent.lead;
-    let folder = lineage
-        .hamlet
-        .as_ref()
-        .and_then(|hamlet| hamlet.folder.clone());
+    let folder = match chiefs::hamlet::of_agent(rows, agent).await? {
+        Some(hamlet) => chiefs::hamlet(rows, &hamlet)
+            .await?
+            .and_then(|hamlet| hamlet.folder),
+        None => None,
+    };
     let (hires, roads) = roads::of(rows, agent)
         .await?
         .into_iter()

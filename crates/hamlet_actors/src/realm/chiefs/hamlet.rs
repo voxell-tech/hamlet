@@ -80,10 +80,10 @@ pub(in crate::realm) async fn apply(
             if let Some(folder) = folder {
                 remember(writer, &hamlet, folder).await?;
             }
-            let rows = writer.rows();
+            let reached = reached(&writer.rows(), &hamlet).await?;
             Ok(Affected {
-                places: hires_of(&rows, &hamlet).await?,
-                ..reached(&rows, &hamlet).await?
+                places: reached.reaches.clone(),
+                ..reached
             })
         }
     }
@@ -190,23 +190,6 @@ pub(in crate::realm) async fn of_agent(
         )
         .await?
         .map(HamletId))
-}
-
-async fn hires_of(
-    rows: &Rows<'_>,
-    hamlet: &HamletId,
-) -> Result<BTreeSet<AgentNumber>> {
-    Ok(rows
-        .values::<u32>(
-            "SELECT hire.agent FROM hire JOIN agent ON agent.id = \
-             hire.agent WHERE hire.hamlet = ?1 AND agent.status IN \
-             ('hiring', 'live')",
-            vec![BindParam::Text(hamlet.0.clone())],
-        )
-        .await?
-        .into_iter()
-        .map(AgentNumber)
-        .collect())
 }
 
 async fn missing(
