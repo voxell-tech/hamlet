@@ -268,14 +268,12 @@ CREATE TABLE IF NOT EXISTS agreement (
 -- documents.rs
 CREATE TABLE IF NOT EXISTS document (
 	name TEXT PRIMARY KEY,
-	value BLOB NOT NULL,
-	version INTEGER NOT NULL) STRICT;
+	value BLOB NOT NULL) STRICT;
 
 -- settings.rs
 CREATE TABLE IF NOT EXISTS settings (
 	id INTEGER PRIMARY KEY CHECK (id = 1),
-	value BLOB NOT NULL,
-	version INTEGER NOT NULL) STRICT;
+	value BLOB NOT NULL) STRICT;
 
 -- parcels.rs
 CREATE TABLE IF NOT EXISTS parcel (

@@ -389,3 +389,76 @@ async fn an_endpoint_is_refused_in_todays_words() {
     );
     realm.host.shutdown().await.unwrap();
 }
+
+/// The version of each part a first read gives.
+async fn versions(realm: &Realm) -> ReadCopies {
+    let copies = read_copies(realm, &ReadCopies::default()).await;
+    ReadCopies {
+        charter: copies.charter.map(|part| part.version),
+        character: copies.character.map(|part| part.version),
+        model: copies.model.map(|part| part.version),
+        settings: copies.settings.map(|part| part.version),
+    }
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn an_edit_that_changes_nothing_moves_no_copy() {
+    // a charter cleared when there is none, the settings as they
+    // are, a price for a model no one runs, and the same charter
+    // twice, which moves the charter once.
+    let realm = realm_with_hand().await;
+    chief(&realm, settings(Setting::Model { model: FAUX.into() }))
+        .await;
+    let before = versions(&realm).await;
+
+    let edits = (
+        chief(&realm, EditCharter { text: None }).await,
+        chief(&realm, settings(Setting::ReflectEvery { turns: 10 }))
+            .await,
+        chief(&realm, priced("nosuch::model", Some(price(1.0))))
+            .await,
+        chief(&realm, charter("Be brief.")).await,
+        chief(&realm, charter("Be brief.")).await,
+    );
+
+    assert_eq!(
+        edits,
+        (Done::Done, Done::Done, Done::Done, Done::Done, Done::Done)
+    );
+    let after = versions(&realm).await;
+    assert_eq!(
+        after.charter.map(|version| version.0),
+        before.charter.map(|version| version.0 + 1)
+    );
+    assert_eq!(
+        after,
+        ReadCopies {
+            charter: after.charter,
+            ..before
+        }
+    );
+    realm.host.shutdown().await.unwrap();
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn read_copies_gives_a_part_whose_version_differs() {
+    // an agent that holds versions the realm never gave, as after
+    // the realm's rows were made anew, is given every part.
+    let realm = realm_with_hand().await;
+    let ahead = ReadCopies {
+        charter: Some(CopyVersion(99)),
+        character: Some(CopyVersion(99)),
+        model: Some(CopyVersion(99)),
+        settings: Some(CopyVersion(99)),
+    };
+    chief(&realm, charter("Be brief.")).await;
+
+    let read = read_copies(&realm, &ahead).await;
+
+    assert_eq!(
+        read.charter.map(|part| part.value),
+        Some("Be brief.".to_owned())
+    );
+    assert!(read.character.is_some() && read.settings.is_some());
+    realm.host.shutdown().await.unwrap();
+}

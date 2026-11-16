@@ -21,7 +21,6 @@ use super::documents::{self, Copied, Part, Readers};
 use super::world;
 use crate::cbor;
 
-// Copied from the server's `settings.rs`.
 const CHARACTER: &str = "You are a scholar new to this realm. You \
                          know nothing of your own yet: use the \
                          library's skills, learn from the work you \
@@ -139,7 +138,6 @@ impl Settings {
     }
 }
 
-// Today's `endpoint_fault`, in the server's `clients/documents.rs`.
 fn endpoints_fault(
     endpoints: &[Endpoint],
 ) -> Result<(), SettingRefusal> {
@@ -208,9 +206,8 @@ pub(super) async fn apply(
     let before = read(&writer.rows()).await?;
     writer
         .execute(
-            "INSERT INTO settings (id, value, version) VALUES (1, \
-             ?1, 1) ON CONFLICT (id) DO UPDATE SET value = \
-             excluded.value, version = version + 1",
+            "INSERT INTO settings (id, value) VALUES (1, ?1) ON \
+             CONFLICT (id) DO UPDATE SET value = excluded.value",
             vec![BindParam::Blob(cbor(&settings)?)],
         )
         .await?;
