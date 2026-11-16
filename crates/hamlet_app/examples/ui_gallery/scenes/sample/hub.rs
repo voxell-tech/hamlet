@@ -26,6 +26,7 @@ pub(super) fn setup(world: &mut World, scene: Scene) {
     if matches!(
         scene,
         Scene::Hub
+            | Scene::HubMenu
             | Scene::Models
             | Scene::ModelsSearch
             | Scene::Desk
@@ -46,6 +47,14 @@ pub(super) fn setup(world: &mut World, scene: Scene) {
     }
     if matches!(scene, Scene::Hub | Scene::Merged | Scene::Agents) {
         world.resource_mut::<hub::Rail>().show_rows();
+    }
+    if scene == Scene::HubMenu {
+        let agent = world.resource::<Convo>().agent;
+        hamlet_app::world_menu::open_agent(
+            world,
+            agent,
+            bevy::math::Vec2::new(1580.0, 150.0),
+        );
     }
     if matches!(scene, Scene::Models | Scene::ModelsSearch) {
         offer_models(world);

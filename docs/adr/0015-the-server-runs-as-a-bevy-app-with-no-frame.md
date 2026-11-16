@@ -14,7 +14,8 @@ the world.
 **No frame: one input, one update.** `ServerPlugin` adds every area and
 sets the runner. The runner sleeps until an input comes (a runtime's line,
 a client's message, a tool run that ended, a task that finished, the jobs
-runner's pass, a change to the tools added by hand, a timer that is due),
+runner's pass, a change to the tools added by hand, what a terminal
+printed, a timer that is due),
 writes it as a message, and updates the app once through Bevy's own
 `Main`; then it sleeps again. Nothing updates on a tick. The first update
 opens what the server serves in `PreStartup` (the sandbox, the realm,

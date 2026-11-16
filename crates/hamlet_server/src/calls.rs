@@ -47,6 +47,7 @@ use crate::talk::conversations::{Conversation, Kind};
 use crate::talk::marks::Mark;
 use crate::talk::{asking, conversations, inputs, models};
 use crate::work::catalogue::Society;
+use crate::work::tools::shell::Dialect;
 use crate::work::tools::{Network, Outcome, Sight, ToolSession};
 use crate::workspace::serving::Lodging;
 
@@ -769,6 +770,19 @@ impl Core<'_, '_> {
                 crate::clock::now(),
             )?;
         }
+        // A shell call shows in its agent's commands terminal.
+        let shown = match Dialect::of_tool(call.tool) {
+            Some(_) => {
+                let command = call
+                    .arguments
+                    .get("command")
+                    .and_then(Value::as_str)
+                    .unwrap_or_default();
+                Some(self.commands_terminal(agent, &at, command)?)
+            }
+            None => None,
+        };
+        let db = self.realm.store().connection();
         let change =
             held::kept(db, &call.call.runtime, &call.call.key)?
                 .and_then(|kept| kept.change)
@@ -805,8 +819,17 @@ impl Core<'_, '_> {
                         ),
                     );
                 }
-                let mut outcome =
-                    session.run(&secrets, &name, &arguments).await;
+                let mut outcome = session
+                    .run(&secrets, &name, &arguments, shown.as_ref())
+                    .await;
+                if let Some(shown) = &shown {
+                    let code = outcome
+                        .details
+                        .as_ref()
+                        .and_then(|details| details.get("exitCode"))
+                        .and_then(Value::as_i64);
+                    shown.ended_run(code);
+                }
                 if once
                     && let Some(lodging) = &lodging
                     && let Err(error) = lodging.pull().await

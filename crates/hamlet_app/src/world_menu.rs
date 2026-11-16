@@ -331,6 +331,17 @@ pub(crate) fn open_for(world: &mut World, thing: Thing) {
     *world.resource_mut::<Open>() = Open::Menu(thing, at);
 }
 
+/// Opens the menu of `agent` at `at`, the mayor's if it is the first.
+pub fn open_agent(world: &mut World, agent: Entity, at: Vec2) {
+    let thing =
+        if hamlet_client::realm::first_mayor(world) == Some(agent) {
+            Thing::Keeper
+        } else {
+            Thing::Agent(agent)
+        };
+    *world.resource_mut::<Open>() = Open::Menu(thing, at);
+}
+
 /// Whether the menu of `thing` holds anything now.
 pub(crate) fn has_items(world: &World, thing: Thing) -> bool {
     items::has_items(world, thing)

@@ -68,6 +68,7 @@ mod commands;
 mod files;
 mod images;
 mod inbox;
+mod terminals;
 
 // What every area shares.
 mod clock;
@@ -133,6 +134,7 @@ impl Plugin for ServerPlugin {
             dreaming::plugin,
             images::plugin,
             files::plugin,
+            terminals::plugin,
             work::added::plugin,
         ))
         .insert_resource(self.options.clone())

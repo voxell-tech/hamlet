@@ -571,6 +571,8 @@ impl Core<'_, '_> {
                 activity.insert(live.agent, shown.clone());
             }
         }
+        self.prune_terminals()?;
+        let terminals = self.terminals.views();
         let chief = self.realm.chief();
         let layout = self.realm.layout().clone();
         let confinement = self.confinement();
@@ -618,6 +620,7 @@ impl Core<'_, '_> {
             settings_view,
             waits,
             library,
+            terminals,
         };
         super::state::compose(
             db,

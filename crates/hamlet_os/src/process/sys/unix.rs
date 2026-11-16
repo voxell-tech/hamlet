@@ -9,6 +9,7 @@ use rustix::process::{
 use tokio::process::{Child, ChildStderr, ChildStdout};
 use tokio::signal::unix::{SignalKind, signal};
 
+use crate::process::pty::{self, Size};
 use crate::process::{Command, Limits};
 
 /// A process group and the leader it was started with. The leader is
@@ -50,6 +51,43 @@ impl Group {
     /// still runs.
     pub(crate) fn is_running(&self) -> bool {
         has_live_members(self.id)
+    }
+
+    /// Hangs up on the leader of a terminal's session, as closing the
+    /// terminal does, so a shell hangs up on its jobs; then kills its
+    /// group after a grace, apart from the caller.
+    pub(crate) fn hang_up(self) {
+        // Jobs of a shell lead groups of their own, so they are found
+        // before the shell that knows them ends.
+        let below = descendants(self.id);
+        let _ = rustix::process::kill_process(self.id, Signal::HUP);
+        let _ = rustix::process::kill_process(self.id, Signal::CONT);
+        std::thread::spawn(move || {
+            // A shell hangs up on its jobs before it exits.
+            let options = WaitIdOptions::EXITED
+                | WaitIdOptions::NOWAIT
+                | WaitIdOptions::NOHANG;
+            for _ in 0..100 {
+                match waitid(WaitId::Pid(self.id), options) {
+                    Ok(None) => std::thread::sleep(
+                        std::time::Duration::from_millis(20),
+                    ),
+                    _ => break,
+                }
+            }
+            for pid in below {
+                let group = rustix::process::getpgid(Some(pid));
+                if let Ok(group) = group
+                    && group != self.id
+                {
+                    let _ = kill_process_group(group, Signal::KILL);
+                }
+                let _ =
+                    rustix::process::kill_process(pid, Signal::KILL);
+            }
+            let mut group = self;
+            group.kill();
+        });
     }
 
     /// Kills the group, then reaps its leader.
@@ -181,4 +219,90 @@ pub(crate) fn is_executable(path: &str) -> bool {
 /// its Seatbelt commands running.
 pub(crate) fn reap_with_server() -> io::Result<()> {
     Ok(())
+}
+
+pub(crate) type PtyInput = pty_process::OwnedWritePty;
+pub(crate) type PtyOutput = pty_process::OwnedReadPty;
+
+pub(crate) fn spawn_pty(
+    command: pty::Command<'_>,
+    size: Size,
+) -> io::Result<(Group, PtyInput, PtyOutput)> {
+    let exits = signal(SignalKind::child())?;
+    let (terminal, pts) = pty_process::open().map_err(pty_error)?;
+    terminal
+        .resize(pty_process::Size::new(size.rows, size.cols))
+        .map_err(pty_error)?;
+    let leader = pty_process::Command::new(&command.argv[0])
+        .args(&command.argv[1..])
+        .env_clear()
+        .envs(command.env)
+        .current_dir(command.cwd)
+        .kill_on_drop(true)
+        .spawn(pts)
+        .map_err(pty_error)?;
+    // The leader leads a session of its own, so its id is its
+    // group's.
+    let id = leader
+        .id()
+        .and_then(|id| Pid::from_raw(id as i32))
+        .ok_or_else(|| io::Error::other("the leader has no id"))?;
+    let (output, input) = terminal.into_split();
+    Ok((Group { id, leader, exits }, input, output))
+}
+
+pub(crate) fn resize_pty(
+    input: &PtyInput,
+    size: Size,
+) -> io::Result<()> {
+    input
+        .resize(pty_process::Size::new(size.rows, size.cols))
+        .map_err(pty_error)
+}
+
+fn pty_error(error: pty_process::Error) -> io::Error {
+    match error {
+        pty_process::Error::Io(error) => error,
+        pty_process::Error::Rustix(errno) => errno.into(),
+        other => io::Error::other(other.to_string()),
+    }
+}
+
+/// The processes started by `root` and by those it started, as `ps`
+/// lists them now.
+fn descendants(root: Pid) -> Vec<Pid> {
+    let listed = std::process::Command::new("ps")
+        .args(["-A", "-o", "pid=,ppid="])
+        .stdin(Stdio::null())
+        .stderr(Stdio::null())
+        .output();
+    let Ok(listed) = listed else {
+        return Vec::new();
+    };
+    let pairs = String::from_utf8_lossy(&listed.stdout)
+        .lines()
+        .filter_map(|line| {
+            let mut words = line.split_whitespace();
+            let pid = words.next()?.parse::<i32>().ok()?;
+            let parent = words.next()?.parse::<i32>().ok()?;
+            Some((pid, parent))
+        })
+        .collect::<Vec<_>>();
+    let mut found = vec![root.as_raw_nonzero().get()];
+    let mut at = 0;
+    while at < found.len() {
+        let parent = found[at];
+        found.extend(
+            pairs
+                .iter()
+                .filter(|(_, p)| *p == parent)
+                .map(|(pid, _)| *pid),
+        );
+        at += 1;
+    }
+    found
+        .into_iter()
+        .skip(1)
+        .filter_map(Pid::from_raw)
+        .collect()
 }

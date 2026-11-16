@@ -133,6 +133,15 @@ impl Connections<'_, '_> {
             .map(|(_, found)| found)
     }
 
+    /// The messages `client`'s queue has room for; none once it is
+    /// gone.
+    pub fn room(&self, client: u64) -> usize {
+        self.connection_entities
+            .iter()
+            .find(|(_, found)| found.id == client)
+            .map_or(0, |(_, found)| found.send.capacity())
+    }
+
     /// The client whose connection is `entity`.
     pub fn client(&self, entity: Entity) -> Option<u64> {
         self.connection_entities
@@ -501,6 +510,22 @@ pub(crate) fn changes(
         if !new.waits.iter().any(|w| w.id == gone.id) {
             out.push(Update::WaitClosed {
                 how: "settled".into(),
+                id: gone.id.clone(),
+            });
+        }
+    }
+    for terminal in &new.terminals {
+        if old.terminals.iter().find(|t| t.id == terminal.id)
+            != Some(terminal)
+        {
+            out.push(Update::Terminal {
+                terminal: terminal.clone(),
+            });
+        }
+    }
+    for gone in &old.terminals {
+        if !new.terminals.iter().any(|t| t.id == gone.id) {
+            out.push(Update::TerminalGone {
                 id: gone.id.clone(),
             });
         }

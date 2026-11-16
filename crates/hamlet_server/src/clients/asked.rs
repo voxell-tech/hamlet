@@ -104,6 +104,7 @@ fn take_in_client_event(
         Event::Gone(client) => {
             // Its hooks and observers take what the client held,
             // and its uploads go with it.
+            core.terminals.gone(client);
             if let Some(gone) = core.connections.entity(client) {
                 commands.entity(gone).despawn();
             }
@@ -179,6 +180,7 @@ fn write(
         }
         ClientMessage::Read(m) => to(commands, client, m),
         ClientMessage::MoveLodges(m) => to(commands, client, m),
+        ClientMessage::Terminal(m) => to(commands, client, m),
         ClientMessage::Login(m) => to(commands, client, m),
         ClientMessage::Check(m) => to(commands, client, m),
     }

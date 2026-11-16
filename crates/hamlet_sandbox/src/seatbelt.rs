@@ -26,10 +26,12 @@ pub(super) const HINT: &str =
 const BASE: &str = r#"(version 1)
 (deny default)
 
-; system aliases and shell selection
+; system aliases, shell selection, and the realpath the /usr/bin
+; developer shims such as python3 take of Xcode
 (allow file-read-metadata
   (literal "/etc") (literal "/tmp") (literal "/var")
   (literal "/opt") (literal "/Library") (literal "/Applications")
+  (literal "/Applications/Xcode.app")
   (literal "/private") (literal "/private/var")
   (subpath "/private/var/select"))
 

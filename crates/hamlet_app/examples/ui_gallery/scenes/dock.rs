@@ -10,7 +10,7 @@ use bevy_fynix::dock::{
 };
 use bevy_fynix::views::{FrameProps, column};
 use hamlet_app::{
-    highlight_panel, hub, layout, menu, panel, settings,
+    highlight_panel, hub, layout, menu, panel, settings, terminal,
 };
 use hamlet_ui::styles::ICON;
 use hamlet_ui::theme::HamletTheme;
@@ -42,6 +42,7 @@ fn world_stand() -> Ui {
 }
 
 pub(super) fn seed_dock(world: &mut World) {
+    let scene = *world.resource::<Scene>();
     let mut registry =
         world.resource_mut::<DockRegistry<HamletTheme>>();
     registry.register(
@@ -78,6 +79,22 @@ pub(super) fn seed_dock(world: &mut World) {
     {
         tree.set_fraction(parent, 0.5);
     }
+    if matches!(
+        scene,
+        Scene::Terminal
+            | Scene::TerminalShell
+            | Scene::TerminalPanels
+            | Scene::TerminalPick
+    ) && let Some((low, _)) =
+        tree.split(centre, Edge::Bottom, "terminal".into())
+        && let Some(parent) = tree.parent_of(low)
+    {
+        tree.set_fraction(parent, 0.4);
+        if scene == Scene::TerminalPanels {
+            tree.split(low, Edge::Right, "terminal-2".into());
+        }
+    }
+    hamlet_app::register_numbered(world);
 }
 
 /// Opens the Settings tab beside the Hub in the scenes of Settings.
@@ -121,6 +138,7 @@ fn shown(cx: &Cx) -> impl View {
         layout(cx),
         hamlet_app::toasts::stack(),
         menu::open_menu(),
+        terminal::open_menu(),
     ))
     .width(percent(100.0))
     .height(percent(100.0))

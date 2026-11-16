@@ -60,7 +60,7 @@ impl Input {
 
 /// Where everything that wakes the server sends its input: a
 /// runtime's output, the jobs runner, a connection, a task, the
-/// folder of the tools added by hand, the listener.
+/// folder of the tools added by hand, a terminal, the listener.
 #[derive(Resource, Clone)]
 pub(crate) struct InputSender(mpsc::UnboundedSender<Input>);
 

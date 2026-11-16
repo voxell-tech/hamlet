@@ -41,6 +41,7 @@ use crate::talk::follow::follow;
 use crate::talk::process::Pi;
 use crate::talk::runtimes::{self, Harness, Runtimes};
 use crate::talk::{Env, inputs};
+use crate::terminals::{Terminals, kept};
 use crate::work::added::{self, AddedToolsWatch};
 use crate::work::tools::shell::Shells;
 use crate::workspace::Transport;
@@ -57,6 +58,7 @@ pub(crate) fn plugin(app: &mut App) {
             start_jobs_runner,
             open_harness,
             watch_added_tools,
+            open_terminals,
             open_clients,
             listen,
         )
@@ -65,6 +67,7 @@ pub(crate) fn plugin(app: &mut App) {
     .add_systems(
         Startup,
         (
+            kept::restore,
             start_runtimes,
             added::reload,
             crate::follow_up::narrow_tools_to_roles,
@@ -197,6 +200,13 @@ fn watch_added_tools(
             })
             .ok();
     commands.insert_resource(AddedToolsWatch(watching));
+}
+
+/// Opens the realm's terminals, none yet: the kept ones open again
+/// once everything has started.
+fn open_terminals(realm: Res<Realm>, mut commands: Commands) {
+    commands
+        .insert_resource(Terminals::new(realm.layout().terminals()));
 }
 
 fn open_clients(

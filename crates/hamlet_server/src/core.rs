@@ -40,6 +40,7 @@ use crate::talk::leases::Authority;
 use crate::talk::runtimes::Runtimes;
 use crate::talk::sync::ImageFitting;
 use crate::talk::{Env, conversations, prompt, sync};
+use crate::terminals::Terminals;
 use crate::work::added::Manifest;
 use crate::work::tools::shell::Shells;
 use crate::workspace::Transport;
@@ -206,6 +207,8 @@ pub(crate) struct Core<'w, 's> {
     /// Held while anything writes the realm's repositories and
     /// lodges.
     pub writing: Res<'w, RepositoryWriteLock>,
+    /// The chief's shells and the agents' commands terminals.
+    pub terminals: ResMut<'w, Terminals>,
 }
 
 /// A conversation's transcript and activity, as kept and as running.

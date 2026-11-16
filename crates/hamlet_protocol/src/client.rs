@@ -18,6 +18,7 @@ mod limits;
 mod request_id;
 mod settings;
 mod state;
+mod terminals;
 mod waits;
 
 pub use chat::*;
@@ -28,13 +29,20 @@ pub use limits::*;
 pub use request_id::*;
 pub use settings::*;
 pub use state::*;
+pub use terminals::*;
 pub use waits::*;
 
 impl ClientMessage {
     /// The id of this request, if it has one.
     pub fn id(&self) -> Option<&RequestId> {
         match self {
-            Self::Hello(_) | Self::Close(_) => None,
+            Self::Hello(_)
+            | Self::Close(_)
+            | Self::Terminal(
+                Terminal::Input { .. }
+                | Terminal::Resize { .. }
+                | Terminal::Unwatch { .. },
+            ) => None,
             Self::Say(Say { id, .. })
             | Self::PutImage(PutImage { id, .. })
             | Self::PutImagePart(PutImagePart { id, .. })
@@ -74,7 +82,13 @@ impl ClientMessage {
                 | Read::Papers { id, .. }
                 | Read::Charter { id },
             )
-            | Self::MoveLodges(MoveLodges { id }) => Some(id),
+            | Self::MoveLodges(MoveLodges { id })
+            | Self::Terminal(
+                Terminal::Open { id, .. }
+                | Terminal::Watch { id, .. }
+                | Terminal::Close { id, .. }
+                | Terminal::Rename { id, .. },
+            ) => Some(id),
         }
     }
 }
@@ -87,6 +101,7 @@ impl ServerMessage {
             Self::Fault(fault) => fault.to.as_ref(),
             Self::Transcript(transcript) => transcript.to.as_ref(),
             Self::Login(login) => login.to.as_ref(),
+            Self::Terminal(output) => output.to.as_ref(),
             Self::Read(
                 ReadResult::Prompt { to, .. }
                 | ReadResult::History { to, .. }
@@ -146,6 +161,8 @@ pub enum ClientMessage {
     Read(Read),
     #[serde(rename = "move-lodges")]
     MoveLodges(MoveLodges),
+    #[serde(rename = "terminal")]
+    Terminal(Terminal),
 }
 
 #[derive(
@@ -173,6 +190,8 @@ pub enum ServerMessage {
     Read(ReadResult),
     #[serde(rename = "fault")]
     Fault(Fault),
+    #[serde(rename = "terminal")]
+    Terminal(TerminalOutput),
 }
 
 #[derive(
