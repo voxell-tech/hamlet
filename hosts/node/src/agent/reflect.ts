@@ -10,6 +10,7 @@ import {
     defineExtension,
     type Extension,
 } from "@earendil-works/pi-durable";
+import type { AgentCall } from "./actor.ts";
 import type { ReadCopies } from "./copies.ts";
 import type { WithHarness } from "./turn.ts";
 
@@ -27,6 +28,18 @@ export function reflection(
     void owed;
     void every;
     return defineExtension({ name: "hamlet.reflection" });
+}
+
+/**
+ * Asks the reflection a session owes as a chief leaves it, by `/new` or
+ * `/resume`, even when no turn is owed.
+ */
+export async function reflectOnLeaving(
+    c: AgentCall,
+    conversation: ConversationId,
+): Promise<void> {
+    void c;
+    void conversation;
 }
 
 export function owedOf(withHarness: WithHarness): Owed {
