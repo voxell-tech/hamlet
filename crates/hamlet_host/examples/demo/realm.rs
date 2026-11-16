@@ -2085,6 +2085,8 @@ async fn task_or_standing(
 fn tool<T>(call: &str, act: T) -> Tool<T> {
     Tool {
         call: CallId(call.to_owned()),
+        task: None,
+        conversation: None,
         act,
     }
 }
