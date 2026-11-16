@@ -32,9 +32,12 @@ const WRITERS: &[(&str, &[&str])] = &[
 ];
 
 /// The handlers that run outside `Act`, by module: each writes
-/// something other than rows before it commits.
-const OUTSIDE_ACT: &[(&str, &str)] =
-    &[("secrets.rs", "KeepCredential")];
+/// something other than rows before it commits, or reads only
+/// something other than rows.
+const OUTSIDE_ACT: &[(&str, &str)] = &[
+    ("secrets.rs", "KeepCredential"),
+    ("parcels.rs", "FetchPart"),
+];
 
 #[test]
 fn each_table_has_one_writer() {

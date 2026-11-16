@@ -1,16 +1,21 @@
 //! Parcels, the files a letter or a question sends: the `parcel` and
 //! `parcel_file` tables, their steps, and `FetchPart`.
 
+use std::sync::Arc;
+
 use anyhow::{Result, bail};
+use hamlet_actor::{Ctx, Handler};
 use hamlet_messages::address::Agent;
 use hamlet_messages::realm::client::Answer;
-use hamlet_messages::realm::parcels::{FetchPart, Part, PartRefusal};
+use hamlet_messages::realm::parcels::{
+    FetchPart, ParcelFile, Part, PartRefusal,
+};
 use hamlet_messages::realm::world::WaitId;
 use hamlet_messages::realm::{Enclosed, LetterId};
+use hamlet_messages::sender::sender;
 use hamlet_protocol::client::Choice;
 
-use super::act::{Act, Decision, Unbuilt};
-use super::calls::Made;
+use super::Realm;
 use super::change::{self, Affected, Rows, Writer};
 use super::steps::{Cx, Steps};
 use super::waits::Ruling;
@@ -69,30 +74,34 @@ pub(super) async fn run(
     bail!("not built yet: U13")
 }
 
-impl Act<Agent> for FetchPart {
-    type Output = Part<PartRefusal>;
-    type Loaded = Unbuilt;
-    type Done = Unbuilt;
-
-    async fn load(
-        &self,
-        _by: &Agent,
-        _rows: &Rows<'_>,
-    ) -> Result<Unbuilt> {
+/// Reads the realm's store, not its rows, so it runs outside `Act`.
+impl Handler<FetchPart> for Realm {
+    async fn handle(
+        self: Arc<Self>,
+        ctx: Ctx<Self>,
+        fetch: FetchPart,
+    ) -> Result<Part<PartRefusal>> {
+        let Agent(_) = sender(&ctx, &fetch)?;
         bail!("not built yet: U13")
     }
+}
 
-    fn decide(
-        &self,
-        _by: &Agent,
-        loaded: Unbuilt,
-    ) -> Decision<Unbuilt, Self::Output> {
-        match loaded {}
-    }
+/// The files of `letter`'s parcel, as its receiver is told of them:
+/// none until they are copied.
+pub(super) async fn files(
+    _rows: &Rows<'_>,
+    _letter: LetterId,
+) -> Result<Vec<ParcelFile>> {
+    Ok(Vec::new())
+}
 
-    fn answer(&self, done: Unbuilt, _made: &Made) -> Self::Output {
-        match done {}
-    }
+/// Removes the realm's files no unswept parcel names, and the
+/// temporary files no copy is writing.
+pub(super) async fn sweep(
+    _realm: &Arc<Realm>,
+    _ctx: &Ctx<Realm>,
+) -> Result<()> {
+    Ok(())
 }
 
 /// What a parcel's send's wait adds to the chief's `answer` on wait
