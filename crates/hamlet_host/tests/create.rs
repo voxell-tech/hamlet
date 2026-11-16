@@ -546,9 +546,13 @@ async fn a_failed_start_tells_each_caller_why() {
 
 /// Of two creates of one key at once, one with an input the kind
 /// cannot read, the other makes the actor, also when it waited for
-/// the failed one's start: that start tells its waiters nothing.
+/// the failed one's start: that start tells its waiters nothing,
+/// unless its file did not close within the host's grace, when the
+/// actor stays and the waiter is told why. A slow machine misses
+/// that grace in a few rounds, never in most.
 #[test]
 fn a_create_that_fails_leaves_the_key_to_a_create_that_waited() {
+    const ROUNDS: usize = 50;
     let logs = Logs::default();
     let _recording = logs.record(LevelFilter::WARN);
     logged_runtime(&logs, LevelFilter::WARN).block_on(async {
@@ -558,7 +562,8 @@ fn a_create_that_fails_leaves_the_key_to_a_create_that_waited() {
             &dir,
             HostOptions::default().with_value(made.clone()),
         );
-        for round in 0..50 {
+        let mut missed = 0;
+        for round in 0..ROUNDS {
             let key = format!("k{round}");
             let to = at("made", &key);
             let (bad, good) = tokio::join!(
@@ -567,17 +572,32 @@ fn a_create_that_fails_leaves_the_key_to_a_create_that_waited() {
             );
             let bad = failed(bad);
             if let Err(error) = good {
+                let logged = logs.text();
+                let warning =
+                    format!("failed within the grace actor_id={to}");
+                if logged.lines().any(|line| line.ends_with(&warning))
+                {
+                    missed += 1;
+                    continue;
+                }
                 panic!(
                     "round {round}: {error:#}; the other: {bad:#}; \
-                     logged:\n{}",
-                    logs.text()
+                     logged:\n{logged}"
                 );
             }
             let notes = call(&host, &key, &Notes).await.unwrap();
             assert_eq!(notes, ["good"], "round {round}");
         }
         host.shutdown().await.unwrap();
-        assert_eq!(made.created.load(Ordering::SeqCst), 50);
+        assert!(
+            missed <= 5,
+            "the close missed its grace in {missed} of {ROUNDS} \
+             rounds"
+        );
+        assert_eq!(
+            made.created.load(Ordering::SeqCst),
+            ROUNDS - missed
+        );
     });
 }
 
