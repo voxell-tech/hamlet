@@ -249,14 +249,7 @@ async fn spend(rows: &Rows<'_>) -> Result<Vec<Spend>> {
         });
     let mut spend = Vec::new();
     for payer in realm.into_iter().chain(hamlets) {
-        let spent = budget::spent(rows, &payer).await?;
-        spend.push(Spend {
-            payer: spent.payer,
-            spent_micros: spent.micros,
-            budget_micros: spent.budget.micros,
-            spent_ms: spent.took_ms,
-            budget_ms: spent.budget.ms,
-        });
+        spend.push(budget::spent(rows, &payer).await?.into());
     }
     Ok(spend)
 }
