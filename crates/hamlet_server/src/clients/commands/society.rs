@@ -4,7 +4,8 @@
 
 use hamlet_store::ids::{Actor, HamletId};
 
-use super::{Answer, BLANK, Command, Line, ScholarReach, is_scholar};
+use super::targets::{ScholarReach, is_scholar};
+use super::{Answer, Command, Line};
 use crate::core::Core;
 use crate::society::addresses::{self, Reach};
 use crate::society::agents::{self, AgentKind, Effort, EndHow};
@@ -14,6 +15,9 @@ use crate::society::refusal::Refusal;
 use crate::society::{
     authority, city, record, roads, spend, workers,
 };
+
+/// The word that stands in place of a scholar for a blank agent.
+const BLANK: &str = "blank";
 
 /// The commands that shape the society: hamlets, hires and scholars.
 pub(super) const SOCIETY: &[Command] = &[

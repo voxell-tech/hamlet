@@ -9,13 +9,99 @@ use hamlet_protocol::client::{Choice, Permission};
 use hamlet_store::ids::{Actor, AgentId, HamletId};
 use hamlet_store::schema::permission_grant;
 
-use super::Line;
+use super::{Command, Line};
 use crate::conversations::{chats, reflections};
 use crate::core::Core;
 use crate::realm::change::Done;
 use crate::society::addresses::{self, Reach};
 use crate::society::oversight::{self, gate};
 use crate::society::refusal::Refusal;
+
+/// The commands that oversee the agents' work.
+pub(super) const OVERSIGHT: &[Command] = &[
+    Command {
+        name: "to",
+        usage: "/to <address> <instruction>",
+        does: "Instruct another agent from here",
+        run: |core, line| {
+            core.instruct(line.here.as_ref(), &line.rest)
+        },
+    },
+    Command {
+        name: "reflect",
+        usage: "/reflect",
+        does: "Have the agent keep what this session taught it",
+        run: |core, line| core.reflect(line.agent),
+    },
+    Command {
+        name: "worker",
+        usage: "/worker <task>",
+        does: "Start a worker on a task in this hamlet",
+        run: |core, line| {
+            core.chiefs_worker(line.here.as_ref(), &line.rest)
+        },
+    },
+    Command {
+        name: "queue",
+        usage: "/queue",
+        does: "List what waits for you",
+        run: |core, _| core.queue(),
+    },
+    Command {
+        name: "allow",
+        usage: "/allow [#wait] [reason]",
+        does: "Allow what waits, this once",
+        run: |core, line| core.answer_line(line, &Choice::Allow),
+    },
+    Command {
+        name: "always",
+        usage: "/always [#wait] [reason]",
+        does: "Allow it, and the like from now on",
+        run: |core, line| core.answer_line(line, &Choice::Always),
+    },
+    Command {
+        name: "deny",
+        usage: "/deny [#wait] [reason]",
+        does: "Refuse what waits",
+        run: |core, line| core.answer_line(line, &Choice::Deny),
+    },
+    Command {
+        name: "go",
+        usage: "/go [#wait] [reason]",
+        does: "Carry out an instruction an agent objected to",
+        run: |core, line| core.answer_line(line, &Choice::Go),
+    },
+    Command {
+        name: "withdraw",
+        usage: "/withdraw [#wait] [reason]",
+        does: "Withdraw an instruction an agent objected to",
+        run: |core, line| core.answer_line(line, &Choice::Withdraw),
+    },
+    Command {
+        name: "reply",
+        usage: "/reply [#wait] <text>",
+        does: "Answer a question that waits",
+        run: |core, line| core.answer_line(line, &Choice::Reply),
+    },
+    Command {
+        name: "dismiss",
+        usage: "/dismiss [#wait]",
+        does: "Put away a fault or a question",
+        run: |core, line| core.answer_line(line, &Choice::Dismiss),
+    },
+    Command {
+        name: "grants",
+        usage: "/grants",
+        does: "List what agents may use for good",
+        run: |core, _| core.grants(),
+    },
+    Command {
+        name: "revoke",
+        usage: "/revoke <address> <network|unconfined>",
+        does: "Take back a lasting grant",
+        run: |core, line| core.revoke(line.here.as_ref(), &line.rest),
+    },
+];
 
 impl Core<'_, '_> {
     /// Answers a wait with `choice`: the one `#<id>` names, else the

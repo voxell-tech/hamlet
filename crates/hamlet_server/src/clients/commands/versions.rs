@@ -5,7 +5,8 @@
 use hamlet_git::{Author, CommitId, MAIN, Repository};
 use hamlet_store::ids::{Actor, HamletId, ScholarId};
 
-use super::ScholarReach;
+use super::Command;
+use super::targets::ScholarReach;
 use crate::core::{Core, UnpushedLodge};
 use crate::knowledge::folder::Folder;
 use crate::realm::change::Done;
@@ -13,6 +14,46 @@ use crate::realm::jobs::Fork;
 use crate::society::addresses::{self, Reach};
 use crate::society::refusal::Refusal;
 use crate::society::{authority, city, hires, names};
+
+/// The commands about a scholar's versions.
+pub(super) const VERSIONS: &[Command] = &[
+    Command {
+        name: "tag",
+        usage: "/tag <scholar#id>[@<commit>] <version> [note]",
+        does: "Name a version of a scholar",
+        run: |core, line| core.tag(&line.words()),
+    },
+    Command {
+        name: "versions",
+        usage: "/versions <scholar#id>",
+        does: "List a scholar's versions and latest commits",
+        run: |core, line| core.list_versions(&line.words()),
+    },
+    Command {
+        name: "pin",
+        usage: "/pin <address> <version|main> [reason]",
+        does: "Hold a hire at a version, or let it follow main",
+        run: |core, line| core.pin(line.here.as_ref(), &line.words()),
+    },
+    Command {
+        name: "revert",
+        usage: "/revert <scholar#id> <commit|version> [reason]",
+        does: "Undo a commit of a scholar's main",
+        run: |core, line| core.revert(&line.words()),
+    },
+    Command {
+        name: "fork",
+        usage: "/fork <scholar#id>[@<version>] <new name>",
+        does: "Make a new scholar from a version of another",
+        run: |core, line| core.fork(&line.words()),
+    },
+    Command {
+        name: "purge",
+        usage: "/purge <scholar#id> <path>",
+        does: "Take a file out of a scholar's whole history",
+        run: |core, line| core.purge(&line.words()),
+    },
+];
 
 /// The most commits `/versions` lists.
 const MOST_SHOWN: usize = 12;

@@ -4,11 +4,31 @@
 
 use hamlet_store::ids::Actor;
 
+use super::Command;
 use crate::core::Core;
 use crate::knowledge::library;
 use crate::realm::change::Done;
 use crate::society::library::{self as shelf, Event, EventKind};
 use crate::society::refusal::Refusal;
+
+/// The commands about the library's shelves and dreams.
+pub(super) const SHELVES: &[Command] = &[
+    Command {
+        name: "unshelve",
+        usage: "/unshelve <skill> [reason]",
+        does: "Take a skill off the library's shelves",
+        run: |core, line| core.unshelve(&line.words()),
+    },
+    Command {
+        name: "dream",
+        usage: "/dream <scholar#id|address>",
+        does: "Have a hire bring its learning home, or a scholar \
+               tidy",
+        run: |core, line| {
+            core.dream_command(line.here.as_ref(), &line.words())
+        },
+    },
+];
 
 impl Core<'_, '_> {
     pub(super) fn unshelve(

@@ -6,6 +6,7 @@
 mod oversight;
 mod shelves;
 mod society;
+mod targets;
 mod versions;
 
 use anyhow::{Result, anyhow};
@@ -14,31 +15,25 @@ use bevy_ecs::message::Messages;
 use bevy_ecs::resource::Resource;
 use bevy_ecs::system::{In, SystemId};
 use bevy_ecs::world::World;
-use hamlet_git::Repository;
-use hamlet_protocol::client::{self as protocol, Choice};
-use hamlet_store::ids::{Actor, AgentId, HamletId, ScholarId};
+use hamlet_protocol::client as protocol;
+use hamlet_store::ids::{AgentId, HamletId};
 
 use crate::app::input::AddHandler;
 use crate::clients::handlers::FromClient;
 use crate::core::Core;
 use crate::realm::change::Done;
-use crate::society::addresses::{self, Reach};
-use crate::society::agents::{self, AgentKind};
-use crate::society::hires::{self, Hiring};
+use crate::society::addresses::Reach;
+use crate::society::hires;
 use crate::society::refusal::Refusal;
-use crate::society::{authority, city, hamlets};
-
-/// The word that stands in place of a scholar for a blank agent.
-const BLANK: &str = "blank";
 
 type Run = fn(&mut Core<'_, '_>, &Line) -> Answer;
 
 pub(crate) fn plugin(app: &mut App) {
     app.add_handler::<FromClient<ChiefCommand>, _>(said)
         .add_commands(SESSIONS)
-        .add_commands(OVERSIGHT)
-        .add_commands(VERSIONS)
-        .add_commands(SHELVES)
+        .add_commands(oversight::OVERSIGHT)
+        .add_commands(versions::VERSIONS)
+        .add_commands(shelves::SHELVES)
         .add_commands(society::SOCIETY);
 }
 
@@ -49,20 +44,6 @@ pub(crate) struct Command {
     usage: &'static str,
     does: &'static str,
     run: Run,
-}
-
-/// The scholars an address may name.
-#[derive(Clone, Copy, PartialEq)]
-enum ScholarReach {
-    Living,
-    /// The archived too.
-    Kept,
-}
-
-/// The check that `word` is a scholar's address, with or without a
-/// version.
-fn is_scholar(word: &str) -> bool {
-    word.starts_with("scholar#")
 }
 
 /// The commands about the chat itself: the same requests a client's
@@ -109,151 +90,6 @@ const SESSIONS: &[Command] = &[
         usage: "/stop [address|all]",
         does: "Stop an agent's work",
         run: stop,
-    },
-];
-
-/// The commands that oversee the agents' work.
-const OVERSIGHT: &[Command] = &[
-    Command {
-        name: "to",
-        usage: "/to <address> <instruction>",
-        does: "Instruct another agent from here",
-        run: |core, line| {
-            core.instruct(line.here.as_ref(), &line.rest)
-        },
-    },
-    Command {
-        name: "reflect",
-        usage: "/reflect",
-        does: "Have the agent keep what this session taught it",
-        run: |core, line| core.reflect(line.agent),
-    },
-    Command {
-        name: "worker",
-        usage: "/worker <task>",
-        does: "Start a worker on a task in this hamlet",
-        run: |core, line| {
-            core.chiefs_worker(line.here.as_ref(), &line.rest)
-        },
-    },
-    Command {
-        name: "queue",
-        usage: "/queue",
-        does: "List what waits for you",
-        run: |core, _| core.queue(),
-    },
-    Command {
-        name: "allow",
-        usage: "/allow [#wait] [reason]",
-        does: "Allow what waits, this once",
-        run: |core, line| core.answer_line(line, &Choice::Allow),
-    },
-    Command {
-        name: "always",
-        usage: "/always [#wait] [reason]",
-        does: "Allow it, and the like from now on",
-        run: |core, line| core.answer_line(line, &Choice::Always),
-    },
-    Command {
-        name: "deny",
-        usage: "/deny [#wait] [reason]",
-        does: "Refuse what waits",
-        run: |core, line| core.answer_line(line, &Choice::Deny),
-    },
-    Command {
-        name: "go",
-        usage: "/go [#wait] [reason]",
-        does: "Carry out an instruction an agent objected to",
-        run: |core, line| core.answer_line(line, &Choice::Go),
-    },
-    Command {
-        name: "withdraw",
-        usage: "/withdraw [#wait] [reason]",
-        does: "Withdraw an instruction an agent objected to",
-        run: |core, line| core.answer_line(line, &Choice::Withdraw),
-    },
-    Command {
-        name: "reply",
-        usage: "/reply [#wait] <text>",
-        does: "Answer a question that waits",
-        run: |core, line| core.answer_line(line, &Choice::Reply),
-    },
-    Command {
-        name: "dismiss",
-        usage: "/dismiss [#wait]",
-        does: "Put away a fault or a question",
-        run: |core, line| core.answer_line(line, &Choice::Dismiss),
-    },
-    Command {
-        name: "grants",
-        usage: "/grants",
-        does: "List what agents may use for good",
-        run: |core, _| core.grants(),
-    },
-    Command {
-        name: "revoke",
-        usage: "/revoke <address> <network|unconfined>",
-        does: "Take back a lasting grant",
-        run: |core, line| core.revoke(line.here.as_ref(), &line.rest),
-    },
-];
-
-/// The commands about a scholar's versions.
-const VERSIONS: &[Command] = &[
-    Command {
-        name: "tag",
-        usage: "/tag <scholar#id>[@<commit>] <version> [note]",
-        does: "Name a version of a scholar",
-        run: |core, line| core.tag(&line.words()),
-    },
-    Command {
-        name: "versions",
-        usage: "/versions <scholar#id>",
-        does: "List a scholar's versions and latest commits",
-        run: |core, line| core.list_versions(&line.words()),
-    },
-    Command {
-        name: "pin",
-        usage: "/pin <address> <version|main> [reason]",
-        does: "Hold a hire at a version, or let it follow main",
-        run: |core, line| core.pin(line.here.as_ref(), &line.words()),
-    },
-    Command {
-        name: "revert",
-        usage: "/revert <scholar#id> <commit|version> [reason]",
-        does: "Undo a commit of a scholar's main",
-        run: |core, line| core.revert(&line.words()),
-    },
-    Command {
-        name: "fork",
-        usage: "/fork <scholar#id>[@<version>] <new name>",
-        does: "Make a new scholar from a version of another",
-        run: |core, line| core.fork(&line.words()),
-    },
-    Command {
-        name: "purge",
-        usage: "/purge <scholar#id> <path>",
-        does: "Take a file out of a scholar's whole history",
-        run: |core, line| core.purge(&line.words()),
-    },
-];
-
-/// The commands about the library's shelves and dreams.
-const SHELVES: &[Command] = &[
-    Command {
-        name: "unshelve",
-        usage: "/unshelve <skill> [reason]",
-        does: "Take a skill off the library's shelves",
-        run: |core, line| core.unshelve(&line.words()),
-    },
-    Command {
-        name: "dream",
-        usage: "/dream <scholar#id|address>",
-        does: "Have a hire bring its learning home, or a scholar \
-               tidy",
-        run: |core, line| {
-            core.dream_command(line.here.as_ref(), &line.words())
-        },
     },
 ];
 
@@ -496,156 +332,4 @@ fn stop(core: &mut Core<'_, '_>, line: &Line) -> Answer {
         }
     };
     Ok(Ok(core.stop_turns(&targets)?))
-}
-
-impl Core<'_, '_> {
-    /// The scholar `text` addresses: a living one of the chief's, at
-    /// its `main` or pinned to `@version`.
-    fn hiring(
-        &mut self,
-        text: &str,
-        chief: hamlet_store::ids::ChiefId,
-    ) -> Done<Hiring> {
-        let (scholar, version) = match self.scholar_pinned(text)? {
-            Ok(found) => found,
-            Err(refusal) => return Ok(Err(refusal)),
-        };
-        let db = self.realm.store().connection();
-        if city::get(db, scholar)?.chief != Some(chief) {
-            return Ok(Err(Refusal::ScholarNotOwn {
-                name: addresses::scholar_name_of(db, scholar)?,
-            }));
-        }
-        self.existing(scholar, version)
-    }
-
-    /// The living scholar `text` addresses, `scholar#<id>` with
-    /// `@<version>` to pin one, and that version.
-    pub(crate) fn scholar_pinned(
-        &mut self,
-        text: &str,
-    ) -> Done<(ScholarId, Option<String>)> {
-        let (address, version) = match text.split_once('@') {
-            Some((address, version)) => {
-                (address, Some(version.to_owned()))
-            }
-            None => (text, None),
-        };
-        Ok(self
-            .scholar_at(address, ScholarReach::Living)?
-            .map(|scholar| (scholar, version)))
-    }
-
-    /// A hire of the living `scholar`, at its `main` or pinned to
-    /// `version` when that is one the scholar has.
-    pub(crate) fn existing(
-        &mut self,
-        scholar: ScholarId,
-        version: Option<String>,
-    ) -> Done<Hiring> {
-        if let Some(version) = &version {
-            let found = Repository::open(
-                &self.realm.layout().repository(scholar),
-            )
-            .ok()
-            .and_then(|repo| repo.resolve(version).ok().flatten());
-            if found.is_none() || version == hamlet_git::MAIN {
-                let db = self.realm.store().connection();
-                return Ok(Err(Refusal::NoVersion {
-                    name: addresses::scholar_name_of(db, scholar)?,
-                    version: version.clone(),
-                }));
-            }
-        }
-        Ok(Ok(Hiring::Existing {
-            scholar,
-            pin: version,
-        }))
-    }
-
-    /// The agent `text` addresses, said in `here`.
-    fn resolve(
-        &mut self,
-        text: &str,
-        here: Option<&HamletId>,
-        reach: Reach,
-    ) -> Done<AgentId> {
-        let address = match addresses::parse(text) {
-            Ok(address) => address,
-            Err(refusal) => return Ok(Err(refusal)),
-        };
-        let db = self.realm.store().connection();
-        addresses::resolve(db, &address, here, reach)
-    }
-
-    /// The scholar `text` addresses, among those `reach` allows.
-    fn scholar_at(
-        &mut self,
-        text: &str,
-        reach: ScholarReach,
-    ) -> Done<ScholarId> {
-        let id = match addresses::parse_scholar(text) {
-            Ok(id) => id,
-            Err(refusal) => return Ok(Err(refusal)),
-        };
-        let db = self.realm.store().connection();
-        let found = city::find(db, id)?.filter(|found| {
-            found.kind == city::ScholarKind::Scholar
-                && (reach == ScholarReach::Kept || found.is_living())
-        });
-        Ok(match found {
-            Some(found) => Ok(found.id),
-            None => Err(Refusal::NoScholar {
-                address: text.into(),
-            }),
-        })
-    }
-
-    /// Refuses unless this server's chief is a chief of `hamlet`.
-    fn chief_of(&mut self, hamlet: &HamletId) -> Done<()> {
-        let chief = self.realm.chief();
-        let db = self.realm.store().connection();
-        if hamlets::find(db, hamlet)?.is_none() {
-            return Ok(Err(Refusal::NoHamlet {
-                id: hamlet.to_string(),
-            }));
-        }
-        if !authority::is_chief_of(db, chief, hamlet)? {
-            return Ok(Err(Refusal::NotChief {
-                hamlet: hamlet.to_string(),
-            }));
-        }
-        Ok(Ok(()))
-    }
-
-    /// Refuses unless this server's chief leads the hire `hire`.
-    pub(crate) fn leads(&mut self, hire: AgentId) -> Done<()> {
-        let chief = self.realm.chief();
-        let db = self.realm.store().connection();
-        if agents::get(db, hire)?.kind != AgentKind::Hire {
-            let name = addresses::name_of(db, hire)?;
-            return Ok(Err(Refusal::NotHire { name }));
-        }
-        if !authority::may_lead(db, Actor::Chief(chief), hire)? {
-            let name = addresses::name_of(db, hire)?;
-            return Ok(Err(Refusal::NotYours { name }));
-        }
-        Ok(Ok(()))
-    }
-
-    /// Refuses unless this server's chief may choose the model,
-    /// effort and fast tier of `agent`.
-    fn steers(&mut self, agent: AgentId) -> Done<()> {
-        let chief = self.realm.chief();
-        let db = self.realm.store().connection();
-        if !authority::may_steer(db, Actor::Chief(chief), agent)? {
-            let name = addresses::name_of(db, agent)?;
-            return Ok(Err(Refusal::NotYours { name }));
-        }
-        Ok(Ok(()))
-    }
-
-    fn no_hamlet(&self) -> Refusal {
-        Refusal::SayToMayorOrHire
-    }
 }
