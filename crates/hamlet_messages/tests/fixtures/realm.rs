@@ -227,12 +227,20 @@ fn by_a_lead<R>(
 /// The refusals of the calling agent itself.
 fn callers<U: From<Standing> + From<Gate>>(
     tool: SocietyTool,
-) -> [(&'static str, U); 4] {
+) -> [(&'static str, U); 6] {
     [
         ("you_left", you_left().into()),
         ("not_a_member", Standing::NotAMember.into()),
         ("tool_off", Gate::ToolOff { tool }.into()),
         ("reserved", Gate::Reserved { wait: WaitId(4) }.into()),
+        (
+            "already_refused",
+            Gate::AlreadyRefused {
+                reason: "not now".into(),
+            }
+            .into(),
+        ),
+        ("past_the_count", Gate::PastTheCount { refused: 3 }.into()),
     ]
 }
 
@@ -260,6 +268,8 @@ fn asked<T>(act: T) -> Asked<T> {
 fn tool<T>(act: T) -> Tool<T> {
     Tool {
         call: call("call-5"),
+        task: None,
+        conversation: None,
         act,
     }
 }
@@ -371,6 +381,20 @@ fn the_founding_and_the_hires(fixtures: &mut Fixtures) {
             purpose: Some("Check the links".into()),
             name: None,
         }),
+    );
+    fixtures.args(
+        "realm/hire.in_a_turn",
+        &Tool {
+            task: Some(standing_task()),
+            conversation: Some(ConversationId("c1".into())),
+            ..tool(Hire {
+                hamlet: None,
+                under: None,
+                profile: None,
+                purpose: Some("Check the links".into()),
+                name: None,
+            })
+        },
     );
     let hire_refusals = || {
         vec![

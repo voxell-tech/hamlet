@@ -904,6 +904,8 @@ async fn purpose_of(
 fn tool<T>(call: &str, act: T) -> Tool<T> {
     Tool {
         call: CallId(call.to_owned()),
+        task: None,
+        conversation: None,
         act,
     }
 }

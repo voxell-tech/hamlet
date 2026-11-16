@@ -9,8 +9,8 @@ use hamlet_messages::realm::oversight::{
 };
 use hamlet_messages::realm::world::WaitKind;
 use hamlet_messages::realm::{
-    Asked, Done, End, HireAnswer, Limit, Named, NeedsChief,
-    SecretList, Secrets, SetLimits, SocietyTool,
+    Asked, Done, End, Hire, HireAnswer, Limit, Named, NeedsChief,
+    ReservedAct, SecretList, Secrets, SetLimits, SocietyTool,
 };
 use hamlet_messages::sender::Hand;
 use hamlet_messages::workspace::reach::{
@@ -22,6 +22,7 @@ use hamlet_messages::workspace::{
 use hamlet_protocol::client::{Choice, RequestId};
 use serde::Serialize;
 
+use super::reserved::{in_turn, refused_with};
 use super::{
     Callee, MAYOR, Realm, answer, chief_hires, error_code, founded,
     hamlet_with, hire, needs, say, seen_submits, standing, tool,
@@ -1000,6 +1001,87 @@ async fn the_refusal_that_reaches_the_count_closes_the_tasks_other_waits()
     assert_eq!(
         waits[3..],
         [(4, false, Some("unasked".to_owned())), (5, true, None)]
+    );
+    realm.host.shutdown().await.unwrap();
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn denied_reserved_calls_count_toward_the_tasks_refusals() {
+    // a hamlet whose limits allow 2 refusals and reserve hire. On a
+    // chief's task the chief denies one of the mayor's hires, and a
+    // command on the task waits; a second denied hire reaches the
+    // count, which closes the command's wait unasked. A third hire,
+    // and another command, on that task are refused at once with
+    // today's words.
+    let (realm, hamlet) = hamlet_with(0).await;
+    realm
+        .ask(&Asked {
+            id: RequestId::new(),
+            act: SetLimits {
+                hamlet: Some(hamlet),
+                budget: Vec::new(),
+                limits: vec![
+                    Limit::Refusals { most: 2 },
+                    Limit::Reserved {
+                        act: ReservedAct::Hire,
+                        reserved: true,
+                    },
+                ],
+            },
+        })
+        .await
+        .unwrap();
+    let task = chief_task(&realm, MAYOR).await;
+    let hiring = |call: &str, purpose: &str| {
+        in_turn(
+            call,
+            Hire {
+                purpose: Some(purpose.to_owned()),
+                ..hire(None)
+            },
+            Some(&task),
+        )
+    };
+    let command = |call: &str| NeedsChief {
+        agent: MAYOR,
+        ..asked(call, Need::Command, Some(&task), "c")
+    };
+    realm.tool(MAYOR, &hiring("h1", "one")).await.unwrap();
+    realm
+        .ask(&answer("1", Choice::Deny, Some("no")))
+        .await
+        .unwrap();
+    realm.call_as_workspace(&command("c1")).await.unwrap();
+    realm.tool(MAYOR, &hiring("h2", "two")).await.unwrap();
+    realm
+        .ask(&answer("3", Choice::Deny, Some("no")))
+        .await
+        .unwrap();
+
+    let third =
+        realm.tool(MAYOR, &hiring("h3", "three")).await.unwrap();
+    realm.call_as_workspace(&command("c2")).await.unwrap();
+    until("the workspace has two answers", || {
+        chief_answers(&realm).len() == 2
+    })
+    .await;
+
+    let past = "the chief has refused 2 requests this turn and will \
+                not be asked again in it. Stop and report what you \
+                could not do.";
+    assert_eq!(refused_with(third), past);
+    assert_eq!(
+        chief_answers(&realm),
+        [
+            ChiefAnswer {
+                agent: MAYOR,
+                ..refused_unasked("c1", past)
+            },
+            ChiefAnswer {
+                agent: MAYOR,
+                ..refused_unasked("c2", past)
+            },
+        ]
     );
     realm.host.shutdown().await.unwrap();
 }

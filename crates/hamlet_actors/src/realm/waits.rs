@@ -14,7 +14,7 @@ use hamlet_messages::realm::oversight::{
     Lapse, LapseReason, Permission,
 };
 use hamlet_messages::realm::world::WaitId;
-use hamlet_messages::realm::{Done, NeedsChief};
+use hamlet_messages::realm::{Done, Gate, NeedsChief};
 use hamlet_messages::sender::Client;
 use hamlet_messages::workspace::reach::Need;
 use hamlet_messages::workspace::{
@@ -617,15 +617,17 @@ impl Refused {
     }
 }
 
+/// The tool calls and reserved acts a chief refused `agent` on
+/// `task`. A reserved act needs nothing of the workspace.
 async fn refusals(
     rows: &Rows<'_>,
     agent: AgentNumber,
     task: TaskId,
 ) -> Result<Vec<Refused>> {
-    rows.rows::<(String, String, Option<String>)>(
+    rows.rows::<(String, Option<String>, Option<String>)>(
         "SELECT subject, needs, ruling FROM wait WHERE agent = ?1 \
-         AND task = ?2 AND kind = 'tool' AND choice = 'refuse' \
-         ORDER BY id",
+         AND task = ?2 AND kind IN ('tool', 'reserved') AND choice \
+         = 'refuse' ORDER BY id",
         vec![number(agent), task.column()?],
     )
     .await?
@@ -633,25 +635,49 @@ async fn refusals(
     .map(|(subject, needs, ruling)| {
         Ok(Refused {
             subject,
-            needs: serde_json::from_str(&needs)?,
+            needs: needs
+                .map(|needs| serde_json::from_str(&needs))
+                .transpose()?
+                .unwrap_or_default(),
             ruling,
         })
     })
     .collect()
 }
 
-/// The words a call is refused with when `refused` calls of its task
-/// reach `most`.
-fn past_the_count(refused: usize, most: u32) -> Option<String> {
-    (refused >= usize::try_from(most).unwrap_or(usize::MAX)).then(
-        || {
-            format!(
-                "the chief has refused {refused} requests this turn \
-                 and will not be asked again in it. Stop and report \
-                 what you could not do."
-            )
-        },
-    )
+/// Why a call of `agent`'s for `needs` on `subject` is refused
+/// without asking a chief, from the chief's refusals on `task`: one
+/// that covers it, else their count reaching the limit (H11).
+pub(super) async fn refused_unasked(
+    rows: &Rows<'_>,
+    agent: AgentNumber,
+    task: TaskId,
+    needs: &[Need],
+    subject: &str,
+) -> Result<Option<Gate>> {
+    let refused = refusals(rows, agent, task).await?;
+    if let Some(earlier) = refused
+        .iter()
+        .find(|refused| refused.covers(needs, subject))
+    {
+        return Ok(Some(Gate::AlreadyRefused {
+            reason: earlier
+                .ruling
+                .clone()
+                .unwrap_or_else(|| "no reason given".to_owned()),
+        }));
+    }
+    Ok(past_the_count(
+        refused.len(),
+        most_refusals(rows, agent).await?,
+    ))
+}
+
+/// The refusal of a call once `refused` calls of its task reach
+/// `most`.
+fn past_the_count(refused: usize, most: u32) -> Option<Gate> {
+    let refused = u32::try_from(refused).unwrap_or(u32::MAX);
+    (refused >= most).then_some(Gate::PastTheCount { refused })
 }
 
 pub(super) enum Asker {
@@ -697,28 +723,18 @@ impl Act<Workspace> for NeedsChief {
         else {
             return Ok(Asker::Asks);
         };
-        let refused = refusals(rows, self.agent, task).await?;
-        let words = match refused.iter().find(|refused| {
-            refused.covers(&self.needs, &self.subject)
-        }) {
-            Some(earlier) => Some(format!(
-                "the chief already refused this in this turn ({}). \
-                 Do not ask again: go on without it, or report that \
-                 you could not.",
-                earlier
-                    .ruling
-                    .as_deref()
-                    .unwrap_or("no reason given")
-            )),
-            None => past_the_count(
-                refused.len(),
-                most_refusals(rows, self.agent).await?,
-            ),
-        };
-        Ok(match words {
-            Some(words) => Asker::Refused {
+        let refused = refused_unasked(
+            rows,
+            self.agent,
+            task,
+            &self.needs,
+            &self.subject,
+        )
+        .await?;
+        Ok(match refused {
+            Some(why) => Asker::Refused {
                 wait: next(rows).await?,
-                words,
+                words: why.to_string(),
             },
             None => Asker::Asks,
         })
@@ -898,12 +914,16 @@ impl Act<Client> for Answer {
             Kind::Tool | Kind::Fault => Ok(Ruling::default()),
         };
         let past_the_count = match (kind, &self.0.choice, task) {
-            (Kind::Tool, protocol::Choice::Deny, Some(task)) => {
+            (
+                Kind::Tool | Kind::Reserved,
+                protocol::Choice::Deny,
+                Some(task),
+            ) => {
                 let refused =
                     refusals(rows, agent, task).await?.len();
                 let most = most_refusals(rows, agent).await?;
                 match past_the_count(refused + 1, most) {
-                    Some(words) => Some((
+                    Some(why) => Some((
                         rows.values::<u64>(
                             "SELECT id FROM wait WHERE agent = ?1 \
                              AND task = ?2 AND kind = 'tool' AND \
@@ -919,7 +939,7 @@ impl Act<Client> for Answer {
                         .into_iter()
                         .map(WaitId)
                         .collect(),
-                        words,
+                        why.to_string(),
                     )),
                     None => None,
                 }

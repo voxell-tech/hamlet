@@ -5,14 +5,14 @@ use std::sync::Arc;
 use anyhow::{Result, bail};
 use hamlet_actor::Ctx;
 use hamlet_messages::realm::world::WaitId;
-use hamlet_messages::realm::{Gate, SocietyTool};
+use hamlet_messages::realm::{Gate, SocietyTool, Tool};
 use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
 
 use super::callers::{Member, Stood, Witness};
 use super::calls::{self, Calls, Made, Push};
 use super::change::{self, Change, Rows};
-use super::oversight::reserved;
+use super::oversight::reserved::{self, Kept};
 use super::peer::When;
 use super::{Realm, marker, record, steps};
 
@@ -136,29 +136,44 @@ pub(super) async fn run_tool<By, A>(
     realm: &Arc<Realm>,
     ctx: &Ctx<Realm>,
     by: By,
-    id: marker::Id,
     name: &'static str,
-    tool: SocietyTool,
-    act: A,
+    society: SocietyTool,
+    tool: Tool<A>,
 ) -> Result<Result<A::Output, Stood>>
 where
     By: Member,
     A: Act<By> + Serialize,
 {
+    let Tool {
+        call,
+        task,
+        conversation,
+        act,
+    } = tool;
     exec(
         realm,
         ctx,
         by,
-        Some(id),
+        Some(marker::Id::Call(call)),
         name,
         act,
         async move |by: &By, rows: &Rows<'_>, act: &A| {
             if let Some(stood) = by.standing(rows).await? {
                 return Ok(Some(Barred::Stood(stood)));
             }
-            let kept = reserved::reserve(rows, tool, by.agent(), act)
-                .await?;
-            Ok(kept.map(Barred::Reserved))
+            let kept = reserved::reserve(
+                rows,
+                society,
+                by.agent(),
+                task.as_ref(),
+                conversation.as_ref(),
+                act,
+            )
+            .await?;
+            Ok(kept.map(|kept| match kept {
+                Kept::Waits(kept) => Barred::Reserved(kept),
+                Kept::Refused(why) => Barred::Stood(Stood::Gate(why)),
+            }))
         },
         |wait| Ok(Stood::Gate(Gate::Reserved { wait })),
     )

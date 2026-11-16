@@ -1,18 +1,25 @@
+use std::fmt::Display;
+
 use hamlet_messages::agent::Input;
 use hamlet_messages::realm::client::AnswerRefusal;
+use hamlet_messages::realm::oversight::{Lapse, LapseReason};
 use hamlet_messages::realm::workers::{StartWorker, Started};
 use hamlet_messages::realm::world::WaitId;
 use hamlet_messages::realm::{
     Asked, Done, End, Gate, HamletId, Hire, HireAnswer, LayRoad,
-    LeadRefusal, Limit, ReservedAct, SetLimits, TakeUpRoad,
+    LeadRefusal, Limit, NeedsChief, ReservedAct, SetLimits,
+    TakeUpRoad, Tool,
 };
 use hamlet_messages::sender::Hand;
-use hamlet_messages::workspace::AgentNumber;
+use hamlet_messages::workspace::{
+    AgentNumber, ConversationId, RealmTask,
+};
 use hamlet_protocol::client::{Choice, RequestId};
 
+use super::asking::chief_task;
 use super::{
     FOUR, MAYOR, Realm, THREE, answer, hamlet_with, hire, hired,
-    seen_submits, submits_to, to, tool,
+    needs, seen_submits, submits_to, to, tool,
 };
 
 async fn reserve(realm: &Realm, hamlet: &HamletId, act: ReservedAct) {
@@ -36,6 +43,29 @@ async fn reserve(realm: &Realm, hamlet: &HamletId, act: ReservedAct) {
 fn kept<R>(wait: u64) -> Done<LeadRefusal<R>> {
     Done::Refused {
         why: LeadRefusal::Gate(Gate::Reserved { wait: WaitId(wait) }),
+    }
+}
+
+/// `act` called in a turn of conversation `c`, on `task`.
+pub(super) fn in_turn<T>(
+    call: &str,
+    act: T,
+    task: Option<&RealmTask>,
+) -> Tool<T> {
+    Tool {
+        task: task.cloned(),
+        conversation: Some(ConversationId("c".to_owned())),
+        ..tool(call, act)
+    }
+}
+
+/// The words a refused hire is told.
+pub(super) fn refused_with<W: Display>(
+    answer: HireAnswer<W>,
+) -> String {
+    match answer {
+        HireAnswer::Refused { why } => why.to_string(),
+        HireAnswer::Hired { agent } => panic!("{agent:?} is hired"),
     }
 }
 
@@ -458,5 +488,116 @@ async fn a_workers_act_is_never_reserved() {
         "{hiring:?}"
     );
     assert!(waits(&realm).await.is_empty());
+    realm.host.shutdown().await.unwrap();
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn a_reserved_call_the_chief_refused_is_refused_again_unasked()
+{
+    // a hamlet whose limits reserve hire. On a chief's task the
+    // chief denies the mayor's hire with a reason. The same hire on
+    // that task is refused at once with today's words and opens no
+    // wait; a command on the task still waits for the chief.
+    let (realm, hamlet) = hamlet_with(0).await;
+    reserve(&realm, &hamlet, ReservedAct::Hire).await;
+    let task = chief_task(&realm, MAYOR).await;
+    let first = realm
+        .tool(MAYOR, &in_turn("h1", hire(None), Some(&task)))
+        .await
+        .unwrap();
+    realm
+        .ask(&answer("#1", Choice::Deny, Some("not now")))
+        .await
+        .unwrap();
+
+    let again = realm
+        .tool(MAYOR, &in_turn("h2", hire(None), Some(&task)))
+        .await
+        .unwrap();
+    realm
+        .call_as_workspace(&NeedsChief {
+            realm_task: Some(task),
+            ..needs(MAYOR, "c1")
+        })
+        .await
+        .unwrap();
+
+    assert_eq!(
+        first,
+        HireAnswer::Refused {
+            why: LeadRefusal::Gate(Gate::Reserved {
+                wait: WaitId(1)
+            }),
+        }
+    );
+    assert_eq!(
+        refused_with(again),
+        "the chief already refused this in this turn (not now). Do \
+         not ask again: go on without it, or report that you could \
+         not."
+    );
+    let kinds = waits(&realm)
+        .await
+        .into_iter()
+        .map(|(id, kind, _, choice)| (id, kind, choice))
+        .collect::<Vec<_>>();
+    assert_eq!(
+        kinds,
+        [
+            (1, "reserved".to_owned(), Some("refuse".to_owned())),
+            (2, "tool".to_owned(), None),
+        ]
+    );
+    realm.host.shutdown().await.unwrap();
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn a_rewind_lapses_the_reserved_wait_of_its_conversation() {
+    // a hamlet whose limits reserve hire. The mayor's hire in
+    // conversation c waits; a rewind of c closes the wait, so a later
+    // allow finds nothing waiting and no hire is made.
+    let (realm, hamlet) = hamlet_with(0).await;
+    reserve(&realm, &hamlet, ReservedAct::Hire).await;
+    realm
+        .tool(MAYOR, &in_turn("h1", hire(None), None))
+        .await
+        .unwrap();
+
+    realm
+        .tool(
+            MAYOR,
+            &Lapse {
+                conversation: Some(ConversationId("c".to_owned())),
+                why: LapseReason::Rewound,
+            },
+        )
+        .await
+        .unwrap();
+    let allowed =
+        realm.ask(&answer("#1", Choice::Allow, None)).await.unwrap();
+
+    assert_eq!(
+        allowed,
+        Done::Refused {
+            why: AnswerRefusal::NothingWaits {
+                wait: "#1".to_owned()
+            }
+        }
+    );
+    let [(1, kind, _, Some(choice))] = &waits(&realm).await[..]
+    else {
+        panic!("one wait, closed");
+    };
+    assert_eq!(
+        (kind.as_str(), choice.as_str()),
+        ("reserved", "lapsed")
+    );
+    assert!(
+        !agents(&realm)
+            .await
+            .iter()
+            .any(|(agent, _)| *agent == THREE.0),
+        "no hire is made"
+    );
     realm.host.shutdown().await.unwrap();
 }

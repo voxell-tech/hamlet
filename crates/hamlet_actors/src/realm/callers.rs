@@ -277,17 +277,8 @@ where
     ) -> Result<<T as ToolCall>::Answer> {
         let name = <Tool<T> as Action>::NAME;
         let by = sender(&ctx, &tool)?;
-        let id = marker::Id::Call(tool.call);
-        let ran = act::run_tool(
-            &self,
-            &ctx,
-            by,
-            id,
-            name,
-            T::TOOL,
-            tool.act,
-        )
-        .await?;
+        let ran = act::run_tool(&self, &ctx, by, name, T::TOOL, tool)
+            .await?;
         Ok(to_tool(ran))
     }
 }
