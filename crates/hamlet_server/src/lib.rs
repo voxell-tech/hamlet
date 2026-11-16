@@ -27,7 +27,9 @@
 use std::io::IsTerminal;
 
 use bevy_app::{App, Last, PostUpdate};
-use bevy_ecs::schedule::{IntoScheduleConfigs, SystemSet};
+use bevy_ecs::schedule::{
+    IntoScheduleConfigs, Schedules, SingleThreadedExecutor, SystemSet,
+};
 use bevy_log::{BoxedFmtLayer, LogPlugin};
 
 use crate::app::options::Options;
@@ -125,6 +127,16 @@ pub fn create_app(options: Options) -> App {
         terminals::plugin,
         tools::plugin,
     ));
+
+    // Every schedule runs its systems one at a time on the runner's
+    // thread, inside its tokio runtime, whatever executor Bevy's
+    // features choose: the systems spawn tasks, and an input's
+    // update is one transaction in order.
+    for (_, schedule) in
+        app.world_mut().resource_mut::<Schedules>().iter_mut()
+    {
+        schedule.set_executor(SingleThreadedExecutor::new());
+    }
 
     /// Bevy's readable lines in a terminal, else one JSON object per
     /// line, so words with a newline or a terminal escape cannot

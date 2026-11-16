@@ -126,6 +126,18 @@ async fn a_job_cut_off_by_a_crash_runs_at_the_next_start() {
     let mut realm = Realm::faulting("jobs");
     let (mut server, mut chief) = realm.serve(Faux::new()).await;
     let hand = chief.hand();
+    let scholars = realm.path("scholars");
+    let planted =
+        || std::fs::read_dir(&scholars).map_or(0, Iterator::count);
+    // The jobs runner's first pass plants the Hand's own scholar; it
+    // is over before the next job is kept, so only the stopped loop
+    // could run that one.
+    for _ in 0..100 {
+        if planted() == 1 {
+            break;
+        }
+        tokio::time::sleep(Duration::from_millis(50)).await;
+    }
     chief
         .tell(hand, "/scholar new sam: A careful reader.")
         .await;
@@ -133,8 +145,6 @@ async fn a_job_cut_off_by_a_crash_runs_at_the_next_start() {
     server.kill();
     // The scholar is kept and its repository is a job still to run:
     // only the Hand's own scholar has one.
-    let scholars = realm.path("scholars");
-    let planted = || std::fs::read_dir(&scholars).unwrap().count();
     assert_eq!(planted(), 1);
 
     // The next start runs it: sam's main gets its first commit.
