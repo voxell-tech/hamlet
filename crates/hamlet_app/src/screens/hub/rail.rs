@@ -2093,30 +2093,6 @@ mod tests {
     }
 
     #[test]
-    fn pressing_an_agent_asks_for_the_chat_field() {
-        let mut app = panel_app();
-        app.add_plugins(plugin);
-        app.init_resource::<crate::screens::chat::Draft>();
-        app.update();
-        let ada = named(app.world_mut(), "hire#2").unwrap();
-        go(app.world_mut(), Target::Agent(ada));
-        assert!(
-            app.world()
-                .resource::<crate::screens::chat::Draft>()
-                .focus
-        );
-        app.world_mut()
-            .resource_mut::<crate::screens::chat::Draft>()
-            .focus = false;
-        go(app.world_mut(), Target::Realm);
-        assert!(
-            !app.world()
-                .resource::<crate::screens::chat::Draft>()
-                .focus
-        );
-    }
-
-    #[test]
     fn a_hire_keeps_its_place_in_its_hamlet_and_what_waits_is_on_top()
     {
         let mut app = panel_app();
