@@ -78,8 +78,8 @@ pub enum ModelOf {
 )]
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum ChoiceRefusal {
-    #[error("no agent is at that address")]
-    NoSuchAgent,
+    #[error("no agent has the address `{address}`")]
+    NoSuchAgent { address: String },
     #[error("there is no such hamlet")]
     NoSuchHamlet,
     #[error("`hire#{}` has left: {left}", hire.0)]

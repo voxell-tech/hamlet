@@ -775,8 +775,8 @@ pub enum LetterRefusal {
     Yourself,
     #[error("say what to send")]
     Empty,
-    #[error("no agent is at that address")]
-    NoSuchAgent,
+    #[error("no agent has the address `{address}`")]
+    NoSuchAgent { address: String },
     #[error("you have no road to `hire#{}`; ask your lead for one with request_road", to.0)]
     NoRoad { to: AgentNumber },
     #[error("no road yet to `hire#{}`: it is still being hired", to.0)]

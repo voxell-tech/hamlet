@@ -6,6 +6,7 @@ use hamlet_messages::realm::{
     Done, End, HowEnded, LeadRefusal, Left, Named, OnlyAHire, Rank,
     SetTools,
 };
+use hamlet_messages::workspace::AgentNumber;
 use hamlet_protocol::Effort;
 
 use super::chiefs::chief;
@@ -444,5 +445,22 @@ async fn a_leads_choice_changes_only_the_model() {
             ),
         ]
     );
+    realm.host.shutdown().await.unwrap();
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn a_choice_for_no_agent_names_its_address() {
+    let (realm, _) = hamlet_with(0).await;
+    let nicknamed = chief(
+        &realm,
+        SetNickname {
+            hire: to(AgentNumber(9)),
+            name: Some("Spade".to_owned()),
+            why: None,
+        },
+    )
+    .await;
+
+    assert_eq!(words(nicknamed), "no agent has the address `hire#9`");
     realm.host.shutdown().await.unwrap();
 }

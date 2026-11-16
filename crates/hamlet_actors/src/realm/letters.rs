@@ -307,6 +307,8 @@ impl Route {
 
 pub(super) struct Letter {
     ends: Ends,
+    /// The receiver as the sender named it.
+    address: String,
     id: LetterId,
     /// What becomes of it while its task is held or withdrawn.
     held: Option<asking::Holding>,
@@ -342,6 +344,7 @@ impl Letter {
         };
         Ok(Self {
             ends,
+            address: to.to_string(),
             id,
             held,
             parcel,
@@ -363,12 +366,13 @@ impl Written<'_> {
         };
         let Letter {
             ends,
+            address,
             id,
             held,
             parcel,
         } = letter;
         let Some(to) = &ends.to else {
-            return refuse(LetterRefusal::NoSuchAgent);
+            return refuse(LetterRefusal::NoSuchAgent { address });
         };
         if to.agent == ends.from.agent {
             return refuse(LetterRefusal::Yourself);
@@ -629,6 +633,7 @@ mod tests {
                 to: Some(end(4, Some(2))),
                 laid: false,
             },
+            address: "hire#4".to_owned(),
             id: LetterId(1),
             held: None,
             parcel: None,
@@ -653,6 +658,7 @@ mod tests {
                 to: Some(to),
                 laid: false,
             },
+            address: "hire#4".to_owned(),
             id: LetterId(1),
             held: None,
             parcel: None,
@@ -692,6 +698,7 @@ mod tests {
                 to: Some(to),
                 laid: false,
             },
+            address: "hire#4".to_owned(),
             id: LetterId(1),
             held: None,
             parcel: None,

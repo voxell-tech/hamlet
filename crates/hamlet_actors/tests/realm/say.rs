@@ -4,6 +4,7 @@ use hamlet_actors::realm;
 use hamlet_messages::agent::{Input, InputId, Submit};
 use hamlet_messages::realm::client::{SayAnswer, SayRefusal};
 use hamlet_messages::sender::Hand;
+use hamlet_messages::workspace::AgentNumber;
 use hamlet_protocol::client::RequestId;
 
 use super::{
@@ -120,5 +121,21 @@ async fn a_say_to_a_hiring_hire_waits_for_its_steps() {
         }
     );
     assert!(submits_to(&realm, MAYOR).is_empty());
+    realm.host.shutdown().await.unwrap();
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn a_line_to_no_agent_names_its_address() {
+    let (realm, _) = hamlet_with(0).await;
+
+    let said = realm
+        .ask(&say(&RequestId::new(), AgentNumber(9), "Hello."))
+        .await
+        .unwrap();
+
+    let SayAnswer::Refused { why } = said else {
+        panic!("a line to no agent is refused: {said:?}");
+    };
+    assert_eq!(why.to_string(), "no agent has the address `9`");
     realm.host.shutdown().await.unwrap();
 }

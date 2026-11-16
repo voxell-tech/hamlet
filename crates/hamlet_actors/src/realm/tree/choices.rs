@@ -268,10 +268,13 @@ async fn subject<By: Lead>(
 /// it leads.
 fn led<By: Lead>(
     by: &By,
+    named: &Named,
     subject: Option<Subject>,
 ) -> Result<AgentNumber, By::Why<ChoiceRefusal>> {
     let Some(Subject { lineage, name }) = subject else {
-        return Err(By::refused(ChoiceRefusal::NoSuchAgent));
+        return Err(By::refused(ChoiceRefusal::NoSuchAgent {
+            address: named.to_string(),
+        }));
     };
     let agent = lineage.agent.agent;
     by.leads(&lineage, agent)?;
@@ -322,7 +325,7 @@ impl<By: Lead> Act<By> for SetNickname {
         subject: Option<Subject>,
     ) -> Decision<(), Self::Output> {
         let refuse = |why| Decision::Answer(Done::refused(why));
-        let agent = match led(by, subject) {
+        let agent = match led(by, &self.hire, subject) {
             Ok(agent) => agent,
             Err(why) => return refuse(why),
         };
@@ -352,6 +355,7 @@ impl<By: Lead> Act<By> for SetNickname {
 
 pub(in crate::realm) enum Target {
     Agent {
+        hire: Named,
         subject: Option<Subject>,
         chief_chose: bool,
     },
@@ -386,6 +390,7 @@ impl<By: Lead> Act<By> for SetModel {
                     None => false,
                 };
                 Target::Agent {
+                    hire: hire.clone(),
                     subject,
                     chief_chose,
                 }
@@ -417,9 +422,10 @@ impl<By: Lead> Act<By> for SetModel {
                 found: true,
             } => Chosen::Hamlet(hamlet),
             Target::Agent {
+                hire,
                 subject,
                 chief_chose,
-            } => match led(by, subject) {
+            } => match led(by, &hire, subject) {
                 Ok(hire) if chief_chose && !by_chief => {
                     return refuse(ChoiceRefusal::ChiefChose {
                         hire,

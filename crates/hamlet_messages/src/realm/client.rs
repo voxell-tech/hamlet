@@ -58,8 +58,8 @@ impl Refusable for SayAnswer {
 )]
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum SayRefusal {
-    #[error("no agent is at that address")]
-    NoSuchAgent,
+    #[error("no agent has the address `{address}`")]
+    NoSuchAgent { address: String },
     #[error("`hire#{}` is still being hired; send the line again", agent.0)]
     StillHiring { agent: AgentNumber },
     #[error("`hire#{}` has left: {left}", agent.0)]

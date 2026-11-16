@@ -557,7 +557,12 @@ fn the_letters(fixtures: &mut Fixtures) {
         vec![
             ("yourself", LetterRefusal::Yourself),
             ("empty", LetterRefusal::Empty),
-            ("no_such_agent", LetterRefusal::NoSuchAgent),
+            (
+                "no_such_agent",
+                LetterRefusal::NoSuchAgent {
+                    address: "hire#9".to_owned(),
+                },
+            ),
             ("no_road", LetterRefusal::NoRoad { to: HIRE }),
             ("still_hiring", LetterRefusal::StillHiring { to: HIRE }),
             (
@@ -1100,7 +1105,12 @@ fn the_clients_calls(fixtures: &mut Fixtures) {
             ("not_taken", SayAnswer::NotTaken { task: said() }),
         ],
         vec![
-            ("no_such_agent", SayRefusal::NoSuchAgent),
+            (
+                "no_such_agent",
+                SayRefusal::NoSuchAgent {
+                    address: "9".to_owned(),
+                },
+            ),
             ("still_hiring", SayRefusal::StillHiring { agent: HIRE }),
             (
                 "left",
