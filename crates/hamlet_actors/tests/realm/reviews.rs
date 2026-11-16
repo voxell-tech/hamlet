@@ -3,6 +3,7 @@ use std::time::{Duration, Instant};
 use hamlet_actors::realm;
 use hamlet_messages::address;
 use hamlet_messages::agent::{AgentKind, Brief, Input, Submit};
+use hamlet_messages::realm::choices::{ModelOf, SetModel};
 use hamlet_messages::realm::client::SayAnswer;
 use hamlet_messages::realm::documents::{
     EditSettings, Endpoint, Setting,
@@ -15,9 +16,10 @@ use hamlet_messages::sender::Hand;
 use hamlet_messages::workspace::{AgentNumber, ErrandNumber};
 use hamlet_protocol::client::{Choice, RequestId};
 
+use super::chiefs::chief;
 use super::{
     MAYOR, Realm, Seen, THREE, answer, founded, hires, say,
-    submits_to, until,
+    submits_to, to, until,
 };
 
 /// A hamlet whose mayor leads 3 and 4, where a review lasts at most
@@ -497,6 +499,63 @@ async fn only_a_led_hire_is_reviewed_as_the_limits_say() {
         given.into_iter().map(|(text, _)| text).collect::<Vec<_>>(),
         ["No model.", "Near model.", "Far model.", "Never."]
     );
+    assert_eq!(outcomes(&realm).await, [Some("passed".to_owned())]);
+    realm.host.shutdown().await.unwrap();
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn a_review_runs_on_the_leads_own_model() {
+    // the realm runs a model served on this machine; the chief gives
+    // the mayor, 3's lead, one served from another: with `remote` the
+    // mayor reviews, on its own model.
+    let (realm, _) =
+        hamlet(Duration::from_secs(60), Review::Remote).await;
+    let edited = realm
+        .ask(&Asked {
+            id: RequestId::new(),
+            act: EditSettings {
+                set: vec![
+                    Setting::Endpoints {
+                        endpoints: vec![
+                            Endpoint {
+                                name: "near".to_owned(),
+                                base_url: "http://127.0.0.1:11434/v1"
+                                    .to_owned(),
+                            },
+                            Endpoint {
+                                name: "far".to_owned(),
+                                base_url: "https://models.example/v1"
+                                    .to_owned(),
+                            },
+                        ],
+                    },
+                    Setting::Model {
+                        model: "near::small".to_owned(),
+                    },
+                ],
+            },
+        })
+        .await
+        .unwrap();
+    let chosen = chief(
+        &realm,
+        SetModel {
+            of: ModelOf::Hire { hire: to(MAYOR) },
+            model: Some("far::big".to_owned()),
+            effort: None,
+            fast: None,
+            why: None,
+        },
+    )
+    .await;
+
+    tells_three(&realm, "Check the far model.").await;
+    let (_, brief, _) = briefed(&realm, 0).await;
+    ends(&realm, 0, answered("PASS")).await;
+    lines_until(&realm, THREE, 1).await;
+
+    assert_eq!((edited, chosen), (Done::Done, Done::Done));
+    assert_eq!(brief.model.as_deref(), Some("far::big"));
     assert_eq!(outcomes(&realm).await, [Some("passed".to_owned())]);
     realm.host.shutdown().await.unwrap();
 }

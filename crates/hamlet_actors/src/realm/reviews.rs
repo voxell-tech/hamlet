@@ -24,7 +24,7 @@ use super::steps::{self, Cx, Kind, StepId, Steps};
 use super::tasks::TaskId;
 use super::tree::{self, Lineage};
 use super::workers::errands::{self, ErrandInput, Purpose};
-use super::{Options, REVIEW_DEADLINE, Realm, waits};
+use super::{Options, REVIEW_DEADLINE, Realm, documents, waits};
 
 /// The most an errand may spend: today's review has no cap of its
 /// own, so only its task's budget bounds it.
@@ -264,11 +264,15 @@ pub(super) async fn intercept(
     else {
         return Ok(None);
     };
-    let settings = settings::read(rows).await?;
+    let model = documents::model(rows, lead)
+        .await?
+        .map(|chosen| chosen.model);
     let reviews = match hamlet.limits.asking.review {
         Review::Always => true,
         Review::Never => false,
-        Review::Remote => served_far(&settings),
+        Review::Remote => {
+            served_far(&settings::read(rows).await?, model.as_deref())
+        }
     };
     if !reviews {
         return Ok(None);
@@ -281,7 +285,7 @@ pub(super) async fn intercept(
         ),
         text: format!("A chief told `{}`: {text}", named(hire)),
         task,
-        model: settings.model,
+        model,
         cap: CAP,
     };
     Ok(Some(vec![
@@ -303,11 +307,9 @@ pub(super) async fn intercept(
 
 /// Whether the lead's model is served from another machine, as
 /// today decides it; a model with no name runs no review.
-fn served_far(settings: &Settings) -> bool {
-    let Some((provider, model)) = settings
-        .model
-        .as_deref()
-        .and_then(|model| model.split_once("::"))
+fn served_far(settings: &Settings, model: Option<&str>) -> bool {
+    let Some((provider, model)) =
+        model.and_then(|model| model.split_once("::"))
     else {
         return false;
     };

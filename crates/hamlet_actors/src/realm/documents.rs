@@ -255,7 +255,7 @@ async fn version(rows: &Rows<'_>, part: Part) -> Result<CopyVersion> {
 
 /// The model `agent` runs, with its card's price: each part its own
 /// choice's, else its hamlet's, else the realm's.
-async fn model(
+pub(super) async fn model(
     rows: &Rows<'_>,
     agent: AgentNumber,
 ) -> Result<Option<ModelChoice>> {
