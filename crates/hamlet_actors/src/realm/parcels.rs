@@ -51,7 +51,8 @@ use super::waits::{self, Raised, Ruling};
 use super::{Realm, tree};
 
 /// How long a delivered parcel keeps its files: its `at` is when it
-/// was sent until it is ready, then when it became ready.
+/// was sent until it is ready, then when it became ready, or when a
+/// chief let its held letter go.
 const KEPT_MS: i64 = 24 * 60 * 60 * 1000;
 
 /// The bit of a step row's number that marks the steps a chief's
@@ -101,6 +102,11 @@ pub(super) enum Change {
     /// Their files may go.
     Swept {
         parcels: Vec<ParcelId>,
+    },
+    /// The letters held on `task` are given now, so the day their
+    /// parcels keep their files begins.
+    Released {
+        task: TaskId,
     },
 }
 
@@ -190,6 +196,20 @@ pub(super) async fn apply(
             let open =
                 [State::Measuring, State::Waiting, State::Copying];
             moved(writer, parcel, &open, State::Refused).await?;
+        }
+        Change::Released { task } => {
+            writer
+                .execute(
+                    "UPDATE parcel SET at = ?1 WHERE state = ?2 AND \
+                     letter IN (SELECT letter FROM held WHERE task \
+                     = ?3)",
+                    vec![
+                        BindParam::Integer(writer.at().0),
+                        state(State::Ready)?,
+                        task.column()?,
+                    ],
+                )
+                .await?;
         }
         Change::Swept { parcels } => {
             for parcel in parcels {

@@ -248,27 +248,88 @@ async fn an_objection_holds_the_line_past_the_deadline() {
     realm.host.shutdown().await.unwrap();
 }
 
+/// The notices `agent` was given.
+fn notices(realm: &Realm, agent: AgentNumber) -> Vec<String> {
+    submits_to(realm, agent)
+        .into_iter()
+        .filter_map(|Submit { input, .. }| match input {
+            Input::Notice { text, .. } => Some(text),
+            _ => None,
+        })
+        .collect()
+}
+
+/// The lead objects to "Odd line." to 3, and the chief's wait on 3
+/// opens: its id.
+async fn objected(realm: &Realm) -> String {
+    tells_three(realm, "Odd line.").await;
+    briefed(realm, 0).await;
+    ends(realm, 0, answered("OBJECT: the odd line breaks the plan."))
+        .await;
+    waits_of_three(realm).await[0].0.to_string()
+}
+
 #[tokio::test(flavor = "multi_thread")]
 async fn an_objected_line_waits_for_go() {
-    // the lead objects; go gives 3 the line, once, with no note.
+    // the lead objects; go gives 3 the line, once, with no note, and
+    // as today 3 hears nothing of the review.
     let (realm, _) =
         hamlet(Duration::from_secs(1), Review::Always).await;
 
-    tells_three(&realm, "Odd line.").await;
-    briefed(&realm, 0).await;
-    ends(
-        &realm,
-        0,
-        answered("OBJECT: the odd line breaks the plan."),
-    )
-    .await;
-    let wait = waits_of_three(&realm).await[0].0.to_string();
+    let wait = objected(&realm).await;
     let ruled =
         realm.ask(&answer(&wait, Choice::Go, None)).await.unwrap();
     let given = lines_until(&realm, THREE, 1).await;
+    // Reading the rows stops the realm, which first makes every
+    // delivery the go started.
+    outcomes(&realm).await;
 
     assert_eq!(ruled, Done::Done);
     assert_eq!(given, [("Odd line.".to_owned(), None)]);
+    assert_eq!(notices(&realm, THREE), Vec::<String>::new());
+    realm.host.shutdown().await.unwrap();
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn a_withdrawn_line_never_reaches_the_hire() {
+    // the lead objects and the chief withdraws the line: 3 is given
+    // neither the line nor a word of it, past the deadline and a
+    // restart.
+    let deadline = Duration::from_secs(1);
+    let (realm, _) = hamlet(deadline, Review::Always).await;
+
+    let wait = objected(&realm).await;
+    let ruled = realm
+        .ask(&answer(&wait, Choice::Withdraw, None))
+        .await
+        .unwrap();
+    outcomes(&realm).await;
+    let realm = realm.restart().await;
+    tokio::time::sleep(deadline * 2).await;
+    outcomes(&realm).await;
+
+    assert_eq!(ruled, Done::Done);
+    assert_eq!(submits_to(&realm, THREE), Vec::new());
+    realm.host.shutdown().await.unwrap();
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn a_stop_does_not_wait_for_an_open_review() {
+    // a review waits for its errand, which takes a minute: the realm
+    // stops at once, and after its start the pass gives 3 the line.
+    let (realm, _) =
+        hamlet(Duration::from_secs(60), Review::Always).await;
+    tells_three(&realm, "Plain line.").await;
+    briefed(&realm, 0).await;
+
+    let stopping = Instant::now();
+    let realm = realm.restart().await;
+    let took = stopping.elapsed();
+    ends(&realm, 0, answered("PASS")).await;
+    let given = lines_until(&realm, THREE, 1).await;
+
+    assert!(took < Duration::from_secs(2), "{took:?}");
+    assert_eq!(given, [("Plain line.".to_owned(), None)]);
     realm.host.shutdown().await.unwrap();
 }
 

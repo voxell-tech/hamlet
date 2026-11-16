@@ -26,9 +26,6 @@ use super::tree::{self, Lineage};
 use super::workers::errands::{self, ErrandInput, Purpose};
 use super::{Options, REVIEW_DEADLINE, Realm, waits};
 
-/// How often a review's drive looks for the errand's answer.
-const LOOK_AGAIN: Duration = Duration::from_millis(100);
-
 /// The most an errand may spend: today's review has no cap of its
 /// own, so only its task's budget bounds it.
 const CAP: u64 = i64::MAX.unsigned_abs();
@@ -82,22 +79,17 @@ pub(super) async fn apply(
             errand,
             line,
         } => {
-            let at = writer.at().0;
-            let due_at =
-                at + i64::try_from(REVIEW_DEADLINE.as_millis())?;
             writer
                 .execute(
                     "INSERT INTO review (task, hire, lead, errand, \
-                     line, due_at, at) VALUES (?1, ?2, ?3, ?4, ?5, \
-                     ?6, ?7)",
+                     line, at) VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
                     vec![
                         task.column()?,
                         number(hire),
                         number(lead),
                         integer(errand.get())?,
                         BindParam::Blob(crate::cbor(&line)?),
-                        BindParam::Integer(due_at),
-                        BindParam::Integer(at),
+                        BindParam::Integer(writer.at().0),
                     ],
                 )
                 .await?;
@@ -110,7 +102,9 @@ pub(super) async fn apply(
 }
 
 /// Closes the review of `task` as `verdict` when it is open: a note
-/// goes on the kept line, and an objection waits for a chief.
+/// goes on the kept line, and an objection waits for a chief. Any
+/// other end begins the row that gives the line, so whichever end
+/// comes first gives it, once.
 async fn end(
     writer: &Writer<'_>,
     task: TaskId,
@@ -152,7 +146,7 @@ async fn end(
                     ],
                 )
                 .await?;
-            Ok(Affected::default())
+            give_later(writer, task).await
         }
         Verdict::Objected(reason) => {
             let wait = waits::next(&writer.rows()).await?;
@@ -190,9 +184,22 @@ async fn end(
             Ok(affected)
         }
         Verdict::Passed(None) | Verdict::Failed => {
-            Ok(Affected::default())
+            give_later(writer, task).await
         }
     }
+}
+
+async fn give_later(
+    writer: &Writer<'_>,
+    task: TaskId,
+) -> Result<Affected> {
+    steps::apply(
+        writer,
+        steps::Change::Begin {
+            row: row(task, Step::Give)?,
+        },
+    )
+    .await
 }
 
 /// A line kept for its review.
@@ -287,7 +294,10 @@ pub(super) async fn intercept(
         }
         .into(),
         errands::start(Purpose::Review { task }, input, n).into(),
-        steps::Change::Begin { row: row(task)? }.into(),
+        steps::Change::Begin {
+            row: row(task, Step::Deadline)?,
+        }
+        .into(),
     ]))
 }
 
@@ -431,75 +441,88 @@ fn verdict(ended: &Ended) -> Verdict {
     }
 }
 
-fn row(task: TaskId) -> Result<StepId> {
+/// The bit of a step row's number that marks the row giving the
+/// line: a review's deadline is row `task`, and the row its end
+/// begins `task | GIVES`.
+const GIVES: u64 = 1 << 62;
+
+fn row(task: TaskId, step: Step) -> Result<StepId> {
+    let n = task.on_the_wire().0.parse::<u64>()?;
+    let mark = match step {
+        Step::Deadline => 0,
+        Step::Give => GIVES,
+    };
     Ok(StepId {
         kind: Kind::Review,
-        n: task.on_the_wire().0.parse()?,
+        n: n | mark,
     })
 }
 
+/// A review's two rows, each of one of these steps: the deadline's
+/// row fails the review still open when its deadline passes, and the
+/// row its end begins gives the line.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(super) enum Step {
-    /// The review's deadline passed, or its errand ended first.
     Deadline,
+    Give,
 }
 
 impl Steps for Step {
-    const ALL: &'static [Self] = &[Self::Deadline];
+    const ALL: &'static [Self] = &[Self::Deadline, Self::Give];
 
     fn name(self) -> &'static str {
         match self {
             Self::Deadline => "deadline",
+            Self::Give => "give",
         }
     }
 }
 
-/// Does `step` of the review of task `n`'s line, and returns the
-/// changes committed with its progress.
+/// Does `step` of the review row `n`, and returns the changes
+/// committed with its progress. Each row does its own step and
+/// passes over the other.
 pub(super) async fn run(
     cx: &Cx<'_>,
     n: u64,
     step: Step,
 ) -> Result<Vec<change::Change>> {
-    let task = TaskId::of(&RealmTask(n.to_string()))
+    let task = TaskId::of(&RealmTask((n & !GIVES).to_string()))
         .with_context(|| format!("no task {n} to review"))?;
-    match step {
-        Step::Deadline => {
+    let kept = held(&cx.rows()?, task)
+        .await?
+        .with_context(|| format!("no review of task {n}"))?;
+    match (step, n & GIVES != 0) {
+        (Step::Deadline, false) if kept.outcome.is_none() => {
             let deadline = HostRef::of(cx.ctx.inner())?
                 .value::<Options>()
                 .map_or(REVIEW_DEADLINE, |options| {
                     options.review_deadline
                 });
-            let kept = loop {
-                let kept =
-                    held(&cx.rows()?, task).await?.with_context(
-                        || format!("no review of task {n}"),
-                    )?;
-                if kept.outcome.is_some() {
-                    break kept;
+            let due = kept.at + i64::try_from(deadline.as_millis())?;
+            let left = u64::try_from(due - now()?).unwrap_or(0);
+            // A stop ends the wait, and the deadline is waited for
+            // again at the next start.
+            let abort = cx.ctx.abort_signal();
+            tokio::select! {
+                () = tokio::time::sleep(Duration::from_millis(left)) => {}
+                () = abort.cancelled() => {
+                    bail!("the realm stopped before review {n}'s deadline")
                 }
-                let due =
-                    kept.at + i64::try_from(deadline.as_millis())?;
-                let left = u64::try_from(due - now()?).unwrap_or(0);
-                if left == 0 {
-                    let late = Change::End {
-                        task,
-                        verdict: Verdict::Failed,
-                    };
-                    cx.commit(vec![late.into()]).await?;
-                    continue;
-                }
-                tokio::time::sleep(
-                    Duration::from_millis(left).min(LOOK_AGAIN),
-                )
-                .await;
-            };
-            if !kept.objected() {
-                give(cx.realm, &kept).await?;
             }
+            Ok(vec![
+                Change::End {
+                    task,
+                    verdict: Verdict::Failed,
+                }
+                .into(),
+            ])
         }
+        (Step::Give, true) => {
+            give(cx.realm, &kept).await?;
+            Ok(Vec::new())
+        }
+        _ => Ok(Vec::new()),
     }
-    Ok(Vec::new())
 }
 
 /// The time now, in ms since the Unix epoch.

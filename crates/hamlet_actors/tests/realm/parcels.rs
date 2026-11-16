@@ -817,7 +817,8 @@ async fn a_held_letters_files_wait_for_go() {
 async fn a_held_letters_files_outlive_a_day() {
     // A letter with a file is held for over a day, and the realm
     // sweeps its store as it starts: the file stays while the letter
-    // is held, so after the go 3 fetches it.
+    // is held, and its day begins at the go, so 3 fetches it after a
+    // later sweep.
     let (realm, _) =
         sending(Files::with(&[("/project/a", b"aaa")])).await;
     let wait = held_with_a_file(&realm).await;
@@ -827,6 +828,8 @@ async fn a_held_letters_files_outlive_a_day() {
     let after_a_day = stored(&realm);
     go(&realm, &wait).await;
     let files = letter_files(&realm, 1).await;
+    // Reading the rows starts the realm again, which sweeps.
+    held_count(&realm).await;
 
     assert_eq!(after_a_day, [hash(b"aaa").to_string()]);
     assert_eq!(fetched(&realm, &files[0]).await, b"aaa");

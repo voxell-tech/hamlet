@@ -761,6 +761,9 @@ pub(super) struct Ruling {
     pub(super) entries: Vec<record::Entry>,
     pub(super) picked: Option<String>,
     pub(super) told: Option<String>,
+    /// The wait's agent is told nothing of the ruling: it never
+    /// heard of what was ruled on.
+    pub(super) unheard: bool,
 }
 
 /// The open wait a chief answers.
@@ -969,6 +972,9 @@ impl Act<Client> for Answer {
             return refuse(AnswerRefusal::NotOffered);
         };
         let mut decided = Decided::new(open.told(&choice));
+        if ruling.unheard {
+            decided.done.notice = None;
+        }
         decided.done.ran = ruling.told.map(|text| Ran {
             wait: open.wait,
             agent: open.agent,

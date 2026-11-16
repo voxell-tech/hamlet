@@ -27,7 +27,7 @@ use super::super::calls::{Delivery, Made};
 use super::super::change::{self, Affected, Rows, Writer, number};
 use super::super::tasks::{Origin, TaskId};
 use super::super::waits::{self, Raised, Ruling};
-use super::super::{Realm, letters, record, tree};
+use super::super::{Realm, letters, parcels, record, tree};
 
 #[derive(Debug, PartialEq)]
 pub(in crate::realm) enum Change {
@@ -264,22 +264,29 @@ pub(in crate::realm) async fn ruling(
     wait: WaitId,
     answer: &Answer,
 ) -> Result<Ruling> {
-    let task = rows
-        .value::<TaskId>(
-            "SELECT task FROM objection WHERE wait = ?1",
+    let (task, source) = rows
+        .row::<(TaskId, String)>(
+            "SELECT task, source FROM objection WHERE wait = ?1",
             vec![change::integer(wait.0)?],
         )
         .await?
         .with_context(|| {
             format!("objection wait {} has no row", wait.0)
         })?;
-    let ruled = match answer.0.choice {
-        Choice::Go => Some(Change::Go { task }),
-        Choice::Withdraw => Some(Change::Withdraw { task }),
-        _ => None,
+    let changes = match answer.0.choice {
+        Choice::Go => vec![
+            Change::Go { task }.into(),
+            parcels::Change::Released { task }.into(),
+        ],
+        Choice::Withdraw => vec![Change::Withdraw { task }.into()],
+        _ => Vec::new(),
     };
+    // A lead's review holds the line from its hire, which hears
+    // nothing of it.
+    let source = change::from_case_name::<ObjectionSource>(source)?;
     Ok(Ruling {
-        changes: ruled.into_iter().map(Into::into).collect(),
+        changes,
+        unheard: source == ObjectionSource::Review,
         ..Ruling::default()
     })
 }
