@@ -57,11 +57,6 @@ pub(super) trait Look<By>:
     fn look(&self, by: &By, realm: &Realm) -> Self::Output;
 }
 
-/// The rows and the outcome of an act whose unit is not built yet:
-/// it has no value, so such an act never answers.
-#[derive(Debug, PartialEq, Serialize, Deserialize)]
-pub(super) enum Unbuilt {}
-
 #[derive(Debug, PartialEq)]
 pub(super) enum Decision<D, O> {
     /// A first run.
