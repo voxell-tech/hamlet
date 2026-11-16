@@ -36,7 +36,8 @@ test("a timer arms one alarm, and its input is taken once when pi.wake fires", a
     const agent = await wakeAgent(t, {
         calls,
         responses: [
-            toolCall("wake", { in_seconds: 0.3, note: "look at the build" }),
+            // Late enough that the turn ends first, so only the alarm runs it.
+            toolCall("wake", { in_seconds: 1.5, note: "look at the build" }),
             fauxAssistantMessage("I set a timer."),
             fauxAssistantMessage("The build is green."),
         ],
