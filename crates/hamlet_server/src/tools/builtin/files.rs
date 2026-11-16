@@ -15,8 +15,8 @@ use super::{
     Arguments, Dialect, Outcome, Sight, diagnostic, diff,
     number_words,
 };
-use crate::images::Format;
-use crate::images::fitting::keep_fitted;
+use crate::attachments::images::Format;
+use crate::attachments::images::fitting::keep_fitted;
 
 /// The failure of a file call, in pi's words.
 #[derive(Debug, thiserror::Error)]

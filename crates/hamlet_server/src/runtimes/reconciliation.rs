@@ -20,10 +20,10 @@ use super::{Pending, Runtimes};
 use crate::app::failure;
 use crate::app::follow_up::InputEffects;
 use crate::app::input::{AddHandler, InputMessage, InputSender};
+use crate::attachments::images::Limits;
+use crate::attachments::images::fitting::pictures;
 use crate::conversations::inputs::{self, Input, Resend};
 use crate::conversations::{self, Conversation, models};
-use crate::images::Limits;
-use crate::images::fitting::pictures;
 use crate::providers::Providers;
 use crate::realm::settings::EffectiveSettings;
 

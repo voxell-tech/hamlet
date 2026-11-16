@@ -11,7 +11,7 @@ use super::inputs::{self, InputKind, Keep};
 use super::marks::Mark;
 use super::models;
 use super::tasks::{self, Origin};
-use crate::attached::Line;
+use crate::attachments::captions::Line;
 use crate::conversations::{self, Begin, Kind};
 use crate::realm::change::Change;
 use crate::realm::settings::EffectiveSettings;

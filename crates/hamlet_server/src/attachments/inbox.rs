@@ -10,7 +10,7 @@ use hamlet_os::fs::TreePath;
 use hamlet_protocol::client::AttachedFile;
 use hamlet_store::ids::AgentId;
 
-use crate::attached::Caption;
+use super::captions::Caption;
 use crate::core::{Core, UnpushedLodge};
 use crate::knowledge::folder::Folder;
 use crate::realm::workspace::lodges::LODGE;

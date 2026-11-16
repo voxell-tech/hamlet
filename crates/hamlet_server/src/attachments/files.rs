@@ -162,7 +162,7 @@ fn sweep(mut realm: ResMut<Realm>) -> Result<()> {
     for (id, at) in files.kept() {
         let idle = at.elapsed().is_ok_and(|age| age >= GRACE);
         if idle
-            && !crate::images::garbage_collection::is_used(
+            && !super::images::garbage_collection::is_used(
                 db,
                 id.as_str(),
             )?

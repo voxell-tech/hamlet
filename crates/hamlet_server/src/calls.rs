@@ -37,13 +37,13 @@ use self::looks::Look;
 use self::objections::OBJECTING;
 use crate::app::input::{AddHandler, InputMessage, InputSender};
 use crate::app::tasks::{BackgroundResult, RunAgainRequest};
+use crate::attachments::images::Limits;
+use crate::attachments::images::fitting::kept_pictures;
 use crate::conversations::marks::Mark;
 use crate::conversations::{
     self, Conversation, Kind, inputs, models, questions,
 };
 use crate::core::Core;
-use crate::images::Limits;
-use crate::images::fitting::kept_pictures;
 use crate::knowledge::CHARACTER;
 use crate::realm::workspace::serving::Lodging;
 use crate::society::oversight::gate::{Session, TurnGate};

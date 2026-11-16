@@ -15,7 +15,7 @@ use hamlet_protocol::client::ImageId;
 use hamlet_store::ids::AgentId;
 
 use super::CallId;
-use crate::inbox::Inbox;
+use crate::attachments::inbox::Inbox;
 use crate::realm::workspace::serving::Lodging;
 use crate::society::refusal::Refusal;
 use crate::tools::builtin::ToolSession;

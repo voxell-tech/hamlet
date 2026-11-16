@@ -8,11 +8,11 @@ use hamlet_store::ids::AgentId;
 
 use super::store::Images;
 use super::{Limits, SEEN};
-use crate::attached::{Attached, Caption, is_place};
+use crate::attachments::captions::{Attached, Caption, is_place};
+use crate::attachments::files::Files;
+use crate::attachments::inbox::INBOX;
 use crate::conversations::models;
 use crate::core::{Core, UnpushedLodge};
-use crate::files::Files;
-use crate::inbox::INBOX;
 use crate::realm::workspace::lodges::LODGE;
 use crate::society::refusal::Refusal;
 

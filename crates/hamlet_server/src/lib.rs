@@ -55,11 +55,8 @@ mod runtimes;
 mod tools;
 
 // The clients, and what a chief sends and types.
-mod attached;
+mod attachments;
 mod clients;
-mod files;
-mod images;
-mod inbox;
 mod terminals;
 
 // What every area shares.
@@ -119,8 +116,7 @@ pub fn create_app(options: Options) -> App {
         clients::plugin,
         providers::plugin,
         conversations::plugin,
-        images::plugin,
-        files::plugin,
+        attachments::plugin,
         terminals::plugin,
         tools::plugin,
     ));

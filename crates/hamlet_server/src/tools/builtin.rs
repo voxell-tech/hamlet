@@ -33,7 +33,7 @@ use serde_json::{Map, Value, json};
 
 use self::parcel::{Sent, To};
 use self::shell::{Dialect, Shells};
-use crate::images::Limits;
+use crate::attachments::images::Limits;
 use crate::realm::change::Done;
 use crate::society::refusal::Refusal;
 

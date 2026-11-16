@@ -8,6 +8,7 @@ use hamlet_store::schema::worker;
 
 use super::args::{Ask, RequestRoad, StartWorker, Tell};
 use super::{Call, Step, refused, said, task_chief};
+use crate::attachments::inbox::INBOX;
 use crate::calls::looks::Look;
 use crate::calls::place;
 use crate::conversations::letters::{
@@ -16,7 +17,6 @@ use crate::conversations::letters::{
 use crate::conversations::tasks::{self, Origin};
 use crate::conversations::{Kind, briefs};
 use crate::core::Core;
-use crate::inbox::INBOX;
 use crate::society::agents::{self, EndHow};
 use crate::society::refusal::Refusal;
 use crate::society::workers::{self, Start, Starter};
