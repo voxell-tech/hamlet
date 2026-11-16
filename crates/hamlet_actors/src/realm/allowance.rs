@@ -256,12 +256,20 @@ impl<By: Lead> Act<By> for SetAllowance {
                 left: left.clone(),
             });
         }
-        Decision::Change(Decided::new(()).change(Change::Set {
-            hire,
-            micros: self.micros.map(|micros| micros.0),
-            why: self.why.clone(),
-            by: by.by(),
-        }))
+        Decision::Change(
+            Decided::new(())
+                .change(Change::Set {
+                    hire,
+                    micros: self.micros.map(|micros| micros.0),
+                    why: self.why.clone(),
+                    by: by.by(),
+                })
+                .record(record::Entry::Allowance {
+                    hire,
+                    by: by.by(),
+                    why: self.why.clone(),
+                }),
+        )
     }
 
     fn answer(&self, (): (), _made: &Made) -> Self::Output {

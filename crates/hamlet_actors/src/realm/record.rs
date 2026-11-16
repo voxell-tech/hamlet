@@ -102,6 +102,11 @@ pub(super) enum Entry {
         by: By,
         why: Option<String>,
     },
+    Allowance {
+        hire: AgentNumber,
+        by: By,
+        why: Option<String>,
+    },
 }
 
 pub(super) async fn write(
@@ -175,6 +180,9 @@ pub(super) async fn write(
             }
             Entry::Model { agent, by, why } => {
                 ("model", by, Fields::of(agent, why))
+            }
+            Entry::Allowance { hire, by, why } => {
+                ("allowance", by, Fields::of(hire, why))
             }
         };
         writer

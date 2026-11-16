@@ -4,6 +4,7 @@ use hamlet_messages::realm::budget::{
     ReadBudget, ReadBudgetRefusal, ResetBudget, SpendRefusal,
     TaskOpened, TaskTurn,
 };
+use hamlet_messages::realm::hamlets::{ReadRecord, Record};
 use hamlet_messages::realm::workers::{
     AllowanceRefusal, SetAllowance,
 };
@@ -403,5 +404,33 @@ async fn a_retry_opens_a_task_of_its_own() {
         }
     );
     assert_eq!(origins, ["retry", "retry", "reflection"]);
+    realm.host.shutdown().await.unwrap();
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn setting_an_allowance_is_recorded() {
+    let (realm, hamlet) = hamlet_with(1).await;
+
+    let set =
+        lead_sets(&realm, MAYOR, "a1", allowance(THREE, Some(5)))
+            .await;
+
+    assert_eq!(set, Done::Done);
+    let read = realm
+        .ask(&Asked {
+            id: RequestId::new(),
+            act: ReadRecord {
+                hamlet: Some(hamlet),
+            },
+        })
+        .await
+        .unwrap();
+    let Record::Read { lines } = read else {
+        panic!("the hamlet's record is read: {read:?}");
+    };
+    assert_eq!(
+        lines.last().map(|line| line.text.as_str()),
+        Some("- hire#2 set the allowance of hire#3: small")
+    );
     realm.host.shutdown().await.unwrap();
 }
