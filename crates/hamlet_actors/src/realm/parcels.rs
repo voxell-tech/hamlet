@@ -677,14 +677,19 @@ async fn copy_file(
 /// it again, under the same input's id.
 async fn deliver(cx: &Cx<'_>, sent: &Sent) -> Result<()> {
     let letter = || Delivery::Letter(sent.letter);
-    let held = asking::holds(
+    let holding = asking::holds(
         &cx.rows()?,
+        sent.sender,
         sent.receiver,
         sent.task,
         letter(),
     )
     .await?;
-    let delivers = held.is_none();
+    let delivers = holding.is_none();
+    let held = match holding {
+        Some(asking::Holding::Held(held)) => Some(held),
+        Some(asking::Holding::Dropped) | None => None,
+    };
     if sent.state == State::Copying {
         let ready = Change::Ready {
             parcel: sent.parcel,

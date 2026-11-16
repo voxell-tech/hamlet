@@ -96,6 +96,14 @@ pub enum AnswerRefusal {
     NothingWaits { wait: String },
     #[error("that is not an answer to this wait")]
     NotOffered,
+    #[error("every question needs an answer")]
+    Unequal,
+    #[error("question {question} has no such option")]
+    NoOption { question: u32 },
+    #[error("question {question} takes an option")]
+    TakesOption { question: u32 },
+    #[error("question {question} needs words")]
+    NoWords { question: u32 },
 }
 
 /// Reads the world a client shows. It answers while the realm

@@ -4,8 +4,8 @@ use hamlet_messages::realm::budget::{
 };
 use hamlet_messages::realm::client::AnswerRefusal;
 use hamlet_messages::realm::oversight::{
-    AskChief, AskChiefRefusal, Hold, Object, ObjectRefusal, Offer,
-    Question,
+    AskChief, AskChiefRefusal, Hold, Lapse, LapseReason, Object,
+    ObjectRefusal, Offer, Question,
 };
 use hamlet_messages::realm::{
     AgentRefusal, Ask, Done, LetterId, Reply, Tell,
@@ -18,7 +18,7 @@ use hamlet_protocol::client::{Choice, Pick, RequestId};
 
 use super::{
     FOUR, MAYOR, Realm, THREE, answer, hamlet_with, say, standing,
-    submits_to, tell, to, tool, until,
+    submits_to, tell, to, tool, until, words,
 };
 
 fn conversation() -> ConversationId {
@@ -205,11 +205,12 @@ fn on(task: &RealmTask, text: &str) -> Tell {
 async fn ask_chief_answers_at_once_and_the_reply_is_a_notice() {
     // on a chief's line the Hand asks two questions, one with
     // options: Done at once, and an open question wait whose subject
-    // is today's numbered words. Picks that do not fit are refused
-    // and leave it open; the chief's picks are given to the Hand as a
-    // notice under the task, each question quoted over its answer. A
-    // plain question is answered in words, and a dismissed one says
-    // so.
+    // is today's numbered words. Picks that do not fit, and words
+    // for two questions or for options only, are refused with today's
+    // words and leave it open; the chief's picks are given to the
+    // Hand as a notice under the task, each question quoted over its
+    // answer. A plain question is answered in words, and a dismissed
+    // one says so.
     let (realm, _) = hamlet_with(0).await;
     let task = chief_task(&realm, Hand::NUMBER).await;
     let before = submits_to(&realm, Hand::NUMBER).len();
@@ -232,20 +233,28 @@ async fn ask_chief_answers_at_once_and_the_reply_is_a_notice() {
     let first =
         realm.tool(Hand::NUMBER, &tool("a1", two)).await.unwrap();
     let waits = open_waits(&realm, Hand::NUMBER).await;
-    for picks in [
-        vec![Pick::Offer { index: 0 }],
-        vec![words("both"), words("30")],
-        vec![Pick::Offer { index: 2 }, words("30")],
-        vec![Pick::Offer { index: 0 }, words(" ")],
+    for (picks, why) in [
+        (vec![Pick::Offer { index: 0 }], AnswerRefusal::Unequal),
+        (
+            vec![words("both"), words("30")],
+            AnswerRefusal::TakesOption { question: 1 },
+        ),
+        (
+            vec![Pick::Offer { index: 2 }, words("30")],
+            AnswerRefusal::NoOption { question: 1 },
+        ),
+        (
+            vec![Pick::Offer { index: 0 }, words(" ")],
+            AnswerRefusal::NoWords { question: 2 },
+        ),
     ] {
         let ruled = realm.ask(&picked(picks)).await.unwrap();
-        assert_eq!(
-            ruled,
-            Done::Refused {
-                why: AnswerRefusal::NotOffered
-            }
-        );
+        assert_eq!(ruled, Done::Refused { why });
     }
+    let in_words = realm
+        .ask(&answer("1", Choice::Reply, Some("paper, 30")))
+        .await
+        .unwrap();
     let still = open_waits(&realm, Hand::NUMBER).await.len();
     let ruled = realm
         .ask(&picked(vec![
@@ -269,6 +278,17 @@ async fn ask_chief_answers_at_once_and_the_reply_is_a_notice() {
         .await
         .unwrap();
     let told = given_until(&realm, Hand::NUMBER, before, 3).await;
+    let other = chief_task(&realm, Hand::NUMBER).await;
+    let options_only =
+        asked(&other, vec![offering("Which?", &["Left", "Right"])]);
+    realm
+        .tool(Hand::NUMBER, &tool("a4", options_only))
+        .await
+        .unwrap();
+    let not_an_option = realm
+        .ask(&answer("4", Choice::Reply, Some("the left")))
+        .await
+        .unwrap();
 
     assert_eq!(first, Done::Done);
     assert_eq!(
@@ -281,11 +301,22 @@ async fn ask_chief_answers_at_once_and_the_reply_is_a_notice() {
                 .to_owned()
         )]
     );
+    assert_eq!(
+        (in_words, not_an_option),
+        (
+            Done::Refused {
+                why: AnswerRefusal::Unequal
+            },
+            Done::Refused {
+                why: AnswerRefusal::TakesOption { question: 1 }
+            }
+        )
+    );
     assert_eq!((still, ruled), (1, Done::Done));
     assert_eq!(
         told,
         [
-            "notice: The chief answers: > Paper or \
+            "notice: The chief answers:\n> Paper or \
              ebook?\nEbook\n\n> Budget?\nunder 30",
             "notice: The chief answers: yes, plant",
             "notice: The chief did not answer; go on with what you \
@@ -294,7 +325,7 @@ async fn ask_chief_answers_at_once_and_the_reply_is_a_notice() {
     );
     let notice = &submits_to(&realm, Hand::NUMBER)[before];
     assert_eq!(notice.task.as_ref(), Some(&task));
-    assert!(open_waits(&realm, Hand::NUMBER).await.is_empty());
+    assert_eq!(open_waits(&realm, Hand::NUMBER).await.len(), 1);
     realm.host.shutdown().await.unwrap();
 }
 
@@ -435,8 +466,10 @@ async fn an_objection_holds_spending_and_letters_until_go() {
     };
     realm.tool(THREE, &reply).await.unwrap();
     let unheld = given_until(&realm, THREE, before, 1).await;
-    let mayor_unheld = given(&realm, MAYOR, mayor_before);
+    // Reading the rows stops the realm, which first makes every
+    // delivery its acts so far have started.
     let waits = open_waits(&realm, THREE).await;
+    let mayor_unheld = given(&realm, MAYOR, mayor_before);
     let ruled = realm
         .ask(&answer(
             &waits[0].0.to_string(),
@@ -629,4 +662,115 @@ async fn a_second_objection_on_a_task_is_refused() {
     );
     assert!(open_waits(&realm, FOUR).await.is_empty());
     realm.host.shutdown().await.unwrap();
+}
+
+/// The rows of the `held` table.
+async fn held_rows(realm: &Realm) -> i64 {
+    realm
+        .rows(|db| {
+            db.query_row("SELECT COUNT(*) FROM held", [], |row| {
+                row.get(0)
+            })
+        })
+        .await
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn a_withdrawn_task_spends_nothing_and_its_letters_are_dropped()
+{
+    // 3 objects to a chief's line and the chief withdraws it. No
+    // agent may spend on that task any more, in today's words; a
+    // letter on it is answered and never given, one on another task
+    // is.
+    let (realm, _) = hamlet_with(1).await;
+    let task = chief_task(&realm, THREE).await;
+    realm
+        .tool(THREE, &tool("o1", objection(&task, "no")))
+        .await
+        .unwrap();
+    let wait = open_waits(&realm, THREE).await[0].0.to_string();
+    let before = submits_to(&realm, THREE).len();
+
+    realm
+        .ask(&answer(&wait, Choice::Withdraw, None))
+        .await
+        .unwrap();
+    let three = may_spend(&realm, THREE, &task).await;
+    let mayor = may_spend(&realm, MAYOR, &task).await;
+    let dropped = realm
+        .tool(MAYOR, &tool("t1", on(&task, "too late")))
+        .await
+        .unwrap();
+    let mayors = standing(&realm, MAYOR);
+    realm
+        .tool(MAYOR, &tool("t2", on(&mayors, "lunch at noon")))
+        .await
+        .unwrap();
+    // Reading the rows stops the realm, which first makes every
+    // delivery its acts so far have started.
+    held_rows(&realm).await;
+
+    let withdrawn = "The chief withdrew the instruction, so this \
+                     call did not run.";
+    assert_eq!(
+        (words(three), words(mayor)),
+        (withdrawn.to_owned(), withdrawn.to_owned())
+    );
+    assert_eq!(dropped, Done::Done);
+    assert_eq!(
+        given(&realm, THREE, before),
+        [
+            "notice: The chief withdrew the instruction. Stop \
+             working on it.",
+            "letter: lunch at noon",
+        ]
+    );
+    realm.host.shutdown().await.unwrap();
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn a_lapsed_objection_drops_its_held_letters() {
+    // 3 objects and a letter to it is held; its turn is stopped, or
+    // rewound, and it lapses its conversation's waits. As today, the
+    // held letter is dropped and the task is no longer held: 3 may
+    // spend on it, a later letter is given, and a go finds nothing
+    // waiting.
+    for why in [LapseReason::Stopped, LapseReason::Rewound] {
+        let (realm, _) = hamlet_with(1).await;
+        let task = chief_task(&realm, THREE).await;
+        realm
+            .tool(THREE, &tool("o1", objection(&task, "no")))
+            .await
+            .unwrap();
+        realm
+            .tool(MAYOR, &tool("t1", on(&task, "held")))
+            .await
+            .unwrap();
+        let wait = open_waits(&realm, THREE).await[0].0.to_string();
+        let before = submits_to(&realm, THREE).len();
+
+        let lapse = Lapse {
+            conversation: Some(conversation()),
+            why,
+        };
+        realm.tool(THREE, &lapse).await.unwrap();
+        let spending = may_spend(&realm, THREE, &task).await;
+        realm
+            .tool(MAYOR, &tool("t2", on(&task, "after")))
+            .await
+            .unwrap();
+        let go = realm.ask(&answer(&wait, Choice::Go, None)).await;
+        let held = held_rows(&realm).await;
+
+        assert_eq!(spending, Done::Done, "{why:?}");
+        assert_eq!(
+            go.unwrap(),
+            Done::Refused {
+                why: AnswerRefusal::NothingWaits { wait }
+            }
+        );
+        assert_eq!(held, 0, "{why:?}");
+        assert_eq!(given(&realm, THREE, before), ["letter: after"]);
+        realm.host.shutdown().await.unwrap();
+    }
 }

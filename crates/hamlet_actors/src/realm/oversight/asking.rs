@@ -3,11 +3,11 @@
 
 use std::sync::Arc;
 
-use anyhow::{Result, bail, ensure};
+use anyhow::{Context as _, Result, bail, ensure};
 use hamlet_actor::{BindParam, Ctx};
 use hamlet_messages::address::Agent;
 use hamlet_messages::agent::AgentKind;
-use hamlet_messages::realm::client::Answer;
+use hamlet_messages::realm::client::{Answer, AnswerRefusal};
 use hamlet_messages::realm::oversight::{
     AskChief, AskChiefRefusal, Hold, MOST_OPTIONS, MOST_QUESTIONS,
     Object, ObjectRefusal, Offer, Question,
@@ -27,7 +27,7 @@ use super::super::calls::{Delivery, Made};
 use super::super::change::{self, Affected, Rows, Writer, number};
 use super::super::tasks::{Origin, TaskId};
 use super::super::waits::{self, Raised, Ruling};
-use super::super::{Realm, letters, tree};
+use super::super::{Realm, letters, record, tree};
 
 #[derive(Debug, PartialEq)]
 pub(in crate::realm) enum Change {
@@ -50,6 +50,11 @@ pub(in crate::realm) enum Change {
     /// The chief withdraws the line of `task`, which drops the
     /// letters held on it.
     Withdraw {
+        task: TaskId,
+    },
+    /// The objection to `task` lapsed with its wait: the letters held
+    /// on it are dropped.
+    Lapse {
         task: TaskId,
     },
 }
@@ -108,16 +113,25 @@ pub(in crate::realm) async fn apply(
             rule(writer, task, "go").await?;
         }
         Change::Withdraw { task } => {
-            rule(writer, task, "withdraw").await?;
-            writer
-                .execute(
-                    "DELETE FROM held WHERE task = ?1",
-                    vec![task.column()?],
-                )
-                .await?;
+            rule(writer, task, WITHDRAW).await?;
+            drop_held(writer, task).await?;
+        }
+        Change::Lapse { task } => {
+            drop_held(writer, task).await?;
         }
     }
     Ok(Affected::default())
+}
+
+const WITHDRAW: &str = "withdraw";
+
+async fn drop_held(writer: &Writer<'_>, task: TaskId) -> Result<u64> {
+    writer
+        .execute(
+            "DELETE FROM held WHERE task = ?1",
+            vec![task.column()?],
+        )
+        .await
 }
 
 async fn rule(
@@ -134,7 +148,8 @@ async fn rule(
         .await
 }
 
-/// Whether `agent`'s objection to `task` waits for a chief's ruling.
+/// Whether `agent`'s objection to `task` waits for a chief's ruling:
+/// its wait is open.
 async fn objecting(
     rows: &Rows<'_>,
     agent: AgentNumber,
@@ -142,9 +157,25 @@ async fn objecting(
 ) -> Result<bool> {
     Ok(rows
         .value::<bool>(
-            "SELECT EXISTS (SELECT 1 FROM objection WHERE task = ?1 \
-             AND agent = ?2 AND ruling IS NULL)",
+            "SELECT EXISTS (SELECT 1 FROM objection JOIN wait ON \
+             wait.id = objection.wait WHERE objection.task = ?1 AND \
+             objection.agent = ?2 AND wait.closed_at IS NULL)",
             vec![task.column()?, number(agent)],
+        )
+        .await?
+        .unwrap_or(false))
+}
+
+/// Whether a chief withdrew the line of `task`, which ends it.
+async fn withdrawn(rows: &Rows<'_>, task: TaskId) -> Result<bool> {
+    Ok(rows
+        .value::<bool>(
+            "SELECT EXISTS (SELECT 1 FROM objection WHERE task = ?1 \
+             AND ruling = ?2)",
+            vec![
+                task.column()?,
+                BindParam::Text(WITHDRAW.to_owned()),
+            ],
         )
         .await?
         .unwrap_or(false))
@@ -159,23 +190,44 @@ pub(in crate::realm) async fn held(
     let Some(id) = TaskId::of(task) else {
         return Ok(None);
     };
-    Ok(objecting(rows, agent, id)
-        .await?
-        .then(|| Hold::Objection { task: task.clone() }))
+    let task = task.clone();
+    Ok(if withdrawn(rows, id).await? {
+        Some(Hold::Withdrawn { task })
+    } else if objecting(rows, agent, id).await? {
+        Some(Hold::Objection { task })
+    } else {
+        None
+    })
 }
 
-/// The change that keeps `delivery`, a letter or an answer to `to`,
-/// while `to`'s `task` is held.
+/// What becomes of a letter or an answer on a held or withdrawn task.
+#[derive(Debug, PartialEq)]
+pub(in crate::realm) enum Holding {
+    /// It is kept until the chief rules on the objection.
+    Held(Change),
+    /// Its task was withdrawn, so it is never given.
+    Dropped,
+}
+
+/// What becomes of `delivery`, a letter or an answer from `from` to
+/// `to` on `task`: held while either objects to that task, dropped
+/// once a chief withdrew it, else `None`.
 pub(in crate::realm) async fn holds(
     rows: &Rows<'_>,
+    from: AgentNumber,
     to: AgentNumber,
     task: Option<TaskId>,
     delivery: Delivery,
-) -> Result<Option<Change>> {
+) -> Result<Option<Holding>> {
     let Some(task) = task else {
         return Ok(None);
     };
-    if !objecting(rows, to, task).await? {
+    if withdrawn(rows, task).await? {
+        return Ok(Some(Holding::Dropped));
+    }
+    if !objecting(rows, from, task).await?
+        && !objecting(rows, to, task).await?
+    {
         return Ok(None);
     }
     let (letter, kept) = match delivery {
@@ -183,93 +235,124 @@ pub(in crate::realm) async fn holds(
         Delivery::Answer(letter) => (letter, Kept::Answer),
         other => bail!("{other:?} is not held"),
     };
-    Ok(Some(Change::Hold { letter, kept, task }))
+    Ok(Some(Holding::Held(Change::Hold { letter, kept, task })))
 }
 
-/// What a question or an objection adds to the chief's `answer` on
-/// wait `wait`: the words of the chief's picks, and for a withdraw
-/// the task's end and its dropped letters.
+/// What an objection adds to the chief's `answer` on wait `wait`:
+/// the ruling on its task, and for a withdraw the task's end and its
+/// dropped letters.
 pub(in crate::realm) async fn ruling(
     rows: &Rows<'_>,
     wait: WaitId,
     answer: &Answer,
 ) -> Result<Ruling> {
-    let id = change::integer(wait.0)?;
-    let objected = rows
+    let task = rows
         .value::<TaskId>(
             "SELECT task FROM objection WHERE wait = ?1",
-            vec![id.clone()],
+            vec![change::integer(wait.0)?],
         )
-        .await?;
-    if let Some(task) = objected {
-        let ruled = match answer.0.choice {
-            Choice::Go => Some(Change::Go { task }),
-            Choice::Withdraw => Some(Change::Withdraw { task }),
-            _ => None,
-        };
-        return Ok(Ruling {
-            changes: ruled.into_iter().map(Into::into).collect(),
-            picked: None,
-        });
-    }
+        .await?
+        .with_context(|| {
+            format!("objection wait {} has no row", wait.0)
+        })?;
+    let ruled = match answer.0.choice {
+        Choice::Go => Some(Change::Go { task }),
+        Choice::Withdraw => Some(Change::Withdraw { task }),
+        _ => None,
+    };
+    Ok(Ruling {
+        changes: ruled.into_iter().map(Into::into).collect(),
+        picked: None,
+    })
+}
+
+/// What a question adds to the chief's `answer` on wait `wait`: the
+/// words of the chief's picks, or the refusal of a reply that does
+/// not answer the questions as they allow.
+pub(in crate::realm) async fn reply(
+    rows: &Rows<'_>,
+    wait: WaitId,
+    answer: &Answer,
+) -> Result<Result<Ruling, AnswerRefusal>> {
     let detail = rows
         .value::<Option<Vec<u8>>>(
             "SELECT detail FROM wait WHERE id = ?1",
-            vec![id],
+            vec![change::integer(wait.0)?],
         )
         .await?
         .flatten();
     let asked = detail
         .map(|detail| ciborium::from_reader(detail.as_slice()))
         .transpose()?;
-    Ok(Ruling {
+    let Some(WaitKind::Question { questions, .. }) = asked else {
+        return Ok(Ok(Ruling::default()));
+    };
+    Ok(replied(&questions, &answer.0).map(|picked| Ruling {
         changes: Vec::new(),
-        picked: match asked {
-            Some(WaitKind::Question { questions, .. }) => {
-                picked(&questions, &answer.0)
-            }
-            _ => None,
-        },
-    })
+        picked,
+    }))
 }
 
-/// The words the chief's picks give in a reply to `questions`: each
-/// question quoted over its answer. `None` unless they are a reply
-/// with no text that answers every question as it allows.
-fn picked(
+/// The words of the chief's picks in `answer` to `questions`, `None`
+/// for anything but picks alone.
+fn replied(
     questions: &[Question],
     answer: &protocol::Answer,
-) -> Option<String> {
-    let picks = answer.picks.as_deref()?;
-    let worded = answer
-        .text
-        .as_deref()
-        .is_some_and(|text| !text.trim().is_empty());
-    if answer.choice != Choice::Reply
-        || worded
-        || picks.len() != questions.len()
-    {
-        return None;
+) -> Result<Option<String>, AnswerRefusal> {
+    if answer.choice != Choice::Reply {
+        return Ok(None);
     }
-    let answers = questions
-        .iter()
-        .zip(picks)
-        .map(|(asked, pick)| match pick {
+    let worded = trimmed(answer.text.as_deref()).is_some();
+    match answer.picks.as_deref() {
+        // Picks with words are no reply.
+        Some(_) if worded => Ok(None),
+        Some(picks) => picked(questions, picks).map(Some),
+        None if worded => in_words(questions).map(|()| None),
+        None => Ok(None),
+    }
+}
+
+/// Refuses a reply in words to anything but one question that takes
+/// words.
+fn in_words(questions: &[Question]) -> Result<(), AnswerRefusal> {
+    match questions {
+        [only] if only.text_input => Ok(()),
+        [_] => Err(AnswerRefusal::TakesOption { question: 1 }),
+        _ => Err(AnswerRefusal::Unequal),
+    }
+}
+
+/// The words the chief's `picks` give in a reply to `questions`: each
+/// question quoted over its answer.
+fn picked(
+    questions: &[Question],
+    picks: &[Pick],
+) -> Result<String, AnswerRefusal> {
+    if picks.len() != questions.len() {
+        return Err(AnswerRefusal::Unequal);
+    }
+    let answers = (1..)
+        .zip(questions.iter().zip(picks))
+        .map(|(question, (asked, pick))| match pick {
             Pick::Offer { index } => usize::try_from(*index)
                 .ok()
                 .and_then(|index| asked.options.get(index))
-                .map(|offer| offer.title.clone()),
-            Pick::Words { .. } if !asked.text_input => None,
-            Pick::Words { text } => trimmed(Some(text)),
+                .map(|offer| offer.title.clone())
+                .ok_or(AnswerRefusal::NoOption { question }),
+            Pick::Words { .. } if !asked.text_input => {
+                Err(AnswerRefusal::TakesOption { question })
+            }
+            Pick::Words { text } => trimmed(Some(text))
+                .ok_or(AnswerRefusal::NoWords { question }),
         })
-        .collect::<Option<Vec<_>>>()?;
+        .collect::<Result<Vec<_>, _>>()?;
     let quoted =
         questions.iter().zip(answers).map(|(asked, answer)| {
             let question =
                 asked.question.split_whitespace().collect::<Vec<_>>();
             format!("> {}\n{answer}", question.join(" "))
         });
-    Some(quoted.collect::<Vec<_>>().join("\n\n"))
+    Ok(quoted.collect::<Vec<_>>().join("\n\n"))
 }
 
 /// Delivers the letters and answers held on `task`.
@@ -439,21 +522,6 @@ fn about(message: Option<&str>, questions: &[Question]) -> String {
     lines.join("\n")
 }
 
-/// The most questions `agent` may ask a chief on one task.
-async fn most_questions(
-    rows: &Rows<'_>,
-    agent: AgentNumber,
-) -> Result<u32> {
-    let hamlet = tree::lineage(rows, agent)
-        .await?
-        .and_then(|lineage| lineage.hamlet);
-    Ok(hamlet
-        .map(|hamlet| hamlet.limits)
-        .unwrap_or_default()
-        .asking
-        .questions)
-}
-
 /// The wait a question or an objection opens.
 pub(in crate::realm) struct Opening {
     wait: WaitId,
@@ -499,7 +567,8 @@ impl Act<Agent> for AskChief {
             )
             .await?
             .unwrap_or(0);
-        let most = most_questions(rows, by.0).await?;
+        let most =
+            waits::limits_of(rows, by.0).await?.asking.questions;
         if asked >= most {
             return Ok(Err(AskChiefRefusal::TooMany { most }));
         }
@@ -574,10 +643,7 @@ impl Act<Agent> for Object {
         let Some(reason) = trimmed(Some(&self.reason)) else {
             return Ok(Err(ObjectRefusal::NoReason));
         };
-        let name = match kind {
-            AgentKind::Hand => "hand".to_owned(),
-            _ => format!("hire#{}", by.0.0),
-        };
+        let name = record::name_of(rows, by.0).await?;
         let opening = Opening {
             wait: waits::next(rows).await?,
             raised: Raised {

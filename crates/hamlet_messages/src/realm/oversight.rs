@@ -67,6 +67,11 @@ pub enum Hold {
         task.0
     )]
     Objection { task: RealmTask },
+    #[error(
+        "The chief withdrew the instruction, so this call did not \
+         run."
+    )]
+    Withdrawn { task: RealmTask },
 }
 
 /// Takes back an agent's grant.
