@@ -21,8 +21,8 @@ use crate::society::agents::{self, EndHow};
 use crate::society::refusal::Refusal;
 use crate::society::workers::{self, Start, Starter};
 use crate::society::{addresses, hires, roads};
-use crate::work::catalogue::Society;
-use crate::work::tools::Network;
+use crate::tools::builtin::Network;
+use crate::tools::catalogue::Society;
 
 impl Core<'_, '_> {
     pub(in crate::calls) fn tell(

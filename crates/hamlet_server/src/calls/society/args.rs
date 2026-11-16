@@ -13,7 +13,7 @@ use serde::de::DeserializeOwned;
 use serde_json::Value;
 
 use crate::society::refusal::Refusal;
-use crate::work::catalogue::{FACTS, Society};
+use crate::tools::catalogue::{FACTS, Society};
 
 const ADDRESS: &str = "An agent's address: `hand`, `mayor`, \
                        `mayor@<hamlet id>`, `hire#<id>` or \

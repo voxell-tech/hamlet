@@ -46,8 +46,8 @@ use crate::runtimes::process::Pi;
 use crate::runtimes::{self, Harness, Runtimes};
 use crate::society::agents;
 use crate::terminals::{Terminals, persistence};
-use crate::work::added::{self, AddedToolsWatch};
-use crate::work::tools::shell::Shells;
+use crate::tools::builtin::shell::Shells;
+use crate::tools::custom::{self, AddedToolsWatch};
 
 pub(crate) fn plugin(app: &mut App) {
     app.add_systems(
@@ -71,7 +71,7 @@ pub(crate) fn plugin(app: &mut App) {
         (
             persistence::restore,
             start_runtimes,
-            added::reload,
+            custom::reload,
             super::follow_up::narrow_tools_to_roles,
             start_providers,
             follow_unfollowed,
@@ -193,7 +193,7 @@ fn watch_added_tools(
     mut commands: Commands,
 ) {
     let watching =
-        added::watch(&realm.layout().tools(), inputs.clone())
+        custom::watch(&realm.layout().tools(), inputs.clone())
             .inspect_err(|error| {
                 warn!(
                     "the tools added by hand load only at start: \

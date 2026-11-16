@@ -14,8 +14,8 @@ use serde_json::Value;
 
 use super::Danger;
 use crate::society::limits::Reserved;
-use crate::work::catalogue::{Reserve, Society};
-use crate::work::tools::shell::Dialect;
+use crate::tools::builtin::shell::Dialect;
+use crate::tools::catalogue::{Reserve, Society};
 
 /// A tool call, classified by its reach.
 #[derive(Clone, Debug, PartialEq)]

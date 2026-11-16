@@ -48,9 +48,9 @@ use crate::knowledge::CHARACTER;
 use crate::realm::workspace::serving::Lodging;
 use crate::society::oversight::gate::{Session, TurnGate};
 use crate::society::oversight::{self, Raise, Ruling, WaitKind};
-use crate::work::catalogue::Society;
-use crate::work::tools::shell::Dialect;
-use crate::work::tools::{Network, Outcome, Sight, ToolSession};
+use crate::tools::builtin::shell::Dialect;
+use crate::tools::builtin::{Network, Outcome, Sight, ToolSession};
+use crate::tools::catalogue::Society;
 
 /// The words of a call that waits for a chief.
 const WAITING: &str = "This call waits for a chief's answer.";
@@ -861,7 +861,7 @@ impl Core<'_, '_> {
     fn tools_of(
         &mut self,
         call: &Call<'_>,
-        place: crate::work::tools::Place,
+        place: crate::tools::builtin::Place,
         network: Network,
     ) -> Result<(ToolSession, Option<Lodging>)> {
         let agent = call.conversation.agent;
@@ -1126,7 +1126,7 @@ pub(crate) fn chat_session(
 /// The refusal of a write or edit of `CHARACTER.md` at the lodge's
 /// root, which is the scholar's own.
 fn character_refusal(
-    place: &crate::work::tools::Place,
+    place: &crate::tools::builtin::Place,
     call: &Call<'_>,
 ) -> Option<String> {
     if !matches!(call.tool, "write" | "edit") {

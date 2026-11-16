@@ -7,8 +7,8 @@ use hamlet_protocol::client::Doing;
 use hamlet_protocol::runtime::{self, Block};
 use serde_json::Value;
 
-use crate::work::catalogue::Society;
-use crate::work::tools::shell::Dialect;
+use crate::tools::builtin::shell::Dialect;
+use crate::tools::catalogue::Society;
 
 /// The most bytes of what an agent says that are shown.
 const SAID: usize = 600;

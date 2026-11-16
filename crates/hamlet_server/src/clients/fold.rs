@@ -14,7 +14,7 @@ use hamlet_sandbox::scrub::Scrubber;
 use serde_json::Value;
 
 use crate::conversations::marks::Mark;
-use crate::work::catalogue::Society;
+use crate::tools::catalogue::Society;
 
 /// Characters of a tool's arguments a transcript shows.
 const SUMMARY: usize = 200;
@@ -402,7 +402,7 @@ fn blocks_of(
                 let change = if name == "write" {
                     None
                 } else {
-                    crate::work::cut::change_of(
+                    crate::tools::edit_diff::change_of(
                         name, &arguments, None,
                     )
                 };

@@ -26,7 +26,7 @@ use crate::realm::layout::Layout;
 use crate::realm::settings::Settings;
 use crate::society::agents::{self, AgentKind};
 use crate::society::hamlets;
-use crate::work::hamlet_of;
+use crate::tools::hamlet_of;
 
 /// The charter every agent is given unless a chief wrote its own
 /// (C12).

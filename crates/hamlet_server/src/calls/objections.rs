@@ -14,8 +14,8 @@ use crate::conversations::marks::Mark;
 use crate::conversations::{inputs, tasks};
 use crate::core::Core;
 use crate::society::oversight::{self, Raise, Ruling, WaitKind};
-use crate::work::catalogue::Society;
-use crate::work::tools::Outcome;
+use crate::tools::builtin::Outcome;
+use crate::tools::catalogue::Society;
 
 /// The words of a call held while the chief considers an objection.
 pub(super) const OBJECTING: &str =

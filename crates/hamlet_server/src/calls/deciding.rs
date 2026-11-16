@@ -20,9 +20,9 @@ use crate::society::oversight::gate::{
     self, Standing, TurnGate, Verdict,
 };
 use crate::society::oversight::{self, Raise, Ruling, WaitKind};
-use crate::work::catalogue::Society;
-use crate::work::cut::change_between;
-use crate::work::tools::Network;
+use crate::tools::builtin::Network;
+use crate::tools::catalogue::Society;
+use crate::tools::edit_diff::change_between;
 
 /// A call as the gate rules on it, or the decision made before the
 /// gate is consulted: a look to wait for, or a block.
@@ -122,7 +122,7 @@ impl Core<'_, '_> {
             .added
             .iter()
             .find(|manifest| manifest.spec.name == call.tool)
-            .map(crate::work::added::Manifest::has_net);
+            .map(crate::tools::custom::Manifest::has_net);
         let classified =
             gate::call_of(call.tool, &call.args(), added);
         match classified {

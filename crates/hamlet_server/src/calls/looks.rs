@@ -18,8 +18,8 @@ use super::CallId;
 use crate::inbox::Inbox;
 use crate::realm::workspace::serving::Lodging;
 use crate::society::refusal::Refusal;
-use crate::work::tools::ToolSession;
-use crate::work::tools::parcel::To;
+use crate::tools::builtin::ToolSession;
+use crate::tools::builtin::parcel::To;
 
 /// The files a parcel holds and their bytes, as measured.
 pub(crate) type Measure = (usize, u64);

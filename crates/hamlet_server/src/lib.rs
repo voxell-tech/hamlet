@@ -51,7 +51,7 @@ mod conversations;
 mod dreaming;
 mod providers;
 mod runtimes;
-mod work;
+mod tools;
 
 // The clients, and what a chief sends and types.
 mod attached;
@@ -123,7 +123,7 @@ pub fn create_app(options: Options) -> App {
         images::plugin,
         files::plugin,
         terminals::plugin,
-        work::added::plugin,
+        tools::plugin,
     ));
 
     /// Bevy's readable lines in a terminal, else one JSON object per

@@ -10,7 +10,7 @@ use super::walk::{
     FOUND, Failure, is_wanted, reached, report, shown, under,
 };
 use super::{Arguments, Outcome, is_pi_space};
-use crate::work::cut::{Cut, clip, lines_of};
+use crate::tools::edit_diff::{Cut, clip, lines_of};
 
 pub(super) const DESCRIPTION: &str =
     "Search the contents of files under a folder for a regular \

@@ -28,7 +28,7 @@ use crate::app::input::{AddHandler, InputSender};
 use crate::core::{Catalogue, ModelTools};
 use crate::realm::Realm;
 use crate::runtimes::Runtimes;
-use crate::work::tools::{Network, Outcome, diagnostic};
+use crate::tools::builtin::{Network, Outcome, diagnostic};
 
 /// A loaded manifest and the program its tool runs.
 pub(crate) struct Manifest {
@@ -174,9 +174,9 @@ pub(crate) fn load(root: &Path) -> (Vec<Manifest>, Vec<String>) {
     let mut entries =
         entries.filter_map(Result::ok).collect::<Vec<_>>();
     entries.sort_by_key(std::fs::DirEntry::file_name);
-    let reserved = crate::work::tools::reserved_names()
+    let reserved = crate::tools::builtin::reserved_names()
         .chain(
-            crate::work::catalogue::Society::names()
+            crate::tools::catalogue::Society::names()
                 .map(String::from),
         )
         .collect::<BTreeSet<_>>();

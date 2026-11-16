@@ -15,8 +15,8 @@ use crate::society::agents::{self, AgentKind};
 use crate::society::hamlets::{self, Mode};
 use crate::society::oversight::gate::Caller;
 use crate::society::{hires, workers};
-use crate::work::catalogue::{Offered, Society};
-use crate::work::tools::Place;
+use crate::tools::builtin::Place;
+use crate::tools::catalogue::{Offered, Society};
 
 /// The place an agent's tools work in, and how its calls are
 /// overseen.

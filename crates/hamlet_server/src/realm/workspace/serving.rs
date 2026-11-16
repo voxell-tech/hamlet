@@ -28,8 +28,8 @@ use crate::realm::Realm;
 use crate::realm::jobs::Job;
 use crate::society::refusal::Refusal;
 use crate::society::{agents, hamlets, hires};
-use crate::work::hamlet_of;
-use crate::work::tools::Network;
+use crate::tools::builtin::Network;
+use crate::tools::hamlet_of;
 
 /// A lodge's remote copy: what both copies held alike when last in
 /// step, or nothing before its first push. The tasks that push to it

@@ -1,18 +1,25 @@
 //! What agents' tools do: the built-in tools under each agent's
-//! reach, the tools a chief adds by hand, and how an edit's change is
-//! shown.
+//! reach (`builtin`), the custom tools a chief adds by hand
+//! (`custom`), the catalogue of what a model may be offered
+//! (`catalogue`), and the diff an edit shows (`edit_diff`).
 
-pub(crate) mod added;
+pub(crate) mod builtin;
 pub(crate) mod catalogue;
-pub(crate) mod cut;
-pub(crate) mod tools;
+pub(crate) mod custom;
+pub(crate) mod edit_diff;
 
 use anyhow::Result;
+use bevy_app::App;
 use hamlet_store::Db;
 use hamlet_store::ids::{AgentId, HamletId};
 
 use crate::society::agents::{self, AgentKind};
 use crate::society::{hires, workers};
+
+/// Adds the plugin of the custom tools.
+pub(crate) fn plugin(app: &mut App) {
+    app.add_plugins(custom::plugin);
+}
 
 /// The hamlet whose folder `agent`'s tools work on: a hire's, a
 /// worker's own, else its starter's; none for the Hand.

@@ -551,7 +551,7 @@ impl ToolSession {
                 leftovers,
                 ..
             } => {
-                crate::work::added::run(
+                crate::tools::custom::run(
                     sandbox,
                     &place.realm,
                     *network,

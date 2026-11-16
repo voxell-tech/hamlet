@@ -44,8 +44,8 @@ use crate::runtimes::Runtimes;
 use crate::runtimes::leases::Authority;
 use crate::runtimes::reconciliation::{self, ImageFitting};
 use crate::terminals::Terminals;
-use crate::work::added::Manifest;
-use crate::work::tools::shell::Shells;
+use crate::tools::builtin::shell::Shells;
+use crate::tools::custom::Manifest;
 
 /// The live state no other area keeps, empty at the start; the tools
 /// added by hand are loaded into it once the server starts.
@@ -91,7 +91,7 @@ impl Catalogue {
     /// machine's `shells` run, the server's own, and the `added`
     /// ones.
     pub fn of(shells: &Shells, added: &[Manifest]) -> Vec<ToolSpec> {
-        let mut catalogue = crate::work::tools::specs(shells);
+        let mut catalogue = crate::tools::builtin::specs(shells);
         catalogue.extend(crate::calls::specs());
         catalogue.extend(
             added.iter().map(|manifest| manifest.spec.clone()),

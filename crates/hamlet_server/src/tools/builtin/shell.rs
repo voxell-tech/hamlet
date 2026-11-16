@@ -591,7 +591,7 @@ mod tests {
     async fn call(shell: &Shell, command: &str) -> Outcome {
         use hamlet_sandbox::{AllLeftovers, Sandbox};
 
-        use crate::work::tools::{Network, ToolSession};
+        use crate::tools::builtin::{Network, ToolSession};
 
         let scratch = hamlet_testing::Scratch::new("shell-call");
         let lodge = scratch.join("lodges/home/0");

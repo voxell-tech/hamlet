@@ -12,7 +12,7 @@ server runs only in insecure mode, below. Linux needs `bwrap` and a
 kernel/host policy that allows its namespaces; installing the executable
 alone is not sufficient.
 
-`work/tools.rs` builds the policy from the server-owned `Place`: the agent's
+`tools/builtin.rs` builds the policy from the server-owned `Place`: the agent's
 lodge (or a worker's scratch folder), the folder its hamlet works on, the
 realm's folder (never read) and what is only read, the library, the tools
 added by hand. The images saved with a line are in the agent's own lodge, under
@@ -70,7 +70,7 @@ The window sends requests and owns no confinement policy.
 
 `hamlet_sandbox`'s `Env` anchors file operations to opened directory
 descriptors and rejects unsafe traversal and replacement. The server's
-`work/tools/files.rs`, `search.rs` and `find.rs` use it. Shell commands use
+`tools/builtin/files.rs`, `search.rs` and `find.rs` use it. Shell commands use
 the platform process sandbox, with bounded output, time and resources;
 cancellation kills their process group. A command interrupted around an
 effect is not automatically replayed as a safe transaction.

@@ -31,8 +31,8 @@ use crate::society::hires::{self, Hiring, Spec};
 use crate::society::refusal::Refusal;
 use crate::society::spend::{self, micros, money};
 use crate::society::{authority, city, limits, record, roads};
-use crate::work::catalogue::Society;
-use crate::work::tools::Outcome;
+use crate::tools::builtin::Outcome;
+use crate::tools::catalogue::Society;
 
 /// The result of a society call.
 pub(super) enum Step {
