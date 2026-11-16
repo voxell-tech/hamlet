@@ -262,7 +262,7 @@ pub(in crate::realm) async fn ruling(
     };
     Ok(Ruling {
         changes: ruled.into_iter().map(Into::into).collect(),
-        picked: None,
+        ..Ruling::default()
     })
 }
 
@@ -288,8 +288,8 @@ pub(in crate::realm) async fn reply(
         return Ok(Ok(Ruling::default()));
     };
     Ok(replied(&questions, &answer.0).map(|picked| Ruling {
-        changes: Vec::new(),
         picked,
+        ..Ruling::default()
     }))
 }
 

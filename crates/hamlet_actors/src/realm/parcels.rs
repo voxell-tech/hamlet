@@ -934,7 +934,7 @@ pub(super) async fn ruling(
     };
     Ok(Ruling {
         changes,
-        picked: None,
+        ..Ruling::default()
     })
 }
 

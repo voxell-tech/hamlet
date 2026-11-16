@@ -31,7 +31,9 @@ use super::oversight::{asking, reserved};
 use super::peer::When;
 use super::tasks::TaskId;
 use super::world::Part;
-use super::{Realm, oversight, parcels, tasks, tree, versions};
+use super::{
+    Realm, oversight, parcels, record, tasks, tree, versions,
+};
 
 fn named(wait: &str) -> Option<WaitId> {
     let n = wait.trim_start_matches('#').parse::<i64>().ok()?;
@@ -334,6 +336,15 @@ pub(super) struct Told {
     notice: Option<WaitId>,
     /// The task whose held letters go on.
     held: Option<TaskId>,
+    /// What a reserved act did once allowed, told to its caller.
+    ran: Option<Ran>,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+struct Ran {
+    wait: WaitId,
+    agent: AgentNumber,
+    text: String,
 }
 
 impl Told {
@@ -349,9 +360,24 @@ impl Told {
             self.workspace.iter().copied().map(Delivery::ChiefAnswer);
         let notice = self.notice.map(Delivery::Notice);
         let held = self.held.map(Delivery::Held);
+        let ran = self.ran.iter().map(|ran| Delivery::Line {
+            to: ran.agent,
+            submit: Submit {
+                id: InputId(format!("wait/{}", ran.wait.0)),
+                task: None,
+                input: Input::Notice {
+                    text: ran.text.clone(),
+                    conversation: None,
+                },
+            },
+        });
         Calls {
             before_answer: Vec::new(),
-            after_answer: answers.chain(notice).chain(held).collect(),
+            after_answer: answers
+                .chain(notice)
+                .chain(held)
+                .chain(ran)
+                .collect(),
         }
     }
 }
@@ -727,12 +753,14 @@ impl Act<Workspace> for NeedsChief {
 }
 
 /// What the unit of a wait's kind adds to a chief's answer: the
-/// changes committed with the close, and the words the chief's picks
-/// stand for.
+/// changes and decisions committed with the close, the words the
+/// chief's picks stand for, and the words the wait's agent is told.
 #[derive(Default)]
 pub(super) struct Ruling {
     pub(super) changes: Vec<change::Change>,
+    pub(super) entries: Vec<record::Entry>,
     pub(super) picked: Option<String>,
+    pub(super) told: Option<String>,
 }
 
 /// The open wait a chief answers.
@@ -941,8 +969,16 @@ impl Act<Client> for Answer {
             return refuse(AnswerRefusal::NotOffered);
         };
         let mut decided = Decided::new(open.told(&choice));
+        decided.done.ran = ruling.told.map(|text| Ran {
+            wait: open.wait,
+            agent: open.agent,
+            text,
+        });
         for change in ruling.changes {
             decided = decided.change(change);
+        }
+        for entry in ruling.entries {
+            decided = decided.record(entry);
         }
         if choice == Choice::Allow(Scope::Always)
             && let Some(lasting) = open.lasting()

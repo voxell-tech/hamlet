@@ -12,7 +12,7 @@ use hamlet_protocol::client::{Choice, RequestId};
 
 use super::{
     FOUR, MAYOR, Realm, THREE, answer, hamlet_with, hire, hired,
-    seen_submits, to, tool,
+    seen_submits, submits_to, to, tool,
 };
 
 async fn reserve(realm: &Realm, hamlet: &HamletId, act: ReservedAct) {
@@ -111,6 +111,19 @@ async fn roads(realm: &Realm) -> Vec<(u32, u32, bool)> {
         .await
 }
 
+/// The notices `agent` was given. Reading the rows stops the realm,
+/// which first makes every delivery its acts so far have started.
+async fn notices(realm: &Realm, agent: AgentNumber) -> Vec<String> {
+    decisions(realm).await;
+    submits_to(realm, agent)
+        .into_iter()
+        .filter_map(|submit| match submit.input {
+            Input::Notice { text, .. } => Some(text),
+            _ => None,
+        })
+        .collect()
+}
+
 async fn decisions(realm: &Realm) -> Vec<String> {
     realm
         .rows(|db| {
@@ -157,11 +170,7 @@ async fn a_reserved_hire_waits_and_runs_once_on_allow() {
         (kind.as_str(), choice.as_str()),
         ("reserved", "allow")
     );
-    assert!(
-        subject.starts_with("hire {")
-            && subject.contains("Check the links"),
-        "the wait shows the act: {subject}"
-    );
+    assert_eq!(subject, r#"hire {"purpose":"Check the links"}"#);
     assert_eq!((allow, again), (Done::Done, Done::Done));
     assert_eq!(
         other.unwrap(),
@@ -278,29 +287,65 @@ async fn an_unreserved_tool_runs_at_once() {
 }
 
 #[tokio::test(flavor = "multi_thread")]
+async fn an_allowed_reserved_hire_is_decided_and_told() {
+    // a hamlet whose limits reserve hire. The mayor's hire, once
+    // allowed, writes its decision, and the mayor is told the new
+    // hire's number in today's words.
+    let (realm, hamlet) = hamlet_with(0).await;
+    reserve(&realm, &hamlet, ReservedAct::Hire).await;
+    let decided = decisions(&realm).await;
+
+    realm.tool(MAYOR, &tool("c1", hire(None))).await.unwrap();
+    realm.ask(&answer("#1", Choice::Allow, None)).await.unwrap();
+
+    assert_eq!(notices(&realm, MAYOR).await, ["Hired hire#3."]);
+    assert_eq!(
+        decisions(&realm).await[decided.len()..],
+        ["hired".to_owned()]
+    );
+    realm.host.shutdown().await.unwrap();
+}
+
+#[tokio::test(flavor = "multi_thread")]
 async fn an_allowed_reserved_end_ends_the_hire() {
+    // the wait shows today's tool and arguments; once allowed, hire#3
+    // has ended, the end is decided, and the mayor is told.
     let (realm, hamlet) = hamlet_with(1).await;
     reserve(&realm, &hamlet, ReservedAct::End).await;
+    let decided = decisions(&realm).await;
 
     let ended =
         realm.tool(MAYOR, &tool("e1", end(THREE))).await.unwrap();
+    let subject = waits(&realm).await[0].2.clone();
     let allowed =
         realm.ask(&answer("#1", Choice::Allow, None)).await.unwrap();
 
     assert_eq!((ended, allowed), (kept(1), Done::Done));
+    assert_eq!(
+        subject,
+        r#"end_hire {"hire":"hire#3","reason":"done"}"#
+    );
     assert!(
         agents(&realm)
             .await
             .contains(&(THREE.0, "ended".to_owned())),
         "hire#3 ended"
     );
+    assert_eq!(
+        decisions(&realm).await[decided.len()..],
+        ["ended".to_owned()]
+    );
+    assert_eq!(notices(&realm, MAYOR).await, ["Ended hire#3."]);
     realm.host.shutdown().await.unwrap();
 }
 
 #[tokio::test(flavor = "multi_thread")]
 async fn reserved_roads_are_laid_and_taken_up_once_allowed() {
+    // each wait shows today's tool and arguments; each allowed act is
+    // decided and told in today's words.
     let (realm, hamlet) = hamlet_with(2).await;
     reserve(&realm, &hamlet, ReservedAct::Roads).await;
+    let decided = decisions(&realm).await;
 
     let laid = realm.tool(MAYOR, &tool("r1", lay(THREE, FOUR))).await;
     realm.ask(&answer("#1", Choice::Allow, None)).await.unwrap();
@@ -313,14 +358,38 @@ async fn reserved_roads_are_laid_and_taken_up_once_allowed() {
     assert_eq!(open, [(THREE.0, FOUR.0, false)]);
     assert_eq!(taken.unwrap(), kept(2));
     assert_eq!(roads(&realm).await, [(THREE.0, FOUR.0, true)]);
+    let subjects = waits(&realm)
+        .await
+        .into_iter()
+        .map(|(_, _, subject, _)| subject)
+        .collect::<Vec<_>>();
+    assert_eq!(
+        subjects,
+        [
+            r#"lay_road {"a":"hire#3","b":"hire#4"}"#,
+            r#"take_up_road {"a":"hire#3","b":"hire#4"}"#,
+        ]
+    );
+    assert_eq!(
+        decisions(&realm).await[decided.len()..],
+        ["road".to_owned(), "unroad".to_owned()]
+    );
+    assert_eq!(
+        notices(&realm, MAYOR).await,
+        [
+            "Laid a road between hire#3 and hire#4.",
+            "Took up the road between hire#3 and hire#4.",
+        ]
+    );
     realm.host.shutdown().await.unwrap();
 }
 
 #[tokio::test(flavor = "multi_thread")]
 async fn an_allowed_act_that_no_longer_holds_changes_nothing() {
     // the mayor's reserved end of hire#3 waits; meanwhile the chief
-    // ends hire#3 itself. The allow closes the wait and the end is
-    // not decided a second time.
+    // ends hire#3 itself. The allow closes the wait, the end is not
+    // decided a second time, and the mayor is told the refusal the
+    // end met.
     let (realm, hamlet) = hamlet_with(1).await;
     reserve(&realm, &hamlet, ReservedAct::End).await;
     let ended =
@@ -344,6 +413,12 @@ async fn an_allowed_act_that_no_longer_holds_changes_nothing() {
         panic!("the wait is closed");
     };
     assert_eq!(choice, "allow");
+    let told = notices(&realm, MAYOR).await;
+    assert!(
+        told.iter()
+            .any(|told| told.starts_with("`hire#3` has left")),
+        "{told:?}"
+    );
     realm.host.shutdown().await.unwrap();
 }
 
