@@ -8,30 +8,20 @@
 //! other (a PDF, an image, a sheet, slides), with the box drawn on
 //! the page, which the window captures as it draws it.
 
-use std::io::Cursor;
-
 use bevy::app::App;
 use bevy::ecs::entity::Entity;
 use bevy::ecs::observer::On;
 use bevy::ecs::system::Commands;
 use bevy::ecs::world::World;
-use bevy::image::Image;
-use bevy::math::{Rect, UVec2, Vec2};
-use bevy::render::render_resource::TextureFormat;
-use bevy::render::view::screenshot::{
-    Screenshot, ScreenshotCaptured,
-};
+use bevy::math::{Rect, Vec2};
 use bevy::ui::ComputedNode;
 use bevy_cef::prelude::Receive;
-use image::{ImageFormat, RgbaImage};
 use serde::Deserialize;
 
+use super::super::crop::{add, capture, with_note};
 use super::super::page::Page;
 use super::id;
-use crate::convo::Convo;
-use crate::dock::{HUB, show_tab};
 use crate::menu::rect_of;
-use crate::screens::chat;
 
 pub(super) fn plugin(app: &mut App) {
     app.add_observer(handed);
@@ -120,21 +110,10 @@ fn handed(
             } => {
                 let part = Rect::new(x, y, x + width, y + height);
                 let view = Vec2::new(view_width, view_height);
-                capture(world, webview, path, part, view, note);
+                crop_page(world, webview, path, part, view, note);
             }
         }
     });
-}
-
-/// Shows the chat, and puts `words` and `pictures` in its field.
-fn add(world: &mut World, words: &str, pictures: Vec<Vec<u8>>) {
-    show_tab(world, HUB);
-    if let Some(agent) =
-        world.get_resource::<Convo>().map(|convo| convo.agent)
-    {
-        crate::convo::talk_to(world, agent);
-    }
-    chat::add_to_field(world, words, pictures);
 }
 
 /// The words lines `start` to `end` of `text`, the file at `path`,
@@ -164,17 +143,9 @@ fn lines(
     ))
 }
 
-/// `note` on a line of its own, when there is one.
-fn with_note(note: &str) -> String {
-    match note.trim() {
-        "" => String::new(),
-        note => format!("{note}\n"),
-    }
-}
-
 /// Captures the window as it draws the page, keeping `part` of the
 /// page, in the page's pixels.
-fn capture(
+fn crop_page(
     world: &mut World,
     webview: Entity,
     path: String,
@@ -196,23 +167,12 @@ fn capture(
     else {
         return;
     };
-    world.spawn(Screenshot::primary_window()).observe(
-        move |captured: On<ScreenshotCaptured>,
-              mut commands: Commands| {
-            let image = captured.image.clone();
-            let (path, note) = (path.clone(), note.clone());
-            commands.queue(move |world: &mut World| {
-                let Some(png) = cut(&image, region, scale)
-                    .and_then(|(pixels, size)| png(pixels, size))
-                else {
-                    return;
-                };
-                let words =
-                    format!("From `{path}`:\n{}", with_note(&note));
-                add(world, &words, vec![png]);
-            });
-        },
-    );
+    let region = Rect {
+        min: region.min * scale,
+        max: region.max * scale,
+    };
+    let words = format!("From `{path}`:\n{}", with_note(&note));
+    capture(world, region, words);
 }
 
 /// Where `part` of a page `view` big, in the page's own pixels, is in
@@ -229,57 +189,6 @@ fn on_the_page(page: Rect, part: Rect, view: Vec2) -> Option<Rect> {
     )
     .intersect(page);
     (!region.is_empty()).then_some(region)
-}
-
-/// The RGBA pixels of `region`, in the panels' pixels, of a capture
-/// of the window, `scale` window pixels to each, and their size.
-fn cut(
-    window: &Image,
-    region: Rect,
-    scale: f32,
-) -> Option<(Vec<u8>, UVec2)> {
-    let data = window.data.as_ref()?;
-    let full = UVec2::new(window.width(), window.height());
-    let bgra = matches!(
-        window.texture_descriptor.format,
-        TextureFormat::Bgra8Unorm | TextureFormat::Bgra8UnormSrgb
-    );
-    let at = |value: f32, most: u32| {
-        ((value * scale).round().max(0.0) as u32).min(most)
-    };
-    let (left, top) =
-        (at(region.min.x, full.x), at(region.min.y, full.y));
-    let (right, bottom) =
-        (at(region.max.x, full.x), at(region.max.y, full.y));
-    if right <= left || bottom <= top {
-        return None;
-    }
-    let row = full.x as usize * 4;
-    if data.len() < row * full.y as usize {
-        return None;
-    }
-    let mut pixels = Vec::with_capacity(
-        ((right - left) * (bottom - top) * 4) as usize,
-    );
-    for y in top..bottom {
-        let start = y as usize * row + left as usize * 4;
-        let end = y as usize * row + right as usize * 4;
-        for [b, g, r, _] in data[start..end].as_chunks::<4>().0 {
-            match bgra {
-                true => pixels.extend([*r, *g, *b, 255]),
-                false => pixels.extend([*b, *g, *r, 255]),
-            }
-        }
-    }
-    Some((pixels, UVec2::new(right - left, bottom - top)))
-}
-
-/// The RGBA `pixels` of `size`, as a PNG.
-fn png(pixels: Vec<u8>, size: UVec2) -> Option<Vec<u8>> {
-    let picture = RgbaImage::from_raw(size.x, size.y, pixels)?;
-    let mut bytes = Cursor::new(Vec::new());
-    picture.write_to(&mut bytes, ImageFormat::Png).ok()?;
-    Some(bytes.into_inner())
 }
 
 /// The name a fenced block of the file at `path` is marked with.

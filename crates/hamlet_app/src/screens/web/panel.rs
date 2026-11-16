@@ -15,7 +15,7 @@ use bevy_fynix::shortcut::{
 };
 use bevy_fynix::tokens::Tone;
 use bevy_fynix::views::{
-    BehaviorExt, FrameProps, TooltipExt, button, column, frame, row,
+    BehaviorExt, FrameProps, TooltipExt, button, column, row,
     text_field,
 };
 use bevy_fynix::{ScopedExt, ViewExt, derived, every_frame, keyed};
@@ -28,7 +28,7 @@ use hamlet_ui::widgets::icons::{Glyph, glyph};
 use hamlet_ui::{AnyView, View, with_cx};
 
 use super::fetch::{self, Fetch, State};
-use super::{Addresses, FILES, PANEL, page};
+use super::{Addresses, FILES, PANEL, crop, page};
 use crate::dock::{PanelAppExt, flush_panel};
 
 /// The name of a Web panel's tab, before its page has a title.
@@ -128,6 +128,7 @@ fn bar(panel: &PanelId) -> impl View + use<> {
                 world.trigger(RequestReload { webview: page });
             }),
             address(&panel),
+            crop::crop_button(&panel),
             press(
                 Glyph::Lens,
                 "Developer tools",
@@ -253,7 +254,11 @@ pub(super) fn body(
                  needs CEF where CEF_PATH points."
             )),
             Body::Blank(said) => words(said.clone()),
-            Body::Page => frame()
+            // The sheet a box is drawn on over the page, which only
+            // a Web panel's bar lays; the Files panel's page draws
+            // its own.
+            Body::Page => column((crop::sheet(&panel),))
+                .gap(0.0)
                 .grow(1.0)
                 .fills_width()
                 .min_height(px(0.0))

@@ -256,6 +256,8 @@ pub enum Glyph {
     ShieldCheck,
     /// A shield struck through: no sandbox.
     ShieldOff,
+    /// Two corners crossing: a part of what shows, cut out.
+    Crop,
 }
 
 /// A part of an icon, in the units of its square, y downward. Angles
@@ -284,7 +286,7 @@ enum Shape {
 
 impl Glyph {
     /// Every icon.
-    pub const ALL: [Glyph; 80] = [
+    pub const ALL: [Glyph; 81] = [
         Glyph::Plus,
         Glyph::Cross,
         Glyph::Check,
@@ -365,6 +367,7 @@ impl Glyph {
         Glyph::Lock,
         Glyph::ShieldCheck,
         Glyph::ShieldOff,
+        Glyph::Crop,
     ];
 
     /// Its image for a side of `size`, to be tinted.
@@ -896,6 +899,10 @@ impl Glyph {
                 Curve(3.0, 4.0, 2.5, 11.0, 8.0, 14.25),
                 Curve(13.0, 4.0, 13.5, 11.0, 8.0, 14.25),
                 Line(2.75, 2.5, 13.25, 13.5),
+            ],
+            Glyph::Crop => &[
+                Path(&[[4.5, 1.5], [4.5, 11.5], [14.5, 11.5]]),
+                Path(&[[1.5, 4.5], [11.5, 4.5], [11.5, 14.5]]),
             ],
         }
     }
