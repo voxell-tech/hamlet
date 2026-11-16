@@ -8,7 +8,7 @@
 
 use bevy_app::{App, PreUpdate};
 use bevy_ecs::error::Result;
-use bevy_ecs::message::Message;
+use bevy_ecs::message::{Message, Messages};
 use bevy_ecs::schedule::IntoScheduleConfigs;
 use bevy_ecs::schedule::common_conditions::on_message;
 use bevy_ecs::system::{Commands, ResMut};
@@ -21,7 +21,7 @@ use super::check::{fault, reply};
 use super::commands::ChiefCommand;
 use super::connection::Event;
 use super::{Clients, Connections};
-use crate::app::input::{AddHandler, InputMessage, InputOrigin};
+use crate::app::input::{AddHandler, InputOrigin};
 use crate::core::Core;
 use crate::society::refusal::Refusal;
 
@@ -89,51 +89,50 @@ pub(crate) struct ReadModels {
 /// dealt with, and a welcomed client's message is written as a
 /// request of its kind.
 fn take_in_client_event(
-    mut events: InputMessage<ClientEvent>,
+    mut events: ResMut<Messages<ClientEvent>>,
     mut core: Core,
     mut origin: ResMut<InputOrigin>,
     mut commands: Commands,
 ) -> Result {
-    let Some(ClientEvent(event)) = events.take() else {
-        return Ok(());
-    };
-    let (client, text) = match event {
-        Event::Late(client) => {
-            core.late(client);
-            return Ok(());
-        }
-        Event::Gone(client) => {
-            // Its hooks and observers take what the client held,
-            // and its uploads go with it.
-            core.terminals.gone(client);
-            if let Some(gone) = core.connections.entity(client) {
-                commands.entity(gone).despawn();
+    events.drain().try_for_each(|ClientEvent(event)| {
+        let (client, text) = match event {
+            Event::Late(client) => {
+                core.late(client);
+                return Ok(());
             }
+            Event::Gone(client) => {
+                // Its hooks and observers take what the client held,
+                // and its uploads go with it.
+                core.terminals.gone(client);
+                if let Some(gone) = core.connections.entity(client) {
+                    commands.entity(gone).despawn();
+                }
+                return Ok(());
+            }
+            // Its place among the connection's waiting messages frees
+            // once its request is written.
+            Event::Message(client, text, _place) => (client, text),
+        };
+        let Some(message) = core.checked(client, &text)? else {
             return Ok(());
-        }
-        // Its place among the connection's waiting messages frees
-        // once its request is written.
-        Event::Message(client, text, _place) => (client, text),
-    };
-    let Some(message) = core.checked(client, &text)? else {
-        return Ok(());
-    };
-    *origin = InputOrigin::Client {
-        client,
-        request: message.id().cloned(),
-    };
-    crate::app::fault::panic_at("request");
-    write(&mut commands, client, message);
-    Ok(())
+        };
+        *origin = InputOrigin::Client {
+            client,
+            request: message.id().cloned(),
+        };
+        crate::app::fault::panic_at("request");
+        write(&mut commands, client, message);
+        Ok(())
+    })
 }
 
 /// A connection is an entity until it goes.
 fn connect(
-    mut connected: InputMessage<ClientConnected>,
+    mut connected: ResMut<Messages<ClientConnected>>,
     mut clients: ResMut<Clients>,
     mut commands: Commands,
 ) {
-    if let Some(ClientConnected(stream)) = connected.take() {
+    for ClientConnected(stream) in connected.drain() {
         commands.spawn(clients.accept(stream));
     }
 }
@@ -189,388 +188,366 @@ fn write(
 
 /// A sign-in's start, answer or cancel.
 fn login(
-    mut received: InputMessage<FromClient<protocol::Login>>,
+    mut received: ResMut<Messages<FromClient<protocol::Login>>>,
     mut core: Core,
 ) -> Result {
-    let Some(FromClient {
-        client,
-        request: login,
-    }) = received.take()
-    else {
-        return Ok(());
-    };
-    core.login(client, &login)?;
-    Ok(())
+    received
+        .drain()
+        .try_for_each(|FromClient { client, request }| {
+            core.login(client, &request)?;
+            Ok(())
+        })
 }
 
 /// A try of the chosen model or of the connection.
 fn check(
-    mut received: InputMessage<FromClient<protocol::Check>>,
+    mut received: ResMut<Messages<FromClient<protocol::Check>>>,
     mut core: Core,
 ) -> Result {
-    let Some(FromClient {
-        client,
-        request: check,
-    }) = received.take()
-    else {
-        return Ok(());
-    };
-    core.check(client, &check)?;
-    Ok(())
+    received
+        .drain()
+        .try_for_each(|FromClient { client, request }| {
+            core.check(client, &request)?;
+            Ok(())
+        })
 }
 
 /// A read of the model catalogue.
 fn read_models(
-    mut received: InputMessage<FromClient<ReadModels>>,
+    mut received: ResMut<Messages<FromClient<ReadModels>>>,
     mut core: Core,
 ) -> Result {
-    let Some(FromClient {
-        client,
-        request: ReadModels { id, refresh },
-    }) = received.take()
-    else {
-        return Ok(());
-    };
-    core.read_models(client, &id, refresh)?;
-    Ok(())
+    received.drain().try_for_each(
+        |FromClient {
+             client,
+             request: ReadModels { id, refresh },
+         }| {
+            core.read_models(client, &id, refresh)?;
+            Ok(())
+        },
+    )
 }
 
 /// A chief's line to an agent.
 fn say(
-    mut received: InputMessage<FromClient<protocol::Say>>,
+    mut received: ResMut<Messages<FromClient<protocol::Say>>>,
     mut core: Core,
 ) -> Result {
-    let Some(FromClient {
-        client,
-        request: say,
-    }) = received.take()
-    else {
-        return Ok(());
-    };
-    core.say(client, say)?;
-    Ok(())
+    received
+        .drain()
+        .try_for_each(|FromClient { client, request }| {
+            core.say(client, request)?;
+            Ok(())
+        })
 }
 
 fn read(
-    mut received: InputMessage<FromClient<protocol::Read>>,
+    mut received: ResMut<Messages<FromClient<protocol::Read>>>,
     mut core: Core,
 ) -> Result {
-    let Some(FromClient {
-        client,
-        request: read,
-    }) = received.take()
-    else {
-        return Ok(());
-    };
-    core.read(client, read)?;
-    Ok(())
+    received
+        .drain()
+        .try_for_each(|FromClient { client, request }| {
+            core.read(client, request)?;
+            Ok(())
+        })
 }
 
 fn move_lodges(
-    mut received: InputMessage<FromClient<protocol::MoveLodges>>,
+    mut received: ResMut<Messages<FromClient<protocol::MoveLodges>>>,
     mut core: Core,
 ) -> Result {
-    let Some(FromClient {
-        client,
-        request: move_lodges,
-    }) = received.take()
-    else {
-        return Ok(());
-    };
-    core.move_lodges(client, &move_lodges.id)?;
-    Ok(())
+    received
+        .drain()
+        .try_for_each(|FromClient { client, request }| {
+            core.move_lodges(client, &request.id)?;
+            Ok(())
+        })
 }
 
 fn hello(
-    mut received: InputMessage<FromClient<protocol::Hello>>,
+    mut received: ResMut<Messages<FromClient<protocol::Hello>>>,
     mut connections: Connections,
-) -> Result {
-    let Some(FromClient { client, .. }) = received.take() else {
-        return Ok(());
-    };
-    connections.send(
-        client,
-        fault(None, "This connection said hello already."),
-    );
-    Ok(())
+) {
+    for FromClient { client, .. } in received.drain() {
+        connections.send(
+            client,
+            fault(None, "This connection said hello already."),
+        );
+    }
 }
 
 /// A chat watched from now on, with its last page.
 fn open(
-    mut received: InputMessage<FromClient<protocol::Open>>,
+    mut received: ResMut<Messages<FromClient<protocol::Open>>>,
     mut core: Core,
 ) -> Result {
-    let Some(FromClient {
-        client,
-        request: open,
-    }) = received.take()
-    else {
-        return Ok(());
-    };
-    let conversation = match core.watch_target(&open.chat)? {
-        Ok(conversation) => conversation,
-        Err(refusal) => {
-            core.answer(client, reply(&open.id, Err(refusal)))?;
-            return Ok(());
-        }
-    };
-    let transcript = core.transcript(
-        conversation,
-        &open.chat,
-        open.before.as_deref(),
-        Some(&open.id),
-    )?;
-    core.connections.watch(client, open.chat, conversation);
-    core.answer(client, transcript)?;
-    Ok(())
+    received.drain().try_for_each(
+        |FromClient {
+             client,
+             request: open,
+         }| {
+            let conversation = match core.watch_target(&open.chat)? {
+                Ok(conversation) => conversation,
+                Err(refusal) => {
+                    core.answer(
+                        client,
+                        reply(&open.id, Err(refusal)),
+                    )?;
+                    return Ok(());
+                }
+            };
+            let transcript = core.transcript(
+                conversation,
+                &open.chat,
+                open.before.as_deref(),
+                Some(&open.id),
+            )?;
+            core.connections.watch(client, open.chat, conversation);
+            core.answer(client, transcript)?;
+            Ok(())
+        },
+    )
 }
 
 fn close(
-    mut received: InputMessage<FromClient<protocol::Close>>,
+    mut received: ResMut<Messages<FromClient<protocol::Close>>>,
     mut connections: Connections,
-) -> Result {
-    let Some(FromClient {
-        client,
-        request: close,
-    }) = received.take()
-    else {
-        return Ok(());
-    };
-    connections.unwatch(client, &close.chat);
-    Ok(())
+) {
+    for FromClient { client, request } in received.drain() {
+        connections.unwatch(client, &request.chat);
+    }
 }
 
 fn new(
-    mut received: InputMessage<FromClient<protocol::New>>,
+    mut received: ResMut<Messages<FromClient<protocol::New>>>,
     mut core: Core,
 ) -> Result {
-    let Some(FromClient {
-        client,
-        request: new,
-    }) = received.take()
-    else {
-        return Ok(());
-    };
-    let Some(agent) = core.reached(client, &new.id, new.to.0)? else {
-        return Ok(());
-    };
-    let words = core.new_session(agent)?;
-    core.answer(client, reply(&new.id, Ok::<_, Refusal>(words)))?;
-    Ok(())
-}
-
-fn resume(
-    mut received: InputMessage<FromClient<protocol::Resume>>,
-    mut core: Core,
-) -> Result {
-    let Some(FromClient {
-        client,
-        request: resume,
-    }) = received.take()
-    else {
-        return Ok(());
-    };
-    let Some(agent) =
-        core.reached(client, &resume.id, resume.to.0)?
-    else {
-        return Ok(());
-    };
-    let words = core.resume_session(agent, resume.number)?;
-    core.answer(client, reply(&resume.id, words))?;
-    Ok(())
-}
-
-fn retry(
-    mut received: InputMessage<FromClient<protocol::Retry>>,
-    mut core: Core,
-) -> Result {
-    let Some(FromClient {
-        client,
-        request: retry,
-    }) = received.take()
-    else {
-        return Ok(());
-    };
-    let Some(agent) = core.reached(client, &retry.id, retry.to.0)?
-    else {
-        return Ok(());
-    };
-    let words = core.retry_turn(agent)?;
-    core.answer(client, reply(&retry.id, words))?;
-    Ok(())
-}
-
-fn stop(
-    mut received: InputMessage<FromClient<protocol::Stop>>,
-    mut core: Core,
-) -> Result {
-    let Some(FromClient {
-        client,
-        request: stop,
-    }) = received.take()
-    else {
-        return Ok(());
-    };
-    let targets = match stop.agent {
-        Some(agent) => {
+    received.drain().try_for_each(
+        |FromClient {
+             client,
+             request: new,
+         }| {
             let Some(agent) =
-                core.reached(client, &stop.id, agent.0)?
+                core.reached(client, &new.id, new.to.0)?
             else {
                 return Ok(());
             };
-            vec![agent]
-        }
-        None => core.reachable()?,
-    };
-    let words = core.stop_turns(&targets)?;
-    core.answer(client, reply(&stop.id, Ok::<_, Refusal>(words)))?;
-    Ok(())
+            let words = core.new_session(agent)?;
+            core.answer(
+                client,
+                reply(&new.id, Ok::<_, Refusal>(words)),
+            )?;
+            Ok(())
+        },
+    )
+}
+
+fn resume(
+    mut received: ResMut<Messages<FromClient<protocol::Resume>>>,
+    mut core: Core,
+) -> Result {
+    received.drain().try_for_each(
+        |FromClient {
+             client,
+             request: resume,
+         }| {
+            let Some(agent) =
+                core.reached(client, &resume.id, resume.to.0)?
+            else {
+                return Ok(());
+            };
+            let words = core.resume_session(agent, resume.number)?;
+            core.answer(client, reply(&resume.id, words))?;
+            Ok(())
+        },
+    )
+}
+
+fn retry(
+    mut received: ResMut<Messages<FromClient<protocol::Retry>>>,
+    mut core: Core,
+) -> Result {
+    received.drain().try_for_each(
+        |FromClient {
+             client,
+             request: retry,
+         }| {
+            let Some(agent) =
+                core.reached(client, &retry.id, retry.to.0)?
+            else {
+                return Ok(());
+            };
+            let words = core.retry_turn(agent)?;
+            core.answer(client, reply(&retry.id, words))?;
+            Ok(())
+        },
+    )
+}
+
+fn stop(
+    mut received: ResMut<Messages<FromClient<protocol::Stop>>>,
+    mut core: Core,
+) -> Result {
+    received.drain().try_for_each(
+        |FromClient {
+             client,
+             request: stop,
+         }| {
+            let targets = match stop.agent {
+                Some(agent) => {
+                    let Some(agent) =
+                        core.reached(client, &stop.id, agent.0)?
+                    else {
+                        return Ok(());
+                    };
+                    vec![agent]
+                }
+                None => core.reachable()?,
+            };
+            let words = core.stop_turns(&targets)?;
+            core.answer(
+                client,
+                reply(&stop.id, Ok::<_, Refusal>(words)),
+            )?;
+            Ok(())
+        },
+    )
 }
 
 fn edit(
-    mut received: InputMessage<FromClient<protocol::Edit>>,
+    mut received: ResMut<Messages<FromClient<protocol::Edit>>>,
     mut core: Core,
 ) -> Result {
-    let Some(FromClient {
-        client,
-        request: edit,
-    }) = received.take()
-    else {
-        return Ok(());
-    };
-    core.edit(client, edit)?;
-    Ok(())
+    received
+        .drain()
+        .try_for_each(|FromClient { client, request }| {
+            core.edit(client, request)?;
+            Ok(())
+        })
 }
 
 /// A chief's answer to what waits.
 fn answer(
-    mut received: InputMessage<FromClient<protocol::Answer>>,
+    mut received: ResMut<Messages<FromClient<protocol::Answer>>>,
     mut core: Core,
 ) -> Result {
-    let Some(FromClient {
-        client,
-        request: answer,
-    }) = received.take()
-    else {
-        return Ok(());
-    };
-    let words = core.answer_wait(
-        &answer.wait,
-        &answer.choice,
-        answer.text.as_deref(),
-        answer.picks.as_deref(),
-    )?;
-    core.answer(client, reply(&answer.id, words))?;
-    Ok(())
+    received.drain().try_for_each(
+        |FromClient {
+             client,
+             request: answer,
+         }| {
+            let words = core.answer_wait(
+                &answer.wait,
+                &answer.choice,
+                answer.text.as_deref(),
+                answer.picks.as_deref(),
+            )?;
+            core.answer(client, reply(&answer.id, words))?;
+            Ok(())
+        },
+    )
 }
 
 fn put_image(
-    mut received: InputMessage<FromClient<protocol::PutImage>>,
+    mut received: ResMut<Messages<FromClient<protocol::PutImage>>>,
     mut core: Core,
 ) -> Result {
-    let Some(FromClient {
-        client,
-        request: put,
-    }) = received.take()
-    else {
-        return Ok(());
-    };
-    let answer = core.put_image(client, put);
-    core.answer(client, answer)?;
-    Ok(())
+    received
+        .drain()
+        .try_for_each(|FromClient { client, request }| {
+            let answer = core.put_image(client, request);
+            core.answer(client, answer)?;
+            Ok(())
+        })
 }
 
 fn put_image_part(
-    mut received: InputMessage<FromClient<protocol::PutImagePart>>,
+    mut received: ResMut<
+        Messages<FromClient<protocol::PutImagePart>>,
+    >,
     mut core: Core,
 ) -> Result {
-    let Some(FromClient {
-        client,
-        request: part,
-    }) = received.take()
-    else {
-        return Ok(());
-    };
-    let answer = core.put_image_part(client, part)?;
-    core.answer(client, answer)?;
-    Ok(())
+    received
+        .drain()
+        .try_for_each(|FromClient { client, request }| {
+            let answer = core.put_image_part(client, request)?;
+            core.answer(client, answer)?;
+            Ok(())
+        })
 }
 
 fn put_file(
-    mut received: InputMessage<FromClient<protocol::PutFile>>,
+    mut received: ResMut<Messages<FromClient<protocol::PutFile>>>,
     mut core: Core,
 ) -> Result {
-    let Some(FromClient {
-        client,
-        request: put,
-    }) = received.take()
-    else {
-        return Ok(());
-    };
-    let answer = core.put_file(client, put)?;
-    core.answer(client, answer)?;
-    Ok(())
+    received
+        .drain()
+        .try_for_each(|FromClient { client, request }| {
+            let answer = core.put_file(client, request)?;
+            core.answer(client, answer)?;
+            Ok(())
+        })
 }
 
 fn put_file_part(
-    mut received: InputMessage<FromClient<protocol::PutFilePart>>,
+    mut received: ResMut<Messages<FromClient<protocol::PutFilePart>>>,
     mut core: Core,
 ) -> Result {
-    let Some(FromClient {
-        client,
-        request: part,
-    }) = received.take()
-    else {
-        return Ok(());
-    };
-    let answer = core.put_file_part(client, part)?;
-    core.answer(client, answer)?;
-    Ok(())
+    received
+        .drain()
+        .try_for_each(|FromClient { client, request }| {
+            let answer = core.put_file_part(client, request)?;
+            core.answer(client, answer)?;
+            Ok(())
+        })
 }
 
 /// The chief's chat taken back to before one of its lines, which is
 /// given back to be said again.
 fn rewind(
-    mut received: InputMessage<FromClient<protocol::Rewind>>,
+    mut received: ResMut<Messages<FromClient<protocol::Rewind>>>,
     mut core: Core,
 ) -> Result {
-    let Some(FromClient {
-        client,
-        request: rewind,
-    }) = received.take()
-    else {
-        return Ok(());
-    };
-    if rewind.chat.from.is_some() || rewind.chat.past.is_some() {
-        core.answer(
-            client,
-            reply(&rewind.id, Err(Refusal::RewindNotCurrent)),
-        )?;
-        return Ok(());
-    }
-    let Some(agent) =
-        core.reached(client, &rewind.id, rewind.chat.with.0)?
-    else {
-        return Ok(());
-    };
-    let done = core.rewind_chat(agent, &rewind.item)?;
-    let answer = match done {
-        Ok((text, images, files)) => {
-            core.keep_images(&images);
-            core.keep_files(&files);
-            ServerMessage::Reply(protocol::Reply {
-                file: None,
-                files,
-                image: None,
-                images,
-                kind: protocol::ReplyKind::Rewound,
-                text,
-                to: rewind.id.clone(),
-                upload: None,
-            })
-        }
-        Err(refusal) => reply(&rewind.id, Err(refusal)),
-    };
-    core.answer(client, answer)?;
-    Ok(())
+    received.drain().try_for_each(
+        |FromClient {
+             client,
+             request: rewind,
+         }| {
+            if rewind.chat.from.is_some()
+                || rewind.chat.past.is_some()
+            {
+                core.answer(
+                    client,
+                    reply(&rewind.id, Err(Refusal::RewindNotCurrent)),
+                )?;
+                return Ok(());
+            }
+            let Some(agent) =
+                core.reached(client, &rewind.id, rewind.chat.with.0)?
+            else {
+                return Ok(());
+            };
+            let done = core.rewind_chat(agent, &rewind.item)?;
+            let answer = match done {
+                Ok((text, images, files)) => {
+                    core.keep_images(&images);
+                    core.keep_files(&files);
+                    ServerMessage::Reply(protocol::Reply {
+                        file: None,
+                        files,
+                        image: None,
+                        images,
+                        kind: protocol::ReplyKind::Rewound,
+                        text,
+                        to: rewind.id.clone(),
+                        upload: None,
+                    })
+                }
+                Err(refusal) => reply(&rewind.id, Err(refusal)),
+            };
+            core.answer(client, answer)?;
+            Ok(())
+        },
+    )
 }

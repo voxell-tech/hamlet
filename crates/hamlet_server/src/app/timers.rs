@@ -28,9 +28,11 @@ pub(crate) struct TimerFired(pub TimerSystem);
 
 /// Runs the timer the input fired.
 fn fire(world: &mut World) -> bevy_ecs::error::Result {
-    let fired =
-        world.resource_mut::<Messages<TimerFired>>().drain().next();
-    if let Some(TimerFired(system)) = fired {
+    let fired = world
+        .resource_mut::<Messages<TimerFired>>()
+        .drain()
+        .collect::<Vec<_>>();
+    for TimerFired(system) in fired {
         world.run_system(system)??;
     }
     Ok(())

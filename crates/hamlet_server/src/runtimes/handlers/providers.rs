@@ -4,6 +4,7 @@
 
 use bevy_app::{App, PostUpdate};
 use bevy_ecs::error::Result;
+use bevy_ecs::message::Messages;
 use bevy_ecs::schedule::IntoScheduleConfigs;
 use bevy_ecs::system::{Res, ResMut};
 use hamlet_protocol::runtime;
@@ -11,7 +12,7 @@ use hamlet_protocol::runtime;
 use super::FromRuntime;
 use crate::FollowUpSystems;
 use crate::app::follow_up::keep_or_roll_back_input;
-use crate::app::input::{AddHandler, InputMessage, InputOrigin};
+use crate::app::input::{AddHandler, InputOrigin};
 use crate::core::Core;
 use crate::runtimes::leases::Authority;
 
@@ -47,46 +48,36 @@ fn answer_credentials(mut core: Core) {
 
 /// A credential requested, answered once the leases let it through.
 fn credential_request(
-    mut heard: InputMessage<FromRuntime<runtime::CredentialRequest>>,
+    mut heard: ResMut<
+        Messages<FromRuntime<runtime::CredentialRequest>>,
+    >,
     mut leases: ResMut<Authority>,
-) -> Result {
-    let Some(FromRuntime {
-        runtime: from,
-        message: request,
-    }) = heard.take()
-    else {
-        return Ok(());
-    };
-    leases.request(from, request);
-    Ok(())
+) {
+    for FromRuntime { runtime, message } in heard.drain() {
+        leases.request(runtime, message);
+    }
 }
 
 fn provider_result(
-    mut heard: InputMessage<FromRuntime<runtime::ProviderResult>>,
+    mut heard: ResMut<Messages<FromRuntime<runtime::ProviderResult>>>,
     mut core: Core,
 ) -> Result {
-    let Some(FromRuntime {
-        runtime: from,
-        message: result,
-    }) = heard.take()
-    else {
-        return Ok(());
-    };
-    core.provider_result(Some(from), result)?;
-    Ok(())
+    heard
+        .drain()
+        .try_for_each(|FromRuntime { runtime, message }| {
+            core.provider_result(Some(runtime), message)?;
+            Ok(())
+        })
 }
 
 fn provider_event(
-    mut heard: InputMessage<FromRuntime<runtime::ProviderEvent>>,
+    mut heard: ResMut<Messages<FromRuntime<runtime::ProviderEvent>>>,
     mut core: Core,
 ) -> Result {
-    let Some(FromRuntime {
-        runtime: from,
-        message: event,
-    }) = heard.take()
-    else {
-        return Ok(());
-    };
-    core.provider_event(from, event)?;
-    Ok(())
+    heard
+        .drain()
+        .try_for_each(|FromRuntime { runtime, message }| {
+            core.provider_event(runtime, message)?;
+            Ok(())
+        })
 }

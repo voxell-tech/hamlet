@@ -5,13 +5,14 @@
 
 use bevy_app::App;
 use bevy_ecs::error::Result;
-use bevy_ecs::system::Res;
+use bevy_ecs::message::Messages;
+use bevy_ecs::system::{Res, ResMut};
 use hamlet_protocol::runtime::{self, ServerMessage};
 use hamlet_store::ids::Actor;
 
 use super::FromRuntime;
 use crate::app::clock;
-use crate::app::input::{AddHandler, InputMessage};
+use crate::app::input::AddHandler;
 use crate::conversations::turns::{self, Admission};
 use crate::conversations::{self, verdicts};
 use crate::core::Core;
@@ -32,247 +33,249 @@ pub(crate) fn plugin(app: &mut App) {
 /// The permission check of a tool call, made before it is kept as
 /// begun.
 fn allow(
-    mut heard: InputMessage<FromRuntime<runtime::Allow>>,
+    mut heard: ResMut<Messages<FromRuntime<runtime::Allow>>>,
     mut core: Core,
 ) -> Result {
-    let Some(FromRuntime {
-        runtime: from,
-        message: allow,
-    }) = heard.take()
-    else {
-        return Ok(());
-    };
-    core.allow_call(from, allow)?;
-    Ok(())
+    heard
+        .drain()
+        .try_for_each(|FromRuntime { runtime, message }| {
+            core.allow_call(runtime, message)?;
+            Ok(())
+        })
 }
 
 /// A tool call carried out, once under its key.
 fn operation(
-    mut heard: InputMessage<FromRuntime<runtime::Operation>>,
+    mut heard: ResMut<Messages<FromRuntime<runtime::Operation>>>,
     mut core: Core,
 ) -> Result {
-    let Some(FromRuntime {
-        runtime: from,
-        message: operation,
-    }) = heard.take()
-    else {
-        return Ok(());
-    };
-    core.operation(from, operation)?;
-    Ok(())
+    heard
+        .drain()
+        .try_for_each(|FromRuntime { runtime, message }| {
+            core.operation(runtime, message)?;
+            Ok(())
+        })
 }
 
 /// The prompt of a conversation's next call, or what it waits for
 /// first.
 fn prompt(
-    mut heard: InputMessage<FromRuntime<runtime::Prompt>>,
+    mut heard: ResMut<Messages<FromRuntime<runtime::Prompt>>>,
     mut core: Core,
 ) -> Result {
-    let Some(FromRuntime {
-        runtime: from,
-        message: prompt,
-    }) = heard.take()
-    else {
-        return Ok(());
-    };
-    let runtime = core.runtimes.id(from)?;
-    let db = core.realm.store().connection();
-    let conversation =
-        turns::conversation(db, &runtime, &prompt.conversation)?;
-    let re = prompt.id.clone();
-    if let Some((key, words)) =
-        core.before_prompt(&conversation, prompt.input.as_deref())?
-    {
-        core.runtimes.send(from, |v, id| {
-            ServerMessage::Waiting(runtime::Waiting {
-                id,
-                key,
-                re,
-                v,
-                words,
-            })
-        });
-        return Ok(());
-    }
-    let sections = core.prompt(&conversation)?;
-    core.runtimes.send(from, |v, id| {
-        ServerMessage::Sections(runtime::Sections {
-            id,
-            re,
-            sections,
-            v,
-        })
-    });
-    Ok(())
+    heard.drain().try_for_each(
+        |FromRuntime {
+             runtime: from,
+             message: prompt,
+         }| {
+            let runtime = core.runtimes.id(from)?;
+            let db = core.realm.store().connection();
+            let conversation = turns::conversation(
+                db,
+                &runtime,
+                &prompt.conversation,
+            )?;
+            let re = prompt.id.clone();
+            if let Some((key, words)) = core.before_prompt(
+                &conversation,
+                prompt.input.as_deref(),
+            )? {
+                core.runtimes.send(from, |v, id| {
+                    ServerMessage::Waiting(runtime::Waiting {
+                        id,
+                        key,
+                        re,
+                        v,
+                        words,
+                    })
+                });
+                return Ok(());
+            }
+            let sections = core.prompt(&conversation)?;
+            core.runtimes.send(from, |v, id| {
+                ServerMessage::Sections(runtime::Sections {
+                    id,
+                    re,
+                    sections,
+                    v,
+                })
+            });
+            Ok(())
+        },
+    )
 }
 
 /// The ruling on a model call: it goes on or stops, and with which
 /// model and credential.
 fn attempt(
-    mut heard: InputMessage<FromRuntime<runtime::Attempt>>,
+    mut heard: ResMut<Messages<FromRuntime<runtime::Attempt>>>,
     mut core: Core,
 ) -> Result {
-    let Some(FromRuntime {
-        runtime: from,
-        message: attempt,
-    }) = heard.take()
-    else {
-        return Ok(());
-    };
-    let runtime = core.runtimes.id(from)?;
-    let at = clock::now();
-    let admission = turns::allow(
-        core.realm.store().connection(),
-        &core.env,
-        &core.providers,
-        &runtime,
-        &attempt,
-        at,
-    )?;
-    let re = attempt.id;
-    match admission {
-        Admission::Allowed(selection) => {
-            let provider = selection.model.provider.clone();
-            core.leases.grant(from, &attempt.key, &provider);
-            let db = core.realm.store().connection();
-            let conversation = turns::conversation(
-                db,
+    heard.drain().try_for_each(
+        |FromRuntime {
+             runtime: from,
+             message: attempt,
+         }| {
+            let runtime = core.runtimes.id(from)?;
+            let at = clock::now();
+            let admission = turns::allow(
+                core.realm.store().connection(),
+                &core.env,
+                &core.providers,
                 &runtime,
-                &attempt.conversation,
+                &attempt,
+                at,
             )?;
-            core.live(conversation.id)?.activity.attempted();
-            core.publish();
-            let serving = core
-                .env
-                .settings
-                .provider()
-                .unwrap_or_default()
-                .to_owned();
-            let credential = (provider != FAUX)
-                .then(|| core.credentials.model(&provider, &serving))
-                .flatten()
-                .map(crate::realm::credentials::pack)
-                .transpose()?;
-            core.runtimes.send(from, |v, id| {
-                ServerMessage::Allowance(runtime::Allowance {
-                    credential,
-                    id,
-                    re,
-                    selection,
-                    v,
-                })
-            });
-        }
-        Admission::Stopped(words) => {
-            let notice = Some(
-                conversations::marks::Mark::Notice {
-                    text: words.clone(),
-                    at,
+            let re = attempt.id;
+            match admission {
+                Admission::Allowed(selection) => {
+                    let provider = selection.model.provider.clone();
+                    core.leases.grant(from, &attempt.key, &provider);
+                    let db = core.realm.store().connection();
+                    let conversation = turns::conversation(
+                        db,
+                        &runtime,
+                        &attempt.conversation,
+                    )?;
+                    core.live(conversation.id)?.activity.attempted();
+                    core.publish();
+                    let serving = core
+                        .env
+                        .settings
+                        .provider()
+                        .unwrap_or_default()
+                        .to_owned();
+                    let credential = (provider != FAUX)
+                        .then(|| {
+                            core.credentials
+                                .model(&provider, &serving)
+                        })
+                        .flatten()
+                        .map(crate::realm::credentials::pack)
+                        .transpose()?;
+                    core.runtimes.send(from, |v, id| {
+                        ServerMessage::Allowance(runtime::Allowance {
+                            credential,
+                            id,
+                            re,
+                            selection,
+                            v,
+                        })
+                    });
                 }
-                .wire(),
-            );
-            core.runtimes.send(from, |v, id| {
-                ServerMessage::Stopped(runtime::Stopped {
-                    id,
-                    notice,
-                    re,
-                    v,
-                    words,
-                })
-            });
-        }
-    }
-    Ok(())
+                Admission::Stopped(words) => {
+                    let notice = Some(
+                        conversations::marks::Mark::Notice {
+                            text: words.clone(),
+                            at,
+                        }
+                        .wire(),
+                    );
+                    core.runtimes.send(from, |v, id| {
+                        ServerMessage::Stopped(runtime::Stopped {
+                            id,
+                            notice,
+                            re,
+                            v,
+                            words,
+                        })
+                    });
+                }
+            }
+            Ok(())
+        },
+    )
 }
 
 /// A model call's usage, charged once.
 fn usage(
-    mut heard: InputMessage<FromRuntime<runtime::UsageReport>>,
+    mut heard: ResMut<Messages<FromRuntime<runtime::UsageReport>>>,
     mut core: Core,
 ) -> Result {
-    let Some(FromRuntime {
-        runtime: from,
-        message: report,
-    }) = heard.take()
-    else {
-        return Ok(());
-    };
-    let runtime = core.runtimes.id(from)?;
-    core.leases.finish(from, &report.key);
-    let charged = turns::charge(
-        core.realm.store().connection(),
-        &runtime,
-        &report.key,
-        &report.usage,
-        clock::now(),
-    )?;
-    if let Some(conversation) = charged {
-        core.stream_usage(conversation)?;
-        core.publish();
-    }
-    let re = report.id;
-    core.runtimes.send(from, |v, id| {
-        ServerMessage::Charged(runtime::Charged { id, re, v })
-    });
-    Ok(())
+    heard.drain().try_for_each(
+        |FromRuntime {
+             runtime: from,
+             message: report,
+         }| {
+            let runtime = core.runtimes.id(from)?;
+            core.leases.finish(from, &report.key);
+            let charged = turns::charge(
+                core.realm.store().connection(),
+                &runtime,
+                &report.key,
+                &report.usage,
+                clock::now(),
+            )?;
+            if let Some(conversation) = charged {
+                core.stream_usage(conversation)?;
+                core.publish();
+            }
+            let re = report.id;
+            core.runtimes.send(from, |v, id| {
+                ServerMessage::Charged(runtime::Charged { id, re, v })
+            });
+            Ok(())
+        },
+    )
 }
 
 /// A turn's answer, ruled on.
 fn yielded(
-    mut heard: InputMessage<FromRuntime<runtime::Yield>>,
+    mut heard: ResMut<Messages<FromRuntime<runtime::Yield>>>,
     mut core: Core,
 ) -> Result {
-    let Some(FromRuntime {
-        runtime: from,
-        message: answer,
-    }) = heard.take()
-    else {
-        return Ok(());
-    };
-    let runtime = core.runtimes.id(from)?;
-    let db = core.realm.store().connection();
-    let conversation =
-        turns::conversation(db, &runtime, &answer.conversation)?;
-    let ruled = core.change(Actor::Realm, |cx, _| {
-        verdicts::rule(cx, &conversation, &answer)
-    })?;
-    let re = answer.id;
-    core.runtimes.send(from, |v, id| {
-        ServerMessage::Verdict(runtime::Verdict {
-            compact: ruled.compact.then_some(true),
-            id,
-            notice: ruled.notice,
-            re,
-            v,
-            words: ruled.words,
-        })
-    });
-    Ok(())
+    heard.drain().try_for_each(
+        |FromRuntime {
+             runtime: from,
+             message: answer,
+         }| {
+            let runtime = core.runtimes.id(from)?;
+            let db = core.realm.store().connection();
+            let conversation = turns::conversation(
+                db,
+                &runtime,
+                &answer.conversation,
+            )?;
+            let ruled = core.change(Actor::Realm, |cx, _| {
+                verdicts::rule(cx, &conversation, &answer)
+            })?;
+            let re = answer.id;
+            core.runtimes.send(from, |v, id| {
+                ServerMessage::Verdict(runtime::Verdict {
+                    compact: ruled.compact.then_some(true),
+                    id,
+                    notice: ruled.notice,
+                    re,
+                    v,
+                    words: ruled.words,
+                })
+            });
+            Ok(())
+        },
+    )
 }
 
 /// A value given back with every secret taken out.
 fn scrub(
-    mut heard: InputMessage<FromRuntime<runtime::Scrub>>,
+    mut heard: ResMut<Messages<FromRuntime<runtime::Scrub>>>,
     credentials: Res<Credentials>,
     mut runtimes: Runtimes,
-) -> Result {
-    let Some(FromRuntime {
+) {
+    for FromRuntime {
         runtime: from,
         message: scrub,
-    }) = heard.take()
-    else {
-        return Ok(());
-    };
-    let mut value = scrub.value;
-    credentials.scrub(&mut value);
-    let re = scrub.id;
-    runtimes.send(from, |v, id| {
-        ServerMessage::Scrubbed(runtime::Scrubbed {
-            id,
-            re,
-            v,
-            value,
-        })
-    });
-    Ok(())
+    } in heard.drain()
+    {
+        let mut value = scrub.value;
+        credentials.scrub(&mut value);
+        let re = scrub.id;
+        runtimes.send(from, |v, id| {
+            ServerMessage::Scrubbed(runtime::Scrubbed {
+                id,
+                re,
+                v,
+                value,
+            })
+        });
+    }
 }

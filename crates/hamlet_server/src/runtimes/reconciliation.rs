@@ -8,6 +8,7 @@ use std::path::Path;
 use anyhow::{Context, Result};
 use bevy_ecs::component::Component;
 use bevy_ecs::entity::Entity;
+use bevy_ecs::message::Messages;
 use bevy_ecs::system::{Commands, Query, Res, ResMut, SystemParam};
 use bevy_log::error;
 use hamlet_protocol::runtime::{
@@ -19,7 +20,7 @@ use hamlet_store::ids::ConversationId;
 use super::{Pending, Runtimes};
 use crate::app::failure;
 use crate::app::follow_up::InputEffects;
-use crate::app::input::{AddHandler, InputMessage, InputSender};
+use crate::app::input::{AddHandler, InputSender};
 use crate::attachments::images::Limits;
 use crate::attachments::images::fitting::pictures;
 use crate::conversations::inputs::{self, Input, Resend};
@@ -38,11 +39,11 @@ pub(crate) struct ImagesFitted(pub FittedImages);
 
 /// Keeps the fitted images of an input: it may go to its runtime.
 fn take_in_fitted(
-    mut fitted: InputMessage<ImagesFitted>,
+    mut fitted: ResMut<Messages<ImagesFitted>>,
     mut fitting: ImageFitting,
     mut changed: ResMut<InputEffects>,
 ) {
-    if let Some(ImagesFitted(fitted)) = fitted.take() {
+    for ImagesFitted(fitted) in fitted.drain() {
         fitting.fitted(fitted);
         changed.runtime_answered = true;
     }

@@ -9,8 +9,8 @@ use anyhow::Result;
 use bevy_ecs::component::Component;
 use bevy_ecs::entity::Entity;
 use bevy_ecs::lifecycle::HookContext;
-use bevy_ecs::message::Message;
-use bevy_ecs::system::{Commands, Query};
+use bevy_ecs::message::{Message, Messages};
+use bevy_ecs::system::{Commands, Query, ResMut};
 use bevy_ecs::world::DeferredWorld;
 use futures::future::BoxFuture;
 use hamlet_store::ids::ConversationId;
@@ -18,7 +18,7 @@ use hamlet_store::marker::{self, Request};
 use tokio::task::AbortHandle;
 
 use super::{Answer, CallId, Reply};
-use crate::app::input::{AddHandler, InputMessage, InputSender};
+use crate::app::input::{AddHandler, InputSender};
 use crate::core::Core;
 use crate::tools::builtin::Outcome;
 
@@ -31,15 +31,15 @@ pub(crate) fn plugin(app: &mut bevy_app::App) {
 #[derive(Message)]
 pub(crate) struct ToolRunEnded(pub Ran);
 
-/// Takes in a tool run that ended.
+/// Takes in the tool runs that ended.
 fn take_in_ran(
-    mut ended: InputMessage<ToolRunEnded>,
+    mut ended: ResMut<Messages<ToolRunEnded>>,
     mut core: Core,
 ) -> bevy_ecs::error::Result {
-    if let Some(ToolRunEnded(ran)) = ended.take() {
+    ended.drain().try_for_each(|ToolRunEnded(ran)| {
         core.ran(ran)?;
-    }
-    Ok(())
+        Ok(())
+    })
 }
 
 /// A tool run that ended.

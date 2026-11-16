@@ -8,7 +8,7 @@ use std::thread::{self, JoinHandle};
 use std::time::Duration;
 
 use anyhow::Result;
-use bevy_ecs::message::Message;
+use bevy_ecs::message::{Message, Messages};
 use bevy_ecs::resource::Resource;
 use bevy_ecs::system::ResMut;
 use bevy_log::error;
@@ -18,7 +18,7 @@ use hamlet_store::Store;
 use crate::app::clock;
 use crate::app::failure::panicked;
 use crate::app::follow_up::InputEffects;
-use crate::app::input::{AddHandler, InputMessage, InputSender};
+use crate::app::input::{AddHandler, InputSender};
 use crate::core::RemoteWorkspace;
 use crate::realm::Realm;
 use crate::realm::jobs::Job;
@@ -39,12 +39,12 @@ pub(crate) struct JobsDone(pub Vec<Job>);
 /// The lodges the runner's jobs changed are owed a push, and the
 /// clients see what they did.
 fn take_in_jobs_done(
-    mut done: InputMessage<JobsDone>,
+    mut done: ResMut<Messages<JobsDone>>,
     mut realm: ResMut<Realm>,
     mut remote: RemoteWorkspace,
     mut changed: ResMut<InputEffects>,
 ) {
-    if let Some(JobsDone(done)) = done.take() {
+    for JobsDone(done) in done.drain() {
         remote.owe_pushes(realm.store().connection(), &done);
         changed.state_changed_outside_change = true;
     }

@@ -206,21 +206,28 @@ impl AddCommands for App {
 /// A chief's line to an agent that begins with `/`.
 pub(crate) struct ChiefCommand(pub protocol::Say);
 
-/// A line to an agent that begins with `/`: a command (H24, H26),
-/// run by the system it was added with, answered once the state it
-/// leaves is published.
+/// The lines to agents that begin with `/`, each run as a command.
 fn said(world: &mut World) -> bevy_ecs::error::Result {
     let taken = world
         .resource_mut::<Messages<FromClient<ChiefCommand>>>()
         .drain()
-        .next();
-    let Some(FromClient {
-        client,
-        request: ChiefCommand(say),
-    }) = taken
-    else {
-        return Ok(());
-    };
+        .collect::<Vec<_>>();
+    taken.into_iter().try_for_each(
+        |FromClient {
+             client,
+             request: ChiefCommand(say),
+         }| run(world, client, say),
+    )
+}
+
+/// A line to an agent that begins with `/`: a command (H24, H26),
+/// run by the system it was added with, answered once the state it
+/// leaves is published.
+fn run(
+    world: &mut World,
+    client: u64,
+    say: protocol::Say,
+) -> bevy_ecs::error::Result {
     let line = world
         .run_system_cached_with(line_of, (client, say.clone()))
         .map_err(|error| anyhow!("{error}"))??;

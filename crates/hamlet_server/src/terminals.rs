@@ -23,7 +23,7 @@ use std::time::{Duration, Instant};
 use base64::Engine;
 use base64::engine::general_purpose::STANDARD;
 use bevy_app::App;
-use bevy_ecs::message::Message;
+use bevy_ecs::message::{Message, Messages};
 use bevy_ecs::resource::Resource;
 use bevy_ecs::system::{Res, ResMut};
 use bevy_state::state::OnEnter;
@@ -38,7 +38,7 @@ use tokio::task::AbortHandle;
 use self::screen::{LAST, Screen, lock};
 use self::shell::{Key, Launch, start};
 use crate::app::follow_up::InputEffects;
-use crate::app::input::{AddHandler, InputMessage, InputSender};
+use crate::app::input::{AddHandler, InputSender};
 use crate::app::shutdown::Serving;
 use crate::app::timers::AddTimer;
 use crate::calls::place::Workplace;
@@ -60,7 +60,7 @@ pub(crate) fn plugin(app: &mut App) {
     app.add_message::<TerminalsPrinted>()
         .add_handler::<TerminalsPrinted, _>(take_in_printed)
         .add_handler::<FromClient<protocol::Terminal>, _>(
-            chief::answer_request,
+            chief::answer_requests,
         )
         .add_timer(catch_up_due, catch_up)
         .add_systems(OnEnter(Serving::Stopping), keep_all);
@@ -501,14 +501,14 @@ impl Terminals {
 /// them, and publishes a change of a title, a last command or an
 /// end.
 fn take_in_printed(
-    mut woken: InputMessage<TerminalsPrinted>,
+    mut woken: ResMut<Messages<TerminalsPrinted>>,
     mut terminals: ResMut<Terminals>,
     mut connections: Connections,
     mut effects: ResMut<InputEffects>,
 ) {
-    if woken.take().is_none() {
-        return;
-    }
+    // One pass takes in all that was printed, however many wakes
+    // came.
+    woken.clear();
     let printed = std::mem::take(
         &mut *terminals
             .printing

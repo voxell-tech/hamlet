@@ -12,7 +12,7 @@ mod turns;
 use bevy_app::{App, PreUpdate};
 use bevy_ecs::entity::Entity;
 use bevy_ecs::error::Result;
-use bevy_ecs::message::Message;
+use bevy_ecs::message::{Message, Messages};
 use bevy_ecs::schedule::IntoScheduleConfigs;
 use bevy_ecs::schedule::common_conditions::on_message;
 use bevy_ecs::system::{Commands, Res, ResMut};
@@ -21,7 +21,7 @@ use hamlet_protocol::runtime::{ProtocolError, RuntimeMessage};
 
 use super::Runtimes;
 use super::process::Received;
-use crate::app::input::{AddHandler, InputMessage, InputOrigin};
+use crate::app::input::{AddHandler, InputOrigin};
 use crate::core::Core;
 use crate::realm::credentials::Credentials;
 
@@ -54,39 +54,40 @@ pub(crate) struct FromRuntime<M: Send + Sync + 'static> {
 /// Takes in a runtime's line: the end of its output fails the
 /// runtime, and a message is written as one of its kind.
 fn take_in_runtime_line(
-    mut lines: InputMessage<RuntimeLineReceived>,
+    mut lines: ResMut<Messages<RuntimeLineReceived>>,
     mut core: Core,
     mut origin: ResMut<InputOrigin>,
     mut commands: Commands,
-) -> Result {
-    let Some(RuntimeLineReceived(received)) = lines.take() else {
-        return Ok(());
-    };
-    if !core.runtimes.is_current(&received) {
-        return Ok(());
-    }
-    let from = received.runtime;
-    let Some(line) = received.line else {
-        core.runtimes.failed(from);
-        core.leases.gone(from);
-        return Ok(());
-    };
-    let message = match serde_json::from_str::<RuntimeMessage>(&line)
-    {
-        Ok(message) => message,
-        Err(error) => {
-            let words =
-                core.credentials.scrub_text(&error.to_string());
-            warn!("a runtime's line is not a message: {words}");
-            return Ok(());
+) {
+    for RuntimeLineReceived(received) in lines.drain() {
+        if !core.runtimes.is_current(&received) {
+            continue;
         }
-    };
-    *origin = InputOrigin::Runtime {
-        runtime: from,
-        awaited: awaited(&message),
-    };
-    write(&mut commands, from, message);
-    Ok(())
+        let from = received.runtime;
+        let Some(line) = received.line else {
+            core.runtimes.failed(from);
+            core.leases.gone(from);
+            continue;
+        };
+        let message =
+            match serde_json::from_str::<RuntimeMessage>(&line) {
+                Ok(message) => message,
+                Err(error) => {
+                    let words = core
+                        .credentials
+                        .scrub_text(&error.to_string());
+                    warn!(
+                        "a runtime's line is not a message: {words}"
+                    );
+                    continue;
+                }
+            };
+        *origin = InputOrigin::Runtime {
+            runtime: from,
+            awaited: awaited(&message),
+        };
+        write(&mut commands, from, message);
+    }
 }
 
 /// Writes `message` from the runtime `from` as a [`FromRuntime`] of
@@ -145,18 +146,18 @@ fn awaited(message: &RuntimeMessage) -> Option<String> {
 
 /// A message of the server's the runtime could not handle.
 fn error(
-    mut heard: InputMessage<FromRuntime<ProtocolError>>,
+    mut heard: ResMut<Messages<FromRuntime<ProtocolError>>>,
     credentials: Res<Credentials>,
     runtimes: Runtimes,
 ) -> Result {
-    let Some(FromRuntime {
-        runtime: from,
-        message: error,
-    }) = heard.take()
-    else {
-        return Ok(());
-    };
-    let words = credentials.scrub_text(&error.message);
-    warn!("{}: {words}", runtimes.id(from)?);
-    Ok(())
+    heard.drain().try_for_each(
+        |FromRuntime {
+             runtime: from,
+             message: error,
+         }| {
+            let words = credentials.scrub_text(&error.message);
+            warn!("{}: {words}", runtimes.id(from)?);
+            Ok(())
+        },
+    )
 }

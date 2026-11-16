@@ -8,7 +8,7 @@ use std::sync::{Mutex, PoisonError};
 
 use bevy_app::{App, PreUpdate};
 use bevy_ecs::error::Result;
-use bevy_ecs::message::Message;
+use bevy_ecs::message::{Message, Messages};
 use bevy_ecs::resource::Resource;
 use bevy_ecs::schedule::IntoScheduleConfigs;
 use bevy_ecs::schedule::common_conditions::on_message;
@@ -19,7 +19,7 @@ use hamlet_protocol::client::{
 };
 use hamlet_protocol::runtime::RuntimeMessage;
 
-use super::input::{InputMessage, InputSender};
+use super::input::InputSender;
 use crate::calls::CallId;
 use crate::calls::looks::Found;
 use crate::core::{Core, UnpushedLodge};
@@ -44,41 +44,47 @@ pub(crate) struct BackgroundFinished(pub BackgroundResult);
 /// its call, and the runtime's request for the call is heard again,
 /// so its system finds it.
 fn take_in_finished(
-    mut finished: InputMessage<BackgroundFinished>,
+    mut finished: ResMut<Messages<BackgroundFinished>>,
     mut core: Core,
     mut commands: Commands,
 ) -> Result {
-    let Some(BackgroundFinished(finished)) = finished.take() else {
-        return Ok(());
-    };
-    match finished {
-        BackgroundResult::Reply { client, message } => {
-            core.answer(client, message)?;
-        }
-        BackgroundResult::Moving { progress, answer } => {
-            core.remote.moving.0 = Some(progress);
-            core.changed.state_changed_outside_change = true;
-            if let Some((client, message)) = answer {
-                core.answer(client, message)?;
+    finished
+        .drain()
+        .try_for_each(|BackgroundFinished(finished)| {
+            match finished {
+                BackgroundResult::Reply { client, message } => {
+                    core.answer(client, message)?;
+                }
+                BackgroundResult::Moving { progress, answer } => {
+                    core.remote.moving.0 = Some(progress);
+                    core.changed.state_changed_outside_change = true;
+                    if let Some((client, message)) = answer {
+                        core.answer(client, message)?;
+                    }
+                }
+                BackgroundResult::Looked { call, found, again } => {
+                    if let Some(receiver) =
+                        core.looks.found(call, found)
+                    {
+                        core.remote
+                            .unpushed
+                            .write(UnpushedLodge(receiver));
+                    }
+                    // A runtime that started again since sends it
+                    // again.
+                    if core.runtimes.generation(again.from)
+                        == Some(again.generation)
+                    {
+                        handlers::write(
+                            &mut commands,
+                            again.from,
+                            again.message,
+                        );
+                    }
+                }
             }
-        }
-        BackgroundResult::Looked { call, found, again } => {
-            if let Some(receiver) = core.looks.found(call, found) {
-                core.remote.unpushed.write(UnpushedLodge(receiver));
-            }
-            // A runtime that started again since sends it again.
-            if core.runtimes.generation(again.from)
-                == Some(again.generation)
-            {
-                handlers::write(
-                    &mut commands,
-                    again.from,
-                    again.message,
-                );
-            }
-        }
-    }
-    Ok(())
+            Ok(())
+        })
 }
 
 /// A task's result.

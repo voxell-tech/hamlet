@@ -5,11 +5,11 @@ use std::sync::Mutex;
 
 use bevy_app::{App, First, Update};
 use bevy_ecs::entity::Entity;
-use bevy_ecs::message::{Message, Messages};
+use bevy_ecs::message::Message;
 use bevy_ecs::resource::Resource;
+use bevy_ecs::schedule::IntoScheduleConfigs;
 use bevy_ecs::schedule::common_conditions::on_message;
-use bevy_ecs::schedule::{IntoScheduleConfigs, ScheduleConfigs};
-use bevy_ecs::system::{ResMut, ScheduleSystem, SystemParam};
+use bevy_ecs::system::{ResMut, ScheduleSystem};
 use bevy_ecs::world::World;
 use hamlet_protocol::client::RequestId;
 use tokio::sync::mpsc;
@@ -101,24 +101,10 @@ fn begin_input(
     Ok(())
 }
 
-/// The message of type `T` the input brought, which its system takes
-/// once.
-#[derive(SystemParam)]
-pub(crate) struct InputMessage<'w, T: Message> {
-    messages: ResMut<'w, Messages<T>>,
-}
-
-impl<T: Message> InputMessage<'_, T> {
-    /// The message, taken; none when the input brought none.
-    pub fn take(&mut self) -> Option<T> {
-        self.messages.drain().next()
-    }
-}
-
 /// Adds the systems that take in inputs.
 pub(crate) trait AddHandler {
     /// Adds `handler` to `Update` for the input message `T`, run only
-    /// when an input brought one.
+    /// when an input brought one; it drains every one it brought.
     fn add_handler<T: Message, M>(
         &mut self,
         handler: impl IntoScheduleConfigs<ScheduleSystem, M>,
@@ -130,8 +116,7 @@ impl AddHandler for App {
         &mut self,
         handler: impl IntoScheduleConfigs<ScheduleSystem, M>,
     ) -> &mut Self {
-        let handler: ScheduleConfigs<ScheduleSystem> =
-            handler.run_if(on_message::<T>);
-        self.add_message::<T>().add_systems(Update, handler)
+        self.add_message::<T>()
+            .add_systems(Update, handler.run_if(on_message::<T>))
     }
 }

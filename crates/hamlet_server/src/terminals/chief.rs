@@ -1,6 +1,8 @@
 //! The chief's terminal requests.
 
 use bevy_ecs::error::Result;
+use bevy_ecs::message::Messages;
+use bevy_ecs::system::ResMut;
 use hamlet_os::process::pty::Size;
 use hamlet_protocol::client::{
     Reply, ReplyKind, RequestId, ServerMessage,
@@ -9,21 +11,30 @@ use hamlet_protocol::client::{
 
 use super::screen::lock;
 use super::shell::{Key, open};
-use crate::app::input::InputMessage;
 use crate::clients::handlers::FromClient;
 use crate::core::Core;
 
-/// Answers the chief's terminal request from a client.
-pub(super) fn answer_request(
-    mut received: InputMessage<FromClient<TerminalRequest>>,
+/// Answers the chief's terminal requests from the clients.
+pub(super) fn answer_requests(
+    mut received: ResMut<Messages<FromClient<TerminalRequest>>>,
     mut core: Core,
 ) -> Result {
-    let Some(FromClient { client, request }) = received.take() else {
-        return Ok(());
-    };
+    received
+        .drain()
+        .try_for_each(|FromClient { client, request }| {
+            answer_request(&mut core, client, request)
+        })
+}
+
+/// Answers the chief's terminal request from `client`.
+fn answer_request(
+    core: &mut Core<'_, '_>,
+    client: u64,
+    request: TerminalRequest,
+) -> Result {
     let answers = match request {
         TerminalRequest::Open { cols, id, rows } => {
-            let terminal = open(&mut core, Size { rows, cols });
+            let terminal = open(core, Size { rows, cols });
             let answer =
                 core.terminals.watch(client, &terminal, Some(&id));
             core.publish();
