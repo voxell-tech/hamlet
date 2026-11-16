@@ -229,6 +229,9 @@ CREATE TABLE IF NOT EXISTS errand (
 	task INTEGER NOT NULL,
 	cap INTEGER NOT NULL,
 	subject INTEGER,
+	instructions TEXT,
+	text TEXT NOT NULL,
+	model TEXT,
 	ended TEXT,
 	answer TEXT,
 	at INTEGER NOT NULL) STRICT;

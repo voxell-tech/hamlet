@@ -19,7 +19,7 @@ use super::change::{self, Affected, Rows, Writer, number};
 use super::chiefs::{self, limits};
 use super::oversight::asking;
 use super::tasks::{self, TaskId};
-use super::workers::errands;
+use super::workers::errands::{self, Spending};
 use super::world::Part;
 use super::{allowance, laid, tree, waits};
 
@@ -278,24 +278,29 @@ impl Act<Agent> for MaySpend {
                 Standing::YouLeft { how, why },
             )));
         }
+        let errand = match errands::spending(rows, by.0).await? {
+            Spending::NotAnErrand => None,
+            Spending::Open { task, cap } => Some((task, cap)),
+            Spending::Refused(refusal) => return Ok(Some(refusal)),
+        };
         let Some(payer) = payer_of(rows, &self.task).await? else {
             return Ok(Some(SpendRefusal::Budget(
                 Budget::NoSuchTask,
             )));
         };
-        if let Some(errand) = errands::spender(rows, by.0).await? {
-            if TaskId::of(&self.task) != Some(errand.task) {
+        if let Some((task, cap)) = errand {
+            if TaskId::of(&self.task) != Some(task) {
                 return Ok(Some(SpendRefusal::Budget(
                     Budget::NoSuchTask,
                 )));
             }
             let spent_micros = spent_by(rows, by.0).await?;
-            if spent_micros >= errand.cap {
+            if spent_micros >= cap {
                 return Ok(Some(SpendRefusal::Budget(
                     Budget::OverCost {
                         payer,
                         spent_micros,
-                        budget_micros: errand.cap,
+                        budget_micros: cap,
                     },
                 )));
             }

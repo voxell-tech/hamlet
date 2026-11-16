@@ -7,12 +7,12 @@ use hamlet_messages::address::Agent;
 use hamlet_messages::agent::{
     AgentInput, AgentKind, Brief, Place, PlaceVersion,
 };
-use hamlet_messages::realm::Standing;
+use hamlet_messages::realm::budget::{Budget, SpendRefusal};
 use hamlet_messages::realm::workers::{Ended, ErrandDone};
+use hamlet_messages::realm::{HowEnded, Standing};
 use hamlet_messages::workspace::{
     AgentNumber, ErrandNumber, Numbered,
 };
-use serde::{Deserialize, Serialize};
 
 use super::super::act::{Act, Decided, Decision};
 use super::super::calls::Made;
@@ -23,19 +23,29 @@ use super::super::reviews;
 use super::super::steps::{self, Cx, Kind, StepId, Steps};
 use super::super::tasks::TaskId;
 
+const ANSWERED: &str = "answered";
+
+const FAILED: &str = "failed";
+
 /// What an errand is for, which decides what its end does.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(tag = "type", rename_all = "snake_case")]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub(in crate::realm) enum Purpose {
     /// The review of the line held on `task`.
     Review { task: TaskId },
 }
 
 impl Purpose {
-    /// The task the errand is about.
-    fn subject(&self) -> TaskId {
+    /// The `purpose` and `subject` columns.
+    fn columns(&self) -> (&'static str, Option<TaskId>) {
         match self {
-            Self::Review { task } => *task,
+            Self::Review { task } => ("review", Some(*task)),
+        }
+    }
+
+    fn of(purpose: &str, subject: Option<TaskId>) -> Result<Self> {
+        match (purpose, subject) {
+            ("review", Some(task)) => Ok(Self::Review { task }),
+            _ => bail!("an errand for `{purpose}` on {subject:?}"),
         }
     }
 }
@@ -65,14 +75,6 @@ pub(in crate::realm) enum Change {
     End { n: ErrandNumber, ended: Ended },
 }
 
-/// The `purpose` column: the purpose, and the brief the errand is
-/// made with.
-#[derive(Debug, PartialEq, Serialize, Deserialize)]
-struct Kept {
-    purpose: Purpose,
-    brief: Brief,
-}
-
 pub(in crate::realm) async fn apply(
     writer: &Writer<'_>,
     change: Change,
@@ -98,26 +100,27 @@ async fn begin(
         model,
         cap,
     } = input;
-    let subject = purpose.subject();
-    let kept = Kept {
-        purpose,
-        brief: Brief {
-            instructions,
-            text,
-            tools: Vec::new(),
-            model,
-        },
+    let (purpose, subject) = purpose.columns();
+    let text_or_null = |text: Option<String>| {
+        text.map_or(BindParam::Null, BindParam::Text)
     };
     writer
         .execute(
             "INSERT INTO errand (n, purpose, task, cap, subject, \
-             at) VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
+             instructions, text, model, at) VALUES (?1, ?2, ?3, ?4, \
+             ?5, ?6, ?7, ?8, ?9)",
             vec![
                 integer(n.get())?,
-                BindParam::Text(serde_json::to_string(&kept)?),
+                BindParam::Text(purpose.to_owned()),
                 task.column()?,
                 integer(cap)?,
-                subject.column()?,
+                subject
+                    .map(TaskId::column)
+                    .transpose()?
+                    .unwrap_or(BindParam::Null),
+                text_or_null(instructions),
+                BindParam::Text(text),
+                text_or_null(model),
                 BindParam::Integer(writer.at().0),
             ],
         )
@@ -131,8 +134,8 @@ async fn end(
     ended: Ended,
 ) -> Result<Affected> {
     let (how, answer) = match ended {
-        Ended::Answered { text } => ("answered", text),
-        Ended::Failed { why } => ("failed", why),
+        Ended::Answered { text } => (ANSWERED, text),
+        Ended::Failed { why } => (FAILED, why),
     };
     writer
         .execute(
@@ -205,32 +208,49 @@ pub(in crate::realm) async fn standing(
     Ok(member.is_none().then_some(Standing::NotAMember))
 }
 
-/// An errand's task, and the most it may spend.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(in crate::realm) struct Spender {
-    pub task: TaskId,
-    pub cap: u64,
+/// What a caller may spend as an errand.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(in crate::realm) enum Spending {
+    /// The caller's number is not an errand's.
+    NotAnErrand,
+    /// An errand that has not ended: its task, and the most it may
+    /// spend.
+    Open {
+        task: TaskId,
+        cap: u64,
+    },
+    Refused(SpendRefusal),
 }
 
-/// The task and cap of `agent`, when it is an errand.
-pub(in crate::realm) async fn spender(
+/// What `agent` may spend, when its number is an errand's.
+pub(in crate::realm) async fn spending(
     rows: &Rows<'_>,
     agent: AgentNumber,
-) -> Result<Option<Spender>> {
+) -> Result<Spending> {
     let Numbered::Errand(n) = agent.numbered() else {
-        return Ok(None);
+        return Ok(Spending::NotAnErrand);
     };
-    Ok(errand(rows, n).await?.map(|errand| Spender {
-        task: errand.task,
-        cap: errand.cap,
-    }))
+    let Some(errand) = errand(rows, n).await? else {
+        return Ok(Spending::Refused(SpendRefusal::Budget(
+            Budget::NoSuchTask,
+        )));
+    };
+    Ok(match errand.ended {
+        Some(how) => Spending::Refused(SpendRefusal::Standing(
+            Standing::YouLeft { how, why: None },
+        )),
+        None => Spending::Open {
+            task: errand.task,
+            cap: errand.cap,
+        },
+    })
 }
 
 struct Errand {
-    kept: Kept,
+    purpose: Purpose,
     task: TaskId,
     cap: u64,
-    has_ended: bool,
+    ended: Option<HowEnded>,
 }
 
 async fn errand(
@@ -238,20 +258,26 @@ async fn errand(
     n: ErrandNumber,
 ) -> Result<Option<Errand>> {
     let found = rows
-        .row::<(String, TaskId, u64, Option<String>)>(
-            "SELECT purpose, task, cap, ended FROM errand WHERE n = \
-             ?1",
+        .row::<(String, Option<TaskId>, TaskId, u64, Option<String>)>(
+            "SELECT purpose, subject, task, cap, ended FROM errand \
+             WHERE n = ?1",
             vec![integer(n.get())?],
         )
         .await?;
-    let Some((kept, task, cap, ended)) = found else {
+    let Some((purpose, subject, task, cap, ended)) = found else {
         return Ok(None);
     };
+    let ended = match ended.as_deref() {
+        None => None,
+        Some(ANSWERED) => Some(HowEnded::Answered),
+        Some(FAILED) => Some(HowEnded::Failed),
+        Some(other) => bail!("errand {} ended `{other}`", n.get()),
+    };
     Ok(Some(Errand {
-        kept: serde_json::from_str(&kept)?,
+        purpose: Purpose::of(&purpose, subject)?,
         task,
         cap,
-        has_ended: ended.is_some(),
+        ended,
     }))
 }
 
@@ -262,6 +288,24 @@ async fn errand_of(
     errand(rows, n)
         .await?
         .with_context(|| format!("errand {} has no row", n.get()))
+}
+
+/// The brief errand `n` is made with.
+async fn brief(rows: &Rows<'_>, n: ErrandNumber) -> Result<Brief> {
+    let (instructions, text, model) = rows
+        .row::<(Option<String>, String, Option<String>)>(
+            "SELECT instructions, text, model FROM errand WHERE n = \
+             ?1",
+            vec![integer(n.get())?],
+        )
+        .await?
+        .with_context(|| format!("errand {} has no row", n.get()))?;
+    Ok(Brief {
+        instructions,
+        text,
+        tools: Vec::new(),
+        model,
+    })
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -291,12 +335,13 @@ pub(in crate::realm) async fn run(
         .context("a step past the last errand")?;
     match step {
         Step::Create => {
-            let errand = errand_of(&cx.rows()?, n).await?;
+            let rows = cx.rows()?;
+            let errand = errand_of(&rows, n).await?;
             let input = AgentInput {
                 kind: AgentKind::Errand,
                 task: errand.task.on_the_wire(),
                 place: outside(),
-                brief: Some(errand.kept.brief),
+                brief: Some(brief(&rows, n).await?),
             };
             cx.peers().create(&Agent(n.agent()), &input).await?;
         }
@@ -332,7 +377,7 @@ impl Act<Agent> for ErrandDone {
             bail!("agent {} is no errand", by.0.0);
         };
         let errand = errand_of(rows, n).await?;
-        Ok((!errand.has_ended).then_some((n, errand.kept.purpose)))
+        Ok(errand.ended.is_none().then_some((n, errand.purpose)))
     }
 
     fn decide(
@@ -343,10 +388,12 @@ impl Act<Agent> for ErrandDone {
         let Some((n, purpose)) = loaded else {
             return Decision::Again(());
         };
-        let mut decided = Decided::new(()).change(Change::End {
-            n,
-            ended: self.ended.clone(),
-        });
+        let mut decided = Decided::new(())
+            .change(Change::End {
+                n,
+                ended: self.ended.clone(),
+            })
+            .change(steps::Change::Close { row: row(n) });
         decided.changes.extend(finished(purpose, &self.ended));
         Decision::Change(decided)
     }
@@ -379,22 +426,22 @@ mod tests {
             .unwrap();
 
         let rows = started.rows();
-        let kept = errand_of(&rows, first).await.unwrap().kept;
         assert_eq!(
-            kept,
-            Kept {
-                purpose: Purpose::Review { task },
-                brief: Brief {
-                    instructions: Some("Answer PASS.".to_owned()),
-                    text: "a line".to_owned(),
-                    tools: Vec::new(),
-                    model: Some("local::small".to_owned()),
-                },
+            errand_of(&rows, first).await.unwrap().purpose,
+            Purpose::Review { task }
+        );
+        assert_eq!(
+            brief(&rows, first).await.unwrap(),
+            Brief {
+                instructions: Some("Answer PASS.".to_owned()),
+                text: "a line".to_owned(),
+                tools: Vec::new(),
+                model: Some("local::small".to_owned()),
             }
         );
         assert_eq!(
-            spender(&rows, first.agent()).await.unwrap(),
-            Some(Spender { task, cap: 40 })
+            spending(&rows, first.agent()).await.unwrap(),
+            Spending::Open { task, cap: 40 }
         );
         assert!(
             steps::row(&rows, row(first)).await.unwrap().is_some()

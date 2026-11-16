@@ -15,16 +15,16 @@ use hamlet_messages::realm::workers::{
     Ended, ErrandDone, SetAllowance, StartWorker,
 };
 use hamlet_messages::realm::{
-    AgreeRoad, Ask, Done, End, LayRoad, Refusable, RequestRoad,
-    SetTools, Standing, TakeUpRoad, ToolCall,
+    AgreeRoad, Ask, Done, End, HowEnded, LayRoad, Refusable,
+    RequestRoad, SetTools, Standing, TakeUpRoad, ToolCall,
 };
 use hamlet_messages::workspace::{
     AgentNumber, ConversationId, ErrandNumber, RealmTask,
 };
 
 use super::{
-    MAYOR, Realm, THREE, charge, hamlet_with, hire, made, may_spend,
-    standing, tell, to, tool, until,
+    Callee, MAYOR, Realm, THREE, charge, hamlet_with, hire, made,
+    may_spend, standing, tell, to, tool, until,
 };
 
 fn errand(n: u32) -> AgentNumber {
@@ -46,16 +46,16 @@ fn brief() -> Brief {
 /// realm drives the step when it starts again.
 async fn seed(realm: &Realm, n: u32, task: &RealmTask, cap: u64) {
     let task = &task.0;
-    let kept = serde_json::json!({
-        "purpose": {"type": "review", "task": task.parse::<u64>().unwrap()},
-        "brief": brief(),
-    });
+    let Brief {
+        instructions, text, ..
+    } = brief();
+    let instructions = instructions.unwrap();
     realm
         .write(&format!(
             "INSERT INTO errand (n, purpose, task, cap, subject, \
-             at) VALUES ({n}, '{kept}', {task}, {cap}, {task}, 0); \
-             INSERT INTO step (kind, n, at) VALUES ('errand', {n}, \
-             0);"
+             instructions, text, at) VALUES ({n}, 'review', {task}, \
+             {cap}, {task}, '{instructions}', '{text}', 0); INSERT \
+             INTO step (kind, n, at) VALUES ('errand', {n}, 0);"
         ))
         .await;
 }
@@ -373,4 +373,75 @@ async fn an_errand_spends_under_its_cap() {
             why: SpendRefusal::Budget(Budget::NoSuchTask)
         }
     );
+}
+
+async fn step_closed(realm: &Realm, n: u32) -> bool {
+    realm
+        .rows(|db| {
+            db.query_row(
+                "SELECT closed FROM step WHERE kind = 'errand' AND \
+                 n = ?1",
+                [n],
+                |row| row.get(0),
+            )
+        })
+        .await
+}
+
+fn answered() -> ErrandDone {
+    ErrandDone {
+        ended: Ended::Answered {
+            text: "PASS".to_owned(),
+        },
+    }
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn an_ended_errand_spends_no_more() {
+    let (realm, _) = hamlet_with(0).await;
+    let task = standing(&realm, MAYOR);
+    seed(&realm, 0, &task, 1_000).await;
+    made_until(&realm, errand(0)).await;
+
+    realm.tool(errand(0), &answered()).await.unwrap();
+
+    assert_eq!(
+        may_spend(&realm, errand(0), &task).await,
+        Done::Refused {
+            why: SpendRefusal::Standing(Standing::YouLeft {
+                how: HowEnded::Answered,
+                why: None,
+            })
+        }
+    );
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn an_errand_number_with_no_row_spends_nothing() {
+    let (realm, _) = hamlet_with(0).await;
+    let task = standing(&realm, MAYOR);
+
+    assert_eq!(
+        may_spend(&realm, errand(9), &task).await,
+        Done::Refused {
+            why: SpendRefusal::Budget(Budget::NoSuchTask)
+        }
+    );
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn an_errand_that_ended_before_it_was_made_is_driven_no_further()
+ {
+    let (realm, _) = hamlet_with(0).await;
+    let task = standing(&realm, MAYOR);
+    realm.seen.fail_once(Callee::Create, errand(0));
+    seed(&realm, 0, &task, 1_000).await;
+    until("the errand's create failed", || {
+        realm.seen.has_failed(Callee::Create, errand(0))
+    })
+    .await;
+
+    realm.tool(errand(0), &answered()).await.unwrap();
+
+    assert!(step_closed(&realm, 0).await, "the errand's step closed");
 }
