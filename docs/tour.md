@@ -179,6 +179,7 @@ Search the module names above first. The ones that are not obvious:
 | Web panels | `hamlet_app/src/screens/web.rs`, `screens/web/`, `web_helper.rs`; [ADR 0016](adr/0016-web-panels-draw-chromium-through-cef-in-the-scene.md) |
 | Agents' web tools | `hamlet_server/src/web.rs`, `hamlet_protocol/src/client/web.rs`, `hamlet_app/src/screens/web/agents.rs`, `bridge.rs`; [ADR 0017](adr/0017-agents-use-the-web-through-their-own-web-tab.md) |
 | The Files panel | `hamlet_app/src/screens/web/files.rs`; `hamlet_server/src/web_ide.rs` |
+| Add to chat from a page | `hamlet_app/src/screens/web/files/context.rs`, `screens/chat.rs` (`add_to_field`); the IDE fork's `hamlet/workbench/hamlet.js` |
 | The two islands | `hamlet_realm/src/generator/land.rs`; [`islands.md`](islands.md) |
 | Robot motion | `hamlet_realm/src/keeper/acts/`; [`robots.md`](robots.md) |
 | Panels' colors, sizes and icons | `assets/themes/`, `hamlet_ui/src/theme.rs`, `styles.rs` |

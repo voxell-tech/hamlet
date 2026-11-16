@@ -46,6 +46,12 @@ pub fn plugin(app: &mut App) {
         // The engine panics on start without its framework, so it is
         // started only when both it and the helper are there.
         if engine::located().is_some() && page::helper().exists() {
+            // What pages emit, read once: each emit type's plugin
+            // drains the engine's one channel and drops what it does
+            // not parse, so each handler parses its own from this.
+            app.add_plugins(bevy_cef::prelude::JsEmitEventPlugin::<
+                serde_json::Value,
+            >::default());
             app.add_plugins((
                 page::plugin,
                 keys::plugin,
