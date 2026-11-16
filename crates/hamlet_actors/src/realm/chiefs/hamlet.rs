@@ -254,14 +254,14 @@ impl Act<Client> for NameHamlet {
         _by: &Client,
         refusal: Option<HamletRefusal>,
     ) -> Decision<(), Self::Output> {
-        let refusal =
-            refusal.or_else(|| checked_name(&self.name).err());
+        let name = checked_name(&self.name);
+        let refusal = refusal.or_else(|| name.clone().err());
         let hamlet = self.hamlet.clone();
         decided(
             refusal,
             Change::Name {
                 hamlet: hamlet.clone(),
-                name: self.name.trim().to_owned(),
+                name: name.unwrap_or_default().to_owned(),
             },
             record::Entry::NamedHamlet {
                 hamlet,

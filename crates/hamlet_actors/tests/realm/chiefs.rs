@@ -333,9 +333,9 @@ async fn a_found_with_no_purpose_is_refused_to_the_hand() {
 }
 
 #[tokio::test(flavor = "multi_thread")]
-async fn a_bad_name_or_site_is_refused_in_todays_words() {
+async fn a_bad_name_is_refused_in_todays_words() {
     // a name with a colon changes nothing; a hamlet that is not
-    // there is named by its id.
+    // there is named by its id; a good name is kept trimmed.
     let (realm, hamlet) = hamlet_with(0).await;
 
     let named = chief(
@@ -373,7 +373,25 @@ async fn a_bad_name_or_site_is_refused_in_todays_words() {
             )
         })
         .await;
+    let trimmed = chief(
+        &realm,
+        NameHamlet {
+            hamlet: hamlet.clone(),
+            name: "  Weir  ".to_owned(),
+        },
+    )
+    .await;
+    let renamed = realm
+        .rows(|db| {
+            db.query_row(
+                "SELECT name FROM hamlet WHERE id = ?1",
+                [&hamlet.0],
+                |row| row.get::<_, String>(0),
+            )
+        })
+        .await;
     assert_eq!(name, "Mill");
+    assert_eq!((trimmed, renamed.as_str()), (Done::Done, "Weir"));
     realm.host.shutdown().await.unwrap();
 }
 

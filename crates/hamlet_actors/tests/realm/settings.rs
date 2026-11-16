@@ -114,7 +114,7 @@ async fn a_blank_charter_gives_back_the_built_in_one() {
 }
 
 #[tokio::test(flavor = "multi_thread")]
-async fn read_copies_gives_only_newer_parts() {
+async fn read_copies_gives_only_moved_parts() {
     // the Hand holds every part as first read; one settings edit
     // moves only the settings part.
     let realm = realm_with_hand().await;

@@ -262,11 +262,19 @@ async fn an_end_revokes_the_agents_grants() {
 
 #[tokio::test(flavor = "multi_thread")]
 async fn a_revoke_of_no_grant_is_refused_in_todays_words() {
-    // the hire nicknamed Spade, the Hand, the same hire once the
-    // settings allow every agent the network, and a number no agent
-    // has.
+    // the hire nicknamed Spade, the Hand, worker 9, the same hire
+    // once the settings allow every agent the network, and a number
+    // no agent has.
     let (realm, _) = hamlet_in_a_folder().await;
     hires(&realm, MAYOR, "h1").await;
+    realm
+        .write(
+            "INSERT INTO agent (id, kind, status, at) VALUES (9, \
+             'worker', 'live', 0); INSERT INTO worker (agent, \
+             starter, brief, tools, task, at) VALUES (9, 3, 'dig', \
+             '[]', 1, 0);",
+        )
+        .await;
     let nickname = SetNickname {
         hire: to(THREE),
         name: Some("Spade".to_owned()),
@@ -276,6 +284,7 @@ async fn a_revoke_of_no_grant_is_refused_in_todays_words() {
 
     let spade = realm.ask(&revoke(THREE)).await.unwrap();
     let hand = realm.ask(&revoke(Hand::NUMBER)).await.unwrap();
+    let worker = realm.ask(&revoke(AgentNumber(9))).await.unwrap();
     let allow = EditSettings {
         set: vec![Setting::AllowNet { allow: true }],
     };
@@ -284,10 +293,11 @@ async fn a_revoke_of_no_grant_is_refused_in_todays_words() {
     let nobody = realm.ask(&revoke(AgentNumber(77))).await.unwrap();
 
     assert_eq!(
-        [words(spade), words(hand), words(everyone)],
+        [words(spade), words(hand), words(worker), words(everyone)],
         [
             "hire#3 (Spade) holds no grant of network.",
             "hand holds no grant of network.",
+            "worker#9 holds no grant of network.",
             "hire#3 (Spade) holds no grant of network; the settings \
              allow every agent the network.",
         ]

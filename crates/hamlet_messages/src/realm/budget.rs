@@ -289,3 +289,33 @@ pub enum ReadBudgetRefusal {
     #[error("the realm holds no such task")]
     NoSuchTask,
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn an_allowance_is_shown_in_dollars_to_the_cent() {
+        let spent = |allowance_micros| {
+            Budget::OverAllowance {
+                hire: AgentNumber(3),
+                name: "hire#3".to_owned(),
+                spent_micros: allowance_micros,
+                allowance_micros,
+            }
+            .to_string()
+        };
+
+        assert_eq!(
+            [spent(1_235_000), spent(9_999), spent(0)],
+            [
+                "`hire#3`'s allowance of $1.24 is spent. Its lead \
+                 or a chief can raise it.",
+                "`hire#3`'s allowance of <$0.01 is spent. Its lead \
+                 or a chief can raise it.",
+                "`hire#3`'s allowance of $0.00 is spent. Its lead \
+                 or a chief can raise it.",
+            ]
+        );
+    }
+}
