@@ -34,7 +34,7 @@ async fn a_repeated_say_opens_one_task_and_submits_again() {
     let again = realm.ask(&line).await.unwrap();
     let other = realm.ask(&say(&id, MAYOR, "build the barn")).await;
     let tasks = realm
-        .rows(|db| {
+        .stopped_rows(|db| {
             db.prepare(
                 "SELECT id FROM task WHERE agent = 2 AND origin = \
                  'chief'",

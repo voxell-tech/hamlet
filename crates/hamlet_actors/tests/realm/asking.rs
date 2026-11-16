@@ -123,7 +123,7 @@ async fn open_waits(
     agent: AgentNumber,
 ) -> Vec<(i64, String, String)> {
     realm
-        .rows(|db| {
+        .stopped_rows(|db| {
             db.prepare(
                 "SELECT id, kind, subject FROM wait WHERE agent = \
                  ?1 AND closed_at IS NULL ORDER BY id",
@@ -206,14 +206,6 @@ pub(super) fn on(task: &RealmTask, text: &str) -> Tell {
 
 #[tokio::test(flavor = "multi_thread")]
 async fn ask_chief_answers_at_once_and_the_reply_is_a_notice() {
-    // on a chief's line the Hand asks two questions, one with
-    // options: Done at once, and an open question wait whose subject
-    // is today's numbered words. Picks that do not fit, and words
-    // for two questions or for options only, are refused with today's
-    // words and leave it open; the chief's picks are given to the
-    // Hand as a notice under the task, each question quoted over its
-    // answer. A plain question is answered in words, and a dismissed
-    // one says so.
     let (realm, _) = hamlet_with(0).await;
     let task = chief_task(&realm, Hand::NUMBER).await;
     let before = submits_to(&realm, Hand::NUMBER).len();
@@ -334,9 +326,6 @@ async fn ask_chief_answers_at_once_and_the_reply_is_a_notice() {
 
 #[tokio::test(flavor = "multi_thread")]
 async fn ask_chief_needs_a_chief_and_stops_at_the_hamlets_count() {
-    // on its standing task the Hand has no chief; on a retry's task
-    // it has one. On a chief's line it asks three times, and a fourth
-    // is refused with no wait opened.
     let (realm, _) = hamlet_with(0).await;
     let own = standing(&realm, Hand::NUMBER);
     let task = chief_task(&realm, Hand::NUMBER).await;
@@ -432,12 +421,6 @@ async fn a_misshapen_question_is_refused_as_today() {
 
 #[tokio::test(flavor = "multi_thread")]
 async fn an_objection_holds_spending_and_letters_until_go() {
-    // 3 objects to a chief's line: Done at once, and an objection
-    // wait with its reason. Its spending on that task is held, on its
-    // own task it is not; a letter to 3 and an answer to the mayor on
-    // that task are kept, a letter on another task is delivered. Go
-    // gives 3 the chief's words, then the kept letter, and the mayor
-    // the kept answer; 3's spending goes on.
     let (realm, _) = hamlet_with(1).await;
     let task = chief_task(&realm, THREE).await;
     let question = the_mayor_asks_three(&realm, &task).await;
@@ -469,8 +452,6 @@ async fn an_objection_holds_spending_and_letters_until_go() {
     };
     realm.tool(THREE, &reply).await.unwrap();
     let unheld = given_until(&realm, THREE, before, 1).await;
-    // Reading the rows stops the realm, which first makes every
-    // delivery its acts so far have started.
     let waits = open_waits(&realm, THREE).await;
     let mayor_unheld = given(&realm, MAYOR, mayor_before);
     let ruled = realm
@@ -514,9 +495,6 @@ async fn an_objection_holds_spending_and_letters_until_go() {
 
 #[tokio::test(flavor = "multi_thread")]
 async fn withdraw_drops_only_that_tasks_letters() {
-    // 3 objects to two chief's lines, and a letter on each is kept.
-    // Withdrawing the first tells 3 so and drops its letter; the
-    // second's stays kept until its go.
     let (realm, _) = hamlet_with(1).await;
     let first = chief_task(&realm, THREE).await;
     let second = chief_task(&realm, THREE).await;
@@ -569,10 +547,6 @@ async fn withdraw_drops_only_that_tasks_letters() {
 
 #[tokio::test(flavor = "multi_thread")]
 async fn an_objection_survives_a_restart() {
-    // 3 objects and a letter to it is kept; the realm's host stops
-    // and starts again. The wait is still open, spending still held,
-    // and one go delivers the notice and the letter; a second go
-    // finds nothing waiting.
     let (realm, _) = hamlet_with(1).await;
     let task = chief_task(&realm, THREE).await;
     realm
@@ -614,9 +588,6 @@ async fn an_objection_survives_a_restart() {
 
 #[tokio::test(flavor = "multi_thread")]
 async fn a_second_objection_on_a_task_is_refused() {
-    // a second objection to one line is refused, after a ruling too;
-    // an objection with no reason, or to anything but the caller's
-    // own chief's line, is refused and opens no wait.
     let (realm, _) = hamlet_with(2).await;
     let task = chief_task(&realm, THREE).await;
     let fours = chief_task(&realm, FOUR).await;
@@ -670,9 +641,9 @@ async fn a_second_objection_on_a_task_is_refused() {
 }
 
 /// The rows of the `held` table.
-async fn held_rows(realm: &Realm) -> i64 {
+pub(super) async fn held_rows(realm: &Realm) -> i64 {
     realm
-        .rows(|db| {
+        .stopped_rows(|db| {
             db.query_row("SELECT COUNT(*) FROM held", [], |row| {
                 row.get(0)
             })
@@ -683,10 +654,6 @@ async fn held_rows(realm: &Realm) -> i64 {
 #[tokio::test(flavor = "multi_thread")]
 async fn a_withdrawn_task_spends_nothing_and_its_letters_are_dropped()
 {
-    // 3 objects to a chief's line and the chief withdraws it. No
-    // agent may spend on that task any more, in today's words; a
-    // letter on it is answered and never given, one on another task
-    // is.
     let (realm, _) = hamlet_with(1).await;
     let task = chief_task(&realm, THREE).await;
     realm
@@ -711,8 +678,6 @@ async fn a_withdrawn_task_spends_nothing_and_its_letters_are_dropped()
         .tool(MAYOR, &tool("t2", on(&mayors, "lunch at noon")))
         .await
         .unwrap();
-    // Reading the rows stops the realm, which first makes every
-    // delivery its acts so far have started.
     held_rows(&realm).await;
 
     let withdrawn = "The chief withdrew the instruction, so this \
@@ -735,11 +700,6 @@ async fn a_withdrawn_task_spends_nothing_and_its_letters_are_dropped()
 
 #[tokio::test(flavor = "multi_thread")]
 async fn a_lapsed_objection_drops_its_held_letters() {
-    // 3 objects and a letter to it is held; its turn is stopped, or
-    // rewound, and it lapses its conversation's waits. As today, the
-    // held letter is dropped and the task is no longer held: 3 may
-    // spend on it, a later letter is given, and a go finds nothing
-    // waiting.
     for why in [LapseReason::Stopped, LapseReason::Rewound] {
         let (realm, _) = hamlet_with(1).await;
         let task = chief_task(&realm, THREE).await;

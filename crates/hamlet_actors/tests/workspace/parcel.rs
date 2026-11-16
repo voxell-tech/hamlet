@@ -55,8 +55,6 @@ fn hash(bytes: &[u8]) -> [u8; 32] {
     Sha256::digest(bytes).into()
 }
 
-/// A folder is walked in name order, a link inside it is left out,
-/// and each file is named from the folder that was named.
 #[cfg(unix)]
 #[tokio::test(flavor = "multi_thread")]
 async fn a_folder_is_measured_file_by_file_without_its_links() {
@@ -107,8 +105,6 @@ async fn a_folder_is_measured_file_by_file_without_its_links() {
     );
 }
 
-/// A file is read in parts of `PARCEL_PART` bytes, the last one
-/// marked, and a part past its end is refused.
 #[cfg(unix)]
 #[tokio::test(flavor = "multi_thread")]
 async fn a_file_is_read_part_by_part() {
@@ -150,7 +146,6 @@ async fn a_file_is_read_part_by_part() {
     );
 }
 
-/// An empty file is one empty part, its last.
 #[cfg(unix)]
 #[tokio::test(flavor = "multi_thread")]
 async fn an_empty_file_is_one_empty_part() {
@@ -171,8 +166,6 @@ async fn an_empty_file_is_one_empty_part() {
     );
 }
 
-/// A path outside the agent's reach, as the realm's own files are,
-/// cannot be read, in today's words, whether measured or read.
 #[cfg(unix)]
 #[tokio::test(flavor = "multi_thread")]
 async fn a_path_outside_the_reach_is_refused() {
@@ -199,9 +192,6 @@ async fn a_path_outside_the_reach_is_refused() {
     assert_eq!(reading, Part::Refused { why: outside });
 }
 
-/// When the agent's files cannot be reached at all, the parcel is
-/// refused in the words that say why, as today, whether measured or
-/// read.
 #[cfg(unix)]
 #[tokio::test(flavor = "multi_thread")]
 async fn a_workspace_that_cannot_be_opened_is_told() {
@@ -232,8 +222,6 @@ async fn a_workspace_that_cannot_be_opened_is_told() {
     );
 }
 
-/// A link named in the paths is refused, and so is a part of one,
-/// in today's words.
 #[cfg(unix)]
 #[tokio::test(flavor = "multi_thread")]
 async fn a_named_link_is_not_sent() {
@@ -261,7 +249,6 @@ async fn a_named_link_is_not_sent() {
     assert_eq!(reading, Part::Refused { why });
 }
 
-/// A folder with no files in it sends nothing.
 #[cfg(unix)]
 #[tokio::test(flavor = "multi_thread")]
 async fn a_folder_with_no_files_is_refused() {
@@ -277,7 +264,6 @@ async fn a_folder_with_no_files_is_refused() {
     assert_eq!(refused(answer), ParcelFault::NoFiles.into());
 }
 
-/// Only the realm measures or reads a parcel.
 #[tokio::test(flavor = "multi_thread")]
 async fn only_the_realm_asks_for_a_parcel() {
     let dir = Scratch::new("workspace-parcel-caller");

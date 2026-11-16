@@ -159,7 +159,7 @@ async fn a_laid_road_carries_letters_and_is_charged_once() {
     );
     spent(&realm, &hamlet, ROAD_PRICE).await;
     let used = realm
-        .rows(|db| {
+        .stopped_rows(|db| {
             db.query_row(
                 "SELECT used_at IS NOT NULL FROM road WHERE a = 3 \
                  AND b = 4",
@@ -174,9 +174,6 @@ async fn a_laid_road_carries_letters_and_is_charged_once() {
 
 #[tokio::test(flavor = "multi_thread")]
 async fn a_society_tool_turned_off_is_still_offered() {
-    // the mayor turns `tell` off for its hire 3: its place lists the
-    // tool, and 3's tell goes through, as a society tool is always
-    // offered. Turned on again, its place lists none.
     let (realm, _) = hamlet_with(1).await;
     let set = async |by, call, act| {
         realm.tool(by, &tool(call, act)).await.unwrap()
@@ -221,10 +218,6 @@ async fn a_tool_off_is_kept_by_its_name() {
 
 #[tokio::test(flavor = "multi_thread")]
 async fn a_mayors_tools_are_set_by_the_chief_and_the_hand() {
-    // the chief turns the mayor's `tell` off: its place lists the
-    // tool, and its tell to 3 still goes through. The Hand turns it
-    // on again. Hire 3 may not set its mayor's tools, and the Hand's
-    // own are not turned off, by the Hand or the chief.
     let (realm, _) = hamlet_with(1).await;
     let of = |hire, off: &[&str], on: &[&str]| SetTools {
         hire,

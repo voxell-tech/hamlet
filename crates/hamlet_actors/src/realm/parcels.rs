@@ -57,8 +57,7 @@ const KEPT_MS: i64 = 24 * 60 * 60 * 1000;
 
 /// The bit of a step row's number that marks the steps a chief's
 /// allow begins: a parcel's first steps are row `parcel`, and those
-/// after an allow are row `parcel | AFTER_ALLOW`, so that the allow
-/// never waits for the first row's drive to end.
+/// after an allow are row `parcel | AFTER_ALLOW`.
 const AFTER_ALLOW: u64 = 1 << 32;
 
 #[derive(
@@ -755,7 +754,6 @@ async fn deliver(cx: &Cx<'_>, sent: &Sent) -> Result<()> {
     Ok(())
 }
 
-/// Reads the realm's store, not its rows, so it runs outside `Act`.
 impl Handler<FetchPart> for Realm {
     async fn handle(
         self: Arc<Self>,
@@ -870,9 +868,6 @@ pub(super) async fn sweep(
         change::commit(realm, ctx, changes).await?;
     }
     let store = Store::of(ctx)?;
-    // Listed before the rows are read: a file renamed in before the
-    // listing has its parcel's measure committed, so the rows name
-    // it.
     let listed = match tokio::fs::read_dir(&store.0).await {
         Ok(listed) => listed,
         Err(error)
@@ -883,10 +878,6 @@ pub(super) async fn sweep(
         Err(error) => return Err(error.into()),
     };
     let names = names_in(listed).await?;
-    // Read and removed under the realm's write transaction, so no
-    // measure commits in between: a copy that finds its file kept
-    // was measured before this read, which names the file, or looks
-    // after the removals and copies it again.
     let tx = change::Transaction::begin(ctx).await?;
     let rows = tx.rows();
     let named = rows

@@ -281,8 +281,6 @@ pub(in crate::realm) async fn ruling(
         Choice::Withdraw => vec![Change::Withdraw { task }.into()],
         _ => Vec::new(),
     };
-    // A lead's review holds the line from its hire, which hears
-    // nothing of it.
     let source = change::from_case_name::<ObjectionSource>(source)?;
     Ok(Ruling {
         changes,
@@ -329,7 +327,6 @@ fn replied(
     }
     let worded = trimmed(answer.text.as_deref()).is_some();
     match answer.picks.as_deref() {
-        // Picks with words are no reply.
         Some(_) if worded => Ok(None),
         Some(picks) => picked(questions, picks).map(Some),
         None if worded => in_words(questions).map(|()| None),
@@ -510,7 +507,6 @@ fn shape(
             description: trimmed(offer.description.as_deref()),
         });
     }
-    // A question with nothing to pick is answered in words.
     let text_input = options.is_empty() || asked.text_input;
     Ok(Question {
         question: text,

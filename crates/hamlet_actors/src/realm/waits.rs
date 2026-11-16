@@ -184,7 +184,6 @@ pub(super) async fn apply(
 ) -> Result<Affected> {
     let changed = match change {
         Change::Open { asked } => open(writer, None, asked).await?,
-        // A closed wait is never shown.
         Change::Unasked { wait, asked, words } => {
             open(writer, Some((wait, words)), asked).await?;
             0
@@ -780,8 +779,7 @@ pub(super) struct Ruling {
     pub(super) entries: Vec<record::Entry>,
     pub(super) picked: Option<String>,
     pub(super) told: Option<String>,
-    /// The wait's agent is told nothing of the ruling: it never
-    /// heard of what was ruled on.
+    /// The wait's agent is told nothing of the ruling.
     pub(super) unheard: bool,
 }
 
@@ -1012,8 +1010,6 @@ impl Act<Client> for Answer {
         if choice == Choice::Allow(Scope::Always)
             && let Some(lasting) = open.lasting()
         {
-            // The answer waits for the reach even when the always
-            // keeps nothing new.
             decided = decided
                 .change(lasting)
                 .change(versions::Change::WantReach(open.agent));
@@ -1134,8 +1130,6 @@ impl Act<Agent> for Lapse {
         for (wait, kind, task) in open {
             let wait = WaitId(wait);
             let kind = change::from_case_name(kind)?;
-            // The letters an objection held are dropped with it, and
-            // a send's parcel is refused.
             let with = match (kind, task) {
                 (Kind::Objection, Some(task)) => {
                     Some(asking::Change::Unhold { task }.into())

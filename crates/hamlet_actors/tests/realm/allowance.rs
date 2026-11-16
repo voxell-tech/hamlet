@@ -83,13 +83,8 @@ fn over_allowance(
     }
 }
 
-/// Keeps one worker row of `starter`'s, as a start commits it.
 #[tokio::test(flavor = "multi_thread")]
 async fn over_its_allowance_a_hire_is_refused() {
-    // the mayor's allowance bounds the hire under it: their charges
-    // together spend it, and the hire is refused naming the mayor.
-    // A reset of the hamlet's budget leaves it spent; taking the
-    // allowance away lets the hire spend again.
     let (realm, hamlet) = hamlet_with(1).await;
     let task = standing(&realm, THREE);
     let mayors = standing(&realm, MAYOR);
@@ -133,9 +128,6 @@ async fn over_its_allowance_a_hire_is_refused() {
 
 #[tokio::test(flavor = "multi_thread")]
 async fn a_living_worker_spends_its_starters_allowance() {
-    // a worker is bounded as its starter: its charge counts toward
-    // the starter's allowance while it lives, and drops out once it
-    // has ended, by its answer or by a chief.
     for chief_ends_it in [false, true] {
         let (realm, _) = hamlet_with(1).await;
         let task = standing(&realm, THREE);
@@ -190,8 +182,6 @@ fn start(brief: &str) -> StartWorker {
 
 #[tokio::test(flavor = "multi_thread")]
 async fn an_ended_hires_spend_leaves_its_leads_allowance() {
-    // a hire's charges count toward its lead's allowance until the
-    // hire is ended.
     let (realm, _) = hamlet_with(1).await;
     let task = standing(&realm, THREE);
     let mayors = standing(&realm, MAYOR);
@@ -212,9 +202,6 @@ async fn an_ended_hires_spend_leaves_its_leads_allowance() {
 
 #[tokio::test(flavor = "multi_thread")]
 async fn a_lead_sets_its_hires_allowance() {
-    // the mayor sets its hire's allowance, which then bounds the
-    // hire. A hire may not set its lead's nor its own; the Hand has
-    // none; an unknown or ended hire is refused.
     let (realm, _) = hamlet_with(2).await;
     let task = standing(&realm, THREE);
 
@@ -270,9 +257,6 @@ async fn a_lead_sets_its_hires_allowance() {
 
 #[tokio::test(flavor = "multi_thread")]
 async fn read_budget_shows_what_may_spend_used() {
-    // past its allowance, a hire reads the numbers the refusal
-    // named; past its hamlet's budget, the hamlet's. A charge keeps
-    // its tokens.
     let (realm, hamlet) = hamlet_with(1).await;
     let task = standing(&realm, THREE);
     let payer = Payer::Hamlet {
@@ -307,7 +291,7 @@ async fn read_budget_shows_what_may_spend_used() {
     let read_cost = read("r2", Some(task.clone())).await;
     let unknown = read("r3", Some(RealmTask("999".to_owned()))).await;
     let kept = realm
-        .rows(|db| {
+        .stopped_rows(|db| {
             db.query_row(
                 "SELECT tokens FROM charge WHERE call = 'c1'",
                 [],
@@ -353,9 +337,6 @@ async fn read_budget_shows_what_may_spend_used() {
 
 #[tokio::test(flavor = "multi_thread")]
 async fn a_retry_opens_a_task_of_its_own() {
-    // a retry and a reflection each open a task of the caller's own,
-    // paid where it works: a hire's by its hamlet, the Hand's by the
-    // realm. An ended hire opens none.
     let (realm, hamlet) = hamlet_with(2).await;
     let opened = async |agent: AgentNumber, turn: TaskTurn| {
         let answer = realm.tool(agent, &OpenTask { turn }).await;
@@ -389,7 +370,7 @@ async fn a_retry_opens_a_task_of_its_own() {
     };
     let left = realm.tool(FOUR, &retry_four).await.unwrap();
     let origins = realm
-        .rows(|db| {
+        .stopped_rows(|db| {
             db.prepare(
                 "SELECT origin FROM task WHERE id IN (?1, ?2, ?3) \
                  ORDER BY id",
@@ -457,9 +438,6 @@ async fn setting_an_allowance_is_recorded() {
 
 #[tokio::test(flavor = "multi_thread")]
 async fn an_allowance_counts_the_period_of_the_tasks_payer() {
-    // the hamlet counts by the month and the realm by the day; a
-    // hire on the Hand's task is paid by the realm, so its charge of
-    // two days ago is outside the period, and read_budget agrees.
     let (realm, hamlet) = hamlet_with(1).await;
     limit(
         &realm,

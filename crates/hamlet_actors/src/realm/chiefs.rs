@@ -265,8 +265,6 @@ impl<By: RealmWide> Act<By> for Found {
             }
         };
         let purpose = tree::given_purpose(self.purpose.as_deref());
-        // A chief's hamlet may leave its mayor's purpose to the first
-        // line; an agent says what it founds for.
         if purpose.is_none() && by.by() != record::By::Chief {
             return Decision::Answer(FoundAnswer::refused(
                 FoundRefusal::NoPurpose,

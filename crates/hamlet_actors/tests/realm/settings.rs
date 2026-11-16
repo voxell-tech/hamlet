@@ -115,8 +115,6 @@ async fn a_blank_charter_gives_back_the_built_in_one() {
 
 #[tokio::test(flavor = "multi_thread")]
 async fn read_copies_gives_only_moved_parts() {
-    // the Hand holds every part as first read; one settings edit
-    // moves only the settings part.
     let realm = realm_with_hand().await;
     chief(&realm, settings(Setting::Model { model: FAUX.into() }))
         .await;
@@ -156,9 +154,6 @@ async fn read_copies_gives_only_moved_parts() {
 
 #[tokio::test(flavor = "multi_thread")]
 async fn a_misshapen_limit_changes_nothing() {
-    // a cost of $1 comes before a limit the other kind of row has, or
-    // a road price past what the realm counts, so each whole edit is
-    // refused and both budgets stay $50.
     let (realm, hamlet) = hamlet_with(0).await;
     let budget_of = async |payer: &Payer| {
         let seen =
@@ -408,9 +403,6 @@ async fn versions(realm: &Realm) -> ReadCopies {
 
 #[tokio::test(flavor = "multi_thread")]
 async fn an_edit_that_changes_nothing_moves_no_copy() {
-    // a charter cleared when there is none, the settings as they
-    // are, a price for a model no one runs, and the same charter
-    // twice, which moves the charter once.
     let realm = realm_with_hand().await;
     chief(&realm, settings(Setting::Model { model: FAUX.into() }))
         .await;
@@ -447,8 +439,6 @@ async fn an_edit_that_changes_nothing_moves_no_copy() {
 
 #[tokio::test(flavor = "multi_thread")]
 async fn read_copies_gives_a_part_whose_version_differs() {
-    // an agent that holds versions the realm never gave, as after
-    // the realm's rows were made anew, is given every part.
     let realm = realm_with_hand().await;
     let ahead = ReadCopies {
         charter: Some(CopyVersion(99)),
@@ -509,9 +499,6 @@ fn running(
 
 #[tokio::test(flavor = "multi_thread")]
 async fn each_agent_reads_the_model_it_runs() {
-    // the realm runs faux-1 at high effort; the hamlet chooses
-    // faux-2 at low effort; hire 3 chooses fast. Each part falls to
-    // the next choice up, and the price is the model's card's.
     let (realm, hamlet) = hamlet_with(1).await;
     chief(
         &realm,
@@ -576,9 +563,6 @@ async fn each_agent_reads_the_model_it_runs() {
 
 #[tokio::test(flavor = "multi_thread")]
 async fn a_model_choice_pushes_the_copy_to_its_agents() {
-    // hire 3's choice goes to hire 3 alone; the hamlet's goes to the
-    // mayor and hire 3, each with its own model; neither goes to the
-    // Hand.
     let (realm, hamlet) = hamlet_with(1).await;
     let models = |agent| {
         copies_to(&realm, agent)

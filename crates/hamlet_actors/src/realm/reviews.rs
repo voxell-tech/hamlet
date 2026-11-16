@@ -374,8 +374,6 @@ async fn instructions(
     lead: AgentNumber,
     text: &str,
 ) -> Result<String> {
-    // A hire with no purpose takes the line's, in the same change as
-    // the review.
     let given = match tree::purpose_from(hire, text) {
         Some(tree::Change::Purpose { text, .. }) => Some(text),
         _ => None,
@@ -512,8 +510,6 @@ pub(super) async fn run(
                 });
             let due = kept.at + i64::try_from(deadline.as_millis())?;
             let left = u64::try_from(due - rows.at().0).unwrap_or(0);
-            // A stop ends the wait; a review still open waits for its
-            // deadline again at the next start.
             let abort = cx.ctx.abort_signal();
             tokio::select! {
                 () = tokio::time::sleep(Duration::from_millis(left)) => {}

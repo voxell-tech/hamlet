@@ -330,9 +330,6 @@ fn choose(workspace: Option<(&str, &str)>) -> EditSettings {
 
 #[tokio::test(flavor = "multi_thread")]
 async fn a_chosen_workspace_is_kept_with_the_credentials() {
-    // each workspace the chief chooses is kept in credentials.json,
-    // under a raised version that every reach asks for; the token it
-    // replaced is still taken out, and a removed one leaves the file.
     let (realm, _) = hamlet_with(1).await;
 
     let first =

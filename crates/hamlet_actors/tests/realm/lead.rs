@@ -119,7 +119,7 @@ async fn an_end_moves_the_children_and_drops_the_reach() {
         .await
         .unwrap();
     let (lead_of_4, (status, how, why)) = realm
-        .rows(|db| {
+        .stopped_rows(|db| {
             let lead = db.query_row(
                 "SELECT lead FROM hire WHERE agent = 4",
                 [],
@@ -270,7 +270,7 @@ async fn an_end_of_a_hire_still_hiring_closes_its_steps() {
     assert_eq!((made_3, filled_3), (false, false));
     assert_eq!(reaches_3, [Reach::Ended]);
     let (status, done, closed) = realm
-        .rows(|db| {
+        .stopped_rows(|db| {
             db.query_row(
                 "SELECT agent.status, step.done, step.closed FROM \
                  agent JOIN step ON step.kind = 'hire' AND step.n = \
@@ -339,7 +339,7 @@ async fn a_repeated_hire_hires_once() {
         .filter(|(agent, _)| *agent == AgentNumber(3))
         .count();
     let (agents, hires) = realm
-        .rows(|db| {
+        .stopped_rows(|db| {
             let count = |table: &str| {
                 db.query_row(
                     &format!("SELECT COUNT(*) FROM {table}"),

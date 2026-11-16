@@ -67,9 +67,6 @@ fn project_in_reach(
 
 #[tokio::test(flavor = "multi_thread")]
 async fn a_hamlet_is_named_and_moved() {
-    // name the hamlet Weir and set it down at 3, 4: the world shows
-    // the name, the row keeps the site, and each is in the record. A
-    // hamlet that is not there is refused.
     let (realm, hamlet) = hamlet_with(0).await;
 
     let named = chief(
@@ -117,7 +114,7 @@ async fn a_hamlet_is_named_and_moved() {
     })
     .await;
     let (site, kinds) = realm
-        .rows(|db| {
+        .stopped_rows(|db| {
             let site = db.query_row(
                 "SELECT x, z FROM hamlet WHERE id = ?1",
                 [&hamlet.0],
@@ -144,8 +141,6 @@ async fn a_hamlet_is_named_and_moved() {
 
 #[tokio::test(flavor = "multi_thread")]
 async fn a_folder_that_does_not_exist_is_refused() {
-    // a folder that is not there, and a file, are refused naming the
-    // path; the hamlet keeps no folder and remembers none.
     let (realm, hamlet) = hamlet_with(0).await;
     let missing = realm.scratch.join("no-such-folder");
     let file = realm.scratch.join("a-file");
@@ -168,7 +163,7 @@ async fn a_folder_that_does_not_exist_is_refused() {
         )
     );
     let kept = realm
-        .rows(|db| {
+        .stopped_rows(|db| {
             db.query_row(
                 "SELECT (SELECT folder FROM hamlet WHERE id = ?1), \
                  (SELECT COUNT(*) FROM hamlet_folder)",
@@ -188,9 +183,6 @@ async fn a_folder_that_does_not_exist_is_refused() {
 
 #[tokio::test(flavor = "multi_thread")]
 async fn a_folder_reaches_every_place_of_its_hamlet() {
-    // set the folder a, then b, then a again, then none: the mayor's
-    // and hire 3's places follow each, and the hamlet remembers a and
-    // b once each.
     let (realm, hamlet) = hamlet_with(1).await;
     let (a, b) = (realm.scratch.join("a"), realm.scratch.join("b"));
     std::fs::create_dir(&a).unwrap();
@@ -210,7 +202,7 @@ async fn a_folder_reaches_every_place_of_its_hamlet() {
     }
 
     let mut remembered = realm
-        .rows(|db| {
+        .stopped_rows(|db| {
             db.prepare(
                 "SELECT folder FROM hamlet_folder WHERE hamlet = ?1",
             )?
@@ -226,8 +218,6 @@ async fn a_folder_reaches_every_place_of_its_hamlet() {
 
 #[tokio::test(flavor = "multi_thread")]
 async fn a_folder_reaches_the_places_of_the_hamlets_workers() {
-    // worker 9, started by hire 3, and worker 10, a chief's worker
-    // for the hamlet: each one's place follows the hamlet's folder.
     let (realm, hamlet) = hamlet_with(1).await;
     realm
         .write(&format!(
@@ -262,9 +252,6 @@ async fn a_folder_reaches_the_places_of_the_hamlets_workers() {
 #[tokio::test(flavor = "multi_thread")]
 async fn a_mode_reaches_every_agent_of_its_hamlet_and_their_workers()
 {
-    // worker 9, started by hire 3; set a folder, then auto mode: the
-    // mayor's and hire 3's reaches carry the folder in auto mode, and
-    // the worker's reach is set too.
     let (realm, hamlet) = hamlet_with(1).await;
     realm
         .write(
@@ -305,8 +292,6 @@ async fn a_mode_reaches_every_agent_of_its_hamlet_and_their_workers()
 
 #[tokio::test(flavor = "multi_thread")]
 async fn a_found_with_no_purpose_is_refused_to_the_hand() {
-    // the Hand founds with no purpose: refused, and no hamlet is
-    // made.
     let realm = Realm::start().await;
     realm.live(Hand::NUMBER).await;
 
@@ -322,7 +307,7 @@ async fn a_found_with_no_purpose_is_refused_to_the_hand() {
         }
     );
     let hamlets = realm
-        .rows(|db| {
+        .stopped_rows(|db| {
             db.query_row("SELECT COUNT(*) FROM hamlet", [], |row| {
                 row.get::<_, i64>(0)
             })
@@ -334,8 +319,6 @@ async fn a_found_with_no_purpose_is_refused_to_the_hand() {
 
 #[tokio::test(flavor = "multi_thread")]
 async fn a_bad_name_is_refused_in_todays_words() {
-    // a name with a colon changes nothing; a hamlet that is not
-    // there is named by its id; a good name is kept trimmed.
     let (realm, hamlet) = hamlet_with(0).await;
 
     let named = chief(
@@ -365,7 +348,7 @@ async fn a_bad_name_is_refused_in_todays_words() {
         ]
     );
     let name = realm
-        .rows(|db| {
+        .stopped_rows(|db| {
             db.query_row(
                 "SELECT name FROM hamlet WHERE id = ?1",
                 [&hamlet.0],
@@ -382,7 +365,7 @@ async fn a_bad_name_is_refused_in_todays_words() {
     )
     .await;
     let renamed = realm
-        .rows(|db| {
+        .stopped_rows(|db| {
             db.query_row(
                 "SELECT name FROM hamlet WHERE id = ?1",
                 [&hamlet.0],

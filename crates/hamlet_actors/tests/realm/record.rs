@@ -26,10 +26,6 @@ fn read(lines: &[&str]) -> Record {
 
 #[tokio::test(flavor = "multi_thread")]
 async fn the_history_lists_the_decisions() {
-    // found with hire 3, rename, set the mode, nickname and the tools
-    // of hire 3, choose its model: the chief and the Hand read the
-    // hamlet's lines in today's words, oldest first and with hire 3's
-    // nickname now; the realm's own record is empty.
     let (realm, hamlet) = hamlet_with(1).await;
     let some = |why: &str| Some(why.to_owned());
     assert_eq!(

@@ -32,7 +32,7 @@ use hamlet_testing::Scratch;
 use sha2::Digest as _;
 use tokio::sync::watch;
 
-use super::asking::{chief_task, objection, on};
+use super::asking::{chief_task, held_rows, objection, on};
 use super::{
     AgentStandIn, Forward, MAYOR, ProfileStandIn, Realm, Seen, THREE,
     answer, forward, founded, hires, kind, seen, submits_to, tell,
@@ -468,9 +468,6 @@ async fn opens(realm: &Realm, wait: &str) {
 
 #[tokio::test(flavor = "multi_thread")]
 async fn a_parcel_reaches_the_receiver_byte_for_byte() {
-    // 2 tells 3 with a folder holding a file of three parts: tell
-    // answers at once; 3's letter names the file under from-hire-2,
-    // its parts fetched make the file, and 2 may not fetch them.
     let report = bytes_of(PARCEL_PART * 2 + 100, 7);
     let (realm, _) =
         sending(Files::with(&[("/project/out/report.bin", &report)]))
@@ -509,11 +506,6 @@ async fn a_parcel_reaches_the_receiver_byte_for_byte() {
 
 #[tokio::test(flavor = "multi_thread")]
 async fn over_the_cap_a_parcel_waits_for_a_chief() {
-    // 1001 files: the parcel waits for a chief, whose wait reads
-    // "1001 files". The realm restarts, and the wait outlasts a day;
-    // an allow then sends the letter with every file, still fetched.
-    // A second send is denied "too much": 2 is told, and 3 gets no
-    // second letter. The world shows the wait with its measure.
     let (realm, files) = sending(over_the_cap()).await;
 
     sends(&realm, "t1", "Everything.", &["/project/big"]).await;
@@ -534,7 +526,7 @@ async fn over_the_cap_a_parcel_waits_for_a_chief() {
         .await;
     let told = notice_to_mayor(&realm).await;
     let subjects = realm
-        .rows(|db| {
+        .stopped_rows(|db| {
             db.prepare("SELECT kind, subject FROM wait ORDER BY id")?
                 .query_map([], |row| Ok((row.get(0)?, row.get(1)?)))?
                 .collect::<Result<Vec<(String, String)>, _>>()
@@ -574,9 +566,6 @@ async fn over_the_cap_a_parcel_waits_for_a_chief() {
 
 #[tokio::test(flavor = "multi_thread")]
 async fn a_parcel_outside_the_reach_is_told_to_the_sender() {
-    // 2 names a file its reach does not read: tell answers at once,
-    // 2 is told the workspace's refusal in today's words, with no
-    // period added, and 3 gets nothing.
     let (realm, _) =
         sending(Files::with(&[("/project/a", b"a")])).await;
 
@@ -594,11 +583,6 @@ async fn a_parcel_outside_the_reach_is_told_to_the_sender() {
 
 #[tokio::test(flavor = "multi_thread")]
 async fn the_sweep_keeps_open_parcels() {
-    // A file no parcel names and a stale temporary file are swept
-    // when a parcel's steps end, while a parcel still copying keeps
-    // its temporary file and a delivered one its files. A restart
-    // sweeps again; a delivered parcel a day old is swept, its file
-    // with it.
     let slow = bytes_of(PARCEL_PART + 10, 1);
     let (realm, files) = sending(Files::with(&[
         ("/project/a", b"aaa"),
@@ -668,10 +652,6 @@ async fn the_sweep_keeps_open_parcels() {
 
 #[tokio::test(flavor = "multi_thread")]
 async fn a_kill_mid_copy_leaves_no_partial_file() {
-    // The realm is killed while it copies the second of three parts:
-    // the store holds no file by the hash; at the start the parcel is
-    // copied again, its letter delivered, and its parts make the
-    // file.
     let report = bytes_of(PARCEL_PART * 2 + 5, 3);
     let (realm, files) =
         sending(Files::with(&[("/project/report", &report)])).await;
@@ -697,9 +677,6 @@ async fn a_kill_mid_copy_leaves_no_partial_file() {
 
 #[tokio::test(flavor = "multi_thread")]
 async fn a_file_that_changes_while_it_is_copied_is_not_sent() {
-    // The file changes between its measure and its copy: its hash
-    // differs, so 2 is told, 3 gets nothing, and the store keeps
-    // nothing of it.
     let report = bytes_of(PARCEL_PART + 10, 5);
     let (realm, files) =
         sending(Files::with(&[("/project/report", &report)])).await;
@@ -725,9 +702,6 @@ async fn a_file_that_changes_while_it_is_copied_is_not_sent() {
 #[tokio::test(flavor = "multi_thread")]
 async fn a_file_that_shrinks_while_it_is_copied_reads_as_one_that_changed()
  {
-    // The file shrinks to less than a part between its measure and
-    // its copy's second part: 2 is told what it is told of a file
-    // that grows, and 3 gets nothing.
     let report = bytes_of(PARCEL_PART + 10, 5);
     let (realm, files) =
         sending(Files::with(&[("/project/report", &report)])).await;
@@ -780,18 +754,7 @@ async fn held_with_a_file(realm: &Realm) -> String {
     "1".to_owned()
 }
 
-/// The rows of the `held` table. Reading them stops the realm, which
-/// first ends every drive of a parcel's steps.
-async fn held_count(realm: &Realm) -> i64 {
-    realm
-        .rows(|db| {
-            db.query_row("SELECT COUNT(*) FROM held", [], |row| {
-                row.get(0)
-            })
-        })
-        .await
-}
-
+/// The rows of the `held` table.
 async fn go(realm: &Realm, wait: &str) {
     let ruled =
         realm.ask(&answer(wait, Choice::Go, None)).await.unwrap();
@@ -800,15 +763,11 @@ async fn go(realm: &Realm, wait: &str) {
 
 #[tokio::test(flavor = "multi_thread")]
 async fn a_held_letters_files_wait_for_go() {
-    // 3 objects to its task and the mayor sends it a file on that
-    // task: the file is copied, but the letter is held, and 3 may not
-    // fetch the file before the chief's go. After it, the letter
-    // comes, and its file is fetched.
     let (realm, _) =
         sending(Files::with(&[("/project/a", b"aaa")])).await;
     let wait = held_with_a_file(&realm).await;
 
-    let held = held_count(&realm).await;
+    let held = held_rows(&realm).await;
     let letters_while_held = letters_to_three(&realm).len();
     let early = fetch(&realm, THREE, ParcelId(1), 0, 0).await;
     go(&realm, &wait).await;
@@ -827,21 +786,16 @@ async fn a_held_letters_files_wait_for_go() {
 
 #[tokio::test(flavor = "multi_thread")]
 async fn a_held_letters_files_outlive_a_day() {
-    // A letter with a file is held for over a day, and the realm
-    // sweeps its store as it starts: the file stays while the letter
-    // is held, and its day begins at the go, so 3 fetches it after a
-    // later sweep.
     let (realm, _) =
         sending(Files::with(&[("/project/a", b"aaa")])).await;
     let wait = held_with_a_file(&realm).await;
-    held_count(&realm).await;
+    held_rows(&realm).await;
 
     realm.write("UPDATE parcel SET at = 0 WHERE id = 1").await;
     let after_a_day = stored(&realm);
     go(&realm, &wait).await;
     let files = letter_files(&realm, 1).await;
-    // Reading the rows starts the realm again, which sweeps.
-    held_count(&realm).await;
+    held_rows(&realm).await;
 
     assert_eq!(after_a_day, [hash(b"aaa").to_string()]);
     assert_eq!(fetched(&realm, &files[0]).await, b"aaa");
@@ -849,10 +803,6 @@ async fn a_held_letters_files_outlive_a_day() {
 
 #[tokio::test(flavor = "multi_thread")]
 async fn a_kill_after_ready_keeps_a_held_letter() {
-    // The parcel is ready and its letter given, then the realm is
-    // killed before its deliver step is marked done, and 3 objects to
-    // the letter's task before the step runs again: the letter is
-    // held until the go, as any letter on that task is.
     let (realm, _) =
         sending(Files::with(&[("/project/a", b"aaa")])).await;
     let task = chief_task(&realm, THREE).await;
@@ -873,7 +823,7 @@ async fn a_kill_after_ready_keeps_a_held_letter() {
              'parcel' AND n = 1",
         )
         .await;
-    let held = held_count(&realm).await;
+    let held = held_rows(&realm).await;
     let letters_while_held = letters_to_three(&realm).len();
     go(&realm, "1").await;
     letter_files(&realm, 1).await;
@@ -883,7 +833,6 @@ async fn a_kill_after_ready_keeps_a_held_letter() {
 
 #[tokio::test(flavor = "multi_thread")]
 async fn an_ended_receiver_fetches_nothing() {
-    // 3 is given a file, and then ends: its fetch is refused.
     let (realm, _) =
         sending(Files::with(&[("/project/a", b"aaa")])).await;
     sends(&realm, "t1", "A.", &["/project/a"]).await;
@@ -908,7 +857,7 @@ async fn an_ended_receiver_fetches_nothing() {
 /// Each parcel's state, and whether it is swept.
 async fn parcel_states(realm: &Realm) -> Vec<(String, bool)> {
     realm
-        .rows(|db| {
+        .stopped_rows(|db| {
             db.prepare(
                 "SELECT state, swept_at IS NOT NULL FROM parcel \
                  ORDER BY id",
@@ -932,10 +881,6 @@ fn over_the_cap() -> Files {
 
 #[tokio::test(flavor = "multi_thread")]
 async fn a_lapsed_send_wait_ends_its_parcel() {
-    // A parcel over the cap waits for a chief, and its sender's turn
-    // is stopped: its wait lapses, the parcel is refused, and the
-    // sweep at the next start takes it. An allow then finds nothing
-    // waiting.
     let (realm, files) = sending(over_the_cap()).await;
     sends(&realm, "t1", "Everything.", &["/project/big"]).await;
     opens(&realm, "1").await;
@@ -965,8 +910,6 @@ async fn a_lapsed_send_wait_ends_its_parcel() {
 
 #[tokio::test(flavor = "multi_thread")]
 async fn a_parcel_whose_sender_ended_is_swept() {
-    // A parcel over the cap waits for a chief, and its sender ends:
-    // the sweep at the next start refuses the parcel and takes it.
     let (realm, _) = sending(over_the_cap()).await;
     sends(&realm, "t1", "Everything.", &["/project/big"]).await;
     opens(&realm, "1").await;

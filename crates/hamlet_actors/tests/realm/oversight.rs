@@ -94,7 +94,7 @@ async fn trusted_hire(realm: &Realm) {
 
 async fn wanted(realm: &Realm, agent: AgentNumber) -> i64 {
     realm
-        .rows(|db| {
+        .stopped_rows(|db| {
             db.query_row(
                 "SELECT wanted FROM reach WHERE agent = ?1",
                 [agent.0],
@@ -129,11 +129,6 @@ async fn the_reach_takes_the_hamlets_mode_and_folder() {
 
 #[tokio::test(flavor = "multi_thread")]
 async fn a_revoke_raises_the_reach() {
-    // agent 3 is hired holding a grant and a trust: its reach has
-    // the network and the trust. The chief revokes the grant: the
-    // workspace gets a newer reach without the network, the trust
-    // kept. The same request again is answered the same; another
-    // revoke finds no grant and raises nothing.
     let (realm, _) = hamlet_in_a_folder().await;
     trusted_hire(&realm).await;
     let granted = held(&realm, THREE).unwrap();
@@ -175,9 +170,6 @@ async fn a_revoke_raises_the_reach() {
 
 #[tokio::test(flavor = "multi_thread")]
 async fn a_worker_takes_its_starters_footing() {
-    // agent 4 is a worker of agent 3, which holds a trust. A revoke
-    // of 3's grant raises 4's reach too: a worker's reach with its
-    // starter's footing, the trust left out.
     let (realm, hamlet) = hamlet_in_a_folder().await;
     trusted_hire(&realm).await;
     realm
@@ -224,8 +216,6 @@ async fn a_worker_takes_its_starters_footing() {
 
 #[tokio::test(flavor = "multi_thread")]
 async fn an_always_on_a_workers_network_wait_gives_it_the_network() {
-    // a worker of hire#3 asks for the network and the chief answers
-    // always: the worker's reach has the network, its starter's not.
     let (realm, _) = hamlet_in_a_folder().await;
     hires(&realm, MAYOR, "h1").await;
     realm.live(THREE).await;
@@ -259,9 +249,6 @@ async fn an_always_on_a_workers_network_wait_gives_it_the_network() {
 
 #[tokio::test(flavor = "multi_thread")]
 async fn an_end_revokes_the_agents_grants() {
-    // agent 3 holds a grant and has a worker, 4. Its lead ends it:
-    // the worker ends with it or loses the network, and a revoke
-    // finds no grant.
     let (realm, hamlet) = hamlet_in_a_folder().await;
     trusted_hire(&realm).await;
     realm
@@ -299,9 +286,6 @@ async fn an_end_revokes_the_agents_grants() {
 
 #[tokio::test(flavor = "multi_thread")]
 async fn a_revoke_of_no_grant_is_refused_in_todays_words() {
-    // the hire nicknamed Spade, the Hand, worker 9, the same hire
-    // once the settings allow every agent the network, and a number
-    // no agent has.
     let (realm, _) = hamlet_in_a_folder().await;
     hires(&realm, MAYOR, "h1").await;
     realm
@@ -370,7 +354,7 @@ async fn an_end_revokes_a_workers_grants() {
     };
     assert_eq!(chief(&realm, end).await, Done::Done);
     let open = realm
-        .rows(|db| {
+        .stopped_rows(|db| {
             db.query_row(
                 "SELECT COUNT(*) FROM grant WHERE agent = 4 AND \
                  revoked_at IS NULL",

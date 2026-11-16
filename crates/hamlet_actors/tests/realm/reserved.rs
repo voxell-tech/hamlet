@@ -97,7 +97,7 @@ async fn waits(
     realm: &Realm,
 ) -> Vec<(i64, String, String, Option<String>)> {
     realm
-        .rows(|db| {
+        .stopped_rows(|db| {
             db.prepare(
                 "SELECT id, kind, subject, choice FROM wait ORDER \
                  BY id",
@@ -117,7 +117,7 @@ async fn waits(
 
 async fn agents(realm: &Realm) -> Vec<(u32, String)> {
     realm
-        .rows(|db| {
+        .stopped_rows(|db| {
             db.prepare("SELECT id, status FROM agent ORDER BY id")?
                 .query_map([], |row| Ok((row.get(0)?, row.get(1)?)))?
                 .collect()
@@ -128,7 +128,7 @@ async fn agents(realm: &Realm) -> Vec<(u32, String)> {
 /// Each road's ends and whether it is taken up.
 async fn roads(realm: &Realm) -> Vec<(u32, u32, bool)> {
     realm
-        .rows(|db| {
+        .stopped_rows(|db| {
             db.prepare(
                 "SELECT a, b, up_at IS NOT NULL FROM road ORDER BY \
                  a, b",
@@ -141,8 +141,7 @@ async fn roads(realm: &Realm) -> Vec<(u32, u32, bool)> {
         .await
 }
 
-/// The notices `agent` was given. Reading the rows stops the realm,
-/// which first makes every delivery its acts so far have started.
+/// The notices `agent` was given.
 async fn notices(realm: &Realm, agent: AgentNumber) -> Vec<String> {
     decisions(realm).await;
     submits_to(realm, agent)
@@ -156,7 +155,7 @@ async fn notices(realm: &Realm, agent: AgentNumber) -> Vec<String> {
 
 async fn decisions(realm: &Realm) -> Vec<String> {
     realm
-        .rows(|db| {
+        .stopped_rows(|db| {
             db.prepare("SELECT kind FROM decision ORDER BY id")?
                 .query_map([], |row| row.get(0))?
                 .collect()
@@ -166,11 +165,6 @@ async fn decisions(realm: &Realm) -> Vec<String> {
 
 #[tokio::test(flavor = "multi_thread")]
 async fn a_reserved_hire_waits_and_runs_once_on_allow() {
-    // a hamlet whose limits reserve hire. Its mayor's hire is kept in
-    // a reserved wait that shows the act, and no hire is made; the
-    // chief allows it: hire#3 is made and goes live. The same answer
-    // again answers done, another answer finds nothing waiting, and
-    // the same call again answers the same wait: one hire only.
     let (realm, hamlet) = hamlet_with(0).await;
     reserve(&realm, &hamlet, ReservedAct::Hire).await;
     let hiring = tool("c1", hire(None));
@@ -222,9 +216,6 @@ async fn a_reserved_hire_waits_and_runs_once_on_allow() {
 
 #[tokio::test(flavor = "multi_thread")]
 async fn a_denied_reserved_end_changes_nothing() {
-    // a hamlet whose limits reserve end. Its mayor ends hire#3: the
-    // act waits; the chief denies it with a reason. hire#3 stays
-    // live, nothing is decided, and the mayor is told today's words.
     let (realm, hamlet) = hamlet_with(1).await;
     reserve(&realm, &hamlet, ReservedAct::End).await;
     let decided = decisions(&realm).await;
@@ -261,8 +252,6 @@ async fn a_denied_reserved_end_changes_nothing() {
 
 #[tokio::test(flavor = "multi_thread")]
 async fn a_repeated_reserved_call_answers_the_same_wait() {
-    // a hamlet whose limits reserve roads. The mayor's lay_road with
-    // one call id, sent twice, keeps one wait and answers it twice.
     let (realm, hamlet) = hamlet_with(2).await;
     reserve(&realm, &hamlet, ReservedAct::Roads).await;
     let laying = tool("r1", lay(THREE, FOUR));
@@ -279,10 +268,6 @@ async fn a_repeated_reserved_call_answers_the_same_wait() {
 
 #[tokio::test(flavor = "multi_thread")]
 async fn an_unreserved_tool_runs_at_once() {
-    // a hamlet whose limits reserve roads only: the mayor's hire runs
-    // at once. With hire reserved too, the Hand's hire is not kept:
-    // the Hand has no hamlet whose limits reserve its acts. No wait
-    // opens.
     let (realm, hamlet) = hamlet_with(0).await;
     reserve(&realm, &hamlet, ReservedAct::Roads).await;
 
@@ -318,9 +303,6 @@ async fn an_unreserved_tool_runs_at_once() {
 
 #[tokio::test(flavor = "multi_thread")]
 async fn an_allowed_reserved_hire_is_decided_and_told() {
-    // a hamlet whose limits reserve hire. The mayor's hire, once
-    // allowed, writes its decision, and the mayor is told the new
-    // hire's number in today's words.
     let (realm, hamlet) = hamlet_with(0).await;
     reserve(&realm, &hamlet, ReservedAct::Hire).await;
     let decided = decisions(&realm).await;
@@ -338,8 +320,6 @@ async fn an_allowed_reserved_hire_is_decided_and_told() {
 
 #[tokio::test(flavor = "multi_thread")]
 async fn an_allowed_reserved_end_ends_the_hire() {
-    // the wait shows today's tool and arguments; once allowed, hire#3
-    // has ended, the end is decided, and the mayor is told.
     let (realm, hamlet) = hamlet_with(1).await;
     reserve(&realm, &hamlet, ReservedAct::End).await;
     let decided = decisions(&realm).await;
@@ -371,8 +351,6 @@ async fn an_allowed_reserved_end_ends_the_hire() {
 
 #[tokio::test(flavor = "multi_thread")]
 async fn reserved_roads_are_laid_and_taken_up_once_allowed() {
-    // each wait shows today's tool and arguments; each allowed act is
-    // decided and told in today's words.
     let (realm, hamlet) = hamlet_with(2).await;
     reserve(&realm, &hamlet, ReservedAct::Roads).await;
     let decided = decisions(&realm).await;
@@ -416,10 +394,6 @@ async fn reserved_roads_are_laid_and_taken_up_once_allowed() {
 
 #[tokio::test(flavor = "multi_thread")]
 async fn an_allowed_act_that_no_longer_holds_changes_nothing() {
-    // the mayor's reserved end of hire#3 waits; meanwhile the chief
-    // ends hire#3 itself. The allow closes the wait, the end is not
-    // decided a second time, and the mayor is told the refusal the
-    // end met.
     let (realm, hamlet) = hamlet_with(1).await;
     reserve(&realm, &hamlet, ReservedAct::End).await;
     let ended =
@@ -454,8 +428,6 @@ async fn an_allowed_act_that_no_longer_holds_changes_nothing() {
 
 #[tokio::test(flavor = "multi_thread")]
 async fn a_workers_act_is_never_reserved() {
-    // a hamlet whose limits reserve hire. The mayor starts worker#3;
-    // the worker's hire is answered at once, and no wait opens.
     let (realm, hamlet) = hamlet_with(0).await;
     reserve(&realm, &hamlet, ReservedAct::Hire).await;
     let started = realm
@@ -494,10 +466,6 @@ async fn a_workers_act_is_never_reserved() {
 #[tokio::test(flavor = "multi_thread")]
 async fn a_reserved_call_the_chief_refused_is_refused_again_unasked()
 {
-    // a hamlet whose limits reserve hire. On a chief's task the
-    // chief denies the mayor's hire with a reason. The same hire on
-    // that task is refused at once with today's words and opens no
-    // wait; a command on the task still waits for the chief.
     let (realm, hamlet) = hamlet_with(0).await;
     reserve(&realm, &hamlet, ReservedAct::Hire).await;
     let task = chief_task(&realm, MAYOR).await;
@@ -553,9 +521,6 @@ async fn a_reserved_call_the_chief_refused_is_refused_again_unasked()
 
 #[tokio::test(flavor = "multi_thread")]
 async fn a_rewind_lapses_the_reserved_wait_of_its_conversation() {
-    // a hamlet whose limits reserve hire. The mayor's hire in
-    // conversation c waits; a rewind of c closes the wait, so a later
-    // allow finds nothing waiting and no hire is made.
     let (realm, hamlet) = hamlet_with(0).await;
     reserve(&realm, &hamlet, ReservedAct::Hire).await;
     realm

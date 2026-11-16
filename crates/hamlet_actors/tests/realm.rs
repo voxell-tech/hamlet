@@ -580,7 +580,7 @@ impl Realm {
             .any(|reach| reach.agent == agent)
     }
 
-    async fn rows<T>(
+    async fn stopped_rows<T>(
         &self,
         read: impl FnOnce(&Connection) -> rusqlite::Result<T>,
     ) -> T {
@@ -891,7 +891,7 @@ async fn purpose_of(
     agent: AgentNumber,
 ) -> Option<String> {
     realm
-        .rows(|db| {
+        .stopped_rows(|db| {
             db.query_row(
                 "SELECT purpose FROM hire WHERE agent = ?1",
                 [agent.0],

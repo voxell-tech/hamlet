@@ -364,8 +364,6 @@ pub(super) async fn set(
     let (budget_moved, sql, params) = match kept.0 {
         Row::Realm(limits) => {
             let was = stored(&rows).await?.unwrap_or_default();
-            // Every living agent's roads to other hamlets open or
-            // close with them.
             if was.roads_between != limits.roads_between {
                 affected.places = documents::living(&rows)
                     .await?

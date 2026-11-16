@@ -298,8 +298,6 @@ impl Look<Workspace> for Secrets {
             .filter(|value| !value.is_empty())
             .map(str::to_owned)
             .collect::<Vec<_>>();
-        // Longest first, so a value inside another is taken out after
-        // it.
         values.sort_by(|a, b| b.len().cmp(&a.len()).then(a.cmp(b)));
         values.dedup();
         SecretList {
@@ -328,8 +326,6 @@ impl Look<Agent> for Credential {
     }
 }
 
-/// Writes the file before it commits, so it runs outside `Act`. The
-/// transaction, begun first, makes keeps one at a time.
 impl Handler<KeepCredential> for Realm {
     async fn handle(
         self: Arc<Self>,
@@ -390,8 +386,6 @@ mod tests {
 
     const HIRE: AgentNumber = AgentNumber(2);
 
-    /// A reach read beside a keep, as `reach::push` reads it: one
-    /// under the keep's raised version asks for the kept secrets.
     #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
     async fn a_reach_asks_for_the_secrets_of_its_version() {
         let started = Started::new().await;

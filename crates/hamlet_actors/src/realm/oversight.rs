@@ -360,10 +360,6 @@ mod tests {
 
     #[tokio::test(flavor = "multi_thread")]
     async fn a_grant_reaches_the_next_reach() {
-        // agent 3 waits for a chief. A grant raises the reach of 3
-        // and of its worker, both with the network, and leaves the
-        // wait open; a second grant raises nothing. The chief's
-        // worker keeps its hamlet's footing.
         let started = with_workers().await;
         let before = reach_of(&started, STARTER).await.version;
         started
@@ -429,9 +425,6 @@ mod tests {
 
     #[tokio::test(flavor = "multi_thread")]
     async fn a_trust_holds_for_its_conversation_until_dropped() {
-        // a trust for edits, then for commands, adds up in agent 3's
-        // reach and never reaches its worker. A trust of nothing, a
-        // trust already held, or a drop of none, raises nothing.
         let started = with_workers().await;
         let conversation = || ConversationId("c".to_owned());
         let trust = |edits, commands| Change::Trust {

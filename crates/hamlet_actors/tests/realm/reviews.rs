@@ -139,7 +139,7 @@ fn answered(text: &str) -> Ended {
 
 async fn outcomes(realm: &Realm) -> Vec<Option<String>> {
     realm
-        .rows(|db| {
+        .stopped_rows(|db| {
             db.prepare("SELECT outcome FROM review ORDER BY task")?
                 .query_map([], |row| row.get(0))?
                 .collect()
@@ -150,7 +150,7 @@ async fn outcomes(realm: &Realm) -> Vec<Option<String>> {
 /// The open waits of 3: id, kind and subject.
 async fn waits_of_three(realm: &Realm) -> Vec<(i64, String, String)> {
     realm
-        .rows(|db| {
+        .stopped_rows(|db| {
             db.prepare(
                 "SELECT id, kind, subject FROM wait WHERE agent = \
                  ?1 AND closed_at IS NULL ORDER BY id",
@@ -165,10 +165,6 @@ async fn waits_of_three(realm: &Realm) -> Vec<(i64, String, String)> {
 
 #[tokio::test(flavor = "multi_thread")]
 async fn a_passed_line_reaches_the_hire_once_with_the_note() {
-    // the line is taken, and 3 is not given it while its lead, the
-    // mayor, reviews it in an errand on the line's task with today's
-    // words. A pass gives 3 the line once, with the lead's note; a
-    // second pass and the deadline give it nothing more.
     let deadline = Duration::from_secs(2);
     let (realm, _) = hamlet(deadline, Review::Always).await;
 
@@ -217,9 +213,6 @@ async fn a_passed_line_reaches_the_hire_once_with_the_note() {
 
 #[tokio::test(flavor = "multi_thread")]
 async fn an_objection_holds_the_line_past_the_deadline() {
-    // the lead objects: a wait for the chief on 3 shows the line and
-    // the objection, takes go or withdraw, and 3 is not given the
-    // line when the deadline passes.
     let deadline = Duration::from_secs(1);
     let (realm, _) = hamlet(deadline, Review::Always).await;
 
@@ -277,8 +270,6 @@ async fn objected(realm: &Realm) -> String {
 
 #[tokio::test(flavor = "multi_thread")]
 async fn an_objected_line_waits_for_go() {
-    // the lead objects; go gives 3 the line, once, with no note, and
-    // as today 3 hears nothing of the review.
     let (realm, _) =
         hamlet(Duration::from_secs(1), Review::Always).await;
 
@@ -286,8 +277,6 @@ async fn an_objected_line_waits_for_go() {
     let ruled =
         realm.ask(&answer(&wait, Choice::Go, None)).await.unwrap();
     let given = lines_until(&realm, THREE, 1).await;
-    // Reading the rows stops the realm, which first makes every
-    // delivery the go started.
     outcomes(&realm).await;
 
     assert_eq!(ruled, Done::Done);
@@ -298,9 +287,6 @@ async fn an_objected_line_waits_for_go() {
 
 #[tokio::test(flavor = "multi_thread")]
 async fn a_withdrawn_line_never_reaches_the_hire() {
-    // the lead objects and the chief withdraws the line: 3 is given
-    // neither the line nor a word of it, past the deadline and a
-    // restart.
     let deadline = Duration::from_secs(1);
     let (realm, _) = hamlet(deadline, Review::Always).await;
 
@@ -321,8 +307,6 @@ async fn a_withdrawn_line_never_reaches_the_hire() {
 
 #[tokio::test(flavor = "multi_thread")]
 async fn a_stop_does_not_wait_for_an_open_review() {
-    // a review waits for its errand, which takes a minute: the realm
-    // stops at once, and after its start the pass gives 3 the line.
     let (realm, _) =
         hamlet(Duration::from_secs(60), Review::Always).await;
     tells_three(&realm, "Plain line.").await;
@@ -341,8 +325,6 @@ async fn a_stop_does_not_wait_for_an_open_review() {
 
 #[tokio::test(flavor = "multi_thread")]
 async fn a_late_review_lets_the_line_through() {
-    // no answer from the errand: at the deadline 3 is given the line
-    // with no note, and the review is failed.
     let deadline = Duration::from_secs(1);
     let (realm, _) = hamlet(deadline, Review::Always).await;
     let said = Instant::now();
@@ -359,8 +341,6 @@ async fn a_late_review_lets_the_line_through() {
 
 #[tokio::test(flavor = "multi_thread")]
 async fn a_failed_review_lets_the_line_through() {
-    // the errand fails before the deadline: 3 is given the line with
-    // no note, and the review is failed.
     let (realm, _) =
         hamlet(Duration::from_secs(60), Review::Always).await;
 
@@ -383,9 +363,6 @@ async fn a_failed_review_lets_the_line_through() {
 
 #[tokio::test(flavor = "multi_thread")]
 async fn a_review_survives_a_restart_with_the_time_left() {
-    // the realm's host stops and starts again partway through the
-    // review: 3 is given the line once, when the first deadline
-    // passes, not a whole deadline after the start.
     let deadline = Duration::from_secs(4);
     let (realm, _) = hamlet(deadline, Review::Always).await;
     let said = Instant::now();
@@ -407,8 +384,6 @@ async fn a_review_survives_a_restart_with_the_time_left() {
 
 #[tokio::test(flavor = "multi_thread")]
 async fn the_first_of_the_answer_and_the_deadline_wins() {
-    // an objection after the deadline changes nothing; the deadline
-    // after a pass gives 3 nothing more.
     let deadline = Duration::from_secs(1);
     let (realm, _) = hamlet(deadline, Review::Always).await;
 
@@ -439,10 +414,6 @@ async fn the_first_of_the_answer_and_the_deadline_wins() {
 
 #[tokio::test(flavor = "multi_thread")]
 async fn only_a_led_hire_is_reviewed_as_the_limits_say() {
-    // a mayor has no lead, so a line to it is never reviewed. With
-    // `remote`, a lead with no model named or a model served on this
-    // machine does not review; one served from another machine does,
-    // on that model. With `never` no lead reviews.
     let (realm, hamlet) =
         hamlet(Duration::from_secs(60), Review::Always).await;
     let settings = async |set: Vec<Setting>| {
@@ -509,9 +480,6 @@ async fn only_a_led_hire_is_reviewed_as_the_limits_say() {
 
 #[tokio::test(flavor = "multi_thread")]
 async fn a_review_runs_on_the_leads_own_model() {
-    // the realm runs a model served on this machine; the chief gives
-    // the mayor, 3's lead, one served from another: with `remote` the
-    // mayor reviews, on its own model.
     let (realm, _) =
         hamlet(Duration::from_secs(60), Review::Remote).await;
     let edited = realm
@@ -567,7 +535,7 @@ async fn a_review_runs_on_the_leads_own_model() {
 /// The errands' ends: errand number and how it ended.
 async fn errands_ended(realm: &Realm) -> Vec<(u32, Option<String>)> {
     realm
-        .rows(|db| {
+        .stopped_rows(|db| {
             db.prepare("SELECT n, ended FROM errand ORDER BY n")?
                 .query_map([], |row| Ok((row.get(0)?, row.get(1)?)))?
                 .collect()
@@ -577,9 +545,6 @@ async fn errands_ended(realm: &Realm) -> Vec<(u32, Option<String>)> {
 
 #[tokio::test(flavor = "multi_thread")]
 async fn a_review_of_an_ended_hire_gives_nothing() {
-    // lines to 3 and to 4 wait for their reviews; a chief ends both
-    // hires. The lead passes 3's line and objects to 4's: neither
-    // hire is given its line, and no wait opens for a chief.
     let (realm, _) =
         hamlet(Duration::from_secs(60), Review::Always).await;
     tells_three(&realm, "Plain line.").await;
@@ -605,7 +570,7 @@ async fn a_review_of_an_ended_hire_gives_nothing() {
     ends(&realm, 1, answered("OBJECT: odd")).await;
     tokio::time::sleep(Duration::from_secs(1)).await;
     let open = realm
-        .rows(|db| {
+        .stopped_rows(|db| {
             db.query_row(
                 "SELECT COUNT(*) FROM wait WHERE closed_at IS NULL",
                 [],
@@ -626,9 +591,6 @@ async fn a_review_of_an_ended_hire_gives_nothing() {
 
 #[tokio::test(flavor = "multi_thread")]
 async fn a_hire_cannot_object_to_a_line_it_was_not_given() {
-    // 3 objects to the task of a line still in its review: refused,
-    // as it is no line 3 works on. The lead objects: the errand ends,
-    // and one objection waits for a chief, the review's.
     let (realm, _) =
         hamlet(Duration::from_secs(60), Review::Always).await;
     tells_three(&realm, "Odd line.").await;
@@ -672,9 +634,6 @@ async fn a_hire_cannot_object_to_a_line_it_was_not_given() {
 
 #[tokio::test(flavor = "multi_thread")]
 async fn a_failed_line_on_go_still_gives_the_held_letters() {
-    // the lead objects to 3's line and tells 4 a letter on its task,
-    // which is held. On go, giving 3 the line fails: 4 is given the
-    // letter all the same.
     let (realm, _) =
         hamlet(Duration::from_secs(60), Review::Always).await;
     let wait = objected(&realm).await;
@@ -701,8 +660,6 @@ async fn a_failed_line_on_go_still_gives_the_held_letters() {
         realm.seen.has_failed(Callee::Submit, THREE)
     })
     .await;
-    // Reading the rows stops the realm, which first makes every
-    // delivery the go started.
     outcomes(&realm).await;
     let letters = submits_to(&realm, FOUR)
         .into_iter()

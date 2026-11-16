@@ -158,7 +158,6 @@ pub(in crate::realm) async fn apply(
             fast,
             by,
         } => {
-            // The world shows an agent's own choice, not a hamlet's.
             let shown = match of {
                 Chosen::Agent(_) => {
                     let was = choice(&writer.rows(), &of).await?;
@@ -442,7 +441,6 @@ impl<By: Lead> Act<By> for SetModel {
                 }
             },
         };
-        // A lead's tool chooses only the model.
         let (effort, fast) = if by_chief {
             (self.effort, self.fast)
         } else {

@@ -293,8 +293,6 @@ async fn a_worker_step_finishes_at_the_realms_start() {
     })
     .await;
 
-    // A kill after the create and before its step was kept: the
-    // create is made again and finds the agent made.
     realm
         .write(
             "UPDATE step SET done = 'reach', closed = 0 WHERE kind \
@@ -315,7 +313,7 @@ async fn a_worker_step_finishes_at_the_realms_start() {
 
 async fn step_closed(realm: &Realm) -> bool {
     realm
-        .rows(|db| {
+        .stopped_rows(|db| {
             db.query_row(
                 "SELECT closed FROM step WHERE kind = 'worker' AND \
                  n = 4",
@@ -556,9 +554,6 @@ async fn a_workers_end_lapses_its_waits() {
 
 #[tokio::test(flavor = "multi_thread")]
 async fn a_chief_stops_a_worker_and_its_starter_hears_no_answer() {
-    // a chief's end on a worker stops it: its starter is told it gave
-    // no answer, the record keeps no decision on it, and its late
-    // answer is dropped.
     let (realm, hamlet) = hamlet_with(1).await;
     started_by_three(&realm, "w").await;
     made_until(&realm, FOUR).await;
@@ -650,8 +645,6 @@ async fn payer_read(
 
 #[tokio::test(flavor = "multi_thread")]
 async fn a_worker_pays_where_its_starter_works() {
-    // a worker has no standing task: it reads and opens tasks on its
-    // starter's hamlet.
     let (realm, hamlet) = hamlet_with(1).await;
     started_by_three(&realm, "w").await;
     made_until(&realm, FOUR).await;

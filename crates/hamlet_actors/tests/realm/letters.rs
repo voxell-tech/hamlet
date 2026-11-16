@@ -50,7 +50,7 @@ async fn a_repeated_tell_keeps_one_letter() {
     let reused = realm.tool(MAYOR, &changed).await;
     let submits = seen_submits(&realm, THREE, 2).await;
     let letters = realm
-        .rows(|db| {
+        .stopped_rows(|db| {
             db.prepare(
                 "SELECT kind, sender, receiver, way, text FROM \
                  letter",

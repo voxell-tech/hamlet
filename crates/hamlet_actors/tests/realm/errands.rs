@@ -294,7 +294,7 @@ async fn outcome(
     n: u32,
 ) -> (Option<String>, Option<String>) {
     realm
-        .rows(|db| {
+        .stopped_rows(|db| {
             db.query_row(
                 "SELECT ended, answer FROM errand WHERE n = ?1",
                 [n],
@@ -372,7 +372,7 @@ async fn an_errand_spends_under_its_cap() {
 
 async fn step_closed(realm: &Realm, n: u32) -> bool {
     realm
-        .rows(|db| {
+        .stopped_rows(|db| {
             db.query_row(
                 "SELECT closed FROM step WHERE kind = 'errand' AND \
                  n = ?1",

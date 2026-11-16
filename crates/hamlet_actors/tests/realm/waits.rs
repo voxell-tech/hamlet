@@ -74,7 +74,7 @@ async fn waits_of(
     agent: AgentNumber,
 ) -> Vec<(i64, bool, Option<String>)> {
     realm
-        .rows(|db| {
+        .stopped_rows(|db| {
             db.prepare(
                 "SELECT id, closed_at IS NULL, choice FROM wait \
                  WHERE agent = ?1 ORDER BY id",
@@ -322,7 +322,7 @@ fn footing(realm: &Realm, agent: AgentNumber) -> Footing {
 
 async fn kinds_of(realm: &Realm) -> Vec<(String, bool)> {
     realm
-        .rows(|db| {
+        .stopped_rows(|db| {
             db.prepare(
                 "SELECT kind, closed_at IS NULL FROM wait ORDER BY \
                  id",
@@ -335,7 +335,7 @@ async fn kinds_of(realm: &Realm) -> Vec<(String, bool)> {
 
 async fn ruling_of(realm: &Realm, wait: i64) -> Option<String> {
     realm
-        .rows(|db| {
+        .stopped_rows(|db| {
             db.query_row(
                 "SELECT ruling FROM wait WHERE id = ?1",
                 [wait],
@@ -347,7 +347,7 @@ async fn ruling_of(realm: &Realm, wait: i64) -> Option<String> {
 
 async fn kept_reaches(realm: &Realm) -> (i64, i64) {
     realm
-        .rows(|db| {
+        .stopped_rows(|db| {
             db.query_row(
                 "SELECT (SELECT count(*) FROM grant), (SELECT \
                  count(*) FROM trust)",
@@ -385,11 +385,6 @@ fn not_offered() -> Done<AnswerRefusal> {
 
 #[tokio::test(flavor = "multi_thread")]
 async fn an_always_on_the_network_writes_a_grant_before_the_answer() {
-    // a network wait of the Hand, while the workspace holds its
-    // set_reach. The chief answers always: Done, and nothing reaches
-    // the workspace while the Hand's new reach waits; once it is
-    // taken, the reach gives the network and the workspace gets
-    // Allow.
     let realm = Realm::start().await;
     realm.live(HAND).await;
     let network = asked("c1", Need::Network, None, "c");
@@ -428,9 +423,6 @@ async fn an_always_on_the_network_writes_a_grant_before_the_answer() {
 
 #[tokio::test(flavor = "multi_thread")]
 async fn an_always_is_refused_where_today_refuses_it() {
-    // a failed turn's wait and a question's wait offer no always:
-    // each is refused NotOffered and stays open, and nothing is
-    // granted or trusted. The fault is then dismissed.
     let realm = Realm::start().await;
     realm.live(HAND).await;
     let task = standing(&realm, HAND);
@@ -472,10 +464,6 @@ async fn an_always_is_refused_where_today_refuses_it() {
 
 #[tokio::test(flavor = "multi_thread")]
 async fn past_the_count_a_tool_wait_is_refused_unasked() {
-    // a hamlet whose limits allow 2 refusals. Its mayor's two
-    // commands on a chief's task are refused by the chief; a third on
-    // that task is refused at once with today's words, its wait kept
-    // closed; one on no task still waits.
     let (realm, hamlet) = hamlet_with(0).await;
     let limited = realm
         .ask(&Asked {
@@ -545,10 +533,6 @@ async fn past_the_count_a_tool_wait_is_refused_unasked() {
 
 #[tokio::test(flavor = "multi_thread")]
 async fn a_lapse_closes_the_conversations_waits() {
-    // two waits in conversation c, one in d, and a failed turn in c.
-    // A lapse of c as stopped closes the three of c and tells the
-    // workspace of its two tool waits; the wait in d stays open until
-    // a lapse of all, as rewound.
     let realm = Realm::start().await;
     realm.live(HAND).await;
     let task = standing(&realm, HAND);
@@ -611,9 +595,6 @@ async fn a_lapse_closes_the_conversations_waits() {
 
 #[tokio::test(flavor = "multi_thread")]
 async fn a_resumed_lapse_drops_the_conversations_trust() {
-    // the chief answers always to a command in conversation c: the
-    // Hand's reach trusts c with commands. A lapse of c as resumed
-    // pushes a reach without that trust and leaves a wait in c open.
     let realm = Realm::start().await;
     realm.live(HAND).await;
     realm
@@ -656,10 +637,6 @@ async fn a_resumed_lapse_drops_the_conversations_trust() {
 
 #[tokio::test(flavor = "multi_thread")]
 async fn a_second_always_answers_after_the_reach() {
-    // two network waits of the Hand. The chief answers always to the
-    // first while the workspace holds its set_reach, then always to
-    // the second, which grants nothing new: neither answer reaches
-    // the workspace before the reach is taken.
     let realm = Realm::start().await;
     realm.live(HAND).await;
     for call in ["c1", "c2"] {
@@ -722,10 +699,6 @@ async fn two_faults_open_two_waits() {
 
 #[tokio::test(flavor = "multi_thread")]
 async fn a_reset_budget_closes_the_budget_faults() {
-    // a failed turn for the budget and one for the model, both on the
-    // Hand's task, which the realm pays. A reset of a hamlet's budget
-    // closes neither; a reset of the realm's closes the budget's wait
-    // and leaves the model's open.
     let realm = Realm::start().await;
     realm.live(HAND).await;
     let hamlet = founded(&realm).await;
@@ -794,11 +767,6 @@ async fn the_chiefs_text_with_an_allow_is_kept() {
 
 #[tokio::test(flavor = "multi_thread")]
 async fn a_ruling_on_a_question_or_an_objection_is_a_notice() {
-    // on two chief's lines the Hand asks two questions and objects to
-    // each line, in conversation c, and a reserved act of its waits.
-    // A reply, a dismiss, a go with words, a withdraw and a deny each
-    // give the Hand a notice in c, in today's words; a reply with no
-    // words is refused.
     let realm = Realm::start().await;
     realm.live(HAND).await;
     let first = chief_task(&realm, HAND).await;
@@ -894,10 +862,6 @@ async fn a_ruling_on_a_question_or_an_objection_is_a_notice() {
 
 #[tokio::test(flavor = "multi_thread")]
 async fn a_request_the_chief_refused_is_refused_again_unasked() {
-    // on a chief's task the Hand is refused a command with no reason,
-    // and a network call. The same command again, and any network
-    // call, are refused at once with today's words; another command
-    // still waits.
     let realm = Realm::start().await;
     realm.live(HAND).await;
     let task = chief_task(&realm, HAND).await;
@@ -961,9 +925,6 @@ async fn a_request_the_chief_refused_is_refused_again_unasked() {
 #[tokio::test(flavor = "multi_thread")]
 async fn the_refusal_that_reaches_the_count_closes_the_tasks_other_waits()
  {
-    // four commands wait on a chief's task, and one on no task. The
-    // chief refuses three: the fourth of the task closes refused
-    // unasked and the workspace is told; the one on no task waits.
     let realm = Realm::start().await;
     realm.live(HAND).await;
     let task = chief_task(&realm, HAND).await;
@@ -1007,12 +968,6 @@ async fn the_refusal_that_reaches_the_count_closes_the_tasks_other_waits()
 
 #[tokio::test(flavor = "multi_thread")]
 async fn denied_reserved_calls_count_toward_the_tasks_refusals() {
-    // a hamlet whose limits allow 2 refusals and reserve hire. On a
-    // chief's task the chief denies one of the mayor's hires, and a
-    // command on the task waits; a second denied hire reaches the
-    // count, which closes the command's wait unasked. A third hire,
-    // and another command, on that task are refused at once with
-    // today's words.
     let (realm, hamlet) = hamlet_with(0).await;
     realm
         .ask(&Asked {

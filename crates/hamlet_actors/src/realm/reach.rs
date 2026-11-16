@@ -23,8 +23,6 @@ pub(super) async fn of(
     secrets: &secrets::Held,
 ) -> Result<SetReach> {
     let (version, _) = versions::reach(rows, agent).await?;
-    // A keep holds its secrets before it commits the raise, so those
-    // read after the version are at least the version's.
     let secrets = secrets.version();
     let worker = rows
         .row::<(Option<u32>, Option<String>)>(

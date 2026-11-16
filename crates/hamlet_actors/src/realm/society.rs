@@ -236,7 +236,6 @@ impl Act<Agent> for AgreeRoad {
                     hamlet: own.clone(),
                 })
                 .change(Change::Spent { a, b })
-                // Each mayor's half in its own hamlet's record.
                 .record(record::Entry::RoadAgreed {
                     a: here,
                     b: there,

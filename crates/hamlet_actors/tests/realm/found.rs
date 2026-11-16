@@ -37,7 +37,7 @@ async fn founding_makes_the_mayor_agent_2() {
     };
     assert_eq!(mayor, AgentNumber(2));
     let (decision, row) = realm
-        .rows(|db| {
+        .stopped_rows(|db| {
             let decision = db
                 .query_row(
                     "SELECT kind, hamlet, by FROM decision",
@@ -96,7 +96,9 @@ async fn a_repeated_found_founds_once() {
     assert_eq!(first, again);
     assert_eq!(error_code(other), "message.id_reused");
     let (hamlets, agents) = realm
-        .rows(|db| Ok((count(db, "hamlet")?, count(db, "agent")?)))
+        .stopped_rows(|db| {
+            Ok((count(db, "hamlet")?, count(db, "agent")?))
+        })
         .await;
     assert_eq!((hamlets, agents), (1, 2));
     realm.host.shutdown().await.unwrap();

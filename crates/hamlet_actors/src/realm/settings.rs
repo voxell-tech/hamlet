@@ -253,8 +253,6 @@ pub(super) async fn read(rows: &Rows<'_>) -> Result<Settings> {
     })
 }
 
-/// Keeps a chosen workspace in `credentials.json` before it commits,
-/// as `KeepCredential` does, so it runs outside `Act`.
 impl Handler<Asked<EditSettings>> for Realm {
     async fn handle(
         self: Arc<Self>,

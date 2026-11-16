@@ -410,8 +410,6 @@ mod tests {
 
     #[test]
     fn a_site_that_is_no_number_is_refused() {
-        // the host encodes no such number, so only the realm's own
-        // callers can send one.
         let moved = MoveHamlet {
             hamlet: HamletId("h".to_owned()),
             x: f64::NAN,

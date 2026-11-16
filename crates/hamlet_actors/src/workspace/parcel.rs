@@ -260,7 +260,6 @@ fn measure(
                     let mut entries = env
                         .list_dir(&full)
                         .map_err(failed(Path::new(&name)))?;
-                    // Reversed, so they come off the stack in order.
                     entries.sort_by(|a, b| b.name.cmp(&a.name));
                     for entry in entries {
                         if entry.kind == FileKind::Symlink {

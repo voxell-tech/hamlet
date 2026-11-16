@@ -107,11 +107,6 @@ async fn roads_between(realm: &Realm, allowed: bool) {
 
 #[tokio::test(flavor = "multi_thread")]
 async fn a_road_is_laid_when_both_mayors_agree() {
-    // the mayor 2 agrees a road from its hire 3 to the other
-    // hamlet's 5: waiting, and again waiting when it asks again. The
-    // mayor 4 agrees from its side: laid. The world shows the road,
-    // each hamlet's record keeps it, and a new agreement is refused
-    // `RoadExists`.
     let (realm, mill, kiln) = two_hamlets().await;
 
     let first =
@@ -157,7 +152,6 @@ async fn a_road_is_laid_when_both_mayors_agree() {
 
 #[tokio::test(flavor = "multi_thread")]
 async fn an_agreed_road_is_not_charged() {
-    // both mayors agree 3-5: neither hamlet spent anything.
     let (realm, mill, kiln) = two_hamlets().await;
 
     agreed_by(&realm, MAYOR, "a1", agree(THREE, FIVE)).await;
@@ -178,9 +172,6 @@ async fn an_agreed_road_is_not_charged() {
 
 #[tokio::test(flavor = "multi_thread")]
 async fn roads_between_off_refuses_an_agreement() {
-    // the chief allows no roads between hamlets: an agreement is
-    // refused `NoRoadsBetween` and none is kept, so once allowed
-    // again the other mayor's agreement alone lays no road.
     let (realm, _, _) = two_hamlets().await;
     roads_between(&realm, false).await;
 
@@ -198,10 +189,6 @@ async fn roads_between_off_refuses_an_agreement() {
 
 #[tokio::test(flavor = "multi_thread")]
 async fn a_letter_passes_only_after_both_agreed() {
-    // 3 tells 5 in the other hamlet: no road, nor after one mayor
-    // agreed; once both agreed, the letter passes. While the chief
-    // allows no roads between hamlets the agreed road carries none,
-    // and carries one again once allowed.
     let (realm, _, _) = two_hamlets().await;
 
     let before = told(&realm, "t1").await;
@@ -226,9 +213,6 @@ async fn a_letter_passes_only_after_both_agreed() {
 
 #[tokio::test(flavor = "multi_thread")]
 async fn an_agreement_is_refused_as_today() {
-    // a hire that is no mayor, two ends of one hamlet, the Hand as an
-    // end, the mayor 2 between hamlets 4 and 7, an end that left and
-    // an end that is no agent: each refused in today's words.
     let (realm, _, _) = two_hamlets().await;
     hires(&realm, MAYOR, "h1").await;
     realm.live(AgentNumber(6)).await;
@@ -297,9 +281,6 @@ async fn an_agreement_is_refused_as_today() {
 
 #[tokio::test(flavor = "multi_thread")]
 async fn an_agreed_road_is_taken_up_by_the_hand_and_agreed_anew() {
-    // a mayor leads no hire of the other hamlet, so it cannot take up
-    // the agreed road 3-5; the Hand can. The earlier agreements are
-    // spent: one mayor agreeing again is waiting, both again lay it.
     let (realm, _, _) = two_hamlets().await;
     agreed_by(&realm, MAYOR, "a1", agree(THREE, FIVE)).await;
     agreed_by(&realm, OTHER_MAYOR, "a1", agree(FIVE, THREE)).await;
@@ -339,9 +320,6 @@ async fn an_agreed_road_is_taken_up_by_the_hand_and_agreed_anew() {
 
 #[tokio::test(flavor = "multi_thread")]
 async fn a_request_road_with_no_reason_writes_todays_words() {
-    // 3 asks for a road to 4 with no reason, and 4 for one to 3 with
-    // a reason padded by spaces: the mayor reads today's words, the
-    // reason trimmed.
     let (realm, _) = hamlet_with(2).await;
     let nickname = SetNickname {
         hire: to(THREE),
@@ -386,8 +364,6 @@ async fn a_request_road_with_no_reason_writes_todays_words() {
 
 #[tokio::test(flavor = "multi_thread")]
 async fn a_request_road_to_an_ended_agent_is_refused() {
-    // the chief ends 4; 3's request for a road to it is refused as
-    // to no agent, and the mayor is given nothing.
     let (realm, _) = hamlet_with(2).await;
     let ended = chief(
         &realm,
@@ -445,9 +421,6 @@ fn place_has_road(
 
 #[tokio::test(flavor = "multi_thread")]
 async fn an_agreed_road_is_hidden_while_roads_between_are_off() {
-    // once both mayors agreed 3-5, the world shows the road and each
-    // end's place holds it. While the chief allows no roads between
-    // hamlets, neither does; allowed again, both do.
     let (realm, _, _) = two_hamlets().await;
     agreed_by(&realm, MAYOR, "a1", agree(THREE, FIVE)).await;
     agreed_by(&realm, OTHER_MAYOR, "a1", agree(FIVE, THREE)).await;

@@ -38,7 +38,7 @@ fn of_three() -> ModelOf {
 
 async fn nicknames(realm: &Realm) -> Vec<(u32, String)> {
     realm
-        .rows(|db| {
+        .stopped_rows(|db| {
             db.prepare(
                 "SELECT agent, name FROM nickname ORDER BY agent",
             )?
@@ -52,7 +52,7 @@ type Kept = (String, Option<String>, Option<String>, Option<bool>);
 
 async fn model_choices(realm: &Realm) -> Vec<Kept> {
     realm
-        .rows(|db| {
+        .stopped_rows(|db| {
             db.prepare(
                 "SELECT of, model, effort, fast FROM model_choice \
                  ORDER BY of",
@@ -72,8 +72,6 @@ async fn model_choices(realm: &Realm) -> Vec<Kept> {
 
 #[tokio::test(flavor = "multi_thread")]
 async fn a_nickname_is_set_and_cleared() {
-    // the mayor calls hire 3 " Spade "; 25 letters are refused, and
-    // hire 3 cannot name its lead. The chief clears it.
     let (realm, _) = hamlet_with(1).await;
 
     let set = realm
@@ -127,8 +125,6 @@ async fn a_nickname_is_set_and_cleared() {
 
 #[tokio::test(flavor = "multi_thread")]
 async fn a_model_choice_is_kept() {
-    // the chief picks hire 3's model and effort; the mayor may not
-    // change it, nor a hamlet's.
     let (realm, hamlet) = hamlet_with(1).await;
     let mayor = async |call: &str, act: SetModel| {
         realm.tool(MAYOR, &tool(call, act)).await.unwrap()
@@ -191,8 +187,6 @@ async fn a_model_choice_is_kept() {
 
 #[tokio::test(flavor = "multi_thread")]
 async fn a_choice_for_a_hire_that_left_is_refused_as_left() {
-    // the mayor ends hire 4, then sets its tools, its nickname and
-    // its model: each is refused naming how it left.
     let (realm, _) = hamlet_with(2).await;
     let ended = realm
         .tool(
@@ -305,9 +299,6 @@ async fn the_hand_takes_no_nickname_and_no_model() {
 
 #[tokio::test(flavor = "multi_thread")]
 async fn a_model_choice_keeps_the_parts_it_does_not_name() {
-    // the chief chooses hire 3's effort, the mayor its model, the
-    // chief its fast: each keeps the others. The chief chose no
-    // model, so the mayor may choose another.
     let (realm, _) = hamlet_with(1).await;
     let mayor = async |call: &str, model: &str| {
         let act = SetModel {
@@ -356,9 +347,6 @@ async fn a_model_choice_keeps_the_parts_it_does_not_name() {
 
 #[tokio::test(flavor = "multi_thread")]
 async fn a_leads_choice_changes_only_the_model() {
-    // the mayor's effort and fast are dropped: alone they change
-    // nothing and record nothing. The chief's effort and the
-    // hamlet's model are no agent's model, so they record nothing.
     let (realm, hamlet) = hamlet_with(1).await;
     let mayor = async |call: &str, act: SetModel| {
         realm.tool(MAYOR, &tool(call, act)).await.unwrap()

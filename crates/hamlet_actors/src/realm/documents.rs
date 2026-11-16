@@ -334,8 +334,6 @@ pub(super) async fn send(
     copied: Copied,
 ) -> Result<()> {
     let rows = Rows::outside(ctx)?;
-    // The version is read before the part, so a part never goes out
-    // under a version newer than its own.
     let version = version(&rows, copied.part).await?;
     let readers = match copied.readers {
         Readers::Living => living(&rows).await?,
@@ -440,8 +438,6 @@ impl Act<Client> for EditCatalogue {
     }
 }
 
-// The realm keeps no model listing, so any `provider::model` names
-// a model.
 fn catalogue_fault(edit: &EditCatalogue) -> Option<CatalogueRefusal> {
     let negative = edit.set.iter().any(|setting| {
         let CardSetting::Price { price: Some(price) } = setting

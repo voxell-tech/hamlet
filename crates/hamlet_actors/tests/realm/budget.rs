@@ -69,7 +69,7 @@ async fn a_charge_repeated_with_one_id_counts_once() {
         .unwrap();
     let spent = may_spend(&realm, MAYOR, &task).await;
     let rows = realm
-        .rows(|db| {
+        .stopped_rows(|db| {
             db.query_row(
                 "SELECT COUNT(*), SUM(micros) FROM charge WHERE \
                  call = 'c1'",

@@ -274,8 +274,6 @@ impl Route {
             (Some(asking::Holding::Dropped), _) => {
                 Self::Dropped(letter)
             }
-            // The parcel's steps hold the letter once its files are
-            // copied.
             (_, Some(parcel)) => {
                 changes.extend(parcel);
                 Self::Parcel(letter)

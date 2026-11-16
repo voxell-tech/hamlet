@@ -326,8 +326,6 @@ async fn an_answered_wait_leaves_the_world() {
 
 #[tokio::test(flavor = "multi_thread")]
 async fn a_wait_that_does_not_read_stops_the_realms_start() {
-    // a question wait with neither words nor detail, as no writer
-    // keeps it: the realm refuses to start.
     let (realm, _) = hamlet_with(1).await;
     let started = super::stopped_open(
         &realm.host,
@@ -435,11 +433,6 @@ async fn chief<A: ChiefRequest>(realm: &Realm, act: A) -> A::Answer {
 
 #[tokio::test(flavor = "multi_thread")]
 async fn the_world_shows_grants_waits_and_workers() {
-    // hire 3 is granted the network; it starts worker 4, and a chief
-    // starts worker 5 in the hamlet; the mayor names 3, the chief
-    // gives it a model and an allowance. The world shows each, and
-    // each commit moves the revision. A revoke takes the grant away,
-    // and worker 4's end shows it ended with its starter.
     let (realm, hamlet) = hamlet_with(1).await;
     let mut revisions = Vec::new();
 
@@ -574,11 +567,6 @@ async fn the_world_shows_grants_waits_and_workers() {
 
 #[tokio::test(flavor = "multi_thread")]
 async fn every_wait_kind_reads_in_the_world() {
-    // one open wait of each kind: a tool call, a question and an
-    // objection of hire 3's on a chief's line, a reserved hire, a
-    // failed turn and a parcel over the cap. The world shows each
-    // with its words and its kind as each commits, and again after a
-    // restart.
     let (realm, hamlet) = hamlet_with(1).await;
     realm.call_as_workspace(&needs(THREE, "c1")).await.unwrap();
     let said = realm
@@ -630,9 +618,6 @@ async fn every_wait_kind_reads_in_the_world() {
     };
     realm.tool(MAYOR, &failed).await.unwrap();
     let committed = realm.ask(&ReadWorld).await.unwrap();
-    // A parcel's wait needs a workspace that measures files, which
-    // these stand-ins do not: it is written as the parcel's step
-    // writes it.
     let mut sending = Vec::new();
     ciborium::into_writer(
         &Sending {
@@ -744,11 +729,6 @@ fn hex(bytes: &[u8]) -> String {
 
 #[tokio::test(flavor = "multi_thread")]
 async fn an_unrelated_commit_leaves_the_world_as_it_was() {
-    // hire 3 holds a grant, asks the chief a question, and its worker
-    // 4 has ended. The mayor tells 3 a letter, 3 asks again under the
-    // same call, 4 says it is done again, and a chief revokes a grant
-    // the mayor never held: none changes what the world shows, so the
-    // world is as it was, revision and all.
     let (realm, _) = hamlet_with(1).await;
     granted(&realm).await;
     let said = realm
@@ -925,10 +905,6 @@ fn failed(task: RealmTask) -> TurnFailed {
 
 #[tokio::test(flavor = "multi_thread")]
 async fn each_writer_moves_the_revision_only_with_the_world() {
-    // a walk through every writer the world reads, repeats and
-    // changes that show nothing among them: after each step the copy
-    // is a restart's read, and the revision moved only when what the
-    // world shows changed.
     let (mut realm, hamlet) = hamlet_with(1).await;
     let mut faults = Vec::new();
     let mut before = settled(&realm).await;

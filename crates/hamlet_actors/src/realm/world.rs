@@ -125,8 +125,6 @@ async fn rebuilt(
     if parts.contains(&Part::Agents) || parts.contains(&Part::Reaches)
     {
         world.agents = agents(rows).await?;
-        // A grant's change raises its agent's reach, and an agent's
-        // end hides its grants.
         world.grants = grants(rows).await?;
     }
     if parts.contains(&Part::Hamlets) {
