@@ -23,15 +23,15 @@ use bevy::ui_render::prelude::MaterialNode;
 use bevy::winit::{UpdateMode, WinitSettings};
 use bevy_cef::prelude::{
     AddressChanged, BeginFrameInterval, CefPlugin, CommandLineConfig,
-    PreloadScripts, RequestNavigate, WebviewHidden, WebviewProfile,
-    WebviewSource, WebviewTitle, WebviewUiMaterial,
+    PreloadScripts, RequestNavigate, WebviewClipboard, WebviewHidden,
+    WebviewProfile, WebviewSource, WebviewTitle, WebviewUiMaterial,
 };
 use bevy_fynix::dock::{DockTab, DockTree};
 use hamlet_client::ViewFolder;
 
 use super::agents::{AgentNames, Waits};
 use super::panel::{PanelId, Surface, has_page, is_panel, tab_name};
-use super::{Addresses, AgentTabs, bridge, engine};
+use super::{Addresses, AgentTabs, FILES, bridge, engine};
 use crate::dock::on_a_desk;
 
 /// The name of the chief's browsing session, which every Web panel of
@@ -230,6 +230,9 @@ fn open(world: &mut World) {
         }
         let agent =
             world.resource::<AgentTabs>().0.contains_key(&panel.0);
+        // The web IDE, the window's own, pastes what the chief
+        // copied.
+        let files = panel.0 == FILES;
         let material = world
             .resource_mut::<Assets<WebviewUiMaterial>>()
             .add(WebviewUiMaterial::default());
@@ -243,6 +246,9 @@ fn open(world: &mut World) {
             },
             MaterialNode(material),
         ));
+        if files {
+            page.insert(WebviewClipboard);
+        }
         // A page with no profile, as an agent's is, has a session of
         // its own, kept in memory.
         if agent {
