@@ -59,6 +59,11 @@ pub(super) async fn apply(
 ) -> Result<Affected> {
     let at = BindParam::Integer(writer.at().0);
     let (agent, changed) = match change {
+        Change::Trust {
+            edits: false,
+            commands: false,
+            ..
+        } => return Ok(Affected::default()),
         Change::Grant { agent, permission } => (
             agent,
             writer
@@ -402,8 +407,8 @@ mod tests {
     #[tokio::test(flavor = "multi_thread")]
     async fn a_trust_holds_for_its_conversation_until_dropped() {
         // a trust for edits, then for commands, adds up in agent 3's
-        // reach and never reaches its worker. A trust already held,
-        // or a drop of none, raises nothing.
+        // reach and never reaches its worker. A trust of nothing, a
+        // trust already held, or a drop of none, raises nothing.
         let started = with_workers().await;
         let conversation = || ConversationId("c".to_owned());
         let trust = |edits, commands| Change::Trust {
@@ -418,6 +423,7 @@ mod tests {
         };
         let both = vec![Push::Reach(STARTER), Push::Reach(WORKER)];
 
+        assert_eq!(pushes(&started, trust(false, false)).await, []);
         assert_eq!(pushes(&started, trust(true, false)).await, both);
         assert_eq!(pushes(&started, trust(true, false)).await, []);
         assert_eq!(pushes(&started, trust(false, true)).await, both);

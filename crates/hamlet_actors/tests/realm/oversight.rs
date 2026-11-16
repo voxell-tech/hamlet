@@ -1,7 +1,7 @@
 use hamlet_messages::realm::oversight::{
     Permission, Revoke, RevokeRefusal,
 };
-use hamlet_messages::realm::{Asked, Done, HamletId};
+use hamlet_messages::realm::{Asked, Done, End, HamletId};
 use hamlet_messages::sender::Hand;
 use hamlet_messages::workspace::reach::{
     Footing, Mode, Project, Reach, SecretsVersion, Trust,
@@ -11,7 +11,9 @@ use hamlet_messages::workspace::{
 };
 use hamlet_protocol::client::RequestId;
 
-use super::{FOUR, MAYOR, Realm, THREE, founded, hires, until};
+use super::{
+    FOUR, MAYOR, Realm, THREE, founded, hires, to, tool, until,
+};
 
 const FOLDER: &str = "/work/mill";
 
@@ -201,6 +203,48 @@ async fn a_worker_takes_its_starters_footing() {
                 trust: Vec::new(),
                 ..starter
             },
+        }
+    );
+    realm.host.shutdown().await.unwrap();
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn an_end_revokes_the_agents_grants() {
+    // agent 3 holds a grant and has a worker, 4. Its lead ends it:
+    // the worker's footing loses the network, and a revoke finds no
+    // grant.
+    let (realm, hamlet) = hamlet_in_a_folder().await;
+    trusted_hire(&realm).await;
+    realm
+        .write(&format!(
+            "INSERT INTO agent (id, kind, status, at) VALUES (4, \
+             'worker', 'live', 0); INSERT INTO worker (agent, \
+             starter, hamlet, brief, tools, task, at) VALUES (4, 3, \
+             '{}', 'Count the links', '[]', 1, 0)",
+            hamlet.0
+        ))
+        .await;
+    let end = End {
+        hire: to(THREE),
+        why: None,
+    };
+
+    let ended = realm.tool(MAYOR, &tool("e1", end)).await.unwrap();
+    until("the worker's reach has no network", || {
+        held(&realm, FOUR).is_some_and(|set| {
+            set.reach
+                .footing()
+                .is_some_and(|footing| !footing.network)
+        })
+    })
+    .await;
+    let revoked = realm.ask(&revoke(THREE)).await.unwrap();
+
+    assert_eq!(ended, Done::Done);
+    assert_eq!(
+        revoked,
+        Done::Refused {
+            why: RevokeRefusal::NoGrant { agent: THREE }
         }
     );
     realm.host.shutdown().await.unwrap();
