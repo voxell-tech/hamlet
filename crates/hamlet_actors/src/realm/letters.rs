@@ -182,17 +182,14 @@ async fn letter_input(
         .await?
         .with_context(|| format!("no letter {}", letter.0))?;
     let from = author(sender);
+    let files = parcels::files(rows, letter).await?;
     let input = match change::from_case_name::<Kind>(kind)? {
-        Kind::Letter => Input::Letter {
-            from,
-            text,
-            files: Vec::new(),
-        },
+        Kind::Letter => Input::Letter { from, text, files },
         Kind::Question => Input::Question {
             letter,
             from,
             text,
-            files: Vec::new(),
+            files,
         },
     };
     let submit = Submit {

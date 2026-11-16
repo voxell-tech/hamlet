@@ -190,7 +190,7 @@ impl Actor for Realm {
         Tool<AgreeRoad>,
         Looks<Credential>,
         KeepCredential,
-        Bare<FetchPart>,
+        FetchPart,
     );
     type Events = ();
     type ConnParams = Option<Caller>;
@@ -221,6 +221,7 @@ impl Actor for Realm {
     }
 
     async fn on_start(self: Arc<Self>, ctx: Ctx<Self>) -> Result<()> {
+        parcels::sweep(&self, &ctx).await?;
         let rows = change::Rows::outside(&ctx)?;
         steps::undone(&rows, &self.drives).await?.start(&self, &ctx);
         Ok(())
