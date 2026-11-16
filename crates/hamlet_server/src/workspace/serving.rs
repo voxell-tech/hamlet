@@ -19,7 +19,7 @@ use hamlet_store::ids::AgentId;
 
 use super::lodges::{self, Synced};
 use super::{Policy, Session, Transport, workspace_of};
-use crate::background::BackgroundResult;
+use crate::app::tasks::BackgroundResult;
 use crate::clients::check::reply;
 use crate::core::{Core, RemoteWorkspace, UnpushedLodge};
 use crate::jobs::Job;

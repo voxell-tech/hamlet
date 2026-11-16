@@ -13,7 +13,7 @@ use hamlet_store::schema::{
     attempt, budget_reset, road_charge, usage,
 };
 
-use crate::clock;
+use crate::app::clock;
 use crate::society::agents::AgentKind;
 use crate::society::limits::{self, Budget, Micros, Period};
 use crate::society::{agents, hires, tree, workers};

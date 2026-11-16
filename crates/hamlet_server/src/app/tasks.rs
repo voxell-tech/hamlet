@@ -19,11 +19,11 @@ use hamlet_protocol::client::{
 };
 use hamlet_protocol::runtime::RuntimeMessage;
 
+use super::input::{InputMessage, InputSender};
 use crate::calls::CallId;
 use crate::calls::looks::Found;
 use crate::core::{Core, UnpushedLodge};
 use crate::runtimes::handlers;
-use crate::server::{InputMessage, InputSender};
 
 /// Where tasks send their results, as inputs, and the system that
 /// takes them in.

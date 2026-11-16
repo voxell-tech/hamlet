@@ -26,10 +26,10 @@ use hamlet_store::ids::ConversationId;
 use hamlet_store::schema::runtime;
 
 use self::process::{Launch, Pi, Process, Received};
+use crate::app::input::InputSender;
+use crate::app::timers::AddTimer;
 use crate::layout::Layout;
 use crate::realm::Realm;
-use crate::server::InputSender;
-use crate::timers::AddTimer;
 
 pub(crate) fn plugin(app: &mut bevy_app::App) {
     app.init_resource::<leases::Authority>()

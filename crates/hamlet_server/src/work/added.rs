@@ -23,11 +23,11 @@ use serde::Deserialize;
 use serde_json::{Map, Value, json};
 use tokio::sync::mpsc;
 
+use crate::app::follow_up::InputEffects;
+use crate::app::input::{AddHandler, InputSender};
 use crate::core::{Catalogue, ModelTools};
-use crate::follow_up::InputEffects;
 use crate::realm::Realm;
 use crate::runtimes::Runtimes;
-use crate::server::{AddHandler, InputSender};
 use crate::work::tools::{Network, Outcome, diagnostic};
 
 /// A loaded manifest and the program its tool runs.

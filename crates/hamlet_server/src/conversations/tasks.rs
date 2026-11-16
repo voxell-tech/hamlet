@@ -160,7 +160,7 @@ pub(crate) fn protects(
     if working > 0 || minutes <= 0 {
         return Ok(working > 0);
     }
-    let since = at - crate::clock::minutes(minutes);
+    let since = at - crate::app::clock::minutes(minutes);
     let recent = input::table
         .inner_join(conversation::table)
         .inner_join(task::table)

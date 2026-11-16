@@ -183,7 +183,7 @@ fn hire(
             off.join(", ")
         ));
     }
-    let since = crate::clock::now() - own.told_days * 86_400_000;
+    let since = crate::app::clock::now() - own.told_days * 86_400_000;
     let decided = record::lines(db, &found.hamlet, since)?;
     let decided =
         decided.lines().rev().take(MOST_TOLD).collect::<Vec<_>>();

@@ -373,7 +373,7 @@ impl Core<'_, '_> {
     ) -> Done<String> {
         let identity = call.call.identity();
         let request = &call.request;
-        let split = crate::fault::is_marker_split();
+        let split = crate::app::fault::is_marker_split();
         let made = self.attempt(
             Actor::Agent(call.conversation.agent),
             |cx, env| {
@@ -399,7 +399,7 @@ impl Core<'_, '_> {
         // with its answer at the input's end, or apart from it.
         if split {
             hamlet_store::commit(self.realm.store().connection())?;
-            crate::fault::point("carried");
+            crate::app::fault::point("carried");
         } else {
             self.changed.crash_test_fault_point = Some("carried");
         }
@@ -416,7 +416,7 @@ impl Core<'_, '_> {
             db,
             call.call.identity(),
             &call.request,
-            crate::clock::now(),
+            crate::app::clock::now(),
         )
     }
 
@@ -642,7 +642,7 @@ fn budget(
     db: &mut hamlet_store::Db,
     agent: AgentId,
 ) -> Result<String> {
-    let at = crate::clock::now();
+    let at = crate::app::clock::now();
     let payer = crate::conversations::tasks::payer_of(db, agent)?;
     let report = spend::report(db, payer.as_ref(), at)?;
     let mut lines = vec![report.summary];

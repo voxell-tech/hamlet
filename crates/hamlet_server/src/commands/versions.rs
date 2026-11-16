@@ -77,7 +77,7 @@ impl Core<'_, '_> {
             &note.join(" "),
             Author {
                 name: &by,
-                at: crate::clock::now(),
+                at: crate::app::clock::now(),
             },
         )?;
         let label = addresses::scholar_name_of(
@@ -217,7 +217,7 @@ impl Core<'_, '_> {
             ),
             Author {
                 name: &author,
-                at: crate::clock::now(),
+                at: crate::app::clock::now(),
             },
         )?;
         drop(held);

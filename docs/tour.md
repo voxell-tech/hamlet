@@ -19,17 +19,17 @@ Window / terminal -- client protocol --> hamlet_server -- runtime protocol --> p
 
 The server is a Bevy app with no frame
 ([ADR 0015](adr/0015-the-server-runs-as-a-bevy-app-with-no-frame.md)): its runner sleeps until
-an input comes and updates the app once for it (`server.rs`). A typed line
+an input comes and updates the app once for it (`app/runner.rs`). A typed line
 is read into a request of its kind and reaches the system for that kind
 (`clients/handlers.rs`). A line that begins with `/` is a command, run by the
 system it was added with (`commands.rs`); other words become a kept input of
 the agent's chat (`conversations/chats.rs`). Every change an input makes is in its one
 transaction, which also keeps the jobs its changes need; `PostUpdate` keeps it
-(`follow_up.rs`), follows the inputs that ended, runs the jobs and starts the
+(`app/follow_up.rs`), follows the inputs that ended, runs the jobs and starts the
 tool runs, and `Last` sends the runtimes what they are owed and the clients
 the state, then their replies. A handler never
 awaits: what awaits runs on a task whose result comes back as an input
-(`background.rs`). Pi asks the server for its prompt, tool permissions and
+(`app/tasks.rs`). Pi asks the server for its prompt, tool permissions and
 model budget. The server checks calls again when executing them, including
 replayed calls. Kept harness updates feed watched transcripts and the
 server's state. `hamlet_client` turns `state`, `change`, `transcript` and
@@ -160,7 +160,7 @@ and same-named directory rather than `mod.rs`. Most domain APIs are
 internal; the crate exports only `serve`. Its unit tests sit beside their
 modules, on an in-memory or scratch database and scratch repositories
 (`testing.rs` holds what several share). The `faults` feature compiles the
-points where a test can kill the server (`fault.rs`), and `harness` the tests
+points where a test can kill the server (`app/fault.rs`), and `harness` the tests
 that start the pi harness; both are for tests only. The `crashes` target,
 `tests/crashes/`, starts the server built with them, kills it at each point
 and serves the realm again; `remote.rs` there serves a realm in a loopback
@@ -168,9 +168,10 @@ double of the remote workspace worker.
 
 | Module | Responsibility and interface |
 |---|---|
-| `lib.rs`, `options.rs` | The way in: `create_app`, which makes the app `main` runs from the `Options` read from the command line, inserts them as a resource and adds `bevy_log`'s `LogPlugin`, the order of the `FollowUpSystems` in `PostUpdate` and the `SendSystems` in `Last`, every area's plugin and the runner. The crate's first comment says in which order to read the rest |
-| `runner.rs`, `shutdown.rs`, `realm.rs`, `claim.rs`, `layout.rs` | `runner` is the app's runner; it updates the app a first time, then runs its inputs until the app exits; a signal is an input that asks it to stop. `shutdown.rs` is how it stops: the `Serving` state goes from `Open` to `Closing` (no new client, every connection closed, every sign-in ended, a credential rotation begun given 15 s) to `Stopping` (tool runs ended, runtimes stopped), and then the app exits. `Realm::open` claims a folder, opens its `Store`, checks the `realm.id` pair, and makes a new realm with its first chief and its Hand. `Layout` names every path of the realm's folder |
-| `server.rs`, `core.rs`, `startup.rs`, `follow_up.rs`, `background.rs`, `timers.rs` | Everything that wakes the server (a runtime's line, a client's message or connection, a tool run that ended, a task that finished, the jobs runner's pass, a change to the tools added by hand) sends its message through the one `InputSender`; `Server` takes each `Input`, or a timer that came due, writes its message and updates the app once, in one transaction; it logs what failed, and only a `Fatal` error stops it. A connection holds at most a few of its messages waiting, so a client that floods slows only itself. `add_handler` adds an area's system for one kind of input message, and `InputMessage` takes that message; `InputOrigin` names who is told when an input fails. Each area's plugin inserts the resources it keeps. `Core` is the realm's live state as handlers reach it, a `SystemParam` of the world's resources and queries, some grouped as params of their own (`ModelTools`, `RemoteWorkspace`, `Uploads`) that narrower systems take alone, with `change` and `attempt` (the second rolling back a refusal, its result a `Done`). `startup.rs` is the first update: `PreStartup` opens the sandbox, the realm, the credentials, the providers, the jobs runner, the harness, the watch on the tools added by hand, the clients and the listener, each a resource; `Startup` starts them; and `server.json` is published once the update is over; `follow_up.rs` those of `PostUpdate` and `Last`: the input kept or rolled back and its sender told, then followed, with the observers that follow an input that ended, and what it queued sent; `background.rs` runs what awaits on tasks; `timers.rs` the timers each area adds |
+| `lib.rs` | The way in: `create_app`, which makes the app `main` runs from the `Options` (`app/options.rs`) read from the command line, inserts them as a resource and adds `bevy_log`'s `LogPlugin`, the order of the `FollowUpSystems` in `PostUpdate` and the `SendSystems` in `Last`, every area's plugin and the runner. The crate's first comment says in which order to read the rest |
+| `realm.rs`, `claim.rs`, `layout.rs` | `Realm::open` claims a folder, opens its `Store`, checks the `realm.id` pair, and makes a new realm with its first chief and its Hand. `Layout` names every path of the realm's folder |
+| `app.rs`, `app/` | The server's app shell; `app::plugin` adds its plugins. `input.rs`: everything that wakes the server (a runtime's line, a client's message or connection, a tool run that ended, a task that finished, the jobs runner's pass, a change to the tools added by hand) sends its message through the one `InputSender`; a connection holds at most a few of its messages waiting, so a client that floods slows only itself. `add_handler` adds an area's system for one kind of input message, and `InputMessage` takes that message; `InputOrigin` names who is told when an input fails. `runner.rs`: the app's runner updates the app a first time, then `Server` takes each `Input`, or a timer that came due, writes its message and updates the app once, in one transaction, until the app exits; a signal is an input that asks it to stop. `failure.rs`: it logs what failed, and only a `Fatal` error stops it. `shutdown.rs` is how it stops: the `Serving` state goes from `Open` to `Closing` (no new client, every connection closed, every sign-in ended, a credential rotation begun given 15 s) to `Stopping` (tool runs ended, runtimes stopped), and then the app exits. `startup.rs` is the first update: `PreStartup` opens the sandbox, the realm, the credentials, the providers, the jobs runner, the harness, the watch on the tools added by hand, the clients and the listener, each a resource; `Startup` starts them; and `server.json` is published once the update is over; `follow_up.rs` those of `PostUpdate` and `Last`: the input kept or rolled back and its sender told, then followed, with the observers that follow an input that ended, and what it queued sent; `tasks.rs` runs what awaits on tasks; `timers.rs` the timers each area adds; `options.rs` what the server is started with; `clock.rs` the clock; `fault.rs` the fault points |
+| `core.rs` | Each area's plugin inserts the resources it keeps. `Core` is the realm's live state as handlers reach it, a `SystemParam` of the world's resources and queries, some grouped as params of their own (`ModelTools`, `RemoteWorkspace`, `Uploads`) that narrower systems take alone, with `change` and `attempt` (the second rolling back a refusal, its result a `Done`) |
 | `change.rs`, `jobs.rs` | `Change`, a change in progress: its transaction, its time, its actor and what it touched. `Job` names each effect a change keeps for after its commit |
 | `society.rs`, `society/` | The society's domain functions, each taking a `Change`: `agents` (what every agent has), `chiefs`, `hand`, `city` (scholars), `hamlets`, `hires`, `tree`, `workers`, `roads`, `merges`, `dreams`, `library`, `record` (decisions), `limits`, `addresses`, `names` and `authority`, the one place that says who may do what. A refusal is a `Refusal`, in words for a chief or an agent |
 | `knowledge.rs`, `knowledge/` | What agents know, on disk: `run.rs` and `worker.rs` run the jobs on a thread of their own with a connection of their own (plant, lodge, commit, take-in, erase); `folder.rs` is a folder held open and reached without following links; `merging.rs`, `dreaming.rs` and `library.rs` are the repositories' side of merging hires, dreams and the library |
@@ -190,7 +191,6 @@ double of the remote workspace worker.
 | `terminals.rs`, `terminals/` | `Terminals`: shells on pseudo-terminals, for the connections that watch them, and each agent's read-only commands terminal, which the shell tool prints to through a `Feed`; closed when their agent ends or their hamlet goes. What they print comes back as one input per batch, and a watcher that fell behind is drawn again on a timer. `screen.rs`, each one's `vt100` screen, the bytes that redraw it, its last command and whether one is running; `shell.rs`, starting the chief's unsandboxed shell; `chief.rs`, the system for the chief's `terminal` requests; `persistence.rs`, `restore`, which opens again at start under `terminals/` what the last stop kept |
 | `workspace.rs`, `workspace/` | The remote workspace: each agent's session there (`serving.rs`) and a lodge's copy kept in step with the server's (`lodges.rs`) |
 | `providers.rs`, `providers/`, `credentials.rs`, `settings.rs` | The model catalogue, each listed model read into a `Listing` (`listing.rs`), and provider requests, sign-ins, the atomic credentials file and secret removal, and the realm's settings with the process's overrides |
-| `diagnostic.rs`, `clock.rs`, `fault.rs` | The words for a panic; the clock; the fault points |
 
 `realm.sqlite` holds server-owned records, chief documents, runtimes,
 conversations, inputs, waits, charges, markers and jobs. It does not hold

@@ -9,6 +9,7 @@ use chrono::Timelike;
 use hamlet_git::{MAIN, Repository};
 use hamlet_store::ids::{Actor, AgentId, DreamId, ScholarId};
 
+use crate::app::timers::AddTimer;
 use crate::change::Done;
 use crate::conversations::inputs::{self, InputKind, Keep};
 use crate::conversations::marks::Mark;
@@ -20,7 +21,6 @@ use crate::runtimes;
 use crate::society::dreams::{self, DreamKind, Outcome};
 use crate::society::refusal::Refusal;
 use crate::society::{addresses, agents, city, hand, hires};
-use crate::timers::AddTimer;
 
 /// The least time between two dreams of one hire.
 const HIRE_REST: i64 = 6 * 3_600_000;
@@ -54,7 +54,9 @@ impl Core<'_, '_> {
         if !dreams.on {
             return Ok(());
         }
-        let hour = crate::clock::local(crate::clock::now())?.hour();
+        let hour =
+            crate::app::clock::local(crate::app::clock::now())?
+                .hour();
         let (from, to) =
             (u32::from(dreams.hours.0), u32::from(dreams.hours.1));
         let in_hours = if from <= to {
@@ -78,7 +80,7 @@ impl Core<'_, '_> {
     /// The dreamer most due, if one is.
     fn due(&mut self) -> Result<Option<Dreamer>> {
         let layout = self.realm.layout().clone();
-        let now = crate::clock::now();
+        let now = crate::app::clock::now();
         let db = self.realm.store().connection();
         for agent in agents::all_hires(db)? {
             let found = agents::get(db, agent)?;
@@ -228,8 +230,12 @@ impl Core<'_, '_> {
         let writing = self.writing.clone();
         let held = writing.hold();
         let db = self.realm.store().connection();
-        let ready =
-            dreaming::prepare(db, &layout, id, crate::clock::now())?;
+        let ready = dreaming::prepare(
+            db,
+            &layout,
+            id,
+            crate::app::clock::now(),
+        )?;
         drop(held);
         let db = self.realm.store().connection();
         if !ready {
@@ -239,7 +245,7 @@ impl Core<'_, '_> {
                 Outcome::Nothing,
                 None,
                 None,
-                crate::clock::now(),
+                crate::app::clock::now(),
             )?;
             return Ok(None);
         }

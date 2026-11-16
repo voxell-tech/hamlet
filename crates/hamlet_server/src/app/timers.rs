@@ -12,7 +12,7 @@ use bevy_ecs::resource::Resource;
 use bevy_ecs::system::{IntoSystem, SystemId};
 use bevy_ecs::world::World;
 
-use crate::server::AddHandler;
+use super::input::AddHandler;
 
 /// A due timer runs as the input that fired it.
 pub(crate) fn plugin(app: &mut App) {

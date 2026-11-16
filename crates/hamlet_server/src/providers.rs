@@ -25,6 +25,7 @@ use hamlet_store::schema::document;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
+use crate::app::timers::AddTimer;
 use crate::change::Done;
 use crate::clients::check::reply;
 use crate::core::Core;
@@ -33,7 +34,6 @@ use crate::layout::Layout;
 use crate::settings::Settings;
 use crate::society::agents::Effort;
 use crate::society::refusal::Refusal;
-use crate::timers::AddTimer;
 
 mod listing;
 
@@ -845,7 +845,7 @@ impl Core<'_, '_> {
         crate::settings::keep(
             db,
             &settings,
-            crate::clock::now(),
+            crate::app::clock::now(),
             None,
         )?;
         self.env.settings.link = settings.link;
@@ -1243,7 +1243,7 @@ fn keep_catalogue(db: &mut Db, cards: &Catalogue) -> Result<()> {
         .values((
             document::kind.eq("catalogue"),
             document::value.eq(serde_json::to_string(cards)?),
-            document::at.eq(crate::clock::now()),
+            document::at.eq(crate::app::clock::now()),
         ))
         .execute(db)?;
     Ok(())

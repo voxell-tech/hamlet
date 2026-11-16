@@ -542,7 +542,7 @@ impl Core<'_, '_> {
                 })
             }
             None => {
-                self.clients.state_epoch = crate::clock::now();
+                self.clients.state_epoch = crate::app::clock::now();
                 self.clients.state_revision = 0;
                 let mut whole = state.clone();
                 whole.epoch = self.clients.state_epoch;
@@ -626,7 +626,7 @@ impl Core<'_, '_> {
             &sources,
             self.clients.state_epoch,
             self.clients.state_revision,
-            crate::clock::now(),
+            crate::app::clock::now(),
         )
     }
 

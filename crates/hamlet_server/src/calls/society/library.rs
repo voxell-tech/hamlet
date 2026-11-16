@@ -183,7 +183,7 @@ impl Core<'_, '_> {
             &layout,
             id.0,
             &files,
-            crate::clock::now(),
+            crate::app::clock::now(),
         )?;
         let db = self.realm.store().connection();
         shelf::kept(db, id, &tree.to_string())?;

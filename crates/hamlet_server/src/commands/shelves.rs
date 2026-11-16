@@ -22,7 +22,7 @@ impl Core<'_, '_> {
         let chief = self.realm.chief();
         let layout = self.realm.layout().clone();
         let by = Actor::Chief(chief).to_string();
-        let at = crate::clock::now();
+        let at = crate::app::clock::now();
         let message = if reason.is_empty() {
             format!("Took {skill} off the shelves")
         } else {

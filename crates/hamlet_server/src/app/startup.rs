@@ -28,25 +28,26 @@ use hamlet_sandbox::Sandbox;
 use hamlet_store::ids::Actor;
 use serde_json::json;
 
+use super::clock;
+use super::input::InputSender;
+use super::options::Options;
+use crate::SendSystems;
 use crate::clients::{Clients, Listening};
 use crate::conversations::completion::follow;
 use crate::conversations::inputs;
 use crate::core::{Confined, Core, Workspace};
 use crate::credentials::{Credentials, write_whole};
 use crate::knowledge::worker::{RepositoryWriteLock, Runner};
-use crate::options::Options;
 use crate::providers::Providers;
 use crate::realm::Realm;
 use crate::runtimes::process::Pi;
 use crate::runtimes::{self, Harness, Runtimes};
-use crate::server::InputSender;
 use crate::settings::{self, EffectiveSettings, Overrides};
 use crate::society::agents;
 use crate::terminals::{Terminals, persistence};
 use crate::work::added::{self, AddedToolsWatch};
 use crate::work::tools::shell::Shells;
 use crate::workspace::Transport;
-use crate::{SendSystems, clock};
 
 pub(crate) fn plugin(app: &mut App) {
     app.add_systems(
@@ -71,7 +72,7 @@ pub(crate) fn plugin(app: &mut App) {
             persistence::restore,
             start_runtimes,
             added::reload,
-            crate::follow_up::narrow_tools_to_roles,
+            super::follow_up::narrow_tools_to_roles,
             start_providers,
             follow_unfollowed,
         )

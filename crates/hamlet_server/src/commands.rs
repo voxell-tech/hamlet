@@ -18,10 +18,10 @@ use hamlet_git::Repository;
 use hamlet_protocol::client::{self as protocol, Choice};
 use hamlet_store::ids::{Actor, AgentId, HamletId, ScholarId};
 
+use crate::app::input::AddHandler;
 use crate::change::Done;
 use crate::clients::handlers::FromClient;
 use crate::core::Core;
-use crate::server::AddHandler;
 use crate::society::addresses::{self, Reach};
 use crate::society::agents::{self, AgentKind};
 use crate::society::hires::{self, Hiring};

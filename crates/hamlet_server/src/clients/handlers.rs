@@ -20,9 +20,9 @@ use tokio::net::TcpStream;
 use super::check::{fault, reply};
 use super::connection::Event;
 use super::{Clients, Connections};
+use crate::app::input::{AddHandler, InputMessage, InputOrigin};
 use crate::commands::ChiefCommand;
 use crate::core::Core;
-use crate::server::{AddHandler, InputMessage, InputOrigin};
 use crate::society::refusal::Refusal;
 
 pub(crate) fn plugin(app: &mut App) {
@@ -122,7 +122,7 @@ fn take_in_client_event(
         client,
         request: message.id().cloned(),
     };
-    crate::fault::panic_at("request");
+    crate::app::fault::panic_at("request");
     write(&mut commands, client, message);
     Ok(())
 }

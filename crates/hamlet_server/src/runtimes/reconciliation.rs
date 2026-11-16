@@ -17,14 +17,14 @@ use hamlet_store::Db;
 use hamlet_store::ids::ConversationId;
 
 use super::{Pending, Runtimes};
+use crate::app::failure;
+use crate::app::follow_up::InputEffects;
+use crate::app::input::{AddHandler, InputMessage, InputSender};
 use crate::conversations::inputs::{self, Input, Resend};
 use crate::conversations::{self, Conversation, models};
-use crate::diagnostic;
-use crate::follow_up::InputEffects;
 use crate::images::Limits;
 use crate::images::fitting::pictures;
 use crate::providers::Providers;
-use crate::server::{AddHandler, InputMessage, InputSender};
 use crate::settings::EffectiveSettings;
 
 /// The fitting of images, whose results come back as inputs.
@@ -140,7 +140,7 @@ impl ImageFitting<'_, '_> {
             .unwrap_or_else(|panic| {
                 error!(
                     "fitting images failed: {}",
-                    diagnostic::panicked(&*panic)
+                    failure::panicked(&*panic)
                 );
                 Vec::new()
             });

@@ -15,8 +15,8 @@ use serde::{Deserialize, Serialize};
 use super::Terminals;
 use super::screen::lock;
 use super::shell::relaunch;
+use crate::app::input::InputSender;
 use crate::realm::Realm;
-use crate::server::InputSender;
 use crate::society::agents::{self, AgentKind};
 use crate::society::hamlets;
 

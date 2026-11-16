@@ -192,7 +192,7 @@ impl Core<'_, '_> {
             &note,
             Author {
                 name: &by,
-                at: crate::clock::now(),
+                at: crate::app::clock::now(),
             },
         )?;
         Ok(Ok(format!("Tagged {name}'s main as {tag}.")))
@@ -222,7 +222,7 @@ impl Core<'_, '_> {
             &format!("Reverted: {reason}"),
             Author {
                 name: &author,
-                at: crate::clock::now(),
+                at: crate::app::clock::now(),
             },
         )?;
         drop(held);

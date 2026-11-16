@@ -37,14 +37,14 @@ use tokio::task::AbortHandle;
 
 use self::screen::{LAST, Screen, lock};
 use self::shell::{Key, Launch, start};
+use crate::app::follow_up::InputEffects;
+use crate::app::input::{AddHandler, InputMessage, InputSender};
+use crate::app::shutdown::Serving;
+use crate::app::timers::AddTimer;
 use crate::calls::place::Workplace;
 use crate::clients::Connections;
 use crate::clients::handlers::FromClient;
 use crate::core::Core;
-use crate::follow_up::InputEffects;
-use crate::server::{AddHandler, InputMessage, InputSender};
-use crate::shutdown::Serving;
-use crate::timers::AddTimer;
 
 /// Messages a connection's queue keeps free before a terminal's
 /// output to it is skipped, to be caught up with later.

@@ -12,7 +12,7 @@ use tokio::process::{Child, Command};
 use tokio::sync::mpsc::{self, UnboundedSender};
 
 use super::handlers::RuntimeLineReceived;
-use crate::server::InputSender;
+use crate::app::input::InputSender;
 
 /// The pi harness: the Node and entry that start its runtimes.
 #[derive(Clone, Debug)]

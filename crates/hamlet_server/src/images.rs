@@ -14,7 +14,7 @@ use std::time::Duration;
 
 use hamlet_protocol::client::ImageInput;
 
-use crate::timers::AddTimer;
+use crate::app::timers::AddTimer;
 
 /// The most bytes of an image the realm keeps.
 pub(crate) const MOST_BYTES: usize = 20 << 20;

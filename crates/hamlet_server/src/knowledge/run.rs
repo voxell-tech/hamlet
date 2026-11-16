@@ -46,7 +46,7 @@ pub(crate) fn due(
                         hamlet_store::unwind(db)?;
                         bail!(
                             "{}",
-                            crate::diagnostic::panicked(&*panic)
+                            crate::app::failure::panicked(&*panic)
                         )
                     }
                 }

@@ -156,7 +156,7 @@ impl Core<'_, '_> {
                 target,
                 &permission,
                 &by,
-                crate::clock::now(),
+                crate::app::clock::now(),
             )? {
                 format!("{name} may no longer use {word}.")
             } else if permission == Permission::Network

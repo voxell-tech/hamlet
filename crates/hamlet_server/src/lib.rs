@@ -8,14 +8,14 @@
 //! 2. [`create_app`] adds the log, every area's plugin, the order of
 //!    the [`FollowUpSystems`] and the [`SendSystems`], and the
 //!    runner.
-//! 3. The runner, `runner::runner`, updates the app a first time:
-//!    `PreStartup` opens what the server serves, from the sandbox and
-//!    the realm to the listener, and `Startup` starts it (`startup`).
-//!    It then runs each input until the app exits: a stop signal is
-//!    an input that takes the server from `Open` through `Closing` to
-//!    `Stopping` (`shutdown`).
-//! 4. `server::Server::run` writes one input as a message and updates
-//!    the app once, in one transaction:
+//! 3. The runner, `app::runner::runner`, updates the app a first
+//!    time: `PreStartup` opens what the server serves, from the
+//!    sandbox and the realm to the listener, and `Startup` starts it
+//!    (`app::startup`). It then runs each input until the app exits:
+//!    a stop signal is an input that takes the server from `Open`
+//!    through `Closing` to `Stopping` (`app::shutdown`).
+//! 4. `app::runner::Server::run` writes one input as a message and
+//!    updates the app once, in one transaction:
 //!    - `PreUpdate` takes the input in and reads it into a message of
 //!      its kind: a runtime's message in `runtimes::handlers`, a
 //!      client's request in `clients::handlers`;
@@ -30,18 +30,12 @@ use bevy_app::{App, Last, PostUpdate};
 use bevy_ecs::schedule::{IntoScheduleConfigs, SystemSet};
 use bevy_log::{BoxedFmtLayer, LogPlugin};
 
-use crate::options::Options;
+use crate::app::options::Options;
 
-// The app, its runner and what follows each input.
-mod background;
+// The app shell: inputs, runner, startup, shutdown, follow-ups,
+// timers, tasks, options, the clock and the fault points.
+pub mod app;
 mod core;
-mod follow_up;
-pub mod options;
-mod runner;
-mod server;
-mod shutdown;
-mod startup;
-mod timers;
 
 // The realm on disk: its folder, database, jobs and knowledge.
 mod change;
@@ -77,9 +71,6 @@ mod inbox;
 mod terminals;
 
 // What every area shares.
-mod clock;
-mod diagnostic;
-mod fault;
 #[cfg(test)]
 mod testing;
 
@@ -87,7 +78,7 @@ mod testing;
 pub fn create_app(options: Options) -> App {
     let mut app = App::new();
 
-    app.set_runner(runner::runner).insert_resource(options);
+    app.set_runner(app::runner::runner).insert_resource(options);
 
     app.configure_sets(
         PostUpdate,
@@ -123,14 +114,9 @@ pub fn create_app(options: Options) -> App {
     // The runner's side: inputs, what follows them, and what runs
     // off the loop.
     .add_plugins((
-        server::plugin,
+        app::plugin,
         core::plugin,
-        follow_up::plugin,
-        startup::plugin,
-        background::plugin,
-        timers::plugin,
         knowledge::worker::plugin,
-        shutdown::plugin,
     ))
     // The areas, each with the systems for the inputs it takes.
     .add_plugins((

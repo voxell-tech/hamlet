@@ -1,264 +1,135 @@
-//! The runner's side of the server. The realm's live state is the
-//! world's resources; the runner sleeps until an input comes, writes
-//! it as a message and updates the app once, then sleeps again.
-//! Nothing runs on a frame.
-//!
-//! Every input is one update in one transaction: one whose system
-//! fails or panics is rolled back and logged, and the server goes on.
-//! Only a [`Fatal`] error, or a database that is no longer a
-//! realm's, stops it.
+//! The app's runner: the server from start to stop. Its first update
+//! opens and starts what it serves (`startup.rs`); then it runs the
+//! inputs one at a time until the app exits, which a stop signal
+//! leads to (`shutdown.rs`).
 
-use std::cell::RefCell;
 use std::panic::{AssertUnwindSafe, catch_unwind};
-use std::sync::{Mutex, PoisonError};
+use std::sync::PoisonError;
 use std::time::{Duration, Instant};
 
 use anyhow::{Context as _, Result};
-use bevy_app::{App, First, Update};
-use bevy_ecs::entity::Entity;
-use bevy_ecs::error::{BevyError, ErrorContext};
-use bevy_ecs::message::{Message, Messages};
-use bevy_ecs::resource::Resource;
-use bevy_ecs::schedule::common_conditions::on_message;
-use bevy_ecs::schedule::{IntoScheduleConfigs, ScheduleConfigs};
-use bevy_ecs::system::{
-    ResMut, ScheduleSystem, SystemParam, SystemState,
-};
-use bevy_ecs::world::World;
+use bevy_app::{App, AppExit};
+use bevy_ecs::system::SystemState;
 use bevy_log::error;
-use hamlet_protocol::client::RequestId;
 use tokio::sync::mpsc;
 
+use super::failure::{self, Failure, Fatal};
+use super::follow_up::discard;
+use super::input::{Input, InputReceiver, InputSender};
+use super::shutdown::{self, StopRequested};
+use super::timers::{self, TimerFired};
 use crate::core::Core;
-use crate::follow_up::discard;
-use crate::realm::Realm;
-use crate::timers::{self, TimerFired};
-use crate::{diagnostic, shutdown};
 
-/// The one channel inputs arrive on, the error handler, where each
-/// input begins, and who is told when one fails.
-pub(crate) fn plugin(app: &mut App) {
-    let (sender, receiver) = mpsc::unbounded_channel();
-    app.set_error_handler(record)
-        .insert_resource(InputSender(sender))
-        .insert_resource(InputReceiver(Mutex::new(receiver)))
-        .init_resource::<InputOrigin>()
-        .add_systems(First, begin_input);
-}
+/// The longest the runner sleeps with nothing coming.
+const IDLE: Duration = Duration::from_secs(60);
 
-/// An input that wakes the server: the message it writes, for the
-/// systems of its kind to read.
-pub(crate) struct Input(Box<dyn FnOnce(&mut World) + Send>);
-
-impl Input {
-    pub fn of(message: impl Message) -> Self {
-        Self(Box::new(move |world: &mut World| {
-            world.write_message(message);
-        }))
-    }
-}
-
-/// Where everything that wakes the server sends its input: a
-/// runtime's output, the jobs runner, a connection, a task, the
-/// folder of the tools added by hand, a terminal, the listener.
-#[derive(Resource, Clone)]
-pub(crate) struct InputSender(mpsc::UnboundedSender<Input>);
-
-/// The runner stopped taking inputs: the server is stopping.
-#[derive(Debug)]
-pub(crate) struct RunnerGone;
-
-impl InputSender {
-    /// Sends `message` to the runner as an input of its own.
-    pub fn send(
-        &self,
-        message: impl Message,
-    ) -> Result<(), RunnerGone> {
-        self.0.send(Input::of(message)).map_err(|_| RunnerGone)
-    }
-}
-
-/// The receiving end of the inputs, until the runner takes it.
-#[derive(Resource)]
-struct InputReceiver(Mutex<mpsc::UnboundedReceiver<Input>>);
-
-/// Who sent the input being run, so a failure can tell them.
-#[derive(Resource, Default, Clone)]
-pub(crate) enum InputOrigin {
-    /// The server itself: a timer, a task, the jobs runner.
-    #[default]
-    Server,
-    /// A client's request, answered with the failure.
-    Client {
-        client: u64,
-        request: Option<RequestId>,
-    },
-    /// A runtime's message, answered with the failure when the
-    /// runtime awaits an answer to `awaited`.
-    Runtime {
-        runtime: Entity,
-        awaited: Option<String>,
-    },
-}
-
-/// Begins the input's transaction, which `PostUpdate` keeps or rolls
-/// back.
-fn begin_input(
-    mut realm: ResMut<Realm>,
-    mut origin: ResMut<InputOrigin>,
-) -> bevy_ecs::error::Result {
-    *origin = InputOrigin::Server;
-    hamlet_store::begin(realm.store().connection())?;
-    Ok(())
-}
-
-/// The message of type `T` the input brought, which its system takes
-/// once.
-#[derive(SystemParam)]
-pub(crate) struct InputMessage<'w, T: Message> {
-    messages: ResMut<'w, Messages<T>>,
-}
-
-impl<T: Message> InputMessage<'_, T> {
-    /// The message, taken; none when the input brought none.
-    pub fn take(&mut self) -> Option<T> {
-        self.messages.drain().next()
-    }
-}
-
-/// Adds the systems that take in inputs.
-pub(crate) trait AddHandler {
-    /// Adds `handler` to `Update` for the input message `T`, run only
-    /// when an input brought one.
-    fn add_handler<T: Message, M>(
-        &mut self,
-        handler: impl IntoScheduleConfigs<ScheduleSystem, M>,
-    ) -> &mut Self;
-}
-
-impl AddHandler for App {
-    fn add_handler<T: Message, M>(
-        &mut self,
-        handler: impl IntoScheduleConfigs<ScheduleSystem, M>,
-    ) -> &mut Self {
-        let handler: ScheduleConfigs<ScheduleSystem> =
-            handler.run_if(on_message::<T>);
-        self.add_message::<T>().add_systems(Update, handler)
-    }
-}
-
-/// An error after which the realm cannot be served safely.
-#[derive(Debug, thiserror::Error)]
-#[error("{0:#}")]
-pub(crate) struct Fatal(pub anyhow::Error);
-
-/// SQLite's own words for SQLITE_CORRUPT and SQLITE_NOTADB, which are
-/// all diesel keeps of the code.
-const BROKEN: [&str; 2] =
-    ["database disk image is malformed", "file is not a database"];
-
-/// The check that `error` means the realm cannot be served safely:
-/// built as [`Fatal`], or a database SQLite calls corrupt or not a
-/// database.
-fn is_fatal(error: &anyhow::Error) -> bool {
-    error.chain().any(|cause| {
-        cause.is::<Fatal>()
-            || cause
-                .downcast_ref::<diesel::result::Error>()
-                .is_some_and(|error| match error {
-                    diesel::result::Error::DatabaseError(_, info) => {
-                        BROKEN.contains(&info.message())
-                    }
-                    _ => false,
-                })
-    })
-}
-
-/// A failure of an input: the words whoever sent it is told, every
-/// cause for the log, and whether the realm can still be served.
-#[derive(Clone, Debug)]
-pub(crate) struct Failure {
-    pub shown: String,
-    pub logged: String,
-    pub fatal: bool,
-}
-
-impl Failure {
-    pub fn of(error: &anyhow::Error) -> Self {
-        Self {
-            shown: format!("{error}"),
-            logged: format!("{error:#}"),
-            fatal: is_fatal(error),
-        }
-    }
-
-    /// The failure a system returned or panicked with. Its causes
-    /// are kept only in its debug form, as `anyhow` writes them.
-    fn of_system(mut error: BevyError) -> Self {
-        if let Some(panic) = error.take_payload() {
-            return Self::panicked(&*panic);
-        }
-        let whole = format!("{error:?}");
-        Self {
-            shown: error.to_string().trim_end().to_owned(),
-            fatal: BROKEN.iter().any(|words| whole.contains(words)),
-            logged: causes(&whole),
-        }
-    }
-
-    fn panicked(panic: &(dyn std::any::Any + Send)) -> Self {
-        let words = diagnostic::panicked(panic);
-        Self {
-            shown: words.clone(),
-            logged: words,
-            fatal: false,
+/// The app's runner: serves it on a Tokio runtime of one thread,
+/// sleeping until an input comes, until it exits. A server that fails
+/// says why.
+pub(crate) fn runner(app: App) -> AppExit {
+    let served = tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()
+        .map_err(anyhow::Error::from)
+        .and_then(|runtime| runtime.block_on(serve(app)));
+    match served {
+        Ok(()) => AppExit::Success,
+        Err(error) => {
+            failed(&error);
+            AppExit::error()
         }
     }
 }
 
-/// The causes of an error's debug form on one line, as `{:#}` writes
-/// them: `anyhow` writes each on a line of its own under "Caused
-/// by:", numbered when there are several.
-fn causes(debug: &str) -> String {
-    debug
-        .lines()
-        .map(str::trim)
-        .take_while(|line| *line != "Stack backtrace:")
-        .filter(|line| !line.is_empty() && *line != "Caused by:")
-        .map(|line| {
-            line.split_once(": ")
-                .filter(|(number, _)| number.parse::<usize>().is_ok())
-                .map_or(line, |(_, cause)| cause)
-        })
-        .collect::<Vec<_>>()
-        .join(": ")
+/// Says why the server could not serve, as `main` would have.
+#[expect(
+    clippy::print_stderr,
+    reason = "the failure is the server's last output for whoever \
+              started it"
+)]
+fn failed(error: &anyhow::Error) {
+    eprintln!("Error: {error:?}");
 }
 
-thread_local! {
-    /// The failures of the input being run, as the error handler
-    /// records them. The server runs on one thread.
-    static FAILURES: RefCell<Vec<Failure>> = const { RefCell::new(Vec::new()) };
+/// Serves `app` until it exits. A realm that can no longer be
+/// served is stopped too, and its error is the server's.
+async fn serve(app: App) -> Result<()> {
+    let signals = Signals::new()?;
+    hamlet_os::process::reap_with_server()?;
+    let mut server = Server::start(app)?;
+    tokio::spawn(stop_on_signals(signals, server.inputs()));
+    let mut fatal = None;
+    while !server.has_exited() {
+        match server.step(IDLE).await {
+            Ok(_) => {}
+            // A second while it stops ends the server where it is.
+            Err(error) if fatal.is_some() => return Err(error.0),
+            Err(error) => {
+                fatal = Some(error.0);
+                let _ = server.inputs().send(StopRequested);
+            }
+        }
+    }
+    fatal.map_or(Ok(()), Err)
 }
 
-/// The world's error handler: a system that fails or panics fails
-/// only the input it ran for, which `PostUpdate` rolls back.
-fn record(error: BevyError, _: ErrorContext) {
-    fail(Failure::of_system(error));
+/// The first SIGTERM or Ctrl-C triggers [`StopRequested`], and a
+/// second exits at once.
+async fn stop_on_signals(mut signals: Signals, inputs: InputSender) {
+    signals.next().await;
+    let _ = inputs.send(StopRequested);
+    signals.next().await;
+    std::process::exit(130);
 }
 
-/// Fails the input being run with `failure`.
-pub(crate) fn fail(failure: Failure) {
-    FAILURES.with_borrow_mut(|failures| failures.push(failure));
+struct Signals {
+    #[cfg(unix)]
+    interrupt: tokio::signal::unix::Signal,
+    #[cfg(unix)]
+    terminate: tokio::signal::unix::Signal,
+    #[cfg(windows)]
+    interrupt: tokio::signal::windows::CtrlC,
+    /// The signal `hamlet dev` sends the server it keeps in a
+    /// process group of its own.
+    #[cfg(windows)]
+    ctrl_break: tokio::signal::windows::CtrlBreak,
 }
 
-/// The input's first failure so far, if it failed.
-pub(crate) fn first_failure() -> Option<Failure> {
-    FAILURES.with_borrow(|failures| failures.first().cloned())
-}
+impl Signals {
+    fn new() -> Result<Self> {
+        #[cfg(unix)]
+        {
+            use tokio::signal::unix::{SignalKind, signal};
+            Ok(Self {
+                interrupt: signal(SignalKind::interrupt())?,
+                terminate: signal(SignalKind::terminate())?,
+            })
+        }
+        #[cfg(windows)]
+        {
+            Ok(Self {
+                interrupt: tokio::signal::windows::ctrl_c()?,
+                ctrl_break: tokio::signal::windows::ctrl_break()?,
+            })
+        }
+    }
 
-/// The failures recorded since the last call.
-fn recorded() -> Vec<Failure> {
-    FAILURES.with_borrow_mut(std::mem::take)
+    async fn next(&mut self) {
+        #[cfg(unix)]
+        {
+            tokio::select! {
+                _ = self.interrupt.recv() => {}
+                _ = self.terminate.recv() => {}
+            }
+        }
+        #[cfg(windows)]
+        {
+            tokio::select! {
+                _ = self.interrupt.recv() => {}
+                _ = self.ctrl_break.recv() => {}
+            }
+        }
+    }
 }
 
 /// The served realm: the app whose world holds it, and the channel
@@ -342,7 +213,7 @@ impl Server {
     /// server goes on unless the realm cannot be served. Nothing here
     /// awaits: what awaits runs on a task, whose result is an input.
     pub fn run(&mut self, input: Input) -> Result<(), Fatal> {
-        (input.0)(self.app.world_mut());
+        input.write(self.app.world_mut());
         let failures = self.update()?;
         let core = self.core().map_err(Fatal)?;
         for failure in failures {
@@ -356,7 +227,7 @@ impl Server {
     fn update(&mut self) -> Result<Vec<Failure>, Fatal> {
         let updated =
             catch_unwind(AssertUnwindSafe(|| self.app.update()));
-        let mut failures = recorded();
+        let mut failures = failure::recorded();
         if let Err(panic) = updated {
             // A panic no system caught leaves the input open.
             failures.push(Failure::panicked(&*panic));
@@ -396,7 +267,7 @@ pub(crate) async fn shut_down(server: &mut Server) -> Result<()> {
     let deadline = Instant::now() + Duration::from_secs(60);
     server
         .inputs()
-        .send(shutdown::StopRequested)
+        .send(StopRequested)
         .map_err(|_| anyhow::anyhow!("the server stopped already"))?;
     while !server.has_exited() {
         anyhow::ensure!(
@@ -478,7 +349,7 @@ mod tests {
     ) -> (Server, chats::Said) {
         let faux = dir.join("faux.json");
         std::fs::write(&faux, script).unwrap();
-        let app = crate::create_app(crate::options::Options {
+        let app = crate::create_app(crate::app::options::Options {
             home: dir.join("realm"),
             port: 0,
             faux: Some(faux),

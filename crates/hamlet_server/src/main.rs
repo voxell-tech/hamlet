@@ -1,8 +1,8 @@
 //! `hamlet_server`: serves a claimed realm over the client protocol.
 
 use bevy_app::AppExit;
+use hamlet_server::app::options::Options;
 use hamlet_server::create_app;
-use hamlet_server::options::Options;
 
 #[expect(
     clippy::print_stderr,

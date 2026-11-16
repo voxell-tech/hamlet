@@ -11,7 +11,7 @@ use hamlet_protocol::client::{
 
 use super::store::Images;
 use super::{MOST_BYTES, capitalised};
-use crate::background::BackgroundResult;
+use crate::app::tasks::BackgroundResult;
 use crate::clients::check::{failed, fault, reply};
 use crate::clients::connection::UploadOf;
 use crate::core::Core;

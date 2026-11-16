@@ -843,8 +843,11 @@ fn mode(core: &mut Core<'_, '_>, line: &Line) -> Answer {
 
 fn budget(core: &mut Core<'_, '_>, line: &Line) -> Answer {
     let db = core.realm.store().connection();
-    let report =
-        spend::report(db, line.here.as_ref(), crate::clock::now())?;
+    let report = spend::report(
+        db,
+        line.here.as_ref(),
+        crate::app::clock::now(),
+    )?;
     Ok(Ok(report.summary))
 }
 
@@ -853,7 +856,7 @@ fn reset_budget(core: &mut Core<'_, '_>, line: &Line) -> Answer {
         found!(core.chief_of(id));
     }
     let chief = core.realm.chief();
-    let at = crate::clock::now();
+    let at = crate::app::clock::now();
     let db = core.realm.store().connection();
     spend::reset(db, line.here.as_ref(), chief, at)?;
     core.publish();

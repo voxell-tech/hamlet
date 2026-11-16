@@ -9,9 +9,9 @@ use hamlet_protocol::client::{
 
 use super::screen::lock;
 use super::shell::{Key, open};
+use crate::app::input::InputMessage;
 use crate::clients::handlers::FromClient;
 use crate::core::Core;
-use crate::server::InputMessage;
 
 /// Answers the chief's terminal request from a client.
 pub(super) fn answer_request(

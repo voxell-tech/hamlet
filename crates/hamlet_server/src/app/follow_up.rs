@@ -24,7 +24,9 @@ use hamlet_protocol::runtime::{
 use hamlet_store::Db;
 use hamlet_store::ids::{Actor, ConversationId};
 
-use crate::background::BackgroundWork;
+use super::failure::{self, Failure};
+use super::input::InputOrigin;
+use super::tasks::BackgroundWork;
 use crate::calls::{ToolRuns, UnstartedToolRun, place};
 use crate::clients::check::{failed, fault};
 use crate::clients::{Connections, check};
@@ -39,7 +41,6 @@ use crate::providers::Providers;
 use crate::realm::Realm;
 use crate::runtimes::Runtimes;
 use crate::runtimes::reconciliation::{self, ImageFitting};
-use crate::server::{self, Failure, InputOrigin};
 use crate::settings::EffectiveSettings;
 use crate::society::agents;
 use crate::society::refusal::Refusal;
@@ -69,8 +70,7 @@ pub(crate) fn plugin(app: &mut App) {
                 stop_cancelled_tool_runs
                     .in_set(FollowUpSystems::StopCancelledToolRuns)
                     .run_if(has_kept_change),
-                (crate::calls::start, crate::background::start)
-                    .in_set(
+                (crate::calls::start, super::tasks::start).in_set(
                     FollowUpSystems::StartToolRunsAndBackgroundWork,
                 ),
             ),
@@ -107,17 +107,17 @@ pub(crate) fn keep_or_roll_back_input(
     origin: Res<InputOrigin>,
     credentials: Res<Credentials>,
 ) {
-    if server::first_failure().is_none() {
+    if failure::first_failure().is_none() {
         match hamlet_store::commit(realm.store().connection()) {
             Ok(()) => {
                 if let Some(point) =
                     queued.effects.crash_test_fault_point
                 {
-                    crate::fault::point(point);
+                    super::fault::point(point);
                 }
                 return;
             }
-            Err(error) => server::fail(Failure::of(&error)),
+            Err(error) => failure::fail(Failure::of(&error)),
         }
     }
     if let Err(error) =
@@ -125,7 +125,7 @@ pub(crate) fn keep_or_roll_back_input(
     {
         // A connection that cannot roll back what failed cannot be
         // trusted with the next change.
-        server::fail(Failure {
+        failure::fail(Failure {
             fatal: true,
             ..Failure::of(
                 &error.context("rolling back a failed input"),
@@ -134,7 +134,7 @@ pub(crate) fn keep_or_roll_back_input(
         return;
     }
     queued.discard();
-    if let Some(failure) = server::first_failure() {
+    if let Some(failure) = failure::first_failure() {
         queued.tell_of_failure(&origin, failure, &credentials);
     }
 }
@@ -288,7 +288,7 @@ fn follow_ended_input(
     ended: On<InputEnded>,
     mut core: Core,
 ) -> Result {
-    crate::fault::point("followed");
+    super::fault::point("followed");
     let followed = core.change(Actor::Realm, |cx, env| {
         follow(cx, env, ended.conversation, &ended.request)
     })?;
@@ -362,7 +362,7 @@ fn run_kept_jobs(
     runner: Res<Runner>,
     mut remote: RemoteWorkspace,
 ) {
-    crate::fault::point("jobs");
+    super::fault::point("jobs");
     let layout = realm.layout().clone();
     let db = realm.store().connection();
     match run_due(db, &layout, &writing) {

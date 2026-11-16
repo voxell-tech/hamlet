@@ -100,7 +100,7 @@ impl Core<'_, '_> {
         );
         let question = format!("{chief} told `{name}`: {text}");
         let owner = format!("review:{task}");
-        let at = crate::clock::now();
+        let at = crate::app::clock::now();
         self.change(Actor::Agent(lead), |cx, env| {
             let id = errands::run(
                 cx,

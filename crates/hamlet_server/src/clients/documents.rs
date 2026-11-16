@@ -130,7 +130,7 @@ impl Core<'_, '_> {
                     .values((
                         document::kind.eq("charter"),
                         document::value.eq(&text),
-                        document::at.eq(crate::clock::now()),
+                        document::at.eq(crate::app::clock::now()),
                         document::chief.eq(chief),
                     ))
                     .execute(db)?;
@@ -309,7 +309,7 @@ impl Core<'_, '_> {
         crate::settings::keep(
             db,
             &settings,
-            crate::clock::now(),
+            crate::app::clock::now(),
             Some(chief),
         )?;
         for name in removed {
@@ -383,7 +383,7 @@ impl Core<'_, '_> {
                         document::kind.eq("limits"),
                         document::value
                             .eq(serde_json::to_string(&own)?),
-                        document::at.eq(crate::clock::now()),
+                        document::at.eq(crate::app::clock::now()),
                         document::chief.eq(chief),
                     ))
                     .execute(db)?;
@@ -413,7 +413,7 @@ impl Core<'_, '_> {
             message,
             Author {
                 name: &author,
-                at: crate::clock::now(),
+                at: crate::app::clock::now(),
             },
         )?;
         drop(held);

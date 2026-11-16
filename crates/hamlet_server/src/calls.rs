@@ -35,7 +35,8 @@ use tokio::task::AbortHandle;
 use self::held::State;
 use self::looks::Look;
 use self::objections::OBJECTING;
-use crate::background::{BackgroundResult, RunAgainRequest};
+use crate::app::input::{AddHandler, InputMessage, InputSender};
+use crate::app::tasks::{BackgroundResult, RunAgainRequest};
 use crate::conversations::marks::Mark;
 use crate::conversations::{
     self, Conversation, Kind, inputs, models, questions,
@@ -46,7 +47,6 @@ use crate::images::fitting::kept_pictures;
 use crate::knowledge::CHARACTER;
 use crate::oversight::gate::{Session, TurnGate};
 use crate::oversight::{self, Raise, Ruling, WaitKind};
-use crate::server::{AddHandler, InputMessage, InputSender};
 use crate::work::catalogue::Society;
 use crate::work::tools::shell::Dialect;
 use crate::work::tools::{Network, Outcome, Sight, ToolSession};
@@ -619,7 +619,7 @@ impl Core<'_, '_> {
                     call.call.identity(),
                     &call.request,
                     &outcome,
-                    crate::clock::now(),
+                    crate::app::clock::now(),
                 )?;
                 self.looks.forget(&call.call);
                 self.tell_call(
@@ -769,7 +769,7 @@ impl Core<'_, '_> {
                 db,
                 call.call.identity(),
                 &request,
-                crate::clock::now(),
+                crate::app::clock::now(),
             )?;
         }
         // A shell call shows in its agent's commands terminal.
@@ -942,14 +942,14 @@ impl Core<'_, '_> {
             request: found.request.clone(),
         };
         self.commands.entity(entity).despawn();
-        crate::fault::point("ran");
+        crate::app::fault::point("ran");
         let db = self.realm.store().connection();
         marker::settle(
             db,
             ran.call.identity(),
             &running.request,
             &ran.outcome,
-            crate::clock::now(),
+            crate::app::clock::now(),
         )?;
         self.looks.forget(&ran.call);
         for reply in running.replies {

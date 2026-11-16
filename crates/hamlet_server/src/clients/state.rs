@@ -443,7 +443,8 @@ fn road_level(
     at: i64,
 ) -> protocol::RoadLevel {
     let grown = last.is_none_or(|last| {
-        at - last > crate::clock::days(limits.road.grows_over_days)
+        at - last
+            > crate::app::clock::days(limits.road.grows_over_days)
     });
     match messages {
         _ if grown && messages == 0 => protocol::RoadLevel::Dirt,
