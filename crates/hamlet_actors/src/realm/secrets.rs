@@ -2,14 +2,14 @@
 //! credentials an agent asks for and keeps, and the realm's secrets
 //! as the workspace reads them.
 
-use std::fs::{self, OpenOptions};
 use std::io::Write as _;
 use std::path::{Path, PathBuf};
-use std::sync::{Arc, Mutex, PoisonError, RwLock};
+use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
 
 use anyhow::{Context as _, Result, bail};
 use hamlet_actor::{Ctx, Handler};
 use hamlet_messages::address::{Agent, Workspace};
+use hamlet_messages::realm::documents::RemoteWorkspace;
 use hamlet_messages::realm::models::{
     Credential, CredentialAnswer, CredentialRefusal, KeepCredential,
     Kept, OauthLogin,
@@ -17,6 +17,7 @@ use hamlet_messages::realm::models::{
 use hamlet_messages::realm::{SecretList, Secrets};
 use hamlet_messages::sender::sender;
 use hamlet_messages::workspace::reach::SecretsVersion;
+use hamlet_os::fs::{Directory, LastLink, Mode, Name, Open, Replace};
 use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value, json};
 
@@ -45,6 +46,9 @@ struct Stored {
     /// Each provider's credential, by the provider's name.
     #[serde(default)]
     models: Map<String, Value>,
+    /// The workspace on another machine the chief chose.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    workspace: Option<RemoteWorkspace>,
     /// The keys the realm does not read, kept as they are.
     #[serde(flatten)]
     other: Map<String, Value>,
@@ -56,9 +60,11 @@ fn first() -> SecretsVersion {
 
 impl Stored {
     fn secrets(&self) -> impl Iterator<Item = &str> {
-        ["connection", "workspace"]
+        self.other
+            .get("connection")
+            .and_then(|connection| connection["token"].as_str())
             .into_iter()
-            .filter_map(|key| self.other.get(key)?["token"].as_str())
+            .chain(self.workspace.iter().map(|w| w.token.as_str()))
             .chain(self.models.values().flat_map(secrets))
     }
 }
@@ -69,80 +75,131 @@ fn secrets(credential: &Value) -> impl Iterator<Item = &str> {
         .filter_map(|field| credential[field].as_str())
 }
 
-/// The file, held in memory from the realm's start, with the values
-/// replaced since then, which the workspace still takes out.
+/// The file, held in memory from the realm's start.
 pub(super) struct Held {
-    path: PathBuf,
-    stored: RwLock<Arc<Stored>>,
-    retired: Mutex<Vec<String>>,
+    folder: PathBuf,
+    held: Mutex<InMemory>,
+}
+
+struct InMemory {
+    stored: Stored,
+    /// The values replaced since the start, which the workspace
+    /// still takes out.
+    retired: Vec<String>,
 }
 
 impl Held {
+    /// Reads the file, and writes it back at mode 0600 where there is
+    /// one.
     pub fn load(folder: &Path) -> Result<Self> {
-        let path = folder.join(FILE);
-        let stored = match fs::read(&path) {
-            Ok(bytes) => serde_json::from_slice(&bytes)
-                .with_context(|| format!("reading {FILE}"))?,
+        let stored = match std::fs::read(folder.join(FILE)) {
+            Ok(bytes) => {
+                let stored = serde_json::from_slice(&bytes)
+                    .with_context(|| format!("reading {FILE}"))?;
+                write_whole(folder, &stored)?;
+                stored
+            }
             Err(error)
                 if error.kind() == std::io::ErrorKind::NotFound =>
             {
                 Stored {
                     version: VERSION,
                     models: Map::new(),
+                    workspace: None,
                     other: Map::new(),
                 }
             }
             Err(error) => return Err(error.into()),
         };
         Ok(Self {
-            path,
-            stored: RwLock::new(Arc::new(stored)),
-            retired: Mutex::new(Vec::new()),
+            folder: folder.to_owned(),
+            held: Mutex::new(InMemory {
+                stored,
+                retired: Vec::new(),
+            }),
         })
     }
 
-    fn current(&self) -> Arc<Stored> {
-        self.stored
-            .read()
-            .unwrap_or_else(PoisonError::into_inner)
-            .clone()
+    fn held(&self) -> MutexGuard<'_, InMemory> {
+        self.held.lock().unwrap_or_else(PoisonError::into_inner)
     }
 
     pub fn version(&self) -> SecretsVersion {
-        self.current().version
+        self.held().stored.version
     }
 
-    /// Writes the file whole with `keep` in it, then holds it. The
-    /// caller makes keeps one at a time.
     fn keep(&self, keep: &KeepCredential) -> Result<()> {
-        let mut stored = Stored::clone(&self.current());
         let value = saved(&keep.value)?;
-        let before = stored
-            .models
-            .insert(keep.provider.clone(), value.clone());
-        if before.as_ref() != Some(&value) {
+        self.change(|stored| {
+            let models = &mut stored.models;
+            let value = match models.get(&keep.provider) {
+                Some(before) => unchanged_expiry(before, value),
+                None => value,
+            };
+            let before = models.insert(keep.provider.clone(), value);
+            let value = &models[&keep.provider];
+            (before.as_ref() != Some(value)).then(|| {
+                before
+                    .iter()
+                    .flat_map(secrets)
+                    .map(str::to_owned)
+                    .collect()
+            })
+        })
+    }
+
+    /// Keeps `workspace` as the chosen one; `None` takes it away.
+    pub fn choose_workspace(
+        &self,
+        workspace: Option<RemoteWorkspace>,
+    ) -> Result<()> {
+        self.change(|stored| {
+            let before =
+                std::mem::replace(&mut stored.workspace, workspace);
+            (before != stored.workspace).then(|| {
+                before
+                    .map(|before| before.token)
+                    .into_iter()
+                    .collect()
+            })
+        })
+    }
+
+    /// Writes the file whole with what `change` makes of it, then
+    /// holds it. `change` answers the values it replaced, or `None`
+    /// when it changed nothing, which keeps the version. The caller
+    /// makes changes one at a time.
+    fn change(
+        &self,
+        change: impl FnOnce(&mut Stored) -> Option<Vec<String>>,
+    ) -> Result<()> {
+        let mut held = self.held();
+        let mut stored = held.stored.clone();
+        let retired = change(&mut stored);
+        if retired.is_some() {
             stored.version = SecretsVersion(stored.version.0 + 1);
-            self.retired
-                .lock()
-                .unwrap_or_else(PoisonError::into_inner)
-                .extend(
-                    before
-                        .iter()
-                        .flat_map(secrets)
-                        .map(str::to_owned),
-                );
         }
-        write_whole(
-            &self.path,
-            &serde_json::to_vec_pretty(&stored)?,
-        )?;
-        *self
-            .stored
-            .write()
-            .unwrap_or_else(PoisonError::into_inner) =
-            Arc::new(stored);
+        write_whole(&self.folder, &stored)?;
+        held.stored = stored;
+        held.retired.extend(retired.into_iter().flatten());
         Ok(())
     }
+}
+
+/// `kept` with `before`'s expiry when they name the same second, so a
+/// login read and kept back is no change: today's server keeps the
+/// expiry to the millisecond.
+fn unchanged_expiry(before: &Value, mut kept: Value) -> Value {
+    let second = |value: &Value| {
+        value["expires"].as_f64().map(|ms| (ms / 1000.0) as u32)
+    };
+    if before["type"] == "oauth"
+        && kept["type"] == "oauth"
+        && second(before) == second(&kept)
+    {
+        kept["expires"] = before["expires"].clone();
+    }
+    kept
 }
 
 /// The credential as the agent reads it; `None` for one it cannot.
@@ -202,51 +259,51 @@ fn saved(kept: &Kept) -> Result<Value> {
     })
 }
 
-/// Writes `bytes` to a new file with mode 0600 beside `file`, then
-/// renames it over `file`.
-fn write_whole(file: &Path, bytes: &[u8]) -> Result<()> {
+/// Writes `stored` to a new file at mode 0600 in `folder`, then
+/// renames it over the file.
+fn write_whole(folder: &Path, stored: &Stored) -> Result<()> {
+    let bytes = serde_json::to_vec_pretty(stored)?;
+    let folder = Directory::open(folder, LastLink::Follow)?;
     let temporary =
-        file.with_extension(format!("{}.tmp", uuid::Uuid::new_v4()));
+        Name::new(&format!("{FILE}.{}.tmp", uuid::Uuid::new_v4()))?;
     let written = (|| {
-        let mut options = OpenOptions::new();
-        options.write(true).create_new(true);
-        #[cfg(unix)]
-        {
-            use std::os::unix::fs::OpenOptionsExt as _;
-            options.mode(0o600);
-        }
-        let mut output = options.open(&temporary)?;
-        output.write_all(bytes)?;
-        output.sync_all()?;
-        fs::rename(&temporary, file)
+        let mut file = folder
+            .file(&temporary, Open::New(Mode::PRIVATE))?
+            .into_file();
+        file.write_all(&bytes)?;
+        file.sync_all()?;
+        folder.rename(
+            &temporary,
+            &folder,
+            &Name::new(FILE)?,
+            Replace::Always,
+        )
     })();
     if written.is_err() {
-        let _ = fs::remove_file(&temporary);
+        let _ =
+            folder.remove(&temporary, hamlet_os::fs::Removing::File);
     }
     Ok(written?)
 }
 
-/// Longest first, so a value inside another is taken out after it.
 impl Look<Workspace> for Secrets {
     type Output = SecretList;
 
     fn look(&self, _by: &Workspace, realm: &Realm) -> SecretList {
-        let stored = realm.secrets.current();
-        let retired = realm
-            .secrets
-            .retired
-            .lock()
-            .unwrap_or_else(PoisonError::into_inner);
-        let mut values = stored
+        let held = realm.secrets.held();
+        let mut values = held
+            .stored
             .secrets()
-            .chain(retired.iter().map(String::as_str))
+            .chain(held.retired.iter().map(String::as_str))
             .filter(|value| !value.is_empty())
             .map(str::to_owned)
             .collect::<Vec<_>>();
+        // Longest first, so a value inside another is taken out after
+        // it.
         values.sort_by(|a, b| b.len().cmp(&a.len()).then(a.cmp(b)));
         values.dedup();
         SecretList {
-            version: stored.version,
+            version: held.stored.version,
             values,
         }
     }
@@ -258,7 +315,8 @@ impl Look<Agent> for Credential {
     fn look(&self, _by: &Agent, realm: &Realm) -> CredentialAnswer {
         realm
             .secrets
-            .current()
+            .held()
+            .stored
             .models
             .get(&self.provider)
             .and_then(given)
@@ -270,9 +328,8 @@ impl Look<Agent> for Credential {
     }
 }
 
-/// Writes the file before it commits, so it is the one handler
-/// outside `Act`. The transaction, begun first, makes keeps one at a
-/// time.
+/// Writes the file before it commits, so it runs outside `Act`. The
+/// transaction, begun first, makes keeps one at a time.
 impl Handler<KeepCredential> for Realm {
     async fn handle(
         self: Arc<Self>,
@@ -281,28 +338,100 @@ impl Handler<KeepCredential> for Realm {
     ) -> Result<()> {
         let Agent(_) = sender(&ctx, &keep)?;
         let tx = change::Transaction::begin(&ctx).await?;
-        let living = documents::living(&tx.rows()).await?;
+        let raises = raises(&tx.rows()).await?;
         self.secrets.keep(&keep)?;
-        let raises = living
-            .into_iter()
-            .map(|agent| versions::Change::WantReach(agent).into())
-            .collect();
-        let pushes = tx
-            .commit(
-                &self,
-                change::Write::<()> {
-                    changes: raises,
-                    entries: Vec::new(),
-                    marker: None,
+        commit(&self, &ctx, tx, raises).await
+    }
+}
+
+/// The raises of every living agent's reach, which then asks for the
+/// secrets of the version kept.
+pub(super) async fn raises(
+    rows: &change::Rows<'_>,
+) -> Result<Vec<change::Change>> {
+    Ok(documents::living(rows)
+        .await?
+        .into_iter()
+        .map(|agent| versions::Change::WantReach(agent).into())
+        .collect())
+}
+
+/// Commits `changes` in `tx`, and makes the pushes they raise.
+pub(super) async fn commit(
+    realm: &Arc<Realm>,
+    ctx: &Ctx<Realm>,
+    tx: change::Transaction,
+    changes: Vec<change::Change>,
+) -> Result<()> {
+    let write = change::Write::<()> {
+        changes,
+        entries: Vec::new(),
+        marker: None,
+    };
+    let pushes = tx.commit(realm, write).await?;
+    ctx.register_task(calls::after_answer(
+        realm.clone(),
+        ctx.clone(),
+        Vec::new(),
+        pushes,
+    ));
+    Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use hamlet_messages::realm::HamletId;
+    use hamlet_messages::workspace::AgentNumber;
+
+    use super::super::change::Rows;
+    use super::super::testing::Started;
+    use super::super::{reach, versions};
+    use super::*;
+
+    const HIRE: AgentNumber = AgentNumber(2);
+
+    /// A reach read beside a keep, as `reach::push` reads it: one
+    /// under the keep's raised version asks for the kept secrets.
+    #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+    async fn a_reach_asks_for_the_secrets_of_its_version() {
+        let started = Started::new().await;
+        started.found(&HamletId("h".to_owned()), HIRE).await;
+        started
+            .commit(versions::Change::WantReach(HIRE))
+            .await
+            .unwrap();
+        for n in 0..200 {
+            let (before, _) =
+                versions::reach(&started.rows(), HIRE).await.unwrap();
+            let (realm, ctx) =
+                (started.realm.clone(), started.ctx.clone());
+            let read = tokio::spawn(async move {
+                let rows = Rows::outside(&ctx)?;
+                reach::of(&rows, HIRE, &realm.secrets).await
+            });
+            let tx = change::Transaction::begin(&started.ctx)
+                .await
+                .unwrap();
+            let raises = raises(&tx.rows()).await.unwrap();
+            let keep = KeepCredential {
+                provider: "p".to_owned(),
+                value: Kept::Key {
+                    key: format!("k{n}"),
                 },
-            )
-            .await?;
-        ctx.register_task(calls::after_answer(
-            self.clone(),
-            ctx.clone(),
-            Vec::new(),
-            pushes,
-        ));
-        Ok(())
+            };
+            started.realm.secrets.keep(&keep).unwrap();
+            commit(&started.realm, &started.ctx, tx, raises)
+                .await
+                .unwrap();
+            let set = read.await.unwrap().unwrap();
+            let secrets = set.reach.footing().unwrap().secrets;
+            assert!(
+                set.version == before
+                    || secrets == started.realm.secrets.version(),
+                "{set:?} under the keep's version asks for the old \
+                 secrets"
+            );
+        }
+        started.stop().await;
     }
 }

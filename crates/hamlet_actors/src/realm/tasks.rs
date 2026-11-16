@@ -7,7 +7,7 @@ use hamlet_messages::address::Agent;
 use hamlet_messages::realm::budget::{
     OpenTask, Payer, TaskOpened, TaskTurn,
 };
-use hamlet_messages::realm::{Left, Standing};
+use hamlet_messages::realm::{HamletId, Left, Standing};
 use hamlet_messages::workspace::{AgentNumber, RealmTask};
 use serde::{Deserialize, Serialize};
 
@@ -184,12 +184,30 @@ pub(super) async fn payer_of(
 }
 
 /// Who pays for what `agent` does on its own account: its standing
-/// task's payer. `None` for an agent with no standing task.
+/// task's payer, its starter's for a worker, and its hamlet for a
+/// chief's worker. `None` for an agent with none of these.
 pub(super) async fn own_payer(
     rows: &Rows<'_>,
     agent: AgentNumber,
 ) -> Result<Option<Payer>> {
-    match standing_of(rows, agent).await? {
+    let worker = rows
+        .row::<(Option<u32>, Option<String>)>(
+            "SELECT starter, hamlet FROM worker WHERE agent = ?1",
+            vec![number(agent)],
+        )
+        .await?;
+    let paying = match worker {
+        Some((Some(starter), _)) => AgentNumber(starter),
+        Some((None, hamlet)) => {
+            return Ok(Some(hamlet.map_or(Payer::Realm, |hamlet| {
+                Payer::Hamlet {
+                    hamlet: HamletId(hamlet),
+                }
+            })));
+        }
+        None => agent,
+    };
+    match standing_of(rows, paying).await? {
         Some(task) => payer(rows, task).await,
         None => Ok(None),
     }

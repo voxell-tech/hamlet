@@ -740,6 +740,14 @@ fn made(realm: &Realm, agent: AgentNumber) -> Option<AgentInput> {
         .map(|(_, input)| input.clone())
 }
 
+async fn made_until(realm: &Realm, agent: AgentNumber) -> AgentInput {
+    until(&format!("agent {} is made", agent.0), || {
+        made(realm, agent).is_some()
+    })
+    .await;
+    made(realm, agent).unwrap()
+}
+
 fn standing(realm: &Realm, agent: AgentNumber) -> RealmTask {
     made(realm, agent).expect("the agent was made").task
 }

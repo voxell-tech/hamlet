@@ -254,11 +254,16 @@ impl<By: RealmWide> Act<By> for Found {
         by: &By,
         founding: Founding,
     ) -> Decision<Self::Done, Self::Output> {
-        if self.name.trim().is_empty() {
-            return Decision::Answer(FoundAnswer::refused(
-                FoundRefusal::EmptyName,
-            ));
-        }
+        let name = match hamlet::checked_name(&self.name) {
+            Ok(name) => name.to_owned(),
+            Err(_) => {
+                return Decision::Answer(FoundAnswer::refused(
+                    FoundRefusal::BadName {
+                        name: self.name.trim().to_owned(),
+                    },
+                ));
+            }
+        };
         let purpose = tree::given_purpose(self.purpose.as_deref());
         // A chief's hamlet may leave its mayor's purpose to the first
         // line; an agent says what it founds for.
@@ -280,7 +285,7 @@ impl<By: RealmWide> Act<By> for Found {
             Decided::new((hamlet.clone(), mayor))
                 .change(Change::Found {
                     hamlet: hamlet.clone(),
-                    name: self.name.clone(),
+                    name,
                     mayor,
                     tier: self.tier,
                 })
@@ -377,13 +382,27 @@ mod tests {
     }
 
     #[test]
-    fn a_found_refuses_an_empty_name_and_a_missing_profile() {
+    fn a_found_refuses_a_bad_name_and_a_missing_profile() {
         let refused =
             |why| Decision::Answer(FoundAnswer::refused(why));
-        assert_eq!(
-            found(" ", None).decide(&Client, founding()),
-            refused(FoundRefusal::EmptyName)
-        );
+        for (name, shown) in [(" ", ""), (" a:b ", "a:b")] {
+            assert_eq!(
+                found(name, None).decide(&Client, founding()),
+                refused(FoundRefusal::BadName {
+                    name: shown.to_owned()
+                })
+            );
+        }
+        let Decision::Change(decided) =
+            found(" Mill ", None).decide(&Client, founding())
+        else {
+            panic!("a good name founds");
+        };
+        assert!(decided.changes.iter().any(|change| matches!(
+            change,
+            change::Change::Chiefs(Change::Found { name, .. })
+                if name == "Mill"
+        )));
         let missing = Founding {
             of: Err(ProfileId(7)),
             ..founding()

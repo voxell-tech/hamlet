@@ -4,6 +4,7 @@ use anyhow::Result;
 use hamlet_actor::Ctx;
 use hamlet_messages::address::Workspace;
 use hamlet_messages::realm::HamletId;
+use hamlet_messages::realm::oversight::Permission;
 use hamlet_messages::workspace::reach::{
     Footing, Reach, SecretsVersion,
 };
@@ -11,17 +12,20 @@ use hamlet_messages::workspace::{AgentNumber, InForce, SetReach};
 
 use super::change::{self, Rows, number};
 use super::peer::When;
-use super::{Realm, chiefs, oversight, tree, versions};
+use super::{Realm, chiefs, oversight, secrets, tree, versions};
 
 /// `agent`'s reach as the rows give it now, under its wanted version,
-/// asking for the secrets of version `secrets`; `Reach::Ended` for an
+/// asking for the secrets `secrets` holds then; `Reach::Ended` for an
 /// agent that ended.
 pub(super) async fn of(
     rows: &Rows<'_>,
     agent: AgentNumber,
-    secrets: SecretsVersion,
+    secrets: &secrets::Held,
 ) -> Result<SetReach> {
     let (version, _) = versions::reach(rows, agent).await?;
+    // A keep holds its secrets before it commits the raise, so those
+    // read after the version are at least the version's.
+    let secrets = secrets.version();
     let worker = rows
         .row::<(Option<u32>, Option<String>)>(
             "SELECT starter, hamlet FROM worker WHERE agent = ?1",
@@ -36,6 +40,7 @@ pub(super) async fn of(
             starter,
             footing: worker_footing(
                 rows,
+                agent,
                 starter,
                 hamlet.map(HamletId),
                 secrets,
@@ -52,25 +57,32 @@ pub(super) async fn of(
     })
 }
 
-/// A worker's footing: its starter's without the trust, or for a
-/// chief's worker, its hamlet's.
+/// Worker `agent`'s footing: its starter's without the trust, or for
+/// a chief's worker, its hamlet's; with the network its own grant
+/// gives.
 async fn worker_footing(
     rows: &Rows<'_>,
+    agent: AgentNumber,
     starter: Option<AgentNumber>,
     hamlet: Option<HamletId>,
     secrets: SecretsVersion,
 ) -> Result<Footing> {
-    if let Some(starter) = starter {
-        return Ok(Footing {
+    let mut footing = if let Some(starter) = starter {
+        Footing {
             trust: Vec::new(),
             ..oversight::footing(rows, starter, secrets).await?
-        });
-    }
-    let hamlet = match hamlet {
-        Some(id) => chiefs::hamlet(rows, &id).await?,
-        None => None,
+        }
+    } else {
+        let hamlet = match hamlet {
+            Some(id) => chiefs::hamlet(rows, &id).await?,
+            None => None,
+        };
+        oversight::hamlet_footing(rows, hamlet.as_ref(), secrets)
+            .await?
     };
-    oversight::hamlet_footing(rows, hamlet.as_ref(), secrets).await
+    footing.network |=
+        oversight::holds(rows, agent, Permission::Network).await?;
+    Ok(footing)
 }
 
 /// Carries `agent`'s wanted reach to the workspace and commits its
@@ -80,9 +92,7 @@ pub(super) async fn push(
     ctx: &Ctx<Realm>,
     agent: AgentNumber,
 ) -> Result<()> {
-    let set =
-        of(&Rows::outside(ctx)?, agent, realm.secrets.version())
-            .await?;
+    let set = of(&Rows::outside(ctx)?, agent, &realm.secrets).await?;
     let InForce { version } = realm
         .peers
         .call(&Workspace, &set, When::AfterAnswer)
@@ -100,7 +110,6 @@ pub(super) async fn push(
 mod tests {
     use hamlet_messages::realm::{HamletId, HowEnded};
 
-    use super::super::secrets;
     use super::super::testing::Started;
     use super::*;
 
@@ -123,15 +132,12 @@ mod tests {
         for _ in 0..200 {
             let (before, _) =
                 versions::reach(&started.rows(), HIRE).await.unwrap();
+            let realm = started.realm.clone();
             let set = started
                 .race(
                     |ctx| async move {
-                        of(
-                            &Rows::outside(&ctx)?,
-                            HIRE,
-                            secrets::VERSION,
-                        )
-                        .await
+                        let rows = Rows::outside(&ctx)?;
+                        of(&rows, HIRE, &realm.secrets).await
                     },
                     &[
                         &end,

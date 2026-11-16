@@ -1,15 +1,19 @@
 use std::path::PathBuf;
 
+use hamlet_messages::realm::documents::{
+    EditSettings, RemoteWorkspace, Setting, SettingRefusal,
+};
 use hamlet_messages::realm::models::{
     Credential, CredentialAnswer, CredentialRefusal, KeepCredential,
     Kept, OauthLogin,
 };
-use hamlet_messages::realm::{SecretList, Secrets};
+use hamlet_messages::realm::{Done, SecretList, Secrets};
 use hamlet_messages::sender::Hand;
 use hamlet_messages::workspace::AgentNumber;
 use hamlet_messages::workspace::reach::SecretsVersion;
 use serde_json::{Value, json};
 
+use super::chiefs::chief;
 use super::{MAYOR, Realm, THREE, hamlet_with, until};
 
 fn file(realm: &Realm) -> PathBuf {
@@ -308,5 +312,146 @@ async fn the_workspace_reads_each_kept_value_under_a_raised_version()
         })
     })
     .await;
+    realm.host.shutdown().await.unwrap();
+}
+
+fn choose(workspace: Option<(&str, &str)>) -> EditSettings {
+    EditSettings {
+        set: vec![Setting::Workspace {
+            workspace: workspace.map(|(url, token)| {
+                RemoteWorkspace {
+                    url: url.to_owned(),
+                    token: token.to_owned(),
+                }
+            }),
+        }],
+    }
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn a_chosen_workspace_is_kept_with_the_credentials() {
+    // each workspace the chief chooses is kept in credentials.json,
+    // under a raised version that every reach asks for; the token it
+    // replaced is still taken out, and a removed one leaves the file.
+    let (realm, _) = hamlet_with(1).await;
+
+    let first =
+        chief(&realm, choose(Some((" https://one.invalid ", "t-1"))));
+    let first = first.await;
+    let second =
+        chief(&realm, choose(Some(("https://two.invalid", "t-2"))));
+    let second = second.await;
+    let kept = stored(&realm);
+    let list: SecretList =
+        realm.call_as_workspace(&Secrets).await.unwrap();
+    let removed = chief(&realm, choose(None)).await;
+
+    assert_eq!(
+        [first, second, removed],
+        [Done::Done, Done::Done, Done::Done]
+    );
+    assert_eq!(
+        kept["workspace"],
+        json!({ "url": "https://two.invalid", "token": "t-2" })
+    );
+    assert_eq!(list.version, SecretsVersion(3));
+    for token in ["t-1", "t-2"] {
+        assert!(
+            list.values.iter().any(|held| held == token),
+            "{token}"
+        );
+    }
+    assert_eq!(stored(&realm).get("workspace"), None);
+    assert_eq!(stored(&realm)["version"], 4);
+    until("every living reach asks for the last version", || {
+        [Hand::NUMBER, MAYOR, THREE].iter().all(|&agent| {
+            realm.seen.reaches.lock().unwrap().iter().any(|set| {
+                set.agent == agent
+                    && set.reach.footing().is_some_and(|footing| {
+                        footing.secrets == SecretsVersion(4)
+                    })
+            })
+        })
+    })
+    .await;
+    realm.host.shutdown().await.unwrap();
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn a_workspace_at_no_address_is_refused_and_not_kept() {
+    let realm = Realm::start().await;
+
+    let refused =
+        chief(&realm, choose(Some(("ftp://w", "t-1")))).await;
+
+    assert_eq!(
+        refused,
+        Done::Refused {
+            why: SettingRefusal::NotHttp {
+                address: "ftp://w".to_owned()
+            }
+        }
+    );
+    assert!(!file(&realm).exists());
+    realm.host.shutdown().await.unwrap();
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn a_file_from_todays_server_keeps_its_workspace() {
+    let realm =
+        moved_over(Realm::start().await, &todays_file()).await;
+
+    let other =
+        chief(&realm, choose(Some(("https://w.invalid", "t-1"))));
+    let list: SecretList =
+        realm.call_as_workspace(&Secrets).await.unwrap();
+
+    assert!(list.values.iter().any(|held| held == "workspace-token"));
+    assert_eq!(other.await, Done::Done);
+    assert_eq!(
+        stored(&realm)["workspace"],
+        json!({ "url": "https://w.invalid", "token": "t-1" })
+    );
+    realm.host.shutdown().await.unwrap();
+}
+
+#[cfg(unix)]
+#[tokio::test(flavor = "multi_thread")]
+async fn a_start_makes_the_file_0600() {
+    use std::os::unix::fs::PermissionsExt as _;
+    let realm = Realm::start().await;
+    std::fs::write(file(&realm), todays_file().to_string()).unwrap();
+    std::fs::set_permissions(
+        file(&realm),
+        std::fs::Permissions::from_mode(0o644),
+    )
+    .unwrap();
+
+    let realm = realm.restart().await;
+
+    let mode = std::fs::metadata(file(&realm)).unwrap().permissions();
+    assert_eq!(mode.mode() & 0o777, 0o600);
+    realm.host.shutdown().await.unwrap();
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn a_login_read_and_kept_back_unchanged_changes_nothing() {
+    let realm =
+        moved_over(Realm::start().await, &todays_file()).await;
+    let CredentialAnswer::Oauth { login } =
+        credential(&realm, Hand::NUMBER, "chatgpt").await
+    else {
+        panic!("today's login reads as one");
+    };
+    let before = stored(&realm);
+
+    keep(&realm, "chatgpt", Kept::Oauth { login }).await;
+
+    let after = stored(&realm);
+    assert_eq!(
+        after["models"]["chatgpt"],
+        before["models"]["chatgpt"]
+    );
+    assert_eq!(after["version"], before["version"]);
     realm.host.shutdown().await.unwrap();
 }

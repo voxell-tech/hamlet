@@ -1,5 +1,6 @@
 use hamlet_messages::agent::Input;
 use hamlet_messages::realm::budget::Payer;
+use hamlet_messages::realm::choices::SetNickname;
 use hamlet_messages::realm::hamlets::{ReadRecord, Record};
 use hamlet_messages::realm::world::{RoadSeen, Seen};
 use hamlet_messages::realm::{
@@ -13,7 +14,7 @@ use hamlet_messages::workspace::AgentNumber;
 use super::chiefs::chief;
 use super::{
     FOUR, MAYOR, Realm, THREE, found, hamlet_with, hires,
-    seen_submits, submits_to, tell, to, tool, world,
+    seen_submits, submits_to, tell, to, tool, until, world,
 };
 
 const OTHER_MAYOR: AgentNumber = AgentNumber(4);
@@ -117,9 +118,11 @@ async fn a_road_is_laid_when_both_mayors_agree() {
         agreed_by(&realm, MAYOR, "a1", agree(THREE, FIVE)).await;
     let repeated =
         agreed_by(&realm, MAYOR, "a2", agree(THREE, FIVE)).await;
-    let second =
-        agreed_by(&realm, OTHER_MAYOR, "a1", agree(FIVE, THREE))
-            .await;
+    let theirs = AgreeRoad {
+        why: Some("trade".to_owned()),
+        ..agree(FIVE, THREE)
+    };
+    let second = agreed_by(&realm, OTHER_MAYOR, "a1", theirs).await;
     roads_seen(&realm, &[(3, 5)]).await;
     let again =
         agreed_by(&realm, MAYOR, "a3", agree(THREE, FIVE)).await;
@@ -136,12 +139,14 @@ async fn a_road_is_laid_when_both_mayors_agree() {
         again,
         refused(AgreeRefusal::RoadExists { a: THREE, b: FIVE })
     );
-    for (record, subject) in records.iter().zip(["hire#3", "hire#5"])
-    {
+    let agreed = [
+        "- hire#2 agreed a road from hire#3: share files",
+        "- hire#4 agreed a road from hire#5: trade",
+    ];
+    for (record, line) in records.iter().zip(agreed) {
         let Record::Read { lines } = record else {
             panic!("a record: {record:?}");
         };
-        let line = format!("- hire#4 laid a road from {subject}");
         assert!(
             lines.iter().any(|kept| kept.text == line),
             "{line} missing from {lines:?}"
@@ -279,8 +284,12 @@ async fn an_agreement_is_refused_as_today() {
             refused(AgreeRefusal::SameHamlet),
             refused(AgreeRefusal::NotHires),
             refused(AgreeRefusal::NotAMayor),
-            refused(AgreeRefusal::NoSuchAgent),
-            refused(AgreeRefusal::NoSuchAgent),
+            refused(AgreeRefusal::NoSuchAgent {
+                address: "hire#6".to_owned()
+            }),
+            refused(AgreeRefusal::NoSuchAgent {
+                address: "hire#99".to_owned()
+            }),
         ]
     );
     realm.host.shutdown().await.unwrap();
@@ -334,6 +343,12 @@ async fn a_request_road_with_no_reason_writes_todays_words() {
     // a reason padded by spaces: the mayor reads today's words, the
     // reason trimmed.
     let (realm, _) = hamlet_with(2).await;
+    let nickname = SetNickname {
+        hire: to(THREE),
+        name: Some("Spade".to_owned()),
+        why: None,
+    };
+    assert_eq!(chief(&realm, nickname).await, Done::Done);
     let request = |to: AgentNumber, why: Option<&str>| RequestRoad {
         to: self::to(to),
         why: why.map(str::to_owned),
@@ -362,8 +377,8 @@ async fn a_request_road_with_no_reason_writes_todays_words() {
     assert_eq!(
         texts,
         [
-            "I ask for a road to `hire#3`: notes",
-            "I ask for a road to `hire#4`: ",
+            "I ask for a road to hire#3 (Spade): notes",
+            "I ask for a road to hire#4: ",
         ]
     );
     realm.host.shutdown().await.unwrap();
@@ -402,9 +417,57 @@ async fn a_request_road_to_an_ended_agent_is_refused() {
     assert_eq!(
         asked,
         Done::Refused {
-            why: AgentRefusal::Act(RequestRoadRefusal::NoSuchAgent)
+            why: AgentRefusal::Act(RequestRoadRefusal::NoSuchAgent {
+                address: "hire#4".to_owned()
+            })
         }
     );
     assert!(submits_to(&realm, MAYOR).is_empty());
+    realm.host.shutdown().await.unwrap();
+}
+
+/// Whether the newest place `agent` was sent has a road to `to`.
+fn place_has_road(
+    realm: &Realm,
+    agent: AgentNumber,
+    to: AgentNumber,
+) -> bool {
+    realm
+        .seen
+        .places
+        .lock()
+        .unwrap()
+        .iter()
+        .filter(|(sent, _)| *sent == agent)
+        .max_by_key(|(_, place)| place.version)
+        .is_some_and(|(_, place)| place.roads.contains(&to))
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn an_agreed_road_is_hidden_while_roads_between_are_off() {
+    // once both mayors agreed 3-5, the world shows the road and each
+    // end's place holds it. While the chief allows no roads between
+    // hamlets, neither does; allowed again, both do.
+    let (realm, _, _) = two_hamlets().await;
+    agreed_by(&realm, MAYOR, "a1", agree(THREE, FIVE)).await;
+    agreed_by(&realm, OTHER_MAYOR, "a1", agree(FIVE, THREE)).await;
+    roads_seen(&realm, &[(3, 5)]).await;
+    until("3's place holds the road to 5", || {
+        place_has_road(&realm, THREE, FIVE)
+    })
+    .await;
+
+    roads_between(&realm, false).await;
+    roads_seen(&realm, &[]).await;
+    until("3's place drops the road to 5", || {
+        !place_has_road(&realm, THREE, FIVE)
+    })
+    .await;
+    roads_between(&realm, true).await;
+    roads_seen(&realm, &[(3, 5)]).await;
+    until("5's place holds the road to 3 again", || {
+        place_has_road(&realm, FIVE, THREE)
+    })
+    .await;
     realm.host.shutdown().await.unwrap();
 }

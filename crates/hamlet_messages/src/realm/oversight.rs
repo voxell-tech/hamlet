@@ -109,8 +109,8 @@ impl fmt::Display for Permission {
 )]
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum RevokeRefusal {
-    #[error("no agent is at that address")]
-    NoSuchAgent,
+    #[error("no agent has the address `{address}`")]
+    NoSuchAgent { address: String },
     #[error("{name} holds no grant of {permission}.")]
     NoGrant {
         name: String,

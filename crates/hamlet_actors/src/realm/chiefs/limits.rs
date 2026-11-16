@@ -15,8 +15,8 @@ use super::super::act::{Act, Decided, Decision};
 use super::super::callers::Decider as _;
 use super::super::calls::Made;
 use super::super::change::{Affected, Rows, Writer};
-use super::super::record;
 use super::super::world::Part;
+use super::super::{documents, record};
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(default)]
@@ -240,15 +240,26 @@ pub(in crate::realm) async fn budget(
     })
 }
 
+/// Whether mayors may agree roads between their hamlets. Before the
+/// realm's first start writes its row, the default.
+pub(in crate::realm) async fn roads_between(
+    rows: &Rows<'_>,
+) -> Result<bool> {
+    Ok(stored(rows).await?.unwrap_or_default().roads_between)
+}
+
 async fn realm(rows: &Rows<'_>) -> Result<RealmLimits> {
-    let text = rows
-        .value::<String>(
-            "SELECT limits FROM realm WHERE id = 1",
-            Vec::new(),
-        )
-        .await?
-        .context("the realm's row")?;
-    Ok(serde_json::from_str(&text)?)
+    stored(rows).await?.context("the realm's row")
+}
+
+async fn stored(rows: &Rows<'_>) -> Result<Option<RealmLimits>> {
+    rows.value::<String>(
+        "SELECT limits FROM realm WHERE id = 1",
+        Vec::new(),
+    )
+    .await?
+    .map(|text| Ok(serde_json::from_str(&text)?))
+    .transpose()
 }
 
 /// Limits with the row that keeps them.
@@ -348,11 +359,27 @@ pub(super) async fn set(
     writer: &Writer<'_>,
     kept: Kept,
 ) -> Result<Affected> {
+    let mut affected = Affected::seen([Part::Spend]);
     let (sql, params) = match kept.0 {
-        Row::Realm(limits) => (
-            "UPDATE realm SET limits = ?1 WHERE id = 1",
-            vec![BindParam::Text(serde_json::to_string(&limits)?)],
-        ),
+        Row::Realm(limits) => {
+            // Every living agent's roads to other hamlets open or
+            // close with them.
+            if roads_between(&writer.rows()).await?
+                != limits.roads_between
+            {
+                affected.places = documents::living(&writer.rows())
+                    .await?
+                    .into_iter()
+                    .collect();
+                affected.seen.insert(Part::Roads);
+            }
+            (
+                "UPDATE realm SET limits = ?1 WHERE id = 1",
+                vec![BindParam::Text(serde_json::to_string(
+                    &limits,
+                )?)],
+            )
+        }
         Row::Hamlet(id, limits) => (
             "UPDATE hamlet SET limits = ?2 WHERE id = ?1",
             vec![
@@ -362,7 +389,7 @@ pub(super) async fn set(
         ),
     };
     writer.execute(sql, params).await?;
-    Ok(Affected::seen([Part::Spend]))
+    Ok(affected)
 }
 
 #[cfg(test)]

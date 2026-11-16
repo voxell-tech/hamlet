@@ -21,6 +21,7 @@ use super::act::{Act, Decided, Decision};
 use super::callers::Lead;
 use super::calls::{Calls, Delivery, Made};
 use super::change::{self, Affected, At, Rows, Writer, number};
+use super::chiefs::limits;
 use super::roads::{self, Way};
 use super::tree::{self, Lineage, Status};
 use super::world::Part;
@@ -198,16 +199,19 @@ const LIVE_ROADS: &str = "road JOIN agent AS one ON one.id = road.a \
                           WHERE road.up_at IS NULL AND one.status \
                           != 'ended' AND other.status != 'ended'";
 
+/// The roads a client sees: an agreed one only while the chief
+/// allows roads between hamlets.
 pub(super) async fn live_roads(
     rows: &Rows<'_>,
 ) -> Result<Vec<RoadSeen>> {
+    let between = limits::roads_between(rows).await?;
     Ok(rows
         .rows::<(u32, u32)>(
             &format!(
-                "SELECT road.a, road.b FROM {LIVE_ROADS} ORDER BY \
-                 road.a, road.b"
+                "SELECT road.a, road.b FROM {LIVE_ROADS} AND \
+                 (road.kind = 'tree' OR ?1) ORDER BY road.a, road.b"
             ),
-            Vec::new(),
+            vec![BindParam::Integer(i64::from(between))],
         )
         .await?
         .into_iter()
@@ -235,7 +239,8 @@ async fn live_roads_in(
 }
 
 pub(super) struct Laying {
-    ends: Option<(Lineage, Lineage)>,
+    /// Both ends, or the name that names no agent.
+    ends: Result<(Lineage, Lineage), Named>,
     laid: bool,
     live_roads: u32,
 }
@@ -247,16 +252,18 @@ impl Laying {
         a: &Named,
         b: &Named,
     ) -> Result<Self> {
-        let (Some(a), Some(b)) = (
-            tree::named(rows, by, a).await?,
-            tree::named(rows, by, b).await?,
-        ) else {
-            return Ok(Self {
-                ends: None,
-                laid: false,
-                live_roads: 0,
-            });
+        let missing = |named: &Named| Self {
+            ends: Err(named.clone()),
+            laid: false,
+            live_roads: 0,
         };
+        let Some(one) = tree::named(rows, by, a).await? else {
+            return Ok(missing(a));
+        };
+        let Some(other) = tree::named(rows, by, b).await? else {
+            return Ok(missing(b));
+        };
+        let (a, b) = (one, other);
         let live_roads = match &a.hamlet {
             Some(hamlet) => live_roads_in(rows, &hamlet.id).await?,
             None => 0,
@@ -265,7 +272,7 @@ impl Laying {
             laid: between(rows, a.agent.agent, b.agent.agent)
                 .await?
                 .is_some(),
-            ends: Some((a, b)),
+            ends: Ok((a, b)),
             live_roads,
         })
     }
@@ -287,10 +294,15 @@ impl<By: Lead> Act<By> for LayRoad {
     ) -> Decision<(), Self::Output> {
         let refuse =
             |why| Decision::Answer(Done::refused(By::refused(why)));
-        let Some((a, b)) = &laying.ends else {
-            return refuse(LayRefusal::NoSuchAgent);
+        let (a, b) = match &laying.ends {
+            Ok(ends) => ends,
+            Err(named) => {
+                return refuse(LayRefusal::NoSuchAgent {
+                    address: named.to_string(),
+                });
+            }
         };
-        if [a, b].iter().any(|end| end.agent.kind == AgentKind::Hand)
+        if [a, b].iter().any(|end| end.agent.kind != AgentKind::Hire)
         {
             return refuse(LayRefusal::NotTwoHiresOfOneHamlet);
         }
@@ -346,6 +358,7 @@ impl<By: Lead> Act<By> for LayRoad {
                     a: one,
                     b: two,
                     by: by.by(),
+                    why: self.why.clone(),
                 }),
         )
     }
@@ -369,10 +382,15 @@ impl<By: Lead> Act<By> for TakeUpRoad {
         by: &By,
         laying: Laying,
     ) -> Decision<(), Self::Output> {
-        let Some((a, b)) = &laying.ends else {
-            return Decision::Answer(Done::refused(By::refused(
-                TakeUpRefusal::NoSuchAgent,
-            )));
+        let (a, b) = match &laying.ends {
+            Ok(ends) => ends,
+            Err(named) => {
+                return Decision::Answer(Done::refused(By::refused(
+                    TakeUpRefusal::NoSuchAgent {
+                        address: named.to_string(),
+                    },
+                )));
+            }
         };
         for end in [a, b] {
             if let Err(not_a_lead) = by.leads(end, end.agent.agent) {
@@ -386,9 +404,14 @@ impl<By: Lead> Act<By> for TakeUpRoad {
             )));
         }
         Decision::Change(
-            Decided::new(())
-                .change(Change::TakeUp { a, b })
-                .record(record::Entry::Unroad { a, b, by: by.by() }),
+            Decided::new(()).change(Change::TakeUp { a, b }).record(
+                record::Entry::Unroad {
+                    a,
+                    b,
+                    by: by.by(),
+                    why: self.why.clone(),
+                },
+            ),
         )
     }
 
@@ -398,7 +421,9 @@ impl<By: Lead> Act<By> for TakeUpRoad {
 }
 
 pub(super) struct Asking {
-    ends: roads::Ends,
+    from: AgentNumber,
+    /// The other end, with how the letter names it.
+    to: Option<(roads::End, String)>,
     lead: Option<roads::End>,
     letter: LetterId,
 }
@@ -422,8 +447,16 @@ impl Act<Agent> for RequestRoad {
             Some(lead) => Some(roads::end_of(rows, lead).await?),
             None => None,
         };
+        let to = match ends.to {
+            Some(to) => {
+                let name = record::name_of(rows, to.agent).await?;
+                Some((to, name))
+            }
+            None => None,
+        };
         Ok(Asking {
-            ends,
+            from: ends.from.agent,
+            to,
             lead,
             letter: letters::fresh(rows).await?,
         })
@@ -437,12 +470,18 @@ impl Act<Agent> for RequestRoad {
         let refuse = |why| {
             Decision::Answer(Done::refused(AgentRefusal::Act(why)))
         };
-        let Asking { ends, lead, letter } = asking;
-        let Some(to) = ends
-            .to
-            .filter(|to| !matches!(to.status, Status::Ended(_)))
+        let Asking {
+            from,
+            to,
+            lead,
+            letter,
+        } = asking;
+        let Some((_, name)) = to
+            .filter(|(to, _)| !matches!(to.status, Status::Ended(_)))
         else {
-            return refuse(RequestRoadRefusal::NoSuchAgent);
+            return refuse(RequestRoadRefusal::NoSuchAgent {
+                address: self.to.to_string(),
+            });
         };
         let Some(lead) = lead else {
             return refuse(RequestRoadRefusal::NoLead);
@@ -457,13 +496,8 @@ impl Act<Agent> for RequestRoad {
                 )),
             };
         }
-        let named = if to.agent == Hand::NUMBER {
-            "the Hand".to_owned()
-        } else {
-            format!("`hire#{}`", to.agent.0)
-        };
         let text = format!(
-            "I ask for a road to {named}: {}",
+            "I ask for a road to {name}: {}",
             self.why.as_deref().unwrap_or_default().trim()
         );
         let written = letters::Written {
@@ -472,12 +506,7 @@ impl Act<Agent> for RequestRoad {
             task: self.task.as_ref(),
             conversation: None,
         };
-        Decision::Change(written.keep(
-            letter,
-            ends.from.agent,
-            &lead,
-            Way::Tree,
-        ))
+        Decision::Change(written.keep(letter, from, &lead, Way::Tree))
     }
 
     fn deliveries(&self, _by: &Agent, letter: &LetterId) -> Calls {

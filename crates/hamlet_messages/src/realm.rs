@@ -427,6 +427,23 @@ pub enum Named {
     Agent { agent: AgentNumber },
 }
 
+/// The address an agent writes for it.
+impl std::fmt::Display for Named {
+    fn fmt(
+        &self,
+        f: &mut std::fmt::Formatter<'_>,
+    ) -> std::fmt::Result {
+        match self {
+            Self::Hand => f.write_str("hand"),
+            Self::Mayor => f.write_str("mayor"),
+            Self::MayorOf { hamlet } => {
+                write!(f, "mayor@{}", hamlet.0)
+            }
+            Self::Agent { agent } => write!(f, "hire#{}", agent.0),
+        }
+    }
+}
+
 /// How and why an agent ended (H28).
 #[derive(
     Clone,
@@ -463,13 +480,13 @@ pub enum HowEnded {
     #[error("ended by the Hand")]
     ByTheHand,
     /// A worker answered its starter.
-    #[error("answered")]
+    #[error("it answered its task")]
     Answered,
     /// A worker's turn failed.
-    #[error("its turn failed")]
+    #[error("its task failed")]
     Failed,
-    /// A worker ended with its starter.
-    #[error("stopped with its starter")]
+    /// A worker was stopped: with its starter, or by a chief.
+    #[error("it was stopped")]
     Stopped,
 }
 
@@ -532,8 +549,11 @@ impl<W> Refusable for FoundAnswer<W> {
 )]
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum FoundRefusal {
-    #[error("a hamlet needs a name")]
-    EmptyName,
+    #[error(
+        "`{name}` is not a name: use one line of 1 to 40 characters \
+         with no colon"
+    )]
+    BadName { name: String },
     #[error("there is no `profile#{}`", profile.0)]
     NoSuchProfile { profile: ProfileId },
     #[error("say what it is for")]
@@ -607,8 +627,8 @@ pub enum HireRefusal {
     NoHamlet,
     #[error("there is no such hamlet")]
     NoSuchHamlet,
-    #[error("no agent is at that address")]
-    NoSuchAgent,
+    #[error("no agent has the address `{address}`")]
+    NoSuchAgent { address: String },
     #[error("`hire#{}` is in another hamlet", lead.0)]
     OtherHamlet { lead: AgentNumber },
     #[error("`hire#{}` has left: {left}", lead.0)]
@@ -649,8 +669,8 @@ impl ToolCall for End {
 )]
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum EndRefusal {
-    #[error("no agent is at that address")]
-    NoSuchAgent,
+    #[error("no agent has the address `{address}`")]
+    NoSuchAgent { address: String },
     #[error("the Hand cannot be ended")]
     TheHand,
     #[error("a mayor cannot be ended; seat another mayor first")]
@@ -690,10 +710,10 @@ impl ToolCall for Seat {
 )]
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum OnlyAHire {
-    #[error("no agent is at that address")]
-    NoSuchAgent,
-    #[error("that is not a hire")]
-    NotAHire,
+    #[error("no agent has the address `{address}`")]
+    NoSuchAgent { address: String },
+    #[error("`{name}` is not a hire")]
+    NotAHire { name: String },
     #[error("`hire#{}` has left: {left}", hire.0)]
     Left { hire: AgentNumber, left: Left },
 }
@@ -830,8 +850,8 @@ impl ToolCall for LayRoad {
 )]
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum LayRefusal {
-    #[error("no agent is at that address")]
-    NoSuchAgent,
+    #[error("no agent has the address `{address}`")]
+    NoSuchAgent { address: String },
     #[error("a road joins two hires of one hamlet")]
     NotTwoHiresOfOneHamlet,
     #[error("`hire#{}` has left: {left}", hire.0)]
@@ -898,14 +918,12 @@ impl<W> Refusable for Agreed<W> {
 pub enum AgreeRefusal {
     #[error("only a mayor may do that")]
     NotAMayor,
-    #[error("no agent is at that address")]
-    NoSuchAgent,
+    #[error("no agent has the address `{address}`")]
+    NoSuchAgent { address: String },
     #[error("the chief allows no roads between hamlets")]
     NoRoadsBetween,
     #[error("a road joins hires only")]
     NotHires,
-    #[error("`hire#{}` has left: {left}", hire.0)]
-    Left { hire: AgentNumber, left: Left },
     #[error(
         "both ends of an agreed road must be in different hamlets"
     )]
@@ -944,8 +962,8 @@ impl ToolCall for TakeUpRoad {
 )]
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum TakeUpRefusal {
-    #[error("no agent is at that address")]
-    NoSuchAgent,
+    #[error("no agent has the address `{address}`")]
+    NoSuchAgent { address: String },
     #[error("`hire#{}` and `hire#{}` have no road to take up", a.0, b.0)]
     NoRoad { a: AgentNumber, b: AgentNumber },
 }
@@ -977,8 +995,8 @@ impl ToolCall for RequestRoad {
 )]
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum RequestRoadRefusal {
-    #[error("no agent is at that address")]
-    NoSuchAgent,
+    #[error("no agent has the address `{address}`")]
+    NoSuchAgent { address: String },
     #[error("you have no lead to ask")]
     NoLead,
     #[error("your lead `hire#{}` is still being hired", lead.0)]

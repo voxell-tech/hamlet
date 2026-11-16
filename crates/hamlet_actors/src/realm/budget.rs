@@ -317,7 +317,7 @@ impl Act<Agent> for MaySpend {
         if let Some(over) = spent(rows, &payer).await?.over() {
             return Ok(Some(SpendRefusal::Budget(over)));
         }
-        let over = allowance::over(rows, by.0).await?;
+        let over = allowance::over(rows, by.0, &payer).await?;
         Ok(over.map(SpendRefusal::Budget))
     }
 
