@@ -1,6 +1,6 @@
 // Not `pi()`: its built-in actions check no sender, and it reserves `submit`.
 import { BACKGROUND_CONTEXT } from "@earendil-works/chord/context";
-import type { Models } from "@earendil-works/pi-ai";
+import type { Api, Model, Models } from "@earendil-works/pi-ai";
 import {
     createRegistry,
     type Extension,
@@ -31,10 +31,21 @@ import {
     withHarness,
 } from "../pi/runtime.ts";
 import { migratePiTables } from "../pi/storage.ts";
+import { type ChatHandlers, chatActions } from "./chat.ts";
+import { compactionFor, cutOff } from "./compaction.ts";
+import {
+    copiesOf,
+    keep,
+    migrateCopies,
+    type ReadCopies,
+    refreshed,
+} from "./copies.ts";
 import type { AgentFilesystem } from "./filesystem.ts";
+import type { SignIns } from "./login.ts";
 import {
     type AgentActions,
     type AgentInput,
+    type Copies,
     type Fill,
     type Finished,
     type Place,
@@ -44,10 +55,15 @@ import {
     type Submit,
     type ToolName,
 } from "./messages.ts";
+import { agentModels, configured } from "./models.ts";
 import { ownFiles } from "./own-files.ts";
+import { type PromptSources, promptPart } from "./prompt.ts";
+import { owedOf, reflectEvery, reflection } from "./reflect.ts";
+import { migrateChats } from "./sessions.ts";
 import { society } from "./society.ts";
 import { gated } from "./spend.ts";
 import { timers } from "./timers.ts";
+import { type Following, following, watching } from "./transcript.ts";
 import {
     type Admission,
     Closing,
@@ -69,6 +85,10 @@ export interface AgentConfig {
     readonly files: (agent: number) => AgentFilesystem;
     readonly fill?: (files: AgentFilesystem, fill: Fill) => Promise<void>;
     readonly settings?: HarnessSettings;
+    /** The models the listing holds now, which compaction is sized by. */
+    readonly listed?: () => readonly Model<Api>[];
+    /** Answers the Hand's `login`; a host without it signs no one in. */
+    readonly signIns?: SignIns;
 }
 
 export type AgentContext = PiContext;
@@ -88,7 +108,7 @@ export type Taken<Args extends readonly unknown[]> = ((
 
 export type AgentHandlers = {
     readonly [N in keyof AgentActions]: Taken<Parameters<AgentActions[N]>>;
-} & { readonly pi: { readonly wake: Taken<[]> } };
+} & ChatHandlers & { readonly pi: { readonly wake: Taken<[]> } };
 
 export type AgentDefinition = ActorDefinition<
     undefined,
@@ -103,8 +123,16 @@ export type AgentDefinition = ActorDefinition<
 >;
 
 /** Their order decides only the order the tools are offered in. */
-function parts(peers: Peers, off: readonly ToolName[]): Extension[] {
+function parts(
+    peers: Peers,
+    off: readonly ToolName[],
+    prompt: PromptSources,
+    withHarness: WithHarness,
+): Extension[] {
     return [
+        promptPart(prompt),
+        reflection(prompt.copies, owedOf(withHarness), reflectEvery()),
+        cutOff(),
         workspaceTools(peers),
         ownFiles(peers),
         society(peers, off),
@@ -119,7 +147,9 @@ function agentActions(config: AgentConfig): AgentHandlers {
             finished,
             place,
             fill: (c, message) => fill(c, config, message),
+            copies,
         }),
+        ...chatActions(config),
         pi: { wake: sentBy(ALARM, "pi.wake", () => [], wakeTimers) },
     };
 }
@@ -194,7 +224,7 @@ function taking<A extends { [N in keyof A]: (message: never) => unknown }>(
 }
 
 /** As the error of `crates/hamlet_messages/src/sender.rs`. */
-function wrongCaller(action: string, caller: Caller | null): ActorError {
+export function wrongCaller(action: string, caller: Caller | null): ActorError {
     return new ActorError(
         "message",
         "wrong_caller",
@@ -212,6 +242,8 @@ function wrongCaller(action: string, caller: Caller | null): ActorError {
  */
 async function migrateAgent(raw: Pick<RawAccess, "execute">): Promise<void> {
     await migratePiTables(raw);
+    await migrateCopies(raw);
+    await migrateChats(raw);
     await raw.execute(`
         CREATE TABLE IF NOT EXISTS agent (
             id INTEGER PRIMARY KEY CHECK (id = 1),
@@ -220,7 +252,8 @@ async function migrateAgent(raw: Pick<RawAccess, "execute">): Promise<void> {
             place_version INTEGER NOT NULL,
             tools_off TEXT NOT NULL CHECK (json_valid(tools_off)),
             place TEXT NOT NULL CHECK (json_valid(place)),
-            filled TEXT
+            filled TEXT,
+            epoch INTEGER NOT NULL DEFAULT 0
         ) STRICT
     `);
 }
@@ -270,7 +303,7 @@ async function create(
     config.files(numberOf(c));
 }
 
-interface Generation {
+export interface Generation {
     /**
      * Every call into the wrapper passes this one object, so a harness it
      * reopens opens with the same parts.
@@ -278,11 +311,13 @@ interface Generation {
     readonly options: PiOptions;
     readonly peers: Peers;
     readonly registry: Registry;
+    readonly copies: ReadCopies;
+    readonly following: Following;
 }
 
 const AGENT: unique symbol = Symbol.for("@hamlet/agent");
 
-function generationOf(c: PiContext): Generation {
+export function generationOf(c: PiContext): Generation {
     const generation = (c.vars as Record<symbol, Generation | undefined>)[
         AGENT
     ];
@@ -293,17 +328,22 @@ function generationOf(c: PiContext): Generation {
 async function wake(c: AgentContext, config: AgentConfig): Promise<void> {
     const row = await rowAt(c);
     const registry = createRegistry();
+    const withHarness = liveHarness(c);
     const peers = peersOf({
         calls: c,
         files: config.files(numberOf(c)),
-        turns: turnsOf(liveHarness(c), row.standingTask),
+        turns: turnsOf(withHarness, row.standingTask),
         report: (what, error) =>
             c.log.warn({ msg: what, error: reasonOf(error) }),
     });
-    for (const part of parts(peers, row.toolsOff)) registry.install(part);
+    const copies = copiesOf(c.db);
+    const prompt: PromptSources = { copies, peers };
+    for (const part of parts(peers, row.toolsOff, prompt, withHarness)) {
+        registry.install(part);
+    }
     const options: PiOptions = {
         registry,
-        models: gated(config.models, peers),
+        models: gated(agentModels(config.models, copies, peers), peers),
         model: config.model,
         // Files go through the tools, never through the wrapper's database env.
         env: () => undefined,
@@ -313,13 +353,21 @@ async function wake(c: AgentContext, config: AgentConfig): Promise<void> {
             // only input, and the turn's task and the reply read
             // `run.inputs[0]` alone.
             followUpMode: "one-at-a-time",
+            compaction: {
+                ...compactionFor(config.listed?.() ?? []),
+                ...config.settings?.compaction,
+            },
         },
     };
+    const follow = await following(c);
     (c.vars as Record<symbol, Generation>)[AGENT] = {
         options,
         peers,
         registry,
+        copies,
+        following: follow,
     };
+    watching(c, follow);
     // Not awaited, so a slow workspace does not hold `submit` past the
     // realm's deadline. Begun
     // before the open, since an action that reopens a harness the open
@@ -340,6 +388,11 @@ async function wake(c: AgentContext, config: AgentConfig): Promise<void> {
         return;
     }
     harness.resume();
+    void refreshed(c, peers).then(
+        (kept) => (kept.has("model") ? configured(c, copies) : undefined),
+        (error: unknown) =>
+            peers.report("the copies were not read from the realm", error),
+    );
 }
 
 /**
@@ -429,6 +482,11 @@ async function fill(
     if (row?.filled === wanted) return;
     await config.fill?.(generationOf(c).peers.files, message);
     await c.db.run("UPDATE agent SET filled = ? WHERE id = 1", wanted);
+}
+
+async function copies(c: AgentCall, message: Copies): Promise<void> {
+    const kept = await keep(c, message);
+    if (kept.has("model")) await configured(c, generationOf(c).copies);
 }
 
 async function wakeTimers(c: AgentCall): Promise<void> {

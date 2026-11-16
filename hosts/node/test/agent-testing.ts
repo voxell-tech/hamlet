@@ -69,6 +69,9 @@ export function fakeCalls(answers: {
         [REALM.kind]: {
             may_spend: () => ({ type: "done" }),
             charge: () => null,
+            read_copies: () => ({}),
+            lapse: () => null,
+            turn_failed: () => null,
             ...answers.realm,
         },
     };
@@ -203,6 +206,7 @@ const HAND: AgentInput = {
 export const from = {
     realm: { actor: REALM } as Caller,
     workspace: { actor: WORKSPACE } as Caller,
+    client: "client" as Caller,
     alarm: null,
     agent: (n: number): Caller => ({ actor: Address.of("agent", String(n)) }),
 };
@@ -223,6 +227,8 @@ export interface Woken {
     readonly faux: ReturnType<typeof fauxModels>["faux"];
     readonly alarms: number[];
     readonly reported: string[];
+    /** The events the agent broadcast, in order, as `[name, ...args]`. */
+    readonly events: unknown[][];
     harness(): Promise<Harness>;
     idle(): Promise<void>;
     entries(): Promise<{ kind: string; text: string; data: unknown }[]>;
@@ -267,6 +273,7 @@ export async function wakeAgent(
     const start = async (first: boolean): Promise<Woken> => {
         const alarms: number[] = [];
         const reported: string[] = [];
+        const events: unknown[][] = [];
         const c = {
             actorId: `agent-${address.key}`,
             address,
@@ -280,6 +287,8 @@ export async function wakeAgent(
                 error: (line: { msg: string }) => reported.push(line.msg),
             },
             keepAwake: (promise: Promise<unknown>) => promise,
+            broadcast: (name: string, ...args: unknown[]) =>
+                events.push([name, ...args]),
             schedule: {
                 at: async (at: number) => {
                     alarms.push(at);
@@ -302,6 +311,7 @@ export async function wakeAgent(
             faux,
             alarms,
             reported,
+            events,
             harness,
             idle: async () => (await harness()).waitForIdle(context),
             entries: async () => entriesOf(await harness(), context),

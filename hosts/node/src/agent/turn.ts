@@ -37,14 +37,32 @@ const CALLS: unique symbol = Symbol("hamlet.agent.calls");
 
 export interface Peers {
     readonly reach: BareRealm;
+    readonly cancel: (
+        message: Parameters<WorkspaceActions["cancel"]>[0],
+    ) => Promise<ReturnType<WorkspaceActions["cancel"]>>;
     readonly files: AgentFilesystem;
     readonly turns: Turns;
     report(what: string, error: unknown): void;
     readonly [CALLS]: Calls;
 }
 
+/** The realm's actions an agent calls outside a tool. */
+const BARE = [
+    "may_spend",
+    "charge",
+    "reply",
+    "credential",
+    "keep_credential",
+    "turn_failed",
+    "lapse",
+    "open_task",
+    "read_copies",
+    "worker_done",
+    "errand_done",
+] as const;
+
 export type BareRealm = {
-    readonly [N in "may_spend" | "charge" | "reply"]: (
+    readonly [N in (typeof BARE)[number]]: (
         message: Parameters<RealmActions[N]>[0],
     ) => Promise<ReturnType<RealmActions[N]>>;
 };
@@ -57,11 +75,13 @@ export function peersOf(given: {
 }): Peers {
     const reach = reaching(given.calls);
     return {
-        reach: {
-            may_spend: (message) => reach(REALM, "may_spend", [message]),
-            charge: (message) => reach(REALM, "charge", [message]),
-            reply: (message) => reach(REALM, "reply", [message]),
-        },
+        reach: Object.fromEntries(
+            BARE.map((name) => [
+                name,
+                (message: never) => reach(REALM, name, [message]),
+            ]),
+        ) as unknown as BareRealm,
+        cancel: (message) => reach(WORKSPACE, "cancel", [message]),
         files: given.files,
         turns: given.turns,
         report: given.report,
@@ -75,7 +95,9 @@ export type InputKind =
     | "question"
     | "answer"
     | "finished"
-    | "wake";
+    | "wake"
+    | "retry"
+    | "reflection";
 
 export type Admission = {
     /** pi-durable admits it once per conversation. */
@@ -107,8 +129,14 @@ const KIND = "hamlet.";
 
 type Kept = { task?: RealmTask; question?: LetterId };
 
-/** Its entry is admitted in the same commit as the input. */
-export function draftOf(admission: Admission): InputSubmissionDraft {
+/**
+ * Its entry is admitted in the same commit as the input. A busy run takes a
+ * `steer` input into its turn; any other waits for the next run.
+ */
+export function draftOf(
+    admission: Admission,
+    whenBusy?: "steer",
+): InputSubmissionDraft {
     const kept: Kept = {
         ...(admission.task === undefined ? {} : { task: admission.task }),
         ...(admission.kind === "question"
@@ -119,6 +147,7 @@ export function draftOf(admission: Admission): InputSubmissionDraft {
         type: "input",
         content: admission.content,
         requestId: admission.id,
+        ...(whenBusy === undefined ? {} : { whenBusy }),
         entry: { kind: `${KIND}${admission.kind}`, data: kept },
     };
 }
@@ -301,6 +330,7 @@ const WORKSPACE_STAMPS: {
     search: "read",
     find: "read",
     list_tools: "read",
+    cancel: "read",
 };
 
 const ACT_STAMPS: {
@@ -325,7 +355,7 @@ const ACT_STAMPS: {
     set_tools: { task: false, conversation: false },
 };
 
-type WorkspaceTool = Exclude<keyof WorkspaceActions, "list_tools">;
+type WorkspaceTool = Exclude<keyof WorkspaceActions, "list_tools" | "cancel">;
 
 type MessagesOf<A> = A extends WorkspaceActions
     ? {

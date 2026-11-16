@@ -6,9 +6,11 @@
 import {
     arr,
     bigint,
+    bool,
     compile,
     int,
     lit,
+    num,
     obj,
     oneOf,
     opt,
@@ -44,10 +46,12 @@ export function u32(value: number): number {
     return Math.min(Math.round(value), U32_MAX);
 }
 
-/** The act did not run. `words` are for the model. */
-export interface Refused {
+/** The act did not run. `words` are for the model, or for a chief. */
+export interface Refused<
+    Why extends { readonly type: string } = { readonly type: string },
+> {
     readonly type: "refused";
-    readonly why: { readonly type: string };
+    readonly why: Why;
     readonly words: string;
 }
 
@@ -216,6 +220,19 @@ export interface ToolList {
     }[];
 }
 
+export type Which =
+    | { readonly type: "all" }
+    | { readonly type: "conversation"; readonly conversation: ConversationRef }
+    | { readonly type: "one"; readonly call: CallId };
+
+export interface Cancel {
+    readonly which: Which;
+}
+
+export interface Cancelled {
+    readonly commands: readonly CommandId[];
+}
+
 export interface WorkspaceActions {
     run(message: Run): RunAnswer;
     read_file(message: ReadFile): ReadAnswer;
@@ -224,6 +241,7 @@ export interface WorkspaceActions {
     write_file(message: WriteFile): ChangeAnswer;
     edit_file(message: EditFile): ChangeAnswer;
     list_tools(): ToolList;
+    cancel(message: Cancel): Cancelled;
 }
 
 /** `mayor` is the office of the caller's hamlet. */
@@ -344,6 +362,66 @@ export interface Charge {
     readonly took_ms: number;
 }
 
+export interface OauthLogin {
+    readonly access: string;
+    readonly refresh: string;
+    /** Whole seconds since the epoch. */
+    readonly expires: number;
+    readonly extra?: string;
+}
+
+export type Kept =
+    | { readonly type: "key"; readonly key: string }
+    | { readonly type: "oauth"; readonly login: OauthLogin };
+
+export type CredentialAnswer =
+    | Kept
+    | Refused<{ readonly type: "not_signed_in"; readonly provider: string }>;
+
+export interface KeepCredential {
+    readonly provider: string;
+    readonly value: Kept;
+}
+
+export interface TurnFailed {
+    readonly task: RealmTask;
+    readonly conversation: ConversationRef;
+    readonly words: string;
+    readonly cause: "model" | "budget";
+}
+
+export type LapseReason = "stopped" | "rewound" | "ended" | "resumed";
+
+export interface Lapse {
+    /** Absent: every conversation of the agent. */
+    readonly conversation?: ConversationRef;
+    readonly why: LapseReason;
+}
+
+export interface OpenTask {
+    readonly turn: "retry" | "reflection";
+}
+
+export type TaskOpened =
+    | { readonly type: "opened"; readonly task: RealmTask }
+    | Refused;
+
+/** The versions the agent holds; the realm answers the parts newer than these. */
+export interface ReadCopies {
+    readonly charter?: number;
+    readonly character?: number;
+    readonly model?: number;
+    readonly settings?: number;
+}
+
+export type Ended =
+    | { readonly type: "answered"; readonly text: string }
+    | { readonly type: "failed"; readonly why: string };
+
+export interface TurnEnded {
+    readonly ended: Ended;
+}
+
 export type RealmActions = {
     readonly [N in SocietyTool]: (
         message: Tool<SocietyActs[N]["act"]>,
@@ -352,6 +430,14 @@ export type RealmActions = {
     reply(message: Reply): Done;
     may_spend(message: MaySpend): Done;
     charge(message: Charge): null;
+    credential(message: { readonly provider: string }): CredentialAnswer;
+    keep_credential(message: KeepCredential): null;
+    turn_failed(message: TurnFailed): null;
+    lapse(message: Lapse): null;
+    open_task(message: OpenTask): TaskOpened;
+    read_copies(message: ReadCopies): Copies;
+    worker_done(message: TurnEnded): null;
+    errand_done(message: TurnEnded): null;
 };
 
 export interface Author {
@@ -426,11 +512,294 @@ export interface AgentInput {
     readonly place: Place;
 }
 
+export interface Versioned<T> {
+    readonly version: number;
+    readonly value: T;
+}
+
+export type Effort =
+    | "off"
+    | "minimal"
+    | "low"
+    | "medium"
+    | "high"
+    | "xhigh"
+    | "max";
+
+/** Dollars per million tokens. */
+export interface Price {
+    readonly input: number;
+    readonly output: number;
+    readonly cache_read: number;
+    readonly cache_write: number;
+}
+
+export interface ModelChoice {
+    /** `provider::model`, as the catalogue names it. */
+    readonly model: string;
+    readonly effort?: Effort;
+    readonly fast?: boolean;
+    readonly price?: Price;
+}
+
+export interface AgentSettings {
+    readonly reflect_every: number;
+    readonly allow_net: boolean;
+}
+
+/** The parts the realm owns that the agent keeps a copy of. */
+export interface Copies {
+    readonly charter?: Versioned<string>;
+    readonly character?: Versioned<string>;
+    readonly model?: Versioned<ModelChoice>;
+    readonly settings?: Versioned<AgentSettings>;
+}
+
 export interface AgentActions {
     submit(message: Submit): null;
     finished(message: Finished): null;
     place(message: Place): null;
     fill(message: Fill): null;
+    copies(message: Copies): null;
+}
+
+export type RequestId = string;
+
+/** A sum that can pass 2^32, written as decimal text. */
+export type Count = string;
+
+export interface ChatRef {
+    readonly with: AgentNumber;
+    readonly from?: AgentNumber;
+    readonly kind?: "letters" | "questions";
+    readonly past?: number;
+}
+
+export type ItemKind =
+    | "user"
+    | "assistant"
+    | "reasoning"
+    | "tool"
+    | "notice"
+    | "error"
+    | "answered";
+
+export interface ChatImage {
+    readonly at?: number;
+    readonly id: string;
+}
+
+export interface ChatFile {
+    readonly at?: number;
+    readonly id: string;
+    readonly name: string;
+    readonly size: number;
+}
+
+export interface ToolChange {
+    readonly path: string;
+    readonly created: boolean;
+    readonly added: number;
+    readonly removed: number;
+    readonly total: number;
+    readonly count: string;
+    readonly lines: readonly {
+        readonly mark: "same" | "added" | "removed";
+        readonly text: string;
+    }[];
+}
+
+export interface ChatTool {
+    readonly name: string;
+    readonly summary: string;
+    /** The exit code's 32 bits: a negative code `c` is `c >>> 0`. */
+    readonly exit?: number;
+    readonly ms?: number;
+    readonly failure?: string;
+    readonly change?: ToolChange;
+}
+
+export interface ChatItem {
+    readonly id: string;
+    /** Whole seconds since the epoch. */
+    readonly at: number;
+    readonly kind: ItemKind;
+    readonly text: string;
+    readonly author?: string;
+    readonly images?: readonly ChatImage[];
+    readonly files?: readonly ChatFile[];
+    readonly rewindable?: boolean;
+    readonly tool?: ChatTool;
+}
+
+export interface Usage {
+    readonly calls: Count;
+    readonly unreported: Count;
+    readonly input: Count;
+    readonly cached: Count;
+    readonly output: Count;
+    readonly reasoning: Count;
+    readonly ms: Count;
+    /** Millionths of a dollar. */
+    readonly micros: Count;
+    readonly last_input: Count;
+    readonly summary: string;
+}
+
+export interface ChatPage {
+    readonly epoch: number;
+    readonly number: number;
+    readonly session?: number;
+    readonly items: readonly ChatItem[];
+    readonly earlier?: string;
+    readonly working: boolean;
+    readonly pending: number;
+    readonly usage: Usage;
+}
+
+export type ChatOp =
+    | {
+          readonly type: "add";
+          readonly item: ChatItem;
+          readonly replaces?: string;
+      }
+    | {
+          readonly type: "append";
+          readonly item: string;
+          readonly at: number;
+          readonly text: string;
+      }
+    | {
+          readonly type: "status";
+          readonly working: boolean;
+          readonly pending: number;
+      }
+    | { readonly type: "usage"; readonly usage: Usage }
+    | { readonly type: "reset" };
+
+export interface ChatEvent {
+    readonly chat: ChatRef;
+    readonly epoch: number;
+    readonly number: number;
+    readonly ops: readonly ChatOp[];
+}
+
+export interface Session {
+    readonly number: number;
+    readonly began: number;
+    readonly modified: number;
+    readonly current: boolean;
+    readonly messages: number;
+    readonly tokens: Count;
+    readonly title: string;
+}
+
+export interface Stop {
+    readonly agent?: AgentNumber;
+    readonly id: RequestId;
+}
+
+export interface NewSession {
+    readonly id: RequestId;
+    readonly to: AgentNumber;
+}
+
+export interface Resume {
+    readonly id: RequestId;
+    readonly number: number;
+    readonly to: AgentNumber;
+}
+
+export interface Retry {
+    readonly id: RequestId;
+    readonly to: AgentNumber;
+}
+
+export interface Rewind {
+    readonly chat: ChatRef;
+    readonly id: RequestId;
+    readonly item: string;
+}
+
+export interface Open {
+    readonly before?: string;
+    readonly chat: ChatRef;
+    readonly id: RequestId;
+}
+
+export type Login =
+    | {
+          readonly id: RequestId;
+          readonly start: {
+              readonly method: "key" | "subscription";
+              readonly provider: string;
+          };
+      }
+    | {
+          readonly id: RequestId;
+          readonly reply: { readonly login: string; readonly value: string };
+      }
+    | { readonly id: RequestId; readonly cancel: string };
+
+export type LoginStep =
+    | { readonly url: string; readonly instructions?: string }
+    | { readonly code: string }
+    | { readonly prompt: string; readonly secret: boolean }
+    | { readonly progress: string }
+    | { readonly done: string }
+    | { readonly failed: string };
+
+export type LoginAnswer =
+    | {
+          readonly type: "step";
+          readonly login: string;
+          readonly step: LoginStep;
+      }
+    | { readonly type: "done"; readonly login: string }
+    | {
+          readonly type: "failed";
+          readonly login: string;
+          readonly words: string;
+      };
+
+export type ResumeAnswer =
+    | { readonly type: "back"; readonly number: number }
+    | Refused<{ readonly type: "no_such_session"; readonly number: number }>;
+
+export type RetryAnswer =
+    | { readonly type: "done" }
+    | Refused<
+          | { readonly type: "running" }
+          | { readonly type: "answered" }
+          | { readonly type: "no_turn" }
+      >;
+
+export type RewindAnswer =
+    | {
+          readonly type: "rewound";
+          readonly text: string;
+          readonly images?: readonly ChatImage[];
+          readonly files?: readonly ChatFile[];
+      }
+    | Refused<
+          | { readonly type: "not_a_chief_line" }
+          | { readonly type: "no_such_item"; readonly item: string }
+          | { readonly type: "not_current" }
+          | { readonly type: "working" }
+      >;
+
+/** A client's calls of an agent, each answered with a value. */
+export interface ClientActions {
+    stop(message: Stop): { readonly turns: number };
+    new_session(message: NewSession): { readonly number: number };
+    resume(message: Resume): ResumeAnswer;
+    retry(message: Retry): RetryAnswer;
+    rewind(message: Rewind): RewindAnswer;
+    read_chat(message: Open): ChatPage;
+    read_history(): { readonly sessions: readonly Session[] };
+    read_prompt(): { readonly text: string };
+    reflect(): "asked" | "already";
+    login(message: Login): LoginAnswer;
 }
 
 export const WORKSPACE: Address<WorkspaceActions> = Address.of(
@@ -445,6 +814,7 @@ export const SENDERS = {
     finished: WORKSPACE,
     place: REALM,
     fill: REALM,
+    copies: REALM,
 } as const satisfies { readonly [N in keyof AgentActions]: Address };
 
 const OPEN = { open: true } as const;
@@ -461,6 +831,43 @@ const PLACE = obj(
     },
     OPEN,
 );
+const MODEL = obj(
+    {
+        model: str(),
+        effort: opt(
+            oneOf(["off", "minimal", "low", "medium", "high", "xhigh", "max"]),
+        ),
+        fast: opt(bool()),
+        price: opt(
+            obj(
+                {
+                    input: num(),
+                    output: num(),
+                    cache_read: num(),
+                    cache_write: num(),
+                },
+                OPEN,
+            ),
+        ),
+    },
+    OPEN,
+);
+const SETTINGS = obj({ reflect_every: U32, allow_net: bool() }, OPEN);
+
+function versioned<S extends Schema>(value: S) {
+    return obj({ version: U32, value }, OPEN);
+}
+
+const COPIES_SHAPE = obj(
+    {
+        charter: opt(versioned(str())),
+        character: opt(versioned(str())),
+        model: opt(versioned(MODEL)),
+        settings: opt(versioned(SETTINGS)),
+    },
+    OPEN,
+);
+
 const INPUT = union([
     obj(
         {
@@ -521,7 +928,142 @@ export const read: {
     ),
     place: reader(PLACE, placeOf),
     fill: reader(obj({ profile: U32, branch: str() }, OPEN), (fill) => fill),
+    copies: reader(COPIES_SHAPE, copiesOf),
 };
+
+/**
+ * A client's number is a `u64` or an `i64`. One that is no safe integer
+ * names nothing the agent has, so it reads as `Infinity`.
+ */
+const WIDE = union([int(), bigint()]);
+const CHAT_REF = obj(
+    {
+        with: WIDE,
+        from: opt(WIDE),
+        kind: opt(oneOf(["letters", "questions"])),
+        past: opt(WIDE),
+    },
+    OPEN,
+);
+const LOGIN = union([
+    obj(
+        {
+            id: str(),
+            start: obj(
+                { method: oneOf(["key", "subscription"]), provider: str() },
+                OPEN,
+            ),
+        },
+        OPEN,
+    ),
+    obj({ id: str(), reply: obj({ login: str(), value: str() }, OPEN) }, OPEN),
+    obj({ id: str(), cancel: str() }, OPEN),
+]);
+
+/** Each reads a client call's arguments as `read` reads a message. */
+export const readClient: {
+    readonly [N in keyof ClientActions]: (
+        raw: readonly unknown[],
+    ) => Parameters<ClientActions[N]>;
+} = {
+    stop: first(
+        obj({ agent: opt(WIDE), id: str() }, OPEN),
+        ({ agent, id }) => ({
+            id,
+            ...(agent === undefined ? {} : { agent: wide(agent) }),
+        }),
+    ),
+    new_session: first(obj({ id: str(), to: WIDE }, OPEN), ({ id, to }) => ({
+        id,
+        to: wide(to),
+    })),
+    resume: first(
+        obj({ id: str(), number: WIDE, to: WIDE }, OPEN),
+        ({ id, number, to }) => ({ id, number: wide(number), to: wide(to) }),
+    ),
+    retry: first(obj({ id: str(), to: WIDE }, OPEN), ({ id, to }) => ({
+        id,
+        to: wide(to),
+    })),
+    rewind: first(
+        obj({ chat: CHAT_REF, id: str(), item: str() }, OPEN),
+        ({ chat, id, item }) => ({ chat: chatRefOf(chat), id, item }),
+    ),
+    read_chat: first(
+        obj({ before: opt(str()), chat: CHAT_REF, id: str() }, OPEN),
+        ({ before, chat, id }) => ({
+            id,
+            chat: chatRefOf(chat),
+            ...(before === undefined ? {} : { before }),
+        }),
+    ),
+    read_history: () => [],
+    read_prompt: () => [],
+    reflect: () => [],
+    login: first(LOGIN, (login) => login as Login),
+};
+
+function first<S extends Schema, T>(
+    schema: S,
+    shape: (value: Static<S>) => T,
+): (raw: readonly unknown[]) => [T] {
+    const one = reader(schema, shape);
+    return (raw) => [one(raw[0])];
+}
+
+function wide(value: number | bigint): number {
+    return typeof value === "bigint" ? Number.POSITIVE_INFINITY : value;
+}
+
+function chatRefOf({
+    with: agent,
+    from,
+    kind,
+    past,
+}: Static<typeof CHAT_REF>): ChatRef {
+    return {
+        with: wide(agent),
+        ...(from === undefined ? {} : { from: wide(from) }),
+        ...(kind === undefined ? {} : { kind }),
+        ...(past === undefined ? {} : { past: wide(past) }),
+    };
+}
+
+/** Each part as the agent keeps it, without the fields a newer realm adds. */
+function copiesOf(raw: Static<typeof COPIES_SHAPE>): Copies {
+    const part = <T, V>(
+        given: { version: number; value: T } | undefined,
+        value: (from: T) => V,
+    ): { version: number; value: V } | undefined =>
+        given === undefined
+            ? undefined
+            : { version: given.version, value: value(given.value) };
+    const model = part(raw.model, ({ model, effort, fast, price }) => ({
+        model,
+        ...(effort === undefined ? {} : { effort }),
+        ...(fast === undefined ? {} : { fast }),
+        ...(price === undefined
+            ? {}
+            : {
+                  price: {
+                      input: price.input,
+                      output: price.output,
+                      cache_read: price.cache_read,
+                      cache_write: price.cache_write,
+                  },
+              }),
+    }));
+    const settings = part(raw.settings, ({ reflect_every, allow_net }) => ({
+        reflect_every,
+        allow_net,
+    }));
+    return {
+        ...(raw.charter === undefined ? {} : { charter: raw.charter }),
+        ...(raw.character === undefined ? {} : { character: raw.character }),
+        ...(model === undefined ? {} : { model }),
+        ...(settings === undefined ? {} : { settings }),
+    };
+}
 
 function reader<S extends Schema, T>(
     schema: S,

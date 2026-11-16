@@ -275,13 +275,30 @@ test("a fill with no profile to read writes nothing and answers", async (t) => {
     await agent.stop();
 });
 
-test("the kind's definition passes actor()'s own checks, and its actions are the agent's messages and pi.wake", async (t) => {
+test("the kind's definition passes actor()'s own checks, and its actions are the agent's messages, a client's calls and pi.wake", async (t) => {
     const { calls } = fakeCalls({});
     const agent = await wakeAgent(t, { calls });
     const definition = agentActor(agent.config);
     assert.deepEqual(
         Object.keys(flattenActionHandlers(definition.config.actions)).sort(),
-        ["fill", "finished", "pi.wake", "place", "submit"],
+        [
+            "copies",
+            "fill",
+            "finished",
+            "login",
+            "new_session",
+            "pi.wake",
+            "place",
+            "read_chat",
+            "read_history",
+            "read_prompt",
+            "reflect",
+            "resume",
+            "retry",
+            "rewind",
+            "stop",
+            "submit",
+        ],
     );
     await agent.stop();
 });
