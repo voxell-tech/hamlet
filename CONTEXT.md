@@ -83,8 +83,8 @@ answer.
 _Avoid_: subagent, helper, runtime
 
 **Errand**:
-A one-off conversation that is not an agent's: the librarian's answer or a
-lead's review.
+A short-lived agent outside the tree that runs one turn for the realm and
+then ends: a lead's review of a chief's line, the librarian's answer.
 _Avoid_: job (a job is the server's outbox)
 
 ### Scholars and their memory
@@ -269,6 +269,11 @@ hires of a hamlet) or agreed (between hires of two hamlets).
 **Letter**:
 A message one agent sends another along a road.
 _Avoid_: mail, DM
+
+**Parcel**:
+The files a letter sends with it. The realm copies them into its own
+store unchanged, and the receiver fetches them in parts into its inbox.
+_Avoid_: gift, attachment
 
 ### Work, waits and trust
 

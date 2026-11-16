@@ -348,23 +348,14 @@ fn served_far(settings: &Settings, model: Option<&str>) -> bool {
 
 /// Whether the model server at `address` runs on this machine.
 fn is_local(address: &str) -> bool {
-    let authority = address
-        .split_once("://")
-        .map_or(address, |(_, rest)| rest)
-        .split(['/', '?', '#'])
-        .next()
-        .unwrap_or_default();
-    let host = match authority.split_once(']') {
-        Some((v6, _)) => format!("{v6}]"),
-        None => {
-            authority.split(':').next().unwrap_or_default().to_owned()
-        }
-    }
-    .to_ascii_lowercase();
-    host == "localhost"
-        || host == "[::1]"
-        || host == "0.0.0.0"
-        || host.starts_with("127.")
+    url::Url::parse(address).is_ok_and(|url| {
+        url.host_str().is_some_and(|host| {
+            host == "localhost"
+                || host == "[::1]"
+                || host == "0.0.0.0"
+                || host.starts_with("127.")
+        })
+    })
 }
 
 /// The errand's instructions, in today's words.

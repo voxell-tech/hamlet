@@ -153,39 +153,20 @@ fn endpoints_fault(
     Ok(())
 }
 
-/// A model server's address, read as `scheme:` then, for http,
-/// `//authority/...`.
+/// A model server's address, checked as today's
+/// (`hamlet_server/src/clients/documents.rs:748-765`).
 fn address_fault(address: &str) -> Result<(), SettingRefusal> {
-    let not_an_address = || SettingRefusal::NotAnAddress {
-        address: address.to_owned(),
+    let Ok(url) = url::Url::parse(address) else {
+        return Err(SettingRefusal::NotAnAddress {
+            address: address.to_owned(),
+        });
     };
-    let (scheme, rest) =
-        address.split_once(':').ok_or_else(not_an_address)?;
-    let is_scheme = scheme
-        .starts_with(|c: char| c.is_ascii_alphabetic())
-        && scheme
-            .chars()
-            .all(|c| c.is_ascii_alphanumeric() || "+-.".contains(c));
-    if !is_scheme {
-        return Err(not_an_address());
-    }
-    if !["http", "https"]
-        .iter()
-        .any(|http| scheme.eq_ignore_ascii_case(http))
-    {
+    if !matches!(url.scheme(), "http" | "https") {
         return Err(SettingRefusal::NotHttp {
             address: address.to_owned(),
         });
     }
-    let authority = rest
-        .trim_start_matches('/')
-        .split(['/', '?', '#'])
-        .next()
-        .unwrap_or("");
-    if authority.is_empty() {
-        return Err(not_an_address());
-    }
-    if authority.contains('@') {
+    if !url.username().is_empty() || url.password().is_some() {
         return Err(SettingRefusal::AddressHoldsKey);
     }
     Ok(())
