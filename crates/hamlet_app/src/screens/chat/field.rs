@@ -33,7 +33,8 @@ pub(super) fn set(world: &mut World, pieces: Vec<Piece>) {
     world.resource_mut::<Draft>().focus = true;
 }
 
-/// Gives the field the focus when it was asked for.
+/// Gives the field the focus when it was asked for. The ask waits for
+/// a field that is not mounted yet, as when the thread is just shown.
 pub fn refocus(
     mut draft: ResMut<Draft>,
     fields: Query<Entity, With<ChatField>>,
@@ -42,8 +43,8 @@ pub fn refocus(
     if !draft.focus {
         return;
     }
-    draft.focus = false;
     if let Some(field) = fields.iter().next() {
+        draft.focus = false;
         focus.set(field, FocusCause::Pressed);
     }
 }
