@@ -27,7 +27,6 @@ use hamlet_client::realm::{
 };
 use hamlet_desktop::clipboard::CopyRich;
 use hamlet_protocol::client as protocol;
-use hamlet_realm::pick::{Selected, Thing, bring_into_view, select};
 use hamlet_realm::sound::{Cue, Sound};
 use hamlet_ui::markdown::AgentLinks;
 use hamlet_ui::styles::note;
@@ -36,9 +35,7 @@ use hamlet_ui::widgets::icons::{Glyph, glyph};
 use hamlet_ui::{AnyView, Cx};
 
 use crate::convo::{talk_to, talk_to_hand};
-use crate::dock::{HUB, show_tab};
-use crate::hub::{self, Showing};
-use crate::{PanelSystems, sounds};
+use crate::{PanelSystems, hub, sounds};
 
 /// The attribute rich text carries the words of a reference in.
 const ATTRIBUTE: &str = "data-hamlet-reference";
@@ -262,14 +259,7 @@ fn open(
             talk_to_hand(world);
         }
         Named::Agent(agent) => talk_to(world, agent),
-        Named::Scholar(scholar) => {
-            hub::show(world, Showing::Scholar(scholar));
-            show_tab(world, HUB);
-            if world.contains_resource::<Selected>() {
-                select(world, Some(Thing::Scholar(scholar)));
-                bring_into_view(world, Thing::Scholar(scholar));
-            }
-        }
+        Named::Scholar(scholar) => hub::open_scholar(world, scholar),
     });
 }
 
