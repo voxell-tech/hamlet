@@ -128,6 +128,20 @@ pub fn back_link(cx: &mut Cx) {
         .apply(cx);
 }
 
+/// A button of words alone, with no plate at rest or under the
+/// pointer: its words and icon dim, brightening to the body's tone
+/// under the pointer and while it has the keys.
+pub fn text_button(cx: &mut Cx) {
+    style::<HamletTheme>()
+        .frame(|f, _| f.fill(Color::NONE))
+        .tone(Tone::Dim)
+        .hovered(|s| s.fill(|_| Color::NONE).tone(Tone::Body))
+        .pressed(|s| s.fill(|_| Color::NONE).tone(Tone::Body))
+        .when::<Focused>(|s| s.tone(Tone::Body))
+        .transition(HamletTheme::interact)
+        .apply(cx);
+}
+
 /// A view before it comes in and after it goes: transparent, at its
 /// size.
 pub fn hidden(cx: &mut Cx) {

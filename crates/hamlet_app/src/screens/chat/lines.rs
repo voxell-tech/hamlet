@@ -24,7 +24,7 @@ use bevy::ui::{
 use bevy_fynix::tokens::Tone;
 use bevy_fynix::views::{
     BehaviorExt, FrameProps, RowSlot, VirtualList, button, column,
-    frame, ghost, label, overlay, row, virtual_list,
+    frame, label, overlay, row, virtual_list,
 };
 use bevy_fynix::{
     ScopedExt, ViewExt, derived, each, every_frame, keyed, resource,
@@ -37,6 +37,7 @@ use hamlet_protocol::client as protocol;
 use hamlet_realm::hand::FileDrop;
 use hamlet_ui::styles::{
     Fills, LINE, Looks, Tipped, lettered, note, small_rules,
+    text_button,
 };
 use hamlet_ui::widgets::edges::faded;
 use hamlet_ui::widgets::icons::{Glyph, glyph};
@@ -386,43 +387,51 @@ pub(super) fn fold_view<B: Board>(
     let heading_key = key.clone();
     let tone_key = key.clone();
     let turn_key = key.clone();
+    // A quiet fold's words take the button's tone, which brightens
+    // under the pointer; one running or failed keeps its own.
+    let heading = keyed(
+        resource::<B, _>(move |b| b.lines().tone(&tone_key)),
+        move |tone| {
+            let key = heading_key.clone();
+            let words = label(resource::<B, _>(move |b| {
+                b.lines().heading(&key)
+            }));
+            match tone {
+                Tone::Dim => words.rules(small_rules).boxed(),
+                tone => words.tone(*tone).rules(small_rules).boxed(),
+            }
+        },
+    )
+    .within(row(()));
     let words = row((
-        glyph(Glyph::Chevron, 10.0).tone(Tone::Dim).rotation(
-            resource::<B, _>(move |b| {
+        glyph(Glyph::Chevron, 10.0).rotation(resource::<B, _>(
+            move |b| {
                 if b.lines().is_open(&turn_key) {
                     180.0
                 } else {
                     90.0
                 }
-            }),
-        ),
-        label(resource::<B, _>(move |b| {
-            b.lines().heading(&heading_key)
-        }))
-        .tone(resource::<B, _>(move |b| b.lines().tone(&tone_key)))
-        .rules(small_rules),
+            },
+        )),
+        heading,
     ))
     .gap(6.0)
     .align(AlignItems::Center);
-    // Unframed, so it reads as a note on the reply, its chevron in
+    // Words alone, so it reads as a note on the reply, its chevron in
     // line with the bubbles' words.
-    let head = with_cx(move |cx| {
-        button(words)
-            .padding(UiRect::axes(px(INSET), px(2.0)))
-            .radius(cx.theme().space.round)
-            .rules(ghost)
-            .on_activate(move |world| {
-                let unfolded =
-                    &mut world.resource_mut::<Unfolded>().0;
-                let fold = (session, first.clone());
-                match unfolded.iter().position(|open| *open == fold) {
-                    Some(at) => {
-                        unfolded.remove(at);
-                    }
-                    None => unfolded.push(fold),
+    let head = button(words)
+        .padding(UiRect::axes(px(INSET), px(2.0)))
+        .rules(text_button)
+        .on_activate(move |world| {
+            let unfolded = &mut world.resource_mut::<Unfolded>().0;
+            let fold = (session, first.clone());
+            match unfolded.iter().position(|open| *open == fold) {
+                Some(at) => {
+                    unfolded.remove(at);
                 }
-            })
-    });
+                None => unfolded.push(fold),
+            }
+        });
     let kept_key = key.clone();
     let inside = each(
         resource::<B, _>(move |b| b.lines().shown(&key)),
