@@ -10,6 +10,14 @@
 //!   made, and answers a repeat with that answer. A repeat whose act
 //!   differs fails with `message.id_reused`.
 //! - A `reply` is kept once by its question.
+//! - `keep_credential` replaces the provider's credential in
+//!   `credentials.json` in the realm folder, written whole at mode
+//!   0600, and `credential` answers from it.
+//! - `read_copies` answers the parts of the copies last pushed to the
+//!   agent that are newer than the versions it holds.
+//! - `open_task` opens a new task for each call.
+//! - `lapse`, `turn_failed`, `worker_done` and `errand_done` are only
+//!   counted.
 //! - Every call of each of these is counted, repeats included.
 //!
 //! For the workspace it answers `secrets` with one made-up secret,
@@ -17,8 +25,9 @@
 //! sets an agent's reach (`grant`) and answers a call that waits for
 //! a chief (`decide`), under the names and shapes of demo/realm.rs,
 //! so `demo realm reach` and `demo realm answer` reach it too; it
-//! calls an agent's action as itself (`send`); it sets a switch; and
-//! it reports what it keeps (`recorded`).
+//! calls an agent's action as itself (`send`); it keeps an agent's
+//! copies and pushes them to it (`push_copies`); it sets a switch;
+//! and it reports what it keeps (`recorded`).
 //!
 //! With the switch `die_in_tell` on, the next new `tell` is kept,
 //! then the stand-in kills the Node host and answers only once that
@@ -26,6 +35,8 @@
 //! then off.
 
 use std::collections::BTreeMap;
+use std::io::Write;
+use std::path::Path;
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -38,9 +49,20 @@ use hamlet_actor_core::{
 use hamlet_host::{Caller, HostRef};
 use hamlet_messages::Message;
 use hamlet_messages::address::{self, Party};
-use hamlet_messages::realm::budget::{
-    Budget, Charge, MaySpend, Payer, SpendRefusal,
+use hamlet_messages::agent::copies::{
+    Copies, CopyVersion, Versioned,
 };
+use hamlet_messages::realm::budget::{
+    Budget, Charge, MaySpend, OpenTask, Payer, SpendRefusal,
+    TaskOpened, TaskTurn,
+};
+use hamlet_messages::realm::documents::ReadCopies;
+use hamlet_messages::realm::models::{
+    Credential, CredentialAnswer, CredentialRefusal, KeepCredential,
+    Kept, TurnFailed,
+};
+use hamlet_messages::realm::oversight::Lapse;
+use hamlet_messages::realm::workers::{ErrandDone, WorkerDone};
 use hamlet_messages::realm::{
     Ask, Done, End, Found, FoundAnswer, HamletId, Hire, HireAnswer,
     LayRoad, NeedsChief, Reply, RequestRoad, Seat, SecretList,
@@ -49,8 +71,11 @@ use hamlet_messages::realm::{
 use hamlet_messages::sender::{id_reused, sender, wrong_caller};
 use hamlet_messages::workspace::reach::SecretsVersion;
 use hamlet_messages::workspace::{
-    AgentNumber, AnswerTaken, ChiefAnswer, InForce, SetReach,
+    AgentNumber, AnswerTaken, ChiefAnswer, InForce, RealmTask,
+    SetReach,
 };
+use hamlet_protocol::client::RequestId;
+use parking_lot::Mutex;
 use sha2::{Digest, Sha256};
 
 use crate::agent_host;
@@ -70,7 +95,10 @@ pub fn factory() -> ActorFactory {
         .expect("the registry holds the kind it registered")
 }
 
-struct StandIn;
+struct StandIn {
+    /// Held while `credentials.json` is read and written.
+    credentials: Mutex<()>,
+}
 
 const SCHEMA: &str =
     "
@@ -89,6 +117,8 @@ CREATE TABLE IF NOT EXISTS waits (agent INTEGER NOT NULL, call TEXT \
      NOT NULL, needs INTEGER NOT NULL, subject TEXT NOT NULL) \
      STRICT;
 CREATE TABLE IF NOT EXISTS switches (name TEXT PRIMARY KEY) STRICT;
+CREATE TABLE IF NOT EXISTS copies (agent INTEGER PRIMARY KEY, held \
+     BLOB NOT NULL) STRICT;
 ";
 
 #[derive(
@@ -149,6 +179,19 @@ impl Action for Send {
     const NAME: &'static str = "send";
 }
 
+/// Keeps each part of `copies` newer than the one kept for agent
+/// `to`, then gives the agent `copies`.
+#[derive(serde::Serialize, serde::Deserialize)]
+pub struct PushCopies {
+    pub to: AgentNumber,
+    pub copies: Copies,
+}
+
+impl Action for PushCopies {
+    type Output = ();
+    const NAME: &'static str = "push_copies";
+}
+
 #[derive(serde::Serialize, serde::Deserialize)]
 pub struct Recorded;
 
@@ -200,9 +243,18 @@ impl Actor for StandIn {
         Tool<SetTools>,
         Secrets,
         NeedsChief,
+        Credential,
+        KeepCredential,
+        ReadCopies,
+        OpenTask,
+        Lapse,
+        TurnFailed,
+        WorkerDone,
+        ErrandDone,
         Grant,
         Decide,
         Send,
+        PushCopies,
         Set,
         Recorded,
     );
@@ -212,7 +264,9 @@ impl Actor for StandIn {
 
     async fn create(ctx: &Ctx<Self>) -> Result<Self> {
         ctx.sql().exec(SCHEMA).await?;
-        Ok(Self)
+        Ok(Self {
+            credentials: Mutex::new(()),
+        })
     }
 }
 
@@ -472,6 +526,213 @@ impl Handler<NeedsChief> for StandIn {
     }
 }
 
+const CREDENTIALS: &str = "credentials.json";
+
+/// Each provider's credential, as `credentials.json` holds it.
+type Held = BTreeMap<String, Kept>;
+
+impl Handler<Credential> for StandIn {
+    async fn handle(
+        self: Arc<Self>,
+        ctx: Ctx<Self>,
+        asked: Credential,
+    ) -> Result<CredentialAnswer> {
+        sender(&ctx, &asked)?;
+        count(&ctx, Credential::NAME).await?;
+        let file =
+            HostRef::of(ctx.inner())?.folder().join(CREDENTIALS);
+        let held = {
+            let _held = self.credentials.lock();
+            credentials(&file)?.remove(&asked.provider)
+        };
+        Ok(match held {
+            Some(Kept::Key { key }) => CredentialAnswer::Key { key },
+            Some(Kept::Oauth { login }) => {
+                CredentialAnswer::Oauth { login }
+            }
+            None => CredentialAnswer::Refused {
+                why: CredentialRefusal::NotSignedIn {
+                    provider: asked.provider,
+                },
+            },
+        })
+    }
+}
+
+impl Handler<KeepCredential> for StandIn {
+    async fn handle(
+        self: Arc<Self>,
+        ctx: Ctx<Self>,
+        kept: KeepCredential,
+    ) -> Result<()> {
+        sender(&ctx, &kept)?;
+        count(&ctx, KeepCredential::NAME).await?;
+        let file =
+            HostRef::of(ctx.inner())?.folder().join(CREDENTIALS);
+        let _held = self.credentials.lock();
+        let mut held = credentials(&file)?;
+        held.insert(kept.provider, kept.value);
+        write_private(&file, &serde_json::to_vec(&held)?)
+    }
+}
+
+fn credentials(file: &Path) -> Result<Held> {
+    match std::fs::read(file) {
+        Ok(bytes) => Ok(serde_json::from_slice(&bytes)?),
+        Err(error)
+            if error.kind() == std::io::ErrorKind::NotFound =>
+        {
+            Ok(Held::new())
+        }
+        Err(error) => Err(error.into()),
+    }
+}
+
+/// Replaces `file` whole with `bytes`, made at mode 0600 beside it
+/// and renamed over it.
+fn write_private(file: &Path, bytes: &[u8]) -> Result<()> {
+    let temporary = file.with_extension("tmp");
+    let _ = std::fs::remove_file(&temporary);
+    let mut options = std::fs::OpenOptions::new();
+    options.write(true).create_new(true);
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::OpenOptionsExt;
+        options.mode(0o600);
+    }
+    let mut written = options.open(&temporary)?;
+    written.write_all(bytes)?;
+    written.sync_all()?;
+    std::fs::rename(&temporary, file)?;
+    Ok(())
+}
+
+impl Handler<ReadCopies> for StandIn {
+    async fn handle(
+        self: Arc<Self>,
+        ctx: Ctx<Self>,
+        have: ReadCopies,
+    ) -> Result<Copies> {
+        let address::Agent(agent) = sender(&ctx, &have)?;
+        count(&ctx, ReadCopies::NAME).await?;
+        let held = copies_of(&ctx, agent).await?;
+        Ok(Copies {
+            charter: newer(held.charter, have.charter),
+            character: newer(held.character, have.character),
+            model: newer(held.model, have.model),
+            settings: newer(held.settings, have.settings),
+        })
+    }
+}
+
+fn newer<T>(
+    part: Option<Versioned<T>>,
+    than: Option<CopyVersion>,
+) -> Option<Versioned<T>> {
+    part.filter(|part| than.is_none_or(|held| part.version > held))
+}
+
+impl Handler<PushCopies> for StandIn {
+    async fn handle(
+        self: Arc<Self>,
+        ctx: Ctx<Self>,
+        push: PushCopies,
+    ) -> Result<()> {
+        from_program(&ctx, PushCopies::NAME)?;
+        let held = copies_of(&ctx, push.to).await?;
+        let pushed = push.copies.clone();
+        let kept = Copies {
+            charter: newer(held.charter, version(&pushed.charter))
+                .or(pushed.charter),
+            character: newer(
+                held.character,
+                version(&pushed.character),
+            )
+            .or(pushed.character),
+            model: newer(held.model, version(&pushed.model))
+                .or(pushed.model),
+            settings: newer(held.settings, version(&pushed.settings))
+                .or(pushed.settings),
+        };
+        ctx.sql()
+            .run(
+                "INSERT INTO copies (agent, held) VALUES (?1, ?2) \
+                 ON CONFLICT (agent) DO UPDATE SET held = \
+                 excluded.held",
+                Some(vec![
+                    BindParam::Integer(i64::from(push.to.0)),
+                    BindParam::Blob(cbor(&kept)?),
+                ]),
+            )
+            .await?;
+        call(&ctx, &address::Agent(push.to), &push.copies).await
+    }
+}
+
+fn version<T>(part: &Option<Versioned<T>>) -> Option<CopyVersion> {
+    part.as_ref().map(|part| part.version)
+}
+
+async fn copies_of(
+    ctx: &Ctx<StandIn>,
+    agent: AgentNumber,
+) -> Result<Copies> {
+    let found = ctx
+        .sql()
+        .query(
+            "SELECT held FROM copies WHERE agent = ?1",
+            Some(vec![BindParam::Integer(i64::from(agent.0))]),
+        )
+        .await?;
+    match found.rows.first().map(Vec::as_slice) {
+        Some([ColumnValue::Blob(held)]) => {
+            Ok(ciborium::from_reader(held.as_slice())?)
+        }
+        None => Ok(Copies::default()),
+        Some(other) => {
+            bail!("agent {}'s copies read {other:?}", agent.0)
+        }
+    }
+}
+
+impl Handler<OpenTask> for StandIn {
+    async fn handle(
+        self: Arc<Self>,
+        ctx: Ctx<Self>,
+        open: OpenTask,
+    ) -> Result<TaskOpened> {
+        sender(&ctx, &open)?;
+        count(&ctx, OpenTask::NAME).await?;
+        let turn = match open.turn {
+            TaskTurn::Retry => "retry",
+            TaskTurn::Reflection => "reflection",
+        };
+        Ok(TaskOpened::Opened {
+            task: RealmTask(format!("{turn}-{}", RequestId::new())),
+        })
+    }
+}
+
+/// Handlers that only log and count their call.
+macro_rules! counted {
+    ($($message:ty),+) => {$(
+        impl Handler<$message> for StandIn {
+            async fn handle(
+                self: Arc<Self>,
+                ctx: Ctx<Self>,
+                message: $message,
+            ) -> Result<()> {
+                let address::Agent(agent) = sender(&ctx, &message)?;
+                let action = <$message as Action>::NAME;
+                tracing::info!(?message, "agent {} calls {action}", agent.0);
+                count(&ctx, action).await
+            }
+        }
+    )+};
+}
+
+counted!(Lapse, TurnFailed, WorkerDone, ErrandDone);
+
 impl Handler<Grant> for StandIn {
     async fn handle(
         self: Arc<Self>,
@@ -681,6 +942,10 @@ mod tests {
     use hamlet_host::{Address, Host, HostOptions};
     use hamlet_messages::bytes::Base64;
     use hamlet_messages::realm::Named;
+    use hamlet_messages::realm::models::{
+        Credential, CredentialAnswer, CredentialRefusal,
+        KeepCredential, Kept,
+    };
     use hamlet_messages::workspace::{CallId, RealmTask};
     use hamlet_testing::Scratch;
     use serde::{Deserialize, Serialize};
@@ -705,13 +970,23 @@ mod tests {
     #[async_trait::async_trait]
     impl Actor for Sender {
         type Input = ();
-        type Actions = (Forward,);
+        type Actions = (Forward, Copies);
         type Events = ();
         type ConnParams = Option<Caller>;
         type Action = ();
 
         async fn create(_: &Ctx<Self>) -> Result<Self> {
             Ok(Self)
+        }
+    }
+
+    impl Handler<Copies> for Sender {
+        async fn handle(
+            self: Arc<Self>,
+            _: Ctx<Self>,
+            _: Copies,
+        ) -> Result<()> {
+            Ok(())
         }
     }
 
@@ -789,6 +1064,7 @@ mod tests {
                 },
                 text: text.to_owned(),
                 task: None,
+                paths: Vec::new(),
             },
         }
     }
@@ -799,6 +1075,7 @@ mod tests {
             task: RealmTask("line-1".to_owned()),
             micros: 0,
             took_ms: 1,
+            tokens: None,
         }
     }
 
@@ -867,6 +1144,110 @@ mod tests {
         .unwrap();
         let refused = from_agent(&host, 1, &may_spend).await.unwrap();
         assert!(matches!(answer(refused), Done::Refused { .. }));
+        host.shutdown().await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn credentials_json_is_private_and_holds_the_last_kept() {
+        let dir = Scratch::new("stand-in-realm-credentials");
+        let host = open(&dir).await;
+        let keep = |key: &str| KeepCredential {
+            provider: "made-up".to_owned(),
+            value: Kept::Key {
+                key: key.to_owned(),
+            },
+        };
+        let asked = async |provider: &str| -> CredentialAnswer {
+            let credential = Credential {
+                provider: provider.to_owned(),
+            };
+            let bytes =
+                from_agent(&host, 1, &credential).await.unwrap();
+            ciborium::from_reader(bytes.as_slice()).unwrap()
+        };
+        from_agent(&host, 1, &keep("first-made-up-key"))
+            .await
+            .unwrap();
+        from_agent(&host, 1, &keep("second-made-up-key"))
+            .await
+            .unwrap();
+
+        let file = dir.join("credentials.json");
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::MetadataExt;
+            let mode = std::fs::metadata(&file).unwrap().mode();
+            assert_eq!(mode & 0o777, 0o600);
+        }
+        let held = std::fs::read_to_string(&file).unwrap();
+        assert!(held.contains("second-made-up-key"));
+        assert!(!held.contains("first-made-up-key"));
+        assert_eq!(
+            asked("made-up").await,
+            CredentialAnswer::Key {
+                key: "second-made-up-key".to_owned()
+            }
+        );
+        assert!(matches!(
+            asked("other").await,
+            CredentialAnswer::Refused {
+                why: CredentialRefusal::NotSignedIn { .. }
+            }
+        ));
+        host.shutdown().await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn read_copies_answers_the_pushed_parts_newer_than_held() {
+        let dir = Scratch::new("stand-in-realm-copies");
+        let host = open(&dir).await;
+        let charter = |version, value: &str| {
+            Some(Versioned {
+                version: CopyVersion(version),
+                value: value.to_owned(),
+            })
+        };
+        let push = async |copies| {
+            ask(
+                &host,
+                &PushCopies {
+                    to: AgentNumber(1),
+                    copies,
+                },
+            )
+            .await
+            .unwrap();
+        };
+        let read = async |have| -> Copies {
+            let bytes = from_agent(&host, 1, &have).await.unwrap();
+            ciborium::from_reader(bytes.as_slice()).unwrap()
+        };
+        assert_eq!(
+            read(ReadCopies::default()).await,
+            Copies::default()
+        );
+        push(Copies {
+            charter: charter(2, "second"),
+            character: charter(1, "first"),
+            ..Copies::default()
+        })
+        .await;
+        push(Copies {
+            charter: charter(1, "older"),
+            ..Copies::default()
+        })
+        .await;
+
+        let all = read(ReadCopies::default()).await;
+        assert_eq!(all.charter, charter(2, "second"));
+        assert_eq!(all.character, charter(1, "first"));
+        let newer = read(ReadCopies {
+            character: Some(CopyVersion(1)),
+            ..ReadCopies::default()
+        })
+        .await;
+        assert_eq!(newer.charter, charter(2, "second"));
+        assert_eq!(newer.character, None);
         host.shutdown().await.unwrap();
     }
 }

@@ -24,6 +24,8 @@ import {
     type ConversationRef,
     type LetterId,
     REALM,
+    type ReadAnswer,
+    type ReadFile,
     type RealmActions,
     type RealmTask,
     type SocietyActs,
@@ -97,7 +99,8 @@ export type InputKind =
     | "finished"
     | "wake"
     | "retry"
-    | "reflection";
+    | "reflection"
+    | "cut-off";
 
 export type Admission = {
     /** pi-durable admits it once per conversation. */
@@ -106,10 +109,14 @@ export type Admission = {
     /** The realm's task the turn is charged to. Absent: the standing task pays. */
     readonly task?: RealmTask;
 } & (
-    | { readonly kind: Exclude<InputKind, "question"> }
+    | { readonly kind: Exclude<InputKind, "question" | "cut-off"> }
     | {
           readonly kind: "question";
           readonly question: LetterId;
+      }
+    | {
+          readonly kind: "cut-off";
+          readonly question?: LetterId;
       }
 );
 
@@ -139,7 +146,7 @@ export function draftOf(
 ): InputSubmissionDraft {
     const kept: Kept = {
         ...(admission.task === undefined ? {} : { task: admission.task }),
-        ...(admission.kind === "question"
+        ...("question" in admission && admission.question !== undefined
             ? { question: admission.question }
             : {}),
     };
@@ -466,6 +473,10 @@ async function stamped(
 
 export function listTools(peers: Peers): Promise<ToolList> {
     return reaching(peers[CALLS])(WORKSPACE, "list_tools", []);
+}
+
+export function readFile(peers: Peers, message: ReadFile): Promise<ReadAnswer> {
+    return reaching(peers[CALLS])(WORKSPACE, "read_file", [message]);
 }
 
 /** The work itself goes on: a call that is out stays out. */

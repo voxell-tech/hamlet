@@ -32,7 +32,7 @@ import {
 } from "../pi/runtime.ts";
 import { migratePiTables } from "../pi/storage.ts";
 import { type ChatHandlers, chatActions } from "./chat.ts";
-import { compactionFor, cutOff } from "./compaction.ts";
+import { compactionFor, cutOffRule } from "./compaction.ts";
 import {
     copiesOf,
     keep,
@@ -57,7 +57,7 @@ import {
 } from "./messages.ts";
 import { agentModels, configured } from "./models.ts";
 import { ownFiles } from "./own-files.ts";
-import { type PromptSources, promptPart } from "./prompt.ts";
+import { type PromptSources, promptPart, promptSources } from "./prompt.ts";
 import { owedOf, reflectEvery, reflection } from "./reflect.ts";
 import { conversationFor, migrateChats } from "./sessions.ts";
 import { society } from "./society.ts";
@@ -131,7 +131,7 @@ function parts(
     return [
         promptPart(prompt),
         reflection(peers, prompt.copies, owedOf(withHarness), reflectEvery()),
-        cutOff(),
+        cutOffRule(),
         workspaceTools(peers),
         ownFiles(peers),
         society(peers, off),
@@ -336,7 +336,7 @@ async function wake(c: AgentContext, config: AgentConfig): Promise<void> {
             c.log.warn({ msg: what, error: reasonOf(error) }),
     });
     const copies = copiesOf(c.db);
-    const prompt: PromptSources = { copies, peers };
+    const prompt = promptSources(c, copies, peers);
     for (const part of parts(peers, row.toolsOff, prompt, withHarness)) {
         registry.install(part);
     }
@@ -346,6 +346,8 @@ async function wake(c: AgentContext, config: AgentConfig): Promise<void> {
         model: config.model,
         // Files go through the tools, never through the wrapper's database env.
         env: () => undefined,
+        onReport: (report) =>
+            peers.report(`pi-durable reported ${report.kind}`, report.error),
         settings: {
             ...config.settings,
             // One follow-up starts each run, so a run's first input is its
@@ -387,8 +389,10 @@ async function wake(c: AgentContext, config: AgentConfig): Promise<void> {
         return;
     }
     harness.resume();
+    // Configured at every wake, not only when a newer model was kept, so a
+    // configure a kill cut off after the copy was kept is done again.
     void refreshed(c, peers).then(
-        (kept) => (kept.has("model") ? configured(c, copies) : undefined),
+        () => configured(c, copies),
         (error: unknown) =>
             peers.report("the copies were not read from the realm", error),
     );
@@ -480,8 +484,8 @@ async function fill(
 }
 
 async function copies(c: AgentCall, message: Copies): Promise<void> {
-    const kept = await keep(c, message);
-    if (kept.has("model")) await configured(c, generationOf(c).copies);
+    await keep(c, message);
+    await configured(c, generationOf(c).copies);
 }
 
 async function wakeTimers(c: AgentCall): Promise<void> {

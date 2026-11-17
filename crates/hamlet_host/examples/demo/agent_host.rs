@@ -29,6 +29,31 @@
 //! demo --link pi conversation <n>
 //!                             print agent <n>'s conversations
 //! demo --link pi pid          print the Node host's process id
+//! demo --link pi copies <n> <json>
+//!                             keep the copies <json> for agent <n>
+//!                             and push them to it, as the realm
+//! demo --link pi file <n> <path> <from>
+//!                             copy the file <from> to <path> in
+//!                             agent <n>'s filesystem
+//! demo --link pi new <n>      begin a new session, as a client
+//! demo --link pi resume <n> <session>
+//!                             go back to session <session>
+//! demo --link pi retry <n>    carry on the last turn
+//! demo --link pi stop <n>     stop agent <n>'s turns
+//! demo --link pi rewind <n> <item>
+//!                             take the current session back to
+//!                             before the chief's line <item>
+//! demo --link pi chat <n> [past=<session>] [from=<a>]
+//!     [kind=letters|questions] [before=<item>]
+//!                             read a page of a chat of agent <n>
+//! demo --link pi history <n>  list agent <n>'s sessions
+//! demo --link pi prompt <n>   read agent <n>'s prompt
+//! demo --link pi reflect <n>  ask agent <n> to reflect now
+//! demo --link pi login start <provider> key|subscription
+//! demo --link pi login reply <login> <value>
+//! demo --link pi login cancel <login>
+//!                             a step of a sign-in, on agent 1
+//! demo --link pi follow <n>   follow agent <n>'s chat as a client
 //! ```
 //!
 //! `make` prints `agent/<n> 1` when it made the agent and `agent/<n>
@@ -47,7 +72,20 @@
 //! `conversation` prints one line per entry, read from the agent's
 //! file, which the agent holds while it runs: run it once the agent
 //! is not running, as in a demo of its own. `pid` prints `node/pid
-//! <pid>`.
+//! <pid>`. `copies` prints `copies/<n> 1` once the agent took them,
+//! and `file` `file/<n> <bytes>`.
+//!
+//! `new` to `login` call the agent as a client does, each under a new
+//! request id, and print `<verb>/<n> <answer>`, the answer as JSON on
+//! one line, or `<verb>/<n> {"error":{"group":..,"code":..,
+//! "message":..,"metadata":..}}` when the agent failed the call.
+//! `follow` is `demo watch <n> chat`: it prints `watch/<n> 1`, then
+//! `watch/<n>/chat <event>` for each change, as demo/watch.rs says.
+//!
+//! With `HAMLET_DEMO_FAUX` naming a faux script, the Node host's
+//! model answers from it, as hosts/node/src/agent/demo-host.ts says.
+//! The Node host is started with only `HAMLET_HOME` and `PATH`, so
+//! the demo hands it the script's path.
 //!
 //! `pi` commands need this mode: in any other they fail at once.
 
@@ -62,29 +100,44 @@ use hamlet_host::route::{CallerKind, Routes};
 use hamlet_host::{Host, HostOptions};
 use hamlet_messages::Message;
 use hamlet_messages::address::{self, Party};
+use hamlet_messages::agent::chat::{
+    Login, NewSession, ReadChat, ReadHistory, ReadPrompt, Reflect,
+    Resume, Retry, Rewind, Stop,
+};
+use hamlet_messages::agent::copies::Copies;
 use hamlet_messages::agent::{
     AgentInput, AgentKind, Fill, Input, InputId, Place, PlaceVersion,
     Submit,
 };
 use hamlet_messages::realm::{ProfileId, ToolName};
+use hamlet_messages::sender::Client;
 use hamlet_messages::workspace::reach::{
     Footing, Reach, SecretsVersion,
 };
 use hamlet_messages::workspace::{
     AgentNumber, ReachVersion, RealmTask, SetReach,
 };
+use hamlet_protocol::client::{
+    self as protocol, AgentId, ChatRef, ChatRefKind, LoginMethod,
+    LoginReply, LoginStart, RequestId,
+};
 use rusqlite::{Connection, OpenFlags};
+use serde::Serialize;
+use serde::de::DeserializeOwned;
 use tokio::time::Instant;
 
 use crate::Demo;
 use crate::command::{actor_error, number};
-use crate::link::agent;
+use crate::link::{agent, non_link_failure};
 use crate::realm::ask;
 use crate::stand_in_realm::{
-    self, Grant, Recorded, Records, Send, Set, Switch,
+    self, Grant, PushCopies, Recorded, Records, Send, Set, Switch,
 };
 
 const CHOOSE: (&str, &str) = ("HAMLET_DEMO_AGENT", "pi");
+
+/// Names the faux script the Node host's model answers from.
+const FAUX: &str = "HAMLET_DEMO_FAUX";
 
 const ENTRY: &str = concat!(
     env!("CARGO_MANIFEST_DIR"),
@@ -101,6 +154,13 @@ const POLL: Duration = Duration::from_millis(25);
 /// How long the realm's records stay unchanged before `charges`
 /// reads them as settled.
 const QUIET: Duration = Duration::from_secs(1);
+
+/// How long a client's call of an agent may take: a sign-in's step
+/// waits up to 25 s for its provider.
+const ASK_WITHIN: Duration = Duration::from_secs(60);
+
+/// The agent whose `login` signs in to a provider: the Hand.
+const HAND: AgentNumber = AgentNumber(1);
 
 pub fn chosen() -> Result<bool> {
     let (name, value) = CHOOSE;
@@ -129,11 +189,24 @@ pub fn open(
     let node = std::env::var("HAMLET_NODE")
         .unwrap_or_else(|_| "node".to_owned());
     // Node before 24.3 warns at each start that it strips types.
-    let argv = vec![
+    let mut argv = vec![
         node,
         "--disable-warning=ExperimentalWarning".to_owned(),
         ENTRY.to_owned(),
     ];
+    if let Some(script) = std::env::var_os(FAUX) {
+        let script =
+            std::fs::canonicalize(&script).with_context(|| {
+                format!(
+                    "{FAUX} names {}, which is not there",
+                    script.display()
+                )
+            })?;
+        let script = script
+            .to_str()
+            .with_context(|| format!("{FAUX}'s path is not UTF-8"))?;
+        argv.extend(["--faux".to_owned(), script.to_owned()]);
+    }
     let child = ChildOptions {
         argv,
         kinds: vec![address::Agent::KIND.to_owned()],
@@ -252,15 +325,234 @@ pub async fn run(demo: &Demo, words: &[String]) -> Result<()> {
             let pid = live_pid(&pi.home, READY_WAIT).await?;
             print(&format!("node/pid {pid}"))
         }
-        _ => bail!(
-            "usage: demo --link pi make <n> | say <n> [--id <id>] \
-             <words>... | place <n> <version> [lead=<a>] \
-             [hires=<a>,...] [roads=<a>,...] [off=<tool>,...] | \
-             fill <n> <profile-id> <branch> | refuse on|off | \
-             die-in-tell | recorded | charges <n> <at-least> \
-             <within-ms> | conversation <n> | pid"
-        ),
+        ["copies", n, json @ ..] => {
+            let n = number_of(n)?;
+            let copies: Copies = serde_json::from_str(
+                &json.join(" "),
+            )
+            .context("the copies are not JSON of their message")?;
+            ask(host, &PushCopies { to: n, copies }).await?;
+            print(&format!("copies/{} 1", n.0))
+        }
+        ["file", n, path, from] => {
+            let n = number_of(n)?;
+            let to = own_folder(&pi.home, n)?.join(path);
+            if let Some(folder) = to.parent() {
+                std::fs::create_dir_all(folder)?;
+            }
+            let bytes =
+                std::fs::copy(from, &to).with_context(|| {
+                    format!("copy {from} to {}", to.display())
+                })?;
+            print(&format!("file/{} {bytes}", n.0))
+        }
+        ["follow", n] => {
+            crate::watch::run(
+                demo,
+                &[(*n).to_owned(), "chat".to_owned()],
+            )
+            .await
+        }
+        ["login", step @ ..] => login(host, step).await,
+        [verb, n, rest @ ..] => {
+            client(host, verb, number_of(n)?, rest).await
+        }
+        _ => bail!("usage: {USAGE}"),
     }
+}
+
+const USAGE: &str =
+    "demo --link pi make <n> | say <n> [--id <id>] <words>... | \
+     place <n> <version> [lead=<a>] [hires=<a>,...] [roads=<a>,...] \
+     [off=<tool>,...] | fill <n> <profile-id> <branch> | refuse \
+     on|off | die-in-tell | recorded | charges <n> <at-least> \
+     <within-ms> | conversation <n> | pid | copies <n> <json> | \
+     file <n> <path> <from> | new <n> | resume <n> <session> | \
+     retry <n> | stop <n> | rewind <n> <item> | chat <n> \
+     [past=<session>] [from=<a>] [kind=letters|questions] \
+     [before=<item>] | history <n> | prompt <n> | reflect <n> | \
+     login start <provider> key|subscription | login reply <login> \
+     <value> | login cancel <login> | follow <n>";
+
+/// Runs a client's call of agent `n` other than `login`.
+async fn client(
+    host: &Host,
+    verb: &str,
+    n: AgentNumber,
+    words: &[&str],
+) -> Result<()> {
+    let id = RequestId::new;
+    let to = AgentId(u64::from(n.0));
+    match (verb, words) {
+        ("new", []) => {
+            asked(
+                host,
+                verb,
+                n,
+                &NewSession(protocol::New { id: id(), to }),
+            )
+            .await
+        }
+        ("resume", [number]) => {
+            let resume = protocol::Resume {
+                id: id(),
+                number: number.parse().with_context(|| {
+                    format!("`{number}` is no session's number")
+                })?,
+                to,
+            };
+            asked(host, verb, n, &Resume(resume)).await
+        }
+        ("retry", []) => {
+            asked(
+                host,
+                verb,
+                n,
+                &Retry(protocol::Retry { id: id(), to }),
+            )
+            .await
+        }
+        ("stop", []) => {
+            let stop = protocol::Stop {
+                agent: Some(to),
+                id: id(),
+            };
+            asked(host, verb, n, &Stop(stop)).await
+        }
+        ("rewind", [item]) => {
+            let rewind = protocol::Rewind {
+                chat: chat_of(to, &[])?.0,
+                id: id(),
+                item: (*item).to_owned(),
+            };
+            asked(host, verb, n, &Rewind(rewind)).await
+        }
+        ("chat", words) => {
+            let (chat, before) = chat_of(to, words)?;
+            let open = protocol::Open {
+                before,
+                chat,
+                id: id(),
+            };
+            asked(host, verb, n, &ReadChat(open)).await
+        }
+        ("history", []) => asked(host, verb, n, &ReadHistory).await,
+        ("prompt", []) => asked(host, verb, n, &ReadPrompt).await,
+        ("reflect", []) => asked(host, verb, n, &Reflect).await,
+        _ => bail!("usage: {USAGE}"),
+    }
+}
+
+/// The chat of agent `with` that `words` name, and the item a page
+/// ends before.
+fn chat_of(
+    with: AgentId,
+    words: &[&str],
+) -> Result<(ChatRef, Option<String>)> {
+    let mut chat = ChatRef {
+        from: None,
+        kind: None,
+        past: None,
+        with,
+    };
+    let mut before = None;
+    for word in words {
+        match word.split_once('=') {
+            Some(("past", session)) => {
+                chat.past =
+                    Some(session.parse().with_context(|| {
+                        format!("`{session}` is no session's number")
+                    })?);
+            }
+            Some(("from", peer)) => {
+                chat.from =
+                    Some(AgentId(u64::from(number_of(peer)?.0)));
+            }
+            Some(("kind", "letters")) => {
+                chat.kind = Some(ChatRefKind::Letters);
+            }
+            Some(("kind", "questions")) => {
+                chat.kind = Some(ChatRefKind::Questions);
+            }
+            Some(("before", item)) => before = Some(item.to_owned()),
+            _ => bail!("`{word}` does not name a chat"),
+        }
+    }
+    Ok((chat, before))
+}
+
+async fn login(host: &Host, words: &[&str]) -> Result<()> {
+    let id = RequestId::new();
+    let login = match words {
+        ["start", provider, method] => protocol::Login::Start {
+            id,
+            start: LoginStart {
+                method: match *method {
+                    "key" => LoginMethod::Key,
+                    "subscription" => LoginMethod::Subscription,
+                    other => bail!("`{other}` is no way to sign in"),
+                },
+                provider: (*provider).to_owned(),
+            },
+        },
+        ["reply", login, value] => protocol::Login::Reply {
+            id,
+            reply: LoginReply {
+                login: (*login).to_owned(),
+                value: (*value).to_owned(),
+            },
+        },
+        ["cancel", login] => protocol::Login::Cancel {
+            cancel: (*login).to_owned(),
+            id,
+        },
+        _ => bail!("usage: {USAGE}"),
+    };
+    asked(host, "login", HAND, &Login(login)).await
+}
+
+/// Calls agent `n` with `message` as a client does, and prints its
+/// answer, or the actor's error it failed with, as `<verb>/<n>
+/// <json>`.
+async fn asked<M>(
+    host: &Host,
+    verb: &str,
+    n: AgentNumber,
+    message: &M,
+) -> Result<()>
+where
+    M: Message<To = address::Agent, From = Client>,
+    M::Output: Serialize + DeserializeOwned,
+{
+    let called = host
+        .call_for_client(
+            &address::Agent(n).address()?,
+            M::NAME,
+            encode_positional(message)?,
+            ASK_WITHIN,
+        )
+        .await;
+    let shown = match called {
+        Ok(answer) => {
+            match ciborium::from_reader::<M::Output, _>(
+                answer.as_slice(),
+            ) {
+                Ok(read) => serde_json::to_value(read)?,
+                Err(error) => {
+                    let raw: serde_json::Value =
+                        ciborium::from_reader(answer.as_slice())?;
+                    bail!(
+                        "agent {} answered `{}` with {raw}, which \
+                         is not its answer: {error}",
+                        n.0,
+                        M::NAME
+                    )
+                }
+            }
+        }
+        Err(error) => non_link_failure(&error).ok_or(error)?,
+    };
+    print(&format!("{verb}/{} {shown}", n.0))
 }
 
 fn print(line: &str) -> Result<()> {

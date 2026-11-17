@@ -6,11 +6,12 @@
  */
 import type { RawAccess } from "../actor/db/mod.ts";
 import type { AgentContext } from "./actor.ts";
-import type {
-    AgentSettings,
-    Copies,
-    ModelChoice,
-    ReadCopies as Versions,
+import {
+    type AgentSettings,
+    type Copies,
+    type ModelChoice,
+    read,
+    type ReadCopies as Versions,
 } from "./messages.ts";
 import type { Peers } from "./turn.ts";
 
@@ -39,25 +40,42 @@ export type Part = keyof Copies;
 /** What the prompt, the models and reflection read, at each use. */
 export type ReadCopies = () => Promise<Held>;
 
-/** Keeps each part whose version is newer, and answers the parts it kept. */
+/** Keeps each part whose version is newer. */
 export async function keep(
     c: Pick<AgentContext, "db">,
     message: Copies,
-): Promise<ReadonlySet<Part>> {
-    void c;
-    void message;
-    throw new Error("not built: U1");
+): Promise<void> {
+    for (const part of Object.keys(message) as Part[]) {
+        const copy = message[part];
+        if (copy === undefined) continue;
+        await c.db.run(
+            `INSERT INTO copy (name, version, value) VALUES (?, ?, ?)
+             ON CONFLICT (name) DO UPDATE SET version = excluded.version, value = excluded.value
+             WHERE excluded.version > copy.version`,
+            part,
+            copy.version,
+            JSON.stringify(copy.value),
+        );
+    }
 }
 
 export function copiesOf(db: AgentContext["db"]): ReadCopies {
-    void db;
-    return () => Promise.reject(new Error("not built: U1"));
+    return async () => {
+        const rows = await db.all<{ name: string; value: string }>(
+            "SELECT name, value FROM copy",
+        );
+        return Object.fromEntries(
+            rows.map((row) => [row.name, JSON.parse(row.value)]),
+        ) as Held;
+    };
 }
 
 /** The versions held, as the realm's `read_copies` takes them. */
-export function versionsOf(db: AgentContext["db"]): Promise<Versions> {
-    void db;
-    return Promise.reject(new Error("not built: U1"));
+async function versionsOf(db: AgentContext["db"]): Promise<Versions> {
+    const rows = await db.all<{ name: string; version: number }>(
+        "SELECT name, version FROM copy",
+    );
+    return Object.fromEntries(rows.map((row) => [row.name, row.version]));
 }
 
 /**
@@ -67,8 +85,7 @@ export function versionsOf(db: AgentContext["db"]): Promise<Versions> {
 export async function refreshed(
     c: Pick<AgentContext, "db">,
     peers: Peers,
-): Promise<ReadonlySet<Part>> {
-    void c;
-    void peers;
-    return new Set();
+): Promise<void> {
+    const newer = await peers.reach.read_copies(await versionsOf(c.db));
+    await keep(c, read.copies(newer));
 }

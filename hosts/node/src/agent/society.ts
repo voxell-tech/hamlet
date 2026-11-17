@@ -12,6 +12,7 @@ import {
     hook,
     type ToolRegistration,
 } from "@earendil-works/pi-durable";
+import { isShortCutOff } from "./compaction.ts";
 import {
     type Named,
     type ProfileId,
@@ -382,7 +383,9 @@ async function reply(
 ): Promise<undefined> {
     try {
         const input = await peers.turns.of(api.conversationId);
-        if (input.question === undefined) return undefined;
+        // A cut-off answer is asked again, and the second try replies.
+        if (input.question === undefined || isShortCutOff(answer))
+            return undefined;
         const text = answer.content
             .map((block) => (block.type === "text" ? block.text : ""))
             .join("");
