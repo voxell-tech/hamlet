@@ -149,13 +149,9 @@ pub(crate) enum Asked {
     Scholar(ScholarId),
 }
 
-/// Keeps a dream of `asked` asked for, to start in its turn. `false`
-/// when one of it waits already.
-pub(crate) fn ask(
-    db: &mut Db,
-    asked: Asked,
-    at: i64,
-) -> Result<bool> {
+/// Keeps a dream of `asked` asked for, to start in its turn, unless
+/// one of it waits already.
+pub(crate) fn ask(db: &mut Db, asked: Asked, at: i64) -> Result<()> {
     let (hire, scholar) = match asked {
         Asked::Hire(hire) => (Some(hire), None),
         Asked::Scholar(scholar) => (None, Some(scholar)),
@@ -166,7 +162,7 @@ pub(crate) fn ask(
         .count()
         .get_result::<i64>(db)?;
     if waiting > 0 {
-        return Ok(false);
+        return Ok(());
     }
     diesel::insert_into(asked_dream::table)
         .values((
@@ -175,7 +171,7 @@ pub(crate) fn ask(
             asked_dream::at.eq(at),
         ))
         .execute(db)?;
-    Ok(true)
+    Ok(())
 }
 
 /// The dreams asked for that wait, the oldest first.
