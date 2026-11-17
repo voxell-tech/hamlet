@@ -1983,21 +1983,8 @@ impl OpenClaim {
 }
 
 /// A start's open of the actor's file while it runs on a blocking
-/// thread: its task, and the claim that decides whether it writes.
-type Opening =
-    (JoinHandle<Result<(PlainSqlite, Bumped)>>, Arc<OpenClaim>);
-
-/// Gives up the open of a start that failed while the open ran. An
-/// open that already claimed its write is awaited, each of its
-/// statements within rusqlite's default busy timeout, and its file
-/// returned if it opened one.
-async fn give_up_open((task, claim): Opening) -> Option<PlainSqlite> {
-    if claim.give_up() {
-        return None;
-    }
-    let (file, _) = task.await.ok()?.ok()?;
-    Some(file)
-}
+/// thread.
+type Opening = JoinHandle<Result<(PlainSqlite, Bumped)>>;
 
 /// What a start reads from the actor's `_hamlet_actor` row.
 struct Bumped {
@@ -2091,6 +2078,7 @@ async fn start_actor(
     let host = owned.host.clone();
     let at = owned.at.clone();
     let creates = matches!(open, Open::New(_));
+    let claim = Arc::new(OpenClaim::default());
     let mut opening = None;
     let opened = Mutex::new(None);
     let started = host
@@ -2101,6 +2089,7 @@ async fn start_actor(
                 &at,
                 id,
                 open,
+                &claim,
                 &mut opening,
                 &opened,
             ),
@@ -2113,13 +2102,21 @@ async fn start_actor(
         // stored. The core ends a start whose future was dropped at
         // the deadline, and the close fences what it does meanwhile.
         Err(error) => {
+            // A create's open that claimed its write may have made
+            // the actor's file, also when it failed after.
+            let wrote = !claim.give_up();
             let file = match opening.take() {
-                Some(opening) => give_up_open(opening).await,
+                // Awaited: each of its statements ends within
+                // rusqlite's default busy timeout.
+                Some(task) if wrote => task
+                    .await
+                    .ok()
+                    .and_then(Result::ok)
+                    .map(|(file, _)| file),
+                Some(_) => None,
                 None => opened.lock().take(),
             };
-            // The file is open only once the start's transaction
-            // wrote the row: a create's start made the actor then.
-            let made = creates && file.is_some();
+            let made = creates && wrote;
             let closed = match file {
                 Some(file) => close_within_grace(&file).await,
                 None => true,
@@ -2229,26 +2226,26 @@ async fn unmake(host: &HostInner, at: &Address) -> bool {
     removed.is_ok()
 }
 
-/// Opens the actor's file and starts its core, as the generation of
-/// id `id`. Holds the open in `opening` while it runs, and puts the
-/// file in `opened` once it is open.
+/// Opens the actor's file under `claim` and starts its core, as the
+/// generation of id `id`. Holds the open in `opening` while it runs,
+/// and puts the file in `opened` once it is open.
 async fn start_generation(
     host: &Arc<HostInner>,
     at: &Address,
     id: u64,
     open: Open,
+    claim: &Arc<OpenClaim>,
     opening: &mut Option<Opening>,
     opened: &Mutex<Option<PlainSqlite>>,
 ) -> Result<Arc<Generation>> {
     let factory = host.directory.factory(at, "start")?.clone();
-    let claim = Arc::new(OpenClaim::default());
     let task = tokio::task::spawn_blocking({
         let dir = host.dir.clone();
         let at = at.clone();
         let claim = claim.clone();
         move || open_actor_file(&dir, &at, &open, &claim)
     });
-    let (task, _) = opening.insert((task, claim));
+    let task = opening.insert(task);
     let result = task.await;
     *opening = None;
     let (file, bumped) = result??;

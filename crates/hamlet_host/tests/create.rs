@@ -12,7 +12,7 @@ use anyhow::Context as _;
 use at::at;
 use began::began;
 use code::code;
-use files::any_file_of;
+use files::{any_file_of, files_of};
 use hamlet_actor::{
     Action, Actor, ActorConfig, ColumnValue, Ctx, Handler, Registry,
 };
@@ -562,6 +562,31 @@ async fn a_failed_start_tells_each_caller_why() {
         break;
     }
     host.shutdown().await.unwrap();
+}
+
+/// A create whose open made the actor's file and then failed leaves
+/// no file, unless the host kept the actor.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_create_whose_open_fails_after_making_the_file_leaves_none()
+{
+    let dir = Scratch::new("create-open-fails");
+    let host = open(
+        &dir,
+        HostOptions::default()
+            .with_value(Arc::new(Counts::default())),
+    );
+    let to = at("made", "a");
+    let [file, wal, _] = files_of(&dir, "made", "a");
+    // The open makes the file, then fails to make its write-ahead
+    // file.
+    std::fs::create_dir(&wal).unwrap();
+    let error = failed(host.create(&to, cbor("a")).await);
+    let kept = host.kept();
+    host.shutdown().await.unwrap();
+    assert!(
+        !file.exists() || kept == [to],
+        "{error:#}; kept: {kept:?}"
+    );
 }
 
 /// Of two creates of one key at once, one with an input the kind
