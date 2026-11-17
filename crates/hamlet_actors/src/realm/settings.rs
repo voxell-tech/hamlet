@@ -243,6 +243,7 @@ impl Handler<Asked<EditSettings>> for Realm {
         let Client = sender(&ctx, &asked)?;
         let tx = change::Transaction::begin(&ctx).await?;
         let mut settings = read(&tx.rows()).await?;
+        let before = settings.endpoints.clone();
         let mut chosen = None;
         for setting in asked.act.set {
             match settings.set(setting) {
@@ -250,10 +251,22 @@ impl Handler<Asked<EditSettings>> for Realm {
                 Err(refusal) => return Ok(Done::refused(refusal)),
             }
         }
+        let removed = before
+            .into_iter()
+            .filter(|old| {
+                !settings.endpoints.iter().any(|e| e.name == old.name)
+            })
+            .map(|old| old.name)
+            .collect::<Vec<_>>();
         let mut changes = vec![Change::Keep(settings).into()];
-        if let Some(workspace) = chosen {
+        if chosen.is_some() || !removed.is_empty() {
             changes.extend(secrets::raises(&tx.rows()).await?);
+        }
+        if let Some(workspace) = chosen {
             self.secrets.choose_workspace(workspace)?;
+        }
+        if !removed.is_empty() {
+            self.secrets.forget(&removed)?;
         }
         secrets::commit(&self, &ctx, tx, changes).await?;
         Ok(Done::Done)

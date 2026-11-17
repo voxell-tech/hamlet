@@ -1,7 +1,7 @@
 use std::path::PathBuf;
 
 use hamlet_messages::realm::documents::{
-    EditSettings, RemoteWorkspace, Setting, SettingRefusal,
+    EditSettings, Endpoint, RemoteWorkspace, Setting, SettingRefusal,
 };
 use hamlet_messages::realm::models::{
     Credential, CredentialAnswer, CredentialRefusal, KeepCredential,
@@ -450,5 +450,62 @@ async fn a_login_read_and_kept_back_unchanged_changes_nothing() {
         before["models"]["chatgpt"]
     );
     assert_eq!(after["version"], before["version"]);
+    realm.host.shutdown().await.unwrap();
+}
+
+fn endpoints(names: &[(&str, &str)]) -> EditSettings {
+    EditSettings {
+        set: vec![Setting::Endpoints {
+            endpoints: names
+                .iter()
+                .map(|&(name, address)| Endpoint {
+                    name: name.to_owned(),
+                    base_url: address.to_owned(),
+                })
+                .collect(),
+        }],
+    }
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn a_removed_endpoint_forgets_its_key() {
+    let realm = Realm::start().await;
+    let both = [
+        ("mine", "https://old.invalid"),
+        ("kept", "https://k.invalid"),
+    ];
+    assert_eq!(chief(&realm, endpoints(&both)).await, Done::Done);
+    keep(&realm, "mine", key("sk-old-server")).await;
+    keep(&realm, "kept", key("sk-kept")).await;
+
+    let removed = chief(&realm, endpoints(&both[1..])).await;
+    let again = chief(
+        &realm,
+        endpoints(&[("mine", "https://new.invalid"), both[1]]),
+    )
+    .await;
+
+    assert_eq!([removed, again], [Done::Done, Done::Done]);
+    assert_eq!(
+        credential(&realm, Hand::NUMBER, "mine").await,
+        CredentialAnswer::Refused {
+            why: CredentialRefusal::NotSignedIn {
+                provider: "mine".to_owned()
+            }
+        }
+    );
+    assert_eq!(
+        credential(&realm, Hand::NUMBER, "kept").await,
+        CredentialAnswer::Key {
+            key: "sk-kept".to_owned()
+        }
+    );
+    assert_eq!(stored(&realm)["models"].get("mine"), None);
+    let list: SecretList =
+        realm.call_as_workspace(&Secrets).await.unwrap();
+    assert!(
+        list.values.iter().any(|held| held == "sk-old-server"),
+        "a forgotten key is still taken out"
+    );
     realm.host.shutdown().await.unwrap();
 }

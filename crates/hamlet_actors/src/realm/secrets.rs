@@ -165,6 +165,24 @@ impl Held {
         })
     }
 
+    /// Drops the credentials of `providers`, as today's server does
+    /// for a model server the chief removes.
+    pub fn forget(&self, providers: &[String]) -> Result<()> {
+        self.change(|stored| {
+            let dropped = providers
+                .iter()
+                .filter_map(|provider| stored.models.remove(provider))
+                .collect::<Vec<_>>();
+            (!dropped.is_empty()).then(|| {
+                dropped
+                    .iter()
+                    .flat_map(secrets)
+                    .map(str::to_owned)
+                    .collect()
+            })
+        })
+    }
+
     /// Writes the file whole with what `change` makes of it, then
     /// holds it. `change` answers the values it replaced, or `None`
     /// when it changed nothing, which keeps the version. The caller
