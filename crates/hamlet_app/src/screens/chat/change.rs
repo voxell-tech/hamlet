@@ -69,6 +69,12 @@ enum Extent {
 }
 
 impl Changes {
+    /// Forgets the changes of `chat`.
+    pub(super) fn forget(&mut self, chat: Entity) {
+        self.shut.retain(|(of, _)| *of != chat);
+        self.whole.retain(|(of, _)| *of != chat);
+    }
+
     fn extent(&self, change: &(Entity, String)) -> Extent {
         if self.shut.contains(change) {
             Extent::Shut

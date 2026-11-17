@@ -85,7 +85,6 @@ fn starters(world: &World, agent: Entity) -> &'static [&'static str] {
 pub(super) fn plugin(app: &mut App) {
     app.init_resource::<Reading>()
         .init_resource::<MergedLines>()
-        .init_resource::<Places>()
         .add_observer(page_received);
 }
 
@@ -93,13 +92,9 @@ pub(super) fn plugin(app: &mut App) {
 /// land before where it is counts as where it was left.
 const LANDING: u8 = 3;
 
-/// Where the chief left the chat of each conversation.
-#[derive(Resource, Default)]
-pub struct Places(HashMap<Entity, Place>);
-
-/// Where a chat was left.
-#[derive(Clone)]
-enum Place {
+/// Where the chief left a chat, kept on the chat.
+#[derive(Component, Clone)]
+pub(super) enum Place {
     /// At its end, which it follows as rows come.
     End,
     /// With this row the first that shows.
@@ -116,10 +111,11 @@ pub struct Shows {
 }
 
 /// Keeps where the chat's list is as where its conversation was left.
-pub fn remember_place(
+pub(super) fn remember_place(
     lines: Res<Lines>,
-    mut places: ResMut<Places>,
+    mut places: Query<&mut Place>,
     mut lists: Query<(&VirtualList, &mut Shows), With<ChatScroll>>,
+    mut commands: Commands,
 ) {
     for (list, mut shows) in &mut lists {
         if shows.landing > 0 {
@@ -136,18 +132,23 @@ pub fn remember_place(
                 None => continue,
             },
         };
-        places.0.insert(shows.session, place);
+        match places.get_mut(shows.session) {
+            Ok(mut kept) => *kept = place,
+            Err(_) => {
+                commands.entity(shows.session).try_insert(place);
+            }
+        }
     }
 }
 
 /// Puts the chat's list where its conversation was left, or at its
 /// end, when it is built or shows another conversation. A list is
 /// built hidden and shown once it is put there.
-pub fn restore_place(
+pub(super) fn restore_place(
     mut commands: Commands,
     convo: Res<Convo>,
     lines: Res<Lines>,
-    places: Res<Places>,
+    places: Query<&Place>,
     mut lists: Query<
         (
             Entity,
@@ -172,9 +173,9 @@ pub fn restore_place(
             let count = state.count();
             state.splice(0, count, lines.rows.len());
         }
-        let row = match places.0.get(&convo.session) {
-            Some(Place::Row(key)) => lines.places.get(key).copied(),
-            Some(Place::End) | None => None,
+        let row = match places.get(convo.session) {
+            Ok(Place::Row(key)) => lines.places.get(key).copied(),
+            Ok(Place::End) | Err(_) => None,
         };
         // The last row first is the end, as far as the list scrolls.
         let last = state.count().saturating_sub(1);
@@ -675,6 +676,12 @@ impl MergedLines {
         self.lines.more
     }
 
+    /// Whether it is open under a row of `chat`, or watched in it.
+    pub(super) fn is_in(&self, chat: Entity) -> bool {
+        self.under.as_ref().is_some_and(|(of, _)| *of == chat)
+            || self.holder.is_some_and(|(holder, _)| holder == chat)
+    }
+
     /// Whether the row `id` of `session` is the one open.
     pub(super) fn is_open(&self, session: Entity, id: &str) -> bool {
         self.under
@@ -714,8 +721,11 @@ pub(crate) fn open_merged(
 pub(crate) fn close_merged(world: &mut World) {
     let merged =
         std::mem::take(&mut *world.resource_mut::<MergedLines>());
-    if let Some((holder, true)) = merged.holder {
-        world.despawn(holder);
+    // The holder may be the chat that is gone.
+    if let Some((holder, true)) = merged.holder
+        && let Ok(holder) = world.get_entity_mut(holder)
+    {
+        holder.despawn();
     }
 }
 

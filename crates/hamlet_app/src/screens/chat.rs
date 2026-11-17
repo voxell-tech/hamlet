@@ -28,11 +28,12 @@ use bevy::color::Color;
 use bevy::ecs::component::Component;
 use bevy::ecs::entity::Entity;
 use bevy::ecs::event::Event;
+use bevy::ecs::lifecycle::Remove;
 use bevy::ecs::observer::On;
 use bevy::ecs::query::With;
 use bevy::ecs::resource::Resource;
 use bevy::ecs::schedule::IntoScheduleConfigs;
-use bevy::ecs::system::{Commands, Query, ResMut};
+use bevy::ecs::system::{Commands, Query, Res, ResMut};
 use bevy::ecs::world::World;
 use bevy::ui::{ComputedNode, Overflow, ScrollPosition, UiRect, px};
 use bevy_fynix::scroll::ScrollGoal;
@@ -43,6 +44,7 @@ use bevy_fynix::views::{
 use bevy_fynix::{
     ScopedExt, ViewExt, derived, every_frame, resource, style,
 };
+use hamlet_client::chats::Chat;
 use hamlet_client::messages::{
     ChiefMessage, Compact, Response, Resume, Rewind, ServerFault,
     Withdraw,
@@ -66,9 +68,9 @@ pub use self::field::refocus;
 pub(crate) use self::lines::close_merged;
 pub use self::lines::{
     Lines, MergedLines, Unfolded, ask_earlier, break_long_words,
-    fold_lines, fold_merged, remember_place, restore_place,
-    transcript,
+    fold_lines, fold_merged, transcript,
 };
+use self::lines::{remember_place, restore_place};
 pub use self::rewind::{Rewinds, ask as ask_rewind};
 use crate::PanelSystems;
 use crate::convo::{self, Convo};
@@ -95,7 +97,6 @@ pub fn plugin(app: &mut App) {
         .init_resource::<Lines>()
         .init_resource::<ToEnd>()
         .init_resource::<field::Typed>()
-        .init_resource::<field::Drafts>()
         .init_resource::<AwayFromEnd>()
         .init_resource::<hamlet_ui::fields::Resized>()
         .add_observer(decreed)
@@ -107,6 +108,7 @@ pub fn plugin(app: &mut App) {
         .add_observer(remember_withdraw)
         .add_observer(remember_resume)
         .add_observer(response)
+        .add_observer(forget_chat)
         .init_resource::<OpenTools>()
         // A row fades while a rewind that would forget it is asked
         // about.
@@ -152,6 +154,25 @@ pub struct ChatScroll;
 pub struct Draft {
     pub(crate) focus: bool,
     notice: String,
+}
+
+/// Forgets the folds, tool calls and changes opened in a chat that is
+/// gone, and shuts a merged conversation open in it.
+fn forget_chat(
+    gone: On<Remove<Chat>>,
+    mut unfolded: ResMut<Unfolded>,
+    mut tools: ResMut<OpenTools>,
+    mut changes: ResMut<Changes>,
+    merged: Res<MergedLines>,
+    mut commands: Commands,
+) {
+    let chat = gone.entity;
+    unfolded.0.retain(|(of, _)| *of != chat);
+    tools.0.retain(|(of, _)| *of != chat);
+    changes.forget(chat);
+    if merged.is_in(chat) {
+        commands.queue(close_merged);
+    }
 }
 
 /// A failure displayed under the chat field.

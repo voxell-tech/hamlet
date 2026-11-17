@@ -1,7 +1,6 @@
 //! The field a message is typed in: text with the chips of what is
 //! attached to it and of the agents named in it.
 
-use std::collections::HashMap;
 use std::ops::Range;
 
 use bevy::ecs::change_detection::Mut;
@@ -34,31 +33,19 @@ pub(super) struct Typed {
     chips: u64,
 }
 
-/// The unsent line of each conversation's chat, kept while another
-/// chat is shown.
-#[derive(Resource, Default)]
-pub(super) struct Drafts(HashMap<Entity, Vec<Piece>>);
+/// The unsent line of a chat, kept while another chat is shown.
+#[derive(Component)]
+pub(super) struct Unsent(Vec<Piece>);
 
-impl Drafts {
-    fn keep(&mut self, session: Entity, pieces: Vec<Piece>) {
-        if pieces.is_empty() {
-            self.0.remove(&session);
-        } else {
-            self.0.insert(session, pieces);
-        }
-    }
-}
-
-/// The conversation whose draft a field holds.
+/// The chat whose draft a field holds.
 #[derive(Component)]
 pub(super) struct Holds(Entity);
 
-/// Puts the draft of the shown conversation in the field, when the
-/// field is new or another conversation is shown, and keeps the draft
-/// it held.
+/// Puts the draft of the shown chat in the field, when the field is
+/// new or another chat is shown.
 pub(super) fn swap_drafts(
     convo: Res<Convo>,
-    mut drafts: ResMut<Drafts>,
+    drafts: Query<&Unsent>,
     mut typed: ResMut<Typed>,
     mut attached: ResMut<Attached>,
     mut fields: Query<
@@ -71,11 +58,10 @@ pub(super) fn swap_drafts(
         if holds.is_some_and(|holds| holds.0 == convo.session) {
             continue;
         }
-        if let Some(Holds(was)) = holds {
-            drafts.keep(*was, field.pieces());
-        }
-        let draft =
-            drafts.0.get(&convo.session).cloned().unwrap_or_default();
+        let draft = drafts
+            .get(convo.session)
+            .map(|unsent| unsent.0.clone())
+            .unwrap_or_default();
         // Its words are its own, not an edit to read addresses in.
         typed.flat = flat(&draft);
         if !draft.is_empty() || !field.is_empty() {
@@ -86,8 +72,8 @@ pub(super) fn swap_drafts(
     }
 }
 
-/// Keeps `pieces`, the content of the field, as the draft of the
-/// conversation it holds.
+/// Keeps `pieces`, the content of the field, as the draft of the chat
+/// it holds.
 pub(super) fn keep_draft(world: &mut World, pieces: &[Piece]) {
     let mut fields =
         world.query_filtered::<&Holds, With<ChatField>>();
@@ -96,9 +82,14 @@ pub(super) fn keep_draft(world: &mut World, pieces: &[Piece]) {
     else {
         return;
     };
-    world
-        .resource_mut::<Drafts>()
-        .keep(session, pieces.to_vec());
+    let Ok(mut chat) = world.get_entity_mut(session) else {
+        return;
+    };
+    if pieces.is_empty() {
+        chat.remove::<Unsent>();
+    } else {
+        chat.insert(Unsent(pieces.to_vec()));
+    }
 }
 
 /// Runs `edit` on the field of the chat.
