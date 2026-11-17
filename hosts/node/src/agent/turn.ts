@@ -270,7 +270,7 @@ export function modelCall(): CallId {
     return `m${randomUUID()}` as CallId;
 }
 
-function refOf(conversation: ConversationId): ConversationRef {
+export function refOf(conversation: ConversationId): ConversationRef {
     return String(conversation) as ConversationRef;
 }
 

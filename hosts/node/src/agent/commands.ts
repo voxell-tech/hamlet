@@ -10,7 +10,6 @@ import { withHarness } from "../pi/runtime.ts";
 import { type AgentCall, generationOf } from "./actor.ts";
 import {
     type ClientActions,
-    type ConversationRef,
     type LapseReason,
     type NewSession,
     type Resume,
@@ -24,6 +23,7 @@ import {
 } from "./messages.ts";
 import { reflectOnLeaving } from "./reflect.ts";
 import { begin, nowSeconds, resumed } from "./sessions.ts";
+import { refOf } from "./turn.ts";
 
 type Answer<N extends keyof ClientActions> = Promise<
     ReturnType<ClientActions[N]>
@@ -113,7 +113,7 @@ async function lapsed(
     const { peers } = generationOf(c);
     try {
         await peers.reach.lapse({
-            conversation: String(conversation) as ConversationRef,
+            conversation: refOf(conversation),
             why,
         });
     } catch (error) {
