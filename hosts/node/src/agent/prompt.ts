@@ -15,7 +15,7 @@ import {
 } from "@earendil-works/pi-durable";
 import type { AgentContext } from "./actor.ts";
 import type { ReadCopies } from "./copies.ts";
-import type { AgentFilesystem } from "./filesystem.ts";
+import type { AgentFilesystem, FileEntry } from "./filesystem.ts";
 import type { AgentInput, Place, ReadAnswer } from "./messages.ts";
 import { type Peers, readFile } from "./turn.ts";
 
@@ -36,8 +36,9 @@ export interface PromptSources {
     readonly copies: ReadCopies;
     readonly files: AgentFilesystem;
     readonly where: () => Promise<Where>;
-    /** A file of the project, by its absolute path, through the workspace. */
-    readonly readFile: (path: string) => Promise<ReadAnswer>;
+    /** A file of the project, by its absolute path, through the workspace; `undefined` when the workspace failed. */
+    readonly readFile: (path: string) => Promise<ReadAnswer | undefined>;
+    readonly report: Peers["report"];
     /** An errand's prompt is its own instructions only. */
     readonly errand?: string;
 }
@@ -61,7 +62,13 @@ export function promptSources(
                 place: JSON.parse(row.place) as Where["place"],
             };
         },
-        readFile: (path) => readFile(peers, { path }),
+        // As today, a file that cannot be read is left out of the prompt.
+        readFile: (path) =>
+            readFile(peers, { path }).catch((error: unknown) => {
+                peers.report(`${path} was not read for the prompt`, error);
+                return undefined;
+            }),
+        report: peers.report,
     };
 }
 
@@ -152,7 +159,7 @@ async function project(sources: PromptSources): Promise<string | undefined> {
     ];
     for (const name of INSTRUCTIONS) {
         const answer = await sources.readFile(`${folder}/${name}`);
-        if (answer.type !== "text") continue;
+        if (answer?.type !== "text") continue;
         const text = cut(
             answer.text,
             MEMORY_SHOWN,
@@ -175,11 +182,13 @@ async function character(sources: PromptSources): Promise<string | undefined> {
 async function memory(
     sources: PromptSources,
     context: Context,
-): Promise<string> {
+): Promise<string | undefined> {
     const { files } = sources;
+    const entries = await listed(sources, "memory", context);
+    if (entries === undefined) return undefined;
     let shown = "";
     const folders: string[] = [];
-    for (const entry of await listed(files, "memory", context)) {
+    for (const entry of entries) {
         if (entry.kind === "file") {
             const body = await readText(files, `memory/${entry.name}`, context);
             if (body !== undefined) {
@@ -215,9 +224,11 @@ async function skills(
     context: Context,
 ): Promise<string> {
     const { files } = sources;
+    // As today's `shelf`, a folder that cannot be listed shows no skills.
+    const entries = (await listed(sources, "skills", context)) ?? [];
     const quoted = files.root.replaceAll("'", "'\\''");
     const lines: string[] = [];
-    for (const entry of await listed(files, "skills", context)) {
+    for (const entry of entries) {
         if (entry.kind !== "directory") continue;
         const paper = await readText(
             files,
@@ -285,12 +296,20 @@ function cut(text: string, most: number, note: string, longer = false): string {
     return `${characters.slice(0, most).join("")}\n${note}`;
 }
 
-/** A missing folder lists nothing, as today. */
-async function listed(files: AgentFilesystem, path: string, context: Context) {
-    const listing = await files.list(path, context);
+/**
+ * A missing folder lists nothing; one that cannot be listed is reported and
+ * `undefined`.
+ */
+async function listed(
+    sources: PromptSources,
+    path: string,
+    context: Context,
+): Promise<readonly FileEntry[] | undefined> {
+    const listing = await sources.files.list(path, context);
     if (listing.ok) return listing.value;
     if (listing.error.code === "not_found") return [];
-    throw listing.error;
+    sources.report(`${path}/ was not listed for the prompt`, listing.error);
+    return undefined;
 }
 
 async function readText(

@@ -347,6 +347,8 @@ async function wake(c: AgentContext, config: AgentConfig): Promise<void> {
         model: config.model,
         // Files go through the tools, never through the wrapper's database env.
         env: () => undefined,
+        onReport: (report) =>
+            peers.report(`pi-durable reported ${report.kind}`, report.error),
         settings: {
             ...config.settings,
             // One follow-up starts each run, so a run's first input is its
@@ -388,8 +390,10 @@ async function wake(c: AgentContext, config: AgentConfig): Promise<void> {
         return;
     }
     harness.resume();
+    // Configured at every wake, not only when a newer model was kept, so a
+    // configure a kill cut off after the copy was kept is done again.
     void refreshed(c, peers).then(
-        (kept) => (kept.has("model") ? configured(c, copies) : undefined),
+        () => configured(c, copies),
         (error: unknown) =>
             peers.report("the copies were not read from the realm", error),
     );
@@ -485,8 +489,8 @@ async function fill(
 }
 
 async function copies(c: AgentCall, message: Copies): Promise<void> {
-    const kept = await keep(c, message);
-    if (kept.has("model")) await configured(c, generationOf(c).copies);
+    await keep(c, message);
+    await configured(c, generationOf(c).copies);
 }
 
 async function wakeTimers(c: AgentCall): Promise<void> {

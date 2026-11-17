@@ -40,16 +40,15 @@ export type Part = keyof Copies;
 /** What the prompt, the models and reflection read, at each use. */
 export type ReadCopies = () => Promise<Held>;
 
-/** Keeps each part whose version is newer, and answers the parts it kept. */
+/** Keeps each part whose version is newer. */
 export async function keep(
     c: Pick<AgentContext, "db">,
     message: Copies,
-): Promise<ReadonlySet<Part>> {
-    const kept = new Set<Part>();
+): Promise<void> {
     for (const part of Object.keys(message) as Part[]) {
         const copy = message[part];
         if (copy === undefined) continue;
-        const { changes } = await c.db.run(
+        await c.db.run(
             `INSERT INTO copy (name, version, value) VALUES (?, ?, ?)
              ON CONFLICT (name) DO UPDATE SET version = excluded.version, value = excluded.value
              WHERE excluded.version > copy.version`,
@@ -57,9 +56,7 @@ export async function keep(
             copy.version,
             JSON.stringify(copy.value),
         );
-        if (changes > 0) kept.add(part);
     }
-    return kept;
 }
 
 export function copiesOf(db: AgentContext["db"]): ReadCopies {
@@ -74,7 +71,7 @@ export function copiesOf(db: AgentContext["db"]): ReadCopies {
 }
 
 /** The versions held, as the realm's `read_copies` takes them. */
-export async function versionsOf(db: AgentContext["db"]): Promise<Versions> {
+async function versionsOf(db: AgentContext["db"]): Promise<Versions> {
     const rows = await db.all<{ name: string; version: number }>(
         "SELECT name, version FROM copy",
     );
@@ -88,7 +85,7 @@ export async function versionsOf(db: AgentContext["db"]): Promise<Versions> {
 export async function refreshed(
     c: Pick<AgentContext, "db">,
     peers: Peers,
-): Promise<ReadonlySet<Part>> {
+): Promise<void> {
     const newer = await peers.reach.read_copies(await versionsOf(c.db));
-    return keep(c, read.copies(newer));
+    await keep(c, read.copies(newer));
 }

@@ -6,7 +6,7 @@ import {
     fauxAssistantMessage,
 } from "@earendil-works/pi-ai";
 import { getCurrentSystemPrompt } from "@earendil-works/pi-ai/utils/transcript";
-import { ok } from "@earendil-works/pi-durable/env";
+import { FileError, ok } from "@earendil-works/pi-durable/env";
 import type { AgentFilesystem, FileEntry } from "../src/agent/filesystem.ts";
 import type { AgentInput, Copies, ReadAnswer } from "../src/agent/messages.ts";
 import { renderPrompt } from "../src/agent/prompt.ts";
@@ -176,6 +176,7 @@ test("the prompt cuts each part at its limit", async (t) => {
         copies: async () => ({}),
         files: listedFiles({}),
         where: async () => ({ kind: "hire", place: HIRE.place }),
+        report: assert.fail,
         readFile: async () => ({
             type: "text",
             text: "Use tabs.",
@@ -289,7 +290,66 @@ test("an errand's prompt is its own instructions only", async () => {
         files: listedFiles({ "memory/chief.md": "The chief likes tea." }),
         where: refused,
         readFile: refused,
+        report: assert.fail,
         errand: "Sort the library.",
     });
     assert.equal(text, "Sort the library.");
+});
+
+test("a workspace that fails leaves the project's file out, keeps its folder lines, and is reported", async (t) => {
+    const { calls } = fakeCalls({
+        workspace: {
+            read_file: () => {
+                throw new Error("the workspace is away");
+            },
+        },
+    });
+    const record = recorder();
+    const agent = await wakeAgent(t, {
+        calls,
+        input: HIRE,
+        responses: [record.step(fauxAssistantMessage("One."))],
+    });
+    await say(agent, "first");
+
+    assert.ok(
+        record.prompts[0]?.includes(
+            "# The project\nYour hamlet works on the folder /work.",
+        ),
+    );
+    assert.ok(
+        (await readPrompt(agent)).includes("Your hamlet works on the folder"),
+    );
+    assert.ok(
+        agent.reported.some((line) => line.includes("the workspace is away")),
+    );
+    await agent.stop();
+});
+
+test("a memory folder that cannot be listed leaves the memory out, as today, and is reported", async (t) => {
+    const files = fakeFiles({});
+    const failing: AgentFilesystem = {
+        ...files,
+        list: async (path, context) =>
+            path === "memory"
+                ? {
+                      ok: false,
+                      error: new FileError(
+                          "permission_denied",
+                          "EACCES",
+                          "memory",
+                      ),
+                  }
+                : files.list(path, context),
+    };
+    const agent = await wakeAgent(t, {
+        calls: fakeCalls({}).calls,
+        files: failing,
+    });
+
+    const prompt = await readPrompt(agent);
+    assert.ok(!prompt.includes("# Your memory"));
+    assert.ok(prompt.includes("# Your skills"));
+    assert.ok(agent.reported.some((line) => line.includes("EACCES")));
+    await agent.stop();
 });
