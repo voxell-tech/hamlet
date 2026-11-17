@@ -89,7 +89,7 @@ fn withdraw(
     task: hamlet_store::ids::TaskId,
 ) -> Result<()> {
     let text = tasks::get(cx.db, task)?.text.unwrap_or_default();
-    inputs::drop_kept(cx.db, conversation)?;
+    inputs::drop_kept(cx, conversation)?;
     if inputs::is_busy(cx.db, conversation)? {
         conversations::set_cancelling(cx.db, conversation, true)?;
         conversations::set_stopped(cx.db, conversation, true)?;

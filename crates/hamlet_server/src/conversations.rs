@@ -366,32 +366,40 @@ pub(crate) fn set_stopped(
 }
 
 /// Holds `id`'s queue until a chief's line or a resume.
-pub(crate) fn hold(db: &mut Db, id: ConversationId) -> Result<()> {
+pub(crate) fn hold(
+    cx: &mut Change<'_>,
+    id: ConversationId,
+) -> Result<()> {
     diesel::update(conversation::table.find(id))
         .set((
             conversation::held.eq(true),
             conversation::runs_first.eq(None::<String>),
         ))
-        .execute(db)?;
+        .execute(cx.db)?;
+    cx.touched.queues.insert(id);
     Ok(())
 }
 
 /// Ends `id`'s hold, with the chief's input that ends it to run
 /// first. Returns whether it was held.
 pub(crate) fn release(
-    db: &mut Db,
+    cx: &mut Change<'_>,
     id: ConversationId,
     first: Option<&str>,
 ) -> Result<bool> {
-    Ok(diesel::update(
+    let released = diesel::update(
         conversation::table.find(id).filter(conversation::held),
     )
     .set((
         conversation::held.eq(false),
         conversation::runs_first.eq(first),
     ))
-    .execute(db)?
-        == 1)
+    .execute(cx.db)?
+        == 1;
+    if released {
+        cx.touched.queues.insert(id);
+    }
+    Ok(released)
 }
 
 pub(crate) fn set_last(

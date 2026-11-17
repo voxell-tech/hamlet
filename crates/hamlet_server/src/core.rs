@@ -272,6 +272,7 @@ impl Core<'_, '_> {
         self.changed.jobs_kept |= touched.jobs;
         self.changed.agents_or_hamlets_changed |=
             !touched.agents.is_empty() || !touched.hamlets.is_empty();
+        self.changed.queues.extend(&touched.queues);
     }
 
     /// Owes the clients the realm's state, sent once the input is
@@ -336,14 +337,18 @@ impl Core<'_, '_> {
         Ok(working)
     }
 
-    /// Shows the watchers of each watched conversation the lines that
-    /// wait in it now.
+    /// Shows the watchers of each conversation whose queue changed
+    /// the lines that wait in it now.
     pub(crate) fn requeue(&mut self) -> Result<()> {
         let watched = self
-            .live
-            .keys()
+            .changed
+            .queues
+            .iter()
             .copied()
-            .filter(|c| !self.connections.watching(*c).is_empty())
+            .filter(|c| {
+                self.live.contains_key(c)
+                    && !self.connections.watching(*c).is_empty()
+            })
             .collect::<Vec<_>>();
         for conversation in watched {
             let db = self.realm.store().connection();

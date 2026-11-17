@@ -172,7 +172,7 @@ pub(crate) fn say_with(
             boundary: false,
         },
     )?;
-    conversations::release(cx.db, conversation, Some(&request))?;
+    conversations::release(cx, conversation, Some(&request))?;
     crate::society::hires::take_purpose(cx, agent, text)?;
     cx.touched.agents.insert(agent);
     Ok(Said {
@@ -366,7 +366,7 @@ pub(crate) fn withdraw(
     if input.state != State::Kept || by != name {
         refuse!(Refusal::NotQueued);
     }
-    inputs::withdraw(cx.db, conversation, request)?;
+    inputs::withdraw(cx, conversation, request)?;
     if let Some(task) = input.task {
         tasks::done(cx.db, task, cx.at)?;
     }
@@ -480,7 +480,7 @@ pub(crate) fn retry(
             boundary: false,
         },
     )?;
-    conversations::release(cx.db, conversation, Some(&request))?;
+    conversations::release(cx, conversation, Some(&request))?;
     Ok(Ok(Said {
         conversation,
         task,
@@ -520,7 +520,7 @@ pub(crate) fn stop(
     if let Some(chat) = of(cx.db, agent)?
         && (stopped > 0 || inputs::is_busy(cx.db, chat)?)
     {
-        conversations::hold(cx.db, chat)?;
+        conversations::hold(cx, chat)?;
     }
     crate::society::oversight::lapse(
         cx,
@@ -540,7 +540,7 @@ pub(crate) fn resume(
     let Some(chat) = of(cx.db, agent)? else {
         return Ok(false);
     };
-    let held = conversations::release(cx.db, chat, None)?;
+    let held = conversations::release(cx, chat, None)?;
     cx.touched.agents.insert(agent);
     Ok(held)
 }

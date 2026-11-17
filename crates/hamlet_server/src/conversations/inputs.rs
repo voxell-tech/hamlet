@@ -216,6 +216,9 @@ pub(crate) fn keep(cx: &mut Change<'_>, keep: Keep) -> Result<bool> {
         ))
         .on_conflict_do_nothing()
         .execute(cx.db)?;
+    if kept == 1 {
+        cx.touched.queues.insert(keep.conversation);
+    }
     Ok(kept == 1)
 }
 
@@ -389,7 +392,7 @@ pub(crate) fn queued(
 /// Takes the kept input `request` out of its queue, never to be
 /// sent.
 pub(crate) fn withdraw(
-    db: &mut Db,
+    cx: &mut Change<'_>,
     conversation: ConversationId,
     request: &str,
 ) -> Result<()> {
@@ -399,7 +402,8 @@ pub(crate) fn withdraw(
             .filter(input::state.eq(State::Kept)),
     )
     .set(input::state.eq(State::Dropped))
-    .execute(db)?;
+    .execute(cx.db)?;
+    cx.touched.queues.insert(conversation);
     Ok(())
 }
 
@@ -482,21 +486,22 @@ pub(crate) fn settled(
 /// Drops every input of `conversation` not admitted yet, returning
 /// their requests.
 pub(crate) fn drop_kept(
-    db: &mut Db,
+    cx: &mut Change<'_>,
     conversation: ConversationId,
 ) -> Result<Vec<String>> {
     let requests = input::table
         .filter(input::conversation.eq(conversation))
         .filter(input::state.eq(State::Kept))
         .select(input::request)
-        .load::<String>(db)?;
+        .load::<String>(cx.db)?;
     diesel::update(
         input::table
             .filter(input::conversation.eq(conversation))
             .filter(input::state.eq(State::Kept)),
     )
     .set(input::state.eq(State::Dropped))
-    .execute(db)?;
+    .execute(cx.db)?;
+    cx.touched.queues.insert(conversation);
     Ok(requests)
 }
 

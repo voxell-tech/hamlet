@@ -7,6 +7,8 @@
 //! out again from the database, so one that fails is made good by the
 //! next input. An input that fails leaves nothing to follow.
 
+use std::collections::BTreeSet;
+
 use bevy_app::{App, Last, PostUpdate};
 use bevy_ecs::entity::Entity;
 use bevy_ecs::error::Result;
@@ -84,7 +86,7 @@ pub(crate) fn plugin(app: &mut App) {
                     send_runtimes_what_they_are_owed
                         .run_if(may_owe_runtimes),
                     wake_held_calls,
-                    requeue.run_if(may_owe_runtimes),
+                    requeue.run_if(has_changed_queues),
                 )
                     .chain()
                     .in_set(SendSystems::SendRuntimesWhatTheyAreOwed),
@@ -246,6 +248,8 @@ pub(crate) struct InputEffects {
     pub jobs_kept: bool,
     /// A runtime answered a request, so what waited on it may go.
     pub runtime_answered: bool,
+    /// The conversations whose queued inputs or hold changed.
+    pub queues: BTreeSet<ConversationId>,
     /// The clients' view changed with no change kept, such as the
     /// progress of moving the lodges.
     pub state_changed_outside_change: bool,
@@ -274,6 +278,10 @@ fn has_agents_or_hamlets_changed(effects: Res<InputEffects>) -> bool {
 /// Run condition for something new a runtime may be owed.
 fn may_owe_runtimes(effects: Res<InputEffects>) -> bool {
     effects.change_kept || effects.runtime_answered
+}
+
+fn has_changed_queues(effects: Res<InputEffects>) -> bool {
+    !effects.queues.is_empty()
 }
 
 /// Triggers each input that ended for its observers.
@@ -422,8 +430,8 @@ fn send_runtimes_what_they_are_owed(
     Ok(())
 }
 
-/// Shows the watchers of each watched conversation what waits in it
-/// now, once its runtime was sent what it is owed.
+/// Shows the watchers of each conversation whose queue changed what
+/// waits in it now, once its runtime was sent what it is owed.
 fn requeue(mut core: Core) -> Result {
     core.requeue()?;
     Ok(())

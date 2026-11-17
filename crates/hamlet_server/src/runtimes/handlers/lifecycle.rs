@@ -151,6 +151,7 @@ fn admitted(
                 admitted.reason.as_deref(),
                 detail.as_deref(),
             )?;
+            core.changed.queues.insert(conversation);
             if ended {
                 core.input_ended(conversation, &request);
             }
@@ -189,6 +190,7 @@ fn settled(
                 settled.reason.as_deref(),
                 detail.as_deref(),
             )? {
+                core.changed.queues.insert(conversation.id);
                 core.input_ended(conversation.id, &settled.request);
             }
             Ok(())

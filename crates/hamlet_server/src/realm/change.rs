@@ -4,7 +4,9 @@
 use std::collections::BTreeSet;
 
 use hamlet_store::Db;
-use hamlet_store::ids::{Actor, AgentId, HamletId, ScholarId};
+use hamlet_store::ids::{
+    Actor, AgentId, ConversationId, HamletId, ScholarId,
+};
 
 use crate::society::refusal::Refusal;
 
@@ -37,6 +39,8 @@ pub(crate) struct Touched {
     pub agents: BTreeSet<AgentId>,
     pub scholars: BTreeSet<ScholarId>,
     pub hamlets: BTreeSet<HamletId>,
+    /// The conversations whose queued inputs or hold changed.
+    pub queues: BTreeSet<ConversationId>,
     /// Jobs were kept that the runner has not seen.
     pub jobs: bool,
 }
