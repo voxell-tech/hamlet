@@ -107,10 +107,14 @@ export type Admission = {
     /** The realm's task the turn is charged to. Absent: the standing task pays. */
     readonly task?: RealmTask;
 } & (
-    | { readonly kind: Exclude<InputKind, "question"> }
+    | { readonly kind: Exclude<InputKind, "question" | "cut-off"> }
     | {
           readonly kind: "question";
           readonly question: LetterId;
+      }
+    | {
+          readonly kind: "cut-off";
+          readonly question?: LetterId;
       }
 );
 
@@ -140,7 +144,7 @@ export function draftOf(
 ): InputSubmissionDraft {
     const kept: Kept = {
         ...(admission.task === undefined ? {} : { task: admission.task }),
-        ...(admission.kind === "question"
+        ...("question" in admission && admission.question !== undefined
             ? { question: admission.question }
             : {}),
     };

@@ -22,32 +22,35 @@ import {
     type TaskId,
     type TaskRuntime,
 } from "@earendil-works/pi-durable";
-import type { RealmTask } from "./messages.ts";
+import type { LetterId, RealmTask } from "./messages.ts";
 import { draftOf } from "./turn.ts";
 
 /** Today's, in `harnesses/pi/src/models.ts` and `runtime.ts`. */
 const ANSWER_SHARE = 0.2;
 const BACKGROUND_SHARE = 0.1;
+/** The window today assumes for a model the listing does not hold. */
+const DEFAULT_WINDOW = 32_768;
 
-/** Compaction sized by each model's window. */
+/** Compaction sized by each model's window, and by today's default window for any other. */
 export function compactionFor(
     models: readonly Model<Api>[],
 ): CompactionSettings {
     return {
         keepRecentTokens: 20_000,
+        ...sized(DEFAULT_WINDOW),
         modelOverrides: Object.fromEntries(
             models.map((model) => [
                 `${model.provider}/${model.id}`,
-                {
-                    reserveTokens: Math.round(
-                        model.contextWindow * ANSWER_SHARE,
-                    ),
-                    backgroundTokens: Math.round(
-                        model.contextWindow * BACKGROUND_SHARE,
-                    ),
-                },
+                sized(model.contextWindow),
             ]),
         ),
+    };
+}
+
+function sized(window: number) {
+    return {
+        reserveTokens: Math.round(window * ANSWER_SHARE),
+        backgroundTokens: Math.round(window * BACKGROUND_SHARE),
     };
 }
 
@@ -78,7 +81,8 @@ type CutOffState =
     | { phase: "rule" }
     | { phase: "summarised"; summary: TaskId<CompactionResult> };
 
-function cutOffShort(answer: AssistantMessage): boolean {
+/** An answer cut off with nothing in it, which the rule asks again once. */
+export function isShortCutOff(answer: AssistantMessage): boolean {
     const stands = answer.content.some(
         (block) =>
             block.type === "toolCall" ||
@@ -150,12 +154,18 @@ const CutOff = defineTask<CutOffInput, CutOffState, null>({
                 );
             }
             const input = await runtime.entry(task.input.input, context);
-            const charged = (input?.data as { task?: RealmTask } | null)?.task;
+            // A question's second try answers the question.
+            const { task: charged, question } =
+                (input?.data as {
+                    task?: RealmTask;
+                    question?: LetterId;
+                } | null) ?? {};
             const asked = draftOf({
                 id: `cut-off:${runtime.taskId}`,
                 kind: "cut-off",
                 content: CARRY_ON,
                 ...(charged === undefined ? {} : { task: charged }),
+                ...(question === undefined ? {} : { question }),
             });
             const conversation = await runtime.conversation(
                 runtime.conversationId,
@@ -222,7 +232,7 @@ async function inputOf(
     );
 }
 
-export function cutOff(): Extension {
+export function cutOffRule(): Extension {
     return defineExtension({
         name: "hamlet.cut-off",
         tasks: [CutOff],
@@ -231,7 +241,10 @@ export function cutOff(): Extension {
                 afterRun: async (run, api, context) => {
                     const answer = (await api.entry(run.answer, context))
                         ?.model?.[0];
-                    if (answer?.role !== "assistant" || !cutOffShort(answer)) {
+                    if (
+                        answer?.role !== "assistant" ||
+                        !isShortCutOff(answer)
+                    ) {
                         return undefined;
                     }
                     const input = await inputOf(api, run, context);

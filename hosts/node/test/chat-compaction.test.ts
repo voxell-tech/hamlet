@@ -344,3 +344,43 @@ test("a stop while the summary is out asks nothing again", async (t) => {
     assert.ok(!kinds.includes("hamlet.cut-off"));
     assert.ok(!kinds.includes("hamlet.notice"));
 });
+
+test("a question cut off short replies with its second try's answer", async (t) => {
+    const run = script([
+        fauxAssistantMessage("One."),
+        fauxAssistantMessage("Two."),
+        fauxAssistantMessage("Three."),
+        cutOffShort(),
+        fauxAssistantMessage("Four."),
+    ]);
+    const { calls, sent } = fakeCalls({
+        realm: { reply: () => ({ type: "done" }) },
+    });
+    const agent = await wakeAgent(t, { calls, responses: run.steps });
+
+    for (const n of [1, 2, 3]) await say(agent, n, long(n));
+    await agent.actions.submit(agent.by(from.realm), {
+        id: "input-4",
+        task: "task-4",
+        input: {
+            type: "question",
+            letter: 5,
+            from: { agent: 12, name: "Ada" },
+            text: "How many fail?",
+        },
+    });
+    await agent.idle();
+
+    assert.equal(run.summaries, 1);
+    assert.deepEqual(
+        named(sent, "reply").map((call) => call.message),
+        [{ question: 5, text: "Four." }],
+    );
+});
+
+test("a model the listing does not hold is sized by today's default window", () => {
+    const sizes = compactionFor([]);
+    // `harnesses/pi/src/models.ts`'s 32,768 tokens, a fifth and a tenth.
+    assert.equal(sizes.reserveTokens, 6554);
+    assert.equal(sizes.backgroundTokens, 3277);
+});

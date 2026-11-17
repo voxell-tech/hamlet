@@ -32,7 +32,7 @@ import {
 } from "../pi/runtime.ts";
 import { migratePiTables } from "../pi/storage.ts";
 import { type ChatHandlers, chatActions } from "./chat.ts";
-import { compactionFor, cutOff } from "./compaction.ts";
+import { compactionFor, cutOffRule } from "./compaction.ts";
 import {
     copiesOf,
     keep,
@@ -132,7 +132,7 @@ function parts(
     return [
         promptPart(prompt),
         reflection(prompt.copies, owedOf(withHarness), reflectEvery()),
-        cutOff(),
+        cutOffRule(),
         workspaceTools(peers),
         ownFiles(peers),
         society(peers, off),
