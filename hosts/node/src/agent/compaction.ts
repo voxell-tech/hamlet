@@ -153,7 +153,7 @@ const CutOff = defineTask<CutOffInput, CutOffState, null>({
             const charged = (input?.data as { task?: RealmTask } | null)?.task;
             const asked = draftOf({
                 id: `cut-off:${runtime.taskId}`,
-                kind: "retry",
+                kind: "cut-off",
                 content: CARRY_ON,
                 ...(charged === undefined ? {} : { task: charged }),
             });
@@ -162,10 +162,7 @@ const CutOff = defineTask<CutOffInput, CutOffState, null>({
                 context,
             );
             await runtime.commit(async (tx) => {
-                await conversation?.submit(tx, {
-                    ...asked,
-                    entry: { kind: ASKED_AGAIN, data: asked.entry?.data ?? {} },
-                });
+                await conversation?.submit(tx, asked);
                 return {
                     status: "terminal",
                     outcome: { status: "completed", result: null },

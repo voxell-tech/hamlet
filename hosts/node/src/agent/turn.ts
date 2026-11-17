@@ -97,7 +97,8 @@ export type InputKind =
     | "finished"
     | "wake"
     | "retry"
-    | "reflection";
+    | "reflection"
+    | "cut-off";
 
 export type Admission = {
     /** pi-durable admits it once per conversation. */
