@@ -41,7 +41,7 @@ use crate::talk::process::{Pi, Received};
 use crate::talk::runtimes::{self, Pending, Runtimes};
 use crate::talk::turns::Admission;
 use crate::talk::{
-    Env, conversations, items, prompt, sync, turns, verdicts,
+    Env, conversations, imports, items, prompt, sync, turns, verdicts,
 };
 use crate::work::added::{self, Manifest};
 use crate::work::catalogue::SOCIETY;
@@ -749,6 +749,12 @@ impl Core {
                         &adapter,
                         &version,
                     )?;
+                    // Its watchers held the entries it began with,
+                    // which the runtime keeps under its own ids now.
+                    if imports::made(db, conversation)? {
+                        self.live.remove(&conversation);
+                        self.retell(conversation)?;
+                    }
                 }
                 self.flush(false).await?;
             }

@@ -10,6 +10,7 @@ use bevy_ecs::event::Event;
 use bevy_ecs::observer::On;
 use bevy_ecs::resource::Resource;
 use bevy_ecs::system::{Commands, Res, ResMut};
+use bevy_log::warn;
 use hamlet_client::Tokio;
 use image::codecs::png::PngEncoder;
 use image::{ExtendedColorType, ImageEncoder};
@@ -19,8 +20,59 @@ use tokio::sync::mpsc::{
 
 pub(crate) fn plugin(app: &mut App) {
     app.init_resource::<Reader>()
+        .init_resource::<Writer>()
         .add_observer(ask)
+        .add_observer(copy)
         .add_systems(Update, take);
+}
+
+/// Puts `html` on the clipboard, with `text` for what takes only
+/// words.
+#[derive(Event, Clone, Debug)]
+pub struct CopyRich {
+    pub text: String,
+    pub html: String,
+}
+
+/// The thread that puts what is copied on the clipboard, one copy
+/// after another in the order asked.
+#[derive(Resource)]
+struct Writer(std::sync::mpsc::Sender<CopyRich>);
+
+impl Default for Writer {
+    fn default() -> Self {
+        let (tx, rx) = std::sync::mpsc::channel::<CopyRich>();
+        // It keeps its clipboard while the window runs: on Linux,
+        // what was copied lasts while its owner does.
+        let _ = std::thread::Builder::new()
+            .name("clipboard".into())
+            .spawn(move || {
+                let mut clipboard = None;
+                for CopyRich { text, html } in rx {
+                    if clipboard.is_none() {
+                        clipboard = arboard::Clipboard::new()
+                            .inspect_err(|error| {
+                                warn!(
+                                    "Could not open the clipboard: \
+                                     {error}"
+                                );
+                            })
+                            .ok();
+                    }
+                    if let Some(clipboard) = clipboard.as_mut()
+                        && let Err(error) =
+                            clipboard.set().html(html, Some(text))
+                    {
+                        warn!("Could not copy: {error}");
+                    }
+                }
+            });
+        Writer(tx)
+    }
+}
+
+fn copy(copy: On<CopyRich>, writer: Res<Writer>) {
+    let _ = writer.0.send(copy.event().clone());
 }
 
 /// Asks for what is on the clipboard, for `asker`.

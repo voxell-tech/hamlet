@@ -27,6 +27,22 @@ comes from `read history`, listed by the day each was last used; Read
 opens a numbered past conversation read-only, drawn as the chat is, and
 Resume sends `/resume <n>`. Every conversation is kept.
 
+A hire made for a conversation brought in from another program (C35)
+has it as the first session of its chat. The card "Bring in your
+projects" (`hamlet_app/src/welcome/projects.rs`) lists the projects
+found on the window's machine, or in an export file chosen in the
+system's dialog; it opens once when first-run setup ends on a realm with
+no hamlet, and from Settings. `hamlet_import` reads the conversations on
+the chief's machine, off the frame (`hamlet_client/src/imports.rs`), the
+client sends each as a file and the project as `import-project`, and the
+server (`talk/imports.rs`) founds or finds the hamlet, makes the hires
+and holds each conversation's entries until the runtime makes it with
+them, which waits for a model to be set up. Until then its chat shows
+the entries held, and its watchers get its transcript anew once the
+runtime keeps them. It opens with a notice of where it came from. The chief's messages
+in it are the chief's rows, not rewindable; the other program's tool
+calls are tool rows of their tool and summary, kept for people alone.
+
 The session menu of the Hub's chat lists the agent's sessions, its
 conversations with other agents and the workers it started. Choosing a
 sender's letters or questions opens a reference with `from` and `kind`;

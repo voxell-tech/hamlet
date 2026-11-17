@@ -54,6 +54,7 @@ use hamlet_realm::orders::{Decree, Tell};
 use hamlet_ui::styles::{note, text_input};
 use hamlet_ui::theme::HamletTheme;
 use hamlet_ui::widgets::effects::Variant;
+use hamlet_ui::widgets::hint::hinted;
 use hamlet_ui::{Cx, View, with_cx};
 
 pub(crate) use self::change::change_view;
@@ -483,37 +484,41 @@ fn message_bar_in(
     inset: f32,
     tools: impl View + 'static,
 ) -> impl View {
-    let field = row((rich_field()
-        .placeholder(
-            derived(|world: &World| {
-                if without_model(world) {
-                    return "Set up a model to start".to_string();
-                }
-                match world.get_resource::<Convo>().map(|c| &c.with) {
-                    Some(Some(name)) => format!("Message {name}"),
-                    Some(None) => "Message the Hand".to_string(),
-                    None => "Message".to_string(),
-                }
+    let hint = derived(|world: &World| {
+        if without_model(world) {
+            return "Set up a model to start".to_string();
+        }
+        match world.get_resource::<Convo>().map(|c| &c.with) {
+            Some(Some(name)) => format!("Message {name}"),
+            Some(None) => "Message the Hand".to_string(),
+            None => "Message".to_string(),
+        }
+    })
+    .when(every_frame());
+    // Hamlet's own hint over the field, as the search fields have.
+    let field = row((hinted(
+        rich_field()
+            .enter(Enter::Submit)
+            .on_submit(|world, _| send_typed(world))
+            .on_change(|world, pieces| {
+                attach::reconcile(world, &pieces);
             })
-            .when(every_frame()),
-        )
-        .enter(Enter::Submit)
-        .on_submit(|world, _| send_typed(world))
-        .on_change(|world, pieces| attach::reconcile(world, &pieces))
-        .max_lines(MOST_LINES)
-        .grow(1.0)
-        // The room above and below one line, kept above the first
-        // line and below the last of many.
-        .padding(UiRect {
-            top: px(LINE_ROOM),
-            bottom: px(LINE_ROOM),
-            ..UiRect::horizontal(px(FIELD_SIDE))
-        })
-        .rules(in_card)
-        // The card around it shows the focus, not a glow behind its
-        // first line.
-        .tagged(Variant::Subtle)
-        .tagged(ChatField),))
+            .max_lines(MOST_LINES)
+            .grow(1.0)
+            // The room above and below one line, kept above the first
+            // line and below the last of many.
+            .padding(UiRect {
+                top: px(LINE_ROOM),
+                bottom: px(LINE_ROOM),
+                ..UiRect::horizontal(px(FIELD_SIDE))
+            })
+            .rules(in_card)
+            // The card around it shows the focus, not a glow behind
+            // its first line.
+            .tagged(Variant::Subtle)
+            .tagged(ChatField),
+        hint,
+    ),))
     .grow(1.0)
     .min_width(px(FIELD_LEAST))
     .overflow(Overflow::clip());

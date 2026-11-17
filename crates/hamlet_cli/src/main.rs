@@ -21,6 +21,8 @@ const USAGE: &str = "usage: hamlet [--insecure]
        hamlet window
        hamlet chat [--to <hand|hire#<id>|mayor@<hamlet>>] [--attach \
                      <path>]...
+       hamlet import [--file <export>] [--all] [--sessions | \
+                     --suggested | <project or conversation id>...]
        hamlet edit <charter|limits|settings> [--hamlet <id>]
        hamlet edit character <scholar#id>
        hamlet edit memory <scholar#id|hire#<id>> [path]
@@ -36,6 +38,10 @@ dev builds the checkout's server and window and serves a scratch \
                      window that reloads saved shaders and tuning \
                      files.
 server serves in the foreground; Ctrl-C stops it.
+import lists the projects Claude Code, Codex and pi worked on in the \
+                     last 30 days, or those of a ChatGPT or Claude \
+                     export, and brings each one named in as a \
+                     hamlet with a hire for each conversation.
 --insecure, on Windows only, runs agents' commands with no sandbox.
 
 env: HAMLET_HOME (~/.hamlet), HAMLET_SERVER and HAMLET_TOKEN (remote \
@@ -68,6 +74,18 @@ enum Command {
         to: String,
         /// The images, files and folders the first line carries.
         attach: Vec<PathBuf>,
+    },
+    /// Lists the projects of an exported file, or of this machine:
+    /// the recent ones, or every one.
+    Found {
+        file: Option<PathBuf>,
+        all: bool,
+        listing: hamlet_cli::import::Listing,
+    },
+    Import {
+        file: Option<PathBuf>,
+        all: bool,
+        chosen: hamlet_cli::import::Chosen,
     },
     Terminal(terminal::Command),
 }
@@ -179,6 +197,59 @@ fn parse(args: &[String]) -> Result<Command> {
                     hot,
                 },
                 _ => Command::Chat { to, attach },
+            })
+        }
+        "import" => {
+            use hamlet_cli::import::Chosen;
+            let mut all = false;
+            let mut suggested = false;
+            let mut sessions = false;
+            let mut file = None;
+            let mut names = Vec::new();
+            let mut args = rest.iter();
+            while let Some(arg) = args.next() {
+                match arg.as_str() {
+                    "--all" => all = true,
+                    "--suggested" => suggested = true,
+                    "--sessions" => sessions = true,
+                    "--file" => {
+                        let value = args.next().ok_or_else(|| {
+                            anyhow::anyhow!(
+                                "--file needs the path of an export"
+                            )
+                        })?;
+                        file = Some(PathBuf::from(value));
+                    }
+                    name if !name.starts_with("--") => {
+                        names.push(name.to_owned());
+                    }
+                    other => return Err(unknown(other)),
+                }
+            }
+            Ok(match (suggested, names.is_empty()) {
+                (false, true) => Command::Found {
+                    file,
+                    all,
+                    listing: match sessions {
+                        true => hamlet_cli::import::Listing::Sessions,
+                        false => {
+                            hamlet_cli::import::Listing::Projects
+                        }
+                    },
+                },
+                (true, true) => Command::Import {
+                    file,
+                    all,
+                    chosen: Chosen::Suggested,
+                },
+                (false, false) => Command::Import {
+                    file,
+                    all,
+                    chosen: Chosen::Named(names),
+                },
+                (true, false) => bail!(
+                    "import takes --suggested or projects, not both"
+                ),
             })
         }
         "edit" => {
@@ -330,6 +401,14 @@ fn main() {
             println!("{USAGE}");
             return Ok(0);
         }
+        if let Command::Found { file, all, listing } = &command {
+            hamlet_cli::import::list(
+                file.as_deref(),
+                *all,
+                *listing,
+            )?;
+            return Ok(0);
+        }
         if let Command::Server {
             port,
             faux,
@@ -368,12 +447,24 @@ fn main() {
                         .await?;
                     Ok(0)
                 }
+                Command::Import { file, all, chosen } => {
+                    hamlet_cli::import::bring_in(
+                        &process::address()?,
+                        file.as_deref(),
+                        all,
+                        &chosen,
+                    )
+                    .await?;
+                    Ok(0)
+                }
                 Command::Terminal(command) => {
                     terminal::run(command, &process::address()?)
                         .await?;
                     Ok(0)
                 }
-                Command::Help | Command::Server { .. } => {
+                Command::Help
+                | Command::Server { .. }
+                | Command::Found { .. } => {
                     unreachable!()
                 }
             }

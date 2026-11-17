@@ -12,6 +12,7 @@ import {
 import {
     type Conversation,
     type ConversationId,
+    type Cursor,
     configure,
     createRegistry,
     defineDoc,
@@ -35,6 +36,7 @@ import {
     unexpected,
 } from "./channel.ts";
 import { serverCredentials } from "./credentials.ts";
+import { entriesOf } from "./earlier.ts";
 import { hamletExtension, Waits } from "./extension.ts";
 import { fault } from "./faults.ts";
 import { FAUX, queueOf, readScript, scriptedProvider } from "./faux.ts";
@@ -65,6 +67,9 @@ import { signIn } from "./sign-in.ts";
 export const ADAPTER = "hamlet-pi 0.1.0";
 /** The pinned harness this adapter drives. */
 export const HARNESS = "pi-durable 1.2.0";
+
+/** The entries one page of a told conversation holds. */
+const PAGE = 200;
 
 const CAPABILITIES: Capability[] = [
     "operations",
@@ -217,6 +222,8 @@ class Runtime {
     readonly #channel: Channel;
     /** By the conversation's id as the protocol spells it. */
     readonly #known = new Map<string, Known>();
+    /** The `kept` of conversations whose earlier entries are being told, held until they are. */
+    readonly #replaying = new Map<string, Outgoing[]>();
     readonly #bySession = new Map<string, Known>();
     /** What each conversation does, as last told to the server. */
     readonly #doing = new Map<string, Doing>();
@@ -397,14 +404,17 @@ class Runtime {
                 if (change.type === "entry") {
                     const conversation = String(change.value.conversationId);
                     if (!this.#known.has(conversation)) continue;
-                    this.#channel.send({
+                    const kept: Outgoing = {
                         type: "kept",
                         conversation,
                         item: itemOf(
                             change.value,
                             requests.get(change.value.id),
                         ),
-                    });
+                    };
+                    const held = this.#replaying.get(conversation);
+                    if (held === undefined) this.#channel.send(kept);
+                    else held.push(kept);
                 } else if (change.type === "submission") {
                     const { value } = change;
                     const conversation = String(value.conversationId);
@@ -654,11 +664,19 @@ class Runtime {
                 return;
             case "create": {
                 const known = await this.#create(request, context);
-                this.#channel.send({
-                    type: "created",
-                    re,
-                    conversation: String(known.conversation),
-                });
+                const conversation = String(known.conversation);
+                const earlier = entriesOf(request.earlier ?? []).length;
+                // What it keeps meanwhile follows what it began with.
+                if (earlier > 0) this.#replaying.set(conversation, []);
+                this.#channel.send({ type: "created", re, conversation });
+                if (earlier === 0) return;
+                try {
+                    await this.#tellKept(known, earlier, context);
+                } finally {
+                    const held = this.#replaying.get(conversation) ?? [];
+                    this.#replaying.delete(conversation);
+                    for (const message of held) this.#channel.send(message);
+                }
                 return;
             }
             case "fork": {
@@ -898,6 +916,8 @@ class Runtime {
             });
             // Made now, so each model call can be told apart by its session from the first.
             await tx.doc(ProviderDoc, record.id);
+            for (const entry of entriesOf(request.earlier ?? []))
+                await tx.appendEntry(record.id, entry);
             const made: Bound = {
                 conversation: record.id,
                 agent: request.agent,
@@ -908,6 +928,40 @@ class Runtime {
             return made;
         }, context);
         return this.#remember(key, bound, context);
+    }
+
+    /**
+     * Tells the server the first `count` entries `known` keeps, those it was made with, oldest first; it keeps each
+     * once.
+     */
+    async #tellKept(
+        known: Known,
+        count: number,
+        context: Context,
+    ): Promise<void> {
+        const conversation = await this.#harness.conversation(
+            known.conversation,
+            context,
+        );
+        if (conversation === undefined) return;
+        let left = count;
+        let cursor: Cursor | undefined;
+        do {
+            const page = await conversation.entries(
+                { order: "ascending" },
+                Math.min(PAGE, left),
+                cursor,
+                context,
+            );
+            for (const entry of page.items.slice(0, left))
+                this.#channel.send({
+                    type: "kept",
+                    conversation: String(known.conversation),
+                    item: itemOf(entry),
+                });
+            left -= page.items.length;
+            cursor = page.next;
+        } while (cursor !== undefined && left > 0);
     }
 
     /** A copy of a bound conversation up to one of its entries, made once per key; it has a provider session of its own. */

@@ -23,7 +23,9 @@ workspace = true
 [dependencies]
 anyhow.workspace = true
 base64.workspace = true
+chrono.workspace = true
 futures.workspace = true
+hamlet_import.workspace = true
 hamlet_protocol.workspace = true
 hamlet_update.workspace = true
 rfd.workspace = true

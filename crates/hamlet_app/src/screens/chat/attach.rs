@@ -827,8 +827,15 @@ fn refused(
     }
 }
 
-/// Attaches the files and folders the dialog gave.
-fn chosen(chosen: On<Chosen>, mut commands: Commands) {
+/// Attaches the files and folders the dialog gave the chat.
+fn chosen(
+    chosen: On<Chosen>,
+    convo: Res<Convo>,
+    mut commands: Commands,
+) {
+    if chosen.asker != convo.session {
+        return;
+    }
     let paths = chosen.paths.clone();
     commands.queue(move |world: &mut World| {
         attach(

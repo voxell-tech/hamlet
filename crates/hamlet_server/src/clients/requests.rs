@@ -8,8 +8,8 @@ use std::panic::AssertUnwindSafe;
 use anyhow::Result;
 use futures::FutureExt;
 use hamlet_protocol::client::{
-    self as protocol, ChatRef, ChatRefKind, ClientMessage, RequestId,
-    ServerMessage, Transcript,
+    self as protocol, ChatRef, ChatRefKind, ClientMessage,
+    ImportProject, RequestId, ServerMessage, Transcript,
 };
 use hamlet_store::ids::{Actor, AgentId, ConversationId};
 
@@ -18,12 +18,13 @@ use super::connection::{self, Event};
 use super::fold::Fold;
 use super::{Owed, Watch, changes};
 use crate::core::{Core, Live};
+use crate::files::Files;
 use crate::society::agents::{self, AgentKind, Effort};
 use crate::society::refusal::Refusal;
 use crate::society::{authority, hires, workers};
 use crate::talk::activity::Activity;
 use crate::talk::conversations::{self, Kind};
-use crate::talk::{chats, items};
+use crate::talk::{chats, imports, items};
 
 /// The most transcript entries one page holds.
 const PAGE: usize = 100;
@@ -327,6 +328,57 @@ impl Core {
                 });
                 self.answer(client, reply(&resume.id, words))
             }
+            ClientMessage::ImportProject(project) => {
+                let files = Files::new(self.realm.layout().files());
+                // Every file is held read at once.
+                let together = project
+                    .files
+                    .iter()
+                    .filter_map(|file| files.size(file))
+                    .sum::<u64>();
+                if together > ImportProject::MOST_BYTES {
+                    return self.answer(
+                        client,
+                        reply(
+                            &project.id,
+                            Err(Refusal::Usage {
+                                words: format!(
+                                    "A project's conversations come \
+                                     to at most {} MiB together; \
+                                     bring in fewer at a time.",
+                                    ImportProject::MOST_BYTES >> 20
+                                ),
+                            }),
+                        ),
+                    );
+                }
+                let mut conversations = Vec::new();
+                for file in &project.files {
+                    match imports::read(&files, file)? {
+                        Ok(imported) => conversations.push(imported),
+                        Err(refusal) => {
+                            return self.answer(
+                                client,
+                                reply(&project.id, Err(refusal)),
+                            );
+                        }
+                    }
+                }
+                let wanted = imports::Project {
+                    name: &project.name,
+                    folder: project.folder.as_deref(),
+                    conversations: &conversations,
+                };
+                let done = self
+                    .attempt(Actor::Chief(chief), |cx, env| {
+                        imports::bring_in_project(
+                            cx, env, chief, &wanted,
+                        )
+                    })
+                    .await?;
+                let words = done.map(|brought| brought.words());
+                self.answer(client, reply(&project.id, words))
+            }
             ClientMessage::Retry(retry) => {
                 let Some(agent) =
                     self.reached(client, &retry.id, retry.to.0)?
@@ -614,11 +666,16 @@ impl Core {
     ) -> Result<&mut Live> {
         if !self.live.contains_key(&conversation) {
             let db = self.realm.store().connection();
-            let entries =
+            let mut entries =
                 items::page(db, conversation, None, i64::MAX)?
                     .into_iter()
                     .map(|(_, item)| item)
                     .collect::<Vec<_>>();
+            // A conversation brought in shows what it begins with
+            // before its runtime makes it.
+            if entries.is_empty() {
+                entries = imports::held(db, conversation)?;
+            }
             let agent = conversations::get(db, conversation)?.agent;
             self.live.insert(
                 conversation,
@@ -680,6 +737,31 @@ impl Core {
             usage,
             working: fold.working,
         }))
+    }
+
+    /// Sends every watcher of `conversation`, numbered sessions'
+    /// included, its items again, under the ids they have now.
+    pub(crate) fn retell(
+        &mut self,
+        conversation: ConversationId,
+    ) -> Result<()> {
+        let watches = self
+            .clients
+            .watches
+            .iter()
+            .filter(|w| w.conversation == conversation)
+            .cloned()
+            .collect::<Vec<_>>();
+        for watch in watches {
+            let transcript = self.transcript(
+                conversation,
+                &watch.chat,
+                None,
+                None,
+            )?;
+            self.answer(watch.client, transcript)?;
+        }
+        Ok(())
     }
 
     /// Sends the watchers of `agent`'s chats the session they now

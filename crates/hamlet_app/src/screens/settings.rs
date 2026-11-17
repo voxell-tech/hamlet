@@ -841,6 +841,17 @@ fn again() -> AnyView {
     )
 }
 
+/// The way to the card that brings in other programs' projects, as a
+/// row of the index.
+fn projects() -> AnyView {
+    hamlet_ui::styles::nav_row(
+        Glyph::Hamlet,
+        "Bring in projects",
+        None,
+        crate::welcome::projects::open,
+    )
+}
+
 /// The Settings panel's contents: the page's head at the top, and
 /// the rest of it scrolling under the head.
 pub fn screen() -> AnyView {
@@ -883,6 +894,7 @@ fn parts_of(pane: Pane) -> (AnyView, AnyView) {
     if pane == Pane::Front {
         let mut pages: Vec<AnyView> =
             Pane::PAGES.map(nav_item).into();
+        pages.push(projects());
         pages.push(again());
         let list = with_cx(move |cx| nav_list(cx, pages)).boxed();
         return (title(Pane::Front.title()).boxed(), list);

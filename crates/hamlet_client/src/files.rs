@@ -189,13 +189,23 @@ enum Pending {
     },
 }
 
+impl Pending {
+    fn key(&self) -> u64 {
+        match self {
+            Pending::Walk { key, .. } | Pending::Part { key, .. } => {
+                *key
+            }
+        }
+    }
+}
+
 fn reading(reading: Res<Reading>) -> bool {
     !reading.0.is_empty()
 }
 
 /// `work` run on the runtime's blocking threads, its result to be
 /// collected by the update it wakes the window for.
-fn off_frame<T: Send + 'static>(
+pub(crate) fn off_frame<T: Send + 'static>(
     world: &World,
     work: impl FnOnce() -> T + Send + 'static,
 ) -> Option<oneshot::Receiver<T>> {
@@ -222,17 +232,24 @@ fn refuse(world: &mut World, key: u64, text: impl Into<String>) {
     });
 }
 
-/// Lets go of what was gathered for `key`; the answers still to
-/// come for it find nothing waiting.
+/// Lets go of what was gathered for `key`; the answers and reads
+/// still to come for it find nothing waiting.
 fn drop_pack(world: &mut World, key: u64) {
     world.resource_mut::<Packs>().0.remove(&key);
     world
         .resource_mut::<Steps>()
         .0
         .retain(|_, step| step.key() != key);
+    world
+        .resource_mut::<Reading>()
+        .0
+        .retain(|pending| pending.key() != key);
 }
 
+/// Walks `paths` for `key`, in place of anything gathered for it
+/// before, whose walk can no longer land in this one.
 fn walk_off_frame(world: &mut World, key: u64, paths: Vec<PathBuf>) {
+    drop_pack(world, key);
     let Some(done) = off_frame(world, move || walk(&paths)) else {
         refuse(world, key, "The window has no runtime to read with.");
         return;

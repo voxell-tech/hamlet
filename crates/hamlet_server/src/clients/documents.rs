@@ -664,19 +664,32 @@ impl Core {
         for (number, conversation, began) in
             chats::sessions(db, agent, chief)?
         {
-            let page = items::page(db, conversation, None, 10_000)?;
+            let mut page =
+                items::page(db, conversation, None, 10_000)?;
+            if page.is_empty() {
+                page = crate::talk::imports::held(db, conversation)?
+                    .into_iter()
+                    .enumerate()
+                    .map(|(n, item)| (n as i64, item))
+                    .collect();
+            }
             let mut first = None;
             let mut messages = 0_i64;
             let mut modified = began;
             for (_, item) in &page {
+                use crate::talk::marks::Mark;
                 modified =
                     modified.max(i64::try_from(item.at).unwrap_or(0));
-                if let Ok(Some(crate::talk::marks::Mark::Chief {
-                    text,
-                    ..
-                })) = crate::talk::marks::Mark::of_item(
-                    item.mark.as_ref(),
-                ) {
+                let said = match Mark::of_item(item.mark.as_ref()) {
+                    Ok(Some(Mark::Chief { text, .. })) => Some(text),
+                    // A message of the chief's brought in from
+                    // another program.
+                    Ok(Some(Mark::Earlier { .. })) => {
+                        Some(item.text.clone())
+                    }
+                    _ => None,
+                };
+                if let Some(text) = said {
                     messages += 1;
                     if first.is_none() && !text.trim().is_empty() {
                         first = Some(text);

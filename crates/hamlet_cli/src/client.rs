@@ -280,7 +280,7 @@ pub async fn upload_files(
 }
 
 /// Sends `bytes` as a file, and gives the id it is kept under.
-async fn put_file(
+pub async fn put_file(
     client: &mut Client,
     bytes: &[u8],
 ) -> Result<FileId> {

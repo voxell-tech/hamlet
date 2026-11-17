@@ -28,7 +28,7 @@ use hamlet_realm::orders::Decree;
 use hamlet_realm::pick::{Thing, select};
 use hamlet_ui::styles::{
     Fills, ICON, LINE, action, bare, buttons, crumb, crumb_slash,
-    crumbs, group, more_button, note, note_rules, raised, reference,
+    crumbs, group, more_button, note, note_rules, raised,
     scroll_area, status_icon, transparent,
 };
 use hamlet_ui::theme::HamletTheme;
@@ -537,9 +537,8 @@ pub fn hamlet(hamlet: Entity) -> impl View {
                 },
             ));
         }
-        // The path names it, renames it at a double click on its
-        // name, and says what commands call it when its name says
-        // otherwise.
+        // The path names it and renames it at a double click on its
+        // name; Copy Hamlet in its menu gives what commands call it.
         let path = crumbs(vec![
             crumb("Realm", |world| {
                 select(world, None);
@@ -548,15 +547,8 @@ pub fn hamlet(hamlet: Entity) -> impl View {
             .boxed(),
             crumb_slash().boxed(),
             crate::naming::name_crumb(hamlet, facts.title.clone()),
-        ]);
-        let id = facts.id.clone();
-        let path = path
-            .tooltip(move || {
-                row((note("Commands call it"), reference(id.clone())))
-                    .gap(4.0)
-                    .align(AlignItems::Center)
-            })
-            .boxed();
+        ])
+        .boxed();
         // The meter is pressed to change the budget it shows.
         let spending =
             button(budget(facts.account.clone(), facts.spent))

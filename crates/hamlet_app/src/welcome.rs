@@ -1,6 +1,7 @@
 //! First-run setup through the server's settings, models and logins.
 
 mod pages;
+pub mod projects;
 mod providers;
 
 use std::collections::BTreeMap;
@@ -42,7 +43,7 @@ pub(crate) fn plugin(app: &mut App) {
             commands.queue(providers::reconnected);
         })
         .add_systems(PreUpdate, follow.in_set(PanelSystems::Follow))
-        .add_plugins(key_plugin)
+        .add_plugins((key_plugin, projects::plugin))
         // After Bevy's text input, in `PreUpdate`, has edited the
         // field.
         // After Bevy tells the field commit() unfocused that it lost

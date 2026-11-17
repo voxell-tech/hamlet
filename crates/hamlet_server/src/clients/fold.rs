@@ -314,6 +314,31 @@ pub(crate) fn items_of(
         Some(Mark::Notice { text, .. }) => {
             return Ok(vec![(0, item(ItemKind::Notice, text, at))]);
         }
+        Some(Mark::Earlier { chief, .. }) => {
+            return Ok(vec![(
+                0,
+                Item {
+                    chief: Some(chief),
+                    ..item(ItemKind::User, entry.text.clone(), at)
+                },
+            )]);
+        }
+        Some(Mark::Step { tool, summary, .. }) => {
+            return Ok(vec![(
+                0,
+                Item {
+                    tool: Some(ItemTool {
+                        change: None,
+                        exit: Some(0),
+                        failure: None,
+                        ms: None,
+                        name: tool,
+                        summary,
+                    }),
+                    ..item(ItemKind::Tool, String::new(), at)
+                },
+            )]);
+        }
         Some(Mark::Reflection { .. }) => {
             return Ok(vec![(
                 0,
