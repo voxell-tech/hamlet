@@ -358,23 +358,30 @@ test("a question cut off short replies with its second try's answer", async (t) 
     });
     const agent = await wakeAgent(t, { calls, responses: run.steps });
 
-    for (const n of [1, 2, 3]) await say(agent, n, long(n));
-    await agent.actions.submit(agent.by(from.realm), {
-        id: "input-4",
-        task: "task-4",
-        input: {
-            type: "question",
-            letter: 5,
-            from: { agent: 12, name: "Ada" },
-            text: "How many fail?",
-        },
-    });
-    await agent.idle();
+    // A peer's questions share a chat of their own, so its history is theirs.
+    for (const n of [1, 2, 3, 4]) {
+        await agent.actions.submit(agent.by(from.realm), {
+            id: `input-${n}`,
+            task: `task-${n}`,
+            input: {
+                type: "question",
+                letter: n,
+                from: { agent: 12, name: "Ada" },
+                text: n === 4 ? "How many fail?" : long(n),
+            },
+        });
+        await agent.idle();
+    }
 
     assert.equal(run.summaries, 1);
     assert.deepEqual(
         named(sent, "reply").map((call) => call.message),
-        [{ question: 5, text: "Four." }],
+        [
+            { question: 1, text: "One." },
+            { question: 2, text: "Two." },
+            { question: 3, text: "Three." },
+            { question: 4, text: "Four." },
+        ],
     );
 });
 
