@@ -347,7 +347,7 @@ async function lineAt(
 ): Promise<RewindRefusal | { text: string; before: EntryId | undefined }> {
     if (
         (await isBusy(harness, conversation, context)) ||
-        (await hasCallOut(harness, conversation, context))
+        (await hasUnendedCall(harness, conversation, context))
     ) {
         return "working";
     }
@@ -359,11 +359,7 @@ async function lineAt(
     return { text: textOf(line), before: before?.id };
 }
 
-/**
- * Whether a command or a wait for a chief that `conversation` made has no
- * admitted `finished`.
- */
-async function hasCallOut(
+async function hasUnendedCall(
     harness: Harness,
     conversation: ConversationId,
     context: Context,
@@ -375,8 +371,6 @@ async function hasCallOut(
         for (const entry of page?.items ?? []) {
             const result = entry.model?.[0];
             if (
-                // A call a fork inherited ends in the conversation that made it.
-                entry.conversationId !== conversation ||
                 entry.byTaskId === undefined ||
                 result?.role !== "toolResult" ||
                 !endsLater(result.details)
@@ -385,7 +379,7 @@ async function hasCallOut(
             }
             const call = callOf({ taskId: entry.byTaskId });
             const ended = await harness.commit(
-                (tx) => tx.submissionByRequest(conversation, call),
+                (tx) => tx.submissionByRequest(entry.conversationId, call),
                 context,
             );
             if (ended === undefined) return true;

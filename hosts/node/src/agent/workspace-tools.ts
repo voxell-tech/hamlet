@@ -225,7 +225,6 @@ function shown(answer: Text): ToolExecutionResult {
     };
 }
 
-/** A result whose end arrives later, as a `finished` input. */
 function later(text: string): ToolExecutionResult {
     return { ...words(text), details: { endsLater: true } };
 }

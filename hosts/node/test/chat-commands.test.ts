@@ -290,7 +290,6 @@ test("A4: stop ends a running turn", async (t) => {
     });
 });
 
-// As today's `talk/follow.rs:70-84` and `talk/letters.rs:249` answer it.
 test("a question turn stopped by /stop replies once that its turn was stopped", async (t) => {
     const { calls, sent } = fakes({
         realm: { reply: () => ({ type: "done" }) },
