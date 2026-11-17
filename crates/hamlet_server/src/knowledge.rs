@@ -2,6 +2,7 @@
 //! Hand work in, and the jobs that keep them.
 
 pub(crate) mod dreams;
+mod edits;
 pub(crate) mod folder;
 pub(crate) mod library;
 mod merges;

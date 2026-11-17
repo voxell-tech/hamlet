@@ -3,7 +3,7 @@
 
 use anyhow::Result;
 use diesel::prelude::*;
-use hamlet_git::{Author, Change as GitChange, MAIN, Repository};
+use hamlet_git::{Change as GitChange, MAIN, Repository};
 use hamlet_protocol::client::{
     self as protocol, Edit, EditLimits, EditSettingsSet, Keeper,
     Read, ReadResult, RequestId, ServerMessage,
@@ -13,18 +13,17 @@ use hamlet_store::schema::document;
 
 use super::check::reply;
 use crate::conversations::{chats, prompt};
-use crate::core::{Core, UnpushedLodge};
+use crate::core::Core;
 use crate::knowledge::folder::Folder;
 use crate::knowledge::library::field;
 use crate::knowledge::{self, CHARACTER, memory_path, outside_git};
 use crate::realm::change::{Done, done, refuse};
-use crate::realm::jobs::{self, Job};
 use crate::society::agents::Effort;
+use crate::society::authority;
 use crate::society::city::{self, CHARACTER_MOST};
 use crate::society::limits::{self, Limit, Limits, RealmLimits};
 use crate::society::refusal::Refusal;
 use crate::society::spend::micros;
-use crate::society::{authority, hires};
 
 impl Core<'_, '_> {
     pub(crate) fn edit(
@@ -194,39 +193,6 @@ impl Core<'_, '_> {
         Ok(Ok("The memory is saved.".into()))
     }
 
-    /// Writes `text` to the memory file `path` of the lodge of
-    /// `agent`, as `by` asks, empty removing it, and has the lodge
-    /// committed.
-    pub(crate) fn write_lodge_memory(
-        &mut self,
-        by: Actor,
-        agent: AgentId,
-        path: &str,
-        text: &str,
-    ) -> Result<()> {
-        let layout = self.realm.layout().clone();
-        let lodging = knowledge::lodging(
-            self.realm.store().connection(),
-            &layout,
-            agent,
-        )?;
-        {
-            let writing = self.writing.clone();
-            let _held = writing.hold();
-            let folder = Folder::make(&lodging.path)?;
-            if text.is_empty() {
-                folder.remove(path)?;
-            } else {
-                folder.write(path, text.as_bytes(), false)?;
-            }
-        }
-        self.remote.unpushed.write(UnpushedLodge(agent));
-        self.change(by, |cx, _| {
-            jobs::add(cx, &Job::Commit { hire: agent })?;
-            Ok(())
-        })
-    }
-
     /// Keeps the settings `set` changes, and the workspace it
     /// chooses.
     pub(crate) fn edit_settings(
@@ -368,54 +334,6 @@ impl Core<'_, '_> {
             }
         };
         Ok(done.map(|()| limits::saved(hamlet)))
-    }
-
-    /// Commits `changes` to the `main` of `scholar` as `by`'s, and
-    /// has its idle hires take them in.
-    pub(crate) fn commit_main(
-        &mut self,
-        by: Actor,
-        scholar: ScholarId,
-        changes: &[GitChange],
-        message: &str,
-    ) -> Result<()> {
-        let path = self.realm.layout().repository(scholar);
-        let author = by.to_string();
-        let writing = self.writing.clone();
-        let held = writing.hold();
-        let repo = Repository::open(&path)?;
-        repo.commit(
-            MAIN,
-            changes,
-            message,
-            Author {
-                name: &author,
-                at: crate::app::clock::now(),
-            },
-        )?;
-        drop(held);
-        self.main_moved(by, scholar)
-    }
-
-    /// Has the idle hires of `scholar` take in its `main`, which `by`
-    /// moved.
-    pub(crate) fn main_moved(
-        &mut self,
-        by: Actor,
-        scholar: ScholarId,
-    ) -> Result<()> {
-        self.change(by, |cx, _| {
-            for hire in hires::living_of(cx.db, scholar)? {
-                if !crate::conversations::inputs::is_agent_busy(
-                    cx.db, hire.agent,
-                )? {
-                    jobs::add(cx, &Job::TakeIn { hire: hire.agent })?;
-                }
-            }
-            cx.touched.scholars.insert(scholar);
-            Ok(())
-        })?;
-        Ok(())
     }
 
     /// Refuses unless this server's chief keeps `scholar`.

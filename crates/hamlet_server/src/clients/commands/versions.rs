@@ -6,8 +6,7 @@ use hamlet_git::{Author, CommitId, MAIN, Repository};
 use hamlet_store::ids::{Actor, AgentId, HamletId, ScholarId};
 
 use super::Command;
-use crate::core::{Core, UnpushedLodge};
-use crate::knowledge::folder::Folder;
+use crate::core::Core;
 use crate::knowledge::versions::{pinned, short, versions};
 use crate::realm::change::Done;
 use crate::realm::jobs::Fork;
@@ -163,53 +162,6 @@ impl Core<'_, '_> {
             }));
         }
         Ok(Ok(Some(version.into())))
-    }
-
-    /// Takes `path` out of every commit, every branch and every lodge
-    /// of the hires of the scholar `id`, as `by` asks.
-    pub(crate) fn purge_path(
-        &mut self,
-        by: Actor,
-        id: ScholarId,
-        path: &str,
-    ) -> Done<String> {
-        let path = path.trim_matches('/');
-        if path.is_empty()
-            || path.split('/').any(|part| part == ".." || part == ".")
-        {
-            return Ok(Err(Refusal::NoFile { path: path.into() }));
-        }
-        let layout = self.realm.layout().clone();
-        let writing = self.writing.clone();
-        let held = writing.hold();
-        let db = self.realm.store().connection();
-        for hire in hires::living_of(db, id)? {
-            let lodge = layout.lodge(&hire.hamlet, hire.agent);
-            let Ok(folder) = Folder::open(&lodge) else {
-                continue;
-            };
-            // The path is a file, or a folder of them.
-            for entry in folder.list_under(path)? {
-                folder.remove(&entry.path)?;
-            }
-            folder.remove(path)?;
-        }
-        let rewritten =
-            hamlet_git::purge(&layout.repository(id), path)?;
-        drop(held);
-        let db = self.realm.store().connection();
-        for hire in hires::living_of(db, id)? {
-            self.remote.unpushed.write(UnpushedLodge(hire.agent));
-        }
-        self.main_moved(by, id)?;
-        let label = addresses::scholar_name_of(
-            self.realm.store().connection(),
-            id,
-        )?;
-        Ok(Ok(format!(
-            "Purged {path} from {label}: {} branches rewritten.",
-            rewritten.len()
-        )))
     }
 
     pub(super) fn pin(
