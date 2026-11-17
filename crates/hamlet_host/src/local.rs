@@ -524,8 +524,13 @@ impl Stop {
         if destroyed {
             let path = actor_path(&host.dir, &owned.at);
             let removed = destroy_file_off_runtime(path).await;
-            // A destroy that joined this stop answers it too.
             if let Err(error) = &removed {
+                host.keep(
+                    &owned.at,
+                    "host failed to remove the files of an actor it \
+                     destroyed",
+                    Some(error),
+                );
                 owned.fail(error);
             }
             return removed;
@@ -565,6 +570,7 @@ struct HostInner {
     options: HostOptions,
     /// When the starts under way end, set once the host shuts down.
     starts_end: watch::Sender<Option<tokio::time::Instant>>,
+    kept: Mutex<Vec<Address>>,
 }
 
 /// A lock the host holds on one file: `<name>.lock` in the folder, or
@@ -713,6 +719,21 @@ impl Actors {
 }
 
 impl HostInner {
+    fn keep(
+        &self,
+        at: &Address,
+        why: &str,
+        error: Option<&anyhow::Error>,
+    ) {
+        match error {
+            Some(error) => {
+                tracing::warn!(?error, actor_id = %at, "{why}");
+            }
+            None => tracing::warn!(actor_id = %at, "{why}"),
+        }
+        self.kept.lock().push(at.clone());
+    }
+
     /// Shuts the host, as [`Actors::shut_down`] does, and ends the
     /// starts under way after [`START_GRACE_AT_SHUTDOWN`].
     fn shut_down(&self) {
@@ -998,6 +1019,7 @@ impl Host {
             events: broadcast::channel(64).0,
             options,
             starts_end: watch::Sender::new(None),
+            kept: Mutex::new(Vec::new()),
         })))))
     }
 
@@ -1169,6 +1191,13 @@ impl Host {
             .is_some_and(|life| life.loaded().is_some())
     }
 
+    /// The actors whose files a failed start or destroy left behind,
+    /// unclosed past the grace or not removed, once for each time
+    /// since the host opened. Each was logged as a warning.
+    pub fn kept(&self) -> Vec<Address> {
+        self.inner().kept.lock().clone()
+    }
+
     /// Follows what happens to the host's actors from now on. A
     /// receiver that falls behind loses the oldest events; the actor
     /// files keep the record.
@@ -1227,7 +1256,7 @@ impl Host {
     /// longer hold the folder. A destroy answers `Ok` only once the
     /// actor's files are gone: a removal that fails fails the destroy
     /// and every caller that waited for it, whichever stop removed
-    /// them.
+    /// them, and leaves the actor in [`Host::kept`].
     ///
     /// A stop ends within [`HostOptions::stop_deadline`], whatever
     /// the actor does. An actor that does not stop by then is given
@@ -1955,22 +1984,7 @@ impl OpenClaim {
     }
 }
 
-/// A start's open of the actor's file while it runs on a blocking
-/// thread: its task, and the claim that decides whether it writes.
-type Opening =
-    (JoinHandle<Result<(PlainSqlite, Bumped)>>, Arc<OpenClaim>);
-
-/// Gives up the open of a start that failed while the open ran. An
-/// open that already claimed its write is awaited, each of its
-/// statements within rusqlite's default busy timeout, and its file
-/// returned if it opened one.
-async fn give_up_open((task, claim): Opening) -> Option<PlainSqlite> {
-    if claim.give_up() {
-        return None;
-    }
-    let (file, _) = task.await.ok()?.ok()?;
-    Some(file)
-}
+type Opening = JoinHandle<Result<(PlainSqlite, Bumped)>>;
 
 /// What a start reads from the actor's `_hamlet_actor` row.
 struct Bumped {
@@ -2064,6 +2078,7 @@ async fn start_actor(
     let host = owned.host.clone();
     let at = owned.at.clone();
     let creates = matches!(open, Open::New(_));
+    let claim = Arc::new(OpenClaim::default());
     let mut opening = None;
     let opened = Mutex::new(None);
     let started = host
@@ -2074,6 +2089,7 @@ async fn start_actor(
                 &at,
                 id,
                 open,
+                &claim,
                 &mut opening,
                 &opened,
             ),
@@ -2086,22 +2102,29 @@ async fn start_actor(
         // stored. The core ends a start whose future was dropped at
         // the deadline, and the close fences what it does meanwhile.
         Err(error) => {
+            let wrote = !claim.give_up();
             let file = match opening.take() {
-                Some(opening) => give_up_open(opening).await,
+                // Awaited: each of its statements ends within
+                // rusqlite's default busy timeout.
+                Some(task) if wrote => task
+                    .await
+                    .ok()
+                    .and_then(Result::ok)
+                    .map(|(file, _)| file),
+                Some(_) => None,
                 None => opened.lock().take(),
             };
-            // The file is open only once the start's transaction
-            // wrote the row: a create's start made the actor then.
-            let made = creates && file.is_some();
+            let made = creates && wrote;
             let closed = match file {
                 Some(file) => close_within_grace(&file).await,
                 None => true,
             };
             if !closed {
-                tracing::warn!(
-                    actor_id = %at,
+                host.keep(
+                    &at,
                     "host could not close the file of a start that \
-                     failed within the grace"
+                     failed within the grace",
+                    None,
                 );
             }
             // Not told to the waiters: each reads the map again.
@@ -2191,36 +2214,33 @@ async fn unmake(host: &HostInner, at: &Address) -> bool {
     let removed =
         destroy_file_off_runtime(actor_path(&host.dir, at)).await;
     if let Err(error) = &removed {
-        tracing::warn!(
-            ?error,
-            actor_id = %at,
+        host.keep(
+            at,
             "host failed to remove an actor its create could not \
-             start"
+             start",
+            Some(error),
         );
     }
     removed.is_ok()
 }
 
-/// Opens the actor's file and starts its core, as the generation of
-/// id `id`. Holds the open in `opening` while it runs, and puts the
-/// file in `opened` once it is open.
 async fn start_generation(
     host: &Arc<HostInner>,
     at: &Address,
     id: u64,
     open: Open,
+    claim: &Arc<OpenClaim>,
     opening: &mut Option<Opening>,
     opened: &Mutex<Option<PlainSqlite>>,
 ) -> Result<Arc<Generation>> {
     let factory = host.directory.factory(at, "start")?.clone();
-    let claim = Arc::new(OpenClaim::default());
     let task = tokio::task::spawn_blocking({
         let dir = host.dir.clone();
         let at = at.clone();
         let claim = claim.clone();
         move || open_actor_file(&dir, &at, &open, &claim)
     });
-    let (task, _) = opening.insert((task, claim));
+    let task = opening.insert(task);
     let result = task.await;
     *opening = None;
     let (file, bumped) = result??;

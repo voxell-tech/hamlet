@@ -198,8 +198,9 @@ host, and `hamlet_host` re-exports them.
 makes the actor with an input, kept in the file's `_hamlet_actor` row
 and given to each start, and fails with `actor.duplicate_key` for a key
 that holds an actor. A create whose own start fails removes the actor it
-made, so the key is free again. A create of a key whose destroy is unfinished
-never opens the old data. An actor makes another as itself with
+made, so the key is free again. A failed start or destroy that leaves an
+actor's files behind warns, naming the actor, and `Host::kept` lists it.
+A create of a key whose destroy is unfinished never opens the old data. An actor makes another as itself with
 `create` and `get_or_start` on its `HostRef`. Nothing else makes an
 actor.
 
