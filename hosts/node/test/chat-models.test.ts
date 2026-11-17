@@ -565,12 +565,13 @@ async function dumped(agent: Woken): Promise<string> {
 
 /**
  * The provider `split`, signed in with a key, whose one model streams
- * `chunks` as text deltas, then breaks, or waits for its request to be
- * aborted.
+ * `chunks` as deltas of a text or of a call's arguments, then breaks, or
+ * waits for its request to be aborted.
  */
 function splitting(
     chunks: readonly string[],
     end: "breaks" | "waits",
+    into: "text" | "call" = "text",
 ): (listed: Models) => Models {
     const model = {
         ...createFauxCore({}).models[0],
@@ -589,19 +590,28 @@ function splitting(
             api: made.api,
             provider: made.provider,
             model: made.id,
-            content: [{ type: "text", text: "" }],
+            content: [
+                into === "text"
+                    ? { type: "text", text: "" }
+                    : {
+                          type: "toolCall",
+                          id: "call-with-key",
+                          name: "read",
+                          arguments: {},
+                      },
+            ],
         };
-        const text = message.content[0] as { text: string };
+        const block = message.content[0];
         out.push({ type: "start", partial: structuredClone(message) });
         out.push({
-            type: "text_start",
+            type: into === "text" ? "text_start" : "toolcall_start",
             contentIndex: 0,
             partial: structuredClone(message),
         });
         for (const chunk of chunks) {
-            text.text += chunk;
+            if (block?.type === "text") block.text += chunk;
             out.push({
-                type: "text_delta",
+                type: into === "text" ? "text_delta" : "toolcall_delta",
                 contentIndex: 0,
                 delta: chunk,
                 partial: structuredClone(message),
@@ -638,11 +648,15 @@ function splitting(
     };
 }
 
+/** Stores each partial as it is committed, so a test waits only for the commit. */
+const STORED_AT_ONCE = { progress: { persistWithinMs: 0 } };
+
 for (const at of [6, 12, KEY.length - 1]) {
     test(`a kill mid-stream after ${at} characters of a key keeps none of them`, async (t) => {
         const { calls } = signedIn();
         const agent = await wakeAgent(t, {
             calls,
+            settings: STORED_AT_ONCE,
             models: splitting([`My key is ${KEY.slice(0, at)}`], "waits"),
         });
         await agent.actions.copies(
@@ -667,6 +681,39 @@ for (const at of [6, 12, KEY.length - 1]) {
         await next.stop();
     });
 }
+
+test("a kill while a call's arguments stream a key keeps none of it", async (t) => {
+    const { calls } = signedIn();
+    const agent = await wakeAgent(t, {
+        calls,
+        settings: STORED_AT_ONCE,
+        models: splitting(
+            [`{"path":"${KEY.slice(0, 12)}`, `${KEY.slice(12)}.md"}`],
+            "waits",
+            "call",
+        ),
+    });
+    await agent.actions.copies(
+        agent.by(from.realm),
+        choosing(1, { model: "split::split" }),
+    );
+    await agent.actions.submit(agent.by(from.realm), {
+        id: "line-key",
+        input: { type: "line", text: "Read it." },
+    });
+    // The partial holding both deltas is kept before the kill.
+    await until(async () => (await dumped(agent)).includes("call-with-key"));
+    await agent.stop();
+    const next = await agent.again();
+    await until(async () =>
+        (await next.entries()).some((entry) => entry.kind === "pi.assistant"),
+    );
+
+    const kept = await dumped(next);
+    assertNoPartOfKey(kept);
+    assert.ok(kept.includes("[REDACTED].md"), "the call's arguments are kept");
+    await next.stop();
+});
 
 function assertNoPartOfKey(text: string): void {
     for (let length = 5; length <= KEY.length; length += 1) {
@@ -740,16 +787,19 @@ test("a request with no key from the realm fails and uses no other key", async (
     const variable = "HAMLET_TEST_LOOPBACK_KEY";
     process.env[variable] = "sk-made-up-host-0dd";
     t.after(() => delete process.env[variable]);
-    const answers: Awaited<ReturnType<BareRealm["credential"]>>[] = [
-        NOT_SIGNED_IN,
-        {
+    const answers: (() => Awaited<ReturnType<BareRealm["credential"]>>)[] = [
+        () => NOT_SIGNED_IN,
+        () => ({
             type: "oauth",
             login: { access: "made-up-access", refresh: "made-up", expires: 1 },
+        }),
+        () => {
+            throw new Error("the realm is gone");
         },
     ];
-    for (const answer of answers) {
+    for (const [tried, answer] of answers.entries()) {
         const { calls, sent } = fakeCalls({
-            realm: { credential: () => answer },
+            realm: { credential: answer },
         });
         const keysSeen: (string | undefined)[] = [];
         const agent = await wakeAgent(t, {
@@ -763,10 +813,10 @@ test("a request with no key from the realm fails and uses no other key", async (
 
         await say(agent, "Who pays?");
 
-        assert.deepEqual(keysSeen, [], `the provider ran on ${answer.type}`);
+        assert.deepEqual(keysSeen, [], `the provider ran on answer ${tried}`);
         const failed = (await lastAnswer(agent)).errorMessage;
         assert.ok(failed !== undefined, "the request failed");
-        if (answer.type === "refused") assert.equal(failed, answer.words);
+        if (tried === 0) assert.equal(failed, NOT_SIGNED_IN.words);
         assert.ok(!(await dumped(agent)).includes("sk-made-up-host-0dd"));
         assert.equal(named(sent, "credential").length, 1);
         await agent.stop();

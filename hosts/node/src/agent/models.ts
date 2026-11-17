@@ -47,9 +47,8 @@ const FAST_APIS: readonly Api[] = [
  */
 export interface Keys {
     /**
-     * The realm's key for `provider`, `undefined` for the faux models. With
-     * no key it throws words for the chief, so no other key, such as one
-     * in the host's environment, is ever used.
+     * The realm's key for `provider`, `undefined` for the faux models.
+     * Without one it throws, so no key from the host's environment is used.
      */
     of(provider: string): Promise<string | undefined>;
     /** `value` with every key held replaced, as today's scrub does. */
@@ -198,11 +197,9 @@ export function agentModels(
 
 /**
  * The source's events with the keys scrubbed. A source that throws throws
- * here too, as the spend gate expects of a broken stream.
- *
- * pi-durable keeps each partial as it streams, and after a kill it keeps the
- * last one as an aborted answer, so a text still growing is shown without a
- * tail that begins a key: the rest of the key may be in the next delta.
+ * here too, as the spend gate expects of a broken stream. A text still
+ * streaming is shown without a tail that begins a key, since pi-durable
+ * keeps each partial and a kill keeps the last.
  */
 class Scrubbed extends AssistantMessageEventStream {
     readonly #source: Promise<AssistantMessageEventStream>;
@@ -219,9 +216,10 @@ class Scrubbed extends AssistantMessageEventStream {
 
     override async *[Symbol.asyncIterator](): AsyncGenerator<AssistantMessageEvent> {
         const shown = new Map<number, string>();
+        const received = new Map<number, string>();
         try {
             for await (const event of await this.#source)
-                yield this.#withheld(this.#keys.scrub(event), shown);
+                yield this.#withheld(event, shown, received);
         } catch (error) {
             throw scrubbedError(this.#keys, error);
         }
@@ -240,14 +238,16 @@ class Scrubbed extends AssistantMessageEventStream {
     }
 
     /**
-     * `event` with each text that may still grow withheld, and its delta
-     * what the shown text grew by, as pi-durable appends the deltas to what
-     * it kept. `shown` holds each block's text as last shown.
+     * `source` scrubbed, with each text still streaming withheld and its
+     * delta the growth of the text shown. `shown` holds each block's text
+     * as last shown, `received` each call's argument text so far.
      */
     #withheld(
-        event: AssistantMessageEvent,
+        source: AssistantMessageEvent,
         shown: Map<number, string>,
+        received: Map<number, string>,
     ): AssistantMessageEvent {
+        const event = this.#keys.scrub(source);
         if (event.type === "error") withheldIn(this.#keys, event.error);
         if (!("partial" in event)) return event;
         withheldIn(
@@ -257,25 +257,33 @@ class Scrubbed extends AssistantMessageEventStream {
                 ? event.contentIndex
                 : undefined,
         );
+        let text: string | undefined;
         if (event.type === "text_delta" || event.type === "thinking_delta") {
             const block = event.partial.content[event.contentIndex];
-            const text =
+            text =
                 block?.type === "text"
                     ? block.text
                     : block?.type === "thinking"
                       ? block.thinking
                       : undefined;
-            if (text !== undefined) {
-                const before = shown.get(event.contentIndex) ?? "";
-                event.delta = text.slice(before.length);
-                shown.set(event.contentIndex, text);
-            }
+        } else if (source.type === "toolcall_delta") {
+            // pi-durable keeps a call's arguments from its deltas alone.
+            const sofar =
+                (received.get(source.contentIndex) ?? "") + source.delta;
+            received.set(source.contentIndex, sofar);
+            text = this.#keys.withheld(this.#keys.scrub(sofar));
+        }
+        // pi-durable appends each delta to the text it kept.
+        if (text !== undefined && "delta" in event) {
+            const before = shown.get(event.contentIndex) ?? "";
+            event.delta = text.slice(before.length);
+            shown.set(event.contentIndex, text);
         }
         return event;
     }
 }
 
-/** An answer that ended before its text did, so its text may end in part of a key. */
+/** An answer whose text may end in part of a key. */
 function isCutOff(message: AssistantMessage): boolean {
     return message.stopReason === "error" || message.stopReason === "aborted";
 }
@@ -329,9 +337,9 @@ function costOf(
 }
 
 /**
- * The listing's cost, when it gives all four rates. A listing may leave
- * some out, whatever pi-ai's type says, and then today's server reads no
- * cost (`providers.rs`, `select`).
+ * The listing's cost when it gives all four rates, as today's server reads
+ * it (`providers.rs`, `select`). A listing may leave some out, whatever
+ * pi-ai's type says.
  */
 function listedCost(model: Model<Api>): Model<Api>["cost"] | undefined {
     const cost: Partial<Model<Api>["cost"]> | undefined = model.cost;
@@ -520,10 +528,9 @@ export async function configured(
 }
 
 /**
- * Puts the conversation `id` on the model and effort the copy names, in a
- * commit that writes nothing when it is on them. The copy is read again
- * after each write, and written again while it changed, so the copy read
- * last always wins over an older one written later.
+ * Puts the conversation `id` on the model and effort the copy names. The
+ * copy is read again after each write, so an older copy written late is
+ * replaced by the newer one.
  */
 export async function onCopiedModel(
     harness: Harness,

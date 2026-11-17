@@ -220,8 +220,8 @@ async function keptChat(
 
 /**
  * A new conversation, empty unless `make` forks one, on the model the
- * agent's copy names. The copy is read once the conversation exists, so a
- * copy kept after that read finds it when `configured` runs.
+ * agent's copy names. The copy is read once it exists, so `configured`
+ * finds it for any copy kept later.
  */
 export async function created(
     c: AgentCall,
