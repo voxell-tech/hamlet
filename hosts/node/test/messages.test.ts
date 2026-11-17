@@ -623,8 +623,7 @@ const WRITTEN: readonly Written[] = [
         drive: stopped,
         answers: STOPPING,
         // As today, a stop lapses every wait the agent raised
-        // (`crates/hamlet_server/src/talk/chats.rs:443-447`); the fixture's
-        // `ended` is the realm's own, for an agent it ends.
+        // (`crates/hamlet_server/src/talk/chats.rs:443-447`).
         constant: { why: "stopped" },
     },
     {
@@ -1179,6 +1178,40 @@ test("realm/read_copies.answer is read by the wake, and its charter reaches the 
     await agent.stop();
 });
 
+test("a client's call is refused in its fixture's words", {
+    todo: "the agent words a refusal as today's server does, and `hamlet_messages` words it otherwise",
+}, async (t) => {
+    const agent = await chief(t, fakeCalls(COMMANDED).calls, ["One."]);
+    await say(agent, "Go.");
+    const by = agent.by(from.client);
+    const answers = {
+        "agent/retry.refused.answered": await retry(agent),
+        "agent/resume.refused.no_such_session": await agent.actions.resume(by, {
+            id: uuid(3),
+            number: 9,
+            to: 7,
+        }),
+        "agent/rewind.refused.not_current": await agent.actions.rewind(by, {
+            id: uuid(4),
+            chat: { with: 7, past: 1 },
+            item: "i9",
+        }),
+        "agent/rewind.refused.no_such_item": await agent.actions.rewind(by, {
+            id: uuid(5),
+            chat: CHIEF,
+            item: "i9",
+        }),
+    };
+    await agent.stop();
+
+    assert.deepStrictEqual(
+        answers,
+        Object.fromEntries(
+            Object.keys(answers).map((name) => [name, answer(name)]),
+        ),
+    );
+});
+
 /** A value's form: each leaf as its type. */
 function formOf(value: unknown): unknown {
     if (Array.isArray(value)) return value.map(formOf);
@@ -1337,7 +1370,7 @@ const NOT_THE_AGENTS: readonly (readonly [RegExp, string])[] = [
     ],
     [
         /^workspace\/cancel\.(conversation|one)\.args$/,
-        "a cancel of one conversation or one call: as today, `/stop` cancels every command the agent has out",
+        "a cancel of one conversation or one call: `/stop` cancels every command the agent has out",
     ],
     [
         /^workspace\/command_status\./,
