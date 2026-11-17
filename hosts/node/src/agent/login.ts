@@ -33,6 +33,8 @@ const SUBSCRIPTIONS = ["chatgpt", "openrouter", "claude"];
 /** As `crates/hamlet_server/src/providers.rs` words them. */
 const NOT_OPEN = "No sign-in of yours is open.";
 const CANCELLED = "Sign-in cancelled.";
+/** As `crates/hamlet_server/src/providers.rs` words a request that timed out. */
+const LATE = "The provider did not answer in time.";
 
 /** The realm's keep, reached from the call that ends a sign-in. */
 export type Keep = BareRealm["keep_credential"];
@@ -136,6 +138,11 @@ function failed(login: string, words: string): LoginAnswer {
     return { type: "failed", login, words };
 }
 
+interface Answered {
+    readonly id: RequestId;
+    readonly answer: Promise<LoginAnswer>;
+}
+
 /** How a flow ended: its credential as the realm keeps it, or the words it failed with. */
 type End = { readonly kept: Kept } | { readonly failed: string };
 
@@ -147,7 +154,7 @@ class SignIn {
     readonly #waited: (stop: AbortSignal) => Promise<void>;
     readonly #stop = new AbortController();
     readonly #steps: LoginStep[] = [];
-    /** The step the last call answered with. */
+    /** The step the last call answered with, as the flow gave it. */
     #given: LoginStep | undefined;
     #asking:
         | {
@@ -160,9 +167,8 @@ class SignIn {
     readonly #answers: string[] = [];
     #end: End | undefined;
     #changed = Promise.withResolvers<void>();
-    #last:
-        | { readonly id: RequestId; readonly answer: Promise<LoginAnswer> }
-        | undefined;
+    #start: Answered | undefined;
+    #last: Answered | undefined;
 
     constructor(
         provider: string,
@@ -183,9 +189,12 @@ class SignIn {
         );
     }
 
-    /** The answer a call with `id` was given, when it was the last call. */
+    /** The answer a call with `id` was given, when it was the start or the last call. */
     repeat(id: RequestId): Promise<LoginAnswer> | undefined {
-        return this.#last?.id === id ? this.#last.answer : undefined;
+        for (const answered of [this.#start, this.#last]) {
+            if (answered?.id === id) return answered.answer;
+        }
+        return undefined;
     }
 
     answer(
@@ -194,6 +203,7 @@ class SignIn {
     ): Promise<LoginAnswer> {
         const answer = make();
         this.#last = { id, answer };
+        this.#start ??= this.#last;
         return answer;
     }
 
@@ -222,9 +232,16 @@ class SignIn {
 
     /**
      * The next step the flow gave, or its end with the credential kept.
-     * With nothing new in time, the step given last again.
+     * With nothing new in time, the step given last again, or, before the
+     * first, a failure that ends the sign-in, as today's timeout does.
      */
     async next(login: string, keep: Keep): Promise<LoginAnswer> {
+        // Scrubbed as it goes out, since a step can quote a typed answer.
+        const given = (step: LoginStep): LoginAnswer => ({
+            type: "step",
+            login,
+            step: scrub(step, this.#answers),
+        });
         const stop = new AbortController();
         const late = this.#waited(stop.signal).then(() => true);
         try {
@@ -232,7 +249,7 @@ class SignIn {
                 const step = this.#steps.shift();
                 if (step !== undefined) {
                     this.#given = step;
-                    return { type: "step", login, step };
+                    return given(step);
                 }
                 if (this.#end !== undefined) {
                     return await this.#close(login, this.#end, keep);
@@ -244,9 +261,10 @@ class SignIn {
             stop.abort();
         }
         if (this.#given === undefined) {
-            throw new Error("the sign-in gave no step in time");
+            this.cancel();
+            return failed(login, LATE);
         }
-        return { type: "step", login, step: this.#given };
+        return given(this.#given);
     }
 
     async #close(login: string, end: End, keep: Keep): Promise<LoginAnswer> {

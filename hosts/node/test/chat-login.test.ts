@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { type TestContext, test } from "node:test";
 import {
+    type ApiKeyAuth,
     createFauxCore,
     createProvider,
     type FauxResponseFactory,
@@ -818,4 +819,179 @@ test("A15: a check's refusals are today's plain words", async (t) => {
         "That key was not accepted. Check it was copied whole and is still active.",
     ]);
     await agent.stop();
+});
+
+/** The provider `id`, which has no model and signs in with a key by `login`. */
+function keySignIn(
+    id: string,
+    login: NonNullable<ApiKeyAuth["login"]>,
+): (listed: Models) => Models {
+    const unused = () => {
+        throw new Error("unused");
+    };
+    const provider = createProvider({
+        id,
+        models: [],
+        api: { stream: unused, streamSimple: unused },
+        auth: { apiKey: { name: id, login, resolve: async () => undefined } },
+    });
+    return (listed) => {
+        (listed as MutableModels).setProvider(provider);
+        return listed;
+    };
+}
+
+test("a step quoting a typed secret reaches the client scrubbed", async (t) => {
+    const key = secret(t, "key");
+    const { calls } = credentialsFile();
+    const agent = await wakeAgent(t, {
+        calls,
+        models: keySignIn("echoing", async (interaction) => {
+            const typed = await interaction.prompt({
+                type: "secret",
+                message: "Paste your key.",
+            });
+            interaction.notify({
+                type: "progress",
+                message: `Checking ${typed}`,
+            });
+            return {
+                type: "api_key",
+                key: await interaction.prompt({
+                    type: "secret",
+                    message: `The key ${typed} was not accepted. Paste it again.`,
+                }),
+            };
+        }),
+    });
+    const limit = Promise.withResolvers<void>();
+    const hand = client(
+        agent,
+        signIns(agent.config.models, { waited: () => limit.promise }),
+    );
+    const login = (await hand.start("echoing", "key")).login;
+    const asked = {
+        prompt: "The key [REDACTED] was not accepted. Paste it again.",
+        secret: true,
+    };
+
+    assert.deepEqual(await hand.reply(login, key), {
+        type: "step",
+        login,
+        step: { progress: "Checking [REDACTED]" },
+    });
+    assert.deepEqual(await hand.next(login), {
+        type: "step",
+        login,
+        step: asked,
+    });
+    const again = hand.next(login);
+    limit.resolve();
+    assert.deepEqual(await again, { type: "step", login, step: asked });
+    await hand.cancel(login);
+    await agent.stop();
+});
+
+test("a start repeated after a reply answers as it first did", async (t) => {
+    const key = secret(t, "key");
+    const { file, calls } = credentialsFile();
+    let begun = 0;
+    const agent = await wakeAgent(t, {
+        calls,
+        models: keySignIn("profiled", async (interaction) => {
+            begun += 1;
+            await interaction.prompt({
+                type: "text",
+                message: "Enter AWS profile name",
+            });
+            return {
+                type: "api_key",
+                key: await interaction.prompt({
+                    type: "secret",
+                    message: "Paste your key.",
+                }),
+            };
+        }),
+    });
+    const given = signIns(agent.config.models);
+    const hand = client(agent, given);
+    const first = await hand.start("profiled", "key");
+    await hand.reply(first.login, "default");
+    const repeated = await chatActions({
+        ...agent.config,
+        signIns: given,
+    }).login(agent.by(from.client), {
+        id: first.login,
+        start: { provider: "profiled", method: "key" },
+    });
+
+    assert.deepEqual(repeated, first);
+    assert.equal(begun, 1, "the repeat began no flow");
+    assert.deepEqual(await hand.reply(first.login, key), {
+        type: "done",
+        login: first.login,
+    });
+    assert.deepEqual(file.get("profiled"), { type: "key", key });
+    await agent.stop();
+});
+
+test("a sign-in with no first step in time fails with today's words", async (t) => {
+    const { calls } = credentialsFile();
+    const agent = await wakeAgent(t, {
+        calls,
+        models: keySignIn("silent", () => new Promise(() => {})),
+    });
+    const hand = client(
+        agent,
+        signIns(agent.config.models, { waited: async () => {} }),
+    );
+    const answer = await hand.start("silent", "key");
+
+    assert.deepEqual(answer, {
+        type: "failed",
+        login: answer.login,
+        words: "The provider did not answer in time.",
+    });
+    assert.deepEqual(await hand.next(answer.login), {
+        type: "failed",
+        login: answer.login,
+        words: "No sign-in of yours is open.",
+    });
+    await agent.stop();
+});
+
+test("after a wake, the copied model's key is scrubbed from what a client reads", async (t) => {
+    const key = secret(t, "earlier-life-key");
+    const { file, calls, sent } = credentialsFile();
+    file.set("loopback", { type: "key", key });
+    const agent = await wakeAgent(t, {
+        calls,
+        models: loopback(() => fauxAssistantMessage("Hello.")),
+    });
+    // Said to the faux model, so no life of this host asks for the key
+    // before the wake does.
+    await say(agent, `My key is ${key}.`);
+    await agent.actions.copies(agent.by(from.realm), {
+        model: { version: 1, value: { model: "loopback::large", fast: false } },
+    });
+    await agent.stop();
+
+    const woken = await agent.again();
+    const line = async () =>
+        (await page(woken)).items.find((item) => item.kind === "user")?.text;
+    // The wake does not wait for the realm's answer, so neither can a read.
+    await until(async () => (await line()) === "My key is [REDACTED].").catch(
+        () => {},
+    );
+
+    assert.equal(await line(), "My key is [REDACTED].");
+    assertNowhere([key], {
+        "chat page": await page(woken),
+        history: await woken.actions.read_history(woken.by(from.client)),
+    });
+    assert.deepEqual(
+        named(sent, "credential").map((call) => call.message),
+        [{ provider: "loopback" }],
+    );
+    await woken.stop();
 });
