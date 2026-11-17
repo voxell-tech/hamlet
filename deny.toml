@@ -20,6 +20,13 @@ ignore = [
     # serde_cbor, unmaintained, with no known vulnerability. The ported
     # actor client encodes its protocol with it.
     { id = "RUSTSEC-2021-0127", reason = "no vulnerability; the ported actor client's wire format uses it" },
+    # chrono, unmaintained, with no patched release. The server, the
+    # realm and the window keep time with it, and so do the actor
+    # core's timers.
+    { id = "RUSTSEC-2026-0543", reason = "no release to move to; the server, realm, window and actor timers use it" },
+    # chrono-tz, unmaintained, with no patched release. The actor
+    # core's timers read time zones with it.
+    { id = "RUSTSEC-2026-0555", reason = "no release to move to; the actor core's timers read time zones with it" },
 ]
 
 [licenses]
