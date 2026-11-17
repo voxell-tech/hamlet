@@ -21,6 +21,7 @@ import {
     type Woken,
     wakeAgent,
 } from "./agent-testing.ts";
+import { context } from "./testing.ts";
 
 function listedFiles(files: Record<string, string>): AgentFilesystem {
     const base = fakeFiles(files);
@@ -350,4 +351,41 @@ test("a memory folder that cannot be listed leaves the memory out, as today, and
     assert.ok(prompt.includes("# Your skills"));
     assert.ok(agent.reported.some((line) => line.includes("EACCES")));
     await agent.stop();
+});
+
+/** The tools the prompt names (`talk/prompt/place.rs`) that the agent does not offer yet. */
+const NAMED_NOT_OFFERED = [
+    "object",
+    "create_scholar",
+    "start_worker",
+    "merge_hires",
+    "set_model",
+    "set_allowance",
+    "nickname",
+    "read_record",
+    "read_scholar",
+];
+
+test("every tool the prompt names is one the agent offers", {
+    todo: "the realm's tools of oversight and the city are not offered yet",
+}, async (t) => {
+    const missing = new Set<string>();
+    for (const input of [undefined, HIRE]) {
+        const agent = await wakeAgent(t, {
+            calls: fakeCalls({}).calls,
+            ...(input === undefined ? {} : { input }),
+        });
+        const prompt = await readPrompt(agent);
+        const root = await (await agent.harness()).root(context);
+        const offered = (await root.agent(context)).tools.map(
+            (tool) => tool.name,
+        );
+        await agent.stop();
+        for (const name of NAMED_NOT_OFFERED) {
+            if (prompt.includes(`\`${name}\``) && !offered.includes(name)) {
+                missing.add(name);
+            }
+        }
+    }
+    assert.deepEqual([...missing], []);
 });
