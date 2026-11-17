@@ -565,6 +565,8 @@ struct HostInner {
     options: HostOptions,
     /// When the starts under way end, set once the host shuts down.
     starts_end: watch::Sender<Option<tokio::time::Instant>>,
+    /// What [`Host::kept`] answers.
+    kept: Mutex<Vec<Address>>,
 }
 
 /// A lock the host holds on one file: `<name>.lock` in the folder, or
@@ -713,6 +715,23 @@ impl Actors {
 }
 
 impl HostInner {
+    /// Warns with `why` that the host leaves the files of the actor
+    /// at `at` behind, and adds the actor to [`Host::kept`].
+    fn keep(
+        &self,
+        at: &Address,
+        why: &str,
+        error: Option<&anyhow::Error>,
+    ) {
+        match error {
+            Some(error) => {
+                tracing::warn!(?error, actor_id = %at, "{why}");
+            }
+            None => tracing::warn!(actor_id = %at, "{why}"),
+        }
+        self.kept.lock().push(at.clone());
+    }
+
     /// Shuts the host, as [`Actors::shut_down`] does, and ends the
     /// starts under way after [`START_GRACE_AT_SHUTDOWN`].
     fn shut_down(&self) {
@@ -998,6 +1017,7 @@ impl Host {
             events: broadcast::channel(64).0,
             options,
             starts_end: watch::Sender::new(None),
+            kept: Mutex::new(Vec::new()),
         })))))
     }
 
@@ -1167,6 +1187,13 @@ impl Host {
             .lives
             .get(at)
             .is_some_and(|life| life.loaded().is_some())
+    }
+
+    /// The actors whose files a failed start or destroy left behind,
+    /// unclosed past the grace or not removed, once for each time
+    /// since the host opened. Each was logged as a warning.
+    pub fn kept(&self) -> Vec<Address> {
+        self.inner().kept.lock().clone()
     }
 
     /// Follows what happens to the host's actors from now on. A
@@ -2098,10 +2125,11 @@ async fn start_actor(
                 None => true,
             };
             if !closed {
-                tracing::warn!(
-                    actor_id = %at,
+                host.keep(
+                    &at,
                     "host could not close the file of a start that \
-                     failed within the grace"
+                     failed within the grace",
+                    None,
                 );
             }
             // Not told to the waiters: each reads the map again.
@@ -2191,11 +2219,11 @@ async fn unmake(host: &HostInner, at: &Address) -> bool {
     let removed =
         destroy_file_off_runtime(actor_path(&host.dir, at)).await;
     if let Err(error) = &removed {
-        tracing::warn!(
-            ?error,
-            actor_id = %at,
+        host.keep(
+            at,
             "host failed to remove an actor its create could not \
-             start"
+             start",
+            Some(error),
         );
     }
     removed.is_ok()
