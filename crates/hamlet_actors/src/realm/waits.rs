@@ -346,6 +346,8 @@ pub(super) struct Told {
 struct Ran {
     wait: WaitId,
     agent: AgentNumber,
+    task: Option<TaskId>,
+    conversation: Option<ConversationId>,
     text: String,
 }
 
@@ -366,10 +368,10 @@ impl Told {
             to: ran.agent,
             submit: Submit {
                 id: InputId(format!("wait/{}", ran.wait.0)),
-                task: None,
+                task: ran.task.map(TaskId::on_the_wire),
                 input: Input::Notice {
                     text: ran.text.clone(),
-                    conversation: None,
+                    conversation: ran.conversation.clone(),
                 },
             },
         });
@@ -1000,6 +1002,8 @@ impl Act<Client> for Answer {
         decided.done.ran = ruling.told.map(|text| Ran {
             wait: open.wait,
             agent: open.agent,
+            task: open.task,
+            conversation: open.conversation.clone(),
             text,
         });
         for change in ruling.changes {

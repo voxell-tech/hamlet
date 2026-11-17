@@ -305,12 +305,30 @@ async fn an_unreserved_tool_runs_at_once() {
 async fn an_allowed_reserved_hire_is_decided_and_told() {
     let (realm, hamlet) = hamlet_with(0).await;
     reserve(&realm, &hamlet, ReservedAct::Hire).await;
+    let task = chief_task(&realm, MAYOR).await;
     let decided = decisions(&realm).await;
 
-    realm.tool(MAYOR, &tool("c1", hire(None))).await.unwrap();
+    realm
+        .tool(MAYOR, &in_turn("c1", hire(None), Some(&task)))
+        .await
+        .unwrap();
     realm.ask(&answer("#1", Choice::Allow, None)).await.unwrap();
 
     assert_eq!(notices(&realm, MAYOR).await, ["Hired hire#3."]);
+    let told = submits_to(&realm, MAYOR)
+        .into_iter()
+        .filter_map(|submit| match submit.input {
+            Input::Notice { conversation, .. } => {
+                Some((submit.task, conversation))
+            }
+            _ => None,
+        })
+        .collect::<Vec<_>>();
+    assert_eq!(
+        told,
+        [(Some(task), Some(ConversationId("c".to_owned())))],
+        "the notice goes on the asking turn's task and conversation"
+    );
     assert_eq!(
         decisions(&realm).await[decided.len()..],
         ["hired".to_owned()]
