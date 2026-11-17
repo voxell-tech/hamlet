@@ -568,6 +568,64 @@ function wordsOf(message: Message): string {
               .join("");
 }
 
+test("a letter's, a question's and an answer's item names its author as today", async (t) => {
+    const agent = await wakeAgent(t, {
+        calls: fakeCalls({ realm: { reply: () => ({ type: "done" }) } }).calls,
+        files: fakeFiles({}),
+        responses: [
+            fauxAssistantMessage("One."),
+            fauxAssistantMessage("Dear Ada."),
+            fauxAssistantMessage("Three."),
+            fauxAssistantMessage("Thanks."),
+        ],
+    });
+    t.after(() => agent.stop());
+    const send = sender(agent);
+    await send(line("a"));
+    await send(letter("Hello."));
+    await send({
+        type: "question",
+        letter: 5,
+        from: { agent: 4 },
+        text: "How many?",
+    });
+    const chief = await conversationOfChat(agent.by(from.client), CHIEF);
+    await send({
+        type: "answer",
+        question: 6,
+        from: { agent: 3, name: "Ada" },
+        text: "Three.",
+        conversation: String(chief),
+    });
+    // As `crates/hamlet_server/src/society/addresses.rs`'s `name_of` shows a sender.
+    const authors = (items: readonly ChatItem[]) =>
+        items.filter((item) => item.kind === "user").map((item) => item.author);
+    assert.deepEqual(authors((await read(agent, LETTERS)).items), [
+        "hire#3 (Ada)",
+    ]);
+    assert.deepEqual(
+        authors(
+            (await read(agent, { with: 7, from: 4, kind: "questions" })).items,
+        ),
+        ["hire#4"],
+    );
+    assert.deepEqual(authors((await read(agent, CHIEF)).items), [
+        undefined,
+        "hire#3 (Ada)",
+    ]);
+    const added = chatEvents(agent).flatMap((event) =>
+        event.ops.flatMap((op) =>
+            op.type === "add" && op.item.kind === "user" ? [op.item] : [],
+        ),
+    );
+    assert.deepEqual(authors(added), [
+        undefined,
+        "hire#3 (Ada)",
+        "hire#4",
+        "hire#3 (Ada)",
+    ]);
+});
+
 /** Counts the conversations the harness is asked to observe from now on. */
 async function observed(
     t: TestContext,
