@@ -93,7 +93,7 @@ impl Answering {
 pub struct OpenQuestion(Option<(Entity, Questions)>);
 
 /// Keeps [`OpenQuestion`] as the oldest card raised by the agent the
-/// chat is with, or by a turn of the chat's own session.
+/// chat is with, or by a turn of the chat itself.
 fn follow(
     convo: Res<Convo>,
     chats: Query<&Chat>,

@@ -1,18 +1,18 @@
 //! What follows an input's end, once: its conversation's last turn,
-//! its chief's instruction answered, a question's answer and a
-//! worker's carried back, and once its agent is idle, the agent's
-//! lodge committed and its scholar's learning taken in.
+//! its chief's instruction answered, a request's response and a
+//! worker's answer carried back, and once its agent is idle, the
+//! agent's lodge committed and its scholar's learning taken in.
 
 use anyhow::Result;
 use diesel::prelude::*;
-use hamlet_protocol::client::Choice;
+use hamlet_protocol::client::{Choice, Setup};
 use hamlet_store::ids::{ConversationId, OfferId, TaskId};
 use hamlet_store::schema::{answer_fault, objection, review};
-use serde_json::Value;
 
 use super::errands::{self, Ended};
 use super::inputs::{self, Input, InputKind, Status};
-use super::{items, letters, reflections, tasks};
+use super::messages::{self, Carried};
+use super::{failures, items, models, reflections, tasks};
 use crate::calls::reviews::REVIEW;
 use crate::calls::society::library::LIBRARIAN;
 use crate::calls::society::welcome::{self, WELCOME};
@@ -47,7 +47,7 @@ pub(crate) fn follow(
     else {
         return Ok(followed);
     };
-    if input.is_write() {
+    if !input.is_turn() {
         return Ok(followed);
     }
     // A turn a chief stopped ends however its runtime says, often
@@ -60,7 +60,7 @@ pub(crate) fn follow(
         _ => Last::Failed,
     };
     conversations::set_last(cx.db, conversation, last)?;
-    if stopped && !inputs::is_busy(cx.db, conversation)? {
+    if stopped && !inputs::is_running(cx.db, conversation)? {
         conversations::set_stopped(cx.db, conversation, false)?;
     }
     if input.mark()?.is_chief_turn()
@@ -72,14 +72,15 @@ pub(crate) fn follow(
         Last::Done => None,
         Last::Stopped => Some("its turn was stopped".to_owned()),
         Last::Failed => Some(
-            input
-                .reason
-                .clone()
-                .unwrap_or_else(|| "its turn failed".into()),
+            failures::of(
+                input.reason.as_deref(),
+                input.detail.as_deref(),
+            )
+            .words,
         ),
     };
-    if input.kind == InputKind::Question {
-        followed.wake.extend(letters::answered(
+    if input.kind == InputKind::Request {
+        followed.wake.extend(messages::responded(
             cx,
             conversation,
             request,
@@ -131,22 +132,26 @@ pub(crate) fn follow(
         if let (Some(runtime), Some(key), Some(task)) =
             (&worker.call_runtime, &worker.call_key, input.task)
         {
-            let words = match (&answer, &failed) {
-                (Some(answer), None) => answer.clone(),
-                (_, Some(failure)) => {
-                    format!("It could not answer: {failure}")
+            let (words, carried) = match (&answer, &failed) {
+                (Some(answer), None) => {
+                    (answer.clone(), Carried::Answer)
                 }
-                _ => "It gave no answer.".into(),
+                (_, Some(failure)) => (
+                    format!("It could not answer: {failure}"),
+                    Carried::Error,
+                ),
+                _ => ("It gave no answer.".into(), Carried::Error),
             };
-            followed.wake.extend(letters::carry(
+            followed.wake.extend(messages::carry(
                 cx,
-                letters::Carry {
+                messages::Carry {
                     runtime,
                     key,
                     from: agent,
                     task,
                     request: &format!("worker:{agent}"),
                     words: &words,
+                    carried,
                     waits: worker.waits,
                     author: None,
                 },
@@ -170,7 +175,7 @@ pub(crate) fn follow(
         && last == Last::Failed
         && input.kind != InputKind::Reflection
     {
-        fault(cx, &kept, &input)?;
+        fault(cx, env, &kept, &input)?;
     }
     let found = agents::get(cx.db, agent)?;
     if found.kind != AgentKind::Worker
@@ -212,27 +217,30 @@ fn errand_ended(
     let Some(task) = input.task else {
         return Ok(None);
     };
-    if let Some(call) = owner.strip_prefix("ask:") {
+    if let Some(call) = owner.strip_prefix("request:") {
         let Some((runtime, key)) = call.split_once('/') else {
             return Ok(None);
         };
-        let words = match ended {
-            Ended::Answered(answer) => {
-                format!("The librarian says: {answer}")
-            }
-            Ended::Failed(failure) => {
-                format!("The librarian could not answer: {failure}")
-            }
+        let (words, carried) = match ended {
+            Ended::Answered(answer) => (
+                format!("The librarian says: {answer}"),
+                Carried::Answer,
+            ),
+            Ended::Failed(failure) => (
+                format!("The librarian could not answer: {failure}"),
+                Carried::Error,
+            ),
         };
-        return letters::carry(
+        return messages::carry(
             cx,
-            letters::Carry {
+            messages::Carry {
                 runtime,
                 key,
                 from: kept.agent,
                 task,
                 request: &format!("librarian:{owner}"),
                 words: &words,
+                carried,
                 waits: true,
                 author: Some("the librarian"),
             },
@@ -246,6 +254,10 @@ fn errand_ended(
     };
     let offer = shelf::get(cx.db, OfferId(id))?;
     let name = &offer.skill;
+    let carried = match ended {
+        Ended::Answered(_) => Carried::Answer,
+        Ended::Failed(_) => Carried::Error,
+    };
     let (verdict, words) = match ended {
         Ended::Answered(answer) => {
             let accepted = answer
@@ -301,15 +313,16 @@ fn errand_ended(
             },
         )?;
     }
-    letters::carry(
+    messages::carry(
         cx,
-        letters::Carry {
+        messages::Carry {
             runtime: &offer.runtime,
             key: &offer.key,
             from: offer.agent,
             task,
             request: &format!("librarian:{owner}"),
             words: &words,
+            carried,
             waits: true,
             author: Some("the librarian"),
         },
@@ -389,6 +402,7 @@ fn reviewed(
             change: None,
             answers: vec![Choice::Go, Choice::Withdraw],
             questions: None,
+            setup: None,
         },
     )?;
     diesel::insert_into(objection::table)
@@ -408,6 +422,7 @@ fn reviewed(
 /// final answer's check already did.
 fn fault(
     cx: &mut Change<'_>,
+    env: &EffectiveSettings,
     kept: &Conversation,
     input: &Input,
 ) -> Result<()> {
@@ -424,16 +439,29 @@ fn fault(
     if checked {
         return Ok(());
     }
-    let about = match input
-        .detail
-        .as_deref()
-        .map(serde_json::from_str::<Value>)
-    {
-        Some(Ok(Value::String(detail))) => detail,
-        _ => input
-            .reason
-            .clone()
-            .unwrap_or_else(|| "The model failed.".into()),
+    let failure = failures::of(
+        input.reason.as_deref(),
+        input.detail.as_deref(),
+    );
+    let setup = match failure.setup {
+        Some(cause) => {
+            let model = models::choose(
+                cx.db,
+                &env.settings,
+                &env.overrides,
+                kept.agent,
+            )?
+            .model;
+            Some(Setup {
+                cause,
+                model: if model.id.is_empty() {
+                    String::new()
+                } else {
+                    format!("{}::{}", model.provider, model.id)
+                },
+            })
+        }
+        None => None,
     };
     oversight::raise(
         cx,
@@ -444,10 +472,11 @@ fn fault(
             scholar: None,
             conversation: Some(kept.id),
             task: input.task,
-            about,
+            about: failure.words,
             change: None,
             answers: vec![Choice::Dismiss],
             questions: None,
+            setup,
         },
     )?;
     Ok(())

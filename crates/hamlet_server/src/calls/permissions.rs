@@ -124,7 +124,7 @@ impl Core<'_, '_> {
         let answer = if !is_offered(&call.conversation, call.tool)?
             || matches!(
                 call.society,
-                Some(Society::AskChief | Society::Object)
+                Some(Society::RequestChief | Society::Object)
             ) {
             Answer::Allowed
         } else {

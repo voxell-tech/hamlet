@@ -51,11 +51,11 @@ use bevy::ui::{
 use bevy::ui_widgets::Button;
 use bevy::window::SystemCursorIcon;
 use bevy_fynix::views::{
-    BehaviorExt, FrameProps, RichField, column, frame, row,
+    BehaviorExt, FrameProps, RichField, frame, overlay, row,
 };
 use bevy_fynix::{EntityCursor, ViewExt, keyed, resource};
 use hamlet_ui::View;
-use hamlet_ui::markdown::Area;
+use hamlet_ui::markdown::{Area, AtomWords};
 use hamlet_ui::styles::{Looks, marked};
 use hamlet_ui::theme::Themed;
 use hamlet_ui::widgets::effects::Variant;
@@ -64,6 +64,7 @@ use parley::{Affinity, AlignmentOptions, Cursor, Layout, Selection};
 
 use crate::chat;
 use crate::convo::Convo;
+use crate::screens::viewer::Viewing;
 
 /// The layer the light is drawn on: over the panels, under the drag
 /// of a tab, the menus and the tooltips.
@@ -193,8 +194,9 @@ pub struct Selecting {
     whole: bool,
     /// The words selected.
     pub chosen: String,
-    /// Where the quote button stands in its area, in pixels.
-    spot: Vec2,
+    /// Where the quote button stands in the window, in logical
+    /// pixels, while what is selected is in view.
+    spot: Option<Vec2>,
 }
 
 impl Selecting {
@@ -227,6 +229,7 @@ struct Keeps;
 struct Texts<'w, 's> {
     children: Query<'w, 's, &'static Children>,
     parents: Query<'w, 's, &'static ChildOf>,
+    copies: Query<'w, 's, &'static AtomWords>,
     blocks: Query<
         'w,
         's,
@@ -313,6 +316,21 @@ impl Texts<'_, '_> {
                 _ => "",
             })
             .collect()
+    }
+
+    /// The words of `range` of the text node `node`, with the words
+    /// of each atom in it, such as an agent's chip, where it stands.
+    fn part(
+        &self,
+        node: Entity,
+        range: Range<usize>,
+    ) -> Option<String> {
+        let copies = self.copies.get(node).ok();
+        spliced(
+            &self.text(node),
+            range,
+            copies.map_or(&[][..], |c| &c.0),
+        )
     }
 
     /// The layout of the text node `node` as it is drawn. Bevy
@@ -529,21 +547,39 @@ fn covered(
         .collect()
 }
 
+/// `range` of `text`, with the words of each atom of `copies` that
+/// stands in it. An atom at the very end is in a range to the end.
+fn spliced(
+    text: &str,
+    range: Range<usize>,
+    copies: &[(usize, String)],
+) -> Option<String> {
+    let within = |at: usize| {
+        range.contains(&at) || (at == range.end && at == text.len())
+    };
+    let (mut part, mut from) = (String::new(), range.start);
+    for (at, copy) in copies.iter().filter(|(at, _)| within(*at)) {
+        part.push_str(text.get(from..*at)?);
+        part.push_str(copy);
+        from = *at;
+    }
+    part.push_str(text.get(from..range.end)?);
+    Some(part)
+}
+
 /// The words `covered` selects: the parts of nodes on one line of
 /// the window, such as a bullet and its item, with a space between
 /// them, and the parts on different lines with a line between them.
 /// `level` is where a node stands, from its top to its bottom.
 fn chosen(
     covered: &[(Entity, Range<usize>)],
-    text: impl Fn(Entity) -> String,
+    part: impl Fn(Entity, Range<usize>) -> Option<String>,
     level: impl Fn(Entity) -> Option<(f32, f32)>,
 ) -> String {
     let mut words = String::new();
     let mut was: Option<(f32, f32)> = None;
     for (node, range) in covered {
-        let Some(part) =
-            text(*node).get(range.clone()).map(str::to_string)
-        else {
+        let Some(part) = part(*node, range.clone()) else {
             continue;
         };
         let now = level(*node);
@@ -733,17 +769,20 @@ fn drag_end(
 }
 
 /// Copies what is selected on Cmd+C, selects the whole area on
-/// Cmd+A, and lets it go on Esc, unless a field is typed in.
+/// Cmd+A, and lets it go on Esc, unless a field is typed in or an
+/// image is shown over the window.
 fn keys(
     mut typed: MessageReader<KeyboardInput>,
     held: Res<ButtonInput<Key>>,
     focus: Res<InputFocus>,
+    viewing: Option<Res<Viewing>>,
     fields: Query<(), Or<(With<EditableText>, With<RichField>)>>,
     clipboard: Option<ResMut<Clipboard>>,
     mut selecting: ResMut<Selecting>,
 ) {
     let typing =
-        focus.get().is_some_and(|node| fields.contains(node));
+        focus.get().is_some_and(|node| fields.contains(node))
+            || viewing.is_some_and(|viewing| viewing.is_open());
     let command = if cfg!(target_os = "macos") {
         held.pressed(Key::Super)
     } else {
@@ -917,11 +956,12 @@ fn light(
             let width = node.size().x * scale;
             let left = (end.max.x - corner.x - BUTTON)
                 .clamp(0.0, (width - BUTTON).max(0.0));
-            Some(Vec2::new(left, end.max.y - corner.y + UNDER))
+            Some(
+                corner
+                    + Vec2::new(left, end.max.y - corner.y + UNDER),
+            )
         });
-        if let Some(spot) = spot
-            && selecting.spot != spot
-        {
+        if selecting.spot != spot {
             selecting.spot = spot;
         }
         *shown = boxes;
@@ -929,7 +969,7 @@ fn light(
 
     let words = chosen(
         &parts,
-        |node| texts.text(node),
+        |node, range| texts.part(node, range),
         |node| texts.level(node),
     )
     .replace(hamlet_ui::markdown::JOINER, "");
@@ -949,14 +989,15 @@ fn quote_chosen(world: &mut World) {
     chat::quote_in_field(world, &chosen);
 }
 
-/// The quote button of the entry `id` of `session`, at the end of
-/// what is selected in it.
-pub fn quote_button(session: Entity, id: String) -> impl View {
+/// The quote button under the end of what is selected in a message
+/// of the chat, over the window. Over the window, its moves leave the
+/// message's layout as it is.
+pub fn quote_button() -> impl View {
     keyed(
-        resource::<Selecting, _>(move |s| {
-            s.quote.as_ref().is_some_and(|(chat, entry)| {
-                *chat == session && entry == &id
-            }) && !s.chosen.trim().is_empty()
+        resource::<Selecting, _>(|s| {
+            s.quote.is_some()
+                && s.spot.is_some()
+                && !s.chosen.trim().is_empty()
         }),
         |on| match on {
             true => row((marked(Glyph::Talk, "Quote")
@@ -964,10 +1005,11 @@ pub fn quote_button(session: Entity, id: String) -> impl View {
                 .on_activate(quote_chosen),))
             .position(PositionType::Absolute)
             .inset(resource::<Selecting, _>(|s| {
+                let spot = s.spot.unwrap_or_default();
                 UiRect::new(
-                    px(s.spot.x),
+                    px(spot.x),
                     Val::Auto,
-                    px(s.spot.y),
+                    px(spot.y),
                     Val::Auto,
                 )
             }))
@@ -976,11 +1018,7 @@ pub fn quote_button(session: Entity, id: String) -> impl View {
             false => frame().boxed(),
         },
     )
-    .within(
-        column(()).position(PositionType::Absolute).inset(
-            UiRect::new(px(0.0), Val::Auto, px(0.0), Val::Auto),
-        ),
-    )
+    .within(overlay(()))
 }
 
 #[cfg(test)]
@@ -1061,6 +1099,22 @@ mod tests {
     }
 
     #[test]
+    fn a_chip_chosen_with_words_copies_as_its_own() {
+        let copies = [(4, "hire#3 (Mira)".to_string())];
+        let text = "Ask  now.";
+        assert_eq!(
+            spliced(text, 0..text.len(), &copies).unwrap(),
+            "Ask hire#3 (Mira) now."
+        );
+        assert_eq!(spliced(text, 5..9, &copies).unwrap(), "now.");
+        let ending = [(4, "hand".to_string())];
+        assert_eq!(
+            spliced("Ask ", 0..4, &ending).unwrap(),
+            "Ask hand"
+        );
+    }
+
+    #[test]
     fn the_words_chosen_skip_the_room_for_the_hour() {
         let mut world = World::new();
         let [a, b] = [(); 2].map(|_| world.spawn_empty().id());
@@ -1079,6 +1133,58 @@ mod tests {
             true => Some((0.0, 20.0)),
             false => Some((24.0, 44.0)),
         };
-        assert_eq!(chosen(&parts, text, lines), "line.\nSecond.");
+        let part = |n: Entity, range: Range<usize>| {
+            text(n).get(range).map(str::to_string)
+        };
+        assert_eq!(chosen(&parts, part, lines), "line.\nSecond.");
+    }
+
+    #[test]
+    fn a_selection_leaves_its_message_as_it_was_laid_out() {
+        use bevy_fynix::views::{column, label};
+        use hamlet_ui::theme::HamletTheme;
+
+        let mut app = crate::testing::panel_app();
+        bevy_fynix::mount::<HamletTheme>(
+            app.world_mut(),
+            column((
+                column((label("Ask hire#2 about it."),)).tagged(Area),
+                quote_button(),
+            )),
+        );
+        app.update();
+        let world = app.world_mut();
+        let area = world
+            .query_filtered::<Entity, With<Area>>()
+            .single(world)
+            .unwrap();
+        let held = |world: &mut World| {
+            let mut children = world.query::<&Children>();
+            let mut all = children
+                .query(world)
+                .iter_descendants(area)
+                .collect::<Vec<_>>();
+            all.sort();
+            all
+        };
+        let before = held(world);
+
+        let session = world.spawn_empty().id();
+        *world.resource_mut::<Selecting>() = Selecting {
+            area: Some(area),
+            quote: Some((session, "message/1".into())),
+            chosen: "hire#2".into(),
+            spot: Some(Vec2::new(40.0, 20.0)),
+            ..Selecting::default()
+        };
+        app.update();
+        let world = app.world_mut();
+        // The button shows, and over the window, not in the message.
+        let button = world
+            .query_filtered::<Entity, With<Keeps>>()
+            .single(world)
+            .unwrap();
+        assert!(!held(world).contains(&button));
+        assert_eq!(held(world), before);
     }
 }

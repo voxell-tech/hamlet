@@ -21,9 +21,9 @@ fn words<'a>(
     id: &str,
 ) -> Option<&'a str> {
     match &world.get::<Transcript>(session)?.item(id)?.entry {
-        Entry::Assistant(text) | Entry::Agent { text, .. } => {
-            Some(text)
-        }
+        Entry::Assistant(text)
+        | Entry::Agent { text, .. }
+        | Entry::Summary(text) => Some(text),
         _ => None,
     }
 }
@@ -140,6 +140,7 @@ mod tests {
                     Item {
                         id: format!("{at}:user"),
                         at: 0,
+                        queued: false,
                         entry: Entry::Chief {
                             name: "a".into(),
                             text: "go".into(),
@@ -150,6 +151,7 @@ mod tests {
                     Item {
                         id: format!("{at}:reply"),
                         at: 0,
+                        queued: false,
                         entry: Entry::Assistant((*reply).into()),
                     },
                 ]
@@ -246,6 +248,54 @@ mod tests {
                 no("Read "),
                 ("plan.md".to_string(), file.clone()),
                 ("plan.md".to_string(), file),
+            ]
+        );
+    }
+
+    #[test]
+    fn a_growing_reply_names_agents_in_words_and_chips_them_once_whole()
+     {
+        use hamlet_ui::markdown::Target;
+        let mut app = app();
+        let (session, ids) =
+            talk(&mut app, &["Ask hire#3 (Mira), then mayor@x."]);
+        let mut read = entry(session, ids[1].clone());
+        let targets = |blocks: Vec<Arc<Block>>| {
+            blocks
+                .iter()
+                .flat_map(|block| match &block.kind {
+                    Kind::Paragraph(spans) => spans.clone(),
+                    _ => Vec::new(),
+                })
+                .filter_map(|span| span.link)
+                .collect::<Vec<_>>()
+        };
+        let growing = targets(read.get(app.world()));
+        assert_eq!(
+            growing,
+            [
+                Target::AgentWords("hire#3".into()),
+                Target::AgentWords("mayor@x".into())
+            ],
+            "no chip while the words grow: a chip moves with each \
+             layout"
+        );
+        let items = app
+            .world()
+            .get::<Transcript>(session)
+            .unwrap()
+            .items()
+            .to_vec();
+        app.world_mut()
+            .entity_mut(session)
+            .insert(Transcript::from_items(items));
+        assert!(read.changed(app.world()));
+        let whole = targets(read.get(app.world()));
+        assert_eq!(
+            whole,
+            [
+                Target::Agent("hire#3".into()),
+                Target::Agent("mayor@x".into())
             ]
         );
     }

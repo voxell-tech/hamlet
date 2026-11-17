@@ -38,14 +38,38 @@ pub(crate) enum InputKind {
     Retry,
     Reflection,
     Notice,
-    Letter,
-    Question,
-    Reply,
+    Notification,
+    Request,
+    Response,
+    /// Why a request or a worker has no answer, written into the
+    /// context without a turn.
+    ErrorResponse,
     Errand,
     Worker,
     Dream,
+    /// A summary of the conversation's earlier part, asked now.
+    Compaction,
+    /// What a hire merged into this one said and did, added to the
+    /// context.
+    Merged,
 }
 hamlet_store::named_text!(InputKind);
+
+/// The kinds of input no turn answers.
+const NOT_TURNS: [InputKind; 4] = [
+    InputKind::Notice,
+    InputKind::Merged,
+    InputKind::ErrorResponse,
+    InputKind::Compaction,
+];
+
+impl InputKind {
+    /// Whether its turn runs ahead of the others queued: a chief's
+    /// own.
+    fn is_first(self) -> bool {
+        matches!(self, Self::Chief | Self::Retry)
+    }
+}
 
 /// Where an input is on its way to its runtime.
 #[derive(
@@ -135,7 +159,17 @@ impl Input {
     /// Whether it is written into the transcript rather than
     /// answered.
     pub fn is_write(&self) -> bool {
-        self.kind == InputKind::Notice
+        matches!(
+            self.kind,
+            InputKind::Notice
+                | InputKind::Merged
+                | InputKind::ErrorResponse
+        )
+    }
+
+    /// Whether a turn answers it.
+    pub fn is_turn(&self) -> bool {
+        !self.is_write() && self.kind != InputKind::Compaction
     }
 
     pub fn is_ended(&self) -> bool {
@@ -233,29 +267,160 @@ pub(crate) enum Resend {
     Unended,
 }
 
-/// The inputs `conversation` is owed, in order: its kept ones, and
-/// those `resend` names.
+/// What a chief's stop and the line after it do to the order of a
+/// conversation's turns.
+struct Hold {
+    /// No queued turn starts.
+    held: bool,
+    /// The input that runs before the rest queued.
+    first: Option<String>,
+}
+
+fn hold_of(
+    db: &mut Db,
+    conversation: ConversationId,
+) -> Result<Hold> {
+    let (held, first) = conversation::table
+        .find(conversation)
+        .select((conversation::held, conversation::runs_first))
+        .first::<(bool, Option<String>)>(db)?;
+    Ok(Hold { held, first })
+}
+
+/// What `conversation` is owed, in order: its kept writes and
+/// compactions, and one turn at a time. With no turn open and no
+/// hold, that is the next kept input a turn answers, a chief's first;
+/// with an open turn and `resend` [`Resend::Unended`], it is the one
+/// admitted whose end was not heard, so its runtime answers it again.
+/// `sent` says which kept inputs are on their way, one of which holds
+/// the next back as an open turn does.
 pub(crate) fn owed(
     db: &mut Db,
     conversation: ConversationId,
     resend: Resend,
+    sent: impl Fn(&str) -> bool,
 ) -> Result<Vec<Input>> {
+    let hold = hold_of(db, conversation)?;
     let rows = input::table
         .filter(input::conversation.eq(conversation))
         .filter(input::state.ne(State::Dropped))
         .order(input::ordinal)
         .select(Input::as_select())
         .load::<Input>(db)?;
-    Ok(rows
-        .into_iter()
-        .filter(|row| match row.state {
-            State::Kept => true,
-            State::Admitted => {
-                resend == Resend::Unended && !row.is_ended()
-            }
-            State::Dropped => false,
+    let open = rows
+        .iter()
+        .filter(|row| {
+            row.is_turn()
+                && row.state == State::Admitted
+                && !row.is_ended()
         })
-        .collect())
+        .cloned()
+        .collect::<Vec<_>>();
+    let mut owed = rows
+        .iter()
+        .filter(|row| row.state == State::Kept && !row.is_turn())
+        .cloned()
+        .collect::<Vec<_>>();
+    let waiting = rows
+        .iter()
+        .filter(|row| row.state == State::Kept && row.is_turn())
+        .collect::<Vec<_>>();
+    if !open.is_empty() {
+        if resend == Resend::Unended {
+            owed.extend(open);
+        }
+    } else if let Some(on_way) =
+        waiting.iter().find(|row| sent(&row.request))
+    {
+        owed.push((*on_way).clone());
+    } else if !hold.held
+        && let Some(next) =
+            in_turn_order(waiting, hold.first.as_deref()).first()
+    {
+        owed.push((*next).clone());
+    }
+    owed.sort_by_key(|row| row.ordinal);
+    Ok(owed)
+}
+
+/// `waiting` in the order their turns run: `first`, then a chief's,
+/// then the rest as they came.
+fn in_turn_order<'a>(
+    mut waiting: Vec<&'a Input>,
+    first: Option<&str>,
+) -> Vec<&'a Input> {
+    waiting.sort_by_key(|row| {
+        (
+            Some(row.request.as_str()) != first,
+            !row.kind.is_first(),
+            row.ordinal,
+        )
+    });
+    waiting
+}
+
+/// The inputs of `conversation` that wait for a turn to take them
+/// up, in the order their turns run.
+pub(crate) fn queued(
+    db: &mut Db,
+    conversation: ConversationId,
+) -> Result<Vec<Input>> {
+    let first = hold_of(db, conversation)?.first;
+    let rows = input::table
+        .filter(input::conversation.eq(conversation))
+        .filter(input::state.ne(State::Dropped))
+        .filter(
+            input::status
+                .is_null()
+                .or(input::status.eq(Status::Queued)),
+        )
+        .order(input::ordinal)
+        .select(Input::as_select())
+        .load::<Input>(db)?;
+    Ok(in_turn_order(
+        rows.iter().filter(|row| row.is_turn()).collect(),
+        first.as_deref(),
+    )
+    .into_iter()
+    .cloned()
+    .collect())
+}
+
+/// Takes the kept input `request` out of its queue, never to be
+/// sent.
+pub(crate) fn withdraw(
+    db: &mut Db,
+    conversation: ConversationId,
+    request: &str,
+) -> Result<()> {
+    diesel::update(
+        input::table
+            .find((conversation, request))
+            .filter(input::state.eq(State::Kept)),
+    )
+    .set(input::state.eq(State::Dropped))
+    .execute(db)?;
+    Ok(())
+}
+
+/// Whether `conversation` runs a turn now: an input sent to its
+/// runtime with no end heard.
+pub(crate) fn is_running(
+    db: &mut Db,
+    conversation: ConversationId,
+) -> Result<bool> {
+    Ok(input::table
+        .filter(input::conversation.eq(conversation))
+        .filter(input::state.eq(State::Admitted))
+        .filter(input::kind.ne_all(NOT_TURNS))
+        .filter(
+            input::status.is_null().or(input::status
+                .ne(Status::Done)
+                .and(input::status.ne(Status::Unanswered))),
+        )
+        .count()
+        .get_result::<i64>(db)?
+        > 0)
 }
 
 /// Keeps what its runtime said of an input it admitted. Returns
@@ -366,7 +531,7 @@ fn open(
     Ok(input::table
         .filter(input::conversation.eq_any(conversations))
         .filter(input::state.ne(State::Dropped))
-        .filter(input::kind.ne(InputKind::Notice))
+        .filter(input::kind.ne_all(NOT_TURNS))
         .filter(
             input::status.is_null().or(input::status
                 .ne(Status::Done)

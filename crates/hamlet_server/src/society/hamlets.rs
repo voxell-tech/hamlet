@@ -19,7 +19,7 @@ use strum::{Display, EnumString, IntoStaticStr};
 
 use super::agents::{self, EndHow};
 use super::city;
-use super::hires::{self, Hired, Hiring, Spec};
+use super::hires::{self, Hired, Hiring, LastDream, Spec};
 use super::limits::Limits;
 use super::names::{check_name, new_hamlet_id};
 use super::record::{self, Decision, DecisionKind};
@@ -308,6 +308,17 @@ pub(crate) fn set_folder(
     Ok(Ok(()))
 }
 
+/// Refuses `folder` unless it is a folder on this machine.
+pub(crate) fn check_folder(folder: &str) -> Result<(), Refusal> {
+    if std::path::Path::new(folder).is_dir() {
+        Ok(())
+    } else {
+        Err(Refusal::NoFile {
+            path: folder.into(),
+        })
+    }
+}
+
 /// The folders `id` worked on, the latest first.
 pub(crate) fn folders(
     db: &mut Db,
@@ -365,7 +376,13 @@ pub(crate) fn remove(
 ) -> Done<()> {
     done!(living(cx.db, id));
     for hire in hires::living_in(cx.db, id)? {
-        done!(hires::end(cx, hire.agent, EndHow::Hamlet, reason));
+        done!(hires::end(
+            cx,
+            hire.agent,
+            EndHow::Hamlet,
+            LastDream::Without,
+            reason,
+        ));
     }
     diesel::update(hamlet::table.find(id))
         .set((

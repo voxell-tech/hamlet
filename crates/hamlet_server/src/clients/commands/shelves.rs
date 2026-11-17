@@ -38,10 +38,19 @@ impl Core<'_, '_> {
         let [skill, reason @ ..] = words else {
             return Ok(Err(self.deeds.usage("unshelve")));
         };
-        let reason = reason.join(" ");
-        let chief = self.realm.chief();
+        let by = Actor::Chief(self.realm.chief());
+        self.unshelve_skill(by, skill, &reason.join(" "))
+    }
+
+    /// Takes `skill` off the library's shelves, as `by` asks.
+    pub(crate) fn unshelve_skill(
+        &mut self,
+        by: Actor,
+        skill: &str,
+        reason: &str,
+    ) -> Done<String> {
         let layout = self.realm.layout().clone();
-        let by = Actor::Chief(chief).to_string();
+        let author = by.to_string();
         let at = crate::app::clock::now();
         let message = if reason.is_empty() {
             format!("Took {skill} off the shelves")
@@ -51,12 +60,15 @@ impl Core<'_, '_> {
         let writing = self.writing.clone();
         let held = writing.hold();
         let unshelved =
-            library::unshelve(&layout, skill, &message, &by, at)?;
+            library::unshelve(&layout, skill, &message, &author, at)?;
         drop(held);
         let Some(commit) = unshelved else {
-            return Ok(Err(Refusal::NoSkill {
-                name: (*skill).into(),
-            }));
+            return Ok(Err(Refusal::NoSkill { name: skill.into() }));
+        };
+        let (agent, chief) = match by {
+            Actor::Agent(agent) => (Some(agent), None),
+            Actor::Chief(chief) => (None, Some(chief)),
+            Actor::Realm => (None, None),
         };
         let db = self.realm.store().connection();
         shelf::event(
@@ -65,10 +77,9 @@ impl Core<'_, '_> {
             Event {
                 kind: EventKind::Unshelved,
                 skill,
-                agent: None,
-                chief: Some(chief),
-                reason: (!reason.is_empty())
-                    .then_some(reason.as_str()),
+                agent,
+                chief,
+                reason: (!reason.is_empty()).then_some(reason),
                 commit: Some(&commit.to_string()),
             },
         )?;

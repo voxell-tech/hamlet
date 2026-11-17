@@ -26,19 +26,19 @@ use bevy_fynix::views::{
     BehaviorExt, FrameProps, button, column, row,
 };
 use bevy_fynix::{
-    ReducedMotion, ScopedExt, Signal, ViewExt, Visual, each,
-    resource, style,
+    Prop, ReducedMotion, ScopedExt, Signal, ViewExt, Visual, derived,
+    each, every_frame, resource, style,
 };
 use hamlet_client::messages::{Answer, Response, ServerFault};
 use hamlet_client::outbox::{Outbox, RequestId};
 use hamlet_client::realm::{
-    Departure, Faulted, Kind, Left, LivesIn, Scholar, Seen, Shown,
-    name_of,
+    Departure, Faulted, Kind, Left, LivesIn, Mayor, Scholar, Seen,
+    Shown, name_of,
 };
-use hamlet_client::waits::{RaisedBy, Waiting};
+use hamlet_client::waits::{Choice, RaisedBy, Waiting};
 use hamlet_protocol::client::{
     AgentKind, Arrival, ClientMessage, LeftHow, ReplyKind, ScholarId,
-    ServerMessage, WaitDetail,
+    ServerMessage, Setup, SetupCause, WaitDetail,
 };
 use hamlet_ui::styles::{
     ICON, action, buttons, card_name, close_button, note, quoted,
@@ -50,6 +50,7 @@ use hamlet_ui::{AnyView, Cx, View, kinds, rules, with_cx};
 
 use crate::convo::Convo;
 use crate::hub::Showing;
+use crate::models::model_title;
 use crate::screens::petition::{Need, answers};
 use crate::standing::Standing;
 use crate::updates::{self, Offer, Ready};
@@ -58,12 +59,12 @@ use crate::{PanelSystems, chat};
 /// The most toasts kept at once.
 const MOST: usize = 5;
 
-/// The older toasts whose edges show behind the newest while the
-/// stack is closed.
+/// The older toasts kept folded behind the newest while the stack is
+/// closed.
 const FOLDED: usize = 2;
 
-/// The strip of a folded toast that shows above the one in front of
-/// it, and its narrowing on each side.
+/// The narrowing of a folded toast on each side for each toast in
+/// front of it, and with its corner the least it folds to.
 const EDGE: f32 = 6.0;
 
 /// Seconds a toast stays before it begins to fade.
@@ -107,8 +108,7 @@ pub struct Toasts {
 enum Place {
     /// In full: the newest, or any while the stack is open.
     Whole,
-    /// Folded behind the newest, this many toasts back, only its
-    /// edge showing.
+    /// Folded behind the newest, this many toasts back.
     Folded(usize),
     /// Too far back to show while the stack is closed.
     Hidden,
@@ -117,7 +117,7 @@ enum Place {
 /// A toast's progress towards its [`Place`], which it eases along.
 #[derive(Clone, Copy, PartialEq, Debug)]
 struct Pose {
-    /// 0 in full, 1 folded to its edge.
+    /// 0 in full, 1 folded away.
     fold: f32,
     /// The number of toasts in front of it, each narrowing it.
     back: f32,
@@ -166,6 +166,9 @@ struct Toast {
 enum What {
     /// A new wait, with the answers it takes.
     Petition(Entity),
+    /// The open faults of one cause a chief sets up once, told as
+    /// one.
+    Setup { setup: Setup, waits: Vec<Entity> },
     /// Something that happened, which nothing answers.
     Notice {
         kind: StatusKind,
@@ -216,6 +219,32 @@ impl Toasts {
                 })
                 .unwrap_or(0);
             self.shown.remove(oldest);
+        }
+    }
+
+    /// Tells of the fault `wait` of `setup` with the others of its
+    /// cause, in one toast.
+    fn gather(&mut self, setup: Setup, wait: Entity, now: f32) {
+        let told = self.shown.iter_mut().find(|toast| {
+            matches!(&toast.what, What::Setup { setup: shown, .. }
+                if *shown == setup)
+        });
+        match told {
+            Some(toast) => {
+                if let What::Setup { waits, .. } = &mut toast.what
+                    && !waits.contains(&wait)
+                {
+                    waits.push(wait);
+                }
+                toast.until = toast.until.max(now + STAYS);
+            }
+            None => self.push(
+                What::Setup {
+                    setup,
+                    waits: vec![wait],
+                },
+                now,
+            ),
         }
     }
 
@@ -288,7 +317,14 @@ fn raise(
     }
     let now = time.elapsed_secs();
     for entity in &waits {
-        toasts.push(What::Petition(entity), now);
+        match waiting
+            .get(entity)
+            .ok()
+            .and_then(|(wait, _)| setup_of(wait))
+        {
+            Some(setup) => toasts.gather(setup.clone(), entity, now),
+            None => toasts.push(What::Petition(entity), now),
+        }
     }
     for (name, shown, kind, departure) in &answered {
         let name = shown.map_or(name.as_str(), |shown| &shown.0);
@@ -310,7 +346,7 @@ fn raise(
         // A fault the chief is asked about is a petition already.
         let asked = waiting.iter().any(|(wait, by)| {
             by.is_some_and(|by| by.0 == agent)
-                && matches!(wait.detail, WaitDetail::Fault {})
+                && matches!(wait.detail, WaitDetail::Fault { .. })
         });
         if !asked {
             toasts.push(
@@ -322,6 +358,15 @@ fn raise(
                 now,
             );
         }
+    }
+}
+
+/// The cause of `wait` a chief sets up once, when it is a fault of
+/// one.
+fn setup_of(wait: &Waiting) -> Option<&Setup> {
+    match &wait.detail {
+        WaitDetail::Fault { setup } => setup.as_ref(),
+        _ => None,
     }
 }
 
@@ -478,6 +523,9 @@ fn keep(
         }
         toast.opacity =
             ((toast.until + FADES - now) / FADES).clamp(0.0, 1.0);
+        if let What::Setup { waits, .. } = &mut toast.what {
+            waits.retain(|wait| waiting.contains(*wait));
+        }
     }
     next.retain(|toast| {
         toast.opacity > 0.0
@@ -488,6 +536,7 @@ fn keep(
                         by.is_none_or(|by| Some(by.0) != chatting)
                     })
                 }
+                What::Setup { waits, .. } => !waits.is_empty(),
                 What::Notice { .. }
                 | What::Verdict { .. }
                 | What::Update(_) => true,
@@ -571,7 +620,7 @@ pub fn stack() -> impl View {
                 |toast: &Toast| toast.id,
                 card,
             )
-            .within(column(()).gap(space.gap)),
+            .within(column(())),
         ))
         .gap(space.gap)
         .width(px(WIDTH))
@@ -580,8 +629,9 @@ pub fn stack() -> impl View {
             left: px(space.panel + space.gap),
             top: Val::Auto,
             right: Val::Auto,
-            // The status bar is less high than the menu bar.
-            bottom: px(space.bar + space.gap),
+            // The status bar is less high than the menu bar. The gap
+            // above it is the newest card's own.
+            bottom: px(space.bar),
         })
         .with(Hovered::default())
         .with(Pile)
@@ -651,7 +701,7 @@ fn card(toast: &Toast) -> AnyView {
                 };
                 let need = Need::of(*wait, waiting);
                 let kind = match need.detail {
-                    WaitDetail::Fault {} => StatusKind::Danger,
+                    WaitDetail::Fault { .. } => StatusKind::Danger,
                     _ => Standing::Waits.kind(),
                 };
                 let from = origin(cx.world, &need, &waiting.by);
@@ -659,11 +709,53 @@ fn card(toast: &Toast) -> AnyView {
                 (
                     // The bell of NEEDS YOU.
                     Standing::Waits.glyph(),
-                    need.shown.clone(),
+                    Prop::from(need.shown.clone()),
                     from,
                     kind,
                     said(&need).to_string(),
                     answers,
+                )
+            }
+            What::Setup { setup, .. } => {
+                let head = derived(move |world: &World| {
+                    setup_head(world, id)
+                })
+                .when(every_frame());
+                let line = match (setup.cause, setup.model.is_empty())
+                {
+                    (SetupCause::Model, true) => {
+                        "No model is set up yet.".to_string()
+                    }
+                    (SetupCause::Model, false) => {
+                        "It is not set up, or not available. Set it \
+                         up once for all of them."
+                            .to_string()
+                    }
+                    (SetupCause::Credentials, _) => {
+                        "Its provider refused the sign-in. Sign in \
+                         again once for all of them."
+                            .to_string()
+                    }
+                };
+                let buttons = buttons(vec![
+                    action(Glyph::Chip, "Set Up Models", |world| {
+                        crate::welcome::again(world);
+                    }),
+                    action(
+                        Glyph::Cross,
+                        "Dismiss All",
+                        move |world| {
+                            dismiss_group(world, id);
+                        },
+                    ),
+                ]);
+                (
+                    Glyph::Chip,
+                    head.into(),
+                    String::new(),
+                    StatusKind::Danger,
+                    line,
+                    buttons.boxed(),
                 )
             }
             What::Notice { kind, head, line } => (
@@ -671,7 +763,7 @@ fn card(toast: &Toast) -> AnyView {
                     StatusKind::Success => Glyph::Check,
                     _ => Glyph::Stop,
                 },
-                head.clone(),
+                Prop::from(head.clone()),
                 String::new(),
                 *kind,
                 line.clone(),
@@ -698,7 +790,7 @@ fn card(toast: &Toast) -> AnyView {
                 };
                 (
                     Glyph::Tower,
-                    head.into(),
+                    Prop::from(head.to_string()),
                     String::new(),
                     kind,
                     line,
@@ -734,7 +826,7 @@ fn card(toast: &Toast) -> AnyView {
                 });
                 (
                     Glyph::Hamlet,
-                    format!("Hamlet {version} is out"),
+                    Prop::from(format!("Hamlet {version} is out")),
                     String::new(),
                     StatusKind::Info,
                     line,
@@ -781,11 +873,16 @@ fn card(toast: &Toast) -> AnyView {
         let (gap, round) = (space.gap, space.soft);
         let (border, padding_y) =
             (space.border, space.card_padding_y);
-        // Folded, a card is a strip under the bottom of the one in
-        // front of it, its round corners hidden there, narrower the
-        // further back it is. A card is never shorter than its
-        // padding and edge.
+        // Folded, a card is a strip behind the top of the one in
+        // front of it, narrower the further back it is. A card is
+        // never shorter than its padding and edge.
         let strip = (EDGE + round).max(2.0 * (padding_y + border));
+        // Its height in full, once what it says is laid out.
+        let whole = move |tall: Option<f32>| {
+            tall.map_or(strip, |tall| {
+                tall + 2.0 * (padding_y + border)
+            })
+        };
         let card = kinds::card((inside,))
             .status(kind)
             .overflow(Overflow::clip())
@@ -801,30 +898,39 @@ fn card(toast: &Toast) -> AnyView {
                     Display::None
                 }
             }))
-            .height(posed(id, move |pose, tall| match tall {
+            .height(posed(id, move |pose, tall| {
                 // In full it takes the height of what it says.
-                _ if pose.fold == 0.0 => Val::Auto,
-                Some(tall) => {
-                    let whole = tall + 2.0 * (padding_y + border);
-                    px(whole + (strip - whole) * pose.fold)
+                if pose.fold == 0.0 {
+                    return Val::Auto;
                 }
-                None => px(strip),
+                let whole = whole(tall);
+                px(whole + (strip - whole) * pose.fold)
             }))
-            .margin(posed(id, move |pose, _| {
-                let aside = EDGE * pose.back * pose.fold;
-                UiRect {
-                    left: px(aside),
-                    right: px(aside),
-                    top: px(0.0),
-                    // Folded, it takes no room: it lies behind the
-                    // one in front, so the stack never moves as it
-                    // grows.
-                    bottom: px(-(gap + strip) * pose.fold),
-                }
+            .margin(posed(id, |pose, _| {
+                UiRect::horizontal(px(EDGE * pose.back * pose.fold))
             }))
+            .shrink(0.0)
             .tagged(shadow)
             .rules(rules::floating);
-        cx.build(card)
+        // The room the card takes in the stack, and the gap under it:
+        // all of it in full and none folded, so that a folded card
+        // overflows its room to lie behind the one in front and the
+        // stack never moves as it grows. A negative margin would not
+        // do: a column sizing itself counts each child as no less
+        // than its padding and edge.
+        let room = column((card,))
+            .shrink(0.0)
+            .height(posed(id, move |pose, tall| {
+                if pose.fold == 0.0 {
+                    return Val::Auto;
+                }
+                px((whole(tall) + gap) * (1.0 - pose.fold))
+            }))
+            .padding(posed(id, move |pose, _| UiRect {
+                bottom: px(gap * (1.0 - pose.fold)),
+                ..UiRect::ZERO
+            }));
+        cx.build(room)
     })
 }
 
@@ -885,6 +991,58 @@ fn fading(id: u64) -> impl FnOnce(&mut Cx) + Send + Sync + 'static {
             }))
         });
     }
+}
+
+/// The head of the setup toast `id`: who cannot work, and the model
+/// they cannot use, as "5 mayors can't use Claude Sonnet 5.5".
+fn setup_head(world: &World, id: u64) -> String {
+    let Some(What::Setup { setup, waits }) = world
+        .get_resource::<Toasts>()
+        .and_then(|toasts| toasts.get(id))
+        .map(|toast| &toast.what)
+    else {
+        return String::new();
+    };
+    let agents = waits
+        .iter()
+        .filter_map(|wait| world.get::<RaisedBy>(*wait))
+        .map(|by| by.0)
+        .collect::<Vec<_>>();
+    let who = match agents.as_slice() {
+        [one] => hamlet_client::realm::shown_of(world, *one),
+        all if all
+            .iter()
+            .all(|agent| world.get::<Mayor>(*agent).is_some()) =>
+        {
+            format!("{} mayors", all.len())
+        }
+        all => format!("{} agents", all.len()),
+    };
+    if setup.model.is_empty() {
+        let has = if agents.len() == 1 { "has" } else { "have" };
+        return format!("{who} {has} no model");
+    }
+    format!("{who} can't use {}", model_title(world, &setup.model))
+}
+
+/// Answers every fault of the setup toast `id` with Dismiss, and
+/// takes the toast away.
+fn dismiss_group(world: &mut World, id: u64) {
+    let waits = match world.resource::<Toasts>().get(id) {
+        Some(Toast {
+            what: What::Setup { waits, .. },
+            ..
+        }) => waits.clone(),
+        _ => Vec::new(),
+    };
+    for wait in waits {
+        world.trigger(Answer {
+            wait,
+            choice: Choice::Dismiss,
+            text: None,
+        });
+    }
+    dismiss(world, id);
 }
 
 /// Takes every toast away. Petitions stay among the waits, and a
@@ -1000,6 +1158,65 @@ mod tests {
             });
         assert!(allowed);
         assert!(app.world().resource::<Toasts>().shown.is_empty());
+    }
+
+    #[test]
+    fn faults_of_one_setup_cause_toast_once_and_are_dismissed_together()
+     {
+        let mut app = panel_app();
+        app.add_plugins(plugin);
+        let mut state = hamlet_testing::realm::state();
+        state.hamlets.push(hamlet_testing::realm::hamlet("far", 3));
+        state
+            .agents
+            .push(hamlet_testing::realm::agent(3, "far", true));
+        hamlet_client::receive(
+            app.world_mut(),
+            ServerMessage::State(state.clone()),
+        );
+        app.update();
+        let fault = |id: &str, agent: u64| {
+            let mut wait = hamlet_testing::realm::wait(id);
+            wait.agent = Some(protocol::AgentId(agent));
+            wait.answers = vec![Choice::Dismiss];
+            wait.detail = WaitDetail::Fault {
+                setup: Some(Setup {
+                    cause: SetupCause::Model,
+                    model: "claude::claude-sonnet-5-5".into(),
+                }),
+            };
+            wait
+        };
+        state.revision += 1;
+        state.waits.extend([fault("a", 2), fault("b", 3)]);
+        hamlet_client::receive(
+            app.world_mut(),
+            ServerMessage::State(state),
+        );
+        app.update();
+        bevy_fynix::mount::<HamletTheme>(app.world_mut(), stack());
+        app.update();
+        app.update();
+        assert_eq!(app.world().resource::<Toasts>().shown.len(), 1);
+        let shown = words(&mut app);
+        assert!(
+            shown
+                .iter()
+                .any(|text| text
+                    == "2 mayors can't use claude-sonnet-5-5"),
+            "{shown:?}"
+        );
+        press(&mut app, "Dismiss All");
+        let dismissed = app
+            .world()
+            .resource::<Outbox>()
+            .iter()
+            .filter(|message| {
+                matches!(message, ClientMessage::Answer(answer)
+                    if answer.choice == Choice::Dismiss)
+            })
+            .count();
+        assert_eq!(dismissed, 2);
     }
 
     #[test]

@@ -1,22 +1,35 @@
-//! The dreams of agents: one dream at a time, while dreams are on and
-//! in the chief's hours, or when a chief calls for one with `/dream`.
-//! A hire dreams once it learned something its scholar lacks, an
-//! ended hire once more, and a scholar at most once a day to tidy its
-//! `main`.
+//! When agents dream, one at a time. A dream asked for starts in its
+//! turn whatever the settings say, and so does the last dream of a
+//! hire ended with one. While dreams are on and in the chief's hours,
+//! a hire dreams once it learned something its scholar lacks, and a
+//! scholar at most once a day to tidy its `main`.
+
+use std::collections::BTreeSet;
 
 use anyhow::Result;
+use bevy_app::Startup;
+use bevy_ecs::message::{Message, Messages};
+use bevy_ecs::resource::Resource;
+use bevy_ecs::system::ResMut;
+use bevy_log::error;
 use chrono::Timelike;
-use hamlet_git::{MAIN, Repository};
+use hamlet_store::Db;
 use hamlet_store::ids::{Actor, AgentId, DreamId, ScholarId};
 
+use crate::app::input::AddHandler;
 use crate::app::timers::AddTimer;
 use crate::conversations::inputs::{self, InputKind, Keep};
 use crate::conversations::marks::Mark;
 use crate::conversations::tasks::{self, Origin};
 use crate::conversations::{self, Begin, Kind, models};
 use crate::core::Core;
+use crate::realm::Realm;
 use crate::realm::change::Done;
-use crate::society::dreams::{self, DreamKind, Outcome};
+use crate::realm::layout::Layout;
+use crate::realm::settings::Dreams;
+use crate::society::dreams::{
+    self, Asked, Dream, DreamKind, Outcome,
+};
 use crate::society::refusal::Refusal;
 use crate::society::{addresses, agents, city, hand, hires};
 use crate::{knowledge, runtimes};
@@ -31,12 +44,70 @@ const ENDING_WINDOW: i64 = 24 * 3_600_000;
 const DREAM_CHECK: std::time::Duration =
     std::time::Duration::from_secs(60);
 
+/// A look for a due dream every [`DREAM_CHECK`], and another once a
+/// dream ended; what the hires learned, found at the start.
 pub(crate) fn plugin(app: &mut bevy_app::App) {
-    app.add_every(DREAM_CHECK, dream_tick);
+    app.init_resource::<Learned>()
+        .add_systems(Startup, note_learned)
+        .add_handler::<DreamEnded, _>(start_next_dream)
+        .add_every(DREAM_CHECK, dream_tick);
 }
 
 fn dream_tick(mut core: Core) -> Result<()> {
     core.dream_tick()
+}
+
+/// A dream ended, so the next one waiting may begin.
+#[derive(Message)]
+pub(crate) struct DreamEnded;
+
+fn start_next_dream(
+    mut ended: ResMut<Messages<DreamEnded>>,
+    mut core: Core,
+) -> bevy_ecs::error::Result {
+    ended.clear();
+    core.dream_tick()?;
+    Ok(())
+}
+
+/// The living hires whose branch holds what they learned that no
+/// dream took home yet, as the clients are shown.
+#[derive(Resource, Default)]
+pub(crate) struct Learned(pub BTreeSet<AgentId>);
+
+impl Learned {
+    /// Finds them again.
+    pub fn note(&mut self, db: &mut Db, layout: &Layout) {
+        match find_learned(db, layout) {
+            Ok(learned) => self.0 = learned,
+            Err(error) => {
+                error!("finding what hires learned: {error:#}");
+            }
+        }
+    }
+}
+
+fn note_learned(
+    mut realm: ResMut<Realm>,
+    mut learned: ResMut<Learned>,
+) {
+    let layout = realm.layout().clone();
+    learned.note(realm.store().connection(), &layout);
+}
+
+fn find_learned(
+    db: &mut Db,
+    layout: &Layout,
+) -> Result<BTreeSet<AgentId>> {
+    let mut learned = BTreeSet::new();
+    for agent in agents::all_hires(db)? {
+        if agents::get(db, agent)?.is_living()
+            && knowledge::dreams::has_learned(db, layout, agent)?
+        {
+            learned.insert(agent);
+        }
+    }
+    Ok(learned)
 }
 
 /// A hire or a scholar that dreams.
@@ -46,101 +117,145 @@ pub(crate) enum Dreamer {
     Scholar(ScholarId),
 }
 
-impl Core<'_, '_> {
-    /// Starts a dream when one is due.
-    pub(crate) fn dream_tick(&mut self) -> Result<()> {
-        let dreams = &self.env.settings.dreams;
-        if !dreams.on {
-            return Ok(());
+impl Dreamer {
+    fn asked(self) -> Asked {
+        match self {
+            Self::Hire { hire, .. } => Asked::Hire(hire),
+            Self::Scholar(scholar) => Asked::Scholar(scholar),
         }
-        let hour =
-            crate::app::clock::local(crate::app::clock::now())?
-                .hour();
-        let (from, to) =
-            (u32::from(dreams.hours.0), u32::from(dreams.hours.1));
-        let in_hours = if from <= to {
-            (from..to).contains(&hour)
-        } else {
-            hour >= from || hour < to
+    }
+
+    /// Whether `dream` is this one's.
+    fn is_of(self, dream: &Dream) -> bool {
+        match self {
+            Self::Hire { hire, .. } => dream.hire == Some(hire),
+            Self::Scholar(scholar) => {
+                dream.kind == DreamKind::Scholar
+                    && dream.scholar == scholar
+            }
+        }
+    }
+}
+
+/// The dream to start next, when none is running: one asked for, then
+/// the last dream of a hire ended with one, then, while dreams are on
+/// and in their hours, the dreamer most due. What was asked of a
+/// dreamer that is gone is let go.
+pub(crate) fn next(
+    db: &mut Db,
+    layout: &Layout,
+    settings: &Dreams,
+    now: i64,
+) -> Result<Option<Dreamer>> {
+    if dreams::running(db)?.is_some() {
+        return Ok(None);
+    }
+    for asked in dreams::asked(db)? {
+        let dreamer = match asked {
+            Asked::Hire(hire) => {
+                let found = agents::get(db, hire)?;
+                (!found.erased).then_some(Dreamer::Hire {
+                    hire,
+                    ending: !found.is_living(),
+                })
+            }
+            Asked::Scholar(scholar) => city::living(db, scholar)?
+                .map(|_| Dreamer::Scholar(scholar)),
         };
-        if !in_hours {
-            return Ok(());
+        match dreamer {
+            Some(dreamer) => return Ok(Some(dreamer)),
+            None => dreams::forget(db, asked)?,
         }
-        let db = self.realm.store().connection();
-        if dreams::running(db)?.is_some() {
-            return Ok(());
-        }
-        if let Some(dreamer) = self.due()? {
-            self.dream(dreamer)?;
-        }
-        Ok(())
     }
+    for (hire, ended) in
+        hires::ended_to_dream(db, now - ENDING_WINDOW)?
+    {
+        let dreamt = dreams::last_of_hire(db, hire)?
+            .is_some_and(|d| d.ending && d.began >= ended);
+        if !dreamt {
+            return Ok(Some(Dreamer::Hire { hire, ending: true }));
+        }
+    }
+    if !settings.on || !in_hours(settings.hours, now)? {
+        return Ok(None);
+    }
+    due(db, layout, now)
+}
 
-    /// The dreamer most due, if one is.
-    fn due(&mut self) -> Result<Option<Dreamer>> {
+/// Whether `now` falls in the local `hours`, from and to.
+fn in_hours(hours: (u8, u8), now: i64) -> Result<bool> {
+    let hour = crate::app::clock::local(now)?.hour();
+    let (from, to) = (u32::from(hours.0), u32::from(hours.1));
+    Ok(if from <= to {
+        (from..to).contains(&hour)
+    } else {
+        hour >= from || hour < to
+    })
+}
+
+/// The living hire or the scholar most due a dream, if one is.
+fn due(
+    db: &mut Db,
+    layout: &Layout,
+    now: i64,
+) -> Result<Option<Dreamer>> {
+    for agent in agents::all_hires(db)? {
+        if !agents::get(db, agent)?.is_living()
+            || inputs::is_agent_busy(db, agent)?
+        {
+            continue;
+        }
+        let rested = dreams::last_of_hire(db, agent)?
+            .is_none_or(|d| now - d.began >= HIRE_REST);
+        if rested
+            && knowledge::dreams::has_learned(db, layout, agent)?
+        {
+            return Ok(Some(Dreamer::Hire {
+                hire: agent,
+                ending: false,
+            }));
+        }
+    }
+    for scholar in city::all(db)? {
+        if !scholar.is_living() || !scholar.planted {
+            continue;
+        }
+        let rested = dreams::last_of_scholar(db, scholar.id)?
+            .is_none_or(|d| now - d.began >= SCHOLAR_REST);
+        let has_hires = !hires::living_of(db, scholar.id)?.is_empty();
+        if rested && has_hires {
+            return Ok(Some(Dreamer::Scholar(scholar.id)));
+        }
+    }
+    Ok(None)
+}
+
+impl Core<'_, '_> {
+    /// Starts the next dream, when none is running.
+    pub(crate) fn dream_tick(&mut self) -> Result<()> {
         let layout = self.realm.layout().clone();
-        let now = crate::app::clock::now();
-        let db = self.realm.store().connection();
-        for agent in agents::all_hires(db)? {
-            let found = agents::get(db, agent)?;
-            if found.erased || inputs::is_agent_busy(db, agent)? {
-                continue;
-            }
-            let ending = match found.ended_at {
-                None => false,
-                Some(at) if now - at < ENDING_WINDOW => true,
-                Some(_) => continue,
-            };
-            let last = dreams::last_of_hire(db, agent)?;
-            if ending && last.as_ref().is_some_and(|d| d.ending) {
-                continue;
-            }
-            if !ending
-                && last
-                    .as_ref()
-                    .is_some_and(|d| now - d.began < HIRE_REST)
-            {
-                continue;
-            }
-            let hire = hires::get(db, agent)?;
-            let Ok(repository) =
-                Repository::open(&layout.repository(hire.scholar))
+        let settings = self.env.settings.dreams.clone();
+        let mut tried = Vec::new();
+        loop {
+            let db = self.realm.store().connection();
+            let now = crate::app::clock::now();
+            let Some(dreamer) = next(db, &layout, &settings, now)?
             else {
-                continue;
+                return Ok(());
             };
-            let (Some(tip), Some(main)) = (
-                repository.tip(&knowledge::branch(agent))?,
-                repository.tip(MAIN)?,
-            ) else {
-                continue;
-            };
-            let dreamt = last.and_then(|d| d.branch_commit)
-                == Some(tip.to_string());
-            if !dreamt
-                && repository.merge_base(tip, main)? != Some(tip)
-            {
-                return Ok(Some(Dreamer::Hire {
-                    hire: agent,
-                    ending,
-                }));
+            // One with nothing to dream about ends at once, and the
+            // next takes its turn.
+            if tried.contains(&dreamer) {
+                return Ok(());
+            }
+            tried.push(dreamer);
+            if self.dream(dreamer)?.is_some() {
+                return Ok(());
             }
         }
-        for scholar in city::all(db)? {
-            if !scholar.is_living() || !scholar.planted {
-                continue;
-            }
-            let rested = dreams::last_of_scholar(db, scholar.id)?
-                .is_none_or(|d| now - d.began >= SCHOLAR_REST);
-            let has_hires =
-                !hires::living_of(db, scholar.id)?.is_empty();
-            if rested && has_hires {
-                return Ok(Some(Dreamer::Scholar(scholar.id)));
-            }
-        }
-        Ok(None)
     }
 
-    /// `/dream <scholar#id|address>`: dreams now, outside the hours.
+    /// `/dream <scholar#id|address>`: dreams now, or in its turn.
     pub(crate) fn dream_command(
         &mut self,
         here: Option<&hamlet_store::ids::HamletId>,
@@ -149,51 +264,121 @@ impl Core<'_, '_> {
         let [target] = words else {
             return Ok(Err(Refusal::DreamUsage));
         };
-        let db = self.realm.store().connection();
-        if dreams::running(db)?.is_some() {
-            return Ok(Err(Refusal::DreamRunning));
+        let dreamer = match self.dreamer(here, target)? {
+            Ok(dreamer) => dreamer,
+            Err(refusal) => return Ok(Err(refusal)),
+        };
+        if let Dreamer::Hire { hire, .. } = dreamer
+            && let Err(refusal) = self.leads(hire)?
+        {
+            return Ok(Err(refusal));
         }
-        let dreamer = if target.starts_with("scholar#") {
+        Ok(Ok(self.ask_dreams(dreamer)?))
+    }
+
+    /// What `target` names to dream, said in `here`: a living
+    /// scholar, or an agent living or ended.
+    pub(crate) fn dreamer(
+        &mut self,
+        here: Option<&hamlet_store::ids::HamletId>,
+        target: &str,
+    ) -> Done<Dreamer> {
+        let db = self.realm.store().connection();
+        if target.starts_with("scholar#") {
             let found = match addresses::parse_scholar(target) {
                 Ok(id) => city::living(db, id)?,
                 Err(refusal) => return Ok(Err(refusal)),
             };
-            match found {
-                Some(found) => Dreamer::Scholar(found.id),
-                None => {
-                    return Ok(Err(Refusal::NoScholar {
-                        address: (*target).into(),
-                    }));
+            return Ok(match found {
+                Some(found) => Ok(Dreamer::Scholar(found.id)),
+                None => Err(Refusal::NoScholar {
+                    address: target.into(),
+                }),
+            });
+        }
+        let address = match addresses::parse(target) {
+            Ok(address) => address,
+            Err(refusal) => return Ok(Err(refusal)),
+        };
+        let agent = match addresses::resolve(
+            db,
+            &address,
+            here,
+            addresses::Reach::Kept,
+        )? {
+            Ok(agent) => agent,
+            Err(refusal) => return Ok(Err(refusal)),
+        };
+        let ending = !agents::get(db, agent)?.is_living();
+        Ok(Ok(Dreamer::Hire {
+            hire: agent,
+            ending,
+        }))
+    }
+
+    /// Asks for the dream of `dreamer`, whatever the settings say,
+    /// and says how each asked fares. A scholar's own comes after
+    /// those of its living hires that learned what it lacks. Each
+    /// starts now when no dream runs, else in its turn.
+    pub(crate) fn ask_dreams(
+        &mut self,
+        dreamer: Dreamer,
+    ) -> Result<String> {
+        let layout = self.realm.layout().clone();
+        let db = self.realm.store().connection();
+        let mut dreamers = Vec::new();
+        if let Dreamer::Scholar(scholar) = dreamer {
+            for hire in hires::living_of(db, scholar)? {
+                if knowledge::dreams::has_learned(
+                    db, &layout, hire.agent,
+                )? {
+                    dreamers.push(Dreamer::Hire {
+                        hire: hire.agent,
+                        ending: false,
+                    });
                 }
             }
-        } else {
-            let address = match addresses::parse(target) {
-                Ok(address) => address,
-                Err(refusal) => return Ok(Err(refusal)),
+        }
+        dreamers.push(dreamer);
+        let now = crate::app::clock::now();
+        for dreamer in &dreamers {
+            dreams::ask(db, dreamer.asked(), now)?;
+        }
+        self.dream_tick()?;
+        let db = self.realm.store().connection();
+        let running = dreams::running(db)?;
+        let waiting = dreams::asked(db)?;
+        // One dream asked for is told without its dreamer's name.
+        let one = dreamers.len() == 1;
+        let mut words = Vec::new();
+        for dreamer in dreamers {
+            let label = match dreamer {
+                Dreamer::Hire { hire, .. } => {
+                    addresses::name_of(db, hire)?
+                }
+                Dreamer::Scholar(scholar) => {
+                    city::get(db, scholar)?.label()
+                }
             };
-            let agent = match addresses::resolve(
-                db,
-                &address,
-                here,
-                addresses::Reach::Kept,
-            )? {
-                Ok(agent) => agent,
-                Err(refusal) => return Ok(Err(refusal)),
+            let of = if one {
+                String::new()
+            } else {
+                format!(" of {label}")
             };
-            if let Err(refusal) = self.leads(agent)? {
-                return Ok(Err(refusal));
-            }
-            let db = self.realm.store().connection();
-            let ending = !agents::get(db, agent)?.is_living();
-            Dreamer::Hire {
-                hire: agent,
-                ending,
-            }
-        };
-        Ok(Ok(match self.dream(dreamer)? {
-            Some(_) => "The dream began.".into(),
-            None => "There is nothing to dream about.".into(),
-        }))
+            words.push(
+                if running.as_ref().is_some_and(|r| dreamer.is_of(r))
+                {
+                    format!("The dream{of} began.")
+                } else if waiting.contains(&dreamer.asked()) {
+                    format!("The dream{of} waits its turn.")
+                } else if one {
+                    "There is nothing to dream about.".to_owned()
+                } else {
+                    format!("{label} has nothing to dream about.")
+                },
+            );
+        }
+        Ok(words.join(" "))
     }
 
     /// Starts `dreamer`'s dream. `None` when there is nothing to
@@ -332,5 +517,128 @@ impl Core<'_, '_> {
             dreams::runs_in(cx.db, id, conversation, task)
         })?;
         Ok(Some(id))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use hamlet_store::ids::Actor;
+
+    use super::*;
+    use crate::society::agents::EndHow;
+    use crate::society::hires::{Hired, Hiring, LastDream, Spec};
+    use crate::testing::Realm;
+
+    /// Hires a blank agent named `name` under `mayor`.
+    fn hire(realm: &mut Realm, mayor: &Hired, name: &str) -> Hired {
+        let (owner, hamlet) = (realm.chief, mayor.hamlet.clone());
+        realm
+            .chief(|cx| {
+                hires::hire(
+                    cx,
+                    Spec {
+                        hamlet,
+                        parent: Some(mayor.agent),
+                        hiring: Hiring::Blank {
+                            name: name.into(),
+                            character: String::new(),
+                        },
+                        purpose: "Help".into(),
+                        reason: String::new(),
+                        owner,
+                    },
+                )
+            })
+            .unwrap()
+    }
+
+    #[test]
+    fn an_asked_dream_runs_with_dreams_off_and_outside_their_hours() {
+        let mut realm = Realm::new();
+        let mayor = realm.found("mill", "ada");
+        let (layout, now) = (realm.layout(), realm.at);
+        let hour = crate::app::clock::local(now).unwrap().hour();
+        let hour = u8::try_from(hour).unwrap();
+        let elsewhere = Dreams {
+            on: true,
+            hours: ((hour + 1) % 24, (hour + 2) % 24),
+            ..Dreams::default()
+        };
+        let settings = [Dreams::default(), elsewhere];
+        for dreams in &settings {
+            assert_eq!(
+                next(realm.db(), &layout, dreams, now).unwrap(),
+                None
+            );
+        }
+        dreams::ask(realm.db(), Asked::Hire(mayor.agent), now)
+            .unwrap();
+        for dreams in &settings {
+            assert_eq!(
+                next(realm.db(), &layout, dreams, now).unwrap(),
+                Some(Dreamer::Hire {
+                    hire: mayor.agent,
+                    ending: false
+                })
+            );
+        }
+    }
+
+    #[test]
+    fn only_a_hire_ended_with_a_dream_dreams_once_more() {
+        let mut realm = Realm::new();
+        let mayor = realm.found("mill", "ada");
+        let plain = hire(&mut realm, &mayor, "bo");
+        let dreaming = hire(&mut realm, &mayor, "cy");
+        for (ended, last) in [
+            (&plain, LastDream::Without),
+            (&dreaming, LastDream::With),
+        ] {
+            realm
+                .chief(|cx| {
+                    hires::end(
+                        cx,
+                        ended.agent,
+                        EndHow::Ended,
+                        last,
+                        "",
+                    )
+                })
+                .unwrap();
+        }
+        let (layout, off) = (realm.layout(), Dreams::default());
+        let now = realm.at;
+        assert_eq!(
+            next(realm.db(), &layout, &off, now).unwrap(),
+            Some(Dreamer::Hire {
+                hire: dreaming.agent,
+                ending: true
+            })
+        );
+        let dream = realm
+            .by(Actor::Realm, |cx| {
+                Ok(Ok(dreams::begin(
+                    cx,
+                    DreamKind::Hire,
+                    dreaming.scholar,
+                    Some(dreaming.agent),
+                    true,
+                )?))
+            })
+            .unwrap();
+        let now = realm.at;
+        dreams::end(
+            realm.db(),
+            dream,
+            Outcome::Nothing,
+            None,
+            None,
+            now,
+        )
+        .unwrap();
+        assert_eq!(
+            next(realm.db(), &layout, &off, now).unwrap(),
+            None
+        );
     }
 }

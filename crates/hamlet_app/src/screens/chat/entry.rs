@@ -3,12 +3,16 @@
 
 use bevy::ecs::entity::Entity;
 use bevy::ecs::resource::Resource;
+use bevy::ecs::world::World;
 use bevy::ui::{AlignItems, Overflow, UiRect, percent, px};
 use bevy_fynix::tokens::Tone;
 use bevy_fynix::views::{
     BehaviorExt, FrameProps, button, column, frame, ghost, label, row,
 };
-use bevy_fynix::{ScopedExt, ViewExt, component, keyed, resource};
+use bevy_fynix::{
+    ScopedExt, ViewExt, component, derived, every_frame, keyed,
+    resource,
+};
 use hamlet_client::chats::{Chat, Entry, Transcript};
 use hamlet_client::messages::ChiefMessage;
 use hamlet_client::realm::shown_of;
@@ -95,9 +99,21 @@ pub(super) fn status(session: Entity, id: String) -> impl View {
     )
 }
 
-/// The tool calls opened to show their whole request.
+/// The tool calls opened to show their whole request, and the cards
+/// opened in place, by their conversation and entry.
 #[derive(Resource, Default)]
 pub struct OpenTools(pub Vec<(Entity, String)>);
+
+/// Opens the tool call or card `key`, or shuts it while it is open.
+pub(super) fn toggle(world: &mut World, key: (Entity, String)) {
+    let open = &mut world.resource_mut::<OpenTools>().0;
+    match open.iter().position(|one| *one == key) {
+        Some(at) => {
+            open.remove(at);
+        }
+        None => open.push(key),
+    }
+}
 
 /// Where a tool call stands.
 #[derive(Clone, PartialEq)]
@@ -193,15 +209,7 @@ fn tool_row(session: Entity, id: String) -> impl View {
     .min_width(px(0.0))
     .padding(UiRect::axes(px(6.0), px(2.0)))
     .rules(ghost)
-    .on_activate(move |world| {
-        let open = &mut world.resource_mut::<OpenTools>().0;
-        match open.iter().position(|one| *one == key) {
-            Some(at) => {
-                open.remove(at);
-            }
-            None => open.push(key.clone()),
-        }
-    });
+    .on_activate(move |world| toggle(world, key.clone()));
     let body =
         keyed(resource::<OpenTools, _>(is_open), move |open| {
             if !*open {
@@ -244,6 +252,102 @@ fn tool_row(session: Entity, id: String) -> impl View {
         .width(percent(100.0))
         .min_width(px(0.0))
         .gap(0.0)
+}
+
+/// What a `tell` or `ask` call sent: its words and the address it
+/// was sent to.
+fn sent(summary: &str) -> Option<(String, String)> {
+    let arguments =
+        serde_json::from_str::<serde_json::Value>(summary).ok()?;
+    let words = arguments["text"]
+        .as_str()
+        .or_else(|| arguments["question"].as_str())?;
+    Some((
+        arguments["to"].as_str().unwrap_or_default().to_string(),
+        words.to_string(),
+    ))
+}
+
+/// Whom the `tell` or `ask` call `id` of `session` reached, by the
+/// name the window shows it by, else by the address it was sent to.
+fn receiver(world: &World, session: Entity, id: &str) -> String {
+    let Some(Entry::Tool { summary, agent, .. }) = world
+        .get::<Transcript>(session)
+        .and_then(|t| t.item(id))
+        .map(|item| &item.entry)
+    else {
+        return String::new();
+    };
+    agent
+        .and_then(|agent| hamlet_client::realm::agent(world, agent))
+        .map(|agent| shown_of(world, agent))
+        .filter(|shown| !shown.is_empty())
+        .or_else(|| sent(summary).map(|(to, _)| to))
+        .unwrap_or_default()
+}
+
+/// What a society call sent another agent.
+#[derive(Clone, Copy)]
+enum Sent {
+    Notification,
+    Request,
+}
+
+impl Sent {
+    /// What the call of `tool` sends, when it sends a message.
+    fn of(tool: &str) -> Option<Self> {
+        match tool {
+            "notify" => Some(Self::Notification),
+            "request" => Some(Self::Request),
+            _ => None,
+        }
+    }
+}
+
+/// A notification or a request the agent sent another: whom to, how
+/// it went, and its words.
+fn message_row(session: Entity, id: String, kind: Sent) -> impl View {
+    let whom = {
+        let id = id.clone();
+        derived(move |world: &World| {
+            let to = receiver(world, session, &id);
+            match kind {
+                Sent::Request => format!("Request to {to}"),
+                Sent::Notification => format!("Notified {to}"),
+            }
+        })
+        .when(every_frame())
+    };
+    let words = component::<Transcript, _>(session, {
+        let id = id.clone();
+        move |t| match t.and_then(|t| t.item(&id)).map(|i| &i.entry) {
+            Some(Entry::Tool { summary, .. }) => sent(summary)
+                .map(|(_, words)| words)
+                .unwrap_or_default(),
+            _ => String::new(),
+        }
+    });
+    column((
+        row((
+            glyph(Glyph::Talk, 12.0).tone(Tone::Dim),
+            column((
+                one_line(label(whom).bold(true)).rules(small_rules),
+            ))
+            .grow(1.0)
+            .min_width(px(0.0))
+            .overflow(Overflow::clip_x()),
+            status(session, id),
+        ))
+        .gap(8.0)
+        .align(AlignItems::Center)
+        .width(percent(100.0))
+        .min_width(px(0.0)),
+        column((note(words),)).padding(UiRect::left(px(20.0))),
+    ))
+    .gap(2.0)
+    .width(percent(100.0))
+    .min_width(px(0.0))
+    .padding(UiRect::axes(px(6.0), px(2.0)))
 }
 
 /// Why a tool call failed, in a red block under its request.
@@ -316,11 +420,22 @@ pub(crate) fn entry_view(session: Entity, id: String) -> AnyView {
         // Named as the chat names them: the agent by what it is
         // shown by, and the chief by "You".
         let convo = cx.world.resource::<Convo>();
-        let speaker = match &convo.with {
-            Some(address) => Some(shown_of(cx.world, convo.agent))
-                .filter(|shown| !shown.is_empty())
-                .unwrap_or_else(|| address.clone()),
-            None => "The Hand".to_string(),
+        // A conversation merged in is another agent's.
+        let other = cx
+            .world
+            .get::<Chat>(session)
+            .and_then(|chat| {
+                hamlet_client::realm::agent(cx.world, chat.0.with)
+            })
+            .filter(|agent| *agent != convo.agent);
+        let speaker = match (other, &convo.with) {
+            (Some(agent), _) => shown_of(cx.world, agent),
+            (None, Some(address)) => {
+                Some(shown_of(cx.world, convo.agent))
+                    .filter(|shown| !shown.is_empty())
+                    .unwrap_or_else(|| address.clone())
+            }
+            (None, None) => "The Hand".to_string(),
         };
         let chief = match &kind {
             Some(Entry::Chief { name, .. })
@@ -382,6 +497,15 @@ pub(crate) fn entry_view(session: Entity, id: String) -> AnyView {
             .width(percent(100.0))
             .padding(UiRect::axes(px(24.0), px(0.0)))
             .boxed(),
+            Some(Entry::Tool { name, .. })
+                if let Some(kind) = Sent::of(name.as_str()) =>
+            {
+                column((message_row(session, id, kind),))
+                    .width(percent(100.0))
+                    .min_width(px(0.0))
+                    .padding(UiRect::axes(px(16.0), px(0.0)))
+                    .boxed()
+            }
             Some(Entry::Tool { .. }) => {
                 column((tool_row(session, id),))
                     .width(percent(100.0))
@@ -407,7 +531,6 @@ pub(crate) fn entry_view(session: Entity, id: String) -> AnyView {
                     move |world| {
                         let Some(to) = world
                             .get::<Chat>(session)
-                            .filter(|chat| chat.0.past.is_none())
                             .map(|chat| chat.0.with)
                         else {
                             return;
@@ -421,19 +544,6 @@ pub(crate) fn entry_view(session: Entity, id: String) -> AnyView {
             ))
             .gap(8.0)
             .padding(UiRect::axes(px(12.0), px(4.0)))
-            .boxed(),
-            Some(Entry::Agent { .. }) => column((
-                label(text(|e| match e {
-                    Entry::Agent { name, .. } => name.clone(),
-                    _ => String::new(),
-                }))
-                .size(meta)
-                .bold(true)
-                .tone(Tone::Accent),
-                document(markdown::entry(session, id), Tone::Dim),
-            ))
-            .gap(2.0)
-            .padding(UiRect::axes(px(24.0), px(2.0)))
             .boxed(),
             Some(Entry::Notice(_)) => {
                 column((note(text(|e| match e {
@@ -454,7 +564,13 @@ pub(crate) fn entry_view(session: Entity, id: String) -> AnyView {
                 })),
             ))
             .boxed(),
-            None => frame().boxed(),
+            // Rows of their own.
+            Some(
+                Entry::Agent { .. }
+                | Entry::Summary(_)
+                | Entry::Merged { .. },
+            )
+            | None => frame().boxed(),
         };
         cx.build(view)
     })

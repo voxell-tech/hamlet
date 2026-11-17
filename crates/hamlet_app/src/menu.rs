@@ -34,6 +34,7 @@ use hamlet_ui::widgets::platform::DisplayText;
 use hamlet_ui::{AnyView, Cx, View, with_cx};
 
 use crate::dock::show_tab;
+use crate::screens::viewer::Viewing;
 use crate::updates::{self, Updates};
 use crate::window;
 
@@ -93,17 +94,19 @@ impl OpenMenu {
     }
 }
 
-/// Tells the world whether a popup is open as the frame begins,
-/// so that the Escape that closes it does not also let go of what
-/// is selected. The toolkit closes the popup itself.
+/// Tells the world whether a popup or an image is open over it as
+/// the frame begins, so that the Escape that closes it does not also
+/// let go of what is selected. The toolkit closes a popup itself.
 pub(crate) fn hold_escape(
     open: Query<&Scope>,
+    viewing: Option<Res<Viewing>>,
     taken: Option<ResMut<Taken>>,
 ) {
     let Some(mut taken) = taken else {
         return;
     };
-    let over = open.iter().any(|scope| scope.0 == POPUP);
+    let over = open.iter().any(|scope| scope.0 == POPUP)
+        || viewing.is_some_and(|viewing| viewing.is_open());
     if taken.over != over {
         taken.over = over;
     }
@@ -310,7 +313,7 @@ impl Updating {
             ),
             Self::Checking => item(
                 Glyph::Restore,
-                "Checking for updates...",
+                "Checking for updates",
                 None,
                 |_| {},
             ),
@@ -341,7 +344,7 @@ fn items(
             if found {
                 items.push(item(
                     Glyph::Hamlet,
-                    "Create a Hamlet...",
+                    "Create a Hamlet",
                     None,
                     crate::world_menu::ask_found,
                 ));
@@ -447,7 +450,7 @@ mod tests {
         assert!(!shown.contains("updates"));
         assert!(!shown.contains("Run in Background"));
         assert!(!shown.contains("Quit Hamlet"));
-        assert!(!shown.contains("Create a Hamlet..."));
+        assert!(!shown.contains("Create a Hamlet"));
         app.insert_resource(hamlet_client::realm::Deeds(vec![
             "create-hamlet".into(),
         ]));
@@ -455,7 +458,7 @@ mod tests {
         assert!(
             crate::testing::words(&mut app)
                 .iter()
-                .any(|text| text == "Create a Hamlet...")
+                .any(|text| text == "Create a Hamlet")
         );
         crate::testing::press(&mut app, "Close window");
         assert!(app.world_mut().resource_mut::<bevy::ecs::message::Messages<bevy::app::AppExit>>().drain().any(|exit| exit == bevy::app::AppExit::Success));
@@ -480,7 +483,7 @@ mod tests {
         app.world_mut().resource_mut::<Updates>().checking = true;
         app.update();
         let shown = crate::testing::all_words(&mut app);
-        assert!(shown.contains("Checking for updates..."), "{shown}");
+        assert!(shown.contains("Checking for updates"), "{shown}");
         app.world_mut().resource_mut::<Updates>().offer =
             Some(updates::Offer {
                 version: hamlet_protocol::Version::new(0, 2, 0),

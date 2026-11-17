@@ -17,7 +17,7 @@ use crate::society::{authority, city, hamlets};
 
 /// The scholars an address may name.
 #[derive(Clone, Copy, PartialEq)]
-pub(super) enum ScholarReach {
+pub(crate) enum ScholarReach {
     Living,
     /// The archived too.
     Kept,
@@ -110,7 +110,7 @@ impl Core<'_, '_> {
     }
 
     /// The scholar `text` addresses, among those `reach` allows.
-    pub(super) fn scholar_at(
+    pub(crate) fn scholar_at(
         &mut self,
         text: &str,
         reach: ScholarReach,
@@ -141,7 +141,7 @@ impl Core<'_, '_> {
                 id: hamlet.to_string(),
             }));
         }
-        if !authority::is_chief_of(db, chief, hamlet)? {
+        if !authority::may_govern(db, Actor::Chief(chief), hamlet)? {
             return Ok(Err(Refusal::NotChief {
                 hamlet: hamlet.to_string(),
             }));

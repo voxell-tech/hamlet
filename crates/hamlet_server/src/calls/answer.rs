@@ -5,7 +5,7 @@ use anyhow::Result;
 use hamlet_protocol::client::{Choice, Permission, Pick};
 use hamlet_store::ids::{Actor, ChiefId, WaitId};
 
-use super::{chat_session, held};
+use super::{held, trusting};
 use crate::app::follow_up::WakeHeldCall;
 use crate::conversations::{
     self, Conversation, chats, inputs, questions, tasks,
@@ -162,16 +162,17 @@ fn grant_always(
     Ok(())
 }
 
-/// The effect of `ruling` on each call `wait` held: its network kept
-/// when it may run, its session trusted after an `/always`, and its
-/// turn told once of a denial.
+/// The effect of the ruling of `by` on each call `wait` held: its
+/// network kept when it may run, its conversation trusted after an
+/// `/always`, and its turn told once of a denial.
 fn rule_calls(
     cx: &mut Change<'_>,
     wait: &Wait,
-    ruling: Ruling,
+    by: (Ruling, ChiefId),
     text: &str,
     ruled: &[Ruled],
 ) -> Result<()> {
+    let (ruling, chief) = by;
     let mut struck = Vec::new();
     for Ruled {
         call,
@@ -185,9 +186,9 @@ fn rule_calls(
         if ruling == Ruling::Always
             && let Some(danger @ (Danger::Edit | Danger::Command)) =
                 wait.danger
-            && let Some(session) = chat_session(conversation)
+            && let Some(trusted) = trusting(conversation)
         {
-            gate::trust(cx.db, session, danger)?;
+            gate::trust(cx.db, trusted, chief, danger)?;
         }
         if ruling == Ruling::Deny
             && let Some(danger) = wait.danger
@@ -267,7 +268,7 @@ impl Core<'_, '_> {
             }
             rule_wait(cx, &wait, ruling, &text)?;
             grant_always(cx, &wait, ruling, chief)?;
-            rule_calls(cx, &wait, ruling, &text, &ruled)?;
+            rule_calls(cx, &wait, (ruling, chief), &text, &ruled)?;
             Ok(true)
         })?;
         if !settled {

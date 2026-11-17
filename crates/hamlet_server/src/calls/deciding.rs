@@ -11,9 +11,9 @@ use super::held::{self, State};
 use super::looks::Look;
 use super::objections::OBJECTING;
 use super::place::{self, Workplace};
-use super::society::args::{Ask, Called, Tell};
+use super::society::args::{Called, Notify, Request};
 use super::{
-    Call, Decision, NOBODY, STOPPED, WAITING, chat_session, society,
+    Call, Decision, NOBODY, STOPPED, WAITING, society, trusting,
 };
 use crate::core::Core;
 use crate::society::oversight::gate::{
@@ -127,7 +127,7 @@ impl Core<'_, '_> {
             gate::call_of(call.tool, &call.args(), added);
         match classified {
             gate::Call::Society {
-                tool: tool @ (Society::Tell | Society::Ask),
+                tool: tool @ (Society::Notify | Society::Request),
                 args,
             } => self.measured_send(call, at, tool, args),
             gate::Call::Edit {
@@ -153,8 +153,8 @@ impl Core<'_, '_> {
         // Arguments that do not fit are refused once the call runs.
         let paths = match Called::read(tool, call.arguments) {
             Ok(
-                Called::Tell(Tell { paths, .. })
-                | Called::Ask(Ask { paths, .. }),
+                Called::Notify(Notify { paths, .. })
+                | Called::Request(Request { paths, .. }),
             ) => paths,
             _ => Vec::new(),
         };
@@ -274,8 +274,8 @@ impl Core<'_, '_> {
         let task = self.task_of(call)?;
         let db = self.realm.store().connection();
         let limits = society::limits_of(db, at.hamlet.as_ref())?;
-        let (edit, command) = match chat_session(&call.conversation) {
-            Some(session) => gate::trusted(db, session)?,
+        let (edit, command) = match trusting(&call.conversation) {
+            Some(conversation) => gate::trusted(db, conversation)?,
             None => (false, false),
         };
         let standing = Standing {
@@ -332,6 +332,7 @@ impl Core<'_, '_> {
                             change: change.map(String::from),
                             answers: danger.answers(),
                             questions: None,
+                            setup: None,
                         },
                     )?;
                     held::hold(cx.db, &runtime, &key, wait, change)?;

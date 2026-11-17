@@ -246,11 +246,11 @@ async fn an_auto_hamlet_works_in_its_folder_without_asking() {
 }
 
 #[tokio::test]
-async fn ask_chief_waits_for_picks_or_words_and_the_answer_reaches_the_agent()
+async fn request_chief_waits_for_picks_or_words_and_the_answer_reaches_the_agent()
  {
     let mut s = Session::start(Faux::new().responses([
         call(
-            "ask_chief",
+            "request_chief",
             json!({"message": "Before planting", "questions": [
                 {"question": "Which grain?", "description": "A crop",
                  "options": [{"title": "Wheat", "description": "Winter"}, "Oats"],
@@ -258,7 +258,10 @@ async fn ask_chief_waits_for_picks_or_words_and_the_answer_reaches_the_agent()
                 {"question": "How much?"}
             ]}),
         ),
-        call("ask_chief", json!({"questions": [{"question": "Sure?"}]})),
+        call(
+            "request_chief",
+            json!({"questions": [{"question": "Sure?"}]}),
+        ),
         words("Planted."),
     ]))
     .await;

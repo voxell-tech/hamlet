@@ -262,8 +262,6 @@ fn doing_of(
                 "https://",
                 "web-search",
                 "read-webpage",
-                "weather",
-                "call-api",
             ]
             .iter()
             .any(|word| text.contains(word))

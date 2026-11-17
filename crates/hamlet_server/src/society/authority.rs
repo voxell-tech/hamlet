@@ -34,6 +34,62 @@ pub(crate) fn is_hand(db: &mut Db, actor: Actor) -> Result<bool> {
     })
 }
 
+/// Whether `actor` may govern `hamlet`: name, move, remove, restore
+/// or erase it, and set its tier, folder, mode, limits and budget. A
+/// chief of it may, and the Hand, whose acts on it wait for a chief.
+pub(crate) fn may_govern(
+    db: &mut Db,
+    actor: Actor,
+    hamlet: &HamletId,
+) -> Result<bool> {
+    Ok(match actor {
+        Actor::Chief(chief) => is_chief_of(db, chief, hamlet)?,
+        Actor::Agent(_) => is_hand(db, actor)?,
+        Actor::Realm => true,
+    })
+}
+
+/// Whether `actor` may change the realm's settings, charter and
+/// limits: any chief, and the Hand, whose changes wait for a chief.
+pub(crate) fn may_rule(db: &mut Db, actor: Actor) -> Result<bool> {
+    Ok(match actor {
+        Actor::Chief(_) | Actor::Realm => true,
+        Actor::Agent(_) => is_hand(db, actor)?,
+    })
+}
+
+/// Whether `actor` may reach the agent `id`: stop it, ask it to
+/// reflect, read its prompt and papers and write its lodge's memory.
+/// A chief reaches the Hand, the hires of its hamlets and the workers
+/// it started or that work in them or in none; the Hand reaches
+/// every agent.
+pub(crate) fn may_reach(
+    db: &mut Db,
+    actor: Actor,
+    id: AgentId,
+) -> Result<bool> {
+    let chief = match actor {
+        Actor::Chief(chief) => chief,
+        Actor::Agent(_) => return is_hand(db, actor),
+        Actor::Realm => return Ok(true),
+    };
+    Ok(match agents::get(db, id)?.kind {
+        AgentKind::Hand => true,
+        AgentKind::Hire => {
+            let hire = hires::get(db, id)?;
+            is_chief_of(db, chief, &hire.hamlet)?
+        }
+        AgentKind::Worker => {
+            let worker = workers::get(db, id)?;
+            worker.chief == Some(chief)
+                || match &worker.hamlet {
+                    Some(hamlet) => is_chief_of(db, chief, hamlet)?,
+                    None => true,
+                }
+        }
+    })
+}
+
 /// Whether `actor` may lead the hire `id`: a chief of its hamlet, the
 /// Hand, or a hire above it in its tree.
 pub(crate) fn may_lead(

@@ -3,12 +3,13 @@ use hamlet_store::ids::{Actor, AgentId, HamletId};
 use super::addresses::{self, Reach};
 use super::agents::{self, Effort, EndHow};
 use super::hamlets::{self, Founding};
-use super::hires::{self, Hired, Hiring, Spec};
+use super::hires::{self, Hired, Hiring, LastDream, Spec};
 use super::refusal::Refusal;
 use super::roads::{self, Agreed, Way};
 use super::workers::{self, Start, Starter};
 use super::{authority, chiefs, city, merges, tree};
 use crate::conversations::{chats, models};
+use crate::realm::change::{Change, Done};
 use crate::realm::settings::{
     EffectiveSettings, Overrides, Settings,
 };
@@ -64,6 +65,11 @@ fn of_city(realm: &mut Realm, name: &str) -> Hiring {
         .chief(|cx| city::make(cx, name, chief, "", None))
         .unwrap();
     Hiring::Existing { scholar, pin: None }
+}
+
+/// Ends the hire `id`, with no last dream.
+fn end(cx: &mut Change<'_>, id: AgentId) -> Done<()> {
+    hires::end(cx, id, EndHow::Ended, LastDream::Without, "done")
 }
 
 fn name(realm: &mut Realm, id: AgentId) -> String {
@@ -182,13 +188,12 @@ fn the_tree_heals_when_a_lead_ends() {
             cx,
             mayor,
             EndHow::Ended,
+            LastDream::Without,
             "done"
         )),
         Err(Refusal::EndingMayor)
     );
-    realm
-        .chief(|cx| hires::end(cx, mid, EndHow::Ended, "done"))
-        .unwrap();
+    realm.chief(|cx| end(cx, mid)).unwrap();
     assert_eq!(tree::parent(realm.db(), low).unwrap(), Some(lead));
     assert!(tree::is_above(realm.db(), mayor, low).unwrap());
     // Back under its old parent, which still lives.
@@ -549,18 +554,14 @@ fn a_lead_leaves_a_hire_on_a_chiefs_task_alone() {
     let protected = Err(Refusal::OnChiefsTask {
         name: format!("hire#{bo} (bo)"),
     });
-    let ended = realm.by(Actor::Agent(mayor), |cx| {
-        hires::end(cx, bo, EndHow::Ended, "done")
-    });
+    let ended = realm.by(Actor::Agent(mayor), |cx| end(cx, bo));
     assert_eq!(ended, protected);
     let merged = realm.by(Actor::Agent(mayor), |cx| {
         merges::merge(cx, cy, bo, "they overlap").map(|m| m.map(drop))
     });
     assert_eq!(merged, protected);
     // A chief may.
-    realm
-        .chief(|cx| hires::end(cx, bo, EndHow::Ended, "done"))
-        .unwrap();
+    realm.chief(|cx| end(cx, bo)).unwrap();
 }
 
 #[test]
@@ -667,4 +668,21 @@ fn only_a_chief_of_the_hamlet_steers_its_agents() {
     assert!(!authority::may_steer(db, other, mayor).unwrap());
     // The Hand serves every chief of the realm.
     assert!(authority::may_steer(db, other, hand).unwrap());
+}
+
+#[test]
+fn the_hand_does_what_a_chief_does_but_steer_itself() {
+    let mut realm = Realm::new();
+    let (docs, mayor) = found(&mut realm, "docs", "ada");
+    let (hand, hire) =
+        (Actor::Agent(realm.hand), Actor::Agent(mayor));
+    let the_hand = realm.hand;
+    let db = realm.db();
+    assert!(authority::may_govern(db, hand, &docs).unwrap());
+    assert!(authority::may_rule(db, hand).unwrap());
+    assert!(authority::may_reach(db, hand, mayor).unwrap());
+    assert!(!authority::may_govern(db, hire, &docs).unwrap());
+    assert!(!authority::may_rule(db, hire).unwrap());
+    assert!(!authority::may_reach(db, hire, the_hand).unwrap());
+    assert!(!authority::may_steer(db, hand, the_hand).unwrap());
 }

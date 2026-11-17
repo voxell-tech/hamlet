@@ -13,7 +13,6 @@ pub mod desk;
 mod dock;
 mod folder;
 mod forms;
-pub mod history;
 mod hover;
 pub mod limits;
 pub mod lists;
@@ -26,6 +25,7 @@ mod remember;
 mod roll;
 mod root;
 mod saving;
+mod scholar_tag;
 pub mod search;
 pub mod secret;
 
@@ -134,7 +134,6 @@ impl Plugin for UiPlugin {
                 models::plugin,
                 asking::plugin,
                 select::plugin,
-                history::plugin,
                 welcome::plugin,
                 toasts::plugin,
                 updates::plugin,
@@ -145,6 +144,7 @@ impl Plugin for UiPlugin {
                 world_menu::plugin,
                 hover::plugin,
                 search::plugin,
+                reference::plugin,
                 hamlet_ui::plugin,
                 tuning::plugin,
                 cursor::plugin,

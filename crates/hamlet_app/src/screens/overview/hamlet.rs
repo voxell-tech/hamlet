@@ -46,7 +46,7 @@ use super::rows::{AgentRow, Meter, agent_rows, hamlet_rows, stale};
 use crate::convo::talk_to;
 use crate::forms::{self, Asking};
 use crate::roll::{either, moved};
-use crate::{words, world_menu};
+use crate::{scholar_tag, words, world_menu};
 
 /// The words typed in the field under a root marked `M`.
 pub(crate) fn typed<M: Component>(world: &mut World) -> String {
@@ -299,9 +299,10 @@ fn lines(cx: &Cx, depth: usize, branch: &Branch) -> Vec<AnyView> {
     parts
 }
 
-/// One agent as a row of the list: its kind, its name and state, and
-/// its own model and spending at the end of that line, then what its
-/// row says under them, behind the tree's lines.
+/// One agent as a row of the list: its kind, its name, the tag of its
+/// scholar and its state, and its own model and spending at the end
+/// of that line, then what its row says under them, behind the tree's
+/// lines.
 fn person(row_of: &AgentRow, branch: Branch) -> AnyView {
     let agent = row_of.agent;
     let gone = row_of.gone;
@@ -318,8 +319,9 @@ fn person(row_of: &AgentRow, branch: Branch) -> AnyView {
         Glyph::Hire
     };
     let standing = row_of.standing;
-    let (name, under, account, depth) = (
+    let (name, tag, under, account, depth) = (
         row_of.name.clone(),
+        row_of.tag.clone(),
         row_of.under.clone(),
         row_of.account.clone(),
         row_of.depth,
@@ -327,21 +329,29 @@ fn person(row_of: &AgentRow, branch: Branch) -> AnyView {
     with_cx(move |cx| {
         let mut parts = lines(cx, depth, &branch);
         let space = &cx.theme().space;
-        let mut words = vec![
-            row((
-                raised(glyph(kind, ICON).tone(Tone::Dim)),
-                label(name.clone()).bold(true).wrap(false),
-                status_icon(
-                    standing.glyph(),
-                    standing.word(),
-                    standing.kind(),
-                ),
-                frame().grow(1.0),
-                label(account.clone()).wrap(false).rules(note_rules),
-            ))
-            .gap(space.gap)
-            .align(AlignItems::Center)
+        let mut head = vec![
+            raised(glyph(kind, ICON).tone(Tone::Dim)).boxed(),
+            label(name.clone()).bold(true).wrap(false).boxed(),
+        ];
+        head.extend(tag.as_ref().map(scholar_tag::tag));
+        head.extend([
+            status_icon(
+                standing.glyph(),
+                standing.word(),
+                standing.kind(),
+            )
             .boxed(),
+            frame().grow(1.0).boxed(),
+            label(account.clone())
+                .wrap(false)
+                .rules(note_rules)
+                .boxed(),
+        ]);
+        let mut words = vec![
+            row(head)
+                .gap(space.gap)
+                .align(AlignItems::Center)
+                .boxed(),
         ];
         if !under.is_empty() {
             // Under the name, past the icon.
@@ -538,7 +548,8 @@ pub fn hamlet(hamlet: Entity) -> impl View {
             ));
         }
         // The path names it and renames it at a double click on its
-        // name; Copy Hamlet in its menu gives what commands call it.
+        // name; Copy Hamlet ID in its menu gives what commands call
+        // it.
         let path = crumbs(vec![
             crumb("Realm", |world| {
                 select(world, None);

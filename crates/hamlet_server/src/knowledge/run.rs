@@ -113,6 +113,7 @@ pub(crate) fn run(
         Job::Split { merge } => {
             super::merges::split(db, layout, *merge, at)
         }
+        Job::BringHome { hire } => bring_home(db, layout, *hire, at),
         Job::Shelve { offer } => shelve(db, layout, *offer, at),
         Job::DreamEnd {
             dream,
@@ -331,6 +332,33 @@ pub(crate) fn commit(
         "Kept what it learned",
         Author { name: &name, at },
     )
+}
+
+/// Merges the branch of `agent`, its lodge committed, into its
+/// scholar's `main`, and takes the new `main` in.
+fn bring_home(
+    db: &mut Db,
+    layout: &Layout,
+    agent: AgentId,
+    at: i64,
+) -> Result<()> {
+    let found = lodging(db, layout, agent)?;
+    commit(db, layout, agent, at)?;
+    let repo = Repository::open(&layout.repository(found.scholar))?;
+    let Some(tip) = repo.tip(&branch(agent))? else {
+        return Ok(());
+    };
+    let name = Actor::Realm.to_string();
+    repo.merge(
+        MAIN,
+        tip,
+        &format!(
+            "Brought home what {} learned",
+            crate::society::addresses::name_of(db, agent)?
+        ),
+        Author { name: &name, at },
+    )?;
+    take_in(db, layout, agent, at)
 }
 
 /// Takes `main`, or the pin, into the branch of the idle `agent` and

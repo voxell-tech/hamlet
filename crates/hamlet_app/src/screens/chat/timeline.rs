@@ -1,6 +1,6 @@
-//! An agent's chat as one line of time: the conversations it is a
-//! party to, who speaks in them, and what was said in the order it
-//! was said.
+//! An agent's chat as one line of time: who speaks in it, the chief
+//! and the agents that write to it, and what was said in the order
+//! it was said.
 
 use std::hash::{DefaultHasher, Hash, Hasher};
 
@@ -134,6 +134,14 @@ impl People<'_, '_> {
         !self.changed.is_empty()
     }
 
+    /// The agent with the id `id`.
+    fn find(&self, id: protocol::AgentId) -> Option<Entity> {
+        self.agents
+            .iter()
+            .find(|agent| agent.2.is_some_and(|of| of.0 == id))
+            .map(|agent| agent.0)
+    }
+
     fn shown(colour: Vec3) -> Color {
         Color::linear_rgb(colour.x, colour.y, colour.z)
     }
@@ -234,12 +242,14 @@ impl Cast<'_, '_, '_> {
         self.all.len() - 1
     }
 
-    fn agent(&mut self, agent: Entity) -> usize {
-        let (people, convo) = (self.people, self.convo);
+    /// The agent `agent`, drawn by `name` when the window does not
+    /// know it, or as the Hand without one.
+    fn agent(&mut self, agent: Entity, name: Option<&str>) -> usize {
+        let people = self.people;
         self.place(Id::Agent(agent), || {
-            people.agent(agent).unwrap_or_else(|| match &convo.with {
+            people.agent(agent).unwrap_or_else(|| match name {
                 Some(name) => Who {
-                    name: name.clone(),
+                    name: name.to_string(),
                     ..Who::default()
                 },
                 None => Who {
@@ -252,7 +262,19 @@ impl Cast<'_, '_, '_> {
         })
     }
 
-    fn peer(&mut self, name: &str) -> usize {
+    /// Another agent that writes to the chat's, as the window knows
+    /// it, else by the address `name` its message carries.
+    fn peer(
+        &mut self,
+        from: Option<protocol::AgentId>,
+        name: &str,
+    ) -> usize {
+        let known = from.and_then(|from| self.people.find(from));
+        if let Some(agent) = known
+            && self.people.agent(agent).is_some()
+        {
+            return self.agent(agent, Some(name));
+        }
         let paint = self.people.theme.palette.gold_5;
         self.place(Id::Peer(name.into()), || Who {
             name: name.into(),
@@ -293,10 +315,12 @@ pub(super) struct Line {
     pub named: bool,
 }
 
-/// The conversation `session` of the chat in display order with its
+/// The conversation `session` of the agent `of`, drawn by its name
+/// when the window does not know it, in display order with its
 /// speakers.
 pub(super) fn timeline(
     convo: &Convo,
+    of: (Entity, Option<&str>),
     session: Entity,
     transcript: &Transcript,
     open: &[(Entity, String)],
@@ -308,19 +332,19 @@ pub(super) fn timeline(
         ids: Vec::new(),
         all: Vec::new(),
     };
-    let agent = cast.agent(convo.agent);
+    let agent = cast.agent(of.0, of.1);
     let chief = cast.chief(&convo.name);
     let mut lines = rows(session, transcript, open)
         .into_iter()
         .map(|row| {
             let first = match &row {
-                Row::Entry { id, .. } => id,
+                Row::Entry { id, .. } | Row::Card { id, .. } => id,
                 Row::Fold { first, .. } => first,
             };
             let item = transcript.item(first);
             let (by, to) = match item.map(|item| &item.entry) {
-                Some(Entry::Agent { name, .. }) => {
-                    (cast.peer(name), agent)
+                Some(Entry::Agent { name, from, .. }) => {
+                    (cast.peer(*from, name), agent)
                 }
                 Some(Entry::Chief { name, .. }) => {
                     (cast.chief(name), agent)
@@ -330,7 +354,7 @@ pub(super) fn timeline(
             };
             Line {
                 row,
-                agent: convo.agent,
+                agent: of.0,
                 by,
                 to,
                 at: item.map_or(0, |item| item.at),
@@ -361,16 +385,26 @@ fn is_message(line: &Line) -> bool {
     matches!(line.row, Row::Entry { .. })
 }
 
+/// A row that stands apart from the runs around it.
+fn is_card(line: &Line) -> bool {
+    matches!(line.row, Row::Card { .. })
+}
+
 /// Sets where each run of rows by one speaker to one listener
-/// begins, and its first message.
+/// begins, and its first message. A card is a run of its own.
 fn mark_runs(lines: &mut [Line]) {
     let mut start = 0;
     while start < lines.len() {
         let run = (lines[start].by, lines[start].to);
-        let end = lines[start..]
-            .iter()
-            .position(|line| (line.by, line.to) != run)
-            .map_or(lines.len(), |more| start + more);
+        let end = match is_card(&lines[start]) {
+            true => start + 1,
+            false => lines[start..]
+                .iter()
+                .position(|line| {
+                    (line.by, line.to) != run || is_card(line)
+                })
+                .map_or(lines.len(), |more| start + more),
+        };
         lines[start].lead = true;
         let run = &mut lines[start..end];
         if let Some(first) = run.iter_mut().find(|l| is_message(l)) {

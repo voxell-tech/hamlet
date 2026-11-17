@@ -20,11 +20,12 @@ use strum::{Display, EnumString, IntoStaticStr};
 
 use super::addresses::scholar_address;
 use super::agents::EndHow;
+use super::hand;
+use super::hires::{self, LastDream};
 use super::names::check_name;
 use super::oversight::{self, Raise, Ruling, WaitKind};
 use super::record::{self, Decision, DecisionKind};
 use super::refusal::Refusal;
-use super::{hand, hires};
 use crate::realm::change::{Change, Done, done, refuse};
 use crate::realm::jobs::{self, Fork, Job};
 
@@ -153,6 +154,65 @@ pub(crate) fn make(
     fork: Option<Fork>,
 ) -> Done<ScholarId> {
     let id = done!(insert(cx, name, chief, character, fork));
+    arrive(cx, id)?;
+    Ok(Ok(id))
+}
+
+/// Makes a scholar of the city of what the hire `hire` has become,
+/// named `name`, and keeps the decision. A blank hire's own scholar
+/// joins the city, and its branch is brought home to `main`; any
+/// other's branch at `commit`, its tip, starts a new scholar for
+/// `owner`. Either arrives as a scholar newly made does (H45).
+pub(crate) fn make_of_hire(
+    cx: &mut Change<'_>,
+    hire: AgentId,
+    name: &str,
+    owner: ChiefId,
+    commit: Option<String>,
+    reason: &str,
+) -> Done<ScholarId> {
+    let found = hires::get(cx.db, hire)?;
+    let scholar = get(cx.db, found.scholar)?;
+    if let Some(refusal) = scholar.gone() {
+        refuse!(refusal);
+    }
+    let id = if scholar.arrival == Arrival::Apart {
+        let name = match check_name(name) {
+            Ok(name) => name,
+            Err(refusal) => refuse!(refusal),
+        };
+        diesel::update(scholar::table.find(scholar.id))
+            .set(scholar::name.eq(name))
+            .execute(cx.db)?;
+        arrive(cx, scholar.id)?;
+        jobs::add(cx, &Job::BringHome { hire })?;
+        scholar.id
+    } else {
+        let Some(commit) = commit else {
+            refuse!(Refusal::NoBranch {
+                name: super::addresses::name_of(cx.db, hire)?,
+            });
+        };
+        let fork = Fork {
+            from: scholar.id,
+            commit,
+        };
+        done!(make(cx, name, owner, "", Some(fork)))
+    };
+    record::keep(
+        cx,
+        Decision::new(DecisionKind::MadeScholar, reason)
+            .hamlet(&found.hamlet)
+            .subject(hire)
+            .scholar(id),
+    )?;
+    Ok(Ok(id))
+}
+
+/// Lets the new scholar `id` into the city, or has it wait at the
+/// harbor when another agent than the Hand brings it in a realm whose
+/// newcomers are not let in at once (H45).
+fn arrive(cx: &mut Change<'_>, id: ScholarId) -> Result<()> {
     match newcomer(cx)? {
         Some((maker, policy)) => {
             diesel::update(scholar::table.find(id))
@@ -164,6 +224,7 @@ pub(crate) fn make(
             // Under the Hand, its errand is begun where the settings
             // and the models are at hand.
             if policy == Newcomers::Chief {
+                let about = get(cx.db, id)?.label();
                 oversight::raise(
                     cx,
                     Raise {
@@ -173,16 +234,14 @@ pub(crate) fn make(
                         scholar: Some(id),
                         conversation: None,
                         task: None,
-                        about: format!(
-                            "{} ({name})",
-                            scholar_address(id)
-                        ),
+                        about,
                         change: None,
                         answers: vec![
                             Choice::Welcome,
                             Choice::Dismiss,
                         ],
                         questions: None,
+                        setup: None,
                     },
                 )?;
             }
@@ -190,7 +249,7 @@ pub(crate) fn make(
         None => house(cx, id)?,
     }
     cx.touched.scholars.insert(id);
-    Ok(Ok(id))
+    Ok(())
 }
 
 /// Makes the scholar of a blank hire, named `name`, for `chief`: one
@@ -589,7 +648,13 @@ pub(crate) fn archive(
         refuse!(refusal);
     }
     for hire in hires::living_of(cx.db, id)? {
-        done!(hires::end(cx, hire.agent, EndHow::Scholar, reason));
+        done!(hires::end(
+            cx,
+            hire.agent,
+            EndHow::Scholar,
+            LastDream::Without,
+            reason,
+        ));
     }
     diesel::update(scholar::table.find(id))
         .set((

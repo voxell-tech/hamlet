@@ -24,6 +24,7 @@ use hamlet_ui::{AnyView, View, with_cx};
 
 use crate::naming::Naming;
 use crate::roll::Roll;
+use crate::scholar_tag::ScholarTag;
 use crate::standing::{Standing, need_you};
 use crate::world_menu;
 
@@ -92,6 +93,8 @@ pub(super) struct AgentRow {
     pub id: AgentId,
     /// What it is shown by.
     pub name: String,
+    /// The scholar of the city it is of.
+    pub tag: Option<ScholarTag>,
     pub mayor: bool,
     pub worker: bool,
     /// What its row says under its name, or the way it left.
@@ -234,6 +237,7 @@ pub(super) fn agent_rows(
                     agent,
                     id: id.0,
                     name: named(agent),
+                    tag: ScholarTag::of(world, agent),
                     mayor,
                     worker: kind.0 == AgentKind::Worker,
                     under,

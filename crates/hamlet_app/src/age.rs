@@ -47,26 +47,6 @@ impl Age {
             Self::Minutes(n) => format!("{n}m"),
             Self::Hours(n) => format!("{n}h"),
             Self::Days(n) => format!("{n}d"),
-            Self::On(..) => self.words(),
-        }
-    }
-
-    /// When it was: `just now`, `5 min ago`, `on 4 Mar`.
-    pub(crate) fn ago(self) -> String {
-        match self {
-            Self::Now => "just now".into(),
-            Self::On(..) => format!("on {}", self.words()),
-            _ => format!("{} ago", self.words()),
-        }
-    }
-
-    fn words(self) -> String {
-        match self {
-            Self::Now => "under a minute".into(),
-            Self::Minutes(n) => format!("{n} min"),
-            Self::Hours(n) => format!("{n} h"),
-            Self::Days(1) => "1 day".into(),
-            Self::Days(n) => format!("{n} days"),
             Self::On(day, true) => day.format("%-d %b").to_string(),
             Self::On(day, false) => {
                 day.format("%-d %b %Y").to_string()

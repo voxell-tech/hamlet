@@ -62,7 +62,8 @@ that name a part of Hamlet:
 - `Chip` a model, `Fast` the fast tier, `Key` a provider's key and an
   agent's tools, `Signal` a connection or a sign-in, `Shield` the sandbox
   and approvals.
-- `Lens` a search, `Sliders` settings, `Speaker` sound, `Eye` how
+- `Lens` a search, `ZoomIn` a picture opened at its full size,
+  `Sliders` settings, `Speaker` sound, `Eye` how
   something looks or showing it, `Sun` the Sight page.
 - `Leave` closing the window.
 

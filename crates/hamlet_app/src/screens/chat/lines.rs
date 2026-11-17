@@ -5,6 +5,7 @@ use std::collections::HashMap;
 
 use bevy::app::App;
 use bevy::ecs::change_detection::{DetectChanges, Ref};
+use bevy::ecs::component::Component;
 use bevy::ecs::entity::Entity;
 use bevy::ecs::hierarchy::ChildOf;
 use bevy::ecs::observer::On;
@@ -80,8 +81,99 @@ fn starters(world: &World, agent: Entity) -> &'static [&'static str] {
 
 pub(super) fn plugin(app: &mut App) {
     app.init_resource::<Reading>()
-        .init_resource::<PastLines>()
+        .init_resource::<MergedLines>()
+        .init_resource::<Places>()
         .add_observer(page_received);
+}
+
+/// The frames a list put back where its chat was left is given to
+/// land before where it is counts as where it was left.
+const LANDING: u8 = 3;
+
+/// Where the chief left the chat of each conversation.
+#[derive(Resource, Default)]
+pub struct Places(HashMap<Entity, Place>);
+
+/// Where a chat was left.
+#[derive(Clone)]
+enum Place {
+    /// At its end, which it follows as rows come.
+    End,
+    /// With this row the first that shows.
+    Row(RowKey),
+}
+
+/// The conversation the chat's list shows.
+#[derive(Component)]
+pub struct Shows {
+    session: Entity,
+    /// The frames left before where the list is counts as where the
+    /// chat was left.
+    landing: u8,
+}
+
+/// Keeps where the chat's list is as where its conversation was left.
+pub fn remember_place(
+    lines: Res<Lines>,
+    mut places: ResMut<Places>,
+    mut lists: Query<(&VirtualList, &mut Shows), With<ChatScroll>>,
+) {
+    for (list, mut shows) in &mut lists {
+        if shows.landing > 0 {
+            shows.landing -= 1;
+            continue;
+        }
+        if list.count() != lines.rows.len() {
+            continue;
+        }
+        let place = match list.is_following() {
+            true => Place::End,
+            false => match lines.rows.get(list.first_visible()) {
+                Some(line) => Place::Row(line.key()),
+                None => continue,
+            },
+        };
+        places.0.insert(shows.session, place);
+    }
+}
+
+/// Puts the chat's list where its conversation was left, or at its
+/// end, when it is built or shows another conversation.
+pub fn restore_place(
+    mut commands: Commands,
+    convo: Res<Convo>,
+    lines: Res<Lines>,
+    places: Res<Places>,
+    mut lists: Query<
+        (Entity, &mut VirtualList, Option<&mut Shows>),
+        With<ChatScroll>,
+    >,
+) {
+    for (list, mut state, shows) in &mut lists {
+        if shows
+            .as_ref()
+            .is_some_and(|shows| shows.session == convo.session)
+        {
+            continue;
+        }
+        let row = match places.0.get(&convo.session) {
+            Some(Place::Row(key)) => lines.places.get(key).copied(),
+            Some(Place::End) | None => None,
+        };
+        // The last row first is the end, as far as the list scrolls.
+        let last = state.count().saturating_sub(1);
+        state.scroll_to(row.unwrap_or(last));
+        let now = Shows {
+            session: convo.session,
+            landing: LANDING,
+        };
+        match shows {
+            Some(mut shows) => *shows = now,
+            None => {
+                commands.entity(list).insert(now);
+            }
+        }
+    }
 }
 
 fn page_received(
@@ -122,6 +214,13 @@ pub(super) enum Row {
         session: Entity,
         id: String,
     },
+    /// An entry drawn as a block of its own that opens in place: the
+    /// summary of the earlier messages, a conversation merged in, or
+    /// a worker started.
+    Card {
+        session: Entity,
+        id: String,
+    },
     Fold {
         session: Entity,
         /// The first entry folded in, shown or not.
@@ -134,11 +233,20 @@ pub(super) enum Row {
         tools: usize,
         failed: usize,
         running: bool,
-        /// The agents that were asked and worked meanwhile. Their
-        /// own steps are in their own conversations.
-        helpers: Vec<String>,
         open: bool,
     },
+}
+
+/// The tool that starts a worker, whose call is a card.
+const START_WORKER: &str = "start_worker";
+
+/// Whether `entry` is drawn as a [`Row::Card`].
+fn is_card(entry: &Entry) -> bool {
+    match entry {
+        Entry::Summary(_) | Entry::Merged { .. } => true,
+        Entry::Tool { name, .. } => name == START_WORKER,
+        _ => false,
+    }
 }
 
 /// One conversation with each run of thinking, tool calls and
@@ -176,17 +284,19 @@ pub(super) fn rows(
             Entry::Assistant(text) if text.trim().is_empty() => {
                 continue;
             }
+            entry if is_card(entry) => None,
             Entry::Tool { exit, .. } => Some((true, *exit)),
-            Entry::Reasoning(_)
-            | Entry::Agent { .. }
-            | Entry::Notice(_) => Some((false, Some(0))),
+            Entry::Reasoning(_) | Entry::Notice(_) => {
+                Some((false, Some(0)))
+            }
             _ => None,
         };
         let Some((tool, exit)) = step else {
             let reply = matches!(item.entry, Entry::Assistant(_));
-            let row = Row::Entry {
-                session,
-                id: item.id.clone(),
+            let id = item.id.clone();
+            let row = match is_card(&item.entry) {
+                true => Row::Card { session, id },
+                false => Row::Entry { session, id },
             };
             // Steps stand under the reply before them, and those
             // that open a turn under its first reply.
@@ -208,7 +318,6 @@ pub(super) fn rows(
                 tools: 0,
                 failed: 0,
                 running: false,
-                helpers: Vec::new(),
                 open: open.contains(&(session, item.id.clone())),
             });
         }
@@ -218,18 +327,12 @@ pub(super) fn rows(
             tools,
             failed,
             running,
-            helpers,
             ..
         }) = rows.last_mut()
         else {
             continue;
         };
         *running |= exit.is_none();
-        if let Entry::Agent { name, .. } = &item.entry
-            && !helpers.contains(name)
-        {
-            helpers.push(name.clone());
-        }
         steps.push(item.id.clone());
         if matches!(
             item.entry,
@@ -356,7 +459,8 @@ pub(super) enum RowKey {
 impl Line {
     pub(super) fn key(&self) -> RowKey {
         match &self.row {
-            Row::Entry { session, id } => RowKey::Entry(
+            Row::Entry { session, id }
+            | Row::Card { session, id } => RowKey::Entry(
                 self.agent,
                 *session,
                 id.clone(),
@@ -431,7 +535,6 @@ impl Lines {
             tools,
             failed,
             running,
-            helpers,
             ..
         }) = self.fold(key)
         else {
@@ -441,17 +544,11 @@ impl Lines {
         let mut text = match (*running, *tools) {
             (true, 0) => "Working".to_string(),
             (true, n) => format!("Working, {n} {plural} so far"),
-            (false, 0) if !helpers.is_empty() => {
-                "Asked for help".to_string()
-            }
             (false, 0) => "Thought it over".to_string(),
             (false, n) => format!("Worked, {n} {plural}"),
         };
         if *failed > 0 {
             text.push_str(&format!(", {failed} failed"));
-        }
-        if !helpers.is_empty() {
-            text.push_str(&format!(", with {}", helpers.join(", ")));
         }
         text
     }
@@ -511,81 +608,129 @@ impl Lines {
     }
 }
 
-/// Rows of a past session added each time more of it is asked for.
-const PAST_PAGE: usize = 40;
+/// Rows of a merged conversation added each time more of it is asked
+/// for.
+const MERGED_PAGE: usize = 40;
 
-/// The past session read in the Hub, drawn as the chat is: the entity
-/// with its transcript, and its last rows.
+/// The conversation of a hire merged into the chat's agent, open in
+/// place under the row that says so and drawn as the chat is.
 #[derive(Resource, Default)]
-pub struct PastLines {
-    holder: Option<Entity>,
+pub struct MergedLines {
+    /// The row it is open under, by its conversation and entry.
+    under: Option<(Entity, String)>,
+    /// The chat watched for it, and whether it was watched for this
+    /// alone.
+    holder: Option<(Entity, bool)>,
+    /// The hire merged in, and its name.
+    agent: Option<(Entity, String)>,
     /// Rows built, counted from the end.
     reach: usize,
     lines: Lines,
 }
 
-impl Board for PastLines {
+impl Board for MergedLines {
     fn lines(&self) -> &Lines {
         &self.lines
     }
 }
 
-impl PastLines {
+impl MergedLines {
     /// Rows before those built, here or still on the server.
     pub(crate) fn has_earlier(&self) -> bool {
         self.lines.more
     }
+
+    /// Whether the row `id` of `session` is the one open.
+    pub(super) fn is_open(&self, session: Entity, id: &str) -> bool {
+        self.under
+            .as_ref()
+            .is_some_and(|(of, entry)| *of == session && entry == id)
+    }
 }
 
-/// Reads the transcript held by `holder` as the past session, or
-/// none.
-pub(crate) fn read_past(world: &mut World, holder: Option<Entity>) {
-    *world.resource_mut::<PastLines>() = PastLines {
-        holder,
-        reach: PAST_PAGE,
+/// Opens the conversation of the hire `from`, named `name`, under the
+/// row `id` of `session`, in place of any other that is open.
+pub(crate) fn open_merged(
+    world: &mut World,
+    session: Entity,
+    id: String,
+    from: protocol::AgentId,
+    name: String,
+) {
+    close_merged(world);
+    let reference = protocol::ChatRef { with: from };
+    let holder = match chats::find(world, &reference) {
+        Some(kept) => (kept, false),
+        None => (world.spawn(chats::Chat(reference)).id(), true),
+    };
+    let agent = hamlet_client::realm::agent(world, from)
+        .unwrap_or(Entity::PLACEHOLDER);
+    *world.resource_mut::<MergedLines>() = MergedLines {
+        under: Some((session, id)),
+        holder: Some(holder),
+        agent: Some((agent, name)),
+        reach: MERGED_PAGE,
         lines: Lines::default(),
     };
 }
 
-/// Builds a page more of the past session, and asks the server for
-/// its earlier rows once every row it has is built.
-pub(crate) fn read_earlier(world: &mut World) {
-    let mut past = world.resource_mut::<PastLines>();
-    let Some(holder) = past.holder else {
+/// Shuts the merged conversation that is open, and stops watching it
+/// if it was watched for this alone.
+pub(crate) fn close_merged(world: &mut World) {
+    let merged =
+        std::mem::take(&mut *world.resource_mut::<MergedLines>());
+    if let Some((holder, true)) = merged.holder {
+        world.despawn(holder);
+    }
+}
+
+/// Builds a page more of the merged conversation, and asks the server
+/// for its earlier rows once every row it has is built.
+pub(crate) fn merged_earlier(world: &mut World) {
+    let mut merged = world.resource_mut::<MergedLines>();
+    let Some((holder, _)) = merged.holder else {
         return;
     };
-    let all_built = past.lines.earlier == 0;
-    past.reach += PAST_PAGE;
+    let all_built = merged.lines.earlier == 0;
+    merged.reach += MERGED_PAGE;
     if all_built {
         chats::earlier(world, holder);
     }
 }
 
-/// The rows of the past session.
-pub fn fold_past(
+/// The rows of the merged conversation that is open.
+pub fn fold_merged(
     convo: Res<Convo>,
     unfolded: Res<Unfolded>,
     transcripts: Query<Ref<Transcript>>,
     people: People,
-    mut past: ResMut<PastLines>,
+    mut merged: ResMut<MergedLines>,
 ) {
-    let said = past.holder.and_then(|at| transcripts.get(at).ok());
-    let moved = past.is_changed()
+    let holder = merged.holder.map(|(holder, _)| holder);
+    let said = holder.and_then(|at| transcripts.get(at).ok());
+    let moved = merged.is_changed()
         || convo.is_changed()
         || unfolded.is_changed()
         || people.has_moved()
         || said.as_ref().is_some_and(DetectChanges::is_changed);
-    let (Some(holder), Some(said), true) = (past.holder, said, moved)
+    let (Some(holder), Some(said), Some((agent, name)), true) =
+        (holder, said, merged.agent.clone(), moved)
     else {
         return;
     };
-    let (rows, cast) =
-        timeline(&convo, holder, &said, &unfolded.0, &people);
-    let earlier = rows.len().saturating_sub(past.reach);
+    let (rows, cast) = timeline(
+        &convo,
+        (agent, Some(name.as_str())),
+        holder,
+        &said,
+        &unfolded.0,
+        &people,
+    );
+    let earlier = rows.len().saturating_sub(merged.reach);
     let mut now = Lines::of(rows[earlier..].to_vec(), earlier, cast);
     now.more |= said.earlier().is_some();
-    if past.lines != now {
-        past.lines = now;
+    if merged.lines != now {
+        merged.lines = now;
     }
 }
 
@@ -618,6 +763,7 @@ pub fn fold_lines(
     *from = now_from;
     let (rows, cast) = timeline(
         &convo,
+        (convo.agent, convo.with.as_deref()),
         convo.session,
         &transcript,
         &unfolded.0,
@@ -784,10 +930,7 @@ fn quiet() -> impl View {
             let lines = world.resource::<Lines>();
             let convo = world.resource::<Convo>();
             // No starter is offered while nothing could answer it.
-            let own = world
-                .get::<chats::Chat>(convo.session)
-                .is_some_and(|chat| chat.0.from.is_none())
-                && !super::without_model(world);
+            let own = !super::without_model(world);
             match (
                 lines.rows.is_empty() && !lines.more,
                 lines.cast.first(),
@@ -861,12 +1004,12 @@ fn rows_column() -> impl View {
         .min_width(px(LEAST))
 }
 
-/// The past session's rows, drawn as the chat's are.
-pub(crate) fn past() -> impl View {
+/// The merged conversation's rows, drawn as the chat's are.
+pub(super) fn merged_rows() -> impl View {
     each(
-        resource::<PastLines, _>(|p| p.lines.rows.clone()),
+        resource::<MergedLines, _>(|m| m.lines.rows.clone()),
         |line: &Line| line.key(),
-        bubble::line_view::<PastLines>,
+        bubble::line_view::<MergedLines>,
     )
     .within(rows_column())
 }

@@ -233,32 +233,35 @@ async fn rewind() {
 
 #[tokio::test]
 #[ignore = "records real sessions; see the acceptance README"]
-async fn new_and_resume() {
+async fn queue() {
     let mut c = Capture::start(Faux::new().responses([
-        words("The first conversation."),
-        words("A note for later."),
+        call(
+            "request_chief",
+            json!({"questions":[{"question":"Sure?"}]}),
+        ),
+        words("Planted."),
     ]))
     .await;
     c.open(HAND).await;
-    c.say(HAND, "Remember our first conversation.").await;
-    c.shows(HAND, "The first conversation.").await;
-    c.idle().await;
-    c.say(HAND, "/new").await;
-    c.idle().await;
-    c.open(HAND).await;
-    let history = c
-        .ask(json!({"type":"read","what":"history","agent":HAND}))
+    c.send(json!({"type":"say","to":HAND,"text":"Plant something."}))
         .await;
-    assert!(
-        history["history"]
-            .as_array()
-            .unwrap()
-            .iter()
-            .any(|h| h["number"] == 1 && h["current"] == false)
-    );
-    c.say(HAND, "/resume 1").await;
-    c.open(HAND).await;
-    c.finish("new-and-resume").await;
+    c.until(|c| !c.state().waits.is_empty()).await;
+    c.send(json!({"type":"say","to":HAND,"text":"And water it."}))
+        .await;
+    c.until(|c| c.items(HAND).iter().any(|i| i.queued)).await;
+    let queued =
+        c.items(HAND).into_iter().find(|i| i.queued).unwrap().id;
+    c.ask(
+        json!({"type":"withdraw","chat":{"with":HAND},"item":queued}),
+    )
+    .await;
+    c.until(|c| !c.items(HAND).iter().any(|i| i.queued)).await;
+    let wait = c.state().waits[0].id.clone();
+    c.ask(json!({"type":"answer","wait":wait,"choice":"dismiss"}))
+        .await;
+    c.shows(HAND, "Planted.").await;
+    c.ask(json!({"type":"compact","to":HAND})).await;
+    c.finish("queue").await;
 }
 
 #[tokio::test]

@@ -159,7 +159,9 @@ fn chip(content: impl View) -> impl View {
 fn missing(caption: &str, target: &Target, why: &str) -> impl View {
     let written = match target {
         Target::Web(address) => address,
-        Target::Path(path) => path,
+        Target::Path(path)
+        | Target::Agent(path)
+        | Target::AgentWords(path) => path,
     };
     let mut said = Vec::new();
     if !caption.is_empty() && caption != written {
@@ -205,7 +207,9 @@ pub(crate) fn picture_view(
                         {
                             "is no picture"
                         }
-                        Target::Path(_) => "not found",
+                        Target::Path(_)
+                        | Target::Agent(_)
+                        | Target::AgentWords(_) => "not found",
                         Target::Web(_) => "is no web address",
                     };
                     let card = missing(&caption, &target, why);
@@ -246,7 +250,9 @@ pub(crate) fn picture_view(
                             })
                         }
                         (
-                            Source::File(_) | Source::Image(_),
+                            Source::File(_)
+                            | Source::Image(_)
+                            | Source::Original(_),
                             State::Failed,
                         ) => {
                             let (caption, target) =
@@ -260,7 +266,12 @@ pub(crate) fn picture_view(
                                 cx.build(card)
                             })
                         }
-                        (Source::File(_) | Source::Image(_), _) => {
+                        (
+                            Source::File(_)
+                            | Source::Image(_)
+                            | Source::Original(_),
+                            _,
+                        ) => {
                             let (wide, tall) =
                                 (most.x, settings.picture_wait);
                             AnyView::new(move |cx: &mut Cx| {

@@ -39,6 +39,20 @@ pub struct Stop {
     pub id: RequestId,
 }
 
+/// Ends the hold a stop put on an agent, or on every agent the chief
+/// reaches when `agent` is left out, so what waits takes its turns.
+#[derive(
+    Clone, Debug, PartialEq, Serialize, Deserialize, JsonSchema,
+)]
+#[serde(deny_unknown_fields)]
+pub struct Resume {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[serde(deserialize_with = "crate::client::present")]
+    #[schemars(with = "AgentId")]
+    pub agent: Option<AgentId>,
+    pub id: RequestId,
+}
+
 #[derive(
     Clone, Debug, PartialEq, Serialize, Deserialize, JsonSchema,
 )]
@@ -49,23 +63,26 @@ pub struct Rewind {
     pub item: String,
 }
 
+/// Asks the agent's conversation to summarize its earlier part now.
 #[derive(
     Clone, Debug, PartialEq, Serialize, Deserialize, JsonSchema,
 )]
 #[serde(deny_unknown_fields)]
-pub struct New {
+pub struct Compact {
     pub id: RequestId,
     pub to: AgentId,
 }
 
+/// Takes back a chief's line that is still queued.
 #[derive(
     Clone, Debug, PartialEq, Serialize, Deserialize, JsonSchema,
 )]
 #[serde(deny_unknown_fields)]
-pub struct Resume {
+pub struct Withdraw {
+    pub chat: ChatRef,
     pub id: RequestId,
-    pub number: i64,
-    pub to: AgentId,
+    /// The queued item's id.
+    pub item: String,
 }
 
 #[derive(
@@ -103,30 +120,8 @@ pub struct Close {
 )]
 #[serde(deny_unknown_fields)]
 pub struct ChatRef {
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    #[serde(deserialize_with = "crate::client::present")]
-    #[schemars(with = "AgentId")]
-    pub from: Option<AgentId>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    #[serde(deserialize_with = "crate::client::present")]
-    #[schemars(with = "ChatRefKind")]
-    pub kind: Option<ChatRefKind>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    #[serde(deserialize_with = "crate::client::present")]
-    #[schemars(with = "i64")]
-    pub past: Option<i64>,
     /// The agent whose conversation it is.
     pub with: AgentId,
-}
-
-#[derive(
-    Clone, Debug, PartialEq, Serialize, Deserialize, JsonSchema,
-)]
-pub enum ChatRefKind {
-    #[serde(rename = "letters")]
-    Letters,
-    #[serde(rename = "questions")]
-    Questions,
 }
 
 #[derive(
@@ -135,10 +130,6 @@ pub enum ChatRefKind {
 #[serde(deny_unknown_fields)]
 pub struct Turn {
     pub chat: ChatRef,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    #[serde(deserialize_with = "crate::client::present")]
-    #[schemars(with = "i64")]
-    pub number: Option<i64>,
     #[serde(rename = "ops")]
     pub operations: Vec<TranscriptOperation>,
 }
@@ -151,13 +142,12 @@ pub struct Transcript {
     pub chat: ChatRef,
     #[serde(deserialize_with = "Option::deserialize")]
     pub earlier: Option<String>,
+    /// A chief's stop holds what waits: no queued turn starts until
+    /// a chief's line or a resume.
+    pub held: bool,
     pub items: Vec<Item>,
     #[serde(deserialize_with = "Option::deserialize")]
     pub last: Option<LastActivity>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    #[serde(deserialize_with = "crate::client::present")]
-    #[schemars(with = "i64")]
-    pub number: Option<i64>,
     pub pending: u64,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[serde(deserialize_with = "crate::client::present")]
@@ -190,6 +180,10 @@ pub enum TranscriptOperation {
     Close {
         #[serde(default, skip_serializing_if = "Option::is_none")]
         #[serde(deserialize_with = "crate::client::present")]
+        #[schemars(with = "AgentId")]
+        agent: Option<AgentId>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        #[serde(deserialize_with = "crate::client::present")]
         #[schemars(with = "Option<Change>")]
         change: Option<Option<Change>>,
         exit: i64,
@@ -201,6 +195,8 @@ pub enum TranscriptOperation {
     },
     #[serde(rename = "status")]
     Status {
+        /// A chief's stop holds what waits.
+        held: bool,
         #[serde(deserialize_with = "Option::deserialize")]
         last: Option<LastActivity>,
         pending: u64,
@@ -208,6 +204,9 @@ pub enum TranscriptOperation {
     },
     #[serde(rename = "usage")]
     Usage { usage: UsageView },
+    /// Removes an item, such as a queued line taken back.
+    #[serde(rename = "remove")]
+    Remove { item: String },
     #[serde(rename = "reset")]
     Reset {},
 }
@@ -229,11 +228,22 @@ pub struct Item {
     /// The files a chief's line carried.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub files: Vec<AttachedFile>,
+    /// The agent a message from another agent is from, or the hire a
+    /// `merged` item brought in.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[serde(deserialize_with = "crate::client::present")]
+    #[schemars(with = "AgentId")]
+    pub from: Option<AgentId>,
     pub id: String,
     /// The images a chief's line carried.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub images: Vec<AttachedImage>,
     pub kind: ItemKind,
+    /// A line kept for the agent that its turn has not taken up yet.
+    /// Queued items are the last of a transcript, in the order their
+    /// turns will run.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub queued: bool,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[serde(deserialize_with = "crate::client::present")]
     #[schemars(with = "bool")]
@@ -263,6 +273,14 @@ pub enum ItemKind {
     Error,
     #[serde(rename = "answered")]
     Answered,
+    /// The summary that stands for the earlier part of the
+    /// conversation in the model's context.
+    #[serde(rename = "summary")]
+    Summary,
+    /// Another hire's conversation, brought in by a merge; `from`
+    /// names it.
+    #[serde(rename = "merged")]
+    Merged,
 }
 
 #[derive(
@@ -270,6 +288,11 @@ pub enum ItemKind {
 )]
 #[serde(deny_unknown_fields)]
 pub struct ItemTool {
+    /// The agent a society call sent to or started, once it ended.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[serde(deserialize_with = "crate::client::present")]
+    #[schemars(with = "AgentId")]
+    pub agent: Option<AgentId>,
     #[serde(deserialize_with = "Option::deserialize")]
     pub change: Option<Change>,
     #[serde(deserialize_with = "Option::deserialize")]
@@ -326,19 +349,4 @@ pub enum ChangeLinesMark {
 pub struct LastActivity {
     pub at: u64,
     pub what: String,
-}
-
-#[derive(
-    Clone, Debug, PartialEq, Serialize, Deserialize, JsonSchema,
-)]
-#[serde(deny_unknown_fields)]
-pub struct Past {
-    pub began: i64,
-    pub by: String,
-    pub current: bool,
-    pub messages: i64,
-    pub modified: i64,
-    pub number: i64,
-    pub title: String,
-    pub tokens: u64,
 }

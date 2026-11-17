@@ -52,9 +52,10 @@ impl ClientMessage {
             | Self::PutFilePart(PutFilePart { id, .. })
             | Self::Answer(Answer { id, .. })
             | Self::Stop(Stop { id, .. })
-            | Self::Rewind(Rewind { id, .. })
-            | Self::New(New { id, .. })
             | Self::Resume(Resume { id, .. })
+            | Self::Rewind(Rewind { id, .. })
+            | Self::Compact(Compact { id, .. })
+            | Self::Withdraw(Withdraw { id, .. })
             | Self::ImportProject(ImportProject { id, .. })
             | Self::Retry(Retry { id, .. })
             | Self::Edit(
@@ -79,7 +80,6 @@ impl ClientMessage {
             )
             | Self::Read(
                 Read::Prompt { id, .. }
-                | Read::History { id, .. }
                 | Read::Models { id, .. }
                 | Read::Image { id, .. }
                 | Read::Papers { id, .. }
@@ -107,7 +107,6 @@ impl ServerMessage {
             Self::Terminal(output) => output.to.as_ref(),
             Self::Read(
                 ReadResult::Prompt { to, .. }
-                | ReadResult::History { to, .. }
                 | ReadResult::Models { to, .. }
                 | ReadResult::Image { to, .. }
                 | ReadResult::Papers { to, .. }
@@ -142,12 +141,14 @@ pub enum ClientMessage {
     Answer(Answer),
     #[serde(rename = "stop")]
     Stop(Stop),
-    #[serde(rename = "rewind")]
-    Rewind(Rewind),
-    #[serde(rename = "new")]
-    New(New),
     #[serde(rename = "resume")]
     Resume(Resume),
+    #[serde(rename = "rewind")]
+    Rewind(Rewind),
+    #[serde(rename = "compact")]
+    Compact(Compact),
+    #[serde(rename = "withdraw")]
+    Withdraw(Withdraw),
     #[serde(rename = "import-project")]
     ImportProject(ImportProject),
     #[serde(rename = "retry")]

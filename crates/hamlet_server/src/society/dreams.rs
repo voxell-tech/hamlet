@@ -11,7 +11,7 @@ use hamlet_store::Db;
 use hamlet_store::ids::{
     AgentId, ConversationId, DreamId, ScholarId, TaskId,
 };
-use hamlet_store::schema::dream;
+use hamlet_store::schema::{asked_dream, dream};
 use serde::{Deserialize, Serialize};
 use strum::{Display, EnumString, IntoStaticStr};
 
@@ -142,7 +142,79 @@ pub(crate) fn of_conversation(
         .optional()?)
 }
 
-/// Keeps a dream begun.
+/// Who a dream asked for is of.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub(crate) enum Asked {
+    Hire(AgentId),
+    Scholar(ScholarId),
+}
+
+/// Keeps a dream of `asked` asked for, to start in its turn. `false`
+/// when one of it waits already.
+pub(crate) fn ask(
+    db: &mut Db,
+    asked: Asked,
+    at: i64,
+) -> Result<bool> {
+    let (hire, scholar) = match asked {
+        Asked::Hire(hire) => (Some(hire), None),
+        Asked::Scholar(scholar) => (None, Some(scholar)),
+    };
+    let waiting = asked_dream::table
+        .filter(asked_dream::hire.is(hire))
+        .filter(asked_dream::scholar.is(scholar))
+        .count()
+        .get_result::<i64>(db)?;
+    if waiting > 0 {
+        return Ok(false);
+    }
+    diesel::insert_into(asked_dream::table)
+        .values((
+            asked_dream::hire.eq(hire),
+            asked_dream::scholar.eq(scholar),
+            asked_dream::at.eq(at),
+        ))
+        .execute(db)?;
+    Ok(true)
+}
+
+/// The dreams asked for that wait, the oldest first.
+pub(crate) fn asked(db: &mut Db) -> Result<Vec<Asked>> {
+    let rows = asked_dream::table
+        .order(asked_dream::id)
+        .select((asked_dream::hire, asked_dream::scholar))
+        .load::<(Option<AgentId>, Option<ScholarId>)>(db)?;
+    Ok(rows
+        .into_iter()
+        .filter_map(|row| match row {
+            (Some(hire), _) => Some(Asked::Hire(hire)),
+            (None, Some(scholar)) => Some(Asked::Scholar(scholar)),
+            (None, None) => None,
+        })
+        .collect())
+}
+
+/// Lets go of the dream of `asked` that waits, if one does.
+pub(crate) fn forget(db: &mut Db, asked: Asked) -> Result<()> {
+    match asked {
+        Asked::Hire(hire) => {
+            diesel::delete(
+                asked_dream::table.filter(asked_dream::hire.eq(hire)),
+            )
+            .execute(db)?;
+        }
+        Asked::Scholar(scholar) => {
+            diesel::delete(
+                asked_dream::table
+                    .filter(asked_dream::scholar.eq(scholar)),
+            )
+            .execute(db)?;
+        }
+    }
+    Ok(())
+}
+
+/// Keeps a dream begun, which answers the one of it asked for.
 pub(crate) fn begin(
     cx: &mut Change<'_>,
     kind: DreamKind,
@@ -150,6 +222,11 @@ pub(crate) fn begin(
     hire: Option<AgentId>,
     ending: bool,
 ) -> Result<DreamId> {
+    let asked = match hire {
+        Some(hire) => Asked::Hire(hire),
+        None => Asked::Scholar(scholar),
+    };
+    forget(cx.db, asked)?;
     Ok(diesel::insert_into(dream::table)
         .values((
             dream::kind.eq(kind),

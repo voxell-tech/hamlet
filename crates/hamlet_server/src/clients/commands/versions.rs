@@ -3,7 +3,7 @@
 //! path purged from all of it.
 
 use hamlet_git::{Author, CommitId, MAIN, Repository};
-use hamlet_store::ids::{Actor, HamletId, ScholarId};
+use hamlet_store::ids::{Actor, AgentId, HamletId, ScholarId};
 
 use super::Command;
 use super::targets::ScholarReach;
@@ -141,39 +141,78 @@ impl Core<'_, '_> {
             Ok(found) => found,
             Err(refusal) => return Ok(Err(refusal)),
         };
-        let mut lines = Vec::new();
-        let versions = repo.versions()?;
-        if versions.is_empty() {
-            lines.push("No versions yet; /tag names one.".to_owned());
-        } else {
-            lines.push("Versions:".into());
-            for version in versions {
-                let note = if version.note.is_empty() {
-                    String::new()
-                } else {
-                    format!(": {}", version.note)
-                };
-                lines.push(format!(
-                    "- {} ({}){note}",
-                    version.name,
-                    short(version.commit)
-                ));
-            }
+        Ok(Ok(versions(&repo)?))
+    }
+
+    /// The version `version` of the scholar of `hire` to pin it to,
+    /// none for `main`.
+    pub(crate) fn pin_target(
+        &mut self,
+        hire: AgentId,
+        version: &str,
+    ) -> Done<Option<String>> {
+        let layout = self.realm.layout().clone();
+        let db = self.realm.store().connection();
+        let found = hires::get(db, hire)?;
+        let repo =
+            Repository::open(&layout.repository(found.scholar))?;
+        if version == MAIN {
+            return Ok(Ok(None));
         }
-        if let Some(tip) = repo.tip(MAIN)? {
-            lines.push("Latest commits of main:".into());
-            for commit in repo.history(tip, MOST_SHOWN)? {
-                let first =
-                    commit.message.lines().next().unwrap_or_default();
-                lines.push(format!(
-                    "- {} {} by {}",
-                    short(commit.id),
-                    first,
-                    commit.author
-                ));
-            }
+        if repo.resolve(version)?.is_none() {
+            return Ok(Err(Refusal::NoVersion {
+                name: addresses::scholar_name_of(db, found.scholar)?,
+                version: version.into(),
+            }));
         }
-        Ok(Ok(lines.join("\n")))
+        Ok(Ok(Some(version.into())))
+    }
+
+    /// Takes `path` out of every commit, every branch and every lodge
+    /// of the hires of the scholar `id`, as `by` asks.
+    pub(crate) fn purge_path(
+        &mut self,
+        by: Actor,
+        id: ScholarId,
+        path: &str,
+    ) -> Done<String> {
+        let path = path.trim_matches('/');
+        if path.is_empty()
+            || path.split('/').any(|part| part == ".." || part == ".")
+        {
+            return Ok(Err(Refusal::NoFile { path: path.into() }));
+        }
+        let layout = self.realm.layout().clone();
+        let writing = self.writing.clone();
+        let held = writing.hold();
+        let db = self.realm.store().connection();
+        for hire in hires::living_of(db, id)? {
+            let lodge = layout.lodge(&hire.hamlet, hire.agent);
+            let Ok(folder) = Folder::open(&lodge) else {
+                continue;
+            };
+            // The path is a file, or a folder of them.
+            for entry in folder.list_under(path)? {
+                folder.remove(&entry.path)?;
+            }
+            folder.remove(path)?;
+        }
+        let rewritten =
+            hamlet_git::purge(&layout.repository(id), path)?;
+        drop(held);
+        let db = self.realm.store().connection();
+        for hire in hires::living_of(db, id)? {
+            self.remote.unpushed.write(UnpushedLodge(hire.agent));
+        }
+        self.main_moved(by, id)?;
+        let label = addresses::scholar_name_of(
+            self.realm.store().connection(),
+            id,
+        )?;
+        Ok(Ok(format!(
+            "Purged {path} from {label}: {} branches rewritten.",
+            rewritten.len()
+        )))
     }
 
     pub(super) fn pin(
@@ -201,35 +240,20 @@ impl Core<'_, '_> {
         if let Err(refusal) = self.leads(hire)? {
             return Ok(Err(refusal));
         }
-        let layout = self.realm.layout().clone();
-        let db = self.realm.store().connection();
-        let found = hires::get(db, hire)?;
-        let repo =
-            Repository::open(&layout.repository(found.scholar))?;
-        let target = (*version != MAIN).then_some(*version);
-        if let Some(version) = target
-            && repo.resolve(version)?.is_none()
-        {
-            return Ok(Err(Refusal::NoVersion {
-                name: addresses::scholar_name_of(db, found.scholar)?,
-                version: version.into(),
-            }));
-        }
-        let name = addresses::name_of(db, hire)?;
+        let target = match self.pin_target(hire, version)? {
+            Ok(target) => target,
+            Err(refusal) => return Ok(Err(refusal)),
+        };
+        let name = addresses::name_of(
+            self.realm.store().connection(),
+            hire,
+        )?;
         let reason = reason.join(" ");
         let chief = self.realm.chief();
         let done = self.attempt(Actor::Chief(chief), |cx, _| {
-            hires::set_pin(cx, hire, target, &reason)
+            hires::set_pin(cx, hire, target.as_deref(), &reason)
         })?;
-        Ok(done.map(|()| match target {
-            Some(version) => format!(
-                "{name} takes {version} in once idle, and no later \
-                 learning."
-            ),
-            None => {
-                format!("{name} follows its scholar's main again.")
-            }
-        }))
+        Ok(done.map(|()| pinned(&name, target.as_deref())))
     }
 
     pub(super) fn revert(&mut self, words: &[&str]) -> Done<String> {
@@ -327,48 +351,61 @@ impl Core<'_, '_> {
         let [scholar, path] = words else {
             return Ok(Err(self.deeds.usage("purge")));
         };
-        let path = path.trim_matches('/');
-        if path.is_empty()
-            || path.split('/').any(|part| part == ".." || part == ".")
-        {
-            return Ok(Err(Refusal::NoFile { path: path.into() }));
-        }
         let (id, _) = match self.chiefs_scholar(scholar)? {
             Ok(found) => found,
             Err(refusal) => return Ok(Err(refusal)),
         };
-        let layout = self.realm.layout().clone();
-        let writing = self.writing.clone();
-        let held = writing.hold();
-        let db = self.realm.store().connection();
-        for hire in hires::living_of(db, id)? {
-            let lodge = layout.lodge(&hire.hamlet, hire.agent);
-            let Ok(folder) = Folder::open(&lodge) else {
-                continue;
-            };
-            // The path is a file, or a folder of them.
-            for entry in folder.list_under(path)? {
-                folder.remove(&entry.path)?;
-            }
-            folder.remove(path)?;
-        }
-        let rewritten =
-            hamlet_git::purge(&layout.repository(id), path)?;
-        drop(held);
-        let db = self.realm.store().connection();
-        for hire in hires::living_of(db, id)? {
-            self.remote.unpushed.write(UnpushedLodge(hire.agent));
-        }
         let by = Actor::Chief(self.realm.chief());
-        self.main_moved(by, id)?;
-        let label = addresses::scholar_name_of(
-            self.realm.store().connection(),
-            id,
-        )?;
-        Ok(Ok(format!(
-            "Purged {path} from {label}: {} branches rewritten.",
-            rewritten.len()
-        )))
+        self.purge_path(by, id, path)
+    }
+}
+
+/// The versions of the scholar in `repo` and the latest commits of
+/// its `main`.
+pub(crate) fn versions(repo: &Repository) -> anyhow::Result<String> {
+    let mut lines = Vec::new();
+    let versions = repo.versions()?;
+    if versions.is_empty() {
+        lines.push("No versions yet; /tag names one.".to_owned());
+    } else {
+        lines.push("Versions:".into());
+        for version in versions {
+            let note = if version.note.is_empty() {
+                String::new()
+            } else {
+                format!(": {}", version.note)
+            };
+            lines.push(format!(
+                "- {} ({}){note}",
+                version.name,
+                short(version.commit)
+            ));
+        }
+    }
+    if let Some(tip) = repo.tip(MAIN)? {
+        lines.push("Latest commits of main:".into());
+        for commit in repo.history(tip, MOST_SHOWN)? {
+            let first =
+                commit.message.lines().next().unwrap_or_default();
+            lines.push(format!(
+                "- {} {} by {}",
+                short(commit.id),
+                first,
+                commit.author
+            ));
+        }
+    }
+    Ok(lines.join("\n"))
+}
+
+/// What pinning the hire `name` to `target`, or to none, comes to.
+pub(crate) fn pinned(name: &str, target: Option<&str>) -> String {
+    match target {
+        Some(version) => format!(
+            "{name} takes {version} in once idle, and no later \
+             learning."
+        ),
+        None => format!("{name} follows its scholar's main again."),
     }
 }
 

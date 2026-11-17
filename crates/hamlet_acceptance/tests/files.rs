@@ -1,5 +1,5 @@
-//! Files on a line and in a letter: uploaded in parts, saved in the
-//! receiver's inbox, and over the cap held for a chief.
+//! Files on a line and in a notification: uploaded in parts, saved in
+//! the receiver's inbox, and over the cap held for a chief.
 
 use std::fs;
 
@@ -14,14 +14,6 @@ fn attached(kept: &Reply, name: &str, size: usize) -> AttachedFile {
         id: kept.file.clone().expect("the last part names it"),
         name: name.into(),
         size: size as u64,
-    }
-}
-
-fn lane(from: AgentId, with: AgentId) -> ChatRef {
-    ChatRef {
-        from: Some(from),
-        kind: Some(ChatRefKind::Letters),
-        ..chat(with)
     }
 }
 
@@ -83,8 +75,8 @@ async fn files_on_a_line_are_saved_in_the_inbox_and_named_in_its_item()
 }
 
 #[tokio::test]
-async fn a_letter_copies_the_files_it_names_into_the_receivers_inbox()
-{
+async fn a_notification_copies_the_files_it_names_into_the_receivers_inbox()
+ {
     let home = Home::new();
     let secret = home.side().join("secret");
     fs::write(&secret, "canary").unwrap();
@@ -99,11 +91,11 @@ async fn a_letter_copies_the_files_it_names_into_the_receivers_inbox()
                         json!({"path": "out/report.txt", "content": "findings"}),
                     ),
                     call(
-                        "tell",
+                        "notify",
                         json!({"to": "hire#3", "text": "See attached.", "paths": ["out"]}),
                     ),
                     call(
-                        "tell",
+                        "notify",
                         json!({"to": "hire#3", "text": "Escape.", "paths": [secret]}),
                     ),
                     words("Sent."),
@@ -128,8 +120,7 @@ async fn a_letter_copies_the_files_it_names_into_the_receivers_inbox()
         fs::read_to_string(inbox.join("out/report.txt")).unwrap(),
         "findings"
     );
-    let letters = lane(ada, cy);
-    let page = s.chief.open(&letters).await;
+    let page = s.chief.open(&chat(cy)).await;
     let first = &page.items[0].text;
     assert!(
         first.starts_with("See attached.")
@@ -149,7 +140,7 @@ async fn a_letter_copies_the_files_it_names_into_the_receivers_inbox()
 }
 
 #[tokio::test]
-async fn a_letter_over_the_cap_waits_for_a_chief_and_a_refusal_is_told()
+async fn a_notification_over_the_cap_waits_for_a_chief_and_a_refusal_is_told()
  {
     let make = "mkdir big; for i in $(seq 1001); do : > big/$i; done";
     let mut s = Session::start(
@@ -159,12 +150,12 @@ async fn a_letter_over_the_cap_waits_for_a_chief_and_a_refusal_is_told()
                 [
                     call("bash", json!({"command": make})),
                     call(
-                        "tell",
+                        "notify",
                         json!({"to": "hire#3", "text": "Everything.", "paths": ["big"]}),
                     ),
                     words("Sent."),
                     call(
-                        "tell",
+                        "notify",
                         json!({"to": "hire#3", "text": "Again.", "paths": ["big"]}),
                     ),
                     words("Refused."),

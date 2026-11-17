@@ -15,6 +15,7 @@ pub(super) fn conversation(lines: &[(&str, &str)]) -> Transcript {
             .map(|(at, (by, text))| Item {
                 id: format!("entry-{at}:0"),
                 at: 1_791_374_400_000 + at as u64 * 60_000,
+                queued: false,
                 entry: match *by {
                     "" => Entry::Assistant((*text).into()),
                     by => Entry::Chief {
@@ -66,6 +67,7 @@ pub(super) fn setup(world: &mut World, scene: Scene) -> Transcript {
                     items.push(Item {
                         id: format!("turn-{turn}-tool-{step}"),
                         at: 0,
+                        queued: false,
                         entry: Entry::Tool {
                             name: "bash".into(),
                             summary: format!(
@@ -77,6 +79,7 @@ pub(super) fn setup(world: &mut World, scene: Scene) -> Transcript {
                             ms,
                             failure,
                             change: None,
+                            agent: None,
                         },
                     });
                 }
@@ -97,6 +100,7 @@ pub(super) fn setup(world: &mut World, scene: Scene) -> Transcript {
             items.push(Item {
                 id: "edit:0".into(),
                 at: 0,
+                queued: false,
                 entry: Entry::Tool {
                     name: "edit".into(),
                     summary: "src/almanac.rs".into(),
@@ -104,6 +108,7 @@ pub(super) fn setup(world: &mut World, scene: Scene) -> Transcript {
                     ms: Some(8),
                     failure: None,
                     change: Some(change()),
+                    agent: None,
                 },
             });
             Transcript::from_items(items)
@@ -171,29 +176,82 @@ pub(super) fn setup(world: &mut World, scene: Scene) -> Transcript {
             ("chief", "Find out who has the key."),
         ]),
         Scene::Group => {
-            let mut items = conversation(&[
-                ("chief", "Ask Pip about the key."),
-                ("", "I asked Pip to check the mill door."),
-            ])
-            .items()
-            .to_vec();
+            let tool = |id: &str, name: &str, summary: &str| Item {
+                id: id.into(),
+                at: 0,
+                queued: false,
+                entry: Entry::Tool {
+                    name: name.into(),
+                    summary: summary.into(),
+                    exit: Some(0),
+                    ms: Some(20),
+                    failure: None,
+                    change: None,
+                    agent: None,
+                },
+            };
+            let mut items = vec![Item {
+                id: "summary:0".into(),
+                at: 0,
+                queued: false,
+                entry: Entry::Summary(
+                    "The chief wants the orchard ready before the \
+                     frost: straw at the roots and the gate mended."
+                        .into(),
+                ),
+            }];
+            items.extend(
+                conversation(&[
+                    ("chief", "Ask Pip about the key."),
+                    ("", "I asked Pip to check the mill door."),
+                ])
+                .items()
+                .iter()
+                .cloned(),
+            );
+            items.push(tool(
+                "request:0",
+                "request",
+                "{\"to\": \"hire#3\", \"text\": \"Is the key by the \
+                 mill door?\"}",
+            ));
+            items.push(tool(
+                "worker:0",
+                "start_worker",
+                "{\"task\": \"Count the pears in rows 1 to 4 and say \
+                 how many need straw.\"}",
+            ));
             items.push(Item {
                 id: "pip:0".into(),
                 at: 0,
+                queued: false,
                 entry: Entry::Agent {
                     name: "Pip".into(),
+                    from: None,
                     text: "The key is by the mill door.".into(),
                 },
             });
             items.push(Item {
                 id: "reply:0".into(),
                 at: 1_791_374_580_000,
+                queued: false,
                 entry: Entry::Chief {
                     name: "chief".into(),
                     text: "(Replying to Pip: \"The key is by the \
                            mill door.\")\n\n> by the mill \
                            door\nWrite that into the almanac."
                         .into(),
+                    images: Vec::new(),
+                    files: Vec::new(),
+                },
+            });
+            items.push(Item {
+                id: "queued:chief:1".into(),
+                at: 1_791_374_640_000,
+                queued: true,
+                entry: Entry::Chief {
+                    name: "chief".into(),
+                    text: "And ask Pip to oil the hinge.".into(),
                     images: Vec::new(),
                     files: Vec::new(),
                 },

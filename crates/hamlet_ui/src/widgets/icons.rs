@@ -165,6 +165,8 @@ pub enum Glyph {
     Sun,
     /// A magnifying glass: a search.
     Lens,
+    /// A magnifying glass with a plus: a picture at its full size.
+    ZoomIn,
     /// A triangle: go on.
     Play,
     /// A globe: the world and the realm.
@@ -260,7 +262,7 @@ enum Shape {
 
 impl Glyph {
     /// Every icon.
-    pub const ALL: [Glyph; 75] = [
+    pub const ALL: [Glyph; 76] = [
         Glyph::Plus,
         Glyph::Cross,
         Glyph::Check,
@@ -301,6 +303,7 @@ impl Glyph {
         Glyph::Clock,
         Glyph::Sun,
         Glyph::Lens,
+        Glyph::ZoomIn,
         Glyph::Play,
         Glyph::Globe,
         Glyph::Chevron,
@@ -629,6 +632,12 @@ impl Glyph {
             Glyph::Lens => {
                 &[Ring(7.0, 7.0, 4.5), Line(10.4, 10.4, 13.75, 13.75)]
             }
+            Glyph::ZoomIn => &[
+                Ring(7.0, 7.0, 4.5),
+                Line(10.4, 10.4, 13.75, 13.75),
+                Line(7.0, 5.0, 7.0, 9.0),
+                Line(5.0, 7.0, 9.0, 7.0),
+            ],
             Glyph::Play => {
                 &[Loop(&[[5.0, 3.0], [13.0, 8.0], [5.0, 13.0]])]
             }

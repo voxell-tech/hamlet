@@ -11,16 +11,17 @@ use crate::society::limits::Reserved;
 /// of one.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub(crate) enum Society {
-    Tell,
-    Ask,
+    Notify,
+    Request,
     StartWorker,
     SubmitSkill,
-    AskLibrarian,
-    AskChief,
+    RequestLibrarian,
+    RequestChief,
     ReadBudget,
     Object,
-    RequestRoad,
+    ProposeRoad,
     CreateScholar,
+    MakeScholar,
     Hire,
     EndHire,
     MergeHires,
@@ -34,11 +35,47 @@ pub(crate) enum Society {
     FoundHamlet,
     SeatMayor,
     RemoveHamlet,
+    RestoreHamlet,
+    EraseHamlet,
+    NameHamlet,
+    MoveHamlet,
+    SetTier,
+    SetFolder,
+    SetMode,
+    ResetBudget,
+    EditLimits,
     ReadRecord,
     ReadScholar,
     EditScholar,
     Tag,
     Revert,
+    Versions,
+    Fork,
+    Purge,
+    Welcome,
+    TurnAway,
+    NameScholar,
+    MoveHouse,
+    RemoveScholar,
+    RestoreScholar,
+    EraseScholar,
+    Pin,
+    RestoreHire,
+    EraseHire,
+    SetEffort,
+    SetFast,
+    Dream,
+    Reflect,
+    Stop,
+    Resume,
+    EditMemory,
+    ReadPrompt,
+    ReadPapers,
+    EditSettings,
+    EditCharter,
+    ReadCharter,
+    ReadModels,
+    Unshelve,
 }
 
 /// The agents offered a society tool.
@@ -141,23 +178,25 @@ impl Facts {
 }
 
 /// Every society tool, once.
-pub(crate) const FACTS: [Facts; 28] = {
+pub(crate) const FACTS: [Facts; 65] = {
     use Offered::{Chats, Everyone, Hand, Hires, Leads, Mayors};
     use Society as S;
     [
-        facts(S::Tell, "tell", Everyone),
-        facts(S::Ask, "ask", Everyone).doing(Doing::Await),
+        facts(S::Notify, "notify", Everyone),
+        facts(S::Request, "request", Everyone).doing(Doing::Await),
         facts(S::StartWorker, "start_worker", Everyone),
         facts(S::SubmitSkill, "submit_skill", Everyone)
             .doing(Doing::Await),
-        facts(S::AskLibrarian, "ask_librarian", Everyone)
+        facts(S::RequestLibrarian, "request_librarian", Everyone)
             .doing(Doing::Await),
-        facts(S::AskChief, "ask_chief", Everyone),
+        facts(S::RequestChief, "request_chief", Everyone),
         facts(S::ReadBudget, "read_budget", Everyone),
         facts(S::Object, "object", Chats),
-        facts(S::RequestRoad, "request_road", Hires)
+        facts(S::ProposeRoad, "propose_road", Hires)
             .doing(Doing::Await),
         facts(S::CreateScholar, "create_scholar", Leads)
+            .doing(Doing::Think),
+        facts(S::MakeScholar, "make_scholar", Leads)
             .doing(Doing::Think),
         facts(S::Hire, "hire", Leads)
             .reserved(Reserve::Limit(Limit::Hire))
@@ -179,6 +218,20 @@ pub(crate) const FACTS: [Facts; 28] = {
         facts(S::SeatMayor, "seat_mayor", Hand),
         facts(S::RemoveHamlet, "remove_hamlet", Hand)
             .reserved(Reserve::Hand),
+        facts(S::RestoreHamlet, "restore_hamlet", Hand),
+        facts(S::EraseHamlet, "erase_hamlet", Hand)
+            .reserved(Reserve::Hand),
+        facts(S::NameHamlet, "name_hamlet", Hand),
+        facts(S::MoveHamlet, "move_hamlet", Hand),
+        facts(S::SetTier, "set_tier", Hand).reserved(Reserve::Hand),
+        facts(S::SetFolder, "set_folder", Hand)
+            .reserved(Reserve::Hand),
+        facts(S::SetMode, "set_mode", Hand).reserved(Reserve::Hand),
+        facts(S::ResetBudget, "reset_budget", Hand)
+            .reserved(Reserve::Hand),
+        facts(S::EditLimits, "edit_limits", Hand)
+            .reserved(Reserve::Hand)
+            .once(),
         facts(S::ReadRecord, "read_record", Hand),
         facts(S::ReadScholar, "read_scholar", Hand),
         facts(S::EditScholar, "edit_scholar", Hand)
@@ -188,6 +241,42 @@ pub(crate) const FACTS: [Facts; 28] = {
         facts(S::Revert, "revert", Hand)
             .reserved(Reserve::Hand)
             .once(),
+        facts(S::Versions, "versions", Hand),
+        facts(S::Fork, "fork", Hand),
+        facts(S::Purge, "purge", Hand)
+            .reserved(Reserve::Hand)
+            .once(),
+        facts(S::Welcome, "welcome", Hand),
+        facts(S::TurnAway, "turn_away", Hand),
+        facts(S::NameScholar, "name_scholar", Hand),
+        facts(S::MoveHouse, "move_house", Hand),
+        facts(S::RemoveScholar, "remove_scholar", Hand)
+            .reserved(Reserve::Hand),
+        facts(S::RestoreScholar, "restore_scholar", Hand),
+        facts(S::EraseScholar, "erase_scholar", Hand)
+            .reserved(Reserve::Hand),
+        facts(S::Pin, "pin", Hand),
+        facts(S::RestoreHire, "restore_hire", Hand),
+        facts(S::EraseHire, "erase_hire", Hand)
+            .reserved(Reserve::Hand),
+        facts(S::SetEffort, "set_effort", Hand),
+        facts(S::SetFast, "set_fast", Hand),
+        facts(S::Dream, "dream", Hand).once(),
+        facts(S::Reflect, "reflect", Hand),
+        facts(S::Stop, "stop", Hand),
+        facts(S::Resume, "resume", Hand),
+        facts(S::EditMemory, "edit_memory", Hand).once(),
+        facts(S::ReadPrompt, "read_prompt", Hand),
+        facts(S::ReadPapers, "read_papers", Hand),
+        facts(S::EditSettings, "edit_settings", Hand)
+            .reserved(Reserve::Hand)
+            .once(),
+        facts(S::EditCharter, "edit_charter", Hand)
+            .reserved(Reserve::Hand)
+            .once(),
+        facts(S::ReadCharter, "read_charter", Hand),
+        facts(S::ReadModels, "read_models", Hand),
+        facts(S::Unshelve, "unshelve", Hand).once(),
     ]
 };
 

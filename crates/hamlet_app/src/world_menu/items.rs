@@ -18,6 +18,7 @@ use hamlet_ui::AnyView;
 
 use super::deed::Deed;
 use super::{close, restore, stop};
+use crate::scholar_tag::ScholarTag;
 use crate::screens::terminal::{Pins, pin};
 
 /// A hire of the hamlet that is not its mayor and has not left, with
@@ -70,8 +71,47 @@ fn hire_under(world: &World, lead: Entity) -> Option<AnyView> {
         && world.get::<Left>(lead).is_none()
         && Deeds::is_allowed(world, "hire"))
     .then(|| {
-        item("Hire Under...".into(), move |world| {
+        item("Hire Under".into(), move |world| {
             super::ask_hire(world, lead);
+        })
+    })
+}
+
+/// Goes to the page of the scholar of the city `agent` is of, and
+/// brings home in a dream what it learned that the scholar lacks.
+fn of_scholar(world: &World, agent: Entity) -> Vec<AnyView> {
+    let Some(tag) = ScholarTag::of(world, agent) else {
+        return Vec::new();
+    };
+    let scholar = tag.scholar;
+    let mut items =
+        vec![item("Go to Scholar".into(), move |world| {
+            crate::hub::open_scholar(world, scholar);
+        })];
+    if tag.learned
+        && world.get::<Left>(agent).is_none()
+        && Deeds::is_allowed(world, "dream")
+    {
+        let address = agents::name_of(world, agent);
+        items.push(item("Dream".into(), move |world| {
+            crate::chat::command(world, format!("/dream {address}"));
+        }));
+    }
+    items
+}
+
+/// Makes a scholar of the city of what the hire `agent` learned: its
+/// own scholar when it is a blank hire, else a new one.
+fn make_scholar(world: &World, agent: Entity) -> Option<AnyView> {
+    let hire = world.get::<Kind>(agent).map(|kind| kind.0)
+        == Some(protocol::AgentKind::Hire);
+    (hire && Deeds::is_allowed(world, "make-scholar")).then(|| {
+        item("Make Scholar".into(), move |world| {
+            let text = format!(
+                "/make-scholar {}",
+                agents::name_of(world, agent)
+            );
+            orders::decree(world, agent, text);
         })
     })
 }
@@ -88,7 +128,7 @@ fn road(world: &World, agent: Entity) -> Option<AnyView> {
         && world.get::<Left>(agent).is_none()
         && Deeds::is_allowed(world, "road"))
     .then(|| {
-        item("Build a Road...".into(), move |world| {
+        item("Build a Road".into(), move |world| {
             super::ask_road(world, agent);
         })
     })
@@ -136,14 +176,15 @@ fn for_mayor(world: &World) -> Vec<AnyView> {
 }
 
 fn for_ruin(world: &World, agent: Entity) -> Vec<AnyView> {
+    let mut items = Vec::new();
     if Deeds::is_allowed(world, "restore") {
-        vec![item(
+        items.push(item(
             format!("Restore {}", agents::shown_of(world, agent)),
             move |world| restore(world, agent),
-        )]
-    } else {
-        Vec::new()
+        ));
     }
+    items.extend(make_scholar(world, agent));
+    items
 }
 
 /// What can be done to `agent` that its chat, which choosing it
@@ -163,7 +204,9 @@ fn for_agent(
             stop(w, agent);
         }));
     }
-    items.push(item("Copy Agent".into(), move |world| {
+    items.extend(of_scholar(world, agent));
+    items.extend(make_scholar(world, agent));
+    items.push(item("Copy Agent ID".into(), move |world| {
         crate::reference::copy_agent(world, agent);
     }));
     let Some((_, me)) = plain_agent(world, thing) else {
@@ -190,26 +233,26 @@ fn for_agent(
             kept: them,
         };
         items.push(asking(
-            label(format!("Merge {other} into {me}...")),
+            label(format!("Merge {other} into {me}")),
             into_me,
             at,
         ));
         items.push(asking(
-            label(format!("Merge {me} into {other}...")),
+            label(format!("Merge {me} into {other}")),
             into_other,
             at,
         ));
     }
     if Deeds::is_allowed(world, "mayor") {
         items.push(asking(
-            label(format!("Make {me} Mayor...")),
+            label(format!("Make {me} Mayor")),
             Deed::Mayor(agent),
             at,
         ));
     }
     if Deeds::is_allowed(world, "end") {
         items.push(asking(
-            label(format!("End {me}...")),
+            label(format!("End {me}")),
             Deed::End(agent),
             at,
         ));
@@ -234,21 +277,20 @@ fn for_common(
     let mut items = agents::mayor_of(world, &id)
         .and_then(|mayor| {
             hire_under(world, mayor).map(|_| {
-                item("Hire...".into(), move |world| {
+                item("Hire".into(), move |world| {
                     super::ask_hire(world, mayor);
                 })
             })
         })
         .into_iter()
         .collect::<Vec<_>>();
-    items.push(item("Copy Hamlet".into(), move |world| {
+    items.push(item("Copy Hamlet ID".into(), move |world| {
         crate::reference::copy_hamlet(world, hamlet);
     }));
     // Last, and red, as nothing done to it is harder to undo.
     if !id.is_empty() && Deeds::is_allowed(world, "remove-hamlet") {
         items.push(asking(
-            label(format!("Close Down {name}..."))
-                .tone(Tone::Critical),
+            label(format!("Close Down {name}")).tone(Tone::Critical),
             Deed::Close(id),
             at,
         ));
@@ -266,14 +308,14 @@ fn for_chief(thing: Thing, chief: Entity) -> Vec<AnyView> {
         item("Go to the Hearth".into(), move |w| {
             focus_on(w, home, false);
         }),
-        item("Move the Hearth...".into(), crate::chief::carry_home),
+        item("Move the Hearth".into(), crate::chief::carry_home),
     ]
 }
 
 fn for_library(thing: Thing) -> Vec<AnyView> {
     vec![
         focus(thing),
-        item("Move the Library...".into(), |w| {
+        item("Move the Library".into(), |w| {
             moving::pick_up(w, Ground::Library);
         }),
     ]

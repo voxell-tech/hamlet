@@ -17,10 +17,10 @@ use bevy_fynix::tokens::Tone;
 use bevy_fynix::views::{
     BehaviorExt, FrameProps, column, frame, label, row,
 };
-use bevy_fynix::{ScopedExt, ViewExt, component};
-use hamlet_client::chats::{Chat, Entry, Transcript};
+use bevy_fynix::{ScopedExt, ViewExt, Visual, component};
+use hamlet_client::chats::{Entry, Transcript};
 use hamlet_ui::markdown::{Area, Block, Kind as Shape, Span, Style};
-use hamlet_ui::styles::small_rules;
+use hamlet_ui::styles::{note, small_rules};
 use hamlet_ui::theme::Palette;
 use hamlet_ui::theme::contrast::{self, TEXT};
 use hamlet_ui::widgets::icons::{Glyph, glyph};
@@ -31,10 +31,10 @@ use super::lines::{Board, Row, fold_view};
 use super::reply::{self, Replies};
 use super::rewind::{self, Rewinds};
 use super::timeline::{Kind, Line, Who};
-use super::{attach, quote};
+use super::{attach, card, quote};
 use crate::convo::Convo;
 use crate::markdown;
-use crate::select::{self, Quotable};
+use crate::select::Quotable;
 
 /// The room at the left of the chat that a speaker's picture stands
 /// in, and the width of the picture.
@@ -185,10 +185,14 @@ fn said<B: Board>(
             .get(line.to)
             .filter(|to| line.to != 0 && to.kind != Kind::Me)
             .map(|to| to.name.clone());
-        let entry = cx
+        let item = cx
             .world
             .get::<Transcript>(session)
-            .and_then(|t| t.item(&id).map(|item| &item.entry));
+            .and_then(|t| t.item(&id));
+        let entry = item.map(|item| &item.entry);
+        let queued = item.is_some_and(|item| item.queued);
+        // Another agent's words, never drawn as the chief's.
+        let peer = matches!(entry, Some(Entry::Agent { .. }));
         let (words, typed) = match entry {
             Some(Entry::Chief { text, .. }) => {
                 (Words::Plain, text.as_str())
@@ -212,40 +216,62 @@ fn said<B: Board>(
             }
             None => (None, None, typed.to_string()),
         };
-        // A past session is only read.
-        let past = cx
-            .world
-            .get::<Chat>(session)
-            .is_some_and(|chat| chat.0.past.is_some());
+        // A conversation merged in, drawn under its row, is only
+        // read.
+        let own = session == cx.world.resource::<Convo>().session;
         let replies = words != Words::Fault
-            && !past
+            && own
+            && !queued
             && entry.is_some_and(reply::can_reply_to);
         let mine = who.kind == Kind::Me;
-        // The chief's own words in its own conversation with the
-        // agent are what that conversation can be taken back to.
-        let back = cx
-            .world
-            .get::<Chat>(session)
-            .is_none_or(|chat| chat.0.from.is_none())
-            && mine
+        let chief_line = mine
+            && own
             && matches!(entry, Some(Entry::Chief { .. }))
-            && words == Words::Plain
-            && session == cx.world.resource::<Convo>().session;
+            && words == Words::Plain;
+        // The chief's own words are what the conversation can be
+        // taken back to, and those that wait their turn can be taken
+        // back.
+        let back = chief_line && !queued;
+        let withdraws = chief_line && queued;
         let palette = &cx.theme().palette;
         let border = cx.theme().space.border;
         let corner = cx.theme().space.round_card;
         let fill: fn(&Palette) -> Color =
             if mine { |p| p.gold_6 } else { |p| p.card };
-        let time = hour(line.at);
+        // A line that waits its turn says so under the bubble, and
+        // has no hour yet.
+        let time = match queued {
+            true => String::new(),
+            false => hour(line.at),
+        };
+        let ink = contrast::reach(who.paint, &[fill(palette)], TEXT);
+        // Another agent's message is edged in its paint.
+        let edge = if peer { ink } else { palette.gold_6 };
 
         let mut inside = Vec::new();
-        if line.named && !mine && group {
-            let mut head = vec![inked(
-                who.name.clone(),
-                contrast::reach(who.paint, &[fill(palette)], TEXT),
-                12.0,
-            )];
-            if let Some(to) = to {
+        if line.named && !mine && (group || peer) {
+            let mut head = vec![inked(who.name.clone(), ink, 12.0)];
+            // Who another agent wrote to, by an arrow.
+            let to = match peer {
+                true => cast.get(line.to).map(|to| to.name.clone()),
+                false => to,
+            };
+            if peer && let Some(to) = to {
+                head.push(
+                    glyph(Glyph::Back, 10.0)
+                        .tone(Tone::Dim)
+                        .rotation(180.0)
+                        .boxed(),
+                );
+                head.push(
+                    label(to)
+                        .wrap(false)
+                        .bold(true)
+                        .tone(Tone::Dim)
+                        .rules(small_rules)
+                        .boxed(),
+                );
+            } else if let Some(to) = to {
                 head.push(
                     label(format!("to {to}"))
                         .wrap(false)
@@ -277,17 +303,13 @@ fn said<B: Board>(
         }
         let typed_id = id.clone();
         let reserve = if time.is_empty() { "" } else { RESERVE };
-        // The words of a message, selected as one, with the quote
-        // button at the end of what is selected.
+        // The words of a message, selected as one.
         let selectable = |said: AnyView| match replies {
-            true => column((
-                said,
-                select::quote_button(session, id.clone()).boxed(),
-            ))
-            .min_width(px(0.0))
-            .max_width(percent(100.0))
-            .tagged(Area)
-            .boxed(),
+            true => column((said,))
+                .min_width(px(0.0))
+                .max_width(percent(100.0))
+                .tagged(Area)
+                .boxed(),
             false => column((said,))
                 .min_width(px(0.0))
                 .max_width(percent(100.0))
@@ -303,21 +325,24 @@ fn said<B: Board>(
             )),
             false => hamlet_ui::markdown::typed(&typed, reserve),
         };
+        let shown = !time.is_empty();
         let hour = label(time)
             .wrap(false)
             .tone(if mine { Tone::Faint } else { Tone::Dim })
             .rules(small_rules);
         // The hour stands outside the words, so it is never selected
         // with them, in the room kept at the end of their last line.
-        let hour = row((hour,))
-            .position(PositionType::Absolute)
-            .inset(UiRect::new(
-                Val::Auto,
-                px(9.0),
-                Val::Auto,
-                px(5.0),
-            ))
-            .boxed();
+        let hour = shown.then(|| {
+            row((hour,))
+                .position(PositionType::Absolute)
+                .inset(UiRect::new(
+                    Val::Auto,
+                    px(9.0),
+                    Val::Auto,
+                    px(5.0),
+                ))
+                .boxed()
+        });
         match words {
             Words::Plain => {
                 if let Some(answers) = &answers {
@@ -326,12 +351,17 @@ fn said<B: Board>(
                             .boxed(),
                     );
                 }
-                let chips = match entry {
-                    Some(Entry::Chief { images, files, .. }) => {
-                        attach::sent_chips(images, files)
-                    }
-                    _ => Vec::new(),
+                let (chips, images) = match entry {
+                    Some(Entry::Chief { images, files, .. }) => (
+                        attach::sent_chips(images, files),
+                        images.as_slice(),
+                    ),
+                    _ => (Vec::new(), [].as_slice()),
                 };
+                // The images of the line over its words.
+                if !images.is_empty() {
+                    inside.push(attach::tiles(images).boxed());
+                }
                 // The words the places count are the ones drawn,
                 // unless the reply's quote was taken out of them.
                 let placed = selected.is_none()
@@ -388,7 +418,7 @@ fn said<B: Board>(
                 {
                     inside.push(attach::after_words(chips).boxed());
                 }
-                inside.push(hour);
+                inside.extend(hour);
             }
             Words::Markdown => {
                 let blocks = markdown::entry(session, id.clone())
@@ -397,7 +427,7 @@ fn said<B: Board>(
                     hamlet_ui::markdown::document(blocks, Tone::Body)
                         .boxed(),
                 ));
-                inside.push(hour);
+                inside.extend(hour);
             }
             // Beside the button that tries again.
             Words::Fault => {
@@ -405,7 +435,7 @@ fn said<B: Board>(
                     session,
                     id.clone(),
                 )));
-                inside.push(hour);
+                inside.extend(hour);
             }
         }
         let bubble = column(inside)
@@ -420,7 +450,7 @@ fn said<B: Board>(
             .border_color(rewind::ringed(
                 session,
                 id.clone(),
-                palette.gold_6,
+                edge,
                 palette.accent,
             ))
             .corners({
@@ -449,16 +479,20 @@ fn said<B: Board>(
             false => (frame().boxed(), 0.0),
         };
         let view = if mine {
-            let (mark, room) = match back {
-                true => (
+            let (mark, room) = match (back, withdraws) {
+                (true, _) => (
                     rewind::mark(session, id.clone()).boxed(),
                     rewind::ROOM,
                 ),
-                false => (frame().boxed(), 0.0),
+                (_, true) => (
+                    rewind::withdraw(session, id.clone()).boxed(),
+                    rewind::ROOM,
+                ),
+                _ => (frame().boxed(), 0.0),
             };
             let marks = row((replying, mark))
                 .rules(rewind::hiding(session, id.clone()));
-            row((marks, bubble))
+            let said = row((marks, bubble))
                 .gap(0.0)
                 .justify(JustifyContent::FlexEnd)
                 .padding(UiRect::new(
@@ -466,8 +500,18 @@ fn said<B: Board>(
                     px(0.0),
                     above,
                     px(0.0),
+                ));
+            match queued {
+                // Under the bubble's right edge, where it cannot
+                // touch the words.
+                true => column((
+                    said,
+                    row((note("Queued"),))
+                        .justify(JustifyContent::FlexEnd),
                 ))
-                .boxed()
+                .boxed(),
+                false => said.boxed(),
+            }
         } else {
             let picture = match line.named {
                 true => {
@@ -511,29 +555,66 @@ fn said<B: Board>(
     })
 }
 
+/// How opaque a row that waits its turn is.
+const WAITING: f32 = 0.55;
+
 /// A row of the chat, as board `B` holds it.
 pub(super) fn line_view<B: Board>(line: &Line) -> AnyView {
-    let (view, session) = match &line.row {
-        Row::Entry { session, id } => {
-            (said::<B>(line.clone(), *session, id.clone()), *session)
-        }
-        // A turn's steps are the agent's own, so they sit where its
-        // bubbles do.
-        Row::Fold { session, first, .. } => (
-            row((fold_view::<B>(
-                line.key(),
+    let line = line.clone();
+    AnyView::new(move |cx: &mut Cx| {
+        // A turn's steps and the cards are the agent's own, so they
+        // sit where its bubbles do.
+        let aside = |view: AnyView| {
+            row((view,))
+                .padding(UiRect::new(
+                    px(GUTTER),
+                    px(0.0),
+                    px(if line.lead { RUN } else { 0.0 }),
+                    px(0.0),
+                ))
+                .boxed()
+        };
+        let (view, session, id) = match &line.row {
+            Row::Entry { session, id } => (
+                said::<B>(line.clone(), *session, id.clone()),
                 *session,
-                first.clone(),
-            ),))
-            .padding(UiRect::new(
-                px(GUTTER),
-                px(0.0),
-                px(if line.lead { RUN } else { 0.0 }),
-                px(0.0),
-            ))
-            .boxed(),
-            *session,
-        ),
-    };
-    view.rules(rewind::fading(session, line.at)).boxed()
+                id.as_str(),
+            ),
+            Row::Card { session, id } => (
+                aside(card::view(*session, id.clone()).boxed()),
+                *session,
+                id.as_str(),
+            ),
+            Row::Fold { session, first, .. } => (
+                aside(
+                    fold_view::<B>(
+                        line.key(),
+                        *session,
+                        first.clone(),
+                    )
+                    .boxed(),
+                ),
+                *session,
+                first.as_str(),
+            ),
+        };
+        let queued = cx
+            .world
+            .get::<Transcript>(session)
+            .and_then(|t| t.item(id))
+            .is_some_and(|item| item.queued);
+        let view = match queued {
+            true => view
+                .rules(|cx: &mut Cx| {
+                    cx.set::<Visual>(|visual, _| {
+                        visual.opacity(WAITING)
+                    });
+                })
+                .boxed(),
+            false => {
+                view.rules(rewind::fading(session, line.at)).boxed()
+            }
+        };
+        cx.build(view)
+    })
 }

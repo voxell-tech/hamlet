@@ -64,6 +64,8 @@ pub(crate) enum Refusal {
     ScholarHasHires { name: String, hires: String },
     #[error("`{name}` has no version `{version}`")]
     NoVersion { name: String, version: String },
+    #[error("`{name}` has no branch yet; try again in a moment")]
+    NoBranch { name: String },
     #[error(
         "`{version}` is not a version's name: use at most 32 \
          letters, digits, dots and hyphens"
@@ -77,6 +79,12 @@ pub(crate) enum Refusal {
     NoPurpose,
     #[error("only a chief of the hamlet `{hamlet}` may do that")]
     NotChief { hamlet: String },
+    #[error("only a chief of the realm may do that")]
+    NotRealmChief,
+    #[error(
+        "only a chief chooses your own model, effort and fast tier"
+    )]
+    OwnSteering,
     #[error("only `{owner}`'s chief may do that")]
     NotOwner { owner: String },
     #[error("only a lead of `{name}` may do that")]
@@ -138,8 +146,8 @@ pub(crate) enum Refusal {
     TierTooSmall { id: String, count: i64, tier: i64 },
     #[error("a road joins hires only")]
     RoadEnds,
-    #[error("there is no past session {number} here")]
-    NoSession { number: i64 },
+    #[error("that line is no longer queued")]
+    NotQueued,
     #[error("a turn is running here; stop it, then {then}")]
     TurnRunning { then: String },
     #[error(
@@ -242,8 +250,6 @@ pub(crate) enum Refusal {
     WorkspaceNotOpened { error: String },
     #[error("Use /dream <scholar#id|address>")]
     DreamUsage,
-    #[error("A dream is running; one dreams at a time.")]
-    DreamRunning,
     #[error("That sign-in is not waiting for an answer.")]
     SignInNotWaiting,
     #[error("No sign-in of yours is open.")]
@@ -271,7 +277,7 @@ pub(crate) enum Refusal {
     #[error("Say this to a hamlet's mayor or one of its hires.")]
     SayToMayorOrHire,
     #[error("Say what you need a skill for.")]
-    NoSkillQuestion,
+    NoSkillRequest,
     #[error(
         "`skill` is its folder under skills/, in letters, digits, \
          hyphens and underscores."
@@ -318,20 +324,23 @@ pub(crate) enum Refusal {
     BadLimits { why: String },
     #[error("Those limits do not fit their form.")]
     LimitsUnfit,
+    #[error("Those settings do not fit their form.")]
+    SettingsUnfit,
+    #[error("The mode is `manual` or `auto`.")]
+    NoMode,
+    #[error("There is no effort `{level}`.")]
+    NoEffort { level: String },
+    #[error("You cannot stop yourself.")]
+    StopSelf,
     #[error("That is you.")]
     TellSelf,
     #[error("Say what to send.")]
     NothingToSend,
     #[error(
-        "You have no road to {other}. Request one from your lead \
-         with request_road."
+        "You have no road to {other}. Propose one to your lead with \
+         propose_road."
     )]
     NoRoadTo { other: String },
-    #[error(
-        "{other} is waiting on your answer already; tell it what it \
-         needs instead of putting a question."
-    )]
-    AlreadyWaitingOn { other: String },
     #[error("That is not one of your lines in this conversation.")]
     NotYourLine,
     #[error("Choose a remote workspace in the settings first.")]

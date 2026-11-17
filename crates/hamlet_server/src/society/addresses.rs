@@ -50,10 +50,22 @@ pub(crate) enum Reach {
     Kept,
 }
 
-/// Reads an address: `hand`, `mayor`, `mayor@<hamlet>`, `hire#<id>`
-/// or `worker#<id>`.
-pub(crate) fn parse(text: &str) -> Result<Address, Refusal> {
+/// `text` without the ` (<name>)` an address is shown and copied
+/// with, as in `hire#2 (Mayor)`.
+fn bare(text: &str) -> &str {
     let text = text.trim();
+    match text.split_once(" (") {
+        Some((address, _)) if text.ends_with(')') => {
+            address.trim_end()
+        }
+        _ => text,
+    }
+}
+
+/// Reads an address: `hand`, `mayor`, `mayor@<hamlet>`, `hire#<id>`
+/// or `worker#<id>`, with or without the name shown beside it.
+pub(crate) fn parse(text: &str) -> Result<Address, Refusal> {
+    let text = bare(text);
     let bad = || Refusal::BadAddress {
         address: text.into(),
     };
@@ -77,11 +89,12 @@ pub(crate) fn parse(text: &str) -> Result<Address, Refusal> {
     }
 }
 
-/// Reads a scholar's address, `scholar#<id>`.
+/// Reads a scholar's address, `scholar#<id>`, with or without the
+/// name shown beside it.
 pub(crate) fn parse_scholar(
     text: &str,
 ) -> Result<ScholarId, Refusal> {
-    let text = text.trim();
+    let text = bare(text);
     text.strip_prefix("scholar#")
         .and_then(|id| id.parse::<i64>().ok())
         .map(ScholarId)
@@ -221,4 +234,26 @@ pub(crate) fn scholar_name_of(
         .select(scholar::name)
         .first::<String>(db)?;
     Ok(format!("{} ({name})", scholar_address(id)))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_copied_address_reads_with_its_name() {
+        assert_eq!(
+            parse("hire#2 (Mayor)"),
+            Ok(Address::Hire(AgentId(2)))
+        );
+        assert_eq!(
+            parse("worker#7 (Sam (old))"),
+            Ok(Address::Worker(AgentId(7)))
+        );
+        assert_eq!(
+            parse_scholar("scholar#4 (Mira)"),
+            Ok(ScholarId(4))
+        );
+        assert!(parse("hire#2 (Mayor").is_err());
+    }
 }

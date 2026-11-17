@@ -14,28 +14,33 @@
 
 use std::collections::{HashMap, HashSet};
 use std::path::PathBuf;
+use std::sync::Arc;
 
 use bevy::app::{App, Update};
+use bevy::camera::visibility::Visibility;
+use bevy::ecs::change_detection::{DetectChanges, DetectChangesMut};
 use bevy::ecs::component::Component;
-use bevy::ecs::hierarchy::ChildOf;
+use bevy::ecs::entity::Entity;
+use bevy::ecs::hierarchy::{ChildOf, Children};
 use bevy::ecs::message::MessageReader;
 use bevy::ecs::observer::On;
 use bevy::ecs::query::With;
 use bevy::ecs::resource::Resource;
 use bevy::ecs::schedule::IntoScheduleConfigs;
 use bevy::ecs::system::{Commands, Query, Res, ResMut};
-use bevy::ecs::world::World;
+use bevy::ecs::world::{Ref, World};
 use bevy::input::ButtonInput;
 use bevy::input::keyboard::{KeyCode, KeyboardInput};
-use bevy::input_focus::FocusedInput;
-use bevy::math::Vec2;
+use bevy::input_focus::{FocusedInput, InputFocus};
+use bevy::math::{Rect, UVec2, Vec2};
 use bevy::picking::events::PointerClick;
+use bevy::picking::hover::Hovered;
 use bevy::picking::pointer::PointerButton;
 use bevy::tasks::{AsyncComputeTaskPool, TaskPool};
 use bevy::ui::widget::{ImageNode, NodeImageMode};
 use bevy::ui::{
-    AlignItems, BackgroundColor, BorderColor, BorderRadius, Node,
-    UiRect, px,
+    AlignItems, BackgroundColor, BorderRadius, JustifyContent, Node,
+    PositionType, UiRect, Val, percent, px,
 };
 use bevy::window::FileDragAndDrop;
 use bevy_fynix::tokens::Tone;
@@ -48,25 +53,23 @@ use hamlet_client::files::{
     FilesForget, FilesKept, FilesRefused, Gather, Gathered,
     UploadFiles,
 };
-use hamlet_client::images::{
-    Download, ImageArrived, ImageKept, ImageMissing, ImageRefused,
-    Upload,
-};
+use hamlet_client::images::{ImageKept, ImageRefused, Upload};
 use hamlet_client::realm::Account;
 use hamlet_desktop::choose::{Choose, Chosen, What};
 use hamlet_desktop::clipboard::{Paste, Pasted};
-use hamlet_desktop::open;
 use hamlet_protocol::client::{
-    AttachedFile, AttachedImage, ImageId, ImageInput, ImageSize,
+    AttachedFile, AttachedImage, ImageId, ImageInput,
 };
 use hamlet_realm::hand::FileDropped;
 use hamlet_ui::markdown::ATOM;
-use hamlet_ui::styles::{ICON, back_link, bare, close_button, note};
+use hamlet_ui::styles::{
+    ICON, Looks, Tipped, bare, close_button, note,
+};
 use hamlet_ui::theme::HamletTheme;
 use hamlet_ui::widgets::effects::Variant;
 use hamlet_ui::widgets::icons::{Glyph, glyph};
 use hamlet_ui::widgets::platform::Wraps;
-use hamlet_ui::{AnyView, Cx, View};
+use hamlet_ui::{AnyView, Cx, View, built, with_cx};
 use tokio::sync::mpsc::{
     UnboundedReceiver, UnboundedSender, unbounded_channel,
 };
@@ -74,11 +77,15 @@ use tokio::sync::mpsc::{
 use super::{ChatField, Draft};
 use crate::convo::Convo;
 use crate::models::Shelf;
-use crate::pictures::{Pictures, Source, State, want};
+use crate::pictures::{Drawn, Pictures, Source, State, want};
 use crate::roll::{agents_moved, either, moved};
+use crate::screens::viewer;
 
-/// The side of the small picture of an image in a chip, in pixels.
-const CHIP_PICTURE: f32 = 16.0;
+/// How high Bevy lays out a line of text, in its font size.
+const LINE: f32 = 1.2;
+
+/// The side of a sent image's tile, in pixels.
+const TILE: f32 = 112.0;
 
 /// The most letters of a name a chip shows.
 const NAME_LETTERS: usize = 28;
@@ -93,7 +100,6 @@ const MOST_PER_LINE: usize = 20;
 pub(super) fn plugin(app: &mut App) {
     app.init_resource::<Attached>()
         .init_resource::<Reads>()
-        .init_resource::<Opening>()
         .add_message::<FileDragAndDrop>()
         .add_message::<FileDropped>()
         .add_observer(kept)
@@ -105,14 +111,13 @@ pub(super) fn plugin(app: &mut App) {
         .add_observer(paste)
         .add_observer(pasted)
         .add_observer(open_original)
-        .add_observer(original_arrived)
-        .add_observer(original_missing)
         .add_systems(
             Update,
             (
                 watch_drag,
                 dropped,
                 finish_reads,
+                reveal,
                 forgotten.run_if(|attached: Res<Attached>| {
                     !attached.forget.is_empty()
                 }),
@@ -157,6 +162,8 @@ pub(super) fn sight(world: &World) -> Sight {
 /// An image on its way to the next line.
 struct Attachment {
     key: u64,
+    /// The conversation whose draft it is attached to.
+    owner: Entity,
     name: String,
     /// The bytes of its file, once they are read.
     size: Option<u64>,
@@ -179,6 +186,8 @@ enum Progress {
 /// A file or a folder on its way to the next line.
 struct Parcel {
     key: u64,
+    /// The conversation whose draft it is attached to.
+    owner: Entity,
     /// The name it was attached under.
     name: String,
     folder: bool,
@@ -218,9 +227,10 @@ enum Dragging {
     Other,
 }
 
-/// The images, files and folders the next line carries, and a drag
-/// over the window.
-#[derive(Resource, Default)]
+/// The images, files and folders the drafts of the chats carry, and
+/// a drag over the window. All but what is said of each attachment by
+/// its key is of the shown conversation's draft, the next line.
+#[derive(Resource)]
 pub struct Attached {
     list: Vec<Attachment>,
     parcels: Vec<Parcel>,
@@ -229,12 +239,44 @@ pub struct Attached {
     /// told to stop sending.
     forget: Vec<u64>,
     dragging: Dragging,
+    /// The conversation whose draft is in the field.
+    shown: Entity,
+}
+
+impl Default for Attached {
+    fn default() -> Self {
+        Attached {
+            list: Vec::new(),
+            parcels: Vec::new(),
+            next: 0,
+            forget: Vec::new(),
+            dragging: Dragging::default(),
+            shown: Entity::PLACEHOLDER,
+        }
+    }
 }
 
 /// The byte of the line's text each attachment sits at, by its key.
 pub(crate) type Places = HashMap<u64, u64>;
 
 impl Attached {
+    /// Makes the draft of `session` the one in the field.
+    pub(super) fn show(&mut self, session: Entity) {
+        self.shown = session;
+    }
+
+    /// The images of the shown draft.
+    fn images(&self) -> impl Iterator<Item = &Attachment> {
+        self.list.iter().filter(|image| image.owner == self.shown)
+    }
+
+    /// The files and folders of the shown draft.
+    fn shown_parcels(&self) -> impl Iterator<Item = &Parcel> {
+        self.parcels
+            .iter()
+            .filter(|parcel| parcel.owner == self.shown)
+    }
+
     /// The images and files of the line at their `places`, once every
     /// one is kept. `None` while one still goes up, waits for a word,
     /// or failed.
@@ -243,8 +285,7 @@ impl Attached {
         places: &Places,
     ) -> Option<(Vec<AttachedImage>, Vec<AttachedFile>)> {
         let images = self
-            .list
-            .iter()
+            .images()
             .map(|attachment| match &attachment.progress {
                 Progress::Kept(image) => Some(AttachedImage {
                     at: places.get(&attachment.key).copied(),
@@ -254,7 +295,7 @@ impl Attached {
             })
             .collect::<Option<Vec<_>>>()?;
         let mut files = Vec::new();
-        for parcel in &self.parcels {
+        for parcel in self.shown_parcels() {
             match &parcel.load {
                 Load::Kept(kept) => {
                     files.extend(kept.iter().map(|file| {
@@ -271,9 +312,14 @@ impl Attached {
     }
 
     /// The files and the bytes of what is attached as files and
-    /// folders, which the cap counts together.
-    fn counted(&self) -> (usize, u64) {
-        self.parcels.iter().fold((0, 0), |(files, bytes), parcel| {
+    /// folders to the draft of `owner`, which the cap counts
+    /// together.
+    fn counted(&self, owner: Entity) -> (usize, u64) {
+        let parcels = self
+            .parcels
+            .iter()
+            .filter(|parcel| parcel.owner == owner);
+        parcels.fold((0, 0), |(files, bytes), parcel| {
             match &parcel.load {
                 Load::Held {
                     files: more,
@@ -296,21 +342,20 @@ impl Attached {
         })
     }
 
-    /// Lets the parcels go, and tells the client to stop sending
-    /// those not kept yet.
-    fn drop_parcels(&mut self) {
-        let unfinished = self
-            .parcels
-            .drain(..)
-            .filter(|parcel| !matches!(parcel.load, Load::Kept(_)))
-            .map(|parcel| parcel.key);
-        self.forget.extend(unfinished);
-    }
-
-    /// Lets the images and files go.
+    /// Lets the images and files of the shown draft go, and tells the
+    /// client to stop sending the files not kept yet.
     pub(super) fn clear(&mut self) {
-        self.list.clear();
-        self.drop_parcels();
+        let shown = self.shown;
+        self.list.retain(|image| image.owner != shown);
+        let mut unfinished = Vec::new();
+        self.parcels.retain(|parcel| {
+            let mine = parcel.owner == shown;
+            if mine && !matches!(parcel.load, Load::Kept(_)) {
+                unfinished.push(parcel.key);
+            }
+            !mine
+        });
+        self.forget.extend(unfinished);
     }
 
     /// Puts `images` and `files`, which the server keeps, in place
@@ -339,6 +384,7 @@ impl Attached {
             self.next += 1;
             self.list.push(Attachment {
                 key,
+                owner: self.shown,
                 name: "Image".into(),
                 size: None,
                 shown: Some(Source::Image(image.id.clone())),
@@ -354,6 +400,7 @@ impl Attached {
             chips.push((place(kept[0].at), key));
             self.parcels.push(Parcel {
                 key,
+                owner: self.shown,
                 name,
                 folder: kept
                     .iter()
@@ -456,13 +503,20 @@ impl Attached {
     /// Notes which chips the field holds, and lets go of an
     /// attachment whose chip was taken out of it.
     fn follow(&mut self, seen: &HashSet<u64>) {
+        let shown = self.shown;
         let mut gone = Vec::new();
         self.list.retain_mut(|image| {
+            if image.owner != shown {
+                return true;
+            }
             let here = seen.contains(&image.key);
             image.placed |= here;
             here || !image.placed
         });
         self.parcels.retain_mut(|parcel| {
+            if parcel.owner != shown {
+                return true;
+            }
             let here = seen.contains(&parcel.key);
             parcel.placed |= here;
             let keep = here || !parcel.placed;
@@ -477,12 +531,10 @@ impl Attached {
     /// Whether the chips the field holds differ from those noted.
     fn is_out_of_step(&self, seen: &HashSet<u64>) -> bool {
         let noted = self
-            .list
-            .iter()
+            .images()
             .map(|image| (image.key, image.placed))
             .chain(
-                self.parcels
-                    .iter()
+                self.shown_parcels()
                     .map(|parcel| (parcel.key, parcel.placed)),
             );
         noted
@@ -617,18 +669,19 @@ pub(super) fn attach(world: &mut World, incoming: Vec<Incoming>) {
                 "This model cannot see images.".into();
             continue;
         };
-        if world.resource::<Attached>().list.len() >= most {
+        if world.resource::<Attached>().images().count() >= most {
             world.resource_mut::<Draft>().notice =
                 format!("A line takes at most {most} images.");
             continue;
         }
         let mut attached = world.resource_mut::<Attached>();
-        let key = attached.next;
+        let (key, owner) = (attached.next, attached.shown);
         attached.next += 1;
         match item {
             Incoming::File(path) => {
                 attached.list.push(Attachment {
                     key,
+                    owner,
                     name: file_name(&path),
                     size: None,
                     shown: Some(Source::File(path.clone())),
@@ -656,6 +709,7 @@ pub(super) fn attach(world: &mut World, incoming: Vec<Incoming>) {
                 let sends = progress == Progress::Sending;
                 attached.list.push(Attachment {
                     key,
+                    owner,
                     name: "Pasted image".into(),
                     size: Some(bytes.len() as u64),
                     shown: None,
@@ -684,10 +738,11 @@ fn parcel(world: &mut World, path: PathBuf) {
     let name = file_name(&path);
     let folder = path.is_dir();
     let mut attached = world.resource_mut::<Attached>();
-    let key = attached.next;
+    let (key, owner) = (attached.next, attached.shown);
     attached.next += 1;
     attached.parcels.push(Parcel {
         key,
+        owner,
         name,
         folder,
         skipped: 0,
@@ -708,10 +763,18 @@ fn gathered(
     mut attached: ResMut<Attached>,
     mut commands: Commands,
 ) {
-    let (files, bytes) = attached.counted();
+    // A cross may have let it go while it was counted.
+    let Some(owner) = attached
+        .parcels
+        .iter()
+        .find(|parcel| parcel.key == gathered.key)
+        .map(|parcel| parcel.owner)
+    else {
+        return;
+    };
+    let (files, bytes) = attached.counted(owner);
     let over = files + gathered.files > AttachedFile::CAP_FILES
         || bytes + gathered.bytes > AttachedFile::CAP_BYTES;
-    // A cross may have let it go while it was counted.
     let Some(parcel) = attached
         .parcels
         .iter_mut()
@@ -924,20 +987,15 @@ fn dropped(
     }
 }
 
-/// The image a sent line or a thumbnail shows, which a click opens in
-/// full.
+/// The image a chip or a tile shows, which a click opens in the
+/// viewer.
 #[derive(Component)]
 struct Original(ImageId);
 
-/// The originals asked for, to be opened when they arrive.
-#[derive(Resource, Default)]
-struct Opening(HashSet<ImageId>);
-
-/// Asks the server for the image that was clicked, in full.
+/// Opens the image that was clicked in the viewer.
 fn open_original(
     click: On<PointerClick>,
     originals: Query<&Original>,
-    mut opening: ResMut<Opening>,
     mut commands: Commands,
 ) {
     if click.button != PointerButton::Primary {
@@ -946,122 +1004,172 @@ fn open_original(
     let Ok(Original(image)) = originals.get(click.entity) else {
         return;
     };
-    if opening.0.insert(image.clone()) {
-        commands.trigger(Download {
-            image: image.clone(),
-            size: ImageSize::Original,
-        });
-    }
+    let image = image.clone();
+    commands
+        .queue(move |world: &mut World| viewer::open(world, image));
 }
 
-/// The ending of a file of the media type `mime`.
-fn ending(mime: &str) -> &'static str {
-    match mime {
-        "image/jpeg" => "jpg",
-        "image/webp" => "webp",
-        "image/gif" => "gif",
-        _ => "png",
-    }
-}
-
-/// Opens an original that arrived, by the program the system keeps
-/// for it. The file is written off the frame.
-fn original_arrived(
-    arrived: On<ImageArrived>,
-    mut opening: ResMut<Opening>,
-) {
-    if arrived.size != ImageSize::Original
-        || !opening.0.remove(&arrived.image)
-    {
-        return;
-    }
-    let path = std::env::temp_dir()
-        .join("hamlet-images")
-        .join(format!("{}.{}", arrived.image, ending(&arrived.mime)));
-    let bytes = arrived.bytes.clone();
-    AsyncComputeTaskPool::get_or_init(TaskPool::default)
-        .spawn(async move {
-            let written = path.parent().is_some_and(|folder| {
-                std::fs::create_dir_all(folder).is_ok()
-            }) && std::fs::write(&path, bytes).is_ok();
-            if written {
-                open::show_file(&path);
-            }
-        })
-        .detach();
-}
-
-fn original_missing(
-    missing: On<ImageMissing>,
-    mut opening: ResMut<Opening>,
-) {
-    if missing.size == ImageSize::Original {
-        opening.0.remove(&missing.image);
-    }
-}
-
-/// A thumbnail of `source` no larger than `side` either way, asked
-/// for once, which a plate holds the place of while it is read. One
-/// of an image the server keeps opens it in full when clicked.
-fn thumbnail(source: Source, side: f32) -> impl View {
+/// The picture of `source`, asked for once, rounded, in the size
+/// `cut` gives it and the part of its pixels it shows, or on a plate
+/// while it is read.
+fn picture(
+    source: Source,
+    cut: impl Fn(&Drawn) -> (Vec2, Option<Rect>) + Send + Sync + 'static,
+) -> impl View {
     let of = source.clone();
     let state = resource::<Pictures, _>(move |all| all.state(&of));
+    let cut = Arc::new(cut);
     keyed(state, move |state| {
-        let (source, state) = (source.clone(), state.clone());
+        let (source, state, cut) =
+            (source.clone(), state.clone(), cut.clone());
         AnyView::new(move |cx: &mut Cx| {
             want(cx.world, &source);
             let within = cx.build(bare());
             let theme = cx.theme();
-            let (back, edge, round) = (
-                theme.palette.code,
-                theme.palette.gold_6,
-                theme.space.round,
-            );
+            let (back, round) =
+                (theme.palette.code, theme.space.round_small);
             let mut node = Node {
-                border: UiRect::all(px(1.0)),
+                width: percent(100.0),
+                height: percent(100.0),
                 border_radius: BorderRadius::all(px(round)),
                 ..Node::default()
             };
-            let image = match &state {
+            match &state {
                 State::Ready(drawn) => {
-                    let size = drawn.fitted(Vec2::splat(side));
+                    let (size, rect) = cut(drawn);
                     (node.width, node.height) =
-                        (px(size.x + 2.0), px(size.y + 2.0));
-                    Some(drawn.image.clone())
+                        (px(size.x), px(size.y));
+                    let image = ImageNode {
+                        rect,
+                        ..ImageNode::new(drawn.image.clone())
+                            .with_mode(NodeImageMode::Stretch)
+                    };
+                    cx.world.spawn((node, image, ChildOf(within)));
                 }
                 _ => {
-                    (node.width, node.height) =
-                        (px(side * 0.75), px(side * 0.75));
-                    None
+                    cx.world.spawn((
+                        node,
+                        BackgroundColor(back),
+                        ChildOf(within),
+                    ));
                 }
-            };
-            let opens = match &source {
-                Source::Image(image) => Some(Original(image.clone())),
-                _ => None,
-            };
-            let entity = cx
-                .world
-                .spawn((
-                    node,
-                    BackgroundColor(back),
-                    BorderColor::all(edge),
-                    source,
-                    ChildOf(within),
-                ))
-                .id();
-            if let Some(opens) = opens {
-                cx.world.entity_mut(entity).insert(opens);
-            }
-            if let Some(image) = image {
-                cx.world.entity_mut(entity).insert(
-                    ImageNode::new(image)
-                        .with_mode(NodeImageMode::Stretch),
-                );
             }
             within
         })
     })
-    .within(bare())
+    .within(
+        column(())
+            .width(percent(100.0))
+            .height(percent(100.0))
+            .justify(JustifyContent::Center)
+            .align(AlignItems::Center),
+    )
+}
+
+/// A small picture of `source` fitted in a square of `side`, which
+/// keeps that size while the picture is read.
+fn thumbnail(source: Source, side: f32) -> impl View {
+    let fitted = picture(source, move |drawn| {
+        (drawn.fitted(Vec2::splat(side)), None)
+    });
+    column((fitted,))
+        .width(px(side))
+        .height(px(side))
+        .shrink(0.0)
+}
+
+/// The part of a picture of `size` pixels that fills a square: its
+/// middle, as long as its shorter side.
+fn square(size: UVec2) -> Rect {
+    let side = size.min_element() as f32;
+    let corner = (size.as_vec2() - side) / 2.0;
+    Rect::from_corners(corner, corner + side)
+}
+
+/// On a sent image's tile.
+#[derive(Component)]
+struct Tile;
+
+/// The corner of a tile that holds the button opening its image.
+#[derive(Component)]
+struct Zoom;
+
+/// A sent image as a square tile of its thumbnail, cut to fill it,
+/// and a button over its corner, shown while the pointer is on the
+/// tile or the button has the keyboard. A press on either opens the
+/// image in the viewer.
+fn tile(image: ImageId) -> AnyView {
+    let opened = image.clone();
+    let zoom = button(glyph(Glyph::ZoomIn, ICON))
+        .padding(UiRect::all(px(4.0)))
+        .tip("View image")
+        .variant(Variant::Default)
+        .on_activate(move |world| {
+            viewer::open(world, opened.clone());
+        });
+    let corner = row((zoom,))
+        .position(PositionType::Absolute)
+        .inset(UiRect::new(Val::Auto, px(4.0), px(4.0), Val::Auto))
+        .tagged(Zoom);
+    let shown = picture(Source::Image(image.clone()), |drawn| {
+        (Vec2::splat(TILE), Some(square(drawn.size)))
+    });
+    built(move |cx| {
+        let node = cx.build(
+            column((shown,))
+                .width(px(TILE))
+                .height(px(TILE))
+                .shrink(0.0)
+                .tagged(Tile),
+        );
+        let corner = cx.build(corner);
+        cx.world
+            .entity_mut(corner)
+            .insert((Visibility::Hidden, ChildOf(node)));
+        cx.world
+            .entity_mut(node)
+            .insert((Original(image), Hovered::default()));
+        node
+    })
+    .boxed()
+}
+
+/// The tiles of a sent line's images, in a row that wraps.
+pub(super) fn tiles(images: &[AttachedImage]) -> impl View {
+    row(images
+        .iter()
+        .map(|image| tile(image.id.clone()))
+        .collect::<Vec<_>>())
+    .gap(6.0)
+    .tagged(Wraps)
+}
+
+/// Shows the button over each tile while the pointer is on the tile
+/// or the keyboard is on the button.
+fn reveal(
+    focus: Res<InputFocus>,
+    tiles: Query<(Ref<Hovered>, &Children), With<Tile>>,
+    parents: Query<&ChildOf>,
+    mut zooms: Query<&mut Visibility, With<Zoom>>,
+) {
+    let focused = focus.get();
+    for (hovered, children) in &tiles {
+        if !hovered.is_changed() && !focus.is_changed() {
+            continue;
+        }
+        for &corner in children {
+            let Ok(mut shown) = zooms.get_mut(corner) else {
+                continue;
+            };
+            let held = focused.is_some_and(|input| {
+                parents.iter_ancestors(input).any(|up| up == corner)
+            });
+            shown.set_if_neq(match hovered.get() || held {
+                true => Visibility::Inherited,
+                false => Visibility::Hidden,
+            });
+        }
+    }
 }
 
 /// The parts of a chip of one attachment.
@@ -1130,14 +1238,22 @@ fn shown_name(name: &str) -> String {
 /// A chip: a small picture or an icon, a name and a size, in a
 /// rounded box that sits in the line of a text. `cross` is the
 /// attachment it lets go of, `disabled` why it cannot be sent.
+///
+/// A chip is as high as a line of the body text it sits in, whatever
+/// it shows, with its words at that text's size. An inline view hangs
+/// down to the bottom of its line, so the chip spans the line without
+/// making it taller, and its words, centred, share the baseline of
+/// the words around.
 fn chip(
     face: Face,
     disabled: Option<&'static str>,
     cross: Option<u64>,
 ) -> AnyView {
     AnyView::new(move |cx: &mut Cx| {
-        let palette = &cx.theme().palette;
-        let (fill, round) = (palette.code, cx.theme().space.round);
+        let theme = cx.theme();
+        let palette = &theme.palette;
+        let (fill, round, words) =
+            (palette.code, theme.space.round, theme.text.body);
         let edge = match &face.trouble {
             Some(_) => palette.danger_border,
             None => palette.gold_5,
@@ -1148,15 +1264,13 @@ fn chip(
             (None, None) => Tone::Body,
         };
         let mark = match &face.picture {
-            Some(source) => {
-                thumbnail(source.clone(), CHIP_PICTURE).boxed()
-            }
+            Some(source) => thumbnail(source.clone(), ICON).boxed(),
             None => glyph(face.glyph, ICON).tone(tone).boxed(),
         };
         let mut parts = vec![
             mark,
             label(shown_name(&face.name))
-                .size(12.0)
+                .size(words)
                 .wrap(false)
                 .tone(tone)
                 .boxed(),
@@ -1164,7 +1278,7 @@ fn chip(
         if !face.size.is_empty() {
             parts.push(
                 label(face.size.clone())
-                    .size(11.0)
+                    .size(words)
                     .wrap(false)
                     .tone(Tone::Faint)
                     .boxed(),
@@ -1178,7 +1292,8 @@ fn chip(
         let chip = row(parts)
             .gap(5.0)
             .align(AlignItems::Center)
-            .padding(UiRect::axes(px(6.0), px(1.0)))
+            .height(px(words * LINE))
+            .padding(UiRect::horizontal(px(6.0)))
             .margin(UiRect::horizontal(px(2.0)))
             .fill(fill)
             .border(1.0)
@@ -1345,8 +1460,7 @@ pub(super) fn after_words(
 pub(super) fn holds() -> impl View {
     let held = resource::<Attached, _>(|attached| {
         attached
-            .parcels
-            .iter()
+            .shown_parcels()
             .filter_map(|parcel| match parcel.load {
                 Load::Held { files, bytes } => {
                     Some((parcel.key, over(files, bytes)))
@@ -1383,22 +1497,16 @@ pub(super) fn holds() -> impl View {
 
 /// A control that opens the dialog `what` is chosen in.
 fn chooser(which: Glyph, tip: &'static str, what: What) -> AnyView {
-    button(glyph(which, ICON))
-        .padding(UiRect::all(px(4.0)))
-        .tooltip(move || note(tip))
-        .rules(back_link)
-        .tagged(Variant::Text)
-        .on_activate(move |world| {
-            let asker = world.resource::<Convo>().session;
-            world.trigger(Choose { asker, what });
-        })
-        .boxed()
+    super::tool_button(which, tip, move |world| {
+        let asker = world.resource::<Convo>().session;
+        world.trigger(Choose { asker, what });
+    })
 }
 
-/// The controls that open the dialogs images, files and folders are
-/// chosen in. The one for images is greyed out for a model that
-/// takes none.
-pub(super) fn control() -> impl View {
+/// The buttons of the composer's toolbar that open the dialogs
+/// images, files and folders are chosen in. The one for images is
+/// greyed out for a model that takes none.
+pub(crate) fn control() -> impl View {
     let sees = derived(|world: &World| sight(world)).when(either(
         either(agents_moved(), moved::<Shelf>()),
         moved::<Convo>(),
@@ -1407,20 +1515,27 @@ pub(super) fn control() -> impl View {
         Sight::Sees(_) => {
             chooser(Glyph::Picture, "Attach images", What::Images)
         }
-        Sight::Blind => {
+        Sight::Blind => with_cx(|cx| {
+            let side = cx.theme().space.row;
             column((glyph(Glyph::Picture, ICON).tone(Tone::Faint),))
-                .padding(UiRect::all(px(4.0)))
+                .width(px(side))
+                .height(px(side))
+                .align(AlignItems::Center)
+                .justify(JustifyContent::Center)
                 .tooltip(|| note("This model cannot see images"))
-                .boxed()
-        }
+        })
+        .boxed(),
     })
     .within(bare());
-    row((
-        images,
-        chooser(Glyph::Notes, "Attach files", What::Files),
-        chooser(Glyph::Folder, "Attach a folder", What::Folders),
-    ))
-    .align(AlignItems::Center)
+    with_cx(move |cx| {
+        row((
+            images,
+            chooser(Glyph::Notes, "Attach files", What::Files),
+            chooser(Glyph::Folder, "Attach a folder", What::Folders),
+        ))
+        .gap(super::TOOL_GAP * cx.theme().space.gap)
+        .align(AlignItems::Center)
+    })
 }
 
 /// The indicator shown while a file or folder is dragged over the
@@ -1597,6 +1712,83 @@ mod tests {
         // The words never hold what stands for a chip.
         let (words, _) = marked(&format!("a{ATOM}b"), Vec::new());
         assert_eq!(words, "a\nb");
+    }
+
+    #[test]
+    fn a_chip_is_as_high_and_its_mark_as_large_whatever_it_shows() {
+        use bevy::asset::Assets;
+        use bevy::ecs::entity::Entity;
+        use bevy::image::Image;
+        use bevy::ui::widget::Text;
+
+        use crate::chat::ChatSettings;
+
+        let mut app = panel_app();
+        app.init_resource::<Assets<Image>>()
+            .init_resource::<ChatSettings>()
+            .add_plugins(crate::pictures::plugin);
+        let folder = hamlet_testing::Scratch::new("chip-height");
+        let pear = folder.join("pear.png");
+        std::fs::write(&pear, png(UVec2::new(40, 10))).unwrap();
+        let face = |name: &str, picture: Option<Source>| Face {
+            glyph: Glyph::Notes,
+            image: picture.is_some(),
+            picture,
+            name: name.into(),
+            size: "2 KiB".into(),
+            trouble: None,
+        };
+        let waiting = ImageId::try_from("d".repeat(64)).unwrap();
+        bevy_fynix::mount::<HamletTheme>(
+            app.world_mut(),
+            row((
+                chip(face("icon", None), None, None),
+                chip(
+                    face("waiting", Some(Source::Image(waiting))),
+                    None,
+                    None,
+                ),
+                chip(
+                    face("drawn", Some(Source::File(pear))),
+                    None,
+                    None,
+                ),
+            )),
+        );
+        let start = Instant::now();
+        while !app
+            .world_mut()
+            .query::<&ImageNode>()
+            .iter(app.world())
+            .any(|node| node.rect.is_none())
+        {
+            assert!(
+                start.elapsed() < Duration::from_secs(5),
+                "the picture was not read"
+            );
+            app.update();
+            std::thread::sleep(Duration::from_millis(5));
+        }
+        let world = app.world_mut();
+        let sizes = ["icon", "waiting", "drawn"].map(|name| {
+            let words = world
+                .query::<(Entity, &Text)>()
+                .iter(world)
+                .find(|(_, text)| text.0 == name)
+                .unwrap()
+                .0;
+            let chip = world.get::<ChildOf>(words).unwrap().parent();
+            let mark = world.get::<Children>(chip).unwrap()[0];
+            let (chip, mark) = (
+                world.get::<Node>(chip).unwrap(),
+                world.get::<Node>(mark).unwrap(),
+            );
+            (chip.height, mark.width, mark.height)
+        });
+        let body = HamletTheme::designed().text.body;
+        assert_eq!(sizes[0].0, px(body * LINE));
+        assert_eq!(sizes[0], sizes[1]);
+        assert_eq!(sizes[0], sizes[2]);
     }
 
     #[test]

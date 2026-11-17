@@ -1,7 +1,8 @@
 //! The details sheet beside a thread: what only it shows of the
-//! agent. Its kind, scholar, lead and hires are in the path and the
-//! rail, its model in the composer and its sessions and side chats in
-//! the session menu, so they are not repeated here.
+//! agent. Its kind, lead and hires are in the path and the rail, its
+//! model in the composer and its sessions and side chats in the
+//! session menu, so they are not repeated here. Its scholar is named
+//! over the version of it the agent works from.
 
 use bevy::ecs::entity::Entity;
 use bevy::ecs::world::World;
@@ -35,6 +36,7 @@ use super::memory;
 use super::thread::said;
 use crate::convo::talk_to;
 use crate::overview::heading_line;
+use crate::scholar_tag::{ScholarTag, learned_mark, learned_words};
 
 /// How wide the names of the settings are, so their values line up.
 const NAMES: f32 = 76.0;
@@ -48,6 +50,8 @@ struct Facts {
     hand: bool,
     worker: bool,
     purpose: String,
+    /// The scholar of the city it is of.
+    scholar: Option<ScholarTag>,
     /// The version it is pinned to, none for its scholar's `main`.
     pin: Option<String>,
     /// Its scholar's named versions, when the chief may pin it to
@@ -86,6 +90,7 @@ fn facts(world: &World, agent: Entity) -> Facts {
             .get::<hamlet_client::realm::Purpose>(agent)
             .map(|purpose| purpose.0.clone())
             .unwrap_or_default(),
+        scholar: ScholarTag::of(world, agent),
         pin: world
             .get::<hamlet_client::realm::Pin>(agent)
             .map(|pin| pin.0.clone()),
@@ -315,6 +320,29 @@ fn link(entity: Entity, name: String) -> AnyView {
         .boxed()
 }
 
+/// The name of the scholar of `tag`, which leads to its page, with
+/// the mark of what the agent learned that the scholar lacks.
+fn scholar_link(tag: &ScholarTag) -> AnyView {
+    let scholar = tag.scholar;
+    let mut parts = vec![
+        lettered(tag.name.clone())
+            .variant(Variant::Text)
+            .on_activate(move |world| {
+                super::open_scholar(world, scholar);
+            })
+            .boxed(),
+    ];
+    if tag.learned {
+        let words = learned_words(&tag.name);
+        parts.push(
+            row((learned_mark(),))
+                .tooltip(move || note(words.clone()))
+                .boxed(),
+        );
+    }
+    row(parts).gap(6.0).align(AlignItems::Center).boxed()
+}
+
 /// Who it is and what it may spend, which a chief changes here.
 fn about(facts: &Facts) -> Option<AnyView> {
     let mut parts = Vec::new();
@@ -327,6 +355,13 @@ fn about(facts: &Facts) -> Option<AnyView> {
             "What it is called in the world; empty for its own name",
             nickname_field(facts),
         ));
+        if let Some(tag) = &facts.scholar {
+            parts.push(setting(
+                "Scholar",
+                "The scholar of the city it is a hire of",
+                scholar_link(tag),
+            ));
+        }
         parts.push(setting(
             "Version",
             "The version of its scholar it works from",

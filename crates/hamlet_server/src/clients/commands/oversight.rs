@@ -30,7 +30,7 @@ pub(super) const OVERSIGHT: &[Command] = &[
     Command {
         name: "reflect",
         usage: "/reflect",
-        does: "Have the agent keep what this session taught it",
+        does: "Have the agent keep what its conversation taught it",
         run: |core, line| core.reflect(line.agent),
     },
     Command {
@@ -304,8 +304,7 @@ impl Core<'_, '_> {
         let chief = self.realm.chief();
         let reflection =
             self.change(Actor::Chief(chief), |cx, env| {
-                let conversation =
-                    chats::current(cx, env, agent, chief)?;
+                let conversation = chats::current(cx, env, agent)?;
                 reflections::reflect(cx, conversation)
             })?;
         let name = self.name_of(agent)?;

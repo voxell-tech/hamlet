@@ -140,6 +140,8 @@ fn root() -> impl View {
                 crate::toasts::stack(),
                 menu::open_menu(),
                 crate::screens::terminal::open_menu(),
+                crate::select::quote_button(),
+                crate::screens::viewer::view(),
                 desk::popups(),
                 world_menu::view(),
                 crate::saving::screen(),

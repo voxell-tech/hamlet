@@ -981,6 +981,14 @@ impl Core<'_, '_> {
         &mut self,
         id: &RequestId,
     ) -> Result<ServerMessage> {
+        Ok(ServerMessage::Read(ReadResult::Models {
+            to: id.clone(),
+            models: self.models_listed()?,
+        }))
+    }
+
+    /// The models of the catalogue the chief can reach.
+    pub(crate) fn models_listed(&mut self) -> Result<Vec<Listed>> {
         let db = self.realm.store().connection();
         // Only what the chief can reach: a provider signed in to or
         // given a key, an endpoint of the settings, and the default
@@ -995,7 +1003,7 @@ impl Core<'_, '_> {
                     .any(|e| e.name == provider)
                 || self.credentials.model(provider, serving).is_some()
         };
-        let models = catalogue(db)?
+        Ok(catalogue(db)?
             .into_values()
             .filter(|model| {
                 model.name == settings.model
@@ -1010,11 +1018,7 @@ impl Core<'_, '_> {
                     card.takes(&self.providers.listed(provider, id));
                 card.listed(takes)
             })
-            .collect();
-        Ok(ServerMessage::Read(ReadResult::Models {
-            to: id.clone(),
-            models,
-        }))
+            .collect())
     }
 
     /// Sets what a chief says of the model `name` in the catalogue.

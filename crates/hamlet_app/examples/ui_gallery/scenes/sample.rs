@@ -1,7 +1,6 @@
 //! The received realm shared by the gallery scenes.
 
 mod chat;
-mod history;
 mod hub;
 mod images;
 mod menu;
@@ -153,12 +152,7 @@ pub(super) fn setup(world: &mut World) {
         .expect("received usage");
     let session = world
         .spawn((
-            Chat(protocol::ChatRef {
-                kind: None,
-                from: None,
-                with: to,
-                past: None,
-            }),
+            Chat(protocol::ChatRef { with: to }),
             talk,
             Status::default(),
             Usage(usage),
@@ -193,10 +187,6 @@ pub(super) fn setup(world: &mut World) {
         images::setup(world, scene, session);
     }
     terminal::setup(world, scene);
-    if matches!(scene, Scene::History | Scene::Reading) {
-        world.insert_resource(hamlet_app::hub::Showing::Sessions);
-        history::setup(world, scene == Scene::Reading);
-    }
     if scene == Scene::Chief {
         let chief = hamlet_realm::chief::arrive(
             world,

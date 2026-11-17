@@ -48,6 +48,10 @@ const PICTURED: [&str; 6] =
 /// on a dense screen.
 const DENSITY: f32 = 2.0;
 
+/// The longest side of an original kept, in pixels: the largest
+/// texture every GPU takes.
+const LARGEST: u32 = 8192;
+
 /// The most pictures remembered, shown or not.
 const REMEMBERED: usize = 512;
 
@@ -77,8 +81,10 @@ pub(crate) enum Source {
     File(PathBuf),
     /// A web address.
     Web(String),
-    /// An image the server keeps for a line (C33).
+    /// The server's thumbnail of an image it keeps for a line (C33).
     Image(ImageId),
+    /// An image the server keeps for a line, at its full size.
+    Original(ImageId),
 }
 
 impl Source {
@@ -89,7 +95,7 @@ impl Source {
             Source::Web(address) => {
                 Some(Anchor::Web(address.clone()))
             }
-            Source::Image(_) => None,
+            Source::Image(_) | Source::Original(_) => None,
         }
     }
 }
@@ -246,7 +252,9 @@ impl Pictures {
             .keys()
             .filter_map(|source| match source {
                 Source::File(path) => Some((source, path)),
-                Source::Web(_) | Source::Image(_) => None,
+                Source::Web(_)
+                | Source::Image(_)
+                | Source::Original(_) => None,
             })
             .filter_map(|(source, path)| {
                 let now = stamp(path)?;
@@ -358,6 +366,7 @@ pub(crate) fn find(
                 .ask(&file, bounds);
             Some(Source::File(file))
         }
+        Target::Agent(_) | Target::AgentWords(_) => None,
     }
 }
 
@@ -372,53 +381,64 @@ pub(crate) fn want(world: &mut World, source: &Source) {
                 .get_resource_or_init::<Pictures>()
                 .ask(path, bounds);
         }
-        Source::Image(image) => {
+        Source::Image(image) | Source::Original(image) => {
             let mut pictures =
                 world.get_resource_or_init::<Pictures>();
             if pictures.state(source) != State::Unasked {
                 return;
             }
             pictures.put(source.clone(), None, State::Loading);
+            let size = match source {
+                Source::Original(_) => ImageSize::Original,
+                _ => ImageSize::Thumbnail,
+            };
             world.trigger(Download {
                 image: image.clone(),
-                size: ImageSize::Thumbnail,
+                size,
             });
         }
         Source::Web(_) => {}
     }
 }
 
-/// Keeps the bytes of a thumbnail the server sent as a picture, read
-/// off the frame.
+/// The source of the image `image` the server sends at `size`.
+fn sent(image: &ImageId, size: ImageSize) -> Source {
+    match size {
+        ImageSize::Original => Source::Original(image.clone()),
+        ImageSize::Thumbnail => Source::Image(image.clone()),
+    }
+}
+
+/// Keeps the bytes of an image the server sent as a picture, read
+/// off the frame. A thumbnail is kept within the chat's bounds, an
+/// original within what a texture may be.
 fn arrived_image(
     arrived: On<ImageArrived>,
     settings: Res<ChatSettings>,
     pictures: Res<Pictures>,
 ) {
-    if arrived.size != ImageSize::Thumbnail {
-        return;
-    }
-    let (bounds, tx) = (bounds(&settings), pictures.tx.clone());
-    let source = Source::Image(arrived.image.clone());
+    let most = match arrived.size {
+        ImageSize::Original => UVec2::splat(LARGEST),
+        ImageSize::Thumbnail => bounds(&settings).pixels,
+    };
+    let tx = pictures.tx.clone();
+    let source = sent(&arrived.image, arrived.size);
     let bytes = arrived.bytes.clone();
     AsyncComputeTaskPool::get_or_init(TaskPool::default)
         .spawn(async move {
-            let pixels = load::decode(&bytes, bounds.pixels);
+            let pixels = load::decode(&bytes, most);
             let _ = tx.send((source, None, pixels));
         })
         .detach();
 }
 
-/// Gives up on a thumbnail the server did not give.
+/// Gives up on an image the server did not give.
 fn missing_image(
     missing: On<ImageMissing>,
     mut pictures: ResMut<Pictures>,
 ) {
-    if missing.size != ImageSize::Thumbnail {
-        return;
-    }
     pictures.settle(
-        Source::Image(missing.image.clone()),
+        sent(&missing.image, missing.size),
         None,
         State::Failed,
     );

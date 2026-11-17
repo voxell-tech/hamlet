@@ -8,7 +8,7 @@ use std::path::PathBuf;
 use anyhow::{Context, Result};
 use hamlet_git::{Author, MAIN, Repository};
 use hamlet_store::Db;
-use hamlet_store::ids::DreamId;
+use hamlet_store::ids::{AgentId, DreamId};
 
 use super::folder::{Folder, remove_folder};
 use super::run::{check_out, commit};
@@ -25,6 +25,30 @@ pub(crate) fn checkout(layout: &Layout, id: DreamId) -> PathBuf {
         .join("dreams")
         .join(id.to_string())
         .join("main")
+}
+
+/// Whether the branch of `hire` holds what its scholar's `main` lacks
+/// and its last dream did not already take home.
+pub(crate) fn has_learned(
+    db: &mut Db,
+    layout: &Layout,
+    hire: AgentId,
+) -> Result<bool> {
+    let found = hires::get(db, hire)?;
+    let Ok(repo) =
+        Repository::open(&layout.repository(found.scholar))
+    else {
+        return Ok(false);
+    };
+    let (Some(tip), Some(main)) =
+        (repo.tip(&branch(hire))?, repo.tip(MAIN)?)
+    else {
+        return Ok(false);
+    };
+    let dreamt = dreams::last_of_hire(db, hire)?
+        .and_then(|dream| dream.branch_commit)
+        == Some(tip.to_string());
+    Ok(!dreamt && repo.merge_base(tip, main)? != Some(tip))
 }
 
 /// Readies dream `id`: the hire's lodge committed, and `main` checked

@@ -67,6 +67,9 @@ jobs! {
     Merge("merge") { merge: MergeId },
     /// Undoes a merge's commit on the kept hire's branch.
     Split("split") { merge: MergeId },
+    /// Merges a hire's branch into its scholar's `main`, and takes
+    /// the new `main` in.
+    BringHome("bring-home") { hire: AgentId },
     /// Puts a skill the librarian took on the shelves, and takes it
     /// out of the lodge it was offered from.
     Shelve("shelve") { offer: OfferId },
@@ -95,6 +98,7 @@ impl Job {
             Self::Lodge { hire }
             | Self::Commit { hire }
             | Self::TakeIn { hire }
+            | Self::BringHome { hire }
             | Self::EraseHire { hire } => hire.to_string(),
             Self::EraseHamlet { hamlet } => hamlet.to_string(),
             Self::Merge { merge } | Self::Split { merge } => {
@@ -110,9 +114,9 @@ impl Job {
     /// each must be sent.
     pub fn lodges(&self, db: &mut Db) -> Vec<AgentId> {
         match self {
-            Self::Lodge { hire } | Self::TakeIn { hire } => {
-                vec![*hire]
-            }
+            Self::Lodge { hire }
+            | Self::TakeIn { hire }
+            | Self::BringHome { hire } => vec![*hire],
             Self::Merge { merge } | Self::Split { merge } => {
                 crate::society::merges::get(db, *merge)
                     .map(|found| vec![found.kept, found.absorbed])

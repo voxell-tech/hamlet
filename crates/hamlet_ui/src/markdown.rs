@@ -1,8 +1,10 @@
 //! Markdown: its blocks ([`parse()`]), the links in its words and the
 //! views that draw them ([`document`], [`fixed`], [`page`],
-//! [`typed`]). Where a written path leads and how a picture is drawn
-//! are the app's, set with [`PathLinks`] and [`PictureView`]; without
-//! them a path is plain text and a picture is its caption.
+//! [`typed`]). Where a written path leads, what a written agent's
+//! address is drawn as and how a picture is drawn are the app's, set
+//! with [`PathLinks`], [`AgentLinks`] and [`PictureView`]; without
+//! them a path and an address are plain text and a picture is its
+//! caption.
 
 mod draw;
 mod links;
@@ -13,11 +15,13 @@ use std::path::PathBuf;
 use bevy::ecs::component::Component;
 use bevy::ecs::resource::Resource;
 use bevy::ecs::world::World;
+use bevy_fynix::views::Atom;
 
 pub use self::draw::{
-    ATOM, Face, Ink, JOINER, document, fixed, page, picture_words,
-    rich, typed, typed_with, unsettle,
+    ATOM, AtomWords, Face, Ink, JOINER, document, fixed, page,
+    picture_words, rich, typed, typed_with, unsettle,
 };
+pub use self::links::agent_addresses;
 pub use self::parse::{Reading, hashed, parse};
 use crate::AnyView;
 
@@ -37,6 +41,12 @@ pub enum Target {
     Web(String),
     /// A path with no line number, which may name no file.
     Path(String),
+    /// An agent's or a scholar's address, which may name no one.
+    Agent(String),
+    /// An agent's or a scholar's address in words that still grow,
+    /// drawn as words in the link's colour: a chip there would move
+    /// with every layout of the growing line.
+    AgentWords(String),
 }
 
 /// A run of text in one style.
@@ -121,6 +131,17 @@ pub struct Area;
 #[derive(Resource, Clone, Copy)]
 pub struct PathLinks {
     pub resolve: fn(&mut World, &str) -> Option<PathBuf>,
+    pub generation: u64,
+}
+
+/// The chip an agent's or a scholar's address written in a document
+/// is drawn as, from the address, the words it was written in and the
+/// chip's key in its line. `None` when the address names no one, and
+/// the words stay plain. The app moves `generation` on when the
+/// answers may have changed.
+#[derive(Resource, Clone, Copy)]
+pub struct AgentLinks {
+    pub resolve: fn(&mut World, &str, &str, String) -> Option<Atom>,
     pub generation: u64,
 }
 

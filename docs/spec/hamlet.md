@@ -1,7 +1,7 @@
 # The hamlet: the society of agents
 
 Chiefs, the Hand, the city of scholars, hamlets with their hires, the roads
-and letters between them, the tasks and budgets that bound their work, the
+and messages between them, the tasks and budgets that bound their work, the
 library, dreams, and what waits for a chief. One agent on its own is in
 [`core.md`](core.md).
 
@@ -19,7 +19,7 @@ and merging them. A reserved act waits for a chief (H11). The realm has
 limits of its own: whether roads may be agreed between hamlets, and the
 budget of the Hand and of the workers started outside a hamlet (H8).
 
-**H24.** Only a line a human types can be a command. A letter between agents
+**H24.** Only a line a human types can be a command. A message between agents
 is words, whatever it begins with.
 
 **H26.** A chief has these commands. A command that names an agent takes its
@@ -30,10 +30,10 @@ chief is talking to.
 |---|---|
 | `/hand`, `/hamlet <hamlet>`, `/agent <address>` | Talk to the Hand, to a hamlet's mayor, or to an agent |
 | `/to <address> <instruction>` | Instruct an agent directly |
-| `/new` | Move at once to a new conversation while the old one finishes its queue (C24) |
-| `/resume [n]` | List earlier conversations, or go back to one by its stable number (C24) |
+| `/compact` | Summarize the earlier part of the agent's conversation now (C24, C28) |
 | `/retry`, `/reflect` | Carry on a failed or stopped turn as a visible new input, reflect now (C26, C5) |
-| `/stop [address\|all]` | Stop an agent's work, or all agents' (H23) |
+| `/stop [address\|all]` | Stop an agent's work and hold what waits for it, or all agents' (H23, C25) |
+| `/resume [address\|all]` | Let a stopped agent, or every one, take what waits again (C25) |
 | `/queue`, `/allow`, `/always`, `/deny`, `/go`, `/withdraw`, `/reply`, `/dismiss` | Answer what waits (H11, H10) |
 | `/grants`, `/revoke <address> <network\|unconfined>` | The lasting permissions, and taking one back |
 | `/hamlets`, `/create-hamlet [scholar#id\|blank] <name>[: purpose]` | List hamlets with their ids, or create one named `<name>` with a scholar as its mayor, a blank agent named Mayor by default (H6, H36) |
@@ -42,7 +42,7 @@ chief is talking to.
 | `/tier <50\|100\|200\|500>` | Set how many hires the hamlet holds (H40) |
 | `/mayor <address> [reason]` | Give the hamlet's office to another hire (H18) |
 | `/hire <scholar#id>[@<version>]\|blank [in <hamlet>] [under <address>] [purpose]` | Hire a scholar into the hamlet, or a blank agent (H40) |
-| `/end <address> [reason]`, `/merge <address> into <address> [reason]` | End a hire, or make one of two (H5) |
+| `/end <address> [dream] [reason]`, `/merge <address> into <address> [reason]` | End a hire, with `dream` dreaming once more first (H40, H43), or make one of two (H5) |
 | `/restore <address> [reason]`, `/erase <address>` | Bring an ended hire back, or split a merged one out again, or erase it for good (H20) |
 | `/model <address> <model\|none> [reason]`, `/tools <address> -<tool> +<tool>`, `/allowance <address> <dollars\|none>` | An agent's model, a hire's tools and allowance (H29, H41, H44) |
 | `/effort <address> <off\|minimal\|low\|medium\|high\|xhigh\|max\|none>`, `/fast <address> <on\|off>` | How hard an agent's model thinks, and whether it asks for the provider's fast tier (H29a) |
@@ -53,11 +53,12 @@ chief is talking to.
 | `/budget`, `/reset-budget` | The hamlet's spend, and starting its period again (H8) |
 | `/history` | The record: who was hired, ended, merged and restored, and the other decisions (H17) |
 | `/scholars`, `/scholar new <name>[: <character>]`, `/name-scholar <scholar#id> <name>` | List the city's scholars, make one, or give one a new name (H38) |
+| `/make-scholar <address> [name]` | Make a scholar of the city of what a hire learned (H38) |
 | `/welcome <scholar#id> [reason]`, `/turn-away <scholar#id> [reason]` | Let a scholar at the harbor into the city, or send one back there (H45) |
 | `/remove-scholar <scholar#id> <reason>`, `/restore-scholar <scholar#id> [reason]`, `/erase-scholar <scholar#id>` | Archive a scholar and end its hires, bring it back, or erase it for good (H38) |
 | `/move-house <scholar#id> <x> <z> [degrees]` | Set a scholar's house down elsewhere in the city |
 | `/tag`, `/versions`, `/pin`, `/revert`, `/fork`, `/purge` | A scholar's versions and history (H39) |
-| `/dream <scholar#id\|address>` | Have a hire bring its learning home, or a scholar tidy, now (H43) |
+| `/dream <scholar#id\|address>` | Have a hire bring its learning home, or a scholar's hires and then the scholar, now or in its turn (H43) |
 | `/unshelve <skill> [reason]` | Take a skill out of the library (H33) |
 
 The server advertises its supported command names. The window offers only
@@ -74,12 +75,20 @@ empty city and no hamlet.
   edits its character as any scholar's.
 - Every chief talks to the Hand first. It has a road to each mayor and to no
   other hire.
-- It can do in any hamlet what a lead can (H41), and found hamlets (H6), give
-  a hamlet's office to another hire (H18), remove a hamlet (H19), read a
-  hamlet's record, and read and change scholars (H38, H39).
-- Its changes to a scholar's `main` and its removal of a hamlet are reserved:
-  they wait for a chief (H11). It asks for a chief's word before it touches
-  what a chief owns.
+- It can do in any hamlet what a lead can (H41), and what a chief can in the
+  realm: found hamlets (H6), give a hamlet's office to another hire (H18),
+  name, move, remove, restore and erase a hamlet (H19), set its tier, folder,
+  mode, limits and budget, read a hamlet's record, read and change scholars
+  and let newcomers into the city (H38, H39, H45), restore and erase hires,
+  pin, dream, reflect and stop, read an agent's prompt and papers,
+  and change the realm's settings and charter (H35).
+- It never signs in or sets a credential, an endpoint or the network, never
+  answers what waits for a chief or takes back a grant, and never chooses its
+  own model, effort or fast tier.
+- Its changes to a scholar's `main`, a purge, removing or erasing anything,
+  a hamlet's tier, folder, mode, limits and budget, and the realm's settings
+  and charter are reserved: they wait for a chief (H11). It asks for a
+  chief's word before it touches what a chief owns.
 - Its spend and that of the workers it starts are charged to the realm's
   budget, not a hamlet's (H8).
 
@@ -113,13 +122,22 @@ skills/<name>/SKILL.md    one folder per skill, with its files
   character and an empty `memory/`. One a chief or the Hand makes has a
   house in the city at once; one a lead makes may wait at the harbor
   (H45).
+- A chief, the Hand or a lead over a hire, living or ended, can make a
+  scholar of the city of what it has become (`/make-scholar`,
+  `make_scholar`). A blank hire's own scholar joins the city, and the
+  hire's branch is merged into its `main`; the hire stays its hire. A
+  hire of a city scholar starts a new scholar instead, whose first commit
+  is its branch's tip: its memory and skills, with the character of its
+  scholar, named as the hire is called unless named. That hire stays its
+  old scholar's. Either arrives as a scholar newly made by its maker
+  does, and is removed or turned away as any scholar is.
 - A blank agent is a hire that is not of a scholar of the city: `/hire
   blank`, `hire` with no scholar, or a hamlet founded with no scholar named.
   It is a scholar of its own all the same, made for that hire alone, from
   the realm's default character for one an agent makes, and named Mayor, or
-  Hire and its number, unless a name is given. It has no house,
-  never waits at the harbor, is not listed with the city's scholars and is
-  not hired again.
+  Hire and its number, unless a name is given. Until a scholar of the
+  city is made of its hire, it has no house, never waits at the harbor, is
+  not listed with the city's scholars and is not hired again.
 - The server sets a new house down at the first free spot on a spiral out
   from the city's middle, clear of the middle and of every other house, its
   door toward the middle. A chief can set it down elsewhere
@@ -212,7 +230,9 @@ branch of its scholar's repository and a lodge of its own (C8).
   the lodge. A turn never sees `main` change under it.
 - **Ending** a hire stops its turns, lets its waits lapse, takes back its
   grants (H28), makes a final commit of its lodge and archives it. Its lodge
-  and branch stay until erased. Its hires go to its parent.
+  and branch stay until erased, with what it learned. Its hires go to its
+  parent. Ended with a dream, it dreams once more right after (H43);
+  otherwise its scholar's `main` gets nothing from it.
 - **Restoring** it brings it back under the same id and number, when its
   scholar lives, its hamlet lives and holds fewer than its tier. Its parent is
   its old parent when that lives, else the mayor.
@@ -223,7 +243,8 @@ branch of its scholar's repository and a lodge of its own (C8).
 leads make it. A hire with hires under it is a lead.
 
 - A lead has the mayor's powers over the hires under it, and only those: to
-  hire under itself or under a hire of its tree, make scholars, end hires,
+  hire under itself or under a hire of its tree, make scholars, of its
+  hires too (H38), end hires,
   merge them, choose their models, turn their tools off, give them
   allowances, and lay and take up roads among them. Every hire has these
   tools (H35), so any hire can come to lead.
@@ -240,10 +261,10 @@ it, which ends when the task is answered.
   tools it may use.
 - It has one conversation, with the task as its first input. Its last answer
   goes back to its starter: as the tool's answer when the starter waits, else
-  as a letter. A chief's worker answers in its own conversation, which the
+  as a response. A chief's worker answers in its own conversation, which the
   chief watches.
 - It has the built-in tools its starter gave it and no society tools, so it
-  starts no workers and sends no letters.
+  starts no workers and sends no messages.
 - It works in the hamlet's folder as its starter does, reads its starter's
   lodge and the library, and writes a scratch folder that is removed when it
   ends.
@@ -271,6 +292,13 @@ absorbed hire learned since its branch took in `main` is committed to the kept
 branch, a clashing file kept aside as `<name>.from-<absorbed>` and a clashing
 skill as `<skill>-from-<absorbed>`. The absorbed hire is archived as merged.
 No model rewrites memory at a merge; a dream tidies it later (H43).
+
+The kept hire's conversation is given the absorbed hire's without a turn:
+for its model, who said what in it, from its latest summary on, at most
+[24000] characters and the newest kept, as past work and not instructions;
+for a chief, a folded block that opens the absorbed hire's conversation.
+The absorbed hire's conversation stays as it was, so a split (H20) gives it
+back unchanged.
 
 **H7.** A hire working on a chief's task cannot be ended or merged by a lead
 until it has answered, nor for [0] minutes after.
@@ -302,7 +330,7 @@ effort the model cannot be asked for becomes the nearest it can. A chief may
 also turn on an agent's fast tier, which asks the model's provider for its
 faster, dearer tier where it has one; it is off unless turned on.
 
-## Roads and letters
+## Roads and messages
 
 **H3.** Agents reach each other along roads, of four kinds:
 
@@ -323,18 +351,19 @@ absorbed it, and are not charged again.
 
 **H30.** An agent sends messages only along its roads, in two ways:
 
-- **A letter** (`tell`): sent without waiting. The other agent works on it
-  in its own conversation with the sender, and the reply comes back later as a
-  new message.
-- **A question** (`ask`): the sender waits while the other agent's turn runs
-  in its own lodge, and gets the reply as the tool's answer. That turn's tool
-  calls pass the same gate as the sender's.
+- **A notification** (`notify`): the other agent works on it as a turn of
+  its own in its one conversation (C22). No response is expected.
+- **A request** (`request`): it goes into the other agent's one
+  conversation as a turn of its own, which runs in the receiver's lodge and
+  whose tool calls pass the gate (H11) as any turn's do. The receiver's
+  final answer to that turn goes back to the sender as the response, a turn
+  of its own in the sender's conversation.
 
-Each letter, question and reply names its sender (C11, C30). A question
-that would leave a conversation waiting on its own answer, directly or
-through other questions, is refused.
+Each notification, request and response names its sender (C11, C30). An address
+names its agent with or without the name shown beside it, as
+`hire#2 (Mayor)`, so an address copied from the window works as it is.
 
-A letter or a question can name `paths`: files or folders in the sender's
+A notification or a request can name `paths`: files or folders in the sender's
 lodge or its hamlet's folder, which the server copies into the receiver's lodge
 under `inbox/from-<sender>/`, links not followed, as far as the sender's
 sandbox lets it read. The message says where each landed. An image among them
@@ -345,12 +374,20 @@ it, and the sender is told of a refusal. No send holds more than [256 MiB] in
 one file, [1 GiB] or [10000 files] in all. A remote workspace gives at most 4
 MiB of a file at once, so a sender working there sends no larger file.
 
-A hire can ask its lead for a road to another hire of its hamlet
-(`request_road`).
+A hire can propose to its lead a road to another hire of its hamlet
+(`propose_road`).
 
-**H31.** While another agent waits on an agent's reply, that agent cannot
-send letters: they would reach the waiting agent after it stopped
-listening.
+**H31.** Neither a notification nor a request holds its sender: `request`
+returns as soon as the request is sent, and the sender's turn goes on or
+ends. A response reaches the sender's conversation as it is then, its fork
+after a rewind. An agent at rest with a request not yet answered is shown
+waiting on the agent it sent it to. A request that fails, because the
+receiver has no model it can use, its turn failed or was stopped, or it
+ended or refused, comes back as an error response: it is shown in the
+sender's conversation and given to its model, but starts no turn of its
+own. The cause is said in plain words, and a cause of setup, such as no
+model or no credentials, is told the chief once for every agent it stops,
+not once for each.
 
 **H12.** Every message a chief sends starts a task, and the task follows
 every message and turn it causes, in every agent it reaches. A retry, a
@@ -397,9 +434,10 @@ click on the name at the top of its page in the Hub renames it.
 
 **H43.** What a hire learns stays on its branch until a dream brings it home.
 A dream is a conversation of its own, with a task and a cost, kept as a
-record of what ran and the commits it made. Dreams are off until a chief turns
-them on, and run one at a time in the hours the chief sets [1 to 6], each
-costing at most a cap [$0.20].
+record of what ran and the commits it made. Dreams run one at a time, each
+costing at most a cap [$0.20]. Scheduled dreams are off until a chief turns
+them on, and start in the hours the chief sets [1 to 6]; a dream asked for,
+and the last dream of a hire ended with one, run whatever those say.
 
 - **A hire's dream** runs when the hire is idle and its branch holds
   something `main` lacks, at most every [6] hours. It is given the hire's
@@ -409,8 +447,13 @@ costing at most a cap [$0.20].
   branch.
 - **A scholar's dream** tidies `main` itself, as one commit, at most once a
   day, for a scholar with living hires.
-- Ending a hire runs one more dream for it within a day, when dreams are on.
-- A chief can have any dream run now (`/dream`).
+- A hire ended with a dream (`/end <address> dream`, `end_hire` with
+  `dream`) dreams once more right after; one ended without it does not.
+- A chief can ask for any dream (`/dream`), and the Hand for one of a
+  scholar it keeps or a hire it leads (`dream`). Asked of a scholar, each
+  of its living hires that learned what it lacks dreams first, then the
+  scholar. One asked while another runs waits its turn; dreams asked for
+  go first, then the last dreams of ended hires, then scheduled ones.
 
 ## Between hamlets
 
@@ -451,7 +494,7 @@ starter skills. An agent offers one of its own skills with a reason
 anything else refuses it. An accepted skill is committed to the library whole.
 Its unchanged lodge copy is removed when possible. Later changes stay in the
 lodge. An agent can ask the librarian which skill does what it needs
-(`ask_librarian`), also in one call without tools. Each call is kept and
+(`request_librarian`), also in one call without tools. Each call is kept and
 charged to the asking agent and its task. The library keeps a record of what
 was shelved, refused and taken out, and a chief can take a skill out
 (`/unshelve`).
@@ -469,7 +512,8 @@ was shelved, refused and taken out, and a chief can take a skill out
   command, not an edit of the agent's own lodge (C21).
 
 A chief answers: allow it once; allow edits or commands for the rest of the
-agent's conversation; allow it always, which for the network or running
+agent's conversation, which a rewind's fork does not inherit (C27); allow
+it always, which for the network or running
 unconfined is a lasting permission kept by the agent until taken back or the
 agent ends; or refuse. Every refused approval counts toward the turn's cap,
 whatever its danger. After [3] refusals in one turn, further requests for
@@ -485,9 +529,12 @@ approval are refused without asking.
   served from another machine] reviews the instruction in one model call
   beside the work, charged to its task, in which it may object by answering
   `OBJECT: <reason>`, or answer `pass`.
-- While a chief oversees it, an agent can ask the chief a question it cannot
-  go on without (`ask_chief`), at most [3] in one turn, and waits for the
-  answer.
+- While a chief oversees it, an agent can ask the chief questions it cannot
+  go on without (`request_chief`), at most [3] calls in one turn, and waits
+  for the answer. A chief oversees every turn of the one conversation of
+  the Hand or a hire, a notification's, a request's and a response's
+  included; elsewhere, as
+  in a worker's, only the turn of a chief's own line.
 
 **H34.** What waited for a chief, and how it ended, is kept. A wait lapses
 when a chief stops its turn, when the conversation is taken back past it,
@@ -501,19 +548,19 @@ the tools in its own row:
 
 | Who | Tools |
 |---|---|
-| Every agent but a worker | `tell`, `ask` (H30), `start_worker` (H42), `submit_skill`, `ask_librarian` (H33), `ask_chief` (H10), `read_budget` (H8) |
-| Every hire | `request_road` |
-| A lead, and the Hand | `create_scholar`, `hire`, `end_hire`, `merge_hires`, `set_model`, `set_tools`, `set_allowance`, `nickname`, `lay_road`, `take_up_road` |
+| Every agent but a worker | `notify`, `request` (H30), `start_worker` (H42), `submit_skill`, `request_librarian` (H33), `request_chief` (H10), `read_budget` (H8) |
+| Every hire | `propose_road` |
+| A lead, and the Hand | `create_scholar`, `make_scholar`, `hire`, `end_hire`, `merge_hires`, `set_model`, `set_tools`, `set_allowance`, `nickname`, `lay_road`, `take_up_road` |
 | A mayor, when other hamlets live | `agree_road` |
-| The Hand | `found_hamlet`, `seat_mayor`, `remove_hamlet`, `read_record`, `read_scholar`, `edit_scholar`, `tag`, `revert` |
-| Every agent but a worker, in a chief conversation | `object` (H10) |
+| The Hand | On hamlets: `found_hamlet`, `seat_mayor`, `name_hamlet`, `move_hamlet`, `remove_hamlet`, `restore_hamlet`, `erase_hamlet`, `set_tier`, `set_folder`, `set_mode`, `reset_budget`, `edit_limits`, `read_record`. On scholars: `read_scholar`, `edit_scholar`, `tag`, `revert`, `versions`, `fork`, `purge`, `welcome`, `turn_away`, `name_scholar`, `move_house`, `remove_scholar`, `restore_scholar`, `erase_scholar`. On agents: `pin`, `restore_hire`, `erase_hire`, `set_effort`, `set_fast`, `dream`, `reflect`, `stop`, `resume`, `edit_memory`, `read_prompt`, `read_papers`. On the realm: `edit_settings`, `edit_charter`, `read_charter`, `read_models`, `unshelve` |
+| Every agent but a worker, in its one conversation | `object` (H10) |
 | A worker | None of the society's |
 | A dream | None of the society's |
 | A librarian's call or a review | No tools |
 
 The offered tools follow the agent's current role when the tree or the realm
 changes. A tool called by the wrong role refuses in words. Offering `object`
-does not grant another objection, and `ask_chief` refuses when no chief
+does not grant another objection, and `request_chief` refuses when no chief
 oversees the task (H10). A lead's review objects in its answer, not through a
 tool.
 

@@ -74,6 +74,22 @@ pub fn plugin(app: &mut App) {
             });
         })
         .add_observer(
+            |resume: On<Resume>, mut world: DeferredWorld| {
+                let Some(agent) = id_of(&world, resume.event().agent)
+                else {
+                    return;
+                };
+                world.resource_mut::<Outbox>().send(|id| {
+                    protocol::ClientMessage::Resume(
+                        protocol::Resume {
+                            id,
+                            agent: Some(agent),
+                        },
+                    )
+                });
+            },
+        )
+        .add_observer(
             |rewind: On<Rewind>,
              chats: Query<&Chat>,
              mut outbox: ResMut<Outbox>,
@@ -90,6 +106,34 @@ pub fn plugin(app: &mut App) {
                         )
                     });
                     rewinds.0.insert(id, rewind.chat);
+                }
+            },
+        )
+        .add_observer(
+            |compact: On<Compact>, mut outbox: ResMut<Outbox>| {
+                let to = compact.event().to;
+                outbox.send(|id| {
+                    protocol::ClientMessage::Compact(
+                        protocol::Compact { id, to },
+                    )
+                });
+            },
+        )
+        .add_observer(
+            |withdraw: On<Withdraw>,
+             chats: Query<&Chat>,
+             mut outbox: ResMut<Outbox>| {
+                let withdraw = withdraw.event();
+                if let Ok(chat) = chats.get(withdraw.chat) {
+                    outbox.send(|id| {
+                        protocol::ClientMessage::Withdraw(
+                            protocol::Withdraw {
+                                id,
+                                chat: chat.0.clone(),
+                                item: withdraw.item.clone(),
+                            },
+                        )
+                    });
                 }
             },
         );
@@ -140,6 +184,12 @@ pub struct Veto {
     pub agent: Option<Entity>,
 }
 
+/// A request that a stopped agent take what waits for it again.
+#[derive(Event, Clone, Copy, Debug)]
+pub struct Resume {
+    pub agent: Entity,
+}
+
 /// A request to take a chat back before an item.
 #[derive(EntityEvent, Clone, Debug)]
 pub struct Rewind {
@@ -148,9 +198,24 @@ pub struct Rewind {
     pub item: String,
 }
 
+/// A request to summarize the earlier part of an agent's
+/// conversation now.
+#[derive(Event, Clone, Copy, Debug)]
+pub struct Compact {
+    pub to: protocol::AgentId,
+}
+
+/// A request to take back the chief's queued line `item` of a chat.
+#[derive(EntityEvent, Clone, Debug)]
+pub struct Withdraw {
+    #[event_target]
+    pub chat: Entity,
+    pub item: String,
+}
+
 /// An operation received for a watched chat.
 #[derive(EntityEvent, Clone, Debug)]
-pub struct SessionOutput {
+pub struct ChatOutput {
     #[event_target]
     pub chat: Entity,
     pub operation: protocol::TranscriptOperation,

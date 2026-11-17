@@ -84,12 +84,9 @@ pub(crate) struct Visits(Trail<Visit>);
 
 fn here(world: &World) -> Option<Visit> {
     let showing = *world.get_resource::<Showing>()?;
-    let agent = matches!(
-        showing,
-        Showing::Thread | Showing::Sessions | Showing::Prompt
-    )
-    .then(|| world.get_resource::<Convo>().map(|c| c.agent))
-    .flatten();
+    let agent = matches!(showing, Showing::Thread | Showing::Prompt)
+        .then(|| world.get_resource::<Convo>().map(|c| c.agent))
+        .flatten();
     let sheet = world.get_resource::<Sheet>().copied()?;
     Some(Visit {
         showing,
@@ -131,7 +128,7 @@ fn thing_of(world: &World, visit: &Visit) -> Option<Option<Thing>> {
         Showing::Gone(agent) => Some(Thing::Ruin(agent)),
         Showing::Chief(chief) => Some(Thing::Chief(chief)),
         Showing::Library => Some(Thing::Library),
-        Showing::Sessions | Showing::Prompt => return None,
+        Showing::Prompt => return None,
     })
 }
 

@@ -4,7 +4,7 @@ use bevy_ecs::prelude::*;
 use hamlet_protocol::client as protocol;
 pub use protocol::Choice;
 
-/// The questions of a received ask_chief call.
+/// The questions of a received request_chief call.
 #[derive(Component, Clone, Debug)]
 pub struct Asks(pub protocol::Questions);
 
@@ -67,7 +67,7 @@ impl Waiting {
             protocol::WaitDetail::Question { .. } => {
                 format!("{} asks: {clipped}", self.shown)
             }
-            protocol::WaitDetail::Fault {} => {
+            protocol::WaitDetail::Fault { .. } => {
                 format!("{} failed: {clipped}", self.shown)
             }
             protocol::WaitDetail::Newcomer { .. } => {

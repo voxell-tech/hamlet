@@ -30,8 +30,9 @@ the token.
 **S5.** A window shows what the server sends and holds no rules of its own:
 the state of the realm (the Hand, hamlets, scholars, living and ended
 agents, roads, budgets, the shared library, removed hamlets and what waits)
-and its changes, the live events of turns (C30), and conversations on
-request, including read-only letters and questions between agents (C22). A
+and its changes, the live events of turns (C30), and an agent's one
+conversation on request, with the notifications, requests and responses in it and
+the inputs that wait for a turn (C22, C23). A
 window that joins late or connects again starts from the state as it is now.
 A window always matches what the server last sent, including a skill leaving
 the library, a hamlet closing or coming back, and an agent leaving.
@@ -150,10 +151,11 @@ rest of the realm goes on, and work waiting on an answer from those
 conversations waits. They carry on from where they stopped when the
 harness runs again (S3).
 
-**S23.** A typed line, letter, question, reply, reflection, worker's task or
-dream is taken into its conversation once, in order, however often it is
-delivered. A stopped turn stays stopped through a restart: nothing it had
-queued is taken in again.
+**S23.** A typed line, notification, request, response, reflection,
+worker's task or dream is taken into its conversation once, in order,
+however often it is delivered. A stopped turn stays stopped through a
+restart: nothing it had queued is taken in again, and a conversation a
+chief holds stopped stays held.
 
 **S24.** A harness is used only if the server's permissions and budget
 decide every tool call and model call it makes. What a harness cannot do,

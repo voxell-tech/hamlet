@@ -13,11 +13,11 @@ use super::society;
 use crate::conversations::{Conversation, questions};
 use crate::tools::builtin::Outcome;
 
-/// The tools the server adds to every runtime's own: `ask_chief` and
-/// the society's.
+/// The tools the server adds to every runtime's own: `request_chief`
+/// and the society's.
 pub(crate) fn specs() -> Vec<ToolSpec> {
     let mut specs = vec![spec(
-        "ask_chief",
+        "request_chief",
         "Put a question to the chief that you cannot go on without. \
          Waits for the answer, so use it only when no agent and no \
          file can tell you. Use object to argue against an \

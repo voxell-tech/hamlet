@@ -1,5 +1,5 @@
-//! The questions an agent puts to the chief with `ask_chief`: read
-//! from the call and checked, set out as words, and answered.
+//! The questions an agent puts to the chief with `request_chief`:
+//! read from the call and checked, set out as words, and answered.
 
 use hamlet_protocol::client::{Offer, Pick, Question, Questions};
 use serde::Deserialize;
@@ -11,10 +11,10 @@ pub(crate) const MOST_QUESTIONS: usize = 10;
 /// The most options one question may offer.
 pub(crate) const MOST_OPTIONS: usize = 6;
 
-/// The head of every answer the chief gives to `ask_chief`.
+/// The head of every answer the chief gives to `request_chief`.
 pub(crate) const ANSWERS: &str = "The chief answers:";
 
-/// The arguments of `ask_chief`, as the tool's schema has them.
+/// The arguments of `request_chief`, as the tool's schema has them.
 #[derive(Deserialize)]
 struct AskChief {
     #[serde(default)]
@@ -50,7 +50,7 @@ enum AskChiefOption {
     },
 }
 
-/// The fault in an `ask_chief` call's arguments, for the agent to
+/// The fault in an `request_chief` call's arguments, for the agent to
 /// put right.
 #[derive(Debug, thiserror::Error)]
 pub(crate) enum InvalidQuestions {
@@ -88,7 +88,7 @@ pub(crate) enum Unanswered {
     NoWords(usize),
 }
 
-/// The questions in the arguments of an `ask_chief` call.
+/// The questions in the arguments of a `request_chief` call.
 pub(crate) fn read(
     args: &str,
 ) -> Result<Questions, InvalidQuestions> {
@@ -243,8 +243,8 @@ pub(crate) fn answer(
     Ok(format!("{ANSWERS}\n{}", body.join("\n\n")))
 }
 
-/// The chief's own words in a result of `ask_chief`. `None` when the
-/// chief did not answer.
+/// The chief's own words in a result of `request_chief`. `None` when
+/// the chief did not answer.
 pub(crate) fn said(result: &str) -> Option<&str> {
     result
         .strip_prefix(ANSWERS)

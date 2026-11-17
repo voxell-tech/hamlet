@@ -1,8 +1,8 @@
 //! The Hub: a rail of the realm's agents and the page beside it,
 //! which is a thread, a scholar, a hamlet, the library or the realm.
 
-mod conversations;
 mod details;
+pub(crate) mod erasure;
 mod gone;
 mod memory;
 mod papers;
@@ -20,7 +20,7 @@ use bevy::ecs::query::With;
 use bevy::ecs::resource::Resource;
 use bevy::ecs::schedule::common_conditions::resource_changed;
 use bevy::ecs::schedule::{IntoScheduleConfigs, SystemCondition};
-use bevy::ecs::system::{Local, Res};
+use bevy::ecs::system::Local;
 use bevy::ecs::world::World;
 use bevy::ui::{percent, px};
 use bevy_fynix::dock::DockWindowKind;
@@ -28,7 +28,7 @@ use bevy_fynix::shortcut::Scope;
 use bevy_fynix::views::{BehaviorExt, FrameProps, column, row};
 use bevy_fynix::{ViewExt, keyed, resource};
 use hamlet_client::realm::{HamletId, Left, Seen};
-use hamlet_realm::pick::{Selected, Thing};
+use hamlet_realm::pick::{Selected, Thing, bring_into_view, select};
 use hamlet_ui::styles::{Fills, ICON, filling};
 use hamlet_ui::widgets::effects::{Highlight, Updated};
 use hamlet_ui::widgets::icons::Glyph;
@@ -40,7 +40,7 @@ pub(crate) use self::rail::under_name;
 pub use self::rail::{Rail, Tab as RailTab};
 pub use self::thread::{Briefing, Sheet};
 use crate::convo::{Convo, seat};
-use crate::dock::{HUB, PanelAppExt, highlight_panel};
+use crate::dock::{HUB, PanelAppExt, highlight_panel, show_tab};
 use crate::overview;
 
 pub fn plugin(app: &mut App) {
@@ -58,7 +58,12 @@ pub fn plugin(app: &mut App) {
         })
         .icon(Glyph::Tree.image(ICON)),
     )
-    .add_plugins((rail::plugin, visits::plugin, thread::plugin))
+    .add_plugins((
+        rail::plugin,
+        visits::plugin,
+        thread::plugin,
+        erasure::plugin,
+    ))
     .init_resource::<Showing>()
     .init_resource::<crate::forms::OpenForm>()
     .init_resource::<scholar::Form>()
@@ -91,8 +96,6 @@ pub enum Showing {
     Realm,
     /// The chat with the agent the Hub is seated at.
     Thread,
-    /// That agent's past sessions.
-    Sessions,
     /// The whole of that agent's prompt.
     Prompt,
     Scholar(Entity),
@@ -102,11 +105,6 @@ pub enum Showing {
     Chief(Entity),
     /// The library's shelves.
     Library,
-}
-
-/// Whether the Hub shows a page that lists the agent's sessions.
-pub(crate) fn reads_sessions(showing: Res<Showing>) -> bool {
-    matches!(*showing, Showing::Thread | Showing::Sessions)
 }
 
 /// Turns the Hub's page to `showing`, and the rail to the tab that
@@ -129,6 +127,27 @@ pub(crate) fn show(world: &mut World, showing: Showing) {
     }
 }
 
+/// Turns the Hub to `scholar`'s page and brings it to the front, with
+/// its house chosen and in view where there is a world.
+pub(crate) fn open_scholar(world: &mut World, scholar: Entity) {
+    open(world, Showing::Scholar(scholar), Thing::Scholar(scholar));
+}
+
+/// Turns the Hub to `hamlet`'s page and brings it to the front, with
+/// its common chosen and in view where there is a world.
+pub(crate) fn open_hamlet(world: &mut World, hamlet: Entity) {
+    open(world, Showing::Hamlet(hamlet), Thing::Common(hamlet));
+}
+
+fn open(world: &mut World, showing: Showing, thing: Thing) {
+    show(world, showing);
+    show_tab(world, HUB);
+    if world.contains_resource::<Selected>() {
+        select(world, Some(thing));
+        bring_into_view(world, thing);
+    }
+}
+
 /// The Hub's page.
 fn page() -> impl View {
     keyed(resource::<Showing, _>(|showing| *showing), |showing| {
@@ -138,7 +157,6 @@ fn page() -> impl View {
                 scholar::page(*scholar).boxed()
             }
             Showing::Thread => thread::living().boxed(),
-            Showing::Sessions => thread::sessions().boxed(),
             Showing::Prompt => thread::prompt_page().boxed(),
             Showing::Hamlet(hamlet) => {
                 overview::hamlet(*hamlet).boxed()
@@ -224,6 +242,9 @@ pub(crate) fn follow_selection(world: &mut World) {
         _ => return,
     };
     show(world, showing);
+    if let Some(thing) = world.resource::<Selected>().0 {
+        rail::follow(world, thing);
+    }
 }
 
 /// A realm with no hamlet opens on the Hand's chat, so a chief new to

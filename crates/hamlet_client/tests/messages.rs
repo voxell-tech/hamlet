@@ -29,12 +29,7 @@ fn chief_messages_become_requests_with_fresh_uuid_ids_and_wire_ids() {
     let ada_entity = mayor_of(world, "home").unwrap();
     let wait =
         world.query::<(Entity, &Waiting)>().single(world).unwrap().0;
-    let reference = protocol::ChatRef {
-        kind: None,
-        from: None,
-        with: ada(),
-        past: Some(3),
-    };
+    let reference = protocol::ChatRef { with: ada() };
     let chat = world.spawn(Chat(reference.clone())).id();
     // A chat is opened as soon as it is watched.
     assert!(matches!(
@@ -221,14 +216,8 @@ fn addressed_answers_reach_observers_and_a_rewind_returns_its_removed_words()
         world.resource::<Observed>().responses[0].message,
         reply
     );
-    let chat = world
-        .spawn(Chat(protocol::ChatRef {
-            kind: None,
-            from: None,
-            with: ada(),
-            past: None,
-        }))
-        .id();
+    let chat =
+        world.spawn(Chat(protocol::ChatRef { with: ada() })).id();
     world.trigger(Rewind {
         chat,
         item: "entry:0".into(),
@@ -268,7 +257,7 @@ fn addressed_answers_reach_observers_and_a_rewind_returns_its_removed_words()
         serde_json::json!({"type":"read", "to":id, "prompt":[{"name":"charter", "text":"prompt"}]}),
         serde_json::json!({"type":"login", "to":id, "login":"flow", "step":{"done":"done"}}),
         serde_json::json!({"type":"fault", "to":id, "text":"addressed failure"}),
-        serde_json::json!({"type":"transcript", "to":id, "chat":{"with":2}, "items":[], "earlier":null, "last":null, "pending":0,"working":false, "usage":{"calls":0,"unreported":0,"input":0,"cached":0,"output":0,"reasoning":0,"ms":0,"micros":0,"lastInput":0,"summary":"No model calls yet"}}),
+        serde_json::json!({"type":"transcript", "to":id, "chat":{"with":2}, "items":[], "earlier":null, "last":null, "pending":0,"working":false, "held":false, "usage":{"calls":0,"unreported":0,"input":0,"cached":0,"output":0,"reasoning":0,"ms":0,"micros":0,"lastInput":0,"summary":"No model calls yet"}}),
     ] {
         receive(world, serde_json::from_value(value).unwrap());
     }

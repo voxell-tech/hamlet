@@ -49,7 +49,7 @@ pub struct Bar {
     pub link_tone: Tone,
     /// The connection's words, under the pointer on the link.
     pub connection: String,
-    /// Tokens and cost (or model time) of the current session.
+    /// Tokens and cost (or model time) of the chat.
     pub usage: String,
     /// The spend against the budget of the hamlet the chat's agent
     /// lives in.
@@ -271,9 +271,9 @@ fn setup() -> impl View {
     })
 }
 
-/// What the current session used, after a short upright line that
-/// sets it apart from [`setup`]. Nothing while there is no session.
-fn session() -> impl View {
+/// What the chat used, after a short upright line that sets it apart
+/// from [`setup`]. Nothing while there is no chat.
+fn spent() -> impl View {
     keyed(
         resource::<Bar, _>(|bar| {
             bar.usage.is_empty() && bar.budget.is_empty()
@@ -292,7 +292,7 @@ fn session() -> impl View {
                     fact(
                         Glyph::Coins,
                         |bar| bar.usage.clone(),
-                        "Used by this session",
+                        "Used by this chat",
                     ),
                     fact(
                         Glyph::Meter,
@@ -331,7 +331,7 @@ pub fn status_bar() -> impl View {
                 hairline(palette.border),
                 row((
                     setup(),
-                    session(),
+                    spent(),
                     aimed(),
                     pair(
                         with_cx(|cx| {

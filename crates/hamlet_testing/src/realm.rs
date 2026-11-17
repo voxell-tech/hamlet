@@ -67,7 +67,7 @@ pub fn hand(id: u64) -> protocol::Agent {
         "activity": {"doing": "rest", "doingWords": "At rest", "step": 0, "failures": 0},
         "saying": {"text": "", "thought": false},
         "spent": {"tokens": 0, "micros": 0, "ms": 0, "cost": "$0.00"},
-        "consulting": false, "conversations": [], "skills": []
+        "consulting": false, "skills": []
     })).unwrap()
 }
 
@@ -84,7 +84,7 @@ pub fn agent(id: u64, hamlet: &str, mayor: bool) -> protocol::Agent {
         "activity": {"doing": "rest", "doingWords": "At rest", "step": 0, "failures": 0},
         "saying": {"text": "", "thought": false},
         "spent": {"tokens": 0, "micros": 0, "ms": 0, "cost": "$0.00"},
-        "consulting": false, "conversations": [], "skills": []
+        "consulting": false, "skills": []
     })).unwrap()
 }
 

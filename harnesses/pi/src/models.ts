@@ -440,11 +440,15 @@ function servedModel(
     return compatibleModel(ref.provider, ref.id, ref.baseUrl);
 }
 
-/** A provider whose calls use only the server's per-attempt model and credential. */
+/**
+ * A provider whose calls use only the server's per-attempt model and credential. It lists `ref` after the models it
+ * `keeps`, which are those of the endpoint's conversations already known, so each can still be found by its own model.
+ */
 export function modelProvider(
     ref: ModelRef,
     gate: Gate,
     builtins: readonly Provider[] = providers(),
+    keeps: readonly Model<Api>[] = [],
 ): Provider {
     const compatible = openAICompletionsApi();
     const model = servedModel(
@@ -462,7 +466,7 @@ export function modelProvider(
                 }),
             },
         },
-        models: [model],
+        models: [...keeps.filter((m) => m.id !== model.id), model],
         api: allowedStreams(
             {
                 stream: (selected, context, options) => {

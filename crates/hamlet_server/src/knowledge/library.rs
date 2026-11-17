@@ -23,12 +23,8 @@ type Starter =
 const STARTERS: &[Starter] = &[
     starter!("web-search", ["SKILL.md", "scripts/search.py"]),
     starter!("read-webpage", ["SKILL.md", "scripts/read.py"]),
-    starter!("weather", ["SKILL.md", "scripts/weather.py"]),
-    starter!("call-api", ["SKILL.md", "scripts/api.py"]),
-    starter!("system-info", ["SKILL.md", "scripts/info.py"]),
     starter!("write-skill", ["SKILL.md"]),
     starter!("manage-memory", ["SKILL.md"]),
-    starter!("write-typst", ["SKILL.md"]),
 ];
 
 /// The most a skill's files may hold, together.

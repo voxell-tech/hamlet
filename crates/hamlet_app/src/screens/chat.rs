@@ -1,18 +1,20 @@
 //! The chat: the one a typed line goes to and the line it is typed
-//! in. An agent's conversations are laid in one line of time
+//! in. An agent's one conversation is laid in one line of time
 //! (`timeline`), kept as rows (`lines`) and drawn as a group chat
 //! (`bubble`) over the `field` a message is typed in, where what is
 //! attached sits as chips (`attach`). An edit shows its `change`,
-//! and the chief's own messages the way back to them (`rewind`). A
-//! message can `reply` to another, and `quote` lines as chat apps
-//! do.
+//! the chief's own messages the way back to them (`rewind`), and a
+//! summary, a merge or a worker its `card`. A message can `reply` to
+//! another, and `quote` lines as chat apps do.
 
-mod attach;
+pub(crate) mod attach;
 pub(crate) mod bubble;
+mod card;
 mod change;
 mod commands;
 mod entry;
 mod field;
+mod held;
 mod lines;
 mod quote;
 pub(crate) mod reply;
@@ -23,7 +25,6 @@ use std::collections::HashSet;
 
 use bevy::app::{App, PostUpdate, PreUpdate, Update};
 use bevy::color::Color;
-use bevy::ecs::change_detection::DetectChanges;
 use bevy::ecs::component::Component;
 use bevy::ecs::entity::Entity;
 use bevy::ecs::event::Event;
@@ -31,42 +32,44 @@ use bevy::ecs::observer::On;
 use bevy::ecs::query::With;
 use bevy::ecs::resource::Resource;
 use bevy::ecs::schedule::IntoScheduleConfigs;
-use bevy::ecs::system::{Commands, Query, Res, ResMut};
+use bevy::ecs::system::{Commands, Query, ResMut};
 use bevy::ecs::world::World;
-use bevy::ui::{
-    AlignItems, ComputedNode, Overflow, ScrollPosition, UiRect, px,
-};
+use bevy::ui::{ComputedNode, Overflow, ScrollPosition, UiRect, px};
 use bevy_fynix::scroll::ScrollGoal;
 use bevy_fynix::views::{
     BehaviorExt, Enter, Frame, FrameProps, Piece, VirtualList,
-    column, rich_field, row,
+    button, column, rich_field, row,
 };
-use bevy_fynix::{ScopedExt, derived, every_frame, resource, style};
+use bevy_fynix::{
+    ScopedExt, ViewExt, derived, every_frame, resource, style,
+};
 use hamlet_client::chats::Chat;
 use hamlet_client::messages::{
-    ChiefMessage, Response, Rewind, ServerFault,
+    ChiefMessage, Compact, Response, Rewind, ServerFault, Withdraw,
 };
 use hamlet_client::outbox::Outbox;
 use hamlet_client::realm as agents;
 use hamlet_protocol::client as protocol;
 use hamlet_realm::hand::FileDrop;
 use hamlet_realm::orders::{Decree, Tell};
-use hamlet_ui::styles::{note, text_input};
+use hamlet_ui::styles::{ICON, Looks, Tipped, note, text_input};
 use hamlet_ui::theme::HamletTheme;
 use hamlet_ui::widgets::effects::Variant;
 use hamlet_ui::widgets::hint::hinted;
-use hamlet_ui::{Cx, View, with_cx};
+use hamlet_ui::widgets::icons::{Glyph, glyph};
+use hamlet_ui::{AnyView, Cx, View, with_cx};
 
 pub(crate) use self::change::change_view;
 pub use self::change::{Changes, ChatSettings};
 pub use self::entry::OpenTools;
 pub(crate) use self::entry::Underway;
 pub use self::field::refocus;
+pub(crate) use self::lines::close_merged;
 pub use self::lines::{
-    Lines, PastLines, Unfolded, ask_earlier, break_long_words,
-    fold_lines, fold_past, transcript,
+    Lines, MergedLines, Unfolded, ask_earlier, break_long_words,
+    fold_lines, fold_merged, remember_place, restore_place,
+    transcript,
 };
-pub(crate) use self::lines::{past, read_earlier, read_past};
 pub use self::rewind::{Rewinds, ask as ask_rewind};
 use crate::PanelSystems;
 use crate::convo::{self, Convo};
@@ -92,6 +95,8 @@ pub fn plugin(app: &mut App) {
         .init_resource::<Unfolded>()
         .init_resource::<Lines>()
         .init_resource::<ToEnd>()
+        .init_resource::<field::Typed>()
+        .init_resource::<field::Drafts>()
         .init_resource::<AwayFromEnd>()
         .init_resource::<hamlet_ui::fields::Resized>()
         .add_observer(decreed)
@@ -99,6 +104,8 @@ pub fn plugin(app: &mut App) {
         .add_observer(fault)
         .add_observer(remember_said)
         .add_observer(remember_rewind)
+        .add_observer(remember_compact)
+        .add_observer(remember_withdraw)
         .add_observer(response)
         .init_resource::<OpenTools>()
         // A row fades while a rewind that would forget it is asked
@@ -114,7 +121,15 @@ pub fn plugin(app: &mut App) {
         // reply shows in the update it arrives.
         .add_systems(
             PreUpdate,
-            (keep_end, ask_earlier, fold_lines, fold_past)
+            (
+                remember_place,
+                keep_end,
+                ask_earlier,
+                fold_lines,
+                fold_merged,
+                restore_place,
+                field::swap_drafts,
+            )
                 .chain()
                 .in_set(PanelSystems::Bind),
         )
@@ -187,6 +202,41 @@ fn remember_rewind(
                 if rewind.chat == chat && rewind.item == item =>
             {
                 Some(rewind.id.clone())
+            }
+            _ => None,
+        });
+    });
+}
+
+fn remember_compact(compact: On<Compact>, mut commands: Commands) {
+    let to = compact.to;
+    commands.queue(move |world: &mut World| {
+        remember(world, |request| match request {
+            protocol::ClientMessage::Compact(compact)
+                if compact.to == to =>
+            {
+                Some(compact.id.clone())
+            }
+            _ => None,
+        });
+    });
+}
+
+fn remember_withdraw(
+    withdraw: On<Withdraw>,
+    chats: Query<&Chat>,
+    mut commands: Commands,
+) {
+    let Ok(chat) = chats.get(withdraw.chat) else {
+        return;
+    };
+    let (chat, item) = (chat.0.clone(), withdraw.item.clone());
+    commands.queue(move |world: &mut World| {
+        remember(world, |request| match request {
+            protocol::ClientMessage::Withdraw(withdraw)
+                if withdraw.chat == chat && withdraw.item == item =>
+            {
+                Some(withdraw.id.clone())
             }
             _ => None,
         });
@@ -282,12 +332,6 @@ pub(crate) fn send(
         return false;
     }
     let convo = world.resource::<Convo>();
-    if world
-        .get::<Chat>(convo.session)
-        .is_some_and(|chat| chat.0.past.is_some())
-    {
-        return false;
-    }
     let Some(to) = convo.to(world) else {
         return false;
     };
@@ -431,11 +475,9 @@ fn to_end(world: &mut World) {
     }
 }
 
-/// Takes the chat to its end when asked and when another
-/// conversation is shown. The list then keeps it there as it grows,
-/// until the chief scrolls up to read.
+/// Takes the chat to its end when asked. The list then keeps it there
+/// as it grows, until the chief scrolls up to read.
 pub fn keep_end(
-    convo: Res<Convo>,
     mut to_end: ResMut<ToEnd>,
     mut away: ResMut<AwayFromEnd>,
     mut lists: Query<
@@ -448,8 +490,8 @@ pub fn keep_end(
         With<ChatScroll>,
     >,
 ) {
-    let jump = convo.is_changed() || to_end.0;
-    if to_end.0 {
+    let jump = to_end.0;
+    if jump {
         to_end.0 = false;
     }
     for (list, node, mut at, mut goal) in &mut lists {
@@ -463,6 +505,31 @@ pub fn keep_end(
             away.0 = now;
         }
     }
+}
+
+/// The room between the buttons of the composer's toolbar, in the
+/// theme's gaps.
+pub(crate) const TOOL_GAP: f32 = 0.25;
+
+/// A round button of the icon `which` alone in the composer's
+/// toolbar, with `tip` as its tooltip, that runs `act`.
+pub(crate) fn tool_button(
+    which: Glyph,
+    tip: &'static str,
+    act: impl Fn(&mut World) + Send + Sync + 'static,
+) -> AnyView {
+    with_cx(move |cx| {
+        let side = cx.theme().space.row;
+        button(glyph(which, ICON))
+            .width(px(side))
+            .height(px(side))
+            .padding(UiRect::all(px(0.0)))
+            .radius(side / 2.0)
+            .variant(Variant::Text)
+            .tip(tip)
+            .on_activate(act)
+    })
+    .boxed()
 }
 
 /// The one place to type, under the conversation it adds to: the
@@ -502,6 +569,8 @@ fn message_bar_in(
             .on_submit(|world, _| send_typed(world))
             .on_change(|world, pieces| {
                 attach::reconcile(world, &pieces);
+                field::chip_references(world, &pieces);
+                field::keep_draft(world, &pieces);
             })
             .max_lines(MOST_LINES)
             .grow(1.0)
@@ -527,9 +596,7 @@ fn message_bar_in(
         reply::preview(),
         attach::indicator(),
         attach::holds(),
-        row((attach::control(), field))
-            .gap(gap)
-            .align(AlignItems::Center),
+        field,
         tools,
     ))
     .gap(gap / 2.0)
@@ -537,6 +604,7 @@ fn message_bar_in(
     .rules(card_look)
     .tagged(crate::world_menu::Hook::Composer);
     column((
+        held::line(),
         crate::asking::in_chat(),
         card,
         // An empty label has no height. Keep one line so a
@@ -618,6 +686,127 @@ mod tests {
 
     fn typed(app: &App, input: Entity) -> String {
         app.world().get::<RichField>(input).unwrap().plain().text
+    }
+
+    #[test]
+    fn each_chat_keeps_its_draft_and_its_attachments() {
+        use hamlet_protocol::client::{AttachedImage, ImageId};
+
+        use crate::testing::{seat_ada, seat_hand};
+        let mut app = sounding_chat();
+        app.init_resource::<crate::pictures::Pictures>();
+        seat_hand(&mut app);
+        app.update();
+        let image = ImageId::try_from("a".repeat(64)).unwrap();
+        let pieces = app
+            .world_mut()
+            .resource_mut::<attach::Attached>()
+            .give_back(
+                &[AttachedImage {
+                    at: Some(5),
+                    id: image.clone(),
+                }],
+                &[],
+                "Which one",
+                0,
+            );
+        field::set(app.world_mut(), pieces);
+        app.update();
+        app.update();
+        let field = |app: &mut App| {
+            let world = app.world_mut();
+            world
+                .query_filtered::<&RichField, With<ChatField>>()
+                .single(world)
+                .unwrap()
+                .plain()
+        };
+        let line = |app: &App| {
+            app.world()
+                .resource::<attach::Attached>()
+                .ready(&attach::Places::new())
+                .unwrap()
+                .0
+        };
+
+        seat_ada(&mut app);
+        app.update();
+        app.update();
+        assert_eq!(
+            field(&mut app),
+            bevy_fynix::views::Plain::default()
+        );
+        assert!(
+            line(&app).is_empty(),
+            "no attachment of another chat"
+        );
+
+        seat_hand(&mut app);
+        app.update();
+        app.update();
+        let kept = field(&mut app);
+        assert_eq!(kept.text, "Which one");
+        assert_eq!(kept.atoms[0].at, 5);
+        assert_eq!(line(&app)[0].id, image);
+    }
+
+    #[test]
+    fn an_address_written_whole_in_the_field_is_a_chip_sent_as_words()
+    {
+        let mut app = sounding_chat();
+        let ada = agents::named(app.world(), "hire#2").unwrap();
+        app.world_mut()
+            .entity_mut(ada)
+            .insert(agents::Shown("Ada".into()));
+        let input = type_in(&mut app, "");
+        let mut write = |text: &str| {
+            app.world_mut()
+                .get_mut::<RichField>(input)
+                .unwrap()
+                .set_content([Piece::Text(text.into())]);
+            app.update();
+            app.update();
+            app.world()
+                .get::<RichField>(input)
+                .unwrap()
+                .pieces()
+                .iter()
+                .filter_map(|piece| match piece {
+                    Piece::Atom(atom) => {
+                        Some(atom.text().to_string())
+                    }
+                    Piece::Text(_) => None,
+                })
+                .collect::<Vec<_>>()
+        };
+        // Typed a letter at a time, it waits for what follows it.
+        assert!(write("On the other hand, ask hire#").is_empty());
+        assert!(write("On the other hand, ask hire#2").is_empty());
+        assert_eq!(
+            write("On the other hand, ask hire#2 "),
+            ["hire#2"]
+        );
+        // A paste of the copied form, with a name that is not its own
+        // left as words.
+        write("");
+        assert_eq!(
+            write("Ask hire#2 (Ada) or hire#2 (Bo)"),
+            ["hire#2 (Ada)"]
+        );
+
+        send_typed(app.world_mut());
+        let say = app
+            .world()
+            .resource::<Outbox>()
+            .iter()
+            .find_map(|message| match message {
+                protocol::ClientMessage::Say(say) => {
+                    Some(say.clone())
+                }
+                _ => None,
+            })
+            .unwrap();
+        assert_eq!(say.text, "Ask hire#2 (Ada) or hire#2 (Bo)");
     }
 
     #[test]
@@ -716,6 +905,7 @@ mod tests {
             Transcript::from_items(vec![Item {
                 id: "message/é:7".into(),
                 at: 7,
+                queued: false,
                 entry: Entry::Assistant("Paper or digital?".into()),
             }]),
         );
@@ -732,11 +922,7 @@ mod tests {
         let mut mark = world
             .query::<(Entity, &bevy::ui::widget::ImageNode)>()
             .iter(world)
-            .find(|(_, image)| {
-                image.image
-                    == hamlet_ui::widgets::icons::Glyph::Talk
-                        .image(hamlet_ui::styles::ICON)
-            })
+            .find(|(_, image)| image.image == Glyph::Talk.image(ICON))
             .unwrap()
             .0;
         while world.get::<Button>(mark).is_none() {
@@ -955,7 +1141,7 @@ mod tests {
             .world_mut()
             .spawn((Window::default(), PrimaryWindow))
             .id();
-        for command in ["/new", "/agent ada", "/hamlet home"] {
+        for command in ["/compact", "/agent ada", "/hamlet home"] {
             type_in(&mut app, command);
             app.update();
             app.world_mut().write_message(KeyboardInput {
@@ -1201,6 +1387,69 @@ mod tests {
     }
 
     #[test]
+    fn another_agents_notification_is_a_row_of_its_own_and_a_queued_line_waits()
+     {
+        use hamlet_client::chats::{Entry, Item, Transcript};
+
+        use crate::testing::{panel_app, words_and_spans};
+        let mut app = panel_app();
+        app.add_plugins(plugin);
+        let session = app.world().resource::<Convo>().session;
+        let chief = |id: &str, queued| Item {
+            id: id.into(),
+            at: 0,
+            queued,
+            entry: Entry::Chief {
+                name: "chief".into(),
+                text: format!("Line {id}"),
+                images: Vec::new(),
+                files: Vec::new(),
+            },
+        };
+        app.world_mut().entity_mut(session).insert(
+            Transcript::from_items(vec![
+                chief("chief:0", false),
+                Item {
+                    id: "notification:0".into(),
+                    at: 0,
+                    queued: false,
+                    entry: Entry::Agent {
+                        name: "hire#3 (Pip)".into(),
+                        from: None,
+                        text: "The key is by the mill.".into(),
+                    },
+                },
+                chief("queued:chief:1", true),
+            ]),
+        );
+        app.update();
+        bevy_fynix::mount::<HamletTheme>(
+            app.world_mut(),
+            transcript(),
+        );
+        app.update();
+        // Shown without opening the steps of a turn.
+        let shown = words_and_spans(&mut app).join("\n");
+        assert!(shown.contains("The key is by the mill."), "{shown}");
+        assert!(shown.contains("hire#3 (Pip)"), "{shown}");
+        // Under its bubble, where it cannot stand over the words.
+        let world = app.world_mut();
+        let queued = world
+            .query::<(Entity, &bevy::ui::widget::Text)>()
+            .iter(world)
+            .find(|(_, text)| text.0 == "Queued")
+            .map(|(node, _)| node)
+            .unwrap();
+        let mut parents = world.query::<&ChildOf>();
+        assert!(
+            !parents
+                .query(world)
+                .iter_ancestors(queued)
+                .any(|up| world.get::<bubble::Bubble>(up).is_some())
+        );
+    }
+
+    #[test]
     fn received_items_show_tool_outcomes_folded_steps_and_notices() {
         use hamlet_client::chats::{Entry, Item, Transcript};
 
@@ -1211,6 +1460,7 @@ mod tests {
         let tool = |id: &str, exit| Item {
             id: id.into(),
             at: 0,
+            queued: false,
             entry: Entry::Tool {
                 name: "bash".into(),
                 summary: "pwd".into(),
@@ -1218,6 +1468,7 @@ mod tests {
                 ms: Some(400),
                 failure: None,
                 change: None,
+                agent: None,
             },
         };
         app.world_mut().entity_mut(session).insert(
@@ -1225,6 +1476,7 @@ mod tests {
                 Item {
                     id: "chief:0".into(),
                     at: 0,
+                    queued: false,
                     entry: Entry::Chief {
                         name: "chief".into(),
                         text: "Go".into(),
@@ -1237,17 +1489,20 @@ mod tests {
                 Item {
                     id: "reply:0".into(),
                     at: 0,
+                    queued: false,
                     entry: Entry::Assistant("Still working.".into()),
                 },
                 tool("running:0", None),
                 Item {
                     id: "reply:1".into(),
                     at: 0,
+                    queued: false,
                     entry: Entry::Assistant("The next step.".into()),
                 },
                 Item {
                     id: "notice:0".into(),
                     at: 0,
+                    queued: false,
                     entry: Entry::Notice("A received notice".into()),
                 },
             ]),
@@ -1297,6 +1552,7 @@ mod tests {
             Transcript::from_items(vec![Item {
                 id: "entry-abc:0".into(),
                 at: 1,
+                queued: false,
                 entry: Entry::Chief {
                     name: "chief".into(),
                     text: "Change these words".into(),
@@ -1320,9 +1576,7 @@ mod tests {
             .query::<(Entity, &bevy::ui::widget::ImageNode)>()
             .iter(world)
             .find(|(_, image)| {
-                image.image
-                    == hamlet_ui::widgets::icons::Glyph::Restore
-                        .image(hamlet_ui::styles::ICON)
+                image.image == Glyph::Restore.image(ICON)
             })
             .unwrap()
             .0;
@@ -1397,5 +1651,92 @@ mod tests {
                 .any(|field| field.plain().text
                     == "Help me work on a project folder.")
         );
+    }
+
+    #[test]
+    fn a_chat_keeps_its_end_and_is_shown_again_where_it_was_left() {
+        use bevy_fynix::views::VirtualList;
+        use bevy_fynix::{ViewExt, keyed, resource};
+        use hamlet_client::chats::{Entry, Item, Transcript};
+
+        use crate::testing::{panel_app, seat_ada, seat_hand};
+        let said = |rows: usize| {
+            Transcript::from_items(
+                (0..rows)
+                    .map(|at| Item {
+                        id: format!("message/{at}"),
+                        at: at as u64,
+                        queued: false,
+                        entry: Entry::Assistant(format!("Row {at}")),
+                    })
+                    .collect(),
+            )
+        };
+        let mut app = panel_app();
+        app.add_plugins(plugin);
+        for seat in [seat_ada, seat_hand] {
+            seat(&mut app);
+            let session = app.world().resource::<Convo>().session;
+            app.world_mut().entity_mut(session).insert(said(40));
+        }
+        app.update();
+        // Built again for each chat, as the hub builds it.
+        bevy_fynix::mount::<HamletTheme>(
+            app.world_mut(),
+            keyed(resource::<Convo, _>(|c| c.session), |_| {
+                transcript().boxed()
+            }),
+        );
+        // The window lays nothing out here: the list is given its
+        // size each time it is built.
+        let settle = |app: &mut App| {
+            for _ in 0..6 {
+                let world = app.world_mut();
+                let list = world
+                    .query_filtered::<Entity, With<ChatScroll>>()
+                    .single(world)
+                    .unwrap();
+                if world.get::<ComputedNode>(list).unwrap().size.y
+                    == 0.0
+                {
+                    world.entity_mut(list).insert(ComputedNode {
+                        size: bevy::math::Vec2::new(300.0, 200.0),
+                        content_size: bevy::math::Vec2::new(
+                            300.0, 2400.0,
+                        ),
+                        inverse_scale_factor: 1.0,
+                        ..ComputedNode::default()
+                    });
+                }
+                app.update();
+            }
+            let world = app.world_mut();
+            world
+                .query_filtered::<(Entity, &VirtualList), With<ChatScroll>>()
+                .single(world)
+                .map(|(list, state)| {
+                    (list, state.is_following(), state.first_visible())
+                })
+                .unwrap()
+        };
+
+        let (_, following, _) = settle(&mut app);
+        assert!(following, "a chat opens at its end");
+        let session = app.world().resource::<Convo>().session;
+        app.world_mut().entity_mut(session).insert(said(41));
+        let (list, following, _) = settle(&mut app);
+        assert!(following, "a row that comes keeps it at its end");
+
+        app.world_mut().get_mut::<ScrollPosition>(list).unwrap().y =
+            300.0;
+        let (_, following, left_at) = settle(&mut app);
+        assert!(!following);
+        seat_ada(&mut app);
+        let (_, following, _) = settle(&mut app);
+        assert!(following, "another chat opens at its end");
+        seat_hand(&mut app);
+        let (_, following, first) = settle(&mut app);
+        assert!(!following);
+        assert_eq!(first, left_at);
     }
 }

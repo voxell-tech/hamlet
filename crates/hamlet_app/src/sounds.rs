@@ -11,7 +11,7 @@ use bevy::ecs::world::World;
 use bevy::math::Vec3;
 use bevy::time::Time;
 use bevy_fynix::dock::{ActiveTab, DockDrag, DockTab};
-use hamlet_client::messages::{ChiefMessage, SessionOutput};
+use hamlet_client::messages::{ChatOutput, ChiefMessage};
 use hamlet_protocol::client as protocol;
 use hamlet_realm::sound::{Cue, Sound};
 use hamlet_ui::widgets::effects::ControlSound;
@@ -167,7 +167,7 @@ fn sent(_: On<ChiefMessage>, mut cues: MessageWriter<Cue>) {
 }
 
 /// A reply that could not be finished.
-fn failed(output: On<SessionOutput>, mut cues: MessageWriter<Cue>) {
+fn failed(output: On<ChatOutput>, mut cues: MessageWriter<Cue>) {
     if matches!(&output.operation, protocol::TranscriptOperation::Add { item, .. } if item.kind == protocol::ItemKind::Error)
     {
         cues.write(cue(Sound::Error));
@@ -211,17 +211,13 @@ mod tests {
         let mut app = app();
         app.add_plugins(hamlet_client::ClientPlugin { server: None });
         let chat = protocol::ChatRef {
-            kind: None,
-            from: None,
             with: protocol::AgentId(1),
-            past: None,
         };
         app.world_mut().spawn(Chat(chat.clone()));
         hamlet_client::receive(
             app.world_mut(),
             protocol::ServerMessage::Turn(protocol::Turn {
                 chat,
-                number: None,
                 operations: vec![
                     protocol::TranscriptOperation::Add {
                         item: protocol::Item {
@@ -232,6 +228,8 @@ mod tests {
                                 .into(),
                             chief: None,
                             author: None,
+                            from: None,
+                            queued: false,
                             rewindable: None,
                             tool: None,
                             images: Vec::new(),

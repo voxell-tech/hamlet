@@ -8,11 +8,12 @@ pub(crate) mod chats;
 pub(crate) mod completion;
 pub(crate) mod dreams;
 pub(crate) mod errands;
+pub(crate) mod failures;
 pub(crate) mod imports;
 pub(crate) mod inputs;
 pub(crate) mod items;
-pub(crate) mod letters;
 pub(crate) mod marks;
+pub(crate) mod messages;
 pub(crate) mod models;
 pub(crate) mod prompt;
 pub(crate) mod questions;
@@ -30,12 +31,15 @@ use hamlet_protocol::runtime::{
     ConfigureTools, ConversationKind, ModelRef,
 };
 use hamlet_store::Db;
-use hamlet_store::ids::{AgentId, ChiefId, ConversationId};
+use hamlet_store::ids::{AgentId, ConversationId};
 use hamlet_store::schema::{conversation, item};
 use serde::{Deserialize, Serialize};
 use strum::{Display, EnumString, IntoStaticStr};
 
 use crate::realm::change::Change;
+
+/// What a queued item's id begins with, before its input's request.
+pub(crate) const QUEUED: &str = "queued:";
 
 pub(crate) fn plugin(app: &mut bevy_app::App) {
     app.add_plugins(dreams::plugin);
@@ -61,8 +65,6 @@ pub(crate) fn plugin(app: &mut bevy_app::App) {
 #[diesel(sql_type = Text)]
 pub(crate) enum Kind {
     Chat,
-    Letters,
-    Questions,
     Worker,
     Errand,
     Dream,
@@ -73,8 +75,6 @@ impl Kind {
     pub fn wire(self) -> ConversationKind {
         match self {
             Self::Chat => ConversationKind::Chat,
-            Self::Letters => ConversationKind::Letters,
-            Self::Questions => ConversationKind::Questions,
             Self::Worker => ConversationKind::Worker,
             Self::Errand => ConversationKind::Errand,
             Self::Dream => ConversationKind::Dream,
@@ -114,9 +114,6 @@ pub(crate) struct Conversation {
     pub id: ConversationId,
     pub agent: AgentId,
     pub kind: Kind,
-    pub chief: Option<ChiefId>,
-    pub session: Option<i64>,
-    pub peer: Option<AgentId>,
     pub errand: Option<String>,
     pub owner: Option<String>,
     pub instructions: Option<String>,
@@ -134,6 +131,12 @@ pub(crate) struct Conversation {
     /// A chief stopped its running turn, whose end is then no
     /// failure.
     pub stopped: bool,
+    /// A chief stopped it, and no queued turn starts until a line of
+    /// theirs or a resume.
+    pub held: bool,
+    /// The chief's input that ended a hold, which runs before the
+    /// rest queued.
+    pub runs_first: Option<String>,
     pub last: Option<Last>,
     pub unreflected: i64,
     pub retiring: bool,
@@ -162,9 +165,6 @@ impl Conversation {
 pub(crate) struct Begin {
     pub agent: AgentId,
     pub kind: Kind,
-    pub chief: Option<ChiefId>,
-    pub session: Option<i64>,
-    pub peer: Option<AgentId>,
     /// An errand's kind, the key it is made once under, and its
     /// instructions.
     pub errand: Option<(String, String, String)>,
@@ -178,9 +178,6 @@ impl Begin {
         Self {
             agent,
             kind,
-            chief: None,
-            session: None,
-            peer: None,
             errand: None,
             instructions: None,
         }
@@ -206,9 +203,6 @@ pub(crate) fn begin(
         .values((
             conversation::agent.eq(begin.agent),
             conversation::kind.eq(begin.kind),
-            conversation::chief.eq(begin.chief),
-            conversation::session.eq(begin.session),
-            conversation::peer.eq(begin.peer),
             conversation::errand.eq(errand),
             conversation::owner.eq(owner),
             conversation::instructions.eq(instructions),
@@ -234,8 +228,6 @@ pub(crate) fn fork(
         .values((
             conversation::agent.eq(of.agent),
             conversation::kind.eq(of.kind),
-            conversation::chief.eq(of.chief),
-            conversation::session.eq(of.session),
             conversation::runtime.eq(&of.runtime),
             conversation::model.eq(&of.model),
             conversation::fork_of.eq(of.id),
@@ -319,23 +311,6 @@ pub(crate) fn of_agent(
         .load(db)?)
 }
 
-/// The conversation `agent` has with the sender `peer`, for letters
-/// or questions.
-pub(crate) fn with_peer(
-    db: &mut Db,
-    agent: AgentId,
-    kind: Kind,
-    peer: AgentId,
-) -> Result<Option<ConversationId>> {
-    Ok(conversation::table
-        .filter(conversation::agent.eq(agent))
-        .filter(conversation::kind.eq(kind))
-        .filter(conversation::peer.eq(peer))
-        .select(conversation::id)
-        .first(db)
-        .optional()?)
-}
-
 /// The errand of `kind` made under `owner`.
 pub(crate) fn errand(
     db: &mut Db,
@@ -388,6 +363,35 @@ pub(crate) fn set_stopped(
         .set(conversation::stopped.eq(stopped))
         .execute(db)?;
     Ok(())
+}
+
+/// Holds `id`'s queue until a chief's line or a resume.
+pub(crate) fn hold(db: &mut Db, id: ConversationId) -> Result<()> {
+    diesel::update(conversation::table.find(id))
+        .set((
+            conversation::held.eq(true),
+            conversation::runs_first.eq(None::<String>),
+        ))
+        .execute(db)?;
+    Ok(())
+}
+
+/// Ends `id`'s hold, with the chief's input that ends it to run
+/// first. Returns whether it was held.
+pub(crate) fn release(
+    db: &mut Db,
+    id: ConversationId,
+    first: Option<&str>,
+) -> Result<bool> {
+    Ok(diesel::update(
+        conversation::table.find(id).filter(conversation::held),
+    )
+    .set((
+        conversation::held.eq(false),
+        conversation::runs_first.eq(first),
+    ))
+    .execute(db)?
+        == 1)
 }
 
 pub(crate) fn set_last(

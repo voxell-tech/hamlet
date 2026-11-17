@@ -135,7 +135,9 @@ impl Reader {
                 self.links.push(address(&dest_url));
             }
             Tag::Image { dest_url, .. } => {
-                let target = address(&dest_url);
+                let target = address(&dest_url).filter(|target| {
+                    !matches!(target, Target::Agent(_))
+                });
                 // A cell of a table holds words alone.
                 let alone =
                     self.table.is_none() && self.picture.is_none();

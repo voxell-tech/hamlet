@@ -13,7 +13,7 @@ use hamlet_store::ids::{Actor, AgentId, ScholarId};
 use hamlet_store::schema::document;
 
 use super::check::reply;
-use crate::conversations::{chats, items, prompt};
+use crate::conversations::{chats, prompt};
 use crate::core::{Core, UnpushedLodge};
 use crate::knowledge::folder::Folder;
 use crate::knowledge::library::field;
@@ -29,7 +29,7 @@ use crate::society::{authority, hamlets, hires};
 
 /// Refuses a memory path that is not a plain relative path under
 /// `memory/`.
-fn memory_path(path: &str) -> Result<String, Refusal> {
+pub(crate) fn memory_path(path: &str) -> Result<String, Refusal> {
     let path = path.trim().trim_start_matches("memory/");
     let plain = !path.is_empty()
         && !path.starts_with('/')
@@ -85,32 +85,19 @@ impl Core<'_, '_> {
                 let value = serde_json::Value::Object(
                     whole.into_iter().collect(),
                 );
-                self.set_limits(LimitsOwner::of(hamlet), |_| {
+                let by = Actor::Chief(self.realm.chief());
+                self.set_limits(by, LimitsOwner::of(hamlet), |_| {
                     Ok(value)
                 })
             }
-            Edit::Limits(EditLimits::Set { hamlet, set, .. }) => self
-                .set_limits(
+            Edit::Limits(EditLimits::Set { hamlet, set, .. }) => {
+                let by = Actor::Chief(self.realm.chief());
+                self.set_limits(
+                    by,
                     LimitsOwner::of(hamlet),
-                    |mut current| {
-                        let section =
-                            current.get_mut(&set.section).and_then(
-                                serde_json::Value::as_object_mut,
-                            );
-                        match section {
-                            Some(section) => {
-                                section.insert(
-                                    set.key.clone(),
-                                    set.value.clone(),
-                                );
-                            }
-                            None => {
-                                current[&set.key] = set.value.clone();
-                            }
-                        }
-                        Ok(current)
-                    },
-                ),
+                    |current| Ok(with_limit(current, &set)),
+                )
+            }
             Edit::Settings { set, .. } => self.edit_settings(set),
             Edit::Catalogue { model, set, .. } => {
                 let answer = self.edit_catalogue(&model, set)?;
@@ -121,7 +108,10 @@ impl Core<'_, '_> {
     }
 
     /// Keeps the realm's charter, or none when `text` is blank.
-    fn edit_charter(&mut self, text: Option<String>) -> Done<String> {
+    pub(crate) fn edit_charter(
+        &mut self,
+        text: Option<String>,
+    ) -> Done<String> {
         let chief = self.realm.chief();
         let db = self.realm.store().connection();
         match text.filter(|t| !t.trim().is_empty()) {
@@ -202,6 +192,21 @@ impl Core<'_, '_> {
         text: &str,
     ) -> Done<String> {
         done!(self.reaches(agent));
+        let by = Actor::Chief(self.realm.chief());
+        self.write_lodge_memory(by, agent, path, text)?;
+        Ok(Ok("The memory is saved.".into()))
+    }
+
+    /// Writes `text` to the memory file `path` of the lodge of
+    /// `agent`, as `by` asks, empty removing it, and has the lodge
+    /// committed.
+    pub(crate) fn write_lodge_memory(
+        &mut self,
+        by: Actor,
+        agent: AgentId,
+        path: &str,
+        text: &str,
+    ) -> Result<()> {
         let layout = self.realm.layout().clone();
         let lodging = knowledge::lodging(
             self.realm.store().connection(),
@@ -219,17 +224,15 @@ impl Core<'_, '_> {
             }
         }
         self.remote.unpushed.write(UnpushedLodge(agent));
-        let by = Actor::Chief(self.realm.chief());
         self.change(by, |cx, _| {
             jobs::add(cx, &Job::Commit { hire: agent })?;
             Ok(())
-        })?;
-        Ok(Ok("The memory is saved.".into()))
+        })
     }
 
     /// Keeps the settings `set` changes, and the workspace it
     /// chooses.
-    fn edit_settings(
+    pub(crate) fn edit_settings(
         &mut self,
         set: EditSettingsSet,
     ) -> Done<String> {
@@ -326,9 +329,10 @@ impl Core<'_, '_> {
     }
 
     /// Replaces the limits of `owner` with what `edit` makes of their
-    /// client form.
-    fn set_limits(
+    /// client form, as `by` asks.
+    pub(crate) fn set_limits(
         &mut self,
+        by: Actor,
         owner: LimitsOwner,
         edit: impl FnOnce(serde_json::Value) -> Result<serde_json::Value>,
     ) -> Done<String> {
@@ -340,7 +344,7 @@ impl Core<'_, '_> {
                 if hamlets::find(db, &id)?.is_none() {
                     return Ok(Err(Refusal::NoHamlet { id: hamlet }));
                 }
-                if !authority::is_chief_of(db, chief, &id)? {
+                if !authority::may_govern(db, by, &id)? {
                     return Ok(Err(Refusal::NotChief { hamlet }));
                 }
                 let current = super::state::hamlet_limits(
@@ -356,15 +360,17 @@ impl Core<'_, '_> {
                 if let Some(why) = own.fault() {
                     return Ok(Err(Refusal::BadLimits { why }));
                 }
-                let done = self
-                    .attempt(Actor::Chief(chief), |cx, _| {
-                        hamlets::set_limits(cx, &id, &own)
-                    })?;
+                let done = self.attempt(by, |cx, _| {
+                    hamlets::set_limits(cx, &id, &own)
+                })?;
                 Ok(done.map(|()| {
                     format!("The limits of `{hamlet}` are saved.")
                 }))
             }
             LimitsOwner::Realm => {
+                if !authority::may_rule(db, by)? {
+                    return Ok(Err(Refusal::NotRealmChief));
+                }
                 let current =
                     super::state::realm_limits(&limits::realm(db)?);
                 let edited = edit(serde_json::to_value(current)?)?;
@@ -505,7 +511,7 @@ impl Core<'_, '_> {
                 }
                 let conversation = self
                     .change(Actor::Chief(chief), |cx, env| {
-                        chats::current(cx, env, agent, chief)
+                        chats::current(cx, env, agent)
                     })?;
                 let db = self.realm.store().connection();
                 let kept =
@@ -520,18 +526,6 @@ impl Core<'_, '_> {
                     .collect();
                 ServerMessage::Read(ReadResult::Prompt {
                     prompt,
-                    to: id,
-                })
-            }
-            Read::History { agent, id } => {
-                let agent = AgentId(i64::try_from(agent.0)?);
-                if let Err(refusal) = self.reaches(agent)? {
-                    return self
-                        .answer(client, reply(&id, Err(refusal)));
-                }
-                let history = self.pasts(agent)?;
-                ServerMessage::Read(ReadResult::History {
-                    history,
                     to: id,
                 })
             }
@@ -550,7 +544,10 @@ impl Core<'_, '_> {
     }
 
     /// The papers of `of`: a scholar's `main`, or an agent's lodge.
-    fn papers(&mut self, of: Keeper) -> Done<protocol::Papers> {
+    pub(crate) fn papers(
+        &mut self,
+        of: Keeper,
+    ) -> Done<protocol::Papers> {
         let layout = self.realm.layout().clone();
         let db = self.realm.store().connection();
         let (scholar, lodge) = match of {
@@ -649,92 +646,10 @@ impl Core<'_, '_> {
             skills,
         }))
     }
-
-    /// The sessions of the chief's chat with `agent` that hold a
-    /// line, newest first, each named by its first line (C24).
-    fn pasts(
-        &mut self,
-        agent: AgentId,
-    ) -> Result<Vec<protocol::Past>> {
-        let chief = self.realm.chief();
-        let db = self.realm.store().connection();
-        let current = chats::current_number(db, agent, chief)?;
-        let name = crate::society::chiefs::find(db, chief)?
-            .map(|c| c.name)
-            .unwrap_or_default();
-        let mut out = Vec::new();
-        for (number, conversation, began) in
-            chats::sessions(db, agent, chief)?
-        {
-            let mut page =
-                items::page(db, conversation, None, 10_000)?;
-            if page.is_empty() {
-                page = crate::conversations::imports::held(
-                    db,
-                    conversation,
-                )?
-                .into_iter()
-                .enumerate()
-                .map(|(n, item)| (n as i64, item))
-                .collect();
-            }
-            let mut first = None;
-            let mut messages = 0_i64;
-            let mut modified = began;
-            for (_, item) in &page {
-                use crate::conversations::marks::Mark;
-                modified =
-                    modified.max(i64::try_from(item.at).unwrap_or(0));
-                let said = match Mark::of_item(item.mark.as_ref()) {
-                    Ok(Some(Mark::Chief { text, .. })) => Some(text),
-                    // A message of the chief's brought in from
-                    // another program.
-                    Ok(Some(Mark::Earlier { .. })) => {
-                        Some(item.text.clone())
-                    }
-                    _ => None,
-                };
-                if let Some(text) = said {
-                    messages += 1;
-                    if first.is_none() && !text.trim().is_empty() {
-                        first = Some(text);
-                    }
-                } else if item.kind
-                    == hamlet_protocol::runtime::ItemKind::Assistant
-                {
-                    messages += 1;
-                }
-            }
-            let Some(first) = first else {
-                continue;
-            };
-            let line = first
-                .lines()
-                .find(|l| !l.trim().is_empty())
-                .unwrap_or_default()
-                .trim();
-            let mut title = line.chars().take(90).collect::<String>();
-            if line.chars().count() > 90 {
-                title.push_str("...");
-            }
-            out.push(protocol::Past {
-                began,
-                by: name.clone(),
-                current: Some(number) == current,
-                messages,
-                modified,
-                number,
-                title,
-                tokens: 0,
-            });
-        }
-        out.sort_by_key(|past| std::cmp::Reverse(past.number));
-        Ok(out)
-    }
 }
 
 /// Whose limits an edit sets.
-enum LimitsOwner {
+pub(crate) enum LimitsOwner {
     Hamlet(String),
     Realm,
 }
@@ -742,9 +657,27 @@ enum LimitsOwner {
 impl LimitsOwner {
     /// The owner of the limits `hamlet` names, or the realm's when
     /// none.
-    fn of(hamlet: Option<String>) -> Self {
+    pub fn of(hamlet: Option<String>) -> Self {
         hamlet.map_or(Self::Realm, Self::Hamlet)
     }
+}
+
+/// The client form of limits `current` with the one limit `set`
+/// changed.
+pub(crate) fn with_limit(
+    mut current: serde_json::Value,
+    set: &protocol::LimitsEdit,
+) -> serde_json::Value {
+    let section = current
+        .get_mut(&set.section)
+        .and_then(serde_json::Value::as_object_mut);
+    match section {
+        Some(section) => {
+            section.insert(set.key.clone(), set.value.clone());
+        }
+        None => current[&set.key] = set.value.clone(),
+    }
+    current
 }
 
 fn edit_id(edit: &Edit) -> &RequestId {

@@ -462,14 +462,13 @@ fn menus() -> AnyView {
                 if !Deeds::is_allowed(cx.world, "create-hamlet") {
                     return cx.build(frame());
                 }
-                let found = menu_item(
-                    label("Create a Hamlet...").wrap(false),
-                )
-                .on_activate(move |world| {
-                    *world.resource_mut::<Open>() =
-                        Open::Founding(at);
-                })
-                .boxed();
+                let found =
+                    menu_item(label("Create a Hamlet").wrap(false))
+                        .on_activate(move |world| {
+                            *world.resource_mut::<Open>() =
+                                Open::Founding(at);
+                        })
+                        .boxed();
                 cx.build(menu(at, vec![found]))
             }),
             Open::Founding(at) => founding::founding(at).boxed(),
@@ -539,7 +538,7 @@ mod tests {
         assert!(
             !words(&mut app)
                 .iter()
-                .any(|text| text == "Create a Hamlet...")
+                .any(|text| text == "Create a Hamlet")
         );
         let world = app.world_mut();
         let home = world
@@ -550,7 +549,7 @@ mod tests {
         assert!(
             !words(&mut app)
                 .iter()
-                .any(|text| text == "Close Down home...")
+                .any(|text| text == "Close Down home")
         );
 
         state.deeds =
@@ -563,13 +562,13 @@ mod tests {
         assert!(
             words(&mut app)
                 .iter()
-                .any(|text| text == "Create a Hamlet...")
+                .any(|text| text == "Create a Hamlet")
         );
         open(&mut app, Open::Menu(Thing::Common(home), Vec2::ZERO));
         assert!(
             words(&mut app)
                 .iter()
-                .any(|text| text == "Close Down home...")
+                .any(|text| text == "Close Down home")
         );
     }
 
@@ -590,9 +589,9 @@ mod tests {
         open(&mut app, Open::Menu(Thing::Agent(a), Vec2::ZERO));
         let shown = words(&mut app);
         for absent in [
-            "End hire#3...",
-            "Make hire#3 Mayor...",
-            "Merge hire#3 into hire#4...",
+            "End hire#3",
+            "Make hire#3 Mayor",
+            "Merge hire#3 into hire#4",
         ] {
             assert!(
                 !shown.iter().any(|text| text == absent),

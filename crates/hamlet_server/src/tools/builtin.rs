@@ -651,7 +651,7 @@ fn scrub(secrets: &[String], outcome: &mut Outcome) {
 /// The environment of an agent's tools, under the sandbox (S12, C18).
 /// It works in the folder, or in the lodge when there is none; writes
 /// the lodge and the folder; reads the shared folders; and never
-/// reads the rest of the realm.
+/// reads the rest of the realm. The lodge is made first if missing.
 pub(crate) fn environment(
     sandbox: &Sandbox,
     place: &Place,
@@ -680,6 +680,7 @@ pub(crate) fn environment(
         },
     };
     policy.net = network.is_open();
+    std::fs::create_dir_all(&place.lodge)?;
     let cwd = place.folder.as_ref().unwrap_or(&place.lodge);
     Env::new(&text(cwd), policy, *sandbox)
 }

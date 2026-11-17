@@ -10,7 +10,7 @@ use crate::core::Core;
 use crate::society::addresses::{self, Reach};
 use crate::society::agents::{self, AgentKind, Effort, EndHow};
 use crate::society::hamlets::{self, Founding, Mode};
-use crate::society::hires::{self, Hiring, Spec};
+use crate::society::hires::{self, Hiring, LastDream, Spec};
 use crate::society::refusal::Refusal;
 use crate::society::{
     authority, city, record, roads, spend, workers,
@@ -86,8 +86,9 @@ pub(super) const SOCIETY: &[Command] = &[
     },
     Command {
         name: "end",
-        usage: "/end <address> [reason]",
-        does: "End a hire",
+        usage: "/end <address> [dream] [reason]",
+        does: "End a hire; with dream, it dreams once more to bring \
+               its learning home",
         run: |core, line| hire_fate(core, line, Fate::Remove),
     },
     Command {
@@ -230,6 +231,14 @@ pub(super) const SOCIETY: &[Command] = &[
         usage: "/move-house <scholar#id> <x> <z> [degrees]",
         does: "Set a scholar's house down elsewhere in the city",
         run: move_house,
+    },
+    Command {
+        name: "make-scholar",
+        usage: "/make-scholar <address> [name]",
+        does: "Make a scholar of the city of what a hire learned: a \
+               blank hire's own scholar joins the city, and any \
+               other hire starts a new one",
+        run: super::promotion::make_scholar,
     },
     Command {
         name: "welcome",
@@ -539,7 +548,14 @@ fn hire_fate(
     };
     let hire = found!(core.resolve(text, line.here.as_ref(), reach));
     found!(core.leads(hire));
-    let reason = line.tail(1);
+    let last = match (fate, line.words().get(1)) {
+        (Fate::Remove, Some(&"dream")) => LastDream::With,
+        _ => LastDream::Without,
+    };
+    let reason = match last {
+        LastDream::With => line.tail(2),
+        LastDream::Without => line.tail(1),
+    };
     let db = core.realm.store().connection();
     // A merged hire comes back by splitting its merge.
     let merge = match fate {
@@ -551,7 +567,7 @@ fn hire_fate(
     let done =
         core.attempt(by(core), |cx, _| match (fate, &merge) {
             (Fate::Remove, _) => {
-                hires::end(cx, hire, EndHow::Ended, &reason)
+                hires::end(cx, hire, EndHow::Ended, last, &reason)
             }
             (Fate::Restore, Some(merge)) => {
                 crate::society::merges::split(cx, merge.id, &reason)
@@ -561,7 +577,14 @@ fn hire_fate(
             }
             (Fate::Erase, _) => hires::erase(cx, hire),
         })?;
+    if done.is_ok() && last == LastDream::With {
+        core.dream_tick()?;
+    }
     Ok(done.map(|()| match fate {
+        Fate::Remove if last == LastDream::With => format!(
+            "`{text}` was ended, and dreams once more to bring what \
+             it learned home."
+        ),
         Fate::Remove => format!("`{text}` was ended."),
         Fate::Restore if merge.is_some() => format!(
             "`{text}` is back; what it brought to the hire it was \
@@ -592,8 +615,16 @@ fn merge(core: &mut Core<'_, '_>, line: &Line) -> Answer {
         }
         reason => reason,
     };
-    let done = core.attempt(by(core), |cx, _| {
-        crate::society::merges::merge(cx, kept, absorbed, &reason)
+    let done = core.attempt(by(core), |cx, env| {
+        let merged = crate::society::merges::merge(
+            cx, kept, absorbed, &reason,
+        )?;
+        if merged.is_ok() {
+            crate::conversations::chats::merged(
+                cx, env, kept, absorbed,
+            )?;
+        }
+        Ok(merged)
     })?;
     Ok(done.map(|_| {
         format!("Merged `{}` into `{}`.", words[0], words[2])
@@ -815,11 +846,9 @@ fn folder(core: &mut Core<'_, '_>, line: &Line) -> Answer {
         Some(_) => Some(line.rest.clone()),
     };
     if let Some(folder) = &folder
-        && !std::path::Path::new(folder).is_dir()
+        && let Err(refusal) = hamlets::check_folder(folder)
     {
-        return Ok(Err(Refusal::NoFile {
-            path: folder.clone(),
-        }));
+        return Ok(Err(refusal));
     }
     let done = core.attempt(by(core), |cx, _| {
         hamlets::set_folder(cx, &id, folder.as_deref())

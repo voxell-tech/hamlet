@@ -39,7 +39,8 @@ pub(crate) fn plugin(app: &mut App) {
         .add_handler::<FromClient<protocol::Hello>, _>(hello)
         .add_handler::<FromClient<protocol::Open>, _>(open)
         .add_handler::<FromClient<protocol::Close>, _>(close)
-        .add_handler::<FromClient<protocol::New>, _>(new)
+        .add_handler::<FromClient<protocol::Compact>, _>(compact)
+        .add_handler::<FromClient<protocol::Withdraw>, _>(withdraw)
         .add_handler::<FromClient<protocol::Resume>, _>(resume)
         .add_handler::<FromClient<protocol::ImportProject>, _>(
             import_project,
@@ -163,7 +164,8 @@ fn write(
         }
         ClientMessage::Open(m) => to(commands, client, m),
         ClientMessage::Close(m) => to(commands, client, m),
-        ClientMessage::New(m) => to(commands, client, m),
+        ClientMessage::Compact(m) => to(commands, client, m),
+        ClientMessage::Withdraw(m) => to(commands, client, m),
         ClientMessage::Resume(m) => to(commands, client, m),
         ClientMessage::ImportProject(m) => to(commands, client, m),
         ClientMessage::Retry(m) => to(commands, client, m),
@@ -323,30 +325,57 @@ fn close(
     }
 }
 
-fn new(
-    mut received: ResMut<Messages<FromClient<protocol::New>>>,
+/// An agent's conversation summarized now, as when its context fills.
+fn compact(
+    mut received: ResMut<Messages<FromClient<protocol::Compact>>>,
     mut core: Core,
 ) -> Result {
     received.drain().try_for_each(
         |FromClient {
              client,
-             request: new,
+             request: compact,
          }| {
             let Some(agent) =
-                core.reached(client, &new.id, new.to.0)?
+                core.reached(client, &compact.id, compact.to.0)?
             else {
                 return Ok(());
             };
-            let words = core.new_session(agent)?;
+            let words = core.compact_chat(agent)?;
             core.answer(
                 client,
-                reply(&new.id, Ok::<_, Refusal>(words)),
+                reply(&compact.id, Ok::<_, Refusal>(words)),
             )?;
             Ok(())
         },
     )
 }
 
+/// The chief's own queued line taken back before its turn.
+fn withdraw(
+    mut received: ResMut<Messages<FromClient<protocol::Withdraw>>>,
+    mut core: Core,
+) -> Result {
+    received.drain().try_for_each(
+        |FromClient {
+             client,
+             request: withdraw,
+         }| {
+            let Some(agent) = core.reached(
+                client,
+                &withdraw.id,
+                withdraw.chat.with.0,
+            )?
+            else {
+                return Ok(());
+            };
+            let words = core.withdraw_line(agent, &withdraw.item)?;
+            core.answer(client, reply(&withdraw.id, words))?;
+            Ok(())
+        },
+    )
+}
+
+/// The hold a stop put on an agent, or on every agent, ended.
 fn resume(
     mut received: ResMut<Messages<FromClient<protocol::Resume>>>,
     mut core: Core,
@@ -356,13 +385,22 @@ fn resume(
              client,
              request: resume,
          }| {
-            let Some(agent) =
-                core.reached(client, &resume.id, resume.to.0)?
-            else {
-                return Ok(());
+            let targets = match resume.agent {
+                Some(agent) => {
+                    let Some(agent) =
+                        core.reached(client, &resume.id, agent.0)?
+                    else {
+                        return Ok(());
+                    };
+                    vec![agent]
+                }
+                None => core.reachable()?,
             };
-            let words = core.resume_session(agent, resume.number)?;
-            core.answer(client, reply(&resume.id, words))?;
+            let words = core.resume_agents(&targets)?;
+            core.answer(
+                client,
+                reply(&resume.id, Ok::<_, Refusal>(words)),
+            )?;
             Ok(())
         },
     )
@@ -536,15 +574,6 @@ fn rewind(
              client,
              request: rewind,
          }| {
-            if rewind.chat.from.is_some()
-                || rewind.chat.past.is_some()
-            {
-                core.answer(
-                    client,
-                    reply(&rewind.id, Err(Refusal::RewindNotCurrent)),
-                )?;
-                return Ok(());
-            }
             let Some(agent) =
                 core.reached(client, &rewind.id, rewind.chat.with.0)?
             else {

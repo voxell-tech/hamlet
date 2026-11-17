@@ -138,13 +138,14 @@ impl Core<'_, '_> {
         if !is_offered(&call.conversation, tool)? {
             return Ok(CallOutcome::Done(unavailable(tool)));
         }
-        if let Some(chief @ (Society::AskChief | Society::Object)) =
-            call.society
+        if let Some(
+            chief @ (Society::RequestChief | Society::Object),
+        ) = call.society
         {
             let ruled = if chief == Society::Object {
                 self.object(call)?
             } else {
-                self.ask_chief(call)?
+                self.request_chief(call)?
             };
             return Ok(match ruled {
                 Ok(outcome) => CallOutcome::Done(outcome),

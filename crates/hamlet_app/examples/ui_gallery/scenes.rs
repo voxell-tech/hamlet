@@ -20,7 +20,6 @@ use bevy_fynix::dock::DockPlugin;
 use bevy_fynix::tokens::Tone;
 use bevy_fynix::{AnyView, Bevy, FynixPlugin};
 use hamlet_app::appearance::{Appearance, Zoom};
-use hamlet_app::history::History;
 use hamlet_app::{Bar, Roll, asking, chrome, menu, select, welcome};
 use hamlet_assets::Tuning;
 use hamlet_desktop::color_scheme::ColorScheme;
@@ -73,7 +72,6 @@ impl Plugin for GalleryPlugin {
             })
             .init_resource::<Roll>()
             .init_resource::<SoundSettings>()
-            .init_resource::<History>()
             .init_resource::<hamlet_app::limits::Book>()
             .init_resource::<hamlet_app::models::Shelf>()
             .init_resource::<hamlet_app::models::Draft>()
@@ -184,8 +182,9 @@ pub enum Scene {
     Field,
     /// A long chat with a turn's steps unfolded.
     Chat,
-    /// An agent's chat with the chief, the mayor and another agent
-    /// in it.
+    /// An agent's chat with the chief, the mayor and other agents in
+    /// it: the earlier messages summarized, a letter, a worker and a
+    /// line that waits its turn.
     Group,
     /// A chat with links of every kind in it, the pointer on one.
     Links,
@@ -233,10 +232,6 @@ pub enum Scene {
     Hamlet,
     /// The running of that hamlet: its budget, models and limits.
     Bylaws,
-    /// The Hub's sessions page, with its list of sessions.
-    History,
-    /// The Hub's sessions page, with one session being read.
-    Reading,
     /// A chief, with every choice of its look.
     Chief,
     /// The Settings panel.

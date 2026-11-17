@@ -60,6 +60,8 @@ pub(crate) enum DecisionKind {
     Tagged,
     Reverted,
     Forked,
+    /// A scholar of the city made of what a hire has become.
+    MadeScholar,
     Purged,
     Hired,
     Ended,
@@ -238,6 +240,7 @@ impl DecisionKind {
             Self::Pinned => "pinned",
             Self::Nicknamed => "nicknamed",
             Self::ScholarNamed => "renamed",
+            Self::MadeScholar => "made a scholar of the city of",
             _ => "changed",
         }
     }

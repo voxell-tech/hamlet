@@ -3,9 +3,12 @@
 //! A call's arguments are read once, into the tool's own type
 //! ([`args`]).
 
+mod agent_acts;
 pub(super) mod args;
-mod letters;
+mod hamlet_acts;
 pub(crate) mod library;
+mod messages;
+mod realm;
 mod scholars;
 pub(crate) mod welcome;
 
@@ -16,7 +19,7 @@ use hamlet_store::ids::{
 
 use self::args::{
     AgreeRoad, Called, CreateScholar, EndHire, FoundHamlet, Hire,
-    MergeHires, Nickname, ReadRecord, RemoveHamlet, SeatMayor,
+    MakeScholar, MergeHires, Nickname, ReadRecord, SeatMayor,
     SetAllowance, SetModel, SetTools,
 };
 use super::looks::Look;
@@ -27,12 +30,28 @@ use crate::realm::settings::EffectiveSettings;
 use crate::society::addresses::{self, Reach};
 use crate::society::agents::{self, AgentKind, EndHow};
 use crate::society::hamlets::{self, Founding};
-use crate::society::hires::{self, Hiring, Spec};
+use crate::society::hires::{self, Hiring, LastDream, Spec};
 use crate::society::refusal::Refusal;
 use crate::society::spend::{self, micros, money};
 use crate::society::{authority, city, limits, record, roads};
 use crate::tools::builtin::Outcome;
 use crate::tools::catalogue::Society;
+
+/// The most of a text a read gives, in bytes.
+const MOST_READ: usize = 50 * 1024;
+
+/// `words`, cut at [`MOST_READ`].
+fn cut(mut words: String) -> String {
+    if words.len() > MOST_READ {
+        let mut end = MOST_READ;
+        while !words.is_char_boundary(end) {
+            end -= 1;
+        }
+        words.truncate(end);
+        words.push_str("\n[cut here]");
+    }
+    words
+}
 
 /// The result of a society call.
 pub(super) enum Step {
@@ -65,10 +84,12 @@ impl Core<'_, '_> {
             Err(refusal) => return Ok(Step::of(Err(refusal))),
         };
         match called {
-            Called::Tell(args) => self.tell(call, args),
-            Called::Ask(args) => self.ask(call, args),
-            Called::RequestRoad(args) => {
-                self.request_road(call, args)
+            Called::Notify(args) => {
+                self.send_notification(call, args)
+            }
+            Called::Request(args) => self.send_request(call, args),
+            Called::ProposeRoad(args) => {
+                self.propose_road(call, args)
             }
             Called::StartWorker(args) => {
                 self.start_worker(call, args)
@@ -76,8 +97,8 @@ impl Core<'_, '_> {
             Called::SubmitSkill(args) => {
                 self.submit_skill(call, args)
             }
-            Called::AskLibrarian(args) => {
-                self.ask_librarian(call, args)
+            Called::RequestLibrarian(args) => {
+                self.request_librarian(call, args)
             }
             called => Ok(Step::of(self.act(call, called)?)),
         }
@@ -126,14 +147,73 @@ impl Core<'_, '_> {
                     Ok(Ok(arrived(cx, env, made, &character)?))
                 })
             }
-            Called::Hire(args) => self.hire_tool(call, here, args),
-            Called::EndHire(EndHire { hire, reason }) => {
-                let hire = done!(self.led(call, &hire, here));
-                let name = self.name(hire)?;
-                self.carry(call, |cx, _| {
-                    Ok(hires::end(cx, hire, EndHow::Ended, &reason)?
-                        .map(|()| format!("Ended {name}.")))
+            Called::MakeScholar(MakeScholar {
+                hire,
+                name,
+                reason,
+            }) => {
+                let hire = done!(self.led_within(
+                    call,
+                    &hire,
+                    here,
+                    Reach::Kept
+                ));
+                let source = self.scholar_source(hire, &name)?;
+                let task = self.task_of(call)?;
+                let db = self.realm.store().connection();
+                let chief = task_chief(db, task)?;
+                let owner = authority::owner_for(
+                    db,
+                    Actor::Agent(agent),
+                    here,
+                    chief,
+                )?;
+                self.carry(call, |cx, env| {
+                    let made = done!(city::make_of_hire(
+                        cx,
+                        hire,
+                        &source.name,
+                        owner,
+                        source.commit,
+                        &reason,
+                    ));
+                    Ok(Ok(arrived(cx, env, made, &source.character)?))
                 })
+            }
+            Called::Hire(args) => self.hire_tool(call, here, args),
+            Called::EndHire(EndHire {
+                hire,
+                dream,
+                reason,
+            }) => {
+                let hire = done!(self.led(call, &hire, here));
+                let last = if dream {
+                    LastDream::With
+                } else {
+                    LastDream::Without
+                };
+                let name = self.name(hire)?;
+                let words = match last {
+                    LastDream::With => format!(
+                        "Ended {name}; it dreams once more to bring \
+                         what it learned home."
+                    ),
+                    LastDream::Without => format!("Ended {name}."),
+                };
+                let ended = self.carry(call, |cx, _| {
+                    Ok(hires::end(
+                        cx,
+                        hire,
+                        EndHow::Ended,
+                        last,
+                        &reason,
+                    )?
+                    .map(|()| words))
+                })?;
+                if ended.is_ok() && last == LastDream::With {
+                    self.dream_tick()?;
+                }
+                Ok(ended)
             }
             Called::SetModel(SetModel {
                 hire,
@@ -254,11 +334,18 @@ impl Core<'_, '_> {
                 let kept = done!(self.led(call, &into, here));
                 let (one, other) =
                     (self.name(absorbed)?, self.name(kept)?);
-                self.carry(call, |cx, _| {
-                    Ok(crate::society::merges::merge(
+                self.carry(call, |cx, env| {
+                    let merged = crate::society::merges::merge(
                         cx, kept, absorbed, &reason,
-                    )?
-                    .map(|_| format!("Merged {one} into {other}.")))
+                    )?;
+                    if merged.is_ok() {
+                        crate::conversations::chats::merged(
+                            cx, env, kept, absorbed,
+                        )?;
+                    }
+                    Ok(merged.map(|_| {
+                        format!("Merged {one} into {other}.")
+                    }))
                 })
             }
             Called::AgreeRoad(args) => {
@@ -324,13 +411,47 @@ impl Core<'_, '_> {
                     ))
                 })
             }
-            Called::RemoveHamlet(RemoveHamlet { hamlet, reason }) => {
-                let id = HamletId(hamlet);
-                self.carry(call, |cx, _| {
-                    Ok(hamlets::remove(cx, &id, &reason)?
-                        .map(|()| format!("Removed {id}.")))
-                })
+            called @ (Called::RemoveHamlet(_)
+            | Called::RestoreHamlet(_)
+            | Called::EraseHamlet(_)
+            | Called::NameHamlet(_)
+            | Called::MoveHamlet(_)
+            | Called::SetTier(_)
+            | Called::SetFolder(_)
+            | Called::SetMode(_)
+            | Called::ResetBudget(_)
+            | Called::EditLimits(_)) => {
+                self.hamlet_tool(call, called)
             }
+            called @ (Called::Versions(_)
+            | Called::Fork(_)
+            | Called::Purge(_)
+            | Called::Welcome(_)
+            | Called::TurnAway(_)
+            | Called::NameScholar(_)
+            | Called::MoveHouse(_)
+            | Called::RemoveScholar(_)
+            | Called::RestoreScholar(_)
+            | Called::EraseScholar(_)) => {
+                self.scholar_tool(call, called)
+            }
+            called @ (Called::Pin(_)
+            | Called::RestoreHire(_)
+            | Called::EraseHire(_)) => self.led_tool(call, called),
+            called @ (Called::SetEffort(_)
+            | Called::SetFast(_)
+            | Called::Reflect(_)
+            | Called::Stop(_)
+            | Called::Resume(_)
+            | Called::EditMemory(_)
+            | Called::ReadPrompt(_)
+            | Called::ReadPapers(_)) => self.agent_tool(call, called),
+            Called::Dream(args) => self.dream_tool(call, args),
+            called @ (Called::EditSettings(_)
+            | Called::EditCharter(_)
+            | Called::ReadCharter(_)
+            | Called::ReadModels(_)
+            | Called::Unshelve(_)) => self.realm_tool(call, called),
             Called::ReadBudget(_) => {
                 let db = self.realm.store().connection();
                 Ok(Ok(budget(db, agent)?))
@@ -346,12 +467,12 @@ impl Core<'_, '_> {
             // The calls answer `object` before the gate, and these
             // before here.
             Called::Object(_)
-            | Called::Tell(_)
-            | Called::Ask(_)
-            | Called::RequestRoad(_)
+            | Called::Notify(_)
+            | Called::Request(_)
+            | Called::ProposeRoad(_)
             | Called::StartWorker(_)
             | Called::SubmitSkill(_)
-            | Called::AskLibrarian(_) => {
+            | Called::RequestLibrarian(_) => {
                 Ok(Err(Refusal::Unsupported {
                     what: format!("the tool {}", call.tool),
                 }))
@@ -440,22 +561,53 @@ impl Core<'_, '_> {
         address: &str,
         here: Option<&HamletId>,
     ) -> Done<AgentId> {
+        self.named_within(address, here, Reach::Living)
+    }
+
+    /// The agent within `reach` at `address`, read from `here`.
+    fn named_within(
+        &mut self,
+        address: &str,
+        here: Option<&HamletId>,
+        reach: Reach,
+    ) -> Done<AgentId> {
         let address = match addresses::parse(address) {
             Ok(address) => address,
             Err(refusal) => refuse!(refusal),
         };
         let db = self.realm.store().connection();
-        addresses::resolve(db, &address, here, Reach::Living)
+        addresses::resolve(db, &address, here, reach)
     }
 
-    /// The hire at `address`, which `call`'s agent leads.
+    /// The living hire at `address`, which `call`'s agent leads.
     fn led(
         &mut self,
         call: &Call<'_>,
         address: &str,
         here: Option<&HamletId>,
     ) -> Done<AgentId> {
-        let hire = done!(self.named(address, here));
+        self.led_within(call, address, here, Reach::Living)
+    }
+
+    /// The hire within `reach` at `address`, which `call`'s agent
+    /// leads.
+    fn led_within(
+        &mut self,
+        call: &Call<'_>,
+        address: &str,
+        here: Option<&HamletId>,
+        reach: Reach,
+    ) -> Done<AgentId> {
+        let hire = done!(self.named_within(address, here, reach));
+        Ok(self.leads_hire(call, hire)?.map(|()| hire))
+    }
+
+    /// Refuses unless `hire` is a hire `call`'s agent leads.
+    fn leads_hire(
+        &mut self,
+        call: &Call<'_>,
+        hire: AgentId,
+    ) -> Done<()> {
         let caller = call.conversation.agent;
         let db = self.realm.store().connection();
         if agents::get(db, hire)?.kind != AgentKind::Hire {
@@ -468,7 +620,7 @@ impl Core<'_, '_> {
             let name = addresses::name_of(db, hire)?;
             refuse!(Refusal::NotLead { name });
         }
-        Ok(Ok(hire))
+        Ok(Ok(()))
     }
 
     /// The scholar `text` addresses, as a hire takes it: at `main`,

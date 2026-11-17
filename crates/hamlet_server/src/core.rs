@@ -30,6 +30,7 @@ use crate::clients::connection::UploadOf;
 use crate::clients::fold::Fold;
 use crate::clients::{Clients, Connections, ConversationWatcher};
 use crate::conversations::activity::Activity;
+use crate::conversations::dreams::Learned;
 use crate::conversations::inputs::Resend;
 use crate::conversations::{self, prompt};
 use crate::knowledge::worker::RepositoryWriteLock;
@@ -210,6 +211,7 @@ pub(crate) struct Core<'w, 's> {
     pub writing: Res<'w, RepositoryWriteLock>,
     /// The chief's shells and the agents' commands terminals.
     pub terminals: ResMut<'w, Terminals>,
+    pub learned: Res<'w, Learned>,
 }
 
 /// A conversation's transcript and activity, as kept and as running.
@@ -314,6 +316,36 @@ impl Core<'_, '_> {
         }
     }
 
+    /// The conversations their runtime last said run a turn.
+    pub(crate) fn working(&self) -> Vec<ConversationId> {
+        self.live
+            .iter()
+            .filter(|(_, live)| live.fold.working)
+            .map(|(id, _)| *id)
+            .collect()
+    }
+
+    /// Shows the watchers of each watched conversation the lines that
+    /// wait in it now.
+    pub(crate) fn requeue(&mut self) -> Result<()> {
+        let watched = self
+            .live
+            .keys()
+            .copied()
+            .filter(|c| !self.connections.watching(*c).is_empty())
+            .collect::<Vec<_>>();
+        for conversation in watched {
+            let db = self.realm.store().connection();
+            let waiting =
+                crate::clients::fold::waiting(db, conversation)?;
+            if let Some(live) = self.live.get_mut(&conversation) {
+                live.fold.queue(waiting);
+            }
+            self.stream(conversation)?;
+        }
+        Ok(())
+    }
+
     /// Sends the watchers of `conversation` what changed in its
     /// transcript.
     pub(crate) fn stream(
@@ -338,16 +370,9 @@ impl Core<'_, '_> {
         operations: Vec<protocol::TranscriptOperation>,
     ) -> Result<()> {
         for watch in watching {
-            let number = watch
-                .chat
-                .from
-                .is_none()
-                .then_some(watch.chat.past)
-                .flatten();
             let turn =
                 protocol::ServerMessage::Turn(protocol::Turn {
                     chat: watch.chat.clone(),
-                    number,
                     operations: operations.clone(),
                 });
             self.connections.send(watch.client, turn);

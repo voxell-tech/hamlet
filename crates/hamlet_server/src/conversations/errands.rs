@@ -25,8 +25,8 @@ pub(crate) struct Errand<'a> {
     /// The agent it is run for and paid by.
     pub agent: AgentId,
     pub instructions: &'a str,
-    /// The question put to it.
-    pub question: &'a str,
+    /// What its one input says.
+    pub content: &'a str,
     pub task: Option<TaskId>,
 }
 
@@ -74,7 +74,7 @@ pub(crate) fn run(
             request: request(errand.owner),
             kind: InputKind::Errand,
             task: errand.task,
-            content: errand.question.into(),
+            content: errand.content.into(),
             mark: Mark::Errand { at: cx.at },
             steer: false,
             boundary: false,
@@ -131,10 +131,15 @@ pub(crate) fn ended(
         {
             Ended::Answered(answer)
         }
-        _ => {
-            Ended::Failed(input.reason.clone().unwrap_or_else(|| {
-                "the errand gave no answer".into()
-            }))
-        }
+        _ => Ended::Failed(match &input.reason {
+            Some(_) => {
+                super::failures::of(
+                    input.reason.as_deref(),
+                    input.detail.as_deref(),
+                )
+                .words
+            }
+            None => "the errand gave no answer".into(),
+        }),
     }))
 }

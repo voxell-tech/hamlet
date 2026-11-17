@@ -35,6 +35,9 @@ use crate::convo::Convo;
 #[derive(Clone, PartialEq)]
 pub(crate) enum Deed {
     End(Entity),
+    /// Ends this hire, which dreams once more to bring what it
+    /// learned home to its scholar.
+    EndWithDream(Entity),
     Merge {
         absorbed: Entity,
         kept: Entity,
@@ -45,8 +48,6 @@ pub(crate) enum Deed {
     Erase(Entity),
     /// Takes a skill out of the library.
     Unshelve(String),
-    /// Puts the open conversation away and starts another.
-    NewSession,
     /// Makes this agent the mayor of its hamlet.
     Mayor(Entity),
     /// Takes the open conversation back to just before the message
@@ -100,6 +101,11 @@ impl Deed {
                 let text = with(format!("/end {}", name(*agent)));
                 orders::decree(world, *agent, text);
             }
+            Deed::EndWithDream(agent) => {
+                let text =
+                    with(format!("/end {} dream", name(*agent)));
+                orders::decree(world, *agent, text);
+            }
             Deed::Merge { absorbed, kept } => {
                 let text = with(format!(
                     "/merge {} into {}",
@@ -110,14 +116,14 @@ impl Deed {
             }
             Deed::Erase(agent) => {
                 let text = format!("/erase {}", name(*agent));
+                crate::hub::erasure::expect_agent(world, *agent);
                 orders::decree(world, *agent, text);
             }
             Deed::Mayor(agent) => {
                 let text = with(format!("/mayor {}", name(*agent)));
                 orders::decree(world, *agent, text);
             }
-            // The hamlets and the library are the realm's, and the
-            // open conversation is the open chat's.
+            // The hamlets and the library are the realm's.
             Deed::Close(hamlet) => {
                 let text = with(format!("/remove-hamlet {hamlet}"));
                 chat::decree(world, hamlet, text);
@@ -125,7 +131,6 @@ impl Deed {
             Deed::Unshelve(skill) => {
                 chat::command(world, format!("/unshelve {skill}"));
             }
-            Deed::NewSession => crate::convo::new_session(world),
             Deed::DefaultCharter => {
                 crate::settings::default_charter(world);
             }
@@ -148,6 +153,7 @@ impl Deed {
         matches!(
             self,
             Deed::End(_)
+                | Deed::EndWithDream(_)
                 | Deed::Merge { .. }
                 | Deed::Mayor(_)
                 | Deed::Close(_)
@@ -156,14 +162,13 @@ impl Deed {
 
     fn is_available(&self, world: &World) -> bool {
         let command = match self {
-            Self::End(_) => "end",
+            Self::End(_) | Self::EndWithDream(_) => "end",
             Self::Merge { .. } => "merge",
             Self::Close(_) => "remove-hamlet",
             Self::Erase(_) => "erase",
             Self::Unshelve(_) => "unshelve",
             Self::Mayor(_) => "mayor",
-            Self::NewSession
-            | Self::DefaultCharter
+            Self::DefaultCharter
             | Self::MoveLodges
             | Self::Rewind { .. } => return true,
         };
@@ -173,7 +178,9 @@ impl Deed {
     fn question(&self, world: &World) -> String {
         let name = |agent: &Entity| agents::shown_of(world, *agent);
         match self {
-            Deed::End(agent) => format!("End {}?", name(agent)),
+            Deed::End(agent) | Deed::EndWithDream(agent) => {
+                format!("End {}?", name(agent))
+            }
             Deed::Merge { absorbed, kept } => format!(
                 "Merge {} into {}?",
                 name(absorbed),
@@ -188,7 +195,6 @@ impl Deed {
             Deed::Unshelve(skill) => {
                 format!("Take {} out of the library?", skill)
             }
-            Deed::NewSession => "Start a new session?".to_string(),
             Deed::Mayor(agent) => {
                 format!("Make {} mayor?", name(agent))
             }
@@ -203,9 +209,11 @@ impl Deed {
     fn outcome(&self, world: &World) -> String {
         let name = |agent: &Entity| agents::shown_of(world, *agent);
         match self {
-            Deed::End(agent) => format!(
+            Deed::End(agent) | Deed::EndWithDream(agent) => format!(
                 "The hire {} goes to the archive, with its memory, \
-                 skills and log. It can be restored.",
+                 skills and log. It can be restored. With a dream, \
+                 it first brings what it learned home to its \
+                 scholar, for the scholar's later hires.",
                 name(agent)
             ),
             Deed::Merge { absorbed, kept } => format!(
@@ -227,11 +235,6 @@ impl Deed {
                      disk. This cannot be undone."
                 )
             }
-            Deed::NewSession => "This conversation goes to \
-                                 SESSIONS, where it can be read and \
-                                 resumed. The agent keeps its \
-                                 memory and skills."
-                .to_string(),
             Deed::Unshelve(skill) => format!(
                 "{skill} is deleted from the library for every \
                  hamlet. This cannot be undone."
@@ -260,14 +263,22 @@ impl Deed {
         }
     }
 
+    /// The other deed its question offers beside it.
+    fn alternative(&self) -> Option<Deed> {
+        match self {
+            Deed::End(agent) => Some(Deed::EndWithDream(*agent)),
+            _ => None,
+        }
+    }
+
     fn verb(&self) -> &'static str {
         match self {
             Deed::End(_) => "End",
+            Deed::EndWithDream(_) => "End with Dream",
             Deed::Merge { .. } => "Merge",
             Deed::Close(_) => "Close down",
             Deed::Erase(_) => "Delete",
             Deed::Unshelve(_) => "Take out",
-            Deed::NewSession => "New session",
             Deed::Mayor(_) => "Make mayor",
             Deed::Rewind { .. } => "Rewind",
             Deed::DefaultCharter => "Use the default",
@@ -285,13 +296,14 @@ impl Deed {
                 .collect()
         };
         match self {
-            Deed::End(agent) => busy(world, &[*agent]),
+            Deed::End(agent) | Deed::EndWithDream(agent) => {
+                busy(world, &[*agent])
+            }
             Deed::Merge { absorbed, kept } => {
                 busy(world, &[*absorbed, *kept])
             }
             Deed::Erase(_)
             | Deed::Unshelve(_)
-            | Deed::NewSession
             | Deed::Mayor(_)
             | Deed::Rewind { .. }
             | Deed::DefaultCharter
@@ -337,6 +349,7 @@ pub(crate) fn question(deed: Deed, anchor: Rect) -> impl View {
             .boxed(),
         };
         let done = deed.clone();
+        let alternative = deed.alternative();
         // A merge that completes is purple; the rest end something.
         let variant = match &deed {
             Deed::Merge { .. } => Variant::Tinted(StatusKind::Merged),
@@ -380,6 +393,15 @@ pub(crate) fn question(deed: Deed, anchor: Rect) -> impl View {
                 lettered(deed.verb())
                     .variant(variant)
                     .on_activate(move |world| answer(world, &done)),
+                match alternative {
+                    Some(other) => lettered(other.verb())
+                        .variant(variant)
+                        .on_activate(move |world| {
+                            answer(world, &other);
+                        })
+                        .boxed(),
+                    None => frame().boxed(),
+                },
                 lettered("Cancel").rules(button).on_activate(close),
                 super::send_keys(),
             ))

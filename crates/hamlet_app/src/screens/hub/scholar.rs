@@ -15,7 +15,7 @@ use bevy_fynix::{
     ScopedExt, ViewExt, derived, every_frame, keyed, resource,
 };
 use hamlet_client::realm::{
-    Deeds, LivesIn, Pin, Scholar, name_of, scholar_address,
+    Deeds, Learned, LivesIn, Pin, Scholar, name_of, scholar_address,
 };
 use hamlet_protocol::client as protocol;
 use hamlet_ui::styles::{
@@ -29,9 +29,10 @@ use hamlet_ui::{AnyView, View, with_cx};
 
 use super::details::{section, section_line};
 use super::thread::dim;
-use super::{Showing, memory, rail, show};
+use super::{Showing, memory, open_hamlet, rail, show};
 use crate::convo::talk_to;
 use crate::overview::typed;
+use crate::scholar_tag::{learned_mark, learned_words};
 use crate::standing::Standing;
 use crate::{chat, world_menu};
 
@@ -83,24 +84,35 @@ struct First;
 struct Second;
 
 /// Where `hire` stands: mayor of its hamlet, or in it under its lead.
-fn place_of(world: &World, hire: Entity) -> String {
+fn place_of(world: &World, hire: Entity) -> Place {
     let hamlet = world
         .get::<LivesIn>(hire)
-        .map(|lives| name_of(world, lives.0))
-        .unwrap_or_default();
+        .map(|lives| (lives.0, name_of(world, lives.0)));
     if world.get::<hamlet_client::realm::Mayor>(hire).is_some() {
-        return format!("mayor of {hamlet}");
+        return Place::Mayor(hamlet);
     }
     let lead = world
         .get::<hamlet_client::realm::Parent>(hire)
         .and_then(|parent| {
             hamlet_client::realm::agent(world, parent.0)
         })
-        .map(|lead| hamlet_client::realm::shown_of(world, lead));
-    match lead {
-        Some(lead) => format!("in {hamlet}, under {lead}"),
-        None => format!("in {hamlet}"),
-    }
+        // The Hand above a mayor is not in its hamlet.
+        .filter(|lead| world.get::<LivesIn>(*lead).is_some())
+        .map(|lead| {
+            (lead, hamlet_client::realm::shown_of(world, lead))
+        });
+    Place::Under { hamlet, lead }
+}
+
+/// Where a hire stands, each hamlet and lead with its entity and
+/// name.
+#[derive(Clone, PartialEq)]
+enum Place {
+    Mayor(Option<(Entity, String)>),
+    Under {
+        hamlet: Option<(Entity, String)>,
+        lead: Option<(Entity, String)>,
+    },
 }
 
 /// A hire of the scholar as the page shows it.
@@ -110,8 +122,10 @@ struct HireShown {
     address: String,
     /// What it goes by, and where it stands in its hamlet.
     called: String,
-    place: String,
+    place: Place,
     pin: Option<String>,
+    /// Whether it holds what it learned that the scholar lacks.
+    learned: bool,
 }
 
 /// A scholar and its hires as the page reads them.
@@ -140,6 +154,7 @@ fn shown(world: &World, entity: Entity) -> Option<Shown> {
                 called: hamlet_client::realm::shown_of(world, hire),
                 place: place_of(world, hire),
                 pin: world.get::<Pin>(hire).map(|pin| pin.0.clone()),
+                learned: world.get::<Learned>(hire).is_some(),
                 address,
             }
         })
@@ -210,6 +225,15 @@ fn run(world: &mut World, address: &str, name: &str, act: &Act) {
     let first = typed::<First>(world);
     let second = typed::<Second>(world);
     if let Some(text) = command(address, name, act, &first, &second) {
+        if let (Act::Erase, Some(Showing::Scholar(scholar))) =
+            (act, world.get_resource::<Showing>().copied())
+        {
+            super::erasure::expect_scholar(
+                world,
+                scholar,
+                name.into(),
+            );
+        }
         tell_hand(world, text);
         world.resource_mut::<Form>().act = None;
     }
@@ -573,6 +597,51 @@ fn deed_menu(
     .boxed()
 }
 
+/// Where a hire stands, in dim words between its hamlet, which leads
+/// to the hamlet's page, and its lead, which leads to its chat.
+fn place_view(place: &Place) -> AnyView {
+    let words =
+        |text: &'static str| label(text).tone(Tone::Dim).boxed();
+    let hamlet = |found: &Option<(Entity, String)>| {
+        found.clone().map(|(hamlet, name)| {
+            link(name, move |world| open_hamlet(world, hamlet))
+        })
+    };
+    let mut parts = Vec::new();
+    match place {
+        Place::Mayor(found) => {
+            parts.push(words("mayor of"));
+            parts.extend(hamlet(found));
+        }
+        Place::Under {
+            hamlet: found,
+            lead,
+        } => {
+            parts.push(words("in"));
+            parts.extend(hamlet(found));
+            if let Some((lead, name)) = lead.clone() {
+                parts.push(words("under"));
+                parts.push(link(name, move |world| {
+                    talk_to(world, lead);
+                }));
+            }
+        }
+    }
+    row(parts).gap(4.0).align(AlignItems::Center).boxed()
+}
+
+/// `name` as words that `act` follows when pressed.
+fn link(
+    name: String,
+    act: impl Fn(&mut World) + Send + Sync + 'static,
+) -> AnyView {
+    button(label(name))
+        .padding(UiRect::all(px(0.0)))
+        .variant(Variant::Text)
+        .on_activate(act)
+        .boxed()
+}
+
 /// Its hires in their section, each led to and pinned to a version
 /// from here.
 fn hires(shown: &Shown) -> AnyView {
@@ -617,9 +686,17 @@ fn hires(shown: &Shown) -> AnyView {
                 })
                 .on_activate(move |world| talk_to(world, hire))
                 .boxed(),
-            label(shown_hire.place.clone()).tone(Tone::Dim).boxed(),
-            frame().grow(1.0).boxed(),
         ];
+        if shown_hire.learned {
+            let words = learned_words(&shown.scholar.name);
+            line.push(
+                row((learned_mark(),))
+                    .tooltip(move || note(words.clone()))
+                    .boxed(),
+            );
+        }
+        line.push(place_view(&shown_hire.place));
+        line.push(frame().grow(1.0).boxed());
         if pins {
             let picked = choices.clone();
             line.push(

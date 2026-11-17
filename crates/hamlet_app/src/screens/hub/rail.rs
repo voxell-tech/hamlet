@@ -4,7 +4,7 @@
 //! the library and those that left. A row keeps its place as its
 //! agent works and rests; only its mark changes.
 
-use bevy::app::{App, Update};
+use bevy::app::{App, PostUpdate, Update};
 use bevy::color::Color;
 use bevy::ecs::component::Component;
 use bevy::ecs::entity::Entity;
@@ -12,6 +12,7 @@ use bevy::ecs::hierarchy::{ChildOf, Children};
 use bevy::ecs::observer::On;
 use bevy::ecs::query::{Has, With};
 use bevy::ecs::resource::Resource;
+use bevy::ecs::schedule::IntoScheduleConfigs;
 use bevy::ecs::system::{Query, ResMut};
 use bevy::ecs::world::World;
 use bevy::picking::events::{
@@ -20,9 +21,11 @@ use bevy::picking::events::{
 use bevy::text::EditableText;
 use bevy::ui::{
     AlignItems, ComputedNode, Display, JustifyContent, Overflow,
-    PositionType, UiGlobalTransform, UiRect, Val, percent, px,
+    PositionType, ScrollPosition, UiGlobalTransform, UiRect,
+    UiSystems, Val, percent, px,
 };
 use bevy::window::SystemCursorIcon;
+use bevy_fynix::scroll::ScrollGoal;
 use bevy_fynix::tokens::{MotionTokens, SurfaceTokens, Tone};
 use bevy_fynix::views::{
     self, Axis, BehaviorExt, FrameProps, TooltipExt, button, column,
@@ -42,8 +45,8 @@ use hamlet_client::waits::Waiting;
 use hamlet_protocol::client as protocol;
 use hamlet_realm::pick::{Selected, Thing, bring_into_view, select};
 use hamlet_ui::styles::{
-    ICON, STATUS_PAD, description_rules, note, note_rules, quoted,
-    scroll_area, status_icon_at, text_input, transparent,
+    ICON, STATUS_PAD, note, note_rules, scroll_area, status_icon_at,
+    text_input, transparent,
 };
 use hamlet_ui::theme::HamletTheme;
 use hamlet_ui::widgets::effects::{Edge, Variant, Wash};
@@ -57,6 +60,7 @@ use hamlet_ui::{AnyView, Cx, View, with_cx};
 use super::{Showing, show};
 use crate::age::Age;
 use crate::convo::{Convo, talk_to, talk_to_hand};
+use crate::scholar_tag::{self, ScholarTag};
 use crate::standing::{Standing, need_you};
 use crate::status::now_ms;
 use crate::words;
@@ -73,21 +77,19 @@ const PAGE: f32 = 280.0;
 /// The most that left a rail shows.
 const LEFT_SHOWN: usize = 6;
 
-/// The most letters of a line a row holds; the rail's width cuts it
-/// shorter.
+/// The most letters of the words a row's tooltip quotes.
 const LINE_SHOWN: usize = 90;
 
-/// The most letters of a row's second line, which wraps rather than
-/// being cut at the rail's edge.
-const TITLE_SHOWN: usize = 56;
+/// The most letters of a name its row's tooltip leaves out; a longer
+/// one may be cut at the rail's edge, so the tooltip has it whole.
+const NAME_IN_TIP: usize = 24;
 
-/// The least height of a row, so that a row of one line is as easy
-/// to press as one of two.
-const ROW: f32 = 32.0;
+/// The least height of a row.
+const ROW: f32 = 28.0;
 
 /// The height of a worker's row and the side of its icon, smaller
 /// than a hire's, so the hires stand out of their workers.
-const WORKER_ROW: f32 = 26.0;
+const WORKER_ROW: f32 = 24.0;
 const WORKER_ICON: f32 = 12.0;
 
 /// How opaque the icon of one that left is.
@@ -126,13 +128,180 @@ const PART_GAP: f32 = 16.0;
 /// [`PART_GAP`] by what the search row already leaves under it.
 const UNDER_SEARCH: f32 = 12.0;
 
+/// The frames a row asked to be brought into view is waited for, as
+/// the folds over it open and it is built.
+const REVEAL_FRAMES: u8 = 10;
+
 pub(super) fn plugin(app: &mut App) {
     app.init_resource::<Rail>()
         .init_resource::<Tab>()
+        .init_resource::<Reveal>()
         .add_observer(grab)
         .add_observer(drag)
         .add_observer(drop)
-        .add_systems(Update, (read_search, tabs::mark::<Tab>));
+        .add_systems(Update, (read_search, tabs::mark::<Tab>))
+        .add_systems(PostUpdate, reveal.after(UiSystems::Layout));
+}
+
+/// The row to bring into view once it is laid out, and the frames
+/// left to wait for it.
+#[derive(Resource, Default)]
+struct Reveal(Option<(Target, u8)>);
+
+/// On a row of the rail, or a header that opens a page: what it
+/// leads to.
+#[derive(Component, Clone, Copy)]
+struct RailRow(Target);
+
+/// Turns the rail to the row of `thing`, chosen in the world: the tab
+/// that lists it, the folds over it opened and the row brought into
+/// view, unless it is in view already.
+pub(super) fn follow(world: &mut World, thing: Thing) {
+    let Some(target) = target_of(world, thing) else {
+        return;
+    };
+    let tab = match target {
+        Target::Agent(_) | Target::Gone(_) | Target::Hamlet(_) => {
+            Some(Tab::Hamlets)
+        }
+        Target::Scholar(_) => Some(Tab::City),
+        Target::Realm
+        | Target::Hand
+        | Target::Library
+        | Target::Fold(_) => None,
+    };
+    if let Some(tab) = tab
+        && let Some(mut now) = world.get_resource_mut::<Tab>()
+        && *now != tab
+    {
+        *now = tab;
+    }
+    if let Target::Agent(agent) = target {
+        open_over(world, agent);
+    }
+    let holds = |section: &Section| {
+        section.opens == Some(target)
+            || section.lines.iter().any(|line| line.target == target)
+    };
+    let shut = sections(world)
+        .into_iter()
+        .find(|section| section.folded && holds(section))
+        .map(|section| section.group);
+    let mut rail = world.resource_mut::<Rail>();
+    if let Some(group) = shut {
+        rail.folded.retain(|folded| *folded != group);
+    }
+    world.resource_mut::<Reveal>().0 = Some((target, REVEAL_FRAMES));
+}
+
+/// The row of the rail `thing` has, if it has one.
+fn target_of(world: &World, thing: Thing) -> Option<Target> {
+    let agent = |agent: Entity| match world
+        .get::<Kind>(agent)
+        .map(|kind| kind.0)
+    {
+        Some(protocol::AgentKind::Hand) => Target::Hand,
+        _ => Target::Agent(agent),
+    };
+    Some(match thing {
+        Thing::Agent(one) | Thing::House(one) => agent(one),
+        Thing::Keeper | Thing::Cottage => {
+            agent(hamlet_client::realm::first_mayor(world)?)
+        }
+        Thing::Hand => Target::Hand,
+        Thing::Common(hamlet) => Target::Hamlet(hamlet),
+        Thing::Scholar(scholar) => Target::Scholar(scholar),
+        Thing::Ruin(agent) => Target::Gone(agent),
+        Thing::Library => Target::Library,
+        _ => return None,
+    })
+}
+
+/// Opens the leads and the groups of workers `agent` is folded
+/// under.
+fn open_over(world: &mut World, agent: Entity) {
+    let mut over = Vec::new();
+    let mut child = agent;
+    while let Some(parent) = world
+        .get::<Parent>(child)
+        .and_then(|parent| {
+            hamlet_client::realm::agent(world, parent.0)
+        })
+        .filter(|parent| !over.iter().any(|(at, _)| at == parent))
+    {
+        let worker = world.get::<Kind>(child).map(|kind| kind.0)
+            == Some(protocol::AgentKind::Worker);
+        over.push((parent, worker));
+        child = parent;
+    }
+    let mut rail = world.resource_mut::<Rail>();
+    for (parent, worker) in over {
+        match worker {
+            true => {
+                let group = Group::Workers(parent);
+                if !rail.opened.contains(&group) {
+                    rail.opened.push(group);
+                }
+            }
+            false => {
+                rail.folded.retain(|g| *g != Group::Lead(parent));
+            }
+        }
+    }
+}
+
+/// Scrolls the rail as little as shows the row asked for, once it is
+/// laid out. A row in view already leaves it where it is.
+fn reveal(
+    mut asked: ResMut<Reveal>,
+    rows: Query<(
+        Entity,
+        &RailRow,
+        &ComputedNode,
+        &UiGlobalTransform,
+    )>,
+    parents: Query<&ChildOf>,
+    mut areas: Query<(
+        &ComputedNode,
+        &UiGlobalTransform,
+        &mut ScrollPosition,
+        &mut ScrollGoal,
+    )>,
+) {
+    let Some((target, left)) = asked.0 else {
+        return;
+    };
+    let laid = rows.iter().find(|(_, row, node, _)| {
+        row.0 == target && node.size().y > 0.0
+    });
+    let Some((row, _, node, place)) = laid else {
+        asked.0 = left.checked_sub(1).map(|left| (target, left));
+        return;
+    };
+    asked.0 = None;
+    let Some((area, at, mut scroll, mut goal)) = parents
+        .iter_ancestors(row)
+        .find(|up| areas.contains(*up))
+        .and_then(|up| areas.get_mut(up).ok())
+    else {
+        return;
+    };
+    let top = |node: &ComputedNode, at: &UiGlobalTransform| {
+        at.translation.y - node.size().y / 2.0
+    };
+    let (row_top, area_top) = (top(node, place), top(area, at));
+    let (row_end, area_end) =
+        (row_top + node.size().y, area_top + area.size().y);
+    let shift = if row_top < area_top {
+        row_top - area_top
+    } else if row_end > area_end {
+        (row_end - area_end).min(row_top - area_top)
+    } else {
+        return;
+    };
+    *goal = ScrollGoal::default();
+    scroll.y =
+        (scroll.y + shift * area.inverse_scale_factor()).max(0.0);
 }
 
 /// The rail's search, what is folded, and its width.
@@ -363,13 +532,18 @@ impl Target {
     }
 }
 
-/// A row of the rail.
+/// A row of the rail: one line of its name, its tag, its age and its
+/// mark.
 #[derive(Clone, PartialEq, Debug)]
 pub(super) struct Line {
     pub target: Target,
     pub glyph: Glyph,
     pub name: String,
-    pub title: String,
+    /// The scholar of the city its agent is of.
+    pub tag: Option<ScholarTag>,
+    /// What its tooltip says of it beside what it is, such as what
+    /// its agent is doing or what it waits for.
+    pub detail: String,
     /// When what its age counts from happened, in milliseconds; 0
     /// for none. The age is worked out as it is drawn, so the rows
     /// are not built anew each minute.
@@ -389,8 +563,8 @@ pub(super) struct Line {
     /// folded.
     pub fold: Option<(Group, bool)>,
     /// Whether it is a worker's, or the row its group folds into:
-    /// one short line, lighter than a hire's, so the hires stand out
-    /// of their workers.
+    /// shorter and lighter than a hire's, so the hires stand out of
+    /// their workers.
     pub worker: bool,
 }
 
@@ -423,7 +597,9 @@ struct Agent {
     /// scholar's name.
     address: String,
     called: String,
-    title: String,
+    tag: Option<ScholarTag>,
+    /// What it is doing, while it works.
+    doing: String,
     since: u64,
 }
 
@@ -448,12 +624,7 @@ fn thread(
     world: &World,
     id: protocol::AgentId,
 ) -> (Option<String>, u64) {
-    let reference = protocol::ChatRef {
-        kind: None,
-        from: None,
-        with: id,
-        past: None,
-    };
+    let reference = protocol::ChatRef { with: id };
     let Some(chat) = hamlet_client::chats::find(world, &reference)
     else {
         return (None, 0);
@@ -480,10 +651,10 @@ fn called(address: &str, shown: Option<&Shown>) -> String {
     shown.map_or_else(|| address.to_string(), |shown| shown.0.clone())
 }
 
-/// What an agent's row says under its name: its work while it works,
-/// else the chief's last words to it, else what it was asked, and
-/// nothing where its mark already says the same. Then when its chat
-/// was last added to.
+/// What a row of the hamlet's page says under an agent's name: its
+/// work while it works, else the chief's last words to it, else what
+/// it was asked, and nothing where its mark already says the same.
+/// Then when its chat was last added to.
 pub(crate) fn under_name(
     world: &World,
     agent: Entity,
@@ -541,7 +712,14 @@ fn agents(world: &World) -> Vec<Agent> {
                 (mayor, _),
             )| {
                 let address = name_of(world, entity);
-                let (title, last) = under_name(world, entity);
+                let last = world
+                    .get::<Identity>(entity)
+                    .map_or(0, |id| thread(world, id.0).1);
+                let doing = world
+                    .get::<Busy>(entity)
+                    .and_then(|_| world.get::<Activity>(entity))
+                    .map(|activity| activity.words.clone())
+                    .unwrap_or_default();
                 Agent {
                     entity,
                     id: id.0,
@@ -552,7 +730,8 @@ fn agents(world: &World) -> Vec<Agent> {
                     mark: Some(Standing::of(world, entity)),
                     called: called(&address, shown),
                     address,
-                    title,
+                    tag: ScholarTag::of(world, entity),
+                    doing,
                     since: last.max(lived.since),
                 }
             },
@@ -695,7 +874,8 @@ fn workers_line(
             1 => "1 worker".into(),
             n => format!("{n} workers"),
         },
-        title: String::new(),
+        tag: None,
+        detail: String::new(),
         since: 0,
         mark: (!open).then(|| {
             Standing::of_all(workers.iter().filter_map(|w| w.mark))
@@ -730,9 +910,7 @@ fn is_current(world: &World, target: Target) -> bool {
     match (target, showing) {
         (
             Target::Hand | Target::Agent(_),
-            Some(
-                Showing::Thread | Showing::Sessions | Showing::Prompt,
-            ),
+            Some(Showing::Thread | Showing::Prompt),
         ) => match target {
             Target::Agent(agent) => seated == Some(agent),
             _ => seated.is_some_and(|agent| {
@@ -769,7 +947,8 @@ fn agent_line(
         } else {
             agent.called.clone()
         },
-        title: agent.title.clone(),
+        tag: agent.tag.clone(),
+        detail: agent.doing.clone(),
         since: agent.since,
         mark: agent.mark,
         address: agent.address.clone(),
@@ -840,14 +1019,15 @@ fn page_line(
     target: Target,
     glyph: Glyph,
     name: &str,
-    title: String,
+    detail: String,
     mark: Option<Standing>,
 ) -> Line {
     Line {
         target,
         glyph,
         name: name.into(),
-        title,
+        tag: None,
+        detail,
         since: 0,
         mark,
         address: String::new(),
@@ -860,17 +1040,20 @@ fn page_line(
     }
 }
 
-/// Whether `line` matches what is typed in the search.
+/// Whether `line` matches what is typed in the search: its name, its
+/// address or its scholar's name.
 fn matches(line: &Line, search: &str) -> bool {
     search.is_empty()
         || line.name.to_lowercase().contains(search)
         || line.address.to_lowercase().contains(search)
-        || line.title.to_lowercase().contains(search)
+        || line.tag.as_ref().is_some_and(|tag| {
+            tag.name.to_lowercase().contains(search)
+        })
 }
 
-/// What waits for the chief, one row for each who asks: the words of
-/// its oldest wait, how long it has waited, and how many more; and
-/// how many waits there are in all.
+/// What waits for the chief, one row for each who asks: how long its
+/// oldest wait has waited, with its words and how many more in its
+/// tooltip; and how many waits there are in all.
 fn needs(world: &World, all: &[Agent]) -> (Vec<Line>, usize) {
     let Some(mut query) = world.try_query::<&Waiting>() else {
         return (Vec::new(), 0);
@@ -896,7 +1079,8 @@ fn needs(world: &World, all: &[Agent]) -> (Vec<Line>, usize) {
                 target: Target::Scholar(entity),
                 glyph: Glyph::Scholar,
                 name: format!("{name} · harbor"),
-                title: "Wants to move into the city".into(),
+                tag: None,
+                detail: "Wants to move into the city".into(),
                 since: wait.since,
                 mark: Some(Standing::Waits),
                 address: name,
@@ -922,11 +1106,16 @@ fn needs(world: &World, all: &[Agent]) -> (Vec<Line>, usize) {
             .unwrap_or(&line)
             .trim_start();
         let asker = all.iter().find(|agent| agent.address == wait.by);
-        let (target, glyph, name) = match asker {
+        let (target, glyph, name, tag) = match asker {
             Some(agent)
                 if agent.kind == protocol::AgentKind::Hand =>
             {
-                (Target::Hand, Glyph::Tower, "The Hand".to_string())
+                (
+                    Target::Hand,
+                    Glyph::Tower,
+                    "The Hand".to_string(),
+                    None,
+                )
             }
             // What it goes by; its address, hamlet and all, is the
             // row's tooltip.
@@ -934,15 +1123,19 @@ fn needs(world: &World, all: &[Agent]) -> (Vec<Line>, usize) {
                 Target::Agent(agent.entity),
                 kind_glyph(agent),
                 agent.called.clone(),
+                agent.tag.clone(),
             ),
             // The realm's page has every wait in full.
-            None => (Target::Realm, Glyph::Bell, wait.shown.clone()),
+            None => {
+                (Target::Realm, Glyph::Bell, wait.shown.clone(), None)
+            }
         };
         lines.push(Line {
             target,
             glyph,
             name,
-            title: capitalised(said),
+            tag,
+            detail: capitalised(said),
             since: wait.since,
             mark: Some(Standing::Waits),
             address: wait.by.clone(),
@@ -958,7 +1151,7 @@ fn needs(world: &World, all: &[Agent]) -> (Vec<Line>, usize) {
     }
     for (line, count) in lines.iter_mut().zip(counts) {
         if count > 1 {
-            line.title = format!("{count} waits · {}", line.title);
+            line.detail = format!("{count} waits · {}", line.detail);
         }
     }
     (lines, total)
@@ -1640,11 +1833,10 @@ fn chevron(group: Group, shut: bool, says: &'static str) -> AnyView {
     .boxed()
 }
 
-/// A row: its icon, then its name with how long ago and its mark at
-/// the end, over what it is doing, which runs the row's whole width
-/// and wraps rather than being cut. A worker's row is one short line
-/// with what it is doing beside its name, cut at the rail's edge.
-/// A `dimmed` row, of those that left, is set in grey.
+/// A row of one line: its icon, its name cut at the rail's edge, the
+/// tag of its scholar, how long ago and its mark at the end. What it
+/// is doing or waits for is in its tooltip. A `dimmed` row, of those
+/// that left, is set in grey.
 fn expanded(line: &Line, dimmed: bool) -> AnyView {
     let (target, since, worker) =
         (line.target, line.since, line.worker);
@@ -1655,77 +1847,41 @@ fn expanded(line: &Line, dimmed: bool) -> AnyView {
     } else {
         Tone::Body
     };
-    let title = cut(&line.title, TITLE_SHOWN);
-    let clipped = |shown: AnyView| {
-        column((shown,))
-            .min_width(px(0.0))
-            .overflow(Overflow::clip())
-    };
-    let name = clipped(
-        one_line(
-            label(line.name.clone())
-                .tone(name_tone)
-                .bold(!(worker || dimmed)),
+    let name = column((one_line(
+        label(line.name.clone())
+            .tone(name_tone)
+            .bold(!(worker || dimmed)),
+    ),))
+    .min_width(px(0.0))
+    .overflow(Overflow::clip());
+    // The tag keeps its room; the name gives way to it.
+    let mut words = vec![name.boxed()];
+    words.extend(line.tag.as_ref().map(scholar_tag::tag));
+    words.push(frame().grow(1.0).boxed());
+    words.push(
+        label(
+            derived(move |_: &World| age(now_ms(), since))
+                .when(every_frame()),
         )
+        .wrap(false)
+        .rules(note_rules)
         .boxed(),
     );
-    let words = if worker {
-        row((
-            name,
-            clipped(one_line(label(title.clone())).boxed())
-                .grow(1.0)
-                .rules(note_rules),
-        ))
-        .gap(6.0)
-        .align(AlignItems::Center)
-        .grow(1.0)
-        .min_width(px(0.0))
-        .boxed()
-    } else {
-        name.grow(1.0).boxed()
-    };
-    // The icon on the middle of the name's line.
-    let head = row((
+    words.push(mark_icon(line.mark));
+    let content = row((
         glyph(line.glyph, if worker { WORKER_ICON } else { ICON })
             .tone(Tone::Dim)
             .opacity(if dimmed { DIMMED } else { 1.0 }),
-        row((
-            words,
-            label(
-                derived(move |_: &World| age(now_ms(), since))
-                    .when(every_frame()),
-            )
-            .wrap(false)
-            .rules(note_rules),
-            mark_icon(line.mark),
-        ))
-        .gap(6.0)
-        .align(AlignItems::Center)
-        .grow(1.0)
-        .min_width(px(0.0)),
+        row(words)
+            .gap(6.0)
+            .align(AlignItems::Center)
+            .grow(1.0)
+            .min_width(px(0.0)),
     ))
     .gap(if worker { 6.0 } else { 8.0 })
-    .align(AlignItems::Center);
-    // Under it, from the row's own edge rather than the name's, what
-    // it is doing. A row with nothing more to say is one line.
-    let doing = column((if title.contains('`') {
-        quoted(&title)
-    } else {
-        label(title.clone()).boxed()
-    },))
-    .min_width(px(0.0))
-    .display(if title.is_empty() || worker {
-        Display::None
-    } else {
-        Display::Flex
-    })
-    .rules(description_rules);
-    let content = column((head, doing))
-        .gap(0.0)
-        .justify(JustifyContent::Center)
-        .min_height(px(row_height(line) - 2.0 * ROW_DOWN))
-        .width(percent(100.0));
-    let address = line.address.clone();
+    .align(AlignItems::Center)
+    .min_height(px(row_height(line) - 2.0 * ROW_DOWN))
+    .width(percent(100.0));
     let pressed = button(content)
         .grow(1.0)
         .min_width(px(0.0))
@@ -1738,7 +1894,7 @@ fn expanded(line: &Line, dimmed: bool) -> AnyView {
         None => pressed.boxed(),
     };
     let shown = washed(pressed, line.current).boxed();
-    let shown = match tip_of(line, address) {
+    let shown = match tip_of(line) {
         Some(tip) => shown.tooltip(move || note(tip.clone())).boxed(),
         None => shown.boxed(),
     };
@@ -1761,11 +1917,12 @@ fn expanded(line: &Line, dimmed: bool) -> AnyView {
         .width(px(f32::from(line.depth) * STEP_IN))
         .shrink(0.0);
     let mut parts = vec![step.boxed(), fold, shown];
-    parts.extend(tree_lines(line, title.is_empty() || worker));
+    parts.extend(tree_lines(line));
     row(parts)
         .gap(0.0)
         .align(AlignItems::Center)
         .width(percent(100.0))
+        .tagged(RailRow(target))
         .boxed()
 }
 
@@ -1774,9 +1931,9 @@ fn expanded(line: &Line, dimmed: bool) -> AnyView {
 /// this row, then the elbow from its own lead, which runs on down
 /// while more follow. Every guide runs under the middle of its
 /// agent's chevron, so the tree lines up however deep it goes, and
-/// an elbow stops short of the row it leads to. A row of `one_line`
-/// has its icon on its middle, one of more on its first.
-fn tree_lines(line: &Line, one_line: bool) -> Vec<AnyView> {
+/// an elbow stops short of the row it leads to, on the middle of its
+/// icon.
+fn tree_lines(line: &Line) -> Vec<AnyView> {
     if line.depth == 0 {
         return Vec::new();
     }
@@ -1785,12 +1942,7 @@ fn tree_lines(line: &Line, one_line: bool) -> Vec<AnyView> {
         |level: usize| level as f32 * STEP_IN + CHEVRON / 2.0 - 0.5;
     let lead = usize::from(line.depth) - 1;
     // Where the elbow meets the row, and where it stops.
-    let elbow = ROW_DOWN
-        + if one_line {
-            (row_height(line) - 2.0 * ROW_DOWN) / 2.0
-        } else {
-            2.0 + ICON / 2.0
-        };
+    let elbow = row_height(line) / 2.0;
     // A line laid over the row, `left` and `top` in from its edges;
     // one with no height runs to its foot.
     let over =
@@ -1851,9 +2003,10 @@ fn group_meaning(group: Group) -> Option<&'static str> {
     }
 }
 
-/// What a row's tooltip says: the address it goes by, where that is
-/// not its name, over what it is in plain words.
-fn tip_of(line: &Line, address: String) -> Option<String> {
+/// What a row's tooltip says, a line each: a long name in full, the
+/// address it goes by where that is not its name, what it is doing or
+/// waits for, and what it is in plain words.
+fn tip_of(line: &Line) -> Option<String> {
     let meaning = match line.target {
         Target::Realm => Some(words::REALM),
         Target::Library => Some(words::LIBRARY),
@@ -1867,17 +2020,19 @@ fn tip_of(line: &Line, address: String) -> Option<String> {
         Target::Scholar(_) => Some(words::SCHOLAR),
         Target::Hamlet(_) | Target::Fold(_) => None,
     };
-    let address = (!address.is_empty()
-        && address != line.name
+    let name = (line.name.chars().count() > NAME_IN_TIP)
+        .then(|| line.name.clone());
+    let address = (!line.address.is_empty()
+        && line.address != line.name
         && line.target != Target::Hand)
-        .then_some(address);
-    match (address, meaning) {
-        (Some(address), Some(meaning)) => {
-            Some(format!("{address}\n{meaning}"))
-        }
-        (Some(address), None) => Some(address),
-        (None, meaning) => meaning.map(str::to_string),
-    }
+        .then(|| line.address.clone());
+    let detail =
+        (!line.detail.is_empty()).then(|| line.detail.clone());
+    let lines = [name, address, detail, meaning.map(str::to_string)]
+        .into_iter()
+        .flatten()
+        .collect::<Vec<_>>();
+    (!lines.is_empty()).then(|| lines.join("\n"))
 }
 
 /// A section's header, set apart from the rows under it in the
@@ -1945,6 +2100,7 @@ fn header(section: &Section, above: f32) -> AnyView {
         .align(AlignItems::Center)
         .padding(UiRect::top(px((above - ROW_DOWN).max(0.0))))
         .width(percent(100.0))
+        .tagged(RailRow(target))
         .boxed(),
         None => row((fold, words))
             .gap(6.0)
@@ -2128,5 +2284,69 @@ mod tests {
             .unwrap();
         assert_eq!(needs.count, 2);
         assert_eq!(names(&app, in_hamlet), ["ada"]);
+    }
+
+    #[test]
+    fn a_hire_chosen_in_the_world_is_shown_and_marked_in_the_rail() {
+        let mut app = panel_app();
+        app.add_plugins(plugin)
+            .init_resource::<Showing>()
+            .init_resource::<Selected>();
+        app.update();
+        let ada = named(app.world_mut(), "hire#2").unwrap();
+        let hamlet = app.world().get::<LivesIn>(ada).unwrap().0;
+        *app.world_mut().resource_mut::<Tab>() = Tab::City;
+        app.world_mut().resource_mut::<Rail>().folded =
+            vec![Group::Hamlet(hamlet)];
+
+        app.world_mut().resource_mut::<Selected>().0 =
+            Some(Thing::Agent(ada));
+        crate::hub::follow_selection(app.world_mut());
+
+        assert_eq!(*app.world().resource::<Tab>(), Tab::Hamlets);
+        let section = sections(app.world())
+            .into_iter()
+            .find(|section| section.group == Group::Hamlet(hamlet))
+            .unwrap();
+        assert!(!section.folded);
+        let row = section
+            .lines
+            .iter()
+            .find(|line| line.target == Target::Agent(ada))
+            .unwrap();
+        assert!(row.current);
+    }
+
+    #[test]
+    fn a_hire_of_a_city_scholar_is_tagged_and_found_by_its_scholar() {
+        let mut app = panel_app();
+        app.add_plugins(plugin);
+        let mut state = hamlet_testing::realm::state();
+        state.agents[1].nickname = Some("Fix the login".into());
+        app.world_mut().resource_mut::<Rail>().search = "ada".into();
+        let mut found = |state: &protocol::State| {
+            let mut state = state.clone();
+            state.revision += 1;
+            hamlet_client::receive(
+                app.world_mut(),
+                protocol::ServerMessage::State(state),
+            );
+            app.update();
+            sections(app.world())
+                .into_iter()
+                .filter(|s| matches!(s.group, Group::Hamlet(_)))
+                .flat_map(|section| section.lines)
+                .map(|line| (line.name, line.tag.map(|tag| tag.name)))
+                .collect::<Vec<_>>()
+        };
+        assert_eq!(
+            found(&state),
+            [("Fix the login".to_string(), Some("ada".to_string()))]
+        );
+
+        // A blank agent's scholar is its own, not the city's.
+        state.revision += 1;
+        state.scholars[0].arrival = protocol::Arrival::Apart;
+        assert!(found(&state).is_empty());
     }
 }

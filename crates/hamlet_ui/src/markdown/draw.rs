@@ -3,6 +3,8 @@
 use std::sync::Arc;
 
 use bevy::color::Color;
+use bevy::ecs::component::Component;
+use bevy::ecs::entity::Entity;
 use bevy::ecs::hierarchy::{ChildOf, Children};
 use bevy::ecs::world::World;
 use bevy::text::{
@@ -28,8 +30,8 @@ use bevy_fynix::{
 
 use super::parse::{parse, plain};
 use super::{
-    Align, Anchor, Area, Block, Kind, Marker, PathLinks, PictureView,
-    Row, Span, Style, Target,
+    AgentLinks, Align, Anchor, Area, Block, Kind, Marker, PathLinks,
+    PictureView, Row, Span, Style, Target,
 };
 use crate::kinds::inset;
 use crate::styles::{Fills, bare, small_rules};
@@ -37,9 +39,38 @@ use crate::theme::Palette;
 use crate::widgets::platform::{Mono, MonoText};
 use crate::{AnyView, Cx, View};
 
-/// Takes the link off a path that `blocks` end with, which may be
-/// the start of a longer one, as while the words still grow.
+/// `blocks` as words that still grow are drawn: every address in them
+/// as words, not a chip, and no link on a path or an address they end
+/// with, which may be the start of a longer one.
 pub fn unsettle(blocks: &mut [Arc<Block>]) {
+    let names_agent = |spans: &[Span]| {
+        spans
+            .iter()
+            .any(|span| matches!(span.link, Some(Target::Agent(_))))
+    };
+    for block in blocks.iter_mut() {
+        let named = match &block.kind {
+            Kind::Paragraph(spans) | Kind::Heading(_, spans) => {
+                names_agent(spans)
+            }
+            Kind::Table { rows, .. } => {
+                rows.iter().flatten().any(|cell| names_agent(cell))
+            }
+            _ => false,
+        };
+        if !named {
+            continue;
+        }
+        match &mut Arc::make_mut(block).kind {
+            Kind::Paragraph(spans) | Kind::Heading(_, spans) => {
+                spell_out(spans);
+            }
+            Kind::Table { rows, .. } => {
+                rows.iter_mut().flatten().for_each(|c| spell_out(c));
+            }
+            _ => {}
+        }
+    }
     let spans = match blocks
         .last_mut()
         .map(|block| &mut Arc::make_mut(block).kind)
@@ -56,9 +87,21 @@ pub fn unsettle(blocks: &mut [Arc<Block>]) {
         _ => return,
     };
     if let Some(last) = spans.last_mut()
-        && matches!(last.link, Some(Target::Path(_)))
+        && matches!(
+            last.link,
+            Some(Target::Path(_) | Target::AgentWords(_))
+        )
     {
         last.link = None;
+    }
+}
+
+/// `spans` with each agent's address drawn as words.
+fn spell_out(spans: &mut [Span]) {
+    for span in spans {
+        if let Some(Target::Agent(address)) = &span.link {
+            span.link = Some(Target::AgentWords(address.clone()));
+        }
     }
 }
 
@@ -102,31 +145,74 @@ pub struct Ink {
     pub face: Face,
 }
 
+/// A part of a line as it is drawn.
+enum Piece {
+    /// Words, and the place they lead if they are a link.
+    Words(Span, Option<Anchor>),
+    /// The chip of an agent or a scholar.
+    Chip(Atom),
+    /// An address drawn as words in the link's colour.
+    Address(Span),
+}
+
 /// `spans` with the place each link leads. A path that names no
-/// file, or any path without [`PathLinks`], is no link, and its words
-/// join those beside it again.
-fn anchored(
-    world: &mut World,
-    spans: Vec<Span>,
-) -> Vec<(Span, Option<Anchor>)> {
-    let resolve =
+/// file, an address that names no one, or either without
+/// [`PathLinks`] or [`AgentLinks`], is no link, and its words join
+/// those beside it again.
+fn anchored(world: &mut World, spans: Vec<Span>) -> Vec<Piece> {
+    let paths =
         world.get_resource::<PathLinks>().map(|links| links.resolve);
-    let mut all = Vec::<(Span, Option<Anchor>)>::new();
-    for mut span in spans {
+    let agents = world
+        .get_resource::<AgentLinks>()
+        .map(|links| links.resolve);
+    let mut all = Vec::<Piece>::new();
+    for (at, mut span) in spans.into_iter().enumerate() {
         let anchor = match span.link.take() {
             Some(Target::Web(address)) => Some(Anchor::Web(address)),
-            Some(Target::Path(path)) => resolve
+            Some(Target::Path(path)) => paths
                 .and_then(|resolve| resolve(world, &path))
                 .map(Anchor::File),
+            Some(Target::Agent(address)) => {
+                let chip = |world: &mut World, words: &str| {
+                    agents.and_then(|resolve| {
+                        resolve(
+                            world,
+                            &address,
+                            words,
+                            at.to_string(),
+                        )
+                    })
+                };
+                if let Some(chip) = chip(world, &span.text) {
+                    all.push(Piece::Chip(chip));
+                    continue;
+                }
+                // Words in brackets after the address that are not
+                // its name stay words after its chip.
+                if let Some(rest) = span
+                    .text
+                    .strip_prefix(address.as_str())
+                    .filter(|rest| !rest.is_empty())
+                    && let Some(chip) = chip(world, &address)
+                {
+                    all.push(Piece::Chip(chip));
+                    span.text = rest.to_string();
+                }
+                None
+            }
+            Some(Target::AgentWords(_)) => {
+                all.push(Piece::Address(span));
+                continue;
+            }
             None => None,
         };
         match all.last_mut() {
-            Some((last, None))
+            Some(Piece::Words(last, None))
                 if anchor.is_none() && last.style == span.style =>
             {
                 last.text.push_str(&span.text);
             }
-            _ => all.push((span, anchor)),
+            _ => all.push(Piece::Words(span, anchor)),
         }
     }
     all
@@ -151,19 +237,29 @@ fn kept_whole(text: &str) -> String {
     joined
 }
 
-/// `view`, built again when the folders paths are searched in
-/// change, as a link in it may then lead somewhere else.
+/// `view`, built again when the folders paths are searched in or the
+/// agents change, as a link in it may then lead somewhere else.
 fn relinked(
     view: impl Fn() -> AnyView + Send + Sync + 'static,
 ) -> AnyView {
-    let mut links = resource::<PathLinks, _>(|_| ());
+    let mut paths = resource::<PathLinks, _>(|_| ());
+    let mut agents = resource::<AgentLinks, _>(|_| ());
     keyed(
         derived(|world: &World| {
-            world
-                .get_resource::<PathLinks>()
-                .map(|links| links.generation)
+            (
+                world
+                    .get_resource::<PathLinks>()
+                    .map(|links| links.generation),
+                world
+                    .get_resource::<AgentLinks>()
+                    .map(|links| links.generation),
+            )
         })
-        .when(move |world: &World| links.changed(world)),
+        .when(move |world: &World| {
+            // Both are asked, so each takes in its change.
+            let paths = paths.changed(world);
+            agents.changed(world) || paths
+        }),
         move |_| view(),
     )
     .within(bare())
@@ -176,7 +272,21 @@ fn set_rich(spans: &[Span], ink: Ink, setting: Setting) -> AnyView {
     relinked(move || {
         let spans = spans.clone();
         AnyView::new(move |cx: &mut Cx| {
-            let spans = anchored(cx.world, spans);
+            let pieces = anchored(cx.world, spans);
+            if pieces
+                .iter()
+                .any(|piece| matches!(piece, Piece::Chip(_)))
+            {
+                return chipped(cx, pieces, ink);
+            }
+            let spans =
+                pieces.into_iter().filter_map(|piece| match piece {
+                    Piece::Words(span, anchor) => {
+                        Some((span, anchor, false))
+                    }
+                    Piece::Address(span) => Some((span, None, true)),
+                    Piece::Chip(_) => None,
+                });
             let theme = cx.theme();
             let size = ink.size.unwrap_or(theme.text.body);
             let root = cx.build(label("").size(size));
@@ -189,7 +299,7 @@ fn set_rich(spans: &[Span], ink: Ink, setting: Setting) -> AnyView {
             cx.world.entity_mut(root).insert(leading);
             let mono =
                 cx.world.get_resource::<Mono>().map(|m| m.0.clone());
-            for (span, anchor) in spans {
+            for (span, anchor, address) in spans {
                 let Style {
                     bold,
                     italic,
@@ -236,6 +346,11 @@ fn set_rich(spans: &[Span], ink: Ink, setting: Setting) -> AnyView {
                     ChildOf(root),
                 ));
                 // Names and links are references, in blue.
+                if address {
+                    entity.insert(TextColor(
+                        theme.tone(Tone::Reference),
+                    ));
+                }
                 if code {
                     entity.insert((
                         MonoText,
@@ -260,6 +375,95 @@ fn set_rich(spans: &[Span], ink: Ink, setting: Setting) -> AnyView {
             root
         })
     })
+}
+
+/// A paragraph with chips in its line, its words set as [`set_rich`]
+/// sets them.
+fn chipped(cx: &mut Cx, pieces: Vec<Piece>, ink: Ink) -> Entity {
+    let theme = cx.theme();
+    let size = ink.size.unwrap_or(theme.text.body);
+    let reference = theme.tone(Tone::Reference);
+    let code_fill = theme.palette.status.info.fill;
+    let mono = cx.world.get_resource::<Mono>().map(|m| m.0.clone());
+    let mut runs = Vec::new();
+    // Whether each run is code, and the place it leads.
+    let mut marks = Vec::<(bool, Option<Anchor>)>::new();
+    for piece in pieces {
+        let (span, anchor, address) = match piece {
+            Piece::Words(span, anchor) => (span, anchor, false),
+            Piece::Address(span) => (span, None, true),
+            Piece::Chip(atom) => {
+                runs.push(Run::atom(atom));
+                marks.push((false, None));
+                continue;
+            }
+        };
+        let Style {
+            bold,
+            italic,
+            code,
+            strike,
+        } = span.style;
+        let mut run = Run::new(span.text);
+        if bold || ink.face != Face::Body {
+            run = run.bold();
+        }
+        if italic {
+            run = run.italic();
+        }
+        if code {
+            run = run
+                .size(size - 1.0)
+                .color(reference)
+                .background(code_fill);
+            if let Some(mono) = &mono {
+                run = run.font(mono.clone());
+            }
+        }
+        if address {
+            run = run.color(reference);
+        }
+        if anchor.is_some() {
+            run = run.color(reference).underline(LineColor::Ink);
+        }
+        if strike {
+            run = run.strikethrough(LineColor::Ink);
+        }
+        runs.push(run);
+        marks.push((code, anchor));
+    }
+    let body = cx.build(
+        bevy_fynix::views::rich(runs)
+            .size(size)
+            .tone(ink.tone)
+            .atoms()
+            .max_width(percent(100.0)),
+    );
+    for (kid, (code, anchor)) in
+        runs_of(cx.world, body).into_iter().zip(marks)
+    {
+        if code {
+            cx.world.entity_mut(kid).insert(MonoText);
+        }
+        if let Some(anchor) = anchor {
+            cx.world.entity_mut(kid).insert((
+                anchor,
+                EntityCursor(SystemCursorIcon::Pointer),
+            ));
+        }
+    }
+    body
+}
+
+/// The node of each run of a rich text built with its atoms, in
+/// order.
+fn runs_of(world: &World, body: Entity) -> Vec<Entity> {
+    world
+        .get::<Children>(body)
+        .and_then(|kids| kids.first().copied())
+        .and_then(|text| world.get::<Children>(text))
+        .map(|kids| kids.to_vec())
+        .unwrap_or_default()
 }
 
 fn code_view(cx: &Cx, lang: &str, text: &str) -> impl View {
@@ -524,7 +728,9 @@ pub fn picture_words(
 ) -> AnyView {
     let written = match target {
         Target::Web(address) => address,
-        Target::Path(path) => path,
+        Target::Path(path)
+        | Target::Agent(path)
+        | Target::AgentWords(path) => path,
     };
     let link = Span {
         text: if caption.is_empty() { written } else { caption }
@@ -562,6 +768,12 @@ pub fn typed(text: &str, tail: &str) -> Option<AnyView> {
 /// as a view in the line does.
 pub const ATOM: char = '\u{2028}';
 
+/// On a text node [`typed_with`] draws: the words each atom in it is
+/// copied as, at the byte of the node's words it stands at, in order.
+/// An atom has no words in the text itself.
+#[derive(Component, Clone, Default, PartialEq, Debug)]
+pub struct AtomWords(pub Vec<(usize, String)>);
+
 /// Words set as [`typed`] sets them, whether or not a link is in
 /// them, in `tone`, with the next of `atoms` in the place of each
 /// [`ATOM`] and `tail` after them.
@@ -585,12 +797,28 @@ pub fn typed_with(
             let mut runs = Vec::new();
             // The place each run leads to, in the order of the runs.
             let mut leads = Vec::new();
-            for (span, anchor) in anchored(cx.world, spans) {
+            // How far into the words each atom stands, and its words.
+            let (mut at_byte, mut copies) = (0, AtomWords::default());
+            for piece in anchored(cx.world, spans) {
+                let (span, anchor) = match piece {
+                    Piece::Words(span, anchor) => (span, anchor),
+                    // A chief's line is whole, so this is never one.
+                    Piece::Address(span) => (span, None),
+                    Piece::Chip(chip) => {
+                        copies
+                            .0
+                            .push((at_byte, chip.text().to_string()));
+                        runs.push(Run::atom(chip));
+                        leads.push(None);
+                        continue;
+                    }
+                };
                 let pieces =
                     span.text.split(ATOM).collect::<Vec<_>>();
                 let last = pieces.len() - 1;
                 for (at, piece) in pieces.into_iter().enumerate() {
                     if !piece.is_empty() {
+                        at_byte += piece.len();
                         let run = Run::new(piece);
                         runs.push(match anchor {
                             Some(_) => run
@@ -603,6 +831,9 @@ pub fn typed_with(
                     if at < last
                         && let Some(atom) = atoms.next()
                     {
+                        copies
+                            .0
+                            .push((at_byte, atom.text().to_string()));
                         runs.push(Run::atom(atom));
                         leads.push(None);
                     }
@@ -614,14 +845,16 @@ pub fn typed_with(
                     .atoms()
                     .max_width(percent(100.0)),
             );
-            let kids = cx
+            if let Some(text) = cx
                 .world
                 .get::<Children>(body)
                 .and_then(|kids| kids.first().copied())
-                .and_then(|text| cx.world.get::<Children>(text))
-                .map(|kids| kids.to_vec())
-                .unwrap_or_default();
-            for (kid, lead) in kids.into_iter().zip(leads) {
+            {
+                cx.world.entity_mut(text).insert(copies);
+            }
+            for (kid, lead) in
+                runs_of(cx.world, body).into_iter().zip(leads)
+            {
                 if let Some(anchor) = lead {
                     cx.world.entity_mut(kid).insert((
                         anchor,
@@ -641,8 +874,8 @@ pub fn fixed(text: &str, tone: Tone) -> impl View {
 }
 
 /// A [`fixed`] document of words given to a model, set as a page: its
-/// paths are code, since they name no file here, and its lines stand
-/// further apart.
+/// paths and addresses are code, since they name no file here and are
+/// read as written, and its lines stand further apart.
 pub fn page(text: &str, tone: Tone) -> impl View {
     let mut blocks = parse(text);
     for block in &mut blocks {
@@ -656,7 +889,10 @@ pub fn page(text: &str, tone: Tone) -> impl View {
             _ => Vec::new(),
         };
         for span in spans {
-            if matches!(span.link, Some(Target::Path(_))) {
+            if matches!(
+                span.link,
+                Some(Target::Path(_) | Target::Agent(_))
+            ) {
                 span.link = None;
                 span.style.code = true;
             }

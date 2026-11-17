@@ -281,7 +281,7 @@ fn lasting_words(need: &Need) -> &'static str {
         WaitDetail::Approval {
             always: Some(Lasting::Session),
             ..
-        } => "Allow this session",
+        } => "Allow for this conversation",
         _ => "Allow always",
     }
 }
@@ -372,7 +372,7 @@ fn head(need: &Need, scholar: &str) -> impl View + use<> {
         WaitDetail::Objection {} => {
             format!("{} objects to your instruction", need.shown)
         }
-        WaitDetail::Fault {} => {
+        WaitDetail::Fault { .. } => {
             format!("{} ran into a problem", need.shown)
         }
         WaitDetail::Newcomer { .. } => {
@@ -384,7 +384,7 @@ fn head(need: &Need, scholar: &str) -> impl View + use<> {
         n => format!("{} · asked {n} times", need.waited),
     };
     let kind = match need.detail {
-        WaitDetail::Fault {} => StatusKind::Danger,
+        WaitDetail::Fault { .. } => StatusKind::Danger,
         _ => Standing::Waits.kind(),
     };
     with_cx(move |cx| {

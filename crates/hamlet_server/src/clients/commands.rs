@@ -4,10 +4,11 @@
 //! written, and runs as a system of its own.
 
 mod oversight;
+mod promotion;
 mod shelves;
 mod society;
-mod targets;
-mod versions;
+pub(crate) mod targets;
+pub(crate) mod versions;
 
 use anyhow::{Result, anyhow};
 use bevy_app::App;
@@ -68,16 +69,10 @@ const SESSIONS: &[Command] = &[
         run: choose_in_client,
     },
     Command {
-        name: "new",
-        usage: "/new",
-        does: "Start a new conversation",
-        run: |core, line| Ok(Ok(core.new_session(line.agent)?)),
-    },
-    Command {
-        name: "resume",
-        usage: "/resume [n]",
-        does: "Go back to an earlier conversation",
-        run: resume,
+        name: "compact",
+        usage: "/compact",
+        does: "Summarize the earlier part of the conversation now",
+        run: |core, line| Ok(Ok(core.compact_chat(line.agent)?)),
     },
     Command {
         name: "retry",
@@ -88,8 +83,20 @@ const SESSIONS: &[Command] = &[
     Command {
         name: "stop",
         usage: "/stop [address|all]",
-        does: "Stop an agent's work",
-        run: stop,
+        does: "Stop an agent's work and hold what waits",
+        run: |core, line| match targets(core, line)? {
+            Ok(targets) => Ok(Ok(core.stop_turns(&targets)?)),
+            Err(refusal) => Ok(Err(refusal)),
+        },
+    },
+    Command {
+        name: "resume",
+        usage: "/resume [address|all]",
+        does: "Let a stopped agent take what waits",
+        run: |core, line| match targets(core, line)? {
+            Ok(targets) => Ok(Ok(core.resume_agents(&targets)?)),
+            Err(refusal) => Ok(Err(refusal)),
+        },
     },
 ];
 
@@ -298,33 +305,13 @@ fn choose_in_client(_: &mut Core<'_, '_>, _: &Line) -> Answer {
     Ok(Ok("Choose who you talk to in your client.".into()))
 }
 
-/// Goes back to session `n`, or lists the sessions when none is
-/// given.
-fn resume(core: &mut Core<'_, '_>, line: &Line) -> Answer {
-    let number =
-        line.words().first().and_then(|w| w.parse::<i64>().ok());
-    if let Some(number) = number {
-        return core.resume_session(line.agent, number);
-    }
-    let chief = core.realm.chief();
-    let db = core.realm.store().connection();
-    let sessions =
-        crate::conversations::chats::sessions(db, line.agent, chief)?;
-    let list = sessions
-        .iter()
-        .map(|(number, _, _)| format!("- session {number}"))
-        .collect::<Vec<_>>()
-        .join("\n");
-    Ok(Ok(if list.is_empty() {
-        "No sessions yet.".into()
-    } else {
-        list
-    }))
-}
-
-/// Stops the work of the agent said to, the one named, or all.
-fn stop(core: &mut Core<'_, '_>, line: &Line) -> Answer {
-    let targets = match line.words().first() {
+/// The agents `/stop` and `/resume` mean: the one said to, the one
+/// named, or all.
+fn targets(
+    core: &mut Core<'_, '_>,
+    line: &Line,
+) -> Done<Vec<AgentId>> {
+    Ok(Ok(match line.words().first() {
         None => vec![line.agent],
         Some(&"all") => core.reachable()?,
         Some(text) => {
@@ -337,6 +324,5 @@ fn stop(core: &mut Core<'_, '_>, line: &Line) -> Answer {
                 Err(refusal) => return Ok(Err(refusal)),
             }
         }
-    };
-    Ok(Ok(core.stop_turns(&targets)?))
+    }))
 }

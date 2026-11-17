@@ -61,7 +61,7 @@ are in
 | `AgentId` | An integer naming one agent of the realm (the Hand, a hire or a worker), stable for as long as the agent exists. The server resolves typed addresses (`hand`, `mayor@<hamlet>`, `hire#<id>`, `worker#<id>`) in chief commands; messages carry ids. |
 | `ScholarId` | An integer naming one scholar of the city. Commands address a scholar as `scholar#<id>`; its name is a label that may change and repeat. |
 | `Keeper` | `{scholar: ScholarId}` or `{agent: AgentId}`: whose knowledge a document is of, a scholar's `main` or an agent's lodge. |
-| `ChatRef` | `{with: AgentId, past?: integer, from?: AgentId, kind?: "letters" \| "questions"}`. |
+| `ChatRef` | `{with: AgentId}`. |
 | `RequestId` | A UUID in its 36-character hyphenated form, in either case, such as `0f8fad5b-d9cb-469f-a165-70867728950e`. The braced, URN and 32-digit forms are refused. |
 | `ImageId` | The SHA-256 of an image's bytes as 64 lowercase hexadecimal digits. The same bytes have the same id however often they are sent. |
 | `FileId` | The SHA-256 of a file's bytes as 64 lowercase hexadecimal digits. |
@@ -78,11 +78,9 @@ most the text's length in bytes; a line with any other `at` is refused. An
 attachment without `at` goes after the text. The files of one folder share
 the folder's `at`.
 
-`ChatRef.with` selects the agent the chief talks to. Without `past`, it
-selects the current chief conversation; `past` selects a stable conversation
-number. `from` selects a peer conversation with that stable agent;
-`kind` selects its letters or questions lane, defaulting to letters.
-`from` and `past` together are refused.
+`ChatRef.with` selects the agent whose one conversation it is: the Hand's,
+a hire's or a worker's. Every chief and every client shares it. A hire that
+left keeps its conversation, read as it was.
 
 Every client message except `hello` and `close` carries `id: RequestId`.
 The answer's `to` matches it. Do not confuse that with `Say.to`, which is an
@@ -93,8 +91,9 @@ The durable conversation inputs have separate request IDs. A chief's line
 uses `chief:<say id>` to admit it once in that conversation.
 A retry uses `retry:<UUID>`; this UUID is independent of the wire
 `retry` request's `id`. A reflection uses
-`reflection:<conversation>:<number>`. Clients send UUIDs, not these
-internal IDs. The server constructs them in `conversations/chats.rs` and
+`reflection:<conversation>:<number>`, a compaction `compaction:<UUID>` and
+a merge's input `merged:<UUID>`. Clients send UUIDs, not these internal
+IDs. The server constructs them in `conversations/chats.rs` and
 `conversations/reflections.rs`.
 
 `State.epoch` identifies the running state watcher, using the server clock
@@ -122,11 +121,12 @@ and watch failures can answer with `fault` (see [Errors](#errors)).
 | `put-file` (`PutFile`) | `size: integer` | Begin sending one file of that many bytes, at most 256 MiB; `reply.upload` identifies the upload for its parts, or an empty file is answered at once with `reply.file`. |
 | `put-file-part` (`PutFilePart`) | `upload: string`, `offset: integer`, `data: string` | Send base64 bytes at a byte offset. `reply` acknowledges the part; the one that completes the file is answered with `reply.file`, the file's id. |
 | `answer` (`Answer`) | `wait: string`, `choice: Choice`, `text?: string`, `picks?: Pick[]` | Answer a wait; `reply`. |
-| `stop` (`Stop`) | `agent?: AgentId` | Stop that agent's work, or all work if omitted; `reply`. |
+| `stop` (`Stop`) | `agent?: AgentId` | Stop that agent's work, or all work if omitted, and hold what waits for each; `reply`. |
+| `resume` (`Resume`) | `agent?: AgentId` | End the hold a stop put on that agent, or on every agent if omitted, so what waits takes its turns; `reply`. |
 | `rewind` (`Rewind`) | `chat: ChatRef`, `item: string` | Take back a chief input and what followed. `reply` with kind `rewound` returns its words; watchers get a reset and replacement transcript. Refused while work is running or queued. |
-| `new` (`New`) | `to: AgentId` | Start a new numbered chief conversation; the previous queue can finish. `reply`. |
-| `resume` (`Resume`) | `to: AgentId`, `number: integer` | Make that saved chief conversation current; `reply`. |
-| `import-project` (`ImportProject`) | `name: string`, `folder?: string`, `files: FileId[]` | Bring in a project of another program: a hamlet named `name` working on `folder`, founded unless one of the chief's already works on that folder, with a hire under its mayor for each conversation. Each file is an `Imported` in JSON of at most 16 MiB, at most 50 of them and 128 MiB together, sent before with `put-file`, and becomes the first session of its hire's chat. A conversation the chief brought in before is left out, as is one the hamlet's tier has no room for. `reply` says what was made. |
+| `compact` (`Compact`) | `to: AgentId` | Have the agent's conversation summarize its earlier part now, as it does by itself when its context fills. It is kept as an input and sent once the conversation's runtime has it, while a turn runs too. `reply` at once. |
+| `withdraw` (`Withdraw`) | `chat: ChatRef`, `item: string` | Take back the chief's own line shown as the queued `item` before its turn takes it up. Its watchers get `remove`, and the line's own `say` is answered as if it ended; `reply`. A line that is not the chief's own or not queued is refused. |
+| `import-project` (`ImportProject`) | `name: string`, `folder?: string`, `files: FileId[]` | Bring in a project of another program: a hamlet named `name` working on `folder`, founded unless one of the chief's already works on that folder, with a hire under its mayor for each conversation. Each file is an `Imported` in JSON of at most 16 MiB, at most 50 of them and 128 MiB together, sent before with `put-file`, and becomes its hire's conversation. A conversation the chief brought in before is left out, as is one the hamlet's tier has no room for. `reply` says what was made. |
 | `retry` (`Retry`) | `to: AgentId` | Ask the agent to carry on; `reply`. |
 | `edit` (`Edit`) | `doc` and fields below | Edit a chief-owned document or model setting; `reply`. |
 | `open` (`Open`) | `chat: ChatRef`, `before?: string` | Watch and fetch a page; `transcript` with `to`, or `fault`. |
@@ -153,9 +153,8 @@ and watch failures can answer with `fault` (see [Errors](#errors)).
 
 Columns and rows are 1 to 1000; `data` holds at most 65536 bytes.
 
-`/new` and `/resume <number>` also exist as typed commands sent through
-`say`. They perform the same conversation changes as the `new` and `resume`
-messages. Both forms are part of the protocol.
+`/compact` also exists as a typed command sent through `say`, and does
+what the `compact` message does. Both forms are part of the protocol.
 
 ### Questions and answers
 
@@ -173,9 +172,9 @@ answer. Blank words, unavailable options and custom words when
 accompany `text` or any choice other than `reply`. A plain `text` reply
 answers a single question that accepts words. `dismiss` needs neither.
 
-The committed result of `ask_chief` produces a transcript item with kind
+The committed result of `request_chief` produces a transcript item with kind
 `answered`, containing the chief's reply. Structured replies quote each
-question above its answer. Live operations and reopened history use the same item
+question above its answer. Live operations and a reopened transcript use the same item
 ID and text; a dismissed question produces no answered item. Known
 credentials are removed before questions or answers are stored or sent.
 
@@ -200,7 +199,6 @@ Each row is a `Read` form with `type: "read"` and `id`.
 | `what` | Fields | `ReadResult` payload |
 |---|---|---|
 | `prompt` | `agent: AgentId` | `prompt: [{name, text}]`: the composed prompt, section by section in the order the model reads them, each named for its source (`charter`, `machine`, `project`, `character`, `memory`, `skills`, `place`, `realm`, `scholars` or `errand`). |
-| `history` | `agent: AgentId` | `history: Past[]`: numbered chief conversations, with current flag, title, author, times, message and token counts. |
 | `models` | `refresh?: boolean` | `models: Listed[]`: name, `title` (what its provider calls it; empty when it gives no name), price, price source, context size, note, `efforts` (the efforts the model can be asked for, weakest first), `defaultEffort` (`null` while unknown), `fast` (whether its provider has a fast tier) and `images?` (what it takes of images: `maxWidth?`, `maxHeight?`, `maxBytes?` and `perLine?`; absent when it takes none). `refresh` refreshes discovery. |
 | `image` | `image: ImageId`, `size?: "original" \| "thumbnail"` | `image: {mime: string, data: string}`: the image's bytes in base64, as they were sent for `original` (the default), or a small copy for `thumbnail`. A refusal replies when the realm keeps no such image. |
 | `papers` | `of: Keeper`, `full?: boolean` | `papers: Papers`: character, memory files (`path`, `description`, `text`), the paths a hire's lodge `learned` against its scholar, and skill names/descriptions. By default, character and memory texts are trimmed and cut to 6000 Unicode code points each; `full: true` returns them uncut. |
@@ -232,10 +230,10 @@ These are all members of `ServerMessage`. Each row has `type` as shown.
 |---|---|---|---|
 | `state` (`State`) | `epoch`, `revision`, `chief: string`, `confinement: Confinement`, `hand: AgentId`, `hamlets: Hamlet[]`, `agents: Agent[]`, `scholars: Scholar[]`, `limits: RealmLimits`, `waits: Wait[]`, `grants: Grant[]`, `settings: SettingsView`, `providers: ProviderView[]`, `realm: string`, `library: LibrarySkill[]`, `closed: ClosedHamlet[]`, `deeds: {name: string, usage: string, description: string}[]`, `terminals: TerminalView[]` | Full realm snapshot. | Every client that said hello; a new client gets its own initial snapshot. |
 | `change` (`Changes`) | `epoch`, `revision`, `changes: Update[]` | Realm updates since the previous revision. | Every client that said hello. |
-| `transcript` (`Transcript`) | `to?: RequestId`, `chat: ChatRef`, `number?: integer`, `items: Item[]`, `earlier: string \| null`, `last: {what: string, at: integer} \| null`, `working: boolean`, `pending: integer`, `usage: UsageView` | A page, or replacement page after a reset. `number` is the chief conversation's stable number. | Only clients watching that chat; a requested page goes to its requester. |
-| `turn` (`Turn`) | `chat: ChatRef`, `number?: integer`, `ops: TranscriptOperation[]` | Live transcript operations, in order. | Only clients watching that chat. |
+| `transcript` (`Transcript`) | `to?: RequestId`, `chat: ChatRef`, `items: Item[]`, `earlier: string \| null`, `last: {what: string, at: integer} \| null`, `working: boolean`, `pending: integer`, `held: boolean`, `usage: UsageView` | A page, or replacement page after a reset. | Only clients watching that chat; a requested page goes to its requester. |
+| `turn` (`Turn`) | `chat: ChatRef`, `ops: TranscriptOperation[]` | Live transcript operations, in order. | Only clients watching that chat. |
 | `reply` (`Reply`) | `to: RequestId`, `kind: "notice" \| "error" \| "rewound"`, `text: string`, `upload?: string`, `image?: ImageId`, `images?: AttachedImage[]`, `file?: FileId`, `files?: AttachedFile[]` | Request receipt, refusal or words recovered by rewind, with the images and files of the line taken back (`images`, `files`), each with its `at` in the words returned. | Only the connection that asked. |
-| `read` (`ReadResult`) | `to: RequestId` and one of `prompt`, `history`, `models`, `image`, `papers`, `charter` as above | Requested document or list. | Only the connection that asked. |
+| `read` (`ReadResult`) | `to: RequestId` and one of `prompt`, `models`, `image`, `papers`, `charter` as above | Requested document or list. | Only the connection that asked. |
 | `login` (`LoginProgress`) | `login: string`, `to?: RequestId`, `step: LoginStep` | Sign-in session progress. | Only the connection that started the session. |
 | `fault` (`Fault`) | `text: string`, `to?: RequestId` | Protocol, watch or connection failure. | Only the affected connection. |
 | `terminal` (`TerminalOutput`) | `terminal: string`, `data: string`, `reset: boolean`, `to?: RequestId` | Bytes a terminal printed, in base64. With `reset`, they redraw it from a blank screen of its size: the answer to a watch, or a catch-up for a connection whose queue filled and that skipped output. A redraw starts with the size its first byte was printed at and marks each resize after, as `ESC ] hamlet;size;<cols>;<rows> BEL`, so each part is drawn at the size it was printed at (`hamlet_protocol::client::replayed` splits them). The server keeps the last 512 KB of what a terminal printed, so a redraw ends with what its trim may have cut away: on the alternate screen, that screen as it shows, then the input modes its program set, such as reading the mouse and bracketed paste. Both ends resize a screen with `hamlet_protocol::screen::resize`, which wraps what was printed again at the new width, as a terminal window does. | Only connections watching it. |
@@ -253,8 +251,7 @@ full reach and no enforced network switch, or `remote` when the workspace
 is another machine.
 
 `Agent` is a summary: `id`, `kind` (`hand`, `hire` or `worker`), `hamlet`, `scholar`, `parent`, a hire's `pin` (the version of its scholar it is held at, `null` while it follows `main`), the address, which is its `name` (`hand`, `hire#<id>`, `worker#<id>`), a hire's or a worker's `nickname` (`null` while a hire goes by its scholar's name and a worker by its address), `purpose`, `model` (the one it runs now), `ownModel` (the one chosen for it, `null` while it follows its hamlet's or the realm's), `effort` (its own, `null` while it follows the realm's), `fast` (whether it asks for the provider's fast tier), `mayor`, `busy` and
-`faulted` flags, `activity`, `saying`, `spent`, `since`, `skills`, a hire's `allowance` (dollars a budget period, left out while it has none), a hire's `toolsOff` (the built-in tools turned off for it, left out while none are), `consulting` and
-`conversations` (the peer conversations it holds), and `left?` once it has left. It contains no
+`faulted` flags, `activity`, `saying`, `spent`, `since`, `skills`, a hire's `allowance` (dollars a budget period, left out while it has none), a hire's `toolsOff` (the built-in tools turned off for it, left out while none are), a hire's `learned` (`true` while its branch holds what it learned that no dream has brought home to its scholar's `main`, the same test that makes it due to dream; left out while not), `consulting`, and `left?` once it has left. An agent at rest that asked another a question not yet answered has the activity `await`, with `doingWords` "Waiting on" and the address and name of the agent it asked. It contains no
 transcript. `Hamlet`, `Wait`, `Grant`, `SettingsView` and `ProviderView`
 are the complete views defined in `hamlet_protocol`. `SettingsView.workspace`
 is `{url, running, move?}`: the remote workspace chosen and the
@@ -264,12 +261,20 @@ workspace since the server started: `state` (`moving`, `moved` or `failed`),
 lodges `done` of `of`, and its outcome as `text`.
 
 `Item` has `id: string`, `at: integer`, `kind`, `text: string`, and optional
-`chief`, `author`, `rewindable`, `tool`, `images` (the `AttachedImage`s a chief's
+`chief`, `author`, `from`, `queued`, `rewindable`, `tool`, `images` (the `AttachedImage`s a chief's
 line carried) and `files` (its `AttachedFile`s), each with its `at` in `text`; the transcript holds ids and never bytes. Its kind is `user`, `assistant`,
-`reasoning`, `tool`, `notice`, `error` or `answered`, the chief's answers
-to questions. Peer inputs use `author`, not `chief`. Item IDs identify an
+`reasoning`, `tool`, `notice`, `error`, `answered`, the chief's answers
+to questions, `summary`, whose `text` is the summary that stands for the
+earlier part of the conversation in the model's context, or `merged`, a
+hire merged into this one. A notification, request or response from another agent
+is a `user` item with `author`, its sender's address and name, and `from`,
+its `AgentId`, not `chief`; its `text` is the words without the heading the
+model reads them under. A `merged` item's `from` is the absorbed hire and
+its `text` that hire's name. `queued: true` marks an input its turn has not
+taken up yet. Item IDs identify an
 entry and content block (`<entryId>:<block>`); use them as opaque cursors. Tool details are `name`, `summary`, nullable
-`exit`, `ms`, `failure` and `change`. A tool argument summary holds at most
+`exit`, `ms`, `failure` and `change`, and `agent`, the agent a society call
+sent to or started, once it ended. A tool argument summary holds at most
 200 Unicode code points. A `Change` preview holds at most 200 lines, each
 at most 240 characters, plus total and added/removed counts.
 
@@ -296,10 +301,11 @@ operations with `hamlet_protocol::client::transcript::apply`.
 
 | `op` | Fields | Meaning |
 |---|---|---|
-| `add` | `item: Item`, `replaces?: string` | Add an item, replacing the named provisional item if supplied. |
+| `add` | `item: Item`, `replaces?: string` | Add an item, replacing the named provisional or queued item if supplied. A queued item goes last; any other goes before the queued ones. |
 | `append` | `item: string`, `text: string` | Append text to that item. |
-| `close` | `item: string`, `exit: integer`, `ms: integer \| null`, `failure: string \| null`, `change?: Change \| null` | Close a tool item. |
-| `status` | `working: boolean`, `pending: integer`, `last: {what: string, at: integer} \| null` | Replace work and queue status. |
+| `close` | `item: string`, `exit: integer`, `ms: integer \| null`, `failure: string \| null`, `change?: Change \| null`, `agent?: AgentId` | Close a tool item, with the agent a society call reached. |
+| `remove` | `item: string` | Remove an item, such as a queued line taken back. |
+| `status` | `working: boolean`, `pending: integer`, `held: boolean`, `last: {what: string, at: integer} \| null` | Replace work and queue status; `held` while a chief's stop holds the queue. |
 | `usage` | `usage: UsageView` | Replace usage totals. |
 | `reset` | None | Clear the transcript; a new `transcript` follows. |
 
@@ -329,17 +335,22 @@ are separate from the wire page size.
 excluding the cursor item. An unknown cursor is a fault. Paging an existing
 watch leaves its live subscription running, even if the page request fails.
 
-Peer conversations (`from` and `kind`) are read-only. `say`, `stop`,
-`rewind`, `new`, `resume` and `retry` cannot edit a peer conversation.
-`rewind` explicitly refuses a peer or past `ChatRef` in
-`clients/requests.rs`. The other five messages take an `AgentId`, not a
-peer `ChatRef`, and act on the chief conversation or agent. Adding peer chat
-fields to them is malformed. Opening a peer watch does not retarget writes.
+A conversation runs one turn at a time. The server keeps every input and
+sends its runtime the next only when the turn before has ended: a chief's
+lines and retries first, then notifications, requests and responses in
+the order they came. Notices, a merge's input, an error response and
+compactions are not turns and are sent at once. The inputs that wait are
+the last items of the transcript, with `queued`, in the order their turns
+will run, and the watchers get `add` and `remove` as that changes. A
+queued item taken up becomes an ordinary row in its place, an `add` with
+`replaces`. `stop` ends the running turn and holds the conversation:
+everything queued stays queued, and no turn starts until the chief's next
+`say`, which runs first, or `resume`. The transcript's `status` carries
+`held` while it lasts.
 
 Without a watch, conversation activity appears only through realm `change`
 messages: activity, saying, spend and busy state. A full `state` also carries
-these summaries. Fetch history with `read`, then open the numbered chat to
-read its items. Past chief conversations are read-only until resumed.
+these summaries.
 
 ## Ordering and notices
 
@@ -348,13 +359,14 @@ settled, not that all work in the conversation ended. A `rewound` reply
 gives the removed chief words back to the input field. A request's reply is
 not ordered against a chat's `turn` and `transcript` messages. A reset and
 its replacement transcript are sent together, with no message between them.
-Reflections and retries show as notices, as does a compaction.
+Reflections and retries show as notices. A compaction shows as a `summary`
+item and a merge as a `merged` item.
 
 A `Wait` has the fields every wait has (`id`, `by`, `agent`, `about`,
 `subject`, `change`, `answers`, `since`, `asked`, `chat`) and a `detail`
 discriminated by `kind`: `approval` with its `danger` (`network`, `unconfined`, `destructive`, `reserved`, `edit`, `command` or `send`, files an agent sends over what one send holds), the agent's wish as
-`says` and how long `always` lasts (`session`, `grant`, or `null` when it is
-not offered); `fault`; `question` with its `questions`; `objection`; or
+`says` and how long `always` lasts (`session`, the rest of the agent's
+conversation, `grant`, or `null` when it is not offered); `fault` with `setup`, `{cause: "model" | "credentials", model: string}` when the cause is one a chief sets up once for every agent it stops, else `null`, and its `about` in plain words, never a runtime's code; `question` with its `questions`; `objection`; or
 `newcomer` with the `scholar` waiting at the harbor, whose answers are
 `welcome` and `dismiss`, which leaves it waiting. `subject` is the line of
 `about` a one-line view quotes. A
@@ -365,9 +377,8 @@ settings; a model check waits at most 90 s.
 
 Every state and change carries the society and realm in full:
 
-- `Agent.consulting` and `conversations` describe library work and incoming
-  peer conversations. `Agent.left` describes a departure, and only an agent
-  that left has one.
+- `Agent.consulting` describes library work. `Agent.left` describes a
+  departure, and only an agent that left has one.
 - `Hamlet.roads` carry road ends by `AgentId`, their kind and traffic.
   `Hamlet.mayor` is the hire at the root of its tree. `Hamlet.at` is the hamlet's position, or `null`
   for a hamlet never set down, which stands on the first free site.
@@ -383,8 +394,9 @@ Every state and change carries the society and realm in full:
 - `State.realm` names the realm's folder on the server's machine so local
   links and pictures can exclude it, including through symlinks.
 
-Archived agents remain in state with `left` until erased. Peer turns contribute to activity and
-spend even when no chief watches their conversation.
+Archived agents remain in state with `left` until erased. Turns of
+notifications, requests and responses contribute to activity and spend even when
+no chief watches their conversation.
 
 `hamlet_client` reconciles state and changes into entities, keeping the
 entities of hamlets and agents still present. When reconnecting it sends

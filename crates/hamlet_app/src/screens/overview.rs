@@ -637,6 +637,7 @@ fn closed() -> AnyView {
                 {
                     let id = hamlet.id.clone();
                     let at = hamlet.at;
+                    let name = hamlet.name.clone();
                     card.push(
                         close((
                             note(format!(
@@ -669,6 +670,11 @@ fn closed() -> AnyView {
                                                         && h.at == at
                                                 })
                                         {
+                                            crate::hub::erasure::expect_hamlet(
+                                                world,
+                                                id.clone(),
+                                                name.clone(),
+                                            );
                                             chat::command(
                                                 world,
                                                 format!(

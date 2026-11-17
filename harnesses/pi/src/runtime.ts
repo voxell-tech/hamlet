@@ -552,12 +552,20 @@ class Runtime {
         const known = { ...bound, key, sessionId: provider.sessionId };
         this.#known.set(String(bound.conversation), known);
         this.#bySession.set(provider.sessionId, known);
+        // A generation looks its conversation's own model up before each call, so every model the endpoint's
+        // conversations were made with is listed, not only the first.
+        const { provider: endpoint, id } = bound.model;
         if (
-            bound.model.provider !== FAUX.provider &&
-            this.#models.getProvider(bound.model.provider) === undefined
+            endpoint !== FAUX.provider &&
+            this.#models.getModel(endpoint, id) === undefined
         )
             this.#models.setProvider(
-                modelProvider(bound.model, this.#gate, this.#providers),
+                modelProvider(
+                    bound.model,
+                    this.#gate,
+                    this.#providers,
+                    this.#models.getProvider(endpoint)?.getModels(),
+                ),
             );
         return known;
     }
@@ -743,6 +751,22 @@ class Runtime {
                                   ...(request.boundary === true
                                       ? { edits: [] }
                                       : {}),
+                                  ...(request.content === undefined
+                                      ? {}
+                                      : {
+                                            model: [
+                                                {
+                                                    role: "user" as const,
+                                                    content: [
+                                                        {
+                                                            type: "text" as const,
+                                                            text: request.content,
+                                                        },
+                                                    ],
+                                                    timestamp: Date.now(),
+                                                },
+                                            ],
+                                        }),
                               },
                           },
                     context,
@@ -762,6 +786,25 @@ class Runtime {
                                   : { detail: record.detail }),
                           }
                         : {}),
+                });
+                return;
+            }
+            case "compact": {
+                const conversation = await this.#conversation(
+                    request.conversation,
+                    re,
+                    context,
+                );
+                if (conversation === undefined) return;
+                const task = await conversation.compact(
+                    request.instructions,
+                    context,
+                );
+                this.#channel.send({
+                    type: "admitted",
+                    re,
+                    submission: String(task),
+                    status: "done",
                 });
                 return;
             }

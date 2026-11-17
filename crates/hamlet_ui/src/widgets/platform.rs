@@ -26,7 +26,7 @@ use bevy::picking::pointer::PointerButton;
 use bevy::text::{
     DEFAULT_FONT_DATA, EditableText, Font, FontCx, FontSize,
     FontSource, FontVariationTag, FontVariations, FontWeight,
-    LetterSpacing, TextFont,
+    GenericFontFamily, LetterSpacing, TextFont,
 };
 use bevy::ui::widget::Text;
 use bevy::ui::{
@@ -42,6 +42,7 @@ use bevy_fynix::EntityCursor;
 use bevy_fynix::dock::DockTab;
 use bevy_fynix::tokens::{TextTokens, Tone};
 use bevy_fynix::views::RichField;
+use hamlet_assets::File;
 use hamlet_assets::fonts::{
     FRAUNCES, INTER, JETBRAINS_MONO, TWEMOJI,
 };
@@ -122,21 +123,30 @@ pub fn install_fonts(world: &mut World) {
     world.insert_resource(Mono(mono));
     world.insert_resource(TerminalFace(terminal));
     world.insert_resource(Display(display));
-    install_emoji(&mut world.resource_mut::<FontCx>());
+    let mut cx = world.resource_mut::<FontCx>();
+    install_family(&mut cx, &INTER, GenericFontFamily::SansSerif);
+    install_family(&mut cx, &TWEMOJI, GenericFontFamily::Emoji);
 }
 
-/// Makes Twemoji the emoji family.
-fn install_emoji(cx: &mut FontCx) {
+/// Makes the face in `file` the family `generic` stands for. An empty
+/// text is laid out in the sans-serif family, which has no face
+/// otherwise, so its line, and a field's caret on it, would have no
+/// height.
+fn install_family(
+    cx: &mut FontCx,
+    file: &File,
+    generic: GenericFontFamily,
+) {
     // Registered here, since a family is named only once it is in
     // the collection, and a font asset is not until the first layout.
-    let emoji = Font::from_bytes(TWEMOJI.bytes.to_vec());
-    let added = cx.collection.register_fonts(emoji.data, None);
+    let font = Font::from_bytes(file.bytes.to_vec());
+    let added = cx.collection.register_fonts(font.data, None);
     let name = added
         .first()
         .and_then(|(family, _)| cx.collection.family_name(*family))
         .map(str::to_owned);
     if let Some(name) = name {
-        let _ = cx.set_emoji_family(&name);
+        let _ = cx.set_generic_family(generic, &name);
     }
 }
 
@@ -556,5 +566,53 @@ mod tests {
             app.world().resource::<InputFocus>().get(),
             Some(input)
         );
+    }
+
+    #[test]
+    fn an_empty_text_has_a_line_a_caret_can_stand_on() {
+        use bevy::asset::{AssetApp, AssetPlugin};
+        use bevy::camera::{
+            Camera, Camera2d, ComputedCameraValues, RenderTargetInfo,
+        };
+        use bevy::image::{Image, TextureAtlasLayout};
+        use bevy::math::UVec2;
+        use bevy::text::{ComputedTextBlock, TextPlugin};
+        use bevy::ui::UiPlugin;
+
+        let mut app = App::new();
+        app.add_plugins((
+            AssetPlugin::default(),
+            bevy::time::TimePlugin,
+            bevy::transform::TransformPlugin,
+            bevy::input::InputPlugin,
+            bevy::picking::PickingPlugin,
+            bevy::picking::InteractionPlugin,
+            TextPlugin,
+            UiPlugin,
+        ))
+        .init_asset::<Image>()
+        .init_asset::<TextureAtlasLayout>();
+        install_fonts(app.world_mut());
+        app.world_mut().spawn((
+            Camera2d,
+            Camera {
+                computed: ComputedCameraValues {
+                    target_info: Some(RenderTargetInfo {
+                        physical_size: UVec2::splat(100),
+                        scale_factor: 1.0,
+                    }),
+                    ..Default::default()
+                },
+                ..Default::default()
+            },
+        ));
+        let text = app.world_mut().spawn(Text::new("")).id();
+        app.update();
+
+        let block =
+            app.world().get::<ComputedTextBlock>(text).unwrap();
+        let line = block.buffer().lines().next().unwrap();
+        let line = line.metrics();
+        assert!(line.block_max_coord > line.block_min_coord);
     }
 }

@@ -1,31 +1,30 @@
-//! Reflection (C5): an agent told to keep what a chat taught it, in
-//! its memory and its skills, after enough answered turns, when its
-//! session is put away, or when a chief requests it.
+//! Reflection (C5): an agent told to keep what its conversation
+//! taught it, in its memory and its skills, after enough answered
+//! turns or when a chief requests it.
 
 use anyhow::Result;
 use diesel::prelude::*;
 use hamlet_store::ids::ConversationId;
 use hamlet_store::schema::{chat, conversation, reflection};
 
-use super::chats;
 use super::inputs::{self, InputKind, Keep};
 use super::marks::Mark;
 use super::tasks::{self, Origin};
 use crate::conversations::{self, Kind};
 use crate::realm::change::Change;
 
-/// The automatic instruction to keep a session's lessons (C5).
+/// The automatic instruction to keep a conversation's lessons (C5).
 pub(crate) const REFLECT: &str =
     "Reflection time (automatic, not from a chief). Look back over \
-     this session. Keep what is worth remembering about the chiefs \
-     and the lessons learned in your memory/ folder, and save or \
-     improve a skill in skills/ for anything you did that is likely \
-     to come up again. If nothing is worth keeping, say so in one \
-     line.";
+     your conversation since your last reflection. Keep what is \
+     worth remembering about the chiefs and the lessons learned in \
+     your memory/ folder, and save or improve a skill in skills/ \
+     for anything you did that is likely to come up again. If \
+     nothing is worth keeping, say so in one line.";
 
 /// Counts a chief's turn of `id` that was answered, and requests a
-/// reflection once `every` turns were, or at once when its session
-/// was put away. Returns the reflection's request when one was made.
+/// reflection once `every` turns were. Returns the reflection's
+/// request when one was made.
 pub(crate) fn answered(
     cx: &mut Change<'_>,
     id: ConversationId,
@@ -39,50 +38,22 @@ pub(crate) fn answered(
         .execute(cx.db)?;
     let kept = conversations::get(cx.db, id)?;
     let every = i64::try_from(every)?;
-    // A session put away while this turn was ending owed nothing
-    // then, so it reflects now.
-    let put_away = match kept.chief {
-        Some(chief) => {
-            let current =
-                chats::current_number(cx.db, kept.agent, chief)?
-                    .map(|number| {
-                        chats::session(
-                            cx.db, kept.agent, chief, number,
-                        )
-                    })
-                    .transpose()?
-                    .flatten();
-            current.is_some_and(|current| current != id)
-        }
-        None => false,
-    };
-    if !put_away && (every == 0 || kept.unreflected < every) {
+    if every == 0 || kept.unreflected < every {
         return Ok(None);
     }
     reflect(cx, id)
 }
 
-/// Tells the chat `id` to reflect on the turns it answered since its
-/// last reflection, unless one is pending or none were answered.
-pub(crate) fn owed(
-    cx: &mut Change<'_>,
-    id: ConversationId,
-) -> Result<Option<String>> {
-    if conversations::get(cx.db, id)?.unreflected == 0 {
-        return Ok(None);
-    }
-    reflect(cx, id)
-}
-
-/// Tells the chat `id` to reflect now.
+/// Tells the conversation `id` to reflect now.
 pub(crate) fn reflect(
     cx: &mut Change<'_>,
     id: ConversationId,
 ) -> Result<Option<String>> {
     let kept = conversations::get(cx.db, id)?;
-    let (Kind::Chat, Some(chief)) = (kept.kind, kept.chief) else {
+    if kept.kind != Kind::Chat {
         return Ok(None);
-    };
+    }
+    let chief = crate::society::chiefs::first(cx.db)?;
     let pending = reflection::table
         .filter(reflection::conversation.eq(id))
         .count()
@@ -92,20 +63,15 @@ pub(crate) fn reflect(
         return Ok(None);
     }
     let number = chat::table
-        .find((kept.agent, chief))
+        .find(kept.agent)
         .select(chat::reflections)
         .first::<i64>(cx.db)
         .optional()?
         .unwrap_or(0)
         + 1;
     let request = format!("reflection:{id}:{number}");
-    let task = tasks::mint(
-        cx,
-        Origin::Reflection,
-        kept.agent,
-        Some(chief),
-        None,
-    )?;
+    let task =
+        tasks::mint(cx, Origin::Reflection, kept.agent, chief, None)?;
     let kept_input = inputs::keep(
         cx,
         Keep {
@@ -137,7 +103,7 @@ pub(crate) fn reflect(
     diesel::update(conversation::table.find(id))
         .set(conversation::unreflected.eq(0))
         .execute(cx.db)?;
-    diesel::update(chat::table.find((kept.agent, chief)))
+    diesel::update(chat::table.find(kept.agent))
         .set(chat::reflections.eq(number))
         .execute(cx.db)?;
     cx.touched.agents.insert(kept.agent);

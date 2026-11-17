@@ -9,7 +9,7 @@ use hamlet_protocol::client::{self as protocol, transcript};
 
 use crate::index::{Index, Refiled};
 use crate::messages::{
-    JobFinished, Reconnected, Response, SessionOutput,
+    ChatOutput, JobFinished, Reconnected, Response,
 };
 use crate::outbox::Outbox;
 use crate::realm::Chief;
@@ -23,7 +23,6 @@ pub fn plugin(app: &mut App) {
     world.register_component::<Transcript>();
     world.register_component::<Status>();
     world.register_component::<Usage>();
-    world.register_component::<ConversationNumber>();
     app.init_resource::<Watches>()
         .add_observer(watch)
         .add_observer(unwatch)
@@ -186,11 +185,6 @@ pub fn receive(world: &mut World, message: protocol::ServerMessage) {
                 {
                     pending.stale = true;
                 }
-                if let Some(number) = page.number {
-                    world
-                        .entity_mut(chat)
-                        .insert(ConversationNumber(number));
-                }
                 let mut items = page
                     .items
                     .iter()
@@ -209,21 +203,20 @@ pub fn receive(world: &mut World, message: protocol::ServerMessage) {
                     world,
                     chat,
                     page.working,
-                    page.pending,
-                    page.last
-                        .as_ref()
-                        .map(|last| (last.at, last.what.clone())),
+                    Status {
+                        pending: page.pending,
+                        held: page.held,
+                        last: page
+                            .last
+                            .as_ref()
+                            .map(|last| (last.at, last.what.clone())),
+                    },
                 );
                 world
                     .entity_mut(chat)
                     .insert(Usage(page.usage.clone()));
             }
             protocol::ServerMessage::Turn(turn) => {
-                if let Some(number) = turn.number {
-                    world
-                        .entity_mut(chat)
-                        .insert(ConversationNumber(number));
-                }
                 for operation in &turn.operations {
                     if matches!(
                         operation,
@@ -237,6 +230,7 @@ pub fn receive(world: &mut World, message: protocol::ServerMessage) {
                     }
                     match operation {
                         protocol::TranscriptOperation::Status {
+                            held,
                             working,
                             pending,
                             last,
@@ -245,10 +239,13 @@ pub fn receive(world: &mut World, message: protocol::ServerMessage) {
                                 world,
                                 chat,
                                 *working,
-                                *pending,
-                                last.as_ref().map(|last| {
-                                    (last.at, last.what.clone())
-                                }),
+                                Status {
+                                    pending: *pending,
+                                    held: *held,
+                                    last: last.as_ref().map(|last| {
+                                        (last.at, last.what.clone())
+                                    }),
+                                },
                             );
                         }
                         protocol::TranscriptOperation::Usage {
@@ -263,7 +260,7 @@ pub fn receive(world: &mut World, message: protocol::ServerMessage) {
                             .unwrap()
                             .apply(operation, &chief),
                     }
-                    world.trigger(SessionOutput {
+                    world.trigger(ChatOutput {
                         chat,
                         operation: operation.clone(),
                     });
@@ -274,19 +271,22 @@ pub fn receive(world: &mut World, message: protocol::ServerMessage) {
     }
 }
 
+/// Takes in what the server told of `chat`: whether it runs, and
+/// `told`, whose `pending` counts the queued alone.
 fn status(
     world: &mut World,
     chat: Entity,
     working: bool,
-    pending: u64,
-    last: Option<(u64, String)>,
+    told: Status,
 ) {
     let mut said = world.get_mut::<Transcript>(chat).unwrap();
     let finished = said.answering && !working;
     said.answering = working;
     let mut status = world.get_mut::<Status>(chat).unwrap();
-    status.pending = pending + u64::from(working);
-    status.last = last;
+    *status = Status {
+        pending: told.pending + u64::from(working),
+        ..told
+    };
     if finished {
         world.trigger(JobFinished { chat });
     }
@@ -297,6 +297,7 @@ fn received_item(item: protocol::Item, chief: &str) -> Item {
         protocol::ItemKind::User if item.author.is_some() => {
             Entry::Agent {
                 name: item.author.unwrap(),
+                from: item.from,
                 text: item.text,
             }
         }
@@ -311,8 +312,14 @@ fn received_item(item: protocol::Item, chief: &str) -> Item {
         protocol::ItemKind::Notice => Entry::Notice(item.text),
         protocol::ItemKind::Error => Entry::Error(item.text),
         protocol::ItemKind::Answered => Entry::Answered(item.text),
+        protocol::ItemKind::Summary => Entry::Summary(item.text),
+        protocol::ItemKind::Merged => Entry::Merged {
+            from: item.from,
+            name: item.text,
+        },
         protocol::ItemKind::Tool => {
             let tool = item.tool.unwrap_or(protocol::ItemTool {
+                agent: None,
                 name: String::new(),
                 summary: String::new(),
                 exit: None,
@@ -327,12 +334,14 @@ fn received_item(item: protocol::Item, chief: &str) -> Item {
                 ms: tool.ms,
                 failure: tool.failure,
                 change: tool.change,
+                agent: tool.agent,
             }
         }
     };
     Item {
         id: item.id,
         at: item.at,
+        queued: item.queued,
         entry,
     }
 }
@@ -381,10 +390,6 @@ pub fn earlier(world: &mut World, chat: Entity) {
 #[require(Transcript, Status)]
 pub struct Chat(pub protocol::ChatRef);
 
-/// The server's stable conversation number for a watched chat.
-#[derive(Component, Clone, Copy, Debug, PartialEq, Eq)]
-pub struct ConversationNumber(pub i64);
-
 /// The agent addressed by a chat.
 #[derive(Component, Clone, Copy, Debug, PartialEq, Eq)]
 #[relationship(relationship_target = Conversations)]
@@ -424,14 +429,26 @@ pub enum Entry {
         ms: Option<u64>,
         failure: Option<String>,
         change: Option<protocol::Change>,
+        /// The agent a `tell`, `ask` or `start_worker` call reached.
+        agent: Option<protocol::AgentId>,
     },
     Error(String),
     Notice(String),
     /// The chief's answers, with each question quoted above them.
     Answered(String),
+    /// A message from another agent, by its address.
     Agent {
         name: String,
+        from: Option<protocol::AgentId>,
         text: String,
+    },
+    /// The summary that stands for the earlier part of the
+    /// conversation.
+    Summary(String),
+    /// Another hire's conversation merged into this one, by its name.
+    Merged {
+        from: Option<protocol::AgentId>,
+        name: String,
     },
 }
 
@@ -442,6 +459,8 @@ pub struct Item {
     pub entry: Entry,
     /// Milliseconds since 1970.
     pub at: u64,
+    /// A line its turn has not taken up yet.
+    pub queued: bool,
 }
 
 impl transcript::Kept for Item {
@@ -457,8 +476,9 @@ impl transcript::Kept for Item {
             | Entry::Reasoning(shown)
             | Entry::Notice(shown)
             | Entry::Answered(shown)
+            | Entry::Summary(shown)
             | Entry::Error(shown) => shown.push_str(text),
-            Entry::Tool { .. } => {}
+            Entry::Tool { .. } | Entry::Merged { .. } => {}
         }
     }
 
@@ -468,6 +488,7 @@ impl transcript::Kept for Item {
             ms,
             failure,
             change,
+            agent,
             ..
         } = &mut self.entry
         else {
@@ -479,7 +500,14 @@ impl transcript::Kept for Item {
         if let Some(closed) = closed.change {
             *change = closed.cloned();
         }
+        if closed.agent.is_some() {
+            *agent = closed.agent;
+        }
         true
+    }
+
+    fn is_queued(&self) -> bool {
+        self.queued
     }
 }
 
@@ -510,7 +538,8 @@ impl Transcript {
                 self.shape += 1;
             }
             protocol::TranscriptOperation::Add { .. }
-            | protocol::TranscriptOperation::Close { .. } => {
+            | protocol::TranscriptOperation::Close { .. }
+            | protocol::TranscriptOperation::Remove { .. } => {
                 self.shape += 1;
             }
             _ => {}
@@ -569,6 +598,8 @@ impl Transcript {
 pub struct Status {
     /// Messages queued or running.
     pub pending: u64,
+    /// A chief's stop holds what waits until a line or a resume.
+    pub held: bool,
     pub last: Option<(u64, String)>,
 }
 
@@ -614,10 +645,7 @@ mod tests {
 
     fn with(id: u64) -> protocol::ChatRef {
         protocol::ChatRef {
-            kind: None,
-            from: None,
             with: protocol::AgentId(id),
-            past: None,
         }
     }
 

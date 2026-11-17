@@ -20,7 +20,7 @@ use std::collections::BTreeMap;
 use anyhow::Result;
 use bevy_ecs::entity::Entity;
 use hamlet_protocol::runtime::{self, ServerMessage};
-use hamlet_store::ids::Actor;
+use hamlet_store::ids::{Actor, ConversationId};
 use hamlet_store::marker::{Identity, Request};
 use serde_json::{Map, Value};
 
@@ -31,7 +31,7 @@ use crate::attachments::images::fitting::kept_pictures;
 use crate::conversations::marks::Mark;
 use crate::conversations::{Conversation, Kind, inputs, questions};
 use crate::core::Core;
-use crate::society::oversight::gate::{Session, TurnGate};
+use crate::society::oversight::gate::TurnGate;
 use crate::society::oversight::{self, Raise, Ruling, WaitKind};
 use crate::tools::builtin::Outcome;
 use crate::tools::catalogue::Society;
@@ -235,7 +235,7 @@ impl Core<'_, '_> {
     /// Puts the questions of `call` to the chief, or gives the
     /// chief's answer once there is one. `Err` is the runtime's
     /// answer while it waits or when it may put no more questions.
-    fn ask_chief(
+    fn request_chief(
         &mut self,
         call: &Call<'_>,
     ) -> Result<std::result::Result<Outcome, Answer>> {
@@ -325,6 +325,7 @@ impl Core<'_, '_> {
                         hamlet_protocol::client::Choice::Dismiss,
                     ],
                     questions: Some(questions),
+                    setup: None,
                 },
             )?;
             held::hold(cx.db, &runtime, &key, wait, None)
@@ -332,9 +333,13 @@ impl Core<'_, '_> {
         Ok(Err(Answer::Waiting(WAITING.into())))
     }
 
-    /// Tells whether a chief oversees the turn that makes `call`: a
-    /// chief's line, or a retry or reflection in a chief's chat.
+    /// Tells whether a chief oversees the turn that makes `call`: any
+    /// turn of an agent's one conversation, which its chiefs have, or
+    /// a chief's own line elsewhere.
     fn is_overseen(&mut self, call: &Call<'_>) -> Result<bool> {
+        if call.conversation.kind == Kind::Chat {
+            return Ok(true);
+        }
         let Some(submission) = call.input else {
             return Ok(false);
         };
@@ -347,31 +352,14 @@ impl Core<'_, '_> {
         else {
             return Ok(false);
         };
-        Ok(match input.mark()? {
-            Mark::Chief { .. } => true,
-            Mark::Retry { .. } | Mark::Reflection { .. } => {
-                call.conversation.kind == Kind::Chat
-            }
-            _ => false,
-        })
+        Ok(matches!(input.mark()?, Mark::Chief { .. }))
     }
 }
 
-/// The chat session of `conversation`, whose edits and commands a
-/// chief may trust.
-pub(crate) fn chat_session(
+/// `conversation` when a chief may trust its edits and commands: an
+/// agent's one conversation.
+pub(crate) fn trusting(
     conversation: &Conversation,
-) -> Option<Session> {
-    match (
-        conversation.kind,
-        conversation.chief,
-        conversation.session,
-    ) {
-        (Kind::Chat, Some(chief), Some(session)) => Some(Session {
-            agent: conversation.agent,
-            chief,
-            session,
-        }),
-        _ => None,
-    }
+) -> Option<ConversationId> {
+    (conversation.kind == Kind::Chat).then_some(conversation.id)
 }

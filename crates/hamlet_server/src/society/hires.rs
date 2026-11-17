@@ -35,6 +35,15 @@ pub(crate) struct Hire {
     pub allowance: Option<Micros>,
     pub allowance_by: Option<Actor>,
     pub merged_into: Option<AgentId>,
+    pub ending_dream: bool,
+}
+
+/// Whether a hire that ends dreams once more, to bring what it
+/// learned home to its scholar.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub(crate) enum LastDream {
+    Without,
+    With,
 }
 
 /// The scholar a hire is of.
@@ -230,6 +239,22 @@ pub(crate) fn living_of(
         .load(db)?)
 }
 
+/// The hires ended with a last dream since `since`, and when each
+/// ended.
+pub(crate) fn ended_to_dream(
+    db: &mut Db,
+    since: i64,
+) -> Result<Vec<(AgentId, i64)>> {
+    Ok(hire::table
+        .inner_join(agent::table)
+        .filter(hire::ending_dream.eq(true))
+        .filter(agent::ended_at.ge(since))
+        .filter(agent::erased.eq(false))
+        .order(agent::ended_at)
+        .select((hire::agent, agent::ended_at.assume_not_null()))
+        .load(db)?)
+}
+
 pub(crate) fn count_living(
     db: &mut Db,
     hamlet: &HamletId,
@@ -270,12 +295,14 @@ pub(crate) fn require_living(db: &mut Db, id: AgentId) -> Done<()> {
     Ok(Ok(()))
 }
 
-/// Ends the living hire `id`. Its children go to its parent, but when
-/// its whole hamlet is removed and the tree is kept to come back.
+/// Ends the living hire `id`, with or without a last dream. Its
+/// children go to its parent, but when its whole hamlet is removed
+/// and the tree is kept to come back.
 pub(crate) fn end(
     cx: &mut Change<'_>,
     id: AgentId,
     how: EndHow,
+    last: LastDream,
     reason: &str,
 ) -> Done<()> {
     let hire = get(cx.db, id)?;
@@ -302,6 +329,9 @@ pub(crate) fn end(
         )?;
     }
     agents::end(cx, id, how, reason)?;
+    diesel::update(hire::table.find(id))
+        .set(hire::ending_dream.eq(last == LastDream::With))
+        .execute(cx.db)?;
     jobs::add(cx, &Job::Commit { hire: id })?;
     cx.touched.hamlets.insert(hire.hamlet);
     cx.touched.scholars.insert(hire.scholar);

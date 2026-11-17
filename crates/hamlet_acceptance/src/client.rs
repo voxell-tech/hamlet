@@ -23,14 +23,9 @@ pub const PATIENCE: Duration = Duration::from_secs(20);
 
 type Socket = WebSocketStream<MaybeTlsStream<TcpStream>>;
 
-/// The chief's current conversation with `with`.
+/// The conversation of `with`.
 pub fn chat(with: AgentId) -> ChatRef {
-    ChatRef {
-        with,
-        from: None,
-        kind: None,
-        past: None,
-    }
+    ChatRef { with }
 }
 
 /// An authenticated connection and everything it received.
@@ -440,17 +435,6 @@ impl Client {
                 ..
             }) => papers,
             other => panic!("a papers read got {other:?}"),
-        }
-    }
-
-    /// Reads an agent's numbered chief conversations.
-    pub async fn history(&mut self, agent: AgentId) -> Vec<Past> {
-        match self.read(|id| Read::History { agent, id }).await {
-            ServerMessage::Read(ReadResult::History {
-                history,
-                ..
-            }) => history,
-            other => panic!("a history read got {other:?}"),
         }
     }
 

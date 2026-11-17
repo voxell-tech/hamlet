@@ -49,7 +49,7 @@ pub(crate) enum WaitKind {
     Approval,
     /// A turn that failed, which a chief can only dismiss.
     Fault,
-    /// `ask_chief`'s questions.
+    /// `request_chief`'s questions.
     Question,
     /// An objection to a chief's instruction.
     Objection,
@@ -212,6 +212,7 @@ pub(crate) struct Wait {
     pub change: Option<String>,
     pub answers: String,
     pub questions: Option<String>,
+    pub setup: Option<String>,
     pub since: i64,
     pub asked: i64,
     pub open: bool,
@@ -264,6 +265,9 @@ pub(crate) struct Raise {
     pub change: Option<String>,
     pub answers: Vec<Choice>,
     pub questions: Option<Questions>,
+    /// A fault's cause a chief sets up once for every agent it
+    /// stops.
+    pub setup: Option<protocol::Setup>,
 }
 
 /// Raises `raise`, or raises again the open wait that is about the
@@ -307,6 +311,11 @@ pub(crate) fn raise(
             wait::change.eq(&raise.change),
             wait::answers.eq(serde_json::to_string(&raise.answers)?),
             wait::questions.eq(questions),
+            wait::setup.eq(raise
+                .setup
+                .as_ref()
+                .map(serde_json::to_string)
+                .transpose()?),
             wait::since.eq(cx.at),
         ))
         .returning(wait::id)
@@ -451,22 +460,9 @@ fn view(db: &mut Db, wait: &Wait) -> Result<protocol::Wait> {
     let chat = match wait.conversation {
         Some(id) => {
             let kept = conversations::get(db, id)?;
-            match (kept.kind, kept.chief, kept.session) {
-                (Kind::Chat, Some(chief), Some(session)) => {
-                    let current =
-                        conversations::chats::current_number(
-                            db, kept.agent, chief,
-                        )?;
-                    Some(protocol::ChatRef {
-                        with: wire_agent(kept.agent),
-                        past: (current != Some(session))
-                            .then_some(session),
-                        from: None,
-                        kind: None,
-                    })
-                }
-                _ => None,
-            }
+            (kept.kind == Kind::Chat).then(|| protocol::ChatRef {
+                with: wire_agent(kept.agent),
+            })
         }
         None => None,
     };
@@ -484,7 +480,13 @@ fn view(db: &mut Db, wait: &Wait) -> Result<protocol::Wait> {
                 says: danger.says().into(),
             }
         }
-        WaitKind::Fault => WaitDetail::Fault {},
+        WaitKind::Fault => WaitDetail::Fault {
+            setup: wait
+                .setup
+                .as_deref()
+                .map(serde_json::from_str)
+                .transpose()?,
+        },
         WaitKind::Question => WaitDetail::Question {
             questions: wait.questions()?.unwrap_or(Questions {
                 message: String::new(),

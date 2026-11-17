@@ -1,7 +1,7 @@
 //! The realm as a client sees it: composed from the database, the
 //! repositories and what the agents are doing now.
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 
 use anyhow::Result;
 use diesel::prelude::*;
@@ -12,7 +12,7 @@ use hamlet_store::ids::{AgentId, HamletId, ScholarId};
 use hamlet_store::schema::{agent, message, permission_grant};
 
 use crate::conversations::activity::{self, Activity};
-use crate::conversations::{self, errands, inputs, models};
+use crate::conversations::{errands, inputs, models};
 use crate::knowledge;
 use crate::realm::layout::Layout;
 use crate::realm::settings::EffectiveSettings;
@@ -34,6 +34,8 @@ pub(crate) struct Sources<'a> {
     pub chief: String,
     pub confinement: protocol::Confinement,
     pub activity: &'a BTreeMap<AgentId, Activity>,
+    /// The hires whose branch holds what no dream took home yet.
+    pub learned: &'a BTreeSet<AgentId>,
     pub providers: Vec<protocol::ProviderView>,
     pub deeds: Vec<protocol::Deed>,
     pub settings_view: protocol::SettingsView,
@@ -174,9 +176,21 @@ fn agent_view(
     .unwrap_or_default();
     let shown = sources.activity.get(&id);
     // A conversation shown for its failed turn does nothing now.
-    let doing = shown
+    let mut doing = shown
         .filter(|a| a.working)
         .map_or(protocol::Doing::Rest, |a| a.doing.clone());
+    let mut doing_words = activity::words(&doing).to_owned();
+    // An agent at rest that asked another waits on its answer.
+    if doing == protocol::Doing::Rest
+        && let Some(asked) =
+            crate::conversations::messages::awaited(db, id)?
+                .first()
+                .copied()
+    {
+        doing = protocol::Doing::Await;
+        doing_words =
+            format!("Waiting on {}", addresses::name_of(db, asked)?);
+    }
     let spent = spend::of_agent(db, id, at)?;
     let left = match (found.ended_at, found.ended_how) {
         (Some(ended), Some(how)) => Some(protocol::Left {
@@ -228,7 +242,7 @@ fn agent_view(
     };
     Ok(protocol::Agent {
         activity: protocol::AgentActivity {
-            doing_words: activity::words(&doing).into(),
+            doing_words,
             doing,
             failures: shown.map_or(0, |a| {
                 u64::try_from(a.failures).unwrap_or(0)
@@ -244,7 +258,6 @@ fn agent_view(
                 id,
                 crate::calls::society::library::LIBRARIAN,
             )?,
-        conversations: peers(db, id)?,
         effort: found.effort.map(Effort::wire),
         faulted: shown.is_some_and(|a| a.faulted),
         fast: found.fast,
@@ -255,6 +268,7 @@ fn agent_view(
             AgentKind::Hire => protocol::AgentKind::Hire,
             AgentKind::Worker => protocol::AgentKind::Worker,
         },
+        learned: sources.learned.contains(&id),
         left,
         mayor,
         model,
@@ -297,42 +311,6 @@ fn lodge_skills(lodge: &std::path::Path) -> Vec<String> {
     names
 }
 
-/// The conversations other agents keep with `id`, by sender and kind.
-fn peers(
-    db: &mut Db,
-    id: AgentId,
-) -> Result<Vec<protocol::ConversationView>> {
-    let mut out = Vec::new();
-    for kept in conversations::of_agent(db, id)? {
-        let (Some(peer), kind) = (kept.peer, kept.kind) else {
-            continue;
-        };
-        let kind = match kind {
-            conversations::Kind::Letters => {
-                protocol::ConversationViewKind::Letters
-            }
-            conversations::Kind::Questions => {
-                protocol::ConversationViewKind::Questions
-            }
-            _ => continue,
-        };
-        let sent = message::table
-            .filter(message::to_conversation.eq(kept.id))
-            .select((
-                diesel::dsl::count_star(),
-                diesel::dsl::max(message::at),
-            ))
-            .first::<(i64, Option<i64>)>(db)?;
-        out.push(protocol::ConversationView {
-            count: sent.0,
-            kind,
-            last: sent.1,
-            with: wire_agent(peer),
-        });
-    }
-    Ok(out)
-}
-
 fn hamlet_view(
     db: &mut Db,
     place: &Hamlet,
@@ -341,7 +319,7 @@ fn hamlet_view(
     let own = limits::of(db, &place.id)?;
     let mut roads_shown = Vec::new();
     let living = hires::living_in(db, &place.id)?;
-    let mut seen = std::collections::BTreeSet::new();
+    let mut seen = BTreeSet::new();
     for hire in &living {
         for (other, way) in roads::ways(db, hire.agent)? {
             let pair = (hire.agent.min(other), hire.agent.max(other));

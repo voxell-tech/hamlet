@@ -1,6 +1,7 @@
 //! The way back in a conversation: the mark on one of the chief's
 //! own messages that takes the conversation back to it, and the
 //! message's words put in the field to be changed and sent again.
+//! A message that still waits its turn is taken back by a cross.
 
 use bevy::app::App;
 use bevy::camera::visibility::Visibility;
@@ -20,8 +21,8 @@ use bevy::ui::{
 };
 use bevy_fynix::views::{BehaviorExt, FrameProps, button, column};
 use bevy_fynix::{Signal, Visual, resource};
-use hamlet_client::chats::{Chat, Status};
-use hamlet_client::messages::Rewound;
+use hamlet_client::chats::Status;
+use hamlet_client::messages::{Rewound, Withdraw};
 use hamlet_ui::styles::{ICON, Looks, Tipped};
 use hamlet_ui::widgets::effects::Variant;
 use hamlet_ui::widgets::icons::{Glyph, glyph};
@@ -80,6 +81,25 @@ pub(super) fn mark(session: Entity, entry: String) -> impl View {
         cx.world.entity_mut(node).insert(Visibility::Hidden);
         node
     })
+}
+
+/// The cross beside the chief's line `entry` of `session` that waits
+/// its turn, which takes it back.
+pub(super) fn withdraw(session: Entity, entry: String) -> impl View {
+    let back = button(glyph(Glyph::Cross, ICON))
+        .padding(UiRect::all(px(AROUND)))
+        .tip("Take back")
+        .variant(Variant::Text)
+        .on_activate(move |world| {
+            world.trigger(Withdraw {
+                chat: session,
+                item: entry.clone(),
+            });
+        });
+    column((back,))
+        .justify(JustifyContent::Center)
+        .padding(UiRect::right(px(AROUND)))
+        .shrink(0.0)
 }
 
 /// Asks before the conversation `session` is taken back to its
@@ -189,7 +209,7 @@ pub(super) fn ringed(
 fn reveal(
     hover: On<Insert<Hovered>>,
     rows: Query<(&Hovered, &Rewinds)>,
-    sessions: Query<(&Status, Option<&Chat>)>,
+    sessions: Query<&Status>,
     under: Query<&Children>,
     mut marks: Query<&mut Visibility, With<Mark>>,
 ) {
@@ -198,10 +218,7 @@ fn reveal(
         return;
     };
     let working =
-        sessions.get(rewinds.session).is_ok_and(|(status, chat)| {
-            status.is_working()
-                || chat.is_some_and(|chat| chat.0.past.is_some())
-        });
+        sessions.get(rewinds.session).is_ok_and(Status::is_working);
     let want = match hovered.get() && !working {
         true => Visibility::Inherited,
         false => Visibility::Hidden,

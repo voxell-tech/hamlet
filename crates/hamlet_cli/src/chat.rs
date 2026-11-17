@@ -12,12 +12,32 @@ use tokio::io::{AsyncBufReadExt, BufReader};
 use crate::client::{self, Client, ServerAddress};
 use crate::mentions;
 
+/// The command that takes back the chief's last queued line, kept in
+/// the terminal.
+const UNSEND: &str = "/unsend";
+
+/// The start of the id of a line that waits its turn.
+const QUEUED: &str = "queued:";
+
 fn chat_ref(with: AgentId) -> ChatRef {
-    ChatRef {
-        with,
-        from: None,
-        kind: None,
-        past: None,
+    ChatRef { with }
+}
+
+/// A tool call as a line: what a notification or a request said and
+/// to whom, else the tool and its arguments.
+fn tool_line(tool: &ItemTool) -> String {
+    let arguments =
+        serde_json::from_str::<serde_json::Value>(&tool.summary).ok();
+    let said = arguments.as_ref().and_then(|arguments| {
+        let words = match tool.name.as_str() {
+            "notify" | "request" => arguments["text"].as_str(),
+            _ => None,
+        }?;
+        Some((arguments["to"].as_str()?, words))
+    });
+    match said {
+        Some((to, words)) => format!("[{} {to}]\n{words}", tool.name),
+        None => format!("[{}] {}", tool.name, tool.summary),
     }
 }
 
@@ -81,6 +101,9 @@ pub async fn run(
             deed.description
         );
     }
+    eprintln!(
+        "  {UNSEND}: Take back your last line that waits its turn"
+    );
     if state.settings.unset {
         eprintln!(
             "Set up a provider with `hamlet login <provider> \
@@ -104,8 +127,6 @@ pub async fn run(
         ending: false,
         final_id: None,
         pending: HashSet::new(),
-        numbers: HashMap::new(),
-        pinned: HashSet::new(),
     };
     let chat = chat_ref(session.target);
     session.open(RequestId::new(), chat).await?;
@@ -158,10 +179,6 @@ struct Session {
     final_id: Option<RequestId>,
     /// The lines said and not yet answered.
     pending: HashSet<RequestId>,
-    /// The current conversation's number, by agent.
-    numbers: HashMap<AgentId, i64>,
-    /// The past conversations opened to finish their turns.
-    pinned: HashSet<(AgentId, i64)>,
 }
 
 impl Session {
@@ -233,6 +250,9 @@ impl Session {
                 eprintln!("error: {error:#}");
             }
             return prompt(&mut self.screen, self.interactive);
+        }
+        if command == UNSEND {
+            return self.unsend().await;
         }
         if !matches!(command, "/agent" | "/hamlet" | "/hand") {
             return self.say_line(line).await;
@@ -392,6 +412,25 @@ impl Session {
             .await
     }
 
+    /// Takes back the chief's last line to the agent talked to that
+    /// waits its turn.
+    async fn unsend(&mut self) -> Result<()> {
+        let chat = chat_ref(self.target);
+        let Some(item) = self.screen.last_queued(&chat)? else {
+            eprintln!("  (no line of yours waits its turn)");
+            return prompt(&mut self.screen, self.interactive);
+        };
+        let id = RequestId::new();
+        self.pending.insert(id.clone());
+        self.client
+            .send(ClientMessage::Withdraw(Withdraw {
+                chat,
+                id,
+                item,
+            }))
+            .await
+    }
+
     /// Takes a server message. True once the chat is over.
     async fn on_message(
         &mut self,
@@ -405,19 +444,8 @@ impl Session {
         {
             bail!("{}", fault.text);
         }
-        self.track(&message).await?;
-        let chat = match &message {
-            ServerMessage::Transcript(t) => Some(&t.chat),
-            ServerMessage::Turn(t) => Some(&t.chat),
-            _ => None,
-        };
-        let duplicate = chat.is_some_and(|chat| {
-            chat.past.is_some()
-                && chat.past == self.numbers.get(&chat.with).copied()
-        });
-        if !duplicate {
-            self.screen.show(&message)?;
-        }
+        self.track(&message);
+        self.screen.show(&message)?;
         let waiting = self.interactive && self.last.is_none();
         if let ServerMessage::Transcript(transcript) = &message {
             if !self.prompted {
@@ -450,9 +478,8 @@ impl Session {
         ))
     }
 
-    /// Keeps the state current, and opens a past conversation whose
-    /// turn a new one interrupted.
-    async fn track(&mut self, message: &ServerMessage) -> Result<()> {
+    /// Keeps the state current, and the opens still to be answered.
+    fn track(&mut self, message: &ServerMessage) {
         match message {
             ServerMessage::State(next) => self.state = next.clone(),
             ServerMessage::Change(changes) => {
@@ -464,22 +491,9 @@ impl Session {
                 if let Some(to) = &transcript.to {
                     self.opens.remove(to);
                 }
-                let key = transcript.chat.with;
-                if transcript.chat.past.is_none()
-                    && let Some(number) = transcript.number
-                    && let Some(previous) =
-                        self.numbers.insert(key, number)
-                    && previous != number
-                    && self.pinned.insert((key, previous))
-                {
-                    let mut chat = chat_ref(transcript.chat.with);
-                    chat.past = Some(previous);
-                    self.open(RequestId::new(), chat).await?;
-                }
             }
             _ => {}
         }
-        Ok(())
     }
 }
 
@@ -613,12 +627,35 @@ impl Screen {
             }
             ItemKind::Tool => {
                 if let Some(tool) = &item.tool {
-                    self.line(&format!(
-                        "\n  [{}] {}",
-                        tool.name, tool.summary
-                    ))?;
+                    self.line(&format!("\n  {}", tool_line(tool)))?;
                 }
             }
+            ItemKind::Summary => {
+                self.line("\n  (earlier messages summarized)")?;
+            }
+            ItemKind::Merged => {
+                self.line(&format!(
+                    "\n  (merged from {})",
+                    item.text
+                ))?;
+            }
+            // A line taken up was shown while it waited.
+            ItemKind::User
+                if replaces
+                    .is_some_and(|id| id.starts_with(QUEUED)) => {}
+            ItemKind::User => match (&item.author, item.queued) {
+                (Some(author), queued) => {
+                    let waits = if queued { "queued, " } else { "" };
+                    self.line(&format!(
+                        "\n  [{waits}from {author}]\n{}",
+                        item.text
+                    ))?;
+                }
+                (None, true) => self.line(&format!(
+                    "  (queued; {UNSEND} takes it back)"
+                ))?,
+                (None, false) => {}
+            },
             ItemKind::Notice => {
                 self.line(&format!("\n  ({})", item.text))?;
             }
@@ -628,9 +665,20 @@ impl Screen {
             ItemKind::Answered => {
                 self.line(&format!("\n  chief:\n{}", item.text))?;
             }
-            ItemKind::User => {}
         }
         Ok(())
+    }
+
+    /// The id of the chief's last line in `chat` that waits its turn.
+    fn last_queued(&self, chat: &ChatRef) -> Result<Option<String>> {
+        let key = serde_json::to_string(chat)?;
+        Ok(self.views.get(&key).and_then(|items| {
+            items
+                .iter()
+                .rev()
+                .find(|item| item.queued && item.chief.is_some())
+                .map(|item| item.id.clone())
+        }))
     }
 
     fn wait(&mut self, wait: &Wait) -> Result<()> {
@@ -656,7 +704,7 @@ impl Screen {
             WaitDetail::Question { .. } => {
                 ("question", format!("{by} asks: {subject}"))
             }
-            WaitDetail::Fault {} => {
+            WaitDetail::Fault { .. } => {
                 ("fault", format!("{by} failed: {subject}"))
             }
             WaitDetail::Newcomer { .. } => (
@@ -683,13 +731,9 @@ impl Screen {
         ))
     }
 
-    fn item_id(
-        chat: &ChatRef,
-        number: Option<i64>,
-        id: &str,
-    ) -> String {
+    fn item_id(chat: &ChatRef, id: &str) -> String {
         if id.starts_with("live:") {
-            format!("{}:{:?}:{id}", chat.with.0, number.or(chat.past))
+            format!("{}:{id}", chat.with.0)
         } else {
             id.into()
         }
@@ -722,8 +766,7 @@ impl Screen {
             ServerMessage::Transcript(t) => {
                 let mut items = t.items.clone();
                 for item in &mut items {
-                    item.id =
-                        Self::item_id(&t.chat, t.number, &item.id);
+                    item.id = Self::item_id(&t.chat, &item.id);
                 }
                 if !self.opened {
                     let last = items.iter().rposition(|item| {
@@ -745,11 +788,7 @@ impl Screen {
                     self.add(item, None)?;
                 }
                 self.views.insert(
-                    format!(
-                        "{}:{:?}",
-                        serde_json::to_string(&t.chat)?,
-                        t.number.or(t.chat.past)
-                    ),
+                    serde_json::to_string(&t.chat)?,
                     t.items.clone(),
                 );
                 if !t.working {
@@ -757,15 +796,10 @@ impl Screen {
                 }
             }
             ServerMessage::Turn(t) => {
-                let key = format!(
-                    "{}:{:?}",
-                    serde_json::to_string(&t.chat)?,
-                    t.number.or(t.chat.past)
-                );
+                let key = serde_json::to_string(&t.chat)?;
                 let mut items =
                     self.views.remove(&key).unwrap_or_default();
-                let id =
-                    |raw: &str| Self::item_id(&t.chat, t.number, raw);
+                let id = |raw: &str| Self::item_id(&t.chat, raw);
                 for operation in &t.operations {
                     let applied = transcript::apply(
                         &mut items,

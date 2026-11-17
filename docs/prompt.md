@@ -14,7 +14,7 @@ sections; the pi harness asks for them before each request.
 | The character | `CHARACTER.md` at the tip of the hire's branch (the Hand's, at its scholar's), at most 4000 characters | A chief |
 | The memory | The files at the root of the lodge's `memory/`, at most 8000 characters in all, then each folder's `description:` from its `MEMORY.md` | The agent |
 | The skills | The lodge's skills, then the library's, with descriptions and how to run them | The agent; the librarian |
-| The place | Who the agent is, whom it answers to, the hires under it, the roads it can write along, the tools its lead turned off, and how its hamlet was run lately | The record |
+| The place | Who the agent is, whom it answers to, the hires under it, the roads it can send messages along, the tools its lead turned off, and how its hamlet was run lately; that this is its one conversation, that a message from an agent opens with a heading in brackets naming it, as `[A notification from hire#3 (Mira)]`, and that only a chief's own lines carry a chief's instructions | The record |
 | The realm | For the Hand and mayors, the other hamlets, their mayors and hires; a realm with none says so and that a chief or the Hand can found one | The realm's record |
 | The scholars | For the Hand and a lead, the living scholars it may hire, each as `scholar#<id> (<name>)`, since no name finds one | The city |
 

@@ -110,7 +110,7 @@ impl Core<'_, '_> {
                     owner: &owner,
                     agent: lead,
                     instructions: &instructions,
-                    question: &question,
+                    content: &question,
                     task: Some(task),
                 },
             )?;

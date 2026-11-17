@@ -10,7 +10,7 @@ use hamlet_protocol::client::{FileId, Imported, ImportedEntry};
 use hamlet_protocol::runtime::{self, Earlier};
 use hamlet_store::Db;
 use hamlet_store::ids::{AgentId, ChiefId, ConversationId, HamletId};
-use hamlet_store::schema::{chat, chat_session, import};
+use hamlet_store::schema::import;
 use schemars::generate::SchemaSettings;
 use serde_json::Value;
 
@@ -209,40 +209,18 @@ fn is_brought_in(
         .is_some())
 }
 
-/// Begins a session of `chief`'s chat with `agent` with `imported`,
-/// current only when the chat has none. Returns its number.
+/// Begins the conversation of the hire `agent`, made for `imported`,
+/// with `imported`'s entries.
 fn begin(
     cx: &mut Change<'_>,
     env: &EffectiveSettings,
     agent: AgentId,
     chief: ChiefId,
     imported: &Imported,
-) -> Result<i64> {
+) -> Result<()> {
     let source = imported.source.word();
-    let has_chat =
-        chats::current_number(cx.db, agent, chief)?.is_some();
-    let number = chats::sessions(cx.db, agent, chief)?
-        .last()
-        .map_or(1, |(number, _, _)| number + 1);
-    let conversation = chats::begin(cx, env, agent, chief, number)?;
-    if !has_chat {
-        diesel::insert_into(chat::table)
-            .values((
-                chat::agent.eq(agent),
-                chat::chief.eq(chief),
-                chat::current.eq(number),
-            ))
-            .execute(cx.db)?;
-    }
-    diesel::insert_into(chat_session::table)
-        .values((
-            chat_session::agent.eq(agent),
-            chat_session::chief.eq(chief),
-            chat_session::session.eq(number),
-            chat_session::conversation.eq(conversation),
-            chat_session::began.eq(time(imported.began)?),
-        ))
-        .execute(cx.db)?;
+    let conversation = chats::begin(cx, env, agent)?;
+    chats::set(cx.db, agent, conversation)?;
     let name = chiefs::find(cx.db, chief)?
         .context("the chief is not in the realm")?
         .name;
@@ -258,7 +236,7 @@ fn begin(
         ))
         .execute(cx.db)?;
     cx.touched.agents.insert(agent);
-    Ok(number)
+    Ok(())
 }
 
 /// The conversation a client sent as the file `id`, checked against

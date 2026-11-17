@@ -79,7 +79,7 @@ pub(crate) fn judge(
             owner: &owner(id),
             agent: the_hand,
             instructions: &instructions,
-            question: &question,
+            content: &question,
             task: Some(task),
         },
     )?;

@@ -1,5 +1,5 @@
-//! Roads, along which agents send letters and questions (H3, H14,
-//! H30): the tree's, the mayors', and those laid or agreed.
+//! Roads, along which agents send notifications and requests (H3,
+//! H14, H30): the tree's, the mayors', and those laid or agreed.
 
 use anyhow::Result;
 use diesel::deserialize::FromSqlRow;

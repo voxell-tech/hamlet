@@ -25,17 +25,18 @@ use hamlet_store::Db;
 use hamlet_store::ids::{Actor, ConversationId};
 
 use super::failure::{self, Failure};
-use super::input::InputOrigin;
+use super::input::{InputOrigin, InputSender};
 use super::tasks::BackgroundWork;
 use crate::calls::place;
 use crate::calls::tool_runs::{self, ToolRuns, UnstartedToolRun};
 use crate::clients::check::{failed, fault};
 use crate::clients::{Connections, check};
 use crate::conversations::completion::follow;
+use crate::conversations::dreams::Learned;
 use crate::conversations::inputs::Resend;
 use crate::core::{Catalogue, Core, RemoteWorkspace};
 use crate::knowledge::worker::{
-    RepositoryWriteLock, Runner, run_due,
+    RepositoryWriteLock, Runner, after_jobs, run_due,
 };
 use crate::providers::Providers;
 use crate::realm::Realm;
@@ -83,6 +84,7 @@ pub(crate) fn plugin(app: &mut App) {
                     send_runtimes_what_they_are_owed
                         .run_if(may_owe_runtimes),
                     wake_held_calls,
+                    requeue.run_if(may_owe_runtimes),
                 )
                     .chain()
                     .in_set(SendSystems::SendRuntimesWhatTheyAreOwed),
@@ -362,12 +364,17 @@ fn run_kept_jobs(
     writing: Res<RepositoryWriteLock>,
     runner: Res<Runner>,
     mut remote: RemoteWorkspace,
+    mut learned: ResMut<Learned>,
+    inputs: Res<InputSender>,
 ) {
     super::fault::point("jobs");
     let layout = realm.layout().clone();
     let db = realm.store().connection();
     match run_due(db, &layout, &writing) {
-        Ok(done) => remote.owe_pushes(db, &done),
+        Ok(done) => {
+            remote.owe_pushes(db, &done);
+            after_jobs(&mut realm, &mut learned, &inputs, &done);
+        }
         Err(error) => {
             error!("running jobs: {error:#}");
         }
@@ -412,6 +419,13 @@ fn send_runtimes_what_they_are_owed(
     for runtime in all {
         reconciliation::flush(&mut owed, runtime, Resend::Nothing)?;
     }
+    Ok(())
+}
+
+/// Shows the watchers of each watched conversation what waits in it
+/// now, once its runtime was sent what it is owed.
+fn requeue(mut core: Core) -> Result {
+    core.requeue()?;
     Ok(())
 }
 

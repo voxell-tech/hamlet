@@ -190,6 +190,11 @@ pub struct Busy;
 #[derive(Component, Clone, Copy, Debug)]
 pub struct Faulted;
 
+/// A hire whose branch holds what it learned that no dream has
+/// brought home to its scholar's `main` yet.
+#[derive(Component, Clone, Copy, Debug)]
+pub struct Learned;
+
 /// The kind of paper an agent reads or writes.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Paper {
@@ -359,10 +364,6 @@ pub struct Skills(pub Vec<protocol::Skill>);
 #[derive(Resource, Clone, Debug, Default, PartialEq)]
 pub struct Closed(pub Vec<protocol::ClosedHamlet>);
 
-/// The received conversations with other agents.
-#[derive(Component, Clone, Debug, Default, PartialEq)]
-pub struct PeerChats(pub Vec<protocol::ConversationView>);
-
 /// How and when an agent left, as the server sent it.
 #[derive(Component, Clone, Debug, PartialEq)]
 pub struct Departure(pub protocol::Left);
@@ -397,6 +398,7 @@ pub fn register(world: &mut World) {
     world.register_component::<Mayor>();
     world.register_component::<Busy>();
     world.register_component::<Faulted>();
+    world.register_component::<Learned>();
     world.register_component::<Activity>();
     world.register_component::<Saying>();
     world.register_component::<Account>();
@@ -408,7 +410,6 @@ pub fn register(world: &mut World) {
     world.register_component::<Road>();
     world.register_component::<Traffic>();
     world.register_component::<Spot>();
-    world.register_component::<PeerChats>();
 }
 
 /// The `Name` of an entity, or an empty string. An agent's is its
@@ -533,6 +534,15 @@ pub fn scholar(
     id: protocol::ScholarId,
 ) -> Option<Entity> {
     world.get_resource::<Index>()?.scholar(id)
+}
+
+/// The scholar of the city `agent` is of; none for the Hand and a
+/// blank agent, whose scholars are not the city's.
+pub fn city_scholar(world: &World, agent: Entity) -> Option<Entity> {
+    let found = scholar(world, world.get::<OfScholar>(agent)?.0)?;
+    (world.get::<Scholar>(found)?.0.arrival
+        != protocol::Arrival::Apart)
+        .then_some(found)
 }
 
 /// An agent that has left its hamlet.
@@ -796,9 +806,9 @@ fn upsert_agent(
     flag(&mut agent, value.mayor, Mayor);
     flag(&mut agent, value.busy, Busy);
     flag(&mut agent, value.faulted, Faulted);
+    flag(&mut agent, value.learned, Learned);
 
     flag(&mut agent, consulting, Consulting);
-    put(&mut agent, PeerChats(value.conversations));
     if let Some(left) = value.left {
         put(&mut agent, Departure(left));
     } else {

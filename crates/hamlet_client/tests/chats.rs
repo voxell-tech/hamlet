@@ -16,10 +16,7 @@ fn app() -> App {
 /// The current chat with the agent `agent`.
 fn chat_with(agent: u64) -> protocol::ChatRef {
     protocol::ChatRef {
-        kind: None,
-        from: None,
         with: protocol::AgentId(agent),
-        past: None,
     }
 }
 
@@ -47,6 +44,7 @@ fn a_chat_is_watched_until_removed_and_reopens_without_losing_its_items()
         .insert(Transcript::from_items(vec![Item {
             id: "kept:0".into(),
             at: 1000,
+            queued: false,
             entry: Entry::Assistant("kept while reconnecting".into()),
         }]));
     app.world_mut().trigger(Reconnected);
@@ -81,10 +79,10 @@ struct Observed {
 }
 
 fn observe(app: &mut App) {
-    use hamlet_client::messages::{JobFinished, SessionOutput};
+    use hamlet_client::messages::{ChatOutput, JobFinished};
     app.init_resource::<Observed>()
         .add_observer(
-            |event: On<SessionOutput>, mut seen: ResMut<Observed>| {
+            |event: On<ChatOutput>, mut seen: ResMut<Observed>| {
                 seen.output
                     .push((event.chat, event.operation.clone()));
             },
@@ -478,7 +476,6 @@ fn turn(
 ) -> protocol::ServerMessage {
     protocol::ServerMessage::Turn(protocol::Turn {
         chat: reference(),
-        number: Some(1),
         operations,
     })
 }
@@ -493,6 +490,7 @@ fn working_and_last_activity_follow_status_and_finishing_is_not_repeated()
     receive(
         app.world_mut(),
         turn(vec![protocol::TranscriptOperation::Status {
+            held: false,
             working: true,
             pending: 2,
             last: None,
@@ -503,6 +501,7 @@ fn working_and_last_activity_follow_status_and_finishing_is_not_repeated()
         app.world().get::<Transcript>(chat).unwrap().is_answering()
     );
     let idle = turn(vec![protocol::TranscriptOperation::Status {
+        held: false,
         working: false,
         pending: 0,
         last: Some(protocol::LastActivity {
@@ -528,39 +527,6 @@ fn working_and_last_activity_follow_status_and_finishing_is_not_repeated()
 }
 
 #[test]
-fn new_and_resumed_conversations_keep_their_received_number() {
-    use hamlet_client::chats::ConversationNumber;
-    let mut app = app();
-    let chat = app.world_mut().spawn(Chat(reference())).id();
-    let mut numbers = Vec::new();
-    for message in frames(include_str!(
-        "../../hamlet_protocol/frames/new-and-resume.jsonl"
-    )) {
-        let transcript = matches!(
-            &message,
-            protocol::ServerMessage::Transcript(_)
-        );
-        receive(app.world_mut(), message);
-        if transcript {
-            numbers.push(
-                app.world()
-                    .get::<ConversationNumber>(chat)
-                    .unwrap()
-                    .0,
-            );
-        }
-    }
-    // `/new` and `/resume` turn the open watch over, which sends the
-    // session it turned to, as the chief's opening it again does.
-    assert_eq!(numbers, [1, 2, 2, 1, 1]);
-    let said = app.world().get::<Transcript>(chat).unwrap();
-    assert_eq!(said.items().len(), 5);
-    assert!(
-        matches!(&said.items()[0].entry, Entry::Chief { text, .. } if text == "Remember our first conversation.")
-    );
-}
-
-#[test]
 fn a_refused_page_can_be_requested_again() {
     use hamlet_client::chats::earlier;
     let mut app = app();
@@ -571,6 +537,7 @@ fn a_refused_page_can_be_requested_again() {
             Transcript::from_items(vec![Item {
                 id: "first:0".into(),
                 at: 0,
+                queued: false,
                 entry: Entry::Notice("A page".into()),
             }])
             .with_earlier(Some("first:0".into())),
@@ -625,6 +592,8 @@ fn item_kinds_chief_fallback_and_structural_changes_survive_text_streaming()
             text: text.into(),
             chief: None,
             author: None,
+            from: None,
+            queued: false,
             rewindable: None,
             tool: None,
             files: Vec::new(),
@@ -696,6 +665,7 @@ fn item_kinds_chief_fallback_and_structural_changes_survive_text_streaming()
     assert_eq!(said.items().len(), 5);
     let mut tool = item("tool", protocol::ItemKind::Tool, "");
     tool.tool = Some(protocol::ItemTool {
+        agent: None,
         name: "write".into(), summary: "file".into(), exit: None, ms: None, failure: None,
         change: Some(serde_json::from_value(serde_json::json!({
             "path":"file", "created":true, "lines":[], "total":0, "added":0, "removed":0, "count":"empty"
@@ -714,6 +684,7 @@ fn item_kinds_chief_fallback_and_structural_changes_survive_text_streaming()
         receive(
             app.world_mut(),
             turn(vec![protocol::TranscriptOperation::Close {
+                agent: None,
                 item: "tool".into(),
                 exit: 0,
                 ms: Some(1),
@@ -730,16 +701,15 @@ fn item_kinds_chief_fallback_and_structural_changes_survive_text_streaming()
 }
 
 #[test]
-fn past_and_current_chats_receive_only_their_own_frames() {
+fn each_chat_receives_only_its_own_frames() {
     let mut app = app();
     let current = app.world_mut().spawn(Chat(reference())).id();
-    let mut past_ref = reference();
-    past_ref.past = Some(1);
-    let past = app.world_mut().spawn(Chat(past_ref.clone())).id();
+    let other_ref = chat_with(2);
+    let other = app.world_mut().spawn(Chat(other_ref.clone())).id();
     app.update();
     let sent = requests(&mut app);
     assert_eq!(sent.len(), 2);
-    assert!(sent.iter().any(|request| matches!(request, protocol::ClientMessage::Open(open) if open.chat == past_ref)));
+    assert!(sent.iter().any(|request| matches!(request, protocol::ClientMessage::Open(open) if open.chat == other_ref)));
     for message in frames(include_str!(
         "../../hamlet_protocol/frames/turn.jsonl"
     )) {
@@ -755,7 +725,7 @@ fn past_and_current_chats_receive_only_their_own_frames() {
     );
     assert!(
         app.world()
-            .get::<Transcript>(past)
+            .get::<Transcript>(other)
             .unwrap()
             .items()
             .is_empty()
@@ -769,10 +739,10 @@ fn past_and_current_chats_receive_only_their_own_frames() {
     else {
         panic!("transcript");
     };
-    transcript.chat = past_ref;
+    transcript.chat = other_ref;
     receive(app.world_mut(), page);
     assert_eq!(
-        app.world().get::<Transcript>(past).unwrap().items(),
+        app.world().get::<Transcript>(other).unwrap().items(),
         app.world().get::<Transcript>(current).unwrap().items()
     );
     assert!(requests(&mut app).is_empty());
@@ -816,7 +786,6 @@ fn another_transcript_keeps_the_page_outstanding_but_stale() {
         replacement.items.truncate(2);
         replacement.items[1].id = "latest:0".into();
         replacement.earlier = Some("replacement-cursor".into());
-        replacement.number = Some(2);
         replacement.working = true;
         replacement.pending = 3;
         replacement.usage.summary = "Current usage".into();
@@ -842,9 +811,7 @@ fn another_transcript_keeps_the_page_outstanding_but_stale() {
         assert_eq!(said.shape(), kept.shape());
         assert_eq!(said.earlier(), Some("replacement-cursor"));
         assert!(said.is_answering());
-        use hamlet_client::chats::{
-            ConversationNumber, Status, Usage,
-        };
+        use hamlet_client::chats::{Status, Usage};
         assert_eq!(
             app.world().get::<Status>(chat).unwrap().pending,
             4
@@ -852,10 +819,6 @@ fn another_transcript_keeps_the_page_outstanding_but_stale() {
         assert_eq!(
             app.world().get::<Usage>(chat).unwrap().summary(),
             "Current usage"
-        );
-        assert_eq!(
-            app.world().get::<ConversationNumber>(chat).unwrap().0,
-            2
         );
         earlier(app.world_mut(), chat);
         let sent = requests(&mut app);
@@ -882,9 +845,9 @@ fn peer_inputs_keep_their_author_and_never_become_chief_inputs() {
     app.update();
     let page = serde_json::json!({
         "type": "transcript", "chat": reference(), "items": [
-            {"id":"1:0", "at":1, "kind":"user", "text":"Check this", "author":"hire#4 (scout)"},
+            {"id":"1:0", "at":1, "kind":"user", "text":"Check this", "author":"hire#4 (scout)", "from": 4},
             {"id":"2:0", "at":2, "kind":"user", "text":"My instruction", "chief":"chief"}
-        ], "earlier": null, "last": null, "working":false, "pending":0,
+        ], "earlier": null, "last": null, "working":false, "pending":0, "held":false,
         "usage":{"input":0,"output":0,"cached":0,"calls":0,"lastInput":0,"reasoning":0,"unreported":0,"summary":"", "micros":0,"ms":0}
     });
     receive(app.world_mut(), serde_json::from_value(page).unwrap());
@@ -893,6 +856,7 @@ fn peer_inputs_keep_their_author_and_never_become_chief_inputs() {
         items[0].entry,
         Entry::Agent {
             name: "hire#4 (scout)".into(),
+            from: Some(protocol::AgentId(4)),
             text: "Check this".into()
         }
     );

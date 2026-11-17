@@ -1,5 +1,5 @@
-//! The links in a run of words: web addresses and what reads as a
-//! path.
+//! The links in a run of words: web addresses, agents' addresses and
+//! what reads as a path.
 
 use std::ops::Range;
 
@@ -32,6 +32,59 @@ pub(super) fn web(address: &str) -> Option<Target> {
         !address.chars().any(|c| c.is_whitespace() || c.is_control());
     (host.is_alphanumeric() && clean && address.len() <= LONGEST)
         .then(|| Target::Web(address.to_string()))
+}
+
+/// The longest name taken in the parentheses after an agent's
+/// address, in bytes.
+const LONGEST_NAME: usize = 64;
+
+/// `text` as the address of an agent or a scholar: `hand`,
+/// `mayor@<hamlet>`, `hire#<id>`, `worker#<id>` or `scholar#<id>`.
+pub(super) fn agent(text: &str) -> Option<Target> {
+    let numbered = |prefix: &str| {
+        text.strip_prefix(prefix).is_some_and(|id| {
+            (1..=19).contains(&id.len())
+                && id.bytes().all(|b| b.is_ascii_digit())
+        })
+    };
+    let mayor = text.strip_prefix("mayor@").is_some_and(|hamlet| {
+        (1..=LONGEST_NAME).contains(&hamlet.len())
+            && hamlet
+                .chars()
+                .all(|c| c.is_ascii_alphanumeric() || c == '-')
+    });
+    let address = text == "hand"
+        || mayor
+        || ["hire#", "worker#", "scholar#"].into_iter().any(numbered);
+    address.then(|| Target::Agent(text.to_string()))
+}
+
+/// The length of the ` (<name>)` that `rest` opens with, the name a
+/// copied address carries after it, when a word ends with it.
+fn named(rest: &str) -> Option<usize> {
+    let name = rest.strip_prefix(" (")?;
+    let end = name.find(')')?;
+    let after = name[end + 1..].chars().next();
+    let name = &name[..end];
+    let plain = !name.trim().is_empty()
+        && name.len() <= LONGEST_NAME
+        && !name.contains(['(', '\n'])
+        && after
+            .is_none_or(|c| c.is_whitespace() || ENDS.contains(&c));
+    plain.then_some(end + 3)
+}
+
+/// `text` as an agent's address and nothing more, alone or with its
+/// name in parentheses after it.
+fn whole_agent(text: &str) -> Option<Target> {
+    let text = text.trim();
+    agent(text).or_else(|| {
+        let (address, _) = text.split_once(' ')?;
+        let target = agent(address)?;
+        (named(&text[address.len()..])
+            == Some(text.len() - address.len()))
+        .then_some(target)
+    })
 }
 
 /// `word` with no `:line` or `:line:column` after it.
@@ -91,7 +144,7 @@ fn is_path(path: &str) -> bool {
 /// The place `address` leads, as the address of a Markdown link. An
 /// address of any scheme but the web's and mail's leads nowhere.
 pub(super) fn address(address: &str) -> Option<Target> {
-    if let Some(target) = web(address) {
+    if let Some(target) = web(address).or_else(|| agent(address)) {
         return Some(target);
     }
     let path = sans_place(address);
@@ -128,15 +181,46 @@ fn word(word: &str) -> Option<(Range<usize>, Target)> {
             break;
         }
     }
-    let target = web(link).or_else(|| {
+    // `hand` in running words is most often no address.
+    let named_agent = agent(link).filter(|_| link != "hand");
+    let target = web(link).or(named_agent).or_else(|| {
         let path = sans_place(link);
         is_path(path).then(|| Target::Path(path.to_string()))
     })?;
     Some((start..start + link.len(), target))
 }
 
+/// Whether `hand` alone in running words is the Hand's address.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum Hand {
+    Never,
+    /// Only with the name a copied address carries after it.
+    Copied,
+}
+
 /// The links in `text`, each with the part of the text it is.
 fn find(text: &str) -> Vec<(Range<usize>, Target)> {
+    scan(text, Hand::Never)
+}
+
+/// The agents' and scholars' addresses written in `text`, each with
+/// the part of the text it is, the name copied after it included, and
+/// the address. `hand` is one only with its name after it, as it is
+/// copied.
+pub fn agent_addresses(text: &str) -> Vec<(Range<usize>, String)> {
+    scan(text, Hand::Copied)
+        .into_iter()
+        .filter_map(|(part, target)| match target {
+            Target::Agent(address) => Some((part, address)),
+            Target::Web(_)
+            | Target::Path(_)
+            | Target::AgentWords(_) => None,
+        })
+        .collect()
+}
+
+/// The links in `text`, with `hand` an address as `hand` says.
+fn scan(text: &str, hand: Hand) -> Vec<(Range<usize>, Target)> {
     let mut found = Vec::new();
     let mut at = 0;
     while let Some(start) = text[at..]
@@ -147,13 +231,36 @@ fn find(text: &str) -> Vec<(Range<usize>, Target)> {
             .find(char::is_whitespace)
             .map_or(text.len(), |end| start + end);
         let one = &text[start..end];
-        if one.contains(['/', '\\', '.'])
-            && let Some((part, target)) = word(one)
-        {
-            found
-                .push((start + part.start..start + part.end, target));
+        let mut next = end;
+        let opens = one.len() - one.trim_start_matches(OPENS).len();
+        let link = match one.contains(['/', '\\', '.', '#', '@']) {
+            true => word(one),
+            false => (hand == Hand::Copied
+                && &one[opens..] == "hand")
+                .then(|| {
+                    (opens..one.len(), Target::Agent("hand".into()))
+                }),
+        };
+        if let Some((part, target)) = link {
+            let mut part = start + part.start..start + part.end;
+            // A copied address carries its name: `hire#3 (Mira)`.
+            let name = match matches!(target, Target::Agent(_))
+                && part.end == end
+            {
+                true => named(&text[end..]),
+                false => None,
+            };
+            if let Some(name) = name {
+                part.end += name;
+                next = part.end;
+            }
+            if name.is_some()
+                || target != Target::Agent("hand".into())
+            {
+                found.push((part, target));
+            }
         }
-        at = end;
+        at = next;
     }
     found
 }
@@ -163,9 +270,13 @@ fn find(text: &str) -> Vec<(Range<usize>, Target)> {
 pub(super) fn linked(spans: Vec<Span>) -> Vec<Span> {
     let mut all = Vec::with_capacity(spans.len());
     for span in spans {
-        let found = match span.link {
-            Some(_) => Vec::new(),
-            None => find(&span.text),
+        let found = match (&span.link, span.style.code) {
+            (Some(_), _) => Vec::new(),
+            (None, true) => match whole_agent(&span.text) {
+                Some(target) => vec![(0..span.text.len(), target)],
+                None => find(&span.text),
+            },
+            (None, false) => find(&span.text),
         };
         if found.is_empty() {
             all.push(span);
@@ -194,6 +305,7 @@ pub(super) fn linked(spans: Vec<Span>) -> Vec<Span> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::markdown::Style;
 
     /// The links of `text`, each as its words and where it leads.
     fn links(text: &str) -> Vec<(&str, Target)> {
@@ -230,6 +342,51 @@ mod tests {
                 ("./notes/plan.md", path("./notes/plan.md")),
                 ("Cargo.toml", path("Cargo.toml")),
             ]
+        );
+    }
+
+    #[test]
+    fn an_address_takes_the_name_copied_after_it_and_hand_is_one_only_in_code()
+     {
+        let agent = |address: &str| Target::Agent(address.into());
+        assert_eq!(
+            links(
+                "Ask hire#3 (Mira Vale), then worker#12. On the \
+                 other hand (left), see mayor@0b6f-9a and scholar#4 \
+                 (x)y, not hire#x or hire#3, (Mira)."
+            ),
+            [
+                ("hire#3 (Mira Vale)", agent("hire#3")),
+                ("worker#12", agent("worker#12")),
+                ("mayor@0b6f-9a", agent("mayor@0b6f-9a")),
+                ("scholar#4", agent("scholar#4")),
+                ("hire#3", agent("hire#3")),
+            ]
+        );
+        let code = |text: &str| Span {
+            text: text.into(),
+            style: Style {
+                code: true,
+                ..Style::default()
+            },
+            link: None,
+        };
+        assert_eq!(
+            linked(vec![code("hand"), code("hire#3 (Mira)")])
+                .into_iter()
+                .map(|span| span.link)
+                .collect::<Vec<_>>(),
+            [Some(agent("hand")), Some(agent("hire#3"))]
+        );
+        assert_eq!(address("hand"), Some(agent("hand")));
+        // In a field, `hand` is one as it is copied, with its name.
+        let text = "On the other hand, ask hand (The Hand).";
+        assert_eq!(
+            agent_addresses(text)
+                .into_iter()
+                .map(|(range, address)| (&text[range], address))
+                .collect::<Vec<_>>(),
+            [("hand (The Hand)", "hand".to_string())]
         );
     }
 

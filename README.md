@@ -31,7 +31,7 @@ and open-source forever.
   its scholar's `main`. Tag versions, pin a hire to one, revert or fork a
   scholar.
 - **Hamlets that run themselves**: A hamlet's mayor hires, leads and lays
-  the roads its agents' letters and questions travel along. Leads review
+  the roads its agents' notifications and requests travel along. Leads review
   their hires' work.
 - **Agents that grow**: An agent starts with a sandboxed shell, a file
   editor and its memory, and writes its own skills. A librarian shelves
@@ -60,7 +60,7 @@ Hamlet's words in one minute:
 | **Scholar** | Who an agent is: a git repository of its character, memory and skills. |
 | **Hamlet** | Hires of scholars with a budget and, optionally, a folder to work in. |
 | **Mayor** | The hire that leads a hamlet. |
-| **Road** | A path between two agents that their letters travel along. |
+| **Road** | A path between two agents that their messages travel along. |
 
 The shortest path to seeing it work:
 
@@ -80,7 +80,7 @@ your real files alone.
 Early and moving fast.
 
 - **`hamlet_server`** (Rust) owns the realm: the agents, scholars'
-  repositories, roads, letters, library, approvals and budgets.
+  repositories, roads, messages, library, approvals and budgets.
 - **pi harness** (Node processes) owns conversations and model calls.
 - **The window** is a protocol client. Closing it stops no agent.
 - **Tests** use faux and loopback providers. They do not establish

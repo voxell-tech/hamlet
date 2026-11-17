@@ -10,7 +10,7 @@ use std::time::Duration;
 use anyhow::Result;
 use bevy_ecs::message::{Message, Messages};
 use bevy_ecs::resource::Resource;
-use bevy_ecs::system::ResMut;
+use bevy_ecs::system::{Res, ResMut};
 use bevy_log::error;
 use diesel::connection::SimpleConnection;
 use hamlet_store::Store;
@@ -19,6 +19,7 @@ use crate::app::clock;
 use crate::app::failure::panicked;
 use crate::app::follow_up::InputEffects;
 use crate::app::input::{AddHandler, InputSender};
+use crate::conversations::dreams::{DreamEnded, Learned};
 use crate::core::RemoteWorkspace;
 use crate::realm::Realm;
 use crate::realm::jobs::Job;
@@ -43,10 +44,33 @@ fn take_in_jobs_done(
     mut realm: ResMut<Realm>,
     mut remote: RemoteWorkspace,
     mut changed: ResMut<InputEffects>,
+    mut learned: ResMut<Learned>,
+    inputs: Res<InputSender>,
 ) {
     for JobsDone(done) in done.drain() {
         remote.owe_pushes(realm.store().connection(), &done);
+        after_jobs(&mut realm, &mut learned, &inputs, &done);
         changed.state_changed_outside_change = true;
+    }
+}
+
+/// What the hires learned is found again after `done`, and a dream
+/// that ended lets the next one waiting begin.
+pub(crate) fn after_jobs(
+    realm: &mut Realm,
+    learned: &mut Learned,
+    inputs: &InputSender,
+    done: &[Job],
+) {
+    if done.is_empty() {
+        return;
+    }
+    let layout = realm.layout().clone();
+    learned.note(realm.store().connection(), &layout);
+    if done.iter().any(|job| matches!(job, Job::DreamEnd { .. }))
+        && inputs.send(DreamEnded).is_err()
+    {
+        error!("the next dream could not begin: the server stops");
     }
 }
 

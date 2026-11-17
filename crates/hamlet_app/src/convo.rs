@@ -50,12 +50,13 @@ pub(crate) fn chief_name(
     }
 }
 
-/// The chat session this window shows and sends to.
+/// The chat this window shows and sends to.
 ///
-/// Until the realm names the Hand, the session and the agent are
+/// Until the realm names the Hand, the chat and the agent are
 /// placeholders.
 #[derive(Resource)]
 pub struct Convo {
+    /// The watched chat.
     pub session: Entity,
     /// The name the chief signs in with.
     pub name: String,
@@ -91,12 +92,7 @@ pub(crate) fn id_and_shown(
 }
 
 fn watch(world: &mut World, to: protocol::AgentId) -> Entity {
-    let reference = protocol::ChatRef {
-        kind: None,
-        from: None,
-        with: to,
-        past: None,
-    };
+    let reference = protocol::ChatRef { with: to };
     let kept = hamlet_client::chats::find(world, &reference);
     kept.unwrap_or_else(|| {
         world
@@ -126,20 +122,6 @@ pub(crate) fn seat(world: &mut World, agent: Entity) -> Seating {
     Seating::Seated
 }
 
-/// Starts a new session with the agent the chat is with, from
-/// whichever of its sessions is being read, and turns to it.
-pub(crate) fn new_session(world: &mut World) {
-    let agent = world.resource::<Convo>().agent;
-    let Some((to, with)) = id_and_shown(world, agent) else {
-        return;
-    };
-    seat_as(world, agent, to, with);
-    world.trigger(hamlet_client::messages::ChiefMessage::words(
-        to,
-        "/new".into(),
-    ));
-}
-
 fn seat_as(
     world: &mut World,
     agent: Entity,
@@ -147,6 +129,11 @@ fn seat_as(
     with: Option<String>,
 ) {
     let session = watch(world, to);
+    if world.resource::<Convo>().session != session
+        && world.contains_resource::<crate::chat::MergedLines>()
+    {
+        crate::chat::close_merged(world);
+    }
     let mut convo = world.resource_mut::<Convo>();
     convo.session = session;
     convo.agent = agent;

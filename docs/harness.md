@@ -24,8 +24,10 @@ store (ADR 0012).
 - A runtime's versions never change. A runtime that reports other
   versions than it began with is refused.
 - A conversation has a kind, which the server tells the runtime when it
-  creates it: `chat`, `letters`, `questions`, `worker`, `errand` or `dream`.
-  A one-off conversation, such as the librarian's answer or a lead's review,
+  creates it: `chat`, `worker`, `errand` or `dream`. A `chat` is the one
+  conversation of the Hand or a hire, which its chiefs' lines, the
+  notifications, requests and responses of other agents and its workers' answers
+  all go into. A one-off conversation, such as the librarian's answer or a lead's review,
   is an errand: a conversation like any other, bound to a runtime. The agent
   it is for is named by its id.
 
@@ -89,6 +91,29 @@ admits nothing new and answers as the first time did. The server marks an
 input admitted only when the runtime says it kept it, and submits it
 again after a restart or a lost reply (S23).
 
+The server sends a conversation one turn at a time: it submits the next
+input only once the turn before has ended, a chief's lines and retries
+ahead of notifications, requests and responses, and none while a chief
+holds the conversation stopped. What is not a turn is sent at once, held or
+not:
+
+- `write` is an entry written without a turn, admitted once by its
+  request ID: a notice only people see, written at once even while a turn
+  runs, or, with `content`, words the model is given as a user message
+  from the next boundary on, as a merge gives the kept hire the absorbed
+  one's conversation.
+- `compact` asks for the earlier part of a conversation to be summarized
+  now, with `instructions` the summary must keep beside the harness's own,
+  such as who said what. It is answered by `admitted` once the compaction
+  is under way; the summary is placed at once when the conversation is
+  idle, else at its next boundary.
+
+pi also compacts by itself when the context fills (C28). `runtime.ts`
+sets its thresholds from the model's window: 20% of it is kept for an
+answer, and a summary starts in the background 10% of the window before
+that. A compaction is kept as an entry the server shows as a `summary`
+item.
+
 An input may carry images (C33), as may a tool result (C34). The server sends
 their bytes, fitted to the conversation's model, with the submission or the
 result, and keeps only their ids; pi hands them to the model as image
@@ -107,8 +132,9 @@ counts the model as taking them.
 | Attempt identity | The runtime ID with a key local to the runtime | The realm |
 
 A request ID begins with its kind, such as `chief:`, `retry:`, `reflection:`,
-`notice:`, `reply:`, `errand:`, `worker:` or `dream:`. Those of letters and
-questions come from the server's record of them. pi's task IDs are numbers
+`notice:`, `response:`, `errand:`, `worker:`, `dream:`, `compaction:` or
+`merged:`. Those of notifications and
+requests come from the server's record of them. pi's task IDs are numbers
 local to its store, so an operation identity is the runtime ID and the task
 ID together. A provider's tool-call ID is never treated as unique. A model
 attempt names the input it answers with `submission`, the runtime's own ID

@@ -44,6 +44,31 @@ async fn call(
     .await
 }
 
+/// A worker's lodge is not made by anything but its first tool.
+#[tokio::test]
+async fn a_tool_makes_the_lodge_it_works_in() {
+    let scratch = Scratch::new("new-lodge");
+    let place = Place {
+        lodge: scratch.join("workers/7"),
+        folder: None,
+        realm: scratch.to_path_buf(),
+        shared: Vec::new(),
+    };
+    assert!(!place.lodge.exists());
+    let outcome = call(
+        &place,
+        Network::Closed,
+        "write",
+        json!({"path": "note.txt", "content": "kept\n"}),
+    )
+    .await;
+    assert!(!outcome.error, "{outcome:?}");
+    assert_eq!(
+        fs::read_to_string(place.lodge.join("note.txt")).unwrap(),
+        "kept\n"
+    );
+}
+
 // It asserts confinement, or a hand tool started as `bash`, which
 // only a sandbox gives.
 #[cfg(unix)]

@@ -266,7 +266,10 @@ fn recorded_fault_marks_the_agent_and_keeps_the_fault_in_its_needs() {
         .single(world)
         .unwrap();
     assert_eq!(raised.0, founder);
-    assert_eq!(wait.detail, protocol::WaitDetail::Fault {});
+    assert_eq!(
+        wait.detail,
+        protocol::WaitDetail::Fault { setup: None }
+    );
     assert_eq!(
         wait.line(80),
         format!("{} failed: {}", wait.by, wait.about)

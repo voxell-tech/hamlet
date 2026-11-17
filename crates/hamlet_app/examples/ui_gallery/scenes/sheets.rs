@@ -220,11 +220,7 @@ pub(super) fn controls() -> Ui {
     column((
         part(
             "A plain button",
-            states(
-                Glyph::NewSession,
-                "New session",
-                Variant::Default,
-            ),
+            states(Glyph::Notes, "Compact now", Variant::Default),
         ),
         part(
             "The one primary action",

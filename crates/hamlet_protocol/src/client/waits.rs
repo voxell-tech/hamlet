@@ -60,7 +60,12 @@ pub enum WaitDetail {
         says: String,
     },
     #[serde(rename = "fault")]
-    Fault {},
+    Fault {
+        /// The cause, when it is one a chief sets up once for every
+        /// agent it stops.
+        #[serde(deserialize_with = "Option::deserialize")]
+        setup: Option<Setup>,
+    },
     #[serde(rename = "question")]
     Question { questions: Questions },
     #[serde(rename = "objection")]
@@ -69,6 +74,46 @@ pub enum WaitDetail {
     /// the city.
     #[serde(rename = "newcomer")]
     Newcomer { scholar: ScholarId },
+}
+
+/// A fault's cause that a chief sets up once, for every agent it
+/// stops.
+#[derive(
+    Clone,
+    Debug,
+    PartialEq,
+    Eq,
+    Hash,
+    Serialize,
+    Deserialize,
+    JsonSchema,
+)]
+#[serde(deny_unknown_fields)]
+pub struct Setup {
+    pub cause: SetupCause,
+    /// The model the agent runs, as `provider::id`; empty when none
+    /// is chosen.
+    pub model: String,
+}
+
+#[derive(
+    Clone,
+    Copy,
+    Debug,
+    PartialEq,
+    Eq,
+    Hash,
+    Serialize,
+    Deserialize,
+    JsonSchema,
+)]
+pub enum SetupCause {
+    /// No model is set up, or the one chosen is not available.
+    #[serde(rename = "model")]
+    Model,
+    /// The model's provider refused the credentials, or has none.
+    #[serde(rename = "credentials")]
+    Credentials,
 }
 
 #[derive(

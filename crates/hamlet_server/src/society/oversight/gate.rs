@@ -480,44 +480,41 @@ fn refused(
     })
 }
 
-/// The chat session whose edits and commands a chief may trust.
-#[derive(Clone, Copy, Debug, PartialEq)]
-pub(crate) struct Session {
-    pub agent: AgentId,
-    pub chief: ChiefId,
-    pub session: i64,
-}
-
-/// The chief's trust in the edits and in the commands of `session`.
+/// Whether a chief trusts the edits and the commands of
+/// `conversation`.
 pub(crate) fn trusted(
     db: &mut Db,
-    session: Session,
+    conversation: ConversationId,
 ) -> Result<(bool, bool)> {
-    Ok(trust::table
-        .find((session.agent, session.chief, session.session))
+    let rows = trust::table
+        .filter(trust::conversation.eq(conversation))
         .select((trust::edit, trust::command))
-        .first(db)
-        .optional()?
-        .unwrap_or((false, false)))
+        .load::<(bool, bool)>(db)?;
+    Ok(rows
+        .into_iter()
+        .fold((false, false), |(edit, command), (e, c)| {
+            (edit || e, command || c)
+        }))
 }
 
-/// Trusts the edits or the commands of `session` from now on.
+/// Keeps that `chief` trusts the edits or the commands of
+/// `conversation` from now on.
 pub(crate) fn trust(
     db: &mut Db,
-    session: Session,
+    conversation: ConversationId,
+    chief: ChiefId,
     danger: Danger,
 ) -> Result<()> {
     let (edit, command) =
         (danger == Danger::Edit, danger == Danger::Command);
     diesel::insert_into(trust::table)
         .values((
-            trust::agent.eq(session.agent),
-            trust::chief.eq(session.chief),
-            trust::session.eq(session.session),
+            trust::conversation.eq(conversation),
+            trust::chief.eq(chief),
             trust::edit.eq(edit),
             trust::command.eq(command),
         ))
-        .on_conflict((trust::agent, trust::chief, trust::session))
+        .on_conflict((trust::conversation, trust::chief))
         .do_update()
         .set((
             trust::edit.eq(trust::edit.or(excluded(trust::edit))),
@@ -525,20 +522,6 @@ pub(crate) fn trust(
                 .eq(trust::command.or(excluded(trust::command))),
         ))
         .execute(db)?;
-    Ok(())
-}
-
-/// Takes back the trust of a session that is resumed (H11).
-pub(crate) fn reset_trust(
-    db: &mut Db,
-    session: Session,
-) -> Result<()> {
-    diesel::delete(trust::table.find((
-        session.agent,
-        session.chief,
-        session.session,
-    )))
-    .execute(db)?;
     Ok(())
 }
 
