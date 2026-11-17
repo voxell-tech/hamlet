@@ -65,11 +65,14 @@ export function chatActions(config: AgentConfig): ChatHandlers {
             };
         }),
         reflect: askedBy("reflect", reflectNow),
-        login: askedBy("login", (_c, login) => {
+        login: askedBy("login", (c, login) => {
             if (config.signIns === undefined) {
                 return Promise.reject(new Error("this host signs no one in"));
             }
-            return config.signIns.step(login);
+            return config.signIns.step(
+                login,
+                generationOf(c).peers.reach.keep_credential,
+            );
         }),
     };
 }

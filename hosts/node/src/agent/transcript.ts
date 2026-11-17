@@ -41,6 +41,7 @@ import {
     type Usage,
     u32,
 } from "./messages.ts";
+import { scrub, withheld } from "./models.ts";
 import { conversationOfChat, current } from "./sessions.ts";
 import type { Kept } from "./turn.ts";
 
@@ -568,12 +569,15 @@ class Fold {
         if (message === undefined) return [];
         const ops: ChatOp[] = [];
         const at = Math.floor(message.timestamp / 1000);
-        for (const { block, item } of blocksOf(
+        for (const { block, item: whole } of blocksOf(
             message.content,
             (block) => `live:${block}`,
             at,
         )) {
-            if (item.tool !== undefined) continue;
+            if (whole.tool !== undefined) continue;
+            const scrubbed = scrub(whole);
+            // A secret may yet be streaming in.
+            const item = { ...scrubbed, text: withheld(scrubbed.text) };
             const shown = this.#live.get(block);
             if (shown !== undefined && item.text === shown.text) continue;
             this.#live.set(block, item);
@@ -592,11 +596,15 @@ class Fold {
     }
 }
 
-/** Adds `item`, or replaces the item with its id where it is. */
+/**
+ * Adds `item`, or replaces the item with its id where it is. Every item a
+ * client reads goes through here or `#partial`, scrubbed of the host's
+ * secrets, so an `append`'s offset counts the text a client holds.
+ */
 function added(item: ChatItem, replaces?: string): ChatOp {
     return {
         type: "add",
-        item,
+        item: scrub(item),
         ...(replaces === undefined ? {} : { replaces }),
     };
 }
@@ -859,7 +867,7 @@ export async function readHistory(
                 messages,
                 // Today's history counts no tokens either.
                 tokens: "0",
-                title: titleOf(first),
+                title: titleOf(scrub(first)),
             });
         }
         return { sessions };
