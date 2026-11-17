@@ -82,12 +82,14 @@ const [
     { agentActor },
     { openAgentFilesystem },
     { signIns },
+    { claudeExecutable, withClaude },
     ai,
 ] = await Promise.all([
     import("../actor/registry/link.ts"),
     import("./actor.ts"),
     import("./native-filesystem.ts"),
     import("./login.ts"),
+    import("./claude.ts"),
     import("@earendil-works/pi-ai"),
 ]);
 
@@ -313,6 +315,10 @@ models.setProvider(
         api: { stream, streamSimple: stream },
     }),
 );
+// With no Claude program found, the provider is not listed, as today.
+const executable = claudeExecutable();
+if (executable !== undefined)
+    withClaude(models, { executable, folder: join(home, "claude") });
 const { provider, id } = core.getModel();
 
 const agent = agentActor({
