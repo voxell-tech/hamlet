@@ -8,6 +8,9 @@
  * pi-durable brings their results in the next call; any other call starts
  * a query, which resumes a Claude Code session written from pi-durable's
  * history.
+ *
+ * The SDK and the packages it is driven with load at the first call, so a
+ * host that never runs Claude never loads them.
  */
 import { spawn } from "node:child_process";
 import { randomUUID } from "node:crypto";
@@ -16,21 +19,20 @@ import {
     existsSync,
     mkdirSync,
     readFileSync,
-    realpathSync,
     rmSync,
     writeFileSync,
 } from "node:fs";
+import { createRequire } from "node:module";
 import { delimiter, dirname, join } from "node:path";
 import { setTimeout as sleep } from "node:timers/promises";
-import {
-    type EffortLevel,
-    type Options,
-    type Query,
-    query,
-    type SDKAssistantMessage,
-    type SDKMessage,
-    type SDKPartialAssistantMessage,
-    type SDKUserMessage,
+import type {
+    EffortLevel,
+    Options,
+    Query,
+    SDKAssistantMessage,
+    SDKMessage,
+    SDKPartialAssistantMessage,
+    SDKUserMessage,
 } from "@anthropic-ai/claude-agent-sdk";
 import {
     type Api,
@@ -53,18 +55,23 @@ import {
     getCurrentSystemPrompt,
     getCurrentTools,
 } from "@earendil-works/pi-ai/utils/transcript";
-import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
-import {
-    CallToolRequestSchema,
-    type CallToolResult,
-    ListToolsRequestSchema,
-} from "@modelcontextprotocol/sdk/types.js";
+import type { CallToolResult } from "@modelcontextprotocol/sdk/types.js";
+import type {
+    ContentBlock,
+    Message as SessionMessage,
+    ToolResultBlock,
+    UserContentBlock,
+} from "cc-session-io";
+import { reasonOf } from "./turn.ts";
 
 export const PROVIDER = "claude";
 
 export interface ClaudeProgram {
-    /** The program to run; tests name a fake that answers on loopback. */
-    readonly executable: string;
+    /**
+     * The program to run, from `claudeExecutable` or a test's fake; with
+     * none, every call and sign-in fails.
+     */
+    readonly executable: string | undefined;
     /** The realm's `claude/`, which holds the program's own login. */
     readonly folder: string;
 }
@@ -84,6 +91,9 @@ const TOOL_PREFIX = "mcp__hamlet__";
 /** The prompt of a query whose history ends at tool results its own query no longer waits for. */
 const CONTINUE =
     "[Your session was interrupted and resumed. What precedes this ends with the tool result you were waiting for. Continue the task from there.]";
+
+/** The Agent SDK's words when it finds no Claude program for this machine. */
+const MISSING = `Native CLI binary for ${process.platform}-${process.arch} not found. Reinstall @anthropic-ai/claude-agent-sdk without --omit=optional, or set options.pathToClaudeCodeExecutable.`;
 
 /** The words a turn fails with when Claude bills past the plan, which a subscription login is for. */
 const OVERAGE =
@@ -122,7 +132,33 @@ interface Folders {
 
 interface Program {
     readonly at: Folders;
-    readonly executable: string;
+    readonly executable: string | undefined;
+}
+
+/** The packages a call drives the Claude program with. */
+async function packages() {
+    const [sdk, mcp, schemas, sessions] = await Promise.all([
+        import("@anthropic-ai/claude-agent-sdk"),
+        import("@modelcontextprotocol/sdk/server/mcp.js"),
+        import("@modelcontextprotocol/sdk/types.js"),
+        import("cc-session-io"),
+    ]);
+    return { sdk, mcp, schemas, sessions };
+}
+
+/** The Claude program: `HAMLET_CLAUDE_EXECUTABLE`, else the one the SDK's package ships for this machine. */
+export function claudeExecutable(): string | undefined {
+    const chosen = process.env.HAMLET_CLAUDE_EXECUTABLE;
+    if (chosen !== undefined && chosen !== "") return chosen;
+    const require = createRequire(import.meta.url);
+    const file = process.platform === "win32" ? "claude.exe" : "claude";
+    for (const libc of ["", "-musl"])
+        try {
+            return require.resolve(
+                `@anthropic-ai/claude-agent-sdk-${process.platform}-${process.arch}${libc}/${file}`,
+            );
+        } catch {}
+    return undefined;
 }
 
 /** `models` with the provider `claude`, run by `program`. */
@@ -142,7 +178,7 @@ export function withClaude(
         options?: SimpleStreamOptions,
     ) => {
         const out = createAssistantMessageEventStream();
-        answer(claude, model, context, options, out);
+        void answer(claude, model, context, options, out);
         return out;
     };
     models.setProvider(
@@ -213,6 +249,7 @@ async function signIn(
     interaction: ProviderAuthInteraction,
 ): Promise<void> {
     const { at, executable } = claude;
+    if (executable === undefined) throw new Error(MISSING);
     const link = join(at.work, "sign-in-link");
     rmSync(link, { force: true });
     const script = /\.(mjs|cjs|js)$/.test(executable);
@@ -335,34 +372,49 @@ interface Parked {
 const parked = new Map<string, Parked>();
 
 /** Answers one call of `model` into `out`. */
-function answer(
+async function answer(
     claude: Program,
     model: Model<Api>,
     context: TranscriptContext,
     options: SimpleStreamOptions | undefined,
     out: AssistantMessageEventStream,
-): void {
+): Promise<void> {
     const messages = context.messages.filter((m) => m.role !== "system");
     const reply = new Reply(model, out, messages.length, options?.signal);
-    // A summary pi-durable asks for runs apart, leaving the conversation's query be.
-    const session =
-        options?.cacheRetention === "none" ? undefined : options?.sessionId;
-    const held = session === undefined ? undefined : parked.get(session);
-    if (session !== undefined && held !== undefined) {
-        parked.delete(session);
-        clearTimeout(held.timer);
-        if (held.run.refusal !== undefined) {
-            reply.fail(held.run.refusal);
-            return;
+    try {
+        const loaded = await packages();
+        // A summary pi-durable asks for runs apart, leaving the conversation's query be.
+        const session =
+            options?.cacheRetention === "none" ? undefined : options?.sessionId;
+        const held = session === undefined ? undefined : parked.get(session);
+        if (session !== undefined && held !== undefined) {
+            parked.delete(session);
+            clearTimeout(held.timer);
+            if (held.run.refusal !== undefined) {
+                reply.fail(held.run.refusal);
+                return;
+            }
+            const results = answered(held, messages);
+            if (!held.run.closed && results !== undefined) {
+                held.run.resume(reply, results);
+                return;
+            }
+            held.run.close();
         }
-        const results = answered(held, messages);
-        if (!held.run.closed && results !== undefined) {
-            held.run.resume(reply, results);
-            return;
-        }
-        held.run.close();
+        const { executable } = claude;
+        if (executable === undefined) throw new Error(MISSING);
+        new Run(
+            { ...claude, executable, loaded },
+            model,
+            context,
+            messages,
+            options,
+            reply,
+            session,
+        );
+    } catch (error) {
+        reply.fail(reasonOf(error));
     }
-    new Run(claude, model, context, messages, options, reply, session);
 }
 
 /** The results this call brings for `held`'s calls; none when the history moved on otherwise. */
@@ -385,9 +437,15 @@ function answered(
         : undefined;
 }
 
+/** The Claude program a query runs, with the packages that drive it. */
+interface Driven extends Program {
+    readonly executable: string;
+    readonly loaded: Awaited<ReturnType<typeof packages>>;
+}
+
 /** One query of the Claude program, which may answer several calls of pi-durable. */
 class Run {
-    readonly #claude: Program;
+    readonly #claude: Driven;
     readonly #session: string | undefined;
     readonly #input = new Input();
     readonly #query: Query;
@@ -396,14 +454,14 @@ class Run {
     readonly #early = new Map<string, CallToolResult>();
     /** Messages already streamed as events, whose whole copies are passed over. */
     readonly #streamed = new Set<string>();
-    /** The files of the Claude sessions this query wrote, removed once it ends. */
+    /** The Claude sessions this query wrote, removed once it ends. */
     readonly #sessions = new Set<string>();
     #reply: Reply | undefined;
     #closed = false;
     #refusal: string | undefined;
 
     constructor(
-        claude: Program,
+        claude: Driven,
         model: Model<Api>,
         context: TranscriptContext,
         messages: readonly Message[],
@@ -421,9 +479,8 @@ class Run {
         const resume =
             history.length === 0
                 ? undefined
-                : importSession(history, claude.at, model.id);
-        if (resume !== undefined)
-            this.#sessions.add(sessionPath(resume, claude.at));
+                : importSession(claude, history, model.id);
+        if (resume !== undefined) this.#sessions.add(resume);
         this.#input.push(
             prompt.length === 0
                 ? CONTINUE
@@ -436,7 +493,7 @@ class Run {
                           : content;
                   }) as Exclude<Content, string>),
         );
-        this.#query = query({
+        this.#query = claude.loaded.sdk.query({
             prompt: this.#input,
             options: {
                 pathToClaudeCodeExecutable: claude.executable,
@@ -531,6 +588,10 @@ class Run {
 
     /** The MCP server `hamlet`, offering `tools` with their schemas as pi-durable has them. */
     #server(tools: readonly Tool[]) {
+        const {
+            mcp: { McpServer },
+            schemas: { CallToolRequestSchema, ListToolsRequestSchema },
+        } = this.#claude.loaded;
         const server = new McpServer(
             { name: "hamlet", version: "0.1.0" },
             { capabilities: { tools: {} } },
@@ -565,13 +626,13 @@ class Run {
                 if (message.type === "result") break;
             }
         } catch (error) {
-            this.#reply?.fail(
-                error instanceof Error ? error.message : String(error),
-            );
+            this.#reply?.fail(reasonOf(error));
             this.#reply = undefined;
         } finally {
             this.close();
-            for (const file of this.#sessions) deleteSession(file);
+            const { at, loaded } = this.#claude;
+            for (const id of this.#sessions)
+                loaded.sessions.deleteSession(id, at.work, at.config);
         }
     }
 
@@ -580,9 +641,7 @@ class Run {
         switch (message.type) {
             case "system":
                 if (message.subtype === "init")
-                    this.#sessions.add(
-                        sessionPath(message.session_id, this.#claude.at),
-                    );
+                    this.#sessions.add(message.session_id);
                 return;
             case "rate_limit_event":
                 if (message.rate_limit_info.isUsingOverage === true) {
@@ -1028,116 +1087,45 @@ class Input implements AsyncIterable<SDKUserMessage> {
     }
 }
 
-/** A message of a Claude Code session, as Anthropic's API takes it. */
-type SessionMessage =
-    | { readonly role: "user"; readonly content: Content }
-    | { readonly role: "assistant"; readonly content: Block[] };
-
-/** Claude Code's version a session written for it names, as `cc-session-io` 0.4.1 writes it. */
-const SESSION_VERSION = "2.1.83";
-
-/**
- * A new Claude Code session holding `messages`, for a query to resume; its
- * id. Its records are those `cc-session-io` 0.4.1 writes.
- */
+/** A new Claude Code session holding `messages`, for a query to resume; its id. */
 function importSession(
+    { at, loaded }: Driven,
     messages: readonly Message[],
-    at: Folders,
     model: string,
 ): string {
-    const sessionId = randomUUID();
-    const cwd = projectOf(at);
-    const start = Date.now();
-    let parentUuid: string | null = null;
-    const records = anthropicMessages(messages).map((message, i) => {
-        const uuid = randomUUID();
-        const record = {
-            type: message.role,
-            uuid,
-            parentUuid,
-            sessionId,
-            timestamp: new Date(start + i).toISOString(),
-            isSidechain: false,
-            cwd,
-            userType: "external",
-            version: SESSION_VERSION,
-            gitBranch: "HEAD",
-            entrypoint: "cli",
-            ...(message.role === "user"
-                ? { message }
-                : {
-                      requestId: `req_${randomUUID().replaceAll("-", "")}`,
-                      message: {
-                          id: `msg_${randomUUID().replaceAll("-", "")}`,
-                          type: "message",
-                          role: "assistant",
-                          model,
-                          content: message.content,
-                          stop_reason: message.content.some(
-                              (block) => block.type === "tool_use",
-                          )
-                              ? "tool_use"
-                              : "end_turn",
-                          stop_sequence: null,
-                          usage: { input_tokens: 0, output_tokens: 0 },
-                      },
-                  }),
-        };
-        parentUuid = uuid;
-        return `${JSON.stringify(record)}\n`;
+    const session = loaded.sessions.createSession({
+        projectPath: at.work,
+        claudeDir: at.config,
+        model,
     });
-    const file = sessionPath(sessionId, at);
-    mkdirSync(dirname(file), { recursive: true });
-    writeFileSync(file, records.join(""));
-    return sessionId;
-}
-
-/** Removes the session in `file` and the folder of its own files. */
-function deleteSession(file: string): void {
-    rmSync(file, { force: true });
-    rmSync(file.slice(0, -".jsonl".length), { recursive: true, force: true });
-}
-
-/** Where Claude Code keeps the session `id` of a program working in `at.work`. */
-function sessionPath(id: string, at: Folders): string {
-    const project = projectOf(at);
-    let name = project.replace(/[^a-zA-Z0-9]/g, "-");
-    if (name.length > 200) {
-        let hash = 0;
-        for (let i = 0; i < project.length; i++)
-            hash = ((hash << 5) - hash + project.charCodeAt(i)) | 0;
-        name = `${name.slice(0, 200)}-${Math.abs(hash).toString(36)}`;
-    }
-    return join(at.config, "projects", name, `${id}.jsonl`);
-}
-
-function projectOf(at: Folders): string {
-    return realpathSync(at.work).normalize("NFC");
+    session.importMessages(anthropicMessages(messages));
+    session.save();
+    return session.sessionId;
 }
 
 /** `messages` as Anthropic messages, each turn's tool results in one user message after its call. */
 function anthropicMessages(messages: readonly Message[]): SessionMessage[] {
     const converted: SessionMessage[] = [];
     const ids = new Map<string, string>();
-    let results: ToolResultBlock[] | undefined;
+    let results: { role: "user"; content: ToolResultBlock[] } | undefined;
     for (const message of messages) {
         if (message.role === "user") {
             converted.push({ role: "user", content: userContent(message) });
         } else if (message.role === "assistant") {
             // A turn stopped before anything was written answered nothing.
             if (message.content.length === 0) continue;
-            const blocks = message.content.flatMap((block): Block[] => {
+            const blocks = message.content.flatMap((block): ContentBlock[] => {
                 if (block.type === "text")
                     return block.text === ""
                         ? []
-                        : [{ type: "text", text: block.text, citations: null }];
+                        : [{ type: "text" as const, text: block.text }];
                 if (block.type === "thinking")
                     // Anthropic takes back only the signatures it gave Claude Code.
                     return message.provider === PROVIDER &&
                         block.thinkingSignature
                         ? [
                               {
-                                  type: "thinking",
+                                  type: "thinking" as const,
                                   thinking: block.thinking,
                                   signature: block.thinkingSignature,
                               },
@@ -1145,7 +1133,7 @@ function anthropicMessages(messages: readonly Message[]): SessionMessage[] {
                         : [];
                 return [
                     {
-                        type: "tool_use",
+                        type: "tool_use" as const,
                         id: toolId(block.id, ids),
                         name: `${TOOL_PREFIX}${block.name}`,
                         input: block.arguments,
@@ -1161,7 +1149,6 @@ function anthropicMessages(messages: readonly Message[]): SessionMessage[] {
                               {
                                   type: "text",
                                   text: "[incompatible content omitted]",
-                                  citations: null,
                               },
                           ],
             });
@@ -1174,39 +1161,31 @@ function anthropicMessages(messages: readonly Message[]): SessionMessage[] {
                 ...(message.isError ? { is_error: true } : {}),
             };
             if (results === undefined) {
-                results = [block];
-                converted.push({ role: "user", content: results });
-            } else results.push(block);
+                results = { role: "user", content: [block] };
+                converted.push(results);
+            } else results.content.push(block);
         }
     }
     return converted;
 }
 
-type UserBlock = Exclude<Content, string>[number];
-type ToolResultBlock = Extract<UserBlock, { type: "tool_result" }>;
-type ImageBlock = Extract<UserBlock, { type: "image" }>;
-type MediaType = Extract<
-    ImageBlock["source"],
-    { type: "base64" }
->["media_type"];
-
 /** A user message as Anthropic content. */
 function userContent(
     message: Extract<Message, { role: "user" }>,
-): string | UserBlock[] {
+): string | UserContentBlock[] {
     if (typeof message.content === "string")
         return message.content || "[empty]";
-    const blocks = message.content.flatMap((block): UserBlock[] =>
+    const blocks = message.content.flatMap((block): UserContentBlock[] =>
         block.type === "text"
             ? block.text === ""
                 ? []
-                : [{ type: "text", text: block.text }]
+                : [{ type: "text" as const, text: block.text }]
             : [
                   {
-                      type: "image",
+                      type: "image" as const,
                       source: {
-                          type: "base64",
-                          media_type: block.mimeType as MediaType,
+                          type: "base64" as const,
+                          media_type: block.mimeType,
                           data: block.data,
                       },
                   },

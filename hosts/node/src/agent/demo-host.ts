@@ -82,12 +82,14 @@ const [
     { agentActor },
     { openAgentFilesystem },
     { signIns },
+    { claudeExecutable, withClaude },
     ai,
 ] = await Promise.all([
     import("../actor/registry/link.ts"),
     import("./actor.ts"),
     import("./native-filesystem.ts"),
     import("./login.ts"),
+    import("./claude.ts"),
     import("@earendil-works/pi-ai"),
 ]);
 
@@ -313,6 +315,10 @@ models.setProvider(
         api: { stream, streamSimple: stream },
     }),
 );
+withClaude(models, {
+    executable: claudeExecutable(),
+    folder: join(home, "claude"),
+});
 const { provider, id } = core.getModel();
 
 const agent = agentActor({

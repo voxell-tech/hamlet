@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { execFileSync } from "node:child_process";
 import {
     existsSync,
     mkdirSync,
@@ -177,6 +178,7 @@ async function claudeAgent(
     t: TestContext,
     runs: unknown[][],
     files: Record<string, string> = {},
+    { executable }: { executable: string | undefined } = { executable: FAKE },
 ) {
     const realm = mkdtempSync(join(tmpdir(), "hamlet-claude-"));
     t.after(() => rmSync(realm, { recursive: true, force: true }));
@@ -190,7 +192,7 @@ async function claudeAgent(
         calls,
         files: fakeFiles(files),
         models: (listed) =>
-            withClaude(listed as MutableModels, { executable: FAKE, folder }),
+            withClaude(listed as MutableModels, { executable, folder }),
     });
     const model = agent.config.models.getModels("claude")[0]?.id;
     await agent.actions.copies(agent.by(from.realm), {
@@ -403,7 +405,7 @@ test("the next input resumes a session the SDK reads as the agent's history", as
                     type: "message",
                     role: "assistant",
                     model: agent.config.models.getModels("claude")[0]?.id,
-                    content: [{ type: "text", text: "Hi.", citations: null }],
+                    content: [{ type: "text", text: "Hi." }],
                     stop_reason: "end_turn",
                     stop_sequence: null,
                     usage: { input_tokens: 0, output_tokens: 0 },
@@ -445,4 +447,57 @@ test("a turn Claude bills beyond the plan fails", async (t) => {
     );
     await until(() => sessions(claude.folder).length === 0);
     await claude.agent.stop();
+});
+
+test("a turn without the Claude program fails with the SDK's words", async (t) => {
+    const claude = await claudeAgent(t, [], {}, { executable: undefined });
+    claude.file.set("claude", {
+        type: "oauth",
+        login: {
+            access: "made-up-marker-of-the-missing-test",
+            refresh: "made-up-marker-of-the-missing-test",
+            expires: 4_294_967_295,
+        },
+    });
+    assert.ok(
+        claude.agent.config.models.getModels("claude").length > 0,
+        "the provider is listed",
+    );
+    await claude.say("Hello");
+    assert.ok(
+        JSON.stringify((await page(claude.agent)).items).includes(
+            `Native CLI binary for ${process.platform}-${process.arch} not found. Reinstall @anthropic-ai/claude-agent-sdk without --omit=optional, or set options.pathToClaudeCodeExecutable.`,
+        ),
+    );
+    await claude.agent.stop();
+});
+
+test("loading the models loads none of the Claude packages", () => {
+    const models = join(import.meta.dirname, "..", "src", "agent", "models.ts");
+    const resolved = execFileSync(
+        process.execPath,
+        [
+            "--input-type=module",
+            "--no-warnings",
+            "--eval",
+            `import { registerHooks } from "node:module";
+const urls = [];
+registerHooks({ resolve: (specifier, context, next) => {
+    const found = next(specifier, context);
+    urls.push(found.url);
+    return found;
+} });
+await import(${JSON.stringify(models)});
+process.stdout.write(JSON.stringify(urls));`,
+        ],
+        { encoding: "utf8" },
+    );
+    const urls = JSON.parse(resolved) as string[];
+    assert.ok(urls.some((url) => url.endsWith("/claude.ts")));
+    assert.deepEqual(
+        urls.filter((url) =>
+            /claude-agent-sdk|modelcontextprotocol|cc-session-io/.test(url),
+        ),
+        [],
+    );
 });
