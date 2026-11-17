@@ -328,7 +328,6 @@ pub(crate) fn change_view(
         parts.push(row((status(chat, id),)).shrink(0.0).boxed());
     }
     let head = row(parts)
-        .gap(8.0)
         .align(AlignItems::Center)
         .width(percent(100.0))
         .min_width(px(0.0));
@@ -373,10 +372,19 @@ pub(crate) fn change_view(
         if *extent != Extent::Shut && !change.lines.is_empty() {
             parts.push(lines_view(key.clone(), &change, *extent));
         }
-        column(parts).gap(4.0).boxed()
+        with_cx(move |cx| {
+            column(parts).gap(cx.theme().space.gap / 2.0)
+        })
+        .boxed()
     })
     .within(bare());
-    column((head, body)).gap(2.0).width(percent(100.0)).boxed()
+    with_cx(move |cx| {
+        let gap = cx.theme().space.gap;
+        column((head.gap(gap), body))
+            .gap(gap / 4.0)
+            .width(percent(100.0))
+    })
+    .boxed()
 }
 
 /// `path` on one line, cut in its middle so its file's name shows,

@@ -130,19 +130,21 @@ fn summary(chat: Entity, id: String) -> impl View {
     )
     .within(column(()).width(percent(100.0)).min_width(px(0.0)));
     with_cx(move |cx| {
-        let line = cx.theme().palette.gold_6;
+        let theme = cx.theme();
+        let (line, gap) =
+            (theme.palette.gold_6, theme.space.gap / 2.0);
         column((
             row((
                 hairline(line).grow(1.0),
                 head,
                 hairline(line).grow(1.0),
             ))
-            .gap(4.0)
+            .gap(gap)
             .align(AlignItems::Center)
             .width(percent(100.0)),
             body,
         ))
-        .gap(4.0)
+        .gap(gap)
         .width(percent(100.0))
         .min_width(px(0.0))
     })
@@ -205,11 +207,13 @@ fn merged(
         },
     )
     .within(column(()).width(percent(100.0)).min_width(px(0.0)));
-    column((head, body))
-        .gap(4.0)
-        .align(AlignItems::FlexStart)
-        .width(percent(100.0))
-        .min_width(px(0.0))
+    with_cx(move |cx| {
+        column((head, body))
+            .gap(cx.theme().space.gap / 2.0)
+            .align(AlignItems::FlexStart)
+            .width(percent(100.0))
+            .min_width(px(0.0))
+    })
 }
 
 /// The way to the rows of the merged conversation before those
@@ -297,40 +301,44 @@ fn worker(chat: Entity, id: String, task: String) -> impl View {
             Work::Done(_) => (Glyph::Check, Tone::Success, "Done"),
             Work::Failed => (Glyph::Cross, Tone::Critical, "Failed"),
         };
-        row((
-            glyph(which, 12.0).tone(tone),
-            label(words)
-                .wrap(false)
-                .tone(Tone::Faint)
-                .rules(small_rules),
-        ))
-        .gap(4.0)
-        .align(AlignItems::Center)
+        with_cx(move |cx| {
+            row((
+                glyph(which, 12.0).tone(tone),
+                label(words)
+                    .wrap(false)
+                    .tone(Tone::Faint)
+                    .rules(small_rules),
+            ))
+            .gap(cx.theme().space.gap / 2.0)
+            .align(AlignItems::Center)
+        })
         .boxed()
     })
     .within(row(()));
-    let head = button(
-        row((
-            chevron(move |world| is_open(world, &turned)),
-            glyph(Glyph::Worker, 12.0).tone(Tone::Dim),
-            label("Worker").bold(true).wrap(false).rules(small_rules),
-            column((one_line(label(task.clone()).tone(Tone::Dim))
-                .rules(small_rules),))
-            .grow(1.0)
-            .min_width(px(0.0))
-            .overflow(Overflow::clip_x()),
-            mark,
-        ))
-        .gap(8.0)
-        .align(AlignItems::Center)
+    let line = row((
+        chevron(move |world| is_open(world, &turned)),
+        glyph(Glyph::Worker, 12.0).tone(Tone::Dim),
+        label("Worker").bold(true).wrap(false).rules(small_rules),
+        column((one_line(label(task.clone()).tone(Tone::Dim))
+            .rules(small_rules),))
+        .grow(1.0)
+        .min_width(px(0.0))
+        .overflow(Overflow::clip_x()),
+        mark,
+    ));
+    let head = with_cx(move |cx| {
+        button(
+            line.gap(cx.theme().space.gap)
+                .align(AlignItems::Center)
+                .width(percent(100.0))
+                .min_width(px(0.0)),
+        )
         .width(percent(100.0))
-        .min_width(px(0.0)),
-    )
-    .width(percent(100.0))
-    .min_width(px(0.0))
-    .padding(UiRect::axes(px(INSET), px(2.0)))
-    .rules(ghost)
-    .on_activate(move |world| toggle(world, pressed.clone()));
+        .min_width(px(0.0))
+        .padding(UiRect::axes(px(INSET), px(2.0)))
+        .rules(ghost)
+        .on_activate(move |world| toggle(world, pressed.clone()))
+    });
     let body = keyed(
         derived(move |world: &World| {
             is_open(world, &key).then(|| work(world, chat, &key.1))
@@ -354,7 +362,7 @@ fn worker(chat: Entity, id: String, task: String) -> impl View {
                 inside.push(
                     row((action(
                         Glyph::Talk,
-                        "Open its chat",
+                        "Open Its Chat",
                         move |world| {
                             if let Some(agent) =
                                 agents::agent(world, worker)
@@ -370,8 +378,10 @@ fn worker(chat: Entity, id: String, task: String) -> impl View {
         },
     )
     .within(column(()).width(percent(100.0)).min_width(px(0.0)));
-    column((head, body))
-        .gap(4.0)
-        .width(percent(100.0))
-        .min_width(px(0.0))
+    with_cx(move |cx| {
+        column((head, body))
+            .gap(cx.theme().space.gap / 2.0)
+            .width(percent(100.0))
+            .min_width(px(0.0))
+    })
 }

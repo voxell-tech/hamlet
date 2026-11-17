@@ -1252,6 +1252,7 @@ fn chip(
         let palette = &theme.palette;
         let (fill, round, words) =
             (palette.code, theme.space.round, theme.text.body);
+        let padding = theme.space.chip_padding_x;
         let edge = match &face.trouble {
             Some(_) => palette.danger_border,
             None => palette.gold_5,
@@ -1291,7 +1292,7 @@ fn chip(
             .gap(5.0)
             .align(AlignItems::Center)
             .height(px(words * LINE))
-            .padding(UiRect::horizontal(px(6.0)))
+            .padding(UiRect::horizontal(px(padding)))
             .margin(UiRect::horizontal(px(2.0)))
             .fill(fill)
             .border(1.0)

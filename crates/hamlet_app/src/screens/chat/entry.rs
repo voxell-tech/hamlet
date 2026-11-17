@@ -325,27 +325,29 @@ fn message_row(chat: Entity, id: String) -> impl View {
             _ => String::new(),
         }
     });
-    column((
-        row((
-            glyph(Glyph::Talk, 12.0).tone(Tone::Dim),
-            column((
-                one_line(label(whom).bold(true)).rules(small_rules),
+    with_cx(move |cx| {
+        let gap = cx.theme().space.gap;
+        column((
+            row((
+                glyph(Glyph::Talk, 12.0).tone(Tone::Dim),
+                column((one_line(label(whom).bold(true))
+                    .rules(small_rules),))
+                .grow(1.0)
+                .min_width(px(0.0))
+                .overflow(Overflow::clip_x()),
+                status(chat, id),
             ))
-            .grow(1.0)
-            .min_width(px(0.0))
-            .overflow(Overflow::clip_x()),
-            status(chat, id),
+            .gap(gap)
+            .align(AlignItems::Center)
+            .width(percent(100.0))
+            .min_width(px(0.0)),
+            column((note(words),)).padding(UiRect::left(px(20.0))),
         ))
-        .gap(8.0)
-        .align(AlignItems::Center)
+        .gap(gap / 4.0)
         .width(percent(100.0))
-        .min_width(px(0.0)),
-        column((note(words),)).padding(UiRect::left(px(20.0))),
-    ))
-    .gap(2.0)
-    .width(percent(100.0))
-    .min_width(px(0.0))
-    .padding(UiRect::axes(px(6.0), px(2.0)))
+        .min_width(px(0.0))
+        .padding(UiRect::axes(px(6.0), px(2.0)))
+    })
 }
 
 /// Why a tool call failed, in a red block under its request.

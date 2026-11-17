@@ -73,6 +73,12 @@ const HIRE_STARTERS: &[&str] = &[
 const WORKER_STARTERS: &[&str] =
     &["How far along are you?", "What have you found so far?"];
 
+pub(super) fn plugin(app: &mut App) {
+    app.init_resource::<Reading>()
+        .init_resource::<MergedLines>()
+        .add_observer(page_received);
+}
+
 /// What can be said first to `agent`, by what it is.
 fn starters(world: &World, agent: Entity) -> &'static [&'static str] {
     match world.get::<Kind>(agent).map(|kind| kind.0) {
@@ -80,12 +86,6 @@ fn starters(world: &World, agent: Entity) -> &'static [&'static str] {
         Some(protocol::AgentKind::Worker) => WORKER_STARTERS,
         _ => HIRE_STARTERS,
     }
-}
-
-pub(super) fn plugin(app: &mut App) {
-    app.init_resource::<Reading>()
-        .init_resource::<MergedLines>()
-        .add_observer(page_received);
 }
 
 /// The frames a list put back where its chat was left is given to

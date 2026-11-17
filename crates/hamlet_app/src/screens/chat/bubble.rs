@@ -45,9 +45,6 @@ const FACE: f32 = 24.0;
 /// shows from where it sits.
 const FAR: f32 = 24.0;
 
-/// The room over a run, above the room between any two rows.
-const RUN: f32 = 8.0;
-
 /// The corner by the picture of the first bubble of a run.
 const TAIL: f32 = 3.0;
 
@@ -232,6 +229,8 @@ fn said<B: Board>(line: Line, chat: Entity, id: String) -> AnyView {
         let palette = &cx.theme().palette;
         let border = cx.theme().space.border;
         let corner = cx.theme().space.round_card;
+        let (gap, padding_x) =
+            (cx.theme().space.gap, cx.theme().space.card_padding_x);
         let fill: fn(&Palette) -> Color =
             if mine { |p| p.gold_6 } else { |p| p.card };
         // A line that waits its turn says so under the bubble, and
@@ -436,8 +435,8 @@ fn said<B: Board>(line: Line, chat: Entity, id: String) -> AnyView {
             }
         }
         let bubble = column(inside)
-            .gap(2.0)
-            .padding(UiRect::axes(px(12.0), px(6.0)))
+            .gap(gap / 4.0)
+            .padding(UiRect::axes(px(padding_x), px(6.0)))
             // No wider than its row, however long the names over
             // its words are: what does not fit there is cut.
             .min_width(px(0.0))
@@ -466,7 +465,8 @@ fn said<B: Board>(line: Line, chat: Entity, id: String) -> AnyView {
                 }
             })
             .tagged(Bubble);
-        let above = px(if line.lead { RUN } else { 0.0 });
+        // A gap over the first bubble of a run.
+        let above = px(if line.lead { gap } else { 0.0 });
         let (replying, reply_room) = match replies {
             true => (
                 reply::mark(chat, id.clone(), who.name.clone())
@@ -560,13 +560,14 @@ pub(super) fn line_view<B: Board>(line: &Line) -> AnyView {
     let line = line.clone();
     AnyView::new(move |cx: &mut Cx| {
         // A turn's steps and the cards are the agent's own, so they
-        // sit where its bubbles do.
+        // sit where its bubbles do, a gap over the first of a run.
+        let run = cx.theme().space.gap;
         let aside = |view: AnyView| {
             row((view,))
                 .padding(UiRect::new(
                     px(GUTTER),
                     px(0.0),
-                    px(if line.lead { RUN } else { 0.0 }),
+                    px(if line.lead { run } else { 0.0 }),
                     px(0.0),
                 ))
                 .boxed()

@@ -75,7 +75,7 @@ impl Answers {
     }
 }
 
-/// The message the next one sent in the chat of a chat answers.
+/// The chat whose next line answers a message, and that message.
 #[derive(Resource, Default)]
 pub struct Replying(pub Option<(Entity, Answers)>);
 
