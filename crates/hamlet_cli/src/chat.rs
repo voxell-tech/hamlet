@@ -106,7 +106,7 @@ pub async fn run(
              [--key]`, then try a hello with `hamlet models try`."
         );
     }
-    let mut session = Session {
+    let mut terminal_chat = TerminalChat {
         address: address.clone(),
         attached: Vec::new(),
         files: Vec::new(),
@@ -124,30 +124,30 @@ pub async fn run(
         final_id: None,
         pending: HashSet::new(),
     };
-    let chat = chat_ref(session.target);
-    session.open(RequestId::new(), chat).await?;
+    let chat = chat_ref(terminal_chat.target);
+    terminal_chat.open(RequestId::new(), chat).await?;
     for path in attach {
-        session.attach(path, None).await?;
+        terminal_chat.attach(path, None).await?;
     }
     let mut input = BufReader::new(tokio::io::stdin()).lines();
     loop {
         tokio::select! {
-            line = input.next_line(), if session.last.is_none() => {
-                session.on_line(line?).await?;
+            line = input.next_line(), if terminal_chat.last.is_none() => {
+                terminal_chat.on_line(line?).await?;
             }
-            message = session.client.next() => {
-                if session.on_message(message?).await? {
+            message = terminal_chat.client.next() => {
+                if terminal_chat.on_message(message?).await? {
                     break;
                 }
             }
         }
     }
-    session.screen.end()?;
-    session.client.close().await
+    terminal_chat.screen.end()?;
+    terminal_chat.client.close().await
 }
 
 /// A terminal chat with one agent at a time.
-struct Session {
+struct TerminalChat {
     address: ServerAddress,
     /// The images the next line carries.
     attached: Vec<AttachedImage>,
@@ -177,7 +177,7 @@ struct Session {
     pending: HashSet<RequestId>,
 }
 
-impl Session {
+impl TerminalChat {
     /// Opens `chat`, ending the chat if the server refuses.
     async fn open(
         &mut self,

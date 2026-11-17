@@ -271,21 +271,21 @@ pub fn receive(world: &mut World, message: protocol::ServerMessage) {
     }
 }
 
-/// Takes in what the server told of `chat`: whether it runs, and
-/// `told`, whose `pending` counts the queued alone.
+/// Takes in what the server sent of `chat`: whether it runs, and
+/// `sent`, whose `pending` counts the queued alone.
 fn status(
     world: &mut World,
     chat: Entity,
     working: bool,
-    told: Status,
+    sent: Status,
 ) {
     let mut said = world.get_mut::<Transcript>(chat).unwrap();
     let finished = said.answering && !working;
     said.answering = working;
     let mut status = world.get_mut::<Status>(chat).unwrap();
     *status = Status {
-        pending: told.pending + u64::from(working),
-        ..told
+        pending: sent.pending + u64::from(working),
+        ..sent
     };
     if finished {
         world.trigger(JobFinished { chat });

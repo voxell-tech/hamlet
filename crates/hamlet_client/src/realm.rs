@@ -1124,7 +1124,7 @@ pub struct Traffic {
     pub last_from: Option<Entity>,
 }
 
-/// A letter carried along a road.
+/// A message carried along a road.
 #[derive(Event, Clone, Copy, Debug)]
 pub struct Carried {
     pub road: Entity,
