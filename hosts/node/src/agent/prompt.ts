@@ -158,12 +158,12 @@ async function environment(sources: PromptSources): Promise<string> {
 async function project(sources: PromptSources): Promise<string | undefined> {
     const { folder } = (await sources.where()).place;
     if (folder === undefined) return undefined;
-    const lodge = sources.files.root;
+    const root = sources.files.root;
     const lines = [
         `Your hamlet works on the folder ${folder}. The work a chief asks for is done there:`,
         `- A command runs with ${folder} as its working directory. It may write there and in your lodge, and nowhere else. It can read the rest of the machine, so the project's own tools run as they do for the chief.`,
         "- `read`, `write` and `edit` take a path relative to the project, or a full path. `read`, `search` and `find` look at files without running a command; use them rather than cat, grep and find.",
-        `- Your lodge is ${lodge}. Keep your memory and skills there, never in the project, and give \`write\` and \`edit\` their full path.`,
+        `- Your lodge is ${root}. Keep your memory and skills there, never in the project, and give \`write\` and \`edit\` their full path.`,
     ];
     for (const name of INSTRUCTIONS) {
         const answer = await sources.readFile(`${folder}/${name}`);
