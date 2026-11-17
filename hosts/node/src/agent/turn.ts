@@ -215,14 +215,7 @@ export function turnsOf(withHarness: WithHarness, standing: RealmTask): Turns {
         withHarness(async (harness, context) => {
             const known = sessions.get(sessionId);
             if (known !== undefined) return known;
-            const all = await harness.commit(
-                async (tx) =>
-                    (await tx.scanConversations({}, 10_000)).items.map(
-                        (conversation) => conversation.id,
-                    ),
-                context,
-            );
-            for (const id of all) {
+            for (const id of await conversationsOf(harness, context)) {
                 const provider = await harness.snapshot(
                     ProviderDoc,
                     id,
@@ -242,6 +235,30 @@ export function turnsOf(withHarness: WithHarness, standing: RealmTask): Turns {
             return conversation === undefined ? none : of(conversation);
         },
     };
+}
+
+/** Every conversation of the agent. */
+export async function conversationsOf(
+    harness: Harness,
+    context: Context,
+): Promise<ConversationId[]> {
+    return harness.commit(
+        async (tx) =>
+            (await tx.scanConversations({}, 10_000)).items.map(
+                (conversation) => conversation.id,
+            ),
+        context,
+    );
+}
+
+/** Whether a run is going on in `conversation`, its `afterRun` tasks included. */
+export async function isBusy(
+    harness: Harness,
+    conversation: ConversationId,
+    context: Context,
+): Promise<boolean> {
+    const live = await harness.snapshot(LiveDoc, conversation, context);
+    return live?.run !== undefined;
 }
 
 /**

@@ -148,15 +148,16 @@ export async function makeCurrent(
 }
 
 /** Points the current session at `fork`, the conversation a rewind made. */
-export function moveTo(
+export async function moveTo(
     c: AgentCall,
     from: ConversationId,
     fork: ConversationId,
 ): Promise<void> {
-    void c;
-    void from;
-    void fork;
-    return Promise.reject(new Error("not built: U4"));
+    await c.db.run(
+        "UPDATE chat SET conversation = ? WHERE kind = 'chief' AND conversation = ?",
+        fork,
+        from,
+    );
 }
 
 type Rows = Pick<RawAccess, "get">;

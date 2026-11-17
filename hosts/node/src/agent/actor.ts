@@ -422,7 +422,13 @@ async function submit(c: AgentCall, message: Submit): Promise<void> {
         if (conversation === undefined) {
             throw new Error(`the agent has no conversation ${id}`);
         }
-        await conversation.submit(draftOf(admissionOf(message)), context);
+        await conversation.submit(
+            draftOf(
+                admissionOf(message),
+                message.input.type === "line" ? "steer" : undefined,
+            ),
+            context,
+        );
     });
 }
 
