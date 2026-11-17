@@ -404,7 +404,7 @@ test("a refused automatic compaction fails the turn with the realm's words", asy
     await agent.stop();
 });
 
-test("a turn with no model fails with the input's reason", async (t) => {
+test("a turn with no model fails with the model it lacks", async (t) => {
     const { calls, sent } = fakeCalls({});
     const agent = await wakeAgent(t, {
         calls,
@@ -423,21 +423,17 @@ test("a turn with no model fails with the input's reason", async (t) => {
     await say(agent, 1, "Go.");
     await until(() => named(sent, "turn_failed").length > 0);
 
-    assert.deepEqual(
-        (await notices(agent)).map((notice) => notice.text),
-        ["no_model"],
-    );
-    assert.deepEqual(
-        named(sent, "turn_failed").map((call) => call.message),
-        [
-            {
-                task: "task-1",
-                conversation: await rootRef(agent),
-                words: "no_model",
-                cause: "model",
-            },
-        ],
-    );
+    // pi-durable's words for the run, never its bare reason.
+    const words = /^Model faux\/.+ is not available$/;
+    const [notice] = await notices(agent);
+    assert.match(notice?.text ?? "", words);
+    const [told] = named(sent, "turn_failed").map((call) => call.message);
+    assert.match((told as { words: string }).words, words);
+    assert.partialDeepStrictEqual(told, {
+        task: "task-1",
+        conversation: await rootRef(agent),
+        cause: "model",
+    });
     assert.deepEqual(agent.reported, []);
     await agent.stop();
 });

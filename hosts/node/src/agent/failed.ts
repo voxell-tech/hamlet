@@ -256,9 +256,12 @@ export function failedTurns(
         const last = answered.get(failure.taskId);
         answered.delete(failure.taskId);
         if (last === "unsent" || STOPPED.has(failure.reason)) return;
-        // As today's `fault` words it (`talk/follow.rs:436-446`).
+        // As today's `fault` words it (`talk/follow.rs:436-446`); a run
+        // that failed before its request keeps its words on the failure.
         const said =
-            typeof input.detail === "string" ? input.detail : input.reason;
+            typeof input.detail === "string"
+                ? input.detail
+                : (failure.detail ?? input.reason);
         // The gate's words in an error item are its failure to ask the
         // realm, which refused nothing.
         const realm = last === "error" ? undefined : realmWordsIn(said);
