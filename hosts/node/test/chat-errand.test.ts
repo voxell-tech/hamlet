@@ -190,6 +190,28 @@ test("a worker is offered only the built-in tools its brief names", async (t) =>
     assert.deepEqual(await offered(agent), ["lint", "read"]);
 });
 
+test("a worker whose brief names no tool is offered every built-in tool", async (t) => {
+    const { calls, sent } = fakeCalls({ realm: { worker_done: () => null } });
+    const brief = WORKER.brief;
+    assert.ok(brief !== undefined);
+    const agent = await wakeAgent(t, {
+        calls,
+        input: { ...WORKER, brief: { text: brief.text } },
+        responses: [fauxAssistantMessage("Done.")],
+    });
+    t.after(() => agent.stop());
+    await until(() => named(sent, "worker_done").length === 1);
+
+    assert.deepEqual(await offered(agent), [
+        "bash",
+        "edit",
+        "find",
+        "read",
+        "search",
+        "write",
+    ]);
+});
+
 test("a place sent to an errand offers it no tool", async (t) => {
     const copies = Promise.withResolvers<Copies>();
     const { calls, sent } = fakeCalls({

@@ -140,7 +140,7 @@ interface Offer {
 
 /**
  * What an agent of its kind is offered, as today decides it
- * (`crates/hamlet_server/src/calls/place.rs:176-249`): an errand no tool
+ * (`crates/hamlet_server/src/calls/place.rs:176-242`): an errand no tool
  * (`undefined`), a worker the built-in tools its brief names, or all of them
  * when it names none, and a Hand or a hire every tool.
  */
