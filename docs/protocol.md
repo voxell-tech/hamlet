@@ -261,7 +261,7 @@ workspace since the server started: `state` (`moving`, `moved` or `failed`),
 lodges `done` of `of`, and its outcome as `text`.
 
 `Item` has `id: string`, `at: integer`, `kind`, `text: string`, and optional
-`chief`, `author`, `event`, `from`, `queued`, `rewindable`, `tool`, `images` (the `AttachedImage`s a chief's
+`chief`, `author`, `event`, `from`, `message`, `queued`, `rewindable`, `tool`, `images` (the `AttachedImage`s a chief's
 line carried) and `files` (its `AttachedFile`s), each with its `at` in `text`; the transcript holds ids and never bytes. Its kind is `user`, `assistant`,
 `reasoning`, `tool`, `notice`, `error`, `answered`, the chief's answers
 to questions, `summary`, whose `text` is the summary that stands for the
@@ -275,9 +275,10 @@ nullable `effort`; `stopped`, with `by` and `waiting`, the inputs held;
 as `summary`; `scholar`, the `scholar` of the city made of the agent;
 `renamed`, with the `name` it is shown by now; and `fast`, with `on`. `by`
 is a chief's name or an agent's address and name. A notification, request or response from another agent
-is a `user` item with `author`, its sender's address and name, and `from`,
-its `AgentId`, not `chief`; its `text` is the words without the heading the
-model reads them under. A `merged` item's `from` is the absorbed hire and
+is a `user` item with `author`, its sender's address and name, `from`,
+its `AgentId`, and `message`, which says what it is (`notification`,
+`request`, `response` or `error-response`), not `chief`; its `text` is the
+words without the heading the model reads them under. A `merged` item's `from` is the absorbed hire and
 its `text` that hire's name. `queued: true` marks an input its turn has not
 taken up yet. Item IDs identify an
 entry and content block (`<entryId>:<block>`); use them as opaque cursors. Tool details are `name`, `call`, `summary`, nullable

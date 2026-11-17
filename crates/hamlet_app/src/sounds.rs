@@ -224,6 +224,7 @@ mod tests {
                             id: "error:0".into(),
                             at: 0,
                             kind: protocol::ItemKind::Error,
+                            message: None,
                             text: "The model could not answer."
                                 .into(),
                             chief: None,

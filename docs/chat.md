@@ -29,18 +29,23 @@ other agents and the answers of the agent's workers all go into it, and it
 answers them one turn at a time. A worker has a conversation of its own.
 
 A message from another agent carries `author` and `from`, its sender's
-address with its name and its id, rather than `chief`. The client keeps it
-as that agent's words, never drawn as the chief's own. The model reads it
-under a heading in brackets that names it, as
-`[A notification from hire#3 (Mira)]` or
+address with its name and its id, rather than `chief`, and `message`,
+whether it is a notification, a request, a response or an error response.
+The client keeps it as that agent's words, never drawn as the chief's own:
+a compact card across the chat headed by what it is and its sender's chip,
+"Request from hire#3 (Mira)", its words under that (`bubble.rs`,
+`message`). The model reads it under a heading in brackets that names it,
+as `[A notification from hire#3 (Mira)]` or
 `[A request from hire#3 (Mira); your final answer goes back to it as the response]`;
 the transcript shows the words alone. A society call's tool row names the
-agent it reached in `agent`, and a `notify` or `request` call is drawn as
-"Notified Mira" or "Request to Mira" over its words.
+agent it reached in `agent`, and a `notify` or `request` call is a step,
+"Notification to hire#4 (Mira)" or "Request to hire#4 (Mira)", that opens
+to its words.
 
 An error response, from a request that failed, is written into the
-sender's conversation without starting a turn. Its row reads "It could not
-answer: " and the cause in plain words, never a code such as `no_model`.
+sender's conversation without starting a turn. Its card is edged in red,
+and reads "It could not answer: " and the cause in plain words, never a
+code such as `no_model`.
 
 **Queued lines.** An input that waits for its turn shows at once as one of
 the last items, with `queued`, in the order its turn will run: the chief's

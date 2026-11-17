@@ -1448,6 +1448,9 @@ mod tests {
                     entry: Entry::Agent {
                         name: "hire#3 (Pip)".into(),
                         from: None,
+                        message: Some(
+                            hamlet_protocol::client::ItemMessage::Notification,
+                        ),
                         text: "The key is by the mill.".into(),
                     },
                 },

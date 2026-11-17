@@ -298,6 +298,7 @@ fn received_item(item: protocol::Item, chief: &str) -> Item {
             Entry::Agent {
                 name: item.author.unwrap(),
                 from: item.from,
+                message: item.message,
                 text: item.text,
             }
         }
@@ -444,6 +445,8 @@ pub enum Entry {
     Agent {
         name: String,
         from: Option<protocol::AgentId>,
+        /// What it is: a notification, a request or a response.
+        message: Option<protocol::ItemMessage>,
         text: String,
     },
     /// The summary that stands for the earlier part of the

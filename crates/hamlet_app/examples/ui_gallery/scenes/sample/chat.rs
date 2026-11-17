@@ -250,6 +250,7 @@ pub(super) fn setup(world: &mut World, scene: Scene) -> Transcript {
                 entry: Entry::Agent {
                     name: "Pip".into(),
                     from: None,
+                    message: Some(protocol::ItemMessage::Response),
                     text: "The key is by the mill door.".into(),
                 },
             });

@@ -19,10 +19,11 @@ use bevy_fynix::views::{
 };
 use bevy_fynix::{ScopedExt, ViewExt, Visual, component};
 use hamlet_client::chats::{Entry, Transcript};
+use hamlet_protocol::client::ItemMessage;
 use hamlet_ui::markdown::{Area, Block, Kind as Shape, Span, Style};
 use hamlet_ui::styles::{note, small_rules};
-use hamlet_ui::theme::Palette;
 use hamlet_ui::theme::contrast::{self, TEXT};
+use hamlet_ui::theme::{Palette, StatusKind};
 use hamlet_ui::widgets::icons::{Glyph, glyph};
 use hamlet_ui::{AnyView, Cx, View, with_cx};
 
@@ -605,6 +606,93 @@ fn written(chat: Entity, id: String, name: String) -> AnyView {
     })
 }
 
+/// A message from another agent: a compact card headed by what it is
+/// and its sender's chip, "Request from hire#3 (Mira)", its words
+/// under that. An error response is edged in red.
+fn message(chat: Entity, id: String) -> AnyView {
+    AnyView::new(move |cx: &mut Cx| {
+        let item = cx
+            .world
+            .get::<Transcript>(chat)
+            .and_then(|t| t.item(&id))
+            .cloned();
+        let Some(Entry::Agent { name, message, .. }) =
+            item.as_ref().map(|item| &item.entry)
+        else {
+            return cx.build(frame());
+        };
+        let queued = item.as_ref().is_some_and(|item| item.queued);
+        let own = chat == cx.world.resource::<Convo>().chat;
+        let replies = own
+            && !queued
+            && item
+                .as_ref()
+                .is_some_and(|i| reply::can_reply_to(&i.entry));
+        let failed = *message == Some(ItemMessage::ErrorResponse);
+        let heading = match message {
+            Some(ItemMessage::Notification) => "Notification from",
+            Some(ItemMessage::Request) => "Request from",
+            Some(ItemMessage::Response) => "Response from",
+            Some(ItemMessage::ErrorResponse) => "Error response from",
+            None => "Message from",
+        };
+        let heading = format!("{heading} {name}");
+        let head = hamlet_ui::markdown::typed(
+            &heading,
+            "",
+            hamlet_ui::markdown::is_address_in(cx.world),
+        )
+        .unwrap_or_else(|| label(heading).bold(true).boxed());
+        let head = row((head,)).rules(small_rules);
+        let words = column((hamlet_ui::markdown::document(
+            markdown::entry(chat, id.clone()),
+            Tone::Body,
+        ),))
+        .min_width(px(0.0))
+        .max_width(percent(100.0));
+        let words = match replies {
+            true => words.tagged(Area).boxed(),
+            false => words.boxed(),
+        };
+        let gap = cx.theme().space.gap;
+        let card = hamlet_ui::kinds::card((head, words))
+            .gap(gap / 2.0)
+            .grow(1.0)
+            .min_width(px(0.0));
+        let card = match failed {
+            true => card.status(StatusKind::Danger).boxed(),
+            false => card.boxed(),
+        };
+        let replying = match replies {
+            true => {
+                reply::mark(chat, id.clone(), name.clone()).boxed()
+            }
+            false => frame().boxed(),
+        };
+        let node = cx.build(
+            row((card, replying))
+                .width(percent(100.0))
+                .min_width(px(0.0))
+                .padding(UiRect::right(
+                    px(FAR - reply_room(replies)),
+                )),
+        );
+        if replies {
+            cx.world.entity_mut(node).insert((
+                Hovered::default(),
+                Replies,
+                Quotable { chat, entry: id },
+            ));
+        }
+        node
+    })
+}
+
+/// The room the reply mark takes beside a message, when it has one.
+fn reply_room(replies: bool) -> f32 {
+    if replies { reply::ROOM } else { 0.0 }
+}
+
 /// How opaque a row that waits its turn is.
 const WAITING: f32 = 0.55;
 
@@ -628,18 +716,20 @@ pub(super) fn line_view<B: Board>(line: &Line) -> AnyView {
         };
         let (view, chat, id) = match &line.row {
             Row::Entry { chat, id } => {
-                let own = cx
+                let entry = cx
                     .world
                     .get::<Transcript>(*chat)
                     .and_then(|t| t.item(id))
-                    .is_some_and(|item| {
-                        matches!(
-                            item.entry,
-                            Entry::Assistant(_)
-                                | Entry::Error(_)
-                                | Entry::Notice(_)
-                        )
-                    });
+                    .map(|item| &item.entry);
+                let own = matches!(
+                    entry,
+                    Some(
+                        Entry::Assistant(_)
+                            | Entry::Error(_)
+                            | Entry::Notice(_)
+                    )
+                );
+                let sent = matches!(entry, Some(Entry::Agent { .. }));
                 let name = cx
                     .world
                     .resource::<B>()
@@ -648,11 +738,12 @@ pub(super) fn line_view<B: Board>(line: &Line) -> AnyView {
                     .get(line.by)
                     .map(|who| who.name.clone())
                     .unwrap_or_default();
-                let view = match own {
-                    true => aside(written(*chat, id.clone(), name)),
-                    false => {
-                        said::<B>(line.clone(), *chat, id.clone())
+                let view = match (own, sent) {
+                    (true, _) => {
+                        aside(written(*chat, id.clone(), name))
                     }
+                    (_, true) => aside(message(*chat, id.clone())),
+                    _ => said::<B>(line.clone(), *chat, id.clone()),
                 };
                 (view, *chat, id.as_str())
             }

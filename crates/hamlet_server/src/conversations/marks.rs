@@ -3,7 +3,7 @@
 
 use anyhow::{Context, Result};
 use hamlet_protocol::client::{
-    AttachedFile, AttachedImage, ItemEvent,
+    AttachedFile, AttachedImage, ItemEvent, ItemMessage,
 };
 use hamlet_protocol::runtime;
 use hamlet_store::ids::AgentId;
@@ -171,6 +171,17 @@ impl Mark {
             _ => return None,
         };
         Some(format!("{heading}\n\n{}", from.text))
+    }
+
+    /// What it is, when it is a message from another agent.
+    pub fn message(&self) -> Option<ItemMessage> {
+        Some(match self {
+            Self::Notification(_) => ItemMessage::Notification,
+            Self::Request(_) => ItemMessage::Request,
+            Self::Response(_) => ItemMessage::Response,
+            Self::ErrorResponse(_) => ItemMessage::ErrorResponse,
+            _ => return None,
+        })
     }
 
     /// Whether its turn is one a chief asked for.

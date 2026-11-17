@@ -590,6 +590,7 @@ fn item_kinds_chief_fallback_and_structural_changes_survive_text_streaming()
             id: id.into(),
             at: 42,
             kind,
+            message: None,
             text: text.into(),
             chief: None,
             author: None,
@@ -860,6 +861,7 @@ fn peer_inputs_keep_their_author_and_never_become_chief_inputs() {
         Entry::Agent {
             name: "hire#4 (scout)".into(),
             from: Some(protocol::AgentId(4)),
+            message: None,
             text: "Check this".into()
         }
     );

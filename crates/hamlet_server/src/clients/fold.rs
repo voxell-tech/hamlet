@@ -156,6 +156,7 @@ impl Fold {
                         from: None,
                         images: Vec::new(),
                         kind: ItemKind::Answered,
+                        message: None,
                         queued: false,
                         text: text.into(),
                         author: None,
@@ -359,6 +360,7 @@ pub(crate) fn queued(
     for input in inputs::queued(db, conversation)? {
         let mark = input.mark()?;
         let at = u64::try_from(mark.at()).unwrap_or_default();
+        let sent = mark.message();
         let item = |kind, text: String| Item {
             at,
             author: None,
@@ -369,6 +371,7 @@ pub(crate) fn queued(
             id: format!("{QUEUED}{}", input.request),
             images: Vec::new(),
             kind,
+            message: None,
             queued: true,
             rewindable: None,
             text,
@@ -395,6 +398,7 @@ pub(crate) fn queued(
                     author: from.author,
                     from: from.from,
                     images: from.images,
+                    message: sent,
                     ..item(ItemKind::User, from.text)
                 }
             }
@@ -443,6 +447,7 @@ pub(crate) fn items_of(
         id: id.clone(),
         images: Vec::new(),
         kind,
+        message: None,
         queued: false,
         rewindable: None,
         text,
@@ -457,6 +462,7 @@ pub(crate) fn items_of(
         }
         None => entry.at,
     };
+    let sent = mark.as_ref().and_then(Mark::message);
     match mark {
         Some(Mark::Chief {
             chief,
@@ -537,6 +543,7 @@ pub(crate) fn items_of(
                     author: from.author,
                     from: from.from,
                     images: from.images,
+                    message: sent,
                     ..item(ItemKind::User, from.text, at)
                 },
             )]);
@@ -602,6 +609,7 @@ fn blocks_of(
         id: id(index),
         images: Vec::new(),
         kind,
+        message: None,
         queued: false,
         rewindable: None,
         text: text.into(),

@@ -244,6 +244,11 @@ pub struct Item {
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub images: Vec<AttachedImage>,
     pub kind: ItemKind,
+    /// What a message from another agent is, beside its `author`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[serde(deserialize_with = "crate::client::present")]
+    #[schemars(with = "ItemMessage")]
+    pub message: Option<ItemMessage>,
     /// A line kept for the agent that its turn has not taken up yet.
     /// Queued items are the last of a transcript, in the order their
     /// turns will run.
@@ -290,6 +295,29 @@ pub enum ItemKind {
     /// alone; `event` says what changed.
     #[serde(rename = "event")]
     Event,
+}
+
+/// What a message from another agent is.
+#[derive(
+    Clone,
+    Copy,
+    Debug,
+    PartialEq,
+    Eq,
+    Serialize,
+    Deserialize,
+    JsonSchema,
+)]
+pub enum ItemMessage {
+    #[serde(rename = "notification")]
+    Notification,
+    #[serde(rename = "request")]
+    Request,
+    #[serde(rename = "response")]
+    Response,
+    /// Why a request or a worker has no answer.
+    #[serde(rename = "error-response")]
+    ErrorResponse,
 }
 
 /// A change to an agent its conversation shows between turns. The
