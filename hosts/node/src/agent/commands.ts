@@ -21,7 +21,7 @@ import {
     type Stop,
     u32,
 } from "./messages.ts";
-import { reflectOnLeaving } from "./reflect.ts";
+import { reflectIn, reflectOnLeaving } from "./reflect.ts";
 import {
     begin,
     current,
@@ -143,7 +143,16 @@ export function rewind(c: AgentCall, message: Rewind): Promise<RewindAnswer> {
     return Promise.reject(new Error("not built: U4"));
 }
 
-export function reflectNow(c: AgentCall): Answer<"reflect"> {
-    void c;
-    return Promise.reject(new Error("not built: U5"));
+/** As `crates/hamlet_server/src/commands/oversight.rs:249-266` asks. */
+export async function reflectNow(c: AgentCall): Answer<"reflect"> {
+    const conversation =
+        (await current(c.db)) ??
+        (await withHarness(
+            c,
+            generationOf(c).options,
+            async (harness, context) => (await harness.root(context)).id,
+        ));
+    return (await reflectIn(c, conversation, 0)) === "already"
+        ? "already"
+        : "asked";
 }
