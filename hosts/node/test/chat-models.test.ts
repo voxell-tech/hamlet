@@ -508,9 +508,7 @@ test("a key is in no database, log, error or event", async (t) => {
     await agent.stop();
 });
 
-test("a new conversation takes the copy's model", {
-    todo: "sessions.ts makes a conversation on the host's model: each `createConversation` should pass `agent: await copiedAgent(copies)`",
-}, async (t) => {
+test("a new conversation takes the copy's model", async (t) => {
     const { calls } = signedIn();
     const second = loopback();
     const names: string[] = [];

@@ -389,13 +389,17 @@ async function wake(c: AgentContext, config: AgentConfig): Promise<void> {
         return;
     }
     harness.resume();
-    // Configured at every wake, not only when a newer model was kept, so a
-    // configure a kill cut off after the copy was kept is done again.
-    void refreshed(c, peers).then(
-        () => configured(c, copies),
-        (error: unknown) =>
+    // Configured at every wake, not only when a newer model was kept, and
+    // even when the realm was not reached, so a configure a kill cut off
+    // after the copy was kept is done again.
+    void refreshed(c, peers)
+        .catch((error: unknown) =>
             peers.report("the copies were not read from the realm", error),
-    );
+        )
+        .then(() => configured(c, copies))
+        .catch((error: unknown) =>
+            peers.report("the model was not configured", error),
+        );
 }
 
 /**

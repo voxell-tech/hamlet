@@ -4,11 +4,17 @@
  * questions each have a chat of their own (C22). Only these functions write
  * the `chat` table.
  */
-import type { Conversation, ConversationId } from "@earendil-works/pi-durable";
+import type { Context } from "@earendil-works/chord/context";
+import type {
+    Conversation,
+    ConversationId,
+    Harness,
+} from "@earendil-works/pi-durable";
 import type { RawAccess } from "../actor/db/mod.ts";
 import { withHarness } from "../pi/runtime.ts";
 import { type AgentCall, generationOf } from "./actor.ts";
 import type { ChatRef, Input, RequestId } from "./messages.ts";
+import { copiedAgent } from "./models.ts";
 import { conversationOf } from "./turn.ts";
 
 export async function migrateChats(
@@ -44,12 +50,7 @@ export function conversationFor(
                 const peer = input.from.agent;
                 return (
                     (await keptChat(c, kind, peer)) ??
-                    made(c, [kind, peer, 0], () =>
-                        harness.createConversation(
-                            { ownership: { kind: "ownerless" } },
-                            context,
-                        ),
-                    )
+                    made(c, [kind, peer, 0], () => created(c, harness, context))
                 );
             }
             case "answer": {
@@ -108,12 +109,7 @@ export async function begin(c: AgentCall, id: RequestId): Promise<Begun> {
             // As today, a chat with no session begins session 1 first, so
             // the first `/new` answers 2.
             await chiefNow(c, () => harness.root(context));
-            return (
-                await harness.createConversation(
-                    { ownership: { kind: "ownerless" } },
-                    context,
-                )
-            ).id;
+            return (await created(c, harness, context)).id;
         },
     );
     return c.db.transaction(async (tx) => {
@@ -210,6 +206,22 @@ async function keptChat(
         peer,
     );
     return row?.conversation;
+}
+
+/** A new conversation, on the model the agent's copy names. */
+async function created(
+    c: AgentCall,
+    harness: Harness,
+    context: Context,
+): Promise<Conversation> {
+    const agent = await copiedAgent(generationOf(c).copies);
+    return harness.createConversation(
+        {
+            ownership: { kind: "ownerless" },
+            ...(agent === undefined ? {} : { agent }),
+        },
+        context,
+    );
 }
 
 /** The current session's conversation; the root begins session 1. */
