@@ -4,6 +4,7 @@ import { fauxAssistantMessage } from "@earendil-works/pi-ai";
 import type { ConversationId, EntryRecord } from "@earendil-works/pi-durable";
 import type { Calls } from "../src/actor/actor/mod.ts";
 import type { Input } from "../src/agent/messages.ts";
+import { REFLECT } from "../src/agent/reflect.ts";
 import { conversationOfChat } from "../src/agent/sessions.ts";
 import {
     fakeCalls,
@@ -105,7 +106,11 @@ function sender(agent: Woken) {
 const line = (text: string): Input => ({ type: "line", text });
 
 test("a repeated /new answers the same number", async (t) => {
-    const agent = await wake(t, fakeCalls({}).calls, ["One.", "Two."]);
+    const agent = await wake(t, fakeCalls({}).calls, [
+        "One.",
+        "Kept it.",
+        "Two.",
+    ]);
     const send = sender(agent);
     await send(line("a"));
     const client = agent.by(from.client);
@@ -118,6 +123,8 @@ test("a repeated /new answers the same number", async (t) => {
         await agent.actions.new_session(client, { id: "new-1", to: 7 }),
         { number: 2 },
     );
+    // The session left reflects first, so the faux answers come in order.
+    await agent.idle();
     await send(line("b"));
 
     const { root, all } = await chats(agent);
@@ -129,7 +136,7 @@ test("a repeated /new answers the same number", async (t) => {
         "b",
         "Two.",
     ]);
-    assert.deepEqual(said(all, root), ["a", "One."]);
+    assert.deepEqual(said(all, root), ["a", "One.", REFLECT, "Kept it."]);
     assert.deepEqual(
         await agent.actions.new_session(client, { id: "new-2", to: 7 }),
         { number: 3 },
@@ -142,7 +149,13 @@ test("a repeated /new answers the same number", async (t) => {
 // the front door's words for these answers.
 test("A2: sessions are numbered and come back", async (t) => {
     const { calls, sent } = fakeCalls({});
-    const agent = await wake(t, calls, ["One.", "Two.", "Three."]);
+    const agent = await wake(t, calls, [
+        "One.",
+        "Kept it.",
+        "Two.",
+        "Kept more.",
+        "Three.",
+    ]);
     const send = sender(agent);
     const client = agent.by(from.client);
     await send(line("a"));
@@ -150,6 +163,7 @@ test("A2: sessions are numbered and come back", async (t) => {
         await agent.actions.new_session(client, { id: "new-1", to: 7 }),
         { number: 2 },
     );
+    await agent.idle();
     await send(line("b"));
 
     const { sessions } = await agent.actions.read_history(client);
@@ -157,13 +171,14 @@ test("A2: sessions are numbered and come back", async (t) => {
         sessions.map((s) => [s.number, s.current, s.title, s.messages]),
         [
             [2, true, "b", 2],
-            [1, false, "a", 2],
+            [1, false, "a", 3],
         ],
     );
     assert.deepEqual(
         await agent.actions.resume(client, { id: "back-1", number: 1, to: 7 }),
         { type: "back", number: 1 },
     );
+    await agent.idle();
     await send(line("c"));
     assert.equal(
         (await agent.actions.resume(client, { id: "back-2", number: 9, to: 7 }))
@@ -177,6 +192,8 @@ test("A2: sessions are numbered and come back", async (t) => {
     assert.deepEqual(said(all, root), [
         "a",
         "One.",
+        REFLECT,
+        "Kept it.",
         "Went back to an earlier session.",
         "c",
         "Three.",
@@ -185,6 +202,8 @@ test("A2: sessions are numbered and come back", async (t) => {
         "Started a new session.",
         "b",
         "Two.",
+        REFLECT,
+        "Kept more.",
     ]);
     assert.equal(await conversationOfChat(client, { with: 7 }), root);
     assert.equal(
