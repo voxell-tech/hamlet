@@ -3,28 +3,65 @@
 use anyhow::Result;
 use hamlet_git::{MAIN, Repository};
 use hamlet_store::Db;
-use hamlet_store::ids::AgentId;
+use hamlet_store::ids::{AgentId, ChiefId, ScholarId};
 
 use super::worker::RepositoryWriteLock;
 use super::{CHARACTER, branch};
+use crate::realm::change::{Change, Done, done};
 use crate::realm::layout::Layout;
 use crate::society::city::{self, Arrival};
 use crate::society::hires;
 
+/// A scholar made of a hire.
+pub(crate) struct Made {
+    pub scholar: ScholarId,
+    /// The character it starts with.
+    pub character: String,
+}
+
+/// The change that makes a scholar of the city of what `hire` has
+/// become, for `owner`, named `name`, else as the hire is called.
+/// What it starts from is read now, before the change.
+pub(crate) fn make_scholar(
+    db: &mut Db,
+    layout: &Layout,
+    writing: &RepositoryWriteLock,
+    hire: AgentId,
+    name: &str,
+    owner: ChiefId,
+    reason: String,
+) -> Result<impl FnOnce(&mut Change<'_>) -> Done<Made> + use<>> {
+    let source = source(db, layout, writing, hire, name)?;
+    Ok(move |cx: &mut Change<'_>| {
+        let scholar = done!(city::make_of_hire(
+            cx,
+            hire,
+            &source.name,
+            owner,
+            source.commit,
+            &reason,
+        ));
+        Ok(Ok(Made {
+            scholar,
+            character: source.character,
+        }))
+    })
+}
+
 /// What a scholar made of a hire starts from.
-pub(crate) struct Source {
-    pub name: String,
+struct Source {
+    name: String,
     /// The tip of the hire's branch, which a new scholar is forked
     /// from; none for a blank hire, whose own scholar joins the
     /// city.
-    pub commit: Option<String>,
-    pub character: String,
+    commit: Option<String>,
+    character: String,
 }
 
 /// What the scholar made of `hire` starts from, named `name`, else
 /// as the hire is called. A city scholar's hire has its lodge
 /// committed first, so its branch's tip holds all it learned.
-pub(crate) fn source(
+fn source(
     db: &mut Db,
     layout: &Layout,
     writing: &RepositoryWriteLock,

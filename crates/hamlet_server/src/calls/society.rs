@@ -159,14 +159,6 @@ impl Core<'_, '_> {
                     here,
                     Reach::Kept
                 ));
-                let layout = self.realm.layout().clone();
-                let source = promotion::source(
-                    self.realm.store().connection(),
-                    &layout,
-                    &self.writing,
-                    hire,
-                    &name,
-                )?;
                 let task = self.task_of(call)?;
                 let db = self.realm.store().connection();
                 let chief = task_chief(db, task)?;
@@ -176,16 +168,24 @@ impl Core<'_, '_> {
                     here,
                     chief,
                 )?;
+                let layout = self.realm.layout().clone();
+                let make = promotion::make_scholar(
+                    self.realm.store().connection(),
+                    &layout,
+                    &self.writing,
+                    hire,
+                    &name,
+                    owner,
+                    reason,
+                )?;
                 self.carry(call, |cx, env| {
-                    let made = done!(city::make_of_hire(
+                    let made = done!(make(cx));
+                    Ok(Ok(arrived(
                         cx,
-                        hire,
-                        &source.name,
-                        owner,
-                        source.commit,
-                        &reason,
-                    ));
-                    Ok(Ok(arrived(cx, env, made, &source.character)?))
+                        env,
+                        made.scholar,
+                        &made.character,
+                    )?))
                 })
             }
             Called::Hire(args) => self.hire_tool(call, here, args),

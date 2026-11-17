@@ -27,29 +27,22 @@ pub(super) fn make_scholar(
         return Ok(Err(refusal));
     }
     let layout = core.realm.layout().clone();
-    let source = promotion::source(
+    let chief = core.realm.chief();
+    let make = promotion::make_scholar(
         core.realm.store().connection(),
         &layout,
         &core.writing,
         hire,
         &line.tail(1),
+        chief,
+        String::new(),
     )?;
-    let chief = core.realm.chief();
-    let made = core.attempt(Actor::Chief(chief), |cx, _| {
-        city::make_of_hire(
-            cx,
-            hire,
-            &source.name,
-            chief,
-            source.commit,
-            "",
-        )
-    })?;
+    let made = core.attempt(Actor::Chief(chief), |cx, _| make(cx))?;
     let db = core.realm.store().connection();
     Ok(match made {
-        Ok(id) => Ok(format!(
+        Ok(made) => Ok(format!(
             "{} lives in the city, made of what `{text}` learned.",
-            city::get(db, id)?.label()
+            city::get(db, made.scholar)?.label()
         )),
         Err(refusal) => Err(refusal),
     })
