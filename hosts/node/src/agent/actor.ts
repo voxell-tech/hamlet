@@ -426,13 +426,17 @@ async function wake(c: AgentContext, config: AgentConfig): Promise<void> {
         return;
     }
     harness.resume();
-    // Configured at every wake, not only when a newer model was kept, so a
-    // configure a kill cut off after the copy was kept is done again.
-    const copied = refreshed(c, peers).then(
-        () => configured(c, copies),
-        (error: unknown) =>
+    // Configured at every wake, not only when a newer model was kept, and
+    // even when the realm was not reached, so a configure a kill cut off
+    // after the copy was kept is done again.
+    const copied = refreshed(c, peers)
+        .catch((error: unknown) =>
             peers.report("the copies were not read from the realm", error),
-    );
+        )
+        .then(() => configured(c, copies))
+        .catch((error: unknown) =>
+            peers.report("the model was not configured", error),
+        );
     if (
         (row.kind === "worker" || row.kind === "errand") &&
         row.brief !== undefined
@@ -441,7 +445,6 @@ async function wake(c: AgentContext, config: AgentConfig): Promise<void> {
         // A new worker or errand holds no copies yet, so its turn waits for
         // the realm's answer, whatever it is.
         void copied
-            .catch(() => undefined)
             .then(() =>
                 briefTurn(c, options, peers, kind, brief, row.standingTask),
             )

@@ -312,8 +312,8 @@ const { provider, id } = core.getModel();
 const agent = agentActor({
     models,
     model: `${provider}/${id}`,
+    listed: () => models.getModels(),
     files: (n) => dyingIn(openAgentFilesystem(home, n)),
-    listed: () => core.models,
 });
 
 try {
