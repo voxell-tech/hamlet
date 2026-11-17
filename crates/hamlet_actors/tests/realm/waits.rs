@@ -900,21 +900,28 @@ async fn a_request_the_chief_refused_is_refused_again_unasked() {
     })
     .await;
 
+    let answers = chief_answers(&realm);
+    let answer_to = |call: &str| {
+        answers
+            .iter()
+            .find(|answer| answer.call == needs(HAND, call).call)
+            .cloned()
+    };
     assert_eq!(
-        chief_answers(&realm)[2..],
+        [answer_to("c3"), answer_to("c4")],
         [
-            refused_unasked(
+            Some(refused_unasked(
                 "c3",
                 "the chief already refused this in this turn (no \
                  reason given). Do not ask again: go on without it, \
                  or report that you could not."
-            ),
-            refused_unasked(
+            )),
+            Some(refused_unasked(
                 "c4",
                 "the chief already refused this in this turn (stay \
                  offline). Do not ask again: go on without it, or \
                  report that you could not."
-            ),
+            )),
         ]
     );
     let open = waits_of(&realm, HAND).await;
