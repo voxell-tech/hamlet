@@ -1,6 +1,5 @@
 //! The documents a chief edits and reads: the charter, characters,
-//! memory, limits, settings, papers, the prompt and a chat's
-//! sessions.
+//! memory, limits, settings, papers and the prompt.
 
 use anyhow::Result;
 use diesel::prelude::*;
@@ -17,7 +16,7 @@ use crate::conversations::{chats, prompt};
 use crate::core::{Core, UnpushedLodge};
 use crate::knowledge::folder::Folder;
 use crate::knowledge::library::field;
-use crate::knowledge::{self, CHARACTER, outside_git};
+use crate::knowledge::{self, CHARACTER, memory_path, outside_git};
 use crate::realm::change::{Done, done, refuse};
 use crate::realm::jobs::{self, Job};
 use crate::society::agents::Effort;
@@ -26,22 +25,6 @@ use crate::society::limits::{self, Limits, RealmLimits};
 use crate::society::refusal::Refusal;
 use crate::society::spend::micros;
 use crate::society::{authority, hamlets, hires};
-
-/// Refuses a memory path that is not a plain relative path under
-/// `memory/`.
-pub(crate) fn memory_path(path: &str) -> Result<String, Refusal> {
-    let path = path.trim().trim_start_matches("memory/");
-    let plain = !path.is_empty()
-        && !path.starts_with('/')
-        && path.split('/').all(|part| {
-            !part.is_empty() && part != "." && part != ".."
-        });
-    if plain {
-        Ok(format!("memory/{path}"))
-    } else {
-        Err(Refusal::NoFile { path: path.into() })
-    }
-}
 
 impl Core<'_, '_> {
     pub(crate) fn edit(

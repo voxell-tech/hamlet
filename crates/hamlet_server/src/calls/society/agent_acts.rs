@@ -14,10 +14,10 @@ use super::args::{
 };
 use super::{Call, cut};
 use crate::clients::commands::versions::pinned;
-use crate::clients::documents::memory_path;
 use crate::conversations::dreams::Dreamer;
 use crate::conversations::{self, chats, reflections};
 use crate::core::Core;
+use crate::knowledge::memory_path;
 use crate::realm::change::{Done, done, refuse};
 use crate::society::addresses::{self, Reach};
 use crate::society::agents::{self, Effort};

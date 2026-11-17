@@ -5,6 +5,7 @@ pub(crate) mod dreams;
 pub(crate) mod folder;
 pub(crate) mod library;
 mod merges;
+pub(crate) mod promotion;
 pub(crate) mod run;
 pub(crate) mod worker;
 
@@ -16,6 +17,7 @@ use hamlet_store::ids::{AgentId, ScholarId};
 
 use crate::realm::layout::Layout;
 use crate::society::agents::{self, AgentKind};
+use crate::society::refusal::Refusal;
 use crate::society::{hand, hires};
 
 pub(crate) fn plugin(app: &mut bevy_app::App) {
@@ -29,6 +31,22 @@ pub(crate) const CHARACTER: &str = "CHARACTER.md";
 /// agent writes (C13), and the inbox, whose files are not knowledge.
 pub(crate) fn outside_git(path: &str) -> bool {
     path == CHARACTER || path == "inbox" || path.starts_with("inbox/")
+}
+
+/// Refuses a memory path that is not a plain relative path under
+/// `memory/`.
+pub(crate) fn memory_path(path: &str) -> Result<String, Refusal> {
+    let path = path.trim().trim_start_matches("memory/");
+    let plain = !path.is_empty()
+        && !path.starts_with('/')
+        && path.split('/').all(|part| {
+            !part.is_empty() && part != "." && part != ".."
+        });
+    if plain {
+        Ok(format!("memory/{path}"))
+    } else {
+        Err(Refusal::NoFile { path: path.into() })
+    }
 }
 
 /// The branch of an agent's lodge.

@@ -25,6 +25,7 @@ use self::args::{
 use super::looks::Look;
 use super::{Call, refused, said};
 use crate::core::Core;
+use crate::knowledge::promotion;
 use crate::realm::change::{Change, Done, done, refuse};
 use crate::realm::settings::EffectiveSettings;
 use crate::society::addresses::{self, Reach};
@@ -158,7 +159,14 @@ impl Core<'_, '_> {
                     here,
                     Reach::Kept
                 ));
-                let source = self.scholar_source(hire, &name)?;
+                let layout = self.realm.layout().clone();
+                let source = promotion::source(
+                    self.realm.store().connection(),
+                    &layout,
+                    &self.writing,
+                    hire,
+                    &name,
+                )?;
                 let task = self.task_of(call)?;
                 let db = self.realm.store().connection();
                 let chief = task_chief(db, task)?;
