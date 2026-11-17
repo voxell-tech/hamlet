@@ -51,8 +51,8 @@ Stdin is closed; stdout and stderr go to a log shown on failure.
 
 - `agents`: answers by agent id, as in `Faux::agent(2, [...])`. The Hand
   is 1; the first mayor is 2.
-- `kinds`: answers by conversation kind (`worker`, `errand`, `letters`,
-  `questions`, `dream`), as in `Faux::kind("dream", [...])`.
+- `kinds`: answers by conversation kind (`chat`, `worker`, `errand`,
+  `dream`), as in `Faux::kind("dream", [...])`.
 - `responses`: answers for everyone else.
 
 A conversation takes its agent's list first, then its kind's, then

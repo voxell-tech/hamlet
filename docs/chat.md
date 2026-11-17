@@ -113,7 +113,7 @@ to use the window's controls; those controls send commands to the server.
 Unaddressed server faults and error replies to the chat's own requests show
 under the field and play the Error sound. Fault waits stay on the realm's page
 in the Hub. Faults whose cause a chief sets up once, no model or a provider
-that refused the sign-in, are told in one toast for each cause and model, as
+that refused the sign-in, are shown in one toast for each cause and model, as
 "5 mayors can't use Claude Sonnet 5.5", with Set Up Models and Dismiss All
 (`toasts.rs`); the words of a fault come from `conversations/failures.rs`.
 
@@ -150,7 +150,7 @@ unopened.
 
 ## Agents named in the chat
 
-An agent's or a scholar's address in a reply or in the chief's own line
+An agent's or a scholar's address in an agent's answer or in the chief's own line
 is drawn as a chip in the line: the glyph of what it is (the Hand's
 tower, a mayor's crown, a hire, a worker or a scholar), its name as it
 is now and, in its tooltip, the address. A click opens the chat with
@@ -166,10 +166,10 @@ the agent, or the scholar's page.
 - An address that names no living agent or no scholar the window has
   stays plain words. Nothing in a fenced code block is a chip.
 
-While a reply still grows, the addresses in it are words in the link's
+While an answer still grows, the addresses in it are words in the link's
 colour, not chips: Bevy lays a growing line out again at other widths as
 it measures, and a chip placed from one of those layouts would move with
-each word. They become chips once the reply is whole, in one swap
+each word. They become chips once the answer is whole, in one swap
 (`unsettle` in `hamlet_ui/src/markdown/draw.rs`).
 
 The chips are drawn again when an agent comes, leaves, is renamed or
@@ -263,7 +263,7 @@ what clips the text. Selectable text shows the text cursor. Cmd+C copies
 it, Cmd+A selects the whole area and Esc lets it go. The parts of nodes
 on one line, such as a bullet and its item, are joined with a space, and
 those on different lines with a line. The room a bubble keeps for its
-hour is never selected. In the chat, QUOTE, at the end of what is highlighted,
+hour is never selected. In the chat, Quote, at the end of what is highlighted,
 puts the words in the field as `> ` lines with a line after them for the
 chief's own words. It stands over the window, not in the message, so a
 selection never lays the message out again: a message with chips in it
@@ -310,7 +310,7 @@ line are another thing (see Images on a line below).
 address, and a fetch tells that server whatever the address carries. An
 agent that was fed bad instructions could put a secret in the address and
 have the chief's machine send it just by showing the chat. So the chip
-shows the words, the host and a button, SHOW PICTURE, and only the press
+shows the words, the host and a button, Show Picture, and only the press
 fetches. The fetch is bounded in time, size and redirects, takes only an
 answer that is an image, and keeps the picture in memory only.
 
@@ -344,7 +344,7 @@ that line. Escape leaves the field with its words and chips kept. A line that ca
 still going up, waits for a word or was refused, leaves the field as it is.
 
 Each conversation's chat keeps its own draft for the window's life: its
-words and its chips, with what they are attached to (`Drafts` in
+words and its chips, with what they are attached to (`Unsent` in
 `screens/chat/field.rs`). Another chat shown keeps the draft in the field
 and puts that chat's own in its place, or nothing; the caret goes to its
 end. An attachment belongs to the draft it was attached to, and goes on
@@ -467,8 +467,8 @@ between them at its head. The options are a list of rows, each with its
 letter, its title and its description, and the one picked is highlighted. A
 line under them, Other, takes words. Each question takes one option or
 words, not both, and picking an option moves on to the next question.
-SUBMIT, on the last question, sends the answers when each question has
-one, and otherwise shows the first without one. DISMISS tells the agent
+Submit, on the last question, sends the answers when each question has
+one, and otherwise shows the first without one. Dismiss tells the agent
 to go on with its best judgement.
 
 **The answer is the chief's reply.** The agent is given it as words, each
@@ -518,7 +518,7 @@ to the end. The button shows whenever the view does not follow the end.
 Each conversation's chat is shown again where the chief left it, for the
 window's life: at its end if it followed the end, else with the row that
 was first in view first again. A conversation not shown before opens at
-its end. `Places` keeps where each was left, by the key of that row, and
+its end. `Place`, kept on each chat, says where it was left, by the key of that row, and
 the list is put back there when it is built or shows another
 conversation.
 

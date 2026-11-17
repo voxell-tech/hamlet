@@ -209,8 +209,8 @@ task with a cost cap, and its commits are named after it.
 The library is a repository, checked out read-only for every agent, which
 starts with the shipped skills. An agent offers a skill using `submit_skill`;
 the librarian judges it in one model call with no tools, and `ACCEPT` as the
-first word shelves it. Other answers refuse it. `request_librarian` asks about the
-shelf, and `/unshelve` takes a skill out. The shelf and each decision are kept
+first word shelves it. Other answers refuse it. `request_librarian` sends the
+librarian a request about the shelf, and `/unshelve` takes a skill out. The shelf and each decision are kept
 by the server.
 
 A chief's instruction is recorded before it starts. In its own conversation

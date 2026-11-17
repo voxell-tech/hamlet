@@ -111,17 +111,17 @@ now, each carried as a letter.
 state; the other panels live beside that folder, and `tuning.rs` loads
 their sizes and limits from `assets/ui.toml`. They are built from
 `hamlet_ui`, which reads no client state: `theme.rs` and `styles.rs`
-define how the panels look, and `widgets/` holds the shared controls:
+define the panels' theme and styles, and `widgets/` holds the shared controls:
 `effects/`, `icons.rs`, `tabs.rs`, `platform.rs` and `keys.rs`, the one
 builder of a shortcut: the chord a command is bound to, shown as the
 keyboard prints it (`⌘⇧K` on a Mac, `Ctrl+Shift+K` elsewhere). `markdown/` parses
 Markdown and draws it. A control asks for a sound with `ControlSound`
-and lights its panel from `Attention`; the app plays the one and keeps
-the other. A document finds a written path's file through `PathLinks`,
-takes the words that are an agent's address and draws each as a chip
-through `AgentLinks`, and
-draws a picture through `PictureView`, which the app's `links` screen,
-`reference.rs` and `pictures` screen set. The panels' steps before fynix mounts are `PanelSystems` in
+and highlights its panel through `Attention`; the app plays the one and
+keeps the other. A document finds a written path's file through
+`PathLinks`, takes the words that are an agent's address and draws each
+as a chip through `AgentLinks`, and draws a picture through
+`PictureView`, which the app's `links` screen, `reference.rs` and
+`pictures` screen set. The panels' steps before fynix mounts are `PanelSystems` in
 `hamlet_app/src/lib.rs` (`Follow`, `Bind`), in `PreUpdate`;
 `panel_sets` orders them, and the apps in `testing.rs` add it, so a UI
 test settles in one update. A panel registers its dock window in
@@ -260,12 +260,13 @@ built-in ones.
 | Runtime protocol | `hamlet_protocol/src/runtime/`, then `cargo test -p hamlet_protocol`; [`harness.md`](harness.md) |
 | Received entities | `hamlet_client/src/connection.rs`, `realm.rs`, `waits.rs`, `chats.rs`, `index.rs` |
 | The message field and its chips: typing, sending, the place of each attachment, the chips in a sent line | `hamlet_app/src/screens/chat.rs` (`send_typed`), `chat/field.rs`, `chat/attach.rs` (the chips and a sent line's tiles), `chat/bubble.rs` (a sent line); the field itself is fynix's `rich_field` |
+| The chat's rows: runs of bubbles, folded steps, the cards of a summary, a merge and a worker, and the line of a stopped chat | `hamlet_app/src/screens/chat/timeline.rs`, `chat/lines.rs`, `chat/bubble.rs`, `chat/card.rs`, `chat/held.rs` |
 | An image of a line shown over the window | `hamlet_app/src/screens/viewer.rs`; the image itself is read in `screens/pictures.rs` (`Source::Original`) |
 | Images on a line: upload, fitting, what a model takes, the read tool's images | `hamlet_server/src/attachments/images.rs`, `providers.rs`, `tools/builtin/files.rs`; in the window `hamlet_client/src/images.rs`, `hamlet_desktop/src/clipboard.rs`, `hamlet_app/src/screens/chat/attach.rs` and, for a custom model's limits, `hamlet_app/src/models/home.rs`; in the CLI `hamlet_cli/src/chat.rs` and `terminal.rs` |
 | Files and folders on a line, and sent with `notify` or `request`: upload, the inbox, the cap | `hamlet_server/src/attachments/files.rs`, `attachments/inbox.rs`, `attachments/captions.rs`, `attachments/images/attaching.rs`, `tools/builtin/parcel.rs`, `calls/society/messages.rs`, `society/oversight/gate.rs` (`Call::Parcel`); in the window `hamlet_client/src/files.rs`, `hamlet_desktop/src/choose.rs`, `hamlet_app/src/screens/chat/attach.rs`; in the CLI `hamlet_cli/src/client.rs`, `chat.rs` and `mentions.rs` (the `@path` tokens) |
 | Terminals: the chief's shells, the agents' commands logs, the panel | `hamlet_server/src/terminals.rs`, `terminals/`; `hamlet_os/src/process/pty.rs`; `hamlet_protocol/src/screen.rs` (resizing a screen, both ends); `hamlet_client/src/terminals.rs`; `hamlet_app/src/screens/terminal.rs`, `screens/terminal/`; [`sandbox.md`](sandbox.md#terminals) |
 | A panel or right-click menu | `hamlet_app/src/screens/`, `world_menu/items.rs` |
-| The Hub: its rail, a thread, its details sheet, scholar and hamlet pages | `hamlet_app/src/screens/hub.rs`, `hub/` (`rail.rs`, `thread.rs`, `details.rs`, `scholar.rs`) |
+| The Hub: its rail, a thread, its details sheet, scholar and hamlet pages, and the page it turns to once what it showed is erased | `hamlet_app/src/screens/hub.rs`, `hub/` (`rail.rs`, `thread.rs`, `details.rs`, `scholar.rs`, `erasure.rs`) |
 | The tag of an agent's city scholar, and the mark of what a hire learned that its scholar lacks | `hamlet_app/src/scholar_tag.rs`; `learned` on the client protocol's `Agent`, kept in `hamlet_server/src/conversations/dreams.rs` (`Learned`), found again after jobs by `knowledge/dreams.rs` (`has_learned`) |
 | Toasts that answer petitions in place | `hamlet_app/src/toasts.rs` |
 | The starting desk | `hamlet_app/src/dock.rs` |

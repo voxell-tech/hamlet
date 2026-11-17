@@ -386,7 +386,7 @@ receiver has no model it can use, its turn failed or was stopped, or it
 ended or refused, comes back as an error response: it is shown in the
 sender's conversation and given to its model, but starts no turn of its
 own. The cause is said in plain words, and a cause of setup, such as no
-model or no credentials, is told the chief once for every agent it stops,
+model or no credentials, is shown to the chief once for every agent it stops,
 not once for each.
 
 **H12.** Every message a chief sends starts a task, and the task follows
