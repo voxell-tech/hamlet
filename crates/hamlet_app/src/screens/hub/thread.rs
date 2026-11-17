@@ -17,7 +17,8 @@ use bevy_fynix::views::{
     label, row, scroll,
 };
 use bevy_fynix::{
-    ScopedExt, ViewExt, derived, every_frame, keyed, resource, style,
+    ScopedExt, Signal, ViewExt, derived, every_frame, keyed,
+    resource, style,
 };
 use hamlet_client::messages::Compact;
 use hamlet_client::realm::{
@@ -648,60 +649,61 @@ fn chips(agent: Entity) -> impl View {
     })
 }
 
-/// The transcript over its composer.
-fn talk(agent: Entity) -> AnyView {
-    keyed(resource::<Convo, _>(|m| m.session), move |_| {
-        with_cx(move |cx| {
-            let space = &cx.theme().space;
-            let (gap, widest) = (space.gap, px(space.thread_width));
-            // In a column of its own in the middle of a wide panel.
-            column((
-                chat::transcript(),
-                chat::message_bar(chips(agent)),
-            ))
+/// The session and the agent the chat is with.
+fn seated() -> Signal<(Entity, Entity)> {
+    resource::<Convo, _>(|convo| (convo.session, convo.agent))
+}
+
+/// The transcript over its composer. The transcript is kept from one
+/// chat to the next, so the next one shows where it was left in the
+/// update it is chosen.
+fn talk() -> AnyView {
+    let bar = keyed(seated(), |&(_, agent)| {
+        chat::message_bar(chips(agent)).boxed()
+    })
+    .within(bare());
+    with_cx(move |cx| {
+        let space = &cx.theme().space;
+        let (gap, widest) = (space.gap, px(space.thread_width));
+        // In a column of its own in the middle of a wide panel.
+        column((chat::transcript(), bar))
             .fills_height()
             .gap(gap)
             .width(percent(100.0))
             .max_width(widest)
             .margin(UiRect::horizontal(Val::Auto))
-            .boxed()
-        })
-        .boxed()
     })
-    .within(filling())
     .boxed()
 }
 
 /// The thread of the agent the chat is with.
 pub(super) fn living() -> impl View {
-    keyed(
-        resource::<Convo, _>(|m| (m.session, m.agent)),
-        |(_, agent)| {
-            let agent = *agent;
-            // The details take the chat's place while they are open.
-            let body = keyed(
-                resource::<Sheet, _>(|sheet| {
-                    *sheet == Sheet::Details
-                }),
-                move |open| {
-                    if *open {
-                        details::sheet(agent).boxed()
-                    } else {
-                        talk(agent)
-                    }
-                },
-            )
-            .within(filling());
-            with_cx(move |cx| {
-                let gap = cx.theme().space.gap;
-                column((header(agent), waits(agent), body))
-                    .fills_height()
-                    .gap(gap)
+    let about = keyed(seated(), |&(_, agent)| {
+        with_cx(move |cx| {
+            column((header(agent), waits(agent)))
+                .gap(cx.theme().space.gap)
+        })
+        .boxed()
+    })
+    .within(bare());
+    // The details take the chat's place while they are open.
+    let body = keyed(
+        resource::<Sheet, _>(|sheet| *sheet == Sheet::Details),
+        |open| match open {
+            true => keyed(seated(), |&(_, agent)| {
+                details::sheet(agent).boxed()
             })
-            .boxed()
+            .within(filling())
+            .boxed(),
+            false => talk(),
         },
     )
-    .within(filling())
+    .within(filling());
+    with_cx(move |cx| {
+        column((about, body))
+            .fills_height()
+            .gap(cx.theme().space.gap)
+    })
 }
 
 /// Reads the prompt the agent the chat is with would be given now,

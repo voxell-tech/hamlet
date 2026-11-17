@@ -4,7 +4,10 @@
 use std::collections::HashMap;
 
 use bevy::app::App;
-use bevy::ecs::change_detection::{DetectChanges, Ref};
+use bevy::camera::visibility::Visibility;
+use bevy::ecs::change_detection::{
+    DetectChanges, DetectChangesMut, Ref,
+};
 use bevy::ecs::component::Component;
 use bevy::ecs::entity::Entity;
 use bevy::ecs::hierarchy::ChildOf;
@@ -138,23 +141,36 @@ pub fn remember_place(
 }
 
 /// Puts the chat's list where its conversation was left, or at its
-/// end, when it is built or shows another conversation.
+/// end, when it is built or shows another conversation. A list is
+/// built hidden and shown once it is put there.
 pub fn restore_place(
     mut commands: Commands,
     convo: Res<Convo>,
     lines: Res<Lines>,
     places: Res<Places>,
     mut lists: Query<
-        (Entity, &mut VirtualList, Option<&mut Shows>),
+        (
+            Entity,
+            &mut VirtualList,
+            &mut Visibility,
+            Option<&mut Shows>,
+        ),
         With<ChatScroll>,
     >,
 ) {
-    for (list, mut state, shows) in &mut lists {
+    for (list, mut state, mut seen, shows) in &mut lists {
         if shows
             .as_ref()
             .is_some_and(|shows| shows.session == convo.session)
         {
             continue;
+        }
+        seen.set_if_neq(Visibility::Inherited);
+        // Every row is of another conversation, whose heights are not
+        // known.
+        if shows.is_some() {
+            let count = state.count();
+            state.splice(0, count, lines.rows.len());
         }
         let row = match places.0.get(&convo.session) {
             Some(Place::Row(key)) => lines.places.get(key).copied(),
@@ -894,7 +910,10 @@ pub fn transcript() -> impl View {
     )
     .follow_bottom(true)
     .tagged(ChatScroll)
-    .tagged(FileDrop);
+    .tagged(FileDrop)
+    // Its rows are placed at its top in the update it is built, and
+    // where its chat was left only in the next.
+    .tagged(Visibility::Hidden);
     // The way back to the end, over the corner of the chat, offered
     // only when the chat is not at its end.
     let back = each(

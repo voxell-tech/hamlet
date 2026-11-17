@@ -1656,7 +1656,6 @@ mod tests {
     #[test]
     fn a_chat_keeps_its_end_and_is_shown_again_where_it_was_left() {
         use bevy_fynix::views::VirtualList;
-        use bevy_fynix::{ViewExt, keyed, resource};
         use hamlet_client::chats::{Entry, Item, Transcript};
 
         use crate::testing::{panel_app, seat_ada, seat_hand};
@@ -1680,12 +1679,10 @@ mod tests {
             app.world_mut().entity_mut(session).insert(said(40));
         }
         app.update();
-        // Built again for each chat, as the hub builds it.
+        // Kept from chat to chat, as the hub keeps it.
         bevy_fynix::mount::<HamletTheme>(
             app.world_mut(),
-            keyed(resource::<Convo, _>(|c| c.session), |_| {
-                transcript().boxed()
-            }),
+            transcript(),
         );
         // The window lays nothing out here: the list is given its
         // size each time it is built.
@@ -1735,6 +1732,14 @@ mod tests {
         let (_, following, _) = settle(&mut app);
         assert!(following, "another chat opens at its end");
         seat_hand(&mut app);
+        // There in the update it is chosen in, not one after.
+        app.update();
+        let world = app.world_mut();
+        let (_, shown) = world
+            .query_filtered::<(Entity, &VirtualList), With<ChatScroll>>()
+            .single(world)
+            .unwrap();
+        assert_eq!(shown.first_visible(), left_at);
         let (_, following, first) = settle(&mut app);
         assert!(!following);
         assert_eq!(first, left_at);
