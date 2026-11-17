@@ -14,6 +14,7 @@ import {
     until,
     type Woken,
     wakeAgent,
+    within,
 } from "./agent-testing.ts";
 import { context } from "./testing.ts";
 
@@ -73,6 +74,7 @@ test("a refused call leaves a notice naming /reset-budget", async (t) => {
     assert.match(notice?.text ?? "", /\/reset-budget/);
     assert.ok(Number.isInteger(notice?.at) && (notice?.at ?? 0) < 2 ** 32);
     assert.deepEqual(more, []);
+    assert.deepEqual(agent.reported, []);
     await agent.stop();
 });
 
@@ -99,6 +101,7 @@ test("a refused call in a chief's chat tells the realm the turn failed", async (
         [failed],
         "a letter's chat is no chief's: its refusal tells nothing",
     );
+    assert.deepEqual(agent.reported, []);
     await agent.stop();
 });
 
@@ -122,6 +125,7 @@ test("a held call ends quietly", async (t) => {
         ),
         ["task-2"],
     );
+    assert.deepEqual(agent.reported, []);
     await agent.stop();
 });
 
@@ -150,6 +154,7 @@ test("an empty answer fails its turn with today's words", async (t) => {
             },
         ],
     );
+    assert.deepEqual(agent.reported, []);
     await agent.stop();
 });
 
@@ -180,7 +185,70 @@ test("a provider error that ends the turn tells the realm its words", async (t) 
             },
         ],
     );
+    assert.deepEqual(agent.reported, []);
     await agent.stop();
+});
+
+const overloaded = () =>
+    fauxAssistantMessage([], {
+        stopReason: "error",
+        errorMessage: "overloaded",
+    });
+
+test("a provider error tried again tells the realm only when the turn fails", async (t) => {
+    const { calls, sent } = fakeCalls({});
+    const agent = await wakeAgent(t, {
+        calls,
+        settings: { retry: { enabled: true, maxRetries: 2, baseDelayMs: 1 } },
+        responses: [
+            overloaded(),
+            fauxAssistantMessage("Fine."),
+            fauxAssistantMessage([], {
+                stopReason: "error",
+                errorMessage: "invalid x-api-key",
+            }),
+        ],
+    });
+
+    await say(agent, 1, "Go.");
+    await say(agent, 2, "Again.");
+    await until(() => named(sent, "turn_failed").length > 0);
+
+    assert.deepEqual(
+        named(sent, "turn_failed").map(
+            (call) => (call.message as TurnFailed).task,
+        ),
+        ["task-2"],
+    );
+    assert.deepEqual(agent.reported, []);
+    await agent.stop();
+});
+
+test("a stop while a provider error waits to be tried again ends the agent", async (t) => {
+    const { calls, sent } = fakeCalls({});
+    const agent = await wakeAgent(t, {
+        calls,
+        // Long enough that the retry is still asleep at the stop.
+        settings: {
+            retry: { enabled: true, maxRetries: 2, baseDelayMs: 600_000 },
+        },
+        responses: [overloaded()],
+    });
+    await agent.actions.submit(agent.by(from.realm), {
+        id: "input-1",
+        task: "task-1",
+        input: { type: "line", text: "Go." },
+    });
+    await until(async () =>
+        (await agent.entries()).some((entry) => entry.kind === "pi.assistant"),
+    );
+
+    // A stop takes milliseconds; a hang waits for the retry's sleep.
+    assert.equal(await within(agent.stop(), 30_000, "hung"), undefined);
+    // Before the close was told apart, its noise was reported by here.
+    await new Promise((resolve) => setImmediate(resolve));
+    assert.deepEqual(agent.reported, []);
+    assert.deepEqual(named(sent, "turn_failed"), []);
 });
 
 /** About 10,000 tokens by pi-ai's estimate, so three leave room to compact. */
@@ -239,6 +307,7 @@ test("a second short cut-off tells the realm the turn failed", async (t) => {
             },
         ],
     );
+    assert.deepEqual(agent.reported, []);
     await agent.stop();
 });
 

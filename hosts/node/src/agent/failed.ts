@@ -162,7 +162,12 @@ export function failedTurns(
                     if (input.kind === "reflection" || followed.has(api.taskId))
                         return;
                     followed.add(api.taskId);
-                    void ended(api.conversationId, api.taskId, input);
+                    void ended(
+                        api.conversationId,
+                        api.taskId,
+                        input,
+                        context.abortSignal,
+                    );
                 },
             }),
         ],
@@ -203,11 +208,13 @@ export function failedTurns(
     /**
      * Only the request's task knows whether pi-durable tries again, so the
      * realm is told once it has failed. A kill before then loses the wait.
+     * A close cuts the wait off, and the next wake follows the task again.
      */
     async function ended(
         conversation: ConversationId,
         taskId: TaskId,
         input: TurnInput,
+        closed: AbortSignal | undefined,
     ): Promise<void> {
         try {
             const settled = await withHarness((harness, context) =>
@@ -231,7 +238,7 @@ export function failedTurns(
                 undefined,
             );
         } catch (error) {
-            if (!(error instanceof Closing)) {
+            if (!(error instanceof Closing || closed?.aborted)) {
                 peers.report("a failed turn was not followed", error);
             }
         }
