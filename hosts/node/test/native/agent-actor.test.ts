@@ -283,14 +283,14 @@ test("a client's call made by the realm, and an input the agent does not take, a
                 CALL,
             );
         }
-        for (const input of ["submit.notice", "submit.worker_answer"]) {
-            refused[input] = await host.call(
-                r,
-                "send",
-                [1, "submit", argsOf(input)],
-                CALL,
-            );
-        }
+        // Every input the realm's fixtures hold is taken, so a newer
+        // realm's stands for one the agent does not.
+        const unknown = await host.call(
+            r,
+            "send",
+            [1, "submit", { id: "later", input: { type: "later", text: "x" } }],
+            CALL,
+        );
         const admitted = await host.call(
             r,
             "send",
@@ -309,11 +309,9 @@ test("a client's call made by the realm, and an input the agent does not take, a
                 error: { group: "message", code: "wrong_caller" },
             });
         }
-        for (const input of ["submit.notice", "submit.worker_answer"]) {
-            assert.partialDeepStrictEqual(refused[input], {
-                error: { group: "message", code: "unreadable" },
-            });
-        }
+        assert.partialDeepStrictEqual(unknown, {
+            error: { group: "message", code: "unreadable" },
+        });
         assert.partialDeepStrictEqual(admitted, { answer: null });
         assert.deepEqual(agentFile(dir).submissions, ["after"]);
         assert.match(JSON.stringify(agentFile(dir).replies), /Done\./);

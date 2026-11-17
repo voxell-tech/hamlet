@@ -1,12 +1,19 @@
 // Not `pi()`: its built-in actions check no sender, and it reserves `submit`.
-import { BACKGROUND_CONTEXT } from "@earendil-works/chord/context";
+import {
+    BACKGROUND_CONTEXT,
+    type Context,
+} from "@earendil-works/chord/context";
 import type { Api, Model, Models } from "@earendil-works/pi-ai";
 import {
+    type Conversation,
+    type Cursor,
     createRegistry,
+    type EntryId,
     type Extension,
     type Harness,
     type HarnessSettings,
     type Registry,
+    type SettledSubmissionRecord,
 } from "@earendil-works/pi-durable";
 import {
     type ActionCaller,
@@ -51,7 +58,9 @@ import type { SignIns } from "./login.ts";
 import {
     type AgentActions,
     type AgentInput,
+    type Brief,
     type Copies,
+    type Ended,
     type Fill,
     type Finished,
     type Place,
@@ -74,6 +83,7 @@ import {
     type Admission,
     Closing,
     draftOf,
+    NOTE_BREAK,
     type Peers,
     peersOf,
     reasonOf,
@@ -127,23 +137,71 @@ export type AgentDefinition = ActorDefinition<
     AgentHandlers
 >;
 
+interface Offer {
+    /** Narrows a set of built-in tools to those offered. */
+    readonly builtIn: (extension: Extension) => Extension;
+    /** Whether the society's tools, the timers and reflection are offered. */
+    readonly society: boolean;
+}
+
+/**
+ * What an agent of its kind is offered, as today decides it
+ * (`crates/hamlet_server/src/calls/place.rs:176-242`): an errand no tool
+ * (`undefined`), a worker the built-in tools its brief names, or all of them
+ * when it names none, and a Hand or a hire every tool.
+ */
+function offerOf(row: Row): Offer | undefined {
+    switch (row.kind) {
+        case "errand":
+            return undefined;
+        case "worker": {
+            const given = new Set(row.brief?.tools?.map(({ name }) => name));
+            return {
+                builtIn: (extension) =>
+                    given.size === 0
+                        ? extension
+                        : {
+                              ...extension,
+                              tools: (extension.tools ?? []).filter((tool) =>
+                                  given.has(tool.name),
+                              ),
+                          },
+                society: false,
+            };
+        }
+        case "hand":
+        case "hire":
+            return { builtIn: (extension) => extension, society: true };
+    }
+}
+
 /** Their order decides only the order the tools are offered in. */
 function parts(
+    row: Row,
     peers: Peers,
-    off: readonly ToolName[],
     prompt: PromptSources,
     withHarness: WithHarness,
     tell: TellFailed,
     failed: FailedTurns,
 ): Extension[] {
+    const offer = offerOf(row);
+    if (offer === undefined) return [promptPart(prompt)];
+    const builtIn = [offer.builtIn(workspaceTools(peers)), ownFiles(peers)];
+    if (!offer.society) {
+        return [
+            promptPart(prompt),
+            cutOffRule(tell),
+            failed.extension,
+            ...builtIn,
+        ];
+    }
     return [
         promptPart(prompt),
         reflection(peers, prompt.copies, owedOf(withHarness), reflectEvery()),
         cutOffRule(tell),
         failed.extension,
-        workspaceTools(peers),
-        ownFiles(peers),
-        society(peers, off),
+        ...builtIn,
+        society(peers, row.toolsOff),
         timers(),
     ];
 }
@@ -261,25 +319,34 @@ async function migrateAgent(raw: Pick<RawAccess, "execute">): Promise<void> {
             tools_off TEXT NOT NULL CHECK (json_valid(tools_off)),
             place TEXT NOT NULL CHECK (json_valid(place)),
             filled TEXT,
-            epoch INTEGER NOT NULL DEFAULT 0
+            epoch INTEGER NOT NULL DEFAULT 0,
+            brief TEXT CHECK (brief IS NULL OR json_valid(brief))
         ) STRICT
     `);
 }
 
 interface Row {
+    readonly kind: AgentInput["kind"];
     readonly standingTask: RealmTask;
     readonly toolsOff: readonly ToolName[];
+    readonly brief: Brief | undefined;
 }
 
 async function rowAt(c: AgentContext): Promise<Row> {
-    const row = await c.db.get<{ task: string; tools_off: string }>(
-        "SELECT task, tools_off FROM agent WHERE id = 1",
-    );
+    const row = await c.db.get<{
+        kind: AgentInput["kind"];
+        task: string;
+        tools_off: string;
+        brief: string | null;
+    }>("SELECT kind, task, tools_off, brief FROM agent WHERE id = 1");
     if (row === undefined)
         throw new Error("the agent has no row: it was not created");
     return {
+        kind: row.kind,
         standingTask: row.task,
         toolsOff: JSON.parse(row.tools_off) as ToolName[],
+        brief:
+            row.brief === null ? undefined : (JSON.parse(row.brief) as Brief),
     };
 }
 
@@ -303,10 +370,11 @@ async function create(
     input: AgentInput,
 ): Promise<void> {
     await c.db.run(
-        "INSERT OR IGNORE INTO agent (id, kind, task, place_version, tools_off, place) VALUES (1, ?, ?, ?, ?, ?)",
+        "INSERT OR IGNORE INTO agent (id, kind, task, place_version, tools_off, place, brief) VALUES (1, ?, ?, ?, ?, ?, ?)",
         input.kind,
         input.task,
         ...rowOf(input.place),
+        input.brief === undefined ? null : JSON.stringify(input.brief),
     );
     config.files(numberOf(c));
 }
@@ -352,17 +420,15 @@ async function wake(c: AgentContext, config: AgentConfig): Promise<void> {
             c.log.warn({ msg: what, error: reasonOf(error) }),
     });
     const copies = copiesOf(c.db);
-    const prompt = promptSources(c, copies, peers);
+    const errand =
+        row.kind === "errand" ? (row.brief?.instructions ?? "") : undefined;
+    const prompt: PromptSources = {
+        ...promptSources(c, copies, peers),
+        ...(errand === undefined ? {} : { errand }),
+    };
     const tell = tellingFailed(peers, row.standingTask, () => current(c.db));
     const failed = failedTurns(peers, withHarness, tell);
-    for (const part of parts(
-        peers,
-        row.toolsOff,
-        prompt,
-        withHarness,
-        tell,
-        failed,
-    )) {
+    for (const part of parts(row, peers, prompt, withHarness, tell, failed)) {
         registry.install(part);
     }
     const options: PiOptions = {
@@ -398,11 +464,14 @@ async function wake(c: AgentContext, config: AgentConfig): Promise<void> {
     // realm's deadline. Begun
     // before the open, since an action that reopens a harness the open
     // left closed builds it from the same registry.
-    void handTools(peers).then(
-        (extension) => registry.install(extension),
-        (error: unknown) =>
-            peers.report("the hand tools were not listed", error),
-    );
+    const offer = offerOf(row);
+    if (offer !== undefined) {
+        void handTools(peers).then(
+            (extension) => registry.install(offer.builtIn(extension)),
+            (error: unknown) =>
+                peers.report("the hand tools were not listed", error),
+        );
+    }
     let harness: Harness;
     try {
         harness = await openOnWake(c, options);
@@ -418,7 +487,7 @@ async function wake(c: AgentContext, config: AgentConfig): Promise<void> {
     // Configured at every wake, not only when a newer model was kept, and
     // even when the realm was not reached, so a configure a kill cut off
     // after the copy was kept is done again.
-    void refreshed(c, peers)
+    const copied = refreshed(c, peers)
         .catch((error: unknown) =>
             peers.report("the copies were not read from the realm", error),
         )
@@ -426,6 +495,143 @@ async function wake(c: AgentContext, config: AgentConfig): Promise<void> {
         .catch((error: unknown) =>
             peers.report("the model was not configured", error),
         );
+    if (
+        (row.kind === "worker" || row.kind === "errand") &&
+        row.brief !== undefined
+    ) {
+        const { kind, brief } = row;
+        // A new worker or errand holds no copies yet, so its turn waits for
+        // the realm's answer, whatever it is.
+        void copied
+            .then(() =>
+                briefTurn(c, options, peers, kind, brief, row.standingTask),
+            )
+            .catch((error: unknown) =>
+                peers.report(
+                    "the realm was not told how the brief's turn ended",
+                    error,
+                ),
+            );
+    }
+}
+
+/** pi-durable admits it once: the brief is the root conversation's one input. */
+const BRIEF_ID = "brief";
+
+/**
+ * A worker's or an errand's one turn, from create. Each wake admits it again
+ * under the same id, waits for it to end and tells the realm how, so a call
+ * a kill cut off is made once more and the turn never runs twice.
+ */
+async function briefTurn(
+    c: AgentContext,
+    options: PiOptions,
+    peers: Peers,
+    kind: "worker" | "errand",
+    brief: Brief,
+    task: RealmTask,
+): Promise<void> {
+    const settled = await withHarness(
+        c,
+        options,
+        async (harness, context, waiting) => {
+            const root = await harness.root(context);
+            const submission = await root.submit(
+                draftOf({ kind, id: BRIEF_ID, content: brief.text, task }),
+                context,
+            );
+            const settled = await waiting(() => submission.wait(context));
+            // A short cut-off is asked again once its input settled (C28).
+            await waiting(() => root.waitForIdle(context));
+            return settled;
+        },
+    );
+    // A call of its own, so the agent does not sleep before the realm is told.
+    await withHarness(c, options, async (harness, context) => {
+        const last = await lastOf(
+            await harness.root(context),
+            settled.entry,
+            context,
+        );
+        const ended = endedOf(kind, settled, last);
+        await (kind === "worker"
+            ? peers.reach.worker_done({ ended })
+            : peers.reach.errand_done({ ended }));
+    });
+}
+
+/**
+ * As `crates/hamlet_server/src/talk/errands.rs:117-136` and
+ * `talk/follow.rs:68-78` end an errand's and a worker's turn.
+ */
+function endedOf(
+    kind: "worker" | "errand",
+    settled: SettledSubmissionRecord,
+    last: Last,
+): Ended {
+    const failed = (why: string): Ended => ({ type: "failed", why });
+    if (settled.status === "done") {
+        if (last.words !== undefined)
+            return { type: "answered", text: last.words };
+        return failed(
+            last.notice ??
+                (kind === "errand"
+                    ? "the errand gave no answer"
+                    : "its turn failed"),
+        );
+    }
+    if (settled.reason === "aborted") return failed("its turn was stopped");
+    return failed(
+        typeof settled.detail === "string" ? settled.detail : settled.reason,
+    );
+}
+
+interface Last {
+    /**
+     * As `crates/hamlet_server/src/talk/items.rs:66-106`: the text of the
+     * last answer that has any, its blocks joined by lines and trimmed.
+     */
+    readonly words?: string;
+    /**
+     * The last notice for people alone, which says why a turn failed, as
+     * today's input's reason does.
+     */
+    readonly notice?: string;
+}
+
+async function lastOf(
+    conversation: Conversation,
+    since: EntryId | undefined,
+    context: Context,
+): Promise<Last> {
+    let notice: string | undefined;
+    let cursor: Cursor | undefined;
+    do {
+        const page = await conversation.entries(
+            {
+                order: "descending",
+                ...(since === undefined ? {} : { minEntryId: since }),
+            },
+            100,
+            cursor,
+            context,
+        );
+        for (const entry of page.items) {
+            if (entry.kind === "hamlet.notice") {
+                notice ??= (entry.data as { text?: string } | undefined)?.text;
+                continue;
+            }
+            const message = entry.model?.[0];
+            if (message?.role !== "assistant") continue;
+            const text = message.content
+                .flatMap((part) => (part.type === "text" ? [part.text] : []))
+                .join("\n")
+                .trim();
+            if (text !== "") return { words: text };
+        }
+        cursor = page.next;
+    } while (cursor !== undefined);
+    return notice === undefined ? {} : { notice };
 }
 
 function oneAfterAnother(): Generation["inTurn"] {
@@ -457,6 +663,12 @@ function liveHarness(c: AgentContext): WithHarness {
     };
 }
 
+const BY_SESSION: ReadonlySet<Submit["input"]["type"]> = new Set([
+    "line",
+    "notice",
+    "worker_answer",
+]);
+
 /** Answers when the admission is committed, not when the turn ends. */
 async function submit(c: AgentCall, message: Submit): Promise<void> {
     const { options, inTurn } = generationOf(c);
@@ -476,8 +688,8 @@ async function submit(c: AgentCall, message: Submit): Promise<void> {
             );
         });
     };
-    // Only a chief's line goes by the current session.
-    await (message.input.type === "line" ? inTurn(admit) : admit());
+    // These are admitted to the current session, so they wait their turn.
+    await (BY_SESSION.has(message.input.type) ? inTurn(admit) : admit());
 }
 
 async function finished(c: AgentCall, message: Finished): Promise<void> {
@@ -512,7 +724,7 @@ async function place(c: AgentCall, message: Place): Promise<void> {
         rest,
         version,
     );
-    if (kept.changes === 0) return;
+    if (kept.changes === 0 || offerOf(await rowAt(c))?.society !== true) return;
     const { registry, peers } = generationOf(c);
     // Installing it again replaces it, so the tools turned off leave the next
     // request.
@@ -554,7 +766,25 @@ function admissionOf(message: Submit): Admission {
             : `${author.name} (\`hire#${author.agent}\`)`;
     switch (input.type) {
         case "line":
-            return { ...base, kind: "line", content: input.text };
+            return input.note === undefined
+                ? { ...base, kind: "line", content: input.text }
+                : {
+                      ...base,
+                      kind: "line",
+                      note: input.note,
+                      content: `${input.text}${NOTE_BREAK}${input.note}`,
+                  };
+        case "notice":
+            return { ...base, kind: "notice", content: input.text };
+        // As `crates/hamlet_server/src/talk/letters.rs:334` words it, with
+        // the worker as `society/addresses.rs:182` names it.
+        case "worker_answer":
+            return {
+                ...base,
+                kind: "worker-answer",
+                from: { agent: input.worker },
+                content: `worker#${input.worker} answers: ${input.text}`,
+            };
         case "letter":
             return {
                 ...base,

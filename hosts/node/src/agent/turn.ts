@@ -97,11 +97,18 @@ export type InputKind =
     | "letter"
     | "question"
     | "answer"
+    | "notice"
+    | "worker-answer"
+    | "worker"
+    | "errand"
     | "finished"
     | "wake"
     | "retry"
     | "reflection"
     | "cut-off";
+
+/** Between a chief's line and the note of the lead who reviewed it. */
+export const NOTE_BREAK = "\n\n";
 
 export type Admission = {
     /** pi-durable admits it once per conversation. */
@@ -109,8 +116,10 @@ export type Admission = {
     readonly content: UserInput;
     /** The realm's task the turn is charged to. Absent: the standing task pays. */
     readonly task?: RealmTask;
-    /** Who sent a letter, a question or an answer. */
+    /** Who sent a letter, a question, an answer or a worker's answer. */
     readonly from?: Author;
+    /** The note of the lead who reviewed a chief's line, at the end of its content. */
+    readonly note?: string;
 } & (
     | { readonly kind: Exclude<InputKind, "question" | "cut-off"> }
     | {
@@ -142,6 +151,7 @@ export type Kept = {
     question?: LetterId;
     /** The compiler takes no interface as an entry's JSON data; a `Pick` of one it does. */
     from?: Pick<Author, keyof Author>;
+    note?: string;
 };
 
 /**
@@ -158,6 +168,7 @@ export function draftOf(
             ? { question: admission.question }
             : {}),
         ...(admission.from === undefined ? {} : { from: admission.from }),
+        ...(admission.note === undefined ? {} : { note: admission.note }),
     };
     return {
         type: "input",
