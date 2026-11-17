@@ -1,10 +1,6 @@
 import { isAbsolute, posix } from "node:path";
 import type { Context } from "@earendil-works/chord/context";
 import {
-    generateDiffString,
-    generateUnifiedPatch,
-} from "@earendil-works/pi-coding-agent";
-import {
     defineExtension,
     type Extension,
     type ToolExecutionApi,
@@ -13,6 +9,10 @@ import {
     type Wrap,
 } from "@earendil-works/pi-durable";
 import { omitUndefined } from "../actor/common/utils.ts";
+import {
+    generateDiffString,
+    generateUnifiedPatch,
+} from "../pi/coding-agent.ts";
 import {
     type AgentFilesystem,
     FOUND,

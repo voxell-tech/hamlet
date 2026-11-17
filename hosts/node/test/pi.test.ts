@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { execFileSync } from "node:child_process";
 import { test } from "node:test";
 import { fauxAssistantMessage, fauxText } from "@earendil-works/pi-ai";
 import { createRegistry, Harness } from "@earendil-works/pi-durable";
@@ -78,4 +79,52 @@ test("the pi wrapper's storage answers one prompt once on a plain SQLite file", 
     assert.equal(reopened.faux.state.callCount, 0);
     assert.deepEqual(await transcript(reopened.database), answered);
     await reopened.close();
+});
+
+/** The modules `agent/demo-host.ts` loads once it has the link. */
+const AGENT_HOST = [
+    "actor/registry/link.ts",
+    "agent/actor.ts",
+    "agent/native-filesystem.ts",
+    "agent/login.ts",
+    "agent/claude.ts",
+];
+
+test("the agent's host loads none of the coding agent's interactive mode or terminal UI", () => {
+    const loads = (file: string) => import.meta.resolve(`../src/${file}`);
+    const script = `
+        import { registerHooks } from "node:module";
+        const seen = [];
+        registerHooks({
+            resolve(specifier, context, next) {
+                const resolved = next(specifier, context);
+                seen.push(resolved.url);
+                return resolved;
+            },
+        });
+        for (const url of ${JSON.stringify(AGENT_HOST.map(loads))})
+            await import(url);
+        console.log(JSON.stringify(seen));
+    `;
+    const seen: string[] = JSON.parse(
+        execFileSync(
+            process.execPath,
+            [
+                "--disable-warning=ExperimentalWarning",
+                "--input-type=module",
+                "--eval",
+                script,
+            ],
+            { encoding: "utf8" },
+        ),
+    );
+    assert.ok(seen.some((url) => url.includes("/pi-coding-agent/dist/")));
+    assert.deepEqual(
+        seen.filter(
+            (url) =>
+                url.includes("/pi-coding-agent/dist/modes/") ||
+                url.includes("/pi-tui/"),
+        ),
+        [],
+    );
 });

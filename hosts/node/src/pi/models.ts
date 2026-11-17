@@ -1,9 +1,9 @@
 // This file was changed for Hamlet. See NOTICE in this package.
+import { UserError } from "../actor/actor/mod.ts";
 import {
     type CreateModelRuntimeOptions,
     ModelRuntime,
-} from "@earendil-works/pi-coding-agent";
-import { UserError } from "../actor/actor/mod.ts";
+} from "./coding-agent.ts";
 import type { PiCredentialSource } from "./credentials.ts";
 import type { PiContext } from "./runtime.ts";
 import { traceModelRequests } from "./tracing.ts";
