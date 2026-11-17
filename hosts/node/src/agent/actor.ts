@@ -349,7 +349,7 @@ async function rowAt(c: AgentContext): Promise<Row> {
     };
 }
 
-function numberOf(c: AgentContext): number {
+export function numberOf(c: AgentContext): number {
     const key = c.address.key;
     if (!/^[1-9][0-9]*$/.test(key))
         throw new Error(`\`${key}\` is not an agent's number`);

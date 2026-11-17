@@ -173,7 +173,7 @@ test("the prompt cuts each part at its limit", async (t) => {
     const cutByTheWorkspace = await renderPrompt({
         copies: async () => ({}),
         files: listedFiles({}),
-        where: async () => ({ kind: "hire", place: HIRE.place }),
+        where: async () => ({ number: 7, kind: "hire", place: HIRE.place }),
         report: assert.fail,
         readFile: async () => ({
             type: "text",

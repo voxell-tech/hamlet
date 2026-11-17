@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
-import { test } from "node:test";
+import { type TestContext, test } from "node:test";
 import {
     type Context,
     type FauxResponseFactory,
@@ -14,10 +14,12 @@ import type {
     ChatItem,
     Copies,
     Place,
+    ReadAnswer,
     Submit,
 } from "../src/agent/messages.ts";
 import {
     fakeCalls,
+    fakeFiles,
     from,
     named,
     timedOut,
@@ -357,4 +359,63 @@ test("a worker's turn waits for the copies the realm holds", async (t) => {
         getCurrentSystemPrompt(request.messages),
         /Keep the docs whole\./,
     );
+});
+
+/** A worker's prompt as the model reads it, from a brief started in `/work`. */
+async function workerPrompt(t: TestContext): Promise<string> {
+    const seen: Context[] = [];
+    const { calls, sent } = fakeCalls({
+        workspace: {
+            read_file: ({ path }: { path: string }): ReadAnswer =>
+                path === "/work/AGENTS.md"
+                    ? { type: "text", text: "Use tabs.", notes: [] }
+                    : { type: "failed", words: `${path} is not there` },
+        },
+        realm: {
+            read_copies: (): Copies => ({
+                charter: { version: 1, value: "Keep the docs whole." },
+                character: { version: 1, value: "Calm." },
+            }),
+            worker_done: () => null,
+        },
+    });
+    const agent = await wakeAgent(t, {
+        calls,
+        input: { ...WORKER, place: { ...WORKER.place, folder: "/work" } },
+        files: fakeFiles({ "memory/chief.md": "The chief likes tea." }),
+        responses: [asked(seen, "Done.")],
+    });
+    t.after(() => agent.stop());
+    await until(() => named(sent, "worker_done").length === 1);
+    const [request] = seen;
+    assert.ok(request !== undefined);
+    return getCurrentSystemPrompt(request.messages);
+}
+
+// Today's worker reads the charter, the machine, the project and its place,
+// and no memory (`talk/prompt.rs:78-98`, `talk/prompt/place.rs:84-94`).
+test("a worker's prompt is the charter, the environment, the project and today's worker place", async (t) => {
+    const prompt = await workerPrompt(t);
+
+    assert.ok(prompt.startsWith("Keep the docs whole.\n\n# Environment\n"));
+    assert.deepEqual(
+        prompt.split("\n").filter((line) => line.startsWith("# ")),
+        [
+            "# Environment",
+            "# The project",
+            "# The project's AGENTS.md",
+            "# Your place",
+        ],
+    );
+    assert.ok(
+        prompt.endsWith(
+            "\n\n# Your place\nYou are worker#7, started by a chief for one task, given as your first message. Do it, then answer in your final message: that answer is all a chief gets. Your lodge is a scratch folder that ends with you; you keep no memory.",
+        ),
+    );
+});
+
+test("a worker's prompt names the agent that started it", {
+    todo: "no message carries a worker's starter, which `talk/prompt/place.rs:85-88` names",
+}, async (t) => {
+    assert.match(await workerPrompt(t), /started by (hand|hire#\d+)/);
 });

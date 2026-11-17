@@ -13,7 +13,7 @@ import {
     type Extension,
     section,
 } from "@earendil-works/pi-durable";
-import type { AgentContext } from "./actor.ts";
+import { type AgentContext, numberOf } from "./actor.ts";
 import type { ReadCopies } from "./copies.ts";
 import type { AgentFilesystem, FileEntry } from "./filesystem.ts";
 import type { AgentInput, Place, ReadAnswer } from "./messages.ts";
@@ -25,8 +25,9 @@ const CHARACTER_SHOWN = 4000;
 /** The files that hold a project's own instructions for agents, the first that reads winning. */
 const INSTRUCTIONS = ["AGENTS.md", "CLAUDE.md"] as const;
 
-/** The agent's kind and place, as its row holds them now. */
+/** The agent's number, kind and place, as its row holds them now. */
 export interface Where {
+    readonly number: number;
     readonly kind: AgentInput["kind"];
     readonly place: Omit<Place, "version">;
 }
@@ -58,6 +59,7 @@ export function promptSources(
             if (row === undefined)
                 throw new Error("the agent has no row: it was not created");
             return {
+                number: numberOf(c),
                 kind: row.kind,
                 place: JSON.parse(row.place) as Where["place"],
             };
@@ -85,11 +87,19 @@ function partsOf(
         ["charter", charter],
         ["environment", environment],
         ["project", project],
-        ["character", character],
-        ["memory", memory],
-        ["skills", skills],
+        ["character", keptMemory(character)],
+        ["memory", keptMemory(memory)],
+        ["skills", keptMemory(skills)],
         ["place", place],
     ];
+}
+
+/** A part of an agent that keeps a memory: a worker keeps none. */
+function keptMemory(render: Render): Render {
+    return async (sources, context) =>
+        (await sources.where()).kind === "worker"
+            ? undefined
+            : render(sources, context);
 }
 
 async function rendered(
@@ -261,8 +271,16 @@ function addressOf(agent: number): string {
 }
 
 async function place(sources: PromptSources): Promise<string> {
-    const { kind, place } = await sources.where();
+    const { number, kind, place } = await sources.where();
     const lines = ["# Your place"];
+    if (kind === "worker") {
+        // No message names a worker's starter, so it is "a chief", as today
+        // writes a worker with none.
+        lines.push(
+            `You are worker#${number}, started by a chief for one task, given as your first message. Do it, then answer in your final message: that answer is all a chief gets. Your lodge is a scratch folder that ends with you; you keep no memory.`,
+        );
+        return lines.join("\n");
+    }
     if (kind === "hand") {
         lines.push(HAND);
     } else {
