@@ -13,11 +13,11 @@ use super::args::{
     Stop,
 };
 use super::{Call, cut};
-use crate::clients::commands::versions::pinned;
 use crate::conversations::dreams::Dreamer;
 use crate::conversations::{self, chats, reflections};
 use crate::core::Core;
 use crate::knowledge::memory_path;
+use crate::knowledge::versions::pinned;
 use crate::realm::change::{Done, done, refuse};
 use crate::society::addresses::{self, Reach};
 use crate::society::agents::{self, Effort};

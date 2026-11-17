@@ -8,7 +8,7 @@ use hamlet_protocol::client::{
     self as protocol, Edit, EditLimits, EditSettingsSet, Keeper,
     Read, ReadResult, RequestId, ServerMessage,
 };
-use hamlet_store::ids::{Actor, AgentId, ScholarId};
+use hamlet_store::ids::{Actor, AgentId, HamletId, ScholarId};
 use hamlet_store::schema::document;
 
 use super::check::reply;
@@ -21,10 +21,10 @@ use crate::realm::change::{Done, done, refuse};
 use crate::realm::jobs::{self, Job};
 use crate::society::agents::Effort;
 use crate::society::city::{self, CHARACTER_MOST};
-use crate::society::limits::{self, Limits, RealmLimits};
+use crate::society::limits::{self, Limit, Limits, RealmLimits};
 use crate::society::refusal::Refusal;
 use crate::society::spend::micros;
-use crate::society::{authority, hamlets, hires};
+use crate::society::{authority, hires};
 
 impl Core<'_, '_> {
     pub(crate) fn edit(
@@ -68,18 +68,32 @@ impl Core<'_, '_> {
                 let value = serde_json::Value::Object(
                     whole.into_iter().collect(),
                 );
-                let by = Actor::Chief(self.realm.chief());
-                self.set_limits(by, LimitsOwner::of(hamlet), |_| {
-                    Ok(value)
-                })
+                self.set_whole_limits(
+                    hamlet.map(HamletId).as_ref(),
+                    value,
+                )
             }
             Edit::Limits(EditLimits::Set { hamlet, set, .. }) => {
-                let by = Actor::Chief(self.realm.chief());
-                self.set_limits(
-                    by,
-                    LimitsOwner::of(hamlet),
-                    |current| Ok(with_limit(current, &set)),
-                )
+                let limit = match Limit::read(
+                    &set.section,
+                    &set.key,
+                    set.value,
+                ) {
+                    Ok(limit) => limit,
+                    Err(refusal) => refuse!(refusal),
+                };
+                let hamlet = hamlet.map(HamletId);
+                let chief = self.realm.chief();
+                let done =
+                    self.attempt(Actor::Chief(chief), |cx, _| {
+                        limits::set_one(
+                            cx,
+                            chief,
+                            hamlet.as_ref(),
+                            limit,
+                        )
+                    })?;
+                Ok(done.map(|()| limits::saved(hamlet.as_ref())))
             }
             Edit::Settings { set, .. } => self.edit_settings(set),
             Edit::Catalogue { model, set, .. } => {
@@ -311,77 +325,49 @@ impl Core<'_, '_> {
         Ok(Ok("The settings are saved.".into()))
     }
 
-    /// Replaces the limits of `owner` with what `edit` makes of their
-    /// client form, as `by` asks.
-    pub(crate) fn set_limits(
+    /// Replaces every limit of `hamlet`, or the realm's when none,
+    /// with `whole`, their client form.
+    fn set_whole_limits(
         &mut self,
-        by: Actor,
-        owner: LimitsOwner,
-        edit: impl FnOnce(serde_json::Value) -> Result<serde_json::Value>,
+        hamlet: Option<&HamletId>,
+        whole: serde_json::Value,
     ) -> Done<String> {
         let chief = self.realm.chief();
-        let db = self.realm.store().connection();
-        match owner {
-            LimitsOwner::Hamlet(hamlet) => {
-                let id = super::state::hamlet_id(&hamlet);
-                if hamlets::find(db, &id)?.is_none() {
-                    return Ok(Err(Refusal::NoHamlet { id: hamlet }));
-                }
-                if !authority::may_govern(db, by, &id)? {
-                    return Ok(Err(Refusal::NotChief { hamlet }));
-                }
-                let current = super::state::hamlet_limits(
-                    &limits::of(db, &id)?,
-                );
-                let edited = edit(serde_json::to_value(current)?)?;
-                let Ok(edited) = serde_json::from_value::<
-                    protocol::Limits,
-                >(edited) else {
-                    return Ok(Err(Refusal::LimitsUnfit));
+        let by = Actor::Chief(chief);
+        let done = match hamlet {
+            Some(id) => {
+                let Ok(whole) =
+                    serde_json::from_value::<protocol::Limits>(whole)
+                else {
+                    refuse!(Refusal::LimitsUnfit);
                 };
-                let own = limits_of(&edited);
-                if let Some(why) = own.fault() {
-                    return Ok(Err(Refusal::BadLimits { why }));
-                }
-                let done = self.attempt(by, |cx, _| {
-                    hamlets::set_limits(cx, &id, &own)
-                })?;
-                Ok(done.map(|()| {
-                    format!("The limits of `{hamlet}` are saved.")
-                }))
+                let whole = limits_of(&whole);
+                self.attempt(by, |cx, _| {
+                    limits::set_hamlet(cx, id, |own| {
+                        *own = whole;
+                        Ok(())
+                    })
+                })?
             }
-            LimitsOwner::Realm => {
-                if !authority::may_rule(db, by)? {
-                    return Ok(Err(Refusal::NotRealmChief));
-                }
-                let current =
-                    super::state::realm_limits(&limits::realm(db)?);
-                let edited = edit(serde_json::to_value(current)?)?;
-                let Ok(edited) = serde_json::from_value::<
+            None => {
+                let Ok(whole) = serde_json::from_value::<
                     protocol::RealmLimits,
-                >(edited) else {
-                    return Ok(Err(Refusal::LimitsUnfit));
+                >(whole) else {
+                    refuse!(Refusal::LimitsUnfit);
                 };
-                let own = RealmLimits {
-                    roads_between: edited.roads_between,
-                    budget: budget_of(&edited.budget),
+                let whole = RealmLimits {
+                    roads_between: whole.roads_between,
+                    budget: budget_of(&whole.budget),
                 };
-                if let Some(why) = own.budget.fault() {
-                    return Ok(Err(Refusal::BadLimits { why }));
-                }
-                diesel::replace_into(document::table)
-                    .values((
-                        document::kind.eq("limits"),
-                        document::value
-                            .eq(serde_json::to_string(&own)?),
-                        document::at.eq(crate::app::clock::now()),
-                        document::chief.eq(chief),
-                    ))
-                    .execute(db)?;
-                self.publish();
-                Ok(Ok("The realm's limits are saved.".into()))
+                self.attempt(by, |cx, _| {
+                    limits::set_realm(cx, chief, |own| {
+                        *own = whole;
+                        Ok(())
+                    })
+                })?
             }
-        }
+        };
+        Ok(done.map(|()| limits::saved(hamlet)))
     }
 
     /// Commits `changes` to the `main` of `scholar` as `by`'s, and
@@ -629,38 +615,6 @@ impl Core<'_, '_> {
             skills,
         }))
     }
-}
-
-/// Whose limits an edit sets.
-pub(crate) enum LimitsOwner {
-    Hamlet(String),
-    Realm,
-}
-
-impl LimitsOwner {
-    /// The owner of the limits `hamlet` names, or the realm's when
-    /// none.
-    pub fn of(hamlet: Option<String>) -> Self {
-        hamlet.map_or(Self::Realm, Self::Hamlet)
-    }
-}
-
-/// The client form of limits `current` with the one limit `set`
-/// changed.
-pub(crate) fn with_limit(
-    mut current: serde_json::Value,
-    set: &protocol::LimitsEdit,
-) -> serde_json::Value {
-    let section = current
-        .get_mut(&set.section)
-        .and_then(serde_json::Value::as_object_mut);
-    match section {
-        Some(section) => {
-            section.insert(set.key.clone(), set.value.clone());
-        }
-        None => current[&set.key] = set.value.clone(),
-    }
-    current
 }
 
 fn edit_id(edit: &Edit) -> &RequestId {

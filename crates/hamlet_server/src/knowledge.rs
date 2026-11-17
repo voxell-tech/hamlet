@@ -7,6 +7,7 @@ pub(crate) mod library;
 mod merges;
 pub(crate) mod promotion;
 pub(crate) mod run;
+pub(crate) mod versions;
 pub(crate) mod worker;
 
 use std::path::PathBuf;

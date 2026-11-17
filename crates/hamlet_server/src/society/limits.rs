@@ -3,9 +3,16 @@
 use anyhow::{Context, Result};
 use diesel::prelude::*;
 use hamlet_store::Db;
-use hamlet_store::ids::HamletId;
+use hamlet_store::ids::{ChiefId, HamletId};
 use hamlet_store::schema::{document, hamlet};
+use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
+use serde_json::Value;
+
+use super::refusal::Refusal;
+use super::spend::micros;
+use super::{authority, hamlets};
+use crate::realm::change::{Change, Done, refuse};
 
 /// Millionths of a dollar.
 pub(crate) type Micros = i64;
@@ -211,4 +218,215 @@ pub(crate) fn realm(db: &mut Db) -> Result<RealmLimits> {
         Some(text) => serde_json::from_str(&text)?,
         None => RealmLimits::default(),
     })
+}
+
+/// One limit with its new value.
+#[derive(Clone, Debug, PartialEq)]
+pub(crate) enum Limit {
+    BudgetCost(Option<Micros>),
+    BudgetMinutes(Option<i64>),
+    BudgetPeriod(Period),
+    RoadPrice(Micros),
+    RoadMost(i64),
+    RoadGrowsOverDays(i64),
+    ReservedHire(bool),
+    ReservedRoads(bool),
+    ReservedEnd(bool),
+    ReservedMerge(bool),
+    AskingQuestions(i64),
+    AskingRefusals(i64),
+    AskingReview(Review),
+    Model(Option<String>),
+    ToldDays(i64),
+    ProtectedMinutes(i64),
+    RoadsBetween(bool),
+}
+
+impl Limit {
+    /// The limit `key` of `section`, empty for a key outside every
+    /// section, set to `value`, as the Settings name it.
+    pub fn read(
+        section: &str,
+        key: &str,
+        value: Value,
+    ) -> Result<Self, Refusal> {
+        fn of<T: DeserializeOwned>(
+            value: Value,
+        ) -> Result<T, Refusal> {
+            serde_json::from_value(value)
+                .map_err(|_| Refusal::LimitsUnfit)
+        }
+        Ok(match (section, key) {
+            ("budget", "cost") => Self::BudgetCost(
+                of::<Option<f64>>(value)?.map(micros),
+            ),
+            ("budget", "minutes") => Self::BudgetMinutes(of(value)?),
+            ("budget", "period") => Self::BudgetPeriod(of(value)?),
+            ("road", "price") => {
+                Self::RoadPrice(micros(of::<f64>(value)?))
+            }
+            ("road", "most") => Self::RoadMost(of(value)?),
+            ("road", "growsOverDays") => {
+                Self::RoadGrowsOverDays(of(value)?)
+            }
+            ("reserved", "hire") => Self::ReservedHire(of(value)?),
+            ("reserved", "roads") => Self::ReservedRoads(of(value)?),
+            ("reserved", "end") => Self::ReservedEnd(of(value)?),
+            ("reserved", "merge") => Self::ReservedMerge(of(value)?),
+            ("asking", "questions") => {
+                Self::AskingQuestions(of(value)?)
+            }
+            ("asking", "refusals") => {
+                Self::AskingRefusals(of(value)?)
+            }
+            ("asking", "review") => Self::AskingReview(of(value)?),
+            ("", "model") => Self::Model(of(value)?),
+            ("", "toldDays") => Self::ToldDays(of(value)?),
+            ("", "protectedMinutes") => {
+                Self::ProtectedMinutes(of(value)?)
+            }
+            ("", "roadsBetween") => Self::RoadsBetween(of(value)?),
+            _ => return Err(Refusal::LimitsUnfit),
+        })
+    }
+
+    /// Sets this limit in `budget`, or gives it back when it is not
+    /// a budget's.
+    fn set_budget(self, budget: &mut Budget) -> Result<(), Self> {
+        match self {
+            Self::BudgetCost(cost) => budget.cost = cost,
+            Self::BudgetMinutes(minutes) => budget.minutes = minutes,
+            Self::BudgetPeriod(period) => budget.period = period,
+            other => return Err(other),
+        }
+        Ok(())
+    }
+}
+
+impl Limits {
+    /// Sets `limit`, refused when it is not a hamlet's.
+    pub fn set(&mut self, limit: Limit) -> Result<(), Refusal> {
+        let Err(limit) = limit.set_budget(&mut self.budget) else {
+            return Ok(());
+        };
+        match limit {
+            Limit::RoadPrice(price) => self.road.price = price,
+            Limit::RoadMost(most) => self.road.most = most,
+            Limit::RoadGrowsOverDays(days) => {
+                self.road.grows_over_days = days;
+            }
+            Limit::ReservedHire(on) => self.reserved.hire = on,
+            Limit::ReservedRoads(on) => self.reserved.roads = on,
+            Limit::ReservedEnd(on) => self.reserved.end = on,
+            Limit::ReservedMerge(on) => self.reserved.merge = on,
+            Limit::AskingQuestions(most) => {
+                self.asking.questions = most;
+            }
+            Limit::AskingRefusals(most) => {
+                self.asking.refusals = most;
+            }
+            Limit::AskingReview(review) => {
+                self.asking.review = review;
+            }
+            Limit::Model(model) => self.model = model,
+            Limit::ToldDays(days) => self.told_days = days,
+            Limit::ProtectedMinutes(minutes) => {
+                self.protected_minutes = minutes;
+            }
+            Limit::BudgetCost(_)
+            | Limit::BudgetMinutes(_)
+            | Limit::BudgetPeriod(_)
+            | Limit::RoadsBetween(_) => {
+                return Err(Refusal::LimitsUnfit);
+            }
+        }
+        Ok(())
+    }
+}
+
+impl RealmLimits {
+    /// Sets `limit`, refused when it is not the realm's.
+    pub fn set(&mut self, limit: Limit) -> Result<(), Refusal> {
+        match limit.set_budget(&mut self.budget) {
+            Ok(()) => {}
+            Err(Limit::RoadsBetween(on)) => self.roads_between = on,
+            Err(_) => return Err(Refusal::LimitsUnfit),
+        }
+        Ok(())
+    }
+}
+
+/// Sets `limit` of the hamlet `hamlet`, or of the realm's limits
+/// when none; `chief` is who the realm's limits are kept by.
+pub(crate) fn set_one(
+    cx: &mut Change<'_>,
+    chief: ChiefId,
+    hamlet: Option<&HamletId>,
+    limit: Limit,
+) -> Done<()> {
+    match hamlet {
+        Some(id) => set_hamlet(cx, id, |own| own.set(limit)),
+        None => set_realm(cx, chief, |own| own.set(limit)),
+    }
+}
+
+/// Replaces the limits of the hamlet `id` with what `edit` makes of
+/// them.
+pub(crate) fn set_hamlet(
+    cx: &mut Change<'_>,
+    id: &HamletId,
+    edit: impl FnOnce(&mut Limits) -> Result<(), Refusal>,
+) -> Done<()> {
+    if hamlets::find(cx.db, id)?.is_none() {
+        refuse!(Refusal::NoHamlet { id: id.to_string() });
+    }
+    if !authority::may_govern(cx.db, cx.actor, id)? {
+        refuse!(Refusal::NotChief {
+            hamlet: id.to_string()
+        });
+    }
+    let mut own = of(cx.db, id)?;
+    if let Err(refusal) = edit(&mut own) {
+        refuse!(refusal);
+    }
+    if let Some(why) = own.fault() {
+        refuse!(Refusal::BadLimits { why });
+    }
+    hamlets::set_limits(cx, id, &own)
+}
+
+/// Replaces the realm's limits with what `edit` makes of them, kept
+/// by `chief`.
+pub(crate) fn set_realm(
+    cx: &mut Change<'_>,
+    chief: ChiefId,
+    edit: impl FnOnce(&mut RealmLimits) -> Result<(), Refusal>,
+) -> Done<()> {
+    if !authority::may_rule(cx.db, cx.actor)? {
+        refuse!(Refusal::NotRealmChief);
+    }
+    let mut own = realm(cx.db)?;
+    if let Err(refusal) = edit(&mut own) {
+        refuse!(refusal);
+    }
+    if let Some(why) = own.budget.fault() {
+        refuse!(Refusal::BadLimits { why });
+    }
+    diesel::replace_into(document::table)
+        .values((
+            document::kind.eq("limits"),
+            document::value.eq(serde_json::to_string(&own)?),
+            document::at.eq(cx.at),
+            document::chief.eq(chief),
+        ))
+        .execute(cx.db)?;
+    Ok(Ok(()))
+}
+
+/// What setting the limits of `hamlet`, or the realm's, comes to.
+pub(crate) fn saved(hamlet: Option<&HamletId>) -> String {
+    match hamlet {
+        Some(id) => format!("The limits of `{id}` are saved."),
+        None => "The realm's limits are saved.".into(),
+    }
 }

@@ -8,7 +8,7 @@ use diesel::prelude::*;
 use hamlet_git::{MAIN, Repository};
 use hamlet_protocol::client as protocol;
 use hamlet_store::Db;
-use hamlet_store::ids::{AgentId, HamletId, ScholarId};
+use hamlet_store::ids::{AgentId, ScholarId};
 use hamlet_store::schema::{agent, message, permission_grant};
 
 use crate::conversations::activity::{self, Activity};
@@ -612,9 +612,4 @@ pub(crate) fn realm_limits(
         budget: budget_view(&own.budget),
         roads_between: own.roads_between,
     }
-}
-
-/// The hamlet `id` of a protocol message.
-pub(crate) fn hamlet_id(id: &str) -> HamletId {
-    HamletId(id.to_owned())
 }

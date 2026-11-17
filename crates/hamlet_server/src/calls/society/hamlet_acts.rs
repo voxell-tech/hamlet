@@ -2,7 +2,6 @@
 //! restoring and erasure, its tier, folder, mode, budget and limits.
 //! A reserved act waits for a chief before it gets here.
 
-use hamlet_protocol::client::LimitsEdit;
 use hamlet_store::ids::{Actor, HamletId};
 
 use super::Call;
@@ -11,10 +10,10 @@ use super::args::{
     RemoveHamlet, ResetBudget, RestoreHamlet, SetFolder, SetMode,
     SetTier,
 };
-use crate::clients::documents::{LimitsOwner, with_limit};
 use crate::core::Core;
 use crate::realm::change::{Done, refuse};
 use crate::society::hamlets::{self, Mode};
+use crate::society::limits::{self, Limit};
 use crate::society::refusal::Refusal;
 use crate::society::{authority, spend};
 
@@ -28,7 +27,7 @@ impl Core<'_, '_> {
         let by = Actor::Agent(call.conversation.agent);
         let named = match &called {
             Called::EditLimits(args) => {
-                return self.edit_limits(call, by, args);
+                return self.edit_limits(call, args);
             }
             Called::ResetBudget(ResetBudget { hamlet })
                 if hamlet.is_empty() =>
@@ -164,19 +163,23 @@ impl Core<'_, '_> {
     fn edit_limits(
         &mut self,
         call: &Call<'_>,
-        by: Actor,
         args: &EditLimits,
     ) -> Done<String> {
-        let set = LimitsEdit {
-            section: args.section.clone(),
-            key: args.key.clone(),
-            value: args.value.clone(),
+        let limit = match Limit::read(
+            &args.section,
+            &args.key,
+            args.value.clone(),
+        ) {
+            Ok(limit) => limit,
+            Err(refusal) => refuse!(refusal),
         };
-        self.begin(call)?;
-        let hamlet =
-            (!args.hamlet.is_empty()).then(|| args.hamlet.clone());
-        self.set_limits(by, LimitsOwner::of(hamlet), |current| {
-            Ok(with_limit(current, &set))
+        let hamlet = (!args.hamlet.is_empty())
+            .then(|| HamletId(args.hamlet.clone()));
+        // The chief who allowed it is the one this server serves.
+        let chief = self.realm.chief();
+        self.carry(call, |cx, _| {
+            Ok(limits::set_one(cx, chief, hamlet.as_ref(), limit)?
+                .map(|()| limits::saved(hamlet.as_ref())))
         })
     }
 }

@@ -15,9 +15,9 @@ use super::args::{
     TurnAway, Versions, Welcome,
 };
 use super::{Call, cut, task_chief};
-use crate::clients::commands::versions::versions;
 use crate::core::Core;
 use crate::knowledge::CHARACTER;
+use crate::knowledge::versions::versions;
 use crate::realm::change::{Done, done, refuse};
 use crate::realm::jobs;
 use crate::society::addresses::{self, Reach};
