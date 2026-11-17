@@ -13,7 +13,7 @@ use bevy::ecs::observer::On;
 use bevy::ecs::query::{Has, With};
 use bevy::ecs::resource::Resource;
 use bevy::ecs::schedule::IntoScheduleConfigs;
-use bevy::ecs::system::{Query, ResMut};
+use bevy::ecs::system::{Commands, Query, ResMut};
 use bevy::ecs::world::World;
 use bevy::picking::events::{
     PointerDrag, PointerDragEnd, PointerDragStart,
@@ -32,8 +32,8 @@ use bevy_fynix::views::{
     frame, label, row, text_field,
 };
 use bevy_fynix::{
-    Dragging, OverrideCursor, ScopedExt, ViewExt, derived,
-    every_frame, keyed, resource, style,
+    Dragging, FynixSystems, OverrideCursor, ScopedExt, ViewExt,
+    derived, each, every_frame, keyed, resource, style,
 };
 use hamlet_client::chats::{Entry, Transcript};
 use hamlet_client::realm::{
@@ -136,10 +136,12 @@ pub(super) fn plugin(app: &mut App) {
     app.init_resource::<Rail>()
         .init_resource::<Tab>()
         .init_resource::<Reveal>()
+        .init_resource::<Parts>()
         .add_observer(grab)
         .add_observer(drag)
         .add_observer(drop)
         .add_systems(Update, (read_search, tabs::mark::<Tab>))
+        .add_systems(Update, gather.before(FynixSystems::Mount))
         .add_systems(PostUpdate, reveal.after(UiSystems::Layout));
 }
 
@@ -2116,105 +2118,134 @@ fn header(section: &Section, above: f32) -> AnyView {
     }
 }
 
-/// `sections` one under another, the first header `first_above` under
-/// what is over it.
-fn sections_view(sections: &[Section], first_above: f32) -> AnyView {
-    let mut parts = Vec::new();
-    for section in sections {
-        let mut block = Vec::new();
-        // The room over a header is kept outside its block, so a lit
-        // block starts at its header.
-        let mut above = 0.0;
-        if !section.title.is_empty() {
-            above = if parts.is_empty() {
-                first_above
-            } else {
-                PART_GAP
-            };
-            // The title of the hamlet whose page is shown is washed
-            // as a selected row is.
-            block.push(header(section, BLOCK_PAD));
-            above = (above - BLOCK_PAD).max(0.0);
-        }
-        let lines = if section.folded {
-            &[][..]
-        } else {
-            &section.lines[..]
-        };
-        let dimmed = section.group == Group::Left;
-        block.extend(lines.iter().map(|line| expanded(line, dimmed)));
-        parts.push(
-            with_cx(move |cx| {
-                column(block)
-                    .gap(0.0)
-                    .margin(UiRect::top(px(above)))
-                    .radius(cx.theme().space.round)
-            })
-            .boxed(),
-        );
-    }
-    column(parts).gap(0.0).boxed()
+/// The rail's sections in its three places, worked out once an update
+/// for the views to read.
+#[derive(Resource, Default, PartialEq)]
+struct Parts {
+    /// The realm's own and what waits, over the tabs.
+    over: Vec<Section>,
+    /// What the tab chooses, under the search.
+    under: Vec<Section>,
+    /// Those that left, at the foot of the rail.
+    left: Vec<Section>,
 }
 
-/// Whether `section` is of the realm's own, over the tabs: the realm,
-/// the Hand, the library and what waits.
-fn is_over_tabs(section: &Section) -> bool {
-    matches!(section.group, Group::Top | Group::Needs)
+/// Which of [`Parts`]' places a part of the rail is in.
+type Place = fn(&Parts) -> &[Section];
+
+/// Keeps [`Parts`] up to date, changed only when a section is.
+fn gather(world: &World, mut commands: Commands) {
+    // The realm's page lists what waits in full.
+    let on_realm =
+        world.get_resource::<Showing>() == Some(&Showing::Realm);
+    let mut parts = Parts::default();
+    for section in sections(world) {
+        match section.group {
+            Group::Top => parts.over.push(section),
+            Group::Needs if !on_realm => parts.over.push(section),
+            Group::Needs => {}
+            Group::Left => parts.left.push(section),
+            _ => parts.under.push(section),
+        }
+    }
+    if world.get_resource::<Parts>() != Some(&parts) {
+        commands.insert_resource(parts);
+    }
+}
+
+/// The sections of `place`, the first header `first_above` under what
+/// is over it. A section is built once and kept while it is in
+/// `place`; within it, only a header or a row that changed is built
+/// again.
+fn sections_view(place: Place, first_above: f32) -> impl View {
+    each(
+        resource::<Parts, _>(move |parts| {
+            place(parts)
+                .iter()
+                .enumerate()
+                .map(|(at, section)| {
+                    // The room over a header is kept outside its
+                    // block, so a lit block starts at its header.
+                    let above = match (section.title.is_empty(), at) {
+                        (true, _) => 0.0,
+                        (false, 0) => first_above - BLOCK_PAD,
+                        (false, _) => PART_GAP - BLOCK_PAD,
+                    };
+                    (section.group, above.max(0.0))
+                })
+                .collect::<Vec<_>>()
+        }),
+        |part: &(Group, f32)| *part,
+        move |&(group, above)| section_view(place, group, above),
+    )
+    .within(hamlet_ui::styles::bare())
+}
+
+/// The section `group` of `place`: its header and its rows.
+fn section_view(place: Place, group: Group, above: f32) -> AnyView {
+    let find = move |parts: &Parts| {
+        place(parts)
+            .iter()
+            .find(|section| section.group == group)
+            .cloned()
+    };
+    let head = keyed(
+        resource::<Parts, _>(move |parts| {
+            find(parts).map(|section| Section {
+                title: section.title,
+                lines: Vec::new(),
+                ..section
+            })
+        }),
+        |head| match head {
+            // The title of the hamlet whose page is shown is washed
+            // as a selected row is.
+            Some(head) if !head.title.is_empty() => {
+                header(head, BLOCK_PAD)
+            }
+            _ => column(()).boxed(),
+        },
+    )
+    .within(hamlet_ui::styles::bare());
+    let dimmed = group == Group::Left;
+    let rows = each(
+        resource::<Parts, _>(move |parts| {
+            find(parts)
+                .filter(|section| !section.folded)
+                .map_or_else(Vec::new, |section| section.lines)
+        }),
+        Line::clone,
+        move |line| expanded(line, dimmed),
+    )
+    .within(hamlet_ui::styles::bare());
+    with_cx(move |cx| {
+        column((head, rows))
+            .gap(0.0)
+            .margin(UiRect::top(px(above)))
+            .radius(cx.theme().space.round)
+    })
+    .boxed()
 }
 
 /// The rail down the Hub's left side: the realm's own rows and what
 /// waits, then the tabs and the search, then the part of the realm
-/// the tab chooses. The rows are built anew as they change; the tabs
-/// and the search between them are not, so typing keeps its place.
+/// the tab chooses. Only the headers and rows that change are built
+/// anew; the tabs and the search between them are not, so typing
+/// keeps its place.
 pub(super) fn view() -> impl View {
-    let over = keyed(
-        derived(|world: &World| {
-            // The realm's page lists what waits in full.
-            let on_realm = world.get_resource::<Showing>()
-                == Some(&Showing::Realm);
-            sections(world)
-                .into_iter()
-                .filter(is_over_tabs)
-                .filter(|section| {
-                    !(on_realm && section.group == Group::Needs)
-                })
-                .collect::<Vec<_>>()
-        })
-        .when(every_frame()),
-        |sections| sections_view(sections, PART_GAP),
-    )
-    .within(hamlet_ui::styles::bare());
-    let under = keyed(
-        derived(|world: &World| {
-            sections(world)
-                .into_iter()
-                .filter(|section| !is_over_tabs(section))
-                .collect::<Vec<_>>()
-        })
-        .when(every_frame()),
-        |sections| {
-            // Those that left, at the foot of the rail however short
-            // the rest is.
-            let (left, rest): (Vec<_>, Vec<_>) = sections
-                .iter()
-                .cloned()
-                .partition(|section| section.group == Group::Left);
-            column((
-                sections_view(&rest, UNDER_SEARCH),
-                frame().grow(1.0),
-                sections_view(&left, PART_GAP),
-            ))
-            .gap(0.0)
-            .grow(1.0)
-            .boxed()
-        },
-    )
-    .within(hamlet_ui::styles::bare().grow(1.0));
     let body = column((
-        over,
+        sections_view(|parts| &parts.over, PART_GAP),
         column((tabs_and_search(),))
             .padding(UiRect::top(px(PART_GAP))),
-        under,
+        // Those that left, at the foot of the rail however short the
+        // rest is.
+        column((
+            sections_view(|parts| &parts.under, UNDER_SEARCH),
+            frame().grow(1.0),
+            sections_view(|parts| &parts.left, PART_GAP),
+        ))
+        .gap(0.0)
+        .grow(1.0),
     ))
     .gap(0.0)
     .grow(1.0);
@@ -2284,6 +2315,40 @@ mod tests {
             .unwrap();
         assert_eq!(needs.count, 2);
         assert_eq!(names(&app, in_hamlet), ["ada"]);
+    }
+
+    #[test]
+    fn choosing_a_row_builds_again_only_the_rows_it_marks() {
+        let mut app = panel_app();
+        app.add_plugins(plugin)
+            .init_resource::<Showing>()
+            .init_resource::<Selected>();
+        app.update();
+        bevy_fynix::mount::<HamletTheme>(app.world_mut(), view());
+        app.update();
+        let rows = |app: &mut App| {
+            let world = app.world_mut();
+            world
+                .query::<(Entity, &RailRow)>()
+                .iter(world)
+                .map(|(row, target)| (target.0, row))
+                .collect::<Vec<_>>()
+        };
+        let before = rows(&mut app);
+
+        let ada = named(app.world_mut(), "hire#2").unwrap();
+        crate::convo::seat(app.world_mut(), ada);
+        *app.world_mut().resource_mut::<Showing>() = Showing::Thread;
+        app.update();
+
+        // The realm's row was marked before.
+        let marks = [Target::Realm, Target::Agent(ada)];
+        let after = rows(&mut app);
+        assert_eq!(before.len(), after.len());
+        for (target, row) in after {
+            let kept = before.contains(&(target, row));
+            assert_eq!(kept, !marks.contains(&target), "{target:?}");
+        }
     }
 
     #[test]
