@@ -3,8 +3,11 @@
  * and when a chief leaves the session or asks, the agent is asked to keep
  * what it learned. Reflection `k` of a conversation is admitted under
  * `reflection:<conversation>:<k>`, so a repeat that asks the same one
- * admits it once.
+ * admits it once. A reflection is admitted only when its conversation runs
+ * nothing, so a chief's line queued as a turn ends runs first, alone.
  */
+
+import type { Context } from "@earendil-works/chord/context";
 import type { AssistantMessage } from "@earendil-works/pi-ai";
 import {
     type ConversationId,
@@ -14,8 +17,9 @@ import {
     type EntryId,
     type Extension,
     GenerationTask,
+    type Harness,
     hook,
-    runEndTask,
+    LiveDoc,
     type Tx,
 } from "@earendil-works/pi-durable";
 import { withHarness } from "../pi/runtime.ts";
@@ -38,7 +42,7 @@ const EVERY = 10;
  * number the next is asked under; when `asked`, reflection `k` is owed or
  * running already.
  */
-export type Owed = (conversation: ConversationId) => Promise<{
+type Owed = (conversation: ConversationId) => Promise<{
     readonly answered: number;
     readonly running: boolean;
     readonly k: number;
@@ -48,13 +52,13 @@ export type Owed = (conversation: ConversationId) => Promise<{
 export function reflection(
     peers: Peers,
     copies: ReadCopies,
-    owed: Owed,
+    withHarness: WithHarness,
     every: number | undefined,
 ): Extension {
-    const asking = reflectTask(peers);
+    const owed = owedOf(withHarness);
     return defineExtension({
         name: "hamlet.reflection",
-        tasks: [asking],
+        tasks: [reflectTask(peers)],
         hooks: [
             hook(GenerationTask, {
                 afterRun: async (_run, api) => {
@@ -63,11 +67,12 @@ export function reflection(
                         (await copies()).settings?.reflect_every ??
                         EVERY;
                     if (after === 0) return undefined;
-                    const { answered, k, asked } = await owed(
-                        api.conversationId,
-                    );
+                    const { answered, asked } = await owed(api.conversationId);
                     if (asked || answered < after) return undefined;
-                    return { tasks: [runEndTask(asking, { k })] };
+                    await withHarness((harness, context) =>
+                        ask(harness, peers, api.conversationId, context),
+                    );
+                    return undefined;
                 },
             }),
         ],
@@ -99,23 +104,32 @@ export function reflectIn(
 ): Promise<"asked" | "already"> {
     const { peers, options } = generationOf(c);
     return withHarness(c, options, (harness, context) =>
-        harness.commit(async (tx) => {
-            const { k, asked } = await lastAsked(tx, conversation);
-            if (asked) return "already";
-            await tx.createTask(
-                reflectTask(peers),
-                { k },
-                {
-                    ownership: { kind: "conversation" },
-                    conversationId: conversation,
-                },
-            );
-            return "asked";
-        }, context),
+        ask(harness, peers, conversation, context),
     );
 }
 
-export function owedOf(withHarness: WithHarness): Owed {
+function ask(
+    harness: Harness,
+    peers: Peers,
+    conversation: ConversationId,
+    context: Context,
+): Promise<"asked" | "already"> {
+    return harness.commit(async (tx) => {
+        const { k, asked } = await lastAsked(tx, conversation);
+        if (asked) return "already";
+        await tx.createTask(
+            reflectTask(peers),
+            { k },
+            {
+                ownership: { kind: "conversation" },
+                conversationId: conversation,
+            },
+        );
+        return "asked";
+    }, context);
+}
+
+function owedOf(withHarness: WithHarness): Owed {
     return (conversation) =>
         withHarness(async (harness, context) => {
             const last = await harness.commit(
@@ -282,13 +296,15 @@ const ASKED = "asked";
 
 const TASK = "hamlet.reflect";
 
+type ReflectState = { phase: "admit" } | { phase: "place"; task?: RealmTask };
+
 function reflectTask(peers: Peers) {
-    return defineTask<{ k: number }, { phase: "admit" }, null>({
+    return defineTask<{ k: number }, ReflectState, null>({
         name: TASK,
         version: 1,
         initial: () => ({ phase: "admit" }),
         phases: {
-            admit: async (task, runtime, context) => {
+            admit: async (_task, runtime, context) => {
                 // `open_task` carries no request id, so a call a kill cut
                 // off may have opened a task, and its rerun asks no more.
                 const cut =
@@ -297,17 +313,48 @@ function reflectTask(peers: Peers) {
                 const realmTask = cut
                     ? undefined
                     : await cutOff(runtime.signal, opened(peers));
+                await runtime.commit(
+                    () => ({
+                        status: "running",
+                        checkpoint: {
+                            phase: "place",
+                            ...(realmTask === undefined
+                                ? {}
+                                : { task: realmTask }),
+                        },
+                    }),
+                    context,
+                );
+            },
+            // A busy conversation would place a queued line and the
+            // reflection in one run, so the reflection waits for the run.
+            place: async (task, runtime, context) => {
+                const { checkpoint } = task.state;
                 const conversation = await runtime.conversation(
                     runtime.conversationId,
                     context,
                 );
                 await runtime.commit(async (tx) => {
+                    const { run } = await tx.doc(
+                        LiveDoc,
+                        runtime.conversationId,
+                    );
+                    if (run !== undefined) {
+                        return {
+                            status: "waiting",
+                            checkpoint,
+                            on: [run.taskId],
+                            policy: "allSettled",
+                        };
+                    }
                     await conversation?.submit(
                         tx,
                         admission(
                             runtime.conversationId,
                             task.input.k,
-                            realmTask,
+                            checkpoint.phase === "place"
+                                ? checkpoint.task
+                                : undefined,
                         ),
                     );
                     return {

@@ -3,6 +3,7 @@ import { type TestContext, test } from "node:test";
 import {
     type FauxResponseStep,
     fauxAssistantMessage,
+    type Message,
 } from "@earendil-works/pi-ai";
 import type { RealmActions } from "../src/agent/messages.ts";
 import {
@@ -46,7 +47,10 @@ async function wake(
         if (before === undefined) delete process.env.HAMLET_REFLECT_EVERY;
         else process.env.HAMLET_REFLECT_EVERY = before;
     });
-    const { calls, sent } = fakeCalls({ realm: { open_task: openTask } });
+    const { calls, sent } = fakeCalls({
+        workspace: { cancel: () => ({ commands: [] }) },
+        realm: { open_task: openTask },
+    });
     const agent = await wakeAgent(t, { calls, responses });
     t.after(() => agent.stop());
     return { agent, sent };
@@ -369,5 +373,85 @@ test("HAMLET_REFLECT_EVERY reads a leading plus, as Rust's parse does", async (t
     const line = say(agent);
     await line("one");
     await line("two");
+    assert.deepEqual((await said(agent)).slice(-2), [REFLECT, "Kept."]);
+});
+
+function lastUserText(messages: readonly Message[]): string | undefined {
+    const last = messages.findLast((message) => message.role === "user");
+    if (last === undefined || last.role !== "user") return undefined;
+    return typeof last.content === "string"
+        ? last.content
+        : last.content
+              .flatMap((part) => (part.type === "text" ? [part.text] : []))
+              .join("");
+}
+
+// A chief's line queued as a turn ends starts the next run, and the
+// reflection owed waits behind it (`p6-design.md` section 3, box 3).
+for (const [owed, every] of [
+    ["every turn", "1"],
+    ["by /reflect", "0"],
+] as const) {
+    test(`a line sent as a turn ends is answered in a run of its own, before the reflection owed ${owed}`, async (t) => {
+        const first = held("First.");
+        const asked: (readonly Message[])[] = [];
+        const recorded =
+            (text: string): FauxResponseStep =>
+            (request) => {
+                asked.push(request.messages);
+                return words(text);
+            };
+        const { agent } = await wake(t, every, [
+            first.step,
+            recorded("Second."),
+            recorded("Kept."),
+        ]);
+        send(agent, "line-1", "a");
+        await first.asked;
+        if (every === "0") {
+            assert.equal(
+                await agent.actions.reflect(agent.by(from.client)),
+                "asked",
+            );
+        }
+        await agent.actions.submit(agent.by(from.realm), {
+            id: "line-2",
+            input: { type: "line", text: "b" },
+        });
+        first.release();
+        // The reflection's run starts only once the line's has ended.
+        await until(async () => {
+            const shown = await said(agent);
+            return shown.includes(REFLECT) && shown.at(-1) !== REFLECT;
+        });
+
+        assert.deepEqual(asked.map(lastUserText), ["b", REFLECT]);
+        assert.deepEqual(await said(agent), [
+            "a",
+            "First.",
+            "b",
+            "Second.",
+            REFLECT,
+            "Kept.",
+        ]);
+    });
+}
+
+test("a stop drops the reflection that waits for the run", async (t) => {
+    const busy = aborted();
+    const { agent } = await wake(t, "0", [busy.step, words("Kept.")]);
+    send(agent, "line-1", "a");
+    await busy.asked;
+    const client = agent.by(from.client);
+    assert.equal(await agent.actions.reflect(client), "asked");
+
+    assert.deepEqual(await agent.actions.stop(client, { id: "stop-1" }), {
+        turns: 1,
+    });
+    await agent.idle();
+    assert.deepEqual(await reflections(agent), []);
+    assert.equal(agent.faux.state.callCount, 1);
+    assert.equal(await agent.actions.reflect(client), "asked");
+    await agent.idle();
     assert.deepEqual((await said(agent)).slice(-2), [REFLECT, "Kept."]);
 });

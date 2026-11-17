@@ -73,7 +73,7 @@ import {
 import { agentModels, askCopiedKey, configured } from "./models.ts";
 import { ownFiles } from "./own-files.ts";
 import { type PromptSources, promptPart, promptSources } from "./prompt.ts";
-import { owedOf, reflectEvery, reflection } from "./reflect.ts";
+import { reflectEvery, reflection } from "./reflect.ts";
 import { conversationFor, current, migrateChats } from "./sessions.ts";
 import { society } from "./society.ts";
 import { gated } from "./spend.ts";
@@ -196,7 +196,7 @@ function parts(
     }
     return [
         promptPart(prompt),
-        reflection(peers, prompt.copies, owedOf(withHarness), reflectEvery()),
+        reflection(peers, prompt.copies, withHarness, reflectEvery()),
         cutOffRule(tell),
         failed.extension,
         ...builtIn,
