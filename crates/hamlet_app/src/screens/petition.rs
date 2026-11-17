@@ -636,7 +636,7 @@ pub fn waiting() -> impl View {
 
 /// What the agent of the open chat waits on from the chief, in full,
 /// with the way between them while there are several. As tall as it
-/// needs up to [`TALLEST`] of its column, past which it scrolls.
+/// needs up to `TALLEST` of its column, past which it scrolls.
 pub fn in_chat() -> impl View {
     let shown =
         resource::<ChatWaits, _>(|chat_waits| {
