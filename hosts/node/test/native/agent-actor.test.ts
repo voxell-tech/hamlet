@@ -261,12 +261,12 @@ function argsOf(name: string): unknown {
     return message;
 }
 
-test("an action or an input the agent does not take is refused, and the agent goes on", async () => {
+test("a client's call made by the realm, and an input the agent does not take, are refused, and the agent goes on", async () => {
     await inFolder(async (dir) => {
         const { kinds } = kindsAnswering([fauxAssistantMessage("Done.")]);
         const host = await startWithAgent(dir, kinds);
         const r = host.at("realm", "local");
-        const takes = ["submit", "finished", "place", "fill"];
+        const takes = ["submit", "finished", "place", "fill", "copies"];
         const actions = [
             ...new Set(
                 readdirSync(AGENT_FIXTURES)
@@ -306,7 +306,7 @@ test("an action or an input the agent does not take is refused, and the agent go
         assert.ok(actions.includes("login"), actions.join());
         for (const action of actions) {
             assert.partialDeepStrictEqual(refused[action], {
-                error: { group: "actor", code: "action_not_found" },
+                error: { group: "message", code: "wrong_caller" },
             });
         }
         for (const input of ["submit.notice", "submit.worker_answer"]) {
