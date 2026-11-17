@@ -162,7 +162,8 @@ interface FailedRun {
  * Follows each run that fails, where pi-durable ends it: no hook sees a run
  * that fails before its request (`no_model`, a refused compaction) or after
  * a kill (`interrupted`, `restart_limit`). A kill before the follow loses
- * its notice and its wait.
+ * its notice and its wait, and a harness opened again is followed from its
+ * first response.
  */
 export function failedTurns(
     peers: Peers,
@@ -177,6 +178,13 @@ export function failedTurns(
         hooks: [
             hook(GenerationTask, {
                 afterResponse: async (message, api) => {
+                    // The wrapper opens a harness again after a failed
+                    // commit, which the wake never saw.
+                    await withHarness(async (harness) => follow(harness)).catch(
+                        (error: unknown) => {
+                            if (!(error instanceof Closing)) throw error;
+                        },
+                    );
                     const unsent = unsentOf(message);
                     if (unsent !== undefined) {
                         answered.set(api.taskId, "unsent");
@@ -199,20 +207,22 @@ export function failedTurns(
             }),
         ],
     });
-    return {
-        extension,
-        follow: (harness) => {
-            harness.observeCommits({
-                advance: ({ changes }) => {
-                    for (const run of failedIn(changes)) {
-                        // An observer may not call the harness.
-                        queueMicrotask(() => void followed(run));
-                    }
-                },
-                end: () => {},
-            });
-        },
-    };
+    const following = new WeakSet<Harness>();
+    return { extension, follow };
+
+    function follow(harness: Harness): void {
+        if (following.has(harness)) return;
+        following.add(harness);
+        harness.observeCommits({
+            advance: ({ changes }) => {
+                for (const run of failedIn(changes)) {
+                    // An observer may not call the harness.
+                    queueMicrotask(() => void followed(run));
+                }
+            },
+            end: () => {},
+        });
+    }
 
     /**
      * pi-durable never retries the gate's ending, so the turn ends here.
@@ -249,7 +259,9 @@ export function failedTurns(
         // As today's `fault` words it (`talk/follow.rs:436-446`).
         const said =
             typeof input.detail === "string" ? input.detail : input.reason;
-        const realm = realmWordsIn(said);
+        // The gate's words in an error item are its failure to ask the
+        // realm, which refused nothing.
+        const realm = last === "error" ? undefined : realmWordsIn(said);
         const words = realm ?? said;
         try {
             const at = input.entry;

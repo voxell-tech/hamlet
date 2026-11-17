@@ -658,3 +658,58 @@ test("a held call's item is the realm's words, never tried again", async (t) => 
     assert.deepEqual(named(sent, "turn_failed"), []);
     await agent.stop();
 });
+
+test("a provider error on a harness opened again tells the realm", async (t) => {
+    const { calls, sent } = fakeCalls({});
+    const agent = await wakeAgent(t, {
+        calls,
+        responses: [
+            fauxAssistantMessage([], {
+                stopReason: "error",
+                errorMessage: "invalid x-api-key",
+            }),
+        ],
+    });
+    const first = await agent.harness();
+    const failed = agent.failNextCommit();
+    await assert.rejects(say(agent, 0, "Lost."));
+    await failed;
+    await until(async () => (await agent.harness()) !== first);
+
+    await say(agent, 1, "Go.");
+    await until(() => named(sent, "turn_failed").length > 0);
+
+    assert.deepEqual(
+        named(sent, "turn_failed").map((call) => call.message),
+        [
+            {
+                task: "task-1",
+                conversation: await rootRef(agent),
+                words: "invalid x-api-key",
+                cause: "model",
+            },
+        ],
+    );
+    await agent.stop();
+});
+
+test("a realm that cannot be asked fails the turn as the model's", async (t) => {
+    const { calls, sent } = fakeCalls({
+        realm: {
+            may_spend: () => {
+                throw new Error("gone");
+            },
+        },
+    });
+    const agent = await wakeAgent(t, { calls });
+
+    await say(agent, 1, "Go.");
+    await until(() => named(sent, "turn_failed").length > 0);
+
+    const [failed] = named(sent, "turn_failed").map(
+        (call) => call.message as TurnFailed,
+    );
+    assert.equal(failed?.cause, "model");
+    assert.match(failed?.words ?? "", /: it could not be asked \(gone\)$/);
+    await agent.stop();
+});
