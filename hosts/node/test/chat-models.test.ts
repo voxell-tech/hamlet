@@ -143,17 +143,22 @@ async function rootModel(agent: Woken) {
     return (await root.agent(context)).model;
 }
 
-async function lastAnswer(agent: Woken): Promise<AssistantMessage> {
+/** The root conversation's answers, oldest first. */
+async function answers(agent: Woken): Promise<AssistantMessage[]> {
     const root = await (await agent.harness()).root(context);
     const page = await root.entries(
-        { order: "descending" },
-        50,
+        { order: "ascending" },
+        500,
         undefined,
         context,
     );
-    const answer = page.items
+    return page.items
         .flatMap((entry) => entry.model ?? [])
-        .find((message) => message.role === "assistant");
+        .filter((message) => message.role === "assistant");
+}
+
+async function lastAnswer(agent: Woken): Promise<AssistantMessage> {
+    const answer = (await answers(agent)).at(-1);
     if (answer === undefined) throw new Error("nothing was answered");
     return answer;
 }
@@ -354,6 +359,26 @@ test("a check is not charged", async () => {
         type: "refused",
         words: "`large` names no endpoint. A model is named `endpoint::model`.",
     });
+    second.core.setResponses([
+        fauxAssistantMessage("", {
+            stopReason: "error",
+            errorMessage: "401 status code (no body)",
+        }),
+        (_transcript, options) =>
+            fauxAssistantMessage("", {
+                stopReason: "error",
+                errorMessage: `${"x".repeat(150)} ${options?.apiKey}`,
+            }),
+    ]);
+    assert.deepEqual(await checkModel(listed, keys, "loopback::large"), {
+        type: "failed",
+        words: "That key was not accepted. Check it was copied whole and is still active.",
+    });
+    // Scrubbed before the cut to 160 characters, so no part of the key is left.
+    assert.deepEqual(await checkModel(listed, keys, "loopback::large"), {
+        type: "failed",
+        words: `That model did not answer a hello. Pick another one. (Error: ${"x".repeat(150)} [R)`,
+    });
     assert.deepEqual(await checkModel(listed, keys, "nowhere::large"), {
         type: "refused",
         words: "`nowhere::large` is served by the endpoint `nowhere`, which the settings do not have.",
@@ -374,6 +399,27 @@ test("the model list names each listed model with its window and price", () => {
     );
 });
 
+/** `listed` whose requests, while `broken()`, throw with the key in the words. */
+function breaking(listed: Models, broken: () => boolean): Models {
+    return new Proxy(listed, {
+        get(target, name, receiver) {
+            const value: unknown = Reflect.get(target, name, receiver);
+            if (typeof value !== "function") return value;
+            if (name !== "streamSimple") return value.bind(target);
+            return (...args: Parameters<Models["streamSimple"]>) => {
+                if (!broken()) return target.streamSimple(...args);
+                const thrown = async () => {
+                    throw new Error(`the stream broke on ${args[2]?.apiKey}`);
+                };
+                return {
+                    [Symbol.asyncIterator]: () => ({ next: thrown }),
+                    result: thrown,
+                } as unknown as ReturnType<Models["streamSimple"]>;
+            };
+        },
+    });
+}
+
 test("a key is in no database, log, error or event", async (t) => {
     const { calls, sent } = signedIn();
     const second = loopback();
@@ -383,20 +429,32 @@ test("a key is in no database, log, error or event", async (t) => {
             keysSeen.push(options?.apiKey);
             return fauxAssistantMessage(`My key is ${options?.apiKey}.`);
         },
+        (_transcript, options) =>
+            fauxAssistantMessage("", {
+                stopReason: "error",
+                errorMessage: `the model will not take ${options?.apiKey}`,
+            }),
     ]);
-    const agent = await wakeAgent(t, { calls, models: second.add });
+    let breakNext = false;
+    const agent = await wakeAgent(t, {
+        calls,
+        models: (models) => breaking(second.add(models), () => breakNext),
+    });
     await agent.actions.copies(
         agent.by(from.realm),
         choosing(1, { model: "loopback::large" }),
     );
     await say(agent, "What is your key?");
+    await say(agent, "Take it.");
+    breakNext = true;
+    await say(agent, "Take it again.");
 
     const { listed, second: checked } = listing();
     checked.core.setResponses([
         (_transcript, options) =>
             fauxAssistantMessage("", {
                 stopReason: "error",
-                errorMessage: `HTTP 401: ${options?.apiKey} is not a key`,
+                errorMessage: `the model will not take ${options?.apiKey}`,
             }),
     ]);
     const words = (
@@ -410,7 +468,15 @@ test("a key is in no database, log, error or event", async (t) => {
     assert.deepEqual(keysSeen, [KEY], "the provider was given the key");
     assert.equal(
         words,
-        "That key was not accepted. Check it was copied whole and is still active.",
+        "That model did not answer a hello. Pick another one. (Error: the model will not take [REDACTED])",
+    );
+    assert.deepEqual(
+        (await answers(agent)).map((answer) => answer.errorMessage),
+        [
+            undefined,
+            "the model will not take [REDACTED]",
+            "the stream broke on [REDACTED]",
+        ],
     );
     const tables = await agent.c.db.all<{ name: string }>(
         "SELECT name FROM sqlite_master WHERE type = 'table'",
@@ -436,14 +502,14 @@ test("a key is in no database, log, error or event", async (t) => {
         );
     }
     assert.match(
-        JSON.stringify((await lastAnswer(agent)).content),
+        JSON.stringify((await answers(agent))[0]?.content),
         /My key is \[REDACTED\]\./,
     );
     await agent.stop();
 });
 
 test("a new conversation takes the copy's model", {
-    todo: "a conversation made after the copy starts on the host's model: actor.ts's `conversationCreated` or sessions.ts's creation sites must configure it",
+    todo: "sessions.ts makes a conversation on the host's model: each `createConversation` should pass `agent: await copiedAgent(copies)`",
 }, async (t) => {
     const { calls } = signedIn();
     const second = loopback();

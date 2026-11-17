@@ -24,8 +24,8 @@ import {
 import { withHarness } from "../pi/runtime.ts";
 import { type AgentContext, generationOf } from "./actor.ts";
 import type { ReadCopies } from "./copies.ts";
-import type { Price } from "./messages.ts";
-import type { BareRealm, Peers } from "./turn.ts";
+import type { Effort, Price } from "./messages.ts";
+import { type BareRealm, type Peers, reasonOf } from "./turn.ts";
 
 /** Dollars per million tokens of a model nothing prices, as today. */
 const RATE = 1;
@@ -66,7 +66,9 @@ export function keysOf(
                 // An OAuth login is pi-ai's to resolve and refresh, from a
                 // credential store; a refusal or a failed call is asked again
                 // at the next request.
-                if (answer.type !== "key") return undefined;
+                if (answer.type !== "key" || answer.key === "") {
+                    return undefined;
+                }
                 held.set(provider, answer.key);
                 return answer.key;
             } catch (error) {
@@ -182,12 +184,25 @@ class Scrubbed extends AssistantMessageEventStream {
     }
 
     override async *[Symbol.asyncIterator](): AsyncGenerator<AssistantMessageEvent> {
-        for await (const event of await this.#source)
-            yield this.#keys.scrub(event);
+        try {
+            for await (const event of await this.#source)
+                yield this.#keys.scrub(event);
+        } catch (error) {
+            throw this.#scrubbed(error);
+        }
     }
 
     override async result(): Promise<AssistantMessage> {
-        return this.#keys.scrub(await (await this.#source).result());
+        try {
+            return this.#keys.scrub(await (await this.#source).result());
+        } catch (error) {
+            throw this.#scrubbed(error);
+        }
+    }
+
+    /** The spend gate keeps a thrown error's words as the answer. */
+    #scrubbed(error: unknown): Error {
+        return new Error(this.#keys.scrub(reasonOf(error)));
     }
 }
 
@@ -344,14 +359,10 @@ export async function checkModel(
         answer.stopReason === "aborted" ||
         text === ""
     ) {
-        return {
-            type: "failed",
-            words: keys.scrub(
-                plainly(
-                    answer.errorMessage ?? "the model answered with nothing",
-                ),
-            ),
-        };
+        // Today's words come from the thrown error's text, scrubbed before
+        // `plainly` cuts it.
+        const error = `Error: ${answer.errorMessage ?? "the model answered with nothing"}`;
+        return { type: "failed", words: plainly(keys.scrub(error)) };
     }
     return { type: "answered", words: keys.scrub(text) };
 }
@@ -386,13 +397,8 @@ export async function configured(
     c: AgentContext,
     copies: ReadCopies,
 ): Promise<void> {
-    const { model: choice } = await copies();
-    const ref = choice === undefined ? undefined : refOf(choice.model);
-    if (choice === undefined || ref === undefined) return;
-    const wanted = {
-        model: ref,
-        thinkingLevel: choice.effort ?? null,
-    } satisfies AgentChange;
+    const wanted = await copiedAgent(copies);
+    if (wanted === undefined) return;
     await withHarness(c, generationOf(c).options, async (harness, context) => {
         // The root is made on the copy's model when it is not there yet, so
         // the chief's first session starts on it.
@@ -411,6 +417,22 @@ export async function configured(
             }, context);
         }
     });
+}
+
+/**
+ * What puts a conversation on the copy's model and effort, as
+ * `createConversation`'s `agent` takes it; `undefined` with no model copy.
+ */
+export async function copiedAgent(
+    copies: ReadCopies,
+): Promise<{ model: ModelRef; thinkingLevel: Effort | null } | undefined> {
+    const { model: choice } = await copies();
+    const model = choice === undefined ? undefined : refOf(choice.model);
+    if (choice === undefined || model === undefined) return undefined;
+    return {
+        model,
+        thinkingLevel: choice.effort ?? null,
+    } satisfies AgentChange;
 }
 
 /** `provider::model` as pi-durable names it, or `undefined` when either half is empty. */
