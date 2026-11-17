@@ -70,7 +70,7 @@ import {
     type Submit,
     type ToolName,
 } from "./messages.ts";
-import { agentModels, configured } from "./models.ts";
+import { agentModels, askCopiedKey, configured } from "./models.ts";
 import { ownFiles } from "./own-files.ts";
 import { type PromptSources, promptPart, promptSources } from "./prompt.ts";
 import { owedOf, reflectEvery, reflection } from "./reflect.ts";
@@ -487,10 +487,15 @@ async function wake(c: AgentContext, config: AgentConfig): Promise<void> {
     // Configured at every wake, not only when a newer model was kept, and
     // even when the realm was not reached, so a configure a kill cut off
     // after the copy was kept is done again.
-    const copied = refreshed(c, peers)
+    const read = refreshed(c, peers).catch((error: unknown) =>
+        peers.report("the copies were not read from the realm", error),
+    );
+    void read
+        .then(() => askCopiedKey(config.models, copies, peers))
         .catch((error: unknown) =>
-            peers.report("the copies were not read from the realm", error),
-        )
+            peers.report("the copy's model's key was not read", error),
+        );
+    const copied = read
         .then(() => configured(c, copies))
         .catch((error: unknown) =>
             peers.report("the model was not configured", error),

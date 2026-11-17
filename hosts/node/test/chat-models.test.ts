@@ -818,7 +818,9 @@ test("a request with no key from the realm fails and uses no other key", async (
         assert.ok(failed !== undefined, "the request failed");
         if (tried === 0) assert.equal(failed, NOT_SIGNED_IN.words);
         assert.ok(!(await dumped(agent)).includes("sk-made-up-host-0dd"));
-        assert.equal(named(sent, "credential").length, 1);
+        // The request asks once, and the wake may ask for the copy's key
+        // once more; nothing asks again.
+        assert.ok(named(sent, "credential").length <= 2);
         await agent.stop();
     }
 });

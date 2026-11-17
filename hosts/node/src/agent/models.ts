@@ -1,16 +1,23 @@
 /**
- * The agent's model access: the model its copy names, the key the realm
- * gives for it, held in memory only, and the price each call is charged at.
+ * The agent's model access: the model its copy names, the credential the
+ * realm gives for it, held in memory only, and the price each call is
+ * charged at. Also the host's scrub list.
  */
 import type { Context } from "@earendil-works/chord/context";
-import type {
-    Api,
-    AssistantMessage,
-    AssistantMessageEvent,
-    Model,
-    Models,
-    ModelsSimpleStreamOptions,
+import {
+    type Api,
+    type ApiKeyAuth,
+    type AssistantMessage,
+    type AssistantMessageEvent,
+    type Credential,
+    createModels,
+    type Model,
+    type Models,
+    type ModelsSimpleStreamOptions,
+    type OAuthAuth,
+    type OAuthCredential,
 } from "@earendil-works/pi-ai";
+import { raceWithAbortSignal } from "@earendil-works/pi-ai/utils/abort";
 import { AssistantMessageEventStream } from "@earendil-works/pi-ai/utils/event-stream";
 import {
     type AgentChange,
@@ -24,7 +31,14 @@ import {
 import { withHarness } from "../pi/runtime.ts";
 import { type AgentContext, generationOf } from "./actor.ts";
 import type { ReadCopies } from "./copies.ts";
-import type { CredentialAnswer, Effort, Price } from "./messages.ts";
+import {
+    type CredentialAnswer,
+    type Effort,
+    type Kept,
+    type OauthLogin,
+    type Price,
+    u32,
+} from "./messages.ts";
 import { type BareRealm, type Peers, reasonOf } from "./turn.ts";
 
 /** Dollars per million tokens of a model nothing prices, as today. */
@@ -42,71 +56,31 @@ const FAST_APIS: readonly Api[] = [
 ];
 
 /**
- * The keys the realm gave this wake. They live only here, so they go when
- * the agent sleeps.
+ * Every key, token and typed sign-in answer this host was given, retired
+ * ones included, as today's server keeps them for its scrub
+ * (`crates/hamlet_server/src/credentials.rs`, `remember`). They live only
+ * here, for the host's life.
  */
-export interface Keys {
-    /**
-     * The realm's key for `provider`, `undefined` for the faux models.
-     * Without one it throws, so no key from the host's environment is used.
-     */
-    of(provider: string): Promise<string | undefined>;
-    /** `value` with every key held replaced, as today's scrub does. */
-    scrub<T>(value: T): T;
-    /** `text` without a tail that begins a held key. */
-    withheld(text: string): string;
+const SECRETS = new Set<string>();
+
+export function remember(...secrets: readonly string[]): void {
+    for (const secret of secrets) if (secret !== "") SECRETS.add(secret);
 }
 
-export function keysOf(
-    realm: Pick<BareRealm, "credential">,
-    report: Peers["report"],
-): Keys {
-    const held = new Map<string, string>();
-    const asked = new Map<string, Promise<string>>();
-    const ask = async (provider: string): Promise<string> => {
-        let answer: CredentialAnswer;
-        try {
-            answer = await realm.credential({ provider });
-        } catch (error) {
-            const words = `the realm's credential for ${provider} was not read`;
-            report(words, error);
-            throw new Error(`${words}: ${reasonOf(error)}`);
-        }
-        if (answer.type === "refused") throw new Error(answer.words);
-        if (answer.type === "oauth" || answer.key === "") {
-            throw new Error(
-                `The sign-in for ${provider} gives no key, and only a key is used yet.`,
-            );
-        }
-        held.set(provider, answer.key);
-        return answer.key;
-    };
-    return {
-        of: (provider) => {
-            if (provider === FAUX) return Promise.resolve(undefined);
-            let asking = asked.get(provider);
-            if (asking === undefined) {
-                asking = ask(provider);
-                asked.set(provider, asking);
-                // A refusal or a failed call is asked again at the next request.
-                asking.catch(() => asked.delete(provider));
-            }
-            return asking;
-        },
-        scrub: (value) => scrubbed(value, [...held.values()]),
-        withheld: (text) => {
-            let cut = 0;
-            for (const key of held.values()) {
-                for (let length = key.length - 1; length > cut; length -= 1) {
-                    if (text.endsWith(key.slice(0, length))) cut = length;
-                }
-            }
-            return text.slice(0, text.length - cut);
-        },
-    };
+/** Remembers the secrets of `kept`, as today's `remember_model` does. */
+export function rememberKept(kept: Kept): void {
+    if (kept.type === "key") remember(kept.key);
+    else remember(kept.login.access, kept.login.refresh);
 }
 
-function scrubbed<T>(value: T, secrets: readonly string[]): T {
+/**
+ * `value` with every secret the host holds, and each of `also`, replaced,
+ * longest first.
+ */
+export function scrub<T>(value: T, also: readonly string[] = []): T {
+    const secrets = [...SECRETS, ...also.filter((word) => word !== "")].sort(
+        (a, b) => b.length - a.length,
+    );
     if (secrets.length === 0) return value;
     const clean = (text: string) =>
         secrets.reduce(
@@ -133,6 +107,179 @@ function scrubbed<T>(value: T, secrets: readonly string[]): T {
     ) as T;
 }
 
+/** `text` without a tail that begins a secret the host holds. */
+export function withheld(text: string): string {
+    let cut = 0;
+    for (const secret of SECRETS) {
+        for (let length = secret.length - 1; length > cut; length -= 1) {
+            if (text.endsWith(secret.slice(0, length))) cut = length;
+        }
+    }
+    return text.slice(0, text.length - cut);
+}
+
+/** The credential the realm gave this wake, per provider. */
+export interface Keys {
+    /**
+     * The key a request to `provider` carries, `undefined` for the faux
+     * models. Without one it throws, so no key from the host's environment
+     * is used.
+     */
+    of(provider: string): Promise<string | undefined>;
+}
+
+/**
+ * What an OAuth sign-in needs to serve requests: the listing's sign-in for
+ * its provider, and the realm's keep for a rotated login. Without it, only
+ * keys are used.
+ */
+export interface Subscriptions {
+    readonly listed: Pick<Models, "getProvider">;
+    readonly keep: BareRealm["keep_credential"];
+}
+
+/**
+ * As pi-ai's `Models.getAuth` (`auth/resolve.js`): a login with less left
+ * than this is refreshed before a request.
+ */
+const REFRESH_WITHIN_MS = 5 * 60_000;
+
+export function keysOf(
+    realm: Pick<BareRealm, "credential">,
+    report: Peers["report"],
+    subscriptions?: Subscriptions,
+): Keys {
+    const asked = new Map<string, Promise<Kept>>();
+    const ask = async (provider: string): Promise<Kept> => {
+        let answer: CredentialAnswer;
+        try {
+            answer = await realm.credential({ provider });
+        } catch (error) {
+            const words = `the realm's credential for ${provider} was not read`;
+            report(words, error);
+            throw new Error(`${words}: ${reasonOf(error)}`);
+        }
+        if (answer.type === "refused") throw new Error(answer.words);
+        rememberKept(answer);
+        return answer;
+    };
+    const keyOf = async (provider: string, kept: Kept): Promise<string> => {
+        if (kept.type === "key" && kept.key !== "") return kept.key;
+        const oauth = subscriptions?.listed.getProvider(provider)?.auth.oauth;
+        if (
+            kept.type === "oauth" &&
+            oauth !== undefined &&
+            subscriptions !== undefined
+        ) {
+            let login = kept.login;
+            if (login.expires * 1000 <= Date.now() + REFRESH_WITHIN_MS) {
+                login = await rotated(provider, login, oauth, {
+                    keep: subscriptions.keep,
+                    report,
+                });
+                asked.set(provider, Promise.resolve({ type: "oauth", login }));
+            }
+            const { apiKey } = await oauth.toAuth(credentialOf(login));
+            if (apiKey !== undefined) return apiKey;
+        }
+        throw new Error(
+            `The sign-in for ${provider} gives no key, and only a key is used yet.`,
+        );
+    };
+    return {
+        of: async (provider) => {
+            if (provider === FAUX) return undefined;
+            let asking = asked.get(provider);
+            if (asking === undefined) {
+                asking = ask(provider);
+                asked.set(provider, asking);
+                // A refusal or a failed call is asked again at the next request.
+                asking.catch(() => asked.delete(provider));
+            }
+            return keyOf(provider, await asking);
+        },
+    };
+}
+
+/**
+ * Each rotation by the login it retires, so one refresh runs per login in
+ * the host and every agent still holding the old one takes the new.
+ */
+const ROTATIONS = new Map<string, Promise<OauthLogin>>();
+
+/**
+ * `login` refreshed, once in the host, and handed to the realm before it
+ * is used, as today's server saves a rotation before acknowledging it
+ * (`docs/realm.md`).
+ */
+function rotated(
+    provider: string,
+    login: OauthLogin,
+    oauth: OAuthAuth,
+    to: { keep: BareRealm["keep_credential"]; report: Peers["report"] },
+): Promise<OauthLogin> {
+    const retired = `${provider}\n${login.refresh}`;
+    let rotation = ROTATIONS.get(retired);
+    if (rotation === undefined) {
+        rotation = (async () => {
+            // Not the request's signal: a rotation started is finished, as today.
+            const fresh = loginOf(
+                await oauth.refresh(
+                    credentialOf(login),
+                    new AbortController().signal,
+                ),
+            );
+            const value: Kept = { type: "oauth", login: fresh };
+            rememberKept(value);
+            try {
+                await to.keep({ provider, value });
+            } catch (error) {
+                // This host keeps using it; the realm still holds the old one.
+                to.report(
+                    `the rotated login for ${provider} was not kept`,
+                    scrubbedError(error),
+                );
+            }
+            return fresh;
+        })();
+        ROTATIONS.set(retired, rotation);
+        rotation.catch(() => ROTATIONS.delete(retired));
+    }
+    return rotation;
+}
+
+/** pi-ai's credential as the realm keeps it: an OAuth expiry in whole seconds. */
+export function keptOf(credential: Credential): Kept {
+    if (credential.type === "api_key") {
+        return { type: "key", key: credential.key ?? "" };
+    }
+    return { type: "oauth", login: loginOf(credential) };
+}
+
+function loginOf(credential: OAuthCredential): OauthLogin {
+    const { type: _, access, refresh, expires, ...extra } = credential;
+    return {
+        access,
+        refresh,
+        expires: u32(Math.floor(expires / 1000)),
+        ...(Object.keys(extra).length === 0
+            ? {}
+            : { extra: JSON.stringify(extra) }),
+    };
+}
+
+function credentialOf(login: OauthLogin): OAuthCredential {
+    return {
+        ...(login.extra === undefined
+            ? {}
+            : (JSON.parse(login.extra) as Record<string, unknown>)),
+        type: "oauth",
+        access: login.access,
+        refresh: login.refresh,
+        expires: login.expires * 1000,
+    };
+}
+
 /**
  * `listed` with each request made with the realm's key, priced in today's
  * order, and in the priority tier when the copy asks for it.
@@ -142,19 +289,23 @@ export function agentModels(
     copies: ReadCopies,
     peers: Peers,
 ): Models {
-    const keys = keysOf(peers.reach, peers.report);
+    const keys = agentKeys(listed, peers);
     const served = async (
         model: Model<Api>,
         options: ModelsSimpleStreamOptions | undefined,
     ): Promise<[Model<Api>, ModelsSimpleStreamOptions]> => {
-        const [{ model: choice }, key] = await Promise.all([
+        const key = keys.of(model.provider);
+        const [{ model: choice }, given] = await Promise.all([
             copies(),
-            keys.of(model.provider),
+            // A stop does not wait for a refresh, which goes on.
+            options?.signal === undefined
+                ? key
+                : raceWithAbortSignal(key, options.signal),
         ]);
         const chosen = choice !== undefined && nameOf(model) === choice.model;
         const made: ModelsSimpleStreamOptions = {
             ...options,
-            ...(key === undefined ? {} : { apiKey: key }),
+            ...(given === undefined ? {} : { apiKey: given }),
         };
         return [
             {
@@ -167,9 +318,12 @@ export function agentModels(
     const streamSimple: Models["streamSimple"] = (model, transcript, options) =>
         new Scrubbed(
             served(model, options).then(([made, asked]) =>
-                listed.streamSimple(made, transcript, asked),
+                takingKeys(listed, made.provider).streamSimple(
+                    made,
+                    transcript,
+                    asked,
+                ),
             ),
-            keys,
         );
     const completeSimple: Models["completeSimple"] = async (
         model,
@@ -178,11 +332,15 @@ export function agentModels(
     ) => {
         try {
             const [made, asked] = await served(model, options);
-            return keys.scrub(
-                await listed.completeSimple(made, transcript, asked),
+            return scrub(
+                await takingKeys(listed, made.provider).completeSimple(
+                    made,
+                    transcript,
+                    asked,
+                ),
             );
         } catch (error) {
-            throw scrubbedError(keys, error);
+            throw scrubbedError(error);
         }
     };
     return new Proxy(listed, {
@@ -196,6 +354,27 @@ export function agentModels(
 }
 
 /**
+ * pi-ai takes a request's key only for a provider with key auth
+ * (`auth/resolve.js`). One that signs in only by OAuth is served by a
+ * listing of its own, where the login's access token is that key.
+ */
+function takingKeys(listed: Models, provider: string): Models {
+    const served = listed.getProvider(provider);
+    if (served === undefined || served.auth.apiKey !== undefined) return listed;
+    const models = createModels();
+    models.setProvider({ ...served, auth: { apiKey: GIVEN_KEY } });
+    return models;
+}
+
+const GIVEN_KEY: ApiKeyAuth = {
+    name: "the realm's sign-in",
+    resolve: async ({ credential }) =>
+        credential?.key === undefined
+            ? undefined
+            : { auth: { apiKey: credential.key } },
+};
+
+/**
  * The source's events with the keys scrubbed. A source that throws throws
  * here too, as the spend gate expects of a broken stream. A text still
  * streaming is shown without a tail that begins a key, since pi-durable
@@ -203,15 +382,13 @@ export function agentModels(
  */
 class Scrubbed extends AssistantMessageEventStream {
     readonly #source: Promise<AssistantMessageEventStream>;
-    readonly #keys: Keys;
 
-    constructor(source: Promise<AssistantMessageEventStream>, keys: Keys) {
+    constructor(source: Promise<AssistantMessageEventStream>) {
         super();
         // Its consumer may first wait on the realm, and a rejection seen
         // later is still a rejection there.
         source.catch(() => {});
         this.#source = source;
-        this.#keys = keys;
     }
 
     override async *[Symbol.asyncIterator](): AsyncGenerator<AssistantMessageEvent> {
@@ -221,19 +398,17 @@ class Scrubbed extends AssistantMessageEventStream {
             for await (const event of await this.#source)
                 yield this.#withheld(event, shown, received);
         } catch (error) {
-            throw scrubbedError(this.#keys, error);
+            throw scrubbedError(error);
         }
     }
 
     override async result(): Promise<AssistantMessage> {
         try {
-            const message = this.#keys.scrub(
-                await (await this.#source).result(),
-            );
-            if (isCutOff(message)) withheldIn(this.#keys, message);
+            const message = scrub(await (await this.#source).result());
+            if (isCutOff(message)) withheldIn(message);
             return message;
         } catch (error) {
-            throw scrubbedError(this.#keys, error);
+            throw scrubbedError(error);
         }
     }
 
@@ -247,11 +422,10 @@ class Scrubbed extends AssistantMessageEventStream {
         shown: Map<number, string>,
         received: Map<number, string>,
     ): AssistantMessageEvent {
-        const event = this.#keys.scrub(source);
-        if (event.type === "error") withheldIn(this.#keys, event.error);
+        const event = scrub(source);
+        if (event.type === "error") withheldIn(event.error);
         if (!("partial" in event)) return event;
         withheldIn(
-            this.#keys,
             event.partial,
             event.type === "text_end" || event.type === "thinking_end"
                 ? event.contentIndex
@@ -271,7 +445,7 @@ class Scrubbed extends AssistantMessageEventStream {
             const sofar =
                 (received.get(source.contentIndex) ?? "") + source.delta;
             received.set(source.contentIndex, sofar);
-            text = this.#keys.withheld(this.#keys.scrub(sofar));
+            text = withheld(scrub(sofar));
         }
         // pi-durable appends each delta to the text it kept.
         if (text !== undefined && "delta" in event) {
@@ -289,23 +463,19 @@ function isCutOff(message: AssistantMessage): boolean {
 }
 
 /** Withholds the tail of each text in `message` but block `ended`'s. */
-function withheldIn(
-    keys: Keys,
-    message: AssistantMessage,
-    ended?: number,
-): void {
+function withheldIn(message: AssistantMessage, ended?: number): void {
     for (const [index, block] of message.content.entries()) {
         if (index === ended) continue;
-        if (block.type === "text") block.text = keys.withheld(block.text);
+        if (block.type === "text") block.text = withheld(block.text);
         else if (block.type === "thinking") {
-            block.thinking = keys.withheld(block.thinking);
+            block.thinking = withheld(block.thinking);
         }
     }
 }
 
 /** The spend gate keeps a thrown error's words as the answer. */
-function scrubbedError(keys: Keys, error: unknown): Error {
-    return new Error(keys.scrub(reasonOf(error)));
+function scrubbedError(error: unknown): Error {
+    return new Error(scrub(reasonOf(error)));
 }
 
 /** `provider::model`, as the catalogue and the copy name a model. */
@@ -447,7 +617,7 @@ export async function checkModel(
     }
     try {
         const key = await keys.of(provider);
-        const answer = await listed.completeSimple(
+        const answer = await takingKeys(listed, provider).completeSimple(
             model,
             {
                 messages: [
@@ -477,11 +647,11 @@ export async function checkModel(
                 answer.errorMessage ?? "the model answered with nothing",
             );
         }
-        return { type: "answered", words: keys.scrub(text) };
+        return { type: "answered", words: scrub(text) };
     } catch (error) {
         // As today, the words come from the error's text, scrubbed before
         // `plainly` cuts it.
-        return { type: "failed", words: plainly(keys.scrub(String(error))) };
+        return { type: "failed", words: plainly(scrub(String(error))) };
     }
 }
 
@@ -504,6 +674,30 @@ function plainly(error: string): string {
     }
     const detail = [...error].slice(0, 160).join("");
     return `That model did not answer a hello. Pick another one. (${detail})`;
+}
+
+/** The keys an agent's model calls carry, OAuth logins refreshed. */
+function agentKeys(listed: Models, peers: Peers): Keys {
+    return keysOf(peers.reach, peers.report, {
+        listed,
+        keep: peers.reach.keep_credential,
+    });
+}
+
+/**
+ * Asks the realm for the credential of the copy's model, as a model call
+ * does, so its secrets are scrubbed from what a client reads after a wake
+ * that made no call yet.
+ */
+export async function askCopiedKey(
+    listed: Models,
+    copies: ReadCopies,
+    peers: Peers,
+): Promise<void> {
+    const wanted = await copiedAgent(copies);
+    if (wanted !== undefined) {
+        await agentKeys(listed, peers).of(wanted.model.provider);
+    }
 }
 
 /**

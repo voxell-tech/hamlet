@@ -77,13 +77,19 @@ const home = process.env.HAMLET_HOME;
 if (home === undefined) fail("HAMLET_HOME names no realm folder");
 writeFileSync(join(home, PID_FILE), `${process.pid}\n`);
 
-const [{ serveLink }, { agentActor }, { openAgentFilesystem }, ai] =
-    await Promise.all([
-        import("../actor/registry/link.ts"),
-        import("./actor.ts"),
-        import("./native-filesystem.ts"),
-        import("@earendil-works/pi-ai"),
-    ]);
+const [
+    { serveLink },
+    { agentActor },
+    { openAgentFilesystem },
+    { signIns },
+    ai,
+] = await Promise.all([
+    import("../actor/registry/link.ts"),
+    import("./actor.ts"),
+    import("./native-filesystem.ts"),
+    import("./login.ts"),
+    import("@earendil-works/pi-ai"),
+]);
 
 const dying = new Set<string>();
 
@@ -314,6 +320,7 @@ const agent = agentActor({
     model: `${provider}/${id}`,
     listed: () => models.getModels(),
     files: (n) => dyingIn(openAgentFilesystem(home, n)),
+    signIns: signIns(models),
 });
 
 try {
