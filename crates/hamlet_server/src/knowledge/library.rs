@@ -4,10 +4,15 @@
 
 use anyhow::{Context, Result};
 use hamlet_git::{Author, Change, CommitId, MAIN, Repository};
+use hamlet_store::ids::Actor;
 
 use super::folder::Folder;
 use super::run::write_tree;
+use crate::core::Core;
+use crate::realm::change::Done;
 use crate::realm::layout::Layout;
+use crate::society::library::{self as shelf, Event, EventKind};
+use crate::society::refusal::Refusal;
 
 macro_rules! starter {
     ($name:literal, [$($file:literal),+]) => {
@@ -203,4 +208,50 @@ pub(crate) fn unshelve(
     )?;
     check_out(layout, &repo)?;
     Ok(Some(commit))
+}
+
+impl Core<'_, '_> {
+    /// Takes `skill` off the library's shelves, as `by` asks.
+    pub(crate) fn unshelve_skill(
+        &mut self,
+        by: Actor,
+        skill: &str,
+        reason: &str,
+    ) -> Done<String> {
+        let layout = self.realm.layout().clone();
+        let author = by.to_string();
+        let at = crate::app::clock::now();
+        let message = if reason.is_empty() {
+            format!("Took {skill} off the shelves")
+        } else {
+            format!("Took {skill} off the shelves: {reason}")
+        };
+        let writing = self.writing.clone();
+        let held = writing.hold();
+        let unshelved =
+            unshelve(&layout, skill, &message, &author, at)?;
+        drop(held);
+        let Some(commit) = unshelved else {
+            return Ok(Err(Refusal::NoSkill { name: skill.into() }));
+        };
+        let (agent, chief) = match by {
+            Actor::Agent(agent) => (Some(agent), None),
+            Actor::Chief(chief) => (None, Some(chief)),
+            Actor::Realm => (None, None),
+        };
+        let db = self.realm.store().connection();
+        shelf::event(
+            db,
+            at,
+            Event {
+                kind: EventKind::Unshelved,
+                skill,
+                agent,
+                chief,
+                reason: (!reason.is_empty()).then_some(reason),
+                commit: Some(&commit.to_string()),
+            },
+        )?;
+        Ok(Ok(format!("Took {skill} off the shelves.")))
+    }
 }
