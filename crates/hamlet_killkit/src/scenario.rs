@@ -4,6 +4,7 @@
 //! new row.
 
 mod agent;
+mod chat;
 mod counter;
 mod link;
 mod workspace;
@@ -111,6 +112,7 @@ pub fn all() -> impl Iterator<Item = &'static Scenario> {
         workspace::SCENARIOS,
         link::SCENARIOS,
         agent::SCENARIOS,
+        chat::SCENARIOS,
     ]
     .into_iter()
     .flatten()
