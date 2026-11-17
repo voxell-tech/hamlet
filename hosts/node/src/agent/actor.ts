@@ -426,28 +426,32 @@ async function wake(c: AgentContext, config: AgentConfig): Promise<void> {
         return;
     }
     harness.resume();
-    if (
-        (row.kind === "worker" || row.kind === "errand") &&
-        row.brief !== undefined
-    ) {
-        void briefTurn(
-            c,
-            options,
-            peers,
-            row.kind,
-            row.brief,
-            row.standingTask,
-        ).catch((error: unknown) =>
-            peers.report("the brief's turn did not end", error),
-        );
-    }
     // Configured at every wake, not only when a newer model was kept, so a
     // configure a kill cut off after the copy was kept is done again.
-    void refreshed(c, peers).then(
+    const copied = refreshed(c, peers).then(
         () => configured(c, copies),
         (error: unknown) =>
             peers.report("the copies were not read from the realm", error),
     );
+    if (
+        (row.kind === "worker" || row.kind === "errand") &&
+        row.brief !== undefined
+    ) {
+        const { kind, brief } = row;
+        // A new worker or errand holds no copies yet, so its turn waits for
+        // the realm's answer, whatever it is.
+        void copied
+            .catch(() => undefined)
+            .then(() =>
+                briefTurn(c, options, peers, kind, brief, row.standingTask),
+            )
+            .catch((error: unknown) =>
+                peers.report(
+                    "the realm was not told how the brief's turn ended",
+                    error,
+                ),
+            );
+    }
 }
 
 /** pi-durable admits it once: the brief is the root conversation's one input. */
@@ -466,7 +470,7 @@ async function briefTurn(
     brief: Brief,
     task: RealmTask,
 ): Promise<void> {
-    const ended = await withHarness(
+    const settled = await withHarness(
         c,
         options,
         async (harness, context, waiting) => {
@@ -478,16 +482,21 @@ async function briefTurn(
             const settled = await waiting(() => submission.wait(context));
             // A short cut-off is asked again once its input settled (C28).
             await waiting(() => root.waitForIdle(context));
-            return endedOf(
-                kind,
-                settled,
-                await lastWords(root, settled.entry, context),
-            );
+            return settled;
         },
     );
-    await (kind === "worker"
-        ? peers.reach.worker_done({ ended })
-        : peers.reach.errand_done({ ended }));
+    // A call of its own, so the agent does not sleep before the realm is told.
+    await withHarness(c, options, async (harness, context) => {
+        const words = await lastWords(
+            await harness.root(context),
+            settled.entry,
+            context,
+        );
+        const ended = endedOf(kind, settled, words);
+        await (kind === "worker"
+            ? peers.reach.worker_done({ ended })
+            : peers.reach.errand_done({ ended }));
+    });
 }
 
 /**

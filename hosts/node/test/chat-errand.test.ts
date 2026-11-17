@@ -8,7 +8,13 @@ import {
 } from "@earendil-works/pi-ai";
 import { getCurrentSystemPrompt } from "@earendil-works/pi-ai/utils/transcript";
 import { decodeCborCompat } from "../src/actor/serde.ts";
-import type { AgentInput, ChatItem, Submit } from "../src/agent/messages.ts";
+import type {
+    AgentInput,
+    ChatEvent,
+    ChatItem,
+    Copies,
+    Submit,
+} from "../src/agent/messages.ts";
 import {
     fakeCalls,
     from,
@@ -198,6 +204,14 @@ test("a notice, a worker's answer and a reviewed line's note are taken and shown
         },
         { kind: "assistant", text: "Fixing them." },
     ]);
+    // A client following the chat is sent the same items.
+    const inputs = (items: readonly ChatItem[]) =>
+        items.filter((item) => item.kind !== "assistant").map(shown);
+    const added = agent.events
+        .filter(([name]) => name === "chat")
+        .flatMap(([, event]) => (event as ChatEvent).ops)
+        .flatMap((op) => (op.type === "add" ? [op.item] : []));
+    assert.deepEqual(inputs(added), inputs(page.items));
     assert.deepEqual(agent.reported, []);
 });
 
@@ -215,4 +229,31 @@ test("an errand that answers no words fails with today's words", async (t) => {
     assert.deepEqual(named(sent, "errand_done")[0]?.message, {
         ended: { type: "failed", why: "the errand gave no answer" },
     });
+});
+
+test("a worker's turn waits for the copies the realm holds", async (t) => {
+    const seen: Context[] = [];
+    const copies = Promise.withResolvers<Copies>();
+    const { calls, sent } = fakeCalls({
+        realm: {
+            read_copies: () => copies.promise,
+            worker_done: () => null,
+        },
+    });
+    const agent = await wakeAgent(t, {
+        calls,
+        input: WORKER,
+        responses: [asked(seen, "Done.")],
+    });
+    t.after(() => agent.stop());
+    await until(() => named(sent, "read_copies").length === 1);
+    copies.resolve({ charter: { version: 1, value: "Keep the docs whole." } });
+    await until(() => named(sent, "worker_done").length === 1);
+
+    const [request] = seen;
+    assert.ok(request !== undefined);
+    assert.match(
+        getCurrentSystemPrompt(request.messages),
+        /Keep the docs whole\./,
+    );
 });
