@@ -212,9 +212,10 @@ impl Core<'_, '_> {
                 })
             }
             Called::Resume(_) => self.carry(call, |cx, _| {
-                Ok(Ok(match chats::resume(cx, agent)? {
-                    true => format!("{name} takes what waits again."),
-                    false => format!("{name} was not stopped."),
+                Ok(Ok(if chats::resume(cx, agent)? {
+                    format!("{name} takes what waits again.")
+                } else {
+                    format!("{name} was not stopped.")
                 }))
             }),
             Called::EditMemory(EditMemory {
