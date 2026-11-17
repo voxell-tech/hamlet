@@ -1,3 +1,492 @@
-import { test } from "node:test";
+import assert from "node:assert/strict";
+import { type TestContext, test } from "node:test";
+import { isDeepStrictEqual } from "node:util";
+import {
+    type AssistantMessage,
+    createAssistantMessageEventStream,
+    type FauxResponseStep,
+    fauxAssistantMessage,
+    type Models,
+} from "@earendil-works/pi-ai";
+import { UserError } from "../src/actor/actor/mod.ts";
+import type {
+    ChatEvent,
+    ChatItem,
+    ChatOp,
+    ChatPage,
+    ChatRef,
+    Input,
+} from "../src/agent/messages.ts";
+import {
+    FAKE_ROOT,
+    fakeCalls,
+    fakeFiles,
+    from,
+    toolCall,
+    until,
+    type Woken,
+    wakeAgent,
+} from "./agent-testing.ts";
 
-test.todo("U3, the transcript and its number");
+const CHIEF: ChatRef = { with: 7 };
+const LETTERS: ChatRef = { with: 7, from: 3, kind: "letters" };
+
+/** Applies `ops` to `items` as a client does. */
+function applied(
+    items: readonly ChatItem[],
+    ops: readonly ChatOp[],
+): ChatItem[] {
+    let kept = [...items];
+    for (const op of ops) {
+        switch (op.type) {
+            case "add": {
+                if (op.replaces !== undefined) {
+                    kept = kept.filter((item) => item.id !== op.replaces);
+                }
+                const at = kept.findIndex((item) => item.id === op.item.id);
+                if (at === -1) kept.push(op.item);
+                else kept[at] = op.item;
+                break;
+            }
+            case "append": {
+                const at = kept.findIndex((item) => item.id === op.item);
+                const item = kept[at];
+                assert.ok(item !== undefined, `no item ${op.item}`);
+                // `at` counts the UTF-8 bytes of the text before it.
+                const before = Buffer.from(item.text).subarray(0, op.at);
+                kept[at] = { ...item, text: `${before.toString()}${op.text}` };
+                break;
+            }
+            case "reset":
+                throw new Error("a reset: the client reads again");
+            case "status":
+            case "usage":
+                break;
+        }
+    }
+    return kept;
+}
+
+/** A chat as a client follows it: a page, then the agent's events in order. */
+class Followed {
+    readonly chat: ChatRef;
+    items: ChatItem[];
+    epoch: number;
+    number: number;
+
+    constructor(chat: ChatRef, page: ChatPage) {
+        this.chat = chat;
+        this.items = [...page.items];
+        this.epoch = page.epoch;
+        this.number = page.number;
+    }
+
+    /** False when the client must read again. */
+    take(event: ChatEvent): boolean {
+        if (event.epoch === this.epoch && event.number <= this.number) {
+            return true;
+        }
+        if (event.epoch !== this.epoch || event.number !== this.number + 1) {
+            return false;
+        }
+        this.number = event.number;
+        if (!isDeepStrictEqual(event.chat, this.chat)) return true;
+        if (event.ops.some((op) => op.type === "reset")) return false;
+        this.items = applied(this.items, event.ops);
+        return true;
+    }
+}
+
+function chatEvents(agent: Woken): ChatEvent[] {
+    return agent.events
+        .filter(([name]) => name === "chat")
+        .map(([, event]) => event as ChatEvent);
+}
+
+function read(agent: Woken, chat: ChatRef, before?: string): Promise<ChatPage> {
+    return agent.actions.read_chat(agent.by(from.client), {
+        id: "11111111-1111-4111-8111-111111111111",
+        chat,
+        ...(before === undefined ? {} : { before }),
+    });
+}
+
+/** What a person reads of a chat: each item's kind and words. */
+function shown(items: readonly ChatItem[]): string[] {
+    return items.map((item) =>
+        item.tool === undefined
+            ? `${item.kind}: ${item.text}`
+            : `tool ${item.tool.name}: exit ${item.tool.exit ?? "none"}`,
+    );
+}
+
+async function wake(
+    t: TestContext,
+    responses: FauxResponseStep[],
+    models?: (models: Models) => Models,
+): Promise<Woken> {
+    const agent = await wakeAgent(t, {
+        calls: fakeCalls({}).calls,
+        files: fakeFiles({}),
+        responses,
+        ...(models === undefined ? {} : { models }),
+    });
+    t.after(() => agent.stop());
+    return agent;
+}
+
+/** pi-durable admits a request id once, over every wake. */
+let inputs = 0;
+
+function sender(agent: Woken) {
+    return async (input: Input) => {
+        inputs += 1;
+        await agent.actions.submit(agent.by(from.realm), {
+            id: `input-${inputs}`,
+            input,
+        });
+        await agent.idle();
+    };
+}
+
+const line = (text: string): Input => ({ type: "line", text });
+const letter = (text: string): Input => ({
+    type: "letter",
+    from: { agent: 3, name: "Ada" },
+    text,
+});
+
+test("a client reading after a gap misses nothing", async (t) => {
+    const path = `${FAKE_ROOT}/memory/plan.md`;
+    const agent = await wake(t, [
+        fauxAssistantMessage("One."),
+        toolCall("write", { path, content: "a\nb\n" }, "c1"),
+        toolCall(
+            "edit",
+            { path, edits: [{ oldText: "b\n", newText: "B\n" }] },
+            "c2",
+        ),
+        fauxAssistantMessage("Two."),
+    ]);
+    const send = sender(agent);
+    await send(line("a"));
+    const first = await read(agent, CHIEF);
+    assert.deepEqual(shown(first.items), ["user: a", "assistant: One."]);
+
+    // The client misses every event from here on.
+    await send(line("b"));
+    const again = await read(agent, CHIEF);
+    assert.deepEqual(shown(again.items), [
+        "user: a",
+        "assistant: One.",
+        "user: b",
+        "tool write: exit 0",
+        "tool edit: exit 0",
+        "assistant: Two.",
+    ]);
+    assert.ok(again.number > first.number);
+    assert.equal(again.epoch, first.epoch);
+    assert.equal(again.session, 1);
+    assert.equal(again.items[0]?.rewindable, true);
+    // As `crates/hamlet_server/src/work/cut.rs` shows an edit.
+    assert.deepEqual(again.items[4]?.tool?.change, {
+        path,
+        created: false,
+        added: 1,
+        removed: 1,
+        total: 2,
+        count: "1 line added, 1 removed",
+        lines: [
+            { mark: "removed", text: "b" },
+            { mark: "added", text: "B" },
+        ],
+    });
+    // Today's summary is the arguments' JSON with its keys in order.
+    assert.equal(
+        again.items[3]?.tool?.summary,
+        JSON.stringify({ content: "a\nb\n", path }),
+    );
+    assert.equal(again.working, false);
+    assert.equal(again.pending, 0);
+
+    // What the client missed is what the events carried.
+    const followed = new Followed(CHIEF, first);
+    for (const event of chatEvents(agent)) {
+        assert.ok(followed.take(event), `event ${event.number} applies`);
+    }
+    assert.deepEqual(followed.items, again.items);
+    assert.equal(followed.number, again.number);
+});
+
+test("events number one more each over every chat, and a new wake starts a new epoch", async (t) => {
+    const agent = await wake(t, [
+        fauxAssistantMessage("One."),
+        fauxAssistantMessage("Dear Ada."),
+        fauxAssistantMessage("Two."),
+    ]);
+    const send = sender(agent);
+    const before = await read(agent, CHIEF);
+    assert.deepEqual(before.items, []);
+    await send(line("a"));
+    await send(letter("Hello."));
+
+    const events = chatEvents(agent);
+    assert.deepEqual(
+        events.map((event) => event.number),
+        events.map((_, at) => before.number + at + 1),
+    );
+    assert.ok(events.every((event) => event.epoch === before.epoch));
+    const chats = new Set(events.map((event) => JSON.stringify(event.chat)));
+    assert.deepEqual(
+        [...chats].sort(),
+        [JSON.stringify(CHIEF), JSON.stringify(LETTERS)].sort(),
+    );
+    assert.deepEqual(shown((await read(agent, LETTERS)).items), [
+        "user: A letter from Ada (`hire#3`):\n\nHello.",
+        "assistant: Dear Ada.",
+    ]);
+
+    await agent.stop();
+    const next = await agent.again();
+    t.after(() => next.stop());
+    const page = await read(next, CHIEF);
+    assert.equal(page.epoch, before.epoch + 1);
+    assert.equal(page.number, 0);
+    assert.deepEqual(shown(page.items), ["user: a", "assistant: One."]);
+    await sender(next)(line("b"));
+    const later = chatEvents(next);
+    assert.ok(later.length > 0);
+    assert.deepEqual(
+        later.map((event) => [event.epoch, event.number]),
+        later.map((_, at) => [page.epoch, at + 1]),
+    );
+});
+
+/**
+ * The first answer streams "Héllo ", then "wörld" once `gates[0]` opens,
+ * then "!" once `gates[1]` opens.
+ */
+function held(gates: readonly Promise<void>[]): (models: Models) => Models {
+    let first = true;
+    return (models) =>
+        new Proxy(models, {
+            get(target, key, receiver) {
+                if (key === "streamSimple") {
+                    return (...args: Parameters<Models["streamSimple"]>) => {
+                        const source = target.streamSimple(...args);
+                        if (!first) return source;
+                        first = false;
+                        const out = createAssistantMessageEventStream();
+                        void (async () => {
+                            const done = await source.result();
+                            const partial = (
+                                text: string,
+                            ): AssistantMessage => ({
+                                ...done,
+                                content: [{ type: "text", text }],
+                            });
+                            out.push({ type: "start", partial: partial("") });
+                            out.push({
+                                type: "text_start",
+                                contentIndex: 0,
+                                partial: partial(""),
+                            });
+                            let text = "";
+                            for (const [at, delta] of [
+                                "Héllo ",
+                                "wörld",
+                                "!",
+                            ].entries()) {
+                                if (at > 0) await gates[at - 1];
+                                text += delta;
+                                out.push({
+                                    type: "text_delta",
+                                    contentIndex: 0,
+                                    delta,
+                                    partial: partial(text),
+                                });
+                            }
+                            out.push({
+                                type: "text_end",
+                                contentIndex: 0,
+                                content: text,
+                                partial: partial(text),
+                            });
+                            out.push({
+                                type: "done",
+                                reason: "stop",
+                                message: done,
+                            });
+                            out.end(done);
+                        })();
+                        return out;
+                    };
+                }
+                const value: unknown = Reflect.get(target, key, receiver);
+                return typeof value === "function" ? value.bind(target) : value;
+            },
+        });
+}
+
+test("an append repeated, or crossing a read, applies once", async (t) => {
+    const gates = [
+        Promise.withResolvers<void>(),
+        Promise.withResolvers<void>(),
+    ];
+    // A failure before the gates open would leave the run held at the stop.
+    t.after(() => {
+        for (const gate of gates) gate.resolve();
+    });
+    const agent = await wake(
+        t,
+        [fauxAssistantMessage("Héllo wörld!")],
+        held(gates.map((gate) => gate.promise)),
+    );
+    await agent.actions.submit(agent.by(from.realm), {
+        id: "held-1",
+        input: line("a"),
+    });
+    const sent = (wanted: (op: ChatOp) => boolean) =>
+        chatEvents(agent).some((event) => event.ops.some(wanted));
+    // A partial is committed within 100 ms; `until` waits 5 s.
+    await until(() =>
+        sent((op) => op.type === "add" && op.item.text === "Héllo "),
+    );
+    const page = await read(agent, CHIEF);
+    assert.equal(page.working, true);
+    assert.deepEqual(shown(page.items), ["user: a", "assistant: Héllo "]);
+    gates[0]?.resolve();
+    await until(() => sent((op) => op.type === "append"));
+    gates[1]?.resolve();
+    await agent.idle();
+
+    const events = chatEvents(agent);
+    const once = new Followed(CHIEF, page);
+    for (const event of events) assert.ok(once.take(event));
+    // Every event, those the page already holds too, applied twice.
+    let twice = [...page.items];
+    for (const event of events) {
+        if (isDeepStrictEqual(event.chat, CHIEF)) {
+            twice = applied(applied(twice, event.ops), event.ops);
+        }
+    }
+    const now = await read(agent, CHIEF);
+    assert.deepEqual(shown(now.items), ["user: a", "assistant: Héllo wörld!"]);
+    assert.equal(now.working, false);
+    assert.deepEqual(once.items, now.items);
+    assert.deepEqual(twice, now.items);
+});
+
+test("read_chat of a chat that does not exist is refused as today words it", async (t) => {
+    const agent = await wake(t, [fauxAssistantMessage("One.")]);
+    const refused = (words: string) => (error: unknown) =>
+        error instanceof UserError && error.message === words;
+    // As `crates/hamlet_server/src/society/refusal.rs` words them.
+    await assert.rejects(
+        read(agent, { with: 7, past: 9 }),
+        refused("there is no past session 9 here"),
+    );
+    await assert.rejects(
+        read(agent, { with: 7, from: 3 }),
+        refused("no agent has the address `3's letters to 7`"),
+    );
+    await assert.rejects(
+        read(agent, { with: 7, from: 3, kind: "questions" }),
+        refused("no agent has the address `3's questions to 7`"),
+    );
+    await sender(agent)(line("a"));
+    // As `crates/hamlet_server/src/clients/requests.rs` words it.
+    await assert.rejects(
+        read(agent, CHIEF, "nothing"),
+        refused("There is no item `nothing` here."),
+    );
+});
+
+test("a page before a cursor holds the items before it", async (t) => {
+    const agent = await wake(
+        t,
+        Array.from({ length: 60 }, (_, at) => fauxAssistantMessage(`A${at}.`)),
+    );
+    const send = sender(agent);
+    for (let at = 0; at < 60; at += 1) await send(line(`L${at}`));
+    const last = await read(agent, CHIEF);
+    assert.equal(last.items.length, 100);
+    assert.equal(last.items[0]?.text, "L10");
+    assert.equal(last.earlier, last.items[0]?.id);
+    const earlier = await read(agent, CHIEF, last.earlier);
+    assert.equal(earlier.items.length, 20);
+    assert.deepEqual(shown(earlier.items).slice(0, 2), [
+        "user: L0",
+        "assistant: A0.",
+    ]);
+    assert.equal(earlier.earlier, undefined);
+});
+
+test("a harness reopened after a failed commit resets its chats and numbers on", async (t) => {
+    const agent = await wake(t, [
+        fauxAssistantMessage("One."),
+        fauxAssistantMessage("Two."),
+        fauxAssistantMessage("Three."),
+    ]);
+    const send = sender(agent);
+    await send(line("a"));
+    const harness = await agent.harness();
+    const failed = agent.failNextCommit();
+    await agent.actions
+        .submit(agent.by(from.realm), { id: "input-x", input: line("lost") })
+        .catch(() => undefined);
+    await failed;
+    await until(async () => (await agent.harness()) !== harness);
+    await until(() =>
+        chatEvents(agent).some(
+            (event) =>
+                isDeepStrictEqual(event.chat, CHIEF) &&
+                event.ops.some((op) => op.type === "reset"),
+        ),
+    );
+    const page = await read(agent, CHIEF);
+    await send(line("b"));
+
+    const events = chatEvents(agent);
+    assert.deepEqual(
+        events.map((event) => event.number),
+        events.map((_, at) => at + 1),
+    );
+    const followed = new Followed(CHIEF, page);
+    for (const event of events) assert.ok(followed.take(event));
+    assert.deepEqual(followed.items, (await read(agent, CHIEF)).items);
+    assert.ok(shown(followed.items).includes("user: b"));
+});
+
+test("a client following the chief's chat reads again after /new", async (t) => {
+    const agent = await wake(t, [
+        fauxAssistantMessage("One."),
+        fauxAssistantMessage("Two."),
+    ]);
+    const send = sender(agent);
+    await send(line("a"));
+    const page = await read(agent, CHIEF);
+    await agent.actions.new_session(agent.by(from.client), {
+        id: "new-1",
+        to: 7,
+    });
+    await send(line("b"));
+
+    const followed = new Followed(CHIEF, page);
+    const events = chatEvents(agent).filter(
+        (event) => event.number > page.number,
+    );
+    const stopped = events.findIndex((event) => !followed.take(event));
+    assert.notEqual(stopped, -1, "the client was told to read again");
+    const again = await read(agent, CHIEF);
+    assert.equal(again.session, 2);
+    assert.deepEqual(shown(again.items), [
+        "notice: Started a new session.",
+        "user: b",
+        "assistant: Two.",
+    ]);
+    assert.deepEqual(shown((await read(agent, { with: 7, past: 1 })).items), [
+        "user: a",
+        "assistant: One.",
+    ]);
+});
