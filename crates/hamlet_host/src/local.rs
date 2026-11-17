@@ -531,7 +531,6 @@ impl Stop {
                      destroyed",
                     Some(error),
                 );
-                // A destroy that joined this stop answers it too.
                 owned.fail(error);
             }
             return removed;
@@ -571,7 +570,6 @@ struct HostInner {
     options: HostOptions,
     /// When the starts under way end, set once the host shuts down.
     starts_end: watch::Sender<Option<tokio::time::Instant>>,
-    /// What [`Host::kept`] answers.
     kept: Mutex<Vec<Address>>,
 }
 
@@ -721,8 +719,6 @@ impl Actors {
 }
 
 impl HostInner {
-    /// Warns with `why` that the host leaves the files of the actor
-    /// at `at` behind, and adds the actor to [`Host::kept`].
     fn keep(
         &self,
         at: &Address,
@@ -1988,8 +1984,6 @@ impl OpenClaim {
     }
 }
 
-/// A start's open of the actor's file while it runs on a blocking
-/// thread.
 type Opening = JoinHandle<Result<(PlainSqlite, Bumped)>>;
 
 /// What a start reads from the actor's `_hamlet_actor` row.
@@ -2108,8 +2102,6 @@ async fn start_actor(
         // stored. The core ends a start whose future was dropped at
         // the deadline, and the close fences what it does meanwhile.
         Err(error) => {
-            // A create's open that claimed its write may have made
-            // the actor's file, also when it failed after.
             let wrote = !claim.give_up();
             let file = match opening.take() {
                 // Awaited: each of its statements ends within
@@ -2232,9 +2224,6 @@ async fn unmake(host: &HostInner, at: &Address) -> bool {
     removed.is_ok()
 }
 
-/// Opens the actor's file under `claim` and starts its core, as the
-/// generation of id `id`. Holds the open in `opening` while it runs,
-/// and puts the file in `opened` once it is open.
 async fn start_generation(
     host: &Arc<HostInner>,
     at: &Address,

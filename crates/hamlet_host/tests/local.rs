@@ -1205,8 +1205,6 @@ async fn an_ended_generations_crash_does_not_stop_its_key_made_again()
     an_ended_generations_crash_leaves_the_actor_running(true).await;
 }
 
-/// A destroy that cannot remove the actor's files fails, and the host
-/// keeps the actor.
 #[tokio::test(flavor = "multi_thread")]
 async fn a_destroy_that_cannot_remove_the_files_keeps_the_actor() {
     let dir = Scratch::new("host-destroy-kept");

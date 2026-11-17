@@ -564,8 +564,6 @@ async fn a_failed_start_tells_each_caller_why() {
     host.shutdown().await.unwrap();
 }
 
-/// A create whose open made the actor's file and then failed leaves
-/// no file, unless the host kept the actor.
 #[tokio::test(flavor = "multi_thread")]
 async fn a_create_whose_open_fails_after_making_the_file_leaves_none()
 {
