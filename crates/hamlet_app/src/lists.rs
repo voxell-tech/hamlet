@@ -47,7 +47,7 @@ fn empty_state<R: Resource>(
                 let section = cx.theme().space.section;
                 column((
                     description(hint),
-                    action(Glyph::Talk, "Open chat", |w| {
+                    action(Glyph::Talk, "Open Chat", |w| {
                         show_tab(w, HUB);
                     }),
                 ))
@@ -82,7 +82,7 @@ pub(crate) fn skills() -> impl View {
                 let gone = r.name.clone();
                 let out = bad_action(
                     Glyph::Delete,
-                    "Take out",
+                    "Take Out",
                     move |world| {
                         world_menu::ask(
                             world,

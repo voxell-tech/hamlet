@@ -307,13 +307,13 @@ impl Updating {
             Self::Off => return None,
             Self::Check => item(
                 Glyph::Restore,
-                "Check for updates",
+                "Check for Updates",
                 None,
                 updates::check,
             ),
             Self::Checking => item(
                 Glyph::Restore,
-                "Checking for updates",
+                "Checking for Updates",
                 None,
                 |_| {},
             ),
@@ -378,7 +378,7 @@ fn items(
             // The server and its agents carry on without the window.
             items.push(item(
                 Glyph::Leave,
-                "Close window",
+                "Close Window",
                 Some(CLOSE),
                 window::quit,
             ));
@@ -443,9 +443,9 @@ mod tests {
         );
         app.update();
         let shown = crate::testing::all_words(&mut app);
-        assert!(shown.contains("Close window"), "{shown}");
-        assert!(!shown.contains("New desk"));
-        assert!(!shown.contains("Your hearth"));
+        assert!(shown.contains("Close Window"), "{shown}");
+        assert!(!shown.contains("New Desk"));
+        assert!(!shown.contains("Your Hearth"));
         // A copy that does not look for updates offers no way to.
         assert!(!shown.contains("updates"));
         assert!(!shown.contains("Run in Background"));
@@ -460,7 +460,7 @@ mod tests {
                 .iter()
                 .any(|text| text == "Create a Hamlet")
         );
-        crate::testing::press(&mut app, "Close window");
+        crate::testing::press(&mut app, "Close Window");
         assert!(app.world_mut().resource_mut::<bevy::ecs::message::Messages<bevy::app::AppExit>>().drain().any(|exit| exit == bevy::app::AppExit::Success));
     }
 
@@ -479,11 +479,11 @@ mod tests {
         );
         app.update();
         let shown = crate::testing::all_words(&mut app);
-        assert!(shown.contains("Check for updates"), "{shown}");
+        assert!(shown.contains("Check for Updates"), "{shown}");
         app.world_mut().resource_mut::<Updates>().checking = true;
         app.update();
         let shown = crate::testing::all_words(&mut app);
-        assert!(shown.contains("Checking for updates"), "{shown}");
+        assert!(shown.contains("Checking for Updates"), "{shown}");
         app.world_mut().resource_mut::<Updates>().offer =
             Some(updates::Offer {
                 version: hamlet_protocol::Version::new(0, 2, 0),
@@ -494,6 +494,6 @@ mod tests {
         app.update();
         let shown = crate::testing::all_words(&mut app);
         assert!(shown.contains("Update to 0.2.0"), "{shown}");
-        assert!(!shown.contains("Check for updates"));
+        assert!(!shown.contains("Check for Updates"));
     }
 }

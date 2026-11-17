@@ -628,10 +628,10 @@ pub fn stack() -> impl View {
     })
 }
 
-/// "Close all", at the end of the line above an open stack of more
+/// "Close All", at the end of the line above an open stack of more
 /// than one toast, filled so that it reads over the world.
 fn closing_all() -> impl View {
-    row((action(Glyph::Cross, "Close all", dismiss_all),))
+    row((action(Glyph::Cross, "Close All", dismiss_all),))
         .justify(JustifyContent::FlexEnd)
         .display(resource::<Toasts, _>(|toasts| {
             if toasts.open && toasts.shown.len() > 1 {
@@ -1408,7 +1408,7 @@ mod tests {
         app.world_mut().entity_mut(pile).insert(Hovered(true));
         app.update();
         assert!(app.world().resource::<Toasts>().open);
-        press(&mut app, "Close all");
+        press(&mut app, "Close All");
         assert!(app.world().resource::<Toasts>().shown.is_empty());
     }
 

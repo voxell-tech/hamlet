@@ -215,7 +215,7 @@ pub(crate) fn tiles(world: &World) -> Vec<Tile> {
     all.push(Tile {
         pick: Pick::Local,
         mark: None,
-        name: "This computer".into(),
+        name: "This Computer".into(),
         way: Way::Keyless,
     });
     all.extend(
@@ -852,7 +852,7 @@ pub(super) fn sign_in_page() -> AnyView {
         |provider| match provider {
             Some(provider) => {
                 let provider = provider.clone();
-                marked(Glyph::Key, "Use a key instead")
+                marked(Glyph::Key, "Use a Key Instead")
                     .variant(Variant::Default)
                     .on_activate(move |world| {
                         ask_key(world, &provider);
@@ -867,6 +867,6 @@ pub(super) fn sign_in_page() -> AnyView {
     card(
         2,
         parts((steps, prompt(), news("Waiting for sign-in..."))),
-        vec![to_providers("Cancel sign-in"), instead],
+        vec![to_providers("Cancel Sign-In"), instead],
     )
 }

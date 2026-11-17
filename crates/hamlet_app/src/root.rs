@@ -275,7 +275,7 @@ pub fn connection_test() -> impl View {
             row((
                 action(
                     Glyph::Signal,
-                    "Test connection",
+                    "Test Connection",
                     test_connection,
                 ),
                 note(resource::<ConnectionTest, _>(|test| {
@@ -350,7 +350,7 @@ mod tests {
             crate::models::endpoints(),
         );
         app.update();
-        crate::testing::press(&mut app, "Test connection");
+        crate::testing::press(&mut app, "Test Connection");
         let sent = app
             .world_mut()
             .resource_mut::<Outbox>()
@@ -399,7 +399,7 @@ mod tests {
             "{shown:?}"
         );
         assert!(!shown.iter().any(|text| text == "Not this test"));
-        crate::testing::press(&mut app, "Test connection");
+        crate::testing::press(&mut app, "Test Connection");
         let id = app
             .world_mut()
             .resource_mut::<Outbox>()

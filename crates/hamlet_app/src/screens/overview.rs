@@ -149,7 +149,7 @@ pub fn overview() -> impl View {
             buttons(vec![
                 action(
                     Glyph::Hearth,
-                    "Your hearth",
+                    "Your Hearth",
                     crate::chief::go_home,
                 )
                 .tooltip(|| note(words::HEARTH))
@@ -159,7 +159,7 @@ pub fn overview() -> impl View {
                     .boxed(),
                 action(
                     Glyph::Scholar,
-                    "New scholar",
+                    "New Scholar",
                     world_menu::ask_new_scholar,
                 )
                 .tooltip(|| note(words::SCHOLAR))
@@ -197,7 +197,7 @@ fn get_started() -> AnyView {
             ),
             start_card(
                 Glyph::Folder,
-                "Work on a folder",
+                "Work on a Folder",
                 "Create a hamlet: a team of agents that works on \
                  one folder of yours.",
                 world_menu::ask_found,
@@ -256,7 +256,7 @@ fn stop_all() -> AnyView {
         })
         .when(bevy_fynix::every_frame()),
         |&any| {
-            let stop = bad_action(Glyph::Stop, "Stop all", |world| {
+            let stop = bad_action(Glyph::Stop, "Stop All", |world| {
                 let request = RequestId::new();
                 crate::toasts::watch(world, request.clone());
                 world.trigger(Veto {
@@ -619,12 +619,14 @@ fn closed() -> AnyView {
                 }
                 // Deleting for good stands apart, at the far end.
                 actions.push(frame().grow(1.0).boxed());
-                if *erase {
+                let armed = asking.as_ref()
+                    == Some(&(hamlet.id.clone(), hamlet.at));
+                if *erase && !armed {
                     let id = hamlet.id.clone();
                     let at = hamlet.at;
                     actions.push(bad_action(
                         Glyph::Gone,
-                        "Delete for good",
+                        "Delete",
                         move |world| {
                             world.resource_mut::<Erasing>().0 =
                                 Some((id.clone(), at));
@@ -637,10 +639,7 @@ fn closed() -> AnyView {
                     note(hamlet.reason.clone()).boxed(),
                     row(actions).align(AlignItems::Center).boxed(),
                 ];
-                if *erase
-                    && asking.as_ref()
-                        == Some(&(hamlet.id.clone(), hamlet.at))
-                {
+                if *erase && armed {
                     let id = hamlet.id.clone();
                     let at = hamlet.at;
                     let name = hamlet.name.clone();
@@ -762,7 +761,7 @@ mod tests {
         assert!(words(&mut app).iter().any(|s| s == "Closed down"));
         press(&mut app, "Restore");
         assert!(app.world().resource::<Outbox>().iter().any(|m| matches!(m, protocol::ClientMessage::Say(s) if s.text == "/restore-hamlet mill" && s.to == protocol::AgentId(1))));
-        press(&mut app, "Delete for good");
+        press(&mut app, "Delete");
         assert!(!app.world().resource::<Outbox>().iter().any(|m| matches!(m, protocol::ClientMessage::Say(s) if s.text.starts_with("/erase-hamlet"))));
         app.update();
         assert!(
@@ -776,9 +775,7 @@ mod tests {
         app.update();
         let shown = words(&mut app);
         assert!(
-            !shown
-                .iter()
-                .any(|s| s == "Restore" || s == "Delete for good")
+            !shown.iter().any(|s| s == "Restore" || s == "Delete")
         );
     }
 
@@ -809,7 +806,7 @@ mod tests {
             closed(),
         );
         app.update();
-        press(&mut app, "Delete for good");
+        press(&mut app, "Delete");
         app.update();
         press(&mut app, "Restore");
         app.update();
@@ -817,7 +814,7 @@ mod tests {
             !words(&mut app)
                 .contains(&"Delete Mill for good?".into())
         );
-        press(&mut app, "Delete for good");
+        press(&mut app, "Delete");
         app.update();
         app.world_mut().despawn(root);
         app.update();
@@ -830,7 +827,7 @@ mod tests {
             !words(&mut app)
                 .contains(&"Delete Mill for good?".into())
         );
-        press(&mut app, "Delete for good");
+        press(&mut app, "Delete");
         app.update();
         state.closed[0].at = 200;
         hamlet_client::receive(

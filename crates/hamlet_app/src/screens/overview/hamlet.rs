@@ -504,7 +504,7 @@ pub fn hamlet(hamlet: Entity) -> impl View {
             let mayor_of = facts.id.clone();
             actions.push(action(
                 Glyph::Scholar,
-                "Hire a scholar",
+                "Hire a Scholar",
                 move |world| {
                     if let Some(mayor) =
                         hamlet_client::realm::mayor_of(
@@ -519,7 +519,7 @@ pub fn hamlet(hamlet: Entity) -> impl View {
         if *workers {
             actions.push(action(
                 Glyph::Robot,
-                "Start a worker",
+                "Start a Worker",
                 move |world| {
                     forms::toggle(world, Asking::Worker(hamlet));
                 },
@@ -529,7 +529,7 @@ pub fn hamlet(hamlet: Entity) -> impl View {
         if *carry {
             actions.push(action(
                 Glyph::Move,
-                "Move it",
+                "Move It",
                 move |world| {
                     hamlet_realm::orders::carry(world, hamlet);
                 },

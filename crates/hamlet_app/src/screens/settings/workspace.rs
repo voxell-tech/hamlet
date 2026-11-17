@@ -44,7 +44,7 @@ pub(super) fn plugin(app: &mut App) {
 }
 
 pub(super) const CHOICES: [&str; 2] =
-    ["This computer", "Remote server"];
+    ["This Computer", "Remote Server"];
 
 /// The workspace as the page has it until it is saved.
 #[derive(Resource, Default)]
@@ -222,7 +222,7 @@ fn moving() -> AnyView {
         }),
         |offered| {
             if *offered {
-                bad_action(Glyph::Send, "Move lodges", |world| {
+                bad_action(Glyph::Send, "Move Lodges", |world| {
                     world_menu::ask(world, Deed::MoveLodges);
                 })
             } else {
@@ -424,7 +424,7 @@ mod tests {
             "Takes effect when Hamlet restarts."
         ));
         assert!(!said(&mut app, "Server address"));
-        press(&mut app, "Remote server");
+        press(&mut app, "Remote Server");
         settle(&mut app);
         type_into(
             &mut app,
@@ -528,7 +528,7 @@ mod tests {
             app.world().get::<EditableText>(address).unwrap().value(),
             "https://workspace.example"
         );
-        press(&mut app, "This computer");
+        press(&mut app, "This Computer");
         settle(&mut app);
         press(&mut app, "Save");
         assert_eq!(
@@ -552,7 +552,7 @@ mod tests {
             words_and_spans(app).iter().any(|shown| shown == text)
         };
         // Nothing waits for a restart, so nothing moves.
-        assert!(!said(&mut app, "Move lodges"));
+        assert!(!said(&mut app, "Move Lodges"));
         received(&mut app, 3, url, None);
         assert!(said(
             &mut app,
@@ -565,10 +565,10 @@ mod tests {
             app.world_mut(),
             world_menu::view(),
         );
-        press(&mut app, "Move lodges");
+        press(&mut app, "Move Lodges");
         settle(&mut app);
         assert!(requests(&mut app).is_empty(), "asked first");
-        press(&mut app, "Replace them");
+        press(&mut app, "Replace Them");
         let Some(protocol::ClientMessage::MoveLodges(
             protocol::MoveLodges { id },
         )) = app.world().resource::<Outbox>().iter().next().cloned()

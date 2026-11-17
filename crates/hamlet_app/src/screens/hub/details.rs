@@ -416,7 +416,7 @@ fn roads(agent: Entity, facts: &Facts) -> AnyView {
         );
     }
     parts.push(
-        row((action(Glyph::Plus, "Build a road", move |world| {
+        row((action(Glyph::Plus, "Build a Road", move |world| {
             crate::world_menu::ask_road(world, agent);
         }),))
         .boxed(),
@@ -528,7 +528,7 @@ fn prompt() -> AnyView {
 
 /// A reflection asked now, which writes to its memory.
 fn reflect() -> AnyView {
-    action(Glyph::Rename, "Note what it learned", |world| {
+    action(Glyph::Rename, "Note What It Learned", |world| {
         if let Some(to) = super::papers::selected(world) {
             world.trigger(
                 hamlet_client::messages::ChiefMessage::words(

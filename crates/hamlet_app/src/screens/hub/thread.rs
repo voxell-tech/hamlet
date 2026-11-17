@@ -572,7 +572,7 @@ fn chips(agent: Entity) -> impl View {
             button(
                 row((
                     glyph(Glyph::Chip, 12.0).tone(Tone::Critical),
-                    label("Set up a model").wrap(false),
+                    label("Set Up a Model").wrap(false),
                 ))
                 .gap(6.0)
                 .align(AlignItems::Center),
@@ -982,7 +982,7 @@ mod tests {
         let shown = words(&mut app);
         assert!(shown.iter().any(|text| text == "orchard"));
         assert!(shown.iter().any(|text| text == "Tends trees"));
-        press(&mut app, "Note what it learned");
+        press(&mut app, "Note What It Learned");
         let sent = app
             .world()
             .resource::<Outbox>()

@@ -299,9 +299,9 @@ fn form(address: String, name: String, act: Act) -> AnyView {
         move |world: &mut World| run(world, &address, &name, &act)
     };
     let ready = if remove {
-        bad_action(Glyph::Check, "Do it", go)
+        bad_action(Glyph::Check, "Do It", go)
     } else {
-        good_action(Glyph::Check, "Do it", go)
+        good_action(Glyph::Check, "Do It", go)
     };
     with_cx(move |cx| {
         let gap = cx.theme().space.gap;
@@ -427,7 +427,7 @@ fn arrival(shown: &Shown) -> AnyView {
         buttons_row.push(
             action(
                 Glyph::Scholar,
-                "New scholar from this one",
+                "New Scholar from This One",
                 |world| {
                     ask(world, Act::Fork(None));
                 },
@@ -463,7 +463,7 @@ fn arrival(shown: &Shown) -> AnyView {
             if can("move-house") {
                 let scholar = shown.entity;
                 buttons_row.push(
-                    action(Glyph::Move, "Move house", move |world| {
+                    action(Glyph::Move, "Move House", move |world| {
                         hamlet_realm::orders::carry_house(
                             world, scholar,
                         );
@@ -559,7 +559,7 @@ fn versions(shown: &Shown) -> AnyView {
     let mut acts = Vec::new();
     if can("tag") {
         acts.push(
-            action(Glyph::Plus, "Save as a version", |world| {
+            action(Glyph::Plus, "Save as a Version", |world| {
                 ask(world, Act::Tag);
             })
             .tooltip(|| note("Name what the scholar knows now"))
@@ -772,7 +772,7 @@ fn dream(
         may.then(|| {
             action(
                 Glyph::Rename,
-                "Note what its hires learned",
+                "Note What Its Hires Learned",
                 move |world| {
                     tell_hand(world, format!("/dream {address}"));
                 },
@@ -802,7 +802,7 @@ fn erase_menu(path: &str) -> AnyView {
     deed_menu(
         "What can be done to this file",
         vec![(
-            "Erase from every version".to_string(),
+            "Erase from Every Version".to_string(),
             // The memory's paths are inside its folder.
             Act::Purge(format!("memory/{path}")),
         )],
@@ -825,7 +825,7 @@ fn careful(shown: &Shown) -> AnyView {
         acts.push(
             action(
                 Glyph::Anchor,
-                "Send to the harbor",
+                "Send to the Harbor",
                 move |world| {
                     tell_hand(world, format!("/turn-away {address}"));
                 },
@@ -847,7 +847,7 @@ fn careful(shown: &Shown) -> AnyView {
     if !living && can("erase-scholar") {
         acts.push(bad_action(
             Glyph::Delete,
-            "Erase for good",
+            "Erase for Good",
             |world| {
                 ask(world, Act::Erase);
             },

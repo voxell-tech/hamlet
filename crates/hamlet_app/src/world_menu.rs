@@ -190,7 +190,7 @@ pub(crate) fn optional<R: Resource<Mutability = Mutable>>(
                     .rotation(resource::<R, _>(move |r| {
                         if open(r) { 180.0 } else { 90.0 }
                     })),
-                label("More options").tone(Tone::Dim).wrap(false),
+                label("More Options").tone(Tone::Dim).wrap(false),
             ))
             .gap(6.0)
             .align(AlignItems::Center),

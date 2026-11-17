@@ -263,8 +263,8 @@ fn folder() -> impl View {
         let choose = action(
             Glyph::Folder,
             match folder {
-                Some(_) => "Choose another",
-                None => "Choose a folder",
+                Some(_) => "Choose Another",
+                None => "Choose a Folder",
             },
             |world| {
                 let asker = world.resource::<FolderAsker>().0;

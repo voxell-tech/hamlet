@@ -150,9 +150,9 @@ fn pin_bash(world: &World, agent: Entity) -> Option<AnyView> {
     logged.then(|| {
         item(
             if pinned {
-                "Unpin agent bash"
+                "Unpin Agent Bash"
             } else {
-                "Pin agent bash"
+                "Pin Agent Bash"
             }
             .into(),
             move |world| pin(world, &key),

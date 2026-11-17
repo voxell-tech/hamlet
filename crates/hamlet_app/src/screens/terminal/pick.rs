@@ -138,7 +138,7 @@ fn content(panel: &PanelId) -> Vec<AnyView> {
         menu_item(
             row((
                 glyph(Glyph::Plus, ICON).tone(Tone::Faint),
-                label("New terminal").wrap(false),
+                label("New Terminal").wrap(false),
             ))
             .gap(cx.theme().space.menu_gap)
             .align(AlignItems::Center),

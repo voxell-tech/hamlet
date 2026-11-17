@@ -76,7 +76,7 @@ pub(super) fn ruin(agent: Entity) -> impl View {
                     ),
                     bad_action(
                         Glyph::Delete,
-                        "Delete for good",
+                        "Delete",
                         move |world| {
                             world_menu::ask(
                                 world,

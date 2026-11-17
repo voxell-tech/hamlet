@@ -386,7 +386,7 @@ fn budget(hamlet: Entity) -> impl View {
             }),
             |chosen| {
                 segmented_words(
-                    ["A day", "A month"],
+                    ["A Day", "A Month"],
                     *chosen,
                     |world, chosen| {
                         let period =
@@ -422,7 +422,7 @@ fn budget(hamlet: Entity) -> impl View {
         beside((
             action(
                 Glyph::Restore,
-                "Start it again now",
+                "Start It Again Now",
                 move |world| {
                     crate::overview::tell(
                         world,
@@ -510,7 +510,7 @@ pub fn realm() -> AnyView {
             }),
             |chosen| {
                 segmented_words(
-                    ["A day", "A month"],
+                    ["A Day", "A Month"],
                     *chosen,
                     |world, chosen| {
                         let period =
@@ -975,7 +975,7 @@ mod tests {
     fn period_is_text_and_a_free_road_is_not_an_uncapped_meter() {
         use crate::testing::press;
         let (mut app, _) = page(Part::Budget);
-        press(&mut app, "A month");
+        press(&mut app, "A Month");
         assert_eq!(
             edits(&app)[0]["set"],
             json!({"section": "budget", "key": "period", "value": "month"})

@@ -511,7 +511,7 @@ pub(crate) fn entry_view(chat: Entity, id: String) -> AnyView {
                 row((tinted_action(
                     StatusKind::Warning,
                     Glyph::Restore,
-                    "Try again",
+                    "Try Again",
                     move |world| {
                         let Some(to) = world
                             .get::<Chat>(chat)

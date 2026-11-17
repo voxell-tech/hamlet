@@ -57,10 +57,10 @@ pub(crate) const HIRED_SCHOLAR: &str = "Brings its memory and \
 
 /// A hamlet whose agents ask before each edit and command, as its
 /// approvals say it.
-pub(crate) const ASK_FIRST: &str = "Ask first";
+pub(crate) const ASK_FIRST: &str = "Ask First";
 
 /// A hamlet whose agents edit and run commands without asking.
-pub(crate) const NO_ASKING: &str = "Don't ask";
+pub(crate) const NO_ASKING: &str = "Don't Ask";
 
 pub(crate) const APPROVALS: &str = "Whether this hamlet's agents \
                                     ask you before they edit its \

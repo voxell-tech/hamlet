@@ -126,7 +126,7 @@ pub fn endpoints() -> impl View {
         providers,
         row((good_action(
             Glyph::Plus,
-            "Add provider",
+            "Add Provider",
             crate::welcome::add,
         ),)),
         crate::root::connection_test(),

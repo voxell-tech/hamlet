@@ -123,10 +123,10 @@ impl Pane {
             Pane::Front => "Settings",
             Pane::Endpoints => "Endpoints",
             Pane::Models => "Models",
-            Pane::Agents => "Agent behaviour",
+            Pane::Agents => "Agent Behaviour",
             Pane::Workspace => "Workspace",
             Pane::Charter => "Charter",
-            Pane::Realm => "Realm limits",
+            Pane::Realm => "Realm Limits",
             Pane::Sound => "Sound",
             Pane::Sight => "Sight",
             Pane::Appearance => "Appearance",
@@ -696,7 +696,7 @@ fn charter_page() -> impl View {
         if *own {
             actions.push(action(
                 Glyph::Restore,
-                "Back to the default",
+                "Back to the Default",
                 |world| world_menu::ask(world, Deed::DefaultCharter),
             ));
         }
@@ -835,7 +835,7 @@ fn nav_item(pane: Pane) -> AnyView {
 fn again() -> AnyView {
     hamlet_ui::styles::nav_row(
         Glyph::Restore,
-        "First-run setup",
+        "First-Run Setup",
         None,
         crate::welcome::again,
     )
@@ -846,7 +846,7 @@ fn again() -> AnyView {
 fn projects() -> AnyView {
     hamlet_ui::styles::nav_row(
         Glyph::Hamlet,
-        "Bring in projects",
+        "Bring In Projects",
         None,
         crate::welcome::projects::open,
     )
@@ -1119,7 +1119,7 @@ mod tests {
             "{shown:?}"
         );
         assert!(
-            shown.iter().any(|text| text == "Back to the default")
+            shown.iter().any(|text| text == "Back to the Default")
         );
     }
 
@@ -1236,11 +1236,11 @@ mod tests {
             app.world_mut(),
             world_menu::view(),
         );
-        crate::testing::press(&mut app, "Back to the default");
+        crate::testing::press(&mut app, "Back to the Default");
         settle(&mut app);
         assert!(requests(&mut app).is_empty());
         assert!(words_and_spans(&mut app).iter().any(|text| text == "Go back to the default charter?"));
-        crate::testing::press(&mut app, "Use the default");
+        crate::testing::press(&mut app, "Use the Default");
         let id = app
             .world()
             .resource::<Outbox>()
@@ -1303,7 +1303,7 @@ mod tests {
                 .any(|text| text == "The server's default words.")
         );
         assert!(
-            !shown.iter().any(|text| text == "Back to the default")
+            !shown.iter().any(|text| text == "Back to the Default")
         );
         assert!(
             !shown

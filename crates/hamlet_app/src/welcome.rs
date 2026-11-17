@@ -600,7 +600,7 @@ mod server_tests {
         let mut app = welcome_app();
         connect(&mut app, true);
         mount::<HamletTheme>(app.world_mut(), view());
-        press_and_update(&mut app, "I'll set this up later");
+        press_and_update(&mut app, "I'll Set This Up Later");
         let mut state = hamlet_testing::realm::state();
         state.settings.unset = true;
         // Differs from the held settings, so they read as changed.
@@ -775,7 +775,7 @@ mod server_tests {
             [
                 "ChatGPT",
                 "OpenRouter",
-                "This computer",
+                "This Computer",
                 "Anthropic",
                 "DeepSeek",
                 "Amazon Bedrock"
@@ -859,7 +859,7 @@ mod server_tests {
             app.world().resource::<Opened>().0,
             ["https://login.example/authorize"]
         );
-        press_and_update(&mut app, "Cancel sign-in");
+        press_and_update(&mut app, "Cancel Sign-In");
         assert_eq!(sent(&mut app)[0]["cancel"], "plan-login");
         press_and_update(&mut app, "OpenRouter");
         press_and_update(&mut app, "Sign in with OpenRouter");
@@ -920,8 +920,8 @@ mod server_tests {
         let mut app = welcome_app();
         connect(&mut app, true);
         mount::<HamletTheme>(app.world_mut(), view());
-        press_and_update(&mut app, "This computer");
-        press_and_update(&mut app, "Look on this computer");
+        press_and_update(&mut app, "This Computer");
+        press_and_update(&mut app, "Look on This Computer");
         // Ollama's endpoint is added only now, as none is yet.
         let edit = sent(&mut app).remove(0);
         assert_eq!(
@@ -946,7 +946,7 @@ mod server_tests {
         assert!(words_and_spans(&mut app).iter().any(|words| {
             words.contains("Nothing answered yet. Install Ollama")
         }));
-        press_and_update(&mut app, "Look again");
+        press_and_update(&mut app, "Look Again");
         let requests = sent(&mut app);
         app.world_mut().resource_mut::<Settings>().0.endpoints.push(
             protocol::SettingsViewEndpoints {
@@ -1098,7 +1098,7 @@ mod server_tests {
         mount::<HamletTheme>(app.world_mut(), view());
         press_and_update(&mut app, "Continue with ChatGPT");
         let start = sent(&mut app).remove(0);
-        press_and_update(&mut app, "Cancel sign-in");
+        press_and_update(&mut app, "Cancel Sign-In");
         incoming(
             &mut app,
             serde_json::json!({"type":"login", "to":start["id"], "login":"late-login", "step":{"url":"https://must-not-open.example"}}),

@@ -1477,7 +1477,7 @@ pub(super) fn holds() -> impl View {
                     label(words.clone())
                         .size(11.0)
                         .tone(Tone::Critical),
-                    hamlet_ui::styles::lettered("Send anyway")
+                    hamlet_ui::styles::lettered("Send Anyway")
                         .rules(hamlet_ui::styles::button)
                         .on_activate(move |world| {
                             send_held(world, key);

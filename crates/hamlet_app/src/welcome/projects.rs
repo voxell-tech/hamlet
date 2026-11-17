@@ -500,7 +500,7 @@ fn status() -> AnyView {
 /// The way between the suggested projects and every one.
 fn review() -> AnyView {
     keyed(resource::<Projects, _>(|projects| projects.all), |all| {
-        let text = if *all { "Show suggested" } else { "Review all" };
+        let text = if *all { "Show Suggested" } else { "Review All" };
         lettered(text)
             .variant(Variant::Text)
             .on_activate(|world| {
@@ -547,7 +547,7 @@ fn page() -> AnyView {
         .when(every_frame()),
         |(picked, busy)| match (*picked, *busy) {
             (_, true) | (0, _) => frame().boxed(),
-            (_, false) => good_action(Glyph::Plus, "Bring in", bring),
+            (_, false) => good_action(Glyph::Plus, "Bring In", bring),
         },
     )
     .within(footed())
@@ -557,7 +557,7 @@ fn page() -> AnyView {
         body,
         vec![
             review(),
-            lettered("From an export file")
+            lettered("From an Export File")
                 .variant(Variant::Text)
                 .on_activate(choose)
                 .boxed(),

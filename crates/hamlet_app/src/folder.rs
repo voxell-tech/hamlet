@@ -101,8 +101,8 @@ fn works_on(hamlet: Entity, work: &Works) -> AnyView {
     let choose = action(
         Glyph::Folder,
         match work.folder {
-            Some(_) => "Choose another",
-            None => "Choose a folder",
+            Some(_) => "Choose Another",
+            None => "Choose a Folder",
         },
         move |world| {
             world.trigger(ChooseFolder {

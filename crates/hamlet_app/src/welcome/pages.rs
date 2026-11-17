@@ -295,7 +295,7 @@ fn later() -> AnyView {
             let text = if *adding {
                 "Cancel"
             } else {
-                "I'll set this up later"
+                "I'll Set This Up Later"
             };
             lettered(text)
                 .variant(Variant::Text)
@@ -489,7 +489,7 @@ fn providers_shown() -> AnyView {
                 tiles(),
                 row((views::button(
                     row((
-                        label("Show more")
+                        label("Show More")
                             .tone(Tone::Faint)
                             .wrap(false),
                         glyph(Glyph::Chevron, 12.0)
@@ -522,7 +522,7 @@ fn providers_shown() -> AnyView {
         column((
             column((search,)).tagged(providers::ProviderSearch),
             column((scroll_area((tiles(),)),)).height(px(TALL)),
-            row((marked(Glyph::Chevron, "Show fewer")
+            row((marked(Glyph::Chevron, "Show Fewer")
                 .variant(Variant::Text)
                 .on_activate(|world| {
                     let mut welcome = world.resource_mut::<Welcome>();
@@ -542,7 +542,7 @@ fn onward() -> AnyView {
     keyed(
         derived(|world: &World| match super::picked(world) {
             Some(Pick::Local) => {
-                Some((None, "Look on this computer".to_string()))
+                Some((None, "Look on This Computer".to_string()))
             }
             Some(Pick::Provider(id)) => world
                 .resource::<Providers>()
@@ -592,7 +592,7 @@ fn provider_page() -> AnyView {
         providers_shown(),
         vec![
             later(),
-            command("Configure manually", |world| {
+            command("Configure Manually", |world| {
                 go(world, Step::Manual);
             })
             .boxed(),
@@ -766,7 +766,7 @@ fn local() -> AnyView {
         )),
         vec![
             to_providers("Back"),
-            good_action(Glyph::Restore, "Look again", look),
+            good_action(Glyph::Restore, "Look Again", look),
         ],
     )
 }
@@ -809,7 +809,7 @@ fn manual() -> AnyView {
         )),
         vec![
             to_providers("Back"),
-            good_action(Glyph::Plus, "Add endpoint", super::commit),
+            good_action(Glyph::Plus, "Add Endpoint", super::commit),
         ],
     )
 }

@@ -232,7 +232,7 @@ pub(super) fn controls() -> Ui {
         ),
         part(
             "A way back",
-            states(Glyph::Back, "All hamlets", Variant::Text),
+            states(Glyph::Back, "All Hamlets", Variant::Text),
         ),
         part("A text field", fields()),
         part(
@@ -250,7 +250,7 @@ pub(super) fn controls() -> Ui {
                 cell(
                     "Three, under the pointer",
                     styles::segmented_words(
-                        ["A day", "A week", "A month"],
+                        ["A Day", "A Week", "A Month"],
                         2,
                         |_, _| {},
                     )

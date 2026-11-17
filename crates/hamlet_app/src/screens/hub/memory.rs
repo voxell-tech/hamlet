@@ -262,7 +262,7 @@ fn add(
     keyed(resource::<Opened, _>(|o| o.adding), move |adding| {
         if !*adding {
             let mut parts =
-                vec![action(Glyph::Plus, "Add file", |world| {
+                vec![action(Glyph::Plus, "Add File", |world| {
                     world.resource_mut::<Opened>().adding = true;
                 })];
             parts.extend(learn());

@@ -278,13 +278,13 @@ impl Deed {
             Deed::End(_) => "End",
             Deed::EndWithDream(_) => "End with Dream",
             Deed::Merge { .. } => "Merge",
-            Deed::Close(_) => "Close down",
+            Deed::Close(_) => "Close Down",
             Deed::Erase(_) => "Delete",
-            Deed::Unshelve(_) => "Take out",
-            Deed::Mayor(_) => "Make mayor",
+            Deed::Unshelve(_) => "Take Out",
+            Deed::Mayor(_) => "Make Mayor",
             Deed::Rewind { .. } => "Rewind",
-            Deed::DefaultCharter => "Use the default",
-            Deed::MoveLodges => "Replace them",
+            Deed::DefaultCharter => "Use the Default",
+            Deed::MoveLodges => "Replace Them",
         }
     }
 
