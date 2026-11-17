@@ -490,11 +490,10 @@ pub(crate) fn retry(
 
 /// Stops every running turn of `agent` (C25), those of `working`, the
 /// conversations its runtime runs or was sent a turn of, among them,
-/// and holds its one
-/// conversation: what waits in its queue stays there until a chief's
-/// line or [`resume`]. Returns how many conversations it stopped; a
-/// turn already stopped, whose end its runtime has not yet reported,
-/// is not stopped again.
+/// and holds its one conversation: what waits in its queue stays
+/// there until a chief's line or [`resume`]. Returns how many
+/// conversations it stopped; a turn already stopped, whose end its
+/// runtime has not yet reported, is not stopped again.
 pub(crate) fn stop(
     cx: &mut Change<'_>,
     agent: AgentId,
