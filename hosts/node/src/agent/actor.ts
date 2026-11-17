@@ -393,6 +393,8 @@ export interface Generation {
      * current session and then writes by it runs here.
      */
     readonly inTurn: <T>(work: () => Promise<T>) => Promise<T>;
+    /** How many stops have begun since the wake. */
+    stops: number;
 }
 
 const AGENT: unique symbol = Symbol.for("@hamlet/agent");
@@ -455,6 +457,7 @@ async function wake(c: AgentContext, config: AgentConfig): Promise<void> {
         copies,
         following: follow,
         inTurn: oneAfterAnother(),
+        stops: 0,
     };
     watching(c, follow);
     // Not awaited, so a slow workspace does not hold `submit` past the

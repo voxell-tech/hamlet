@@ -414,6 +414,39 @@ test("a stopped turn carries on by retry", async (t) => {
     ]);
 });
 
+test("a stop that arrives while a retry opens its task wins: the retry admits nothing", async (t) => {
+    const opening = Promise.withResolvers<{ type: "opened"; task: string }>();
+    const asked = Promise.withResolvers<void>();
+    const { calls } = fakes({
+        realm: {
+            open_task: () => {
+                asked.resolve();
+                return opening.promise;
+            },
+        },
+    });
+    const agent = await wake(
+        t,
+        calls,
+        [failure("The model failed."), fauxAssistantMessage("Carried on.")],
+        NO_RETRIES,
+    );
+    await told(agent, "Go");
+    const client = agent.by(from.client);
+    const retrying = agent.actions.retry(client, { id: "retry-1", to: 7 });
+    await asked.promise;
+
+    assert.deepEqual(await agent.actions.stop(client, { id: "stop-1" }), {
+        turns: 0,
+    });
+    opening.resolve({ type: "opened", task: "task-retry" });
+    assert.deepEqual(await retrying, { type: "done" });
+    await agent.idle();
+
+    assert.equal(agent.faux.state.callCount, 1);
+    assert.ok(!(await said(agent, await now(agent))).includes("Carried on."));
+});
+
 test("a failed turn rewound away is not carried on", async (t) => {
     const agent = await wake(
         t,
