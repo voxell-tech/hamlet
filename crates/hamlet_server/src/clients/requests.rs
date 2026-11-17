@@ -321,7 +321,7 @@ impl Core<'_, '_> {
         agents: &[AgentId],
     ) -> Result<String> {
         let chief = self.realm.chief();
-        let working = self.working();
+        let working = self.working()?;
         let stopped = self.change(Actor::Chief(chief), |cx, _| {
             let mut stopped = 0;
             for agent in agents {

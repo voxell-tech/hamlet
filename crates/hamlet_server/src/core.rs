@@ -31,7 +31,7 @@ use crate::clients::fold::Fold;
 use crate::clients::{Clients, Connections, ConversationWatcher};
 use crate::conversations::activity::Activity;
 use crate::conversations::dreams::Learned;
-use crate::conversations::inputs::Resend;
+use crate::conversations::inputs::{self, Resend};
 use crate::conversations::{self, prompt};
 use crate::knowledge::worker::RepositoryWriteLock;
 use crate::providers::Providers;
@@ -316,13 +316,24 @@ impl Core<'_, '_> {
         }
     }
 
-    /// The conversations their runtime last said run a turn.
-    pub(crate) fn working(&self) -> Vec<ConversationId> {
-        self.live
+    /// The conversations their runtime last said run a turn, and
+    /// those it was sent a turn of that it has not admitted yet.
+    pub(crate) fn working(&mut self) -> Result<Vec<ConversationId>> {
+        let mut working = self
+            .live
             .iter()
             .filter(|(_, live)| live.fold.working)
             .map(|(id, _)| *id)
-            .collect()
+            .collect::<Vec<_>>();
+        let db = self.realm.store().connection();
+        for (conversation, request) in self.runtimes.submitting() {
+            if inputs::find(db, conversation, &request)?
+                .is_some_and(|input| input.is_turn())
+            {
+                working.push(conversation);
+            }
+        }
+        Ok(working)
     }
 
     /// Shows the watchers of each watched conversation the lines that

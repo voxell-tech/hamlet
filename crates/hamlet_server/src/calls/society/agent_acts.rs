@@ -203,7 +203,7 @@ impl Core<'_, '_> {
                 if agent == caller {
                     refuse!(Refusal::StopSelf);
                 }
-                let working = self.working();
+                let working = self.working()?;
                 self.carry(call, |cx, _| {
                     let stopped = chats::stop(cx, agent, &working)?;
                     Ok(Ok(format!(
@@ -271,7 +271,7 @@ impl Core<'_, '_> {
     /// `call`.
     fn stop_all(&mut self, call: &Call<'_>) -> Done<String> {
         let others = self.others(call)?;
-        let working = self.working();
+        let working = self.working()?;
         self.carry(call, |cx, _| {
             let mut stopped = 0;
             for agent in others {

@@ -523,6 +523,20 @@ impl Runtimes<'_, '_> {
         Some((to.0, pending))
     }
 
+    /// The inputs sent to a runtime whose admission was not heard, by
+    /// their conversation and request.
+    pub fn submitting(&self) -> Vec<(ConversationId, String)> {
+        self.lines
+            .iter()
+            .filter_map(|(.., line)| match &line.awaited_reply {
+                Some(Pending::Submit(conversation, request)) => {
+                    Some((*conversation, request.clone()))
+                }
+                _ => None,
+            })
+            .collect()
+    }
+
     pub fn is_in_flight(
         &self,
         runtime: Entity,
