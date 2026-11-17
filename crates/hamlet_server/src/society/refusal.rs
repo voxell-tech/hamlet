@@ -333,7 +333,7 @@ pub(crate) enum Refusal {
     #[error("You cannot stop yourself.")]
     StopSelf,
     #[error("That is you.")]
-    TellSelf,
+    SendToSelf,
     #[error("Say what to send.")]
     NothingToSend,
     #[error(

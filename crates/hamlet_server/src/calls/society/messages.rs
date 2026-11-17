@@ -123,7 +123,7 @@ impl Core<'_, '_> {
     ) -> Result<Step> {
         let sender = call.conversation.agent;
         if receiver == sender {
-            return Ok(Step::of(Err(Refusal::TellSelf)));
+            return Ok(Step::of(Err(Refusal::SendToSelf)));
         }
         if words.is_empty() {
             return Ok(Step::of(Err(Refusal::NothingToSend)));
