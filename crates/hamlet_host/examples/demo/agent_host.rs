@@ -54,6 +54,9 @@
 //! demo --link pi login cancel <login>
 //!                             a step of a sign-in, on agent 1
 //! demo --link pi follow <n>   follow agent <n>'s chat as a client
+//! demo --link pi answered <verb> <n> [<words>...]
+//!                             call agent <n> as `pi <verb>` does,
+//!                             for a reader of counts
 //! ```
 //!
 //! `make` prints `agent/<n> 1` when it made the agent and `agent/<n>
@@ -79,8 +82,11 @@
 //! request id, and print `<verb>/<n> <answer>`, the answer as JSON on
 //! one line, or `<verb>/<n> {"error":{"group":..,"code":..,
 //! "message":..,"metadata":..}}` when the agent failed the call.
-//! `follow` is `demo watch <n> chat`: it prints `watch/<n> 1`, then
-//! `watch/<n>/chat <event>` for each change, as demo/watch.rs says.
+//! `answered` prints `<verb>/<n> 1` in place of an answer and
+//! `<verb>/<n> 0` in place of a refusal or a failure, as the kill kit
+//! reads a line. `follow` is `demo watch <n> chat`: it prints
+//! `watch/<n> 1`, then `watch/<n>/chat <event>` for each change, as
+//! demo/watch.rs says.
 //!
 //! With `HAMLET_DEMO_FAUX` naming a faux script, the Node host's
 //! model answers from it, as hosts/node/src/agent/demo-host.ts says.
@@ -353,9 +359,22 @@ pub async fn run(demo: &Demo, words: &[String]) -> Result<()> {
             )
             .await
         }
-        ["login", step @ ..] => login(host, step).await,
+        ["login", step @ ..] => {
+            let answer = login(host, step).await?;
+            print(&format!("login/{} {answer}", HAND.0))
+        }
+        ["answered", verb, n, rest @ ..] => {
+            let n = number_of(n)?;
+            let answer = client(host, verb, n, rest).await?;
+            let refused = answer.get("error").is_some()
+                || answer.get("type")
+                    == Some(&serde_json::json!("refused"));
+            print(&format!("{verb}/{} {}", n.0, u8::from(!refused)))
+        }
         [verb, n, rest @ ..] => {
-            client(host, verb, number_of(n)?, rest).await
+            let n = number_of(n)?;
+            let answer = client(host, verb, n, rest).await?;
+            print(&format!("{verb}/{} {answer}", n.0))
         }
         _ => bail!("usage: {USAGE}"),
     }
@@ -372,7 +391,8 @@ const USAGE: &str =
      [past=<session>] [from=<a>] [kind=letters|questions] \
      [before=<item>] | history <n> | prompt <n> | reflect <n> | \
      login start <provider> key|subscription | login reply <login> \
-     <value> | login cancel <login> | follow <n>";
+     <value> | login cancel <login> | follow <n> | answered <verb> \
+     <n> [<words>...]";
 
 /// Runs a client's call of agent `n` other than `login`.
 async fn client(
@@ -380,14 +400,13 @@ async fn client(
     verb: &str,
     n: AgentNumber,
     words: &[&str],
-) -> Result<()> {
+) -> Result<serde_json::Value> {
     let id = RequestId::new;
     let to = AgentId(u64::from(n.0));
     match (verb, words) {
         ("new", []) => {
             asked(
                 host,
-                verb,
                 n,
                 &NewSession(protocol::New { id: id(), to }),
             )
@@ -401,23 +420,18 @@ async fn client(
                 })?,
                 to,
             };
-            asked(host, verb, n, &Resume(resume)).await
+            asked(host, n, &Resume(resume)).await
         }
         ("retry", []) => {
-            asked(
-                host,
-                verb,
-                n,
-                &Retry(protocol::Retry { id: id(), to }),
-            )
-            .await
+            asked(host, n, &Retry(protocol::Retry { id: id(), to }))
+                .await
         }
         ("stop", []) => {
             let stop = protocol::Stop {
                 agent: Some(to),
                 id: id(),
             };
-            asked(host, verb, n, &Stop(stop)).await
+            asked(host, n, &Stop(stop)).await
         }
         ("rewind", [item]) => {
             let rewind = protocol::Rewind {
@@ -425,7 +439,7 @@ async fn client(
                 id: id(),
                 item: (*item).to_owned(),
             };
-            asked(host, verb, n, &Rewind(rewind)).await
+            asked(host, n, &Rewind(rewind)).await
         }
         ("chat", words) => {
             let (chat, before) = chat_of(to, words)?;
@@ -434,11 +448,11 @@ async fn client(
                 chat,
                 id: id(),
             };
-            asked(host, verb, n, &ReadChat(open)).await
+            asked(host, n, &ReadChat(open)).await
         }
-        ("history", []) => asked(host, verb, n, &ReadHistory).await,
-        ("prompt", []) => asked(host, verb, n, &ReadPrompt).await,
-        ("reflect", []) => asked(host, verb, n, &Reflect).await,
+        ("history", []) => asked(host, n, &ReadHistory).await,
+        ("prompt", []) => asked(host, n, &ReadPrompt).await,
+        ("reflect", []) => asked(host, n, &Reflect).await,
         _ => bail!("usage: {USAGE}"),
     }
 }
@@ -481,7 +495,10 @@ fn chat_of(
     Ok((chat, before))
 }
 
-async fn login(host: &Host, words: &[&str]) -> Result<()> {
+async fn login(
+    host: &Host,
+    words: &[&str],
+) -> Result<serde_json::Value> {
     let id = RequestId::new();
     let login = match words {
         ["start", provider, method] => protocol::Login::Start {
@@ -508,18 +525,16 @@ async fn login(host: &Host, words: &[&str]) -> Result<()> {
         },
         _ => bail!("usage: {USAGE}"),
     };
-    asked(host, "login", HAND, &Login(login)).await
+    asked(host, HAND, &Login(login)).await
 }
 
-/// Calls agent `n` with `message` as a client does, and prints its
-/// answer, or the actor's error it failed with, as `<verb>/<n>
-/// <json>`.
+/// Calls agent `n` with `message` as a client does. Answers its
+/// answer, or the actor's error it failed with, as JSON.
 async fn asked<M>(
     host: &Host,
-    verb: &str,
     n: AgentNumber,
     message: &M,
-) -> Result<()>
+) -> Result<serde_json::Value>
 where
     M: Message<To = address::Agent, From = Client>,
     M::Output: Serialize + DeserializeOwned,
@@ -532,12 +547,12 @@ where
             ASK_WITHIN,
         )
         .await;
-    let shown = match called {
+    match called {
         Ok(answer) => {
             match ciborium::from_reader::<M::Output, _>(
                 answer.as_slice(),
             ) {
-                Ok(read) => serde_json::to_value(read)?,
+                Ok(read) => Ok(serde_json::to_value(read)?),
                 Err(error) => {
                     let raw: serde_json::Value =
                         ciborium::from_reader(answer.as_slice())?;
@@ -550,9 +565,8 @@ where
                 }
             }
         }
-        Err(error) => non_link_failure(&error).ok_or(error)?,
-    };
-    print(&format!("{verb}/{} {shown}", n.0))
+        Err(error) => non_link_failure(&error).ok_or(error),
+    }
 }
 
 fn print(line: &str) -> Result<()> {

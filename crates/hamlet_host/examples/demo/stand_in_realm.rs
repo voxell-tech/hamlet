@@ -840,6 +840,9 @@ impl Handler<Recorded> for StandIn {
     }
 }
 
+/// Counts a call of `action`, then passes the fault point
+/// `called/<action>`, where a kill test stops the host while the
+/// caller waits for the answer.
 async fn count(ctx: &Ctx<StandIn>, action: &str) -> Result<()> {
     ctx.sql()
         .run(
@@ -848,6 +851,7 @@ async fn count(ctx: &Ctx<StandIn>, action: &str) -> Result<()> {
             Some(vec![BindParam::Text(action.to_owned())]),
         )
         .await?;
+    hamlet_host::fault::point(&format!("called/{action}"));
     Ok(())
 }
 
