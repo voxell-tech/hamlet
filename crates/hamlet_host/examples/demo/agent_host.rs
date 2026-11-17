@@ -91,7 +91,9 @@
 //! With `HAMLET_DEMO_FAUX` naming a faux script, the Node host's
 //! model answers from it, as hosts/node/src/agent/demo-host.ts says.
 //! The Node host is started with only `HAMLET_HOME` and `PATH`, so
-//! the demo hands it the script's path.
+//! the demo hands it the script's path. With `HAMLET_DEMO_SIGN_IN`
+//! set to `1`, it also lists two providers to sign in to, on
+//! loopback, as demo-host.ts says.
 //!
 //! `pi` commands need this mode: in any other they fail at once.
 
@@ -144,6 +146,9 @@ const CHOOSE: (&str, &str) = ("HAMLET_DEMO_AGENT", "pi");
 
 /// Names the faux script the Node host's model answers from.
 const FAUX: &str = "HAMLET_DEMO_FAUX";
+
+/// Lists the loopback providers the sign-in lanes sign in to.
+const SIGN_IN: (&str, &str) = ("HAMLET_DEMO_SIGN_IN", "1");
 
 const ENTRY: &str = concat!(
     env!("CARGO_MANIFEST_DIR"),
@@ -212,6 +217,10 @@ pub fn open(
             .to_str()
             .with_context(|| format!("{FAUX}'s path is not UTF-8"))?;
         argv.extend(["--faux".to_owned(), script.to_owned()]);
+    }
+    let (name, value) = SIGN_IN;
+    if std::env::var(name).is_ok_and(|set| set == value) {
+        argv.push("--sign-in".to_owned());
     }
     let child = ChildOptions {
         argv,
