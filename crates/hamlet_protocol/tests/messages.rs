@@ -673,7 +673,8 @@ fn transcripts_keep_every_item_kind_and_page_status() {
         [(Value::Null, Value::Null), (json!(7), change_wire())]
     {
         items.push(json!({"id": "tool:0", "at": 10, "kind": "tool", "text": "", "tool": {
-            "name": "bash", "summary": "echo test", "exit": exit, "ms": null, "failure": null, "change": change
+            "name": "bash", "call": {"kind": "command", "command": "echo test"},
+            "summary": "echo test", "exit": exit, "ms": null, "failure": null, "change": change
         }}));
     }
     server(json!({

@@ -272,10 +272,14 @@ its `AgentId`, not `chief`; its `text` is the words without the heading the
 model reads them under. A `merged` item's `from` is the absorbed hire and
 its `text` that hire's name. `queued: true` marks an input its turn has not
 taken up yet. Item IDs identify an
-entry and content block (`<entryId>:<block>`); use them as opaque cursors. Tool details are `name`, `summary`, nullable
+entry and content block (`<entryId>:<block>`); use them as opaque cursors. Tool details are `name`, `call`, `summary`, nullable
 `exit`, `ms`, `failure` and `change`, and `agent`, the agent a society call
-sent to or started, once it ended. A tool argument summary holds at most
-200 Unicode code points. A `Change` preview holds at most 200 lines, each
+sent to or started, once it ended. `summary` is the call's arguments as
+JSON, cut to at most 200 Unicode code points. `call` is what the call's row
+shows, discriminated by `kind`: `notification` and `request` with the
+address it was sent to as `to` and its `text`, `worker` with the `task` a
+worker was started on, `command` with a shell `command`, `path` with the
+`path` of a call on one file or folder, or `other`, shown by its `summary`. A `Change` preview holds at most 200 lines, each
 at most 240 characters, plus total and added/removed counts.
 
 `TerminalView` is a terminal the server runs: `id`, `name`, `kind`,

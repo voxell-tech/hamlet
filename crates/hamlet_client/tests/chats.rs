@@ -666,6 +666,7 @@ fn item_kinds_chief_fallback_and_structural_changes_survive_text_streaming()
     let mut tool = item("tool", protocol::ItemKind::Tool, "");
     tool.tool = Some(protocol::ItemTool {
         agent: None,
+        call: protocol::ToolCall::Path { path: "file".into() },
         name: "write".into(), summary: "file".into(), exit: None, ms: None, failure: None,
         change: Some(serde_json::from_value(serde_json::json!({
             "path":"file", "created":true, "lines":[], "total":0, "added":0, "removed":0, "count":"empty"

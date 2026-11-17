@@ -48,9 +48,10 @@ pub(super) fn view(session: Entity, id: String) -> AnyView {
             Some(Entry::Merged { from, name }) => {
                 cx.build(merged(session, id, from, name))
             }
-            Some(Entry::Tool { summary, .. }) => {
-                cx.build(worker(session, id, task_of(&summary)))
-            }
+            Some(Entry::Tool {
+                call: protocol::ToolCall::Worker { task },
+                ..
+            }) => cx.build(worker(session, id, task)),
             _ => cx.build(frame()),
         }
     })
@@ -222,14 +223,6 @@ fn earlier() -> impl View {
         },
     )
     .within(column(()).align(AlignItems::FlexStart))
-}
-
-/// The task a `start_worker` call gives, from its arguments.
-fn task_of(summary: &str) -> String {
-    serde_json::from_str::<serde_json::Value>(summary)
-        .ok()
-        .and_then(|v| v["task"].as_str().map(str::to_string))
-        .unwrap_or_else(|| summary.to_string())
 }
 
 /// How a worker an agent started stands.

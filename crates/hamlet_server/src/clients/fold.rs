@@ -7,7 +7,7 @@ use std::collections::{BTreeMap, HashMap};
 use anyhow::{Context, Result};
 use hamlet_protocol::client::{
     AgentId as WireAgent, Change, Item, ItemKind, ItemTool,
-    LastActivity, TranscriptOperation,
+    LastActivity, ToolCall, TranscriptOperation,
 };
 use hamlet_protocol::runtime::{self, Block};
 use hamlet_sandbox::scrub::Scrubber;
@@ -486,11 +486,18 @@ pub(crate) fn items_of(
             )]);
         }
         Some(Mark::Step { tool, summary, .. }) => {
+            // Another program's tool, whose shortened input may not
+            // be JSON.
+            let call = serde_json::from_str::<Value>(&summary)
+                .map_or(ToolCall::Other, |arguments| {
+                    plain_call(&arguments)
+                });
             return Ok(vec![(
                 0,
                 Item {
                     tool: Some(ItemTool {
                         agent: None,
+                        call,
                         change: None,
                         exit: Some(0),
                         failure: None,
@@ -612,6 +619,7 @@ fn blocks_of(
                     Item {
                         tool: Some(ItemTool {
                             agent: None,
+                            call: call_of(name, &arguments),
                             change,
                             exit: None,
                             failure: None,
@@ -686,6 +694,51 @@ fn ending(entry: &runtime::Item) -> Result<Ending> {
         change,
         agent,
     })
+}
+
+/// What the row of a call of `name` with `arguments` shows.
+fn call_of(name: &str, arguments: &Value) -> ToolCall {
+    let text = |key: &str| {
+        arguments
+            .get(key)
+            .and_then(Value::as_str)
+            .map(str::to_owned)
+    };
+    match (Society::named(name), text("to"), text("text")) {
+        (Some(Society::Notify), Some(to), Some(text)) => {
+            ToolCall::Notification { to, text }
+        }
+        (Some(Society::Request), Some(to), Some(text)) => {
+            ToolCall::Request { to, text }
+        }
+        (Some(Society::StartWorker), ..)
+            if let Some(task) = text("task") =>
+        {
+            ToolCall::Worker { task }
+        }
+        _ => plain_call(arguments),
+    }
+}
+
+/// The command or the path a call's `arguments` name, which tells
+/// one call from the next.
+fn plain_call(arguments: &Value) -> ToolCall {
+    let text = |key: &str| {
+        arguments
+            .get(key)
+            .and_then(Value::as_str)
+            .map(str::to_owned)
+    };
+    if let Some(command) = text("command") {
+        return ToolCall::Command { command };
+    }
+    match text("path") {
+        // A search's pattern tells it apart more than its path.
+        Some(path) if arguments.get("pattern").is_none() => {
+            ToolCall::Path { path }
+        }
+        _ => ToolCall::Other,
+    }
 }
 
 /// The first line of a failed call's text that says something.

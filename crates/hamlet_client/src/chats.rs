@@ -320,6 +320,7 @@ fn received_item(item: protocol::Item, chief: &str) -> Item {
         protocol::ItemKind::Tool => {
             let tool = item.tool.unwrap_or(protocol::ItemTool {
                 agent: None,
+                call: protocol::ToolCall::Other,
                 name: String::new(),
                 summary: String::new(),
                 exit: None,
@@ -329,6 +330,7 @@ fn received_item(item: protocol::Item, chief: &str) -> Item {
             });
             Entry::Tool {
                 name: tool.name,
+                call: tool.call,
                 summary: tool.summary,
                 exit: tool.exit,
                 ms: tool.ms,
@@ -424,6 +426,7 @@ pub enum Entry {
     Reasoning(String),
     Tool {
         name: String,
+        call: protocol::ToolCall,
         summary: String,
         exit: Option<i64>,
         ms: Option<u64>,

@@ -1462,6 +1462,9 @@ mod tests {
             queued: false,
             entry: Entry::Tool {
                 name: "bash".into(),
+                call: hamlet_protocol::client::ToolCall::Command {
+                    command: "pwd".into(),
+                },
                 summary: "pwd".into(),
                 exit,
                 ms: Some(400),

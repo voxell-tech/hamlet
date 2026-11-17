@@ -17,6 +17,7 @@ use bevy_fynix::{
 use hamlet_client::chats::{Chat, Entry, Transcript};
 use hamlet_client::messages::ChiefMessage;
 use hamlet_client::realm::shown_of;
+use hamlet_protocol::client::ToolCall;
 use hamlet_ui::kinds::{card, tile};
 use hamlet_ui::markdown::document;
 use hamlet_ui::styles::{
@@ -50,19 +51,23 @@ fn clip(s: &str, max: usize) -> String {
 /// cuts again to the room it has.
 const TOOL_TEXT: usize = 400;
 
-/// The request to a tool: the shell command itself when the arguments
-/// are `{"command": ...}`, the path of a call on one file, the raw
-/// arguments otherwise.
-fn tool_text(summary: &str) -> String {
-    let value =
-        serde_json::from_str::<serde_json::Value>(summary).ok();
-    let named = value.as_ref().and_then(|v| {
-        v["command"].as_str().or_else(|| {
-            // A search's pattern tells it apart more than its path.
-            v["pattern"].is_null().then(|| v["path"].as_str())?
-        })
-    });
-    cut(named.unwrap_or(summary), TOOL_TEXT)
+/// The request to a tool on one line: its command, its path or its
+/// arguments.
+fn tool_text(call: &ToolCall, summary: &str) -> String {
+    let shown = match call {
+        ToolCall::Command { command } => command,
+        ToolCall::Path { path } => path,
+        _ => summary,
+    };
+    cut(shown, TOOL_TEXT)
+}
+
+/// The whole request to a tool: its command, else its arguments.
+fn request(call: &ToolCall, summary: &str) -> String {
+    match call {
+        ToolCall::Command { command } => command.clone(),
+        _ => summary.to_string(),
+    }
 }
 
 /// What a tool call that has not ended is doing.
@@ -194,7 +199,9 @@ fn tool_row(session: Entity, id: String) -> impl View {
             // end, as the file a command reads.
             column((one_line(
                 label(read(|e| match e {
-                    Entry::Tool { summary, .. } => tool_text(summary),
+                    Entry::Tool { call, summary, .. } => {
+                        tool_text(call, summary)
+                    }
                     _ => String::new(),
                 }))
                 .tone(Tone::Dim),
@@ -206,8 +213,8 @@ fn tool_row(session: Entity, id: String) -> impl View {
                 let read = read.clone();
                 move || {
                     note(read(|e| match e {
-                        Entry::Tool { summary, .. } => {
-                            request(summary)
+                        Entry::Tool { call, summary, .. } => {
+                            request(call, summary)
                         }
                         _ => String::new(),
                     }))
@@ -235,7 +242,9 @@ fn tool_row(session: Entity, id: String) -> impl View {
             }
             column((
                 note(read(|e| match e {
-                    Entry::Tool { summary, .. } => request(summary),
+                    Entry::Tool { call, summary, .. } => {
+                        request(call, summary)
+                    }
                     _ => String::new(),
                 }))
                 .tagged(MonoText),
@@ -272,75 +281,47 @@ fn tool_row(session: Entity, id: String) -> impl View {
         .gap(0.0)
 }
 
-/// What a `notify` or `request` call sent: its words and the address
-/// it was sent to.
-fn sent(summary: &str) -> Option<(String, String)> {
-    let arguments =
-        serde_json::from_str::<serde_json::Value>(summary).ok()?;
-    let words = arguments["text"].as_str()?;
-    Some((
-        arguments["to"].as_str().unwrap_or_default().to_string(),
-        words.to_string(),
-    ))
-}
-
-/// Whom the `notify` or `request` call `id` of `session` reached, by
-/// the name the window shows it by, else by the address it was sent
-/// to.
-fn receiver(world: &World, session: Entity, id: &str) -> String {
-    let Some(Entry::Tool { summary, agent, .. }) = world
+/// Whom the notification or request `id` of `session` was sent to,
+/// by the name the window shows it by, else by the address it was
+/// sent to.
+fn whom(world: &World, session: Entity, id: &str) -> String {
+    let Some(Entry::Tool { call, agent, .. }) = world
         .get::<Transcript>(session)
         .and_then(|t| t.item(id))
         .map(|item| &item.entry)
     else {
         return String::new();
     };
-    agent
+    let (heading, to) = match call {
+        ToolCall::Notification { to, .. } => ("Notified", to),
+        ToolCall::Request { to, .. } => ("Request to", to),
+        _ => return String::new(),
+    };
+    let to = agent
         .and_then(|agent| hamlet_client::realm::agent(world, agent))
         .map(|agent| shown_of(world, agent))
         .filter(|shown| !shown.is_empty())
-        .or_else(|| sent(summary).map(|(to, _)| to))
-        .unwrap_or_default()
-}
-
-/// What a society call sent another agent.
-#[derive(Clone, Copy)]
-enum Sent {
-    Notification,
-    Request,
-}
-
-impl Sent {
-    /// What the call of `tool` sends, when it sends a message.
-    fn of(tool: &str) -> Option<Self> {
-        match tool {
-            "notify" => Some(Self::Notification),
-            "request" => Some(Self::Request),
-            _ => None,
-        }
-    }
+        .unwrap_or_else(|| to.clone());
+    format!("{heading} {to}")
 }
 
 /// A notification or a request the agent sent another: whom to, how
 /// it went, and its words.
-fn message_row(session: Entity, id: String, kind: Sent) -> impl View {
+fn message_row(session: Entity, id: String) -> impl View {
     let whom = {
         let id = id.clone();
-        derived(move |world: &World| {
-            let to = receiver(world, session, &id);
-            match kind {
-                Sent::Request => format!("Request to {to}"),
-                Sent::Notification => format!("Notified {to}"),
-            }
-        })
-        .when(every_frame())
+        derived(move |world: &World| whom(world, session, &id))
+            .when(every_frame())
     };
     let words = component::<Transcript, _>(session, {
         let id = id.clone();
         move |t| match t.and_then(|t| t.item(&id)).map(|i| &i.entry) {
-            Some(Entry::Tool { summary, .. }) => sent(summary)
-                .map(|(_, words)| words)
-                .unwrap_or_default(),
+            Some(Entry::Tool {
+                call:
+                    ToolCall::Notification { text, .. }
+                    | ToolCall::Request { text, .. },
+                ..
+            }) => text.clone(),
             _ => String::new(),
         }
     });
@@ -383,21 +364,6 @@ fn failed(why: String) -> impl View {
         .status(StatusKind::Danger)
         .width(percent(100.0))
     })
-}
-
-/// The whole request to a tool: the shell command when the arguments
-/// are `{"command": ...}`, else the arguments laid out.
-fn request(summary: &str) -> String {
-    let value =
-        serde_json::from_str::<serde_json::Value>(summary).ok();
-    match &value {
-        Some(v) if v["command"].is_string() => {
-            v["command"].as_str().unwrap_or_default().to_string()
-        }
-        Some(v) => serde_json::to_string_pretty(v)
-            .unwrap_or_else(|_| summary.to_string()),
-        None => summary.to_string(),
-    }
 }
 
 /// The change of the edit at entry `id` of `session`, at the edge of
@@ -514,15 +480,16 @@ pub(crate) fn entry_view(session: Entity, id: String) -> AnyView {
             .width(percent(100.0))
             .padding(UiRect::axes(px(24.0), px(0.0)))
             .boxed(),
-            Some(Entry::Tool { name, .. })
-                if let Some(kind) = Sent::of(name.as_str()) =>
-            {
-                column((message_row(session, id, kind),))
-                    .width(percent(100.0))
-                    .min_width(px(0.0))
-                    .padding(UiRect::axes(px(16.0), px(0.0)))
-                    .boxed()
-            }
+            Some(Entry::Tool {
+                call:
+                    ToolCall::Notification { .. }
+                    | ToolCall::Request { .. },
+                ..
+            }) => column((message_row(session, id),))
+                .width(percent(100.0))
+                .min_width(px(0.0))
+                .padding(UiRect::axes(px(16.0), px(0.0)))
+                .boxed(),
             Some(Entry::Tool { .. }) => {
                 column((tool_row(session, id),))
                     .width(percent(100.0))

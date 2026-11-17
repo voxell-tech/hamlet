@@ -26,18 +26,12 @@ fn chat_ref(with: AgentId) -> ChatRef {
 /// A tool call as a line: what a notification or a request said and
 /// to whom, else the tool and its arguments.
 fn tool_line(tool: &ItemTool) -> String {
-    let arguments =
-        serde_json::from_str::<serde_json::Value>(&tool.summary).ok();
-    let said = arguments.as_ref().and_then(|arguments| {
-        let words = match tool.name.as_str() {
-            "notify" | "request" => arguments["text"].as_str(),
-            _ => None,
-        }?;
-        Some((arguments["to"].as_str()?, words))
-    });
-    match said {
-        Some((to, words)) => format!("[{} {to}]\n{words}", tool.name),
-        None => format!("[{}] {}", tool.name, tool.summary),
+    match &tool.call {
+        ToolCall::Notification { to, text }
+        | ToolCall::Request { to, text } => {
+            format!("[{} {to}]\n{text}", tool.name)
+        }
+        _ => format!("[{}] {}", tool.name, tool.summary),
     }
 }
 

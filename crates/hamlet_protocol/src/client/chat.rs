@@ -293,6 +293,7 @@ pub struct ItemTool {
     #[serde(deserialize_with = "crate::client::present")]
     #[schemars(with = "AgentId")]
     pub agent: Option<AgentId>,
+    pub call: ToolCall,
     #[serde(deserialize_with = "Option::deserialize")]
     pub change: Option<Change>,
     #[serde(deserialize_with = "Option::deserialize")]
@@ -302,7 +303,35 @@ pub struct ItemTool {
     #[serde(deserialize_with = "Option::deserialize")]
     pub ms: Option<u64>,
     pub name: String,
+    /// The call's arguments as JSON, shortened.
     pub summary: String,
+}
+
+/// What a tool call's row shows, read from its tool and arguments.
+#[derive(
+    Clone, Debug, PartialEq, Serialize, Deserialize, JsonSchema,
+)]
+#[serde(tag = "kind", deny_unknown_fields)]
+pub enum ToolCall {
+    /// A notification to another agent, by the address it was sent
+    /// to.
+    #[serde(rename = "notification")]
+    Notification { to: String, text: String },
+    /// A request to another agent, by the address it was sent to.
+    #[serde(rename = "request")]
+    Request { to: String, text: String },
+    /// A worker started on `task`.
+    #[serde(rename = "worker")]
+    Worker { task: String },
+    /// A shell command.
+    #[serde(rename = "command")]
+    Command { command: String },
+    /// A call on one file or folder.
+    #[serde(rename = "path")]
+    Path { path: String },
+    /// Any other call, shown by its `summary`.
+    #[serde(rename = "other")]
+    Other,
 }
 
 #[derive(

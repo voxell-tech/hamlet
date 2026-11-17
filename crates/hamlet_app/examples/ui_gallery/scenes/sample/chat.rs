@@ -70,6 +70,12 @@ pub(super) fn setup(world: &mut World, scene: Scene) -> Transcript {
                         queued: false,
                         entry: Entry::Tool {
                             name: "bash".into(),
+                            call: protocol::ToolCall::Command {
+                                command: format!(
+                                    "grep -n row-{turn} \
+                                     notes/orchard/{step}.md"
+                                ),
+                            },
                             summary: format!(
                                 "{{\"command\": \"grep -n \
                                  row-{turn} \
@@ -103,6 +109,9 @@ pub(super) fn setup(world: &mut World, scene: Scene) -> Transcript {
                 queued: false,
                 entry: Entry::Tool {
                     name: "edit".into(),
+                    call: protocol::ToolCall::Path {
+                        path: "src/almanac.rs".into(),
+                    },
                     summary: "src/almanac.rs".into(),
                     exit: Some(0),
                     ms: Some(8),
@@ -176,12 +185,16 @@ pub(super) fn setup(world: &mut World, scene: Scene) -> Transcript {
             ("chief", "Find out who has the key."),
         ]),
         Scene::Group => {
-            let tool = |id: &str, name: &str, summary: &str| Item {
+            let tool = |id: &str,
+                        name: &str,
+                        call: protocol::ToolCall,
+                        summary: &str| Item {
                 id: id.into(),
                 at: 0,
                 queued: false,
                 entry: Entry::Tool {
                     name: name.into(),
+                    call,
                     summary: summary.into(),
                     exit: Some(0),
                     ms: Some(20),
@@ -212,12 +225,21 @@ pub(super) fn setup(world: &mut World, scene: Scene) -> Transcript {
             items.push(tool(
                 "request:0",
                 "request",
+                protocol::ToolCall::Request {
+                    to: "hire#3".into(),
+                    text: "Is the key by the mill door?".into(),
+                },
                 "{\"to\": \"hire#3\", \"text\": \"Is the key by the \
                  mill door?\"}",
             ));
             items.push(tool(
                 "worker:0",
                 "start_worker",
+                protocol::ToolCall::Worker {
+                    task: "Count the pears in rows 1 to 4 and say how \
+                           many need straw."
+                        .into(),
+                },
                 "{\"task\": \"Count the pears in rows 1 to 4 and say \
                  how many need straw.\"}",
             ));

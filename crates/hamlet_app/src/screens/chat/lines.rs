@@ -254,14 +254,13 @@ pub(super) enum Row {
     },
 }
 
-/// The tool that starts a worker, whose call is a card.
-const START_WORKER: &str = "start_worker";
-
 /// Whether `entry` is drawn as a [`Row::Card`].
 fn is_card(entry: &Entry) -> bool {
     match entry {
         Entry::Summary(_) | Entry::Merged { .. } => true,
-        Entry::Tool { name, .. } => name == START_WORKER,
+        Entry::Tool { call, .. } => {
+            matches!(call, protocol::ToolCall::Worker { .. })
+        }
         Entry::Chief { .. }
         | Entry::Assistant(_)
         | Entry::Reasoning(_)

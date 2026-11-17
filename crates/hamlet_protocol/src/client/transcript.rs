@@ -185,7 +185,8 @@ mod tests {
         let mut items = Vec::new();
         let item = |id: &str, text: &str| json!({"id": id, "at": 1, "kind": "assistant", "text": text});
         let tool = json!({"id": "t", "at": 1, "kind": "tool", "text": "",
-            "tool": {"name": "run", "summary": "", "exit": null,
+            "tool": {"name": "run", "call": {"kind": "other"},
+                     "summary": "", "exit": null,
                      "ms": null, "failure": null, "change": null}});
         fold(
             &mut items,
