@@ -132,6 +132,19 @@ pub(super) fn card(
         },
     )
     .within(bare());
+    let head = with_cx(move |cx| {
+        column((named, track(at))).gap(cx.theme().space.section)
+    });
+    sheet(head, body, foot)
+}
+
+/// A card: `head` over `body`, which scrolls, over the buttons of
+/// `foot`, with rules between.
+pub(super) fn sheet(
+    head: impl View + 'static,
+    body: impl View + 'static,
+    foot: Vec<AnyView>,
+) -> AnyView {
     with_cx(move |cx| {
         let theme = cx.theme();
         let space = &theme.space;
@@ -145,13 +158,13 @@ pub(super) fn card(
                 .padding(pad)
                 .width(percent(100.0))
                 .min_width(px(0.0)),))
-            .overflow(Overflow::scroll_y()),
+            .overflow(Overflow::scroll_y())
+            // Shorter than what it holds when the card is.
+            .grow(1.0)
+            .min_height(px(0.0)),
         );
         column((
-            column((named, track(at)))
-                .gap(space.section)
-                .padding(pad)
-                .shrink(0.0),
+            column((head,)).padding(pad).shrink(0.0),
             hairline(line).shrink(0.0),
             body,
             hairline(line).shrink(0.0),
@@ -862,14 +875,17 @@ fn screen() -> AnyView {
 const VEIL: f32 = 0.7;
 
 /// The card over a veil on whatever is behind.
-fn over(cx: &Cx, page: AnyView) -> impl View + use<> {
+pub(super) fn over(cx: &Cx, page: AnyView) -> impl View + use<> {
     let theme = cx.theme();
     let space = &theme.space;
     // The page pads its own parts, so its rules run edge to edge,
     // and scrolls its own body.
+    // Its height is what the window leaves: a percentage of a parent
+    // sized by its content means nothing, so it shrinks from its
+    // content's height instead, and its body scrolls.
     let card = kinds::card((page,))
         .width(percent(100.0))
-        .max_height(percent(100.0))
+        .min_height(px(0.0))
         .padding(UiRect::all(px(0.0)))
         .gap(0.0)
         .tagged(theme.shadow())
@@ -878,6 +894,7 @@ fn over(cx: &Cx, page: AnyView) -> impl View + use<> {
         .width(percent(100.0))
         .max_width(px(space.overlay_width))
         .max_height(percent(100.0))
+        .min_height(px(0.0))
         .gap(0.0);
     row((hung,))
         .width(percent(100.0))

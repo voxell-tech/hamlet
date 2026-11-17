@@ -17,7 +17,7 @@ use super::FromRuntime;
 use crate::app::follow_up::InputEffects;
 use crate::app::input::AddHandler;
 use crate::conversations::inputs::{self, Resend, Status};
-use crate::conversations::{self, items, turns};
+use crate::conversations::{self, imports, items, turns};
 use crate::core::Core;
 use crate::realm::Realm;
 use crate::runtimes::{Pending, Runtimes};
@@ -87,22 +87,20 @@ fn hello(
 /// A conversation was made or forked: its handle is kept.
 fn created(
     mut heard: ResMut<Messages<FromRuntime<runtime::Created>>>,
-    mut realm: ResMut<Realm>,
-    mut runtimes: Runtimes,
-    mut changed: ResMut<InputEffects>,
+    mut core: Core,
 ) -> Result {
     heard.drain().try_for_each(
         |FromRuntime {
              runtime: from,
              message: created,
          }| {
-            changed.runtime_answered = true;
+            core.changed.runtime_answered = true;
             if let Some((_, Pending::Create(conversation))) =
-                runtimes.reply(&created.re)
+                core.runtimes.reply(&created.re)
             {
-                let db = realm.store().connection();
+                let db = core.realm.store().connection();
                 let (adapter, version) =
-                    runtimes.versions(db, from)?;
+                    core.runtimes.versions(db, from)?;
                 conversations::bound(
                     db,
                     conversation,
@@ -110,6 +108,12 @@ fn created(
                     &adapter,
                     &version,
                 )?;
+                // Its watchers held the entries it began with, which
+                // the runtime keeps under its own ids now.
+                if imports::made(db, conversation)? {
+                    core.live.remove(&conversation);
+                    core.retell(conversation)?;
+                }
             }
             Ok(())
         },

@@ -41,6 +41,9 @@ pub(crate) fn plugin(app: &mut App) {
         .add_handler::<FromClient<protocol::Close>, _>(close)
         .add_handler::<FromClient<protocol::New>, _>(new)
         .add_handler::<FromClient<protocol::Resume>, _>(resume)
+        .add_handler::<FromClient<protocol::ImportProject>, _>(
+            import_project,
+        )
         .add_handler::<FromClient<protocol::Retry>, _>(retry)
         .add_handler::<FromClient<protocol::Stop>, _>(stop)
         .add_handler::<FromClient<protocol::Edit>, _>(edit)
@@ -162,6 +165,7 @@ fn write(
         ClientMessage::Close(m) => to(commands, client, m),
         ClientMessage::New(m) => to(commands, client, m),
         ClientMessage::Resume(m) => to(commands, client, m),
+        ClientMessage::ImportProject(m) => to(commands, client, m),
         ClientMessage::Retry(m) => to(commands, client, m),
         ClientMessage::Stop(m) => to(commands, client, m),
         ClientMessage::Edit(m) => to(commands, client, m),
@@ -359,6 +363,24 @@ fn resume(
             };
             let words = core.resume_session(agent, resume.number)?;
             core.answer(client, reply(&resume.id, words))?;
+            Ok(())
+        },
+    )
+}
+
+fn import_project(
+    mut received: ResMut<
+        Messages<FromClient<protocol::ImportProject>>,
+    >,
+    mut core: Core,
+) -> Result {
+    received.drain().try_for_each(
+        |FromClient {
+             client,
+             request: project,
+         }| {
+            let words = core.import_project(&project)?;
+            core.answer(client, reply(&project.id, words))?;
             Ok(())
         },
     )

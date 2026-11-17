@@ -8,6 +8,7 @@ pub(crate) mod chats;
 pub(crate) mod completion;
 pub(crate) mod dreams;
 pub(crate) mod errands;
+pub(crate) mod imports;
 pub(crate) mod inputs;
 pub(crate) mod items;
 pub(crate) mod letters;

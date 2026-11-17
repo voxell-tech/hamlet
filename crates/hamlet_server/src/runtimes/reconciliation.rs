@@ -24,7 +24,7 @@ use crate::app::input::{AddHandler, InputSender};
 use crate::attachments::images::Limits;
 use crate::attachments::images::fitting::pictures;
 use crate::conversations::inputs::{self, Input, Resend};
-use crate::conversations::{self, Conversation, models};
+use crate::conversations::{self, Conversation, imports, models};
 use crate::providers::Providers;
 use crate::realm::settings::EffectiveSettings;
 
@@ -325,9 +325,11 @@ fn make(
             let agent = u64::try_from(owed.agent.0)
                 .context("an agent's id is positive")?;
             let kind = owed.kind.wire();
+            let earlier = imports::earlier(db, owed.id)?;
             runtimes.request(to, pending, |v, id| {
                 ServerMessage::Create(runtime::Create {
                     agent,
+                    earlier,
                     kind,
                     id,
                     key,

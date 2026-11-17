@@ -11,11 +11,13 @@ description = "The window's components and requests, filled from the server"
 workspace = true
 
 [dependencies]
+anyhow.workspace = true
 base64.workspace = true
 bevy_app.workspace = true
 bevy_ecs.workspace = true
 bevy_log.workspace = true
 futures.workspace = true
+hamlet_import.workspace = true
 hamlet_protocol.workspace = true
 serde_json.workspace = true
 thiserror.workspace = true

@@ -338,4 +338,17 @@ pub(crate) enum Refusal {
     NoWorkspaceChosen,
     #[error("Moving the lodges failed: {error}")]
     MoveFailed { error: String },
+    #[error("Every conversation of it was brought in before.")]
+    BroughtInBefore,
+    #[error("The conversation was not sent first.")]
+    ConversationNotSent,
+    #[error("A conversation brought in is at most {most} MiB.")]
+    ConversationTooBig { most: u64 },
+    #[error(
+        "A project's conversations come to at most {most} MiB \
+         together; bring in fewer at a time."
+    )]
+    ProjectTooBig { most: u64 },
+    #[error("That file is not a conversation Hamlet can bring in.")]
+    NotAConversation,
 }

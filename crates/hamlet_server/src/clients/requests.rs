@@ -8,8 +8,8 @@ use bevy_ecs::change_detection::Mut;
 use bevy_ecs::lifecycle::Remove;
 use bevy_ecs::observer::On;
 use hamlet_protocol::client::{
-    self as protocol, ChatRef, ChatRefKind, ClientMessage, RequestId,
-    ServerMessage, Transcript,
+    self as protocol, ChatRef, ChatRefKind, ClientMessage,
+    ImportProject, RequestId, ServerMessage, Transcript,
 };
 use hamlet_store::ids::{Actor, AgentId, ConversationId};
 
@@ -17,8 +17,11 @@ use super::check::{fault, reply};
 use super::connection::Connection;
 use super::fold::Fold;
 use super::{OwedReply, changes};
+use crate::attachments::files::Files;
 use crate::conversations::activity::Activity;
-use crate::conversations::{self, Kind, chats, items, models};
+use crate::conversations::{
+    self, Kind, chats, imports, items, models,
+};
 use crate::core::{Core, Live};
 use crate::realm::change::Done;
 use crate::society::agents::{self, AgentKind, Effort};
@@ -227,6 +230,43 @@ impl Core<'_, '_> {
         Ok(done.map(|()| format!("Back in session {number}.")))
     }
 
+    /// Brings in the chief's `project` of another program, its
+    /// conversations sent first as files (C35).
+    pub(crate) fn import_project(
+        &mut self,
+        project: &ImportProject,
+    ) -> Done<String> {
+        let chief = self.realm.chief();
+        let files = Files::new(self.realm.layout().files());
+        // Every file is held read at once.
+        let together = project
+            .files
+            .iter()
+            .filter_map(|file| files.size(file))
+            .sum::<u64>();
+        if together > ImportProject::MOST_BYTES {
+            return Ok(Err(Refusal::ProjectTooBig {
+                most: ImportProject::MOST_BYTES >> 20,
+            }));
+        }
+        let mut conversations = Vec::new();
+        for file in &project.files {
+            match imports::read(&files, file)? {
+                Ok(imported) => conversations.push(imported),
+                Err(refusal) => return Ok(Err(refusal)),
+            }
+        }
+        let wanted = imports::Project {
+            name: &project.name,
+            folder: project.folder.as_deref(),
+            conversations: &conversations,
+        };
+        let done = self.attempt(Actor::Chief(chief), |cx, env| {
+            imports::bring_in_project(cx, env, chief, &wanted)
+        })?;
+        Ok(done.map(|brought| brought.words()))
+    }
+
     /// Carries on `agent`'s failed or stopped turn.
     pub(crate) fn retry_turn(
         &mut self,
@@ -424,11 +464,16 @@ impl Core<'_, '_> {
     ) -> Result<&mut Live> {
         if !self.live.contains_key(&conversation) {
             let db = self.realm.store().connection();
-            let entries =
+            let mut entries =
                 items::page(db, conversation, None, i64::MAX)?
                     .into_iter()
                     .map(|(_, item)| item)
                     .collect::<Vec<_>>();
+            // A conversation brought in shows what it begins with
+            // before its runtime makes it.
+            if entries.is_empty() {
+                entries = imports::held(db, conversation)?;
+            }
             let agent = conversations::get(db, conversation)?.agent;
             self.live.insert(
                 conversation,
@@ -490,6 +535,24 @@ impl Core<'_, '_> {
             usage,
             working: fold.working,
         }))
+    }
+
+    /// Sends every watcher of `conversation`, numbered sessions'
+    /// included, its items again, under the ids they have now.
+    pub(crate) fn retell(
+        &mut self,
+        conversation: ConversationId,
+    ) -> Result<()> {
+        for watcher in self.connections.watching(conversation) {
+            let transcript = self.transcript(
+                conversation,
+                &watcher.chat,
+                None,
+                None,
+            )?;
+            self.answer(watcher.client, transcript)?;
+        }
+        Ok(())
     }
 
     /// Sends the watchers of `agent`'s chats the session they now
