@@ -350,7 +350,16 @@ pub(super) fn timeline(
                     (cast.chief(name), agent)
                 }
                 Some(Entry::Answered(_)) => (chief, agent),
-                _ => (agent, chief),
+                Some(
+                    Entry::Assistant(_)
+                    | Entry::Reasoning(_)
+                    | Entry::Tool { .. }
+                    | Entry::Error(_)
+                    | Entry::Notice(_)
+                    | Entry::Summary(_)
+                    | Entry::Merged { .. },
+                )
+                | None => (agent, chief),
             };
             Line {
                 row,

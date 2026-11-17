@@ -262,7 +262,13 @@ fn is_card(entry: &Entry) -> bool {
     match entry {
         Entry::Summary(_) | Entry::Merged { .. } => true,
         Entry::Tool { name, .. } => name == START_WORKER,
-        _ => false,
+        Entry::Chief { .. }
+        | Entry::Assistant(_)
+        | Entry::Reasoning(_)
+        | Entry::Error(_)
+        | Entry::Notice(_)
+        | Entry::Answered(_)
+        | Entry::Agent { .. } => false,
     }
 }
 
@@ -306,7 +312,13 @@ pub(super) fn rows(
             Entry::Reasoning(_) | Entry::Notice(_) => {
                 Some((false, Some(0)))
             }
-            _ => None,
+            Entry::Chief { .. }
+            | Entry::Assistant(_)
+            | Entry::Error(_)
+            | Entry::Answered(_)
+            | Entry::Agent { .. }
+            | Entry::Summary(_)
+            | Entry::Merged { .. } => None,
         };
         let Some((tool, exit)) = step else {
             let reply = matches!(item.entry, Entry::Assistant(_));
