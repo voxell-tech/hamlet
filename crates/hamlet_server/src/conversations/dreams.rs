@@ -526,31 +526,8 @@ mod tests {
 
     use super::*;
     use crate::society::agents::EndHow;
-    use crate::society::hires::{Hired, Hiring, LastDream, Spec};
+    use crate::society::hires::LastDream;
     use crate::testing::Realm;
-
-    /// Hires a blank agent named `name` under `mayor`.
-    fn hire(realm: &mut Realm, mayor: &Hired, name: &str) -> Hired {
-        let (owner, hamlet) = (realm.chief, mayor.hamlet.clone());
-        realm
-            .chief(|cx| {
-                hires::hire(
-                    cx,
-                    Spec {
-                        hamlet,
-                        parent: Some(mayor.agent),
-                        hiring: Hiring::Blank {
-                            name: name.into(),
-                            character: String::new(),
-                        },
-                        purpose: "Help".into(),
-                        reason: String::new(),
-                        owner,
-                    },
-                )
-            })
-            .unwrap()
-    }
 
     #[test]
     fn an_asked_dream_runs_with_dreams_off_and_outside_their_hours() {
@@ -588,8 +565,8 @@ mod tests {
     fn only_a_hire_ended_with_a_dream_dreams_once_more() {
         let mut realm = Realm::new();
         let mayor = realm.found("mill", "ada");
-        let plain = hire(&mut realm, &mayor, "bo");
-        let dreaming = hire(&mut realm, &mayor, "cy");
+        let plain = realm.hire(&mayor, "bo");
+        let dreaming = realm.hire(&mayor, "cy");
         for (ended, last) in [
             (&plain, LastDream::Without),
             (&dreaming, LastDream::With),

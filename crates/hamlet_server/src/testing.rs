@@ -7,7 +7,7 @@ use hamlet_testing::Scratch;
 use crate::realm::change::{Change, Done, run};
 use crate::realm::layout::Layout;
 use crate::society::hamlets::{self, Founding};
-use crate::society::hires::{Hired, Hiring};
+use crate::society::hires::{self, Hired, Hiring, Spec};
 use crate::society::refusal::Refusal;
 use crate::society::{chiefs, hand};
 
@@ -120,6 +120,29 @@ impl Realm {
                         character: "Careful.".into(),
                     },
                     purpose: "Build it".into(),
+                },
+            )
+        })
+        .unwrap()
+    }
+
+    /// Hires a blank agent named `name` under `lead`, in its hamlet.
+    pub fn hire(&mut self, lead: &Hired, name: &str) -> Hired {
+        let owner = self.chief;
+        let name = name.to_owned();
+        self.chief(|cx| {
+            hires::hire(
+                cx,
+                Spec {
+                    hamlet: lead.hamlet.clone(),
+                    parent: Some(lead.agent),
+                    hiring: Hiring::Blank {
+                        name,
+                        character: String::new(),
+                    },
+                    purpose: "Help".into(),
+                    reason: String::new(),
+                    owner,
                 },
             )
         })

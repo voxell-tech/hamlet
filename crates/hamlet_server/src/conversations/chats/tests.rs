@@ -9,7 +9,6 @@ use crate::conversations::imports::{self, Project};
 use crate::conversations::inputs::{Resend, Status};
 use crate::conversations::messages::{self, MessageKind, Send};
 use crate::realm::settings::{Overrides, Settings};
-use crate::society::hires::{self, Hiring, Spec};
 use crate::society::merges;
 use crate::testing::Realm;
 
@@ -26,26 +25,7 @@ fn env() -> EffectiveSettings {
 /// A hamlet's mayor and a blank hire `name` under it.
 fn pair(realm: &mut Realm, name: &str) -> (AgentId, AgentId) {
     let mayor = realm.found("docs", "ada");
-    let owner = realm.chief;
-    let name = name.to_owned();
-    let hire = realm
-        .chief(|cx| {
-            hires::hire(
-                cx,
-                Spec {
-                    hamlet: mayor.hamlet.clone(),
-                    parent: Some(mayor.agent),
-                    hiring: Hiring::Blank {
-                        name,
-                        character: String::new(),
-                    },
-                    purpose: "Help".into(),
-                    reason: String::new(),
-                    owner,
-                },
-            )
-        })
-        .unwrap();
+    let hire = realm.hire(&mayor, name);
     (mayor.agent, hire.agent)
 }
 
