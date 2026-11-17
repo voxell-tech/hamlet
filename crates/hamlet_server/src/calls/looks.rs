@@ -1,10 +1,10 @@
 //! The looks a call's request waits on, which the loop must not do:
-//! the files a `tell` or an `ask` sends, measured for the gate and
-//! then copied into the receiver's inbox (H30), and the file an edit
-//! writes as it is now, for the chief to see the change. Each look
-//! runs on a task and its finding is kept on its call's entity; the
-//! runtime's request runs again and finds it, and the runtime waits
-//! for its answer meanwhile.
+//! the files a `notify` or a `request` sends, measured for the gate
+//! and then copied into the receiver's inbox (H30), and the file an
+//! edit writes as it is now, for the chief to see the change. Each
+//! look runs on a task and its finding is kept on its call's entity;
+//! the runtime's request runs again and finds it, and the runtime
+//! waits for its answer meanwhile.
 
 use std::path::PathBuf;
 

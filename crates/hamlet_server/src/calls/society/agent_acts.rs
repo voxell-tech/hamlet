@@ -184,7 +184,7 @@ impl Core<'_, '_> {
                     Ok(agents::set_fast(cx, agent, fast)?.map(|()| {
                         let word = if fast { "on" } else { "off" };
                         format!(
-                            "{name} asks for the fast tier: {word}."
+                            "{name} calls for the fast tier: {word}."
                         )
                     }))
                 })
@@ -194,7 +194,7 @@ impl Core<'_, '_> {
                 Ok(Ok(
                     match reflections::reflect(cx, conversation)? {
                         Some(_) => {
-                            format!("Asked {name} to reflect.")
+                            format!("{name} reflects now.")
                         }
                         None => format!(
                             "{name} is reflecting already, or has \

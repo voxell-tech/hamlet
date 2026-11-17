@@ -88,7 +88,8 @@ pub(crate) struct SubmitSkill {
     pub reason: String,
 }
 
-/// Ask the librarian which skills in the library help with something.
+/// Send the librarian a request for the skills in the library that
+/// help with something.
 #[derive(Deserialize, JsonSchema)]
 pub(crate) struct RequestLibrarian {
     /// What you need a skill for.
@@ -386,8 +387,8 @@ pub(crate) struct SetFolder {
     pub folder: String,
 }
 
-/// Choose whether a hamlet's edits and commands in its folder ask a
-/// chief (`manual`) or not (`auto`); a chief approves it first.
+/// Choose whether a hamlet's edits and commands in its folder wait
+/// for a chief (`manual`) or not (`auto`); a chief approves it first.
 #[derive(Deserialize, JsonSchema)]
 pub(crate) struct SetMode {
     #[schemars(description = HAMLET)]
@@ -638,7 +639,7 @@ pub(crate) struct Dream {
     pub who: String,
 }
 
-/// Ask an agent to keep what its chat with the chief taught it.
+/// Have an agent keep what its conversation taught it now.
 #[derive(Deserialize, JsonSchema)]
 pub(crate) struct Reflect {
     #[schemars(description = ADDRESS)]

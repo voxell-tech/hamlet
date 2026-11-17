@@ -60,7 +60,7 @@ pub(crate) fn may_rule(db: &mut Db, actor: Actor) -> Result<bool> {
     })
 }
 
-/// Whether `actor` may reach the agent `id`: stop it, ask it to
+/// Whether `actor` may reach the agent `id`: stop it, have it
 /// reflect, read its prompt and papers and write its lodge's memory.
 /// A chief reaches the Hand, the hires of its hamlets and the workers
 /// it started or that work in them or in none; the Hand reaches

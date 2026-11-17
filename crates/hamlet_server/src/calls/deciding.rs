@@ -141,8 +141,8 @@ impl Core<'_, '_> {
         }
     }
 
-    /// A letter or a question as the gate rules on it: with the files
-    /// it sends, once they are measured.
+    /// A notification or a request as the gate rules on it: with the
+    /// files it sends, once they are measured.
     fn measured_send(
         &mut self,
         call: &Call<'_>,
