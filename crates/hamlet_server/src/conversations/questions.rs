@@ -16,20 +16,20 @@ pub(crate) const ANSWERS: &str = "The chief answers:";
 
 /// The arguments of `request_chief`, as the tool's schema has them.
 #[derive(Deserialize)]
-struct AskChief {
+struct RequestChief {
     #[serde(default)]
     message: String,
-    questions: Vec<AskChiefQuestion>,
+    questions: Vec<RequestChiefQuestion>,
 }
 
 /// One question as the agent puts it.
 #[derive(Deserialize)]
-struct AskChiefQuestion {
+struct RequestChiefQuestion {
     question: String,
     #[serde(default)]
     description: String,
     #[serde(default)]
-    options: Vec<AskChiefOption>,
+    options: Vec<RequestChiefOption>,
     /// Whether the chief may answer in words; pi's default is yes.
     text_input: Option<bool>,
 }
@@ -41,7 +41,7 @@ struct AskChiefQuestion {
     expecting = "an option is a title, or an object with a `title` \
                  and a `description`"
 )]
-enum AskChiefOption {
+enum RequestChiefOption {
     Title(String),
     Described {
         title: String,
@@ -50,7 +50,7 @@ enum AskChiefOption {
     },
 }
 
-/// The fault in an `request_chief` call's arguments, for the agent to
+/// The fault in a `request_chief` call's arguments, for the agent to
 /// put right.
 #[derive(Debug, thiserror::Error)]
 pub(crate) enum InvalidQuestions {
@@ -94,7 +94,7 @@ pub(crate) fn read(
 ) -> Result<Questions, InvalidQuestions> {
     let args = serde_json::from_str::<Value>(args)
         .map_err(|_| InvalidQuestions::NotJson)?;
-    let args = serde_json::from_value::<AskChief>(args)
+    let args = serde_json::from_value::<RequestChief>(args)
         .map_err(InvalidQuestions::Invalid)?;
     if args.questions.is_empty() {
         return Err(InvalidQuestions::NoQuestions);
@@ -117,7 +117,7 @@ pub(crate) fn read(
 /// The question `n`, counted from one.
 fn question(
     n: usize,
-    raw: AskChiefQuestion,
+    raw: RequestChiefQuestion,
 ) -> Result<Question, InvalidQuestions> {
     let question = raw.question.trim().to_string();
     if question.is_empty() {
@@ -129,8 +129,10 @@ fn question(
     let mut options = Vec::<Offer>::new();
     for offer in raw.options {
         let (title, description) = match offer {
-            AskChiefOption::Title(title) => (title, String::new()),
-            AskChiefOption::Described { title, description } => {
+            RequestChiefOption::Title(title) => {
+                (title, String::new())
+            }
+            RequestChiefOption::Described { title, description } => {
                 (title, description)
             }
         };
