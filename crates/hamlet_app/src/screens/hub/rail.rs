@@ -4,16 +4,20 @@
 //! the library and those that left. A row keeps its place as its
 //! agent works and rests; only its mark changes.
 
+use std::collections::{HashMap, HashSet};
+
 use bevy::app::{App, PostUpdate, Update};
 use bevy::color::Color;
+use bevy::ecs::change_detection::{DetectChanges, DetectChangesMut};
 use bevy::ecs::component::Component;
 use bevy::ecs::entity::Entity;
 use bevy::ecs::hierarchy::{ChildOf, Children};
+use bevy::ecs::lifecycle::RemovedComponents;
 use bevy::ecs::observer::On;
-use bevy::ecs::query::{Has, With};
+use bevy::ecs::query::{Changed, Has, With};
 use bevy::ecs::resource::Resource;
 use bevy::ecs::schedule::IntoScheduleConfigs;
-use bevy::ecs::system::{Commands, Query, ResMut};
+use bevy::ecs::system::{Commands, Query, Res, ResMut};
 use bevy::ecs::world::World;
 use bevy::picking::events::{
     PointerDrag, PointerDragEnd, PointerDragStart,
@@ -38,7 +42,7 @@ use bevy_fynix::{
 use hamlet_client::chats::{Entry, Transcript};
 use hamlet_client::realm::{
     Activity, Busy, HamletId, Identity, Kind, Left, Lived, LivesIn,
-    Mayor, MergedInto, Parent, Purpose, Scholar, Shown, Skills,
+    Mayor, MergedInto, Parent, Purpose, Scholar, Seen, Shown, Skills,
     name_of, shown_of,
 };
 use hamlet_client::waits::Waiting;
@@ -134,18 +138,32 @@ const REVEAL_FRAMES: u8 = 10;
 
 pub(super) fn plugin(app: &mut App) {
     app.init_resource::<Rail>()
+        .init_resource::<Width>()
         .init_resource::<Tab>()
         .init_resource::<Reveal>()
         .init_resource::<Parts>()
+        .init_resource::<Minute>()
         .add_observer(grab)
         .add_observer(drag)
         .add_observer(drop)
-        .add_systems(Update, (read_search, tabs::mark::<Tab>))
+        .add_systems(Update, (read_search, tabs::mark::<Tab>, tick))
         .add_systems(
             Update,
-            gather.after(read_search).before(FynixSystems::Mount),
+            gather
+                .run_if(is_stale)
+                .after(read_search)
+                .before(FynixSystems::Mount),
         )
         .add_systems(PostUpdate, reveal.after(UiSystems::Layout));
+}
+
+/// The minute it is, counted from 1970, on which the rows' ages are
+/// read again.
+#[derive(Resource, Default, PartialEq)]
+struct Minute(u64);
+
+fn tick(mut minute: ResMut<Minute>) {
+    minute.set_if_neq(Minute(now_ms() / 60_000));
 }
 
 /// The row to bring into view once it is laid out, and the frames
@@ -309,8 +327,8 @@ fn reveal(
         (scroll.y + shift * area.inverse_scale_factor()).max(0.0);
 }
 
-/// The rail's search, what is folded, and its width.
-#[derive(Resource, PartialEq)]
+/// The rail's search and what is folded.
+#[derive(Resource, PartialEq, Default)]
 pub struct Rail {
     search: String,
     /// The parts folded to their header. A hamlet with something
@@ -318,13 +336,21 @@ pub struct Rail {
     folded: Vec<Group>,
     /// The groups of workers opened; each is folded until it is.
     opened: Vec<Group>,
-    /// How wide the chief dragged it.
-    width: f32,
     /// The hamlets left out of it; one with something waiting is
     /// shown whatever this says.
     hidden: Vec<Entity>,
     /// Whether the list of hamlets to show is open.
     filtering: bool,
+}
+
+/// How wide the chief dragged the rail.
+#[derive(Resource)]
+struct Width(f32);
+
+impl Default for Width {
+    fn default() -> Self {
+        Self(WIDE)
+    }
 }
 
 /// The part of the realm the rail lists under the realm's own rows
@@ -339,25 +365,7 @@ pub enum Tab {
     City,
 }
 
-impl Default for Rail {
-    fn default() -> Self {
-        Self {
-            search: String::new(),
-            folded: Vec::new(),
-            opened: Vec::new(),
-            width: WIDE,
-            hidden: Vec::new(),
-            filtering: false,
-        }
-    }
-}
-
 impl Rail {
-    /// Shows the rail's rows at its first width.
-    pub fn show_rows(&mut self) {
-        self.width = WIDE;
-    }
-
     /// Folds `group` to its header, or opens it.
     fn toggle(&mut self, group: Group) {
         // Workers are kept in what is opened, as they start folded.
@@ -426,7 +434,7 @@ fn drag(
     bodies: Query<(&ComputedNode, &UiGlobalTransform), With<Body>>,
     parents: Query<&ChildOf>,
     children: Query<&Children>,
-    mut rail: ResMut<Rail>,
+    mut width: ResMut<Width>,
 ) {
     let Ok(line) = dividers.get(drag.entity) else {
         return;
@@ -455,7 +463,7 @@ fn drag(
     let past = (line.translation.x - edge) * scale;
     let most =
         (node.size().x * scale - PAGE).clamp(NARROWEST, WIDEST);
-    rail.width = (at.x - left - past).clamp(NARROWEST, most);
+    width.0 = (at.x - left - past).clamp(NARROWEST, most);
 }
 
 fn drop(
@@ -690,6 +698,18 @@ pub(crate) fn under_name(
 }
 
 fn agents(world: &World) -> Vec<Agent> {
+    // How many waits each address raised, counted once for every row.
+    let mut raised = HashMap::<&str, usize>::new();
+    if let Some(mut waits) = world.try_query::<&Waiting>() {
+        for wait in waits.iter(world) {
+            if !matches!(
+                wait.detail,
+                protocol::WaitDetail::Newcomer { .. }
+            ) {
+                *raised.entry(wait.by.as_str()).or_default() += 1;
+            }
+        }
+    }
     let Some(mut query) = world.try_query::<(
         Entity,
         &Identity,
@@ -732,7 +752,14 @@ fn agents(world: &World) -> Vec<Agent> {
                     parent: parent.map(|parent| parent.0),
                     hamlet: lives.map(|lives| lives.0),
                     mayor,
-                    mark: Some(Standing::of(world, entity)),
+                    mark: Some(Standing::raised(
+                        world,
+                        entity,
+                        raised
+                            .get(address.as_str())
+                            .copied()
+                            .unwrap_or(0),
+                    )),
                     called: called(&address, shown),
                     address,
                     tag: ScholarTag::of(world, entity),
@@ -760,44 +787,65 @@ impl Agent {
     }
 }
 
-/// `root` and everyone under it among `all`, each with its depth
-/// below `root`: hires by name, then the workers each agent started
-/// in a group under it.
+/// The hires and the workers under each agent, by its id, each by
+/// name.
+type Under<'a> =
+    HashMap<protocol::AgentId, (Vec<&'a Agent>, Vec<&'a Agent>)>;
+
+/// Who is under each of `some`, among `some`.
+fn under<'a>(some: &[&'a Agent]) -> Under<'a> {
+    let mut under = Under::new();
+    for agent in some {
+        let Some(parent) = agent.parent else {
+            continue;
+        };
+        let (hires, workers) = under.entry(parent).or_default();
+        match agent.is_worker() {
+            true => workers.push(*agent),
+            false => hires.push(*agent),
+        }
+    }
+    for (hires, workers) in under.values_mut() {
+        hires.sort_by_cached_key(|agent| agent.called.to_lowercase());
+        workers
+            .sort_by_cached_key(|agent| agent.called.to_lowercase());
+    }
+    under
+}
+
+/// `root` and everyone `under` it, each with its depth below `root`:
+/// hires by name, then the workers each agent started in a group
+/// under it.
 fn tree<'a>(
     root: &'a Agent,
-    all: &[&'a Agent],
+    under: &Under<'a>,
 ) -> Vec<(Node<'a>, u8)> {
     fn walk<'a>(
         agent: &'a Agent,
-        all: &[&'a Agent],
+        under: &Under<'a>,
         depth: u8,
-        seen: &mut Vec<protocol::AgentId>,
+        seen: &mut HashSet<protocol::AgentId>,
         out: &mut Vec<(Node<'a>, u8)>,
     ) {
-        if seen.contains(&agent.id) {
+        if !seen.insert(agent.id) {
             return;
         }
-        seen.push(agent.id);
         out.push((Node::Agent(agent), depth));
-        let mut under = all
-            .iter()
-            .copied()
-            .filter(|other| other.parent == Some(agent.id))
-            .collect::<Vec<_>>();
-        under.sort_by_key(|other| other.called.to_lowercase());
-        let (workers, hires): (Vec<_>, Vec<_>) =
-            under.into_iter().partition(|other| other.is_worker());
+        let Some((hires, workers)) = under.get(&agent.id) else {
+            return;
+        };
         let depth = depth.saturating_add(1);
         for child in hires {
-            walk(child, all, depth, seen, out);
+            walk(child, under, depth, seen, out);
         }
         if !workers.is_empty() {
             let group = Group::Workers(agent.entity);
+            let workers = workers.clone();
             out.push((Node::Workers { group, workers }, depth));
         }
     }
     let mut out = Vec::new();
-    walk(root, all, 0, &mut Vec::new(), &mut out);
+    walk(root, under, 0, &mut HashSet::new(), &mut out);
     out
 }
 
@@ -836,19 +884,21 @@ fn family_lines(
             }
         }
     }
-    let depths =
-        rows.iter().map(|(_, depth)| *depth).collect::<Vec<_>>();
+    // Whether each row is the last at its depth before a row set in
+    // less, found from the end.
+    let mut lasts = vec![true; rows.len()];
+    let mut follows = Vec::<bool>::new();
+    for (at, (_, depth)) in rows.iter().enumerate().rev() {
+        let level = usize::from(*depth);
+        follows.resize(level + 1, false);
+        lasts[at] = !follows[level];
+        follows[level] = true;
+    }
     // Whether the agent last seen at each depth has more after it.
     let mut more = Vec::<bool>::new();
     rows.into_iter()
-        .enumerate()
-        .map(|(at, (mut line, depth))| {
-            let last = depths.get(at + 1..).is_none_or(|after| {
-                after
-                    .iter()
-                    .take_while(|d| **d >= depth)
-                    .all(|d| *d > depth)
-            });
+        .zip(lasts)
+        .map(|((mut line, depth), last)| {
             let depth = depth.min(DEEPEST);
             let level = usize::from(depth);
             line.depth = depth;
@@ -972,32 +1022,35 @@ fn agent_line(
 /// what needs the chief.
 fn fold_leads(lines: Vec<Line>, folded: &[Group]) -> Vec<Line> {
     let mut lines = lines;
-    for at in 0..lines.len() {
+    // From the end, the rows not yet under a row before them, each
+    // with the most pressing mark of it and the rows under it.
+    let mut after = Vec::<(u8, Standing)>::new();
+    for at in (0..lines.len()).rev() {
         let depth = lines[at].depth;
-        let under = lines[at + 1..]
-            .iter()
-            .take_while(|line| line.depth > depth)
-            .count();
+        let mut under = false;
+        let mut mark = Standing::of_all(lines[at].mark);
+        while let Some(&(below, of)) = after.last()
+            && below > depth
+        {
+            after.pop();
+            under = true;
+            mark = Standing::of_all([mark, of]);
+        }
+        after.push((depth, mark));
         let Target::Agent(agent) = lines[at].target else {
             continue;
         };
-        if under == 0 {
+        if !under {
             continue;
         }
-        let range = &lines[at + 1..at + 1 + under];
         let group = Group::Lead(agent);
         let shut = folded.contains(&group);
-        // Open, each row shows its own state; folded, the lead
-        // stands for all of them.
-        let mark = Some(Standing::of_all(
-            std::iter::once(lines[at].mark)
-                .chain(range.iter().map(|line| line.mark))
-                .flatten(),
-        ));
         let line = &mut lines[at];
         line.fold = Some((group, shut));
+        // Open, each row shows its own state; folded, the lead
+        // stands for all of them.
         if shut {
-            line.mark = mark;
+            line.mark = Some(mark);
         }
     }
     // Leave out what folded leads hold.
@@ -1066,7 +1119,13 @@ fn needs(world: &World, all: &[Agent]) -> (Vec<Line>, usize) {
     let mut waits = query.iter(world).collect::<Vec<_>>();
     let total = waits.len();
     waits.sort_by_key(|wait| wait.since);
+    let by_address = all
+        .iter()
+        .map(|agent| (agent.address.as_str(), agent))
+        .collect::<HashMap<_, _>>();
     let mut lines = Vec::<Line>::new();
+    // The row of each who asks, by its address.
+    let mut rows = HashMap::<&str, usize>::new();
     let mut counts = Vec::<usize>::new();
     for wait in waits {
         // A newcomer is about the scholar at the harbor, not about
@@ -1099,19 +1158,19 @@ fn needs(world: &World, all: &[Agent]) -> (Vec<Line>, usize) {
             counts.push(1);
             continue;
         }
-        if let Some(at) =
-            lines.iter().position(|line| line.address == wait.by)
-        {
+        if let Some(&at) = rows.get(wait.by.as_str()) {
             counts[at] += 1;
             continue;
         }
+        rows.insert(wait.by.as_str(), lines.len());
         let line = wait.line(LINE_SHOWN);
         let said = line
             .strip_prefix(wait.shown.as_str())
             .unwrap_or(&line)
             .trim_start();
-        let asker = all.iter().find(|agent| agent.address == wait.by);
-        let (target, glyph, name, tag) = match asker {
+        let (target, glyph, name, tag) = match by_address
+            .get(wait.by.as_str())
+        {
             Some(agent)
                 if agent.kind == protocol::AgentKind::Hand =>
             {
@@ -1365,7 +1424,8 @@ pub(super) fn sections(world: &World) -> Vec<Section> {
             .iter()
             .filter(|agent| agent.hamlet.is_none())
             .collect::<Vec<_>>();
-        top.extend(family_lines(world, &tree(hand, &outside), &open));
+        let family = tree(hand, &under(&outside));
+        top.extend(family_lines(world, &family, &open));
     }
     // The library is the realm's, beside the Hand.
     let shelf =
@@ -1405,18 +1465,23 @@ pub(super) fn sections(world: &World) -> Vec<Section> {
     });
 
     // Each hamlet as the tree under its mayor.
+    let mut by_hamlet = HashMap::<Entity, Vec<&Agent>>::new();
+    for agent in &all {
+        if let Some(hamlet) = agent.hamlet {
+            by_hamlet.entry(hamlet).or_default().push(agent);
+        }
+    }
     for (hamlet, name) in hamlet_names(world) {
-        let here = all
-            .iter()
-            .filter(|agent| agent.hamlet == Some(hamlet))
-            .collect::<Vec<_>>();
+        let here = by_hamlet.remove(&hamlet).unwrap_or_default();
+        let ids =
+            here.iter().map(|agent| agent.id).collect::<HashSet<_>>();
         let mut roots = here
             .iter()
             .copied()
             .filter(|agent| {
-                agent.parent.is_none_or(|parent| {
-                    !here.iter().any(|a| a.id == parent)
-                })
+                agent
+                    .parent
+                    .is_none_or(|parent| !ids.contains(&parent))
             })
             .collect::<Vec<_>>();
         roots.sort_by_key(|agent| {
@@ -1426,9 +1491,10 @@ pub(super) fn sections(world: &World) -> Vec<Section> {
         // in it, and fold into one row after its tree.
         let (chiefs, roots): (Vec<_>, Vec<_>) =
             roots.into_iter().partition(|agent| agent.is_worker());
+        let under = under(&here);
         let mut family = Vec::new();
         for root in roots {
-            family.extend(tree(root, &here));
+            family.extend(tree(root, &under));
         }
         if !chiefs.is_empty() {
             let group = Group::Workers(hamlet);
@@ -1608,7 +1674,11 @@ fn filter_list() -> impl View {
             let open = rail.filtering
                 && world.get_resource::<Tab>().copied()
                     == Some(Tab::Hamlets);
-            (open, rail.hidden.clone(), hamlet_names(world))
+            let names = match open {
+                true => hamlet_names(world),
+                false => Vec::new(),
+            };
+            (open, rail.hidden.clone(), names)
         })
         .when(every_frame()),
         |(open, hidden, names)| {
@@ -1861,13 +1931,10 @@ fn expanded(line: &Line, dimmed: bool) -> AnyView {
     .overflow(Overflow::clip());
     let mut words = vec![name.boxed(), frame().grow(1.0).boxed()];
     words.push(
-        label(
-            derived(move |_: &World| age(now_ms(), since))
-                .when(every_frame()),
-        )
-        .wrap(false)
-        .rules(note_rules)
-        .boxed(),
+        label(resource::<Minute, _>(move |_| age(now_ms(), since)))
+            .wrap(false)
+            .rules(note_rules)
+            .boxed(),
     );
     words.push(mark_icon(line.mark));
     // The scholar's badge sits on the icon's top-left corner.
@@ -2139,6 +2206,30 @@ struct Parts {
 /// Which of [`Parts`]' places a part of the rail is in.
 type Place = fn(&Parts) -> &[Section];
 
+/// Whether anything [`sections`] reads changed since this last ran:
+/// the realm, a chat's transcript, the rail itself or what the Hub
+/// is turned to.
+fn is_stale(
+    seen: Option<Res<Seen>>,
+    rail: Res<Rail>,
+    tab: Res<Tab>,
+    showing: Option<Res<Showing>>,
+    convo: Option<Res<Convo>>,
+    transcripts: Query<(), Changed<Transcript>>,
+    mut unwatched: RemovedComponents<Transcript>,
+) -> bool {
+    // Read through each time, so that a removal is seen only once.
+    let unwatched = unwatched.read().count() > 0;
+    let changed = |is: Option<bool>| is.unwrap_or(false);
+    unwatched
+        || !transcripts.is_empty()
+        || changed(seen.map(|seen| seen.is_changed()))
+        || rail.is_changed()
+        || tab.is_changed()
+        || changed(showing.map(|showing| showing.is_changed()))
+        || changed(convo.map(|convo| convo.is_changed()))
+}
+
 /// Keeps [`Parts`] up to date, changed only when a section is.
 fn gather(world: &World, mut commands: Commands) {
     // The realm's page lists what waits in full.
@@ -2258,7 +2349,7 @@ pub(super) fn view() -> impl View {
     with_cx(move |cx| {
         column((scroll_area((body,)),))
             .gap(cx.theme().space.gap)
-            .width(resource::<Rail, _>(|rail| px(rail.width)))
+            .width(resource::<Width, _>(|width| px(width.0)))
             .min_width(px(NARROWEST))
             // Its width is its own: it neither grows into the page's
             // room nor shrinks, and only stretches down.

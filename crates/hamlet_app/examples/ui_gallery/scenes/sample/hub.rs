@@ -45,9 +45,6 @@ pub(super) fn setup(world: &mut World, scene: Scene) {
     ) {
         world.insert_resource(Showing::Thread);
     }
-    if matches!(scene, Scene::Hub | Scene::Merged | Scene::Agents) {
-        world.resource_mut::<hub::Rail>().show_rows();
-    }
     if scene == Scene::HubMenu {
         let agent = world.resource::<Convo>().agent;
         hamlet_app::world_menu::open_agent(

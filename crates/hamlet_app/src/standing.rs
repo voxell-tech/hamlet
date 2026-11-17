@@ -27,9 +27,18 @@ pub(crate) enum Standing {
 impl Standing {
     /// What `agent` is doing.
     pub(crate) fn of(world: &World, agent: Entity) -> Self {
+        Self::raised(world, agent, waits(world, agent))
+    }
+
+    /// What `agent` is doing, which has raised `waits`.
+    pub(crate) fn raised(
+        world: &World,
+        agent: Entity,
+        waits: usize,
+    ) -> Self {
         if world.get::<Left>(agent).is_some() {
             Self::Gone
-        } else if waits(world, agent) > 0 {
+        } else if waits > 0 {
             Self::Waits
         } else if world.get::<Faulted>(agent).is_some() {
             Self::Stopped
