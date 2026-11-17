@@ -81,14 +81,12 @@ test("the pi wrapper's storage answers one prompt once on a plain SQLite file", 
     await reopened.close();
 });
 
-/** The modules `agent/demo-host.ts` loads once it has the link. */
-const AGENT_HOST = [
-    "actor/registry/link.ts",
-    "agent/actor.ts",
-    "agent/native-filesystem.ts",
-    "agent/login.ts",
-    "agent/claude.ts",
-];
+/**
+ * The modules `agent/demo-host.ts` loads once it has the link, but for the
+ * link and the native filesystem: they load the native module, which a
+ * plain `npm test` has not built, and nothing of the coding agent.
+ */
+const AGENT_HOST = ["agent/actor.ts", "agent/login.ts", "agent/claude.ts"];
 
 test("the agent's host loads none of the coding agent's interactive mode or terminal UI", () => {
     const loads = (file: string) => import.meta.resolve(`../src/${file}`);
