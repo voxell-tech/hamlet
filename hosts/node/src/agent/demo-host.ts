@@ -25,6 +25,9 @@
  * and its `usage` the tokens it says it used, in place of the faux model's
  * estimate. Each answer is priced from its model's rates, as a real
  * provider's is. A restarted host begins the script again.
+ *
+ * Given `--sign-in`, it also lists two providers to sign in to, on
+ * loopback: `signInProviders` below.
  */
 // Only Node's own modules and the native module are imported before the
 // take, as in `src/main.ts`.
@@ -289,9 +292,11 @@ function dyingIn(files: AgentFilesystem): AgentFilesystem {
     };
 }
 
-const [flag, path] = process.argv.slice(2);
-const script: Script =
-    flag === "--faux" && path !== undefined ? scriptOf(path) : { steps: [] };
+const args = process.argv.slice(2);
+const path = args.includes("--faux")
+    ? args[args.indexOf("--faux") + 1]
+    : undefined;
+const script: Script = path === undefined ? { steps: [] } : scriptOf(path);
 const core = ai.createFauxCore(
     script.models === undefined ? {} : { models: [...script.models] },
 );
@@ -306,6 +311,95 @@ const stream: StreamFunction<string, SimpleStreamOptions> = (
     core.setResponses([step.answer]);
     return measured(core.stream(model, context, options), model, step.usage);
 };
+
+/** The made-up tokens `chatgpt`'s sign-in ends with. */
+const DEMO_OAUTH = {
+    access: 'made-up-oauth-access-"demo',
+    refresh: 'made-up-oauth-refresh-"demo',
+};
+
+/**
+ * Two providers to sign in to, on loopback, after the ones
+ * `test/chat-login.test.ts` fakes: `loopback`, whose sign-in asks for a
+ * key, and `chatgpt`, whose sign-in shows a link, a device code and a
+ * progress line, then asks for a code. Any code is taken, for the tokens
+ * `DEMO_OAUTH`. Their models answer as the demo's own does.
+ */
+function signInProviders() {
+    const modelsOf = (provider: string) =>
+        ai.createFauxCore({
+            provider,
+            api: core.api,
+            models: [{ id: "large" }],
+        }).models;
+    const api = { stream, streamSimple: stream };
+    const loopback = ai.createProvider({
+        id: "loopback",
+        models: modelsOf("loopback"),
+        api,
+        auth: {
+            apiKey: {
+                name: "loopback key",
+                login: async (interaction) => ({
+                    type: "api_key",
+                    key: await interaction.prompt({
+                        type: "secret",
+                        message: "Paste your key.",
+                    }),
+                }),
+                resolve: async ({ credential }) =>
+                    credential?.key === undefined
+                        ? undefined
+                        : { auth: { apiKey: credential.key } },
+            },
+        },
+    });
+    const chatgpt = ai.createProvider({
+        id: "chatgpt",
+        models: modelsOf("chatgpt"),
+        api,
+        auth: {
+            oauth: {
+                name: "loopback subscription",
+                login: async (interaction, options) => {
+                    interaction.notify({
+                        type: "auth_url",
+                        url: "https://example.invalid/oauth",
+                        instructions: "Offline sign-in",
+                    });
+                    interaction.notify({
+                        type: "device_code",
+                        verificationUri: "https://example.invalid/device",
+                        userCode: "SAFE-CODE",
+                    });
+                    interaction.notify({
+                        type: "progress",
+                        message: "Waiting for the offline code",
+                    });
+                    await interaction.prompt({
+                        type: "manual_code",
+                        message: "Paste the code.",
+                    });
+                    return {
+                        type: "oauth",
+                        ...DEMO_OAUTH,
+                        expires: Date.now() + 3_600_000,
+                        clientId: options?.getDeviceId?.(),
+                        agent: options?.agentName,
+                        scopes: ["offline", "profile"],
+                    };
+                },
+                refresh: async (credential) => ({
+                    ...credential,
+                    expires: Date.now() + 3_600_000,
+                }),
+                toAuth: async (credential) => ({ apiKey: credential.access }),
+            },
+        },
+    });
+    return [loopback, chatgpt];
+}
+
 const models = ai.createModels();
 models.setProvider(
     ai.createProvider({
@@ -315,6 +409,9 @@ models.setProvider(
         api: { stream, streamSimple: stream },
     }),
 );
+if (args.includes("--sign-in")) {
+    for (const provider of signInProviders()) models.setProvider(provider);
+}
 // With no Claude program found, the provider is not listed, as today.
 const executable = claudeExecutable();
 if (executable !== undefined)
