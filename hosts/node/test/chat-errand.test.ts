@@ -13,6 +13,7 @@ import type {
     ChatEvent,
     ChatItem,
     Copies,
+    Place,
     Submit,
 } from "../src/agent/messages.ts";
 import {
@@ -21,8 +22,10 @@ import {
     named,
     timedOut,
     until,
+    type Woken,
     wakeAgent,
 } from "./agent-testing.ts";
+import { context } from "./testing.ts";
 
 /** An action's arguments or a create input, as the host decodes them. */
 function fixture(name: string): unknown {
@@ -45,6 +48,12 @@ function asked(seen: Context[], words: string): FauxResponseFactory {
         seen.push(context);
         return fauxAssistantMessage(words);
     };
+}
+
+/** The tools the root conversation offers the model, by name. */
+async function offered(agent: Woken): Promise<string[]> {
+    const root = await (await agent.harness()).root(context);
+    return (await root.agent(context)).tools.map((tool) => tool.name).sort();
 }
 
 /** What the model read as a user's words in a request. */
@@ -144,7 +153,61 @@ test("an errand's prompt is its instructions only", async (t) => {
     );
     assert.deepEqual(userWords(request), ["Write the tests"]);
     // As today (`calls/place.rs:232`), an errand is offered no tool.
-    assert.deepEqual(request.tools ?? [], []);
+    assert.deepEqual(await offered(agent), []);
+});
+
+test("a worker is offered only the built-in tools its brief names", async (t) => {
+    const added = (name: string) => ({
+        name,
+        description: `Runs ${name}.`,
+        parameters: JSON.stringify({ type: "object", properties: {} }),
+    });
+    const { calls, sent } = fakeCalls({
+        workspace: {
+            list_tools: () => ({
+                tools: [added("lint"), added("deploy")],
+                faults: [],
+            }),
+        },
+        realm: { worker_done: () => null },
+    });
+    const brief = WORKER.brief;
+    assert.ok(brief !== undefined);
+    const agent = await wakeAgent(t, {
+        calls,
+        input: {
+            ...WORKER,
+            brief: { ...brief, tools: [{ name: "read" }, { name: "lint" }] },
+        },
+        responses: [fauxAssistantMessage("Done.")],
+    });
+    t.after(() => agent.stop());
+    await until(() => named(sent, "worker_done").length === 1);
+    // The tools a workspace lists arrive after the wake.
+    await until(async () => (await offered(agent)).includes("lint"));
+
+    // As today (`calls/place.rs:189-197`): no society tool, no timer.
+    assert.deepEqual(await offered(agent), ["lint", "read"]);
+});
+
+test("a place sent to an errand offers it no tool", async (t) => {
+    const copies = Promise.withResolvers<Copies>();
+    const { calls, sent } = fakeCalls({
+        realm: { read_copies: () => copies.promise, errand_done: () => null },
+    });
+    const agent = await wakeAgent(t, {
+        calls,
+        input: ERRAND,
+        responses: [fauxAssistantMessage("PASS")],
+    });
+    t.after(() => agent.stop());
+    await until(() => named(sent, "read_copies").length === 1);
+    const place: Place = { version: 2, hires: [], roads: [], tools_off: [] };
+    await agent.actions.place(agent.by(from.realm), place);
+    copies.resolve({});
+    await until(() => named(sent, "errand_done").length === 1);
+
+    assert.deepEqual(await offered(agent), []);
 });
 
 test("a notice, a worker's answer and a reviewed line's note are taken and shown as today", async (t) => {
@@ -228,6 +291,25 @@ test("an errand that answers no words fails with today's words", async (t) => {
     // `crates/hamlet_server/src/talk/errands.rs:133`.
     assert.deepEqual(named(sent, "errand_done")[0]?.message, {
         ended: { type: "failed", why: "the errand gave no answer" },
+    });
+});
+
+test("a worker cut off with no words ends with the notice's words", async (t) => {
+    const { calls, sent } = fakeCalls({ realm: { worker_done: () => null } });
+    const agent = await wakeAgent(t, {
+        calls,
+        input: WORKER,
+        responses: [fauxAssistantMessage([], { stopReason: "length" })],
+    });
+    t.after(() => agent.stop());
+    await until(() => named(sent, "worker_done").length === 1);
+
+    // As today (`talk/follow.rs:73-78`), a failed turn ends with its reason.
+    assert.deepEqual(named(sent, "worker_done")[0]?.message, {
+        ended: {
+            type: "failed",
+            why: "the message is longer than the model can hold",
+        },
     });
 });
 
