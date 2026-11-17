@@ -20,6 +20,7 @@ import type {
 } from "../actor/actor/mod.ts";
 import type { AgentFilesystem } from "./filesystem.ts";
 import {
+    type Author,
     type CallId,
     type ConversationRef,
     type LetterId,
@@ -108,6 +109,8 @@ export type Admission = {
     readonly content: UserInput;
     /** The realm's task the turn is charged to. Absent: the standing task pays. */
     readonly task?: RealmTask;
+    /** Who sent a letter, a question or an answer. */
+    readonly from?: Author;
 } & (
     | { readonly kind: Exclude<InputKind, "question" | "cut-off"> }
     | {
@@ -134,7 +137,12 @@ export interface TurnInput {
 
 const KIND = "hamlet.";
 
-type Kept = { task?: RealmTask; question?: LetterId };
+export type Kept = {
+    task?: RealmTask;
+    question?: LetterId;
+    /** The compiler takes no interface as an entry's JSON data; a `Pick` of one it does. */
+    from?: Pick<Author, keyof Author>;
+};
 
 /**
  * Its entry is admitted in the same commit as the input. A busy run takes a
@@ -149,6 +157,7 @@ export function draftOf(
         ...("question" in admission && admission.question !== undefined
             ? { question: admission.question }
             : {}),
+        ...(admission.from === undefined ? {} : { from: admission.from }),
     };
     return {
         type: "input",
