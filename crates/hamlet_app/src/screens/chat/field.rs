@@ -24,7 +24,7 @@ use crate::reference::chip_of;
 const REFERENCE: &str = "reference:";
 
 /// What stands for an atom in [`flat`] text.
-const ATOM: char = '\u{FFFC}';
+const ATOM: &str = "\u{FFFC}";
 
 /// The field's content as it was last seen, in [`flat`] text, and the
 /// chips of agents put in it so far.
@@ -41,10 +41,11 @@ pub(super) struct Drafts(HashMap<Entity, Vec<Piece>>);
 
 impl Drafts {
     fn keep(&mut self, session: Entity, pieces: Vec<Piece>) {
-        match pieces.is_empty() {
-            true => self.0.remove(&session),
-            false => self.0.insert(session, pieces),
-        };
+        if pieces.is_empty() {
+            self.0.remove(&session);
+        } else {
+            self.0.insert(session, pieces);
+        }
     }
 }
 
@@ -162,7 +163,7 @@ fn flat(pieces: &[Piece]) -> String {
         .iter()
         .map(|piece| match piece {
             Piece::Text(text) => text.as_str(),
-            Piece::Atom(_) => "\u{FFFC}",
+            Piece::Atom(_) => ATOM,
         })
         .collect()
 }
@@ -194,10 +195,11 @@ fn is_whole(
     part: &Range<usize>,
     edit: &Range<usize>,
 ) -> bool {
-    let after = text[part.end..].chars().next();
-    let ended = after.is_some_and(|c| {
-        c.is_whitespace() || c.is_ascii_punctuation() || c == ATOM
-    });
+    let after = &text[part.end..];
+    let ended = after.starts_with(ATOM)
+        || after.chars().next().is_some_and(|c| {
+            c.is_whitespace() || c.is_ascii_punctuation()
+        });
     ended || (edit.start <= part.start && part.end <= edit.end)
 }
 
@@ -237,11 +239,8 @@ pub(super) fn chip_references(world: &mut World, pieces: &[Piece]) {
             Piece::Atom(atom) => {
                 out.push(piece.clone());
                 let key = atom.key().to_string();
-                parts.push((
-                    at..at + ATOM.len_utf8(),
-                    Part::Atom(key),
-                ));
-                at += ATOM.len_utf8();
+                parts.push((at..at + ATOM.len(), Part::Atom(key)));
+                at += ATOM.len();
                 continue;
             }
         };
