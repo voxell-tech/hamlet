@@ -83,13 +83,19 @@ type CutOffState =
 
 /** An answer cut off with nothing in it, which the rule asks again once. */
 export function isShortCutOff(answer: AssistantMessage): boolean {
-    const stands = answer.content.some(
+    return (
+        !hasWordsOrCall(answer) &&
+        answer.stopReason === "length" &&
+        answer.usage.output < ROOMY
+    );
+}
+
+/** Today's test of an answer that stands (`verdicts.rs:55-60`): words or a tool call. */
+export function hasWordsOrCall(answer: AssistantMessage): boolean {
+    return answer.content.some(
         (block) =>
             block.type === "toolCall" ||
             (block.type === "text" && block.text.trim() !== ""),
-    );
-    return (
-        !stands && answer.stopReason === "length" && answer.usage.output < ROOMY
     );
 }
 

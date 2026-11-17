@@ -26,7 +26,7 @@ import {
     type RewindAnswer,
     u32,
 } from "./messages.ts";
-import { reflectOnLeaving } from "./reflect.ts";
+import { reflectIn, reflectOnLeaving } from "./reflect.ts";
 import {
     begin,
     chiefSession,
@@ -404,7 +404,7 @@ async function callIsOut(
     return unanswered > 0;
 }
 
-export function reflectNow(c: AgentCall): Answer<"reflect"> {
-    void c;
-    return Promise.reject(new Error("not built: U5"));
+/** As `crates/hamlet_server/src/commands/oversight.rs:249-266` asks. */
+export async function reflectNow(c: AgentCall): Answer<"reflect"> {
+    return reflectIn(c, await chiefSession(c));
 }

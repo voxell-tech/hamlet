@@ -130,7 +130,7 @@ function parts(
 ): Extension[] {
     return [
         promptPart(prompt),
-        reflection(prompt.copies, owedOf(withHarness), reflectEvery()),
+        reflection(peers, prompt.copies, owedOf(withHarness), reflectEvery()),
         cutOffRule(),
         workspaceTools(peers),
         ownFiles(peers),
