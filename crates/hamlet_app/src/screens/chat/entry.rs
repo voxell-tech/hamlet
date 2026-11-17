@@ -7,7 +7,8 @@ use bevy::ecs::world::World;
 use bevy::ui::{AlignItems, Overflow, UiRect, percent, px};
 use bevy_fynix::tokens::Tone;
 use bevy_fynix::views::{
-    BehaviorExt, FrameProps, button, column, frame, ghost, label, row,
+    BehaviorExt, FrameProps, TooltipExt, button, column, frame,
+    ghost, label, row,
 };
 use bevy_fynix::{
     ScopedExt, ViewExt, component, derived, every_frame, keyed,
@@ -50,12 +51,18 @@ fn clip(s: &str, max: usize) -> String {
 const TOOL_TEXT: usize = 400;
 
 /// The request to a tool: the shell command itself when the arguments
-/// are `{"command": ...}`, the raw arguments otherwise.
+/// are `{"command": ...}`, the path of a call on one file, the raw
+/// arguments otherwise.
 fn tool_text(summary: &str) -> String {
-    let command = serde_json::from_str::<serde_json::Value>(summary)
-        .ok()
-        .and_then(|v| v["command"].as_str().map(str::to_string));
-    cut(command.as_deref().unwrap_or(summary), TOOL_TEXT)
+    let value =
+        serde_json::from_str::<serde_json::Value>(summary).ok();
+    let named = value.as_ref().and_then(|v| {
+        v["command"].as_str().or_else(|| {
+            // A search's pattern tells it apart more than its path.
+            v["pattern"].is_null().then(|| v["path"].as_str())?
+        })
+    });
+    cut(named.unwrap_or(summary), TOOL_TEXT)
 }
 
 /// What a tool call that has not ended is doing.
@@ -194,7 +201,18 @@ fn tool_row(session: Entity, id: String) -> impl View {
             )
             .keep(Keep::Ends)
             .rules(small_rules)
-            .tagged(MonoText),))
+            .tagged(MonoText)
+            .tooltip({
+                let read = read.clone();
+                move || {
+                    note(read(|e| match e {
+                        Entry::Tool { summary, .. } => {
+                            request(summary)
+                        }
+                        _ => String::new(),
+                    }))
+                }
+            }),))
             .grow(1.0)
             .min_width(px(0.0))
             .overflow(Overflow::clip_x()),

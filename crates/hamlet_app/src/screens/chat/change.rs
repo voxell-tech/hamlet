@@ -5,7 +5,7 @@ use bevy::color::Color;
 use bevy::ecs::entity::Entity;
 use bevy::ecs::resource::Resource;
 use bevy::ecs::world::World;
-use bevy::ui::{AlignItems, UiRect, percent, px};
+use bevy::ui::{AlignItems, Overflow, UiRect, percent, px};
 use bevy_fynix::tokens::{TextTokens, Tone};
 use bevy_fynix::views::{
     BehaviorExt, FrameProps, TooltipExt, button, column, ghost,
@@ -17,8 +17,9 @@ use hamlet_protocol::client::{
     Change, ChangeLines as Line, ChangeLinesMark as Mark,
 };
 use hamlet_ui::kinds::inset;
-use hamlet_ui::markdown::Area;
+use hamlet_ui::markdown::{Anchor, Area, PathLinks};
 use hamlet_ui::styles::{bare, note, small_rules};
+use hamlet_ui::widgets::ellipsis::{Keep, one_line};
 use hamlet_ui::widgets::icons::{Glyph, glyph};
 use hamlet_ui::widgets::platform::MonoText;
 use hamlet_ui::{AnyView, Cx, View, with_cx};
@@ -256,6 +257,7 @@ pub(crate) fn change_view(
         .align(AlignItems::Center),
     )
     .padding(UiRect::axes(px(INSET), px(4.0)))
+    .shrink(0.0)
     .rules(ghost)
     .on_activate(move |world| {
         flip(
@@ -270,19 +272,25 @@ pub(crate) fn change_view(
         component::<Transcript, _>(session, |t| {
             t.is_some_and(Transcript::is_answering)
         }),
-        move |_| {
-            hamlet_ui::markdown::typed(&path, "")
-                .unwrap_or_else(|| label(path.clone()).boxed())
-        },
+        move |_| path_line(path.clone()),
     )
-    .within(bare().shrink(1.0).min_width(px(0.0)));
+    .within(
+        bare()
+            .grow(1.0)
+            .min_width(px(0.0))
+            .overflow(Overflow::clip_x()),
+    );
     let mut parts =
         vec![fold.boxed(), file.boxed(), counted(&change)];
     // A held call's card says that it waits, so its head does not.
     if underway == Underway::Running {
-        parts.push(status(session, id).boxed());
+        parts.push(row((status(session, id),)).shrink(0.0).boxed());
     }
-    let head = row(parts).gap(8.0).align(AlignItems::Center);
+    let head = row(parts)
+        .gap(8.0)
+        .align(AlignItems::Center)
+        .width(percent(100.0))
+        .min_width(px(0.0));
 
     let mut moved = component::<Transcript, _>(session, |_| ());
     let mut turned = resource::<Changes, _>(|_| ());
@@ -328,6 +336,37 @@ pub(crate) fn change_view(
     })
     .within(bare());
     column((head, body)).gap(2.0).width(percent(100.0)).boxed()
+}
+
+/// `path` on one line, cut in its middle so its file's name shows,
+/// whole under the pointer. It opens its file when it names one.
+fn path_line(path: String) -> AnyView {
+    AnyView::new(move |cx: &mut Cx| {
+        let found = cx
+            .world
+            .get_resource::<PathLinks>()
+            .copied()
+            .and_then(|links| (links.resolve)(cx.world, &path));
+        let tone = if found.is_some() {
+            Tone::Accent
+        } else {
+            Tone::Body
+        };
+        let line = one_line(label(path.clone()).tone(tone))
+            .keep(Keep::Ends)
+            .rules(small_rules)
+            .tagged(MonoText);
+        let whole = path.clone();
+        match found {
+            Some(file) => cx.build(
+                line.tagged(Anchor::File(file))
+                    .tooltip(move || note(whole.clone())),
+            ),
+            None => {
+                cx.build(line.tooltip(move || note(whole.clone())))
+            }
+        }
+    })
 }
 
 /// The lines of `change` as far as `extent` goes, with the button
