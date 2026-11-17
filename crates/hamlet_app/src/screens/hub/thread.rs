@@ -25,7 +25,6 @@ use hamlet_client::realm::{
     Activity, Busy, Kind, Left, LivesIn, Parent, Scholar, Works,
     id_of, name_of, shown_of,
 };
-use hamlet_client::waits::Waiting;
 use hamlet_protocol::client as protocol;
 use hamlet_realm::pick::{Thing, select};
 use hamlet_ui::kinds::card;
@@ -48,7 +47,7 @@ use crate::convo::Convo;
 use crate::overview::tell;
 use crate::roll::rolled;
 use crate::scholar_tag::{ScholarTag, learned_mark, learned_words};
-use crate::screens::petition::{self, Need};
+use crate::screens::petition;
 use crate::standing::Standing;
 use crate::{chat, words, world_menu};
 
@@ -208,58 +207,6 @@ fn path(agent: Entity, under: Option<&'static str>) -> impl View {
         }
         cx.build(crumbs(parts))
     })
-}
-
-/// The waits `agent` raised that the chief has not answered, oldest
-/// first.
-fn waits_of(world: &World, agent: Entity) -> Vec<Entity> {
-    let address = name_of(world, agent);
-    let Some(mut query) = world.try_query::<(Entity, &Waiting)>()
-    else {
-        return Vec::new();
-    };
-    let mut found = query
-        .iter(world)
-        .filter(|(_, waiting)| waiting.by == address)
-        .map(|(entity, waiting)| (waiting.since, entity))
-        .collect::<Vec<_>>();
-    found.sort();
-    found.into_iter().map(|(_, entity)| entity).collect()
-}
-
-/// What the agent waits on the chief for, each with its answers, over
-/// its chat, so a row of NEEDS YOU lands where it can be answered.
-fn waits(agent: Entity) -> impl View {
-    keyed(
-        derived(move |world: &World| waits_of(world, agent))
-            .when(every_frame()),
-        |waits| {
-            let cards = waits
-                .iter()
-                .copied()
-                .map(|wait| {
-                    AnyView::new(move |cx: &mut Cx| {
-                        match cx.world.get::<Waiting>(wait) {
-                            Some(waiting) => {
-                                let need = Need::of(wait, waiting);
-                                cx.build(petition::strip(&need))
-                            }
-                            None => cx.build(frame()),
-                        }
-                    })
-                })
-                .collect::<Vec<_>>();
-            if cards.is_empty() {
-                return frame().boxed();
-            }
-            column((scroll_area((column(cards).gap(8.0),)),))
-                .min_height(px(0.0))
-                .boxed()
-        },
-    )
-    // As tall as the cards, but never more than part of the page, so
-    // the chat stays in view; the rest scrolls.
-    .within(bare().shrink(0.0).max_height(percent(40.0)))
 }
 
 /// Its state, by its name, and what it works on while it works.
@@ -654,9 +601,9 @@ fn seated() -> Signal<(Entity, Entity)> {
     resource::<Convo, _>(|convo| (convo.session, convo.agent))
 }
 
-/// The transcript over its composer. The transcript is kept from one
-/// chat to the next, so the next one shows where it was left in the
-/// update it is chosen.
+/// The transcript over what the agent waits on from the chief, over
+/// its composer. The transcript is kept from one chat to the next, so
+/// the next one shows where it was left in the update it is chosen.
 fn talk() -> AnyView {
     let bar = keyed(seated(), |&(_, agent)| {
         chat::message_bar(chips(agent)).boxed()
@@ -666,7 +613,7 @@ fn talk() -> AnyView {
         let space = &cx.theme().space;
         let (gap, widest) = (space.gap, px(space.thread_width));
         // In a column of its own in the middle of a wide panel.
-        column((chat::transcript(), bar))
+        column((chat::transcript(), petition::in_chat(), bar))
             .fills_height()
             .gap(gap)
             .width(percent(100.0))
@@ -678,14 +625,8 @@ fn talk() -> AnyView {
 
 /// The thread of the agent the chat is with.
 pub(super) fn living() -> impl View {
-    let about = keyed(seated(), |&(_, agent)| {
-        with_cx(move |cx| {
-            column((header(agent), waits(agent)))
-                .gap(cx.theme().space.gap)
-        })
-        .boxed()
-    })
-    .within(bare());
+    let about = keyed(seated(), |&(_, agent)| header(agent).boxed())
+        .within(bare());
     // The details take the chat's place while they are open.
     let body = keyed(
         resource::<Sheet, _>(|sheet| *sheet == Sheet::Details),
@@ -885,7 +826,11 @@ mod tests {
 
     fn hub_app() -> App {
         let mut app = panel_app();
-        app.add_plugins((chat::plugin, crate::hub::plugin));
+        app.add_plugins((
+            chat::plugin,
+            crate::hub::plugin,
+            petition::plugin,
+        ));
         app.init_resource::<crate::status::Bar>();
         app
     }

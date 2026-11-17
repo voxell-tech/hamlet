@@ -35,7 +35,7 @@ pub(crate) const LIBRARY: &str = "Skills every agent can use.";
 pub(crate) const HEARTH: &str = "Your own house in the world.";
 
 pub(crate) const NEEDS: &str =
-    "Questions and approvals waiting for your answer.";
+    "Requests and approvals waiting for your response.";
 
 pub(crate) const LEFT: &str =
     "Agents and scholars that left. They can be brought back.";

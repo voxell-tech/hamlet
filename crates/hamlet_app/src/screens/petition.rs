@@ -1,6 +1,6 @@
 //! What waits for the chief: each wait in full, with the answers it
-//! takes, shown in the thread of the agent that asks and all of them
-//! on the realm's page. Questions are answered on their `asking`
+//! takes, shown over the message bar of the agent that waits and all
+//! of them on the realm's page. A request is answered on its `asking`
 //! card.
 
 use std::collections::HashSet;
@@ -15,21 +15,22 @@ use bevy::ecs::schedule::IntoScheduleConfigs;
 use bevy::ecs::system::{Commands, Local, Query, Res, ResMut};
 use bevy::ecs::world::World;
 use bevy::time::Time;
-use bevy::ui::{AlignItems, px};
+use bevy::ui::{AlignItems, Display, percent, px};
 use bevy_fynix::views::{
     BehaviorExt, FrameProps, TooltipExt, column, frame, label, row,
+    scroll,
 };
-use bevy_fynix::{ViewExt, derived, each};
-use hamlet_client::chats::{Entry, Transcript};
+use bevy_fynix::{ViewExt, derived, each, keyed, resource};
+use hamlet_client::chats::{Chat, Entry, Transcript};
 use hamlet_client::messages::Answer;
-use hamlet_client::waits::{Choice, ChoiceExt, Waiting};
+use hamlet_client::waits::{Choice, ChoiceExt, RaisedBy, Waiting};
 use hamlet_protocol::client::{
     Change, Lasting, Questions, WaitDanger, WaitDetail,
 };
 use hamlet_realm::needs::{TagAnswered, TagOpened};
 use hamlet_ui::kinds::card;
 use hamlet_ui::styles::{
-    Looks, buttons, command_block, marked, note, status_mark,
+    Looks, bare, buttons, command_block, marked, note, status_mark,
 };
 use hamlet_ui::theme::StatusKind;
 use hamlet_ui::widgets::effects::Variant;
@@ -38,9 +39,9 @@ use hamlet_ui::widgets::platform::MonoText;
 use hamlet_ui::{AnyView, Cx, View, with_cx};
 
 use crate::age::Age;
-use crate::convo::talk_at;
+use crate::convo::{Convo, talk_at};
 use crate::dock::{HUB, show_tab};
-use crate::hub::Showing;
+use crate::hub::{Sheet, Showing};
 use crate::roll::{either, moved};
 use crate::standing::Standing;
 use crate::{PanelSystems, asking, chat};
@@ -48,14 +49,19 @@ use crate::{PanelSystems, asking, chat};
 /// Seconds between two refreshes of the time each has waited.
 const TICK: f32 = 10.0;
 
+/// The most of the chat's height the wait over its message bar
+/// takes, in percent. Past it the wait scrolls.
+const TALLEST: f32 = 45.0;
+
 pub fn plugin(app: &mut App) {
     app.init_resource::<Queue>()
         .init_resource::<Unfolded>()
+        .init_resource::<Pending>()
         .add_observer(tag_answered)
         .add_observer(tag_opened)
         .add_systems(
             PreUpdate,
-            keep_queue.in_set(PanelSystems::Bind),
+            (keep_queue, follow).in_set(PanelSystems::Bind),
         );
 }
 
@@ -74,9 +80,31 @@ impl Queue {
     }
 }
 
-/// The questions opened in full on the realm's page.
+/// The requests opened in full on the realm's page.
 #[derive(Resource, Default)]
 struct Unfolded(HashSet<Entity>);
+
+/// What the agent of the open chat waits on from the chief, oldest
+/// first, and the one shown over its message bar.
+#[derive(Resource, Default, PartialEq)]
+struct Pending {
+    waits: Vec<Entity>,
+    /// The one turned to, else the oldest is shown.
+    shown: Option<Entity>,
+}
+
+impl Pending {
+    /// The wait shown, its place among them and how many there are.
+    fn on_show(&self) -> Option<(Entity, usize, usize)> {
+        let at = self
+            .shown
+            .and_then(|shown| {
+                self.waits.iter().position(|&wait| wait == shown)
+            })
+            .unwrap_or(0);
+        Some((*self.waits.get(at)?, at, self.waits.len()))
+    }
+}
 
 #[derive(Clone, Debug, PartialEq)]
 pub(crate) struct Need {
@@ -143,6 +171,42 @@ fn keep_queue(
     }
 }
 
+/// Keeps [`Pending`] as the waits raised by the agent the chat is
+/// with, or by a turn of the chat itself.
+fn follow(
+    convo: Res<Convo>,
+    chats: Query<&Chat>,
+    waiting: Query<(Entity, &Waiting, Option<&RaisedBy>)>,
+    mut pending: ResMut<Pending>,
+) {
+    let chat = chats.get(convo.session).ok().map(|chat| &chat.0);
+    let mut found = waiting
+        .iter()
+        .filter(|(_, waits, by)| {
+            (waits.chat.is_some() && waits.chat.as_ref() == chat)
+                || by.is_some_and(|by| by.0 == convo.agent)
+        })
+        .map(|(wait, waits, _)| {
+            (waits.since, waits.id.as_str(), wait)
+        })
+        .collect::<Vec<_>>();
+    found.sort();
+    let waits =
+        found.into_iter().map(|(.., wait)| wait).collect::<Vec<_>>();
+    let shown = pending.shown.filter(|shown| waits.contains(shown));
+    if pending.waits != waits || pending.shown != shown {
+        *pending = Pending { waits, shown };
+    }
+}
+
+/// Shows the wait at `at` over the message bar.
+fn turn(world: &mut World, at: usize) {
+    let mut pending = world.resource_mut::<Pending>();
+    if let Some(&wait) = pending.waits.get(at) {
+        pending.shown = Some(wait);
+    }
+}
+
 /// Sends the chief's answer to `need`. A reply is words, which are
 /// written in the chat that asked, so it opens that chat instead.
 fn answer(world: &mut World, need: &Need, choice: Choice) {
@@ -191,8 +255,8 @@ pub(crate) fn tag_opened(
 }
 
 /// Turns the Hub to where `wait` is answered: a newcomer's scholar,
-/// the thread of the agent that asks, else the realm's page, which
-/// has every wait.
+/// the chat of the agent that waits, over its message bar, else the
+/// realm's page, which has every wait.
 pub(crate) fn open(world: &mut World, wait: Entity) {
     let Some(waiting) = world.get::<Waiting>(wait) else {
         return;
@@ -209,7 +273,11 @@ pub(crate) fn open(world: &mut World, wait: Entity) {
         (Some(scholar), _) => {
             crate::hub::show(world, Showing::Scholar(scholar));
         }
-        (None, Some(agent)) => crate::convo::talk_to(world, agent),
+        (None, Some(agent)) => {
+            crate::convo::talk_to(world, agent);
+            world.insert_resource(Sheet::Chat);
+            world.resource_mut::<Pending>().shown = Some(wait);
+        }
         (None, None) => crate::hub::show(world, Showing::Realm),
     }
 }
@@ -355,18 +423,22 @@ fn held(
     ))
 }
 
-/// The line over the card of `need`: what waits, in its tone, and
-/// how long it has waited. A newcomer's is about `scholar`, the one
-/// at the harbor.
-fn head(need: &Need, scholar: &str) -> impl View + use<> {
+/// The line over the card of `need`: what waits, in its tone, how
+/// long it has waited, and `tail`. A newcomer's is about `scholar`,
+/// the one at the harbor.
+fn head(
+    need: &Need,
+    scholar: &str,
+    tail: AnyView,
+) -> impl View + use<> {
     let what = match &need.detail {
         WaitDetail::Approval { says, .. } => {
             format!("{} {says}", need.shown)
         }
         WaitDetail::Question { questions } => {
             match questions.questions.len() {
-                1 => format!("{} has a question", need.shown),
-                n => format!("{} has {n} questions", need.shown),
+                1 => format!("Request from {}", need.shown),
+                n => format!("{n} requests from {}", need.shown),
             }
         }
         WaitDetail::Objection {} => {
@@ -393,13 +465,14 @@ fn head(need: &Need, scholar: &str) -> impl View + use<> {
             label(what).size(cx.theme().text.small).bold(true),
             frame().grow(1.0),
             note(when),
+            tail,
         ))
         .gap(cx.theme().space.gap)
         .align(AlignItems::Center)
     })
 }
 
-/// The card of a question folded to its first question and how many
+/// The card of a request folded to its first question and how many
 /// more there are, with the button that unfolds it in place.
 fn brief(need: &Need, asked: &Questions) -> AnyView {
     let wait = need.entity;
@@ -412,9 +485,9 @@ fn brief(need: &Need, asked: &Questions) -> AnyView {
         0 | 1 => frame().boxed(),
         n => note(format!("+{} more", n - 1)).boxed(),
     };
-    let head = head(need, "");
+    let head = head(need, "", frame().boxed());
     with_cx(move |cx| {
-        let open = marked(Glyph::Talk, "Answer")
+        let open = marked(Glyph::Talk, "Respond")
             .variant(Variant::Primary)
             .on_activate(move |world| {
                 world.resource_mut::<Unfolded>().0.insert(wait);
@@ -434,7 +507,8 @@ fn brief(need: &Need, asked: &Questions) -> AnyView {
     .boxed()
 }
 
-pub(crate) fn strip(need: &Need) -> AnyView {
+/// The card of `need` in full, `tail` at the end of its head.
+fn strip(need: &Need, tail: AnyView) -> AnyView {
     let need = need.clone();
     AnyView::new(move |cx: &mut Cx| {
         let questions = match &need.detail {
@@ -493,7 +567,7 @@ pub(crate) fn strip(need: &Need) -> AnyView {
             }
             _ => String::new(),
         };
-        let head = head(&need, &scholar);
+        let head = head(&need, &scholar, tail);
         // A form says its questions itself, and an approval's
         // subject is its head and, in full, its body.
         let line = match &need.detail {
@@ -545,11 +619,46 @@ pub fn waiting() -> impl View {
                 (WaitDetail::Question { questions }, false) => {
                     brief(need, questions)
                 }
-                _ => strip(need),
+                _ => strip(need, frame().boxed()),
             },
         )
         .within(column(()).gap(space.gap))
     })
+}
+
+/// What the agent of the open chat waits on from the chief, in full,
+/// with the way between them while there are several. As tall as it
+/// needs up to [`TALLEST`] of its column, past which it scrolls.
+pub fn in_chat() -> impl View {
+    let shown = resource::<Pending, _>(|pending| {
+        match pending.waits.is_empty() {
+            true => Display::None,
+            false => Display::Flex,
+        }
+    });
+    keyed(resource::<Pending, _>(Pending::on_show), |&on_show| {
+        let Some((wait, at, count)) = on_show else {
+            return frame().boxed();
+        };
+        AnyView::new(move |cx: &mut Cx| {
+            let Some(waiting) = cx.world.get::<Waiting>(wait) else {
+                return cx.build(frame());
+            };
+            let tail = match count {
+                1 => frame().boxed(),
+                _ => asking::pager(at, count, turn).boxed(),
+            };
+            let card = strip(&Need::of(wait, waiting), tail);
+            cx.build(scroll((card,)))
+        })
+    })
+    .within(
+        bare()
+            .shrink(1.0)
+            .min_height(px(0.0))
+            .max_height(percent(TALLEST))
+            .display(shown),
+    )
 }
 
 #[cfg(test)]

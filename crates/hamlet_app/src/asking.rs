@@ -1,7 +1,7 @@
-//! The questions an agent asks the chief, drawn as one card: a
-//! question at a time with its options as a list and a line for words
-//! of the chief's own, and the answers sent once each question has
-//! one. The card is in the petition; the chat points to it.
+//! The request an agent sends the chief with `request_chief`, drawn
+//! as one card: a question at a time with its options as a list and a
+//! line for words of the chief's own, and the response sent once each
+//! question has one. The card is in the petition.
 
 use std::collections::HashMap;
 
@@ -11,7 +11,7 @@ use bevy::ecs::entity::Entity;
 use bevy::ecs::lifecycle::RemovedComponents;
 use bevy::ecs::resource::Resource;
 use bevy::ecs::schedule::IntoScheduleConfigs;
-use bevy::ecs::system::{Query, Res, ResMut};
+use bevy::ecs::system::ResMut;
 use bevy::ecs::world::World;
 use bevy::ui::{AlignItems, JustifyContent, UiRect, percent, px};
 use bevy_fynix::tokens::{MotionTokens, SurfaceTokens, Tone};
@@ -22,35 +22,23 @@ use bevy_fynix::views::{
 use bevy_fynix::{
     ScopedExt, ViewExt, component, keyed, resource, style,
 };
-use hamlet_client::chats::Chat;
 use hamlet_client::messages::{Answer, Answered};
-use hamlet_client::waits::{
-    Asks, Choice, RaisedBy, Refused, Waiting,
-};
+use hamlet_client::waits::{Choice, Refused, Waiting};
 use hamlet_protocol::client::{Offer, Pick, Questions};
 use hamlet_ui::styles::{
-    Fills, Looks, action, bare, marked, note, note_rules,
-    small_rules, text_input, transparent,
+    Fills, Looks, bare, marked, note, note_rules, small_rules,
+    text_input, transparent,
 };
 use hamlet_ui::theme::HamletTheme;
 use hamlet_ui::widgets::effects::Variant;
-use hamlet_ui::widgets::ellipsis::one_line;
 use hamlet_ui::widgets::icons::{Glyph, glyph};
-use hamlet_ui::{AnyView, Cx, View, kinds, with_cx};
+use hamlet_ui::{AnyView, Cx, View, with_cx};
 
 use crate::PanelSystems;
-use crate::convo::Convo;
 
 pub fn plugin(app: &mut App) {
     app.init_resource::<Answering>()
-        .init_resource::<OpenQuestion>()
-        .add_systems(
-            PreUpdate,
-            (
-                forget.in_set(PanelSystems::Follow),
-                follow.in_set(PanelSystems::Bind),
-            ),
-        );
+        .add_systems(PreUpdate, forget.in_set(PanelSystems::Follow));
 }
 
 /// Each card's question on show and the answers so far.
@@ -85,35 +73,6 @@ impl Answering {
             at: 0,
             picks: vec![None; count],
         })
-    }
-}
-
-/// The questions the agent of the open chat waits on, oldest first.
-#[derive(Resource, Default, PartialEq)]
-pub struct OpenQuestion(Option<(Entity, Questions)>);
-
-/// Keeps [`OpenQuestion`] as the oldest card raised by the agent the
-/// chat is with, or by a turn of the chat itself.
-fn follow(
-    convo: Res<Convo>,
-    chats: Query<&Chat>,
-    waiting: Query<(Entity, &Waiting, &Asks, Option<&RaisedBy>)>,
-    mut open: ResMut<OpenQuestion>,
-) {
-    let now = waiting
-        .iter()
-        .filter(|(_, waits, _, by)| {
-            waits.chat.as_ref().is_some_and(|reference| {
-                chats
-                    .get(convo.session)
-                    .is_ok_and(|chat| &chat.0 == reference)
-            }) || by.is_some_and(|by| by.0 == convo.agent)
-        })
-        .min_by_key(|(_, waits, ..)| (waits.since, waits.id.as_str()))
-        .map(|(card, _, asks, _)| (card, asks));
-    let was = open.0.as_ref().map(|(card, _)| *card);
-    if was != now.map(|(card, _)| card) {
-        open.0 = now.map(|(card, asks)| (card, asks.0.clone()));
     }
 }
 
@@ -313,18 +272,22 @@ fn options(
     })
 }
 
-/// The way between the questions of a card, and where it is.
-fn pager(card: Entity, count: usize, at: usize) -> impl View {
+/// The way between `count` pages turned by `to`, and that the page
+/// `at` is shown.
+pub(crate) fn pager(
+    at: usize,
+    count: usize,
+    to: impl Fn(&mut World, usize) + Clone + Send + Sync + 'static,
+) -> impl View {
     with_cx(move |cx| {
         let space = &cx.theme().space;
         let (body, gap) = (cx.theme().text.body, space.gap);
-        let step = |which: &'static str, to: usize| {
+        let step = |which: &'static str, page: usize| {
+            let to = to.clone();
             button(label(which).size(body).wrap(false))
                 .padding(UiRect::axes(px(gap / 2.0), px(0.0)))
                 .variant(Variant::Text)
-                .on_activate(move |world| {
-                    turn(world, card, count, to);
-                })
+                .on_activate(move |world| to(world, page))
         };
         row((
             step("\u{2039}", at.saturating_sub(1)),
@@ -356,7 +319,12 @@ fn page(card: Entity, asked: &Questions, at: usize) -> AnyView {
         .boxed(),
     ];
     if count > 1 {
-        head.push(pager(card, count, at).boxed());
+        head.push(
+            pager(at, count, move |world, to| {
+                turn(world, card, count, to);
+            })
+            .boxed(),
+        );
     }
     let mut parts = vec![
         with_cx(move |cx| {
@@ -390,7 +358,7 @@ fn page(card: Entity, asked: &Questions, at: usize) -> AnyView {
             }
         });
         let name = match one.options.is_empty() {
-            true => "Answer",
+            true => "Response",
             false => "Other",
         };
         parts.push(
@@ -481,64 +449,21 @@ pub fn card(card: Entity, asked: Questions) -> impl View {
     })
 }
 
-/// A line over the field pointing to the question the agent of the
-/// open chat waits on, which is answered in its petition.
-pub fn in_chat() -> impl View {
-    keyed(resource::<OpenQuestion, _>(|o| o.0.clone()), |open| {
-        let Some((entity, asked)) = open.clone() else {
-            return frame().boxed();
-        };
-        with_cx(move |cx| {
-            let theme = cx.theme();
-            let space = &theme.space;
-            let who = cx
-                .world
-                .get::<Waiting>(entity)
-                .map_or_else(String::new, |waiting| {
-                    waiting.shown.clone()
-                });
-            let what = match asked.message.is_empty() {
-                true => asked.questions[0].question.clone(),
-                false => asked.message.clone(),
-            };
-            kinds::card((row((
-                glyph(Glyph::Bell, theme.text.small)
-                    .tone(Tone::Accent),
-                column((one_line(
-                    label(format!("{who} asks: {what}"))
-                        .size(theme.text.small)
-                        .tone(Tone::Accent),
-                ),))
-                .grow(1.0)
-                .min_width(px(0.0)),
-                action(Glyph::Talk, "Answer", move |world| {
-                    crate::petition::open(world, entity);
-                }),
-            ))
-            .gap(space.gap)
-            .align(AlignItems::Center),))
-            .margin(UiRect::bottom(px(space.gap)))
-            .boxed()
-        })
-        .boxed()
-    })
-    .within(bare())
-}
-
 #[cfg(test)]
 mod tests {
     use bevy::ecs::query::With;
     use bevy::text::EditableText;
+    use hamlet_client::chats::Chat;
     use hamlet_client::outbox::Outbox;
     use hamlet_protocol::client as protocol;
     use serde_json::json;
 
     use super::*;
+    use crate::convo::Convo;
     use crate::testing::{panel_app, press, words};
 
     #[test]
-    fn the_chat_points_to_its_oldest_question_which_its_petition_answers()
-     {
+    fn the_chat_shows_its_oldest_request_and_sends_its_response() {
         let mut app = panel_app();
         app.add_plugins(crate::petition::plugin);
         let session = app.world().resource::<Convo>().session;
@@ -570,38 +495,21 @@ mod tests {
         ];
         hamlet_client::receive(
             app.world_mut(),
-            protocol::ServerMessage::State(state.clone()),
+            protocol::ServerMessage::State(state),
         );
         app.update();
-        let line = bevy_fynix::mount::<HamletTheme>(
+        bevy_fynix::mount::<HamletTheme>(
             app.world_mut(),
-            in_chat(),
+            crate::petition::in_chat(),
         );
         app.update();
         let shown = words(&mut app);
+        assert!(shown.iter().any(|text| text == "oldest"));
         assert!(
-            shown.iter().any(|text| text.ends_with("asks: oldest"))
+            !shown
+                .iter()
+                .any(|text| text == "later" || text == "unrelated")
         );
-        assert!(!shown.iter().any(|text| {
-            text.ends_with("asks: later")
-                || text.ends_with("asks: unrelated")
-        }));
-        assert!(!shown.iter().any(|text| text == "Digital"));
-        state.revision += 1;
-        state.waits.retain(|wait| wait.id == "oldest");
-        hamlet_client::receive(
-            app.world_mut(),
-            protocol::ServerMessage::State(state),
-        );
-        // Its own Answer only opens the petition.
-        app.world_mut().despawn(line);
-        bevy_fynix::mount::<HamletTheme>(
-            app.world_mut(),
-            crate::petition::waiting(),
-        );
-        app.update();
-        press(&mut app, "Answer");
-        app.update();
         press(&mut app, "Digital");
         app.update();
         let field = app

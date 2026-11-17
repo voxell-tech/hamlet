@@ -232,7 +232,7 @@ built-in ones.
 | An agent's conversation: stop and its hold, resume, retry, rewind, withdraw, compaction | `hamlet_server/src/conversations/chats.rs` and `conversations/completion.rs`; the order of turns in `conversations/inputs.rs` and `runtimes/reconciliation.rs`; the requests in `clients/handlers.rs` |
 | Bringing in other programs' projects | Finding and reading them in `hamlet_import`; the card in `hamlet_app/src/welcome/projects.rs` with `hamlet_client/src/imports.rs`; `hamlet_cli/src/import.rs`; `hamlet_server/src/conversations/imports.rs`; pi's `earlier.ts` |
 | Transcript rows, queued lines and paging | `hamlet_server/src/clients/fold.rs`, `conversations/items.rs`; `hamlet_client/src/chats.rs` |
-| Questions to the chief and their answer cards | `hamlet_server/src/conversations/questions.rs`, `calls/answer.rs`, `hamlet_app/src/asking.rs` |
+| Requests to the chief (`request_chief`) and their cards; what an agent waits on, over its chat's message bar | `hamlet_server/src/conversations/questions.rs`, `calls/answer.rs`, `hamlet_app/src/asking.rs`, `screens/petition.rs` (`in_chat`) |
 | Approvals, grants and waits | `hamlet_server/src/society/oversight/gate.rs`, `society/oversight.rs`, `calls/held.rs`, `calls/answer.rs` |
 | Selecting, quoting and replying to chat text | `hamlet_app/src/select.rs`, `screens/chat/quote.rs`, `screens/chat/reply.rs` |
 | Copying an agent's or a hamlet's ID, and the chips an address in the chat is drawn as | `hamlet_app/src/reference.rs`; the address found in words in `hamlet_ui/src/markdown/links.rs` |

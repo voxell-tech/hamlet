@@ -605,7 +605,6 @@ fn message_bar_in(
     .tagged(crate::world_menu::Hook::Composer);
     column((
         held::line(),
-        crate::asking::in_chat(),
         card,
         // An empty label has no height. Keep one line so a
         // notice does not lift the field above it.
