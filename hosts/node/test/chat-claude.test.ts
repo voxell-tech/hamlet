@@ -166,8 +166,9 @@ async function page(agent: Woken): Promise<ChatPage> {
 }
 
 /**
- * How long a query's end, its Node child's exit and its session's delete
- * may take: ten times the three seconds they take at most on a busy machine.
+ * How long a query's Node child may take to end, with its stderr relayed
+ * and its session deleted: ten times the three seconds this takes at most
+ * on a busy machine.
  */
 const SESSION_ENDS_MS = 30_000;
 
@@ -538,7 +539,10 @@ test("a program that dies with its tokens on stderr shows them nowhere", async (
         }),
     );
     await claude.say("Hello");
-    await until(() => written.some((line) => line.startsWith("claude: ")));
+    await until(
+        () => written.some((line) => line.startsWith("claude: ")),
+        SESSION_ENDS_MS,
+    );
     const items = (await page(claude.agent)).items;
     assert.match(
         String(items.findLast((item) => item.kind === "error")?.text),
