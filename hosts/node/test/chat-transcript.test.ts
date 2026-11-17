@@ -490,3 +490,31 @@ test("a client following the chief's chat reads again after /new", async (t) => 
         "assistant: One.",
     ]);
 });
+
+test("a page read after the wake could not open the harness is followed", async (t) => {
+    const first = await wake(t, [
+        fauxAssistantMessage("One."),
+        fauxAssistantMessage("Two."),
+    ]);
+    await sender(first)(line("a"));
+    await first.stop();
+    const failed = first.failNextCommit();
+    const agent = await first.again();
+    t.after(() => agent.stop());
+    await failed;
+    assert.ok(
+        agent.reported.some((line) => line.includes("could not open on wake")),
+        "the wake's open failed",
+    );
+
+    const page = await read(agent, CHIEF);
+    assert.deepEqual(shown(page.items), ["user: a", "assistant: One."]);
+    await sender(agent)(line("b"));
+    const followed = new Followed(CHIEF, page);
+    for (const event of chatEvents(agent)) assert.ok(followed.take(event));
+    assert.deepEqual(followed.items, (await read(agent, CHIEF)).items);
+    assert.deepEqual(shown(followed.items).slice(-2), [
+        "user: b",
+        "assistant: Two.",
+    ]);
+});

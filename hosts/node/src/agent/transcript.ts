@@ -80,10 +80,13 @@ interface Watch {
     current: ConversationId | undefined;
     /** One at a time, so the events go out in the order of the commits. */
     queue: Promise<void>;
+    /** Conversations with changes folded while they had no chat. */
+    readonly unnamed: Set<ConversationId>;
 }
 
 /** The watches of one open harness. */
 interface Attached {
+    readonly watch: Watch;
     readonly harness: Harness;
     /** The conversations it held when attached; the others are new. */
     readonly before: Set<ConversationId>;
@@ -94,7 +97,11 @@ const WATCHES = new WeakMap<Following, Watch>();
 
 /** Turns each commit of the agent's conversations into `chat` events. */
 export function watching(c: AgentContext, follow: Following): void {
-    const watch: Watch = { current: undefined, queue: Promise.resolve() };
+    const watch: Watch = {
+        current: undefined,
+        queue: Promise.resolve(),
+        unnamed: new Set(),
+    };
     WATCHES.set(follow, watch);
     // `wake` begins to open the harness before it first waits.
     queueMicrotask(() => void attached(c, follow, watch)?.catch(warn(c)));
@@ -131,7 +138,12 @@ async function attach(
     watch: Watch,
     harness: Harness,
 ): Promise<Attached> {
-    const at: Attached = { harness, before: new Set(), folds: new Map() };
+    const at: Attached = {
+        watch,
+        harness,
+        before: new Set(),
+        folds: new Map(),
+    };
     const made = new Set<ConversationId>();
     harness.observeCommits({
         advance: (publication) => {
@@ -142,7 +154,7 @@ async function attach(
                 made.add(id);
                 // An observer may not call the harness.
                 queueMicrotask(
-                    () => void foldOf(c, follow, watch, at, id).catch(warn(c)),
+                    () => void foldOf(c, follow, at, id).catch(warn(c)),
                 );
             }
         },
@@ -165,7 +177,7 @@ async function attach(
     for (const id of ids) {
         if (made.has(id)) continue;
         at.before.add(id);
-        void foldOf(c, follow, watch, at, id).catch(warn(c));
+        void foldOf(c, follow, at, id).catch(warn(c));
     }
     return at;
 }
@@ -197,10 +209,10 @@ function reopened(c: AgentContext, follow: Following, watch: Watch): void {
 function foldOf(
     c: AgentContext,
     follow: Following,
-    watch: Watch,
     at: Attached,
     id: ConversationId,
 ): Promise<Fold> {
+    const { watch } = at;
     const kept = at.folds.get(id);
     if (kept !== undefined) return kept;
     const made = (async () => {
@@ -244,8 +256,16 @@ async function sent(
 ): Promise<void> {
     if (ops.length === 0) return;
     const row = await rowOf(c, conversation);
-    if (row === undefined) return;
+    if (row === undefined) {
+        watch.unnamed.add(conversation);
+        return;
+    }
     const chat = refOfRow(agentOf(c), row);
+    // Its chat was kept after a change was folded and not sent.
+    if (watch.unnamed.delete(conversation)) {
+        follow.send(chat, [{ type: "reset" }]);
+        return;
+    }
     if (row.kind === "chief" && row.current === 1) {
         const was = watch.current;
         watch.current = conversation;
@@ -292,6 +312,18 @@ function warn(c: Pick<AgentContext, "log">): (error: unknown) => void {
     return (error) => c.log.warn({ msg: "a chat was not followed", error });
 }
 
+/**
+ * The watches of the harness open now. Called inside `withHarness`, which
+ * opens it even after a wake that could not, so a page read is followed
+ * from its number on.
+ */
+async function followed(c: AgentCall, follow: Following): Promise<Attached> {
+    const watch = WATCHES.get(follow);
+    const at = watch === undefined ? undefined : attached(c, follow, watch);
+    if (at === undefined) throw new Error("the agent's chats are not followed");
+    return at;
+}
+
 /** A page holds at most this many items (`clients/requests.rs`). */
 const PAGE = 100;
 
@@ -315,6 +347,9 @@ export async function readChat(c: AgentCall, message: Open): Promise<ChatPage> {
             throw refused(`there is no past session ${chat.past} here`);
         }
         // The chief's chat before its first line, as today.
+        await withHarness(c, generationOf(c).options, () =>
+            followed(c, follow),
+        );
         return {
             epoch: follow.epoch,
             number: follow.now(),
@@ -325,18 +360,14 @@ export async function readChat(c: AgentCall, message: Open): Promise<ChatPage> {
         };
     }
     const row = await rowOf(c, conversation);
-    const watch = WATCHES.get(follow);
-    const at = watch === undefined ? undefined : attached(c, follow, watch);
-    const live =
-        watch === undefined || at === undefined
-            ? undefined
-            : await foldOf(c, follow, watch, await at, conversation);
-    const number = follow.now();
-    const kept = await withHarness(
+    const { live, number, kept } = await withHarness(
         c,
         generationOf(c).options,
         async (harness, context) => {
-            const fold = new Fold();
+            const at = await followed(c, follow);
+            const live = await foldOf(c, follow, at, conversation);
+            const number = follow.now();
+            const kept = new Fold();
             const held = await harness.conversation(conversation, context);
             let cursor: Cursor | undefined;
             do {
@@ -346,15 +377,15 @@ export async function readChat(c: AgentCall, message: Open): Promise<ChatPage> {
                     cursor,
                     context,
                 );
-                for (const entry of page?.items ?? []) fold.entry(entry);
+                for (const entry of page?.items ?? []) kept.entry(entry);
                 cursor = page?.next;
             } while (cursor !== undefined);
-            return fold;
+            return { live, number, kept };
         },
     );
     const items = [
         ...kept.items(),
-        ...(live?.streamed() ?? []).filter((item) => !kept.has(item.id)),
+        ...live.streamed().filter((item) => !kept.has(item.id)),
     ];
     const end =
         before === undefined
@@ -370,9 +401,9 @@ export async function readChat(c: AgentCall, message: Open): Promise<ChatPage> {
         ...(row?.kind === "chief" ? { session: row.session } : {}),
         items: items.slice(start, end),
         ...(earlier === undefined ? {} : { earlier }),
-        working: live?.working ?? false,
-        pending: live?.pending ?? 0,
-        usage: live?.usage ?? usageOf(undefined, 0),
+        working: live.working,
+        pending: live.pending,
+        usage: live.usage,
     };
 }
 
