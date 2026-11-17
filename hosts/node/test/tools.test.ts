@@ -160,7 +160,11 @@ test("a relative path, and a left-out one, start from the agent's filesystem", a
             .map((call) => call.name),
         ["list_tools"],
     );
-    assert.deepEqual(listed, [ROOT]);
+    // The prompt lists `memory` and `skills` before each request.
+    assert.deepEqual(
+        listed.filter((path) => path !== "memory" && path !== "skills"),
+        [ROOT],
+    );
     assert.deepEqual(await results(agent), ["own:plan", "notes.md"]);
     await agent.stop();
 });

@@ -59,7 +59,8 @@ test("each provider request is asked for and charged once under its own id", asy
     assert.deepEqual(
         sent
             .filter((call) => call.to === "realm/local")
-            .map((call) => call.name),
+            .map((call) => call.name)
+            .filter((name) => name !== "read_copies"),
         ["may_spend", "charge", "may_spend", "charge"],
     );
     assert.deepEqual(
@@ -109,7 +110,9 @@ test("a refused model call ends the turn with the realm's words and sends no req
     assert.equal(agent.faux.state.callCount, 0);
     // Asked once: the refusal is not retried, and nothing is charged.
     assert.deepEqual(
-        sent.map((call) => call.name).filter((name) => name !== "list_tools"),
+        sent
+            .map((call) => call.name)
+            .filter((name) => name !== "list_tools" && name !== "read_copies"),
         ["may_spend"],
     );
     const harness = await agent.harness();
@@ -467,7 +470,9 @@ test("a provider's stream that breaks is worded as the provider's failure, retri
     await agent.idle();
 
     assert.deepEqual(
-        sent.map((call) => call.name).filter((name) => name !== "list_tools"),
+        sent
+            .map((call) => call.name)
+            .filter((name) => name !== "list_tools" && name !== "read_copies"),
         ["may_spend", "may_spend", "charge"],
     );
     const texts = (await agent.entries()).map((entry) => entry.text);
