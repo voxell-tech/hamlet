@@ -8,8 +8,10 @@ use super::refusal::Refusal;
 use super::roads::{self, Agreed, Way};
 use super::workers::{self, Start, Starter};
 use super::{authority, chiefs, city, merges, tree};
-use crate::settings::{Overrides, Settings};
-use crate::talk::{Env, chats, models};
+use crate::conversations::{chats, models};
+use crate::realm::settings::{
+    EffectiveSettings, Overrides, Settings,
+};
 use crate::testing::Realm;
 
 /// Founds a hamlet named `name` under a new mayor named `mayor`:
@@ -466,7 +468,7 @@ fn houses_keep_apart_and_clear_of_the_middle() {
 
 #[test]
 fn a_scholar_a_hire_makes_waits_at_the_harbor_until_let_in() {
-    use crate::oversight::{self, WaitKind};
+    use crate::society::oversight::{self, WaitKind};
     let mut realm = Realm::new();
     let (_, mayor) = found(&mut realm, "docs", "ada");
     let chief = realm.chief;
@@ -494,18 +496,18 @@ fn a_scholar_a_hire_makes_waits_at_the_harbor_until_let_in() {
         arrival(&mut realm, sam),
         (city::Arrival::Waiting, false)
     );
-    let asks = |realm: &mut Realm| {
+    let waits = |realm: &mut Realm| {
         oversight::open(realm.db()).unwrap().iter().any(|w| {
             w.kind == WaitKind::Newcomer && w.scholar == Some(sam)
         })
     };
-    assert!(asks(&mut realm));
+    assert!(waits(&mut realm));
     realm.chief(|cx| city::welcome(cx, sam, "")).unwrap();
     assert_eq!(
         arrival(&mut realm, sam),
         (city::Arrival::Housed, true)
     );
-    assert!(!asks(&mut realm));
+    assert!(!waits(&mut realm));
     // A chief can send it back again.
     realm
         .chief(|cx| city::turn_away(cx, sam, "not yet"))
@@ -522,7 +524,7 @@ fn a_lead_leaves_a_hire_on_a_chiefs_task_alone() {
     let (docs, mayor) = found(&mut realm, "docs", "ada");
     let bo = hire(&mut realm, &docs, mayor, new("bo")).unwrap().agent;
     let cy = hire(&mut realm, &docs, mayor, new("cy")).unwrap().agent;
-    let env = Env {
+    let env = EffectiveSettings {
         settings: Settings::default(),
         overrides: Overrides {
             faux: true,
@@ -582,7 +584,7 @@ fn a_hire_without_a_purpose_takes_its_first_message() {
         })
         .unwrap()
         .agent;
-    let env = Env {
+    let env = EffectiveSettings {
         settings: Settings::default(),
         overrides: Overrides {
             faux: true,

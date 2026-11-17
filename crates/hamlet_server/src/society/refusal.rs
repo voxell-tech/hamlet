@@ -1,5 +1,5 @@
-//! Why the society refuses a change, in words a chief or an agent
-//! reads.
+//! The reasons the society refuses a change, in words a chief or an
+//! agent reads.
 
 use serde::{Deserialize, Serialize};
 
@@ -149,8 +149,6 @@ pub(crate) enum Refusal {
     Answered,
     #[error("this server does not do that yet: {what}")]
     Unsupported { what: String },
-    #[error("{words}")]
-    Usage { words: String },
     #[error("only a chief of `{name}`'s hamlet may reach it")]
     NotYours { name: String },
     #[error("nothing waits here with that id")]
@@ -181,4 +179,176 @@ pub(crate) enum Refusal {
     NoFile { path: String },
     #[error("that merge was split already")]
     AlreadySplit,
+    #[error("This connection is closing.")]
+    ConnectionClosing,
+    #[error("A file is at most 256 MiB.")]
+    FileTooBig,
+    #[error("Too many files are being sent at once.")]
+    TooManyFilesSent,
+    #[error("No file of yours is being sent under that upload.")]
+    NoFileUpload,
+    #[error("A part's data is base64.")]
+    NotBase64,
+    #[error("The file continues at byte {received}.")]
+    FileContinuesAt { received: u64 },
+    #[error("The file is longer than declared.")]
+    FileLongerThanDeclared,
+    #[error("A line takes at most 10000 files.")]
+    TooManyFilesInLine,
+    #[error("The file `{name}` was not sent first.")]
+    FileNotSent { name: String },
+    #[error("The file `{name}` is not the size it was sent as.")]
+    FileSizeDiffers { name: String },
+    #[error("A line takes at most 1 GiB of files.")]
+    FilesTooBigInLine,
+    #[error("An image has bytes.")]
+    ImageEmpty,
+    #[error("An image is at most 20 MiB.")]
+    ImageTooBig,
+    #[error("Too many images are being sent at once.")]
+    TooManyImagesSent,
+    #[error("No image of yours is being sent under that upload.")]
+    NoImageUpload,
+    #[error("The image continues at byte {received}.")]
+    ImageContinuesAt { received: u64 },
+    #[error("The image is longer than declared.")]
+    ImageLongerThanDeclared,
+    #[error(
+        "An attachment's place, {at}, is not a byte offset on a \
+         character boundary of the line, which is {bytes} bytes."
+    )]
+    BadAttachmentPlace { at: u64, bytes: usize },
+    #[error("{why}")]
+    ImageUnusable { why: String },
+    #[error("`{name}` is not a name of a file.")]
+    NotFileName { name: String },
+    #[error("`{path}` cannot be read: {message}")]
+    FileUnreadable { path: String, message: String },
+    #[error("`{path}` is a link, and links are not sent.")]
+    FileIsLink { path: String },
+    #[error("`{path}` has no name to send.")]
+    NoNameToSend { path: String },
+    #[error("That is too many folders and files to look through.")]
+    TooManyToLookThrough,
+    #[error("`{name}` is more than {most}.")]
+    FileOverSendLimit { name: String, most: String },
+    #[error("That is more than {most} to send at once.")]
+    SendOverBytes { most: String },
+    #[error("That is more than {most} files to send at once.")]
+    SendOverFiles { most: usize },
+    #[error("There are no files in those paths.")]
+    NoFilesInPaths,
+    #[error("{error}")]
+    WorkspaceNotOpened { error: String },
+    #[error("Use /dream <scholar#id|address>")]
+    DreamUsage,
+    #[error("A dream is running; one dreams at a time.")]
+    DreamRunning,
+    #[error("That sign-in is not waiting for an answer.")]
+    SignInNotWaiting,
+    #[error("No sign-in of yours is open.")]
+    NoSignIn,
+    #[error(
+        "`{name}` names no endpoint. A model is named \
+         `endpoint::model`."
+    )]
+    NoEndpointNamed { name: String },
+    #[error(
+        "`{name}` is served by the endpoint `{endpoint}`, which the \
+         settings do not have."
+    )]
+    NoSuchEndpoint { name: String, endpoint: String },
+    #[error("A cost is a number of zero or more.")]
+    BadCost,
+    #[error("An image limit is a number above zero.")]
+    BadImageLimit,
+    #[error("Use {usage}")]
+    CommandUsage { usage: String },
+    #[error(
+        "There is no command /{name}; the client lists the commands."
+    )]
+    NoCommand { name: String },
+    #[error("Say this to a hamlet's mayor or one of its hires.")]
+    SayToMayorOrHire,
+    #[error("Say what you need a skill for.")]
+    NoSkillQuestion,
+    #[error(
+        "`skill` is its folder under skills/, in letters, digits, \
+         hyphens and underscores."
+    )]
+    BadSkillFolder,
+    #[error(
+        "The library has a skill named `{name}` already. Use it, or \
+         offer yours under another name if it does something else."
+    )]
+    SkillInLibrary { name: String },
+    #[error("Another offer of that skill is being judged.")]
+    SkillBeingJudged,
+    #[error(
+        "skills/{name}/SKILL.md must open with a front matter \
+         `name:` and `description:`."
+    )]
+    SkillFrontMatter { name: String },
+    #[error("`{name}` holds more than the library takes, 4 MB.")]
+    SkillTooBig { name: String },
+    #[error("{why}")]
+    WaitUnanswerable { why: String },
+    #[error("The arguments of {tool} do not fit: {error}.")]
+    ArgumentsUnfit { tool: String, error: String },
+    #[error("{error}")]
+    LookFailed { error: String },
+    #[error("Only the current session of a chief's chat goes back.")]
+    RewindNotCurrent,
+    #[error("A nickname is one line of at most {most} letters.")]
+    BadNickname { most: usize },
+    #[error("Say which hamlet to hire into.")]
+    NoHamletToHireInto,
+    #[error(
+        "Give `scholar` to hire one of the city, or `name` for a \
+         blank agent, not both."
+    )]
+    HireBoth,
+    #[error("Reflect after zero or more turns.")]
+    BadReflectEvery,
+    #[error("A blank scholar needs a character to start from.")]
+    NoCharacter,
+    #[error("{why}")]
+    BadEndpoint { why: String },
+    #[error("{why}")]
+    BadLimits { why: String },
+    #[error("Those limits do not fit their form.")]
+    LimitsUnfit,
+    #[error("That is you.")]
+    TellSelf,
+    #[error("Say what to send.")]
+    NothingToSend,
+    #[error(
+        "You have no road to {other}. Request one from your lead \
+         with request_road."
+    )]
+    NoRoadTo { other: String },
+    #[error(
+        "{other} is waiting on your answer already; tell it what it \
+         needs instead of putting a question."
+    )]
+    AlreadyWaitingOn { other: String },
+    #[error("That is not one of your lines in this conversation.")]
+    NotYourLine,
+    #[error("Choose a remote workspace in the settings first.")]
+    NoWorkspaceChosen,
+    #[error("Moving the lodges failed: {error}")]
+    MoveFailed { error: String },
+    #[error("Every conversation of it was brought in before.")]
+    BroughtInBefore,
+    #[error("The conversation was not sent first.")]
+    ConversationNotSent,
+    #[error("A conversation brought in is at most {most} MiB.")]
+    ConversationTooBig { most: u64 },
+    #[error(
+        "A project's conversations come to at most {most} MiB \
+         together; bring in fewer at a time."
+    )]
+    ProjectTooBig { most: u64 },
+    #[error("That file is not a conversation Hamlet can bring in.")]
+    NotAConversation,
 }

@@ -9,14 +9,13 @@ use hamlet_store::ids::{Actor, AgentId, TaskId};
 use hamlet_store::schema::{objection, review, wait};
 
 use super::objections::OBJECTING;
+use crate::conversations::errands::{self, Errand};
+use crate::conversations::marks::Mark;
+use crate::conversations::{Conversation, Kind, inputs, models};
 use crate::core::Core;
 use crate::providers::{FAUX, is_local};
 use crate::society::limits::{self, Review};
 use crate::society::{addresses, hires};
-use crate::talk::conversations::{Conversation, Kind};
-use crate::talk::errands::{self, Errand};
-use crate::talk::marks::Mark;
-use crate::talk::{inputs, models};
 
 /// The errand a lead's review is.
 pub(crate) const REVIEW: &str = "review";
@@ -27,12 +26,12 @@ pub(crate) fn hold_key(task: TaskId) -> String {
     format!("task:{task}")
 }
 
-impl Core {
+impl Core<'_, '_> {
     /// Before a model call of `conversation` in the turn of
     /// `submission`: the lead's review of a chief's instruction,
     /// begun once, and the hold while a chief considers an objection
     /// to it, as its key and words.
-    pub(crate) async fn before_prompt(
+    pub(crate) fn before_prompt(
         &mut self,
         conversation: &Conversation,
         submission: Option<&str>,
@@ -74,7 +73,7 @@ impl Core {
         let begun =
             review::table.find(task).count().get_result::<i64>(db)?
                 > 0;
-        if begun || !self.reviews(lead, &hire.hamlet)? {
+        if begun || !self.is_reviewing(lead, &hire.hamlet)? {
             return Ok(None);
         }
         let db = self.realm.store().connection();
@@ -101,7 +100,7 @@ impl Core {
         );
         let question = format!("{chief} told `{name}`: {text}");
         let owner = format!("review:{task}");
-        let at = crate::clock::now();
+        let at = crate::app::clock::now();
         self.change(Actor::Agent(lead), |cx, env| {
             let id = errands::run(
                 cx,
@@ -124,15 +123,14 @@ impl Core {
                 ))
                 .execute(cx.db)?;
             Ok(())
-        })
-        .await?;
+        })?;
         Ok(None)
     }
 
-    /// Whether `lead` reviews instructions to its hires in `hamlet`:
-    /// always, never, or when its model is served from another
-    /// machine.
-    fn reviews(
+    /// Tells whether `lead` reviews instructions to its hires in
+    /// `hamlet`: always, never, or when its model is served from
+    /// another machine.
+    fn is_reviewing(
         &mut self,
         lead: AgentId,
         hamlet: &hamlet_store::ids::HamletId,

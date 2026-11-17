@@ -1,424 +1,117 @@
 //! The society's tools (H35): what an agent does in the society, each
 //! checked against the caller's standing as a chief's command is.
+//! A call's arguments are read once, into the tool's own type
+//! ([`args`]).
 
+pub(super) mod args;
 mod letters;
 pub(crate) mod library;
 mod scholars;
 pub(crate) mod welcome;
 
 use anyhow::Result;
-use hamlet_protocol::runtime::{ToolSpec, ToolSpecReplay};
 use hamlet_store::ids::{
     Actor, AgentId, ChiefId, HamletId, ScholarId, TaskId,
 };
-use serde_json::{Value, json};
 
-use super::{Call, said, spec};
-use crate::change::{Change, Done};
+use self::args::{
+    AgreeRoad, Called, CreateScholar, EndHire, FoundHamlet, Hire,
+    MergeHires, Nickname, ReadRecord, RemoveHamlet, SeatMayor,
+    SetAllowance, SetModel, SetTools,
+};
+use super::looks::Look;
+use super::{Call, refused, said};
 use crate::core::Core;
+use crate::realm::change::{Change, Done, done, refuse};
+use crate::realm::settings::EffectiveSettings;
 use crate::society::addresses::{self, Reach};
 use crate::society::agents::{self, AgentKind, EndHow};
 use crate::society::hamlets::{self, Founding};
 use crate::society::hires::{self, Hiring, Spec};
 use crate::society::refusal::Refusal;
+use crate::society::spend::{self, micros, money};
 use crate::society::{authority, city, limits, record, roads};
-use crate::spend::{self, micros, money};
-use crate::talk::Env;
-use crate::work::tools::Outcome;
+use crate::tools::builtin::Outcome;
+use crate::tools::catalogue::Society;
 
-/// What a society call comes to.
+/// The result of a society call.
 pub(super) enum Step {
     Done(Outcome),
     /// It waits for another agent, in these words.
     Wait(String),
+    /// It goes on once it has looked at this, off the loop.
+    Look(Box<Look>),
 }
 
 impl Step {
     fn of(result: Result<String, Refusal>) -> Self {
         match result {
-            Ok(words) => Self::Done(said(words, false)),
-            Err(refusal) => {
-                Self::Done(said(refusal.to_string(), true))
-            }
+            Ok(words) => Self::Done(said(words)),
+            Err(refusal) => Self::Done(refused(refusal.to_string())),
         }
     }
 }
 
-fn string(description: &str) -> Value {
-    json!({"type": "string", "description": description})
-}
-
-fn object(properties: Value, required: &[&str]) -> Value {
-    json!({"type": "object", "properties": properties, "required": required})
-}
-
-/// The society's tools as a model is offered them.
-pub(super) fn specs() -> Vec<ToolSpec> {
-    let address = "An agent's address: `hand`, `mayor`, \
-                   `mayor@<hamlet id>`, `hire#<id>` or \
-                   `worker#<id>`.";
-    let reason =
-        "Why, in a sentence, if it helps; the record keeps it.";
-    let paths = json!({"type": "array", "items": {"type": "string"},
-        "description": "Files or folders to send with it, in your lodge or your hamlet's folder. They are copied into the receiver's inbox, and the message says where. Links are not followed. A chief approves a send of more than 32 MiB or 1000 files."});
-    // A call cut off by a crash may be asked again: its change is
-    // kept with its answer, or what it began is found by its call.
-    // A write of a scholar's repository is kept by no transaction.
-    let unsafe_ = ToolSpecReplay::Unsafe;
-    let safe = ToolSpecReplay::Safe;
-    vec![
-        spec(
-            "tell",
-            "Send a letter to an agent you have a road to. It is \
-             queued for them; you do not wait for an answer.",
-            object(
-                json!({"to": string(address), "text": string("The letter."), "paths": paths.clone()}),
-                &["to", "text"],
-            ),
-            safe.clone(),
-        ),
-        spec(
-            "ask",
-            "Ask an agent you have a road to a question and wait \
-             for its answer. Ask only what you need; a question to \
-             someone waiting on you is refused.",
-            object(
-                json!({"to": string(address), "question": string("The question."), "paths": paths}),
-                &["to", "question"],
-            ),
-            safe.clone(),
-        ),
-        spec(
-            "start_worker",
-            "Start a worker on a task: a helper with your tools \
-             that works in a scratch folder and where you work, \
-             then answers once. With `wait`, you wait for its \
-             answer; without, the answer comes to you as a reply.",
-            object(
-                json!({
-                    "task": string("What the worker is to do, and what to answer."),
-                    "tools": {"type": "array", "items": {"type": "string"},
-                        "description": "Your built-in tools it may use; all of them when left out."},
-                    "wait": {"type": "boolean", "description": "Wait for its answer."}
-                }),
-                &["task"],
-            ),
-            safe.clone(),
-        ),
-        spec(
-            "submit_skill",
-            "Offer a skill from your skills/ folder to the library, \
-             where every agent can read it. The librarian judges it.",
-            object(
-                json!({"skill": string("The skill's folder name under skills/."), "reason": string(reason)}),
-                &["skill"],
-            ),
-            safe.clone(),
-        ),
-        spec(
-            "ask_librarian",
-            "Ask the librarian which skills in the library help \
-             with something.",
-            object(
-                json!({"question": string("What you need a skill for.")}),
-                &["question"],
-            ),
-            safe.clone(),
-        ),
-        spec(
-            "read_budget",
-            "Read what you may spend: your hamlet's or the realm's \
-             spend this period against its budget, your own, your \
-             allowance and your task's cap. A call over any of them \
-             is refused.",
-            object(json!({}), &[]),
-            safe.clone(),
-        ),
-        spec(
-            "object",
-            "Object to the chief's instruction you are working on, \
-             with your reason. The chief rules: go on, or withdraw \
-             it.",
-            object(
-                json!({"reason": string("Why the instruction should not be done.")}),
-                &["reason"],
-            ),
-            safe.clone(),
-        ),
-        spec(
-            "request_road",
-            "Ask your lead for a road to an agent of your hamlet \
-             you need to reach.",
-            object(
-                json!({"to": string(address), "reason": string(reason)}),
-                &["to"],
-            ),
-            safe.clone(),
-        ),
-        spec(
-            "create_scholar",
-            "Make a new scholar of the city, to hire next. Without \
-             a character it starts from the realm's own. A scholar \
-             you make may wait at the harbor until it is let into \
-             the city; its hires work all the same.",
-            object(
-                json!({"name": string("A short name, one line with no colon. It is a label and may repeat."), "character": string("Who the scholar is and how it works.")}),
-                &["name"],
-            ),
-            safe.clone(),
-        ),
-        spec(
-            "hire",
-            "Hire a scholar into your hamlet under you, or under a \
-             hire of your tree. Leave out `scholar` to hire a blank \
-             agent instead, which starts from the realm's character \
-             and the library's skills and is not a scholar of the \
-             city.",
-            object(
-                json!({
-                    "scholar": string("The scholar's address, `scholar#<id>`, with `@<version>` to pin a version."),
-                    "name": string("A blank agent's name, in place of `scholar`."),
-                    "purpose": string("What the hire is for."),
-                    "under": string("The hire it answers to; you when left out."),
-                    "hamlet": string("The hamlet, for the Hand.")
-                }),
-                &["purpose"],
-            ),
-            safe.clone(),
-        ),
-        spec(
-            "end_hire",
-            "End a hire under you. Its work stays in its scholar.",
-            object(
-                json!({"hire": string(address), "reason": string(reason)}),
-                &["hire"],
-            ),
-            safe.clone(),
-        ),
-        spec(
-            "merge_hires",
-            "Merge one hire under you into another: the kept hire \
-             takes what the other learned, its roads and its hires.",
-            object(
-                json!({"absorbed": string(address), "into": string(address), "reason": string(reason)}),
-                &["absorbed", "into"],
-            ),
-            safe.clone(),
-        ),
-        spec(
-            "set_model",
-            "Choose the model a hire under you runs; leave out \
-             `model` for its hamlet's.",
-            object(
-                json!({"hire": string(address), "model": string("The model, as `provider::id`."), "reason": string(reason)}),
-                &["hire"],
-            ),
-            safe.clone(),
-        ),
-        spec(
-            "set_tools",
-            "Turn built-in tools off or back on for a hire under \
-             you.",
-            object(
-                json!({
-                    "hire": string(address),
-                    "off": {"type": "array", "items": {"type": "string"}},
-                    "on": {"type": "array", "items": {"type": "string"}},
-                    "reason": string(reason)
-                }),
-                &["hire"],
-            ),
-            safe.clone(),
-        ),
-        spec(
-            "set_allowance",
-            "Give a hire under you an allowance in dollars for the \
-             budget's period, or none.",
-            object(
-                json!({"hire": string(address), "dollars": {"type": "number"}, "reason": string(reason)}),
-                &["hire"],
-            ),
-            safe.clone(),
-        ),
-        spec(
-            "nickname",
-            "Give a hire under you a short nickname it is shown by \
-             in the world; leave out `nickname` for its own name.",
-            object(
-                json!({"hire": string(address), "nickname": string("At most 24 letters."), "reason": string(reason)}),
-                &["hire"],
-            ),
-            safe.clone(),
-        ),
-        spec(
-            "lay_road",
-            "Lay a road between two hires under you, so they can \
-             write and ask each other.",
-            object(
-                json!({"a": string(address), "b": string(address), "reason": string(reason)}),
-                &["a", "b"],
-            ),
-            safe.clone(),
-        ),
-        spec(
-            "take_up_road",
-            "Take up a road you laid between two hires under you.",
-            object(
-                json!({"a": string(address), "b": string(address), "reason": string(reason)}),
-                &["a", "b"],
-            ),
-            safe.clone(),
-        ),
-        spec(
-            "agree_road",
-            "As a mayor, agree a road between a hire of your hamlet \
-             and one of another. It opens once both mayors agree.",
-            object(
-                json!({"mine": string(address), "theirs": string(address), "reason": string(reason)}),
-                &["mine", "theirs"],
-            ),
-            safe.clone(),
-        ),
-        spec(
-            "found_hamlet",
-            "Found a hamlet with a scholar as its mayor, or a blank \
-             agent when `scholar` is left out.",
-            object(
-                json!({
-                    "name": string("The name it is shown by: one line, up to 40 characters, no colon. Its id is made for it."),
-                    "scholar": string("The address, `scholar#<id>`, of the scholar its mayor is a hire of."),
-                    "purpose": string("What the hamlet is for.")
-                }),
-                &["name", "purpose"],
-            ),
-            safe.clone(),
-        ),
-        spec(
-            "seat_mayor",
-            "Seat a hire as its hamlet's mayor.",
-            object(
-                json!({"hire": string(address), "reason": string(reason)}),
-                &["hire"],
-            ),
-            safe.clone(),
-        ),
-        spec(
-            "remove_hamlet",
-            "Remove a hamlet; a chief approves it first.",
-            object(
-                json!({"hamlet": string("The hamlet's id."), "reason": string(reason)}),
-                &["hamlet"],
-            ),
-            safe.clone(),
-        ),
-        spec(
-            "read_record",
-            "Read a hamlet's record: every decision with its reason.",
-            object(
-                json!({"hamlet": string("The hamlet's id.")}),
-                &["hamlet"],
-            ),
-            safe.clone(),
-        ),
-        spec(
-            "read_scholar",
-            "List a scholar's files, or read one, at its `main` or \
-             a version.",
-            object(
-                json!({"scholar": string("The scholar's address, `scholar#<id>`."), "path": string("A file to read."), "version": string("A version or commit.")}),
-                &["scholar"],
-            ),
-            safe,
-        ),
-        spec(
-            "edit_scholar",
-            "Write a file of a scholar's `main`; a chief approves \
-             it first.",
-            object(
-                json!({
-                    "scholar": string("The scholar's address, `scholar#<id>`."),
-                    "path": string("The file."),
-                    "content": string("Its new text; empty removes it."),
-                    "message": string("What the change does.")
-                }),
-                &["scholar", "path", "content", "message"],
-            ),
-            unsafe_.clone(),
-        ),
-        spec(
-            "tag",
-            "Name the scholar's `main` as a version; a chief \
-             approves it first.",
-            object(
-                json!({"scholar": string("The scholar's address, `scholar#<id>`."), "tag": string("The version's name."), "note": string("What it holds.")}),
-                &["scholar", "tag"],
-            ),
-            unsafe_.clone(),
-        ),
-        spec(
-            "revert",
-            "Undo a commit of a scholar's `main`; a chief approves \
-             it first.",
-            object(
-                json!({"scholar": string("The scholar's address, `scholar#<id>`."), "commit": string("The commit or version to undo."), "reason": string(reason)}),
-                &["scholar", "commit"],
-            ),
-            unsafe_,
-        ),
-    ]
-}
-
-/// The string argument `key` of `call`, trimmed.
-fn text(call: &Call<'_>, key: &str) -> String {
-    call.arguments
-        .get(key)
-        .and_then(Value::as_str)
-        .unwrap_or_default()
-        .trim()
-        .to_owned()
-}
-
-pub(super) fn list(call: &Call<'_>, key: &str) -> Vec<String> {
-    call.arguments
-        .get(key)
-        .and_then(Value::as_array)
-        .into_iter()
-        .flatten()
-        .filter_map(Value::as_str)
-        .map(String::from)
-        .collect()
-}
-
-impl Core {
-    /// Carries out the society call `call`, which the gate let run.
-    pub(super) async fn society(
+impl Core<'_, '_> {
+    /// Carries out the society call `call` of `tool`, which the gate
+    /// let run.
+    pub(super) fn society(
         &mut self,
         call: &Call<'_>,
+        tool: Society,
     ) -> Result<Step> {
+        let called = match Called::read(tool, call.arguments) {
+            Ok(called) => called,
+            Err(refusal) => return Ok(Step::of(Err(refusal))),
+        };
+        match called {
+            Called::Tell(args) => self.tell(call, args),
+            Called::Ask(args) => self.ask(call, args),
+            Called::RequestRoad(args) => {
+                self.request_road(call, args)
+            }
+            Called::StartWorker(args) => {
+                self.start_worker(call, args)
+            }
+            Called::SubmitSkill(args) => {
+                self.submit_skill(call, args)
+            }
+            Called::AskLibrarian(args) => {
+                self.ask_librarian(call, args)
+            }
+            called => Ok(Step::of(self.act(call, called)?)),
+        }
+    }
+
+    /// Carries out a society call answered at once, in words.
+    fn act(
+        &mut self,
+        call: &Call<'_>,
+        called: Called,
+    ) -> Done<String> {
         let agent = call.conversation.agent;
         let here = self.hamlet_of(agent)?;
-        let reason = text(call, "reason");
-        let result = match call.tool {
-            "tell" => return self.tell(call).await,
-            "ask" => return self.ask(call).await,
-            "request_road" => return self.request_road(call).await,
-            "start_worker" => return self.start_worker(call).await,
-            "submit_skill" => return self.submit_skill(call).await,
-            "ask_librarian" => return self.ask_librarian(call).await,
-            "read_scholar" => self.read_scholar(call)?,
-            "edit_scholar" => self.edit_scholar(call).await?,
-            "tag" => self.tag_scholar(call)?,
-            "revert" => self.revert_scholar(call).await?,
-            "create_scholar" => {
-                let name = text(call, "name");
-                let character = text(call, "character");
+        let here = here.as_ref();
+        match called {
+            Called::ReadScholar(args) => {
+                self.read_scholar(call, args)
+            }
+            Called::EditScholar(args) => {
+                self.edit_scholar(call, args)
+            }
+            Called::Tag(args) => self.tag_scholar(call, args),
+            Called::Revert(args) => self.revert_scholar(call, args),
+            Called::CreateScholar(CreateScholar {
+                name,
+                character,
+            }) => {
                 let task = self.task_of(call)?;
                 let db = self.realm.store().connection();
                 let chief = task_chief(db, task)?;
                 let owner = authority::owner_for(
                     db,
                     Actor::Agent(agent),
-                    here.as_ref(),
+                    here,
                     chief,
                 )?;
                 self.carry(call, |cx, env| {
@@ -427,41 +120,27 @@ impl Core {
                     } else {
                         character
                     };
-                    let made = match city::make(
+                    let made = done!(city::make(
                         cx, &name, owner, &character, None,
-                    )? {
-                        Ok(made) => made,
-                        Err(refusal) => return Ok(Err(refusal)),
-                    };
+                    ));
                     Ok(Ok(arrived(cx, env, made, &character)?))
                 })
-                .await?
             }
-            "hire" => self.hire_tool(call, here.as_ref()).await?,
-            "end_hire" => {
-                let hire =
-                    match self.led(call, "hire", here.as_ref())? {
-                        Ok(hire) => hire,
-                        Err(refusal) => {
-                            return Ok(Step::of(Err(refusal)));
-                        }
-                    };
+            Called::Hire(args) => self.hire_tool(call, here, args),
+            Called::EndHire(EndHire { hire, reason }) => {
+                let hire = done!(self.led(call, &hire, here));
                 let name = self.name(hire)?;
                 self.carry(call, |cx, _| {
                     Ok(hires::end(cx, hire, EndHow::Ended, &reason)?
                         .map(|()| format!("Ended {name}.")))
                 })
-                .await?
             }
-            "set_model" => {
-                let hire =
-                    match self.led(call, "hire", here.as_ref())? {
-                        Ok(hire) => hire,
-                        Err(refusal) => {
-                            return Ok(Step::of(Err(refusal)));
-                        }
-                    };
-                let model = text(call, "model");
+            Called::SetModel(SetModel {
+                hire,
+                model,
+                reason,
+            }) => {
+                let hire = done!(self.led(call, &hire, here));
                 let model = (!model.is_empty()).then_some(model);
                 let name = self.name(hire)?;
                 let words = format!(
@@ -477,17 +156,14 @@ impl Core {
                     )?
                     .map(|()| words))
                 })
-                .await?
             }
-            "set_tools" => {
-                let hire =
-                    match self.led(call, "hire", here.as_ref())? {
-                        Ok(hire) => hire,
-                        Err(refusal) => {
-                            return Ok(Step::of(Err(refusal)));
-                        }
-                    };
-                let (off, on) = (list(call, "off"), list(call, "on"));
+            Called::SetTools(SetTools {
+                hire,
+                off,
+                on,
+                reason,
+            }) => {
+                let hire = done!(self.led(call, &hire, here));
                 let name = self.name(hire)?;
                 self.carry(call, |cx, _| {
                     Ok(hires::set_tools(
@@ -497,21 +173,14 @@ impl Core {
                         format!("Changed the tools of {name}.")
                     }))
                 })
-                .await?
             }
-            "set_allowance" => {
-                let hire =
-                    match self.led(call, "hire", here.as_ref())? {
-                        Ok(hire) => hire,
-                        Err(refusal) => {
-                            return Ok(Step::of(Err(refusal)));
-                        }
-                    };
-                let allowance = call
-                    .arguments
-                    .get("dollars")
-                    .and_then(Value::as_f64)
-                    .map(micros);
+            Called::SetAllowance(SetAllowance {
+                hire,
+                dollars,
+                reason,
+            }) => {
+                let hire = done!(self.led(call, &hire, here));
+                let allowance = dollars.map(micros);
                 let name = self.name(hire)?;
                 self.carry(call, |cx, _| {
                     Ok(hires::set_allowance(
@@ -521,19 +190,15 @@ impl Core {
                         format!("Set the allowance of {name}.")
                     }))
                 })
-                .await?
             }
-            "nickname" => {
-                let hire =
-                    match self.led(call, "hire", here.as_ref())? {
-                        Ok(hire) => hire,
-                        Err(refusal) => {
-                            return Ok(Step::of(Err(refusal)));
-                        }
-                    };
-                let nickname = text(call, "nickname");
+            Called::Nickname(Nickname {
+                hire,
+                nickname,
+                reason,
+            }) => {
+                let hire = done!(self.led(call, &hire, here));
                 let given =
-                    (!nickname.trim().is_empty()).then_some(nickname);
+                    (!nickname.is_empty()).then_some(nickname);
                 let name = self.name(hire)?;
                 let words = match &given {
                     Some(nickname) => {
@@ -550,67 +215,43 @@ impl Core {
                     )?
                     .map(|()| words))
                 })
-                .await?
             }
-            "lay_road" | "take_up_road" => {
-                let a = match self.led(call, "a", here.as_ref())? {
-                    Ok(a) => a,
-                    Err(refusal) => {
-                        return Ok(Step::of(Err(refusal)));
-                    }
-                };
-                let b = match self.led(call, "b", here.as_ref())? {
-                    Ok(b) => b,
-                    Err(refusal) => {
-                        return Ok(Step::of(Err(refusal)));
-                    }
-                };
+            Called::LayRoad(args::LayRoad { a, b, reason }) => {
+                let a = done!(self.led(call, &a, here));
+                let b = done!(self.led(call, &b, here));
                 let (one, other) = (self.name(a)?, self.name(b)?);
                 let task = self.task_of(call)?;
-                if call.tool == "lay_road" {
-                    self.carry(call, |cx, _| {
-                        Ok(roads::lay(cx, a, b, &reason, task)?.map(
-                            |_| {
-                                format!(
-                                    "Laid a road between {one} and \
-                                     {other}."
-                                )
-                            },
-                        ))
-                    })
-                    .await?
-                } else {
-                    self.carry(call, |cx, _| {
-                        Ok(roads::take_up(cx, a, b, &reason)?.map(
-                            |()| {
-                                format!(
-                                    "Took up the road between {one} \
-                                     and {other}."
-                                )
-                            },
-                        ))
-                    })
-                    .await?
-                }
+                self.carry(call, |cx, _| {
+                    Ok(roads::lay(cx, a, b, &reason, task)?.map(
+                        |_| {
+                            format!(
+                                "Laid a road between {one} and \
+                                 {other}."
+                            )
+                        },
+                    ))
+                })
             }
-            "merge_hires" => {
-                let absorbed = match self.led(
-                    call,
-                    "absorbed",
-                    here.as_ref(),
-                )? {
-                    Ok(hire) => hire,
-                    Err(refusal) => {
-                        return Ok(Step::of(Err(refusal)));
-                    }
-                };
-                let kept =
-                    match self.led(call, "into", here.as_ref())? {
-                        Ok(hire) => hire,
-                        Err(refusal) => {
-                            return Ok(Step::of(Err(refusal)));
-                        }
-                    };
+            Called::TakeUpRoad(args::TakeUpRoad { a, b, reason }) => {
+                let a = done!(self.led(call, &a, here));
+                let b = done!(self.led(call, &b, here));
+                let (one, other) = (self.name(a)?, self.name(b)?);
+                self.carry(call, |cx, _| {
+                    Ok(roads::take_up(cx, a, b, &reason)?.map(|()| {
+                        format!(
+                            "Took up the road between {one} and \
+                             {other}."
+                        )
+                    }))
+                })
+            }
+            Called::MergeHires(MergeHires {
+                absorbed,
+                into,
+                reason,
+            }) => {
+                let absorbed = done!(self.led(call, &absorbed, here));
+                let kept = done!(self.led(call, &into, here));
                 let (one, other) =
                     (self.name(absorbed)?, self.name(kept)?);
                 self.carry(call, |cx, _| {
@@ -619,14 +260,15 @@ impl Core {
                     )?
                     .map(|_| format!("Merged {one} into {other}.")))
                 })
-                .await?
             }
-            "agree_road" => {
-                self.agree_road(call, here.as_ref()).await?
+            Called::AgreeRoad(args) => {
+                self.agree_road(call, here, args)
             }
-            "found_hamlet" => {
-                let name = text(call, "name");
-                let purpose = text(call, "purpose");
+            Called::FoundHamlet(FoundHamlet {
+                name,
+                scholar,
+                purpose,
+            }) => {
                 let task = self.task_of(call)?;
                 let db = self.realm.store().connection();
                 let overseer = task_chief(db, task)?;
@@ -636,7 +278,6 @@ impl Core {
                     None,
                     overseer,
                 )?;
-                let scholar = text(call, "scholar");
                 let mayor = if scholar.is_empty() {
                     Hiring::Blank {
                         name: String::new(),
@@ -647,12 +288,7 @@ impl Core {
                             .clone(),
                     }
                 } else {
-                    match self.scholar_hiring(&scholar)? {
-                        Ok(hiring) => hiring,
-                        Err(refusal) => {
-                            return Ok(Step::of(Err(refusal)));
-                        }
-                    }
+                    done!(self.scholar_hiring(&scholar))
                 };
                 self.carry(call, |cx, _| {
                     let founding = Founding {
@@ -661,35 +297,21 @@ impl Core {
                         mayor,
                         purpose,
                     };
-                    let hired = match hamlets::found(cx, founding)? {
-                        Ok(hired) => hired,
-                        Err(refusal) => return Ok(Err(refusal)),
-                    };
+                    let hired = done!(hamlets::found(cx, founding));
                     Ok(Ok(format!(
                         "Founded {name} (`{}`).",
                         hired.hamlet
                     )))
                 })
-                .await?
             }
-            "seat_mayor" => {
-                let hire =
-                    match self.named(call, "hire", here.as_ref())? {
-                        Ok(hire) => hire,
-                        Err(refusal) => {
-                            return Ok(Step::of(Err(refusal)));
-                        }
-                    };
+            Called::SeatMayor(SeatMayor { hire, reason }) => {
+                let hire = done!(self.named(&hire, here));
                 let db = self.realm.store().connection();
-                let hamlet = match hires::find(db, hire)? {
-                    Some(found) => found.hamlet,
-                    None => {
-                        let name = addresses::name_of(db, hire)?;
-                        return Ok(Step::of(Err(Refusal::NotHire {
-                            name,
-                        })));
-                    }
+                let Some(found) = hires::find(db, hire)? else {
+                    let name = addresses::name_of(db, hire)?;
+                    refuse!(Refusal::NotHire { name });
                 };
+                let hamlet = found.hamlet;
                 let name = self.name(hire)?;
                 self.carry(call, |cx, _| {
                     Ok(hires::seat(cx, &hamlet, hire, &reason)?.map(
@@ -701,72 +323,92 @@ impl Core {
                         },
                     ))
                 })
-                .await?
             }
-            "remove_hamlet" => {
-                let id = HamletId(text(call, "hamlet"));
+            Called::RemoveHamlet(RemoveHamlet { hamlet, reason }) => {
+                let id = HamletId(hamlet);
                 self.carry(call, |cx, _| {
                     Ok(hamlets::remove(cx, &id, &reason)?
                         .map(|()| format!("Removed {id}.")))
                 })
-                .await?
             }
-            "read_budget" => {
+            Called::ReadBudget(_) => {
                 let db = self.realm.store().connection();
-                Ok(budget(db, agent)?)
+                Ok(Ok(budget(db, agent)?))
             }
-            "read_record" => {
-                let id = HamletId(text(call, "hamlet"));
+            Called::ReadRecord(ReadRecord { hamlet }) => {
+                let id = HamletId(hamlet);
                 let db = self.realm.store().connection();
-                match hamlets::find(db, &id)? {
-                    Some(_) => Ok(record::lines(db, &id, 0)?),
-                    None => {
-                        Err(Refusal::NoHamlet { id: id.to_string() })
-                    }
+                if hamlets::find(db, &id)?.is_none() {
+                    refuse!(Refusal::NoHamlet { id: id.to_string() });
                 }
+                Ok(Ok(record::lines(db, &id, 0)?))
             }
-            other => Err(Refusal::Unsupported {
-                what: format!("the tool {other}"),
-            }),
-        };
-        Ok(Step::of(result))
+            // The calls answer `object` before the gate, and these
+            // before here.
+            Called::Object(_)
+            | Called::Tell(_)
+            | Called::Ask(_)
+            | Called::RequestRoad(_)
+            | Called::StartWorker(_)
+            | Called::SubmitSkill(_)
+            | Called::AskLibrarian(_) => {
+                Ok(Err(Refusal::Unsupported {
+                    what: format!("the tool {}", call.tool),
+                }))
+            }
+        }
     }
 
     /// Makes the change of `call` by its agent, and keeps the call's
     /// answer in the same transaction: a call cut off by a crash
-    /// after its change is answered the same when it is asked again,
+    /// after its change is answered the same when it is made again,
     /// and never changes anything twice.
-    async fn carry(
+    fn carry(
         &mut self,
         call: &Call<'_>,
-        make: impl FnOnce(&mut Change<'_>, &Env) -> Done<String>,
-    ) -> Result<Result<String, Refusal>> {
+        make: impl FnOnce(
+            &mut Change<'_>,
+            &EffectiveSettings,
+        ) -> Done<String>,
+    ) -> Done<String> {
         let identity = call.call.identity();
         let request = &call.request;
-        self.attempt(
+        let split = crate::app::fault::is_marker_split();
+        let made = self.attempt(
             Actor::Agent(call.conversation.agent),
             |cx, env| {
                 let made = make(cx, env)?;
                 if let Ok(words) = &made
-                    && !crate::fault::is_marker_split()
+                    && !split
                 {
                     hamlet_store::marker::settle(
                         cx.db,
                         identity,
                         request,
-                        &said(words.clone(), false),
+                        &said(words.clone()),
                         cx.at,
                     )?;
                 }
                 Ok(made)
             },
-        )
-        .await
+        )?;
+        if made.is_err() {
+            return Ok(made);
+        }
+        // The crash test's fault point comes once the change is kept:
+        // with its answer at the input's end, or apart from it.
+        if split {
+            hamlet_store::commit(self.realm.store().connection())?;
+            crate::app::fault::point("carried");
+        } else {
+            self.changed.crash_test_fault_point = Some("carried");
+        }
+        Ok(made)
     }
 
     /// Marks `call` begun before an effect outside the store, which
     /// no transaction keeps with its answer: cut off by a crash, it
-    /// is answered as interrupted when it is asked again, never run
+    /// is answered as interrupted when it is made again, never run
     /// twice.
     fn begin(&mut self, call: &Call<'_>) -> Result<()> {
         let db = self.realm.store().connection();
@@ -774,7 +416,7 @@ impl Core {
             db,
             call.call.identity(),
             &call.request,
-            crate::clock::now(),
+            crate::app::clock::now(),
         )
     }
 
@@ -792,96 +434,83 @@ impl Core {
         addresses::name_of(db, agent)
     }
 
-    /// The living agent the argument `key` of `call` names.
+    /// The living agent at `address`, read from `here`.
     pub(super) fn named(
         &mut self,
-        call: &Call<'_>,
-        key: &str,
+        address: &str,
         here: Option<&HamletId>,
-    ) -> Result<Result<AgentId, Refusal>> {
-        let address = match addresses::parse(&text(call, key)) {
+    ) -> Done<AgentId> {
+        let address = match addresses::parse(address) {
             Ok(address) => address,
-            Err(refusal) => return Ok(Err(refusal)),
+            Err(refusal) => refuse!(refusal),
         };
         let db = self.realm.store().connection();
         addresses::resolve(db, &address, here, Reach::Living)
     }
 
-    /// The hire the argument `key` of `call` names, which the caller
-    /// leads.
+    /// The hire at `address`, which `call`'s agent leads.
     fn led(
         &mut self,
         call: &Call<'_>,
-        key: &str,
+        address: &str,
         here: Option<&HamletId>,
-    ) -> Result<Result<AgentId, Refusal>> {
-        let hire = match self.named(call, key, here)? {
-            Ok(hire) => hire,
-            Err(refusal) => return Ok(Err(refusal)),
-        };
+    ) -> Done<AgentId> {
+        let hire = done!(self.named(address, here));
         let caller = call.conversation.agent;
         let db = self.realm.store().connection();
         if agents::get(db, hire)?.kind != AgentKind::Hire {
             let name = addresses::name_of(db, hire)?;
-            return Ok(Err(Refusal::NotHire { name }));
+            refuse!(Refusal::NotHire { name });
         }
         if hire == caller
             || !authority::may_lead(db, Actor::Agent(caller), hire)?
         {
             let name = addresses::name_of(db, hire)?;
-            return Ok(Err(Refusal::NotLead { name }));
+            refuse!(Refusal::NotLead { name });
         }
         Ok(Ok(hire))
     }
 
     /// The scholar `text` addresses, as a hire takes it: at `main`,
     /// or pinned to `@<version>`.
-    fn scholar_hiring(
-        &mut self,
-        text: &str,
-    ) -> Result<Result<Hiring, Refusal>> {
-        let (scholar, version) = match self.scholar_pinned(text)? {
-            Ok(found) => found,
-            Err(refusal) => return Ok(Err(refusal)),
-        };
+    fn scholar_hiring(&mut self, text: &str) -> Done<Hiring> {
+        let (scholar, version) = done!(self.scholar_pinned(text));
         self.existing(scholar, version)
     }
 
-    async fn hire_tool(
+    fn hire_tool(
         &mut self,
         call: &Call<'_>,
         here: Option<&HamletId>,
-    ) -> Result<Result<String, Refusal>> {
+        args: Hire,
+    ) -> Done<String> {
+        let Hire {
+            scholar: named,
+            name: blank,
+            purpose,
+            under,
+            hamlet: named_hamlet,
+        } = args;
         let agent = call.conversation.agent;
-        let named_hamlet = text(call, "hamlet");
         let hamlet = match (here, named_hamlet.is_empty()) {
             (Some(here), _) => here.clone(),
             (None, false) => HamletId(named_hamlet),
-            (None, true) => {
-                return Ok(Err(Refusal::Usage {
-                    words: "Say which hamlet to hire into.".into(),
-                }));
-            }
+            (None, true) => refuse!(Refusal::NoHamletToHireInto),
         };
-        let under = text(call, "under");
         let parent = if under.is_empty() {
             let db = self.realm.store().connection();
             if agents::get(db, agent)?.kind == AgentKind::Hand {
                 if hamlets::find(db, &hamlet)?.is_none() {
-                    return Ok(Err(Refusal::NoHamlet {
+                    refuse!(Refusal::NoHamlet {
                         id: hamlet.to_string(),
-                    }));
+                    });
                 }
                 crate::society::tree::mayor(db, &hamlet)?
             } else {
                 agent
             }
         } else {
-            let found =
-                match self.named(call, "under", Some(&hamlet))? {
-                    Ok(found) => found,
-                    Err(refusal) => return Ok(Err(refusal)),
-                };
+            let found = done!(self.named(&under, Some(&hamlet)));
             let db = self.realm.store().connection();
             if found != agent
                 && !authority::may_lead(
@@ -891,29 +520,18 @@ impl Core {
                 )?
             {
                 let name = addresses::name_of(db, found)?;
-                return Ok(Err(Refusal::NotLead { name }));
+                refuse!(Refusal::NotLead { name });
             }
             found
         };
         // A scholar of the city, or a blank agent when none fits.
-        let (named, blank) =
-            (text(call, "scholar"), text(call, "name"));
         let hiring = match (named.is_empty(), blank.is_empty()) {
-            (false, true) => match self.scholar_hiring(&named)? {
-                Ok(hiring) => hiring,
-                Err(refusal) => return Ok(Err(refusal)),
-            },
+            (false, true) => done!(self.scholar_hiring(&named)),
             (true, _) => Hiring::Blank {
                 name: blank,
                 character: self.env.settings.character.clone(),
             },
-            (false, false) => {
-                return Ok(Err(Refusal::Usage {
-                    words: "Give `scholar` to hire one of the city, \
-                            or `name` for a blank agent, not both."
-                        .into(),
-                }));
-            }
+            (false, false) => refuse!(Refusal::HireBoth),
         };
         let task = self.task_of(call)?;
         let db = self.realm.store().connection();
@@ -926,7 +544,7 @@ impl Core {
             )?
         {
             let name = city::get(db, *scholar)?.label();
-            return Ok(Err(Refusal::ScholarNotOwn { name }));
+            refuse!(Refusal::ScholarNotOwn { name });
         }
         let overseer = task_chief(db, task)?;
         let owner = authority::owner_for(
@@ -937,12 +555,11 @@ impl Core {
         )?;
         // An agent says what it hires for; only a chief may leave it
         // to the hire's first message.
-        let purpose = text(call, "purpose");
-        if purpose.trim().is_empty() {
-            return Ok(Err(Refusal::NoPurpose));
+        if purpose.is_empty() {
+            refuse!(Refusal::NoPurpose);
         }
         self.carry(call, |cx, _| {
-            let hired = match hires::hire(
+            let hired = done!(hires::hire(
                 cx,
                 Spec {
                     hamlet,
@@ -952,35 +569,30 @@ impl Core {
                     reason: String::new(),
                     owner,
                 },
-            )? {
-                Ok(hired) => hired,
-                Err(refusal) => return Ok(Err(refusal)),
-            };
+            ));
             let name = addresses::name_of(cx.db, hired.agent)?;
             Ok(Ok(format!("Hired {name}.")))
         })
-        .await
     }
 
-    async fn agree_road(
+    fn agree_road(
         &mut self,
         call: &Call<'_>,
         here: Option<&HamletId>,
-    ) -> Result<Result<String, Refusal>> {
+        args: AgreeRoad,
+    ) -> Done<String> {
+        let AgreeRoad {
+            mine,
+            theirs,
+            reason,
+        } = args;
         let agent = call.conversation.agent;
         let db = self.realm.store().connection();
         if !hires::is_mayor(db, agent)? {
-            return Ok(Err(Refusal::NotMayor));
+            refuse!(Refusal::NotMayor);
         }
-        let mine = match self.named(call, "mine", here)? {
-            Ok(found) => found,
-            Err(refusal) => return Ok(Err(refusal)),
-        };
-        let theirs = match self.named(call, "theirs", None)? {
-            Ok(found) => found,
-            Err(refusal) => return Ok(Err(refusal)),
-        };
-        let reason = text(call, "reason");
+        let mine = done!(self.named(&mine, here));
+        let theirs = done!(self.named(&theirs, None));
         let task = self.task_of(call)?;
         let (one, other) = (self.name(mine)?, self.name(theirs)?);
         self.carry(call, |cx, _| {
@@ -996,16 +608,15 @@ impl Core {
                     ),
                 }))
         })
-        .await
     }
 }
 
-/// What a new scholar `name` comes to, in words for the agent that
-/// made it: in the city, or at the harbor, with the Hand asked to
-/// judge it when the realm leaves newcomers to the Hand.
+/// The words for the agent that made a scholar: it lives in the
+/// city, or waits at the harbor, with the Hand called on to judge it
+/// when the realm leaves newcomers to the Hand.
 fn arrived(
     cx: &mut Change<'_>,
-    env: &Env,
+    env: &EffectiveSettings,
     id: ScholarId,
     character: &str,
 ) -> Result<String> {
@@ -1025,14 +636,14 @@ fn arrived(
     ))
 }
 
-/// What `agent` may spend, for `read_budget`: what its hamlet or the
+/// The budget of `agent`, for `read_budget`: what its hamlet or the
 /// realm spent this period, what it spent, and its allowance.
 fn budget(
     db: &mut hamlet_store::Db,
     agent: AgentId,
 ) -> Result<String> {
-    let at = crate::clock::now();
-    let payer = crate::talk::tasks::payer_of(db, agent)?;
+    let at = crate::app::clock::now();
+    let payer = crate::conversations::tasks::payer_of(db, agent)?;
     let report = spend::report(db, payer.as_ref(), at)?;
     let mut lines = vec![report.summary];
     let spent = spend::of_agent(db, agent, at)?;
@@ -1058,7 +669,9 @@ pub(super) fn task_chief(
     task: Option<TaskId>,
 ) -> Result<Option<ChiefId>> {
     Ok(match task {
-        Some(task) => crate::talk::tasks::get(db, task)?.chief,
+        Some(task) => {
+            crate::conversations::tasks::get(db, task)?.chief
+        }
         None => None,
     })
 }

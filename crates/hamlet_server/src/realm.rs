@@ -1,26 +1,46 @@
-//! A realm this server holds: claimed, laid out, with its database
-//! open. A new realm is made with its first chief and its Hand.
+//! The realm on disk: its folder and the [`claim`] that keeps other
+//! servers out of it, its [`layout`], its database and the
+//! [`change`]s made to it in transactions with their [`jobs`], its
+//! [`settings`] and [`credentials`], and the remote [`workspace`] it
+//! may work in.
+//!
+//! [`Realm`] is the one this server holds: claimed, laid out, with
+//! its database open. A new realm is made with its first chief and
+//! its Hand.
+
+pub(crate) mod change;
+pub(crate) mod claim;
+pub(crate) mod credentials;
+pub(crate) mod jobs;
+pub(crate) mod layout;
+pub(crate) mod settings;
+pub(crate) mod workspace;
 
 use std::io::Write;
 use std::path::Path;
+use std::sync::{Mutex, PoisonError};
 
 use anyhow::{Context, Result, ensure};
+use bevy_ecs::resource::Resource;
 use hamlet_store::Store;
 use hamlet_store::ids::{Actor, ChiefId};
 
-use crate::change::Change;
-use crate::claim::Claim;
-use crate::layout::Layout;
+use crate::realm::change::Change;
+use crate::realm::claim::Claim;
+use crate::realm::layout::Layout;
 use crate::society::{chiefs, hand};
 
 /// The Hand's character in a new realm.
 const HAND: &str = include_str!("../assets/hand.md");
 
+#[derive(Resource)]
 pub(crate) struct Realm {
     layout: Layout,
     // Declared before the claim, so a dropped realm closes its
-    // database before it lets the folder go.
-    store: Store,
+    // database before it lets the folder go. Only one thread holds
+    // a connection at once; the mutex is never locked, only reached
+    // through `&mut`.
+    store: Mutex<Store>,
     chief: ChiefId,
     _claim: Claim,
 }
@@ -39,13 +59,13 @@ impl Realm {
         let layout = Layout::new(&root);
         let mut store = if layout.database().try_exists()? {
             let mut store = Store::open(&layout.database())?;
-            let kept = std::fs::read_to_string(layout.identity())
+            let realm_id = std::fs::read_to_string(layout.identity())
                 .context(
                     "reading realm.id; restore the whole realm from \
                      a backup if it is missing",
                 )?;
             ensure!(
-                kept == store.realm()?,
+                realm_id == store.realm_id()?,
                 "the realm's database belongs to another realm; \
                  restore the matching database and realm.id from a \
                  whole backup"
@@ -62,7 +82,7 @@ impl Realm {
         let chief = chiefs::ensure(store.connection(), chief, at)?;
         Ok(Self {
             layout,
-            store,
+            store: Mutex::new(store),
             chief,
             _claim: claim,
         })
@@ -73,7 +93,7 @@ impl Realm {
     }
 
     pub fn store(&mut self) -> &mut Store {
-        &mut self.store
+        self.store.get_mut().unwrap_or_else(PoisonError::into_inner)
     }
 
     /// The chief this server runs as (C7).

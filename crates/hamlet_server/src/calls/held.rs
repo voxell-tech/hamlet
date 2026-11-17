@@ -8,15 +8,15 @@ use hamlet_store::Db;
 use hamlet_store::ids::{ConversationId, WaitId};
 use hamlet_store::schema::{tool_call, wait};
 
-use crate::oversight::{Ruling, WaitKind};
+use crate::society::oversight::{Ruling, WaitKind};
 
 /// Where a call stands with the gate.
 #[derive(Clone, Debug, PartialEq)]
 pub(crate) enum State {
     /// Reserved, not decided.
     Open,
-    /// Let run without asking; made again each time, as grants and
-    /// trust change.
+    /// Let run without a chief's answer; made again each time, as
+    /// grants and trust change.
     Allowed {
         net: bool,
     },

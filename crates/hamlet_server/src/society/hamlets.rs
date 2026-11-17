@@ -2,7 +2,10 @@
 //! and the chief's limits.
 
 use anyhow::{Context, Result};
+use diesel::deserialize::FromSqlRow;
+use diesel::expression::AsExpression;
 use diesel::prelude::*;
+use diesel::sql_types::Text;
 use hamlet_store::Db;
 use hamlet_store::ids::{
     Actor, AgentId, ChiefId, HamletId, ScholarId,
@@ -10,7 +13,9 @@ use hamlet_store::ids::{
 use hamlet_store::schema::{
     agent, hamlet, hamlet_chief, hamlet_folder, hire,
 };
+use serde::{Deserialize, Serialize};
 use serde_json::json;
+use strum::{Display, EnumString, IntoStaticStr};
 
 use super::agents::{self, EndHow};
 use super::city;
@@ -19,20 +24,36 @@ use super::limits::Limits;
 use super::names::{check_name, new_hamlet_id};
 use super::record::{self, Decision, DecisionKind};
 use super::refusal::Refusal;
-use crate::change::{Change, Done, done, refuse};
-use crate::jobs::{self, Job};
-use crate::text::text_enum;
+use crate::realm::change::{Change, Done, done, refuse};
+use crate::realm::jobs::{self, Job};
 
 /// The tiers a hamlet's cap of hires may take.
 pub(crate) const TIERS: [i64; 4] = [50, 100, 200, 500];
 
-text_enum! {
-    /// How a hamlet's work on its folder is overseen (C21).
-    pub(crate) enum Mode {
-        Manual = "manual",
-        Auto = "auto",
-    }
+/// How a hamlet's work on its folder is overseen (C21).
+#[derive(
+    Clone,
+    Copy,
+    Debug,
+    PartialEq,
+    Eq,
+    Hash,
+    Serialize,
+    Deserialize,
+    AsExpression,
+    FromSqlRow,
+    IntoStaticStr,
+    EnumString,
+    Display,
+)]
+#[serde(rename_all = "kebab-case")]
+#[strum(serialize_all = "kebab-case")]
+#[diesel(sql_type = Text)]
+pub(crate) enum Mode {
+    Manual,
+    Auto,
 }
+hamlet_store::named_text!(Mode);
 
 #[derive(Clone, Debug, PartialEq, Queryable, Selectable)]
 #[diesel(table_name = hamlet)]

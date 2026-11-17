@@ -1,12 +1,12 @@
-//! What each client message asks, answered by the loop: the hello,
-//! a chief's lines and commands, watching conversations, and a chat's
-//! deeds.
+//! The loop's answers to client messages: the hello, a chief's lines
+//! and commands, watching conversations, and a chat's deeds.
 
 use std::collections::BTreeMap;
-use std::panic::AssertUnwindSafe;
 
 use anyhow::Result;
-use futures::FutureExt;
+use bevy_ecs::change_detection::Mut;
+use bevy_ecs::lifecycle::Remove;
+use bevy_ecs::observer::On;
 use hamlet_protocol::client::{
     self as protocol, ChatRef, ChatRefKind, ClientMessage,
     ImportProject, RequestId, ServerMessage, Transcript,
@@ -14,99 +14,99 @@ use hamlet_protocol::client::{
 use hamlet_store::ids::{Actor, AgentId, ConversationId};
 
 use super::check::{fault, reply};
-use super::connection::{self, Event};
+use super::connection::Connection;
 use super::fold::Fold;
-use super::{Owed, Watch, changes};
+use super::{OwedReply, changes};
+use crate::attachments::files::Files;
+use crate::conversations::activity::Activity;
+use crate::conversations::{
+    self, Kind, chats, imports, items, models,
+};
 use crate::core::{Core, Live};
-use crate::files::Files;
+use crate::realm::change::Done;
 use crate::society::agents::{self, AgentKind, Effort};
 use crate::society::refusal::Refusal;
 use crate::society::{authority, hires, workers};
-use crate::talk::activity::Activity;
-use crate::talk::conversations::{self, Kind};
-use crate::talk::{chats, imports, items};
 
 /// The most transcript entries one page holds.
 const PAGE: usize = 100;
 
-impl Core {
-    /// Takes in what a connection did.
-    pub(crate) async fn connection(
-        &mut self,
-        event: Event,
-    ) -> Result<()> {
-        match event {
-            Event::Message(client, text) => {
-                self.message(client, &text).await
-            }
-            Event::Late(client) => {
-                if let Some(found) =
-                    self.clients.list.get_mut(&client)
-                    && !found.welcomed
-                {
-                    connection::refuse(
-                        found,
-                        "No hello came in time.",
-                        1008,
-                    )?;
-                }
-                Ok(())
-            }
-            Event::Gone(client) => {
-                self.clients.gone(client);
-                self.terminals.gone(client);
-                self.providers.disconnect(client);
-                self.images.disconnect(client);
-                self.files.disconnect(client);
-                self.send_providers().await
-            }
+/// A connection went: the sign-ins its client began end with it. Its
+/// uploads go with its entity.
+pub(crate) fn left(
+    gone: On<Remove<Connection>>,
+    mut core: Core,
+) -> bevy_ecs::error::Result {
+    let Some(client) = core.connections.client(gone.entity) else {
+        return Ok(());
+    };
+    core.providers.disconnect(client);
+    core.send_providers()?;
+    Ok(())
+}
+
+impl Core<'_, '_> {
+    /// `client` sent no hello in time.
+    pub(crate) fn late(&mut self, client: u64) {
+        if self
+            .connection(client)
+            .is_some_and(|found| !found.welcomed)
+        {
+            self.connections.refuse(
+                client,
+                "No hello came in time.",
+                1008,
+            );
         }
     }
 
-    async fn message(
+    /// The connection of `client`, while it is there.
+    pub(crate) fn connection(
+        &mut self,
+        client: u64,
+    ) -> Option<Mut<'_, Connection>> {
+        self.connections.get_mut(client)
+    }
+
+    /// The request `text` of `client`, checked; none when it was
+    /// answered here: a hello, or a message that is not one.
+    pub(crate) fn checked(
         &mut self,
         client: u64,
         text: &str,
-    ) -> Result<()> {
-        let Some(found) = self.clients.list.get(&client) else {
-            return Ok(());
+    ) -> Result<Option<ClientMessage>> {
+        let Some(found) = self.connection(client) else {
+            return Ok(None);
         };
         if found.refused {
-            return Ok(());
+            return Ok(None);
         }
         let welcomed = found.welcomed;
-        let message = match self.clients.check.parse(text) {
+        let message = match self.clients.protocol_schema.parse(text) {
             Ok(message) => message,
             Err(failed) => {
                 let message = ServerMessage::Fault(failed);
                 self.answer(client, message)?;
-                if !welcomed
-                    && let Some(found) =
-                        self.clients.list.get_mut(&client)
-                {
-                    connection::refuse(
-                        found,
+                if !welcomed {
+                    self.connections.refuse(
+                        client,
                         "The first message is a hello.",
                         1008,
-                    )?;
+                    );
                 }
-                return Ok(());
+                return Ok(None);
             }
         };
         match message {
             ClientMessage::Hello(hello) if !welcomed => {
-                let found = self
-                    .clients
-                    .list
-                    .get_mut(&client)
-                    .expect("checked above");
                 if !self.credentials.is_connection_token(&hello.token)
                 {
-                    return connection::refuse(
-                        found,
+                    self.connections.refuse(
+                        client,
                         "That token is not this server's.",
                         4001,
                     );
+                    return Ok(None);
                 }
                 let ours = protocol::VERSION;
                 if !ours.is_compatible(&hello.v) {
@@ -116,57 +116,26 @@ impl Core {
                          {ours}.",
                         hello.v
                     );
-                    return connection::refuse(found, &words, 4002);
+                    self.connections.refuse(client, &words, 4002);
+                    return Ok(None);
                 }
-                found.welcomed = true;
+                if let Some(mut found) = self.connection(client) {
+                    found.welcomed = true;
+                }
                 let state = self.compose()?;
-                self.clients.sent = Some(state.clone());
-                self.answer(client, ServerMessage::State(state))
+                self.clients.last_sent_state = Some(state.clone());
+                self.answer(client, ServerMessage::State(state))?;
+                Ok(None)
             }
             _ if !welcomed => {
-                let found = self
-                    .clients
-                    .list
-                    .get_mut(&client)
-                    .expect("checked above");
-                connection::refuse(
-                    found,
+                self.connections.refuse(
+                    client,
                     "The first message is a hello.",
                     1008,
-                )
-            }
-            message => {
-                let id = message.id().cloned();
-                // A handler that panics leaves its transaction rolled
-                // back, so the realm is as before the request.
-                let handled =
-                    AssertUnwindSafe(self.request(client, message))
-                        .catch_unwind()
-                        .await;
-                let (shown, logged) = match handled {
-                    Ok(Ok(())) => return Ok(()),
-                    Ok(Err(error)) => {
-                        (format!("{error}"), format!("{error:#}"))
-                    }
-                    Err(panic) => {
-                        let words =
-                            crate::diagnostic::panicked(&*panic);
-                        (words.clone(), words)
-                    }
-                };
-                crate::diagnostic::tell(
-                    crate::diagnostic::Secrets::Of(&self.credentials),
-                    format!("a request failed: {logged}"),
                 );
-                self.answer(
-                    client,
-                    fault(
-                        id.as_ref(),
-                        format!("The server failed: {shown}"),
-                    ),
-                )?;
-                Ok(())
+                Ok(None)
             }
+            message => Ok(Some(message)),
         }
     }
 
@@ -176,352 +145,183 @@ impl Core {
         client: u64,
         message: ServerMessage,
     ) -> Result<()> {
-        self.clients.send(client, &self.credentials, message)
+        self.connections.send(client, message);
+        Ok(())
     }
 
-    async fn request(
+    /// A chief's line to an agent, with the images and files it
+    /// carries, kept for the agent; its reply is owed once the agent
+    /// is done with it.
+    pub(crate) fn say(
         &mut self,
         client: u64,
-        message: ClientMessage,
+        say: protocol::Say,
     ) -> Result<()> {
-        crate::fault::panic_at("request");
         let chief = self.realm.chief();
-        if self.model_request(client, &message).await? {
+        let Some(agent) = self.reached(client, &say.id, say.to.0)?
+        else {
             return Ok(());
-        }
-        match message {
-            ClientMessage::Hello(_) => self.answer(
+        };
+        // A line no model can answer is refused, so the agent is not
+        // left working on it for good.
+        if !self.has_model(agent)? {
+            return self.answer(
                 client,
-                fault(None, "This connection said hello already."),
-            ),
-            ClientMessage::Say(say) => {
-                let Some(agent) =
-                    self.reached(client, &say.id, say.to.0)?
-                else {
-                    return Ok(());
-                };
-                let text = say.text.trim();
-                if text.starts_with('/') {
-                    if !say.images.is_empty() || !say.files.is_empty()
-                    {
-                        return self.answer(
-                            client,
-                            reply(
-                                &say.id,
-                                Err(Refusal::CommandAttachments),
-                            ),
-                        );
-                    }
-                    let answer = self.command(agent, text).await?;
-                    // A command may write what no change publishes,
-                    // such as a revoked grant.
-                    self.publish().await?;
-                    return self
-                        .answer(client, reply(&say.id, answer));
-                }
-                // A line no model can answer is refused, so the
-                // agent is not left working on it for good.
-                if !self.has_model(agent)? {
-                    return self.answer(
-                        client,
-                        reply(&say.id, Err(Refusal::NoModelSetUp)),
-                    );
-                }
-                let attached = match self
-                    .attach(agent, &say.text, &say.images, &say.files)
-                    .await?
-                {
-                    Ok(attached) => attached,
-                    Err(refusal) => {
-                        return self.answer(
-                            client,
-                            reply(&say.id, Err(refusal)),
-                        );
-                    }
-                };
-                let request = say.id.as_str().to_owned();
-                let line = attached.place(&say.text, |words| {
-                    self.credentials.scrub_text(words)
-                });
-                let said = self
-                    .change(Actor::Chief(chief), |cx, env| {
-                        chats::say_with(
-                            cx, env, agent, chief, &request, &line,
-                        )
-                    })
-                    .await?;
-                self.clients.owed.push(Owed {
-                    client,
-                    id: say.id,
-                    conversation: said.conversation,
-                    request: said.request,
-                });
-                Ok(())
+                reply(&say.id, Err(Refusal::NoModelSetUp)),
+            );
+        }
+        let attached = match self.attach(
+            agent,
+            &say.text,
+            &say.images,
+            &say.files,
+        )? {
+            Ok(attached) => attached,
+            Err(refusal) => {
+                return self
+                    .answer(client, reply(&say.id, Err(refusal)));
             }
-            ClientMessage::Open(open) => {
-                let found = self.watch_target(&open.chat).await?;
-                let conversation = match found {
-                    Ok(conversation) => conversation,
-                    Err(refusal) => {
-                        return self.answer(
-                            client,
-                            reply(&open.id, Err(refusal)),
-                        );
-                    }
-                };
-                let transcript = self.transcript(
-                    conversation,
-                    &open.chat,
-                    open.before.as_deref(),
-                    Some(&open.id),
-                )?;
-                self.clients.watches.retain(|w| {
-                    !(w.client == client && w.chat == open.chat)
-                });
-                self.clients.watches.push(Watch {
-                    client,
-                    chat: open.chat,
-                    conversation,
-                });
-                self.answer(client, transcript)
-            }
-            ClientMessage::Close(close) => {
-                self.clients.watches.retain(|w| {
-                    !(w.client == client && w.chat == close.chat)
-                });
-                Ok(())
-            }
-            ClientMessage::New(new) => {
-                let Some(agent) =
-                    self.reached(client, &new.id, new.to.0)?
-                else {
-                    return Ok(());
-                };
-                let number = self
-                    .change(Actor::Chief(chief), |cx, env| {
-                        chats::new_session(cx, env, agent, chief)
-                    })
-                    .await?;
-                self.rewatch(agent).await?;
-                self.answer(
-                    client,
-                    reply(
-                        &new.id,
-                        Ok(format!("Session {number} began.")),
-                    ),
-                )
-            }
-            ClientMessage::Resume(resume) => {
-                let Some(agent) =
-                    self.reached(client, &resume.id, resume.to.0)?
-                else {
-                    return Ok(());
-                };
-                let done = self
-                    .attempt(Actor::Chief(chief), |cx, _| {
-                        chats::resume(cx, agent, chief, resume.number)
-                    })
-                    .await?;
-                self.rewatch(agent).await?;
-                let words = done.map(|()| {
-                    format!("Back in session {}.", resume.number)
-                });
-                self.answer(client, reply(&resume.id, words))
-            }
-            ClientMessage::ImportProject(project) => {
-                let files = Files::new(self.realm.layout().files());
-                // Every file is held read at once.
-                let together = project
-                    .files
-                    .iter()
-                    .filter_map(|file| files.size(file))
-                    .sum::<u64>();
-                if together > ImportProject::MOST_BYTES {
-                    return self.answer(
-                        client,
-                        reply(
-                            &project.id,
-                            Err(Refusal::Usage {
-                                words: format!(
-                                    "A project's conversations come \
-                                     to at most {} MiB together; \
-                                     bring in fewer at a time.",
-                                    ImportProject::MOST_BYTES >> 20
-                                ),
-                            }),
-                        ),
-                    );
-                }
-                let mut conversations = Vec::new();
-                for file in &project.files {
-                    match imports::read(&files, file)? {
-                        Ok(imported) => conversations.push(imported),
-                        Err(refusal) => {
-                            return self.answer(
-                                client,
-                                reply(&project.id, Err(refusal)),
-                            );
-                        }
-                    }
-                }
-                let wanted = imports::Project {
-                    name: &project.name,
-                    folder: project.folder.as_deref(),
-                    conversations: &conversations,
-                };
-                let done = self
-                    .attempt(Actor::Chief(chief), |cx, env| {
-                        imports::bring_in_project(
-                            cx, env, chief, &wanted,
-                        )
-                    })
-                    .await?;
-                let words = done.map(|brought| brought.words());
-                self.answer(client, reply(&project.id, words))
-            }
-            ClientMessage::Retry(retry) => {
-                let Some(agent) =
-                    self.reached(client, &retry.id, retry.to.0)?
-                else {
-                    return Ok(());
-                };
-                let done = self
-                    .attempt(Actor::Chief(chief), |cx, env| {
-                        chats::retry(cx, env, agent, chief)
-                    })
-                    .await?;
-                let words = done.map(|_| "Carrying on.".to_owned());
-                self.answer(client, reply(&retry.id, words))
-            }
-            ClientMessage::Stop(stop) => {
-                let targets = match stop.agent {
-                    Some(agent) => {
-                        let Some(agent) =
-                            self.reached(client, &stop.id, agent.0)?
-                        else {
-                            return Ok(());
-                        };
-                        vec![agent]
-                    }
-                    None => self.reachable()?,
-                };
-                let mut stopped = 0;
-                for agent in targets {
-                    stopped += self
-                        .change(Actor::Chief(chief), |cx, _| {
-                            chats::stop(cx, agent)
-                        })
-                        .await?;
-                }
-                let words = if stopped == 0 {
-                    "Nothing was running.".to_owned()
-                } else {
-                    format!("Stopped {stopped} running turns.")
-                };
-                self.answer(client, reply(&stop.id, Ok(words)))
-            }
-            ClientMessage::Edit(edit) => {
-                self.edit(client, edit).await
-            }
-            ClientMessage::Read(read) => {
-                self.read(client, read).await
-            }
-            ClientMessage::Answer(answer) => {
-                let words = self
-                    .answer_wait(
-                        &answer.wait,
-                        &answer.choice,
-                        answer.text.as_deref(),
-                        answer.picks.as_deref(),
-                    )
-                    .await?;
-                self.answer(client, reply(&answer.id, words))
-            }
-            ClientMessage::PutImage(put) => {
-                let answer = self.put_image(client, put);
-                self.answer(client, answer)
-            }
-            ClientMessage::PutImagePart(part) => {
-                let answer = self.put_image_part(client, part)?;
-                self.answer(client, answer)
-            }
-            ClientMessage::PutFile(put) => {
-                let answer = self.put_file(client, put)?;
-                self.answer(client, answer)
-            }
-            ClientMessage::PutFilePart(part) => {
-                let answer = self.put_file_part(client, part)?;
-                self.answer(client, answer)
-            }
-            ClientMessage::Rewind(rewind) => {
-                if rewind.chat.from.is_some()
-                    || rewind.chat.past.is_some()
-                {
-                    let refusal = Refusal::Usage {
-                        words: "Only the current session of a \
-                                chief's chat goes back."
-                            .into(),
-                    };
-                    return self.answer(
-                        client,
-                        reply(&rewind.id, Err(refusal)),
-                    );
-                }
-                let Some(agent) = self.reached(
-                    client,
-                    &rewind.id,
-                    rewind.chat.with.0,
-                )?
-                else {
-                    return Ok(());
-                };
-                let done = self
-                    .attempt(Actor::Chief(chief), |cx, env| {
-                        chats::rewind(
-                            cx,
-                            env,
-                            agent,
-                            chief,
-                            &rewind.item,
-                        )
-                    })
-                    .await?;
-                self.rewatch(agent).await?;
-                let answer = match done {
-                    Ok((text, images, files)) => {
-                        self.keep_images(&images);
-                        self.keep_files(&files);
-                        ServerMessage::Reply(protocol::Reply {
-                            file: None,
-                            files,
-                            image: None,
-                            images,
-                            kind: protocol::ReplyKind::Rewound,
-                            text,
-                            to: rewind.id.clone(),
-                            upload: None,
-                        })
-                    }
-                    Err(refusal) => reply(&rewind.id, Err(refusal)),
-                };
-                self.answer(client, answer)
-            }
-            ClientMessage::MoveLodges(asked) => {
-                self.move_lodges(client, &asked.id).await
-            }
-            ClientMessage::Terminal(asked) => {
-                self.terminal(client, asked).await
-            }
-            // The providers answered these above.
-            ClientMessage::Login(_) | ClientMessage::Check(_) => {
-                Ok(())
+        };
+        let request = say.id.as_str().to_owned();
+        let line = attached.place(&say.text, |words| {
+            self.credentials.scrub_text(words)
+        });
+        let said = self.change(Actor::Chief(chief), |cx, env| {
+            chats::say_with(cx, env, agent, chief, &request, &line)
+        })?;
+        self.connections.owe(
+            client,
+            OwedReply {
+                id: say.id,
+                conversation: said.conversation,
+                request: said.request,
+            },
+        );
+        Ok(())
+    }
+
+    /// Begins a new session of the chief's chat with `agent`; who
+    /// watches it turns to the new one.
+    pub(crate) fn new_session(
+        &mut self,
+        agent: AgentId,
+    ) -> Result<String> {
+        let chief = self.realm.chief();
+        let number = self
+            .change(Actor::Chief(chief), |cx, env| {
+                chats::new_session(cx, env, agent, chief)
+            })?;
+        self.rewatch(agent)?;
+        Ok(format!("Session {number} began."))
+    }
+
+    /// Goes back to session `number` of the chief's chat with
+    /// `agent`.
+    pub(crate) fn resume_session(
+        &mut self,
+        agent: AgentId,
+        number: i64,
+    ) -> Done<String> {
+        let chief = self.realm.chief();
+        let done = self.attempt(Actor::Chief(chief), |cx, _| {
+            chats::resume(cx, agent, chief, number)
+        })?;
+        self.rewatch(agent)?;
+        Ok(done.map(|()| format!("Back in session {number}.")))
+    }
+
+    /// Brings in the chief's `project` of another program, its
+    /// conversations sent first as files (C35).
+    pub(crate) fn import_project(
+        &mut self,
+        project: &ImportProject,
+    ) -> Done<String> {
+        let chief = self.realm.chief();
+        let files = Files::new(self.realm.layout().files());
+        // Every file is held read at once.
+        let together = project
+            .files
+            .iter()
+            .filter_map(|file| files.size(file))
+            .sum::<u64>();
+        if together > ImportProject::MOST_BYTES {
+            return Ok(Err(Refusal::ProjectTooBig {
+                most: ImportProject::MOST_BYTES >> 20,
+            }));
+        }
+        let mut conversations = Vec::new();
+        for file in &project.files {
+            match imports::read(&files, file)? {
+                Ok(imported) => conversations.push(imported),
+                Err(refusal) => return Ok(Err(refusal)),
             }
         }
+        let wanted = imports::Project {
+            name: &project.name,
+            folder: project.folder.as_deref(),
+            conversations: &conversations,
+        };
+        let done = self.attempt(Actor::Chief(chief), |cx, env| {
+            imports::bring_in_project(cx, env, chief, &wanted)
+        })?;
+        Ok(done.map(|brought| brought.words()))
+    }
+
+    /// Carries on `agent`'s failed or stopped turn.
+    pub(crate) fn retry_turn(
+        &mut self,
+        agent: AgentId,
+    ) -> Done<String> {
+        let chief = self.realm.chief();
+        let done = self.attempt(Actor::Chief(chief), |cx, env| {
+            chats::retry(cx, env, agent, chief)
+        })?;
+        Ok(done.map(|_| "Carrying on.".to_owned()))
+    }
+
+    /// Stops the running turns of `agents`, in one change.
+    pub(crate) fn stop_turns(
+        &mut self,
+        agents: &[AgentId],
+    ) -> Result<String> {
+        let chief = self.realm.chief();
+        let stopped = self.change(Actor::Chief(chief), |cx, _| {
+            let mut stopped = 0;
+            for agent in agents {
+                stopped += chats::stop(cx, *agent)?;
+            }
+            Ok(stopped)
+        })?;
+        Ok(format!("Stopped {stopped} running turns."))
+    }
+
+    /// Takes the chief's chat with `agent` back to before its line
+    /// `item`, giving back what the line said and carried.
+    pub(crate) fn rewind_chat(
+        &mut self,
+        agent: AgentId,
+        item: &str,
+    ) -> Result<
+        Result<
+            (
+                String,
+                Vec<protocol::AttachedImage>,
+                Vec<protocol::AttachedFile>,
+            ),
+            Refusal,
+        >,
+    > {
+        let chief = self.realm.chief();
+        let done = self.attempt(Actor::Chief(chief), |cx, env| {
+            chats::rewind(cx, env, agent, chief, item)
+        })?;
+        self.rewatch(agent)?;
+        Ok(done)
     }
 
     /// The agent `to` names, or `None` once request `id` was refused
     /// because this server's chief may not reach it.
-    fn reached(
+    pub(crate) fn reached(
         &mut self,
         client: u64,
         id: &RequestId,
@@ -537,14 +337,14 @@ impl Core {
         }
     }
 
-    /// Whether `agent` runs a model, as it does once the chief set
-    /// one up.
+    /// The check that `agent` runs a model, as it does once the chief
+    /// set one up.
     pub(crate) fn has_model(
         &mut self,
         agent: AgentId,
     ) -> Result<bool> {
         let db = self.realm.store().connection();
-        crate::talk::models::has_model(
+        models::has_model(
             db,
             &self.env.settings,
             &self.env.overrides,
@@ -555,10 +355,7 @@ impl Core {
     /// Refuses unless this server's chief may reach `agent` (C7): the
     /// Hand, a hire of one of its hamlets, or a worker started by it
     /// or in its hamlets.
-    pub(crate) fn reaches(
-        &mut self,
-        agent: AgentId,
-    ) -> Result<Result<(), Refusal>> {
+    pub(crate) fn reaches(&mut self, agent: AgentId) -> Done<()> {
         let chief = self.realm.chief();
         let db = self.realm.store().connection();
         let Some(found) = agents::find(db, agent)? else {
@@ -591,7 +388,7 @@ impl Core {
     }
 
     /// Every living agent this server's chief reaches.
-    fn reachable(&mut self) -> Result<Vec<AgentId>> {
+    pub(crate) fn reachable(&mut self) -> Result<Vec<AgentId>> {
         let living = {
             use diesel::prelude::*;
             use hamlet_store::schema::agent;
@@ -610,10 +407,10 @@ impl Core {
     }
 
     /// The conversation `chat` names for this server's chief.
-    async fn watch_target(
+    pub(crate) fn watch_target(
         &mut self,
         chat: &ChatRef,
-    ) -> Result<Result<ConversationId, Refusal>> {
+    ) -> Done<ConversationId> {
         let chief = self.realm.chief();
         let agent = AgentId(i64::try_from(chat.with.0)?);
         if let Err(refusal) = self.reaches(agent)? {
@@ -647,11 +444,12 @@ impl Core {
                     }
                 }
                 None => {
-                    let conversation = self
-                        .change(Actor::Chief(chief), |cx, env| {
+                    let conversation = self.change(
+                        Actor::Chief(chief),
+                        |cx, env| {
                             chats::current(cx, env, agent, chief)
-                        })
-                        .await?;
+                        },
+                    )?;
                     Ok(Ok(conversation))
                 }
             },
@@ -690,14 +488,14 @@ impl Core {
     }
 
     /// A page of `conversation`'s transcript ending before `before`.
-    fn transcript(
+    pub(crate) fn transcript(
         &mut self,
         conversation: ConversationId,
         chat: &ChatRef,
         before: Option<&str>,
         to: Option<&RequestId>,
     ) -> Result<ServerMessage> {
-        let usage = crate::spend::usage_view(
+        let usage = crate::society::spend::usage_view(
             self.realm.store().connection(),
             conversation,
         )?;
@@ -745,61 +543,39 @@ impl Core {
         &mut self,
         conversation: ConversationId,
     ) -> Result<()> {
-        let watches = self
-            .clients
-            .watches
-            .iter()
-            .filter(|w| w.conversation == conversation)
-            .cloned()
-            .collect::<Vec<_>>();
-        for watch in watches {
+        for watcher in self.connections.watching(conversation) {
             let transcript = self.transcript(
                 conversation,
-                &watch.chat,
+                &watcher.chat,
                 None,
                 None,
             )?;
-            self.answer(watch.client, transcript)?;
+            self.answer(watcher.client, transcript)?;
         }
         Ok(())
     }
 
     /// Sends the watchers of `agent`'s chats the session they now
     /// stand for.
-    pub(crate) async fn rewatch(
-        &mut self,
-        agent: AgentId,
-    ) -> Result<()> {
-        let watches = self
-            .clients
-            .watches
-            .iter()
-            .filter(|w| {
-                w.chat.with.0
-                    == u64::try_from(agent.0).unwrap_or_default()
-                    && w.chat.from.is_none()
-                    && w.chat.past.is_none()
-            })
-            .cloned()
-            .collect::<Vec<_>>();
-        for watch in watches {
+    pub(crate) fn rewatch(&mut self, agent: AgentId) -> Result<()> {
+        let with = u64::try_from(agent.0).unwrap_or_default();
+        let watchers = self.connections.watchers(|w| {
+            w.chat.with.0 == with
+                && w.chat.from.is_none()
+                && w.chat.past.is_none()
+        });
+        for watcher in watchers {
             if let Ok(conversation) =
-                self.watch_target(&watch.chat).await?
+                self.watch_target(&watcher.chat)?
             {
-                for kept in &mut self.clients.watches {
-                    if kept.client == watch.client
-                        && kept.chat == watch.chat
-                    {
-                        kept.conversation = conversation;
-                    }
-                }
+                self.connections.rewatch(watcher.watch, conversation);
                 let transcript = self.transcript(
                     conversation,
-                    &watch.chat,
+                    &watcher.chat,
                     None,
                     None,
                 )?;
-                self.answer(watch.client, transcript)?;
+                self.answer(watcher.client, transcript)?;
             }
         }
         Ok(())
@@ -807,38 +583,38 @@ impl Core {
 
     /// Sends every welcomed client what changed since the state it
     /// was sent last.
-    pub(crate) async fn publish(&mut self) -> Result<()> {
-        if !self.clients.list.values().any(|c| c.welcomed) {
-            self.clients.sent = None;
+    pub(crate) fn send_state(&mut self) -> Result<()> {
+        if !self.connections.is_any_welcomed() {
+            self.clients.last_sent_state = None;
             return Ok(());
         }
         let state = self.compose()?;
         let message = match self
             .clients
-            .sent
+            .last_sent_state
             .as_ref()
             .and_then(|old| changes(old, &state))
         {
             Some(updates) if updates.is_empty() => return Ok(()),
             Some(updates) => {
-                self.clients.revision += 1;
+                self.clients.state_revision += 1;
                 ServerMessage::Change(protocol::Changes {
                     changes: updates,
-                    epoch: self.clients.epoch,
-                    revision: self.clients.revision,
+                    epoch: self.clients.state_epoch,
+                    revision: self.clients.state_revision,
                 })
             }
             None => {
-                self.clients.epoch = crate::clock::now();
-                self.clients.revision = 0;
+                self.clients.state_epoch = crate::app::clock::now();
+                self.clients.state_revision = 0;
                 let mut whole = state.clone();
-                whole.epoch = self.clients.epoch;
+                whole.epoch = self.clients.state_epoch;
                 whole.revision = 0;
                 ServerMessage::State(whole)
             }
         };
-        self.clients.sent = Some(state);
-        self.clients.broadcast(&self.credentials, &message)
+        self.clients.last_sent_state = Some(state);
+        self.connections.broadcast(&self.credentials, &message)
     }
 
     /// The state as it is now.
@@ -868,7 +644,7 @@ impl Core {
         let chief_name = crate::society::chiefs::find(db, chief)?
             .map(|c| c.name)
             .unwrap_or_default();
-        let waits = crate::oversight::views(db)?;
+        let waits = crate::society::oversight::views(db)?;
         let mut library = Vec::new();
         for (name, description) in
             crate::knowledge::library::skills(&layout)?
@@ -902,7 +678,7 @@ impl Core {
             confinement,
             activity: &activity,
             providers,
-            deeds: crate::commands::deeds(),
+            deeds: self.deeds.listed(),
             settings_view,
             waits,
             library,
@@ -911,9 +687,9 @@ impl Core {
         super::state::compose(
             db,
             &sources,
-            self.clients.epoch,
-            self.clients.revision,
-            crate::clock::now(),
+            self.clients.state_epoch,
+            self.clients.state_revision,
+            crate::app::clock::now(),
         )
     }
 
@@ -939,9 +715,11 @@ impl Core {
                 .unwrap_or(0),
             unset: !settings.picked,
             workspace: protocol::SettingsViewWorkspace {
-                moving: self.moving.clone(),
+                moving: self.remote.moving.clone(),
                 running: self
+                    .remote
                     .workspace
+                    .0
                     .as_ref()
                     .map(|running| running.url().to_owned()),
                 url: self

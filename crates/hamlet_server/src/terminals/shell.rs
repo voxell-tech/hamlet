@@ -85,7 +85,7 @@ pub(super) fn start(
 
 fn ended(feed: &Feed, code: i64) {
     lock(&feed.screen).ended = Some(code);
-    let _ = feed.sender.send(Printed::Ended {
+    feed.report(Printed::Ended {
         id: feed.id.clone(),
         code,
     });
@@ -132,7 +132,7 @@ pub(super) fn unbounded() -> Launch {
 }
 
 /// Opens the chief's shell at `size`. Its id.
-pub(super) fn open(core: &mut Core, size: Size) -> String {
+pub(super) fn open(core: &mut Core<'_, '_>, size: Size) -> String {
     let launch = unbounded();
     let shell = Path::new(&launch.argv[0])
         .file_name()
@@ -156,7 +156,12 @@ pub(super) fn open(core: &mut Core, size: Size) -> String {
         running: false,
         title: String::new(),
     };
-    core.terminals.insert(view, Some(launch), Vec::new())
+    core.terminals.insert(
+        view,
+        Some(launch),
+        Vec::new(),
+        &core.inputs,
+    )
 }
 
 /// How a kept terminal of `view` starts again, or None when it

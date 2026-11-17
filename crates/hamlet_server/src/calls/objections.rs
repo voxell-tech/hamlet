@@ -8,12 +8,14 @@ use hamlet_protocol::client::Choice;
 use hamlet_store::ids::{Actor, TaskId, WaitId};
 use hamlet_store::schema::{objection, wait};
 
-use super::{Answer, Call, held, said};
+use super::society::args::{Called, Object};
+use super::{Answer, Call, held, refused, said};
+use crate::conversations::marks::Mark;
+use crate::conversations::{inputs, tasks};
 use crate::core::Core;
-use crate::oversight::{self, Raise, Ruling, WaitKind};
-use crate::talk::marks::Mark;
-use crate::talk::{inputs, tasks};
-use crate::work::tools::Outcome;
+use crate::society::oversight::{self, Raise, Ruling, WaitKind};
+use crate::tools::builtin::Outcome;
+use crate::tools::catalogue::Society;
 
 /// The words of a call held while the chief considers an objection.
 pub(super) const OBJECTING: &str =
@@ -37,7 +39,7 @@ fn kept(
         .map(|(wait, ruling)| Kept { wait, ruling }))
 }
 
-impl Core {
+impl Core<'_, '_> {
     /// The chief's instruction the turn of `call` works on: its task,
     /// when the turn is a chief's line.
     fn instruction(
@@ -62,9 +64,9 @@ impl Core {
         })
     }
 
-    /// Whether a chief withdrew the instruction of `call`'s turn, so
-    /// none of its calls runs any more.
-    pub(super) fn withdrawn(
+    /// Tells whether a chief withdrew the instruction of `call`'s
+    /// turn, so none of its calls runs any more.
+    pub(super) fn is_withdrawn(
         &mut self,
         call: &Call<'_>,
     ) -> Result<bool> {
@@ -75,13 +77,14 @@ impl Core {
         Ok(kept(db, task)?
             .and_then(|found| found.ruling)
             .is_some_and(|ruling| {
-                ruling == Ruling::Withdraw.as_str()
+                ruling == <&'static str>::from(Ruling::Withdraw)
             }))
     }
 
-    /// Whether a chief considers an objection to the instruction of
-    /// `call`'s turn, holding the call on it until the chief rules.
-    pub(super) fn objecting(
+    /// Tells whether a chief considers an objection to the
+    /// instruction of `call`'s turn, holding the call on it until the
+    /// chief rules.
+    pub(super) fn is_objecting(
         &mut self,
         call: &Call<'_>,
     ) -> Result<bool> {
@@ -114,15 +117,14 @@ impl Core {
 
     /// Objects to the instruction of `call`'s turn, or gives the
     /// chief's ruling once there is one.
-    pub(super) async fn object(
+    pub(super) fn object(
         &mut self,
         call: &Call<'_>,
     ) -> Result<std::result::Result<Outcome, Answer>> {
         let Some(task) = self.instruction(call)? else {
-            return Ok(Ok(said(
+            return Ok(Ok(refused(
                 "Only a chief's instruction can be objected to, in \
                  the turn that works on it.",
-                true,
             )));
         };
         let db = self.realm.store().connection();
@@ -141,35 +143,33 @@ impl Core {
                 format!(" The chief says: {text}")
             };
             return Ok(
-                match found.ruling.as_deref().and_then(Ruling::named)
+                match found
+                    .ruling
+                    .as_deref()
+                    .and_then(|text| text.parse::<Ruling>().ok())
                 {
-                    Some(Ruling::Go) => Ok(said(
-                        format!(
-                            "The chief rules: go on with the \
-                             instruction.{said_too}"
-                        ),
-                        false,
-                    )),
-                    Some(_) => Ok(said(
-                        format!(
-                            "The chief withdrew the instruction. \
-                             Stop working on it.{said_too}"
-                        ),
-                        false,
-                    )),
+                    Some(Ruling::Go) => Ok(said(format!(
+                        "The chief rules: go on with the \
+                         instruction.{said_too}"
+                    ))),
+                    Some(_) => Ok(said(format!(
+                        "The chief withdrew the instruction. Stop \
+                         working on it.{said_too}"
+                    ))),
                     None => Err(Answer::Waiting(OBJECTING.into())),
                 },
             );
         }
-        let reason = call
-            .arguments
-            .get("reason")
-            .and_then(serde_json::Value::as_str)
-            .unwrap_or_default()
-            .trim()
-            .to_owned();
+        let reason =
+            match Called::read(Society::Object, call.arguments) {
+                Ok(Called::Object(Object { reason })) => reason,
+                Ok(_) => String::new(),
+                Err(refusal) => {
+                    return Ok(Ok(refused(refusal.to_string())));
+                }
+            };
         if reason.is_empty() {
-            return Ok(Ok(said("Say why you object.", true)));
+            return Ok(Ok(refused("Say why you object.")));
         }
         let instruction =
             tasks::get(db, task)?.text.unwrap_or_default();
@@ -210,8 +210,7 @@ impl Core {
                 ))
                 .execute(cx.db)?;
             held::hold(cx.db, &runtime, &key, on, None)
-        })
-        .await?;
+        })?;
         Ok(Err(Answer::Waiting(OBJECTING.into())))
     }
 }
@@ -226,7 +225,7 @@ pub(super) fn rule(
 ) -> Result<()> {
     diesel::update(objection::table.filter(objection::wait.eq(on)))
         .set((
-            objection::ruling.eq(ruling.as_str()),
+            objection::ruling.eq(<&'static str>::from(ruling)),
             objection::ruled_at.eq(at),
         ))
         .execute(db)?;

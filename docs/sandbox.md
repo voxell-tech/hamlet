@@ -12,7 +12,7 @@ server runs only in insecure mode, below. Linux needs `bwrap` and a
 kernel/host policy that allows its namespaces; installing the executable
 alone is not sufficient.
 
-`work/tools.rs` builds the policy from the server-owned `Place`: the agent's
+`tools/builtin.rs` builds the policy from the server-owned `Place`: the agent's
 lodge (or a worker's scratch folder), the folder its hamlet works on, the
 realm's folder (never read) and what is only read, the library, the tools
 added by hand. The images saved with a line are in the agent's own lodge, under
@@ -21,7 +21,7 @@ given to it; what another agent sends with `tell` or `ask` lands under
 `inbox/from-<sender>/`, read from the sender's own reach without following
 links. The realm's `images/` and `files/` folders are never in reach. The pi
 harness has no host-tool implementation; it submits operations to the
-server (see [the harness](harness.md)). `oversight/gate.rs` decides admission and `calls.rs` checks permissions at execution, including
+server (see [the harness](harness.md)). `society/oversight/gate.rs` decides admission and `calls/execution.rs` checks permissions at execution, including
 after approval or replay.
 
 Without a folder, commands write in their own lodge and a private temporary
@@ -70,7 +70,7 @@ The window sends requests and owns no confinement policy.
 
 `hamlet_sandbox`'s `Env` anchors file operations to opened directory
 descriptors and rejects unsafe traversal and replacement. The server's
-`work/tools/files.rs`, `search.rs` and `find.rs` use it. Shell commands use
+`tools/builtin/files.rs`, `search.rs` and `find.rs` use it. Shell commands use
 the platform process sandbox, with bounded output, time and resources;
 cancellation kills their process group. A command interrupted around an
 effect is not automatically replayed as a safe transaction.
@@ -116,13 +116,13 @@ the server offers only `powershell`. On Linux and macOS it offers `bash`.
 ## Remote workspaces
 
 Settings can name a workspace URL and token (kept in `credentials.json`). The
-server then runs the agents' tools on that machine: `workspace.rs`
-and `workspace/` in `hamlet_server` send authenticated requests to the worker, which gives each agent a `/lodge`,
+server then runs the agents' tools on that machine: `realm/workspace.rs`
+and `realm/workspace/` in `hamlet_server` send authenticated requests to the worker, which gives each agent a `/lodge`,
 its hamlet's `/project` and the library at `/library`. The requests and their
 replies are typed once in `hamlet_workspace_wire`, and `hamlet_workspace`
 supplies the Linux worker. The server's lodge holds what git keeps; the remote
 `/lodge` is where the tools write during a turn, so the two are kept in step
-(`workspace/lodges.rs`) against the files they last held alike: a push sends
+(`realm/workspace/lodges.rs`) against the files they last held alike: a push sends
 what the server changed since, after the server changed it, and a pull brings
 home what the remote copy changed since, after a tool may have written it.
 Neither undoes the other's changes. A lodge not in step since the server

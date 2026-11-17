@@ -5,11 +5,11 @@
 use anyhow::Result;
 use hamlet_store::ids::{Actor, ScholarId};
 
-use crate::change::Change;
+use crate::conversations::errands::{self, Ended, Errand};
+use crate::conversations::tasks::{self, Origin};
+use crate::realm::change::Change;
+use crate::realm::settings::EffectiveSettings;
 use crate::society::{addresses, city, hand};
-use crate::talk::Env;
-use crate::talk::errands::{self, Ended, Errand};
-use crate::talk::tasks::{self, Origin};
 
 /// The errand the Hand's verdicts on newcomers are.
 pub(crate) const WELCOME: &str = "welcome";
@@ -31,11 +31,11 @@ fn owner(id: ScholarId) -> String {
     format!("newcomer:{id}")
 }
 
-/// Asks the Hand whether the newcomer `id`, made from `character`,
+/// Puts to the Hand whether the newcomer `id`, made from `character`,
 /// moves into the city.
 pub(crate) fn judge(
     cx: &mut Change<'_>,
-    env: &Env,
+    env: &EffectiveSettings,
     id: ScholarId,
     character: &str,
 ) -> Result<()> {

@@ -1,7 +1,7 @@
 use hamlet_git::{Author, Change as GitChange, MAIN, Repository};
 
 use super::{CHARACTER, branch, run};
-use crate::jobs::Job;
+use crate::realm::jobs::Job;
 use crate::society::agents::EndHow;
 use crate::society::hires;
 use crate::testing::Realm;

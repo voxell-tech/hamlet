@@ -5,13 +5,15 @@
 use anyhow::Result;
 use hamlet_store::ids::Actor;
 
-use super::{Call, Step, said, text};
+use super::args::{AskLibrarian, SubmitSkill};
+use super::{Call, Step, refused, said};
+use crate::conversations::errands::{self, Ended, Errand};
 use crate::core::Core;
 use crate::knowledge::folder::Folder;
 use crate::knowledge::{self, library};
+use crate::realm::change::Done;
 use crate::society::library::{self as shelf, Offering};
 use crate::society::refusal::Refusal;
-use crate::talk::errands::{self, Ended, Errand};
 
 /// The errand the librarian's calls are.
 pub(crate) const LIBRARIAN: &str = "librarian";
@@ -25,7 +27,7 @@ const ROLE: &str =
      names, keys and paths, and you never invent a skill.";
 
 /// The owner of the errand that answers the call `key` of `runtime`.
-pub(crate) fn asked(runtime: &str, key: &str) -> String {
+pub(crate) fn owner_of_call(runtime: &str, key: &str) -> String {
     format!("ask:{runtime}/{key}")
 }
 
@@ -34,8 +36,8 @@ pub(crate) fn judging(id: i64) -> String {
     format!("offer:{id}")
 }
 
-impl Core {
-    /// What the librarian is told before its task: its role and the
+impl Core<'_, '_> {
+    /// The librarian's instructions before its task: its role and the
     /// shelves.
     fn librarian(&mut self) -> Result<String> {
         let layout = self.realm.layout().clone();
@@ -53,43 +55,38 @@ impl Core {
         Ok(format!("{ROLE}\n\n# The shelves\n{shelves}"))
     }
 
-    pub(in crate::calls) async fn ask_librarian(
+    pub(in crate::calls) fn ask_librarian(
         &mut self,
         call: &Call<'_>,
+        args: AskLibrarian,
     ) -> Result<Step> {
-        let owner = asked(&call.call.runtime, &call.call.key);
+        let owner = owner_of_call(&call.call.runtime, &call.call.key);
         let db = self.realm.store().connection();
         match errands::ended(db, LIBRARIAN, &owner)? {
             Some(Ended::Answered(answer)) => {
-                return Ok(Step::Done(said(
-                    format!("The librarian says: {answer}"),
-                    false,
-                )));
+                return Ok(Step::Done(said(format!(
+                    "The librarian says: {answer}"
+                ))));
             }
             Some(Ended::Failed(failure)) => {
-                return Ok(Step::Done(said(
-                    format!(
-                        "The librarian could not answer: {failure}"
-                    ),
-                    true,
-                )));
+                return Ok(Step::Done(refused(format!(
+                    "The librarian could not answer: {failure}"
+                ))));
             }
             None => {}
         }
-        let question = text(call, "question");
+        let question = args.question;
         if question.is_empty() {
-            return Ok(Step::of(Err(Refusal::Usage {
-                words: "Say what you need a skill for.".into(),
-            })));
+            return Ok(Step::of(Err(Refusal::NoSkillQuestion)));
         }
         let by = self.name(call.conversation.agent)?;
         let instructions = format!(
             "{}\n\nName the skills on the shelves that do what is \
-             asked, with their exact commands. If nothing fits, say \
-             so.",
+             wanted, with their exact commands. If nothing fits, \
+             say so.",
             self.librarian()?
         );
-        let question = format!("{by} asks: {question}");
+        let question = format!("{by} wants to know: {question}");
         let task = self.task_of(call)?;
         let agent = call.conversation.agent;
         self.change(Actor::Agent(agent), |cx, env| {
@@ -105,55 +102,46 @@ impl Core {
                     task,
                 },
             )
-        })
-        .await?;
+        })?;
         Ok(Step::Wait("The librarian is looking.".into()))
     }
 
-    pub(in crate::calls) async fn submit_skill(
+    pub(in crate::calls) fn submit_skill(
         &mut self,
         call: &Call<'_>,
+        args: SubmitSkill,
     ) -> Result<Step> {
         let db = self.realm.store().connection();
         if let Some(found) =
             shelf::offer_of(db, &call.call.runtime, &call.call.key)?
         {
             return Ok(match found.words {
-                Some(words) => Step::Done(said(words, false)),
+                Some(words) => Step::Done(said(words)),
                 None => {
                     Step::Wait("The librarian is judging it.".into())
                 }
             });
         }
-        let name = text(call, "skill");
-        let reason = text(call, "reason");
+        let SubmitSkill {
+            skill: name,
+            reason,
+        } = args;
         let plain = !name.is_empty()
             && name.bytes().all(|b| {
                 b.is_ascii_alphanumeric() || b == b'-' || b == b'_'
             });
         if !plain {
-            return Ok(Step::of(Err(Refusal::Usage {
-                words: "`skill` is its folder under skills/, in \
-                        letters, digits, hyphens and underscores."
-                    .into(),
-            })));
+            return Ok(Step::of(Err(Refusal::BadSkillFolder)));
         }
         let layout = self.realm.layout().clone();
         if library::has(&layout, &name)? {
-            return Ok(Step::of(Err(Refusal::Usage {
-                words: format!(
-                    "The library has a skill named `{name}` \
-                     already. Use it, or offer yours under another \
-                     name if it does something else."
-                ),
+            return Ok(Step::of(Err(Refusal::SkillInLibrary {
+                name,
             })));
         }
         let db = self.realm.store().connection();
         if shelf::is_judging(db, &name)? {
-            return Ok(Step::of(Err(Refusal::Usage {
-                words: "Another offer of that skill is being judged."
-                    .into(),
-            })));
+            return Ok(Step::of(Err(Refusal::SkillBeingJudged)));
         }
         let agent = call.conversation.agent;
         let lodge = knowledge::lodging(db, &layout, agent)?.path;
@@ -171,36 +159,31 @@ impl Core {
         if library::field(&paper, "name:").is_empty()
             || library::field(&paper, "description:").is_empty()
         {
-            return Ok(Step::of(Err(Refusal::Usage {
-                words: format!(
-                    "skills/{name}/SKILL.md must open with a front \
-                     matter `name:` and `description:`."
-                ),
+            return Ok(Step::of(Err(Refusal::SkillFrontMatter {
+                name,
             })));
         }
         let task = self.task_of(call)?;
         let (runtime, key) =
             (call.call.runtime.clone(), call.call.key.clone());
-        let id = self
-            .change(Actor::Agent(agent), |cx, _| {
-                shelf::offer(
-                    cx,
-                    Offering {
-                        agent,
-                        skill: &name,
-                        reason: &reason,
-                        task,
-                        runtime: &runtime,
-                        key: &key,
-                    },
-                )
-            })
-            .await?;
+        let id = self.change(Actor::Agent(agent), |cx, _| {
+            shelf::offer(
+                cx,
+                Offering {
+                    agent,
+                    skill: &name,
+                    reason: &reason,
+                    task,
+                    runtime: &runtime,
+                    key: &key,
+                },
+            )
+        })?;
         let tree = library::keep_offer(
             &layout,
             id.0,
             &files,
-            crate::clock::now(),
+            crate::app::clock::now(),
         )?;
         let db = self.realm.store().connection();
         shelf::kept(db, id, &tree.to_string())?;
@@ -234,8 +217,7 @@ impl Core {
                     task,
                 },
             )
-        })
-        .await?;
+        })?;
         Ok(Step::Wait("The librarian is judging it.".into()))
     }
 }
@@ -245,7 +227,7 @@ impl Core {
 fn skill_files(
     lodge: &std::path::Path,
     name: &str,
-) -> Result<Result<Vec<(String, Vec<u8>)>, Refusal>> {
+) -> Done<Vec<(String, Vec<u8>)>> {
     let Ok(folder) = Folder::open(lodge) else {
         return Ok(Err(Refusal::NoSkill { name: name.into() }));
     };
@@ -260,11 +242,8 @@ fn skill_files(
         let bytes = folder.read(&entry.path)?;
         total += bytes.len();
         if total > library::MOST_BYTES {
-            return Ok(Err(Refusal::Usage {
-                words: format!(
-                    "`{name}` holds more than the library takes, 4 \
-                     MB."
-                ),
+            return Ok(Err(Refusal::SkillTooBig {
+                name: name.into(),
             }));
         }
         files.push((entry.path[prefix.len()..].to_owned(), bytes));

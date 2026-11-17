@@ -178,6 +178,63 @@ A command about an agent or a hamlet goes through `chat::decree`, which
 gives it to that hamlet whoever the chat is with. `chat::send` is for what
 the chief typed and for what is about the open chat or the whole realm.
 
+## The server
+
+`hamlet_server` uses `bevy_ecs` and `bevy_app` alone, with no frame
+([ADR 0015](adr/0015-the-server-runs-as-a-bevy-app-with-no-frame.md)).
+What differs from the window:
+
+- **`lib.rs` is the way in.** It holds `create_app`, which makes the
+  app `main` runs from the server's `Options`, and the sets every area
+  adds its follow-up systems to, one enum per schedule:
+  `FollowUpSystems` in `PostUpdate` and `SendSystems` in `Last`. A set
+  orders systems only in the schedule it is configured in, so neither
+  is used in the other. Its first comment says in which order to read
+  the rest.
+- **An input is an update, not a frame.** `app/runner.rs` sleeps until an
+  input comes, writes it as a message and updates the app once, through
+  Bevy's own `Main`: `PreUpdate` reads the input into a message of its
+  kind, `Update` runs the system for that kind, `PostUpdate` keeps the
+  input and follows it (`app/follow_up.rs`), and `Last` sends what it
+  queued. The first update opens what the server serves in
+  `PreStartup`, each as a resource, and starts it in `Startup`
+  (`app/startup.rs`).
+  `create_app` sets the runner, `app::runner::runner`. Nothing updates that
+  an input or a timer did not ask for.
+- **A handler is a system for one kind of input, and never awaits.**
+  A runtime's message is a `FromRuntime<M>` and a client's request a
+  `FromClient<M>` of its kind; `add_handler` adds the system that takes
+  it, run only when one came. A command's system is registered with its
+  usage (`AddCommands`), and a timer's with when it is due (`AddTimer`).
+  What awaits runs on a task (`app/tasks.rs`), whose result is an
+  input.
+- **An input is one transaction.** `First` begins it; `Core::change`
+  and `attempt` make their changes in it; the first step of
+  `PostUpdate` keeps it. What an input sets off goes out only after:
+  queue a runtime's line with `Runtimes::send`, a client's message with
+  `Connections::send`, and write what follows as a message `PostUpdate`
+  reads, as `InputEnded` is. A tool run is spawned with its work in
+  `UnstartedToolRun`, which `PostUpdate` starts.
+- **The database is the truth.** An entity stands only for what lives in
+  the process: a connection with what its client watches and is owed,
+  an upload, a tool run, a runtime and the lines sent to it. A decision inside a transaction reads the database,
+  never an entity. An entity spawned by an input appears only once its
+  commands apply, so what the same input must read back is a component
+  of an entity that is there already, or a resource.
+- **A system that fails fails its input.** Handlers return Bevy's
+  `Result`, and the world's error handler records a failure or a panic.
+  `PostUpdate` then rolls the input back, drops what it queued and tells
+  whoever sent it (`InputOrigin`); the runner logs it and goes on.
+- **`Core` gathers the realm's live state** as one `SystemParam`, which
+  older handlers take whole. Parts of it are params of their own
+  (`ModelTools`, `RemoteWorkspace`, `Uploads`) that a narrower system
+  takes alone. A
+  new system takes only the resources and queries it reads.
+- **Each area's plugin inserts its own resources.** What sends the server
+  an input from off the loop, a task, a thread or a process's output,
+  holds a clone of the one `InputSender` and sends its area's message
+  through it; the runner writes it into the world and updates once.
+
 ## Failing
 
 A value from the disk, the network, a model or the keyboard is never

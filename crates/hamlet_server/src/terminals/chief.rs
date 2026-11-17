@@ -1,100 +1,105 @@
 //! The chief's terminal requests.
 
-use anyhow::Result;
+use bevy_ecs::error::Result;
+use bevy_ecs::message::Messages;
+use bevy_ecs::system::ResMut;
 use hamlet_os::process::pty::Size;
 use hamlet_protocol::client::{
-    Reply, ReplyKind, RequestId, ServerMessage, Terminal as Asked,
+    Reply, ReplyKind, RequestId, ServerMessage,
+    Terminal as TerminalRequest,
 };
 
 use super::screen::lock;
 use super::shell::{Key, open};
+use crate::clients::handlers::FromClient;
 use crate::core::Core;
 
-impl Core {
-    /// Answers the chief's terminal request `asked` from `client`.
-    pub(crate) async fn terminal(
-        &mut self,
-        client: u64,
-        asked: Asked,
-    ) -> Result<()> {
-        let answers = match asked {
-            Asked::Open { cols, id, rows } => {
-                let terminal = open(self, Size { rows, cols });
-                let answer = self.terminals.watch(
-                    client,
-                    &terminal,
-                    Some(&id),
-                );
-                self.publish().await?;
-                answer.into_iter().collect()
-            }
-            Asked::Input { data, terminal } => {
-                self.terminals.type_in(&terminal, data.into_bytes());
-                Vec::new()
-            }
-            Asked::Resize {
-                cols,
-                rows,
-                terminal,
-            } => {
-                let size = Size { rows, cols };
-                if let Some(open) =
-                    self.terminals.open.get_mut(&terminal)
-                {
-                    open.view.rows = size.rows;
-                    open.view.cols = size.cols;
-                    lock(&open.screen).resize(size);
-                    if let Some(keys) = &open.keys {
-                        let _ = keys.send(Key::Resize(size));
-                    }
-                }
-                Vec::new()
-            }
-            Asked::Watch { id, terminal } => {
-                match self.terminals.watch(
-                    client,
-                    &terminal,
-                    Some(&id),
-                ) {
-                    Some(output) => vec![output],
-                    None => vec![said(&id, Err(gone(&terminal)))],
-                }
-            }
-            Asked::Unwatch { terminal } => {
-                if let Some(open) =
-                    self.terminals.open.get_mut(&terminal)
-                {
-                    open.watchers.remove(&client);
-                }
-                Vec::new()
-            }
-            Asked::Close { id, terminal } => {
-                let result = if self.terminals.close(&terminal) {
-                    Ok("Closed.".into())
-                } else {
-                    Err(gone(&terminal))
-                };
-                self.publish().await?;
-                vec![said(&id, result)]
-            }
-            Asked::Rename { id, name, terminal } => {
-                let name = name.trim();
-                let result = if name.is_empty() {
-                    Err("A terminal needs a name.".into())
-                } else if self.terminals.rename(&terminal, name) {
-                    Ok("Renamed.".into())
-                } else {
-                    Err(gone(&terminal))
-                };
-                self.publish().await?;
-                vec![said(&id, result)]
-            }
-        };
-        for answer in answers {
-            self.answer(client, answer)?;
+/// Answers the chief's terminal requests from the clients.
+pub(super) fn answer_requests(
+    mut received: ResMut<Messages<FromClient<TerminalRequest>>>,
+    mut core: Core,
+) -> Result {
+    received
+        .drain()
+        .try_for_each(|FromClient { client, request }| {
+            answer_request(&mut core, client, request)
+        })
+}
+
+/// Answers the chief's terminal request from `client`.
+fn answer_request(
+    core: &mut Core<'_, '_>,
+    client: u64,
+    request: TerminalRequest,
+) -> Result {
+    let answers = match request {
+        TerminalRequest::Open { cols, id, rows } => {
+            let terminal = open(core, Size { rows, cols });
+            let answer =
+                core.terminals.watch(client, &terminal, Some(&id));
+            core.publish();
+            answer.into_iter().collect()
         }
-        Ok(())
+        TerminalRequest::Input { data, terminal } => {
+            core.terminals.type_in(&terminal, data.into_bytes());
+            Vec::new()
+        }
+        TerminalRequest::Resize {
+            cols,
+            rows,
+            terminal,
+        } => {
+            let size = Size { rows, cols };
+            if let Some(open) = core.terminals.open.get_mut(&terminal)
+            {
+                open.view.rows = size.rows;
+                open.view.cols = size.cols;
+                lock(&open.screen).resize(size);
+                if let Some(keys) = &open.keys {
+                    let _ = keys.send(Key::Resize(size));
+                }
+            }
+            Vec::new()
+        }
+        TerminalRequest::Watch { id, terminal } => {
+            match core.terminals.watch(client, &terminal, Some(&id)) {
+                Some(output) => vec![output],
+                None => vec![said(&id, Err(gone(&terminal)))],
+            }
+        }
+        TerminalRequest::Unwatch { terminal } => {
+            if let Some(open) = core.terminals.open.get_mut(&terminal)
+            {
+                open.watchers.remove(&client);
+            }
+            Vec::new()
+        }
+        TerminalRequest::Close { id, terminal } => {
+            let result = if core.terminals.close(&terminal) {
+                Ok("Closed.".into())
+            } else {
+                Err(gone(&terminal))
+            };
+            core.publish();
+            vec![said(&id, result)]
+        }
+        TerminalRequest::Rename { id, name, terminal } => {
+            let name = name.trim();
+            let result = if name.is_empty() {
+                Err("A terminal needs a name.".into())
+            } else if core.terminals.rename(&terminal, name) {
+                Ok("Renamed.".into())
+            } else {
+                Err(gone(&terminal))
+            };
+            core.publish();
+            vec![said(&id, result)]
+        }
+    };
+    for answer in answers {
+        core.answer(client, answer)?;
     }
+    Ok(())
 }
 
 /// The reply to request `id`: a notice, or an error in words.

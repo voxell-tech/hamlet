@@ -1,12 +1,12 @@
 //! What agents know: scholars' repositories, the lodges hires and the
 //! Hand work in, and the jobs that keep them.
 
-pub(crate) mod dreaming;
+pub(crate) mod dreams;
 pub(crate) mod folder;
 pub(crate) mod library;
-mod merging;
+mod merges;
 pub(crate) mod run;
-pub(crate) mod runner;
+pub(crate) mod worker;
 
 use std::path::PathBuf;
 
@@ -14,9 +14,13 @@ use anyhow::Result;
 use hamlet_store::Db;
 use hamlet_store::ids::{AgentId, ScholarId};
 
-use crate::layout::Layout;
+use crate::realm::layout::Layout;
 use crate::society::agents::{self, AgentKind};
 use crate::society::{hand, hires};
+
+pub(crate) fn plugin(app: &mut bevy_app::App) {
+    app.add_plugins(worker::plugin);
+}
 
 /// The character's file in a scholar's repository.
 pub(crate) const CHARACTER: &str = "CHARACTER.md";

@@ -15,8 +15,8 @@ use super::limits::{self, Micros};
 use super::record::{self, Decision, DecisionKind};
 use super::refusal::Refusal;
 use super::{city, hamlets, tree};
-use crate::change::{Change, Done, done, refuse};
-use crate::jobs::{self, Job};
+use crate::realm::change::{Change, Done, done, refuse};
+use crate::realm::jobs::{self, Job};
 
 #[derive(Clone, Debug, PartialEq, Queryable, Selectable)]
 #[diesel(table_name = hire)]
@@ -172,7 +172,7 @@ pub(crate) fn get(db: &mut Db, id: AgentId) -> Result<Hire> {
     find(db, id)?.with_context(|| format!("no hire {id}"))
 }
 
-/// How many letters of a first message a purpose keeps.
+/// The most letters of a first message a purpose keeps.
 const PURPOSE_KEPT: usize = 200;
 
 /// Gives `agent`, a hire hired without saying what for, the first
@@ -242,7 +242,7 @@ pub(crate) fn count_living(
         .get_result(db)?)
 }
 
-/// Whether `id` holds its hamlet's office.
+/// True when `id` holds its hamlet's office.
 pub(crate) fn is_mayor(db: &mut Db, id: AgentId) -> Result<bool> {
     let hire = get(db, id)?;
     Ok(tree::mayor(db, &hire.hamlet)? == id)
@@ -319,7 +319,9 @@ pub(crate) fn unprotected(
     }
     let hamlet = get(cx.db, hire)?.hamlet;
     let minutes = limits::of(cx.db, &hamlet)?.protected_minutes;
-    if crate::talk::tasks::protects(cx.db, hire, cx.at, minutes)? {
+    if crate::conversations::tasks::protects(
+        cx.db, hire, cx.at, minutes,
+    )? {
         refuse!(Refusal::OnChiefsTask {
             name: super::addresses::name_of(cx.db, hire)?,
         });
@@ -607,12 +609,7 @@ pub(crate) fn check_nickname(
             if nickname.chars().count() > NICKNAME
                 || nickname.contains(char::is_control) =>
         {
-            Err(Refusal::Usage {
-                words: format!(
-                    "A nickname is one line of at most {NICKNAME} \
-                     letters."
-                ),
-            })
+            Err(Refusal::BadNickname { most: NICKNAME })
         }
         _ => Ok(nickname),
     }

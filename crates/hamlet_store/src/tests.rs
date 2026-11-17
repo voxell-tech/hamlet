@@ -216,11 +216,11 @@ fn a_realm_opens_only_as_its_own_database() {
     let path = dir.join("realm.sqlite");
     assert!(Store::open(&path).is_err(), "a missing database opens");
     let mut created = store(&dir);
-    assert_eq!(created.realm().unwrap(), "realm-1");
+    assert_eq!(created.realm_id().unwrap(), "realm-1");
     drop(created);
     assert!(Store::create(&path, "realm-2", 1).is_err());
     assert_eq!(
-        Store::open(&path).unwrap().realm().unwrap(),
+        Store::open(&path).unwrap().realm_id().unwrap(),
         "realm-1"
     );
 
@@ -284,7 +284,7 @@ fn a_keyed_job_waits_once_and_is_done_once() {
     let due = job::due(db, 50).unwrap();
     assert_eq!(due.iter().map(|j| j.id).collect::<Vec<_>>(), [first]);
     assert_eq!(job::next(db).unwrap(), Some(100));
-    job::finish(db, first, 60).unwrap();
+    job::finish(db, first).unwrap();
     let due = job::due(db, 100).unwrap();
     assert_eq!(due.iter().map(|j| j.id).collect::<Vec<_>>(), [plain]);
     assert_eq!(due[0].tries, 1);

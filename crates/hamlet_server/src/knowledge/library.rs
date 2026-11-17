@@ -7,7 +7,7 @@ use hamlet_git::{Author, Change, CommitId, MAIN, Repository};
 
 use super::folder::Folder;
 use super::run::write_tree;
-use crate::layout::Layout;
+use crate::realm::layout::Layout;
 
 macro_rules! starter {
     ($name:literal, [$($file:literal),+]) => {

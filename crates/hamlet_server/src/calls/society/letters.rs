@@ -1,64 +1,67 @@
-//! An agent's words to another along a road (H30, H31), its ask for a
-//! road, and the workers it starts, each kept once per call.
+//! An agent's words to another along a road (H30, H31), its request
+//! for a road, and the workers it starts, each kept once per call.
 
 use anyhow::Result;
 use diesel::prelude::*;
-use hamlet_protocol::client::ImageId;
 use hamlet_store::ids::{Actor, AgentId};
 use hamlet_store::schema::worker;
 
-use super::{Call, Step, list, said, task_chief, text};
+use super::args::{Ask, RequestRoad, StartWorker, Tell};
+use super::{Call, Step, refused, said, task_chief};
+use crate::attachments::inbox::INBOX;
+use crate::calls::looks::Look;
 use crate::calls::place;
+use crate::conversations::letters::{
+    self, Message, MessageKind, Send,
+};
+use crate::conversations::tasks::{self, Origin};
+use crate::conversations::{Kind, briefs};
 use crate::core::Core;
-use crate::inbox::INBOX;
 use crate::society::agents::{self, EndHow};
 use crate::society::refusal::Refusal;
 use crate::society::workers::{self, Start, Starter};
 use crate::society::{addresses, hires, roads};
-use crate::talk::briefs;
-use crate::talk::conversations::Kind;
-use crate::talk::letters::{self, Message, MessageKind, Send};
-use crate::talk::tasks::{self, Origin};
-use crate::work::catalogue::SOCIETY;
-use crate::work::tools::To;
+use crate::tools::builtin::Network;
+use crate::tools::catalogue::Society;
 
-impl Core {
-    pub(in crate::calls) async fn tell(
+impl Core<'_, '_> {
+    pub(in crate::calls) fn tell(
         &mut self,
         call: &Call<'_>,
+        args: Tell,
     ) -> Result<Step> {
         self.send(
             call,
             MessageKind::Letter,
-            "to",
-            &text(call, "text"),
-            &list(call, "paths"),
+            &args.to,
+            &args.text,
+            &args.paths,
         )
-        .await
     }
 
-    pub(in crate::calls) async fn ask(
+    pub(in crate::calls) fn ask(
         &mut self,
         call: &Call<'_>,
+        args: Ask,
     ) -> Result<Step> {
         self.send(
             call,
             MessageKind::Question,
-            "to",
-            &text(call, "question"),
-            &list(call, "paths"),
+            &args.to,
+            &args.question,
+            &args.paths,
         )
-        .await
     }
 
-    /// Asks the caller's lead for a road, as a letter to it.
-    pub(in crate::calls) async fn request_road(
+    /// Requests a road from the caller's lead, as a letter to it.
+    pub(in crate::calls) fn request_road(
         &mut self,
         call: &Call<'_>,
+        args: RequestRoad,
     ) -> Result<Step> {
         let sender = call.conversation.agent;
         let here = self.hamlet_of(sender)?;
-        let to = match self.named(call, "to", here.as_ref())? {
+        let to = match self.named(&args.to, here.as_ref())? {
             Ok(to) => to,
             Err(refusal) => return Ok(Step::of(Err(refusal))),
         };
@@ -71,10 +74,8 @@ impl Core {
             None => return Ok(Step::of(Err(Refusal::RoadEnds))),
         };
         let name = self.name(to)?;
-        let words = format!(
-            "I ask for a road to {name}: {}",
-            text(call, "reason")
-        );
+        let words =
+            format!("I request a road to {name}: {}", args.reason);
         self.deliver(
             call,
             MessageKind::Letter,
@@ -83,16 +84,15 @@ impl Core {
             &words,
             &[],
         )
-        .await
     }
 
     /// Sends a letter or a question, with the files under `paths`,
-    /// to the agent the argument `key` names.
-    async fn send(
+    /// to the agent at `address`.
+    fn send(
         &mut self,
         call: &Call<'_>,
         kind: MessageKind,
-        key: &str,
+        address: &str,
         words: &str,
         paths: &[String],
     ) -> Result<Step> {
@@ -104,16 +104,14 @@ impl Core {
             return self.sent(&found);
         }
         let here = self.hamlet_of(sender)?;
-        let receiver = match self.named(call, key, here.as_ref())? {
+        let receiver = match self.named(address, here.as_ref())? {
             Ok(receiver) => receiver,
             Err(refusal) => return Ok(Step::of(Err(refusal))),
         };
-        let address = text(call, key);
-        self.deliver(call, kind, receiver, &address, words, paths)
-            .await
+        self.deliver(call, kind, receiver, address, words, paths)
     }
 
-    async fn deliver(
+    fn deliver(
         &mut self,
         call: &Call<'_>,
         kind: MessageKind,
@@ -124,39 +122,34 @@ impl Core {
     ) -> Result<Step> {
         let sender = call.conversation.agent;
         if receiver == sender {
-            return Ok(Step::of(Err(Refusal::Usage {
-                words: "That is you.".into(),
-            })));
+            return Ok(Step::of(Err(Refusal::TellSelf)));
         }
         if words.is_empty() {
-            return Ok(Step::of(Err(Refusal::Usage {
-                words: "Say what to send.".into(),
-            })));
+            return Ok(Step::of(Err(Refusal::NothingToSend)));
         }
         let other = self.name(receiver)?;
         let db = self.realm.store().connection();
         if roads::way(db, sender, receiver)?.is_none() {
-            return Ok(Step::of(Err(Refusal::Usage {
-                words: format!(
-                    "You have no road to {other}. Ask your lead for \
-                     one with request_road."
-                ),
-            })));
+            return Ok(Step::of(Err(Refusal::NoRoadTo { other })));
         }
         if kind == MessageKind::Question
             && letters::would_loop(db, sender, receiver)?
         {
-            return Ok(Step::of(Err(Refusal::Usage {
-                words: format!(
-                    "{other} is waiting on your answer already; \
-                     tell it what it needs instead of asking."
-                ),
+            return Ok(Step::of(Err(Refusal::AlreadyWaitingOn {
+                other,
             })));
         }
         let mut words = words.to_owned();
         let mut images = Vec::new();
         if !paths.is_empty() {
-            match self.parcel(call, receiver, paths).await? {
+            // The files are copied off the loop first; this runs
+            // again once they are.
+            let Some(copied) = self.looks.copied(&call.call).cloned()
+            else {
+                let look = self.parcel(call, receiver, paths)?;
+                return Ok(Step::Look(Box::new(look)));
+            };
+            match copied {
                 Ok((captions, kept)) => {
                     words.push_str("\n\n");
                     words.push_str(&captions);
@@ -171,8 +164,8 @@ impl Core {
         let (runtime, key) =
             (call.call.runtime.clone(), call.call.key.clone());
         let from = call.conversation.id;
-        let sent = self
-            .attempt(Actor::Agent(sender), |cx, env| {
+        let sent =
+            self.attempt(Actor::Agent(sender), |cx, env| {
                 let task = match task {
                     Some(task) => task,
                     None => tasks::mint(
@@ -199,23 +192,22 @@ impl Core {
                         images: &images,
                     },
                 )?))
-            })
-            .await?;
+            })?;
         match sent {
             Ok(found) => self.sent(&found),
             Err(refusal) => Ok(Step::of(Err(refusal))),
         }
     }
 
-    /// Copies the files under `paths`, as the caller may read them,
-    /// into `receiver`'s inbox, and gives the captions that say where
-    /// each landed and the images among them.
-    async fn parcel(
+    /// The look that copies the files under `paths`, as the caller
+    /// may read them, into `receiver`'s inbox, with the captions that
+    /// say where each landed and the images among them.
+    fn parcel(
         &mut self,
         call: &Call<'_>,
         receiver: AgentId,
         paths: &[String],
-    ) -> Result<Result<(String, Vec<ImageId>), Refusal>> {
+    ) -> Result<Look> {
         let layout = self.realm.layout().clone();
         let db = self.realm.store().connection();
         let at =
@@ -223,54 +215,35 @@ impl Core {
         let from =
             addresses::address_of(db, call.conversation.agent)?
                 .replace('#', "-");
-        let session = match self
-            .tools_of(call, at.place, false)
-            .await?
-        {
-            Ok((session, _)) => session,
-            Err(words) => return Ok(Err(Refusal::Usage { words })),
-        };
-        let mut inbox = self
+        let (session, lodging) =
+            self.tools_of(call, at.place, Network::Closed)?;
+        let inbox = self
             .open_inbox(receiver, &format!("{INBOX}/from-{from}"))?;
-        let sent = session
-            .parcel(
-                paths,
-                Some(To {
-                    inbox: &mut inbox,
-                    images: layout.images(),
-                }),
-            )
-            .await?;
-        let sent = match sent {
-            Ok(sent) => sent,
-            Err(refusal) => return Ok(Err(refusal)),
-        };
-        let mut captions = inbox.captions("of this message");
-        if sent.skipped > 0 {
-            captions.push_str(&format!(
-                "\n[{} links inside the folders were left out]",
-                sent.skipped
-            ));
-        }
-        Ok(Ok((captions, sent.images)))
+        Ok(Look::Copy {
+            session,
+            lodging,
+            paths: paths.to_vec(),
+            inbox: Box::new(inbox),
+            images: layout.images(),
+            receiver,
+        })
     }
 
-    /// What a message kept for a call answers it: a letter is sent; a
-    /// question waits for its answer.
+    /// The answer a message kept for a call gives it: a letter is
+    /// sent; a question waits for its answer.
     fn sent(&mut self, found: &Message) -> Result<Step> {
         let name = self.name(found.receiver)?;
         Ok(match (found.kind, &found.answer, &found.failure) {
             (MessageKind::Letter, _, _) => {
-                Step::Done(said(format!("Sent to {name}."), false))
+                Step::Done(said(format!("Sent to {name}.")))
             }
-            (MessageKind::Question, Some(answer), _) => Step::Done(
-                said(format!("{name} answers: {answer}"), false),
-            ),
+            (MessageKind::Question, Some(answer), _) => {
+                Step::Done(said(format!("{name} answers: {answer}")))
+            }
             (MessageKind::Question, None, Some(failure)) => {
-                Step::Done(said(
-                    format!("{name} could not answer: {failure}"),
-                    true,
-                ))
+                Step::Done(refused(format!(
+                    "{name} could not answer: {failure}"
+                )))
             }
             (MessageKind::Question, None, None) => {
                 Step::Wait(format!("Waiting for {name}'s answer."))
@@ -279,9 +252,10 @@ impl Core {
     }
 
     /// Starts a worker on the call's task, once per call.
-    pub(in crate::calls) async fn start_worker(
+    pub(in crate::calls) fn start_worker(
         &mut self,
         call: &Call<'_>,
+        args: StartWorker,
     ) -> Result<Step> {
         let starter = call.conversation.agent;
         let (runtime, key) =
@@ -296,15 +270,17 @@ impl Core {
         if let Some(id) = started {
             return self.worked(id);
         }
-        let brief = text(call, "task");
-        let tools = list(call, "tools");
-        if tools.iter().any(|tool| SOCIETY.contains(&tool.as_str())) {
+        let StartWorker {
+            task: brief,
+            tools,
+            wait: waits,
+        } = args;
+        if tools.iter().any(|tool| Society::named(tool).is_some()) {
             return Ok(Step::of(Err(Refusal::WorkerTools)));
         }
-        let names = self.catalogue_names();
+        let names = self.tools.catalogue.names();
         let db = self.realm.store().connection();
-        let offered =
-            place::tools(db, starter, Kind::Chat, &names, &SOCIETY)?;
+        let offered = place::tools(db, starter, Kind::Chat, &names)?;
         let hamlet_protocol::runtime::ConfigureTools::Only { only } =
             offered
         else {
@@ -319,17 +295,12 @@ impl Core {
                 tool: missing.clone(),
             })));
         }
-        let waits = call
-            .arguments
-            .get("wait")
-            .and_then(serde_json::Value::as_bool)
-            .unwrap_or(false);
         let task = self.task_of(call)?;
         let author = self.name(starter)?;
         let db = self.realm.store().connection();
         let chief = task_chief(db, task)?;
-        let done = self
-            .attempt(Actor::Agent(starter), |cx, env| {
+        let done =
+            self.attempt(Actor::Agent(starter), |cx, env| {
                 let id = match workers::start(
                     cx,
                     Start {
@@ -347,48 +318,35 @@ impl Core {
                 };
                 briefs::give(cx, env, id, &brief, &author, chief)?;
                 Ok(Ok(id))
-            })
-            .await?;
+            })?;
         match done {
             Ok(id) => self.worked(id),
             Err(refusal) => Ok(Step::of(Err(refusal))),
         }
     }
 
-    /// What a worker started by a call answers it.
+    /// The answer a worker started by a call gives it.
     fn worked(&mut self, id: AgentId) -> Result<Step> {
         let db = self.realm.store().connection();
         let found = workers::get(db, id)?;
         let ended = agents::get(db, id)?;
         let name = addresses::address_of(db, id)?;
         if !found.waits {
-            return Ok(Step::Done(said(
-                format!(
-                    "Started {name}; its answer comes to you as a \
-                     reply."
-                ),
-                false,
-            )));
+            return Ok(Step::Done(said(format!(
+                "Started {name}; its answer comes to you as a reply."
+            ))));
         }
         Ok(match (ended.ended_how, found.answer) {
-            (Some(EndHow::Answered), Some(answer)) => Step::Done(
-                said(format!("{name} answers: {answer}"), false),
-            ),
-            (Some(how), _) => Step::Done(said(
-                format!("{name} ended: {}.", how.words()),
-                true,
-            )),
+            (Some(EndHow::Answered), Some(answer)) => {
+                Step::Done(said(format!("{name} answers: {answer}")))
+            }
+            (Some(how), _) => Step::Done(refused(format!(
+                "{name} ended: {}.",
+                how.words()
+            ))),
             (None, _) => {
                 Step::Wait(format!("Waiting for {name}'s answer."))
             }
         })
-    }
-
-    /// The names of every tool in the catalogue.
-    pub(crate) fn catalogue_names(&self) -> Vec<String> {
-        self.catalogue
-            .iter()
-            .map(|spec| spec.name.clone())
-            .collect()
     }
 }

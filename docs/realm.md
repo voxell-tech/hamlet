@@ -3,7 +3,7 @@
 The server keeps one realm, `~/.hamlet` unless `HAMLET_HOME` or
 `hamlet_server --home` selects another folder for it. Use a fresh scratch
 folder for development. `crates/hamlet_server/src/realm.rs` defines `Realm`
-and `layout.rs` defines `Layout`. The server's chief is named by
+and `realm/layout.rs` defines `Layout`. The server's chief is named by
 `HAMLET_USER`, else the account it runs as (`USER`, `USERNAME` or
 `LOGNAME`), else "chief".
 
@@ -21,7 +21,7 @@ and `layout.rs` defines `Layout`. The server's chief is named by
 | `hamlets/<hamlet id>/<hire id>/` | A hire's lodge: `memory/`, `skills/` and `inbox/`, a checkout of its branch |
 | `workers/<id>/` | A worker's scratch folder while it runs |
 | `library.git/`, `library/` | The library's repository, and its `main` checked out, read-only to agent tools |
-| `tools/` | Hand-added tool manifests and scripts |
+| `tools/` | Hand-added tool manifests and scripts, loaded again whenever they change |
 | `terminals/<id>.json` | Each terminal's view and its last output, kept across restarts, outside agents' reach |
 | `images/`, `files/` | The images chiefs sent and agents read, and the files chiefs sent, each kept once under the hash of its bytes, out of agents' reach |
 | `dreams/` | The checkout of a scholar's `main` a dream writes, out of agents' reach |
@@ -35,7 +35,7 @@ by hand reaches the agents at the next start.
 
 ## Claim and storage
 
-`Realm::open` resolves the folder to its canonical path, and `claim.rs` takes
+`Realm::open` resolves the folder to its canonical path, and `realm/claim.rs` takes
 a local socket claim on that path, so a second server cannot open the same
 realm under another spelling. The claim outlives the open store and its
 harness processes.
@@ -126,15 +126,29 @@ they start in, and the most one may cost.
 ## Starting and stopping
 
 `hamlet_server --home <folder> --port 0` publishes a free loopback address.
-`serve::serve` owns the ordered start and shutdown, `clients/connection.rs`
-the sockets, and `clients/requests.rs` authentication and who answers each
-request; `Core` composes the domain owners. `--faux` selects an offline
+`main` runs the Bevy app `create_app` makes (`lib.rs`), with
+`bevy_log`'s `LogPlugin`, whose runner, `app::runner::runner`, serves. The app's first update opens the realm and
+the rest in `PreStartup`, starts them in `Startup`, and only then
+publishes `server.json` (`app/startup.rs`). A stop signal takes the server
+through the `Serving` states, `Open`, `Closing` and `Stopping`, until the
+app exits (`app/shutdown.rs`); `clients/connection.rs` owns the sockets,
+`clients/requests.rs` authentication, and `clients/handlers.rs` the system
+that answers each request. `--faux` selects an offline
 response script, not a harness entry. `HAMLET_PI_HARNESS` selects that entry
 instead.
 
-SIGTERM or the first SIGINT closes clients with code 1001, settles shutdown
-work and removes `server.json`. A second SIGINT exits 130. Closing a client
+SIGTERM or the first SIGINT closes clients with code 1001, ends every
+sign-in, waits up to 15 s for a credential rotation begun, stops the
+runtimes and removes `server.json`; inputs keep running until then. A
+second SIGINT exits 130. Closing a client
 or window does not stop the server.
+
+The server logs on stderr: readable lines in a terminal, else one JSON
+object per line, as in `server.log`. `RUST_LOG` selects what it logs,
+`info` and above unless it says otherwise. A failure's words have every
+secret the server knows taken out before they are logged. When the
+server cannot serve, its last line is `Error: ` and why, in plain text,
+which the CLI and the launcher show.
 
 ## Starter skills
 

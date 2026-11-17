@@ -8,8 +8,8 @@ use hamlet_store::schema::hand;
 
 use super::agents::{self, AgentKind};
 use super::city;
-use crate::change::Change;
-use crate::jobs::{self, Job};
+use crate::realm::change::Change;
+use crate::realm::jobs::{self, Job};
 
 /// Makes the Hand, once, with the realm, starting from `character`.
 pub(crate) fn make(

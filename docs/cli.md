@@ -79,7 +79,7 @@ runs in then ends pi and every command with it.
 ## Typed commands
 
 The server advertises its supported deeds in the state it sends, and
-`commands.rs` carries them out: hamlets and hires, the tree and its roads,
+`clients/commands.rs` carries them out: hamlets and hires, the tree and its roads,
 versions of a scholar, the library, the record, the budget and what waits.
 The server parses commands; the terminal handles only `/hand`, `/hamlet` and
 `/agent` as address changes, and `/attach`. `/hand` talks to the Hand,

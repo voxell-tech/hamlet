@@ -2,62 +2,83 @@
 //! its reason (H17).
 
 use anyhow::Result;
+use diesel::deserialize::FromSqlRow;
+use diesel::expression::AsExpression;
 use diesel::prelude::*;
+use diesel::sql_types::Text;
 use hamlet_store::Db;
 use hamlet_store::ids::{
     Actor, AgentId, HamletId, ScholarId, TaskId,
 };
 use hamlet_store::schema::decision;
+use serde::{Deserialize, Serialize};
 use serde_json::Value;
+use strum::{Display, EnumString, IntoStaticStr};
 
-use crate::change::Change;
-use crate::text::text_enum;
+use crate::realm::change::Change;
 
-text_enum! {
-    pub(crate) enum DecisionKind {
-        Founded = "founded",
-        NamedHamlet = "named-hamlet",
-        PlacedHamlet = "placed-hamlet",
-        RemovedHamlet = "removed-hamlet",
-        RestoredHamlet = "restored-hamlet",
-        ErasedHamlet = "erased-hamlet",
-        Tier = "tier",
-        Folder = "folder",
-        Mode = "mode",
-        Limits = "limits",
-        ScholarMade = "scholar-made",
-        /// A newcomer let into the city.
-        Welcomed = "welcomed",
-        /// A newcomer, or a scholar sent back, kept at the harbor.
-        TurnedAway = "turned-away",
-        HouseMoved = "house-moved",
-        ScholarArchived = "scholar-archived",
-        ScholarRestored = "scholar-restored",
-        ScholarErased = "scholar-erased",
-        ScholarEdited = "scholar-edited",
-        ScholarNamed = "scholar-named",
-        Tagged = "tagged",
-        Reverted = "reverted",
-        Forked = "forked",
-        Purged = "purged",
-        Hired = "hired",
-        Ended = "ended",
-        Merged = "merged",
-        Split = "split",
-        Restored = "restored",
-        Erased = "erased",
-        Seated = "seated",
-        Model = "model",
-        Tools = "tools",
-        Allowance = "allowance",
-        Pinned = "pinned",
-        Nicknamed = "nicknamed",
-        Road = "road",
-        Unroad = "unroad",
-        RoadAgreed = "road-agreed",
-        RoadRefused = "road-refused",
-    }
+#[derive(
+    Clone,
+    Copy,
+    Debug,
+    PartialEq,
+    Eq,
+    Hash,
+    Serialize,
+    Deserialize,
+    AsExpression,
+    FromSqlRow,
+    IntoStaticStr,
+    EnumString,
+    Display,
+)]
+#[serde(rename_all = "kebab-case")]
+#[strum(serialize_all = "kebab-case")]
+#[diesel(sql_type = Text)]
+pub(crate) enum DecisionKind {
+    Founded,
+    NamedHamlet,
+    PlacedHamlet,
+    RemovedHamlet,
+    RestoredHamlet,
+    ErasedHamlet,
+    Tier,
+    Folder,
+    Mode,
+    Limits,
+    ScholarMade,
+    /// A newcomer let into the city.
+    Welcomed,
+    /// A newcomer, or a scholar sent back, kept at the harbor.
+    TurnedAway,
+    HouseMoved,
+    ScholarArchived,
+    ScholarRestored,
+    ScholarErased,
+    ScholarEdited,
+    ScholarNamed,
+    Tagged,
+    Reverted,
+    Forked,
+    Purged,
+    Hired,
+    Ended,
+    Merged,
+    Split,
+    Restored,
+    Erased,
+    Seated,
+    Model,
+    Tools,
+    Allowance,
+    Pinned,
+    Nicknamed,
+    Road,
+    Unroad,
+    RoadAgreed,
+    RoadRefused,
 }
+hamlet_store::named_text!(DecisionKind);
 
 /// A decision to keep.
 #[derive(Clone, Debug, Default)]

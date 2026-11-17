@@ -4,12 +4,31 @@ use hamlet_store::ids::{Actor, AgentId, ChiefId};
 use hamlet_store::{Db, Store};
 use hamlet_testing::Scratch;
 
-use crate::change::{Change, Done, Touched, run};
-use crate::layout::Layout;
+use crate::realm::change::{Change, Done, run};
+use crate::realm::layout::Layout;
 use crate::society::hamlets::{self, Founding};
 use crate::society::hires::{Hired, Hiring};
 use crate::society::refusal::Refusal;
 use crate::society::{chiefs, hand};
+
+/// A PNG of `width` by `height` pixels.
+pub(crate) fn png(width: u32, height: u32) -> Vec<u8> {
+    use image::{ExtendedColorType, ImageEncoder};
+
+    let mut out = Vec::new();
+    let pixels = image::RgbImage::from_fn(width, height, |x, y| {
+        image::Rgb([(x * 7 % 256) as u8, (y * 13 % 256) as u8, 90])
+    });
+    image::codecs::png::PngEncoder::new(&mut out)
+        .write_image(
+            pixels.as_raw(),
+            width,
+            height,
+            ExtendedColorType::Rgb8,
+        )
+        .unwrap();
+    out
+}
 
 /// A new realm with its first chief and its Hand.
 pub(crate) struct Realm {
@@ -52,7 +71,10 @@ impl Realm {
     pub fn work(&mut self) {
         let layout = self.layout();
         let at = self.at;
-        crate::knowledge::run::due(self.db(), &layout, at).unwrap();
+        let writing =
+            crate::knowledge::worker::RepositoryWriteLock::default();
+        crate::knowledge::run::due(self.db(), &layout, &writing, at)
+            .unwrap();
         let left =
             hamlet_store::job::due(self.db(), i64::MAX).unwrap();
         assert!(left.is_empty(), "jobs failed: {left:?}");
@@ -68,8 +90,7 @@ impl Realm {
         self.at += 1000;
         let at = self.at;
         let mut tx = self.store.immediate().unwrap();
-        let (made, _): (_, Touched) =
-            run(&mut tx, at, actor, make).unwrap();
+        let (made, _) = run(&mut tx, at, actor, make).unwrap();
         tx.commit().unwrap();
         made
     }

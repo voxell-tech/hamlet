@@ -7,29 +7,53 @@ use hamlet_store::Db;
 use hamlet_store::ids::{Actor, AgentId, OfferId, ScholarId};
 
 use super::folder::{Folder, remove_folder};
+use super::worker::RepositoryWriteLock;
 use super::{CHARACTER, branch, lodging, outside_git};
-use crate::jobs::{Fork, Job};
-use crate::layout::Layout;
+use crate::realm::jobs::{Fork, Job};
+use crate::realm::layout::Layout;
 use crate::society::{city, hires, library as shelf};
 
 /// The longest a failed job waits before it runs again.
 const MOST_WAIT: i64 = 300_000;
 
-/// Runs every job due at `now`, once each, returning those done. A
-/// job that fails runs again later, waiting longer each time.
+/// Runs every job due at `now`, once each and each holding `writing`,
+/// returning those done. A job that fails, panics or cannot be read
+/// runs again later, waiting longer each time, and the jobs after it
+/// still run.
 pub(crate) fn due(
     db: &mut Db,
     layout: &Layout,
+    writing: &RepositoryWriteLock,
     now: i64,
 ) -> Result<Vec<Job>> {
     let jobs = hamlet_store::job::due(db, now)?;
     let mut done = Vec::new();
     for kept in jobs {
-        let job = serde_json::from_str::<Job>(&kept.payload)
-            .with_context(|| format!("reading job {}", kept.id))?;
-        match run(db, layout, &job, now) {
-            Ok(()) => {
-                hamlet_store::job::finish(db, kept.id, now)?;
+        let _held = writing.hold();
+        let ran = serde_json::from_str::<Job>(&kept.payload)
+            .with_context(|| format!("reading job {}", kept.id))
+            .and_then(|job| {
+                let ran = std::panic::catch_unwind(
+                    std::panic::AssertUnwindSafe(|| {
+                        run(db, layout, &job, now)
+                    }),
+                );
+                match ran {
+                    Ok(ran) => ran.map(|()| job),
+                    Err(panic) => {
+                        // What the job left open goes, or the pass
+                        // ends and the runner opens the store again.
+                        hamlet_store::unwind(db)?;
+                        bail!(
+                            "{}",
+                            crate::app::failure::panicked(&*panic)
+                        )
+                    }
+                }
+            });
+        match ran {
+            Ok(job) => {
+                hamlet_store::job::finish(db, kept.id)?;
                 done.push(job);
             }
             Err(error) => {
@@ -84,19 +108,19 @@ pub(crate) fn run(
             remove_folder(&layout.hamlet(hamlet))
         }
         Job::Merge { merge } => {
-            super::merging::merge(db, layout, *merge, at)
+            super::merges::merge(db, layout, *merge, at)
         }
         Job::Split { merge } => {
-            super::merging::split(db, layout, *merge, at)
+            super::merges::split(db, layout, *merge, at)
         }
         Job::Shelve { offer } => shelve(db, layout, *offer, at),
         Job::DreamEnd {
             dream,
             last,
             summary,
-        } => super::dreaming::end(
-            db, layout, *dream, *last, summary, at,
-        ),
+        } => {
+            super::dreams::end(db, layout, *dream, *last, summary, at)
+        }
     }
 }
 
@@ -231,7 +255,7 @@ fn lodge(db: &mut Db, layout: &Layout, agent: AgentId) -> Result<()> {
     check_out(&repo, tip, &folder)
 }
 
-/// What a branch takes in: its pin, or `main`.
+/// The commit a branch takes in: its pin's, or `main`'s.
 fn target(repo: &Repository, pin: Option<&str>) -> Result<CommitId> {
     match pin {
         Some(version) => repo

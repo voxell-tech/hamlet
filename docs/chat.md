@@ -35,7 +35,7 @@ system's dialog; it opens once when first-run setup ends on a realm with
 no hamlet, and from Settings. `hamlet_import` reads the conversations on
 the chief's machine, off the frame (`hamlet_client/src/imports.rs`), the
 client sends each as a file and the project as `import-project`, and the
-server (`talk/imports.rs`) founds or finds the hamlet, makes the hires
+server (`conversations/imports.rs`) founds or finds the hamlet, makes the hires
 and holds each conversation's entries until the runtime makes it with
 them, which waits for a model to be set up. Until then its chat shows
 the entries held, and its watchers get its transcript anew once the
@@ -112,8 +112,8 @@ unopened.
 
 An `edit` or `write` call can show its change in place of the tool row:
 the path, the count of lines added and removed, and the lines themselves
-in red and green. `crates/hamlet_server/src/work/cut.rs` computes the preview and keeps
-at most 200 lines, each cut at 240 characters. It arrives in the tool's
+in red and green. `crates/hamlet_server/src/tools/edit_diff.rs` computes the preview and
+keeps at most 200 lines, each cut at 240 characters. It arrives in the tool's
 `change` field, both live and when the transcript is read back.
 
 A change is open when it arrives and shows its first `change_lines` lines
@@ -338,7 +338,7 @@ A call has 1 to 10 questions, and a question at most 6 options with
 titles of its own. `description` is optional on a question and on an
 option. `text_input` lets the chief answer in words of their own and is
 true unless the agent says otherwise; a question with no options always
-takes words. `crates/hamlet_server/src/talk/asking.rs` reads and
+takes words. `crates/hamlet_server/src/conversations/questions.rs` reads and
 checks a call, and a call it refuses tells the agent why.
 
 **Where it is answered.** One card, `hamlet_app/src/asking.rs`, is shown

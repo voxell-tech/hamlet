@@ -154,7 +154,7 @@ impl Screen {
     /// the replay, then what the replay may have lost to its trim,
     /// which a program sets once as it starts. On the alternate
     /// screen, that screen as it shows now; then the modes the
-    /// program asked for, such as reading the mouse and bracketed
+    /// program requested, such as reading the mouse and bracketed
     /// paste. A restored terminal takes [`Self::replay`], since its
     /// shell starts again without them.
     pub(super) fn redraw(&self) -> Vec<u8> {
@@ -284,7 +284,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn the_screen_text_has_the_scrollback_asked_for() {
+    fn the_screen_text_has_the_scrollback_requested() {
         let mut screen = Screen::new(Size { rows: 3, cols: 20 });
         for line in 1..=6 {
             screen.take(format!("line {line}\r\n").as_bytes());

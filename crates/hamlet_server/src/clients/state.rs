@@ -11,7 +11,11 @@ use hamlet_store::Db;
 use hamlet_store::ids::{AgentId, HamletId, ScholarId};
 use hamlet_store::schema::{agent, message, permission_grant};
 
-use crate::layout::Layout;
+use crate::conversations::activity::{self, Activity};
+use crate::conversations::{self, errands, inputs, models};
+use crate::knowledge;
+use crate::realm::layout::Layout;
+use crate::realm::settings::EffectiveSettings;
 use crate::society::agents::{Agent, AgentKind, Effort, EndHow};
 use crate::society::city::{self, Arrival, Scholar};
 use crate::society::hamlets::{self, Hamlet, Mode};
@@ -19,15 +23,14 @@ use crate::society::limits::{
     self, Limits, Period, RealmLimits, Review,
 };
 use crate::society::roads::{self, RoadKind, Way};
-use crate::society::{addresses, chiefs, hand, hires, workers};
-use crate::talk::activity::{self, Activity};
-use crate::talk::{Env, conversations, inputs};
-use crate::{knowledge, spend};
+use crate::society::{
+    addresses, chiefs, hand, hires, spend, workers,
+};
 
 /// What composing the state reads besides the database.
 pub(crate) struct Sources<'a> {
     pub layout: &'a Layout,
-    pub env: &'a Env,
+    pub env: &'a EffectiveSettings,
     pub chief: String,
     pub confinement: protocol::Confinement,
     pub activity: &'a BTreeMap<AgentId, Activity>,
@@ -155,7 +158,7 @@ fn agent_view(
             )
         }
     };
-    let model = crate::talk::models::choose(
+    let model = models::choose(
         db,
         &sources.env.settings,
         &sources.env.overrides,
@@ -236,10 +239,10 @@ fn agent_view(
         allowance,
         busy: found.is_living() && inputs::is_agent_busy(db, id)?,
         consulting: found.is_living()
-            && crate::talk::errands::is_waited_on(
+            && errands::is_waited_on(
                 db,
                 id,
-                crate::calls::LIBRARIAN,
+                crate::calls::society::library::LIBRARIAN,
             )?,
         conversations: peers(db, id)?,
         effort: found.effort.map(Effort::wire),
@@ -419,11 +422,12 @@ fn hamlet_view(
             (_, false) => "Hires work in their lodges; no folder is \
                            chosen."
                 .into(),
-            (Mode::Manual, true) => "Hires ask you before each edit \
-                                     and command in the folder."
+            (Mode::Manual, true) => "Hires wait for your approval \
+                                     before each edit and command \
+                                     in the folder."
                 .into(),
             (Mode::Auto, true) => "Hires edit the folder and run \
-                                   commands without asking."
+                                   commands without approval."
                 .into(),
         },
         name: place.name.clone(),
@@ -441,7 +445,8 @@ fn road_level(
     at: i64,
 ) -> protocol::RoadLevel {
     let grown = last.is_none_or(|last| {
-        at - last > crate::clock::days(limits.road.grows_over_days)
+        at - last
+            > crate::app::clock::days(limits.road.grows_over_days)
     });
     match messages {
         _ if grown && messages == 0 => protocol::RoadLevel::Dirt,
@@ -572,7 +577,7 @@ fn grants(db: &mut Db) -> Result<Vec<protocol::Grant>> {
             agent: Some(wire_agent(agent)),
             by: chiefs::find(db, chief)?.map(|c| c.name),
             name: addresses::address_of(db, agent)?,
-            permission: crate::oversight::gate::permission(
+            permission: crate::society::oversight::gate::permission(
                 &permission,
             )
             .unwrap_or(protocol::Permission::Unconfined),

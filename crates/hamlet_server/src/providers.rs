@@ -1,18 +1,19 @@
-//! The chief's model catalogue, what the server asks of a runtime's
-//! providers, and sign-ins owned by the connection that began them
-//! (S7).
+//! The chief's model catalogue, what the server requests of a
+//! runtime's providers, and sign-ins owned by the connection that
+//! began them (S7).
 
 use std::collections::{BTreeMap, HashMap};
 use std::path::PathBuf;
 use std::time::{Duration, Instant};
 
 use anyhow::{Context, Result};
+use bevy_ecs::entity::Entity;
 use diesel::prelude::*;
 use hamlet_protocol::client::{
     Check, EditCatalogueSet, ImageInput, LinkState, Listed,
-    ListedPriced, Login, LoginMethod, LoginProgress, LoginStep,
-    Price as ListedPrice, ProviderView, Read, ReadResult, RequestId,
-    ServerMessage,
+    ListedPriced, Login, LoginMethod, LoginProgress, LoginReply,
+    LoginStart, LoginStep, Price as ListedPrice, ProviderView,
+    ReadResult, RequestId, ServerMessage,
 };
 use hamlet_protocol::runtime::{
     self, ModelRef, Price, ProviderControl, ProviderEvent,
@@ -24,14 +25,19 @@ use hamlet_store::schema::document;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
+use crate::app::timers::AddTimer;
 use crate::clients::check::reply;
 use crate::core::Core;
-use crate::credentials::write_whole;
-use crate::layout::Layout;
-use crate::settings::Settings;
+use crate::realm::change::Done;
+use crate::realm::credentials::write_whole;
+use crate::realm::layout::Layout;
+use crate::realm::settings::Settings;
 use crate::society::agents::Effort;
 use crate::society::refusal::Refusal;
-use crate::talk::runtimes::Phase;
+
+mod listing;
+
+use self::listing::Listing;
 
 /// The price in dollars per million tokens of a model nothing prices.
 const RATE: f64 = 1.0;
@@ -40,6 +46,23 @@ const LOCAL_RATE: f64 = 0.1;
 /// The provider of the faux models a faux realm runs.
 pub(crate) const FAUX: &str = "faux";
 
+pub(crate) fn plugin(app: &mut bevy_app::App) {
+    app.add_timer(expiry_due, expire);
+}
+
+/// The soonest a request to the providers runs out of time.
+fn expiry_due(
+    providers: bevy_ecs::system::Res<Providers>,
+) -> Option<Instant> {
+    providers.next_expiry()
+}
+
+/// Answers the requests to the providers that ran out of time.
+fn expire(mut core: Core) -> Result<()> {
+    core.expire_providers()
+}
+
+#[derive(bevy_ecs::resource::Resource)]
 pub(crate) struct Providers {
     file: PathBuf,
     /// Each endpoint's models as its provider lists them.
@@ -55,14 +78,20 @@ pub(crate) struct Providers {
 
 struct Pending {
     /// The connection and request it answers; unset when the server
-    /// asked.
+    /// sent it.
     from: Option<(u64, RequestId)>,
     provider: String,
     action: ProviderRequestAction,
     login: Option<String>,
-    /// Whether it answers a read of the catalogue.
-    read: bool,
+    settles: Settles,
     expires: Option<Instant>,
+}
+
+/// The answer a request's client gets at its end.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum Settles {
+    Reply,
+    Catalogue,
 }
 
 /// A sign-in in progress, owned by the connection that began it.
@@ -152,13 +181,16 @@ impl Providers {
             .collect()
     }
 
-    /// What `model` of `provider` is listed as, or null.
-    fn listed(&self, provider: &str, model: &str) -> Value {
+    /// The listing of `model` of `provider`; the empty one when it is
+    /// not listed.
+    fn listed(&self, provider: &str, model: &str) -> Listing {
         self.lists
             .get(provider)
-            .and_then(|list| list.iter().find(|m| m["id"] == model))
-            .cloned()
-            .unwrap_or(Value::Null)
+            .into_iter()
+            .flatten()
+            .map(Listing::of)
+            .find(|listed| listed.id == model)
+            .unwrap_or_default()
     }
 
     /// The images `model` takes, none when it takes none (S30).
@@ -191,12 +223,9 @@ impl Providers {
             settings
                 .base_url(&model.provider)
                 .map(String::from)
-                .or_else(|| {
-                    listed["baseUrl"].as_str().map(String::from)
-                })
+                .or_else(|| listed.base_url.clone())
         });
-        let size =
-            |key: &str| listed[key].as_u64().filter(|n| *n > 0);
+        let size = |size: Option<u64>| size.filter(|n| *n > 0);
         let name = format!("{}::{}", model.provider, model.id);
         let cards = catalogue(db)?;
         let price = if model.provider == FAUX {
@@ -212,21 +241,16 @@ impl Providers {
                     cache_read: input,
                     cache_write: input,
                 },
-                None => {
-                    serde_json::from_value(listed["cost"].clone())
-                        .unwrap_or_else(|_| {
-                            flat_price(
-                                if is_local(base_url.as_deref()) {
-                                    LOCAL_RATE
-                                } else {
-                                    RATE
-                                },
-                            )
-                        })
-                }
+                None => listed.price().unwrap_or_else(|| {
+                    flat_price(if is_local(base_url.as_deref()) {
+                        LOCAL_RATE
+                    } else {
+                        RATE
+                    })
+                }),
             }
         };
-        // A model asked for an effort or tier it lacks gets the
+        // A model set to an effort or tier it lacks gets the
         // nearest effort it has, and the standard tier.
         let card =
             cards.get(&name).filter(|_| model.provider != FAUX);
@@ -237,8 +261,8 @@ impl Providers {
             _ => effort,
         });
         Ok(Selection {
-            context_window: size("contextWindow"),
-            max_tokens: size("maxTokens"),
+            context_window: size(listed.context_window),
+            max_tokens: size(listed.max_tokens),
             effort: effort.map(Effort::wire),
             fast: fast && card.is_some_and(|card| card.fast),
             images: card
@@ -249,42 +273,42 @@ impl Providers {
     }
 }
 
-impl Core {
-    /// Asks the providers what they offer, and each endpoint for its
+impl Core<'_, '_> {
+    /// Requests what the providers offer, and each endpoint's
     /// models.
     pub(crate) fn start_providers(&mut self) -> Result<()> {
-        self.ask_provider(
+        self.send_provider_request(
             None,
             "",
             ProviderRequestAction::Describe,
             None,
             None,
-            false,
+            Settles::Reply,
         )?;
         if !self.providers.faux {
             let endpoints = self.env.settings.endpoints.clone();
             for endpoint in &endpoints {
-                self.ask_provider(
+                self.send_provider_request(
                     None,
                     &endpoint.name,
                     ProviderRequestAction::Refresh,
                     None,
                     None,
-                    false,
+                    Settles::Reply,
                 )?;
             }
         }
         Ok(())
     }
 
-    fn ask_provider(
+    fn send_provider_request(
         &mut self,
         from: Option<(u64, &RequestId)>,
         provider: &str,
         action: ProviderRequestAction,
         model: Option<String>,
         login: Option<String>,
-        read: bool,
+        settles: Settles,
     ) -> Result<String> {
         let settings = &self.env.settings;
         let serving = settings.provider().unwrap_or_default();
@@ -299,7 +323,7 @@ impl Core {
         let credential = self
             .credentials
             .model(provider, serving)
-            .map(crate::credentials::pack)
+            .map(crate::realm::credentials::pack)
             .transpose()?;
         let key = format!("provider:{}", uuid::Uuid::new_v4());
         let expires = match action {
@@ -316,7 +340,7 @@ impl Core {
                 provider: provider.into(),
                 action: action.clone(),
                 login,
-                read,
+                settles,
                 expires,
             },
         );
@@ -348,290 +372,287 @@ impl Core {
 
     /// Sends what waits for the providers to the default harness's
     /// runtime once it is ready.
-    pub(crate) async fn send_providers(&mut self) -> Result<()> {
+    pub(crate) fn send_providers(&mut self) -> Result<()> {
         let db = self.realm.store().connection();
-        let id = crate::talk::runtimes::of_harness(
+        let id = crate::runtimes::of_harness(
             db,
             crate::society::agents::HARNESS,
         )?;
-        let Some(index) = self.runtimes.index_of(&id) else {
+        let Some(to) = self.runtimes.find(&id) else {
             return Ok(());
         };
-        if self.runtimes.list[index].phase != Phase::Ready {
+        if !self.runtimes.is_ready(to) {
             return Ok(());
         }
         // A request keeps its own id, which its result answers.
         for request in std::mem::take(&mut self.providers.outgoing) {
-            self.leases.grant(index, &request.id, &request.provider);
-            self.runtimes
-                .send(index, |_, _| {
-                    runtime::ServerMessage::ProviderRequest(request)
-                })
-                .await;
+            self.leases.grant(to, &request.id, &request.provider);
+            self.runtimes.send(to, |_, _| {
+                runtime::ServerMessage::ProviderRequest(request)
+            });
         }
         for control in std::mem::take(&mut self.providers.controls) {
-            let indices = (0..self.runtimes.list.len())
+            let open = self
+                .runtimes
+                .all()
+                .into_iter()
                 .filter(|at| self.leases.is_open(*at, &control.scope))
                 .collect::<Vec<_>>();
-            for at in indices {
+            for at in open {
                 if control.cancel {
                     self.leases.finish(at, &control.scope);
                 }
                 let control = control.clone();
-                self.runtimes
-                    .send(at, |_, _| {
-                        runtime::ServerMessage::ProviderControl(
-                            control,
-                        )
-                    })
-                    .await;
+                self.runtimes.send(at, |_, _| {
+                    runtime::ServerMessage::ProviderControl(control)
+                });
             }
         }
         Ok(())
     }
 
     /// Answers the provider requests that timed out.
-    pub(crate) async fn expire_providers(&mut self) -> Result<()> {
+    pub(crate) fn expire_providers(&mut self) -> Result<()> {
         for result in self.providers.expired() {
-            self.provider_result(None, result).await?;
+            self.provider_result(None, result)?;
         }
         Ok(())
     }
 
-    /// Takes a client's sign-in, check or read of the models. `false`
-    /// when `message` is none of them.
-    pub(crate) async fn model_request(
+    /// Tries the chosen model or the connection, for a client's
+    /// check.
+    pub(crate) fn check(
         &mut self,
         client: u64,
-        message: &hamlet_protocol::client::ClientMessage,
-    ) -> Result<bool> {
-        use hamlet_protocol::client::ClientMessage;
-        let mut answers = Vec::new();
-        match message {
-            ClientMessage::Check(check) if self.providers.faux => {
-                let id = match check {
-                    Check::Model { id, .. }
-                    | Check::Connection { id } => id,
-                };
-                let words = "Every agent runs the faux model here.";
-                self.model_link(
-                    LinkState::Connected,
-                    None,
-                    Some(words),
-                )?;
-                self.answer(
-                    client,
-                    reply(id, Ok::<_, Refusal>(words.into())),
-                )?;
-                self.publish().await?;
-                return Ok(true);
+        check: &Check,
+    ) -> Result<()> {
+        let (id, name, action) = match check {
+            Check::Model { id, model } => {
+                (id, model.clone(), ProviderRequestAction::Hello)
             }
-            ClientMessage::Check(check) => {
-                let (id, name, action) = match check {
-                    Check::Model { id, model } => (
-                        id,
-                        model.clone(),
-                        ProviderRequestAction::Hello,
-                    ),
-                    Check::Connection { id } => {
-                        (id, None, ProviderRequestAction::Refresh)
-                    }
-                };
-                let name = name.unwrap_or_else(|| {
-                    self.env.settings.model.clone()
-                });
-                let (provider, model) = match self
-                    .named_model(&name)?
-                {
-                    Ok(found) => found,
-                    Err(refusal) => {
-                        self.answer(client, reply(id, Err(refusal)))?;
-                        return Ok(true);
-                    }
-                };
-                self.model_link(LinkState::Testing, None, None)?;
-                self.ask_provider(
-                    Some((client, id)),
-                    &provider,
-                    action,
-                    Some(model),
-                    None,
-                    false,
-                )?;
+            Check::Connection { id } => {
+                (id, None, ProviderRequestAction::Refresh)
             }
-            ClientMessage::Read(Read::Models { id, refresh }) => {
-                if *refresh == Some(true) && !self.providers.faux {
-                    let endpoints =
-                        self.env.settings.endpoints.clone();
-                    for endpoint in &endpoints {
-                        self.ask_provider(
-                            Some((client, id)),
-                            &endpoint.name,
-                            ProviderRequestAction::Refresh,
-                            None,
-                            None,
-                            true,
-                        )?;
-                    }
-                    if endpoints.is_empty() {
-                        answers.push(self.catalogue_read(id)?);
-                    }
-                } else {
-                    answers.push(self.catalogue_read(id)?);
-                }
-            }
-            ClientMessage::Login(login) => match login {
-                Login::Start { id, start } => {
-                    let key = uuid::Uuid::new_v4().to_string();
-                    let provider = self
-                        .provider_views()?
-                        .into_iter()
-                        .find(|p| p.id == start.provider);
-                    let failure = match &provider {
-                        Some(provider) => (!provider
-                            .methods
-                            .contains(&start.method))
-                        .then(|| {
-                            format!(
-                                "Signing in with {} is not offered. \
-                                 Use an API key.",
-                                start.provider
-                            )
-                        }),
-                        None => Some(format!(
-                            "Unknown provider: {}",
-                            start.provider
-                        )),
-                    };
-                    if let Some(failed) = failure {
-                        answers.push(login_step(
-                            id,
-                            &key,
-                            LoginStep::Failed { failed },
-                        ));
-                    } else {
-                        let scope = self.ask_provider(
-                            Some((client, id)),
-                            &start.provider,
-                            ProviderRequestAction::Login,
-                            None,
-                            Some(key.clone()),
-                            false,
-                        )?;
-                        let request = self
-                            .providers
-                            .outgoing
-                            .last_mut()
-                            .context("the sign-in's request")?;
-                        request.method = Some(
-                            if start.method == LoginMethod::Key {
-                                ProviderRequestMethod::Key
-                            } else {
-                                ProviderRequestMethod::Subscription
-                            },
-                        );
-                        self.providers.logins.insert(
-                            key,
-                            SignIn {
-                                client,
-                                id: id.clone(),
-                                scope,
-                                prompt: None,
-                            },
-                        );
-                    }
-                }
-                Login::Reply { id, reply: answer } => {
-                    let Some(signin) = self
-                        .providers
-                        .logins
-                        .get_mut(&answer.login)
-                        .filter(|s| s.client == client)
-                    else {
-                        self.answer(
-                            client,
-                            reply(id, Err(no_sign_in())),
-                        )?;
-                        return Ok(true);
-                    };
-                    let Some(prompt) = signin.prompt.take() else {
-                        self.answer(
-                            client,
-                            reply(
-                                id,
-                                Err(Refusal::Usage {
-                                    words: "That sign-in is not \
-                                            waiting for an answer."
-                                        .into(),
-                                }),
-                            ),
-                        )?;
-                        return Ok(true);
-                    };
-                    let scope = signin.scope.clone();
-                    self.credentials.remember(&answer.value);
-                    self.providers.controls.push(control(
-                        &scope,
-                        Some(prompt),
-                        Some(answer.value.clone()),
-                    ));
-                    answers.push(reply(
-                        id,
-                        Ok::<_, Refusal>(
-                            "Sign-in answer received.".into(),
-                        ),
-                    ));
-                }
-                Login::Cancel { id, cancel } => {
-                    let Some(signin) = self
-                        .providers
-                        .logins
-                        .get(cancel)
-                        .filter(|s| s.client == client)
-                    else {
-                        self.answer(
-                            client,
-                            reply(id, Err(no_sign_in())),
-                        )?;
-                        return Ok(true);
-                    };
-                    answers.push(login_step(
-                        &signin.id,
-                        cancel,
-                        LoginStep::Failed {
-                            failed: "Sign-in cancelled.".into(),
-                        },
-                    ));
-                    let scope = signin.scope.clone();
-                    self.providers
-                        .controls
-                        .push(control(&scope, None, None));
-                    self.providers.logins.remove(cancel);
-                    self.providers.pending.retain(|_, p| {
-                        p.login.as_ref() != Some(cancel)
-                    });
-                    answers.push(reply(
-                        id,
-                        Ok::<_, Refusal>("Sign-in cancelled.".into()),
-                    ));
-                }
-            },
-            _ => return Ok(false),
+        };
+        // The faux model needs no trying.
+        if self.providers.faux {
+            let words = "Every agent runs the faux model here.";
+            self.model_link(LinkState::Connected, None, Some(words))?;
+            self.publish();
+            return self.answer(
+                client,
+                reply(id, Ok::<_, Refusal>(words.into())),
+            );
         }
-        for answer in answers {
-            self.answer(client, answer)?;
-        }
-        self.send_providers().await?;
-        Ok(true)
+        let name =
+            name.unwrap_or_else(|| self.env.settings.model.clone());
+        let (provider, model) = match self.named_model(&name)? {
+            Ok(found) => found,
+            Err(refusal) => {
+                return self.answer(client, reply(id, Err(refusal)));
+            }
+        };
+        self.model_link(LinkState::Testing, None, None)?;
+        self.send_provider_request(
+            Some((client, id)),
+            &provider,
+            action,
+            Some(model),
+            None,
+            Settles::Reply,
+        )?;
+        self.send_providers()
     }
 
-    /// A step of a sign-in the runtime of `index` runs.
+    /// Answers a client's read of the models, requesting each
+    /// endpoint's models first when `refresh` says so.
+    pub(crate) fn read_models(
+        &mut self,
+        client: u64,
+        id: &RequestId,
+        refresh: Option<bool>,
+    ) -> Result<()> {
+        let endpoints =
+            if refresh == Some(true) && !self.providers.faux {
+                self.env.settings.endpoints.clone()
+            } else {
+                Vec::new()
+            };
+        // The catalogue is answered once every endpoint answered.
+        if endpoints.is_empty() {
+            let read = self.catalogue_read(id)?;
+            self.answer(client, read)?;
+        }
+        for endpoint in &endpoints {
+            self.send_provider_request(
+                Some((client, id)),
+                &endpoint.name,
+                ProviderRequestAction::Refresh,
+                None,
+                None,
+                Settles::Catalogue,
+            )?;
+        }
+        self.send_providers()
+    }
+
+    /// Takes a step of a client's sign-in: its start, its answer to
+    /// what the provider put to it, or its cancel.
+    pub(crate) fn login(
+        &mut self,
+        client: u64,
+        login: &Login,
+    ) -> Result<()> {
+        match login {
+            Login::Start { id, start } => {
+                self.login_start(client, id, start)?;
+            }
+            Login::Reply { id, reply: answer } => {
+                let words = self.login_reply(client, answer);
+                self.answer(client, reply(id, words))?;
+            }
+            Login::Cancel { id, cancel } => {
+                let words = self.login_cancel(client, cancel)?;
+                self.answer(client, reply(id, words))?;
+            }
+        }
+        self.send_providers()
+    }
+
+    /// Starts signing in to the provider `start` names, by the method
+    /// it chose.
+    fn login_start(
+        &mut self,
+        client: u64,
+        id: &RequestId,
+        start: &LoginStart,
+    ) -> Result<()> {
+        let key = uuid::Uuid::new_v4().to_string();
+        let provider = self
+            .provider_views()?
+            .into_iter()
+            .find(|p| p.id == start.provider);
+        let failure = match &provider {
+            Some(provider) => (!provider
+                .methods
+                .contains(&start.method))
+            .then(|| {
+                format!(
+                    "Signing in with {} is not offered. Use an API \
+                     key.",
+                    start.provider
+                )
+            }),
+            None => {
+                Some(format!("Unknown provider: {}", start.provider))
+            }
+        };
+        if let Some(failed) = failure {
+            return self.answer(
+                client,
+                login_step(id, &key, LoginStep::Failed { failed }),
+            );
+        }
+        let scope = self.send_provider_request(
+            Some((client, id)),
+            &start.provider,
+            ProviderRequestAction::Login,
+            None,
+            Some(key.clone()),
+            Settles::Reply,
+        )?;
+        let request = self
+            .providers
+            .outgoing
+            .last_mut()
+            .context("the sign-in's request")?;
+        request.method = Some(if start.method == LoginMethod::Key {
+            ProviderRequestMethod::Key
+        } else {
+            ProviderRequestMethod::Subscription
+        });
+        self.providers.logins.insert(
+            key,
+            SignIn {
+                client,
+                id: id.clone(),
+                scope,
+                prompt: None,
+            },
+        );
+        Ok(())
+    }
+
+    /// Passes a client's answer to what its sign-in put to it on to
+    /// the provider.
+    fn login_reply(
+        &mut self,
+        client: u64,
+        answer: &LoginReply,
+    ) -> Result<String, Refusal> {
+        let signin = self
+            .providers
+            .logins
+            .get_mut(&answer.login)
+            .filter(|s| s.client == client)
+            .ok_or_else(no_sign_in)?;
+        let prompt =
+            signin.prompt.take().ok_or(Refusal::SignInNotWaiting)?;
+        let scope = signin.scope.clone();
+        self.credentials.remember(&answer.value);
+        self.providers.controls.push(control(
+            &scope,
+            Some(prompt),
+            Some(answer.value.clone()),
+        ));
+        Ok("Sign-in answer received.".into())
+    }
+
+    /// Cancels a client's sign-in `cancel`, telling its start too.
+    fn login_cancel(
+        &mut self,
+        client: u64,
+        cancel: &str,
+    ) -> Done<String> {
+        let ours = self
+            .providers
+            .logins
+            .get(cancel)
+            .is_some_and(|s| s.client == client);
+        let Some(signin) = ours
+            .then(|| self.providers.logins.remove(cancel))
+            .flatten()
+        else {
+            return Ok(Err(no_sign_in()));
+        };
+        self.answer(
+            client,
+            login_step(
+                &signin.id,
+                cancel,
+                LoginStep::Failed {
+                    failed: "Sign-in cancelled.".into(),
+                },
+            ),
+        )?;
+        self.providers.controls.push(control(
+            &signin.scope,
+            None,
+            None,
+        ));
+        self.providers
+            .pending
+            .retain(|_, p| p.login.as_deref() != Some(cancel));
+        Ok(Ok("Sign-in cancelled.".into()))
+    }
+
+    /// A step of a sign-in the runtime `from` runs.
     pub(crate) fn provider_event(
         &mut self,
-        index: usize,
+        from: Entity,
         event: ProviderEvent,
     ) -> Result<()> {
-        if !self.leases.is_open(index, &event.scope) {
+        if !self.leases.is_open(from, &event.scope) {
             return Ok(());
         }
         let Some(pending) = self.providers.pending.get(&event.scope)
@@ -658,15 +679,15 @@ impl Core {
         self.answer(client, login_step(&id, &login, step))
     }
 
-    /// The end of a provider request, from the runtime of `index` or
-    /// its timeout.
-    pub(crate) async fn provider_result(
+    /// The end of a provider request, from the runtime `from` or its
+    /// timeout.
+    pub(crate) fn provider_result(
         &mut self,
-        index: Option<usize>,
+        from: Option<Entity>,
         result: ProviderResult,
     ) -> Result<()> {
-        if let Some(index) = index {
-            self.leases.finish(index, &result.re);
+        if let Some(from) = from {
+            self.leases.finish(from, &result.re);
         }
         let Some(pending) = self.providers.pending.remove(&result.re)
         else {
@@ -684,7 +705,8 @@ impl Core {
             if result.error.is_none()
                 && let Some(credential) = result.credential.clone()
             {
-                let value = crate::credentials::unpack(credential)?;
+                let value =
+                    crate::realm::credentials::unpack(credential)?;
                 self.credentials
                     .save_model(&pending.provider, Some(value))?;
             }
@@ -697,7 +719,7 @@ impl Core {
             if let Some((client, id)) = &pending.from {
                 self.answer(*client, login_step(id, &login, step))?;
             }
-            self.publish().await?;
+            self.publish();
             return Ok(());
         }
         if let Some(providers) = result.providers {
@@ -707,10 +729,9 @@ impl Core {
             let mut grouped = BTreeMap::<String, Vec<Value>>::new();
             for model in models {
                 let value = serde_json::to_value(model)?;
-                let provider = value["provider"]
-                    .as_str()
-                    .unwrap_or(&pending.provider)
-                    .to_owned();
+                let provider = Listing::of(&value)
+                    .provider
+                    .unwrap_or_else(|| pending.provider.clone());
                 grouped.entry(provider).or_default().push(value);
             }
             if !pending.provider.is_empty() {
@@ -729,7 +750,7 @@ impl Core {
             )?;
         }
         if pending.action == ProviderRequestAction::Describe {
-            self.publish().await?;
+            self.publish();
             return Ok(());
         }
         let count = self
@@ -738,28 +759,31 @@ impl Core {
             .get(&pending.provider)
             .map_or(0, Vec::len);
         let words = match &result.error {
-            Some(error) => plainly(
-                error,
-                pending.action == ProviderRequestAction::Hello,
-            ),
+            Some(error) => plainly(error, &pending.action),
             None => result.text.clone().unwrap_or_else(|| {
                 format!("Connected, {count} model(s)")
             }),
         };
-        self.model_link(
-            if result.error.is_some() {
-                LinkState::Failed
-            } else {
-                LinkState::Connected
-            },
-            (pending.action == ProviderRequestAction::Refresh
-                && result.error.is_none())
-            .then(|| i64::try_from(count))
-            .transpose()?,
-            Some(&words),
-        )?;
+        // A request no chief made, such as the refresh at start, does
+        // not settle a check under way; the check's own result does.
+        let checking =
+            self.env.settings.link.state == LinkState::Testing;
+        if pending.from.is_some() || !checking {
+            self.model_link(
+                if result.error.is_some() {
+                    LinkState::Failed
+                } else {
+                    LinkState::Connected
+                },
+                (pending.action == ProviderRequestAction::Refresh
+                    && result.error.is_none())
+                .then(|| i64::try_from(count))
+                .transpose()?,
+                Some(&words),
+            )?;
+        }
         if let Some((client, id)) = &pending.from {
-            if pending.read {
+            if pending.settles == Settles::Catalogue {
                 let more = self
                     .providers
                     .pending
@@ -776,32 +800,28 @@ impl Core {
                 )?;
             }
         }
-        self.publish().await
+        self.publish();
+        Ok(())
     }
 
-    fn named_model(
-        &mut self,
-        name: &str,
-    ) -> Result<Result<(String, String), Refusal>> {
-        let usage = |words: String| Ok(Err(Refusal::Usage { words }));
+    fn named_model(&mut self, name: &str) -> Done<(String, String)> {
         let Some((provider, id)) = name
             .split_once("::")
             .filter(|(p, m)| !p.is_empty() && !m.is_empty())
         else {
-            return usage(format!(
-                "`{name}` names no endpoint. A model is named \
-                 `endpoint::model`."
-            ));
+            return Ok(Err(Refusal::NoEndpointNamed {
+                name: name.into(),
+            }));
         };
         if !self.provider_views()?.iter().any(|p| p.id == provider) {
-            return usage(format!(
-                "`{name}` is served by the endpoint `{provider}`, \
-                 which the settings do not have."
-            ));
+            return Ok(Err(Refusal::NoSuchEndpoint {
+                name: name.into(),
+                endpoint: provider.into(),
+            }));
         }
         let listed =
             self.providers.lists.get(provider).is_some_and(|list| {
-                list.iter().any(|m| m["id"] == id)
+                list.iter().any(|m| Listing::of(m).id == id)
             });
         if !listed && self.env.settings.model != name {
             return Ok(Err(Refusal::NoModel { model: name.into() }));
@@ -817,16 +837,16 @@ impl Core {
     ) -> Result<()> {
         let words = words.map(|w| self.credentials.scrub_text(w));
         let db = self.realm.store().connection();
-        let mut settings = crate::settings::stored(db)?;
+        let mut settings = crate::realm::settings::stored(db)?;
         settings.link = hamlet_protocol::client::Link {
             state,
             models: count,
             words,
         };
-        crate::settings::keep(
+        crate::realm::settings::keep(
             db,
             &settings,
-            crate::clock::now(),
+            crate::app::clock::now(),
             None,
         )?;
         self.env.settings.link = settings.link;
@@ -899,17 +919,14 @@ impl Core {
         let db = self.realm.store().connection();
         let mut cards = catalogue(db)?;
         let prefix = format!("{provider}::");
+        let list = list.iter().map(Listing::of).collect::<Vec<_>>();
         cards.retain(|name, _| {
             name.strip_prefix(&prefix).is_none_or(|id| {
-                list.iter()
-                    .any(|model| model["id"].as_str() == Some(id))
+                list.iter().any(|model| model.id == id)
             })
         });
-        for model in list {
-            let name = format!(
-                "{provider}::{}",
-                model["id"].as_str().unwrap_or_default()
-            );
+        for model in &list {
+            let name = format!("{provider}::{}", model.id);
             let card = cards.entry(name.clone()).or_insert(Card {
                 context: None,
                 default_effort: None,
@@ -924,31 +941,17 @@ impl Core {
                 title: String::new(),
             });
             card.learn(model);
-            let context = model
-                .get("listedContext")
-                .unwrap_or(&model["contextWindow"]);
-            if let Some(context) = context.as_i64() {
+            let context =
+                model.listed_context.or(model.context_window);
+            if let Some(context) = context
+                .and_then(|context| i64::try_from(context).ok())
+            {
                 card.context = Some(context);
             }
             if card.priced == ListedPriced::Yours {
                 continue;
             }
-            let price = match model.get("listedPrice") {
-                Some(listed) => {
-                    serde_json::from_value(listed.clone())
-                        .context("a model's listed price")?
-                }
-                None => {
-                    let cost = &model["cost"];
-                    cost["input"]
-                        .as_f64()
-                        .zip(cost["output"].as_f64())
-                        .map(|(input, output)| ListedPrice {
-                            input,
-                            output,
-                        })
-                }
-            };
+            let price = model.shown_price();
             if price.is_some() {
                 card.price = price;
                 card.priced = ListedPriced::Listed;
@@ -957,7 +960,7 @@ impl Core {
                 ListedPriced::Unknown | ListedPriced::Assigned
             ) {
                 (card.price, card.priced) =
-                    if is_local(model["baseUrl"].as_str()) {
+                    if is_local(model.base_url.as_deref()) {
                         (
                             Some(ListedPrice {
                                 input: LOCAL_RATE,
@@ -1019,7 +1022,7 @@ impl Core {
         &mut self,
         name: &str,
         set: EditCatalogueSet,
-    ) -> Result<Result<String, Refusal>> {
+    ) -> Done<String> {
         let bad =
             set.price.as_ref().and_then(|p| p.as_ref()).is_some_and(
                 |p| {
@@ -1029,9 +1032,7 @@ impl Core {
                 },
             );
         if bad {
-            return Ok(Err(Refusal::Usage {
-                words: "A cost is a number of zero or more.".into(),
-            }));
+            return Ok(Err(Refusal::BadCost));
         }
         let empty = set
             .images
@@ -1043,10 +1044,7 @@ impl Core {
                     || takes.max_bytes == Some(0)
             });
         if empty {
-            return Ok(Err(Refusal::Usage {
-                words: "An image limit is a number above zero."
-                    .into(),
-            }));
+            return Ok(Err(Refusal::BadImageLimit));
         }
         let db = self.realm.store().connection();
         let mut cards = catalogue(db)?;
@@ -1086,9 +1084,7 @@ fn flat_price(rate: f64) -> Price {
 /// The refusal of a sign-in reply or cancel that is not the
 /// connection's own open one.
 fn no_sign_in() -> Refusal {
-    Refusal::Usage {
-        words: "No sign-in of yours is open.".into(),
-    }
+    Refusal::NoSignIn
 }
 
 fn control(
@@ -1118,7 +1114,7 @@ fn login_step(
     })
 }
 
-/// What the catalogue keeps of a model.
+/// A model's entry in the catalogue.
 #[derive(Clone, Debug, Serialize, Deserialize)]
 struct Card {
     context: Option<i64>,
@@ -1129,74 +1125,70 @@ struct Card {
     #[serde(default)]
     fast: bool,
     /// The images it takes, none when it takes none; unset in a card
-    /// kept before models were asked about images, which then takes
-    /// the images its provider lists.
+    /// kept before models were queried about images, which then
+    /// takes the images its provider lists.
     #[serde(
         default,
         deserialize_with = "set",
         skip_serializing_if = "Option::is_none"
     )]
     images: Option<Option<ImageInput>>,
-    /// Whether a chief said what it takes of images, which a listing
-    /// leaves alone.
+    /// Set when a chief said what it takes of images, which a
+    /// listing leaves alone.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     images_yours: bool,
     name: String,
     note: String,
     price: Option<ListedPrice>,
     priced: ListedPriced,
-    /// What its provider calls it.
+    /// Its provider's name for it.
     #[serde(default)]
     title: String,
 }
 
 impl Card {
     /// Takes in what pi says of `model`: what it is called, the
-    /// efforts it can be asked for, its default among them, whether
+    /// efforts it can be set to, its default among them, whether
     /// its API has a fast tier, and what it takes of images.
-    fn learn(&mut self, model: &Value) {
-        model["name"]
-            .as_str()
-            .unwrap_or_default()
-            .trim()
-            .clone_into(&mut self.title);
+    fn learn(&mut self, model: &Listing) {
+        model.name.trim().clone_into(&mut self.title);
         if !self.images_yours {
-            self.images = Some(listed_images(model));
+            self.images = Some(model.images());
         }
-        self.efforts =
-            if model["reasoning"].as_bool().unwrap_or(false) {
-                Effort::ALL
-                    .into_iter()
-                    .filter(|effort| {
-                        match model["thinkingLevelMap"]
-                            .get(effort.as_str())
-                        {
-                            Some(Value::Null) => false,
-                            Some(_) => true,
-                            None => !matches!(
-                                effort,
-                                Effort::XHigh | Effort::Max
-                            ),
-                        }
-                    })
-                    .collect()
-            } else {
-                vec![Effort::Off]
-            };
+        self.efforts = if model.reasoning {
+            let levels = model.thinking_level_map.as_ref();
+            Effort::ALL
+                .into_iter()
+                .filter(|effort| {
+                    match levels.and_then(|map| {
+                        map.get(<&'static str>::from(effort))
+                    }) {
+                        Some(Value::Null) => false,
+                        Some(_) => true,
+                        None => !matches!(
+                            effort,
+                            Effort::XHigh | Effort::Max
+                        ),
+                    }
+                })
+                .collect()
+        } else {
+            vec![Effort::Off]
+        };
         self.default_effort =
             Some(Effort::Medium.clamped(&self.efforts));
         self.fast = matches!(
-            model["api"].as_str(),
+            model.api.as_deref(),
             Some("openai-responses" | "openai-codex-responses")
         );
     }
 
     /// The images the model takes: as the card says, else as
     /// `listed`, its provider's listing of it, does.
-    fn takes(&self, listed: &Value) -> Option<ImageInput> {
+    fn takes(&self, listed: &Listing) -> Option<ImageInput> {
         match &self.images {
             Some(images) => images.clone(),
-            None => listed_images(listed),
+            None => listed.images(),
         }
     }
 
@@ -1231,26 +1223,6 @@ where
     Option::<T>::deserialize(deserializer).map(Some)
 }
 
-/// The images a model listed by its provider takes, none when it
-/// takes none.
-fn listed_images(model: &Value) -> Option<ImageInput> {
-    let takes = model["input"].as_array().is_some_and(|input| {
-        input.iter().any(|kind| kind == "image")
-    });
-    let limits = &model["inputLimits"]["images"];
-    let size =
-        |value: &Value| value.as_u64().filter(|size| *size > 0);
-    takes.then(|| ImageInput {
-        max_bytes: size(&limits["resize"]["maxBytes"]),
-        max_height: size(&limits["resize"]["maxHeight"])
-            .and_then(|size| u32::try_from(size).ok()),
-        max_width: size(&limits["resize"]["maxWidth"])
-            .and_then(|size| u32::try_from(size).ok()),
-        per_line: size(&limits["maxPerMessage"])
-            .and_then(|size| u32::try_from(size).ok()),
-    })
-}
-
 /// The model catalogue: each model's card, by its name.
 type Catalogue = BTreeMap<String, Card>;
 
@@ -1272,13 +1244,13 @@ fn keep_catalogue(db: &mut Db, cards: &Catalogue) -> Result<()> {
         .values((
             document::kind.eq("catalogue"),
             document::value.eq(serde_json::to_string(cards)?),
-            document::at.eq(crate::clock::now()),
+            document::at.eq(crate::app::clock::now()),
         ))
         .execute(db)?;
     Ok(())
 }
 
-/// Whether `base_url` is served on this machine.
+/// Tells whether `base_url` is served on this machine.
 pub(crate) fn is_local(base_url: Option<&str>) -> bool {
     base_url
         .and_then(|s| url::Url::parse(s).ok())
@@ -1293,7 +1265,7 @@ pub(crate) fn is_local(base_url: Option<&str>) -> bool {
 }
 
 /// A provider's error in words a chief can act on.
-fn plainly(error: &str, hello: bool) -> String {
+fn plainly(error: &str, action: &ProviderRequestAction) -> String {
     let lower = error.to_lowercase();
     if [
         "http 401",
@@ -1328,7 +1300,7 @@ fn plainly(error: &str, hello: bool) -> String {
             .into();
     }
     let detail = error.chars().take(160).collect::<String>();
-    if hello {
+    if *action == ProviderRequestAction::Hello {
         return format!(
             "That model did not answer a hello. Pick another one. \
              ({detail})"
@@ -1352,8 +1324,11 @@ mod tests {
             "price":null,"priced":"unknown"}"#;
         let card = serde_json::from_str::<Card>(old).unwrap();
         assert_eq!(card.images, None);
-        let sees = serde_json::json!({"input": ["text", "image"]});
-        let blind = serde_json::json!({"input": ["text"]});
+        let sees = Listing::of(
+            &serde_json::json!({"input": ["text", "image"]}),
+        );
+        let blind =
+            Listing::of(&serde_json::json!({"input": ["text"]}));
         assert!(card.takes(&sees).is_some());
         assert_eq!(card.takes(&blind), None);
 

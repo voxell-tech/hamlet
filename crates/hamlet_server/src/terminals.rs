@@ -5,43 +5,86 @@
 //! A shell is the chief's own, with the server account's reach and
 //! no sandbox; agents have none. An agent's commands terminal shows
 //! what its shell tool ran, and takes no input.
+//!
+//! What a terminal prints is queued, and the first print into an
+//! empty queue wakes the runner, so one input takes in a burst of
+//! output.
 
 pub(crate) mod chief;
-pub(crate) mod kept;
+pub(crate) mod persistence;
 mod screen;
 mod shell;
 
 use std::collections::BTreeMap;
 use std::path::PathBuf;
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, Mutex, PoisonError};
+use std::time::{Duration, Instant};
 
 use base64::Engine;
 use base64::engine::general_purpose::STANDARD;
+use bevy_app::App;
+use bevy_ecs::message::{Message, Messages};
+use bevy_ecs::resource::Resource;
+use bevy_ecs::system::{Res, ResMut};
+use bevy_state::state::OnEnter;
 use hamlet_os::process::pty::Size;
 use hamlet_protocol::client::{
-    AgentId, RequestId, ServerMessage, TerminalKind, TerminalOutput,
-    TerminalView,
+    self as protocol, AgentId, RequestId, ServerMessage,
+    TerminalKind, TerminalOutput, TerminalView,
 };
 use tokio::sync::mpsc;
 use tokio::task::AbortHandle;
 
 use self::screen::{LAST, Screen, lock};
 use self::shell::{Key, Launch, start};
+use crate::app::follow_up::InputEffects;
+use crate::app::input::{AddHandler, InputSender};
+use crate::app::shutdown::Serving;
+use crate::app::timers::AddTimer;
 use crate::calls::place::Workplace;
+use crate::clients::Connections;
+use crate::clients::handlers::FromClient;
 use crate::core::Core;
 
 /// Messages a connection's queue keeps free before a terminal's
 /// output to it is skipped, to be caught up with later.
 const ROOM: usize = 64;
+/// How long a terminal's watcher whose queue was full waits before
+/// it is drawn again.
+const CATCH_UP: Duration = Duration::from_millis(100);
+
+/// What the terminals print, taken in as inputs; a watcher that fell
+/// behind drawn again on a timer; the chief's requests; and every
+/// terminal kept as the server stops.
+pub(crate) fn plugin(app: &mut App) {
+    app.add_message::<TerminalsPrinted>()
+        .add_handler::<TerminalsPrinted, _>(take_in_printed)
+        .add_handler::<FromClient<protocol::Terminal>, _>(
+            chief::answer_requests,
+        )
+        .add_timer(catch_up_due, catch_up)
+        .add_systems(OnEnter(Serving::Stopping), keep_all);
+}
+
+/// The terminals printed: what they printed waits in their queue.
+#[derive(Message)]
+pub(crate) struct TerminalsPrinted;
+
+/// What the terminals' tasks printed, until an input takes it in.
+type Printing = Arc<Mutex<Vec<Printed>>>;
 
 /// The server's terminals.
+#[derive(Resource)]
 pub(crate) struct Terminals {
     open: BTreeMap<String, Terminal>,
-    sender: mpsc::UnboundedSender<Printed>,
+    printing: Printing,
     /// Where each terminal is kept between starts.
     folder: PathBuf,
     /// The number the next terminal's name takes.
     next: u64,
+    /// When the watchers that fell behind are drawn again; none
+    /// while none is behind.
+    catch_up_at: Option<Instant>,
 }
 
 struct Terminal {
@@ -62,7 +105,7 @@ struct Watcher {
     behind: bool,
 }
 
-/// Something a terminal's tasks report to the serve loop.
+/// Something a terminal's tasks report to the server.
 pub(crate) enum Printed {
     Output {
         id: String,
@@ -75,12 +118,13 @@ pub(crate) enum Printed {
     },
 }
 
-/// Where a terminal's output goes: its screen, then the serve loop.
+/// Where a terminal's output goes: its screen, then the server.
 #[derive(Clone)]
 pub(crate) struct Feed {
     id: String,
     screen: Arc<Mutex<Screen>>,
-    sender: mpsc::UnboundedSender<Printed>,
+    printing: Printing,
+    inputs: InputSender,
 }
 
 impl Feed {
@@ -90,13 +134,28 @@ impl Feed {
         }
         let mut screen = lock(&self.screen);
         screen.take(bytes);
-        // Sent under the lock, so a watch taken under it sees each
+        // Queued under the lock, so a watch taken under it sees each
         // output either in its redraw or after it, never both.
-        let _ = self.sender.send(Printed::Output {
+        self.report(Printed::Output {
             id: self.id.clone(),
             seq: screen.seq,
             bytes: bytes.to_vec(),
         });
+    }
+
+    /// Queues `printed`; the first into an empty queue wakes the
+    /// runner to take the queue in.
+    fn report(&self, printed: Printed) {
+        let mut queue = self
+            .printing
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner);
+        let woken = queue.is_empty();
+        queue.push(printed);
+        if woken {
+            // The runner is gone only as the server stops.
+            let _ = self.inputs.send(TerminalsPrinted);
+        }
     }
 
     /// Notes `command` as the last its terminal ran.
@@ -134,21 +193,19 @@ impl Feed {
 }
 
 impl Terminals {
-    /// The terminals kept in `folder`, which report to `sender`.
-    pub(crate) fn new(
-        folder: PathBuf,
-        sender: mpsc::UnboundedSender<Printed>,
-    ) -> Self {
+    /// The terminals kept in `folder`.
+    pub(crate) fn new(folder: PathBuf) -> Self {
         Self {
             open: BTreeMap::new(),
-            sender,
+            printing: Printing::default(),
             folder,
             next: 1,
+            catch_up_at: None,
         }
     }
 
     /// Whether a watcher fell behind and waits to be caught up.
-    pub(crate) fn behind(&self) -> bool {
+    fn behind(&self) -> bool {
         self.open
             .values()
             .any(|t| t.watchers.values().any(|w| w.behind))
@@ -221,13 +278,14 @@ impl Terminals {
     }
 
     /// The live commands terminal of `agent`, of `hamlet`, made when
-    /// it has none. `address` names it.
+    /// it has none. `address` names it; it prints to `inputs`.
     pub(crate) fn commands(
         &mut self,
         agent: AgentId,
         hamlet: Option<String>,
         address: &str,
         cwd: &str,
+        inputs: &InputSender,
     ) -> Feed {
         let found = self.open.iter().find(|(_, t)| {
             t.view.kind == TerminalKind::Commands
@@ -252,27 +310,31 @@ impl Terminals {
                     title: String::new(),
                 };
                 let id = view.id.clone();
-                self.insert(view, None, Vec::new());
+                self.insert(view, None, Vec::new(), inputs);
                 id
             }
         };
-        self.feed(&id)
+        self.feed(&id, inputs)
             .expect("the commands terminal was just found")
     }
 
-    fn feed(&self, id: &str) -> Option<Feed> {
+    fn feed(&self, id: &str, inputs: &InputSender) -> Option<Feed> {
         self.open.get(id).map(|t| Feed {
             id: id.into(),
             screen: t.screen.clone(),
-            sender: self.sender.clone(),
+            printing: self.printing.clone(),
+            inputs: inputs.clone(),
         })
     }
 
+    /// Opens `view`, its shell started by `launch` when it has one,
+    /// below the output `replay` redraws; it prints to `inputs`.
     fn insert(
         &mut self,
         view: TerminalView,
         launch: Option<Launch>,
         replay: Vec<u8>,
+        inputs: &InputSender,
     ) -> String {
         let id = view.id.clone();
         let size = Size {
@@ -293,7 +355,7 @@ impl Terminals {
                 tasks: Vec::new(),
             },
         );
-        let feed = self.feed(&id).expect("just inserted");
+        let feed = self.feed(&id, inputs).expect("just inserted");
         if let Some(launch) = launch {
             let (keys, tasks) = start(launch, size, feed);
             let terminal =
@@ -378,6 +440,9 @@ impl Terminals {
                 ));
             }
         }
+        if self.catch_up_at.is_none() && self.behind() {
+            self.catch_up_at = Some(Instant::now() + CATCH_UP);
+        }
         (out, changed)
     }
 
@@ -401,6 +466,8 @@ impl Terminals {
                 }
             }
         }
+        self.catch_up_at =
+            self.behind().then(|| Instant::now() + CATCH_UP);
         out
     }
 
@@ -430,7 +497,59 @@ impl Terminals {
     }
 }
 
-impl Core {
+/// Sends what the terminals printed to the connections that watch
+/// them, and publishes a change of a title, a last command or an
+/// end.
+fn take_in_printed(
+    mut woken: ResMut<Messages<TerminalsPrinted>>,
+    mut terminals: ResMut<Terminals>,
+    mut connections: Connections,
+    mut effects: ResMut<InputEffects>,
+) {
+    // One pass takes in all that was printed, however many wakes
+    // came.
+    woken.clear();
+    let printed = std::mem::take(
+        &mut *terminals
+            .printing
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner),
+    );
+    let (out, changed) =
+        terminals.printed(printed, |client| connections.room(client));
+    for (client, message) in out {
+        connections.send(client, message);
+    }
+    if changed {
+        effects.state_changed_outside_change = true;
+    }
+}
+
+/// When the watchers that fell behind are drawn again.
+fn catch_up_due(terminals: Res<Terminals>) -> Option<Instant> {
+    terminals.catch_up_at
+}
+
+/// Draws the terminals again for the watchers that fell behind and
+/// have room again.
+fn catch_up(
+    mut terminals: ResMut<Terminals>,
+    mut connections: Connections,
+) -> anyhow::Result<()> {
+    let caught =
+        terminals.catch_up(|client| connections.room(client));
+    for (client, message) in caught {
+        connections.send(client, message);
+    }
+    Ok(())
+}
+
+/// Keeps every terminal where the next start finds it.
+fn keep_all(terminals: Res<Terminals>) {
+    terminals.keep_all();
+}
+
+impl Core<'_, '_> {
     /// Closes the terminals whose agent ended, a worker's when its
     /// task did, or whose hamlet is gone.
     pub(crate) fn prune_terminals(&mut self) -> anyhow::Result<()> {
@@ -448,43 +567,10 @@ impl Core {
         Ok(())
     }
 
-    /// Sends what the terminals printed to the connections that watch
-    /// them, and publishes a change of a title, a last command or an
-    /// end.
-    pub(crate) async fn printed(
-        &mut self,
-        printed: Vec<Printed>,
-    ) -> anyhow::Result<()> {
-        let clients = &self.clients.list;
-        let (out, changed) = self.terminals.printed(printed, |id| {
-            clients.get(&id).map_or(0, |c| c.send.capacity())
-        });
-        for (client, message) in out {
-            self.answer(client, message)?;
-        }
-        if changed {
-            self.publish().await?;
-        }
-        Ok(())
-    }
-
-    /// Draws the terminals again for the watchers that fell behind
-    /// and have room again.
-    pub(crate) fn catch_up(&mut self) -> anyhow::Result<()> {
-        let clients = &self.clients.list;
-        let caught = self.terminals.catch_up(|id| {
-            clients.get(&id).map_or(0, |c| c.send.capacity())
-        });
-        for (client, message) in caught {
-            self.answer(client, message)?;
-        }
-        Ok(())
-    }
-
     /// Where `agent`'s shell call of `command`, working at `at`,
     /// shows the command and its output as they come: the agent's
     /// commands terminal.
-    pub(crate) fn commands(
+    pub(crate) fn commands_terminal(
         &mut self,
         agent: hamlet_store::ids::AgentId,
         at: &Workplace,
@@ -499,6 +585,7 @@ impl Core {
             at.hamlet.as_ref().map(|hamlet| hamlet.0.clone()),
             &address,
             &hamlet_os::fs::path::text(cwd),
+            &self.inputs,
         );
         let command = self.credentials.scrub_text(command);
         feed.command(&command);

@@ -1,12 +1,20 @@
 //! `hamlet_server`: serves a claimed realm over the client protocol.
 
-use anyhow::Result;
-use hamlet_server::serve::{Options, serve};
+use bevy_app::AppExit;
+use hamlet_server::app::options::Options;
+use hamlet_server::create_app;
 
-fn main() -> Result<()> {
-    let options = Options::parse(std::env::args_os().skip(1))?;
-    tokio::runtime::Builder::new_current_thread()
-        .enable_all()
-        .build()?
-        .block_on(serve(options))
+#[expect(
+    clippy::print_stderr,
+    reason = "a command line the server cannot read is its only \
+              output for whoever started it"
+)]
+fn main() -> AppExit {
+    match Options::parse(std::env::args_os().skip(1)) {
+        Ok(options) => create_app(options).run(),
+        Err(error) => {
+            eprintln!("Error: {error:?}");
+            AppExit::error()
+        }
+    }
 }

@@ -34,9 +34,9 @@ const APPLICATION: i64 = 1_212_239_181;
 
 const SCHEMA: &str = include_str!("schema.sql");
 
-/// Stores a type as the text of its `as_str`, read back by its
-/// `named`. The type derives `AsExpression` and `FromSqlRow` as
-/// `Text`.
+/// Stores a type as the text it converts into, read back by parsing
+/// it, as strum's `IntoStaticStr` and `EnumString` derive. The type
+/// derives `AsExpression` and `FromSqlRow` as `Text`.
 #[macro_export]
 macro_rules! named_text {
     ($type:ty) => {
@@ -54,7 +54,7 @@ macro_rules! named_text {
                     ::diesel::sqlite::Sqlite,
                 >,
             ) -> ::diesel::serialize::Result {
-                out.set_value(self.as_str());
+                out.set_value(<&'static str>::from(self));
                 Ok(::diesel::serialize::IsNull::No)
             }
         }
@@ -73,7 +73,7 @@ macro_rules! named_text {
                         ::diesel::sql_types::Text,
                         ::diesel::sqlite::Sqlite,
                     >>::from_sql(value)?;
-                Self::named(&name).ok_or_else(|| {
+                name.parse::<Self>().map_err(|_| {
                     format!("not a {}: {name:?}", stringify!($type))
                         .into()
                 })
@@ -142,7 +142,7 @@ impl Store {
     }
 
     /// The realm's identity, as its folder's realm.id holds it too.
-    pub fn realm(&mut self) -> Result<String> {
+    pub fn realm_id(&mut self) -> Result<String> {
         Ok(schema::realm::table
             .select(schema::realm::identity)
             .get_result(&mut self.db)?)
@@ -154,13 +154,64 @@ impl Store {
     }
 
     /// A transaction that takes the write lock at its first write.
-    pub fn transaction(&mut self) -> Result<Tx<'_>> {
+    pub fn transaction(&mut self) -> QueryResult<Tx<'_>> {
         Tx::begin(&mut self.db, "BEGIN")
     }
 
     /// A transaction that holds the write lock from its start.
-    pub fn immediate(&mut self) -> Result<Tx<'_>> {
+    pub fn immediate(&mut self) -> QueryResult<Tx<'_>> {
         Tx::begin(&mut self.db, "BEGIN IMMEDIATE")
+    }
+}
+
+/// Begins a transaction on `db` that holds the write lock from its
+/// start, unless one is open already. It stays open until [`commit`]
+/// or [`unwind`].
+pub fn begin(db: &mut Db) -> Result<()> {
+    let open =
+        AnsiTransactionManager::transaction_manager_status_mut(db)
+            .transaction_depth()?;
+    if open.is_none() {
+        AnsiTransactionManager::begin_transaction_sql(
+            db,
+            "BEGIN IMMEDIATE",
+        )?;
+    }
+    Ok(())
+}
+
+/// Commits the transaction [`begin`] opened on `db`, if one is open.
+/// A savepoint still open inside it is a defect.
+pub fn commit(db: &mut Db) -> Result<()> {
+    let open =
+        AnsiTransactionManager::transaction_manager_status_mut(db)
+            .transaction_depth()?;
+    match open.map(std::num::NonZeroU32::get) {
+        None => Ok(()),
+        Some(1) => {
+            Ok(AnsiTransactionManager::commit_transaction(db)?)
+        }
+        Some(depth) => anyhow::bail!(
+            "a transaction to commit holds {} savepoints still open",
+            depth - 1
+        ),
+    }
+}
+
+/// Rolls back every transaction and savepoint `db` has open, as a
+/// panic inside one leaves them. An error means the connection
+/// cannot say or cannot roll back, and must be opened again.
+pub fn unwind(db: &mut Db) -> Result<()> {
+    loop {
+        let open =
+            AnsiTransactionManager::transaction_manager_status_mut(
+                db,
+            )
+            .transaction_depth()?;
+        if open.is_none() {
+            return Ok(());
+        }
+        AnsiTransactionManager::rollback_transaction(db)?;
     }
 }
 
@@ -171,15 +222,21 @@ pub struct Tx<'a> {
 }
 
 impl<'a> Tx<'a> {
-    fn begin(db: &'a mut Db, sql: &str) -> Result<Self> {
+    fn begin(db: &'a mut Db, sql: &str) -> QueryResult<Self> {
         AnsiTransactionManager::begin_transaction_sql(db, sql)?;
         Ok(Self { db, open: true })
     }
 
-    pub fn commit(mut self) -> Result<()> {
+    pub fn commit(mut self) -> QueryResult<()> {
         self.open = false;
-        AnsiTransactionManager::commit_transaction(self.db)?;
-        Ok(())
+        AnsiTransactionManager::commit_transaction(self.db)
+    }
+
+    /// Ends the transaction leaving nothing of it, with the error a
+    /// drop cannot return.
+    pub fn rollback(mut self) -> QueryResult<()> {
+        self.open = false;
+        AnsiTransactionManager::rollback_transaction(self.db)
     }
 }
 
@@ -228,10 +285,11 @@ fn check(db: &mut Db) -> Result<()> {
         pragma("application_id")? == APPLICATION,
         "the database is not a realm's"
     );
-    let kept = schema::realm::table
+
+    let version = schema::realm::table
         .select(schema::realm::version)
-        .get_result::<String>(db)?;
-    let version = kept.parse::<Version>()?;
+        .get_result::<String>(db)?
+        .parse::<Version>()?;
     ensure!(
         VERSION.is_compatible(&version),
         "the realm's database is version {version}; this server \

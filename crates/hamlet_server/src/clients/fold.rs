@@ -13,7 +13,8 @@ use hamlet_protocol::runtime::{self, Block};
 use hamlet_sandbox::scrub::Scrubber;
 use serde_json::Value;
 
-use crate::talk::marks::Mark;
+use crate::conversations::marks::Mark;
+use crate::tools::catalogue::Society;
 
 /// Characters of a tool's arguments a transcript shows.
 const SUMMARY: usize = 200;
@@ -111,7 +112,7 @@ impl Fold {
             let id = id.clone();
             let Ending {
                 exit,
-                ms,
+                millis,
                 failure,
                 change,
             } = ending(entry)?;
@@ -120,7 +121,7 @@ impl Fold {
                 && let Some(tool) = item.tool.as_mut()
             {
                 tool.exit = Some(exit);
-                tool.ms = ms;
+                tool.ms = millis;
                 tool.failure.clone_from(&failure);
                 if change.is_some() {
                     tool.change.clone_from(&change);
@@ -129,13 +130,14 @@ impl Fold {
             self.operations.push(TranscriptOperation::Close {
                 item: id,
                 exit,
-                ms,
+                ms: millis,
                 failure,
                 change: change.map(Some),
             });
-            if entry.tool.as_deref() == Some("ask_chief")
+            if entry.tool.as_deref().and_then(Society::named)
+                == Some(Society::AskChief)
                 && let Some(text) =
-                    crate::talk::asking::said(&entry.text)
+                    crate::conversations::questions::said(&entry.text)
             {
                 self.add(
                     Item {
@@ -425,7 +427,7 @@ fn blocks_of(
                 let change = if name == "write" {
                     None
                 } else {
-                    crate::work::cut::change_of(
+                    crate::tools::edit_diff::change_of(
                         name, &arguments, None,
                     )
                 };
@@ -474,13 +476,12 @@ fn blocks_of(
 /// The end of a tool call, as its result tells it.
 struct Ending {
     exit: i64,
-    ms: Option<u64>,
+    millis: Option<u64>,
     failure: Option<String>,
     /// The record change the call made.
     change: Option<Change>,
 }
 
-/// The end of a tool call, from its result.
 fn ending(entry: &runtime::Item) -> Result<Ending> {
     let error = entry.error == Some(true);
     let details = entry.details.as_ref();
@@ -497,7 +498,7 @@ fn ending(entry: &runtime::Item) -> Result<Ending> {
         .context("reading the change of a tool's result")?;
     Ok(Ending {
         exit: code.map_or(i64::from(error), |code| code as i64),
-        ms: entry.ms,
+        millis: entry.ms,
         failure,
         change,
     })
