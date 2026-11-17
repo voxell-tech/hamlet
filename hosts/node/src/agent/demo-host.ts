@@ -1,13 +1,46 @@
+/**
+ * The demo's Node host: the agent actor over the link, its model a faux one.
+ * The model answers the demo's own lines (`run:`, `tell`, `read` and the
+ * others below). Given `--faux <script>`, it first answers with the script's
+ * steps, one per request in order, and then with those lines.
+ *
+ * A script is JSON, after today's server's `--faux` file:
+ *
+ * ```json
+ * {
+ *   "models": [{ "id": "faux-a", "input": 1, "output": 2, "window": 32000 }],
+ *   "responses": [
+ *     "Plain words.",
+ *     { "text": "...", "calls": [{ "name": "bash", "arguments": {} }] },
+ *     { "text": "Slow.", "waitMs": 20000 },
+ *     { "error": "The model failed." },
+ *     { "text": "Big.", "usage": { "input": 100000, "output": 10 } }
+ *   ]
+ * }
+ * ```
+ *
+ * A model's `input` and `output` are its dollars per million tokens, and
+ * `window` its context window; the agent runs the first one. A step's
+ * `waitMs` is the time its answer takes, which stopping the request ends,
+ * and its `usage` the tokens it says it used, in place of the faux model's
+ * estimate. Each answer is priced from its model's rates, as a real
+ * provider's is. A restarted host begins the script again.
+ */
 // Only Node's own modules and the native module are imported before the
 // take, as in `src/main.ts`.
-import { writeFileSync } from "node:fs";
+import { readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
+import { setTimeout as sleep } from "node:timers/promises";
 import type {
+    Api,
     AssistantMessage,
-    FauxProviderHandle,
+    AssistantMessageEventStream,
+    FauxModelDefinition,
     FauxResponseFactory,
     Message,
-    Models,
+    Model,
+    SimpleStreamOptions,
+    StreamFunction,
     ToolCall,
 } from "@earendil-works/pi-ai";
 import { takeLink } from "@hamlet/actor-node";
@@ -104,7 +137,7 @@ function wordsOf(message: Message): string {
         .join("");
 }
 
-const answer: FauxResponseFactory = (context): AssistantMessage => {
+const echo: FauxResponseFactory = (context): AssistantMessage => {
     const last = context.messages.at(-1);
     if (last === undefined) return ai.fauxAssistantMessage("Heard nothing.");
     const words = wordsOf(last);
@@ -120,31 +153,119 @@ const answer: FauxResponseFactory = (context): AssistantMessage => {
     return ai.fauxAssistantMessage(`Heard: ${words}`);
 };
 
-/**
- * The faux provider takes a step off its queue when a request starts and
- * runs it later, so a step that queued the next one itself would leave none
- * after a request that never ran it.
- */
-function answering(models: Models, faux: FauxProviderHandle): Models {
-    const queued = new Set<PropertyKey>([
-        "stream",
-        "streamSimple",
-        "complete",
-        "completeSimple",
-    ]);
-    return new Proxy(models, {
-        get(target, key, receiver) {
-            const value: unknown = Reflect.get(target, key, receiver);
-            if (typeof value !== "function") return value;
-            if (!queued.has(key)) return value.bind(target);
-            return (...args: unknown[]) => {
-                if (faux.getPendingResponseCount() === 0) {
-                    faux.appendResponses([answer]);
+interface Tokens {
+    readonly input: number;
+    readonly output: number;
+}
+
+interface Step {
+    readonly answer: FauxResponseFactory;
+    readonly usage?: Tokens;
+}
+
+interface Script {
+    readonly models?: readonly FauxModelDefinition[];
+    readonly steps: Step[];
+}
+
+/** A script as its file holds it; the demo's lanes write it, so it is trusted. */
+interface ScriptFile {
+    readonly models?: readonly {
+        readonly id: string;
+        readonly input?: number;
+        readonly output?: number;
+        readonly window?: number;
+    }[];
+    readonly responses?: readonly (string | StepFile)[];
+}
+
+interface StepFile {
+    readonly text?: string;
+    readonly calls?: readonly {
+        readonly name: string;
+        readonly arguments: ToolCall["arguments"];
+    }[];
+    readonly error?: string;
+    readonly waitMs?: number;
+    readonly usage?: Tokens;
+}
+
+function scriptOf(path: string): Script {
+    const file = JSON.parse(readFileSync(path, "utf8")) as ScriptFile;
+    return {
+        ...(file.models === undefined
+            ? {}
+            : {
+                  models: file.models.map((model) => ({
+                      id: model.id,
+                      cost: {
+                          input: model.input ?? 0,
+                          output: model.output ?? 0,
+                          cacheRead: 0,
+                          cacheWrite: 0,
+                      },
+                      ...(model.window === undefined
+                          ? {}
+                          : { contextWindow: model.window }),
+                  })),
+              }),
+        steps: (file.responses ?? []).map((step) =>
+            typeof step === "string"
+                ? { answer: () => ai.fauxAssistantMessage(step) }
+                : stepOf(step),
+        ),
+    };
+}
+
+function stepOf(step: StepFile): Step {
+    const { text, calls = [], error, waitMs, usage } = step;
+    const answer: FauxResponseFactory = async (_context, options) => {
+        const signal = options?.signal;
+        if (waitMs !== undefined)
+            await sleep(waitMs, undefined, { signal }).catch(() => {});
+        if (signal?.aborted)
+            return ai.fauxAssistantMessage("", { stopReason: "aborted" });
+        const content = [
+            ...(text === undefined ? [] : [ai.fauxText(text)]),
+            ...calls.map((call) => ai.fauxToolCall(call.name, call.arguments)),
+        ];
+        if (error !== undefined)
+            return ai.fauxAssistantMessage(content, {
+                stopReason: "error",
+                errorMessage: error,
+            });
+        return ai.fauxAssistantMessage(content, {
+            stopReason: calls.length > 0 ? "toolUse" : "stop",
+        });
+    };
+    return usage === undefined ? { answer } : { answer, usage };
+}
+
+/** Each answer with `usage` in place of the faux model's estimate, priced. */
+function measured(
+    source: AssistantMessageEventStream,
+    model: Model<Api>,
+    usage: Tokens | undefined,
+): AssistantMessageEventStream {
+    const out = ai.createAssistantMessageEventStream();
+    void (async () => {
+        for await (const event of source) {
+            if (event.type === "done") {
+                const used = event.message.usage;
+                if (usage !== undefined) {
+                    used.input = usage.input;
+                    used.output = usage.output;
+                    used.cacheRead = 0;
+                    used.cacheWrite = 0;
+                    used.totalTokens = usage.input + usage.output;
                 }
-                return value.apply(target, args);
-            };
-        },
-    });
+                used.cost = ai.calculateCost(model, used);
+            }
+            out.push(event);
+        }
+        out.end(await source.result());
+    })();
+    return out;
 }
 
 function dyingIn(files: AgentFilesystem): AgentFilesystem {
@@ -160,15 +281,39 @@ function dyingIn(files: AgentFilesystem): AgentFilesystem {
     };
 }
 
-const faux = ai.fauxProvider();
+const [flag, path] = process.argv.slice(2);
+const script: Script =
+    flag === "--faux" && path !== undefined ? scriptOf(path) : { steps: [] };
+const core = ai.createFauxCore(
+    script.models === undefined ? {} : { models: [...script.models] },
+);
+// Each request takes its step as it is made, so the answer and its usage
+// stay together when requests overlap.
+const stream: StreamFunction<string, SimpleStreamOptions> = (
+    model,
+    context,
+    options,
+) => {
+    const step = script.steps.shift() ?? { answer: echo };
+    core.setResponses([step.answer]);
+    return measured(core.stream(model, context, options), model, step.usage);
+};
 const models = ai.createModels();
-models.setProvider(faux.provider);
-const { provider, id } = faux.getModel();
+models.setProvider(
+    ai.createProvider({
+        id: core.provider,
+        auth: { apiKey: { name: "Faux", resolve: async () => ({ auth: {} }) } },
+        models: core.models,
+        api: { stream, streamSimple: stream },
+    }),
+);
+const { provider, id } = core.getModel();
 
 const agent = agentActor({
-    models: answering(models, faux),
+    models,
     model: `${provider}/${id}`,
     files: (n) => dyingIn(openAgentFilesystem(home, n)),
+    listed: () => core.models,
 });
 
 try {
