@@ -70,11 +70,17 @@ export async function newSession(
     c: AgentCall,
     message: NewSession,
 ): Answer<"new_session"> {
-    const { number, to, left } = await generationOf(c).inTurn(() =>
-        begin(c, message.id),
-    );
-    // As `crates/hamlet_server/src/talk/chats.rs` writes it.
-    await noticed(c, to, `new:${message.id}`, "Started a new session.");
+    const { number, left } = await generationOf(c).inTurn(async () => {
+        const begun = await begin(c, message.id);
+        // As `crates/hamlet_server/src/talk/chats.rs` writes it.
+        await noticed(
+            c,
+            begun.to,
+            `new:${message.id}`,
+            "Started a new session.",
+        );
+        return begun;
+    });
     // A repeat ends the session left again: a kill or a failure may have
     // cut the first off after the session began.
     if (left !== undefined) {
@@ -112,13 +118,13 @@ export async function resume(
             await reflectOnLeaving(c, left);
         }
         await makeCurrent(c, to);
+        await noticed(
+            c,
+            to,
+            `resume:${message.id}`,
+            "Went back to an earlier session.",
+        );
     });
-    await noticed(
-        c,
-        to,
-        `resume:${message.id}`,
-        "Went back to an earlier session.",
-    );
     return { type: "back", number: Number(message.number) };
 }
 
@@ -376,6 +382,7 @@ async function callIsOut(
             if (
                 entry.kind !== "pi.tool-result" ||
                 result?.role !== "toolResult" ||
+                result.isError ||
                 entry.byTaskId === undefined ||
                 !textOf(entry).endsWith(ENDS_LATER)
             ) {
