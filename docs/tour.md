@@ -604,6 +604,38 @@ workspace or the realm answers with what it kept.
 - `timers.ts` is `wake`, a pi-durable background task that admits one
   input at its time.
 
+A chief's chat with an agent is a list of sessions, each a pi-durable
+conversation. `sessions.ts` keeps them in the agent's `chat` table, with
+the one that is current. `chat.ts` takes a client's chat calls, each from
+a client only, and a sign-in's on the Hand alone.
+
+- `commands.ts` runs `/new`, `/resume`, `/retry`, `/stop`, a rewind and
+  `/reflect`, with today's notices and refusals.
+- `transcript.ts` answers `read_chat` and `read_history` and sends the
+  `chat` events a client follows, numbered within each wake.
+- `copies.ts` keeps the realm's copies of the charter, the character, the
+  model and the settings. The wake reads them with `read_copies`, and the
+  realm sends a newer one with `copies`.
+- `prompt.ts` builds the system prompt before every model call from the
+  copies, memory and the list of skills, each cut to its limit.
+- `compaction.ts` sizes compaction for the model that runs, and asks once
+  more after an answer cut off with nothing in it. `reflect.ts` asks for a
+  reflection every `reflect_every` chief turns and when a chief leaves a
+  session.
+- `failed.ts` writes a failed turn's notice and tells the realm
+  `turn_failed`.
+- `models.ts` gives each model call the realm's `credential` and the
+  copy's price, and scrubs every key and token from what a client reads.
+  `login.ts` runs a sign-in step by step and gives the credential to the
+  realm's `keep_credential`.
+- `claude.ts` adds the provider `claude`, which runs Anthropic's program
+  through its Agent SDK in the realm folder's `claude/`.
+  `claude-query.ts` and `claude-history.ts` load at its first call.
+
+A worker or an errand runs its brief's one turn and tells the realm its
+end with `worker_done` or `errand_done`. An errand is offered no tool, and
+a worker only the built-in tools its brief names.
+
 A tool's name, parameters and descriptions are today's server's, word
 for word, except `wake`, because today's server has no timer an agent can
 set. `wake` lets an agent come back to its work at a later time without
@@ -611,7 +643,8 @@ holding its turn open. The timer's input starts a new turn.
 
 `hosts/node/test/` tests the agent on fake calls (`agent-testing.ts`) in
 `agent.test.ts`, `spend.test.ts`, `tools.test.ts`, `society.test.ts` and
-`timers.test.ts`, and `messages.test.ts` checks each message the agent
+`timers.test.ts`, the chat in one `chat-<part>.test.ts` per module, and
+`messages.test.ts` checks each message the agent
 writes or takes against `hamlet_messages`'s fixtures.
 `test/native/agent-actor.test.ts` runs the agent on the native host.
 
@@ -621,9 +654,12 @@ starts `hosts/node/src/agent/demo-host.ts`, which serves `agent` on a
 faux model that the line it is given drives, and runs
 `examples/demo/stand_in_realm.rs` as `realm/local`: it answers
 `may_spend`, keeps each charge and act once per call id, and sends the
-agent a line, a place and a fill on the demo's `pi` commands. The kill
-kit's `agent-tell`, `agent-mid-turn` and `agent-timer`
-(`hamlet_killkit/src/scenario/agent.rs`) run there.
+agent a line, a place and a fill on the demo's `pi` commands, which also
+make every chat call. `HAMLET_DEMO_FAUX` names a faux script the model
+answers from, and `HAMLET_DEMO_SIGN_IN=1` lists two providers on
+loopback to sign in to. The kill kit's `agent-tell`, `agent-mid-turn` and
+`agent-timer` (`hamlet_killkit/src/scenario/agent.rs`) and `chat-compact`,
+`chat-new` and `chat-retry` (`scenario/chat.rs`) run there.
 
 ## The realm actor
 
@@ -891,6 +927,9 @@ built-in ones.
 | The link to the Node host: its child, handshake, frames, and calls each way | `hamlet_host/src/child.rs`, `link.rs`, `link/`; the stand-in Node host `hamlet_host/examples/link_child.rs` |
 | The agent actor: its actions, its parts and the stamp of its calls out | `hosts/node/src/agent/actor.ts`, `turn.ts`; [the agent actor](#the-agent-actor) |
 | A tool the agent offers the model | `hosts/node/src/agent/workspace-tools.ts`, `own-files.ts`, `society.ts`, `timers.ts`; all but `wake` in the words of today's server |
+| A chat command, a client's chat call or a chat event | `hosts/node/src/agent/chat.ts`, `commands.ts`, `transcript.ts`, `sessions.ts` |
+| What the agent's model reads, and the model it runs on | `hosts/node/src/agent/prompt.ts`, `copies.ts`, `models.ts`, `compaction.ts` |
+| A sign-in, or the provider `claude` | `hosts/node/src/agent/login.ts`, `claude.ts` |
 | A message the agent takes or sends | `hosts/node/src/agent/messages.ts`; `hosts/node/test/messages.test.ts` checks it against `hamlet_messages/fixtures/` |
 | The Node host's entry and the demo's TypeScript kinds | `hosts/node/src/main.ts`, `demo.ts`, `actor/registry/link.ts`; the linked demo in `hamlet_host/examples/demo/link.rs` |
 | What a TypeScript actor can do: call another actor with a deadline, its address and caller, `get`, `all` and `run` on its rows | `hosts/node/src/actor/actor/calls.ts`, `config.ts`; `registry/native.ts`, `runtime.ts`, `napi-runtime.ts`; `common/database/`; the native side in `hamlet_actor_node/src/address.rs`, `actor_context.rs` |
