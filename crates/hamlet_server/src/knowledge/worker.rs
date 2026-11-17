@@ -1,6 +1,7 @@
 //! The thread that runs jobs, apart from the loop, on a database
 //! connection of its own.
 
+use std::collections::BTreeMap;
 use std::panic::{AssertUnwindSafe, catch_unwind};
 use std::sync::mpsc::{self, RecvTimeoutError, Sender};
 use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
@@ -13,13 +14,14 @@ use bevy_ecs::resource::Resource;
 use bevy_ecs::system::{Res, ResMut};
 use bevy_log::error;
 use diesel::connection::SimpleConnection;
-use hamlet_store::Store;
+use hamlet_store::ids::AgentId;
+use hamlet_store::{Db, Store};
 
 use crate::app::clock;
 use crate::app::failure::panicked;
 use crate::app::follow_up::InputEffects;
 use crate::app::input::{AddHandler, InputSender};
-use crate::conversations::dreams::{DreamEnded, Learned};
+use crate::conversations::dreams::{DreamEnded, Learned, learning};
 use crate::core::RemoteWorkspace;
 use crate::realm::Realm;
 use crate::realm::jobs::Job;
@@ -35,7 +37,21 @@ pub(crate) fn plugin(app: &mut bevy_app::App) {
 
 /// A pass of the runner that did jobs.
 #[derive(Message)]
-pub(crate) struct JobsDone(pub Vec<Job>);
+pub(crate) struct JobsDone {
+    pub jobs: Vec<Job>,
+    /// Whether each hire the jobs may have changed has learned
+    /// something now.
+    pub learning: BTreeMap<AgentId, bool>,
+}
+
+impl JobsDone {
+    /// The jobs `jobs` done, with what the hires they changed have
+    /// learned, found with git.
+    pub fn of(db: &mut Db, layout: &Layout, jobs: Vec<Job>) -> Self {
+        let learning = learning(db, layout, &jobs);
+        Self { jobs, learning }
+    }
+}
 
 /// The lodges the runner's jobs changed are owed a push, and the
 /// clients see what they did.
@@ -47,27 +63,25 @@ fn take_in_jobs_done(
     mut learned: ResMut<Learned>,
     inputs: Res<InputSender>,
 ) {
-    for JobsDone(done) in done.drain() {
-        remote.owe_pushes(realm.store().connection(), &done);
-        after_jobs(&mut realm, &mut learned, &inputs, &done);
+    for done in done.drain() {
+        remote.owe_pushes(realm.store().connection(), &done.jobs);
+        after_jobs(&mut learned, &inputs, &done);
         changed.state_changed_outside_change = true;
     }
 }
 
-/// What the hires learned is found again after `done`, and a dream
-/// that ended lets the next one waiting begin.
+/// What the hires learned is taken in after `done`, and a dream that
+/// ended lets the next one waiting begin.
 pub(crate) fn after_jobs(
-    realm: &mut Realm,
     learned: &mut Learned,
     inputs: &InputSender,
-    done: &[Job],
+    done: &JobsDone,
 ) {
-    if done.is_empty() {
-        return;
-    }
-    let layout = realm.layout().clone();
-    learned.note(realm.store().connection(), &layout);
-    if done.iter().any(|job| matches!(job, Job::DreamEnd { .. }))
+    learned.take_in(&done.learning);
+    if done
+        .jobs
+        .iter()
+        .any(|job| matches!(job, Job::DreamEnd { .. }))
         && inputs.send(DreamEnded).is_err()
     {
         error!("the next dream could not begin: the server stops");
@@ -103,7 +117,7 @@ impl RepositoryWriteLock {
 /// Runs every job due now, each holding `writing`. Returns the jobs
 /// done.
 pub(crate) fn run_due(
-    db: &mut hamlet_store::Db,
+    db: &mut Db,
     layout: &Layout,
     writing: &RepositoryWriteLock,
 ) -> Result<Vec<Job>> {
@@ -146,7 +160,12 @@ impl Runner {
                     let failed = match pass {
                         Ok(Ok(done)) if done.is_empty() => None,
                         Ok(Ok(done)) => {
-                            if inputs.send(JobsDone(done)).is_err() {
+                            let done = JobsDone::of(
+                                store.connection(),
+                                &layout,
+                                done,
+                            );
+                            if inputs.send(done).is_err() {
                                 return;
                             }
                             None

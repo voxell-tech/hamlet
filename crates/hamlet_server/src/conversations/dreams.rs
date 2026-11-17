@@ -4,7 +4,7 @@
 //! a hire dreams once it learned something its scholar lacks, and a
 //! scholar at most once a day to tidy its `main`.
 
-use std::collections::BTreeSet;
+use std::collections::{BTreeMap, BTreeSet};
 
 use anyhow::Result;
 use bevy_app::Startup;
@@ -25,6 +25,7 @@ use crate::conversations::{self, Begin, Kind, models};
 use crate::core::Core;
 use crate::realm::Realm;
 use crate::realm::change::Done;
+use crate::realm::jobs::Job;
 use crate::realm::layout::Layout;
 use crate::realm::settings::Dreams;
 use crate::society::dreams::{
@@ -85,6 +86,95 @@ impl Learned {
             }
         }
     }
+
+    /// Takes in whether each hire of `learning` has learned something
+    /// now.
+    pub fn take_in(&mut self, learning: &BTreeMap<AgentId, bool>) {
+        for (&hire, &has) in learning {
+            if has {
+                self.0.insert(hire);
+            } else {
+                self.0.remove(&hire);
+            }
+        }
+    }
+}
+
+/// Whether each hire the jobs `done` may have changed has learned
+/// something now.
+pub(crate) fn learning(
+    db: &mut Db,
+    layout: &Layout,
+    done: &[Job],
+) -> BTreeMap<AgentId, bool> {
+    let mut learning = BTreeMap::new();
+    for job in done {
+        let found = learners(db, job).and_then(|hires| {
+            hires
+                .into_iter()
+                .map(|hire| {
+                    Ok((hire, has_learned(db, layout, hire)?))
+                })
+                .collect::<Result<Vec<_>>>()
+        });
+        match found {
+            Ok(found) => learning.extend(found),
+            Err(error) => {
+                error!("finding what hires learned: {error:#}");
+            }
+        }
+    }
+    learning
+}
+
+/// The hires whose branch, or whose scholar's `main`, `job` changes.
+fn learners(db: &mut Db, job: &Job) -> Result<Vec<AgentId>> {
+    let of_scholar = |db: &mut Db, scholar, also: Option<AgentId>| {
+        let mut hires = hires::living_of(db, scholar)?
+            .into_iter()
+            .map(|hire| hire.agent)
+            .collect::<Vec<_>>();
+        hires.extend(also);
+        anyhow::Ok(hires)
+    };
+    Ok(match job {
+        Job::Lodge { hire }
+        | Job::Commit { hire }
+        | Job::TakeIn { hire }
+        | Job::EraseHire { hire } => vec![*hire],
+        Job::BringHome { hire } => {
+            let scholar = hires::get(db, *hire)?.scholar;
+            of_scholar(db, scholar, Some(*hire))?
+        }
+        Job::DreamEnd { dream, .. } => {
+            let dream = dreams::get(db, *dream)?;
+            of_scholar(db, dream.scholar, dream.hire)?
+        }
+        Job::Plant { scholar, .. }
+        | Job::EraseScholar { scholar } => {
+            of_scholar(db, *scholar, None)?
+        }
+        Job::Merge { merge } | Job::Split { merge } => {
+            let merge = crate::society::merges::get(db, *merge)?;
+            vec![merge.kept, merge.absorbed]
+        }
+        Job::Shelve { offer } => {
+            vec![crate::society::library::get(db, *offer)?.agent]
+        }
+        Job::EraseHamlet { .. } => Vec::new(),
+    })
+}
+
+/// Whether `agent` is a living hire whose branch holds what it
+/// learned that no dream took home yet.
+fn has_learned(
+    db: &mut Db,
+    layout: &Layout,
+    agent: AgentId,
+) -> Result<bool> {
+    Ok(hires::find(db, agent)?.is_some()
+        && agents::get(db, agent)?.is_living()
+        && knowledge::dreams::has_learned(db, layout, agent)?)
 }
 
 fn note_learned(
@@ -101,9 +191,7 @@ fn find_learned(
 ) -> Result<BTreeSet<AgentId>> {
     let mut learned = BTreeSet::new();
     for agent in agents::all_hires(db)? {
-        if agents::get(db, agent)?.is_living()
-            && knowledge::dreams::has_learned(db, layout, agent)?
-        {
+        if has_learned(db, layout, agent)? {
             learned.insert(agent);
         }
     }

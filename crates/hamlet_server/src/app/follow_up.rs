@@ -38,7 +38,7 @@ use crate::conversations::dreams::Learned;
 use crate::conversations::inputs::Resend;
 use crate::core::{Catalogue, Core, RemoteWorkspace};
 use crate::knowledge::worker::{
-    RepositoryWriteLock, Runner, after_jobs, run_due,
+    JobsDone, RepositoryWriteLock, Runner, after_jobs, run_due,
 };
 use crate::providers::Providers;
 use crate::realm::Realm;
@@ -379,9 +379,11 @@ fn run_kept_jobs(
     let layout = realm.layout().clone();
     let db = realm.store().connection();
     match run_due(db, &layout, &writing) {
+        Ok(done) if done.is_empty() => {}
         Ok(done) => {
             remote.owe_pushes(db, &done);
-            after_jobs(&mut realm, &mut learned, &inputs, &done);
+            let done = JobsDone::of(db, &layout, done);
+            after_jobs(&mut learned, &inputs, &done);
         }
         Err(error) => {
             error!("running jobs: {error:#}");
