@@ -25,7 +25,7 @@ use self::args::{
 use super::looks::Look;
 use super::{Call, refused, said};
 use crate::core::Core;
-use crate::knowledge::promotion;
+use crate::knowledge::{promotion, versions};
 use crate::realm::change::{Change, Done, done, refuse};
 use crate::realm::settings::EffectiveSettings;
 use crate::society::addresses::{self, Reach};
@@ -634,8 +634,11 @@ impl Core<'_, '_> {
     /// The scholar `text` addresses, as a hire takes it: at `main`,
     /// or pinned to `@<version>`.
     fn scholar_hiring(&mut self, text: &str) -> Done<Hiring> {
-        let (scholar, version) = done!(self.scholar_pinned(text));
-        self.existing(scholar, version)
+        let layout = self.realm.layout().clone();
+        let db = self.realm.store().connection();
+        let (scholar, version) =
+            done!(addresses::scholar_pinned(db, text));
+        versions::existing(db, &layout, scholar, version)
     }
 
     fn hire_tool(

@@ -12,7 +12,7 @@ use hamlet_store::schema::{agent, hire, scholar, worker};
 use super::agents::{self, AgentKind};
 use super::names::hamlet_id;
 use super::refusal::Refusal;
-use super::{chiefs, hamlets, hand, tree};
+use super::{chiefs, city, hamlets, hand, tree};
 use crate::clients::state::{wire_agent, wire_scholar};
 use crate::realm::change::{Done, done, refuse};
 
@@ -55,6 +55,44 @@ pub(crate) fn parse_scholar(
     .ok_or_else(|| Refusal::BadAddress {
         address: text.into(),
     })
+}
+
+/// The scholar `text` addresses, among those `reach` allows.
+pub(crate) fn scholar_at(
+    db: &mut Db,
+    text: &str,
+    reach: Reach,
+) -> Done<ScholarId> {
+    let id = match parse_scholar(text) {
+        Ok(id) => id,
+        Err(refusal) => return Ok(Err(refusal)),
+    };
+    let found = city::find(db, id)?.filter(|found| {
+        found.kind == city::ScholarKind::Scholar
+            && (reach == Reach::Kept || found.is_living())
+    });
+    Ok(match found {
+        Some(found) => Ok(found.id),
+        None => Err(Refusal::NoScholar {
+            address: text.into(),
+        }),
+    })
+}
+
+/// The living scholar `text` addresses, `scholar#<id>` with
+/// `@<version>` to pin one, and that version.
+pub(crate) fn scholar_pinned(
+    db: &mut Db,
+    text: &str,
+) -> Done<(ScholarId, Option<String>)> {
+    let (address, version) = match text.split_once('@') {
+        Some((address, version)) => {
+            (address, Some(version.to_owned()))
+        }
+        None => (text, None),
+    };
+    Ok(scholar_at(db, address, Reach::Living)?
+        .map(|scholar| (scholar, version)))
 }
 
 /// The address of the scholar `id`.

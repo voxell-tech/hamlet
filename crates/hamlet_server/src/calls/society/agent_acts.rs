@@ -18,7 +18,7 @@ use crate::conversations::{self, chats, reflections};
 use crate::core::Core;
 use crate::knowledge::memory_path;
 use crate::knowledge::papers::papers;
-use crate::knowledge::versions::pinned;
+use crate::knowledge::versions::{pin_target, pinned};
 use crate::realm::change::{Done, done, refuse};
 use crate::society::addresses::{self, Reach};
 use crate::society::agents::{self, Effort};
@@ -48,7 +48,10 @@ impl Core<'_, '_> {
                     Reach::Living
                 ));
                 let name = self.name(hire)?;
-                let target = done!(self.pin_target(hire, &version));
+                let layout = self.realm.layout().clone();
+                let db = self.realm.store().connection();
+                let target =
+                    done!(pin_target(db, &layout, hire, &version));
                 self.carry(call, |cx, _| {
                     Ok(hires::set_pin(
                         cx,

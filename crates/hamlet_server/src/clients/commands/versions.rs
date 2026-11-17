@@ -3,11 +3,13 @@
 //! path purged from all of it.
 
 use hamlet_git::{Author, CommitId, MAIN, Repository};
-use hamlet_store::ids::{Actor, AgentId, HamletId, ScholarId};
+use hamlet_store::ids::{Actor, HamletId, ScholarId};
 
 use super::Command;
 use crate::core::Core;
-use crate::knowledge::versions::{pinned, short, versions};
+use crate::knowledge::versions::{
+    pin_target, pinned, short, versions,
+};
 use crate::realm::change::Done;
 use crate::realm::jobs::Fork;
 use crate::society::addresses::{self, Reach};
@@ -62,11 +64,12 @@ impl Core<'_, '_> {
         text: &str,
     ) -> Done<(ScholarId, Repository)> {
         let chief = self.realm.chief();
-        let id = match self.scholar_at(text, Reach::Living)? {
+        let db = self.realm.store().connection();
+        let id = match addresses::scholar_at(db, text, Reach::Living)?
+        {
             Ok(id) => id,
             Err(refusal) => return Ok(Err(refusal)),
         };
-        let db = self.realm.store().connection();
         if !authority::may_keep(db, Actor::Chief(chief), id)? {
             return Ok(Err(Refusal::ScholarNotOwn {
                 name: addresses::scholar_name_of(db, id)?,
@@ -140,30 +143,6 @@ impl Core<'_, '_> {
         Ok(Ok(versions(&repo)?))
     }
 
-    /// The version `version` of the scholar of `hire` to pin it to,
-    /// none for `main`.
-    pub(crate) fn pin_target(
-        &mut self,
-        hire: AgentId,
-        version: &str,
-    ) -> Done<Option<String>> {
-        if version == MAIN {
-            return Ok(Ok(None));
-        }
-        let layout = self.realm.layout().clone();
-        let db = self.realm.store().connection();
-        let found = hires::get(db, hire)?;
-        let repo =
-            Repository::open(&layout.repository(found.scholar))?;
-        if repo.resolve(version)?.is_none() {
-            return Ok(Err(Refusal::NoVersion {
-                name: addresses::scholar_name_of(db, found.scholar)?,
-                version: version.into(),
-            }));
-        }
-        Ok(Ok(Some(version.into())))
-    }
-
     pub(super) fn pin(
         &mut self,
         here: Option<&HamletId>,
@@ -189,7 +168,9 @@ impl Core<'_, '_> {
         if let Err(refusal) = self.leads(hire)? {
             return Ok(Err(refusal));
         }
-        let target = match self.pin_target(hire, version)? {
+        let layout = self.realm.layout().clone();
+        let db = self.realm.store().connection();
+        let target = match pin_target(db, &layout, hire, version)? {
             Ok(target) => target,
             Err(refusal) => return Ok(Err(refusal)),
         };

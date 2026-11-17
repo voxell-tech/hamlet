@@ -34,8 +34,8 @@ impl Core<'_, '_> {
         address: &str,
         reach: Reach,
     ) -> Done<ScholarId> {
-        let id = done!(self.scholar_at(address, reach));
         let db = self.realm.store().connection();
+        let id = done!(addresses::scholar_at(db, address, reach));
         if !authority::may_keep(
             db,
             Actor::Agent(call.conversation.agent),

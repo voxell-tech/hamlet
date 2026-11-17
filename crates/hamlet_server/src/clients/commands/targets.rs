@@ -2,12 +2,10 @@
 //! a scholar to hire at a version, and the chief's right over a
 //! hamlet, a hire or an agent's model.
 
-use hamlet_git::Repository;
-use hamlet_store::ids::{
-    Actor, AgentId, ChiefId, HamletId, ScholarId,
-};
+use hamlet_store::ids::{Actor, AgentId, ChiefId, HamletId};
 
 use crate::core::Core;
+use crate::knowledge::versions;
 use crate::realm::change::Done;
 use crate::society::addresses::{self, Reach};
 use crate::society::agents::{self, AgentKind};
@@ -29,61 +27,19 @@ impl Core<'_, '_> {
         text: &str,
         chief: ChiefId,
     ) -> Done<Hiring> {
-        let (scholar, version) = match self.scholar_pinned(text)? {
-            Ok(found) => found,
-            Err(refusal) => return Ok(Err(refusal)),
-        };
+        let layout = self.realm.layout().clone();
         let db = self.realm.store().connection();
+        let (scholar, version) =
+            match addresses::scholar_pinned(db, text)? {
+                Ok(found) => found,
+                Err(refusal) => return Ok(Err(refusal)),
+            };
         if city::get(db, scholar)?.chief != Some(chief) {
             return Ok(Err(Refusal::ScholarNotOwn {
                 name: addresses::scholar_name_of(db, scholar)?,
             }));
         }
-        self.existing(scholar, version)
-    }
-
-    /// The living scholar `text` addresses, `scholar#<id>` with
-    /// `@<version>` to pin one, and that version.
-    pub(crate) fn scholar_pinned(
-        &mut self,
-        text: &str,
-    ) -> Done<(ScholarId, Option<String>)> {
-        let (address, version) = match text.split_once('@') {
-            Some((address, version)) => {
-                (address, Some(version.to_owned()))
-            }
-            None => (text, None),
-        };
-        Ok(self
-            .scholar_at(address, Reach::Living)?
-            .map(|scholar| (scholar, version)))
-    }
-
-    /// A hire of the living `scholar`, at its `main` or pinned to
-    /// `version` when that is one the scholar has.
-    pub(crate) fn existing(
-        &mut self,
-        scholar: ScholarId,
-        version: Option<String>,
-    ) -> Done<Hiring> {
-        if let Some(version) = &version {
-            let found = Repository::open(
-                &self.realm.layout().repository(scholar),
-            )
-            .ok()
-            .and_then(|repo| repo.resolve(version).ok().flatten());
-            if found.is_none() || version == hamlet_git::MAIN {
-                let db = self.realm.store().connection();
-                return Ok(Err(Refusal::NoVersion {
-                    name: addresses::scholar_name_of(db, scholar)?,
-                    version: version.clone(),
-                }));
-            }
-        }
-        Ok(Ok(Hiring::Existing {
-            scholar,
-            pin: version,
-        }))
+        versions::existing(db, &layout, scholar, version)
     }
 
     /// The agent `text` addresses, said in `here`.
@@ -99,29 +55,6 @@ impl Core<'_, '_> {
         };
         let db = self.realm.store().connection();
         addresses::resolve(db, &address, here, reach)
-    }
-
-    /// The scholar `text` addresses, among those `reach` allows.
-    pub(crate) fn scholar_at(
-        &mut self,
-        text: &str,
-        reach: Reach,
-    ) -> Done<ScholarId> {
-        let id = match addresses::parse_scholar(text) {
-            Ok(id) => id,
-            Err(refusal) => return Ok(Err(refusal)),
-        };
-        let db = self.realm.store().connection();
-        let found = city::find(db, id)?.filter(|found| {
-            found.kind == city::ScholarKind::Scholar
-                && (reach == Reach::Kept || found.is_living())
-        });
-        Ok(match found {
-            Some(found) => Ok(found.id),
-            None => Err(Refusal::NoScholar {
-                address: text.into(),
-            }),
-        })
     }
 
     /// Refuses unless this server's chief is a chief of `hamlet`.

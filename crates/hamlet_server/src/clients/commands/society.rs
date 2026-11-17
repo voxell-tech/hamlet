@@ -951,9 +951,10 @@ fn name_scholar(core: &mut Core<'_, '_>, line: &Line) -> Answer {
     let Some(text) = line.words().first().copied() else {
         return usage(core, line);
     };
-    let scholar = found!(core.scholar_at(text, Reach::Living));
     let by = by(core);
     let db = core.realm.store().connection();
+    let scholar =
+        found!(addresses::scholar_at(db, text, Reach::Living));
     if !authority::may_keep(db, by, scholar)? {
         return Ok(Err(Refusal::NotOwner {
             owner: addresses::scholar_name_of(db, scholar)?,
@@ -979,9 +980,9 @@ fn kept_scholar(
     let Some(text) = line.words().first().copied() else {
         return Ok(Err(core.deeds.usage(&line.name)));
     };
-    let scholar = found!(core.scholar_at(text, reach));
     let by = by(core);
     let db = core.realm.store().connection();
+    let scholar = found!(addresses::scholar_at(db, text, reach));
     let shown = addresses::scholar_name_of(db, scholar)?;
     if !authority::may_keep(db, by, scholar)? {
         return Ok(Err(Refusal::NotOwner { owner: shown }));
