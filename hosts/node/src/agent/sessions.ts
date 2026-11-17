@@ -68,12 +68,15 @@ export async function conversationOfChat(
     c: AgentCall,
     chat: ChatRef,
 ): Promise<ConversationId | undefined> {
-    if (chat.kind !== undefined) {
-        return chat.from === undefined
-            ? undefined
-            : keptChat(c, chat.kind, chat.from);
+    // As today's server reads it: a peer names a peer's chat, letters
+    // unless it says questions, and `kind` alone names nothing more.
+    if (chat.from !== undefined) {
+        return Number.isSafeInteger(chat.from)
+            ? keptChat(c, chat.kind ?? "letters", chat.from)
+            : undefined;
     }
     if (chat.past === undefined) return current(c.db);
+    if (!Number.isSafeInteger(chat.past)) return undefined;
     const row = await c.db.get<{ conversation: ConversationId }>(
         "SELECT conversation FROM chat WHERE kind = 'chief' AND session = ?",
         chat.past,

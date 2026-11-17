@@ -43,8 +43,8 @@ export async function newSession(
     // As `crates/hamlet_server/src/talk/chats.rs` writes it.
     await noticed(c, to, `new:${message.id}`, "Started a new session.");
     if (left !== undefined) {
-        await reflectOnLeaving(c, left);
         await lapsed(c, left, "ended");
+        await reflectOnLeaving(c, left);
     }
     return { number };
 }
@@ -69,9 +69,9 @@ export async function resume(
         `resume:${message.id}`,
         "Went back to an earlier session.",
     );
-    if (back.left !== undefined) await reflectOnLeaving(c, back.left);
     // A session gone back to asks again what it was trusted with (H11).
     await lapsed(c, back.to, "resumed");
+    if (back.left !== undefined) await reflectOnLeaving(c, back.left);
     return { type: "back", number: message.number };
 }
 

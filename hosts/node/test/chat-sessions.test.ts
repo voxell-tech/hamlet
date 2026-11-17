@@ -4,6 +4,7 @@ import { fauxAssistantMessage } from "@earendil-works/pi-ai";
 import type { ConversationId, EntryRecord } from "@earendil-works/pi-durable";
 import type { Calls } from "../src/actor/actor/mod.ts";
 import type { Input } from "../src/agent/messages.ts";
+import { conversationOfChat } from "../src/agent/sessions.ts";
 import {
     fakeCalls,
     from,
@@ -184,6 +185,15 @@ test("A2: sessions are numbered and come back", async (t) => {
         "b",
         "Two.",
     ]);
+    assert.equal(await conversationOfChat(client, { with: 7 }), root);
+    assert.equal(
+        await conversationOfChat(client, { with: 7, past: 2 }),
+        second,
+    );
+    assert.equal(
+        await conversationOfChat(client, { with: 7, past: 9 }),
+        undefined,
+    );
     assert.deepEqual(
         named(sent, "lapse").map((call) => call.message),
         [
@@ -212,6 +222,14 @@ test("a letter and a question from one peer go to two chats of their own", async
     assert.equal(new Set([root, letters, questions]).size, 3);
     assert.deepEqual(said(all, root), []);
     assert.deepEqual(holding(all, "Again."), [letters]);
+    const chat = (ref: { from?: number; kind?: "letters" | "questions" }) =>
+        conversationOfChat(agent.by(from.client), { with: 7, ...ref });
+    assert.equal(await chat({ from: 12 }), letters);
+    assert.equal(await chat({ from: 12, kind: "letters" }), letters);
+    assert.equal(await chat({ from: 12, kind: "questions" }), questions);
+    assert.equal(await chat({ from: 13 }), undefined);
+    assert.equal(await chat({ from: Number.POSITIVE_INFINITY }), undefined);
+    assert.equal(await chat({ kind: "letters" }), undefined);
     assert.deepEqual(
         named(sent, "reply").map((call) => call.message),
         [{ question: 5, text: "Two of them." }],
@@ -238,6 +256,13 @@ test("/resume of a session that does not exist is refused with today's words", a
     assert.deepEqual(
         await agent.actions.resume(client, { id: "r-3", number: 1, to: 7 }),
         { type: "back", number: 1 },
+    );
+    // A client's `u64` past 2^53 arrives as a bigint; the refusal's number
+    // stays a `u32`.
+    const wide = (2n ** 63n) as unknown as number;
+    assert.deepEqual(
+        await agent.actions.resume(client, { id: "r-4", number: wide, to: 7 }),
+        refusal(2 ** 32 - 1),
     );
 });
 
