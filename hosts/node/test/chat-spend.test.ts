@@ -497,30 +497,54 @@ test("/retry carries on after an empty answer", async (t) => {
     await agent.stop();
 });
 
-test("an empty answer to a question sends no reply", async (t) => {
-    const { calls, sent } = fakeCalls({
-        realm: { reply: () => ({ type: "done" }) },
-    });
-    const agent = await wakeAgent(t, {
-        calls,
-        responses: [fauxAssistantMessage("  ")],
-    });
+// Today's asker reads "It could not answer: <why>"
+// (`crates/hamlet_server/src/talk/letters.rs:234-250`).
+for (const [what, answer, words] of [
+    [
+        "an empty answer",
+        fauxAssistantMessage("  "),
+        "the model answered with nothing. Send the message again",
+    ],
+    [
+        "a model error",
+        fauxAssistantMessage("", {
+            stopReason: "error",
+            errorMessage: "The model failed.",
+        }),
+        "The model failed.",
+    ],
+] as const) {
+    test(`${what} to a question replies that it could not answer`, async (t) => {
+        const { calls, sent } = fakeCalls({
+            realm: { reply: () => ({ type: "done" }) },
+        });
+        const agent = await wakeAgent(t, {
+            calls,
+            responses: [answer],
+            settings: { retry: { maxRetries: 0 } },
+        });
 
-    await agent.actions.submit(agent.by(from.realm), {
-        id: "input-1",
-        task: "task-1",
-        input: {
-            type: "question",
-            letter: 1,
-            from: { agent: 12, name: "Ada" },
-            text: "How?",
-        },
-    });
-    await agent.idle();
+        await agent.actions.submit(agent.by(from.realm), {
+            id: "input-1",
+            task: "task-1",
+            input: {
+                type: "question",
+                letter: 1,
+                from: { agent: 12, name: "Ada" },
+                text: "How?",
+            },
+        });
+        await until(() => named(sent, "reply").length === 1);
+        await agent.idle();
 
-    assert.deepEqual(named(sent, "reply"), []);
-    await agent.stop();
-});
+        assert.deepEqual(
+            named(sent, "reply").map(({ message }) => message),
+            [{ question: 1, text: `It could not answer: ${words}` }],
+        );
+        assert.deepEqual(named(sent, "turn_failed"), []);
+        await agent.stop();
+    });
+}
 
 test("a refused summary in the cut-off rule fails with the realm's words", async (t) => {
     let asked = 0;

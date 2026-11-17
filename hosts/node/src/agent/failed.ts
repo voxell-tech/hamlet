@@ -1,8 +1,9 @@
 /**
  * A turn that ended with no answer. Its words go to its conversation as a
- * notice, and a turn in the chief's current session tells the realm, which
- * opens a wait for the chief. The notice is committed first, so a
- * `turn_failed` lost loses only the wait.
+ * notice. A turn in the chief's current session tells the realm, which
+ * opens a wait for the chief, and a turn on a question replies to its asker.
+ * The notice is committed first, so a `turn_failed` or reply lost loses only
+ * that.
  */
 import type { Context } from "@earendil-works/chord/context";
 import {
@@ -26,7 +27,7 @@ import {
     type TaskRuntime,
 } from "@earendil-works/pi-durable";
 import { notice } from "./commands.ts";
-import type { RealmTask, TurnFailed } from "./messages.ts";
+import type { LetterId, RealmTask, TurnFailed } from "./messages.ts";
 import { realmWordsIn, unsentOf } from "./spend.ts";
 import {
     Closing,
@@ -43,9 +44,14 @@ export interface Failure {
     readonly task: RealmTask | undefined;
     readonly words: string;
     readonly cause: TurnFailed["cause"];
+    /** The question the turn was to answer. */
+    readonly question: LetterId | undefined;
 }
 
-/** Tells the realm of a failure in the chief's current session; never throws. */
+/**
+ * Tells the realm of a failure in the chief's current session, or replies to
+ * the question the turn was to answer; never throws.
+ */
 export type TellFailed = (
     failure: Failure,
     signal: AbortSignal | undefined,
@@ -56,8 +62,20 @@ export function tellingFailed(
     standing: RealmTask,
     chief: () => Promise<ConversationId | undefined>,
 ): TellFailed {
-    return async ({ conversation, task, words, cause }, signal) => {
+    return async ({ conversation, task, words, cause, question }, signal) => {
         try {
+            if (question !== undefined) {
+                // As `crates/hamlet_server/src/talk/letters.rs:244-246` words it.
+                const text = `It could not answer: ${words}`;
+                const taken = await cutOff(
+                    signal,
+                    peers.reach.reply({ question, text }),
+                );
+                if (taken.type === "refused") {
+                    peers.report("a reply was refused", taken.words);
+                }
+                return;
+            }
             if ((await chief()) !== conversation) return;
             await cutOff(
                 signal,
@@ -101,9 +119,15 @@ export async function failTurn<I, S>(
             outcome: { status: "completed", result: null },
         };
     }, context);
-    const task = (input?.data as Kept | null)?.task;
+    const kept = input?.data as Kept | null | undefined;
     await tell(
-        { conversation: runtime.conversationId, task, words, cause },
+        {
+            conversation: runtime.conversationId,
+            task: kept?.task,
+            words,
+            cause,
+            question: kept?.question,
+        },
         context.abortSignal,
     );
 }
@@ -242,7 +266,13 @@ export function failedTurns(
         if (!noticed || input.kind === "reflection") return;
         // Not awaited: the run ends without the realm's answer.
         void tell(
-            { conversation, task: input.task.task, words, cause: "budget" },
+            {
+                conversation,
+                task: input.task.task,
+                words,
+                cause: "budget",
+                question: input.question,
+            },
             undefined,
         );
     }
@@ -286,12 +316,14 @@ export function failedTurns(
             // Today a reflection's failure opens no wait
             // (`crates/hamlet_server/src/talk/follow.rs:168-173`).
             if (entry?.kind === "hamlet.reflection") return;
+            const kept = entry?.data as Kept | null | undefined;
             await tell(
                 {
                     conversation,
-                    task: (entry?.data as Kept | null)?.task,
+                    task: kept?.task,
                     words,
                     cause: realm === undefined ? "model" : "budget",
+                    question: kept?.question,
                 },
                 undefined,
             );
