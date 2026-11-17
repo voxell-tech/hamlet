@@ -1,7 +1,8 @@
 // A fake Claude program for tests: it answers the Agent SDK's stream-json as the real one does, running the steps of
 // the script `FAKE_CLAUDE_SCRIPT` names, one run per process, and never reaches a network. Like the real one, it
 // writes what each run says to its session, the one it resumes or a new one. `auth login` opens a link with
-// `BROWSER` and keeps the script's token in its own folder, as the real program keeps a subscription's.
+// `BROWSER` and keeps the script's tokens in its own folder, as the real program keeps a subscription's, then fails
+// with the script's `signInFails` on stderr when it names one. A step `die` writes its words to stderr and exits.
 import { spawnSync } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import {
@@ -38,8 +39,17 @@ if (args[0] === "auth") {
     mkdirSync(config, { recursive: true });
     writeFileSync(
         join(config, ".credentials.json"),
-        JSON.stringify({ claudeAiOauth: { accessToken: script.token } }),
+        JSON.stringify({
+            claudeAiOauth: {
+                accessToken: script.token,
+                refreshToken: script.refresh,
+            },
+        }),
     );
+    if (script.signInFails !== undefined) {
+        process.stderr.write(`${script.signInFails}\n`);
+        process.exit(1);
+    }
     process.exit(0);
 }
 
@@ -121,6 +131,10 @@ async function steps(prompt) {
     });
     record({ type: "user", message: { role: "user", content: prompt } });
     for (const step of script.runs[run] ?? []) {
+        if (step.die !== undefined) {
+            process.stderr.write(step.die);
+            process.exit(1);
+        }
         if (step.call !== undefined) {
             const answer = await mcp("tools/call", {
                 name: step.call.name,

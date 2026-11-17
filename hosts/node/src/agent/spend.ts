@@ -145,6 +145,15 @@ export function gated(models: Models, peers: Peers): Models {
  */
 export function refusalOf(model: Model<Api>, why: string): AssistantMessage {
     return {
+        ...emptyAnswer(model),
+        stopReason: "error",
+        errorMessage: `${REFUSED}${why}`,
+    };
+}
+
+/** An answer of `model` with nothing in it yet. */
+export function emptyAnswer(model: Model<Api>): AssistantMessage {
+    return {
         role: "assistant",
         content: [],
         api: model.api,
@@ -164,8 +173,7 @@ export function refusalOf(model: Model<Api>, why: string): AssistantMessage {
                 total: 0,
             },
         },
-        stopReason: "error",
-        errorMessage: `${REFUSED}${why}`,
+        stopReason: "stop",
         timestamp: Date.now(),
     };
 }

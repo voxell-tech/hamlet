@@ -315,10 +315,10 @@ models.setProvider(
         api: { stream, streamSimple: stream },
     }),
 );
-withClaude(models, {
-    executable: claudeExecutable(),
-    folder: join(home, "claude"),
-});
+// With no Claude program found, the provider is not listed, as today.
+const executable = claudeExecutable();
+if (executable !== undefined)
+    withClaude(models, { executable, folder: join(home, "claude") });
 const { provider, id } = core.getModel();
 
 const agent = agentActor({

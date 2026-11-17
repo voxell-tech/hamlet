@@ -39,12 +39,14 @@ import {
     type AssistantMessage,
     type AssistantMessageEventStream,
     createAssistantMessageEventStream,
+    type ImageContent,
     type JsonObject,
     type Message,
     type Model,
     type MutableModels,
     type ProviderAuthInteraction,
     type SimpleStreamOptions,
+    type TextContent,
     type Tool,
     type ToolResultMessage,
     type TranscriptContext,
@@ -62,16 +64,15 @@ import type {
     ToolResultBlock,
     UserContentBlock,
 } from "cc-session-io";
+import { remember, scrub } from "./models.ts";
+import { emptyAnswer } from "./spend.ts";
 import { reasonOf } from "./turn.ts";
 
 export const PROVIDER = "claude";
 
 export interface ClaudeProgram {
-    /**
-     * The program to run, from `claudeExecutable` or a test's fake; with
-     * none, every call and sign-in fails.
-     */
-    readonly executable: string | undefined;
+    /** The program to run, from `claudeExecutable` or a test's fake. */
+    readonly executable: string;
     /** The realm's `claude/`, which holds the program's own login. */
     readonly folder: string;
 }
@@ -91,9 +92,6 @@ const TOOL_PREFIX = "mcp__hamlet__";
 /** The prompt of a query whose history ends at tool results its own query no longer waits for. */
 const CONTINUE =
     "[Your session was interrupted and resumed. What precedes this ends with the tool result you were waiting for. Continue the task from there.]";
-
-/** The Agent SDK's words when it finds no Claude program for this machine. */
-const MISSING = `Native CLI binary for ${process.platform}-${process.arch} not found. Reinstall @anthropic-ai/claude-agent-sdk without --omit=optional, or set options.pathToClaudeCodeExecutable.`;
 
 /** The words a turn fails with when Claude bills past the plan, which a subscription login is for. */
 const OVERAGE =
@@ -132,7 +130,7 @@ interface Folders {
 
 interface Program {
     readonly at: Folders;
-    readonly executable: string | undefined;
+    readonly executable: string;
 }
 
 /** The packages a call drives the Claude program with. */
@@ -240,6 +238,25 @@ function environment(at: Folders): Record<string, string> {
 }
 
 /**
+ * Adds the tokens of the login the Claude program keeps in its folder to
+ * the host's scrub list, so the program's own words never show them.
+ */
+function rememberLogin(at: Folders): void {
+    try {
+        const { claudeAiOauth: kept } = JSON.parse(
+            readFileSync(join(at.config, ".credentials.json"), "utf8"),
+        ) as { claudeAiOauth?: Record<string, unknown> };
+        remember(
+            ...[kept?.accessToken, kept?.refreshToken].filter(
+                (token) => typeof token === "string",
+            ),
+        );
+    } catch {
+        // No login yet, or one kept otherwise; a parse error quotes the file, so it is not reported.
+    }
+}
+
+/**
  * Runs `claude auth login` with `BROWSER` set to a script that writes the
  * sign-in link to a file, relays that link, and waits until the Claude
  * program has the login. The code and the token stay with it.
@@ -249,7 +266,6 @@ async function signIn(
     interaction: ProviderAuthInteraction,
 ): Promise<void> {
     const { at, executable } = claude;
-    if (executable === undefined) throw new Error(MISSING);
     const link = join(at.work, "sign-in-link");
     rmSync(link, { force: true });
     const script = /\.(mjs|cjs|js)$/.test(executable);
@@ -278,6 +294,10 @@ async function signIn(
     const stop = () => child.kill();
     signal.addEventListener("abort", stop, { once: true });
     const looked = new AbortController();
+    const lastWords = () => {
+        rememberLogin(at);
+        return scrub(lastLine(said));
+    };
     try {
         const url = await Promise.race([
             linkIn(link, AbortSignal.any([signal, looked.signal])),
@@ -289,7 +309,7 @@ async function signIn(
             throw new Error(
                 signal.aborted
                     ? "Sign-in cancelled."
-                    : `Claude's sign-in gave no link. ${lastLine(said)}`,
+                    : `Claude's sign-in gave no link. ${lastWords()}`,
             );
         interaction.notify({
             type: "auth_url",
@@ -300,7 +320,8 @@ async function signIn(
         const code = await exited;
         if (signal.aborted) throw new Error("Sign-in cancelled.");
         if (code !== 0)
-            throw new Error(`Claude's sign-in failed. ${lastLine(said)}`);
+            throw new Error(`Claude's sign-in failed. ${lastWords()}`);
+        rememberLogin(at);
     } finally {
         looked.abort();
         signal.removeEventListener("abort", stop);
@@ -381,6 +402,7 @@ async function answer(
 ): Promise<void> {
     const messages = context.messages.filter((m) => m.role !== "system");
     const reply = new Reply(model, out, messages.length, options?.signal);
+    rememberLogin(claude.at);
     try {
         const loaded = await packages();
         // A summary pi-durable asks for runs apart, leaving the conversation's query be.
@@ -401,10 +423,8 @@ async function answer(
             }
             held.run.close();
         }
-        const { executable } = claude;
-        if (executable === undefined) throw new Error(MISSING);
         new Run(
-            { ...claude, executable, loaded },
+            { ...claude, loaded },
             model,
             context,
             messages,
@@ -439,7 +459,6 @@ function answered(
 
 /** The Claude program a query runs, with the packages that drive it. */
 interface Driven extends Program {
-    readonly executable: string;
     readonly loaded: Awaited<ReturnType<typeof packages>>;
 }
 
@@ -523,7 +542,8 @@ class Run {
                 model: model.id,
                 ...thinking(model, options?.reasoning),
                 ...(resume === undefined ? {} : { resume }),
-                stderr: (data) => process.stderr.write(`claude: ${data}`),
+                stderr: (data) =>
+                    process.stderr.write(`claude: ${scrub(data)}`),
             },
         });
         this.#attach(reply);
@@ -841,7 +861,7 @@ class Reply {
         if (this.#ended) return;
         const reason = aborted ? "aborted" : "error";
         this.#message.stopReason = reason;
-        this.#message.errorMessage = words;
+        this.#message.errorMessage = scrub(words);
         this.#close();
         this.#out.push({ type: "error", reason, error: this.#message });
         this.#out.end(this.#message);
@@ -978,33 +998,6 @@ class Reply {
             usage.input + usage.output + usage.cacheRead + usage.cacheWrite;
         usage.cost = calculateCost(this.#model, usage);
     }
-}
-
-/** An answer of `model` with nothing in it yet. */
-function emptyAnswer(model: Model<Api>): AssistantMessage {
-    return {
-        role: "assistant",
-        content: [],
-        api: model.api,
-        provider: model.provider,
-        model: model.id,
-        usage: {
-            input: 0,
-            output: 0,
-            cacheRead: 0,
-            cacheWrite: 0,
-            totalTokens: 0,
-            cost: {
-                input: 0,
-                output: 0,
-                cacheRead: 0,
-                cacheWrite: 0,
-                total: 0,
-            },
-        },
-        stopReason: "stop",
-        timestamp: Date.now(),
-    };
 }
 
 /** The events' name of each kind of content. */
@@ -1175,7 +1168,15 @@ function userContent(
 ): string | UserContentBlock[] {
     if (typeof message.content === "string")
         return message.content || "[empty]";
-    const blocks = message.content.flatMap((block): UserContentBlock[] =>
+    const blocks = anthropicBlocks(message.content);
+    return blocks.length > 0 ? blocks : "[empty]";
+}
+
+/** pi's text and images as Anthropic blocks. */
+function anthropicBlocks(
+    content: readonly (TextContent | ImageContent)[],
+): UserContentBlock[] {
+    return content.flatMap((block): UserContentBlock[] =>
         block.type === "text"
             ? block.text === ""
                 ? []
@@ -1191,11 +1192,14 @@ function userContent(
                   },
               ],
     );
-    return blocks.length > 0 ? blocks : "[empty]";
 }
 
-/** A result as text, which Anthropic rejects empty. */
-function resultContent(message: Extract<Message, { role: "toolResult" }>) {
+/** A result as Anthropic content, which Anthropic rejects empty. */
+function resultContent(
+    message: Extract<Message, { role: "toolResult" }>,
+): string | UserContentBlock[] {
+    if (message.content.some((block) => block.type === "image"))
+        return anthropicBlocks(message.content);
     const text = message.content
         .flatMap((block) => (block.type === "text" ? [block.text] : []))
         .join("\n");
