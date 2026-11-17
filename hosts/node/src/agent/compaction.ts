@@ -1,7 +1,8 @@
 /**
  * Compaction's settings by each listed model's window, and the short
  * cut-off rule (C28): an empty answer cut off short, with history, on its
- * first try, compacts once and runs again.
+ * first try, compacts once and runs again. Any other empty answer fails
+ * its turn (C29).
  */
 import type { Context } from "@earendil-works/chord/context";
 import type { Api, AssistantMessage, Model } from "@earendil-works/pi-ai";
@@ -20,9 +21,10 @@ import {
     type RunSummary,
     runEndTask,
     type TaskId,
-    type TaskRuntime,
 } from "@earendil-works/pi-durable";
+import { emptyAnswer, failTurn, type TellFailed } from "./failed.ts";
 import type { LetterId, RealmTask } from "./messages.ts";
+import { realmWordsIn } from "./spend.ts";
 import { draftOf } from "./turn.ts";
 
 /** Today's, in `harnesses/pi/src/models.ts` and `runtime.ts`. */
@@ -63,8 +65,6 @@ const ROOMY = 1024;
  */
 const ASKED_AGAIN = "hamlet.cut-off";
 
-const NOTICE = "hamlet.notice";
-
 const NO_ROOM =
     "the model has no room left to answer, even with the conversation summarised. Start a new session, or choose a model that holds more";
 const NO_SUMMARY =
@@ -103,118 +103,126 @@ export function hasWordsOrCall(answer: AssistantMessage): boolean {
  * The compaction is created in the commit that waits for it, so a kill
  * never makes a second one.
  */
-const CutOff = defineTask<CutOffInput, CutOffState, null>({
-    name: "hamlet.cut-off",
-    version: 1,
-    initial: () => ({ phase: "rule" }),
-    phases: {
-        rule: async (task, runtime, context) => {
-            const input = await runtime.entry(task.input.input, context);
-            if (input?.kind === ASKED_AGAIN) {
-                return notice(runtime, NO_ROOM, context);
-            }
-            const view = await runtime.context(
-                runtime.conversationId,
-                context,
-                { at: task.input.answer },
-            );
-            // Today counted the messages before the answer: one is no history.
-            const spoken = view.messages.filter(
-                (message) => message.role !== "system",
-            ).length;
-            if (spoken <= 2) return notice(runtime, TOO_LONG, context);
-            await runtime.commit(async (tx) => {
-                const summary = await tx.createTask(
-                    CompactionTask,
-                    { reason: "manual" },
-                    { ownership: { kind: "task", taskId: runtime.taskId } },
+function cutOffTask(tell: TellFailed) {
+    return defineTask<CutOffInput, CutOffState, null>({
+        name: "hamlet.cut-off",
+        version: 1,
+        initial: () => ({ phase: "rule" }),
+        phases: {
+            rule: async (task, runtime, context) => {
+                const input = await runtime.entry(task.input.input, context);
+                if (input?.kind === ASKED_AGAIN) {
+                    return failTurn(
+                        runtime,
+                        input,
+                        NO_ROOM,
+                        "model",
+                        tell,
+                        context,
+                    );
+                }
+                const view = await runtime.context(
+                    runtime.conversationId,
+                    context,
+                    { at: task.input.answer },
                 );
-                return {
-                    status: "waiting",
-                    checkpoint: { phase: "summarised", summary },
-                    on: [summary],
-                    policy: "allSettled",
-                };
-            }, context);
-        },
-        summarised: async (task, runtime, context) => {
-            const [outcome] = await runtime.outcomes(
-                [task.state.checkpoint.summary],
-                context,
-            );
-            if (
-                outcome?.status !== "completed" ||
-                outcome.result.entryId === undefined
-            ) {
-                const error =
-                    outcome?.status === "failed" ||
-                    outcome?.status === "faulted"
-                        ? outcome.error.message
-                        : "";
-                return notice(
-                    runtime,
-                    error.startsWith(SUMMARY_FAILED)
-                        ? `provider error: ${error.slice(SUMMARY_FAILED.length)}`
-                        : NO_SUMMARY,
+                // Today counted the messages before the answer: one is no history.
+                const spoken = view.messages.filter(
+                    (message) => message.role !== "system",
+                ).length;
+                if (spoken <= 2) {
+                    return failTurn(
+                        runtime,
+                        input,
+                        TOO_LONG,
+                        "model",
+                        tell,
+                        context,
+                    );
+                }
+                await runtime.commit(async (tx) => {
+                    const summary = await tx.createTask(
+                        CompactionTask,
+                        { reason: "manual" },
+                        { ownership: { kind: "task", taskId: runtime.taskId } },
+                    );
+                    return {
+                        status: "waiting",
+                        checkpoint: { phase: "summarised", summary },
+                        on: [summary],
+                        policy: "allSettled",
+                    };
+                }, context);
+            },
+            summarised: async (task, runtime, context) => {
+                const input = await runtime.entry(task.input.input, context);
+                const [outcome] = await runtime.outcomes(
+                    [task.state.checkpoint.summary],
                     context,
                 );
-            }
-            const input = await runtime.entry(task.input.input, context);
-            // A question's second try answers the question.
-            const { task: charged, question } =
-                (input?.data as {
-                    task?: RealmTask;
-                    question?: LetterId;
-                } | null) ?? {};
-            const asked = draftOf({
-                id: `cut-off:${runtime.taskId}`,
-                kind: "cut-off",
-                content: CARRY_ON,
-                ...(charged === undefined ? {} : { task: charged }),
-                ...(question === undefined ? {} : { question }),
-            });
-            const conversation = await runtime.conversation(
-                runtime.conversationId,
-                context,
-            );
-            await runtime.commit(async (tx) => {
-                await conversation?.submit(tx, asked);
-                return {
-                    status: "terminal",
-                    outcome: { status: "completed", result: null },
-                };
-            }, context);
-        },
-    },
-    abort: (_task, runtime, context) =>
-        runtime.commit(
-            () => ({ status: "terminal", outcome: { status: "aborted" } }),
-            context,
-        ),
-});
-
-async function notice(
-    runtime: TaskRuntime<CutOffInput, CutOffState, null, object>,
-    words: string,
-    context: Context,
-): Promise<void> {
-    const conversation = await runtime.conversation(
-        runtime.conversationId,
-        context,
-    );
-    await runtime.commit(async (tx) => {
-        await conversation?.submit(tx, {
-            type: "write",
-            entry: {
-                kind: NOTICE,
-                data: { text: words, at: Math.floor(runtime.now() / 1000) },
+                if (
+                    outcome?.status !== "completed" ||
+                    outcome.result.entryId === undefined
+                ) {
+                    const error =
+                        outcome?.status === "failed" ||
+                        outcome?.status === "faulted"
+                            ? outcome.error.message
+                            : "";
+                    const realm = realmWordsIn(error);
+                    if (realm !== undefined) {
+                        return failTurn(
+                            runtime,
+                            input,
+                            realm,
+                            "budget",
+                            tell,
+                            context,
+                        );
+                    }
+                    return failTurn(
+                        runtime,
+                        input,
+                        error.startsWith(SUMMARY_FAILED)
+                            ? `provider error: ${error.slice(SUMMARY_FAILED.length)}`
+                            : NO_SUMMARY,
+                        "model",
+                        tell,
+                        context,
+                    );
+                }
+                // A question's second try answers the question.
+                const { task: charged, question } =
+                    (input?.data as {
+                        task?: RealmTask;
+                        question?: LetterId;
+                    } | null) ?? {};
+                const asked = draftOf({
+                    id: `cut-off:${runtime.taskId}`,
+                    kind: "cut-off",
+                    content: CARRY_ON,
+                    ...(charged === undefined ? {} : { task: charged }),
+                    ...(question === undefined ? {} : { question }),
+                });
+                const conversation = await runtime.conversation(
+                    runtime.conversationId,
+                    context,
+                );
+                await runtime.commit(async (tx) => {
+                    await conversation?.submit(tx, asked);
+                    return {
+                        status: "terminal",
+                        outcome: { status: "completed", result: null },
+                    };
+                }, context);
             },
-        });
-        return {
-            status: "terminal",
-            outcome: { status: "completed", result: null },
-        };
-    }, context);
+        },
+        abort: (_task, runtime, context) =>
+            runtime.commit(
+                () => ({ status: "terminal", outcome: { status: "aborted" } }),
+                context,
+            ),
+    });
 }
 
 /**
@@ -238,10 +246,12 @@ async function inputOf(
     );
 }
 
-export function cutOffRule(): Extension {
+export function cutOffRule(tell: TellFailed): Extension {
+    const CutOff = cutOffTask(tell);
+    const EmptyAnswer = emptyAnswer(tell);
     return defineExtension({
         name: "hamlet.cut-off",
-        tasks: [CutOff],
+        tasks: [CutOff, EmptyAnswer],
         hooks: [
             hook(GenerationTask, {
                 afterRun: async (run, api, context) => {
@@ -249,26 +259,24 @@ export function cutOffRule(): Extension {
                         ?.model?.[0];
                     if (
                         answer?.role !== "assistant" ||
-                        !isShortCutOff(answer)
+                        hasWordsOrCall(answer)
                     ) {
                         return undefined;
                     }
                     const input = await inputOf(api, run, context);
                     // Today's rule leaves a reflection's empty answer to C29.
-                    if (
-                        input === undefined ||
-                        input.kind === "hamlet.reflection"
-                    ) {
-                        return undefined;
-                    }
-                    return {
-                        tasks: [
-                            runEndTask(CutOff, {
-                                input: input.id,
-                                answer: run.answer,
-                            }),
-                        ],
-                    };
+                    const task =
+                        isShortCutOff(answer) &&
+                        input !== undefined &&
+                        input.kind !== "hamlet.reflection"
+                            ? runEndTask(CutOff, {
+                                  input: input.id,
+                                  answer: run.answer,
+                              })
+                            : runEndTask(EmptyAnswer, {
+                                  input: input?.id ?? null,
+                              });
+                    return { tasks: [task] };
                 },
             }),
         ],

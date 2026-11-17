@@ -43,7 +43,7 @@ import {
 } from "./messages.ts";
 import { scrub, withheld } from "./models.ts";
 import { conversationOfChat, current } from "./sessions.ts";
-import type { Kept } from "./turn.ts";
+import { type Kept, NOTE_BREAK } from "./turn.ts";
 
 /** The number a client follows: one more than the last change, within `epoch`. */
 export interface Following {
@@ -648,8 +648,14 @@ function itemsOf(entry: EntryRecord): Shown[] {
         }
         case "pi.compaction":
             return one("notice", SUMMARY_NOTICE);
+        // A notice the realm told the model is an input; one for people
+        // alone keeps its text in its data.
         case "hamlet.notice":
-            return one("notice", (entry.data as { text: string }).text);
+            return one(
+                "notice",
+                (entry.data as { text?: string } | undefined)?.text ??
+                    textOf(entry),
+            );
         // Today's words for a reflection's mark.
         case "hamlet.reflection":
             return one("notice", "reflection");
@@ -658,8 +664,32 @@ function itemsOf(entry: EntryRecord): Shown[] {
         // The ask-again of a short cut-off (C28) shows as its summary's notice.
         case "hamlet.cut-off":
             return [];
-        case "hamlet.line":
-            return one("user", textOf(entry), { rewindable: true });
+        case "hamlet.line": {
+            const line = one("user", textOf(entry), { rewindable: true });
+            const { note } = (entry.data ?? {}) as Kept;
+            return note === undefined
+                ? line
+                : [
+                      ...line,
+                      {
+                          block: 1,
+                          item: {
+                              id: `${entry.id}:1`,
+                              at,
+                              kind: "notice",
+                              text: note,
+                          },
+                      },
+                  ];
+        }
+        case "hamlet.worker-answer": {
+            const { from } = (entry.data ?? {}) as Kept;
+            return one(
+                "user",
+                textOf(entry),
+                from === undefined ? {} : { author: `worker#${from.agent}` },
+            );
+        }
         case "hamlet.letter":
         case "hamlet.question":
         case "hamlet.answer": {
@@ -874,8 +904,9 @@ export async function readHistory(
     });
 }
 
+/** An entry's words; a reviewed line's are the chief's own, without the lead's note. */
 export function textOf(entry: EntryRecord): string {
-    return (entry.model ?? [])
+    const text = (entry.model ?? [])
         .flatMap((message) =>
             typeof message.content === "string"
                 ? [message.content]
@@ -884,6 +915,11 @@ export function textOf(entry: EntryRecord): string {
                   ),
         )
         .join("");
+    const { note } = (entry.data ?? {}) as Kept;
+    const noted = note === undefined ? undefined : `${NOTE_BREAK}${note}`;
+    return noted !== undefined && text.endsWith(noted)
+        ? text.slice(0, -noted.length)
+        : text;
 }
 
 function titleOf(line: string): string {

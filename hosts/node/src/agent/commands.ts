@@ -14,6 +14,7 @@ import {
 } from "@earendil-works/pi-durable";
 import { withHarness } from "../pi/runtime.ts";
 import { type AgentCall, generationOf } from "./actor.ts";
+import { hasWordsOrCall } from "./compaction.ts";
 import {
     type ClientActions,
     type LapseReason,
@@ -227,7 +228,7 @@ function retryRefused(why: RetryRefusal): RetryAnswer {
 /**
  * Why the turn cannot be carried on, `admitted` when this retry already
  * was, or `undefined`. As today, an answer that stopped normally or at its
- * length is not carried on.
+ * length, with words or a call, is not carried on.
  */
 async function refusedRetry(
     harness: Harness,
@@ -251,10 +252,12 @@ async function refusedRetry(
             (entry) => entry.kind === "pi.assistant",
         );
         if (answer !== undefined) {
-            const stopReason = (
-                answer.model?.[0] as AssistantMessage | undefined
-            )?.stopReason;
-            return stopReason === "stop" || stopReason === "length"
+            const message = answer.model?.[0] as AssistantMessage | undefined;
+            // An answer with nothing in it failed its turn (C29).
+            return message !== undefined &&
+                (message.stopReason === "stop" ||
+                    message.stopReason === "length") &&
+                hasWordsOrCall(message)
                 ? "answered"
                 : undefined;
         }
