@@ -5,7 +5,10 @@ use std::path::PathBuf;
 
 use serde::{Deserialize, Serialize};
 
-use super::{ChiefRequest, Done, HamletId, HamletRefusal};
+use super::{
+    ChiefRequest, Done, HamletId, HamletRefusal, SocietyTool,
+    ToolCall,
+};
 use crate::workspace::reach::Mode;
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -66,6 +69,12 @@ pub struct ReadRecord {
 
 impl ChiefRequest for ReadRecord {
     const NAME: &'static str = "chief_read_record";
+    type Answer = Record;
+}
+
+/// Only the Hand calls it.
+impl ToolCall for ReadRecord {
+    const TOOL: SocietyTool = SocietyTool::ReadRecord;
     type Answer = Record;
 }
 

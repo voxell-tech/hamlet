@@ -14,15 +14,20 @@ use hamlet_actor_error::ActorError;
 use hamlet_actors::realm;
 use hamlet_host::{Address, Caller, Host, HostOptions, HostRef};
 use hamlet_messages::address::{self, Party};
+use hamlet_messages::agent::copies::Copies;
 use hamlet_messages::agent::{
     AgentInput, Fill, Place, PlaceVersion, Submit,
 };
 use hamlet_messages::profile::Branch;
+use hamlet_messages::realm::budget::{
+    BudgetLimit, Charge, MaySpend, SpendRefusal,
+};
 use hamlet_messages::realm::client::{Answer, Say};
 use hamlet_messages::realm::world::{ReachSeen, Status};
 use hamlet_messages::realm::{
-    Asked, Found, FoundAnswer, HamletId, Hire, HireAnswer,
-    HireRefusal, Named, NeedsChief, ProfileId, Tell, Tier, Tool,
+    Asked, Done, Found, FoundAnswer, HamletId, Hire, HireAnswer,
+    HireRefusal, Named, NeedsChief, ProfileId, SetLimits, Tell, Tier,
+    Tool,
 };
 use hamlet_messages::sender::Hand;
 use hamlet_messages::workspace::reach::Reach;
@@ -39,8 +44,18 @@ use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
 use tokio::sync::watch;
 
+#[path = "realm/allowance.rs"]
+mod allowance;
+#[path = "realm/asking.rs"]
+mod asking;
 #[path = "realm/budget.rs"]
 mod budget;
+#[path = "realm/chiefs.rs"]
+mod chiefs;
+#[path = "realm/choices.rs"]
+mod choices;
+#[path = "realm/errands.rs"]
+mod errands;
 #[path = "realm/first_start.rs"]
 mod first_start;
 #[path = "realm/found.rs"]
@@ -51,14 +66,32 @@ mod laid;
 mod lead;
 #[path = "realm/letters.rs"]
 mod letters;
+#[path = "realm/oversight.rs"]
+mod oversight;
+#[path = "realm/parcels.rs"]
+mod parcels;
 #[path = "realm/places.rs"]
 mod places;
+#[path = "realm/record.rs"]
+mod record;
+#[path = "realm/reserved.rs"]
+mod reserved;
+#[path = "realm/reviews.rs"]
+mod reviews;
 #[path = "realm/say.rs"]
 mod say;
+#[path = "realm/secrets.rs"]
+mod secrets;
+#[path = "realm/settings.rs"]
+mod settings;
+#[path = "realm/society.rs"]
+mod society;
 #[path = "realm/steps.rs"]
 mod steps;
 #[path = "realm/waits.rs"]
 mod waits;
+#[path = "realm/workers.rs"]
+mod workers;
 #[path = "realm/world.rs"]
 mod world;
 #[path = "realm/writers.rs"]
@@ -89,11 +122,14 @@ struct Seen {
     submits: Mutex<Vec<(AgentNumber, Submit)>>,
     places: Mutex<Vec<(AgentNumber, Place)>>,
     fills: Mutex<Vec<(AgentNumber, Fill)>>,
+    copies: Mutex<Vec<(AgentNumber, Copies)>>,
     reaches: Mutex<Vec<SetReach>>,
     chief_answers: Mutex<Vec<ChiefAnswer>>,
     branches: Mutex<Vec<(ProfileId, Branch)>>,
     failing: Mutex<HashSet<(Callee, AgentNumber)>>,
     held: watch::Sender<HashSet<Callee>>,
+    /// The calls that wait while the test holds their callee.
+    waiting: Mutex<HashSet<(Callee, AgentNumber)>>,
 }
 
 impl Seen {
@@ -104,10 +140,14 @@ impl Seen {
         callee: Callee,
         agent: AgentNumber,
     ) -> anyhow::Result<()> {
-        self.held
-            .subscribe()
-            .wait_for(|held| !held.contains(&callee))
-            .await?;
+        let mut held = self.held.subscribe();
+        if held.borrow().contains(&callee) {
+            self.waiting.lock().unwrap().insert((callee, agent));
+        }
+        let released =
+            held.wait_for(|held| !held.contains(&callee)).await;
+        self.waiting.lock().unwrap().remove(&(callee, agent));
+        released?;
         if self.failing.lock().unwrap().remove(&(callee, agent)) {
             bail!(
                 "the stand-in fails {callee:?} of {} once",
@@ -123,6 +163,10 @@ impl Seen {
 
     fn has_failed(&self, callee: Callee, agent: AgentNumber) -> bool {
         !self.failing.lock().unwrap().contains(&(callee, agent))
+    }
+
+    fn is_waiting(&self, callee: Callee, agent: AgentNumber) -> bool {
+        self.waiting.lock().unwrap().contains(&(callee, agent))
     }
 
     fn hold(&self, callee: Callee) {
@@ -189,7 +233,7 @@ struct AgentStandIn {
 impl Actor for AgentStandIn {
     /// `None` for an agent a test made to call as.
     type Input = Option<AgentInput>;
-    type Actions = (Submit, Place, Fill, Forward);
+    type Actions = (Submit, Place, Fill, Copies, Forward);
     type Events = ();
     type ConnParams = Option<Caller>;
     type Action = ();
@@ -245,6 +289,17 @@ impl Handler<Fill> for AgentStandIn {
     ) -> anyhow::Result<()> {
         self.seen.called(Callee::Fill, self.agent).await?;
         self.seen.fills.lock().unwrap().push((self.agent, fill));
+        Ok(())
+    }
+}
+
+impl Handler<Copies> for AgentStandIn {
+    async fn handle(
+        self: Arc<Self>,
+        _: Ctx<Self>,
+        copies: Copies,
+    ) -> anyhow::Result<()> {
+        self.seen.copies.lock().unwrap().push((self.agent, copies));
         Ok(())
     }
 }
@@ -525,7 +580,7 @@ impl Realm {
             .any(|reach| reach.agent == agent)
     }
 
-    async fn rows<T>(
+    async fn stopped_rows<T>(
         &self,
         read: impl FnOnce(&Connection) -> rusqlite::Result<T>,
     ) -> T {
@@ -674,7 +729,7 @@ async fn chief_hires(
         .unwrap()
 }
 
-fn standing(realm: &Realm, agent: AgentNumber) -> RealmTask {
+fn made(realm: &Realm, agent: AgentNumber) -> Option<AgentInput> {
     realm
         .seen
         .made
@@ -682,8 +737,83 @@ fn standing(realm: &Realm, agent: AgentNumber) -> RealmTask {
         .unwrap()
         .iter()
         .find(|(made, _)| *made == agent)
-        .map(|(_, input)| input.task.clone())
-        .expect("the agent was made")
+        .map(|(_, input)| input.clone())
+}
+
+async fn made_until(realm: &Realm, agent: AgentNumber) -> AgentInput {
+    until(&format!("agent {} is made", agent.0), || {
+        made(realm, agent).is_some()
+    })
+    .await;
+    made(realm, agent).unwrap()
+}
+
+fn standing(realm: &Realm, agent: AgentNumber) -> RealmTask {
+    made(realm, agent).expect("the agent was made").task
+}
+
+fn charge(
+    call: &str,
+    task: &RealmTask,
+    micros: u32,
+    ms: u32,
+) -> Charge {
+    Charge {
+        call: CallId(call.to_owned()),
+        task: task.clone(),
+        micros,
+        took_ms: ms,
+        tokens: None,
+    }
+}
+
+async fn may_spend(
+    realm: &Realm,
+    agent: AgentNumber,
+    task: &RealmTask,
+) -> Done<SpendRefusal> {
+    let may = MaySpend { task: task.clone() };
+    realm.tool(agent, &may).await.unwrap()
+}
+
+async fn limit(
+    realm: &Realm,
+    hamlet: Option<&HamletId>,
+    budget: Vec<BudgetLimit>,
+) {
+    let set = realm
+        .ask(&Asked {
+            id: RequestId::new(),
+            act: SetLimits {
+                hamlet: hamlet.cloned(),
+                budget,
+                limits: Vec::new(),
+            },
+        })
+        .await
+        .unwrap();
+    assert_eq!(set, Done::Done);
+}
+
+/// The words of a refusal, as the chief or the agent reads them.
+fn words<R: std::fmt::Display>(done: Done<R>) -> String {
+    match done {
+        Done::Refused { why } => why.to_string(),
+        Done::Done => panic!("refused, not done"),
+    }
+}
+
+/// The copies `agent` was pushed, oldest first.
+fn copies_to(realm: &Realm, agent: AgentNumber) -> Vec<Copies> {
+    realm
+        .seen
+        .copies
+        .lock()
+        .unwrap()
+        .iter()
+        .filter(|(to, _)| *to == agent)
+        .map(|(_, copies)| copies.clone())
+        .collect()
 }
 
 fn submits_to(realm: &Realm, agent: AgentNumber) -> Vec<Submit> {
@@ -761,7 +891,7 @@ async fn purpose_of(
     agent: AgentNumber,
 ) -> Option<String> {
     realm
-        .rows(|db| {
+        .stopped_rows(|db| {
             db.query_row(
                 "SELECT purpose FROM hire WHERE agent = ?1",
                 [agent.0],
@@ -774,6 +904,8 @@ async fn purpose_of(
 fn tool<T>(call: &str, act: T) -> Tool<T> {
     Tool {
         call: CallId(call.to_owned()),
+        task: None,
+        conversation: None,
         act,
     }
 }

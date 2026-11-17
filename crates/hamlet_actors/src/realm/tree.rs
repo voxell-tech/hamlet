@@ -1,6 +1,7 @@
 //! The tree of hires: the `profile`, `agent`, `hire` and
 //! `hire_tool_off` tables, and the lead's powers over them.
 
+pub(super) mod choices;
 mod lead;
 pub(super) mod tools;
 
@@ -10,7 +11,7 @@ use anyhow::{Context as _, Result, bail};
 use hamlet_actor::BindParam;
 use hamlet_messages::agent::AgentKind;
 use hamlet_messages::realm::{
-    HamletId, Left, Named, ProfileId, ToolName,
+    HamletId, HowEnded, Left, Named, ProfileId, ToolName,
 };
 use hamlet_messages::sender::Hand;
 use hamlet_messages::workspace::AgentNumber;
@@ -145,7 +146,7 @@ pub(super) async fn lineage(
                 .with_context(|| format!("the hire {hire}"))?,
         );
     }
-    let hamlet = match hamlet_of(rows, agent).await? {
+    let hamlet = match chiefs::hamlet::of_agent(rows, agent).await? {
         Some(id) => Some(
             chiefs::hamlet(rows, &id)
                 .await?
@@ -161,19 +162,6 @@ pub(super) async fn lineage(
     }))
 }
 
-async fn hamlet_of(
-    rows: &Rows<'_>,
-    agent: AgentNumber,
-) -> Result<Option<HamletId>> {
-    Ok(rows
-        .value::<String>(
-            "SELECT hamlet FROM hire WHERE agent = ?1",
-            vec![number(agent)],
-        )
-        .await?
-        .map(HamletId))
-}
-
 fn caller(by: &impl Decider) -> Option<AgentNumber> {
     match by.by() {
         record::By::Agent(agent) => Some(agent),
@@ -186,7 +174,7 @@ async fn own_hamlet(
     caller: Option<AgentNumber>,
 ) -> Result<Option<HamletId>> {
     match caller {
-        Some(caller) => hamlet_of(rows, caller).await,
+        Some(caller) => chiefs::hamlet::of_agent(rows, caller).await,
         None => Ok(None),
     }
 }
@@ -198,6 +186,18 @@ pub(in crate::realm) async fn named(
 ) -> Result<Option<Lineage>> {
     let own = own_hamlet(rows, caller(by)).await?;
     named_in(rows, own.as_ref(), named).await
+}
+
+/// `lineage` with the name a refusal shows its agent by.
+pub(in crate::realm) async fn shown(
+    rows: &Rows<'_>,
+    lineage: Option<Lineage>,
+) -> Result<Option<(Lineage, String)>> {
+    let Some(lineage) = lineage else {
+        return Ok(None);
+    };
+    let name = record::name_of(rows, lineage.agent.agent).await?;
+    Ok(Some((lineage, name)))
 }
 
 async fn named_in(
@@ -297,6 +297,31 @@ pub(super) async fn left(
         Status::Ended(left) => Some(left),
         Status::Hiring | Status::Live => None,
     })
+}
+
+/// Every living hire under `lead`, at any depth: each hire's own
+/// hires follow the last of its hires, as today's tree walks them.
+pub(super) async fn under(
+    rows: &Rows<'_>,
+    lead: AgentNumber,
+) -> Result<Vec<AgentNumber>> {
+    let mut under = Vec::new();
+    let mut next = vec![lead];
+    while let Some(at) = next.pop() {
+        for hire in rows
+            .values::<u32>(
+                "SELECT hire.agent FROM hire JOIN agent ON agent.id \
+                 = hire.agent WHERE hire.lead = ?1 AND agent.status \
+                 != 'ended' ORDER BY hire.agent",
+                vec![number(at)],
+            )
+            .await?
+        {
+            under.push(AgentNumber(hire));
+            next.push(AgentNumber(hire));
+        }
+    }
+    Ok(under)
 }
 
 /// The hires of `hamlet` that count toward its tier: `hiring` and
@@ -406,6 +431,10 @@ pub(super) enum Change {
         off: Vec<ToolName>,
         on: Vec<ToolName>,
     },
+    /// A worker, live from its start and outside every hamlet's tree.
+    Worker { agent: AgentNumber },
+    /// A worker ends `how`, when it had not.
+    WorkerEnded { agent: AgentNumber, how: HowEnded },
 }
 
 pub(super) async fn apply(
@@ -432,6 +461,14 @@ pub(super) async fn apply(
         Change::Tools { hire, off, on } => {
             tools::set(writer, hire, off, on).await
         }
+        Change::Worker { agent } => {
+            new_agent(writer, agent, AgentKind::Worker, "live")
+                .await?;
+            Ok(Affected::seen([Part::Agents]))
+        }
+        Change::WorkerEnded { agent, how } => {
+            worker_ended(writer, agent, how).await
+        }
     }
 }
 
@@ -444,7 +481,8 @@ async fn hand(writer: &Writer<'_>) -> Result<Affected> {
             vec![BindParam::Integer(i64::from(HAND_PROFILE.0))],
         )
         .await?;
-    new_agent(writer, Hand::NUMBER, AgentKind::Hand).await?;
+    new_agent(writer, Hand::NUMBER, AgentKind::Hand, "hiring")
+        .await?;
     places_showing(writer, Hand::NUMBER, None).await
 }
 
@@ -469,7 +507,7 @@ async fn hire(
             profile
         }
     };
-    new_agent(writer, agent, AgentKind::Hire).await?;
+    new_agent(writer, agent, AgentKind::Hire, "hiring").await?;
     writer
         .execute(
             "INSERT INTO hire (agent, hamlet, profile, lead, \
@@ -490,19 +528,56 @@ async fn new_agent(
     writer: &Writer<'_>,
     agent: AgentNumber,
     kind: AgentKind,
+    status: &str,
 ) -> Result<()> {
     writer
         .execute(
             "INSERT INTO agent (id, kind, status, at) VALUES (?1, \
-             ?2, 'hiring', ?3)",
+             ?2, ?3, ?4)",
             vec![
                 number(agent),
                 BindParam::Text(change::case_name(&kind)?),
+                BindParam::Text(status.to_owned()),
                 BindParam::Integer(writer.at().0),
             ],
         )
         .await?;
     Ok(())
+}
+
+async fn worker_ended(
+    writer: &Writer<'_>,
+    agent: AgentNumber,
+    how: HowEnded,
+) -> Result<Affected> {
+    if !set_ended(writer, agent, &how, None).await? {
+        return Ok(Affected::default());
+    }
+    Ok(Affected {
+        reaches: BTreeSet::from([agent]),
+        ..Affected::seen([Part::Agents, Part::Reaches])
+    })
+}
+
+/// Ends `agent` as `how`, for `why`; `false` when it had ended.
+async fn set_ended(
+    writer: &Writer<'_>,
+    agent: AgentNumber,
+    how: &HowEnded,
+    why: Option<String>,
+) -> Result<bool> {
+    let ended = writer
+        .execute(
+            "UPDATE agent SET status = 'ended', ended_how = ?2, \
+             ended_why = ?3 WHERE id = ?1 AND status != 'ended'",
+            vec![
+                number(agent),
+                BindParam::Text(serde_json::to_string(how)?),
+                why.map_or(BindParam::Null, BindParam::Text),
+            ],
+        )
+        .await?;
+    Ok(ended > 0)
 }
 
 async fn places_showing(
@@ -718,6 +793,42 @@ mod tests {
             Ok(Of::Profile(HAND_PROFILE))
         );
         assert_eq!(of(Some(ProfileId(9))).await, Err(ProfileId(9)));
+        started.stop().await;
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn a_worker_is_live_at_once_and_ends_once() {
+        let started = Started::new().await;
+        let worker = fresh(&started.rows()).await.unwrap();
+        started
+            .commit(Change::Worker { agent: worker })
+            .await
+            .unwrap();
+        let rows = started.rows();
+        let member = lineage(&rows, worker).await.unwrap().unwrap();
+        assert_eq!(
+            (member.agent.kind, member.agent.status, member.hamlet),
+            (AgentKind::Worker, Status::Live, None)
+        );
+        assert_eq!(
+            fresh(&rows).await.unwrap(),
+            AgentNumber(worker.0 + 1)
+        );
+
+        for how in [HowEnded::Answered, HowEnded::Stopped] {
+            started
+                .commit(Change::WorkerEnded { agent: worker, how })
+                .await
+                .unwrap();
+        }
+        let left = left_of(&started.rows(), worker.0).await;
+        assert_eq!(
+            left,
+            Some(Left {
+                how: HowEnded::Answered,
+                why: None,
+            })
+        );
         started.stop().await;
     }
 

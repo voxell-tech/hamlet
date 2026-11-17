@@ -11,7 +11,7 @@ async fn a_new_realm_holds_the_hand_as_agent_1() {
     let realm = Realm::start().await;
 
     let (agent, profile, row, payer) = realm
-        .rows(|db| {
+        .stopped_rows(|db| {
             let agent = db
                 .query_row(
                     "SELECT kind, status FROM agent WHERE id = 1",

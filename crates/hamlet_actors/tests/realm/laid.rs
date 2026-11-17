@@ -1,18 +1,19 @@
 use hamlet_messages::agent::{Author, Input, Place};
 use hamlet_messages::realm::budget::Payer;
 use hamlet_messages::realm::client::ReadWorld;
+use hamlet_messages::realm::hamlets::{ReadRecord, Record};
 use hamlet_messages::realm::world::{RoadSeen, Seen};
 use hamlet_messages::realm::{
-    AgentRefusal, Asked, Done, End, FoundAnswer, Gate, HamletId,
-    Hire, HowEnded, LayRefusal, LayRoad, LeadRefusal, Left,
-    LetterRefusal, Named, OnlyAHire, Rank, RequestRoad,
-    RequestRoadRefusal, SetTier, SetTools, SocietyTool,
-    TakeUpRefusal, TakeUpRoad, Tier, TierRefusal, ToolName,
+    AgentRefusal, Asked, Done, End, FoundAnswer, HamletId, Hire,
+    HowEnded, LayRefusal, LayRoad, LeadRefusal, Left, LetterRefusal,
+    Named, OnlyAHire, Rank, RequestRoad, RequestRoadRefusal, SetTier,
+    SetTools, TakeUpRefusal, TakeUpRoad, Tier, TierRefusal, ToolName,
 };
 use hamlet_messages::sender::Hand;
 use hamlet_messages::workspace::AgentNumber;
 use hamlet_protocol::client::RequestId;
 
+use super::chiefs::chief;
 use super::{
     Callee, FOUR, MAYOR, Realm, THREE, chief_hires, found,
     hamlet_with, hire, purpose_of, seen_submits, submits_to, tell,
@@ -49,14 +50,6 @@ fn names(names: &[&str]) -> Vec<ToolName> {
         .iter()
         .map(|&name| ToolName { name: name.into() })
         .collect()
-}
-
-fn tell_off<R>() -> Done<AgentRefusal<R>> {
-    Done::Refused {
-        why: AgentRefusal::Gate(Gate::ToolOff {
-            tool: SocietyTool::Tell,
-        }),
-    }
 }
 
 async fn placed(
@@ -160,12 +153,13 @@ async fn a_laid_road_carries_letters_and_is_charged_once() {
                 agent: THREE,
                 name: None
             },
-            text: "hi".to_owned()
+            text: "hi".to_owned(),
+            files: Vec::new(),
         }
     );
     spent(&realm, &hamlet, ROAD_PRICE).await;
     let used = realm
-        .rows(|db| {
+        .stopped_rows(|db| {
             db.query_row(
                 "SELECT used_at IS NOT NULL FROM road WHERE a = 3 \
                  AND b = 4",
@@ -179,29 +173,23 @@ async fn a_laid_road_carries_letters_and_is_charged_once() {
 }
 
 #[tokio::test(flavor = "multi_thread")]
-async fn a_tool_turned_off_is_refused() {
-    // the mayor turns `tell` off for its hire 3: 3's tell is refused
-    // `ToolOff`, and its place lists the tool. Turned on again, the
-    // tell goes through.
+async fn a_society_tool_turned_off_is_still_offered() {
     let (realm, _) = hamlet_with(1).await;
     let set = async |by, call, act| {
         realm.tool(by, &tool(call, act)).await.unwrap()
     };
 
     let off = set(MAYOR, "s1", tools(&["tell"], &[])).await;
-    let refused =
-        realm.tool(THREE, &tool("t1", tell(to(MAYOR), "hi"))).await;
     placed(&realm, THREE, |place| {
         place.tools_off == names(&["tell"])
     })
     .await;
+    let told =
+        realm.tool(THREE, &tool("t1", tell(to(MAYOR), "hi"))).await;
     let on = set(MAYOR, "s2", tools(&[], &["tell"])).await;
     placed(&realm, THREE, |place| place.tools_off.is_empty()).await;
-    let told =
-        realm.tool(THREE, &tool("t2", tell(to(MAYOR), "hi"))).await;
 
     assert_eq!([off, on], [Done::Done, Done::Done]);
-    assert_eq!(refused.unwrap(), tell_off());
     assert_eq!(told.unwrap(), Done::Done);
     realm.host.shutdown().await.unwrap();
 }
@@ -218,8 +206,6 @@ async fn a_tool_off_is_kept_by_its_name() {
         place.tools_off == names(&["bash", "tell"])
     })
     .await;
-    let refused =
-        realm.tool(THREE, &tool("t1", tell(to(MAYOR), "hi"))).await;
     let on = set("s2", tools(&[], &["bash"])).await;
     placed(&realm, THREE, |place| {
         place.tools_off == names(&["tell"])
@@ -227,16 +213,11 @@ async fn a_tool_off_is_kept_by_its_name() {
     .await;
 
     assert_eq!([off, on], [Done::Done, Done::Done]);
-    assert_eq!(refused.unwrap(), tell_off());
     realm.host.shutdown().await.unwrap();
 }
 
 #[tokio::test(flavor = "multi_thread")]
 async fn a_mayors_tools_are_set_by_the_chief_and_the_hand() {
-    // the chief turns the mayor's `tell` off: its tell to 3 is
-    // refused `ToolOff`, and its place lists the tool. The Hand turns
-    // it on again. Hire 3 may not set its mayor's tools, and the
-    // Hand's own are not turned off, by the Hand or the chief.
     let (realm, _) = hamlet_with(1).await;
     let of = |hire, off: &[&str], on: &[&str]| SetTools {
         hire,
@@ -269,7 +250,7 @@ async fn a_mayors_tools_are_set_by_the_chief_and_the_hand() {
         place.tools_off == names(&["tell"])
     })
     .await;
-    let refused = mayor_tells("t1").await;
+    let told_while_off = mayor_tells("t1").await;
     let by_hire = by(THREE, "s1", mayor_off).await;
     let on =
         by(Hand::NUMBER, "s1", of(to(MAYOR), &[], &["tell"])).await;
@@ -279,8 +260,7 @@ async fn a_mayors_tools_are_set_by_the_chief_and_the_hand() {
     let hand_by_chief = by_chief(hand_off).await;
 
     assert_eq!(on, Done::Done);
-    assert_eq!(refused, tell_off());
-    assert_eq!(told, Done::Done);
+    assert_eq!([told_while_off, told], [Done::Done, Done::Done]);
     assert_eq!(
         by_hire,
         Done::Refused {
@@ -290,13 +270,17 @@ async fn a_mayors_tools_are_set_by_the_chief_and_the_hand() {
     assert_eq!(
         hand_by_hand,
         Done::Refused {
-            why: LeadRefusal::Act(OnlyAHire::NotAHire)
+            why: LeadRefusal::Act(OnlyAHire::NotAHire {
+                name: "hand".to_owned()
+            })
         }
     );
     assert_eq!(
         hand_by_chief,
         Done::Refused {
-            why: OnlyAHire::NotAHire
+            why: OnlyAHire::NotAHire {
+                name: "hand".to_owned()
+            }
         }
     );
     realm.host.shutdown().await.unwrap();
@@ -332,16 +316,20 @@ async fn a_road_is_asked_for_by_a_letter_to_the_lead() {
         [by_hand, to_none],
         [
             refused(RequestRoadRefusal::NoLead),
-            refused(RequestRoadRefusal::NoSuchAgent)
+            refused(RequestRoadRefusal::NoSuchAgent {
+                address: "hire#99".to_owned()
+            })
         ]
     );
     for (letters, from) in [(to_mayor, THREE), (to_hand, MAYOR)] {
-        let Input::Letter { from: author, text } = &letters[0].input
+        let Input::Letter {
+            from: author, text, ..
+        } = &letters[0].input
         else {
             panic!("a letter: {letters:?}");
         };
         assert_eq!(author.agent, from);
-        assert!(text.contains("`hire#4`"), "{text}");
+        assert!(text.contains(" hire#4: "), "{text}");
         assert!(text.contains("to share the notes"), "{text}");
     }
     realm.host.shutdown().await.unwrap();
@@ -376,7 +364,7 @@ async fn a_road_request_gives_a_lead_with_no_purpose_one() {
     assert_eq!(asked, Done::Done);
     assert_eq!(
         purpose_of(&realm, THREE).await.as_deref(),
-        Some("I ask for a road to `hire#2`: to report the well")
+        Some("I ask for a road to hire#2: to report the well")
     );
     realm.host.shutdown().await.unwrap();
 }
@@ -564,7 +552,9 @@ async fn a_road_joins_two_hires_of_one_hamlet_under_its_layer() {
                     why: None
                 }
             }),
-            refused(LayRefusal::NoSuchAgent),
+            refused(LayRefusal::NoSuchAgent {
+                address: "hire#99".to_owned()
+            }),
             refused(LayRefusal::RoadExists { a: MAYOR, b: THREE }),
         ]
     );
@@ -677,8 +667,50 @@ async fn a_tier_below_the_living_hires_is_refused() {
     assert_eq!(
         missing,
         Done::Refused {
-            why: TierRefusal::NoSuchHamlet
+            why: TierRefusal::NoSuchHamlet {
+                id: HamletId("none".to_owned()),
+            }
         }
+    );
+    realm.host.shutdown().await.unwrap();
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn a_road_keeps_its_reasons_in_the_record() {
+    let (realm, hamlet) = hamlet_with(2).await;
+    let laying = LayRoad {
+        why: Some("share".to_owned()),
+        ..lay(THREE, FOUR)
+    };
+    let taking_up = TakeUpRoad {
+        a: to(THREE),
+        b: to(FOUR),
+        why: Some("done".to_owned()),
+    };
+
+    let laid = realm.tool(MAYOR, &tool("r1", laying)).await.unwrap();
+    let taken =
+        realm.tool(MAYOR, &tool("u1", taking_up)).await.unwrap();
+    let record = chief(
+        &realm,
+        ReadRecord {
+            hamlet: Some(hamlet),
+        },
+    )
+    .await;
+
+    assert_eq!(laid, Done::Done);
+    assert_eq!(taken, Done::Done);
+    let Record::Read { lines } = record else {
+        panic!("the hamlet's record: {record:?}");
+    };
+    let texts = lines.iter().map(|line| line.text.as_str());
+    assert_eq!(
+        texts.rev().take(2).collect::<Vec<_>>(),
+        [
+            "- hire#2 took up a road from hire#3: done",
+            "- hire#2 laid a road from hire#3: share",
+        ]
     );
     realm.host.shutdown().await.unwrap();
 }

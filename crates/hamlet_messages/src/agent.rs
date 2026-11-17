@@ -12,6 +12,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::Message;
 use crate::address::{Agent, Realm, Workspace};
+use crate::realm::parcels::ParcelFile;
 use crate::realm::{LetterId, ProfileId, ToolName};
 use crate::workspace::files::ChangeEnd;
 use crate::workspace::{
@@ -140,13 +141,12 @@ pub enum Input {
         conversation: Option<ConversationId>,
     },
     /// The answer of a worker the agent started.
-    WorkerAnswer {
-        worker: AgentNumber,
-        text: String,
-    },
+    WorkerAnswer { worker: AgentNumber, text: String },
     Letter {
         from: Author,
         text: String,
+        #[serde(default, skip_serializing_if = "Vec::is_empty")]
+        files: Vec<ParcelFile>,
     },
     /// A letter the agent answers with [`crate::realm::Reply`] when
     /// its turn on it ends.
@@ -154,6 +154,8 @@ pub enum Input {
         letter: LetterId,
         from: Author,
         text: String,
+        #[serde(default, skip_serializing_if = "Vec::is_empty")]
+        files: Vec<ParcelFile>,
     },
     /// The answer to a question the agent asked, for the conversation
     /// it asked from.

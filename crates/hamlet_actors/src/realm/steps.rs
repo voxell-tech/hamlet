@@ -13,7 +13,8 @@ use tokio::sync::watch;
 
 use super::change::{self, Affected, Rows, Writer};
 use super::peer::Peers;
-use super::{Realm, calls, hire};
+use super::workers::errands;
+use super::{Realm, calls, hire, parcels, reviews, workers};
 
 #[derive(
     Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize,
@@ -21,6 +22,10 @@ use super::{Realm, calls, hire};
 #[serde(rename_all = "snake_case")]
 pub(super) enum Kind {
     Hire,
+    Worker,
+    Errand,
+    Review,
+    Parcel,
 }
 
 #[derive(
@@ -183,6 +188,30 @@ async fn drive(realm: Arc<Realm>, ctx: Ctx<Realm>, row: StepId) {
         Kind::Hire => {
             walk(&cx, row, async move |cx: &Cx<'_>, step| {
                 hire::run(cx, row.n, step).await
+            })
+            .await
+        }
+        Kind::Worker => {
+            walk(&cx, row, async move |cx: &Cx<'_>, step| {
+                workers::run(cx, row.n, step).await
+            })
+            .await
+        }
+        Kind::Errand => {
+            walk(&cx, row, async move |cx: &Cx<'_>, step| {
+                errands::run(cx, row.n, step).await
+            })
+            .await
+        }
+        Kind::Review => {
+            walk(&cx, row, async move |cx: &Cx<'_>, step| {
+                reviews::run(cx, row.n, step).await
+            })
+            .await
+        }
+        Kind::Parcel => {
+            walk(&cx, row, async move |cx: &Cx<'_>, step| {
+                parcels::run(cx, row.n, step).await
             })
             .await
         }

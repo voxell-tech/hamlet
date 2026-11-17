@@ -3,42 +3,84 @@ use std::sync::Arc;
 use anyhow::Result;
 use hamlet_actor::Ctx;
 use hamlet_messages::address::Workspace;
-use hamlet_messages::workspace::reach::{Footing, Project, Reach};
+use hamlet_messages::realm::HamletId;
+use hamlet_messages::realm::oversight::Permission;
+use hamlet_messages::workspace::reach::{
+    Footing, Reach, SecretsVersion,
+};
 use hamlet_messages::workspace::{AgentNumber, InForce, SetReach};
 
-use super::change::{self, Rows};
+use super::change::{self, Rows, number};
 use super::peer::When;
-use super::tree::{self, Status};
-use super::{Realm, secrets, versions};
+use super::{Realm, chiefs, oversight, secrets, tree, versions};
 
-/// `agent`'s reach as the rows give it now, under its wanted version:
-/// the hamlet's folder and mode, the agent's own filesystem, the
-/// network setting; `Reach::Ended` for an agent that ended.
+/// `agent`'s reach as the rows give it now, under its wanted version,
+/// asking for the secrets `secrets` holds then; `Reach::Ended` for an
+/// agent that ended.
 pub(super) async fn of(
     rows: &Rows<'_>,
     agent: AgentNumber,
+    secrets: &secrets::Held,
 ) -> Result<SetReach> {
     let (version, _) = versions::reach(rows, agent).await?;
-    let lineage = tree::lineage_of(rows, agent).await?;
-    let reach = match lineage.agent.status {
-        Status::Ended(_) => Reach::Ended,
-        Status::Hiring | Status::Live => Reach::Agent(Footing {
-            project: lineage.hamlet.and_then(|hamlet| {
-                Some(Project {
-                    folder: hamlet.folder?,
-                    mode: hamlet.mode,
-                })
-            }),
-            network: false,
-            trust: Vec::new(),
-            secrets: secrets::VERSION,
-        }),
+    let secrets = secrets.version();
+    let worker = rows
+        .row::<(Option<u32>, Option<String>)>(
+            "SELECT starter, hamlet FROM worker WHERE agent = ?1",
+            vec![number(agent)],
+        )
+        .await?;
+    let reach = if tree::left(rows, agent).await?.is_some() {
+        Reach::Ended
+    } else if let Some((starter, hamlet)) = worker {
+        let starter = starter.map(AgentNumber);
+        Reach::Worker {
+            starter,
+            footing: worker_footing(
+                rows,
+                agent,
+                starter,
+                hamlet.map(HamletId),
+                secrets,
+            )
+            .await?,
+        }
+    } else {
+        Reach::Agent(oversight::footing(rows, agent, secrets).await?)
     };
     Ok(SetReach {
         agent,
         version,
         reach,
     })
+}
+
+/// Worker `agent`'s footing: its starter's without the trust, or for
+/// a chief's worker, its hamlet's; with the network its own grant
+/// gives.
+async fn worker_footing(
+    rows: &Rows<'_>,
+    agent: AgentNumber,
+    starter: Option<AgentNumber>,
+    hamlet: Option<HamletId>,
+    secrets: SecretsVersion,
+) -> Result<Footing> {
+    let mut footing = if let Some(starter) = starter {
+        Footing {
+            trust: Vec::new(),
+            ..oversight::footing(rows, starter, secrets).await?
+        }
+    } else {
+        let hamlet = match hamlet {
+            Some(id) => chiefs::hamlet(rows, &id).await?,
+            None => None,
+        };
+        oversight::hamlet_footing(rows, hamlet.as_ref(), secrets)
+            .await?
+    };
+    footing.network |=
+        oversight::holds(rows, agent, Permission::Network).await?;
+    Ok(footing)
 }
 
 /// Carries `agent`'s wanted reach to the workspace and commits its
@@ -48,7 +90,7 @@ pub(super) async fn push(
     ctx: &Ctx<Realm>,
     agent: AgentNumber,
 ) -> Result<()> {
-    let set = of(&Rows::outside(ctx)?, agent).await?;
+    let set = of(&Rows::outside(ctx)?, agent, &realm.secrets).await?;
     let InForce { version } = realm
         .peers
         .call(&Workspace, &set, When::AfterAnswer)
@@ -88,10 +130,12 @@ mod tests {
         for _ in 0..200 {
             let (before, _) =
                 versions::reach(&started.rows(), HIRE).await.unwrap();
+            let realm = started.realm.clone();
             let set = started
                 .race(
                     |ctx| async move {
-                        of(&Rows::outside(&ctx)?, HIRE).await
+                        let rows = Rows::outside(&ctx)?;
+                        of(&rows, HIRE, &realm.secrets).await
                     },
                     &[
                         &end,

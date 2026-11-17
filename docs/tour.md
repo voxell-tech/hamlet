@@ -358,9 +358,12 @@ agent's event. Its route table lets the realm and an agent call each
 other and a client call either. With `--realm-actor` before the
 command, the demo runs the [realm actor](#the-realm-actor) in place of
 both stand-ins, with a stand-in agent and a stand-in profile from
-`examples/demo/realm.rs`: its `realm` and `agent` lines found, hire,
-say, tell, charge and run commands through it, and print `<name>
-<number>` lines. They work one per line under `demo --realm-actor
+`examples/demo/realm.rs`. Its `realm` lines found, hire, end, answer a
+chief's waits and set budgets, allowances, models and a hamlet's folder
+and mode. Its `agent` lines tell, ask, reply, object, agree roads,
+start workers, charge, fetch parcels and run commands through it.
+`realm world` prints the world a client reads. They print `<name>
+<number>` lines and work one per line under `demo --realm-actor
 serve`, because a one-shot command exits before a hire's steps finish.
 The `faults` feature of `hamlet_actors` makes a realm action panic when
 `HAMLET_REALM_PANIC` names it. `demo profile` and `demo library`, in
@@ -627,40 +630,54 @@ kit's `agent-tell`, `agent-mid-turn` and `agent-timer`
 The server does not use it yet. The realm actor, `realm/local` in
 `hamlet_actors/src/realm.rs` and `src/realm/`, keeps the realm in its
 own file, whose tables are in `realm/schema.sql`: the chief and the
-hamlets, the tree of hires, laid roads, letters, tasks, charges, waits,
-the steps of a hire, and the record of what was decided. `realm::factory`
-registers it, and `realm::Options`, a value of `HostOptions`, sets how
-long a line or a letter to a hire still hiring waits for its steps.
+hamlets, the tree of hires, workers and errands, laid and agreed
+roads, letters and the parcels of files they carry, tasks, charges,
+allowances, waits and objections, the documents and settings, the
+steps of a hire, a worker, an errand, a review and a parcel, and the
+record of what was decided. It also holds `credentials.json` in its
+folder. `realm::factory` registers it, and `realm::Options`, a value
+of `HostOptions`, sets how long a line or a letter to a hire still
+hiring waits for its steps and how long a lead's review may take.
 
 Each action is an `Act` in the module of what it changes, run by
 `act::exec`. `load` reads rows, `decide` gives a `Decision` from what
 was read and nothing else, and `answer` builds the answer once the
-changes are committed. `exec` looks up the action's marker
-(`marker.rs`) by its request id or tool call id, so a repeat gets the
-first answer; opens one transaction; and commits the decided changes
-with the marker. A `Decision::WaitFor` waits, outside the transaction,
-for a hire's steps to end, and the action runs again. `callers.rs`
-says who may call each action: a chief's request, a society tool of an
-agent (refused while the agent ended or the tool is turned off), a
-lead (the chief, or an agent with a lead's powers), or the workspace.
-Any other caller fails with the error `message.wrong_caller`, and an id
+changes are committed. An act that only reads decides with
+`act::Unchanged`. `exec` looks up the action's marker (`marker.rs`) by
+its request id or tool call id, so a repeat gets the first answer;
+opens one transaction; and commits the decided changes with the
+marker. A society tool the hamlet's limits reserve for a chief is
+kept in a `reserved` wait instead (`oversight/reserved.rs`), and runs
+once, as its caller, when a chief allows it; a denied one counts
+toward its task's refusals, as a tool's wait does. A `Decision::WaitFor`
+waits, outside the transaction, for a hire's steps to end, and the
+action runs again. `callers.rs` says who may call each action: a
+chief's request, a society tool of an agent (refused while the agent
+ended, and to a number that is no member, such as an errand's), a lead
+(the chief, or an agent with a lead's powers), or the workspace. Any
+other caller fails with the error `message.wrong_caller`, and an id
 used again with another request with `message.id_reused`. `Reply`,
-`Charge` and `NeedsChief` keep no marker: a repeat writes nothing, as a
-question keeps its first answer and a charge or a wait is kept once
-per call.
+`Charge` and `NeedsChief` keep no marker: a repeat writes nothing, as
+a question keeps its first answer and a charge or a wait is kept once
+per call. Three handlers run outside `Act`: `KeepCredential` and the
+settings' `EditSettings`, which write `credentials.json` before they
+commit, and `FetchPart`, which reads a parcel's file from the realm's
+store; `tests/realm/writers.rs` names them.
 
 A change is a value of the `Change` enum of the module that owns its
 tables, and only that module's `apply` writes them;
 `tests/realm/writers.rs` fails otherwise. `change.rs` holds the
 transaction and `Affected`, what a commit moved: the agents whose
-place or reach changed, the steps begun, and the parts of the world a
-client sees. After the commit, the steps begun start, and `calls.rs`
-pushes each moved place (`place/push.rs`) and reach (`reach.rs`,
-through `versions.rs`, which keeps each version wanted and in force)
-and makes the action's deliveries, such as `Submit` to an agent or
-`ChiefAnswer` to the workspace, before or after the answer. `peer.rs`
-is the one way to another actor. A failed call is logged, and `Say`
-answers whether its line reached the agent; what was committed stays.
+place or reach changed, the steps begun, the parts of the copies an
+agent reads, and the parts of the world a client sees. After the
+commit, the steps begun start, and `calls.rs` pushes each moved place
+(`place/push.rs`), reach (`reach.rs`, through `versions.rs`, which
+keeps each version wanted and in force) and copy (`documents.rs`), and
+makes the action's deliveries, such as `Submit` to an agent, a notice,
+a worker's answer to its starter, or `ChiefAnswer` to the workspace,
+before or after the answer. `peer.rs` is the one way to another actor.
+A failed call is logged, and `Say` answers whether its line reached
+the agent; what was committed stays.
 
 A hire is one transaction, then six steps in `hire.rs`, each recorded
 done by a transaction of its own (`steps.rs`). The first four call
@@ -668,22 +685,40 @@ another actor: the profile's actor, its branch `hires/<n>`, the agent
 made with its place and its task, and the agent's filesystem filled.
 `Reach` commits the hire's first reach as wanted, which the push after
 that commit sends to the workspace, and `Live` calls no actor: the
-transaction that records it makes the hire live and closes the row. At
+transaction that records it makes the hire live and closes the row. A
+worker (`workers.rs`), an errand (`workers/errands.rs`), a review
+(`reviews.rs`) and a parcel (`parcels.rs`) have steps of their own. At
 the realm's start, each step row not closed goes on from its last done
 step, and `End` closes the row.
 
 The rest is by module: `chiefs.rs` founds a hamlet, with
-`chiefs/limits.rs` and `chiefs/tier.rs`; `tree.rs` keeps the tree, with
-`Hire`, `End` and `Seat` in `tree/lead.rs` and the tools a lead turns
-off in `tree/tools.rs`; `roads.rs` says which agents have a road, and
-`laid.rs` keeps the roads a lead lays; `say.rs` is a chief's line, and
-`letters.rs` letters, questions and answers; `tasks.rs` keeps what a
+`chiefs/hamlet.rs` its name, site, mode and folder, `chiefs/limits.rs`
+and `chiefs/tier.rs`; `tree.rs` keeps the tree, with `Hire`, `End` and
+`Seat` in `tree/lead.rs`, the tools a lead turns off in
+`tree/tools.rs`, and nicknames and the models chosen for an agent or
+a hamlet in `tree/choices.rs`; `workers.rs` starts a lead's workers, which answer
+their starter once and end with it, and `workers/errands.rs` runs
+errands, short-lived agents outside the tree, such as a review;
+`roads.rs` says which agents have a road, `laid.rs` keeps the roads a
+lead lays, and `society.rs` the roads two mayors agree; `say.rs` is a
+chief's line, which `reviews.rs` holds for the lead's review when the
+limits ask for one; `letters.rs` letters, questions and answers, and
+`parcels.rs` the files a letter sends, copied into the realm's store
+by hash and fetched by the receiver in parts; `tasks.rs` keeps what a
 line or an agent's turns are charged to; `budget.rs` answers
-`MaySpend` and keeps `Charge`; `waits.rs` keeps the waits for a chief
-and their answers; `secrets.rs` answers the workspace's `Secrets`;
-`record.rs` keeps the decisions. `world.rs` keeps the world a client
-reads with `ReadWorld` as a copy in memory, rebuilt after each commit
-that changes it, and `versions.rs` numbers those commits in the file.
+`MaySpend` and keeps `Charge`, and `allowance.rs` the allowance a lead
+or a chief gives a hire, with `ReadBudget`; `oversight.rs` keeps
+grants and trust, and `oversight/asking.rs` an agent's questions and
+objections to a chief, which hold its spending and letters on that
+task until a chief rules; `waits.rs` keeps the waits for a chief of
+every kind and their answers, and the refusals counted on a task;
+`documents.rs` and `settings.rs` keep the charter, the catalogue and
+the settings and push each agent its copies; `secrets.rs` holds
+`credentials.json`, written whole with mode 0600, and answers the
+workspace's `Secrets` and an agent's `Credential`; `record.rs` keeps
+the decisions. `world.rs` keeps the world a client reads with
+`ReadWorld` as a copy in memory, rebuilt after each commit that
+changes it, and `versions.rs` numbers those commits in the file.
 
 `tests/realm.rs` runs the realm on a host with stand-ins for the
 workspace, the agents and the profiles, which keep what they were sent

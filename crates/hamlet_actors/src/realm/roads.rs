@@ -11,8 +11,9 @@ use hamlet_messages::workspace::AgentNumber;
 use serde::Serialize;
 
 use super::change::Rows;
+use super::chiefs::{self, limits};
+use super::laid::{self, Kind};
 use super::tree::{self, Lineage, Status};
-use super::{chiefs, laid};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "snake_case")]
@@ -37,7 +38,7 @@ pub(super) struct End {
 pub(super) struct Ends {
     pub from: End,
     pub to: Option<End>,
-    /// Whether an open laid road joins them.
+    /// Whether an open road joins them that carries letters now.
     pub laid: bool,
 }
 
@@ -79,8 +80,12 @@ pub(super) async fn ends(
             laid: false,
         });
     };
+    let between = limits::roads_between(rows).await?;
     Ok(Ends {
-        laid: laid::between(rows, from.agent, to).await?,
+        laid: carries(
+            laid::between(rows, from.agent, to).await?,
+            between,
+        ),
         to: Some(end_of(rows, to).await?),
         from,
     })
@@ -92,7 +97,13 @@ pub(super) async fn of(
     agent: AgentNumber,
 ) -> Result<Vec<(AgentNumber, Way)>> {
     let own = tree::lineage_of(rows, agent).await?;
-    let laid = laid::of(rows, agent).await?;
+    let between = limits::roads_between(rows).await?;
+    let laid = laid::of(rows, agent)
+        .await?
+        .into_iter()
+        .filter(|&(_, kind)| carries(Some(kind), between))
+        .map(|(other, _)| other)
+        .collect::<Vec<_>>();
     let mut others = own
         .agent
         .lead
@@ -115,6 +126,16 @@ pub(super) async fn of(
         }
     }
     Ok(roads)
+}
+
+/// Whether a road of `kind` carries letters: an agreed one only
+/// while the chief allows roads `between` hamlets.
+fn carries(kind: Option<Kind>, between: bool) -> bool {
+    match kind {
+        None => false,
+        Some(Kind::Tree) => true,
+        Some(Kind::Agreed) => between,
+    }
 }
 
 pub(super) async fn end_of(

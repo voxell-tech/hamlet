@@ -12,9 +12,14 @@ use serde::Serialize;
 use serde::de::DeserializeOwned;
 
 use super::calls::Push;
+use super::chiefs::hamlet;
+use super::oversight::asking;
+use super::tree::choices;
+use super::workers::errands;
 use super::{
-    Realm, budget, chiefs, laid, letters, marker, record, steps,
-    tasks, tree, versions, waits, world,
+    Realm, allowance, budget, chiefs, documents, laid, letters,
+    marker, oversight, parcels, record, reviews, settings, society,
+    steps, tasks, tree, versions, waits, workers, world,
 };
 
 #[derive(Debug, PartialEq)]
@@ -28,6 +33,18 @@ pub(super) enum Change {
     Versions(versions::Change),
     Steps(steps::Change),
     Laid(laid::Change),
+    Oversight(oversight::Change),
+    Asking(asking::Change),
+    Workers(workers::Change),
+    Errands(errands::Change),
+    Reviews(reviews::Change),
+    Allowance(allowance::Change),
+    Hamlet(hamlet::Change),
+    Choices(choices::Change),
+    Documents(documents::Change),
+    Settings(settings::Change),
+    Society(society::Change),
+    Parcels(parcels::Change),
 }
 
 macro_rules! change_from {
@@ -50,6 +67,18 @@ change_from!(
     versions => Versions,
     steps => Steps,
     laid => Laid,
+    oversight => Oversight,
+    asking => Asking,
+    workers => Workers,
+    errands => Errands,
+    reviews => Reviews,
+    allowance => Allowance,
+    hamlet => Hamlet,
+    choices => Choices,
+    documents => Documents,
+    settings => Settings,
+    society => Society,
+    parcels => Parcels,
 );
 
 #[derive(Debug, Default, PartialEq)]
@@ -59,6 +88,9 @@ pub(super) struct Affected {
     /// The agents whose reach it moved.
     pub reaches: BTreeSet<AgentNumber>,
     pub begun: Vec<steps::StepId>,
+    /// The parts of the copies it moved, with the agents that read
+    /// them.
+    pub copies: BTreeSet<documents::Copied>,
     /// The parts of the world a client reads that it changed.
     pub seen: BTreeSet<world::Part>,
 }
@@ -77,6 +109,7 @@ impl Affected {
         self.places.extend(other.places);
         self.reaches.extend(other.reaches);
         self.begun.extend(other.begun);
+        self.copies.extend(other.copies);
         self.seen.extend(other.seen);
     }
 }
@@ -468,6 +501,42 @@ impl Transaction {
                     }
                     Change::Laid(change) => {
                         laid::apply(&writer, change).await?
+                    }
+                    Change::Oversight(change) => {
+                        oversight::apply(&writer, change).await?
+                    }
+                    Change::Asking(change) => {
+                        asking::apply(&writer, change).await?
+                    }
+                    Change::Workers(change) => {
+                        workers::apply(&writer, change).await?
+                    }
+                    Change::Errands(change) => {
+                        errands::apply(&writer, change).await?
+                    }
+                    Change::Reviews(change) => {
+                        reviews::apply(&writer, change).await?
+                    }
+                    Change::Allowance(change) => {
+                        allowance::apply(&writer, change).await?
+                    }
+                    Change::Hamlet(change) => {
+                        hamlet::apply(&writer, change).await?
+                    }
+                    Change::Choices(change) => {
+                        choices::apply(&writer, change).await?
+                    }
+                    Change::Documents(change) => {
+                        documents::apply(&writer, change).await?
+                    }
+                    Change::Settings(change) => {
+                        settings::apply(&writer, change).await?
+                    }
+                    Change::Society(change) => {
+                        society::apply(&writer, change).await?
+                    }
+                    Change::Parcels(change) => {
+                        parcels::apply(&writer, change).await?
                     }
                 });
             }

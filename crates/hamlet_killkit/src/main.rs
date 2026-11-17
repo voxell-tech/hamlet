@@ -323,7 +323,7 @@ fn run_once(
         acked.insert(actor, count);
     }
     let node = match scenario.demo {
-        Demo::Local => None,
+        Demo::Local | Demo::RealmActor => None,
         Demo::Linked { pid } => Some(node_pid(&acked, pid)?),
     };
     host.send(scenario.trigger)?;
@@ -411,7 +411,9 @@ fn run_once(
             host.send(line)?;
         }
         let (mut printed, children) = match scenario.demo {
-            Demo::Local => (Vec::new(), Vec::new()),
+            Demo::Local | Demo::RealmActor => {
+                (Vec::new(), Vec::new())
+            }
             Demo::Linked { pid } => {
                 let printed = host.lines_through(pid)?;
                 (printed, children(host.child.id())?)
@@ -676,8 +678,14 @@ impl Host {
         log: &Path,
     ) -> Result<Self> {
         let mut command = Command::new(demo);
-        if let Demo::Linked { .. } = how {
-            command.arg("--link");
+        match how {
+            Demo::Local => {}
+            Demo::Linked { .. } => {
+                command.arg("--link");
+            }
+            Demo::RealmActor => {
+                command.arg("--realm-actor");
+            }
         }
         command
             .arg("serve")

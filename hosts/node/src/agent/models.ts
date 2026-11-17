@@ -293,10 +293,7 @@ export function agentModels(
     copies: ReadCopies,
     peers: Peers,
 ): Models {
-    const keys = keysOf(peers.reach, peers.report, {
-        listed,
-        keep: peers.reach.keep_credential,
-    });
+    const keys = agentKeys(listed, peers);
     const served = async (
         model: Model<Api>,
         options: ModelsSimpleStreamOptions | undefined,
@@ -681,6 +678,30 @@ function plainly(error: string): string {
     }
     const detail = [...error].slice(0, 160).join("");
     return `That model did not answer a hello. Pick another one. (${detail})`;
+}
+
+/** The keys an agent's model calls carry, OAuth logins refreshed. */
+function agentKeys(listed: Models, peers: Peers): Keys {
+    return keysOf(peers.reach, peers.report, {
+        listed,
+        keep: peers.reach.keep_credential,
+    });
+}
+
+/**
+ * Asks the realm for the credential of the copy's model, as a model call
+ * does, so its secrets are scrubbed from what a client reads after a wake
+ * that made no call yet.
+ */
+export async function askCopiedKey(
+    listed: Models,
+    copies: ReadCopies,
+    peers: Peers,
+): Promise<void> {
+    const wanted = await copiedAgent(copies);
+    if (wanted !== undefined) {
+        await agentKeys(listed, peers).of(wanted.model.provider);
+    }
 }
 
 /**

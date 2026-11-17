@@ -794,6 +794,19 @@ const NOT_THE_AGENTS: readonly (readonly [RegExp, string])[] = [
         /^stored\//,
         "a row the workspace, a profile, the library or the host keeps in its own file",
     ],
+    [
+        /^realm\/(agree_road|ask_chief|object|start_worker|read_budget|read_record|set_allowance|set_model|set_nickname|fetch_part)\./,
+        "an agent's call of the realm, which this agent does not make",
+    ],
+    [
+        /^realm\/hire\.in_a_turn\.args$/,
+        "a hire with the task and conversation of the turn that asks, which this agent does not write: it sends the call and the act only",
+    ],
+    [
+        /^agent\/submit\.(letter|question)\.files\.args$/,
+        "a letter or a question with a parcel: the agent takes it and drops the parcel, so the model is never told of its files",
+    ],
+    [/^workspace\/parcel(_part)?\./, "the realm's call of the workspace"],
 ];
 
 test("every fixture is one the agent writes or takes, or is listed with its reason", () => {

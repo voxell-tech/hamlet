@@ -4,6 +4,7 @@
 
 pub(crate) mod calls;
 mod files;
+mod parcel;
 mod pending;
 mod reach;
 mod run;
@@ -36,8 +37,8 @@ use hamlet_messages::workspace::refusal::{
 use hamlet_messages::workspace::{
     AgentNumber, AnswerTaken, CallId, Cancel, CancelAgent, Cancelled,
     ChiefAnswer, CommandId, CommandStatus, Exit, InForce, Lapse,
-    ListTools, Program, Run, RunAnswer, RunEnd, SetReach, ToolList,
-    Which,
+    ListTools, Parcel, ParcelPart, Program, Run, RunAnswer, RunEnd,
+    SetReach, ToolList, Which,
 };
 use hamlet_sandbox::{AllLeftovers, Sandbox};
 
@@ -125,6 +126,8 @@ impl Actor for Workspace {
         WriteFile,
         EditFile,
         ChiefAnswer,
+        Parcel,
+        ParcelPart,
     );
     type Events = ();
     type ConnParams = Option<Caller>;
@@ -1081,6 +1084,15 @@ mod tests {
                 agent: AgentNumber(7),
                 call,
                 answer: Answer::Allow,
+            }),
+            row(&Parcel {
+                agent: AgentNumber(7),
+                paths: Vec::new(),
+            }),
+            row(&ParcelPart {
+                agent: AgentNumber(7),
+                path: "/a".into(),
+                part: 0,
             }),
         ]
     }
