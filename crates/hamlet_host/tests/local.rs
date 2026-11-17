@@ -1154,43 +1154,39 @@ async fn an_ended_generation_cannot_write_to_the_next() {
     host.shutdown().await.unwrap();
 }
 
-/// A transaction an ended generation left open expires after the
-/// actor's next generation started. Its rollback fails on the ended
-/// generation's closed file, and the core reports that as a crash of
-/// the ended generation, which must not stop the actor. If
+/// A transaction an ended generation left open is rolled back after
+/// the actor's next generation started. The rollback fails on the
+/// ended generation's closed file, and the core reports that as a
+/// crash of the ended generation, which must not stop the actor. If
 /// `made_again`, the actor is destroyed and its key made again before
 /// that: the new file counts its generations from the start again.
 async fn an_ended_generations_crash_leaves_the_actor_running(
     made_again: bool,
 ) {
-    /// How long the leaked transaction lives.
-    const LEAK: Duration = Duration::from_millis(1500);
     let dir = Scratch::new("host-ended-crash");
     let contexts = Contexts::default();
     let host = Host::open(&dir, keeper(&contexts)).unwrap();
     let id = at("keeper", "t");
     host.get_or_start(&id).await.unwrap();
     let ended = contexts.lock()[0].clone();
-    let leaked_at = tokio::time::Instant::now();
-    let leaked =
-        ended.sql().begin_transaction(Some(LEAK)).await.unwrap();
+    let leaked = ended.sql().begin_transaction(None).await.unwrap();
     host.stop(&id, ShutdownKind::Sleep).await.unwrap();
     host.get_or_start(&at("keeper", "t")).await.unwrap();
     if made_again {
         host.stop(&id, ShutdownKind::Destroy).await.unwrap();
         host.get_or_start(&at("keeper", "t")).await.unwrap();
     }
-    assert_eq!(call(&host, &id, "count").await, 0);
-    assert!(
-        leaked_at.elapsed() < LEAK,
-        "the transaction expired before the actor started again"
-    );
+    let generations = contexts.lock().len();
 
-    tokio::time::sleep_until(leaked_at + LEAK + PROMPT / 2).await;
-    assert!(leaked.rollback().await.is_err(), "it never expired");
-    tokio::time::sleep(Duration::from_millis(300)).await;
-    assert!(host.is_running(&id), "the ended generation stopped it");
+    assert!(leaked.rollback().await.is_err(), "the rollback ran");
+    // The crash is reported before the rollback returns: a stop it
+    // began would have this call start a generation of its own.
     assert_eq!(call(&host, &id, "count").await, 0);
+    assert_eq!(
+        contexts.lock().len(),
+        generations,
+        "the ended generation stopped it"
+    );
     host.shutdown().await.unwrap();
 }
 
@@ -1825,13 +1821,27 @@ async fn wait_for_the_drop(dropped: &AtomicBool) {
 /// dropped.
 #[tokio::test(flavor = "multi_thread")]
 async fn a_start_that_never_finishes_fails_at_its_deadline() {
+    let mut deadline = START_DEADLINE;
+    while !a_stuck_start_fails_at(deadline).await {
+        deadline *= 2;
+        assert!(
+            deadline <= Duration::from_secs(8),
+            "the stuck start never began within half its deadline"
+        );
+    }
+}
+
+/// [`a_start_that_never_finishes_fails_at_its_deadline`] with a start
+/// deadline of `deadline`. Checks nothing and returns false if the
+/// run handler began past half the deadline.
+async fn a_stuck_start_fails_at(deadline: Duration) -> bool {
     let dir = Scratch::new("host-stuck-start");
     let (begun, dropped) = (Arc::default(), Arc::default());
     let host = Host::open_with(
         &dir,
         stuck("stuck", &begun, &dropped),
         HostOptions {
-            start_deadline: START_DEADLINE,
+            start_deadline: deadline,
             ..HostOptions::default()
         },
     )
@@ -1841,7 +1851,18 @@ async fn a_start_that_never_finishes_fails_at_its_deadline() {
         let host = host.clone();
         async move { host.get_or_start(&at("stuck", "a")).await }
     });
-    began("the stuck start", begun.notified()).await;
+    // The deadline runs on the wall clock over opening the file and
+    // starting the core, whose SQLite has a thread of its own, so a
+    // paused clock cannot stand in. The call and the stop need the
+    // other half to come during the start.
+    let notified = tokio::time::timeout_at(
+        asked + deadline / 2,
+        begun.notified(),
+    );
+    if notified.await.is_err() {
+        host.shutdown().await.unwrap();
+        return false;
+    }
     let call = tokio::spawn({
         let host = host.clone();
         async move {
@@ -1860,7 +1881,7 @@ async fn a_start_that_never_finishes_fails_at_its_deadline() {
             host.stop(&at("stuck", "a"), ShutdownKind::Sleep).await
         }
     });
-    let by = asked + START_DEADLINE * 3;
+    let by = asked + deadline * 3;
     let start = tokio::time::timeout_at(by, start)
         .await
         .expect("the start outlived its deadline")
@@ -1893,6 +1914,7 @@ async fn a_start_that_never_finishes_fails_at_its_deadline() {
     assert_eq!(running.map_err(|error| error.to_string()), Ok(1));
     wait_for_the_drop(&dropped).await;
     host.shutdown().await.unwrap();
+    true
 }
 
 /// No call waits on a host that is shutting down, which starts no
