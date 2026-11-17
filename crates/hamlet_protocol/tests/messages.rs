@@ -516,7 +516,7 @@ fn wait_wire() -> Value {
         "about": "NOTES.md", "subject": "NOTES.md", "change": change_wire(),
         "answers": ["allow", "always", "deny", "go", "withdraw", "reply", "dismiss"],
         "since": 1700000000000_u64, "asked": 1, "chat": {"with": 2},
-        "detail": {"kind": "approval", "danger": "edit", "says": "wants to edit", "always": "session"}
+        "detail": {"kind": "approval", "danger": "edit", "says": "wants to edit", "always": "conversation"}
     })
 }
 

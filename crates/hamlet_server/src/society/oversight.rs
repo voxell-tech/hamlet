@@ -106,10 +106,10 @@ impl Danger {
     }
 
     /// What `always` lets go: an edit or a command for the rest of
-    /// the chat's session, the network until it is revoked.
+    /// the conversation, the network until it is revoked.
     pub fn lasting(self) -> Option<Lasting> {
         match self {
-            Self::Edit | Self::Command => Some(Lasting::Session),
+            Self::Edit | Self::Command => Some(Lasting::Conversation),
             Self::Network | Self::Unconfined => Some(Lasting::Grant),
             Self::Reserved | Self::Send => None,
         }

@@ -369,7 +369,7 @@ item and a merge as a `merged` item.
 A `Wait` has the fields every wait has (`id`, `by`, `agent`, `about`,
 `subject`, `change`, `answers`, `since`, `asked`, `chat`) and a `detail`
 discriminated by `kind`: `approval` with its `danger` (`network`, `unconfined`, `destructive`, `reserved`, `edit`, `command` or `send`, files an agent sends over what one send holds), the agent's wish as
-`says` and how long `always` lasts (`session`, the rest of the agent's
+`says` and how long `always` lasts (`conversation`, the rest of the agent's
 conversation, `grant`, or `null` when it is not offered); `fault` with `setup`, `{cause: "model" | "credentials", model: string}` when the cause is one a chief sets up once for every agent it stops, else `null`, and its `about` in plain words, never a runtime's code; `question` with its `questions`; `objection`; or
 `newcomer` with the `scholar` waiting at the harbor, whose answers are
 `welcome` and `dismiss`, which leaves it waiting. `subject` is the line of

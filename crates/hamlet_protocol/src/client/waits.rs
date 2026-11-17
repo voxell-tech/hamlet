@@ -120,8 +120,10 @@ pub enum SetupCause {
     Clone, Debug, PartialEq, Serialize, Deserialize, JsonSchema,
 )]
 pub enum Lasting {
-    #[serde(rename = "session")]
-    Session,
+    /// The rest of the agent's conversation.
+    #[serde(rename = "conversation")]
+    Conversation,
+    /// A grant, until a chief revokes it.
     #[serde(rename = "grant")]
     Grant,
 }

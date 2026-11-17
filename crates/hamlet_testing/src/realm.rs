@@ -111,7 +111,7 @@ pub fn wait(id: &str) -> protocol::Wait {
         "answers": ["allow", "always", "deny"], "since": 1000, "asked": 1,
         "chat": {"with": 2},
         "detail": {"kind": "approval", "danger": "command",
-                   "says": "wants to run", "always": "session"}
+                   "says": "wants to run", "always": "conversation"}
     })).unwrap()
 }
 

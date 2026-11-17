@@ -352,7 +352,7 @@ fn button(need: &Need, at: usize) -> AnyView {
 fn lasting_words(need: &Need) -> &'static str {
     match need.detail {
         WaitDetail::Approval {
-            always: Some(Lasting::Session),
+            always: Some(Lasting::Conversation),
             ..
         } => "Allow for this conversation",
         _ => "Allow always",
@@ -371,10 +371,10 @@ fn scope(need: &Need) -> Option<String> {
     };
     let who = &need.shown;
     let lets = match (lasting, danger) {
-        (Lasting::Session, WaitDanger::Edit) => {
+        (Lasting::Conversation, WaitDanger::Edit) => {
             format!("{who}'s edits go ahead until it ends")
         }
-        (Lasting::Session, _) => {
+        (Lasting::Conversation, _) => {
             format!("{who}'s commands go ahead until it ends")
         }
         (Lasting::Grant, WaitDanger::Network) => {
