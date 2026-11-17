@@ -73,10 +73,15 @@ export function rememberKept(kept: Kept): void {
     else remember(kept.login.access, kept.login.refresh);
 }
 
-/** `value` with every secret the host holds replaced, longest first. */
-export function scrub<T>(value: T): T {
-    if (SECRETS.size === 0) return value;
-    const secrets = [...SECRETS].sort((a, b) => b.length - a.length);
+/**
+ * `value` with every secret the host holds, and each of `also`, replaced,
+ * longest first.
+ */
+export function scrub<T>(value: T, also: readonly string[] = []): T {
+    const secrets = [...SECRETS, ...also.filter((word) => word !== "")].sort(
+        (a, b) => b.length - a.length,
+    );
+    if (secrets.length === 0) return value;
     const clean = (text: string) =>
         secrets.reduce(
             (cleaned, secret) => cleaned.split(secret).join("[REDACTED]"),

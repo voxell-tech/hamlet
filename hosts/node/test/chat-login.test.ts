@@ -35,9 +35,13 @@ function secret(t: TestContext, what: string): string {
     return `made-up-${what}-"${t.name.replace(/\W+/g, "-")}`;
 }
 
-/** Every form a secret takes in text: as it is, and escaped in JSON. */
+/**
+ * Every form a secret takes in text: as it is, escaped in JSON, and escaped
+ * twice, as in a row's JSON column dumped as JSON.
+ */
 function forms(text: string): string[] {
-    return [text, JSON.stringify(text).slice(1, -1)];
+    const once = JSON.stringify(text).slice(1, -1);
+    return [text, once, JSON.stringify(once).slice(1, -1)];
 }
 
 function assertNowhere(
@@ -578,6 +582,11 @@ test("an OAuth credential is refreshed once and kept", async (t) => {
         clientId: "stable-installation",
     });
     assert.deepEqual(file.get("other"), { type: "key", key: other });
+    assert.deepEqual(
+        named(sent, "turn_failed"),
+        [],
+        "the stopped turn did not fail",
+    );
     assert.equal(
         named(sent, "keep_credential").length,
         1,
@@ -586,6 +595,10 @@ test("an OAuth credential is refreshed once and kept", async (t) => {
     assert.equal(
         words,
         "OAuth echoed [REDACTED] [REDACTED] [REDACTED] [REDACTED]",
+    );
+    assert.deepEqual(
+        (await page(agent)).items.filter((item) => item.kind === "error"),
+        [],
     );
     const shown = (await page(agent)).items.filter(
         (item) => item.kind === "assistant",
@@ -649,6 +662,102 @@ test("a step waits for its limit, then answers the step it gave", async (t) => {
     await agent.stop();
 });
 
+test("a cancel answers a call waiting for its step", async (t) => {
+    const fixture = subscription(t);
+    fixture.beforePrompt = new Promise(() => {});
+    const { file, calls } = credentialsFile();
+    const agent = await wakeAgent(t, { calls, models: fixture.listing });
+    const hand = client(
+        agent,
+        // The limit never passes: only the cancel can answer.
+        signIns(agent.config.models, { waited: () => new Promise(() => {}) }),
+    );
+    const login = (await hand.start("chatgpt", "subscription")).login;
+    await hand.next(login);
+    await hand.next(login);
+
+    const waiting = hand.next(login);
+    await hand.cancel(login);
+
+    assert.deepEqual(await waiting, {
+        type: "failed",
+        login,
+        words: "Sign-in cancelled.",
+    });
+    assert.equal(fixture.dropped, 1);
+    assert.equal(file.get("chatgpt"), undefined);
+    await agent.stop();
+});
+
+test("a typed answer joins the scrub list only when it was secret", async (t) => {
+    const key = secret(t, "key");
+    const { calls } = credentialsFile();
+    const core = createFauxCore({
+        provider: "profiled",
+        models: [{ id: "large", name: "Large", contextWindow: 64_000 }],
+    });
+    core.setResponses([
+        () => fauxAssistantMessage(`Profile default, key ${key}.`),
+    ]);
+    const provider = createProvider({
+        id: "profiled",
+        models: core.models,
+        api: { stream: core.stream, streamSimple: core.streamSimple },
+        auth: {
+            apiKey: {
+                name: "profiled key",
+                // As Bedrock's key sign-in asks for a profile's name.
+                login: async (interaction) => {
+                    await interaction.prompt({
+                        type: "text",
+                        message: "Enter AWS profile name",
+                    });
+                    return {
+                        type: "api_key",
+                        key: await interaction.prompt({
+                            type: "secret",
+                            message: "Paste your key.",
+                        }),
+                    };
+                },
+                resolve: async ({ credential }) =>
+                    credential?.key === undefined
+                        ? undefined
+                        : { auth: { apiKey: credential.key } },
+            },
+        },
+    });
+    const agent = await wakeAgent(t, {
+        calls,
+        models: (listed) => {
+            (listed as MutableModels).setProvider(provider);
+            return listed;
+        },
+    });
+    const hand = client(agent, signIns(agent.config.models));
+    const login = (await hand.start("profiled", "key")).login;
+    assert.deepEqual(await hand.reply(login, "default"), {
+        type: "step",
+        login,
+        step: { prompt: "Paste your key.", secret: true },
+    });
+    assert.deepEqual(await hand.reply(login, key), { type: "done", login });
+    await agent.actions.copies(agent.by(from.realm), {
+        model: {
+            version: 1,
+            value: { model: "profiled::large", fast: false },
+        },
+    });
+
+    await say(agent, "Which profile?");
+
+    const answer = (await page(agent)).items.find(
+        (item) => item.kind === "assistant",
+    );
+    assert.equal(answer?.text, "Profile default, key [REDACTED].");
+    await agent.stop();
+});
+
 test("a secret signed in after it was said reaches no client", async (t) => {
     const key = secret(t, "key");
     const { calls } = credentialsFile();
@@ -667,6 +776,11 @@ test("a secret signed in after it was said reaches no client", async (t) => {
     const line = (await page(agent)).items.find((item) => item.kind === "user");
     assert.equal(line?.text, "My key is [REDACTED].");
     const history = await agent.actions.read_history(agent.by(from.client));
+    const dump = await dumped(agent);
+    assert.ok(
+        forms(key).some((form) => dump.includes(form)),
+        "the search finds the line as the realm gave it, which the agent keeps",
+    );
     assertNowhere([key], {
         "chat page": await page(agent),
         "events after the sign-in": agent.events.slice(seen),

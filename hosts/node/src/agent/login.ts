@@ -152,9 +152,12 @@ class SignIn {
     #asking:
         | {
               readonly step: LoginStep;
+              readonly secret: boolean;
               readonly answer: (value: string) => void;
           }
         | undefined;
+    /** What the chief typed, scrubbed from this sign-in's failure. */
+    readonly #answers: string[] = [];
     #end: End | undefined;
     #changed = Promise.withResolvers<void>();
     #last:
@@ -202,14 +205,19 @@ class SignIn {
         const asking = this.#asking;
         if (asking === undefined || asking.step !== this.#given) return;
         this.#asking = undefined;
-        remember(value);
+        this.#answers.push(value);
+        // Only a secret: a choice or a name such as `default` would be
+        // scrubbed from everything the host shows.
+        if (asking.secret) remember(value);
         asking.answer(value);
     }
 
     cancel(): void {
         this.closed = true;
         this.#end ??= { failed: CANCELLED };
+        this.#steps.length = 0;
         this.#stop.abort();
+        this.#wake();
     }
 
     /**
@@ -243,7 +251,9 @@ class SignIn {
 
     async #close(login: string, end: End, keep: Keep): Promise<LoginAnswer> {
         this.closed = true;
-        if ("failed" in end) return failed(login, scrub(end.failed));
+        if ("failed" in end) {
+            return failed(login, scrub(end.failed, this.#answers));
+        }
         try {
             await keep({ provider: this.provider, value: end.kept });
         } catch (error) {
@@ -267,12 +277,13 @@ class SignIn {
                 prompt.type === "select"
                     ? `\n${prompt.options.map((o) => `${o.id}: ${o.label}`).join("\n")}`
                     : "";
+            const secret =
+                prompt.type === "secret" || prompt.type === "manual_code";
             const step: LoginStep = {
                 prompt: prompt.message + choices,
-                secret:
-                    prompt.type === "secret" || prompt.type === "manual_code",
+                secret,
             };
-            this.#asking = { step, answer: resolve };
+            this.#asking = { step, secret, answer: resolve };
             signal.addEventListener(
                 "abort",
                 () => {
