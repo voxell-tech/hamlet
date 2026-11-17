@@ -186,8 +186,9 @@ impl Core<'_, '_> {
         path: &str,
         text: &str,
     ) -> Done<String> {
-        done!(self.reaches(agent));
         let by = Actor::Chief(self.realm.chief());
+        let db = self.realm.store().connection();
+        done!(authority::reaches(db, by, agent));
         self.write_lodge_memory(by, agent, path, text)?;
         Ok(Ok("The memory is saved.".into()))
     }
@@ -391,7 +392,12 @@ impl Core<'_, '_> {
             }
             Read::Prompt { agent, id } => {
                 let agent = AgentId(i64::try_from(agent.0)?);
-                if let Err(refusal) = self.reaches(agent)? {
+                let db = self.realm.store().connection();
+                if let Err(refusal) = authority::reaches(
+                    db,
+                    Actor::Chief(chief),
+                    agent,
+                )? {
                     return self
                         .answer(client, reply(&id, Err(refusal)));
                 }

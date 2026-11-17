@@ -24,7 +24,7 @@ use crate::conversations::{
 };
 use crate::core::{Core, Live};
 use crate::realm::change::Done;
-use crate::society::agents::{self, Effort};
+use crate::society::agents::Effort;
 use crate::society::authority;
 use crate::society::refusal::Refusal;
 
@@ -365,7 +365,9 @@ impl Core<'_, '_> {
         to: u64,
     ) -> Result<Option<AgentId>> {
         let agent = AgentId(i64::try_from(to)?);
-        match self.reaches(agent)? {
+        let chief = Actor::Chief(self.realm.chief());
+        let db = self.realm.store().connection();
+        match authority::reaches(db, chief, agent)? {
             Ok(()) => Ok(Some(agent)),
             Err(refusal) => {
                 self.answer(client, reply(id, Err(refusal)))?;
@@ -389,37 +391,21 @@ impl Core<'_, '_> {
         )
     }
 
-    /// Refuses unless this server's chief may reach `agent` (C7): the
-    /// Hand, a hire of one of its hamlets, or a worker started by it
-    /// or in its hamlets.
-    pub(crate) fn reaches(&mut self, agent: AgentId) -> Done<()> {
-        let chief = self.realm.chief();
-        let db = self.realm.store().connection();
-        let Some(found) = agents::find(db, agent)? else {
-            return Ok(Err(Refusal::NoOne {
-                address: agent.to_string(),
-            }));
-        };
-        if !authority::may_reach(db, Actor::Chief(chief), found.id)? {
-            let name = crate::society::addresses::name_of(db, agent)?;
-            return Ok(Err(Refusal::NotYours { name }));
-        }
-        Ok(Ok(()))
-    }
-
     /// Every living agent this server's chief reaches.
     pub(crate) fn reachable(&mut self) -> Result<Vec<AgentId>> {
+        let chief = Actor::Chief(self.realm.chief());
+        let db = self.realm.store().connection();
         let living = {
             use diesel::prelude::*;
             use hamlet_store::schema::agent;
             agent::table
                 .filter(agent::ended_at.is_null())
                 .select(agent::id)
-                .load::<AgentId>(self.realm.store().connection())?
+                .load::<AgentId>(db)?
         };
         let mut out = Vec::new();
         for agent in living {
-            if self.reaches(agent)?.is_ok() {
+            if authority::reaches(db, chief, agent)?.is_ok() {
                 out.push(agent);
             }
         }
@@ -433,11 +419,13 @@ impl Core<'_, '_> {
     ) -> Done<ConversationId> {
         let chief = self.realm.chief();
         let agent = AgentId(i64::try_from(chat.with.0)?);
-        if let Err(refusal) = self.reaches(agent)? {
+        let db = self.realm.store().connection();
+        if let Err(refusal) =
+            authority::reaches(db, Actor::Chief(chief), agent)?
+        {
             return Ok(Err(refusal));
         }
         // A hire that left keeps its conversation, read as it was.
-        let db = self.realm.store().connection();
         if let Some(conversation) = chats::of(db, agent)? {
             return Ok(Ok(conversation));
         }

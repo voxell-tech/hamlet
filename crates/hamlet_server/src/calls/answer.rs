@@ -12,12 +12,12 @@ use crate::conversations::{
 };
 use crate::core::Core;
 use crate::realm::change::Change;
-use crate::society::addresses;
 use crate::society::oversight::gate::{self, TurnGate};
 use crate::society::oversight::{
     self, Danger, Ruling, Wait, WaitKind,
 };
 use crate::society::refusal::Refusal;
+use crate::society::{addresses, authority};
 
 /// The fault in a chief's choice that cannot answer a wait so.
 #[derive(Debug, thiserror::Error)]
@@ -234,7 +234,8 @@ impl Core<'_, '_> {
             return Ok(Err(Refusal::NoWait));
         };
         if let Some(agent) = wait.agent
-            && let Err(refusal) = self.reaches(agent)?
+            && let Err(refusal) =
+                authority::reaches(db, Actor::Chief(chief), agent)?
         {
             return Ok(Err(refusal));
         }

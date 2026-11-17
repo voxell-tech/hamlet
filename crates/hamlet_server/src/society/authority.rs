@@ -9,7 +9,9 @@ use hamlet_store::ids::{
 use hamlet_store::schema::hamlet_chief;
 
 use super::agents::{self, AgentKind};
-use super::{chiefs, city, hamlets, hires, tree, workers};
+use super::refusal::Refusal;
+use super::{addresses, chiefs, city, hamlets, hires, tree, workers};
+use crate::realm::change::Done;
 
 /// Whether `chief` is a chief of `hamlet` (C7).
 pub(crate) fn is_chief_of(
@@ -88,6 +90,24 @@ pub(crate) fn may_reach(
                 }
         }
     })
+}
+
+/// Refuses unless `actor` may reach the agent `id`.
+pub(crate) fn reaches(
+    db: &mut Db,
+    actor: Actor,
+    id: AgentId,
+) -> Done<()> {
+    let Some(found) = agents::find(db, id)? else {
+        return Ok(Err(Refusal::NoOne {
+            address: id.to_string(),
+        }));
+    };
+    if !may_reach(db, actor, found.id)? {
+        let name = addresses::name_of(db, id)?;
+        return Ok(Err(Refusal::NotYours { name }));
+    }
+    Ok(Ok(()))
 }
 
 /// Whether `actor` may lead the hire `id`: a chief of its hamlet, the

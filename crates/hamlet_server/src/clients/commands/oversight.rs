@@ -14,6 +14,7 @@ use crate::conversations::{chats, reflections};
 use crate::core::Core;
 use crate::realm::change::Done;
 use crate::society::addresses::{self, Reach};
+use crate::society::authority;
 use crate::society::oversight::{self, gate};
 use crate::society::refusal::Refusal;
 
@@ -227,11 +228,13 @@ impl Core<'_, '_> {
             Ok(target) => target,
             Err(refusal) => return Ok(Err(refusal)),
         };
-        if let Err(refusal) = self.reaches(target)? {
-            return Ok(Err(refusal));
-        }
         let chief = self.realm.chief();
         let db = self.realm.store().connection();
+        if let Err(refusal) =
+            authority::reaches(db, Actor::Chief(chief), target)?
+        {
+            return Ok(Err(refusal));
+        }
         let by =
             addresses::actor_name(db, Some(Actor::Chief(chief)))?;
         let name = addresses::name_of(db, target)?;
@@ -287,10 +290,13 @@ impl Core<'_, '_> {
             Ok(target) => target,
             Err(refusal) => return Ok(Err(refusal)),
         };
-        if let Err(refusal) = self.reaches(target)? {
+        let chief = self.realm.chief();
+        let db = self.realm.store().connection();
+        if let Err(refusal) =
+            authority::reaches(db, Actor::Chief(chief), target)?
+        {
             return Ok(Err(refusal));
         }
-        let chief = self.realm.chief();
         let line = self.credentials.scrub_text(text);
         let request = format!("to:{}", uuid::Uuid::new_v4());
         self.change(Actor::Chief(chief), |cx, env| {
