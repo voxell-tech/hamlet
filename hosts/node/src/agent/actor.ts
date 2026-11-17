@@ -131,23 +131,61 @@ export type AgentDefinition = ActorDefinition<
     AgentHandlers
 >;
 
+interface Offer {
+    /** Narrows a set of built-in tools to those offered. */
+    readonly builtIn: (extension: Extension) => Extension;
+    /** Whether the society's tools, the timers and reflection are offered. */
+    readonly society: boolean;
+}
+
+/**
+ * What an agent of its kind is offered, as today decides it
+ * (`crates/hamlet_server/src/calls/place.rs:176-249`): an errand no tool
+ * (`undefined`), a worker the built-in tools its brief names, or all of them
+ * when it names none, and a Hand or a hire every tool.
+ */
+function offerOf(row: Row): Offer | undefined {
+    switch (row.kind) {
+        case "errand":
+            return undefined;
+        case "worker": {
+            const given = new Set(row.brief?.tools?.map(({ name }) => name));
+            return {
+                builtIn: (extension) =>
+                    given.size === 0
+                        ? extension
+                        : {
+                              ...extension,
+                              tools: (extension.tools ?? []).filter((tool) =>
+                                  given.has(tool.name),
+                              ),
+                          },
+                society: false,
+            };
+        }
+        case "hand":
+        case "hire":
+            return { builtIn: (extension) => extension, society: true };
+    }
+}
+
 /** Their order decides only the order the tools are offered in. */
 function parts(
+    row: Row,
     peers: Peers,
-    off: readonly ToolName[],
     prompt: PromptSources,
     withHarness: WithHarness,
 ): Extension[] {
-    // As today (`crates/hamlet_server/src/calls/place.rs:232`), an errand
-    // is offered no tool.
-    if (prompt.errand !== undefined) return [promptPart(prompt)];
+    const offer = offerOf(row);
+    if (offer === undefined) return [promptPart(prompt)];
+    const builtIn = [offer.builtIn(workspaceTools(peers)), ownFiles(peers)];
+    if (!offer.society) return [promptPart(prompt), cutOffRule(), ...builtIn];
     return [
         promptPart(prompt),
         reflection(peers, prompt.copies, owedOf(withHarness), reflectEvery()),
         cutOffRule(),
-        workspaceTools(peers),
-        ownFiles(peers),
-        society(peers, off),
+        ...builtIn,
+        society(peers, row.toolsOff),
         timers(),
     ];
 }
@@ -372,7 +410,7 @@ async function wake(c: AgentContext, config: AgentConfig): Promise<void> {
         ...promptSources(c, copies, peers),
         ...(errand === undefined ? {} : { errand }),
     };
-    for (const part of parts(peers, row.toolsOff, prompt, withHarness)) {
+    for (const part of parts(row, peers, prompt, withHarness)) {
         registry.install(part);
     }
     const options: PiOptions = {
@@ -408,9 +446,10 @@ async function wake(c: AgentContext, config: AgentConfig): Promise<void> {
     // realm's deadline. Begun
     // before the open, since an action that reopens a harness the open
     // left closed builds it from the same registry.
-    if (errand === undefined) {
+    const offer = offerOf(row);
+    if (offer !== undefined) {
         void handTools(peers).then(
-            (extension) => registry.install(extension),
+            (extension) => registry.install(offer.builtIn(extension)),
             (error: unknown) =>
                 peers.report("the hand tools were not listed", error),
         );
@@ -490,12 +529,12 @@ async function briefTurn(
     );
     // A call of its own, so the agent does not sleep before the realm is told.
     await withHarness(c, options, async (harness, context) => {
-        const words = await lastWords(
+        const last = await lastOf(
             await harness.root(context),
             settled.entry,
             context,
         );
-        const ended = endedOf(kind, settled, words);
+        const ended = endedOf(kind, settled, last);
         await (kind === "worker"
             ? peers.reach.worker_done({ ended })
             : peers.reach.errand_done({ ended }));
@@ -509,13 +548,17 @@ async function briefTurn(
 function endedOf(
     kind: "worker" | "errand",
     settled: SettledSubmissionRecord,
-    words: string | undefined,
+    last: Last,
 ): Ended {
     const failed = (why: string): Ended => ({ type: "failed", why });
     if (settled.status === "done") {
-        if (words !== undefined) return { type: "answered", text: words };
+        if (last.words !== undefined)
+            return { type: "answered", text: last.words };
         return failed(
-            kind === "errand" ? "the errand gave no answer" : "its turn failed",
+            last.notice ??
+                (kind === "errand"
+                    ? "the errand gave no answer"
+                    : "its turn failed"),
         );
     }
     if (settled.reason === "aborted") return failed("its turn was stopped");
@@ -524,15 +567,25 @@ function endedOf(
     );
 }
 
-/**
- * As `crates/hamlet_server/src/talk/items.rs:66-106`: the text of the last
- * answer that has any, its blocks joined by lines and trimmed.
- */
-async function lastWords(
+interface Last {
+    /**
+     * As `crates/hamlet_server/src/talk/items.rs:66-106`: the text of the
+     * last answer that has any, its blocks joined by lines and trimmed.
+     */
+    readonly words?: string;
+    /**
+     * The last notice for people alone, which says why a turn failed, as
+     * today's input's reason does.
+     */
+    readonly notice?: string;
+}
+
+async function lastOf(
     conversation: Conversation,
     since: EntryId | undefined,
     context: Context,
-): Promise<string | undefined> {
+): Promise<Last> {
+    let notice: string | undefined;
     let cursor: Cursor | undefined;
     do {
         const page = await conversation.entries(
@@ -545,17 +598,21 @@ async function lastWords(
             context,
         );
         for (const entry of page.items) {
+            if (entry.kind === "hamlet.notice") {
+                notice ??= (entry.data as { text?: string } | undefined)?.text;
+                continue;
+            }
             const message = entry.model?.[0];
             if (message?.role !== "assistant") continue;
             const text = message.content
                 .flatMap((part) => (part.type === "text" ? [part.text] : []))
                 .join("\n")
                 .trim();
-            if (text !== "") return text;
+            if (text !== "") return { words: text };
         }
         cursor = page.next;
     } while (cursor !== undefined);
-    return undefined;
+    return notice === undefined ? {} : { notice };
 }
 
 function oneAfterAnother(): Generation["inTurn"] {
@@ -648,7 +705,7 @@ async function place(c: AgentCall, message: Place): Promise<void> {
         rest,
         version,
     );
-    if (kept.changes === 0) return;
+    if (kept.changes === 0 || offerOf(await rowAt(c))?.society !== true) return;
     const { registry, peers } = generationOf(c);
     // Installing it again replaces it, so the tools turned off leave the next
     // request.
