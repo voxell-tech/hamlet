@@ -31,7 +31,7 @@ type Run = fn(&mut Core<'_, '_>, &Line) -> Answer;
 
 pub(crate) fn plugin(app: &mut App) {
     app.add_handler::<FromClient<ChiefCommand>, _>(said)
-        .add_commands(SESSIONS)
+        .add_commands(CHAT)
         .add_commands(oversight::OVERSIGHT)
         .add_commands(versions::VERSIONS)
         .add_commands(shelves::SHELVES)
@@ -49,7 +49,7 @@ pub(crate) struct Command {
 
 /// The commands about the chat itself: the same requests a client's
 /// buttons make.
-const SESSIONS: &[Command] = &[
+const CHAT: &[Command] = &[
     Command {
         name: "hand",
         usage: "/hand",
