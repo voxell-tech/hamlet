@@ -799,15 +799,14 @@ pub(super) struct Waiting {
 }
 
 impl Waiting {
-    /// `choice` as this wait takes it, `None` where it is not
-    /// offered.
+    /// `choice` as this wait takes it, or why it does not.
     fn takes(
         &self,
         choice: &protocol::Choice,
         text: Option<&str>,
-    ) -> Option<Choice> {
+    ) -> Result<Choice, AnswerRefusal> {
         use protocol::Choice as Chief;
-        Some(match (self.kind, choice) {
+        Ok(match (self.kind, choice) {
             (
                 Kind::Tool | Kind::Reserved | Kind::Send,
                 Chief::Allow,
@@ -819,15 +818,16 @@ impl Waiting {
                 Kind::Tool | Kind::Reserved | Kind::Send,
                 Chief::Deny,
             ) => Choice::Refuse,
-            (Kind::Question, Chief::Reply) if text.is_some() => {
-                Choice::Reply
-            }
+            (Kind::Question, Chief::Reply) => match text {
+                Some(_) => Choice::Reply,
+                None => return Err(AnswerRefusal::BlankReply),
+            },
             (Kind::Question | Kind::Fault, Chief::Dismiss) => {
                 Choice::Dismiss
             }
             (Kind::Objection, Chief::Go) => Choice::Go,
             (Kind::Objection, Chief::Withdraw) => Choice::Withdraw,
-            _ => return None,
+            _ => return Err(AnswerRefusal::NotOffered),
         })
     }
 
@@ -984,13 +984,14 @@ impl Act<Client> for Answer {
             .map(str::trim)
             .filter(|text| !text.is_empty());
         let choice = match (&self.0.picks, &ruling.picked) {
-            (_, Some(_)) => Some(Choice::Picked),
-            (Some(_), None) => None,
+            (_, Some(_)) => Ok(Choice::Picked),
+            (Some(_), None) => Err(AnswerRefusal::NotOffered),
             (None, None) => open.takes(&self.0.choice, text),
         };
         let text = ruling.picked.as_deref().or(text);
-        let Some(choice) = choice else {
-            return refuse(AnswerRefusal::NotOffered);
+        let choice = match choice {
+            Ok(choice) => choice,
+            Err(why) => return refuse(why),
         };
         let mut decided = Decided::new(open.told(&choice));
         if ruling.unheard {

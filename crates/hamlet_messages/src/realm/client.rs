@@ -96,6 +96,8 @@ pub enum AnswerRefusal {
     NothingWaits { wait: String },
     #[error("that is not an answer to this wait")]
     NotOffered,
+    #[error("Say what to reply.")]
+    BlankReply,
     #[error("every question needs an answer")]
     Unequal,
     #[error("question {question} has no such option")]

@@ -1172,6 +1172,7 @@ fn the_clients_calls(fixtures: &mut Fixtures) {
                 AnswerRefusal::NothingWaits { wait: "3".into() },
             ),
             ("not_offered", AnswerRefusal::NotOffered),
+            ("blank_reply", AnswerRefusal::BlankReply),
             ("unequal", AnswerRefusal::Unequal),
             ("no_option", AnswerRefusal::NoOption { question: 2 }),
             (

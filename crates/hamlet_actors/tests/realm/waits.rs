@@ -836,7 +836,12 @@ async fn a_ruling_on_a_question_or_an_objection_is_a_notice() {
         assert_eq!(ruled, Done::Done);
     }
 
-    assert_eq!(empty, not_offered());
+    assert_eq!(
+        empty,
+        Done::Refused {
+            why: AnswerRefusal::BlankReply
+        }
+    );
     let mut told = notices(&realm, HAND, 7)
         .await
         .into_iter()
