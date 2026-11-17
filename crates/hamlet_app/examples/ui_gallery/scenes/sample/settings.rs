@@ -2,7 +2,6 @@
 //! scenes.
 
 use bevy::ecs::world::World;
-use chrono::Timelike;
 use hamlet_app::settings;
 use hamlet_assets::Tuning;
 use hamlet_client::realm::Settings;
@@ -71,9 +70,10 @@ pub(super) fn setup(world: &mut World, scene: Scene) {
         world.init_resource::<WindChoice>();
         // Settled: the sky at the clock's hour and north where it
         // is set, as they are but for a moment after a change.
-        let now = chrono::Local::now();
+        let now = jiff::Zoned::now();
         world.insert_resource(Sky {
-            hour: now.hour() as f32 + now.minute() as f32 / 60.0,
+            hour: f32::from(now.hour())
+                + f32::from(now.minute()) / 60.0,
             ..Sky::default()
         });
         world.insert_resource(North::default());

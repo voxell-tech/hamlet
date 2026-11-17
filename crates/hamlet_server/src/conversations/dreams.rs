@@ -12,7 +12,6 @@ use bevy_ecs::message::{Message, Messages};
 use bevy_ecs::resource::Resource;
 use bevy_ecs::system::ResMut;
 use bevy_log::error;
-use chrono::Timelike;
 use hamlet_store::Db;
 use hamlet_store::ids::{Actor, AgentId, DreamId, ScholarId};
 
@@ -272,8 +271,8 @@ pub(crate) fn next(
 
 /// Whether `now` falls in the local `hours`, from and to.
 fn in_hours(hours: (u8, u8), now: i64) -> Result<bool> {
-    let hour = crate::app::clock::local(now)?.hour();
-    let (from, to) = (u32::from(hours.0), u32::from(hours.1));
+    let hour = crate::app::clock::local(now)?.hour().unsigned_abs();
+    let (from, to) = hours;
     Ok(if from <= to {
         (from..to).contains(&hour)
     } else {
@@ -622,8 +621,10 @@ mod tests {
         let mut realm = Realm::new();
         let mayor = realm.found("mill", "ada");
         let (layout, now) = (realm.layout(), realm.at);
-        let hour = crate::app::clock::local(now).unwrap().hour();
-        let hour = u8::try_from(hour).unwrap();
+        let hour = crate::app::clock::local(now)
+            .unwrap()
+            .hour()
+            .unsigned_abs();
         let elsewhere = Dreams {
             on: true,
             hours: ((hour + 1) % 24, (hour + 2) % 24),
