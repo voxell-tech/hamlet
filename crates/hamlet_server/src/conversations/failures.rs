@@ -45,18 +45,11 @@ pub(crate) fn of(
             setup: Some(SetupCause::Model),
         },
         Some("model_error") => match detail {
-            Some(detail)
-                if REFUSED.iter().any(|word| {
-                    detail.to_lowercase().contains(word)
-                }) =>
-            {
-                Failure {
-                    words: "its model's provider refused its \
-                            credentials"
-                        .into(),
-                    setup: Some(SetupCause::Credentials),
-                }
-            }
+            Some(detail) if is_refused(&detail) => Failure {
+                words: "its model's provider refused its credentials"
+                    .into(),
+                setup: Some(SetupCause::Credentials),
+            },
             Some(detail) => Failure {
                 words: format!("its model failed: {detail}"),
                 setup: None,
@@ -74,4 +67,11 @@ pub(crate) fn of(
         }
         _ => plain("its turn failed"),
     }
+}
+
+/// Whether a model's error `detail` says its provider refused the
+/// credentials.
+fn is_refused(detail: &str) -> bool {
+    let detail = detail.to_lowercase();
+    REFUSED.iter().any(|word| detail.contains(word))
 }
