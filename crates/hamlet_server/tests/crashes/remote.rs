@@ -461,8 +461,6 @@ async fn moved_to(
         .await;
     assert_eq!(reply.kind, ReplyKind::Notice, "{}", reply.text);
     drop(chief);
-    // A killed server leaves its pi on the realm's store, where the
-    // next server's pi would meet it. A stop ends its pi first.
     assert_eq!(server.stop().await, Some(0));
     let (server, chief) = realm.serve(faux).await;
     (realm, server, chief)

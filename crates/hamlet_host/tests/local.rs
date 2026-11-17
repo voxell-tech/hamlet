@@ -1179,8 +1179,6 @@ async fn an_ended_generations_crash_leaves_the_actor_running(
     let generations = contexts.lock().len();
 
     assert!(leaked.rollback().await.is_err(), "the rollback ran");
-    // The crash is reported before the rollback returns: a stop it
-    // began would have this call start a generation of its own.
     assert_eq!(call(&host, &id, "count").await, 0);
     assert_eq!(
         contexts.lock().len(),
