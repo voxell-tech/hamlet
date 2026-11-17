@@ -2,7 +2,6 @@
 //! does not fit, between letters, so the column after it stays clear.
 
 use bevy::app::{App, PostUpdate};
-use bevy::camera::visibility::{InheritedVisibility, Visibility};
 use bevy::ecs::change_detection::{DetectChanges, Ref};
 use bevy::ecs::component::Component;
 use bevy::ecs::entity::Entity;
@@ -10,7 +9,8 @@ use bevy::ecs::query::{Changed, Or};
 use bevy::ecs::schedule::IntoScheduleConfigs;
 use bevy::ecs::system::Query;
 use bevy::text::{
-    ComputedTextBlock, TextBrush, TextFont, TextLayoutInfo,
+    ComputedTextBlock, PositionedGlyph, TextBrush, TextFont,
+    TextLayoutInfo,
 };
 use bevy::ui::widget::Text;
 use bevy::ui::{ComputedNode, Node, UiSystems, Val};
@@ -34,9 +34,7 @@ const HEAD: f32 = 0.4;
 const MOST_HEAD: f32 = 0.6;
 
 pub(super) fn plugin(app: &mut App) {
-    // Visibility is propagated before layout, through the menus'
-    // focus, so `fit` hides a label in this frame by its inherited
-    // visibility, which its own takes over from in the next.
+    // After the text is laid out and before it is drawn.
     app.add_systems(PostUpdate, fit.after(UiSystems::PostLayout));
 }
 
@@ -108,8 +106,6 @@ struct Ellipsis {
     scale: f32,
     /// It wrote a cut whose layout is still to be made.
     laying: bool,
-    /// It hid the label until its layout is of the text it shows.
-    hidden: bool,
 }
 
 impl Ellipsis {
@@ -215,9 +211,7 @@ fn fit(
             Ref<TextFont>,
             &ComputedNode,
             &ComputedTextBlock,
-            Ref<TextLayoutInfo>,
-            &mut Visibility,
-            &mut InheritedVisibility,
+            &mut TextLayoutInfo,
         ),
         Or<(
             Changed<Text>,
@@ -227,16 +221,8 @@ fn fit(
         )>,
     >,
 ) {
-    for (
-        mut text,
-        mut ellipsis,
-        font,
-        node,
-        block,
-        info,
-        mut seen,
-        mut inherited,
-    ) in &mut texts
+    for (mut text, mut ellipsis, font, node, block, mut info) in
+        &mut texts
     {
         // Its stops hold for one text in one font at one scale.
         if text.0 != ellipsis.shown
@@ -253,14 +239,13 @@ fn fit(
             ellipsis.laying = false;
         }
         let layout = block.buffer();
-        let laid = stops(layout);
         if !ellipsis.laying {
             // Only a layout of the whole text tells where it can be
             // cut.
             if ellipsis.stops.is_empty()
                 && ellipsis.shown == ellipsis.full
             {
-                ellipsis.stops.clone_from(&laid);
+                ellipsis.stops = stops(layout);
             }
             if ellipsis.dots.is_none() {
                 ellipsis.dots = dots_width(layout, &ellipsis.shown);
@@ -275,21 +260,23 @@ fn fit(
                 ellipsis.laying = true;
             }
         }
-        // A frame draws the layout of the text before this cut, so
-        // the label is hidden until the layout is of what it shows: a
-        // text wider than its room never shows whole for a frame.
-        let overshoots = ellipsis.shown == ellipsis.full
-            && laid.last().is_some_and(|&(_, x)| x > room + 0.5);
-        let hide = room > 0.0 && (ellipsis.laying || overshoots);
-        if hide != ellipsis.hidden {
-            ellipsis.hidden = hide;
-            *seen = if hide {
-                *inherited = InheritedVisibility::HIDDEN;
-                Visibility::Hidden
-            } else {
-                Visibility::Inherited
-            };
+        // A frame draws the layout of the text before this cut, which
+        // can be wider than the room: it is cut at the room's edge
+        // until the cut is laid out, so the label never shows blank
+        // or past its room.
+        if room > 0.0 && info.size.x > room + 0.5 {
+            clip(&mut info.glyphs, room);
         }
+    }
+}
+
+/// Leaves out the glyphs that reach past `room`.
+fn clip(glyphs: &mut Vec<PositionedGlyph>, room: f32) {
+    let right = |glyph: &PositionedGlyph| {
+        glyph.position.x + glyph.atlas_info.rect.width() / 2.0
+    };
+    if glyphs.iter().any(|glyph| right(glyph) > room) {
+        glyphs.retain(|glyph| right(glyph) <= room);
     }
 }
 
@@ -318,5 +305,85 @@ mod tests {
             "grep -n row-0 ...rchard/1.md"
         );
         assert_eq!(ellipsis.fitted(400.0, 0.0), full);
+    }
+
+    #[test]
+    fn a_new_label_too_wide_shows_within_its_room_from_its_first_frame()
+     {
+        use bevy::asset::{AssetApp, AssetPlugin};
+        use bevy::camera::{
+            Camera, Camera2d, ComputedCameraValues, RenderTargetInfo,
+        };
+        use bevy::ecs::hierarchy::ChildOf;
+        use bevy::image::{Image, TextureAtlasLayout};
+        use bevy::math::UVec2;
+        use bevy::text::{TextLayout, TextPlugin};
+        use bevy::ui::{UiPlugin, px};
+
+        let mut app = App::new();
+        app.add_plugins((
+            AssetPlugin::default(),
+            bevy::time::TimePlugin,
+            bevy::transform::TransformPlugin,
+            bevy::input::InputPlugin,
+            bevy::picking::PickingPlugin,
+            bevy::picking::InteractionPlugin,
+            TextPlugin,
+            UiPlugin,
+            plugin,
+        ))
+        .init_asset::<Image>()
+        .init_asset::<TextureAtlasLayout>();
+        crate::widgets::platform::install_fonts(app.world_mut());
+        app.world_mut().spawn((
+            Camera2d,
+            Camera {
+                computed: ComputedCameraValues {
+                    target_info: Some(RenderTargetInfo {
+                        physical_size: UVec2::splat(400),
+                        scale_factor: 2.0,
+                    }),
+                    ..Default::default()
+                },
+                ..Default::default()
+            },
+        ));
+        let room = app
+            .world_mut()
+            .spawn(Node {
+                width: px(60.0),
+                ..Node::default()
+            })
+            .id();
+        let name = app
+            .world_mut()
+            .spawn((
+                Text::new("A name much wider than its room"),
+                TextLayout::default().with_no_wrap(),
+                Node {
+                    min_width: px(0.0),
+                    max_width: Val::Percent(100.0),
+                    ..Node::default()
+                },
+                Ellipsis::default(),
+                ChildOf(room),
+            ))
+            .id();
+
+        let drawn = |app: &mut App| {
+            app.update();
+            let world = app.world();
+            let width =
+                world.get::<ComputedNode>(name).unwrap().size().x;
+            let glyphs =
+                &world.get::<TextLayoutInfo>(name).unwrap().glyphs;
+            assert!(!glyphs.is_empty());
+            assert!(glyphs.iter().all(|glyph| glyph.position.x
+                + glyph.atlas_info.rect.width() / 2.0
+                <= width));
+            world.get::<Text>(name).unwrap().0.clone()
+        };
+        drawn(&mut app);
+        assert!(drawn(&mut app).ends_with(DOTS));
     }
 }
