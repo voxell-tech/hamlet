@@ -52,12 +52,18 @@ pub(super) fn start(
             return (keys, Vec::new());
         }
     };
+    let answering = keys.clone();
     let reader = tokio::spawn(async move {
         let mut buffer = vec![0; 64 * 1024];
         loop {
             match output.read(&mut buffer).await {
                 Ok(0) | Err(_) => break,
-                Ok(n) => feed.print(&buffer[..n]),
+                Ok(n) => {
+                    let answers = feed.print(&buffer[..n]);
+                    if !answers.is_empty() {
+                        let _ = answering.send(Key::Bytes(answers));
+                    }
+                }
             }
         }
         let code = match session.ended().await {

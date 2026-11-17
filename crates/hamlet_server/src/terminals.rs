@@ -128,12 +128,14 @@ pub(crate) struct Feed {
 }
 
 impl Feed {
-    pub(crate) fn print(&self, bytes: &[u8]) {
+    /// Prints `bytes`. The answers to the queries they hold, for the
+    /// program that printed them.
+    pub(crate) fn print(&self, bytes: &[u8]) -> Vec<u8> {
         if bytes.is_empty() {
-            return;
+            return Vec::new();
         }
         let mut screen = lock(&self.screen);
-        screen.take(bytes);
+        let answers = screen.take(bytes);
         // Queued under the lock, so a watch taken under it sees each
         // output either in its redraw or after it, never both.
         self.report(Printed::Output {
@@ -141,6 +143,7 @@ impl Feed {
             seq: screen.seq,
             bytes: bytes.to_vec(),
         });
+        answers
     }
 
     /// Queues `printed`; the first into an empty queue wakes the
@@ -399,7 +402,7 @@ impl Terminals {
                 continue;
             };
             let screen = lock(&terminal.screen);
-            if let Some(title) = &screen.parser.callbacks().0
+            if let Some(title) = &screen.parser.callbacks().title
                 && *title != terminal.view.title
             {
                 terminal.view.title = title.clone();
