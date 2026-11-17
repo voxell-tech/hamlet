@@ -7,6 +7,7 @@ use bevy_fynix::views::{FrameProps, row};
 use bevy_fynix::{derived, every_frame};
 use hamlet_client::chats::{Status, Transcript};
 use hamlet_client::messages::Resume;
+use hamlet_client::outbox::RequestId;
 use hamlet_ui::styles::{action, note};
 use hamlet_ui::widgets::icons::Glyph;
 use hamlet_ui::{View, with_cx};
@@ -50,5 +51,8 @@ fn resume(world: &mut World) {
     else {
         return;
     };
-    world.trigger(Resume { agent });
+    world.trigger(Resume {
+        request: RequestId::new(),
+        agent,
+    });
 }

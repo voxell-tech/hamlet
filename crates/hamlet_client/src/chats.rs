@@ -349,26 +349,18 @@ fn received_item(item: protocol::Item, chief: &str) -> Item {
 }
 
 /// An earlier-page request for a chat with a cursor and no page
-/// outstanding.
-pub fn earlier(world: &mut World, chat: Entity) {
+/// outstanding, by the id it was sent with.
+pub fn earlier(
+    world: &mut World,
+    chat: Entity,
+) -> Option<protocol::RequestId> {
     if world.resource::<Watches>().pages.contains_key(&chat) {
-        return;
+        return None;
     }
-    let Some(reference) =
-        world.get::<Chat>(chat).map(|chat| chat.0.clone())
-    else {
-        return;
-    };
-    let Some(said) = world.get::<Transcript>(chat) else {
-        return;
-    };
-    if said.earlier.is_none() {
-        return;
-    }
-    let Some(before) = said.items.first().map(|item| item.id.clone())
-    else {
-        return;
-    };
+    let reference = world.get::<Chat>(chat)?.0.clone();
+    let said = world.get::<Transcript>(chat)?;
+    said.earlier.as_ref()?;
+    let before = said.items.first()?.id.clone();
     let id = world.resource_mut::<Outbox>().send(|id| {
         protocol::ClientMessage::Open(protocol::Open {
             id,
@@ -376,10 +368,14 @@ pub fn earlier(world: &mut World, chat: Entity) {
             before: Some(before),
         })
     });
-    world
-        .resource_mut::<Watches>()
-        .pages
-        .insert(chat, Page { id, stale: false });
+    world.resource_mut::<Watches>().pages.insert(
+        chat,
+        Page {
+            id: id.clone(),
+            stale: false,
+        },
+    );
+    Some(id)
 }
 
 /// A watched conversation identified by the server.

@@ -31,7 +31,6 @@ use bevy_fynix::{
 };
 use hamlet_client::chats::{self, Entry, Transcript};
 use hamlet_client::messages::Response;
-use hamlet_client::outbox::Outbox;
 use hamlet_client::realm::Kind;
 use hamlet_protocol::client as protocol;
 use hamlet_realm::hand::FileDrop;
@@ -888,25 +887,10 @@ pub fn ask_earlier(
                 else {
                     return;
                 };
-                chats::earlier(world, chat);
-                let id = world
-                    .resource::<Outbox>()
-                    .iter()
-                    .filter_map(|message| match message {
-                        protocol::ClientMessage::Open(open)
-                            if open.chat == reference
-                                && open.before.is_some() =>
-                        {
-                            Some(open.id.clone())
-                        }
-                        _ => None,
-                    })
-                    .last();
+                let id = chats::earlier(world, chat);
+                // A page refused is said under the field.
                 if let Some(id) = &id {
-                    world
-                        .resource_mut::<super::Requests>()
-                        .0
-                        .insert(id.clone());
+                    super::refused(world, id.clone());
                 }
                 world.resource_mut::<Reading>().page =
                     id.map(|id| (id, reference));

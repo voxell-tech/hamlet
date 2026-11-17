@@ -21,7 +21,7 @@ pub(crate) mod reply;
 mod rewind;
 mod timeline;
 
-use std::collections::HashSet;
+use std::collections::HashMap;
 
 use bevy::app::{App, PostUpdate, PreUpdate, Update};
 use bevy::color::Color;
@@ -43,11 +43,10 @@ use bevy_fynix::views::{
 use bevy_fynix::{
     ScopedExt, ViewExt, derived, every_frame, resource, style,
 };
-use hamlet_client::chats::Chat;
 use hamlet_client::messages::{
-    ChiefMessage, Compact, Response, Rewind, ServerFault, Withdraw,
+    ChiefMessage, Compact, Response, Resume, Rewind, ServerFault,
+    Withdraw,
 };
-use hamlet_client::outbox::Outbox;
 use hamlet_client::realm as agents;
 use hamlet_protocol::client as protocol;
 use hamlet_realm::hand::FileDrop;
@@ -106,6 +105,7 @@ pub fn plugin(app: &mut App) {
         .add_observer(remember_rewind)
         .add_observer(remember_compact)
         .add_observer(remember_withdraw)
+        .add_observer(remember_resume)
         .add_observer(response)
         .init_resource::<OpenTools>()
         // A row fades while a rewind that would forget it is asked
@@ -167,94 +167,56 @@ fn fault(
     commands.trigger(ChatError);
 }
 
+/// The requests sent from the chat whose replies it says under the
+/// field.
 #[derive(Resource, Default)]
-struct Requests(HashSet<protocol::RequestId>);
+struct Requests(HashMap<protocol::RequestId, Said>);
 
-fn remember_said(message: On<ChiefMessage>, mut commands: Commands) {
-    let message = message.event().clone();
-    // The client's observers enqueue the requests before this command
-    // keeps their ids.
-    commands.queue(move |world: &mut World| {
-        remember(world, |request| match request {
-            protocol::ClientMessage::Say(say)
-                if say.to == message.to
-                    && say.text == message.text =>
-            {
-                Some(say.id.clone())
-            }
-            _ => None,
-        });
-    });
+/// What of a request's reply the chat says.
+#[derive(Clone, Copy, PartialEq)]
+enum Said {
+    Refusal,
+    Reply,
+}
+
+/// Says the refusal of the request `id` under the field.
+pub(super) fn refused(world: &mut World, id: protocol::RequestId) {
+    world.resource_mut::<Requests>().0.insert(id, Said::Refusal);
+}
+
+fn remember_said(
+    message: On<ChiefMessage>,
+    mut requests: ResMut<Requests>,
+) {
+    requests.0.insert(message.request.clone(), Said::Refusal);
 }
 
 fn remember_rewind(
     rewind: On<Rewind>,
-    chats: Query<&Chat>,
-    mut commands: Commands,
+    mut requests: ResMut<Requests>,
 ) {
-    let Ok(chat) = chats.get(rewind.chat) else {
-        return;
-    };
-    let (chat, item) = (chat.0.clone(), rewind.item.clone());
-    commands.queue(move |world: &mut World| {
-        remember(world, |request| match request {
-            protocol::ClientMessage::Rewind(rewind)
-                if rewind.chat == chat && rewind.item == item =>
-            {
-                Some(rewind.id.clone())
-            }
-            _ => None,
-        });
-    });
+    requests.0.insert(rewind.request.clone(), Said::Refusal);
 }
 
-fn remember_compact(compact: On<Compact>, mut commands: Commands) {
-    let to = compact.to;
-    commands.queue(move |world: &mut World| {
-        remember(world, |request| match request {
-            protocol::ClientMessage::Compact(compact)
-                if compact.to == to =>
-            {
-                Some(compact.id.clone())
-            }
-            _ => None,
-        });
-    });
+fn remember_compact(
+    compact: On<Compact>,
+    mut requests: ResMut<Requests>,
+) {
+    requests.0.insert(compact.request.clone(), Said::Refusal);
 }
 
 fn remember_withdraw(
     withdraw: On<Withdraw>,
-    chats: Query<&Chat>,
-    mut commands: Commands,
+    mut requests: ResMut<Requests>,
 ) {
-    let Ok(chat) = chats.get(withdraw.chat) else {
-        return;
-    };
-    let (chat, item) = (chat.0.clone(), withdraw.item.clone());
-    commands.queue(move |world: &mut World| {
-        remember(world, |request| match request {
-            protocol::ClientMessage::Withdraw(withdraw)
-                if withdraw.chat == chat && withdraw.item == item =>
-            {
-                Some(withdraw.id.clone())
-            }
-            _ => None,
-        });
-    });
+    requests.0.insert(withdraw.request.clone(), Said::Refusal);
 }
 
-fn remember(
-    world: &mut World,
-    request: impl Fn(
-        &protocol::ClientMessage,
-    ) -> Option<protocol::RequestId>,
+fn remember_resume(
+    resume: On<Resume>,
+    mut requests: ResMut<Requests>,
 ) {
-    let ids = world
-        .resource::<Outbox>()
-        .iter()
-        .filter_map(request)
-        .collect::<Vec<_>>();
-    world.resource_mut::<Requests>().0.extend(ids);
+    requests.0.insert(resume.request.clone(), Said::Reply);
 }
 
 fn response(
@@ -263,19 +225,26 @@ fn response(
     mut draft: ResMut<Draft>,
     mut commands: Commands,
 ) {
-    let text = match &response.message {
-        protocol::ServerMessage::Reply(reply) => (reply.kind
-            == protocol::ReplyKind::Error)
-            .then_some(&reply.text),
-        protocol::ServerMessage::Fault(fault) => Some(&fault.text),
-        protocol::ServerMessage::Transcript(_) => None,
+    let (text, refused) = match &response.message {
+        protocol::ServerMessage::Reply(reply) => {
+            (&reply.text, reply.kind == protocol::ReplyKind::Error)
+        }
+        protocol::ServerMessage::Fault(fault) => (&fault.text, true),
+        // A page asked for came.
+        protocol::ServerMessage::Transcript(_) => {
+            requests.0.remove(&response.to);
+            return;
+        }
         _ => return,
     };
-    if requests.0.remove(&response.to)
-        && let Some(text) = text
-    {
+    let Some(said) = requests.0.remove(&response.to) else {
+        return;
+    };
+    if refused {
         draft.notice.clone_from(text);
         commands.trigger(ChatError);
+    } else if said == Said::Reply {
+        draft.notice.clone_from(text);
     }
 }
 
@@ -338,6 +307,7 @@ pub(crate) fn send(
     // What is sent is at the end of the chat.
     to_end(world);
     world.trigger(ChiefMessage {
+        request: protocol::RequestId::new(),
         to,
         text,
         images,
@@ -369,8 +339,9 @@ pub(crate) fn command(world: &mut World, text: String) {
 /// refusal is toasted rather than said only in a chat.
 fn command_to(world: &mut World, agent: Entity, text: String) {
     if let Some(to) = agents::id_of(world, agent) {
-        world.trigger(ChiefMessage::words(to, text));
-        crate::toasts::watch_last(world);
+        let message = ChiefMessage::words(to, text);
+        crate::toasts::watch(world, message.request.clone());
+        world.trigger(message);
     }
 }
 
@@ -645,6 +616,7 @@ mod tests {
     use bevy::input::keyboard::Key;
     use bevy::input_focus::{FocusCause, InputFocus};
     use bevy_fynix::views::RichField;
+    use hamlet_client::outbox::Outbox;
     use hamlet_realm::sound::{Cue, Sound};
 
     use super::*;
@@ -1042,6 +1014,7 @@ mod tests {
             if rewind {
                 app.world_mut().trigger(Rewind {
                     chat,
+                    request: protocol::RequestId::new(),
                     item: "chief:0".into(),
                 });
             } else {
@@ -1121,6 +1094,36 @@ mod tests {
                 == "Only the settings panel should show this.")
         );
         assert_eq!(heard(&mut app), []);
+    }
+
+    #[test]
+    fn a_resumes_reply_shows_under_the_field() {
+        let mut app = sounding_chat();
+        let agent = app.world().resource::<Convo>().agent;
+        let request = protocol::RequestId::new();
+        app.world_mut().trigger(Resume {
+            request: request.clone(),
+            agent,
+        });
+        hamlet_client::receive(
+            app.world_mut(),
+            protocol::ServerMessage::Reply(protocol::Reply {
+                to: request,
+                kind: protocol::ReplyKind::Notice,
+                text: "Resumed.".into(),
+                upload: None,
+                image: None,
+                images: Vec::new(),
+                file: None,
+                files: Vec::new(),
+            }),
+        );
+        app.update();
+        assert!(
+            crate::testing::words(&mut app)
+                .iter()
+                .any(|text| text == "Resumed.")
+        );
     }
 
     #[test]

@@ -23,6 +23,7 @@ use bevy_fynix::views::{BehaviorExt, FrameProps, button, column};
 use bevy_fynix::{Signal, Visual, resource};
 use hamlet_client::chats::Status;
 use hamlet_client::messages::{Rewound, Withdraw};
+use hamlet_client::outbox::RequestId;
 use hamlet_ui::styles::{ICON, Looks, Tipped};
 use hamlet_ui::widgets::effects::Variant;
 use hamlet_ui::widgets::icons::{Glyph, glyph};
@@ -93,6 +94,7 @@ pub(super) fn withdraw(session: Entity, entry: String) -> impl View {
         .on_activate(move |world| {
             world.trigger(Withdraw {
                 chat: session,
+                request: RequestId::new(),
                 item: entry.clone(),
             });
         });

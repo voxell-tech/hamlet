@@ -48,6 +48,7 @@ fn chief_messages_become_requests_with_fresh_uuid_ids_and_wire_ids() {
     world.trigger(Veto { agent: None });
     world.trigger(Rewind {
         chat,
+        request: protocol::RequestId::new(),
         item: "entry:0".into(),
     });
     world.flush();
@@ -220,6 +221,7 @@ fn addressed_answers_reach_observers_and_a_rewind_returns_its_removed_words()
         world.spawn(Chat(protocol::ChatRef { with: ada() })).id();
     world.trigger(Rewind {
         chat,
+        request: protocol::RequestId::new(),
         item: "entry:0".into(),
     });
     world.flush();

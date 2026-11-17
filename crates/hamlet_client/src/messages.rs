@@ -21,15 +21,15 @@ pub fn plugin(app: &mut App) {
             |message: On<ChiefMessage>,
              mut outbox: ResMut<Outbox>| {
                 let message = message.event();
-                outbox.send(|id| {
-                    protocol::ClientMessage::Say(protocol::Say {
+                outbox.push(protocol::ClientMessage::Say(
+                    protocol::Say {
                         files: message.files.clone(),
-                        id,
+                        id: message.request.clone(),
                         images: message.images.clone(),
                         to: message.to,
                         text: message.text.clone(),
-                    })
-                });
+                    },
+                ));
             },
         )
         .add_observer(
@@ -75,18 +75,18 @@ pub fn plugin(app: &mut App) {
         })
         .add_observer(
             |resume: On<Resume>, mut world: DeferredWorld| {
-                let Some(agent) = id_of(&world, resume.event().agent)
-                else {
+                let resume = resume.event();
+                let Some(agent) = id_of(&world, resume.agent) else {
                     return;
                 };
-                world.resource_mut::<Outbox>().send(|id| {
+                world.resource_mut::<Outbox>().push(
                     protocol::ClientMessage::Resume(
                         protocol::Resume {
-                            id,
+                            id: resume.request.clone(),
                             agent: Some(agent),
                         },
-                    )
-                });
+                    ),
+                );
             },
         )
         .add_observer(
@@ -96,27 +96,28 @@ pub fn plugin(app: &mut App) {
              mut rewinds: ResMut<Rewinds>| {
                 let rewind = rewind.event();
                 if let Ok(chat) = chats.get(rewind.chat) {
-                    let id = outbox.send(|id| {
-                        protocol::ClientMessage::Rewind(
-                            protocol::Rewind {
-                                id,
-                                chat: chat.0.clone(),
-                                item: rewind.item.clone(),
-                            },
-                        )
-                    });
-                    rewinds.0.insert(id, rewind.chat);
+                    outbox.push(protocol::ClientMessage::Rewind(
+                        protocol::Rewind {
+                            id: rewind.request.clone(),
+                            chat: chat.0.clone(),
+                            item: rewind.item.clone(),
+                        },
+                    ));
+                    rewinds
+                        .0
+                        .insert(rewind.request.clone(), rewind.chat);
                 }
             },
         )
         .add_observer(
             |compact: On<Compact>, mut outbox: ResMut<Outbox>| {
-                let to = compact.event().to;
-                outbox.send(|id| {
-                    protocol::ClientMessage::Compact(
-                        protocol::Compact { id, to },
-                    )
-                });
+                let compact = compact.event();
+                outbox.push(protocol::ClientMessage::Compact(
+                    protocol::Compact {
+                        id: compact.request.clone(),
+                        to: compact.to,
+                    },
+                ));
             },
         )
         .add_observer(
@@ -125,15 +126,13 @@ pub fn plugin(app: &mut App) {
              mut outbox: ResMut<Outbox>| {
                 let withdraw = withdraw.event();
                 if let Ok(chat) = chats.get(withdraw.chat) {
-                    outbox.send(|id| {
-                        protocol::ClientMessage::Withdraw(
-                            protocol::Withdraw {
-                                id,
-                                chat: chat.0.clone(),
-                                item: withdraw.item.clone(),
-                            },
-                        )
-                    });
+                    outbox.push(protocol::ClientMessage::Withdraw(
+                        protocol::Withdraw {
+                            id: withdraw.request.clone(),
+                            chat: chat.0.clone(),
+                            item: withdraw.item.clone(),
+                        },
+                    ));
                 }
             },
         );
@@ -142,6 +141,8 @@ pub fn plugin(app: &mut App) {
 /// A chief's typed line addressed to an agent.
 #[derive(Event, Clone, Debug)]
 pub struct ChiefMessage {
+    /// The id of the `say` request, which its reply is to.
+    pub request: RequestId,
     pub to: protocol::AgentId,
     pub text: String,
     /// The images the line carries, already uploaded (C33).
@@ -154,6 +155,7 @@ impl ChiefMessage {
     /// A line of words alone.
     pub fn words(to: protocol::AgentId, text: String) -> Self {
         ChiefMessage {
+            request: RequestId::new(),
             to,
             text,
             images: Vec::new(),
@@ -185,8 +187,9 @@ pub struct Veto {
 }
 
 /// A request that a stopped agent take what waits for it again.
-#[derive(Event, Clone, Copy, Debug)]
+#[derive(Event, Clone, Debug)]
 pub struct Resume {
+    pub request: RequestId,
     pub agent: Entity,
 }
 
@@ -195,13 +198,15 @@ pub struct Resume {
 pub struct Rewind {
     #[event_target]
     pub chat: Entity,
+    pub request: RequestId,
     pub item: String,
 }
 
 /// A request to summarize the earlier part of an agent's
 /// conversation now.
-#[derive(Event, Clone, Copy, Debug)]
+#[derive(Event, Clone, Debug)]
 pub struct Compact {
+    pub request: RequestId,
     pub to: protocol::AgentId,
 }
 
@@ -210,6 +215,7 @@ pub struct Compact {
 pub struct Withdraw {
     #[event_target]
     pub chat: Entity,
+    pub request: RequestId,
     pub item: String,
 }
 

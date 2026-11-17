@@ -543,7 +543,10 @@ fn compact(agent: Entity) -> impl View {
                 "Compact now: summarize the earlier messages",
                 move |world| {
                     if let Some(to) = id_of(world, agent) {
-                        world.trigger(Compact { to });
+                        world.trigger(Compact {
+                            request: protocol::RequestId::new(),
+                            to,
+                        });
                     }
                 },
             )

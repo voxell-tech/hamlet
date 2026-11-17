@@ -17,6 +17,7 @@ use bevy_fynix::views::{
 };
 use bevy_fynix::{ScopedExt, ViewExt};
 use hamlet_client::messages::Rewind;
+use hamlet_client::outbox::RequestId;
 use hamlet_client::realm::{
     self as agents, Busy, Deeds, HamletId, Hire, Left, LivesIn,
 };
@@ -140,6 +141,7 @@ impl Deed {
             Deed::Rewind { session, entry, .. } => {
                 world.trigger(Rewind {
                     chat: *session,
+                    request: RequestId::new(),
                     item: entry.clone(),
                 });
                 world.flush();

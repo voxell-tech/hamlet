@@ -314,6 +314,7 @@ fn a_recorded_rewind_returns_the_chief_words_and_replaces_the_reset_items()
                 );
                 app.world_mut().trigger(Rewind {
                     chat,
+                    request: protocol::RequestId::new(),
                     item: recorded.item.clone(),
                 });
                 let sent = requests(&mut app);

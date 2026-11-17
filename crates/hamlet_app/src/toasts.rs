@@ -30,15 +30,15 @@ use bevy_fynix::{
     each, every_frame, resource, style,
 };
 use hamlet_client::messages::{Answer, Response, ServerFault};
-use hamlet_client::outbox::{Outbox, RequestId};
+use hamlet_client::outbox::RequestId;
 use hamlet_client::realm::{
     Departure, Faulted, Kind, Left, LivesIn, Mayor, Scholar, Seen,
     Shown, name_of,
 };
 use hamlet_client::waits::{Choice, RaisedBy, Waiting};
 use hamlet_protocol::client::{
-    AgentKind, Arrival, ClientMessage, LeftHow, ReplyKind, ScholarId,
-    ServerMessage, Setup, SetupCause, WaitDetail,
+    AgentKind, Arrival, LeftHow, ReplyKind, ScholarId, ServerMessage,
+    Setup, SetupCause, WaitDetail,
 };
 use hamlet_ui::styles::{
     ICON, action, buttons, card_name, close_button, note, quoted,
@@ -439,19 +439,10 @@ fn failed(
 #[derive(Resource, Default)]
 pub(crate) struct Decreed(HashSet<RequestId>);
 
-/// Watches the command just queued, the last thing sent, so that its
-/// refusal is toasted.
-pub(crate) fn watch_last(world: &mut World) {
-    let last = world.resource::<Outbox>().iter().last().and_then(
-        |message| match message {
-            ClientMessage::Say(say) => Some(say.id.clone()),
-            _ => None,
-        },
-    );
+/// Watches the request `id`, so that its refusal is toasted.
+pub(crate) fn watch(world: &mut World, id: RequestId) {
     // A window drawn without toasts watches nothing.
-    if let Some(id) = last
-        && let Some(mut decreed) = world.get_resource_mut::<Decreed>()
-    {
+    if let Some(mut decreed) = world.get_resource_mut::<Decreed>() {
         decreed.0.insert(id);
     }
 }
@@ -1112,7 +1103,7 @@ mod tests {
     use bevy::time::{TimeUpdateStrategy, Virtual};
     use hamlet_client::outbox::Outbox;
     use hamlet_client::waits::Choice;
-    use hamlet_protocol::client as protocol;
+    use hamlet_protocol::client::{self as protocol, ClientMessage};
 
     use super::*;
     use crate::testing::{panel_app, press, words};
