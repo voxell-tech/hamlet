@@ -24,7 +24,7 @@ import {
 import { withHarness } from "../pi/runtime.ts";
 import { type AgentContext, generationOf } from "./actor.ts";
 import type { ReadCopies } from "./copies.ts";
-import type { Effort, Price } from "./messages.ts";
+import type { CredentialAnswer, Effort, Price } from "./messages.ts";
 import { type BareRealm, type Peers, reasonOf } from "./turn.ts";
 
 /** Dollars per million tokens of a model nothing prices, as today. */
@@ -46,9 +46,16 @@ const FAST_APIS: readonly Api[] = [
  * the agent sleeps.
  */
 export interface Keys {
+    /**
+     * The realm's key for `provider`, `undefined` for the faux models. With
+     * no key it throws words for the chief, so no other key, such as one
+     * in the host's environment, is ever used.
+     */
     of(provider: string): Promise<string | undefined>;
     /** `value` with every key held replaced, as today's scrub does. */
     scrub<T>(value: T): T;
+    /** `text` without a tail that begins a held key. */
+    withheld(text: string): string;
 }
 
 export function keysOf(
@@ -56,30 +63,47 @@ export function keysOf(
     report: Peers["report"],
 ): Keys {
     const held = new Map<string, string>();
+    const asked = new Map<string, Promise<string>>();
+    const ask = async (provider: string): Promise<string> => {
+        let answer: CredentialAnswer;
+        try {
+            answer = await realm.credential({ provider });
+        } catch (error) {
+            const words = `the realm's credential for ${provider} was not read`;
+            report(words, error);
+            throw new Error(`${words}: ${reasonOf(error)}`);
+        }
+        if (answer.type === "refused") throw new Error(answer.words);
+        if (answer.type === "oauth" || answer.key === "") {
+            throw new Error(
+                `The sign-in for ${provider} gives no key, and only a key is used yet.`,
+            );
+        }
+        held.set(provider, answer.key);
+        return answer.key;
+    };
     return {
-        of: async (provider) => {
-            if (provider === FAUX) return undefined;
-            const kept = held.get(provider);
-            if (kept !== undefined) return kept;
-            try {
-                const answer = await realm.credential({ provider });
-                // An OAuth login is pi-ai's to resolve and refresh, from a
-                // credential store; a refusal or a failed call is asked again
-                // at the next request.
-                if (answer.type !== "key" || answer.key === "") {
-                    return undefined;
-                }
-                held.set(provider, answer.key);
-                return answer.key;
-            } catch (error) {
-                report(
-                    `the realm's credential for ${provider} was not read`,
-                    error,
-                );
-                return undefined;
+        of: (provider) => {
+            if (provider === FAUX) return Promise.resolve(undefined);
+            let asking = asked.get(provider);
+            if (asking === undefined) {
+                asking = ask(provider);
+                asked.set(provider, asking);
+                // A refusal or a failed call is asked again at the next request.
+                asking.catch(() => asked.delete(provider));
             }
+            return asking;
         },
         scrub: (value) => scrubbed(value, [...held.values()]),
+        withheld: (text) => {
+            let cut = 0;
+            for (const key of held.values()) {
+                for (let length = key.length - 1; length > cut; length -= 1) {
+                    if (text.endsWith(key.slice(0, length))) cut = length;
+                }
+            }
+            return text.slice(0, text.length - cut);
+        },
     };
 }
 
@@ -153,8 +177,14 @@ export function agentModels(
         transcript,
         options,
     ) => {
-        const [made, asked] = await served(model, options);
-        return keys.scrub(await listed.completeSimple(made, transcript, asked));
+        try {
+            const [made, asked] = await served(model, options);
+            return keys.scrub(
+                await listed.completeSimple(made, transcript, asked),
+            );
+        } catch (error) {
+            throw scrubbedError(keys, error);
+        }
     };
     return new Proxy(listed, {
         get(target, name, receiver) {
@@ -169,6 +199,10 @@ export function agentModels(
 /**
  * The source's events with the keys scrubbed. A source that throws throws
  * here too, as the spend gate expects of a broken stream.
+ *
+ * pi-durable keeps each partial as it streams, and after a kill it keeps the
+ * last one as an aborted answer, so a text still growing is shown without a
+ * tail that begins a key: the rest of the key may be in the next delta.
  */
 class Scrubbed extends AssistantMessageEventStream {
     readonly #source: Promise<AssistantMessageEventStream>;
@@ -184,26 +218,86 @@ class Scrubbed extends AssistantMessageEventStream {
     }
 
     override async *[Symbol.asyncIterator](): AsyncGenerator<AssistantMessageEvent> {
+        const shown = new Map<number, string>();
         try {
             for await (const event of await this.#source)
-                yield this.#keys.scrub(event);
+                yield this.#withheld(this.#keys.scrub(event), shown);
         } catch (error) {
-            throw this.#scrubbed(error);
+            throw scrubbedError(this.#keys, error);
         }
     }
 
     override async result(): Promise<AssistantMessage> {
         try {
-            return this.#keys.scrub(await (await this.#source).result());
+            const message = this.#keys.scrub(
+                await (await this.#source).result(),
+            );
+            if (isCutOff(message)) withheldIn(this.#keys, message);
+            return message;
         } catch (error) {
-            throw this.#scrubbed(error);
+            throw scrubbedError(this.#keys, error);
         }
     }
 
-    /** The spend gate keeps a thrown error's words as the answer. */
-    #scrubbed(error: unknown): Error {
-        return new Error(this.#keys.scrub(reasonOf(error)));
+    /**
+     * `event` with each text that may still grow withheld, and its delta
+     * what the shown text grew by, as pi-durable appends the deltas to what
+     * it kept. `shown` holds each block's text as last shown.
+     */
+    #withheld(
+        event: AssistantMessageEvent,
+        shown: Map<number, string>,
+    ): AssistantMessageEvent {
+        if (event.type === "error") withheldIn(this.#keys, event.error);
+        if (!("partial" in event)) return event;
+        withheldIn(
+            this.#keys,
+            event.partial,
+            event.type === "text_end" || event.type === "thinking_end"
+                ? event.contentIndex
+                : undefined,
+        );
+        if (event.type === "text_delta" || event.type === "thinking_delta") {
+            const block = event.partial.content[event.contentIndex];
+            const text =
+                block?.type === "text"
+                    ? block.text
+                    : block?.type === "thinking"
+                      ? block.thinking
+                      : undefined;
+            if (text !== undefined) {
+                const before = shown.get(event.contentIndex) ?? "";
+                event.delta = text.slice(before.length);
+                shown.set(event.contentIndex, text);
+            }
+        }
+        return event;
     }
+}
+
+/** An answer that ended before its text did, so its text may end in part of a key. */
+function isCutOff(message: AssistantMessage): boolean {
+    return message.stopReason === "error" || message.stopReason === "aborted";
+}
+
+/** Withholds the tail of each text in `message` but block `ended`'s. */
+function withheldIn(
+    keys: Keys,
+    message: AssistantMessage,
+    ended?: number,
+): void {
+    for (const [index, block] of message.content.entries()) {
+        if (index === ended) continue;
+        if (block.type === "text") block.text = keys.withheld(block.text);
+        else if (block.type === "thinking") {
+            block.thinking = keys.withheld(block.thinking);
+        }
+    }
+}
+
+/** The spend gate keeps a thrown error's words as the answer. */
+function scrubbedError(keys: Keys, error: unknown): Error {
+    return new Error(keys.scrub(reasonOf(error)));
 }
 
 /** `provider::model`, as the catalogue and the copy name a model. */
@@ -234,9 +328,20 @@ function costOf(
     return { input: rate, output: rate, cacheRead: rate, cacheWrite: rate };
 }
 
-/** A listing may leave a model's cost out, whatever pi-ai's type says. */
+/**
+ * The listing's cost, when it gives all four rates. A listing may leave
+ * some out, whatever pi-ai's type says, and then today's server reads no
+ * cost (`providers.rs`, `select`).
+ */
 function listedCost(model: Model<Api>): Model<Api>["cost"] | undefined {
-    return model.cost;
+    const cost: Partial<Model<Api>["cost"]> | undefined = model.cost;
+    const { input, output, cacheRead, cacheWrite } = cost ?? {};
+    return typeof input === "number" &&
+        typeof output === "number" &&
+        typeof cacheRead === "number" &&
+        typeof cacheWrite === "number"
+        ? { input, output, cacheRead, cacheWrite }
+        : undefined;
 }
 
 function isLocal(baseUrl: string | undefined): boolean {
@@ -332,39 +437,44 @@ export async function checkModel(
     if (model === undefined) {
         return { type: "refused", words: `no model is named \`${name}\`` };
     }
-    const key = await keys.of(provider);
-    const answer = await listed.completeSimple(
-        model,
-        {
-            messages: [
-                {
-                    role: "user",
-                    content: "Say hello in one word.",
-                    timestamp: Date.now(),
-                },
-            ],
-        },
-        {
-            signal: AbortSignal.timeout(90_000),
-            maxRetries: 0,
-            ...(key === undefined ? {} : { apiKey: key }),
-        },
-    );
-    const text = answer.content
-        .flatMap((part) => (part.type === "text" ? [part.text] : []))
-        .join("")
-        .trim();
-    if (
-        answer.stopReason === "error" ||
-        answer.stopReason === "aborted" ||
-        text === ""
-    ) {
-        // Today's words come from the thrown error's text, scrubbed before
+    try {
+        const key = await keys.of(provider);
+        const answer = await listed.completeSimple(
+            model,
+            {
+                messages: [
+                    {
+                        role: "user",
+                        content: "Say hello in one word.",
+                        timestamp: Date.now(),
+                    },
+                ],
+            },
+            {
+                signal: AbortSignal.timeout(90_000),
+                maxRetries: 0,
+                ...(key === undefined ? {} : { apiKey: key }),
+            },
+        );
+        const text = answer.content
+            .flatMap((part) => (part.type === "text" ? [part.text] : []))
+            .join("")
+            .trim();
+        if (
+            answer.stopReason === "error" ||
+            answer.stopReason === "aborted" ||
+            text === ""
+        ) {
+            throw new Error(
+                answer.errorMessage ?? "the model answered with nothing",
+            );
+        }
+        return { type: "answered", words: keys.scrub(text) };
+    } catch (error) {
+        // As today, the words come from the error's text, scrubbed before
         // `plainly` cuts it.
-        const error = `Error: ${answer.errorMessage ?? "the model answered with nothing"}`;
-        return { type: "failed", words: plainly(keys.scrub(error)) };
+        return { type: "failed", words: plainly(keys.scrub(String(error))) };
     }
-    return { type: "answered", words: keys.scrub(text) };
 }
 
 /** A failed hello in words a chief can act on, as today's `plainly` gives them. */
@@ -404,28 +514,59 @@ export async function configured(
         // the chief's first session starts on it.
         await harness.root(context, { agent: wanted });
         for (const id of await conversationsOf(harness, context)) {
-            await harness.commit(async (tx) => {
-                const agent = await tx.doc(AgentDoc, id);
-                if (
-                    agent.model?.provider === wanted.model.provider &&
-                    agent.model.modelId === wanted.model.modelId &&
-                    (agent.thinkingLevel ?? null) === wanted.thinkingLevel
-                ) {
-                    return;
-                }
-                await configure(tx, id, wanted);
-            }, context);
+            await onCopiedModel(harness, context, id, copies);
         }
     });
 }
 
 /**
- * What puts a conversation on the copy's model and effort, as
- * `createConversation`'s `agent` takes it; `undefined` with no model copy.
+ * Puts the conversation `id` on the model and effort the copy names, in a
+ * commit that writes nothing when it is on them. The copy is read again
+ * after each write, and written again while it changed, so the copy read
+ * last always wins over an older one written later.
  */
-export async function copiedAgent(
+export async function onCopiedModel(
+    harness: Harness,
+    context: Context,
+    id: ConversationId,
     copies: ReadCopies,
-): Promise<{ model: ModelRef; thinkingLevel: Effort | null } | undefined> {
+): Promise<void> {
+    let wanted = await copiedAgent(copies);
+    while (wanted !== undefined) {
+        const target = wanted;
+        await harness.commit(async (tx) => {
+            const agent = await tx.doc(AgentDoc, id);
+            if (!isOn(agent, target)) await configure(tx, id, target);
+        }, context);
+        const now = await copiedAgent(copies);
+        wanted = now === undefined || isOn(now, target) ? undefined : now;
+    }
+}
+
+function isOn(
+    agent: Pick<AgentChange, "model" | "thinkingLevel">,
+    wanted: CopiedAgent,
+): boolean {
+    return (
+        agent.model?.provider === wanted.model.provider &&
+        agent.model.modelId === wanted.model.modelId &&
+        (agent.thinkingLevel ?? null) === wanted.thinkingLevel
+    );
+}
+
+/**
+ * What puts a conversation on the copy's model and effort, as
+ * `createConversation`'s `agent` takes it.
+ */
+interface CopiedAgent {
+    readonly model: ModelRef;
+    readonly thinkingLevel: Effort | null;
+}
+
+/** The copy's {@link CopiedAgent}; `undefined` with no model copy. */
+async function copiedAgent(
+    copies: ReadCopies,
+): Promise<CopiedAgent | undefined> {
     const { model: choice } = await copies();
     const model = choice === undefined ? undefined : refOf(choice.model);
     if (choice === undefined || model === undefined) return undefined;

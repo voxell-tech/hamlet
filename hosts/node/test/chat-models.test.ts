@@ -17,8 +17,14 @@ import {
     type StreamFunction,
 } from "@earendil-works/pi-ai";
 import { type Copies, type ModelChoice, u32 } from "../src/agent/messages.ts";
-import { checkModel, keysOf, modelList } from "../src/agent/models.ts";
-import type { BareRealm } from "../src/agent/turn.ts";
+import {
+    agentModels,
+    checkModel,
+    keysOf,
+    modelList,
+} from "../src/agent/models.ts";
+import { conversationOfChat } from "../src/agent/sessions.ts";
+import type { BareRealm, Peers } from "../src/agent/turn.ts";
 import {
     fakeCalls,
     from,
@@ -63,6 +69,14 @@ function unpriced(id: string, baseUrl: string): Model<Api> {
     const { cost: _, ...rest } = createFauxCore({ provider: "loopback" })
         .models[0];
     return { ...rest, id, name: id, baseUrl } as unknown as Model<Api>;
+}
+
+/** A model its listing gives only input and output rates. */
+function partlyPriced(): Model<Api> {
+    return {
+        ...unpriced("partly", "https://models.example/v1"),
+        cost: { input: 3, output: 5 },
+    } as unknown as Model<Api>;
 }
 
 /**
@@ -232,6 +246,7 @@ test("each answer names its model and its price", async (t) => {
     const second = loopback([
         unpriced("remote", "https://models.example/v1"),
         unpriced("home", "http://127.0.0.1:11434/v1"),
+        partlyPriced(),
     ]);
     const agent = await wakeAgent(t, { calls, models: second.add });
     const flat = (rate: number) => ({
@@ -252,6 +267,8 @@ test("each answer names its model and its price", async (t) => {
         [{ model: "loopback::large" }, "large", LISTED],
         [{ model: "loopback::remote" }, "remote", flat(1)],
         [{ model: "loopback::home" }, "home", flat(0.1)],
+        // As today, a listing's cost counts only with all four rates.
+        [{ model: "loopback::partly" }, "partly", flat(1)],
     ];
 
     for (const [version, [choice, id, rates]] of tiers.entries()) {
@@ -332,7 +349,7 @@ function recordingRealm(): {
 }
 
 function listing(): { listed: Models; second: ReturnType<typeof loopback> } {
-    const second = loopback();
+    const second = loopback([partlyPriced()]);
     return { listed: second.add(createModels()), second };
 }
 
@@ -395,6 +412,14 @@ test("the model list names each listed model with its window and price", () => {
             title: "Large",
             context: 64_000,
             price: { input: 2, output: 4, cache_read: 1, cache_write: 3 },
+        },
+    );
+    assert.deepEqual(
+        modelList(listed).find((model) => model.name === "loopback::partly"),
+        {
+            name: "loopback::partly",
+            title: "partly",
+            context: createFauxCore({}).models[0]?.contextWindow,
         },
     );
 });
@@ -478,19 +503,7 @@ test("a key is in no database, log, error or event", async (t) => {
             "the stream broke on [REDACTED]",
         ],
     );
-    const tables = await agent.c.db.all<{ name: string }>(
-        "SELECT name FROM sqlite_master WHERE type = 'table'",
-    );
-    const decoder = new TextDecoder();
-    for (const { name } of tables) {
-        const rows = await agent.c.db.all<Record<string, unknown>>(
-            `SELECT * FROM "${name}"`,
-        );
-        const text = JSON.stringify(rows, (_key, value: unknown) =>
-            value instanceof Uint8Array ? decoder.decode(value) : value,
-        );
-        assert.ok(!text.includes(KEY), `the table ${name} holds the key`);
-    }
+    assertNoPartOfKey(await dumped(agent));
     for (const [what, seen] of Object.entries({
         log: agent.reported,
         events: agent.events,
@@ -529,5 +542,445 @@ test("a new conversation takes the copy's model", async (t) => {
     await say(agent, "Two.");
 
     assert.deepEqual(names, ["loopback::large", "loopback::large"]);
+    await agent.stop();
+});
+
+/** Every row of every table, as text. */
+async function dumped(agent: Woken): Promise<string> {
+    const tables = await agent.c.db.all<{ name: string }>(
+        "SELECT name FROM sqlite_master WHERE type = 'table'",
+    );
+    const decoder = new TextDecoder();
+    let text = "";
+    for (const { name } of tables) {
+        const rows = await agent.c.db.all<Record<string, unknown>>(
+            `SELECT * FROM "${name}"`,
+        );
+        text += JSON.stringify(rows, (_key, value: unknown) =>
+            value instanceof Uint8Array ? decoder.decode(value) : value,
+        );
+    }
+    return text;
+}
+
+/**
+ * The provider `split`, signed in with a key, whose one model streams
+ * `chunks` as text deltas, then breaks, or waits for its request to be
+ * aborted.
+ */
+function splitting(
+    chunks: readonly string[],
+    end: "breaks" | "waits",
+): (listed: Models) => Models {
+    const model = {
+        ...createFauxCore({}).models[0],
+        provider: "split",
+        id: "split",
+        name: "split",
+    } as Model<Api>;
+    const stream: StreamFunction<string, SimpleStreamOptions> = (
+        made,
+        _transcript,
+        options,
+    ) => {
+        const out = createAssistantMessageEventStream();
+        const message: AssistantMessage = {
+            ...fauxAssistantMessage(""),
+            api: made.api,
+            provider: made.provider,
+            model: made.id,
+            content: [{ type: "text", text: "" }],
+        };
+        const text = message.content[0] as { text: string };
+        out.push({ type: "start", partial: structuredClone(message) });
+        out.push({
+            type: "text_start",
+            contentIndex: 0,
+            partial: structuredClone(message),
+        });
+        for (const chunk of chunks) {
+            text.text += chunk;
+            out.push({
+                type: "text_delta",
+                contentIndex: 0,
+                delta: chunk,
+                partial: structuredClone(message),
+            });
+        }
+        const failed = (reason: "aborted" | "error") => {
+            const error = { ...structuredClone(message), stopReason: reason };
+            out.push({ type: "error", reason, error });
+            out.end(error);
+        };
+        if (end === "breaks") failed("error");
+        else if (options?.signal?.aborted) failed("aborted");
+        else
+            options?.signal?.addEventListener("abort", () => failed("aborted"));
+        return out;
+    };
+    const provider = createProvider({
+        id: "split",
+        models: [model],
+        api: { stream, streamSimple: stream },
+        auth: {
+            apiKey: {
+                name: "split key",
+                resolve: async ({ credential }) =>
+                    credential?.key === undefined
+                        ? undefined
+                        : { auth: { apiKey: credential.key } },
+            },
+        },
+    });
+    return (listed) => {
+        (listed as MutableModels).setProvider(provider);
+        return listed;
+    };
+}
+
+for (const at of [6, 12, KEY.length - 1]) {
+    test(`a kill mid-stream after ${at} characters of a key keeps none of them`, async (t) => {
+        const { calls } = signedIn();
+        const agent = await wakeAgent(t, {
+            calls,
+            models: splitting([`My key is ${KEY.slice(0, at)}`], "waits"),
+        });
+        await agent.actions.copies(
+            agent.by(from.realm),
+            choosing(1, { model: "split::split" }),
+        );
+        await agent.actions.submit(agent.by(from.realm), {
+            id: "line-key",
+            input: { type: "line", text: "Say your key." },
+        });
+        // The partial holding the delta is kept before the kill.
+        await until(async () => (await dumped(agent)).includes("My key is"));
+        await agent.stop();
+        const next = await agent.again();
+        await until(async () =>
+            (await next.entries()).some((entry) =>
+                entry.text.includes("My key is"),
+            ),
+        );
+
+        assertNoPartOfKey(await dumped(next));
+        await next.stop();
+    });
+}
+
+function assertNoPartOfKey(text: string): void {
+    for (let length = 5; length <= KEY.length; length += 1) {
+        const prefix = KEY.slice(0, length);
+        assert.ok(!text.includes(prefix), `the database holds ${prefix}`);
+    }
+}
+
+test("an answer that breaks mid-key keeps none of it", async (t) => {
+    const { calls } = signedIn();
+    const agent = await wakeAgent(t, {
+        calls,
+        models: splitting([`My key is ${KEY.slice(0, 12)}`], "breaks"),
+    });
+    await agent.actions.copies(
+        agent.by(from.realm),
+        choosing(1, { model: "split::split" }),
+    );
+
+    await say(agent, "Say your key.");
+
+    assert.equal((await lastAnswer(agent)).stopReason, "error");
+    assertNoPartOfKey(await dumped(agent));
+    await agent.stop();
+});
+
+/**
+ * The provider `loopback` resolving a key as pi-ai's own do: the one it is
+ * given, else the host's environment's.
+ */
+function fromEnvironment(variable: string, keysSeen: (string | undefined)[]) {
+    const core = createFauxCore({
+        provider: "loopback",
+        models: [{ id: "large", name: "Large", cost: LISTED }],
+    });
+    core.setResponses([
+        (_transcript, options) => {
+            keysSeen.push(options?.apiKey);
+            return fauxAssistantMessage(`Paid with ${options?.apiKey}.`);
+        },
+    ]);
+    const provider = createProvider({
+        id: "loopback",
+        models: core.models,
+        api: { stream: core.stream, streamSimple: core.streamSimple },
+        auth: {
+            apiKey: {
+                name: "loopback key",
+                resolve: async ({ ctx, credential }) => {
+                    const key = credential?.key ?? (await ctx.env(variable));
+                    return key === undefined
+                        ? undefined
+                        : { auth: { apiKey: key } };
+                },
+            },
+        },
+    });
+    return (listed: Models): Models => {
+        (listed as MutableModels).setProvider(provider);
+        return listed;
+    };
+}
+
+const NOT_SIGNED_IN: Awaited<ReturnType<BareRealm["credential"]>> = {
+    type: "refused",
+    why: { type: "not_signed_in", provider: "loopback" },
+    words: "Sign in to loopback first.",
+};
+
+test("a request with no key from the realm fails and uses no other key", async (t) => {
+    const variable = "HAMLET_TEST_LOOPBACK_KEY";
+    process.env[variable] = "sk-made-up-host-0dd";
+    t.after(() => delete process.env[variable]);
+    const answers: Awaited<ReturnType<BareRealm["credential"]>>[] = [
+        NOT_SIGNED_IN,
+        {
+            type: "oauth",
+            login: { access: "made-up-access", refresh: "made-up", expires: 1 },
+        },
+    ];
+    for (const answer of answers) {
+        const { calls, sent } = fakeCalls({
+            realm: { credential: () => answer },
+        });
+        const keysSeen: (string | undefined)[] = [];
+        const agent = await wakeAgent(t, {
+            calls,
+            models: fromEnvironment(variable, keysSeen),
+        });
+        await agent.actions.copies(
+            agent.by(from.realm),
+            choosing(1, { model: "loopback::large" }),
+        );
+
+        await say(agent, "Who pays?");
+
+        assert.deepEqual(keysSeen, [], `the provider ran on ${answer.type}`);
+        const failed = (await lastAnswer(agent)).errorMessage;
+        assert.ok(failed !== undefined, "the request failed");
+        if (answer.type === "refused") assert.equal(failed, answer.words);
+        assert.ok(!(await dumped(agent)).includes("sk-made-up-host-0dd"));
+        assert.equal(named(sent, "credential").length, 1);
+        await agent.stop();
+    }
+});
+
+test("a check whose request throws answers scrubbed failed words", async () => {
+    const { listed } = listing();
+    const throwing = new Proxy(listed, {
+        get(target, name, receiver) {
+            if (name === "completeSimple") {
+                return async (
+                    ...[, , options]: Parameters<Models["completeSimple"]>
+                ) => {
+                    throw new Error(
+                        `401 Incorrect API key provided: ${options?.apiKey}`,
+                    );
+                };
+            }
+            const value: unknown = Reflect.get(target, name, receiver);
+            return typeof value === "function" ? value.bind(target) : value;
+        },
+    });
+    const keys = keysOf(recordingRealm().realm, () => {});
+
+    assert.deepEqual(await checkModel(throwing, keys, "loopback::large"), {
+        type: "failed",
+        words: "That key was not accepted. Check it was copied whole and is still active.",
+    });
+    const refused = await checkModel(
+        listed,
+        keysOf({ credential: async () => NOT_SIGNED_IN }, () => {}),
+        "loopback::large",
+    );
+    assert.equal(refused.type, "failed");
+    assert.match(refused.words, /Sign in to loopback first\./);
+});
+
+test("an agent's request that throws with the key throws it scrubbed", async () => {
+    const { listed } = listing();
+    const throwing = new Proxy(listed, {
+        get(target, name, receiver) {
+            if (name === "completeSimple") {
+                return async (
+                    ...[, , options]: Parameters<Models["completeSimple"]>
+                ) => {
+                    throw new Error(`refused ${options?.apiKey}`);
+                };
+            }
+            const value: unknown = Reflect.get(target, name, receiver);
+            return typeof value === "function" ? value.bind(target) : value;
+        },
+    });
+    const peers = {
+        reach: recordingRealm().realm,
+        report: () => {},
+    } as unknown as Peers;
+    const models = agentModels(throwing, async () => ({}), peers);
+    const model = listed.getModel("loopback", "large");
+    assert.ok(model !== undefined);
+
+    await assert.rejects(
+        models.completeSimple(model, { messages: [] }),
+        (error: Error) => error.message === "refused [REDACTED]",
+    );
+});
+
+test("requests at once ask the realm for a key once", async () => {
+    let asked = 0;
+    let answer: Awaited<ReturnType<BareRealm["credential"]>> = NOT_SIGNED_IN;
+    let gate = Promise.withResolvers<void>();
+    const keys = keysOf(
+        {
+            credential: async () => {
+                asked += 1;
+                await gate.promise;
+                return answer;
+            },
+        },
+        () => {},
+    );
+    const both = () => [keys.of("loopback"), keys.of("loopback")];
+
+    const refused = both();
+    gate.resolve();
+    await Promise.allSettled(refused);
+    assert.equal(asked, 1, "two requests at once asked once");
+    for (const each of refused) {
+        await assert.rejects(each, /Sign in to loopback first\./);
+    }
+    answer = { type: "key", key: KEY };
+    gate = Promise.withResolvers<void>();
+    const granted = both();
+    gate.resolve();
+    assert.deepEqual(await Promise.all(granted), [KEY, KEY]);
+    assert.equal(asked, 2, "a refusal is asked again");
+});
+
+/** The chief's current session's conversation. */
+async function currentSession(agent: Woken) {
+    const id = await conversationOfChat(agent.by(from.client), { with: 7 });
+    assert.ok(id !== undefined, "the chief has a current session");
+    const conversation = await (await agent.harness()).conversation(
+        id,
+        context,
+    );
+    assert.ok(conversation !== undefined, "the session has a conversation");
+    return conversation;
+}
+
+async function sessionModel(agent: Woken) {
+    return (await (await currentSession(agent)).agent(context)).model;
+}
+
+/** The id a client reads for the chief's line `text` in the current session. */
+async function itemOfLine(agent: Woken, text: string): Promise<string> {
+    const page = await (await currentSession(agent)).entries(
+        { order: "ascending" },
+        500,
+        undefined,
+        context,
+    );
+    const line = page.items.find(
+        (entry) =>
+            entry.kind === "hamlet.line" &&
+            JSON.stringify(entry.model).includes(text),
+    );
+    assert.ok(line !== undefined, `the line ${text} is in the session`);
+    return `${line.id}:0`;
+}
+
+test("a /new whose copy read waits behind a newer copy ends on it", async (t) => {
+    const { calls } = signedIn();
+    const second = loopback([
+        {
+            ...createFauxCore({}).models[0],
+            id: "other",
+            name: "Other",
+        } as Model<Api>,
+    ]);
+    const agent = await wakeAgent(t, { calls, models: second.add });
+    await agent.actions.copies(
+        agent.by(from.realm),
+        choosing(1, { model: "loopback::large" }),
+    );
+    second.core.setResponses([fauxAssistantMessage("Root.")]);
+    await say(agent, "Root first.");
+    // Holds the /new's first read of the copy until the newer copy is kept.
+    const db = agent.c.db as { all: (...args: unknown[]) => Promise<unknown> };
+    const all = db.all.bind(db);
+    const held = Promise.withResolvers<void>();
+    const reached = Promise.withResolvers<void>();
+    let armed = true;
+    db.all = async (...args: unknown[]) => {
+        const rows = await all(...args);
+        if (armed && String(args[0]).includes("FROM copy")) {
+            armed = false;
+            reached.resolve();
+            await held.promise;
+        }
+        return rows;
+    };
+
+    const begun = agent.actions.new_session(agent.by(from.client), {
+        id: "new-held",
+        to: 7,
+    });
+    await reached.promise;
+    await agent.actions.copies(
+        agent.by(from.realm),
+        choosing(2, { model: "loopback::other" }),
+    );
+    held.resolve();
+    await begun;
+
+    assert.deepEqual(await sessionModel(agent), {
+        provider: "loopback",
+        modelId: "other",
+    });
+    await agent.stop();
+});
+
+test("a rewind's conversation runs on the copy's model", async (t) => {
+    const { calls } = signedIn();
+    const second = loopback();
+    const names: string[] = [];
+    const agent = await wakeAgent(t, { calls, models: second.add });
+    await agent.actions.copies(
+        agent.by(from.realm),
+        choosing(1, { model: "loopback::large" }),
+    );
+    second.core.setResponses(
+        Array.from({ length: 4 }, () =>
+            ran(names, fauxAssistantMessage("Ok.")),
+        ),
+    );
+    await say(agent, "First line.");
+    await say(agent, "Second line.");
+
+    // The first rewind forks before the second line; the second leaves the
+    // session empty.
+    for (const [line, again] of [
+        ["Second line.", "Second, again."],
+        ["First line.", "From the start."],
+    ] as const) {
+        const rewound = await agent.actions.rewind(agent.by(from.client), {
+            id: `rewind-${line}`,
+            chat: { with: 7 },
+            item: await itemOfLine(agent, line),
+        });
+        assert.equal(rewound.type, "rewound");
+        await say(agent, again);
+    }
+
+    assert.deepEqual(names, Array(4).fill("loopback::large"));
     await agent.stop();
 });

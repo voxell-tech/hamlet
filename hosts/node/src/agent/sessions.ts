@@ -7,6 +7,7 @@
 import type { Context } from "@earendil-works/chord/context";
 import type {
     Conversation,
+    ConversationCreateOptions,
     ConversationId,
     Harness,
 } from "@earendil-works/pi-durable";
@@ -14,7 +15,7 @@ import type { RawAccess } from "../actor/db/mod.ts";
 import { withHarness } from "../pi/runtime.ts";
 import { type AgentCall, generationOf } from "./actor.ts";
 import type { ChatRef, Input, RequestId } from "./messages.ts";
-import { copiedAgent } from "./models.ts";
+import { onCopiedModel } from "./models.ts";
 import { conversationOf } from "./turn.ts";
 
 export async function migrateChats(
@@ -217,20 +218,27 @@ async function keptChat(
     return row?.conversation;
 }
 
-/** A new conversation, on the model the agent's copy names. */
-async function created(
+/**
+ * A new conversation, empty unless `make` forks one, on the model the
+ * agent's copy names. The copy is read once the conversation exists, so a
+ * copy kept after that read finds it when `configured` runs.
+ */
+export async function created(
     c: AgentCall,
     harness: Harness,
     context: Context,
+    make: (options: ConversationCreateOptions) => Promise<Conversation> = (
+        options,
+    ) => harness.createConversation(options, context),
 ): Promise<Conversation> {
-    const agent = await copiedAgent(generationOf(c).copies);
-    return harness.createConversation(
-        {
-            ownership: { kind: "ownerless" },
-            ...(agent === undefined ? {} : { agent }),
-        },
+    const conversation = await make({ ownership: { kind: "ownerless" } });
+    await onCopiedModel(
+        harness,
         context,
+        conversation.id,
+        generationOf(c).copies,
     );
+    return conversation;
 }
 
 /**
