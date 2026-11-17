@@ -16,6 +16,23 @@ import {
 import { type RealmTask, u32 } from "./messages.ts";
 import { Closing, cutOff, modelCall, type Peers, reasonOf } from "./turn.ts";
 
+/** A request the realm refused or held, which the gate ended unsent. */
+export interface Unsent {
+    readonly held: boolean;
+    /** The realm's words. */
+    readonly words: string;
+}
+
+/**
+ * pi-durable hands the message the gate ended with to `afterResponse` as
+ * it is, so the message itself says why.
+ */
+const UNSENT = new WeakMap<AssistantMessage, Unsent>();
+
+export function unsentOf(message: AssistantMessage): Unsent | undefined {
+    return UNSENT.get(message);
+}
+
 export function gated(models: Models, peers: Peers): Models {
     const ask = async (
         model: Model<Api>,
@@ -29,7 +46,13 @@ export function gated(models: Models, peers: Peers): Models {
                 peers.reach.may_spend({ task }),
             );
             if (may.type === "refused") {
-                return { ended: refusalOf(model, may.words) };
+                // `Hold` in `crates/hamlet_messages/src/realm/oversight.rs`.
+                const held = may.why.type === "objection";
+                const ended = held
+                    ? heldOf(model, may.words)
+                    : refusalOf(model, may.words);
+                UNSENT.set(ended, { held, words: may.words });
+                return { ended };
             }
             return { task };
         } catch (error) {
@@ -142,8 +165,26 @@ export function refusalOf(model: Model<Api>, why: string): AssistantMessage {
             },
         },
         stopReason: "error",
-        errorMessage: `${NEVER_RETRIED}: ${why}`,
+        errorMessage: `${REFUSED}${why}`,
         timestamp: Date.now(),
+    };
+}
+
+/** The realm's words in the text of a failure the gate's refusal caused. */
+export function realmWordsIn(text: string): string | undefined {
+    const at = text.indexOf(REFUSED);
+    return at === -1 ? undefined : text.slice(at + REFUSED.length);
+}
+
+/**
+ * The realm's words alone, as today's item reads. pi-durable tries again
+ * only an `error`, and a held task's name can hold a status code.
+ */
+function heldOf(model: Model<Api>, words: string): AssistantMessage {
+    return {
+        ...refusalOf(model, ""),
+        stopReason: "aborted",
+        errorMessage: words,
     };
 }
 
@@ -167,5 +208,5 @@ function abortOf(signal: AbortSignal | undefined): Promise<void> {
 }
 
 /** Holds "billing", which pi-ai's `isRetryableAssistantError` never retries. */
-const NEVER_RETRIED =
-    "The realm's billing did not allow this model request, and it was not sent";
+const REFUSED =
+    "The realm's billing did not allow this model request, and it was not sent: ";

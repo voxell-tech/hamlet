@@ -598,7 +598,11 @@ for (const action of ANSWERED_BY_TOOLS) {
 
 for (const name of answersTo("realm/may_spend")) {
     test(`${name} is read by the model gate, and the charge's answer by its sender`, async (t) => {
-        const given = fixture(name) as { type: string; words?: string };
+        const given = fixture(name) as {
+            type: string;
+            why?: { type: string };
+            words?: string;
+        };
         const { calls } = fakeCalls({
             realm: {
                 may_spend: () => given as never,
@@ -617,7 +621,13 @@ for (const name of answersTo("realm/may_spend")) {
         if (given.type === "refused") {
             assert.equal(agent.faux.state.callCount, 0);
             const detail = String(submission?.detail);
-            assert.ok(detail.endsWith(`: ${given.words}`), detail);
+            // A hold's item is the realm's words alone.
+            assert.ok(
+                given.why?.type === "objection"
+                    ? detail === given.words
+                    : detail.endsWith(`: ${given.words}`),
+                detail,
+            );
         } else {
             assert.equal(agent.faux.state.callCount, 1);
         }

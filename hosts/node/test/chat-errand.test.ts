@@ -333,6 +333,8 @@ test("a worker cut off with no words ends with the notice's words", async (t) =>
             why: "the message is longer than the model can hold",
         },
     });
+    // Only a chief's turn opens a wait (`talk/follow.rs:54-59`).
+    assert.deepEqual(named(sent, "turn_failed"), []);
 });
 
 test("a worker's turn waits for the copies the realm holds", async (t) => {

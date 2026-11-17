@@ -47,6 +47,12 @@ import {
     type ReadCopies,
     refreshed,
 } from "./copies.ts";
+import {
+    type FailedTurns,
+    failedTurns,
+    type TellFailed,
+    tellingFailed,
+} from "./failed.ts";
 import type { AgentFilesystem } from "./filesystem.ts";
 import type { SignIns } from "./login.ts";
 import {
@@ -68,7 +74,7 @@ import { agentModels, configured } from "./models.ts";
 import { ownFiles } from "./own-files.ts";
 import { type PromptSources, promptPart, promptSources } from "./prompt.ts";
 import { owedOf, reflectEvery, reflection } from "./reflect.ts";
-import { conversationFor, migrateChats } from "./sessions.ts";
+import { conversationFor, current, migrateChats } from "./sessions.ts";
 import { society } from "./society.ts";
 import { gated } from "./spend.ts";
 import { timers } from "./timers.ts";
@@ -175,15 +181,25 @@ function parts(
     peers: Peers,
     prompt: PromptSources,
     withHarness: WithHarness,
+    tell: TellFailed,
+    failed: FailedTurns,
 ): Extension[] {
     const offer = offerOf(row);
     if (offer === undefined) return [promptPart(prompt)];
     const builtIn = [offer.builtIn(workspaceTools(peers)), ownFiles(peers)];
-    if (!offer.society) return [promptPart(prompt), cutOffRule(), ...builtIn];
+    if (!offer.society) {
+        return [
+            promptPart(prompt),
+            cutOffRule(tell),
+            failed.extension,
+            ...builtIn,
+        ];
+    }
     return [
         promptPart(prompt),
         reflection(peers, prompt.copies, owedOf(withHarness), reflectEvery()),
-        cutOffRule(),
+        cutOffRule(tell),
+        failed.extension,
         ...builtIn,
         society(peers, row.toolsOff),
         timers(),
@@ -410,7 +426,9 @@ async function wake(c: AgentContext, config: AgentConfig): Promise<void> {
         ...promptSources(c, copies, peers),
         ...(errand === undefined ? {} : { errand }),
     };
-    for (const part of parts(row, peers, prompt, withHarness)) {
+    const tell = tellingFailed(peers, row.standingTask, () => current(c.db));
+    const failed = failedTurns(peers, withHarness, tell);
+    for (const part of parts(row, peers, prompt, withHarness, tell, failed)) {
         registry.install(part);
     }
     const options: PiOptions = {
@@ -464,6 +482,7 @@ async function wake(c: AgentContext, config: AgentConfig): Promise<void> {
         });
         return;
     }
+    failed.follow(harness);
     harness.resume();
     // Configured at every wake, not only when a newer model was kept, and
     // even when the realm was not reached, so a configure a kill cut off
