@@ -235,12 +235,19 @@ impl Core<'_, '_> {
                     "{name} runs {} now.",
                     model.as_deref().unwrap_or("its hamlet's model")
                 );
-                self.carry(call, |cx, _| {
-                    Ok(hires::set_model(
+                self.carry(call, |cx, env| {
+                    Ok(crate::conversations::chats::remodel(
                         cx,
+                        env,
                         hire,
-                        model.as_deref(),
-                        &reason,
+                        |cx| {
+                            hires::set_model(
+                                cx,
+                                hire,
+                                model.as_deref(),
+                                &reason,
+                            )
+                        },
                     )?
                     .map(|()| words))
                 })

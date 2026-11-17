@@ -6,7 +6,7 @@ mod deed;
 mod founding;
 mod hire;
 mod items;
-mod model;
+pub(crate) mod model;
 mod new_scholar;
 mod road;
 

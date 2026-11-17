@@ -317,6 +317,10 @@ fn received_item(item: protocol::Item, chief: &str) -> Item {
             from: item.from,
             name: item.text,
         },
+        protocol::ItemKind::Event => match item.event {
+            Some(event) => Entry::Event(event),
+            None => Entry::Notice(item.text),
+        },
         protocol::ItemKind::Tool => {
             let tool = item.tool.unwrap_or(protocol::ItemTool {
                 agent: None,
@@ -450,6 +454,8 @@ pub enum Entry {
         from: Option<protocol::AgentId>,
         name: String,
     },
+    /// A change to the agent between its turns.
+    Event(protocol::ItemEvent),
 }
 
 /// A transcript entry with its server id and time.
@@ -478,7 +484,9 @@ impl transcript::Kept for Item {
             | Entry::Answered(shown)
             | Entry::Summary(shown)
             | Entry::Error(shown) => shown.push_str(text),
-            Entry::Tool { .. } | Entry::Merged { .. } => {}
+            Entry::Tool { .. }
+            | Entry::Merged { .. }
+            | Entry::Event(_) => {}
         }
     }
 

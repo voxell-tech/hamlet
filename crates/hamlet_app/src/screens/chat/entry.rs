@@ -727,7 +727,8 @@ pub(crate) fn entry_view(chat: Entity, id: String) -> AnyView {
             Some(
                 Entry::Agent { .. }
                 | Entry::Summary(_)
-                | Entry::Merged { .. },
+                | Entry::Merged { .. }
+                | Entry::Event(_),
             )
             | None => frame().boxed(),
         };

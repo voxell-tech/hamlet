@@ -206,6 +206,12 @@ pub(crate) fn make_of_hire(
             .subject(hire)
             .scholar(id),
     )?;
+    let scholar = get(cx.db, id)?.name;
+    crate::conversations::chats::event(
+        cx,
+        hire,
+        hamlet_protocol::client::ItemEvent::Scholar { scholar },
+    )?;
     Ok(Ok(id))
 }
 

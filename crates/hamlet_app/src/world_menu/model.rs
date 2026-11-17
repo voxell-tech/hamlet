@@ -362,7 +362,7 @@ const fn spelled(effort: Effort) -> &'static str {
 }
 
 /// An effort in the chief's words.
-const fn words(effort: Effort) -> &'static str {
+pub(crate) const fn words(effort: Effort) -> &'static str {
     match effort {
         Effort::Off => "Off",
         Effort::Minimal => "Minimal",

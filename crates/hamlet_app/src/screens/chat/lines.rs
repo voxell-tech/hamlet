@@ -271,7 +271,9 @@ pub(super) enum Row {
 /// Whether `entry` is drawn as a [`Row::Card`].
 fn is_card(entry: &Entry) -> bool {
     match entry {
-        Entry::Summary(_) | Entry::Merged { .. } => true,
+        Entry::Summary(_)
+        | Entry::Merged { .. }
+        | Entry::Event(_) => true,
         Entry::Chief { .. }
         | Entry::Assistant(_)
         | Entry::Reasoning(_)
@@ -441,7 +443,8 @@ pub(super) fn rows(
             | Entry::Answered(_)
             | Entry::Agent { .. }
             | Entry::Summary(_)
-            | Entry::Merged { .. } => false,
+            | Entry::Merged { .. }
+            | Entry::Event(_) => false,
         };
         if step {
             let first = before.unwrap_or(item);

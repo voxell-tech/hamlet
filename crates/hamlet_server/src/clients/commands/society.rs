@@ -6,6 +6,7 @@ use hamlet_store::ids::{Actor, HamletId};
 
 use super::targets::is_scholar;
 use super::{Answer, Command, Line};
+use crate::conversations::chats;
 use crate::core::Core;
 use crate::society::addresses::{self, Reach};
 use crate::society::agents::{self, AgentKind, Effort, EndHow};
@@ -620,9 +621,7 @@ fn merge(core: &mut Core<'_, '_>, line: &Line) -> Answer {
             cx, kept, absorbed, &reason,
         )?;
         if merged.is_ok() {
-            crate::conversations::chats::merged(
-                cx, env, kept, absorbed,
-            )?;
+            chats::merged(cx, env, kept, absorbed)?;
         }
         Ok(merged)
     })?;
@@ -642,8 +641,10 @@ fn model(core: &mut Core<'_, '_>, line: &Line) -> Answer {
     found!(core.steers(hire));
     let model = (*model != "none").then_some(*model);
     let reason = line.tail(2);
-    let done = core.attempt(by(core), |cx, _| {
-        agents::set_model(cx, hire, model, &reason)
+    let done = core.attempt(by(core), |cx, env| {
+        chats::remodel(cx, env, hire, |cx| {
+            agents::set_model(cx, hire, model, &reason)
+        })
     })?;
     Ok(done.map(|()| {
         format!(
@@ -669,8 +670,10 @@ fn effort(core: &mut Core<'_, '_>, line: &Line) -> Answer {
             Err(_) => return usage(core, line),
         },
     };
-    let done = core.attempt(by(core), |cx, _| {
-        agents::set_effort(cx, agent, effort)
+    let done = core.attempt(by(core), |cx, env| {
+        chats::remodel(cx, env, agent, |cx| {
+            agents::set_effort(cx, agent, effort)
+        })
     })?;
     Ok(done.map(|()| match effort {
         Some(effort) => format!("`{text}` thinks at {effort}."),

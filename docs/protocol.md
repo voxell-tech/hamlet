@@ -261,12 +261,20 @@ workspace since the server started: `state` (`moving`, `moved` or `failed`),
 lodges `done` of `of`, and its outcome as `text`.
 
 `Item` has `id: string`, `at: integer`, `kind`, `text: string`, and optional
-`chief`, `author`, `from`, `queued`, `rewindable`, `tool`, `images` (the `AttachedImage`s a chief's
+`chief`, `author`, `event`, `from`, `queued`, `rewindable`, `tool`, `images` (the `AttachedImage`s a chief's
 line carried) and `files` (its `AttachedFile`s), each with its `at` in `text`; the transcript holds ids and never bytes. Its kind is `user`, `assistant`,
 `reasoning`, `tool`, `notice`, `error`, `answered`, the chief's answers
 to questions, `summary`, whose `text` is the summary that stands for the
-earlier part of the conversation in the model's context, or `merged`, a
-hire merged into this one. A notification, request or response from another agent
+earlier part of the conversation in the model's context, `merged`, a
+hire merged into this one, or `event`, a change to the agent written in
+for people alone, which the model never reads. An `event` item's `event`
+says what changed, discriminated by `kind`: `model`, with `by`, who made
+the change, and `from` and `to`, each a `model` (`provider::id`) and a
+nullable `effort`; `stopped`, with `by` and `waiting`, the inputs held;
+`resumed`, with `by`; `dreamed`, with the first line of the dream's answer
+as `summary`; `scholar`, the `scholar` of the city made of the agent;
+`renamed`, with the `name` it is shown by now; and `fast`, with `on`. `by`
+is a chief's name or an agent's address and name. A notification, request or response from another agent
 is a `user` item with `author`, its sender's address and name, and `from`,
 its `AgentId`, not `chief`; its `text` is the words without the heading the
 model reads them under. A `merged` item's `from` is the absorbed hire and
@@ -364,7 +372,9 @@ gives the removed chief words back to the input field. A request's reply is
 not ordered against a chat's `turn` and `transcript` messages. A reset and
 its replacement transcript are sent together, with no message between them.
 Reflections and retries show as notices. A compaction shows as a `summary`
-item and a merge as a `merged` item.
+item and a merge as a `merged` item. A change of the agent's model or
+effort, a stop and a resume, a dream that ended, a scholar made of it, a
+new nickname and its fast tier turned on or off each add an `event` item.
 
 A `Wait` has the fields every wait has (`id`, `by`, `agent`, `about`,
 `subject`, `change`, `answers`, `since`, `asked`, `chat`) and a `detail`

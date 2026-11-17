@@ -130,7 +130,7 @@ pub(crate) fn set_nickname(
     id: AgentId,
     nickname: Option<&str>,
 ) -> Done<()> {
-    get(cx.db, id)?;
+    let was = get(cx.db, id)?.nickname;
     done!(hires::require_living(cx.db, id));
     let nickname = match hires::check_nickname(nickname) {
         Ok(nickname) => nickname,
@@ -139,6 +139,7 @@ pub(crate) fn set_nickname(
     diesel::update(worker::table.find(id))
         .set(worker::nickname.eq(nickname))
         .execute(cx.db)?;
+    hires::renamed(cx, id, was.as_deref() != nickname)?;
     cx.touched.agents.insert(id);
     Ok(Ok(()))
 }

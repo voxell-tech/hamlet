@@ -160,6 +160,7 @@ impl Fold {
                         text: text.into(),
                         author: None,
                         chief: None,
+                        event: None,
                         rewindable: None,
                         tool: None,
                     },
@@ -362,6 +363,7 @@ pub(crate) fn queued(
             at,
             author: None,
             chief: None,
+            event: None,
             files: Vec::new(),
             from: None,
             id: format!("{QUEUED}{}", input.request),
@@ -435,6 +437,7 @@ pub(crate) fn items_of(
         at,
         author: None,
         chief: None,
+        event: None,
         files: Vec::new(),
         from: None,
         id: id.clone(),
@@ -547,6 +550,15 @@ pub(crate) fn items_of(
                 },
             )]);
         }
+        Some(Mark::Event { event, .. }) => {
+            return Ok(vec![(
+                0,
+                Item {
+                    event: Some(event),
+                    ..item(ItemKind::Event, String::new(), at)
+                },
+            )]);
+        }
         _ => {}
     }
     Ok(match entry.kind {
@@ -584,6 +596,7 @@ fn blocks_of(
         at,
         author: None,
         chief: None,
+        event: None,
         files: Vec::new(),
         from: None,
         id: id(index),

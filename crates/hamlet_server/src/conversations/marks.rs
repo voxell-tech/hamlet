@@ -2,7 +2,9 @@
 //! transcript shows it. The runtime protocol carries it untyped.
 
 use anyhow::{Context, Result};
-use hamlet_protocol::client::{AttachedFile, AttachedImage};
+use hamlet_protocol::client::{
+    AttachedFile, AttachedImage, ItemEvent,
+};
 use hamlet_protocol::runtime;
 use hamlet_store::ids::AgentId;
 use serde::{Deserialize, Serialize};
@@ -72,6 +74,9 @@ pub(crate) enum Mark {
         author: String,
         at: i64,
     },
+    /// A change to the agent, for people alone, between its turns.
+    #[serde(rename = "hamlet.event")]
+    Event { event: ItemEvent, at: i64 },
 }
 
 /// Who a message from another agent is from.
@@ -186,7 +191,8 @@ impl Mark {
             | Self::Earlier { at, .. }
             | Self::Step { at, .. }
             | Self::Compaction { at }
-            | Self::Merged { at, .. } => *at,
+            | Self::Merged { at, .. }
+            | Self::Event { at, .. } => *at,
             Self::Notification(from)
             | Self::Request(from)
             | Self::Response(from)

@@ -165,18 +165,19 @@ impl Core<'_, '_> {
                         }),
                     },
                 };
-                self.carry(call, |cx, _| {
-                    Ok(agents::set_effort(cx, agent, effort)?.map(
-                        |()| match effort {
-                            Some(effort) => {
-                                format!("{name} thinks at {effort}.")
-                            }
-                            None => format!(
-                                "{name} thinks as hard as the \
-                                 realm's setting says."
-                            ),
-                        },
-                    ))
+                self.carry(call, |cx, env| {
+                    Ok(chats::remodel(cx, env, agent, |cx| {
+                        agents::set_effort(cx, agent, effort)
+                    })?
+                    .map(|()| match effort {
+                        Some(effort) => {
+                            format!("{name} thinks at {effort}.")
+                        }
+                        None => format!(
+                            "{name} thinks as hard as the realm's \
+                             setting says."
+                        ),
+                    }))
                 })
             }
             Called::SetFast(SetFast { fast, .. }) => {

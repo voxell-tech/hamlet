@@ -64,14 +64,22 @@ and their answers queue under the hold like anything else
 **Compaction.** When the context fills, pi summarizes the earlier part of
 the conversation (C28). A chief asks for that now with "Compact now" in
 the chat or `/compact`, sent as `compact`. The summary is an item of kind
-`summary`, drawn as a quiet divider, "Earlier messages summarized", that
+`summary`, drawn as a line between turns, "Context compacted", that
 opens to show it. Every row before it stays.
 
 **A merge.** A hire merged into another leaves an item of kind `merged` in
 the kept hire's conversation, whose `from` is the absorbed hire. It is
-drawn as a folded block, "Merged from <name>", that opens the absorbed
-hire's own conversation in place. That conversation stays as it was, so a
-split gives it back unchanged.
+drawn as a line between turns, "Merged hire#7 (Bo) into this chat", that
+opens the absorbed hire's own conversation in place. That conversation
+stays as it was, so a split gives it back unchanged.
+
+**Lines between turns.** A change to the agent is written into its
+conversation for people alone, as an `event` item the model never reads
+(`chats::event`), and drawn as a centred line between two rules
+(`card.rs`): its model or effort changed by a chief or a lead, as
+"Claude Opus 5.5 Medium → High"; "Stopped by you · 2 waiting" and
+"Resumed"; "Dreamed" and the first line of the dream's answer; "Became a
+scholar of the city"; "Renamed to map-view"; "Fast tier on".
 
 ## Brought in from another program
 

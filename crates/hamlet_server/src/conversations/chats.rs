@@ -4,9 +4,13 @@
 
 use anyhow::{Context, Result};
 use diesel::prelude::*;
-use hamlet_protocol::client::{AttachedFile, AttachedImage};
+use hamlet_protocol::client::{
+    AttachedFile, AttachedImage, ItemEvent, ItemModel,
+};
 use hamlet_store::Db;
-use hamlet_store::ids::{AgentId, ChiefId, ConversationId, TaskId};
+use hamlet_store::ids::{
+    Actor, AgentId, ChiefId, ConversationId, TaskId,
+};
 use hamlet_store::schema::chat;
 
 use super::inputs::{self, InputKind, Keep, State};
@@ -205,6 +209,90 @@ pub(crate) fn notice(
         },
     )?;
     Ok(())
+}
+
+/// Writes `event` into `agent`'s conversation for people alone (C30),
+/// when it has one.
+pub(crate) fn event(
+    cx: &mut Change<'_>,
+    agent: AgentId,
+    event: ItemEvent,
+) -> Result<()> {
+    let Some(conversation) = of(cx.db, agent)? else {
+        return Ok(());
+    };
+    inputs::keep(
+        cx,
+        Keep {
+            conversation,
+            request: format!("notice:{}", uuid::Uuid::new_v4()),
+            kind: InputKind::Notice,
+            task: None,
+            content: String::new(),
+            mark: Mark::Event { event, at: cx.at },
+            steer: false,
+            boundary: false,
+        },
+    )?;
+    cx.touched.agents.insert(agent);
+    Ok(())
+}
+
+/// Who makes the change `cx`, as an event names them: a chief by
+/// name, an agent by its address and name.
+pub(crate) fn by(cx: &mut Change<'_>) -> Result<String> {
+    Ok(match cx.actor {
+        Actor::Chief(chief) => {
+            chiefs::find(cx.db, chief)?
+                .context("the chief is not in the realm")?
+                .name
+        }
+        Actor::Agent(agent) => {
+            crate::society::addresses::name_of(cx.db, agent)?
+        }
+        Actor::Realm => String::new(),
+    })
+}
+
+/// The model `agent` runs and how hard it thinks, as an event names
+/// them.
+fn model_of(
+    cx: &mut Change<'_>,
+    env: &EffectiveSettings,
+    agent: AgentId,
+) -> Result<ItemModel> {
+    let choice =
+        models::choose(cx.db, &env.settings, &env.overrides, agent)?;
+    let model = match choice.model.provider.is_empty() {
+        true => choice.model.id,
+        false => {
+            format!("{}::{}", choice.model.provider, choice.model.id)
+        }
+    };
+    Ok(ItemModel {
+        model,
+        effort: choice.effort.map(agents::Effort::wire),
+    })
+}
+
+/// Makes `change` to the model of `agent` or how hard it thinks, and
+/// writes what changed into its conversation.
+pub(crate) fn remodel(
+    cx: &mut Change<'_>,
+    env: &EffectiveSettings,
+    agent: AgentId,
+    change: impl FnOnce(&mut Change<'_>) -> Done<()>,
+) -> Done<()> {
+    let from = model_of(cx, env, agent)?;
+    let done = change(cx)?;
+    if done.is_ok() {
+        let to = model_of(cx, env, agent)?;
+        if to != from {
+            let by = by(cx)?;
+            event(cx, agent, ItemEvent::Model { by, from, to })?;
+        }
+    }
+    Ok(done)
 }
 
 /// Asks `agent`'s conversation to summarize its earlier part now, as
@@ -521,6 +609,9 @@ pub(crate) fn stop(
         && (stopped > 0 || inputs::is_busy(cx.db, chat)?)
     {
         conversations::hold(cx, chat)?;
+        let waiting = inputs::queued(cx.db, chat)?.len() as u64;
+        let by = by(cx)?;
+        event(cx, agent, ItemEvent::Stopped { by, waiting })?;
     }
     crate::society::oversight::lapse(
         cx,
@@ -541,6 +632,10 @@ pub(crate) fn resume(
         return Ok(false);
     };
     let held = conversations::release(cx, chat, None)?;
+    if held {
+        let by = by(cx)?;
+        event(cx, agent, ItemEvent::Resumed { by })?;
+    }
     cx.touched.agents.insert(agent);
     Ok(held)
 }

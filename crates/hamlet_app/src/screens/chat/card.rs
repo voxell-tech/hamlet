@@ -1,6 +1,7 @@
 //! The rows that are blocks of their own and open in place: the
-//! summary that stands for the earlier messages, the conversation of
-//! a hire merged in, and a worker the agent started.
+//! centred lines between turns, for the summary that stands for the
+//! earlier messages, the conversation of a hire merged in and each
+//! change to the agent, and a worker the agent started.
 
 use bevy::ecs::entity::Entity;
 use bevy::ecs::world::World;
@@ -17,7 +18,7 @@ use hamlet_client::realm::{self as agents, Left};
 use hamlet_protocol::client as protocol;
 use hamlet_ui::markdown::document;
 use hamlet_ui::styles::{
-    LINE, action, command, hairline, note, small_rules,
+    LINE, action, command, note, small_rules, text_button,
 };
 use hamlet_ui::widgets::ellipsis::one_line;
 use hamlet_ui::widgets::icons::{Glyph, glyph};
@@ -48,6 +49,7 @@ pub(super) fn view(chat: Entity, id: String) -> AnyView {
             Some(Entry::Merged { from, name }) => {
                 cx.build(merged(chat, id, from, name))
             }
+            Some(Entry::Event(happened)) => cx.build(event(happened)),
             Some(Entry::Tool {
                 call: protocol::ToolCall::Worker { task },
                 ..
@@ -98,24 +100,63 @@ fn is_open(world: &World, key: &(Entity, String)) -> bool {
         .is_some_and(|open| open.0.contains(key))
 }
 
-/// A quiet line across the chat where the earlier messages were
-/// summarized, which opens to the summary.
+/// A centred line between two rules across the chat: `head`, with
+/// what it opens to under it.
+fn between(head: AnyView, body: AnyView) -> impl View {
+    with_cx(move |cx| {
+        let theme = cx.theme();
+        let (line, gap) =
+            (theme.palette.gold_6, theme.space.gap / 2.0);
+        let rule = || {
+            frame()
+                .height(px(theme.space.border))
+                .fill(line)
+                .grow(1.0)
+                .min_width(px(gap))
+        };
+        column((
+            row((rule(), head, rule()))
+                .gap(gap)
+                .align(AlignItems::Center)
+                .width(percent(100.0)),
+            body,
+        ))
+        .gap(gap)
+        .width(percent(100.0))
+        .min_width(px(0.0))
+    })
+}
+
+/// The words of a centred line, after its icon.
+fn line_words(mark: Glyph, words: String) -> impl View {
+    row((
+        glyph(mark, 12.0).tone(Tone::Dim),
+        column((
+            one_line(label(words).tone(Tone::Dim)).rules(small_rules),
+        ))
+        .min_width(px(0.0))
+        .overflow(Overflow::clip_x()),
+    ))
+    .gap(6.0)
+    .align(AlignItems::Center)
+    .min_width(px(0.0))
+}
+
+/// "Context compacted" where the earlier messages were summarized,
+/// which opens to the summary.
 fn summary(chat: Entity, id: String) -> impl View {
     let key = (chat, id.clone());
     let (turned, pressed) = (key.clone(), key.clone());
     let head = button(
         row((
             chevron(move |world| is_open(world, &turned)),
-            label("Earlier messages summarized")
-                .wrap(false)
-                .tone(Tone::Dim)
-                .rules(small_rules),
+            line_words(Glyph::History, "Context compacted".into()),
         ))
         .gap(6.0)
         .align(AlignItems::Center),
     )
     .padding(UiRect::axes(px(INSET), px(2.0)))
-    .rules(ghost)
+    .rules(text_button)
     .on_activate(move |world| toggle(world, pressed.clone()));
     let body = keyed(
         resource::<OpenTools, _>(move |open| open.0.contains(&key)),
@@ -129,29 +170,127 @@ fn summary(chat: Entity, id: String) -> impl View {
         },
     )
     .within(column(()).width(percent(100.0)).min_width(px(0.0)));
+    between(head.boxed(), body.boxed())
+}
+
+/// The effort of `model` in the chief's words, "Default" where it
+/// takes the realm's.
+fn model_words(world: &World, model: &protocol::ItemModel) -> String {
+    let effort = model
+        .effort
+        .map_or("Default", crate::world_menu::model::words);
+    format!(
+        "{} {effort}",
+        crate::models::model_title(world, &model.model)
+    )
+}
+
+/// `from` and `to` with the words at their start that they share
+/// said once: "Claude Opus 5.5 Medium → High".
+fn changed(from: &str, to: &str) -> String {
+    let (from, to) = (
+        from.split(' ').collect::<Vec<_>>(),
+        to.split(' ').collect::<Vec<_>>(),
+    );
+    let shared = from
+        .iter()
+        .zip(&to)
+        .take_while(|(a, b)| a == b)
+        .count()
+        .min(from.len().saturating_sub(1))
+        .min(to.len().saturating_sub(1));
+    let mut words = from[..shared].join(" ");
+    if !words.is_empty() {
+        words.push(' ');
+    }
+    format!(
+        "{words}{} → {}",
+        from[shared..].join(" "),
+        to[shared..].join(" ")
+    )
+}
+
+/// Who made a change, as a line says it: "you" for the chief at this
+/// window.
+fn who(world: &World, by: &str) -> String {
+    match by == world.resource::<Convo>().name {
+        true => "you".to_string(),
+        false => by.to_string(),
+    }
+}
+
+/// The words and icon of a change to the agent between its turns.
+fn event_words(
+    world: &World,
+    event: &protocol::ItemEvent,
+) -> (Glyph, String) {
+    use protocol::ItemEvent as Event;
+    match event {
+        Event::Model { by, from, to } => {
+            let words = changed(
+                &model_words(world, from),
+                &model_words(world, to),
+            );
+            let by = who(world, by);
+            match by.as_str() {
+                "you" | "" => (Glyph::Chip, words),
+                by => (Glyph::Chip, format!("{words} · by {by}")),
+            }
+        }
+        Event::Stopped { by, waiting } => {
+            let by = match who(world, by) {
+                by if by.is_empty() => String::new(),
+                by => format!(" by {by}"),
+            };
+            match waiting {
+                0 => (Glyph::Stop, format!("Stopped{by}")),
+                n => (
+                    Glyph::Stop,
+                    format!("Stopped{by} · {n} waiting"),
+                ),
+            }
+        }
+        Event::Resumed { by } => match who(world, by).as_str() {
+            "you" | "" => (Glyph::Play, "Resumed".into()),
+            by => (Glyph::Play, format!("Resumed by {by}")),
+        },
+        Event::Dreamed { summary } if summary.is_empty() => {
+            (Glyph::Moon, "Dreamed".into())
+        }
+        Event::Dreamed { summary } => {
+            (Glyph::Moon, format!("Dreamed · {summary}"))
+        }
+        Event::Scholar { .. } => {
+            (Glyph::Scholar, "Became a scholar of the city".into())
+        }
+        Event::Renamed { name } => {
+            (Glyph::Rename, format!("Renamed to {name}"))
+        }
+        Event::Fast { on: true } => {
+            (Glyph::Fast, "Fast tier on".into())
+        }
+        Event::Fast { on: false } => {
+            (Glyph::Fast, "Fast tier off".into())
+        }
+    }
+}
+
+/// A change to the agent between its turns, as a centred line.
+fn event(event: protocol::ItemEvent) -> impl View {
     with_cx(move |cx| {
-        let theme = cx.theme();
-        let (line, gap) =
-            (theme.palette.gold_6, theme.space.gap / 2.0);
-        column((
-            row((
-                hairline(line).grow(1.0),
-                head,
-                hairline(line).grow(1.0),
-            ))
-            .gap(gap)
-            .align(AlignItems::Center)
-            .width(percent(100.0)),
-            body,
-        ))
-        .gap(gap)
-        .width(percent(100.0))
-        .min_width(px(0.0))
+        let (mark, words) = event_words(cx.world, &event);
+        between(
+            row((line_words(mark, words),))
+                .padding(UiRect::axes(px(INSET), px(2.0)))
+                .min_width(px(0.0))
+                .boxed(),
+            frame().boxed(),
+        )
     })
 }
 
-/// The conversation of the hire `from`, named `name`, merged into
-/// the chat's agent, which opens in place to its rows, read only.
+/// "Merged hire#7 (Bo) into this chat", which opens in place to the
+/// conversation of the hire `from`, named `name`, read only.
 fn merged(
     chat: Entity,
     id: String,
@@ -164,21 +303,17 @@ fn merged(
             .get_resource::<MergedLines>()
             .is_some_and(|merged| merged.is_open(chat, id))
     };
-    let words = format!("Merged from {name}");
+    let words = format!("Merged {name} into this chat");
     let head = button(
         row((
             chevron(move |world| open(world, &turned)),
-            glyph(Glyph::Merge, 12.0).tone(Tone::Dim),
-            label(words)
-                .wrap(false)
-                .tone(Tone::Dim)
-                .rules(small_rules),
+            line_words(Glyph::Merge, words),
         ))
         .gap(6.0)
         .align(AlignItems::Center),
     )
     .padding(UiRect::axes(px(INSET), px(2.0)))
-    .rules(ghost)
+    .rules(text_button)
     .on_activate(move |world| {
         if open(world, &pressed) {
             close_merged(world);
@@ -207,13 +342,7 @@ fn merged(
         },
     )
     .within(column(()).width(percent(100.0)).min_width(px(0.0)));
-    with_cx(move |cx| {
-        column((head, body))
-            .gap(cx.theme().space.gap / 2.0)
-            .align(AlignItems::FlexStart)
-            .width(percent(100.0))
-            .min_width(px(0.0))
-    })
+    between(head.boxed(), body.boxed())
 }
 
 /// The way to the rows of the merged conversation before those

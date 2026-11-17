@@ -228,6 +228,7 @@ mod tests {
                                 .into(),
                             chief: None,
                             author: None,
+                            event: None,
                             from: None,
                             queued: false,
                             rewindable: None,

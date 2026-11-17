@@ -23,6 +23,35 @@ fn chat_ref(with: AgentId) -> ChatRef {
     ChatRef { with }
 }
 
+/// A change to the agent between its turns, in words.
+fn event_words(event: &ItemEvent) -> String {
+    let run = |run: &ItemModel| match run.effort {
+        Some(effort) => format!("{} at {effort:?}", run.model),
+        None => run.model.clone(),
+    };
+    match event {
+        ItemEvent::Model { by, from, to } => {
+            format!("{} -> {}, by {by}", run(from), run(to))
+        }
+        ItemEvent::Stopped { by, waiting } => {
+            format!("stopped by {by}, {waiting} waiting")
+        }
+        ItemEvent::Resumed { by } => format!("resumed by {by}"),
+        ItemEvent::Dreamed { summary } if summary.is_empty() => {
+            "dreamed".into()
+        }
+        ItemEvent::Dreamed { summary } => {
+            format!("dreamed: {summary}")
+        }
+        ItemEvent::Scholar { scholar } => {
+            format!("became {scholar}, a scholar of the city")
+        }
+        ItemEvent::Renamed { name } => format!("renamed to {name}"),
+        ItemEvent::Fast { on: true } => "fast tier on".into(),
+        ItemEvent::Fast { on: false } => "fast tier off".into(),
+    }
+}
+
 /// A tool call as a line: what a notification or a request said and
 /// to whom, else the tool and its arguments.
 fn tool_line(tool: &ItemTool) -> String {
@@ -634,6 +663,14 @@ impl Screen {
                     "\n  (merged from {})",
                     item.text
                 ))?;
+            }
+            ItemKind::Event => {
+                if let Some(event) = &item.event {
+                    self.line(&format!(
+                        "\n  ({})",
+                        event_words(event)
+                    ))?;
+                }
             }
             // A line taken up was shown while it waited.
             ItemKind::User

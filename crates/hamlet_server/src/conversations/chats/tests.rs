@@ -6,7 +6,7 @@ use hamlet_store::schema::tool_call;
 
 use super::*;
 use crate::conversations::imports::{self, Project};
-use crate::conversations::inputs::{Resend, Status};
+use crate::conversations::inputs::{Input, Resend, Status};
 use crate::conversations::messages::{self, MessageKind, Send};
 use crate::realm::settings::{Overrides, Settings};
 use crate::society::merges;
@@ -187,6 +187,8 @@ fn a_stop_holds_the_queue_until_a_chiefs_line_runs_first_or_a_resume()
         )
         .unwrap()
         .into_iter()
+        // A stop and a resume are written in for people alone.
+        .filter(Input::is_turn)
         .map(|input| input.request)
         .collect::<Vec<_>>()
     };
@@ -233,7 +235,10 @@ fn a_retry_runs_before_the_notifications_queued_first_once_resumed() {
         Resend::Nothing,
         |_| false,
     )
-    .unwrap();
+    .unwrap()
+    .into_iter()
+    .filter(Input::is_turn)
+    .collect::<Vec<_>>();
     assert_eq!(owed[0].request, retried.request);
 }
 

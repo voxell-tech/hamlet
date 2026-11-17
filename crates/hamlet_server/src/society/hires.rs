@@ -645,6 +645,24 @@ pub(crate) fn check_nickname(
     }
 }
 
+/// Writes the name the agent `id` is shown by now into its
+/// conversation, when `changed`.
+pub(crate) fn renamed(
+    cx: &mut Change<'_>,
+    id: AgentId,
+    changed: bool,
+) -> Result<()> {
+    if !changed {
+        return Ok(());
+    }
+    let name = super::addresses::name_of(cx.db, id)?;
+    crate::conversations::chats::event(
+        cx,
+        id,
+        hamlet_protocol::client::ItemEvent::Renamed { name },
+    )
+}
+
 /// Calls the living hire `id` `nickname` in the world, or by its own
 /// name again when none (H46).
 pub(crate) fn set_nickname(
@@ -662,6 +680,7 @@ pub(crate) fn set_nickname(
     diesel::update(hire::table.find(id))
         .set(hire::nickname.eq(nickname))
         .execute(cx.db)?;
+    renamed(cx, id, hire.nickname.as_deref() != nickname)?;
     record::keep(
         cx,
         Decision::new(DecisionKind::Nicknamed, reason)

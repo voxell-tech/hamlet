@@ -104,6 +104,15 @@ pub(crate) fn follow(
                         answer.lines().next().map(String::from)
                     })
                     .unwrap_or_default();
+            if let (Last::Done, Some(hire)) = (last, dream.hire) {
+                super::chats::event(
+                    cx,
+                    hire,
+                    hamlet_protocol::client::ItemEvent::Dreamed {
+                        summary: summary.clone(),
+                    },
+                )?;
+            }
             let last = match last {
                 Last::Done => dreams::Outcome::Done,
                 Last::Stopped => dreams::Outcome::Stopped,

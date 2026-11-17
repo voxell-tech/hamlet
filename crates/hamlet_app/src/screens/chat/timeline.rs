@@ -356,7 +356,8 @@ pub(super) fn timeline(
                     | Entry::Error(_)
                     | Entry::Notice(_)
                     | Entry::Summary(_)
-                    | Entry::Merged { .. },
+                    | Entry::Merged { .. }
+                    | Entry::Event(_),
                 )
                 | None => (agent, chief),
             };

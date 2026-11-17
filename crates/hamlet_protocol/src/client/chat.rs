@@ -225,6 +225,11 @@ pub struct Item {
     #[serde(deserialize_with = "crate::client::present")]
     #[schemars(with = "String")]
     pub chief: Option<String>,
+    /// What changed, for an `event` item.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[serde(deserialize_with = "crate::client::present")]
+    #[schemars(with = "ItemEvent")]
+    pub event: Option<ItemEvent>,
     /// The files a chief's line carried.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub files: Vec<AttachedFile>,
@@ -281,6 +286,59 @@ pub enum ItemKind {
     /// names it.
     #[serde(rename = "merged")]
     Merged,
+    /// A change to the agent, shown between its turns for people
+    /// alone; `event` says what changed.
+    #[serde(rename = "event")]
+    Event,
+}
+
+/// A change to an agent its conversation shows between turns. The
+/// model never reads it.
+#[derive(
+    Clone, Debug, PartialEq, Serialize, Deserialize, JsonSchema,
+)]
+#[serde(tag = "kind", deny_unknown_fields)]
+pub enum ItemEvent {
+    /// The model it runs, or how hard it thinks, changed by `by`.
+    #[serde(rename = "model")]
+    Model {
+        by: String,
+        from: ItemModel,
+        to: ItemModel,
+    },
+    /// Stopped by `by`, with `waiting` inputs held in its queue.
+    #[serde(rename = "stopped")]
+    Stopped { by: String, waiting: u64 },
+    /// The hold of a stop ended by `by`.
+    #[serde(rename = "resumed")]
+    Resumed { by: String },
+    /// A dream brought what it learned home; `summary` is the first
+    /// line of the dream's answer.
+    #[serde(rename = "dreamed")]
+    Dreamed { summary: String },
+    /// A scholar of the city, `scholar`, was made of what it became.
+    #[serde(rename = "scholar")]
+    Scholar { scholar: String },
+    /// The name it is shown by now.
+    #[serde(rename = "renamed")]
+    Renamed { name: String },
+    /// The provider's fast tier turned on or off.
+    #[serde(rename = "fast")]
+    Fast { on: bool },
+}
+
+/// A model an agent runs and how hard it thinks, as an event names
+/// them.
+#[derive(
+    Clone, Debug, PartialEq, Serialize, Deserialize, JsonSchema,
+)]
+#[serde(deny_unknown_fields)]
+pub struct ItemModel {
+    /// The catalogue's name of the model, `provider::id`.
+    pub model: String,
+    /// Its effort, or `null` where it takes the realm's.
+    #[serde(deserialize_with = "Option::deserialize")]
+    pub effort: Option<crate::Effort>,
 }
 
 #[derive(

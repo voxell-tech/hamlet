@@ -6,6 +6,7 @@ use diesel::deserialize::FromSqlRow;
 use diesel::expression::AsExpression;
 use diesel::prelude::*;
 use diesel::sql_types::Text;
+use hamlet_protocol::client::ItemEvent;
 use hamlet_store::Db;
 use hamlet_store::ids::{Actor, AgentId};
 use hamlet_store::schema::{agent, hand, permission_grant, worker};
@@ -255,9 +256,17 @@ pub(crate) fn set_fast(
     fast: bool,
 ) -> Done<()> {
     done!(hires::require_living(cx.db, id));
+    let was = get(cx.db, id)?.fast;
     diesel::update(agent::table.find(id))
         .set(agent::fast.eq(fast))
         .execute(cx.db)?;
+    if was != fast {
+        crate::conversations::chats::event(
+            cx,
+            id,
+            ItemEvent::Fast { on: fast },
+        )?;
+    }
     cx.touched.agents.insert(id);
     Ok(Ok(()))
 }

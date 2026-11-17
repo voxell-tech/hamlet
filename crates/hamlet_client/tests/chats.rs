@@ -593,6 +593,7 @@ fn item_kinds_chief_fallback_and_structural_changes_survive_text_streaming()
             text: text.into(),
             chief: None,
             author: None,
+            event: None,
             from: None,
             queued: false,
             rewindable: None,
