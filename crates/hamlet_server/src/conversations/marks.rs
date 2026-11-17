@@ -135,31 +135,29 @@ impl Mark {
     /// The words a model reads for a message from another agent:
     /// what it is and who sent it, then its words.
     pub fn heading(&self) -> Option<String> {
-        let heading = match self {
-            Self::Notification(from) => {
-                format!("[A notification from {}]", from.author)
-            }
-            Self::Request(from) => format!(
-                "[A request from {}; your final answer goes back to \
-                 it as the response]",
-                from.author
+        let (heading, from) = match self {
+            Self::Notification(from) => (
+                format!("[A notification from {}]", from.author),
+                from,
+            ),
+            Self::Request(from) => (
+                format!(
+                    "[A request from {}; your final answer goes \
+                     back to it as the response]",
+                    from.author
+                ),
+                from,
             ),
             Self::Response(from) => {
-                format!("[A response from {}]", from.author)
+                (format!("[A response from {}]", from.author), from)
             }
-            Self::ErrorResponse(from) => {
-                format!("[An error response from {}]", from.author)
-            }
+            Self::ErrorResponse(from) => (
+                format!("[An error response from {}]", from.author),
+                from,
+            ),
             _ => return None,
         };
-        let text = match self {
-            Self::Notification(from)
-            | Self::Request(from)
-            | Self::Response(from)
-            | Self::ErrorResponse(from) => &from.text,
-            _ => return None,
-        };
-        Some(format!("{heading}\n\n{text}"))
+        Some(format!("{heading}\n\n{}", from.text))
     }
 
     /// Whether its turn is one a chief asked for.
