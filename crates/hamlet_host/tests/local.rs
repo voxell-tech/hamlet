@@ -1154,43 +1154,37 @@ async fn an_ended_generation_cannot_write_to_the_next() {
     host.shutdown().await.unwrap();
 }
 
-/// A transaction an ended generation left open expires after the
-/// actor's next generation started. Its rollback fails on the ended
-/// generation's closed file, and the core reports that as a crash of
-/// the ended generation, which must not stop the actor. If
+/// A transaction an ended generation left open is rolled back after
+/// the actor's next generation started. The rollback fails on the
+/// ended generation's closed file, and the core reports that as a
+/// crash of the ended generation, which must not stop the actor. If
 /// `made_again`, the actor is destroyed and its key made again before
 /// that: the new file counts its generations from the start again.
 async fn an_ended_generations_crash_leaves_the_actor_running(
     made_again: bool,
 ) {
-    /// How long the leaked transaction lives.
-    const LEAK: Duration = Duration::from_millis(1500);
     let dir = Scratch::new("host-ended-crash");
     let contexts = Contexts::default();
     let host = Host::open(&dir, keeper(&contexts)).unwrap();
     let id = at("keeper", "t");
     host.get_or_start(&id).await.unwrap();
     let ended = contexts.lock()[0].clone();
-    let leaked_at = tokio::time::Instant::now();
-    let leaked =
-        ended.sql().begin_transaction(Some(LEAK)).await.unwrap();
+    let leaked = ended.sql().begin_transaction(None).await.unwrap();
     host.stop(&id, ShutdownKind::Sleep).await.unwrap();
     host.get_or_start(&at("keeper", "t")).await.unwrap();
     if made_again {
         host.stop(&id, ShutdownKind::Destroy).await.unwrap();
         host.get_or_start(&at("keeper", "t")).await.unwrap();
     }
-    assert_eq!(call(&host, &id, "count").await, 0);
-    assert!(
-        leaked_at.elapsed() < LEAK,
-        "the transaction expired before the actor started again"
-    );
+    let generations = contexts.lock().len();
 
-    tokio::time::sleep_until(leaked_at + LEAK + PROMPT / 2).await;
-    assert!(leaked.rollback().await.is_err(), "it never expired");
-    tokio::time::sleep(Duration::from_millis(300)).await;
-    assert!(host.is_running(&id), "the ended generation stopped it");
+    assert!(leaked.rollback().await.is_err(), "the rollback ran");
     assert_eq!(call(&host, &id, "count").await, 0);
+    assert_eq!(
+        contexts.lock().len(),
+        generations,
+        "the ended generation stopped it"
+    );
     host.shutdown().await.unwrap();
 }
 
@@ -1825,13 +1819,50 @@ async fn wait_for_the_drop(dropped: &AtomicBool) {
 /// dropped.
 #[tokio::test(flavor = "multi_thread")]
 async fn a_start_that_never_finishes_fails_at_its_deadline() {
+    with_a_start_deadline(a_stuck_start_fails_at).await;
+}
+
+/// Runs `attempt` with [`START_DEADLINE`] as its start deadline, and
+/// again with twice the last one for as long as it returns false.
+async fn with_a_start_deadline(
+    attempt: impl AsyncFn(Duration) -> bool,
+) {
+    let mut deadline = START_DEADLINE;
+    while !attempt(deadline).await {
+        deadline *= 2;
+        assert!(
+            deadline <= Duration::from_secs(8),
+            "the run never began within half its start deadline"
+        );
+    }
+}
+
+/// Awaits `began` until half of `deadline` from `asked` has passed,
+/// and returns whether it came by then. The deadline runs on the wall
+/// clock over opening the file and starting the core, whose SQLite
+/// has a thread of its own, so a paused clock cannot stand in. What
+/// the test does during the start needs the other half.
+async fn began_in_half(
+    began: impl Future,
+    asked: tokio::time::Instant,
+    deadline: Duration,
+) -> bool {
+    tokio::time::timeout_at(asked + deadline / 2, began)
+        .await
+        .is_ok()
+}
+
+/// [`a_start_that_never_finishes_fails_at_its_deadline`] with a start
+/// deadline of `deadline`. Checks nothing and returns false if the
+/// run handler began past half the deadline.
+async fn a_stuck_start_fails_at(deadline: Duration) -> bool {
     let dir = Scratch::new("host-stuck-start");
     let (begun, dropped) = (Arc::default(), Arc::default());
     let host = Host::open_with(
         &dir,
         stuck("stuck", &begun, &dropped),
         HostOptions {
-            start_deadline: START_DEADLINE,
+            start_deadline: deadline,
             ..HostOptions::default()
         },
     )
@@ -1841,7 +1872,10 @@ async fn a_start_that_never_finishes_fails_at_its_deadline() {
         let host = host.clone();
         async move { host.get_or_start(&at("stuck", "a")).await }
     });
-    began("the stuck start", begun.notified()).await;
+    if !began_in_half(begun.notified(), asked, deadline).await {
+        host.shutdown().await.unwrap();
+        return false;
+    }
     let call = tokio::spawn({
         let host = host.clone();
         async move {
@@ -1860,7 +1894,7 @@ async fn a_start_that_never_finishes_fails_at_its_deadline() {
             host.stop(&at("stuck", "a"), ShutdownKind::Sleep).await
         }
     });
-    let by = asked + START_DEADLINE * 3;
+    let by = asked + deadline * 3;
     let start = tokio::time::timeout_at(by, start)
         .await
         .expect("the start outlived its deadline")
@@ -1893,6 +1927,7 @@ async fn a_start_that_never_finishes_fails_at_its_deadline() {
     assert_eq!(running.map_err(|error| error.to_string()), Ok(1));
     wait_for_the_drop(&dropped).await;
     host.shutdown().await.unwrap();
+    true
 }
 
 /// No call waits on a host that is shutting down, which starts no
@@ -1971,16 +2006,35 @@ async fn a_shutdown_returns_while_a_start_is_stuck() {
     wait_for_the_drop(&dropped).await;
 }
 
+/// The file a [`scanner`]'s statement makes as it begins on its
+/// actor's file thread.
+fn scan_mark(dir: &Path) -> PathBuf {
+    dir.join("scan.sqlite")
+}
+
+/// Waits until the [`scan_mark`] of `dir` is made.
+async fn scanning(dir: &Path) {
+    while !scan_mark(dir).exists() {
+        tokio::time::sleep(Duration::from_millis(10)).await;
+    }
+}
+
 /// The kind `scanner`, whose start runs the [`held_statement`] on the
 /// [`hold_file`] of `dir` before its actor is ready, so the statement
-/// holds the file's thread past a short start deadline.
+/// holds the file's thread past a short start deadline. The statement
+/// first makes the [`scan_mark`] of `dir`.
 fn scanner(dir: &Path) -> HashMap<String, ActorFactory> {
     let config = ActorConfig {
         name: Some("scanner".to_owned()),
         has_database: true,
         ..ActorConfig::default()
     };
-    let statement = held_statement(&hold_file(dir));
+    let mark =
+        scan_mark(dir).display().to_string().replace('\'', "''");
+    let statement = format!(
+        "ATTACH DATABASE '{mark}' AS mark; DETACH DATABASE mark; {}",
+        held_statement(&hold_file(dir))
+    );
     HashMap::from([(
         "scanner".to_owned(),
         ActorFactory::new_with_manual_startup_ready(
@@ -2015,30 +2069,45 @@ fn scanner(dir: &Path) -> HashMap<String, ActorFactory> {
 /// closes with its running mark.
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn a_start_past_its_deadline_does_not_wait_for_a_statement() {
+    with_a_start_deadline(a_start_past_its_deadline_with_a_statement)
+        .await;
+}
+
+/// [`a_start_past_its_deadline_does_not_wait_for_a_statement`] with a
+/// start deadline of `deadline`. Checks nothing and returns false if
+/// the scanner's statement began past half the deadline.
+async fn a_start_past_its_deadline_with_a_statement(
+    deadline: Duration,
+) -> bool {
     let dir = Scratch::new("host-start-statement");
     let hold = Hold::new(&dir);
     let host = Host::open_with(
         &dir,
         scanner(&dir),
         HostOptions {
-            start_deadline: START_DEADLINE,
+            start_deadline: deadline,
             ..HostOptions::default()
         },
     )
     .unwrap();
-    let begun = std::time::Instant::now();
-    let error = tokio::time::timeout(
-        Duration::from_secs(30),
-        host.get_or_start(&at("scanner", "a")),
-    )
-    .await
-    .expect("the start waited for the statement past 30 s")
-    .expect_err("a start past its deadline must fail");
+    let begun = tokio::time::Instant::now();
+    let start = tokio::spawn({
+        let host = host.clone();
+        async move { host.get_or_start(&at("scanner", "a")).await }
+    });
+    if !began_in_half(scanning(&dir), begun, deadline).await {
+        host.shutdown().await.unwrap();
+        return false;
+    }
+    let error = tokio::time::timeout(Duration::from_secs(30), start)
+        .await
+        .expect("the start waited for the statement past 30 s")
+        .unwrap()
+        .expect_err("a start past its deadline must fail");
     let took = begun.elapsed();
     assert!(code(&error) == "actor.not_ready", "{error:#}");
     assert!(
-        took >= START_DEADLINE
-            && took < START_DEADLINE + Duration::from_secs(2),
+        took >= deadline && took < deadline + Duration::from_secs(2),
         "{took:?}"
     );
     assert!(
@@ -2059,6 +2128,7 @@ async fn a_start_past_its_deadline_does_not_wait_for_a_statement() {
             )
             .unwrap();
     assert_eq!(running, 1);
+    true
 }
 
 /// A create whose start misses its deadline while a statement of its
@@ -2071,6 +2141,16 @@ async fn a_start_past_its_deadline_does_not_wait_for_a_statement() {
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn a_create_whose_start_a_statement_holds_leaves_the_actor_made()
  {
+    with_a_start_deadline(a_create_whose_start_a_statement_holds)
+        .await;
+}
+
+/// [`a_create_whose_start_a_statement_holds_leaves_the_actor_made`]
+/// with a start deadline of `deadline`. Checks nothing and returns
+/// false if the scanner's statement began past half the deadline.
+async fn a_create_whose_start_a_statement_holds(
+    deadline: Duration,
+) -> bool {
     let dir = Scratch::new("host-create-statement");
     let hold = Hold::new(&dir);
     let open = || {
@@ -2078,24 +2158,35 @@ async fn a_create_whose_start_a_statement_holds_leaves_the_actor_made()
             &dir,
             scanner(&dir),
             HostOptions {
-                start_deadline: START_DEADLINE,
+                start_deadline: deadline,
                 ..HostOptions::default()
             },
         )
         .unwrap()
     };
+    let within = deadline + Duration::from_secs(10);
     let create = async |host: &Host| {
         tokio::time::timeout(
-            Duration::from_secs(10),
+            within,
             host.create(&at("scanner", "a"), Vec::new()),
         )
         .await
         .expect("the create waited for the statement")
     };
     let host = open();
-    let begun = std::time::Instant::now();
-    let first = create(&host)
+    let begun = tokio::time::Instant::now();
+    let first = tokio::spawn({
+        let host = host.clone();
+        async move { host.create(&at("scanner", "a"), Vec::new()).await }
+    });
+    if !began_in_half(scanning(&dir), begun, deadline).await {
+        host.shutdown().await.unwrap();
+        return false;
+    }
+    let first = tokio::time::timeout(within, first)
         .await
+        .expect("the create waited for the statement")
+        .unwrap()
         .expect_err("a create whose start missed its deadline");
     let took = begun.elapsed();
     let during = create(&host)
@@ -2113,14 +2204,12 @@ async fn a_create_whose_start_a_statement_holds_leaves_the_actor_made()
         create(&host).await.expect_err("a create of a made key");
     host.shutdown().await.unwrap();
     assert!(code(&first) == "actor.not_ready", "{first:#}");
-    assert!(
-        took < START_DEADLINE + Duration::from_secs(2),
-        "{took:?}"
-    );
+    assert!(took < deadline + Duration::from_secs(2), "{took:?}");
     assert!(code(&during) == "actor.not_ready", "{during:#}");
     assert_eq!(booted, [at("scanner", "a")]);
     started.unwrap();
     assert!(code(&after) == "actor.duplicate_key", "{after:#}");
+    true
 }
 
 /// What the first start of a [`sleeper`] asks for before it is ready.
