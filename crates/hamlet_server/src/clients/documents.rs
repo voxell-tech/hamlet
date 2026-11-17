@@ -5,8 +5,8 @@ use anyhow::Result;
 use diesel::prelude::*;
 use hamlet_git::Change as GitChange;
 use hamlet_protocol::client::{
-    self as protocol, Edit, EditLimits, EditSettingsSet, Keeper,
-    Read, ReadResult, RequestId, ServerMessage,
+    self as protocol, Edit, EditLimits, Keeper, Read, ReadResult,
+    RequestId, ServerMessage,
 };
 use hamlet_store::ids::{Actor, AgentId, HamletId, ScholarId};
 use hamlet_store::schema::document;
@@ -17,7 +17,6 @@ use crate::core::Core;
 use crate::knowledge::papers::papers;
 use crate::knowledge::{CHARACTER, memory_path};
 use crate::realm::change::{Done, done, refuse};
-use crate::society::agents::Effort;
 use crate::society::authority;
 use crate::society::city::{self, CHARACTER_MOST};
 use crate::society::limits::{self, Limit, Limits, RealmLimits};
@@ -102,33 +101,6 @@ impl Core<'_, '_> {
         }
     }
 
-    /// Keeps the realm's charter, or none when `text` is blank.
-    pub(crate) fn edit_charter(
-        &mut self,
-        text: Option<String>,
-    ) -> Done<String> {
-        let chief = self.realm.chief();
-        let db = self.realm.store().connection();
-        match text.filter(|t| !t.trim().is_empty()) {
-            Some(text) => {
-                diesel::replace_into(document::table)
-                    .values((
-                        document::kind.eq("charter"),
-                        document::value.eq(&text),
-                        document::at.eq(crate::app::clock::now()),
-                        document::chief.eq(chief),
-                    ))
-                    .execute(db)?;
-            }
-            None => {
-                diesel::delete(document::table.find("charter"))
-                    .execute(db)?;
-            }
-        }
-        self.publish();
-        Ok(Ok("The charter is saved.".into()))
-    }
-
     /// Commits `text` as the character of `scholar`.
     fn edit_character(
         &mut self,
@@ -191,104 +163,6 @@ impl Core<'_, '_> {
         done!(authority::reaches(db, by, agent));
         self.write_lodge_memory(by, agent, path, text)?;
         Ok(Ok("The memory is saved.".into()))
-    }
-
-    /// Keeps the settings `set` changes, and the workspace it
-    /// chooses.
-    pub(crate) fn edit_settings(
-        &mut self,
-        set: EditSettingsSet,
-    ) -> Done<String> {
-        let db = self.realm.store().connection();
-        let mut settings = crate::realm::settings::stored(db)?;
-        if let Some(model) = set.model {
-            settings.model = model;
-            settings.picked = true;
-        }
-        if let Some(every) = set.reflect_every {
-            let Ok(every) = u64::try_from(every) else {
-                refuse!(Refusal::BadReflectEvery);
-            };
-            settings.reflect_every = every;
-        }
-        if let Some(net) = set.allow_net {
-            settings.allow_net = net;
-        }
-        if let Some(effort) = set.effort {
-            settings.effort = effort.map(Effort::of);
-        }
-        if let Some(newcomers) = set.newcomers {
-            settings.newcomers = newcomers;
-        }
-        if let Some(character) = set.character {
-            if character.trim().is_empty() {
-                refuse!(Refusal::NoCharacter);
-            }
-            if character.chars().count() > CHARACTER_MOST {
-                refuse!(Refusal::LongCharacter);
-            }
-            settings.character = character;
-        }
-        let mut removed = Vec::new();
-        if let Some(endpoints) = set.endpoints {
-            let endpoints = endpoints
-                .into_iter()
-                .map(|e| crate::realm::settings::Endpoint {
-                    name: e.name.trim().to_owned(),
-                    base_url: e.base_url.trim().to_owned(),
-                })
-                .collect::<Vec<_>>();
-            if let Some(why) = endpoint_fault(&endpoints) {
-                refuse!(Refusal::BadEndpoint { why });
-            }
-            removed = settings
-                .endpoints
-                .iter()
-                .filter(|old| {
-                    !endpoints.iter().any(|e| e.name == old.name)
-                })
-                .map(|old| old.name.clone())
-                .collect();
-            settings.endpoints = endpoints;
-        }
-        let chosen = match set.workspace {
-            None => None,
-            Some(None) => Some(None),
-            Some(Some(workspace)) => {
-                let address = crate::realm::settings::Endpoint {
-                    name: "workspace".into(),
-                    base_url: workspace.url.trim().to_owned(),
-                };
-                if let Some(why) =
-                    endpoint_fault(std::slice::from_ref(&address))
-                {
-                    refuse!(Refusal::BadEndpoint { why });
-                }
-                Some(Some(
-                    crate::realm::credentials::WorkspaceAddress {
-                        url: address.base_url,
-                        token: workspace.token,
-                    },
-                ))
-            }
-        };
-        let chief = self.realm.chief();
-        let db = self.realm.store().connection();
-        crate::realm::settings::keep(
-            db,
-            &settings,
-            crate::app::clock::now(),
-            Some(chief),
-        )?;
-        for name in removed {
-            self.credentials.save_model(&name, None)?;
-        }
-        if let Some(chosen) = chosen {
-            self.credentials.choose_workspace(chosen)?;
-        }
-        self.env.settings = self.env.overrides.apply(settings);
-        self.publish();
-        Ok(Ok("The settings are saved.".into()))
     }
 
     /// Replaces every limit of `hamlet`, or the realm's when none,
@@ -451,46 +325,6 @@ fn edit_id(edit: &Edit) -> &RequestId {
         | Edit::Settings { id, .. }
         | Edit::Catalogue { id, .. } => id,
     }
-}
-
-/// The fault of `endpoints`, in words; none when they hold. A key
-/// goes in a sign-in, never in an address.
-fn endpoint_fault(
-    endpoints: &[crate::realm::settings::Endpoint],
-) -> Option<String> {
-    for (at, endpoint) in endpoints.iter().enumerate() {
-        if endpoint.name.is_empty() || endpoint.name.contains("::") {
-            return Some(
-                "An endpoint has a name without `::`.".into(),
-            );
-        }
-        if endpoints[..at].iter().any(|e| e.name == endpoint.name) {
-            return Some(format!(
-                "Two endpoints are named `{}`.",
-                endpoint.name
-            ));
-        }
-        let Ok(url) = url::Url::parse(&endpoint.base_url) else {
-            return Some(format!(
-                "`{}` is not an address.",
-                endpoint.base_url
-            ));
-        };
-        if !matches!(url.scheme(), "http" | "https") {
-            return Some(format!(
-                "`{}` is not an http or https address.",
-                endpoint.base_url
-            ));
-        }
-        if !url.username().is_empty() || url.password().is_some() {
-            return Some(
-                "An address may not hold a name or a key; sign in \
-                 to the endpoint with its key instead."
-                    .into(),
-            );
-        }
-    }
-    None
 }
 
 fn budget_of(budget: &protocol::LimitsBudget) -> limits::Budget {
