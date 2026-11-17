@@ -59,7 +59,7 @@ pub(super) fn plugin(app: &mut App) {
             (
                 offer,
                 pick_suggested,
-                tell_failures.run_if(resource_changed::<Imports>),
+                toast_failures.run_if(resource_changed::<Imports>),
             ),
         );
 }
@@ -271,9 +271,9 @@ fn bring(world: &mut World) {
     }
 }
 
-/// Tells in a toast of each project that was not brought in while the
+/// Shows a toast for each project that was not brought in while the
 /// card is closed, the card's own list being out of sight.
-fn tell_failures(
+fn toast_failures(
     imports: Res<Imports>,
     projects: Res<Projects>,
     time: Res<Time>,

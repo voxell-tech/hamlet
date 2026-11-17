@@ -56,7 +56,7 @@ const TALLEST: f32 = 45.0;
 pub fn plugin(app: &mut App) {
     app.init_resource::<Queue>()
         .init_resource::<Unfolded>()
-        .init_resource::<Pending>()
+        .init_resource::<ChatWaits>()
         .add_observer(tag_answered)
         .add_observer(tag_opened)
         .add_systems(
@@ -87,13 +87,13 @@ struct Unfolded(HashSet<Entity>);
 /// What the agent of the open chat waits on from the chief, oldest
 /// first, and the one shown over its message bar.
 #[derive(Resource, Default, PartialEq)]
-pub(crate) struct Pending {
+pub(crate) struct ChatWaits {
     waits: Vec<Entity>,
     /// The one turned to, else the oldest is shown.
     shown: Option<Entity>,
 }
 
-impl Pending {
+impl ChatWaits {
     /// Whether `wait` is one of them.
     pub(crate) fn holds(&self, wait: Entity) -> bool {
         self.waits.contains(&wait)
@@ -176,13 +176,13 @@ fn keep_queue(
     }
 }
 
-/// Keeps [`Pending`] as the waits raised by the agent the chat is
+/// Keeps [`ChatWaits`] as the waits raised by the agent the chat is
 /// with, or by a turn of the chat itself.
 pub(crate) fn follow(
     convo: Res<Convo>,
     chats: Query<&Chat>,
     waiting: Query<(Entity, &Waiting, Option<&RaisedBy>)>,
-    mut pending: ResMut<Pending>,
+    mut chat_waits: ResMut<ChatWaits>,
 ) {
     let chat = chats.get(convo.chat).ok().map(|chat| &chat.0);
     let mut found = waiting
@@ -198,17 +198,18 @@ pub(crate) fn follow(
     found.sort();
     let waits =
         found.into_iter().map(|(.., wait)| wait).collect::<Vec<_>>();
-    let shown = pending.shown.filter(|shown| waits.contains(shown));
-    if pending.waits != waits || pending.shown != shown {
-        *pending = Pending { waits, shown };
+    let shown =
+        chat_waits.shown.filter(|shown| waits.contains(shown));
+    if chat_waits.waits != waits || chat_waits.shown != shown {
+        *chat_waits = ChatWaits { waits, shown };
     }
 }
 
 /// Shows the wait at `at` over the message bar.
 fn turn(world: &mut World, at: usize) {
-    let mut pending = world.resource_mut::<Pending>();
-    if let Some(&wait) = pending.waits.get(at) {
-        pending.shown = Some(wait);
+    let mut chat_waits = world.resource_mut::<ChatWaits>();
+    if let Some(&wait) = chat_waits.waits.get(at) {
+        chat_waits.shown = Some(wait);
     }
 }
 
@@ -283,7 +284,7 @@ pub(crate) fn open(world: &mut World, wait: Entity) {
         (None, Some(agent)) => {
             crate::convo::talk_to(world, agent);
             world.insert_resource(Sheet::Chat);
-            world.resource_mut::<Pending>().shown = Some(wait);
+            world.resource_mut::<ChatWaits>().shown = Some(wait);
         }
         (None, None) => crate::hub::show(world, Showing::Realm),
     }
@@ -318,12 +319,12 @@ fn button(need: &Need, at: usize) -> AnyView {
     use Glyph::{Check, CheckAll, Cross, Restore, Talk};
     let done = Variant::Tinted(StatusKind::Success);
     let (which, text, variant) = match choice {
-        Choice::Allow => (Check, "Allow once", done),
+        Choice::Allow => (Check, "Allow Once", done),
         Choice::Always => (CheckAll, always, Variant::Default),
         Choice::Deny => (Cross, "Deny", Variant::Danger),
-        Choice::Go => (Check, "Go ahead", done),
+        Choice::Go => (Check, "Go Ahead", done),
         Choice::Withdraw => (Restore, "Withdraw", Variant::Danger),
-        Choice::Reply => (Talk, "Reply in chat", Variant::Primary),
+        Choice::Reply => (Talk, "Reply in Chat", Variant::Primary),
         // A newcomer dismissed waits on at the harbor.
         Choice::Dismiss => match need.detail {
             WaitDetail::Newcomer { .. } => {
@@ -331,7 +332,7 @@ fn button(need: &Need, at: usize) -> AnyView {
             }
             _ => (Cross, "Dismiss", Variant::Default),
         },
-        Choice::Welcome => (Check, "Welcome into the city", done),
+        Choice::Welcome => (Check, "Welcome into the City", done),
     };
     let scope = matches!(choice, Choice::Always)
         .then(|| scope(need))
@@ -356,8 +357,8 @@ fn lasting_words(need: &Need) -> &'static str {
         WaitDetail::Approval {
             always: Some(Lasting::Conversation),
             ..
-        } => "Allow for this conversation",
-        _ => "Allow always",
+        } => "Allow for This Conversation",
+        _ => "Allow Always",
     }
 }
 
@@ -452,7 +453,7 @@ fn head(
             format!("{} objects to your instruction", need.shown)
         }
         WaitDetail::Fault { .. } => {
-            format!("{} ran into a problem", need.shown)
+            format!("{} ran into an error", need.shown)
         }
         WaitDetail::Newcomer { .. } => {
             format!("{scholar} wants to move into the city")
@@ -637,13 +638,14 @@ pub fn waiting() -> impl View {
 /// with the way between them while there are several. As tall as it
 /// needs up to [`TALLEST`] of its column, past which it scrolls.
 pub fn in_chat() -> impl View {
-    let shown = resource::<Pending, _>(|pending| {
-        match pending.waits.is_empty() {
-            true => Display::None,
-            false => Display::Flex,
-        }
-    });
-    keyed(resource::<Pending, _>(Pending::on_show), |&on_show| {
+    let shown =
+        resource::<ChatWaits, _>(|chat_waits| {
+            match chat_waits.waits.is_empty() {
+                true => Display::None,
+                false => Display::Flex,
+            }
+        });
+    keyed(resource::<ChatWaits, _>(ChatWaits::on_show), |&on_show| {
         let Some((wait, at, count)) = on_show else {
             return frame().boxed();
         };
@@ -732,7 +734,7 @@ mod tests {
             waiting(),
         );
         app.update();
-        press(&mut app, "Allow once");
+        press(&mut app, "Allow Once");
         let allowed =
             app.world().resource::<Outbox>().iter().any(|message| {
                 matches!(message, protocol::ClientMessage::Answer(answer)

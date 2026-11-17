@@ -50,7 +50,7 @@ use hamlet_ui::{AnyView, Cx, View, kinds, rules, with_cx};
 
 use crate::hub::Showing;
 use crate::models::{Shelf, model_title};
-use crate::screens::petition::{self, Need, Pending, answers};
+use crate::screens::petition::{self, ChatWaits, Need, answers};
 use crate::standing::Standing;
 use crate::updates::{self, Offer, Ready};
 use crate::{PanelSystems, chat};
@@ -165,7 +165,7 @@ struct Toast {
 enum What {
     /// A new wait, with the answers it takes.
     Petition(Entity),
-    /// The open faults of one cause a chief sets up once, told as
+    /// The open faults of one cause a chief sets up once, shown as
     /// one.
     Setup { setup: Setup, waits: Vec<Entity> },
     /// Something that happened, which nothing answers.
@@ -221,7 +221,7 @@ impl Toasts {
         }
     }
 
-    /// Tells of the fault `wait` of `setup` with the others of its
+    /// Shows the fault `wait` of `setup` with the others of its
     /// cause, in one toast.
     fn gather(&mut self, setup: Setup, wait: Entity, now: f32) {
         let told = self.shown.iter_mut().find(|toast| {
@@ -492,7 +492,7 @@ fn keep(
     pile: Query<&Hovered, With<Pile>>,
     waiting: Query<(), With<Waiting>>,
     showing: Option<Res<Showing>>,
-    pending: Option<Res<Pending>>,
+    chat_waits: Option<Res<ChatWaits>>,
     mut toasts: ResMut<Toasts>,
 ) {
     let open = pile.iter().any(Hovered::get);
@@ -522,9 +522,9 @@ fn keep(
                 What::Petition(wait) => {
                     waiting.contains(*wait)
                         && !(chatting
-                            && pending
+                            && chat_waits
                                 .as_ref()
-                                .is_some_and(|p| p.holds(*wait)))
+                                .is_some_and(|w| w.holds(*wait)))
                 }
                 What::Setup { waits, .. } => !waits.is_empty(),
                 What::Notice { .. }
@@ -842,11 +842,11 @@ fn card(toast: &Toast) -> AnyView {
         ))
         .gap(6.0)
         .align(AlignItems::Center);
-        let words =
-            column((top, opening(what.clone(), quoted(&line))))
-                .gap(2.0);
         let theme = cx.theme();
         let space = &theme.space;
+        let words =
+            column((top, opening(what.clone(), quoted(&line))))
+                .gap(space.gap / 4.0);
         // Laid out in full even while the card is folded, so that its
         // height is known to unfold to; it fades as the card folds.
         let inside = column((words, answers))
@@ -1172,7 +1172,7 @@ mod tests {
         // The command on a chip of its own, with no backticks.
         assert!(shown.iter().any(|text| text == "wants to run"));
         assert!(shown.iter().any(|text| text == "pwd"));
-        press(&mut app, "Allow once");
+        press(&mut app, "Allow Once");
         let allowed =
             app.world().resource::<Outbox>().iter().any(|message| {
                 matches!(message, ClientMessage::Answer(answer)

@@ -184,8 +184,7 @@ pub enum Scene {
     Chat,
     /// An agent's chat with the chief, the mayor and other agents in
     /// it: the earlier messages summarized, a notification, a worker
-    /// and a
-    /// line that waits its turn.
+    /// and a line that waits its turn.
     Group,
     /// A chat with links of every kind in it, the pointer on one.
     Links,

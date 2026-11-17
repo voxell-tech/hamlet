@@ -99,11 +99,6 @@ const WORKER_ICON: f32 = 12.0;
 /// How opaque the icon of one that left is.
 const DIMMED: f32 = 0.6;
 
-/// The least height of `line`'s row.
-fn row_height(line: &Line) -> f32 {
-    if line.worker { WORKER_ROW } else { ROW }
-}
-
 /// The column at the rail's edge that holds every chevron.
 const CHEVRON: f32 = 14.0;
 
@@ -1908,6 +1903,11 @@ fn chevron(group: Group, shut: bool, says: &'static str) -> AnyView {
     .boxed()
 }
 
+/// The least height of `line`'s row.
+fn row_height(line: &Line) -> f32 {
+    if line.worker { WORKER_ROW } else { ROW }
+}
+
 /// A row of one line: its icon with its scholar's badge, its name cut
 /// at the rail's edge, how long ago and its mark at the end. What it
 /// is doing or waits for is in its tooltip. A `dimmed` row, of those
@@ -2262,7 +2262,8 @@ fn sections_view(place: Place, first_above: f32) -> impl View {
                 .enumerate()
                 .map(|(at, section)| {
                     // The room over a header is kept outside its
-                    // block, so a lit block starts at its header.
+                    // block, so a highlighted block starts at its
+                    // header.
                     let above = match (section.title.is_empty(), at) {
                         (true, _) => 0.0,
                         (false, 0) => first_above - BLOCK_PAD,

@@ -51,6 +51,16 @@ use crate::screens::petition;
 use crate::standing::Standing;
 use crate::{chat, words, world_menu};
 
+/// The tabs between a thread's chat and its details.
+const SHEETS: [(Sheet, Glyph, &str); 2] = [
+    (Sheet::Chat, Glyph::Talk, "Chat"),
+    (Sheet::Details, Glyph::Sliders, "Details"),
+];
+
+pub(super) fn plugin(app: &mut App) {
+    app.add_systems(Update, mark_open_chips);
+}
+
 /// What the thread's page shows: its chat, or its details in the
 /// chat's place.
 #[derive(Resource, Clone, Copy, Default, PartialEq, Eq, Debug)]
@@ -59,12 +69,6 @@ pub enum Sheet {
     Chat,
     Details,
 }
-
-/// The tabs between a thread's chat and its details.
-const SHEETS: [(Sheet, Glyph, &str); 2] = [
-    (Sheet::Chat, Glyph::Talk, "Chat"),
-    (Sheet::Details, Glyph::Sliders, "Details"),
-];
 
 /// The system prompt of an agent, as it was last read for the chief.
 #[derive(Resource, Default, PartialEq)]
@@ -350,21 +354,19 @@ fn header(agent: Entity) -> impl View {
     })
 }
 
-pub(super) fn plugin(app: &mut App) {
-    app.add_systems(Update, light_chips);
-}
-
 /// On the chip of the model of the agent it holds.
 #[derive(Component, Clone, Copy)]
 struct ModelChip(Entity);
 
-/// On the chip of the model while its popup is open, which lights it.
+/// On the chip of the model while its popup is open, which shows it
+/// selected.
 #[derive(Component)]
 struct ChipOpen;
 
 /// The chip of the model, its effort and its tier, which opens the
-/// popup they are chosen in and is lit while it is open. Built once,
-/// and lit in place, so it does not come in again as it opens.
+/// popup they are chosen in and shows selected while it is open.
+/// Built once, and marked in place, so it does not come in again as
+/// it opens.
 fn model_chip(agent: Entity) -> impl View {
     button(
         row((world_menu::chip(agent), glyph(Glyph::Chevron, 12.0)))
@@ -372,7 +374,7 @@ fn model_chip(agent: Entity) -> impl View {
             .align(AlignItems::Center),
     )
     .padding(UiRect::axes(px(8.0), px(0.0)))
-    .rules(chip_look)
+    .rules(chip_style)
     .tagged(Variant::Text)
     .tagged(world_menu::Hook::Chip)
     .tagged(ModelChip(agent))
@@ -381,27 +383,27 @@ fn model_chip(agent: Entity) -> impl View {
     })
 }
 
-/// Lights the chip of the model whose popup is open.
-fn light_chips(
+/// Marks the chip of the model whose popup is open.
+fn mark_open_chips(
     open: Option<Res<world_menu::Open>>,
     chips: Query<(Entity, &ModelChip, Has<ChipOpen>)>,
     mut commands: Commands,
 ) {
-    for (chip, of, lit) in &chips {
+    for (chip, of, marked) in &chips {
         let wanted = open.as_deref().is_some_and(|open| {
             *open == world_menu::Open::Model(of.0)
         });
-        if wanted && !lit {
+        if wanted && !marked {
             commands.entity(chip).try_insert(ChipOpen);
-        } else if !wanted && lit {
+        } else if !wanted && marked {
             commands.entity(chip).try_remove::<ChipOpen>();
         }
     }
 }
 
-/// The look of a chip of the composer: a choice on a plate, with no
+/// The style of a chip of the composer: a choice on a plate, with no
 /// edge at rest inside the card's own, and picked while [`ChipOpen`].
-fn chip_look(cx: &mut Cx) {
+fn chip_style(cx: &mut Cx) {
     choice(false)(cx);
     style::<HamletTheme>()
         .frame(|f, t| {
@@ -458,7 +460,7 @@ fn mode_chip(agent: Entity) -> impl View {
                 .align(AlignItems::Center),
             )
             .padding(UiRect::axes(px(8.0), px(0.0)))
-            .rules(chip_look)
+            .rules(chip_style)
             .tagged(Variant::Text)
             .tooltip(|| {
                 note(format!("{} Press to switch.", words::APPROVALS))
@@ -576,7 +578,7 @@ fn chips(agent: Entity) -> impl View {
                 .align(AlignItems::Center),
             )
             .padding(UiRect::axes(px(8.0), px(0.0)))
-            .rules(chip_look)
+            .rules(chip_style)
             .tagged(Variant::Text)
             .tooltip(|| {
                 note("No model is set up yet, so nothing can answer")

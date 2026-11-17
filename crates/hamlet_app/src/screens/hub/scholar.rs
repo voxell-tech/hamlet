@@ -484,7 +484,7 @@ fn arrival(shown: &Shown) -> AnyView {
                 let address = address.clone();
                 buttons_row.push(good_action(
                     Glyph::Check,
-                    "Welcome into the city",
+                    "Welcome into the City",
                     move |world| {
                         tell_hand(
                             world,

@@ -220,11 +220,11 @@ pub(super) fn controls() -> Ui {
     column((
         part(
             "A plain button",
-            states(Glyph::Notes, "Compact now", Variant::Default),
+            states(Glyph::Notes, "Compact Now", Variant::Default),
         ),
         part(
             "The one primary action",
-            states(Glyph::Check, "Allow once", Variant::Primary),
+            states(Glyph::Check, "Allow Once", Variant::Primary),
         ),
         part(
             "What refuses or stops",

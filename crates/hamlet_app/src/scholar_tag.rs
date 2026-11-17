@@ -109,7 +109,7 @@ pub(crate) fn tag(tag: &ScholarTag) -> AnyView {
     let tip = tag.tip();
     button(row(parts).gap(4.0).align(AlignItems::Center))
         .shrink(0.0)
-        .rules(tag_look)
+        .rules(tag_style)
         .tooltip(move || note(tip.clone()))
         .on_activate(move |world| {
             crate::hub::open_scholar(world, scholar);
@@ -136,7 +136,7 @@ pub(crate) fn badge(tag: &ScholarTag) -> AnyView {
         .height(px(BADGE))
         .justify(JustifyContent::Center)
         .align(AlignItems::Center)
-        .rules(move |cx: &mut Cx| badge_look(cx, learned))
+        .rules(move |cx: &mut Cx| badge_style(cx, learned))
         .tooltip(move || note(tip.clone()))
         .on_activate(move |world| {
             crate::hub::open_scholar(world, scholar);
@@ -146,7 +146,7 @@ pub(crate) fn badge(tag: &ScholarTag) -> AnyView {
 
 /// A badge is a disc of the panel's background, ringed by the hover's
 /// fill, its icon dim, and in the accent under the pointer.
-fn badge_look(cx: &mut Cx, learned: bool) {
+fn badge_style(cx: &mut Cx, learned: bool) {
     style::<HamletTheme>()
         .frame(|f, t| {
             f.fill(t.palette.surface)
@@ -164,7 +164,7 @@ fn badge_look(cx: &mut Cx, learned: bool) {
 
 /// A tag is set in a capsule of the hover's fill, its words dim, and
 /// in the accent under the pointer.
-fn tag_look(cx: &mut Cx) {
+fn tag_style(cx: &mut Cx) {
     style::<HamletTheme>()
         .frame(|f, t| {
             f.fill(t.palette.button_hover)
