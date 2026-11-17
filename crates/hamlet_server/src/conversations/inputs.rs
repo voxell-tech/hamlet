@@ -169,7 +169,7 @@ impl Input {
 
     /// Whether a turn answers it.
     pub fn is_turn(&self) -> bool {
-        !self.is_write() && self.kind != InputKind::Compaction
+        !NOT_TURNS.contains(&self.kind)
     }
 
     pub fn is_ended(&self) -> bool {
