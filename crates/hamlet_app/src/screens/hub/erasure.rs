@@ -20,8 +20,10 @@ use crate::convo::talk_to;
 use crate::toasts::Toasts;
 
 pub(super) fn plugin(app: &mut App) {
-    app.init_resource::<Erasures>()
-        .add_systems(PreUpdate, settle.in_set(PanelSystems::Follow));
+    app.init_resource::<Erasures>().add_systems(
+        PreUpdate,
+        settle.run_if(is_unsettled).in_set(PanelSystems::Follow),
+    );
 }
 
 /// The erasures asked for that the server has yet to make.
@@ -136,6 +138,14 @@ fn entity_of(thing: Thing) -> Option<Entity> {
         | Thing::ChiefPlace(of) => Some(of),
         _ => None,
     }
+}
+
+/// Whether an erasure waits, or the Hub shows a page whose subject is
+/// gone.
+fn is_unsettled(world: &World) -> bool {
+    !world.resource::<Erasures>().0.is_empty()
+        || shown_entity(world)
+            .is_some_and(|shown| world.get_entity(shown).is_err())
 }
 
 /// Settles each erasure the server has made, and takes the Hub off a
