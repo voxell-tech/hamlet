@@ -272,22 +272,21 @@ fn tool_row(session: Entity, id: String) -> impl View {
         .gap(0.0)
 }
 
-/// What a `tell` or `ask` call sent: its words and the address it
-/// was sent to.
+/// What a `notify` or `request` call sent: its words and the address
+/// it was sent to.
 fn sent(summary: &str) -> Option<(String, String)> {
     let arguments =
         serde_json::from_str::<serde_json::Value>(summary).ok()?;
-    let words = arguments["text"]
-        .as_str()
-        .or_else(|| arguments["question"].as_str())?;
+    let words = arguments["text"].as_str()?;
     Some((
         arguments["to"].as_str().unwrap_or_default().to_string(),
         words.to_string(),
     ))
 }
 
-/// Whom the `tell` or `ask` call `id` of `session` reached, by the
-/// name the window shows it by, else by the address it was sent to.
+/// Whom the `notify` or `request` call `id` of `session` reached, by
+/// the name the window shows it by, else by the address it was sent
+/// to.
 fn receiver(world: &World, session: Entity, id: &str) -> String {
     let Some(Entry::Tool { summary, agent, .. }) = world
         .get::<Transcript>(session)

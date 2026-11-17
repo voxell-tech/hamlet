@@ -429,7 +429,8 @@ pub enum Entry {
         ms: Option<u64>,
         failure: Option<String>,
         change: Option<protocol::Change>,
-        /// The agent a `tell`, `ask` or `start_worker` call reached.
+        /// The agent a `notify`, `request` or `start_worker` call
+        /// reached.
         agent: Option<protocol::AgentId>,
     },
     Error(String),
