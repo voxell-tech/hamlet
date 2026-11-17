@@ -18,6 +18,7 @@ import { conversationOfChat } from "../src/agent/sessions.ts";
 import {
     fakeCalls,
     from,
+    itemOfLine,
     named,
     toolCall,
     type Woken,
@@ -109,14 +110,6 @@ async function lettersOf(agent: Woken): Promise<ConversationId> {
     });
     assert.ok(id !== undefined, "Ada's letters have a chat");
     return id;
-}
-
-async function itemOfLine(agent: Woken, text: string): Promise<string> {
-    const entry = (await entriesOf(agent, await now(agent))).find(
-        (each) => each.kind === "hamlet.line" && shown(each) === text,
-    );
-    assert.ok(entry !== undefined, `the line ${text} is shown`);
-    return `${entry.id}:0`;
 }
 
 async function wake(

@@ -28,6 +28,7 @@ import type { BareRealm, Peers } from "../src/agent/turn.ts";
 import {
     fakeCalls,
     from,
+    itemOfLine,
     named,
     toolCall,
     until,
@@ -913,22 +914,6 @@ async function currentSession(agent: Woken) {
 
 async function sessionModel(agent: Woken) {
     return (await (await currentSession(agent)).agent(context)).model;
-}
-
-async function itemOfLine(agent: Woken, text: string): Promise<string> {
-    const page = await (await currentSession(agent)).entries(
-        { order: "ascending" },
-        500,
-        undefined,
-        context,
-    );
-    const line = page.items.find(
-        (entry) =>
-            entry.kind === "hamlet.line" &&
-            JSON.stringify(entry.model).includes(text),
-    );
-    assert.ok(line !== undefined, `the line ${text} is in the session`);
-    return `${line.id}:0`;
 }
 
 test("a /new whose copy read waits behind a newer copy ends on it", async (t) => {

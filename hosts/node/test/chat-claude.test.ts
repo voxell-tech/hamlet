@@ -20,8 +20,8 @@ import { withClaude } from "../src/agent/claude.ts";
 import { signIns } from "../src/agent/login.ts";
 import type { ChatPage, Kept, Login } from "../src/agent/messages.ts";
 import {
+    credentialsFile,
     FAKE_ROOT,
-    fakeCalls,
     fakeFiles,
     from,
     until,
@@ -120,25 +120,6 @@ const whole = (text: string) => [
     }),
     say({ type: "result", subtype: "success", is_error: false, result: text }),
 ];
-
-function credentialsFile() {
-    const file = new Map<string, Kept>();
-    const faked = fakeCalls({
-        realm: {
-            credential: ({ provider }) =>
-                file.get(provider) ?? {
-                    type: "refused",
-                    why: { type: "not_signed_in", provider },
-                    words: `Sign in to ${provider} first.`,
-                },
-            keep_credential: ({ provider, value }) => {
-                file.set(provider, value);
-                return null;
-            },
-        },
-    });
-    return { file, ...faked };
-}
 
 let requests = 0;
 

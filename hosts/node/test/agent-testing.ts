@@ -1,3 +1,4 @@
+import assert from "node:assert/strict";
 import type { TestContext } from "node:test";
 import type { Context } from "@earendil-works/chord/context";
 import {
@@ -32,11 +33,14 @@ import {
 import type { AgentFilesystem } from "../src/agent/filesystem.ts";
 import {
     type AgentInput,
+    type Kept,
     REALM,
     type RealmActions,
     WORKSPACE,
     type WorkspaceActions,
 } from "../src/agent/messages.ts";
+import { conversationOfChat } from "../src/agent/sessions.ts";
+import { textOf } from "../src/agent/transcript.ts";
 import { createPiRuntime, PI_RUNTIME, piRuntime } from "../src/pi/runtime.ts";
 import { context, fauxModels, plainDatabase, scratchFile } from "./testing.ts";
 
@@ -461,4 +465,39 @@ export function toolCall(
     return fauxAssistantMessage([fauxToolCall(name, args, { id })], {
         stopReason: "toolUse",
     });
+}
+
+/** A realm whose `credential` answers what `keep_credential` kept. */
+export function credentialsFile() {
+    const file = new Map<string, Kept>();
+    const { calls, sent } = fakeCalls({
+        workspace: { cancel: () => ({ commands: [] }) },
+        realm: {
+            credential: ({ provider }) =>
+                file.get(provider) ?? {
+                    type: "refused",
+                    why: { type: "not_signed_in", provider },
+                    words: `Sign in to ${provider} first.`,
+                },
+            keep_credential: ({ provider, value }) => {
+                file.set(provider, value);
+                return null;
+            },
+        },
+    });
+    return { file, calls, sent };
+}
+
+/** The item id a client reads for the chief's line `text` in the current session. */
+export async function itemOfLine(agent: Woken, text: string): Promise<string> {
+    const id = await conversationOfChat(agent.by(from.client), { with: 7 });
+    assert.ok(id !== undefined, "the chief has a current session");
+    const page = await (
+        await (await agent.harness()).conversation(id, context)
+    )?.entries({ order: "ascending" }, 500, undefined, context);
+    const line = page?.items.find(
+        (entry) => entry.kind === "hamlet.line" && textOf(entry) === text,
+    );
+    assert.ok(line !== undefined, `the line ${text} is in the session`);
+    return `${line.id}:0`;
 }

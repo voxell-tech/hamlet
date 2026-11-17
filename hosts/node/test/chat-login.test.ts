@@ -19,7 +19,7 @@ import type {
 } from "../src/agent/messages.ts";
 import { checkModel, keysOf } from "../src/agent/models.ts";
 import {
-    fakeCalls,
+    credentialsFile,
     from,
     named,
     until,
@@ -55,26 +55,6 @@ function assertNowhere(
             assert.ok(!text.includes(found), `the ${what} hold ${found}`);
         }
     }
-}
-
-function credentialsFile() {
-    const file = new Map<string, Kept>();
-    const { calls, sent } = fakeCalls({
-        workspace: { cancel: () => ({ commands: [] }) },
-        realm: {
-            credential: ({ provider }) =>
-                file.get(provider) ?? {
-                    type: "refused",
-                    why: { type: "not_signed_in", provider },
-                    words: `Sign in to ${provider} first.`,
-                },
-            keep_credential: ({ provider, value }) => {
-                file.set(provider, value);
-                return null;
-            },
-        },
-    });
-    return { file, calls, sent };
 }
 
 /**
