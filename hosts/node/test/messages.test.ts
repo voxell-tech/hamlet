@@ -143,7 +143,7 @@ interface Written {
     readonly constant?: Readonly<Record<string, unknown>>;
     /**
      * Drives a feature other than a turn of the Hand's and gives back the
-     * agent it woke. The last call it sends of the fixture's action is compared.
+     * agent it woke; its last call of the fixture's action is compared.
      */
     readonly drive?: (
         t: TestContext,

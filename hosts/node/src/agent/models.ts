@@ -417,8 +417,8 @@ class Scrubbed extends AssistantMessageEventStream {
     }
 
     /**
-     * `source` scrubbed, with each text still streaming withheld. `shown` holds
-     * each block's text as last shown, `received` each call's argument text so far.
+     * `source` scrubbed, each text still streaming withheld. `shown` holds each
+     * block's text as last shown, `received` each call's arguments so far.
      */
     #withheld(
         source: AssistantMessageEvent,
