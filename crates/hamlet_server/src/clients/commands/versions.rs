@@ -150,14 +150,14 @@ impl Core<'_, '_> {
         hire: AgentId,
         version: &str,
     ) -> Done<Option<String>> {
+        if version == MAIN {
+            return Ok(Ok(None));
+        }
         let layout = self.realm.layout().clone();
         let db = self.realm.store().connection();
         let found = hires::get(db, hire)?;
         let repo =
             Repository::open(&layout.repository(found.scholar))?;
-        if version == MAIN {
-            return Ok(Ok(None));
-        }
         if repo.resolve(version)?.is_none() {
             return Ok(Err(Refusal::NoVersion {
                 name: addresses::scholar_name_of(db, found.scholar)?,
