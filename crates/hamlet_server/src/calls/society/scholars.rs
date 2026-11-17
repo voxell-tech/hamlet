@@ -15,15 +15,15 @@ use super::args::{
     TurnAway, Versions, Welcome,
 };
 use super::{Call, cut, task_chief};
-use crate::clients::commands::targets::ScholarReach;
 use crate::clients::commands::versions::versions;
 use crate::core::Core;
 use crate::knowledge::CHARACTER;
 use crate::realm::change::{Done, done, refuse};
 use crate::realm::jobs;
+use crate::society::addresses::{self, Reach};
 use crate::society::city::{self, CHARACTER_MOST};
 use crate::society::refusal::Refusal;
-use crate::society::{addresses, authority, names};
+use crate::society::{authority, names};
 
 impl Core<'_, '_> {
     /// The scholar at `address` within `reach`, which `call`'s agent
@@ -32,7 +32,7 @@ impl Core<'_, '_> {
         &mut self,
         call: &Call<'_>,
         address: &str,
-        reach: ScholarReach,
+        reach: Reach,
     ) -> Done<ScholarId> {
         let id = done!(self.scholar_at(address, reach));
         let db = self.realm.store().connection();
@@ -63,7 +63,7 @@ impl Core<'_, '_> {
                 ..
             })
             | Called::EraseScholar(EraseScholar { scholar }) => {
-                (scholar.clone(), ScholarReach::Kept)
+                (scholar.clone(), Reach::Kept)
             }
             Called::Versions(Versions { scholar })
             | Called::Fork(Fork { scholar, .. })
@@ -74,7 +74,7 @@ impl Core<'_, '_> {
             | Called::MoveHouse(MoveHouse { scholar, .. })
             | Called::RemoveScholar(RemoveScholar {
                 scholar, ..
-            }) => (scholar.clone(), ScholarReach::Living),
+            }) => (scholar.clone(), Reach::Living),
             _ => refuse!(Refusal::Unsupported {
                 what: format!("the tool {}", call.tool),
             }),
@@ -216,11 +216,8 @@ impl Core<'_, '_> {
             path,
             version,
         } = args;
-        let scholar = done!(self.kept_scholar(
-            call,
-            &name,
-            ScholarReach::Living
-        ));
+        let scholar =
+            done!(self.kept_scholar(call, &name, Reach::Living));
         let repo = self.repository(scholar)?;
         let at = done!(Self::version_of(&repo, &name, &version));
         if path.is_empty() {
@@ -254,11 +251,8 @@ impl Core<'_, '_> {
             content,
             message,
         } = args;
-        let scholar = done!(self.kept_scholar(
-            call,
-            &name,
-            ScholarReach::Living
-        ));
+        let scholar =
+            done!(self.kept_scholar(call, &name, Reach::Living));
         if path.is_empty()
             || path.starts_with('/')
             || path.split('/').any(|part| part == "..")
@@ -302,11 +296,8 @@ impl Core<'_, '_> {
             tag,
             note,
         } = args;
-        let scholar = done!(self.kept_scholar(
-            call,
-            &name,
-            ScholarReach::Living
-        ));
+        let scholar =
+            done!(self.kept_scholar(call, &name, Reach::Living));
         let repo = self.repository(scholar)?;
         if let Err(refusal) = names::check_version(&tag) {
             return Ok(Err(refusal));
@@ -346,11 +337,8 @@ impl Core<'_, '_> {
             commit,
             reason,
         } = args;
-        let scholar = done!(self.kept_scholar(
-            call,
-            &name,
-            ScholarReach::Living
-        ));
+        let scholar =
+            done!(self.kept_scholar(call, &name, Reach::Living));
         let repo = self.repository(scholar)?;
         let commit = done!(Self::version_of(&repo, &name, &commit));
         let by = Actor::Agent(call.conversation.agent);

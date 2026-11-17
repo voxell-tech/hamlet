@@ -4,7 +4,7 @@
 
 use hamlet_store::ids::{Actor, HamletId};
 
-use super::targets::{ScholarReach, is_scholar};
+use super::targets::is_scholar;
 use super::{Answer, Command, Line};
 use crate::core::Core;
 use crate::society::addresses::{self, Reach};
@@ -951,7 +951,7 @@ fn name_scholar(core: &mut Core<'_, '_>, line: &Line) -> Answer {
     let Some(text) = line.words().first().copied() else {
         return usage(core, line);
     };
-    let scholar = found!(core.scholar_at(text, ScholarReach::Living));
+    let scholar = found!(core.scholar_at(text, Reach::Living));
     let by = by(core);
     let db = core.realm.store().connection();
     if !authority::may_keep(db, by, scholar)? {
@@ -973,7 +973,7 @@ fn name_scholar(core: &mut Core<'_, '_>, line: &Line) -> Answer {
 fn kept_scholar(
     core: &mut Core<'_, '_>,
     line: &Line,
-    reach: ScholarReach,
+    reach: Reach,
 ) -> crate::realm::change::Done<(hamlet_store::ids::ScholarId, String)>
 {
     let Some(text) = line.words().first().copied() else {
@@ -996,9 +996,9 @@ fn scholar_fate(
 ) -> Answer {
     let reach =
         if matches!(housing, Housing::Restore | Housing::Erase) {
-            ScholarReach::Kept
+            Reach::Kept
         } else {
-            ScholarReach::Living
+            Reach::Living
         };
     let (scholar, text) = found!(kept_scholar(core, line, reach));
     let reason = line.tail(1);
@@ -1024,7 +1024,7 @@ fn scholar_fate(
 
 fn move_house(core: &mut Core<'_, '_>, line: &Line) -> Answer {
     let (scholar, text) =
-        found!(kept_scholar(core, line, ScholarReach::Living));
+        found!(kept_scholar(core, line, Reach::Living));
     let words = line.words();
     let number =
         |at: usize| words.get(at).map(|w| w.parse::<f64>().ok());

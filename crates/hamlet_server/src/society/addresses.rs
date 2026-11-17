@@ -42,11 +42,12 @@ impl fmt::Display for Address {
     }
 }
 
-/// Which agents an address may name.
+/// Which agents or scholars an address may name.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum Reach {
     Living,
-    /// The ended too, but not the erased.
+    /// The ended agents and the archived scholars too, but not the
+    /// erased.
     Kept,
 }
 

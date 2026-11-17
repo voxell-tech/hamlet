@@ -6,7 +6,6 @@ use hamlet_git::{Author, CommitId, MAIN, Repository};
 use hamlet_store::ids::{Actor, AgentId, HamletId, ScholarId};
 
 use super::Command;
-use super::targets::ScholarReach;
 use crate::core::{Core, UnpushedLodge};
 use crate::knowledge::folder::Folder;
 use crate::realm::change::Done;
@@ -66,7 +65,7 @@ impl Core<'_, '_> {
         text: &str,
     ) -> Done<(ScholarId, Repository)> {
         let chief = self.realm.chief();
-        let id = match self.scholar_at(text, ScholarReach::Living)? {
+        let id = match self.scholar_at(text, Reach::Living)? {
             Ok(id) => id,
             Err(refusal) => return Ok(Err(refusal)),
         };

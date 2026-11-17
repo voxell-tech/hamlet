@@ -15,14 +15,6 @@ use crate::society::hires::Hiring;
 use crate::society::refusal::Refusal;
 use crate::society::{authority, city, hamlets};
 
-/// The scholars an address may name.
-#[derive(Clone, Copy, PartialEq)]
-pub(crate) enum ScholarReach {
-    Living,
-    /// The archived too.
-    Kept,
-}
-
 /// The check that `word` is a scholar's address, with or without a
 /// version.
 pub(super) fn is_scholar(word: &str) -> bool {
@@ -63,7 +55,7 @@ impl Core<'_, '_> {
             None => (text, None),
         };
         Ok(self
-            .scholar_at(address, ScholarReach::Living)?
+            .scholar_at(address, Reach::Living)?
             .map(|scholar| (scholar, version)))
     }
 
@@ -113,7 +105,7 @@ impl Core<'_, '_> {
     pub(crate) fn scholar_at(
         &mut self,
         text: &str,
-        reach: ScholarReach,
+        reach: Reach,
     ) -> Done<ScholarId> {
         let id = match addresses::parse_scholar(text) {
             Ok(id) => id,
@@ -122,7 +114,7 @@ impl Core<'_, '_> {
         let db = self.realm.store().connection();
         let found = city::find(db, id)?.filter(|found| {
             found.kind == city::ScholarKind::Scholar
-                && (reach == ScholarReach::Kept || found.is_living())
+                && (reach == Reach::Kept || found.is_living())
         });
         Ok(match found {
             Some(found) => Ok(found.id),
