@@ -254,9 +254,9 @@ fn scan(text: &str, hand: Hand) -> Vec<(Range<usize>, Target)> {
                 part.end += name;
                 next = part.end;
             }
-            if name.is_some()
-                || target != Target::Agent("hand".into())
-            {
+            let is_hand =
+                matches!(&target, Target::Agent(at) if at == "hand");
+            if name.is_some() || !is_hand {
                 found.push((part, target));
             }
         }
