@@ -194,9 +194,6 @@ function slowRead() {
     };
 }
 
-const byText = (a: unknown, b: unknown) =>
-    JSON.stringify(a).localeCompare(JSON.stringify(b));
-
 test("stop ends the run and drops the queue", async (t) => {
     const { calls, sent } = fakes();
     const chief = held();
@@ -213,26 +210,21 @@ test("stop ends the run and drops the queue", async (t) => {
     await peer.asked;
     await submitted(agent, line("And this"));
     await submitted(agent, { type: "letter", from: ADA, text: "Queued." });
-    const session = await now(agent);
     const letters = await lettersOf(agent);
 
     assert.deepEqual(
         await agent.actions.stop(agent.by(from.client), { id: "stop-1" }),
         { turns: 2 },
     );
+    // As today, every call of the agent is cancelled and all it was trusted
+    // with lapses.
     assert.deepEqual(
-        named(sent, "cancel")
-            .map((call) => call.message)
-            .sort(byText),
-        [session, letters]
-            .map((id) => ({
-                which: { type: "conversation", conversation: String(id) },
-            }))
-            .sort(byText),
+        named(sent, "cancel").map((call) => call.message),
+        [{ which: { type: "all" } }],
     );
     assert.deepEqual(
         named(sent, "lapse").map((call) => call.message),
-        [{ conversation: String(session), why: "stopped" }],
+        [{ why: "stopped" }],
     );
 
     await told(agent, "Now");
@@ -250,7 +242,6 @@ test("a repeated stop answers 0", async (t) => {
     await submitted(agent, line("Take your time"));
     await slow.asked;
     const client = agent.by(from.client);
-    const session = await now(agent);
 
     assert.deepEqual(await agent.actions.stop(client, { id: "stop-1" }), {
         turns: 1,
@@ -258,15 +249,11 @@ test("a repeated stop answers 0", async (t) => {
     assert.deepEqual(await agent.actions.stop(client, { id: "stop-1" }), {
         turns: 0,
     });
-    assert.equal(named(sent, "cancel").length, 1);
-    // Told again, so the repeat of a stop cut off before the realm was told
-    // tells it.
+    // Sent again, so the repeat of a stop cut off before them sends them.
+    assert.equal(named(sent, "cancel").length, 2);
     assert.deepEqual(
         named(sent, "lapse").map((call) => call.message),
-        [
-            { conversation: String(session), why: "stopped" },
-            { conversation: String(session), why: "stopped" },
-        ],
+        [{ why: "stopped" }, { why: "stopped" }],
     );
 });
 
@@ -279,7 +266,6 @@ test("stop ends a turn whose call is out and cancels the call", async (t) => {
     ]);
     await submitted(agent, line("Read the notes"));
     await workspace.reading;
-    const session = await now(agent);
 
     assert.deepEqual(
         await agent.actions.stop(agent.by(from.client), { id: "stop-1" }),
@@ -287,7 +273,7 @@ test("stop ends a turn whose call is out and cancels the call", async (t) => {
     );
     assert.deepEqual(
         named(sent, "cancel").map((call) => call.message),
-        [{ which: { type: "conversation", conversation: String(session) } }],
+        [{ which: { type: "all" } }],
     );
     workspace.answer();
     await agent.idle();

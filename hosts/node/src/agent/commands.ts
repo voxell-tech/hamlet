@@ -43,9 +43,10 @@ type Answer<N extends keyof ClientActions> = Promise<
 >;
 
 /**
- * Stops every run of the agent and drops what each had queued. The chief's
- * session is lapsed even when nothing ran, so the repeat of a stop cut off
- * before the realm was told tells it.
+ * Stops every run of the agent and drops what each had queued, then, as
+ * today, cancels every call the agent has out and lapses all it was
+ * trusted with. Both go out even when nothing ran, so the repeat of a stop
+ * cut off before them sends them.
  */
 export async function stop(c: AgentCall): Answer<"stop"> {
     const { options, peers } = generationOf(c);
@@ -59,13 +60,8 @@ export async function stop(c: AgentCall): Answer<"stop"> {
         );
         return each.flat();
     });
-    for (const id of stopped) {
-        await peers.cancel({
-            which: { type: "conversation", conversation: refOf(id) },
-        });
-    }
-    const chief = await current(c.db);
-    if (chief !== undefined) await lapsed(c, chief, "stopped");
+    await peers.cancel({ which: { type: "all" } });
+    await peers.reach.lapse({ why: "stopped" });
     return { turns: stopped.length };
 }
 
