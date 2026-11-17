@@ -20,6 +20,7 @@ import {
     LOOKED,
 } from "./filesystem.ts";
 import type { Note, ReadAnswer, Refused } from "./messages.ts";
+import { scrub } from "./models.ts";
 import { failed, interrupted, type Peers, thrown, words } from "./turn.ts";
 import {
     type AbsoluteFileCall,
@@ -116,8 +117,9 @@ export function ownFiles(peers: Peers): Extension {
             ) => {
                 const at = reached(peers.files, args.path);
                 const resolved = { ...args, path: at.path };
+                // The workspace scrubs its own results (C32).
                 return at.own
-                    ? own[name](resolved, api, context)
+                    ? own[name](resolved, api, context).then(scrub)
                     : tool.execute(resolved, api, context);
             },
         }),

@@ -3,6 +3,7 @@ import { test } from "node:test";
 import { fauxAssistantMessage } from "@earendil-works/pi-ai";
 import { ok } from "@earendil-works/pi-durable/env";
 import type { Exit } from "../src/agent/messages.ts";
+import { remember } from "../src/agent/models.ts";
 import {
     FAKE_ROOT,
     fakeCalls,
@@ -1195,4 +1196,35 @@ test("a workspace write and edit answer in today's words, in the call and later"
         ["Successfully wrote to /work/b.md"],
     );
     await agent.stop();
+});
+
+// As today scrubs every tool's result (C32,
+// `crates/hamlet_server/src/work/tools.rs:567-570,606`).
+test("an own file tool's result holds no secret the host knows", async (t) => {
+    const key = "own-file-key-4f1c9e";
+    remember(key);
+    const files = fakeFiles({ [`${ROOT}/notes.env`]: `TOKEN=${key}\n` });
+    const agent = await wakeAgent(t, {
+        calls: fakeCalls({}).calls,
+        files,
+        responses: [
+            toolCall("read", { path: `${ROOT}/notes.env` }),
+            toolCall("edit", {
+                path: `${ROOT}/notes.env`,
+                edits: [{ oldText: "TOKEN", newText: "KEY" }],
+            }),
+            fauxAssistantMessage("Done."),
+        ],
+    });
+    t.after(() => agent.stop());
+    await agent.actions.submit(agent.by(from.realm), line("in-1", "Look"));
+    await agent.idle();
+
+    const kept = await results(agent);
+    assert.equal(kept.length, 2);
+    assert.ok(kept[0]?.includes("TOKEN=[REDACTED]"), kept[0]);
+    assert.ok(
+        !JSON.stringify(await agent.entries()).includes(key),
+        "no entry holds the key",
+    );
 });
