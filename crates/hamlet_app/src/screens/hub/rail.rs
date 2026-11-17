@@ -1835,8 +1835,8 @@ fn chevron(group: Group, shut: bool, says: &'static str) -> AnyView {
     .boxed()
 }
 
-/// A row of one line: its icon, its name cut at the rail's edge, the
-/// tag of its scholar, how long ago and its mark at the end. What it
+/// A row of one line: its icon with its scholar's badge, its name cut
+/// at the rail's edge, how long ago and its mark at the end. What it
 /// is doing or waits for is in its tooltip. A `dimmed` row, of those
 /// that left, is set in grey.
 fn expanded(line: &Line, dimmed: bool) -> AnyView {
@@ -1856,10 +1856,7 @@ fn expanded(line: &Line, dimmed: bool) -> AnyView {
     ),))
     .min_width(px(0.0))
     .overflow(Overflow::clip());
-    // The tag keeps its room; the name gives way to it.
-    let mut words = vec![name.boxed()];
-    words.extend(line.tag.as_ref().map(scholar_tag::tag));
-    words.push(frame().grow(1.0).boxed());
+    let mut words = vec![name.boxed(), frame().grow(1.0).boxed()];
     words.push(
         label(
             derived(move |_: &World| age(now_ms(), since))
@@ -1870,10 +1867,16 @@ fn expanded(line: &Line, dimmed: bool) -> AnyView {
         .boxed(),
     );
     words.push(mark_icon(line.mark));
-    let content = row((
+    // The scholar's badge sits on the icon's top-left corner.
+    let mut icon = vec![
         glyph(line.glyph, if worker { WORKER_ICON } else { ICON })
             .tone(Tone::Dim)
-            .opacity(if dimmed { DIMMED } else { 1.0 }),
+            .opacity(if dimmed { DIMMED } else { 1.0 })
+            .boxed(),
+    ];
+    icon.extend(line.tag.as_ref().map(scholar_tag::badge));
+    let content = row((
+        row(icon).shrink(0.0),
         row(words)
             .gap(6.0)
             .align(AlignItems::Center)

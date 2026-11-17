@@ -4,7 +4,9 @@
 
 use bevy::ecs::entity::Entity;
 use bevy::ecs::world::World;
-use bevy::ui::{AlignItems, UiRect, px};
+use bevy::ui::{
+    AlignItems, JustifyContent, PositionType, UiRect, Val, px,
+};
 use bevy_fynix::tokens::{MotionTokens, SurfaceTokens, Tone};
 use bevy_fynix::views::{
     BehaviorExt, FrameProps, TooltipExt, button, frame, label, row,
@@ -25,6 +27,10 @@ const NAME_SHOWN: usize = 16;
 /// The side of the tag's icon, and of its mark.
 const TAG_ICON: f32 = 10.0;
 const MARK: f32 = 5.0;
+
+/// The side of a badge, and of its icon.
+const BADGE: f32 = 10.0;
+const BADGE_ICON: f32 = 7.0;
 
 /// The scholar of the city an agent is of, as its tag shows it.
 #[derive(Clone, PartialEq, Debug)]
@@ -109,6 +115,51 @@ pub(crate) fn tag(tag: &ScholarTag) -> AnyView {
             crate::hub::open_scholar(world, scholar);
         })
         .boxed()
+}
+
+/// `tag` as a little disc with the scholar's icon, laid on the
+/// top-left corner of the agent's icon. Its icon is in the accent
+/// while the agent holds what it learned.
+pub(crate) fn badge(tag: &ScholarTag) -> AnyView {
+    let scholar = tag.scholar;
+    let tip = tag.tip();
+    let learned = tag.learned;
+    button(glyph(Glyph::Scholar, BADGE_ICON))
+        .position(PositionType::Absolute)
+        .inset(UiRect {
+            left: px(-BADGE / 2.0),
+            top: px(-BADGE / 2.0),
+            right: Val::Auto,
+            bottom: Val::Auto,
+        })
+        .width(px(BADGE))
+        .height(px(BADGE))
+        .justify(JustifyContent::Center)
+        .align(AlignItems::Center)
+        .rules(move |cx: &mut Cx| badge_look(cx, learned))
+        .tooltip(move || note(tip.clone()))
+        .on_activate(move |world| {
+            crate::hub::open_scholar(world, scholar);
+        })
+        .boxed()
+}
+
+/// A badge is a disc of the panel's background, ringed by the hover's
+/// fill, its icon dim, and in the accent under the pointer.
+fn badge_look(cx: &mut Cx, learned: bool) {
+    style::<HamletTheme>()
+        .frame(|f, t| {
+            f.fill(t.palette.surface)
+                .border(1.0)
+                .border_color(t.palette.button_hover)
+                .radius(BADGE / 2.0)
+                .padding(UiRect::all(px(0.0)))
+        })
+        .tone(if learned { Tone::Accent } else { Tone::Dim })
+        .hovered(|s| s.tone(Tone::Accent))
+        .pressed(|s| s.tone(Tone::Faint))
+        .transition(HamletTheme::interact)
+        .apply(cx);
 }
 
 /// A tag is set in a capsule of the hover's fill, its words dim, and
