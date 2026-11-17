@@ -12,7 +12,8 @@ use bevy::ecs::system::{Query, Res, SystemParam};
 use bevy::math::Vec3;
 use hamlet_client::chats::{Entry, Transcript};
 use hamlet_client::realm::{
-    Hire, Identity, Kind as AgentKind, LivesIn, Mayor, Purpose, Shown,
+    Hire, Identity, Kind as AgentKind, LivesIn, Mayor, Purpose,
+    Roster, Shown,
 };
 use hamlet_protocol::client as protocol;
 use hamlet_realm::chief::{Chief, Look};
@@ -107,6 +108,7 @@ pub struct People<'w, 's> {
             Option<&'static Shown>,
         ),
     >,
+    roster: Roster<'w, 's>,
     chiefs: Query<'w, 's, (&'static Chief, &'static Look)>,
     palette: Option<Res<'w, Palette>>,
     theme: Themed<'w>,
@@ -132,14 +134,6 @@ impl People<'_, '_> {
     /// An agent's name, look or place may have changed.
     pub(super) fn has_moved(&self) -> bool {
         !self.changed.is_empty()
-    }
-
-    /// The agent with the id `id`.
-    fn find(&self, id: protocol::AgentId) -> Option<Entity> {
-        self.agents
-            .iter()
-            .find(|agent| agent.2.is_some_and(|of| of.0 == id))
-            .map(|agent| agent.0)
     }
 
     fn shown(colour: Vec3) -> Color {
@@ -269,7 +263,8 @@ impl Cast<'_, '_, '_> {
         from: Option<protocol::AgentId>,
         name: &str,
     ) -> usize {
-        let known = from.and_then(|from| self.people.find(from));
+        let known =
+            from.and_then(|from| self.people.roster.agent(from));
         if let Some(agent) = known
             && self.people.agent(agent).is_some()
         {

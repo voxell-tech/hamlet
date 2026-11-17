@@ -435,7 +435,7 @@ pub fn scholar_address(id: protocol::ScholarId) -> String {
     Address::Scholar(id).to_string()
 }
 
-/// Lookups of living agents and mayors for systems.
+/// Lookups of agents and mayors for systems.
 #[derive(SystemParam)]
 pub struct Roster<'w, 's> {
     index: Res<'w, Index>,
@@ -452,6 +452,11 @@ impl Roster<'_, '_> {
     /// A living agent by its address.
     pub fn named(&self, name: &str) -> Option<Entity> {
         self.index.named(name)
+    }
+
+    /// An agent by its id, living or not.
+    pub fn agent(&self, id: protocol::AgentId) -> Option<Entity> {
+        self.index.agent(id)
     }
 
     /// The Hand.
