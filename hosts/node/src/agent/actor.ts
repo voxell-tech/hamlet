@@ -400,13 +400,17 @@ async function wake(c: AgentContext, config: AgentConfig): Promise<void> {
         return;
     }
     harness.resume();
-    // Configured at every wake, not only when a newer model was kept, so a
-    // configure a kill cut off after the copy was kept is done again.
-    void refreshed(c, peers).then(
-        () => configured(c, copies),
-        (error: unknown) =>
+    // Configured at every wake, not only when a newer model was kept, and
+    // even when the realm was not reached, so a configure a kill cut off
+    // after the copy was kept is done again.
+    void refreshed(c, peers)
+        .catch((error: unknown) =>
             peers.report("the copies were not read from the realm", error),
-    );
+        )
+        .then(() => configured(c, copies))
+        .catch((error: unknown) =>
+            peers.report("the model was not configured", error),
+        );
 }
 
 function oneAfterAnother(): Generation["inTurn"] {
@@ -540,12 +544,14 @@ function admissionOf(message: Submit): Admission {
             return {
                 ...base,
                 kind: "letter",
+                from: input.from,
                 content: `A letter from ${from(input.from)}:\n\n${input.text}`,
             };
         case "question":
             return {
                 ...base,
                 kind: "question",
+                from: input.from,
                 question: input.letter,
                 content: `A question from ${from(input.from)}. Your answer to this turn is sent back as the reply:\n\n${input.text}`,
             };
@@ -553,6 +559,7 @@ function admissionOf(message: Submit): Admission {
             return {
                 ...base,
                 kind: "answer",
+                from: input.from,
                 content: `${from(input.from)} answers your question:\n\n${input.text}`,
             };
     }

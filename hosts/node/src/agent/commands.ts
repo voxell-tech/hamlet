@@ -30,6 +30,7 @@ import { reflectIn, reflectOnLeaving } from "./reflect.ts";
 import {
     begin,
     chiefSession,
+    created,
     current,
     makeCurrent,
     moveTo,
@@ -295,12 +296,15 @@ export async function rewind(
         }
         await lapsed(c, from, "rewound");
         const fork = await withHarness(c, options, async (harness, context) => {
-            const created = { ownership: { kind: "ownerless" } } as const;
             const kept = await harness.conversation(from, context);
-            if (found.before === undefined || kept === undefined) {
-                return (await harness.createConversation(created, context)).id;
-            }
-            return (await kept.fork(found.before, created, context)).id;
+            const before = found.before;
+            const made =
+                before === undefined || kept === undefined
+                    ? await created(c, harness, context)
+                    : await created(c, harness, context, (forked) =>
+                          kept.fork(before, forked, context),
+                      );
+            return made.id;
         });
         await moveTo(c, from, fork);
         return { type: "rewound", text: found.text };
