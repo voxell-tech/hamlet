@@ -5,6 +5,7 @@
 use anyhow::Result;
 use diesel::prelude::*;
 use hamlet_protocol::address::{Address, bare};
+use hamlet_protocol::client as protocol;
 use hamlet_store::Db;
 use hamlet_store::ids::{Actor, AgentId, HamletId, ScholarId};
 use hamlet_store::schema::{agent, hire, scholar, worker};
@@ -13,7 +14,6 @@ use super::agents::{self, AgentKind};
 use super::names::hamlet_id;
 use super::refusal::Refusal;
 use super::{chiefs, city, hamlets, hand, tree};
-use crate::clients::state::{wire_agent, wire_scholar};
 use crate::realm::change::{Done, done, refuse};
 
 /// Which agents or scholars an address may name.
@@ -95,6 +95,16 @@ pub(crate) fn scholar_pinned(
         .map(|scholar| (scholar, version)))
 }
 
+/// The protocols' form of the agent `id`.
+pub(crate) fn wire_agent(id: AgentId) -> protocol::AgentId {
+    protocol::AgentId(u64::try_from(id.0).unwrap_or_default())
+}
+
+/// The protocols' form of the scholar `id`.
+pub(crate) fn wire_scholar(id: ScholarId) -> protocol::ScholarId {
+    protocol::ScholarId(u64::try_from(id.0).unwrap_or_default())
+}
+
 /// The address of the scholar `id`.
 pub(crate) fn scholar_address(id: ScholarId) -> String {
     Address::Scholar(wire_scholar(id)).to_string()
@@ -110,9 +120,8 @@ pub(crate) fn resolve(
     let none = || Refusal::NoOne {
         address: address.to_string(),
     };
-    let stored = |id: hamlet_protocol::client::AgentId| {
-        i64::try_from(id.0).ok().map(AgentId)
-    };
+    let stored =
+        |id: protocol::AgentId| i64::try_from(id.0).ok().map(AgentId);
     match address {
         Address::Hand => Ok(Ok(hand::id(db)?)),
         Address::Mayor { hamlet } => {

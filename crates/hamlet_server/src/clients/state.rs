@@ -8,7 +8,7 @@ use diesel::prelude::*;
 use hamlet_git::{MAIN, Repository};
 use hamlet_protocol::client as protocol;
 use hamlet_store::Db;
-use hamlet_store::ids::{AgentId, ScholarId};
+use hamlet_store::ids::AgentId;
 use hamlet_store::schema::{agent, message, permission_grant};
 
 use crate::conversations::activity::{self, Activity};
@@ -16,6 +16,7 @@ use crate::conversations::{errands, inputs, models};
 use crate::knowledge;
 use crate::realm::layout::Layout;
 use crate::realm::settings::EffectiveSettings;
+use crate::society::addresses::{self, wire_agent, wire_scholar};
 use crate::society::agents::{Agent, AgentKind, Effort, EndHow};
 use crate::society::city::{self, Arrival, Scholar};
 use crate::society::hamlets::{self, Hamlet, Mode};
@@ -23,9 +24,7 @@ use crate::society::limits::{
     self, Limits, Period, RealmLimits, Review,
 };
 use crate::society::roads::{self, RoadKind, Way};
-use crate::society::{
-    addresses, chiefs, hand, hires, spend, workers,
-};
+use crate::society::{chiefs, hand, hires, spend, workers};
 
 /// What composing the state reads besides the database.
 pub(crate) struct Sources<'a> {
@@ -107,14 +106,6 @@ pub(crate) fn compose(
         terminals: sources.terminals.clone(),
         waits: sources.waits.clone(),
     })
-}
-
-pub(crate) fn wire_agent(id: AgentId) -> protocol::AgentId {
-    protocol::AgentId(u64::try_from(id.0).unwrap_or_default())
-}
-
-pub(crate) fn wire_scholar(id: ScholarId) -> protocol::ScholarId {
-    protocol::ScholarId(u64::try_from(id.0).unwrap_or_default())
 }
 
 fn wire_time(at: i64) -> u64 {
