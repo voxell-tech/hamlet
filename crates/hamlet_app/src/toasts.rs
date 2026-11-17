@@ -1,7 +1,7 @@
 //! Toasts: what newly waits for the chief, and what happened that
 //! needs no answer, stacked over the realm view.
 
-use std::collections::{HashMap, HashSet};
+use std::collections::HashMap;
 
 use bevy::app::{App, PreUpdate};
 use bevy::clipboard::Clipboard;
@@ -83,7 +83,7 @@ pub fn plugin(app: &mut App) {
         .init_resource::<Decreed>()
         .add_observer(answered)
         .add_observer(failed)
-        .add_observer(refused)
+        .add_observer(responded)
         .add_systems(
             PreUpdate,
             (raise, judged, keep.after(petition::follow), settle)
@@ -435,45 +435,66 @@ fn failed(
 
 /// The commands the window made, from the world, a form or a button
 /// rather than typed in a chat, whose refusal would otherwise be said
-/// only in the chat they went to.
+/// only in the chat they went to; each with the head its response is
+/// toasted under, if it is.
 #[derive(Resource, Default)]
-pub(crate) struct Decreed(HashSet<RequestId>);
+pub(crate) struct Decreed(HashMap<RequestId, Option<String>>);
 
 /// Watches the request `id`, so that its refusal is toasted.
 pub(crate) fn watch(world: &mut World, id: RequestId) {
+    decree(world, id, None);
+}
+
+/// Watches the request `id`, so that its refusal is toasted, and its
+/// response too, under `head`.
+pub(crate) fn announce(
+    world: &mut World,
+    id: RequestId,
+    head: impl Into<String>,
+) {
+    decree(world, id, Some(head.into()));
+}
+
+fn decree(world: &mut World, id: RequestId, head: Option<String>) {
     // A window drawn without toasts watches nothing.
     if let Some(mut decreed) = world.get_resource_mut::<Decreed>() {
-        decreed.0.insert(id);
+        decreed.0.insert(id, head);
     }
 }
 
-/// A command given from the world that the server refused.
-fn refused(
+/// The response to a command given from the world: its refusal, or
+/// what it did when it is announced.
+fn responded(
     response: On<Response>,
     time: Res<Time>,
     mut decreed: ResMut<Decreed>,
     mut toasts: ResMut<Toasts>,
 ) {
-    if !decreed.0.remove(&response.to) {
+    let Some(head) = decreed.0.remove(&response.to) else {
         return;
-    }
-    let text = match &response.message {
-        ServerMessage::Reply(reply)
+    };
+    let (kind, head, line) = match (&response.message, head) {
+        (ServerMessage::Reply(reply), _)
             if reply.kind == ReplyKind::Error =>
         {
-            reply.text.clone()
+            (
+                StatusKind::Danger,
+                "Not done".into(),
+                reply.text.clone(),
+            )
         }
-        ServerMessage::Fault(fault) => fault.text.clone(),
+        (ServerMessage::Fault(fault), _) => (
+            StatusKind::Danger,
+            "Not done".into(),
+            fault.text.clone(),
+        ),
+        (ServerMessage::Reply(reply), Some(head)) => {
+            (StatusKind::Success, head, reply.text.clone())
+        }
         _ => return,
     };
-    toasts.push(
-        What::Notice {
-            kind: StatusKind::Danger,
-            head: "Not done".into(),
-            line: text,
-        },
-        time.elapsed_secs(),
-    );
+    toasts
+        .push(What::Notice { kind, head, line }, time.elapsed_secs());
 }
 
 /// An answer from a toast or anywhere else takes its toast away.
@@ -1513,6 +1534,33 @@ mod tests {
             &shown[..],
             [Toast { what: What::Notice { line, .. }, .. }]
                 if line == "the house would stand on another"
+        ));
+    }
+
+    #[test]
+    fn an_announced_command_toasts_its_response() {
+        let mut app = panel_app();
+        app.add_plugins(plugin);
+        let request = RequestId::new();
+        announce(
+            app.world_mut(),
+            request.clone(),
+            "Stopped the Mayor",
+        );
+        let done = serde_json::from_value(serde_json::json!({
+            "type": "reply",
+            "to": request,
+            "kind": "notice",
+            "text": "Stopped 1 running turns.",
+        }))
+        .unwrap();
+        hamlet_client::receive(app.world_mut(), done);
+        let shown = &app.world().resource::<Toasts>().shown;
+        assert!(matches!(
+            &shown[..],
+            [Toast { what: What::Notice { kind: StatusKind::Success, head, line }, .. }]
+                if head == "Stopped the Mayor"
+                    && line == "Stopped 1 running turns."
         ));
     }
 }

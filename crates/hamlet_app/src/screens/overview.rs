@@ -258,7 +258,11 @@ fn stop_all() -> AnyView {
         |&any| {
             let stop = bad_action(Glyph::Stop, "Stop All", |world| {
                 let request = RequestId::new();
-                crate::toasts::watch(world, request.clone());
+                crate::toasts::announce(
+                    world,
+                    request.clone(),
+                    "Stopped every agent",
+                );
                 world.trigger(Veto {
                     request,
                     agent: None,

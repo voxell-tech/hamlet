@@ -164,7 +164,11 @@ fn for_mayor(world: &World) -> Vec<AnyView> {
     let mut items = vec![item("Stop the Mayor".into(), |world| {
         if let Some(mayor) = agents::first_mayor(world) {
             let request = stop(world, mayor);
-            crate::toasts::watch(world, request);
+            crate::toasts::announce(
+                world,
+                request,
+                "Stopped the Mayor",
+            );
         }
     })];
     if let Some(mayor) = agents::first_mayor(world) {
@@ -201,8 +205,11 @@ fn for_agent(
     items.extend(road(world, agent));
     items.extend(pin_bash(world, agent));
     if world.get::<Busy>(agent).is_some() {
-        items.push(item(format!("Stop {}", name(agent)), move |w| {
-            stop(w, agent);
+        let shown = name(agent);
+        let head = format!("Stopped {shown}");
+        items.push(item(format!("Stop {shown}"), move |w| {
+            let request = stop(w, agent);
+            crate::toasts::announce(w, request, head.clone());
         }));
     }
     items.extend(of_scholar(world, agent));
@@ -338,7 +345,8 @@ pub(super) fn has_items(world: &World, thing: Thing) -> bool {
 fn stop_hand(world: &World, hand: Entity) -> Option<AnyView> {
     world.get::<Busy>(hand).is_some().then(|| {
         item("Stop the Hand".into(), move |w| {
-            stop(w, hand);
+            let request = stop(w, hand);
+            crate::toasts::announce(w, request, "Stopped the Hand");
         })
     })
 }
