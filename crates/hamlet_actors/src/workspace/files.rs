@@ -33,7 +33,7 @@ use super::{Weighing, Workspace, read_only};
 
 /// A file tool's call the gate let through: where it runs, and the
 /// secrets its answer is scrubbed of.
-struct Passed {
+pub(super) struct Passed {
     placement: Placement,
     sandbox: hamlet_sandbox::Sandbox,
     secrets: Arc<Vec<String>>,
@@ -42,7 +42,7 @@ struct Passed {
 impl Passed {
     /// The answer of `work`, run off the runtime on the file tools'
     /// environment, with the secrets taken out.
-    async fn run<A: Answered>(
+    pub(super) async fn run<A: Answered>(
         self,
         work: impl FnOnce(&Env) -> A + Send + 'static,
     ) -> Result<A> {
@@ -67,7 +67,7 @@ impl Passed {
     }
 }
 
-trait Answered: Send + 'static {
+pub(super) trait Answered: Send + 'static {
     fn failed(words: String) -> Self;
     fn refused(why: ReadRefusal) -> Self;
     /// The answer with `secrets` taken out of every word (C32).
@@ -137,7 +137,7 @@ impl Answered for SearchAnswer {
     }
 }
 
-enum Gated {
+pub(super) enum Gated {
     Pass(Passed),
     /// It waits for a chief to allow these.
     Chief(Passed, Vec<Need>),
@@ -148,7 +148,7 @@ impl Workspace {
     /// The gate's verdict on the file tool's `op` of `agent` under
     /// `reach`, with the placement and the secrets of a call it lets
     /// through.
-    fn gated(
+    pub(super) fn gated(
         &self,
         agent: AgentNumber,
         reach: Option<&Reach>,

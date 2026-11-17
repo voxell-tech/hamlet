@@ -1,6 +1,7 @@
 //! The realm's row, the chief and the hamlets: the `realm`, `chief`,
 //! `hamlet` and `hamlet_chief` tables, and founding a hamlet.
 
+pub(super) mod hamlet;
 pub(super) mod limits;
 mod tier;
 
@@ -253,9 +254,20 @@ impl<By: RealmWide> Act<By> for Found {
         by: &By,
         founding: Founding,
     ) -> Decision<Self::Done, Self::Output> {
-        if self.name.trim().is_empty() {
+        let name = match hamlet::checked_name(&self.name) {
+            Ok(name) => name.to_owned(),
+            Err(_) => {
+                return Decision::Answer(FoundAnswer::refused(
+                    FoundRefusal::BadName {
+                        name: self.name.trim().to_owned(),
+                    },
+                ));
+            }
+        };
+        let purpose = tree::given_purpose(self.purpose.as_deref());
+        if purpose.is_none() && by.by() != record::By::Chief {
             return Decision::Answer(FoundAnswer::refused(
-                FoundRefusal::EmptyName,
+                FoundRefusal::NoPurpose,
             ));
         }
         let Founding { of, hamlet, mayor } = founding;
@@ -271,7 +283,7 @@ impl<By: RealmWide> Act<By> for Found {
             Decided::new((hamlet.clone(), mayor))
                 .change(Change::Found {
                     hamlet: hamlet.clone(),
-                    name: self.name.clone(),
+                    name,
                     mayor,
                     tier: self.tier,
                 })
@@ -280,9 +292,7 @@ impl<By: RealmWide> Act<By> for Found {
                     hamlet: hamlet.clone(),
                     lead: None,
                     of,
-                    purpose: tree::given_purpose(
-                        self.purpose.as_deref(),
-                    ),
+                    purpose: purpose.clone(),
                 })
                 .change(tasks::Change::Standing {
                     agent: mayor,
@@ -295,7 +305,9 @@ impl<By: RealmWide> Act<By> for Found {
                 })
                 .record(record::Entry::Founded {
                     hamlet,
+                    mayor,
                     by: by.by(),
+                    why: purpose,
                 }),
         )
     }
@@ -368,13 +380,27 @@ mod tests {
     }
 
     #[test]
-    fn a_found_refuses_an_empty_name_and_a_missing_profile() {
+    fn a_found_refuses_a_bad_name_and_a_missing_profile() {
         let refused =
             |why| Decision::Answer(FoundAnswer::refused(why));
-        assert_eq!(
-            found(" ", None).decide(&Client, founding()),
-            refused(FoundRefusal::EmptyName)
-        );
+        for (name, shown) in [(" ", ""), (" a:b ", "a:b")] {
+            assert_eq!(
+                found(name, None).decide(&Client, founding()),
+                refused(FoundRefusal::BadName {
+                    name: shown.to_owned()
+                })
+            );
+        }
+        let Decision::Change(decided) =
+            found(" Mill ", None).decide(&Client, founding())
+        else {
+            panic!("a good name founds");
+        };
+        assert!(decided.changes.iter().any(|change| matches!(
+            change,
+            change::Change::Chiefs(Change::Found { name, .. })
+                if name == "Mill"
+        )));
         let missing = Founding {
             of: Err(ProfileId(7)),
             ..founding()

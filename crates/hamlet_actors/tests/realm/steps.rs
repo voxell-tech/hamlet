@@ -86,7 +86,7 @@ async fn a_hire_goes_live_through_its_steps() {
     let seen = hire_seen(&realm);
     realm.live(MAYOR).await;
     let (standing, closed) = realm
-        .rows(|db| {
+        .stopped_rows(|db| {
             let standing = db.query_row(
                 "SELECT id FROM task WHERE agent = 2 AND origin = \
                  'standing'",
@@ -213,7 +213,7 @@ async fn a_step_done_again_leaves_one_hire() {
             .await;
         realm.live(MAYOR).await;
         let (agents, hires, (status, wanted, applied)) = realm
-            .rows(|db| {
+            .stopped_rows(|db| {
                 let count = |table: &str| {
                     db.query_row(
                         &format!("SELECT COUNT(*) FROM {table}"),

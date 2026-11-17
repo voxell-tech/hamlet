@@ -1,11 +1,11 @@
 use hamlet_messages::realm::client::SayAnswer;
-use hamlet_messages::realm::{Asked, Found, FoundAnswer, Tool};
+use hamlet_messages::realm::{Asked, Found, FoundAnswer};
 use hamlet_messages::sender::Hand;
-use hamlet_messages::workspace::{AgentNumber, CallId};
+use hamlet_messages::workspace::AgentNumber;
 use hamlet_protocol::client::RequestId;
 use rusqlite::OptionalExtension;
 
-use super::{MAYOR, Realm, error_code, found, purpose_of, say};
+use super::{MAYOR, Realm, error_code, found, purpose_of, say, tool};
 
 fn count(
     db: &rusqlite::Connection,
@@ -37,7 +37,7 @@ async fn founding_makes_the_mayor_agent_2() {
     };
     assert_eq!(mayor, AgentNumber(2));
     let (decision, row) = realm
-        .rows(|db| {
+        .stopped_rows(|db| {
             let decision = db
                 .query_row(
                     "SELECT kind, hamlet, by FROM decision",
@@ -96,7 +96,9 @@ async fn a_repeated_found_founds_once() {
     assert_eq!(first, again);
     assert_eq!(error_code(other), "message.id_reused");
     let (hamlets, agents) = realm
-        .rows(|db| Ok((count(db, "hamlet")?, count(db, "agent")?)))
+        .stopped_rows(|db| {
+            Ok((count(db, "hamlet")?, count(db, "agent")?))
+        })
         .await;
     assert_eq!((hamlets, agents), (1, 2));
     realm.host.shutdown().await.unwrap();
@@ -107,15 +109,8 @@ async fn a_found_from_an_agent_that_is_not_the_hand_is_refused() {
     // tool ByHand<Tool<Found>> as agent 2: `message.wrong_caller`.
     let realm = Realm::start().await;
 
-    let called = realm
-        .tool(
-            AgentNumber(2),
-            &Tool {
-                call: CallId("t1".to_owned()),
-                act: found("Mill"),
-            },
-        )
-        .await;
+    let called =
+        realm.tool(AgentNumber(2), &tool("t1", found("Mill"))).await;
 
     assert_eq!(error_code(called), "message.wrong_caller");
     realm.host.shutdown().await.unwrap();

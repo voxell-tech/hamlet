@@ -7,6 +7,7 @@ pub mod documents;
 pub mod hamlets;
 pub mod models;
 pub mod oversight;
+pub mod parcels;
 pub mod workers;
 pub mod world;
 
@@ -108,6 +109,12 @@ pub struct Asked<T> {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Tool<T> {
     pub call: CallId,
+    /// The realm's task of the calling turn, as the turn carried it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub task: Option<RealmTask>,
+    /// The calling turn's conversation.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub conversation: Option<ConversationId>,
     pub act: T,
 }
 
@@ -202,6 +209,15 @@ pub enum SocietyTool {
     TakeUpRoad,
     RequestRoad,
     SetTools,
+    AskChief,
+    Object,
+    StartWorker,
+    SetAllowance,
+    ReadBudget,
+    AgreeRoad,
+    SetNickname,
+    SetModel,
+    ReadRecord,
 }
 
 impl SocietyTool {
@@ -218,6 +234,15 @@ impl SocietyTool {
             Self::TakeUpRoad => "take_up_road",
             Self::RequestRoad => "request_road",
             Self::SetTools => "set_tools",
+            Self::AskChief => "ask_chief",
+            Self::Object => "object",
+            Self::StartWorker => "start_worker",
+            Self::SetAllowance => "set_allowance",
+            Self::ReadBudget => "read_budget",
+            Self::AgreeRoad => "agree_road",
+            Self::SetNickname => "set_nickname",
+            Self::SetModel => "set_model",
+            Self::ReadRecord => "read_record",
         }
     }
 }
@@ -263,7 +288,8 @@ pub enum Standing {
     NotAMember,
 }
 
-/// A tool a lead turned off for the caller (C16).
+/// Why a caller's tool does not run now: a lead turned it off (C16),
+/// a chief must allow it, or a chief's refusals refuse it (H11).
 #[derive(
     Clone,
     Debug,
@@ -284,6 +310,22 @@ pub enum Gate {
          are told"
     )]
     Reserved { wait: world::WaitId },
+    /// A chief refused the same request on the caller's task, or
+    /// every request for the network.
+    #[error(
+        "the chief already refused this in this turn ({reason}). Do \
+         not ask again: go on without it, or report that you could \
+         not."
+    )]
+    AlreadyRefused { reason: String },
+    /// The chief refused as many requests on the caller's task as its
+    /// limits allow.
+    #[error(
+        "the chief has refused {refused} requests this turn and \
+         will not be asked again in it. Stop and report what you \
+         could not do."
+    )]
+    PastTheCount { refused: u32 },
 }
 
 /// An act that needs a lead's powers over the hire it names (H41).
@@ -408,6 +450,23 @@ pub enum Named {
     Agent { agent: AgentNumber },
 }
 
+/// The address an agent writes for it.
+impl std::fmt::Display for Named {
+    fn fmt(
+        &self,
+        f: &mut std::fmt::Formatter<'_>,
+    ) -> std::fmt::Result {
+        match self {
+            Self::Hand => f.write_str("hand"),
+            Self::Mayor => f.write_str("mayor"),
+            Self::MayorOf { hamlet } => {
+                write!(f, "mayor@{}", hamlet.0)
+            }
+            Self::Agent { agent } => write!(f, "hire#{}", agent.0),
+        }
+    }
+}
+
 /// How and why an agent ended (H28).
 #[derive(
     Clone,
@@ -444,13 +503,13 @@ pub enum HowEnded {
     #[error("ended by the Hand")]
     ByTheHand,
     /// A worker answered its starter.
-    #[error("answered")]
+    #[error("it answered its task")]
     Answered,
     /// A worker's turn failed.
-    #[error("its turn failed")]
+    #[error("its task failed")]
     Failed,
-    /// A worker ended with its starter.
-    #[error("stopped with its starter")]
+    /// A worker was stopped: with its starter, or by a chief.
+    #[error("it was stopped")]
     Stopped,
 }
 
@@ -513,8 +572,11 @@ impl<W> Refusable for FoundAnswer<W> {
 )]
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum FoundRefusal {
-    #[error("a hamlet needs a name")]
-    EmptyName,
+    #[error(
+        "`{name}` is not a name: use one line of 1 to 40 characters \
+         with no colon"
+    )]
+    BadName { name: String },
     #[error("there is no `profile#{}`", profile.0)]
     NoSuchProfile { profile: ProfileId },
     #[error("say what it is for")]
@@ -584,12 +646,12 @@ impl<W> Refusable for HireAnswer<W> {
 )]
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum HireRefusal {
-    #[error("say which hamlet")]
+    #[error("Say which hamlet to hire into.")]
     NoHamlet,
-    #[error("there is no such hamlet")]
-    NoSuchHamlet,
-    #[error("no agent is at that address")]
-    NoSuchAgent,
+    #[error("no hamlet has the id `{}`", id.0)]
+    NoSuchHamlet { id: HamletId },
+    #[error("no agent has the address `{address}`")]
+    NoSuchAgent { address: String },
     #[error("`hire#{}` is in another hamlet", lead.0)]
     OtherHamlet { lead: AgentNumber },
     #[error("`hire#{}` has left: {left}", lead.0)]
@@ -630,8 +692,8 @@ impl ToolCall for End {
 )]
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum EndRefusal {
-    #[error("no agent is at that address")]
-    NoSuchAgent,
+    #[error("no agent has the address `{address}`")]
+    NoSuchAgent { address: String },
     #[error("the Hand cannot be ended")]
     TheHand,
     #[error("a mayor cannot be ended; seat another mayor first")]
@@ -671,10 +733,10 @@ impl ToolCall for Seat {
 )]
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum OnlyAHire {
-    #[error("no agent is at that address")]
-    NoSuchAgent,
-    #[error("that is not a hire")]
-    NotAHire,
+    #[error("no agent has the address `{address}`")]
+    NoSuchAgent { address: String },
+    #[error("`{name}` is not a hire")]
+    NotAHire { name: String },
     #[error("`hire#{}` has left: {left}", hire.0)]
     Left { hire: AgentNumber, left: Left },
 }
@@ -736,8 +798,8 @@ pub enum LetterRefusal {
     Yourself,
     #[error("say what to send")]
     Empty,
-    #[error("no agent is at that address")]
-    NoSuchAgent,
+    #[error("no agent has the address `{address}`")]
+    NoSuchAgent { address: String },
     #[error("you have no road to `hire#{}`; ask your lead for one with request_road", to.0)]
     NoRoad { to: AgentNumber },
     #[error("no road yet to `hire#{}`: it is still being hired", to.0)]
@@ -811,8 +873,8 @@ impl ToolCall for LayRoad {
 )]
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum LayRefusal {
-    #[error("no agent is at that address")]
-    NoSuchAgent,
+    #[error("no agent has the address `{address}`")]
+    NoSuchAgent { address: String },
     #[error("a road joins two hires of one hamlet")]
     NotTwoHiresOfOneHamlet,
     #[error("`hire#{}` has left: {left}", hire.0)]
@@ -821,6 +883,76 @@ pub enum LayRefusal {
     RoadExists { a: AgentNumber, b: AgentNumber },
     #[error("the hamlet `{}` has its most roads, {most}", hamlet.0)]
     Full { hamlet: HamletId, most: u32 },
+}
+
+/// A mayor's half of a road between a hire of its hamlet and a hire
+/// of another. The road is laid once the other hamlet's mayor agrees
+/// to it too.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct AgreeRoad {
+    pub mine: Named,
+    pub theirs: Named,
+    /// Why, for the record.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub why: Option<String>,
+}
+
+impl ToolCall for AgreeRoad {
+    const TOOL: SocietyTool = SocietyTool::AgreeRoad;
+    type Answer = Agreed<AgentRefusal<AgreeRefusal>>;
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(
+    tag = "type",
+    rename_all = "snake_case",
+    bound(
+        serialize = "W: Serialize + std::fmt::Display",
+        deserialize = "W: Deserialize<'de>"
+    )
+)]
+pub enum Agreed<W> {
+    /// The other mayor has not agreed yet.
+    Waiting,
+    Laid,
+    #[serde(serialize_with = "worded")]
+    Refused {
+        why: W,
+    },
+}
+
+impl<W> Refusable for Agreed<W> {
+    type Why = W;
+    fn refused(why: W) -> Self {
+        Self::Refused { why }
+    }
+}
+
+#[derive(
+    Clone,
+    Debug,
+    PartialEq,
+    Eq,
+    Serialize,
+    Deserialize,
+    thiserror::Error,
+)]
+#[serde(tag = "type", rename_all = "snake_case")]
+pub enum AgreeRefusal {
+    #[error("only a mayor may do that")]
+    NotAMayor,
+    #[error("no agent has the address `{address}`")]
+    NoSuchAgent { address: String },
+    #[error("the chief allows no roads between hamlets")]
+    NoRoadsBetween,
+    #[error("a road joins hires only")]
+    NotHires,
+    #[error(
+        "both ends of an agreed road must be in different hamlets"
+    )]
+    SameHamlet,
+    #[error("`hire#{}` and `hire#{}` already have a road", a.0, b.0)]
+    RoadExists { a: AgentNumber, b: AgentNumber },
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -853,8 +985,8 @@ impl ToolCall for TakeUpRoad {
 )]
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum TakeUpRefusal {
-    #[error("no agent is at that address")]
-    NoSuchAgent,
+    #[error("no agent has the address `{address}`")]
+    NoSuchAgent { address: String },
     #[error("`hire#{}` and `hire#{}` have no road to take up", a.0, b.0)]
     NoRoad { a: AgentNumber, b: AgentNumber },
 }
@@ -886,8 +1018,8 @@ impl ToolCall for RequestRoad {
 )]
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum RequestRoadRefusal {
-    #[error("no agent is at that address")]
-    NoSuchAgent,
+    #[error("no agent has the address `{address}`")]
+    NoSuchAgent { address: String },
     #[error("you have no lead to ask")]
     NoLead,
     #[error("your lead `hire#{}` is still being hired", lead.0)]
@@ -939,8 +1071,8 @@ impl ChiefRequest for SetTier {
 )]
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum TierRefusal {
-    #[error("there is no such hamlet")]
-    NoSuchHamlet,
+    #[error("no hamlet has the id `{}`", id.0)]
+    NoSuchHamlet { id: HamletId },
     #[error("the hamlet holds {living} hires, more than that tier")]
     TooSmall { living: u32 },
 }
@@ -954,6 +1086,83 @@ pub struct SetLimits {
     /// Set in order, so the last of one kind holds.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub budget: Vec<budget::BudgetLimit>,
+    /// Set in order, so the last of one kind holds.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub limits: Vec<Limit>,
+}
+
+/// One of a hamlet's limits beside its budget, or the realm's
+/// `roads_between`, as a chief sets it (H22). A hamlet's model is set
+/// with [`choices::SetModel`].
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(tag = "type", rename_all = "snake_case")]
+pub enum Limit {
+    /// The most times an agent asks a chief in one turn.
+    Questions {
+        most: u32,
+    },
+    /// The most calls of one turn a chief refuses.
+    Refusals {
+        most: u32,
+    },
+    Review {
+        review: Review,
+    },
+    /// How long after a chief's task a lead may not end the hire
+    /// (H7).
+    ProtectedMinutes {
+        minutes: u32,
+    },
+    /// How many days of decisions each hire is told (H17).
+    ToldDays {
+        days: u32,
+    },
+    /// Whether a lead's act waits for a chief.
+    Reserved {
+        act: ReservedAct,
+        reserved: bool,
+    },
+    /// What a road costs, in millionths of a dollar (H3).
+    RoadPrice {
+        micros: u64,
+    },
+    /// The most roads a hamlet holds.
+    RoadsMost {
+        most: u32,
+    },
+    RoadsGrowOverDays {
+        days: u32,
+    },
+    /// The realm's own: whether mayors may agree roads between their
+    /// hamlets.
+    RoadsBetween {
+        allowed: bool,
+    },
+}
+
+/// When a lead reviews a chief's instruction to a hire under it
+/// (H10).
+#[derive(
+    Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize,
+)]
+#[serde(rename_all = "snake_case")]
+pub enum Review {
+    Always,
+    /// When the lead's model is served from another machine.
+    Remote,
+    Never,
+}
+
+/// A lead's act a chief may keep for itself.
+#[derive(
+    Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize,
+)]
+#[serde(rename_all = "snake_case")]
+pub enum ReservedAct {
+    End,
+    Hire,
+    Merge,
+    Roads,
 }
 
 impl ChiefRequest for SetLimits {
@@ -973,8 +1182,18 @@ impl ChiefRequest for SetLimits {
 )]
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum HamletRefusal {
-    #[error("there is no such hamlet")]
-    NoSuchHamlet,
-    #[error("there is no folder `{}` here", path.display())]
+    #[error("no hamlet has the id `{}`", id.0)]
+    NoSuchHamlet { id: HamletId },
+    #[error("there is no file `{}` here", path.display())]
     NoSuchFolder { path: PathBuf },
+    #[error(
+        "`{name}` is not a name: use one line of 1 to 40 characters \
+         with no colon"
+    )]
+    BadName { name: String },
+    /// A site that is not a spot in the city, as `x, z`.
+    #[error("`{site}` is not an address")]
+    BadSite { site: String },
+    #[error("Those limits do not fit their form.")]
+    MisshapenLimits,
 }

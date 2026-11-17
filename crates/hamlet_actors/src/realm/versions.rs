@@ -1,11 +1,12 @@
 //! The versions the realm keeps of what other actors hold a copy of:
 //! each agent's reach, wanted and in force in the workspace; each
-//! agent's place, as the agent was last sent it; and the revision of
-//! the world a client reads.
+//! agent's place, as the agent was last sent it; each part of the
+//! copies agents read; and the revision of the world a client reads.
 
 use std::collections::BTreeSet;
 
 use anyhow::Result;
+use hamlet_actor::BindParam;
 use hamlet_messages::realm::world::Revision;
 use hamlet_messages::workspace::{AgentNumber, ReachVersion};
 
@@ -62,8 +63,9 @@ async fn applied(
     })
 }
 
-/// Raises the wanted reach of each agent in `affected.reaches` and
-/// the place version of each in `affected.places`.
+/// Raises the wanted reach of each agent in `affected.reaches`, the
+/// place version of each in `affected.places`, and the version of
+/// each part in `affected.copies`.
 pub(super) async fn raise(
     writer: &Writer<'_>,
     affected: &Affected,
@@ -87,6 +89,20 @@ pub(super) async fn raise(
                  ON CONFLICT (agent) DO UPDATE SET version = \
                  excluded.version",
                 vec![number(agent), change::integer(version + 1)?],
+            )
+            .await?;
+    }
+    let parts = affected
+        .copies
+        .iter()
+        .map(|copied| copied.part)
+        .collect::<BTreeSet<_>>();
+    for part in parts {
+        writer
+            .execute(
+                "INSERT INTO copy (part, version) VALUES (?1, 1) ON \
+                 CONFLICT (part) DO UPDATE SET version = version + 1",
+                vec![BindParam::Text(change::case_name(&part)?)],
             )
             .await?;
     }

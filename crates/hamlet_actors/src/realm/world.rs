@@ -2,14 +2,14 @@ use std::collections::BTreeSet;
 use std::mem;
 use std::sync::{Arc, PoisonError, RwLock};
 
-use anyhow::{Result, bail};
+use anyhow::{Context as _, Result, bail};
 use hamlet_actor::Ctx;
 use hamlet_messages::realm::HamletId;
 use hamlet_messages::realm::budget::Payer;
 use hamlet_messages::realm::client::ReadWorld;
 use hamlet_messages::realm::world::{
-    AgentSeen, HamletSeen, ReachSeen, Revision, Seen, Spend, Status,
-    WaitId, WaitSeen,
+    AgentSeen, GrantSeen, HamletSeen, ReachSeen, Revision, Seen,
+    Spend, Starter, Status, WaitId, WaitKind, WaitSeen,
 };
 use hamlet_messages::sender::Client;
 use hamlet_messages::workspace::{AgentNumber, CallId, ReachVersion};
@@ -17,7 +17,10 @@ use tokio::sync::Mutex;
 
 use super::act::Look;
 use super::change::{self, Affected, Column as _, Rows};
-use super::{Realm, budget, laid, tree, versions};
+use super::tree::choices;
+use super::{
+    Realm, budget, chiefs, laid, parcels, tree, versions, waits,
+};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
 pub(super) enum Part {
@@ -122,6 +125,7 @@ async fn rebuilt(
     if parts.contains(&Part::Agents) || parts.contains(&Part::Reaches)
     {
         world.agents = agents(rows).await?;
+        world.grants = grants(rows).await?;
     }
     if parts.contains(&Part::Hamlets) {
         world.hamlets = hamlets(rows).await?;
@@ -142,17 +146,41 @@ async fn agents(rows: &Rows<'_>) -> Result<Vec<AgentSeen>> {
     let mut agents = Vec::new();
     for row in rows
         .select(
-            "SELECT agent.id, agent.status, agent.ended_how, \
-             agent.ended_why, hire.hamlet, hire.lead, reach.wanted, \
-             reach.applied FROM agent LEFT JOIN hire ON hire.agent \
-             = agent.id LEFT JOIN reach ON reach.agent = agent.id \
-             ORDER BY agent.id",
+            &format!(
+                "SELECT agent.id, agent.status, agent.ended_how, \
+                 agent.ended_why, hire.lead, reach.wanted, \
+                 reach.applied, worker.agent, worker.starter, \
+                 nickname.name, model_choice.model, \
+                 model_choice.effort, model_choice.fast, \
+                 allowance.micros FROM agent LEFT JOIN hire ON \
+                 hire.agent = agent.id LEFT JOIN reach ON \
+                 reach.agent = agent.id LEFT JOIN worker ON \
+                 worker.agent = agent.id LEFT JOIN nickname ON \
+                 nickname.agent = agent.id LEFT JOIN model_choice \
+                 ON model_choice.of = {} LEFT JOIN allowance ON \
+                 allowance.hire = agent.id ORDER BY agent.id",
+                choices::agent_key("agent.id")
+            ),
             Vec::new(),
         )
         .await?
     {
-        let [id, status, how, why, hamlet, lead, wanted, applied] =
-            &row[..]
+        let [
+            id,
+            status,
+            how,
+            why,
+            lead,
+            wanted,
+            applied,
+            worker,
+            starter,
+            nickname,
+            model,
+            effort,
+            fast,
+            allowance,
+        ] = &row[..]
         else {
             bail!("an agent's row of another form: {row:?}");
         };
@@ -169,10 +197,27 @@ async fn agents(rows: &Rows<'_>) -> Result<Vec<AgentSeen>> {
         };
         agents.push(AgentSeen {
             agent,
-            hamlet: Option::of(hamlet)?.map(HamletId),
+            hamlet: chiefs::hamlet::of_agent(rows, agent).await?,
             lead: Option::of(lead)?.map(AgentNumber),
             status,
             reach: reach(Option::of(wanted)?, Option::of(applied)?),
+            worker: match (
+                Option::<u32>::of(worker)?,
+                Option::of(starter)?,
+            ) {
+                (None, _) => None,
+                (Some(_), None) => Some(Starter::Chief),
+                (Some(_), Some(agent)) => Some(Starter::Agent {
+                    agent: AgentNumber(agent),
+                }),
+            },
+            nickname: Option::of(nickname)?,
+            model: Option::of(model)?,
+            effort: Option::of(effort)?
+                .map(change::from_case_name)
+                .transpose()?,
+            fast: Option::of(fast)?,
+            allowance_micros: Option::of(allowance)?,
         });
     }
     Ok(agents)
@@ -211,22 +256,72 @@ async fn hamlets(rows: &Rows<'_>) -> Result<Vec<HamletSeen>> {
     .collect()
 }
 
+type WaitRow = (
+    u64,
+    u32,
+    String,
+    Option<String>,
+    Option<String>,
+    Option<Vec<u8>>,
+);
+
 async fn waits(rows: &Rows<'_>) -> Result<Vec<WaitSeen>> {
-    Ok(rows
-        .rows::<(u64, u32, String, String)>(
-            "SELECT id, agent, call, subject FROM wait WHERE \
-             closed_at IS NULL ORDER BY id",
-            Vec::new(),
-        )
-        .await?
-        .into_iter()
-        .map(|(wait, agent, call, subject)| WaitSeen {
-            wait: WaitId(wait),
+    rows.rows::<WaitRow>(
+        "SELECT id, agent, kind, call, subject, detail FROM wait \
+         WHERE closed_at IS NULL ORDER BY id",
+        Vec::new(),
+    )
+    .await?
+    .into_iter()
+    .map(|row| {
+        let wait = row.0;
+        wait_seen(row).with_context(|| format!("wait {wait}"))
+    })
+    .collect()
+}
+
+fn wait_seen(
+    (wait, agent, kind, call, subject, detail): WaitRow,
+) -> Result<WaitSeen> {
+    let detail = || detail.as_deref().context("no detail");
+    let kind = match change::from_case_name(kind)? {
+        waits::Kind::Tool => WaitKind::Tool {
+            call: CallId(call.context("no call")?),
+        },
+        waits::Kind::Question | waits::Kind::Objection => {
+            ciborium::from_reader(detail()?)?
+        }
+        waits::Kind::Reserved => WaitKind::Reserved,
+        waits::Kind::Send => WaitKind::Send {
+            measure: parcels::measure_of(detail()?)?,
+        },
+        waits::Kind::Fault => WaitKind::Fault,
+    };
+    Ok(WaitSeen {
+        wait: WaitId(wait),
+        agent: AgentNumber(agent),
+        subject: subject.context("no subject")?,
+        kind,
+    })
+}
+
+async fn grants(rows: &Rows<'_>) -> Result<Vec<GrantSeen>> {
+    rows.rows::<(u32, String)>(
+        "SELECT grant.agent, grant.permission FROM grant JOIN agent \
+         ON agent.id = grant.agent WHERE grant.revoked_at IS NULL \
+         AND agent.status != 'ended' ORDER BY grant.agent, \
+         grant.permission",
+        Vec::new(),
+    )
+    .await?
+    .into_iter()
+    .map(|(agent, permission)| {
+        Ok(GrantSeen {
             agent: AgentNumber(agent),
-            call: CallId(call),
-            subject,
+            permission: change::from_case_name(permission)?,
         })
-        .collect())
+    })
+    .collect()
 }
 
 async fn spend(rows: &Rows<'_>) -> Result<Vec<Spend>> {
@@ -246,14 +341,7 @@ async fn spend(rows: &Rows<'_>) -> Result<Vec<Spend>> {
         });
     let mut spend = Vec::new();
     for payer in realm.into_iter().chain(hamlets) {
-        let spent = budget::spent(rows, &payer).await?;
-        spend.push(Spend {
-            payer: spent.payer,
-            spent_micros: spent.micros,
-            budget_micros: spent.budget.micros,
-            spent_ms: spent.took_ms,
-            budget_ms: spent.budget.ms,
-        });
+        spend.push(budget::spent(rows, &payer).await?.into());
     }
     Ok(spend)
 }
@@ -261,8 +349,8 @@ async fn spend(rows: &Rows<'_>) -> Result<Vec<Spend>> {
 impl Look<Client> for ReadWorld {
     type Output = Seen;
 
-    fn look(&self, _by: &Client, world: &World) -> Seen {
-        world.clone()
+    fn look(&self, _by: &Client, realm: &Realm) -> Seen {
+        World::clone(&realm.world.current())
     }
 }
 
@@ -272,7 +360,6 @@ mod tests {
     use hamlet_messages::workspace::ConversationId;
 
     use super::super::testing::Started;
-    use super::super::waits;
     use super::*;
 
     #[tokio::test(flavor = "multi_thread")]
