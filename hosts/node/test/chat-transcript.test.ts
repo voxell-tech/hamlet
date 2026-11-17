@@ -21,6 +21,7 @@ import type {
     ChatRef,
     Input,
 } from "../src/agent/messages.ts";
+import { REFLECT } from "../src/agent/reflect.ts";
 import { conversationOfChat } from "../src/agent/sessions.ts";
 import {
     FAKE_ROOT,
@@ -123,6 +124,26 @@ function shown(items: readonly ChatItem[]): string[] {
             ? `${item.kind}: ${item.text}`
             : `tool ${item.tool.name}: exit ${item.tool.exit ?? "none"}`,
     );
+}
+
+/**
+ * Answers the reflection a `/new` or a `/resume` asks "Kept.", and every
+ * other request from `answers` in order, whichever conversation asks first.
+ */
+function reflecting(answers: string[]): FauxResponseStep[] {
+    const step: FauxResponseStep = (request) => {
+        const last = request.messages.at(-1);
+        const text =
+            typeof last?.content === "string"
+                ? last.content
+                : (last?.content ?? [])
+                      .map((part) => (part.type === "text" ? part.text : ""))
+                      .join("");
+        return fauxAssistantMessage(
+            text === REFLECT ? "Kept." : (answers.shift() ?? "Nothing left."),
+        );
+    };
+    return Array.from({ length: answers.length + 2 }, () => step);
 }
 
 async function wake(
@@ -408,6 +429,13 @@ test("read_chat of a chat that does not exist is refused as today words it", asy
 });
 
 test("a page before a cursor holds the items before it", async (t) => {
+    // No reflection every ten lines, so the page holds lines and answers only.
+    const every = process.env.HAMLET_REFLECT_EVERY;
+    process.env.HAMLET_REFLECT_EVERY = "0";
+    t.after(() => {
+        if (every === undefined) delete process.env.HAMLET_REFLECT_EVERY;
+        else process.env.HAMLET_REFLECT_EVERY = every;
+    });
     const agent = await wake(
         t,
         Array.from({ length: 60 }, (_, at) => fauxAssistantMessage(`A${at}.`)),
@@ -464,10 +492,7 @@ test("a harness reopened after a failed commit resets its chats and numbers on",
 });
 
 test("a client following the chief's chat reads again after /new", async (t) => {
-    const agent = await wake(t, [
-        fauxAssistantMessage("One."),
-        fauxAssistantMessage("Two."),
-    ]);
+    const agent = await wake(t, reflecting(["One.", "Two."]));
     const send = sender(agent);
     await send(line("a"));
     const page = await read(agent, CHIEF);
@@ -490,9 +515,12 @@ test("a client following the chief's chat reads again after /new", async (t) => 
         "user: b",
         "assistant: Two.",
     ]);
+    await agent.idle();
     assert.deepEqual(shown((await read(agent, { with: 7, past: 1 })).items), [
         "user: a",
         "assistant: One.",
+        "notice: reflection",
+        "assistant: Kept.",
     ]);
 });
 
@@ -699,11 +727,7 @@ test("a wake follows the current session and the peers' chats, and resets a past
 });
 
 test("a client following the chief's chat reads again after /resume to a session past at the wake", async (t) => {
-    const first = await wake(t, [
-        fauxAssistantMessage("One."),
-        fauxAssistantMessage("Two."),
-        fauxAssistantMessage("Three."),
-    ]);
+    const first = await wake(t, reflecting(["One.", "Two.", "Three."]));
     await sender(first)(line("a"));
     await first.actions.new_session(first.by(from.client), {
         id: "new-1",
