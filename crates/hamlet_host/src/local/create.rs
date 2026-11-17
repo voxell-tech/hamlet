@@ -46,9 +46,12 @@ impl Host {
     /// the key cannot open the file and fails at its start deadline.
     /// The other is a removal of the files that fails, as on Windows
     /// when another handle holds one past the removal's grace. In
-    /// both, a create of the key then fails with
-    /// `actor.duplicate_key`, and the next boot starts the actor,
-    /// since its file stays marked running. A
+    /// both, the host warns and lists the actor in [`Host::kept`], a
+    /// create of the key then fails with `actor.duplicate_key`, and
+    /// the next boot starts the actor, since its file stays marked
+    /// running. A removal that fails after an open that wrote no row
+    /// leaves a file with no actor, in which the next create of the
+    /// key makes it. A
     /// create that waited for another create's start that failed
     /// then makes the actor itself, unless that start left the actor
     /// made, when it fails with that start's error, as one that

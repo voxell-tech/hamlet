@@ -1213,7 +1213,7 @@ async fn a_destroy_that_cannot_remove_the_files_keeps_the_actor() {
     let id = at("keeper", "t");
     host.get_or_start(&id).await.unwrap();
     // A folder where the shared-memory file goes fails its removal.
-    let shm = dir.join("actors/keeper/t.sqlite-shm");
+    let shm = dir.join("actors").join("keeper").join("t.sqlite-shm");
     std::fs::create_dir(&shm).unwrap();
     let destroyed = host.stop(&id, ShutdownKind::Destroy).await;
     let kept = host.kept();
