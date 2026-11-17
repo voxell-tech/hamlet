@@ -270,6 +270,30 @@ test("a repeated stop answers 0", async (t) => {
     );
 });
 
+test("stop ends a turn whose call is out and cancels the call", async (t) => {
+    const workspace = slowRead();
+    const { calls, sent } = fakes({ workspace });
+    const agent = await wake(t, calls, [
+        toolCall("read", { path: "/work/project/notes.md" }),
+        fauxAssistantMessage("Never asked."),
+    ]);
+    await submitted(agent, line("Read the notes"));
+    await workspace.reading;
+    const session = await now(agent);
+
+    assert.deepEqual(
+        await agent.actions.stop(agent.by(from.client), { id: "stop-1" }),
+        { turns: 1 },
+    );
+    assert.deepEqual(
+        named(sent, "cancel").map((call) => call.message),
+        [{ which: { type: "conversation", conversation: String(session) } }],
+    );
+    workspace.answer();
+    await agent.idle();
+    assert.equal(agent.faux.state.callCount, 1);
+});
+
 // `crates/hamlet_acceptance/tests/chats.rs`, `stop_ends_a_running_turn`.
 // "Stopped 1 running turns." is the front door's wording of the answer.
 test("A4: stop ends a running turn", async (t) => {
@@ -354,6 +378,7 @@ test("a repeated retry runs once", async (t) => {
         ),
         ["Carry on from where you stopped."],
     );
+    assert.ok(named(sent, "open_task").length > 0);
     assert.ok(
         named(sent, "open_task").every(
             (call) =>
@@ -416,6 +441,28 @@ test("a stopped turn carries on by retry", async (t) => {
         "Carry on from where you stopped.",
         "Done.",
     ]);
+});
+
+test("a failed turn rewound away is not carried on", async (t) => {
+    const agent = await wake(
+        t,
+        fakes().calls,
+        [fauxAssistantMessage("First."), failure("the model fell over")],
+        NO_RETRIES,
+    );
+    await told(agent, "One");
+    await told(agent, "Two");
+    const client = agent.by(from.client);
+    await agent.actions.rewind(client, {
+        id: "rw-1",
+        chat: { with: 7 },
+        item: await itemOfLine(agent, "Two"),
+    });
+
+    assert.equal(
+        (await agent.actions.retry(client, { id: "r-1", to: 7 })).type,
+        "refused",
+    );
 });
 
 test("rewind forks before the line", async (t) => {
