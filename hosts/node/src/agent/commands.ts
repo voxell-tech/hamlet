@@ -39,7 +39,8 @@ import {
     session,
 } from "./sessions.ts";
 import { textOf } from "./transcript.ts";
-import { conversationsOf, draftOf, isBusy, refOf } from "./turn.ts";
+import { callOf, conversationsOf, draftOf, isBusy, refOf } from "./turn.ts";
+import { endsLater } from "./workspace-tools.ts";
 
 type Answer<N extends keyof ClientActions> = Promise<
     ReturnType<ClientActions[N]>
@@ -344,13 +345,54 @@ async function lineAt(
     at: EntryId,
     context: Context,
 ): Promise<RewindRefusal | { text: string; before: EntryId | undefined }> {
-    if (await isBusy(harness, conversation, context)) return "working";
+    if (
+        (await isBusy(harness, conversation, context)) ||
+        (await hasCallOut(harness, conversation, context))
+    ) {
+        return "working";
+    }
     const kept = await harness.conversation(conversation, context);
     const page = await kept?.entries({ maxEntryId: at }, 2, undefined, context);
     const [line, before] = page?.items ?? [];
     if (line?.id !== at) return "no_such_item";
     if (line.kind !== "hamlet.line") return "not_a_chief_line";
     return { text: textOf(line), before: before?.id };
+}
+
+/**
+ * Whether a command or a wait for a chief that `conversation` made has no
+ * admitted `finished`.
+ */
+async function hasCallOut(
+    harness: Harness,
+    conversation: ConversationId,
+    context: Context,
+): Promise<boolean> {
+    const kept = await harness.conversation(conversation, context);
+    let cursor: Cursor | undefined;
+    do {
+        const page = await kept?.entries({}, 100, cursor, context);
+        for (const entry of page?.items ?? []) {
+            const result = entry.model?.[0];
+            if (
+                // A call a fork inherited ends in the conversation that made it.
+                entry.conversationId !== conversation ||
+                entry.byTaskId === undefined ||
+                result?.role !== "toolResult" ||
+                !endsLater(result.details)
+            ) {
+                continue;
+            }
+            const call = callOf({ taskId: entry.byTaskId });
+            const ended = await harness.commit(
+                (tx) => tx.submissionByRequest(conversation, call),
+                context,
+            );
+            if (ended === undefined) return true;
+        }
+        cursor = page?.next;
+    } while (cursor !== undefined);
+    return false;
 }
 
 /** As `crates/hamlet_server/src/commands/oversight.rs:249-266` asks. */

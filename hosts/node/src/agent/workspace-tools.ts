@@ -225,8 +225,22 @@ function shown(answer: Text): ToolExecutionResult {
     };
 }
 
+/** A result whose end arrives later, as a `finished` input. */
+function later(text: string): ToolExecutionResult {
+    return { ...words(text), details: { endsLater: true } };
+}
+
+export function endsLater(details: unknown): boolean {
+    return (
+        typeof details === "object" &&
+        details !== null &&
+        "endsLater" in details &&
+        details.endsLater === true
+    );
+}
+
 function waits(what: string, needs: readonly Need[]): ToolExecutionResult {
-    return words(
+    return later(
         `${what} waits for a chief to allow it (${needs.join(", ")}). Its end arrives as a new input.`,
     );
 }
@@ -422,7 +436,7 @@ async function run(
                 case "ended":
                     return ranNow(answer.end, program);
                 case "running":
-                    return words(
+                    return later(
                         `Command ${answer.command} is still running. Its end arrives as a new input.`,
                     );
                 case "waits_for_chief":
