@@ -57,7 +57,7 @@ import {
 } from "./messages.ts";
 import { agentModels, configured } from "./models.ts";
 import { ownFiles } from "./own-files.ts";
-import { type PromptSources, promptPart } from "./prompt.ts";
+import { type PromptSources, promptPart, promptSources } from "./prompt.ts";
 import { owedOf, reflectEvery, reflection } from "./reflect.ts";
 import { migrateChats } from "./sessions.ts";
 import { society } from "./society.ts";
@@ -337,7 +337,7 @@ async function wake(c: AgentContext, config: AgentConfig): Promise<void> {
             c.log.warn({ msg: what, error: reasonOf(error) }),
     });
     const copies = copiesOf(c.db);
-    const prompt: PromptSources = { copies, peers };
+    const prompt = promptSources(c, copies, peers);
     for (const part of parts(peers, row.toolsOff, prompt, withHarness)) {
         registry.install(part);
     }
