@@ -339,6 +339,7 @@ pub(super) fn timeline(
                     (item, item.map_or(0, |item| item.at))
                 }
                 Row::Fold { start, .. } => (None, *start),
+                Row::Changes { at, .. } => (None, *at),
             };
             let (by, to) = match item.map(|item| &item.entry) {
                 Some(Entry::Agent { name, from, .. }) => {

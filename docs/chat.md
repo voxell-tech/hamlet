@@ -97,10 +97,32 @@ calls are tool rows of their tool and summary, kept for people alone.
 Rows follow the transcript's order, even if a clock ran back. Rows by one
 speaker to one listener that follow each other are a run: the first is
 named and has the speaker's picture beside its name. The chief's own
-messages are at the right on brass. The agent's are at the left, with a
-disc in the paint of its robot. The steps of a turn are folded into one
-quiet line that opens, under the reply before them. Steps that open a turn
-stand under its first reply, joined by those after it.
+messages are at the right on brass. Another agent's are at the left, with
+a disc in the paint of its robot.
+
+**A turn.** Everything the agent does between one input and the next is
+one turn (`lines.rs`, `Turn`): its thinking, its tool calls and the words
+it writes between them are its steps, and the last words it writes, when
+no step follows them, are its reply. While the turn runs, a header across
+the chat says "Working for 13s", or "Thinking" while its model reasons,
+with a thin rule under it and its steps under that. A band of the body's
+tone crosses the word, letter by letter
+(`hamlet_ui/src/widgets/shimmer.rs`), or the word pulses slowly while
+less motion is asked for. Each step is one quiet line with an icon: the
+end of the latest thinking, "Running cargo test", "Editing rail.rs +3 -1",
+"Reading place.rs", "Request to hire#4 (Mira)". A step still running
+shimmers too. A line opens to the whole request, why it failed, the words
+sent, or the lines an edit changed.
+
+Once the turn ends its header reads "Worked for 2m 49s", with " · 1
+failed" in red when a step failed, and folds its steps away; a press opens
+them. The time runs from the first step to the end of the last as the
+transcript tells them, so the writing of the reply itself is not counted.
+Thinking folds to "Thought for 6s", which opens to its words. The reply
+follows across the whole chat, with no bubble. After it, a card, "2
+changed files +13 -5", opens to the tree of the files the turn's edits
+changed, and each file to its lines (`edits.rs`). Queued lines stand
+under the turn that runs.
 
 When a transcript has an earlier page, scrolling to the top, or a chat
 that fits without scrolling, sends `open` with `before` set to the first
@@ -192,9 +214,10 @@ sent with its words in its place.
 
 ## Edits
 
-An `edit` or `write` call can show its change in place of the tool row:
-the path, the count of lines added and removed, and the lines themselves
-in red and green. `crates/hamlet_server/src/tools/edit_diff.rs` computes the preview and
+An `edit` or `write` call carries its change: the path, the count of
+lines added and removed, and the lines themselves in red and green. Its
+step's line shows the count and opens to the lines, and the turn's card
+of changed files holds every applied edit by its file. `crates/hamlet_server/src/tools/edit_diff.rs` computes the preview and
 keeps at most 200 lines, each cut at 240 characters. It arrives in the tool's
 `change` field, both live and when the transcript is read back.
 

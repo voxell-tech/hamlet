@@ -27,11 +27,11 @@ use hamlet_ui::widgets::icons::{Glyph, glyph};
 use hamlet_ui::{AnyView, Cx, View, with_cx};
 
 use super::entry::entry_view;
-use super::lines::{Board, Row, fold_view};
+use super::lines::{Board, INSET, Row, fold_view};
 use super::reply::{self, Replies};
 use super::rewind::{self, Rewinds};
 use super::timeline::{Kind, Line, Who};
-use super::{attach, card, quote};
+use super::{attach, card, edits, quote};
 use crate::convo::Convo;
 use crate::markdown;
 use crate::select::Quotable;
@@ -553,6 +553,58 @@ fn said<B: Board>(line: Line, chat: Entity, id: String) -> AnyView {
     })
 }
 
+/// The agent's own words across the chat with no bubble: its reply,
+/// why a reply failed, or a notice, by the agent shown as `name`.
+fn written(chat: Entity, id: String, name: String) -> AnyView {
+    AnyView::new(move |cx: &mut Cx| {
+        let entry = cx
+            .world
+            .get::<Transcript>(chat)
+            .and_then(|t| t.item(&id))
+            .map(|item| item.entry.clone());
+        // A conversation merged in, drawn under its row, is only
+        // read.
+        let own = chat == cx.world.resource::<Convo>().chat;
+        let reply = matches!(entry, Some(Entry::Assistant(_)));
+        let replies = own
+            && reply
+            && entry.as_ref().is_some_and(reply::can_reply_to);
+        let words = match reply {
+            true => hamlet_ui::markdown::document(
+                markdown::entry(chat, id.clone()),
+                Tone::Body,
+            )
+            .boxed(),
+            false => entry_view(chat, id.clone()),
+        };
+        let words = column((words,))
+            .grow(1.0)
+            .min_width(px(0.0))
+            .padding(UiRect::horizontal(px(INSET)));
+        let words = match replies {
+            true => words.tagged(Area).boxed(),
+            false => words.boxed(),
+        };
+        let replying = match replies {
+            true => reply::mark(chat, id.clone(), name).boxed(),
+            false => frame().boxed(),
+        };
+        let node = cx.build(
+            row((words, replying))
+                .width(percent(100.0))
+                .min_width(px(0.0)),
+        );
+        if replies {
+            cx.world.entity_mut(node).insert((
+                Hovered::default(),
+                Replies,
+                Quotable { chat, entry: id },
+            ));
+        }
+        node
+    })
+}
+
 /// How opaque a row that waits its turn is.
 const WAITING: f32 = 0.55;
 
@@ -560,24 +612,60 @@ const WAITING: f32 = 0.55;
 pub(super) fn line_view<B: Board>(line: &Line) -> AnyView {
     let line = line.clone();
     AnyView::new(move |cx: &mut Cx| {
-        // A turn's steps and the cards are the agent's own, so they
-        // sit where its bubbles do, a gap over the first of a run.
+        // A turn, its reply and the cards are the agent's own, across
+        // the chat, a gap over the first of a run.
         let run = cx.theme().space.gap;
         let aside = |view: AnyView| {
             row((view,))
-                .padding(UiRect::new(
-                    px(GUTTER),
-                    px(0.0),
-                    px(if line.lead { run } else { 0.0 }),
-                    px(0.0),
-                ))
+                .width(percent(100.0))
+                .min_width(px(0.0))
+                .padding(UiRect::top(px(if line.lead {
+                    run
+                } else {
+                    0.0
+                })))
                 .boxed()
         };
         let (view, chat, id) = match &line.row {
-            Row::Entry { chat, id } => (
-                said::<B>(line.clone(), *chat, id.clone()),
+            Row::Entry { chat, id } => {
+                let own = cx
+                    .world
+                    .get::<Transcript>(*chat)
+                    .and_then(|t| t.item(id))
+                    .is_some_and(|item| {
+                        matches!(
+                            item.entry,
+                            Entry::Assistant(_)
+                                | Entry::Error(_)
+                                | Entry::Notice(_)
+                        )
+                    });
+                let name = cx
+                    .world
+                    .resource::<B>()
+                    .lines()
+                    .cast()
+                    .get(line.by)
+                    .map(|who| who.name.clone())
+                    .unwrap_or_default();
+                let view = match own {
+                    true => aside(written(*chat, id.clone(), name)),
+                    false => {
+                        said::<B>(line.clone(), *chat, id.clone())
+                    }
+                };
+                (view, *chat, id.as_str())
+            }
+            Row::Changes {
+                chat, first, edits, ..
+            } => (
+                aside(edits::view(
+                    *chat,
+                    first.clone(),
+                    edits.clone(),
+                )),
                 *chat,
-                id.as_str(),
+                first.as_str(),
             ),
             Row::Card { chat, id } => (
                 aside(card::view(*chat, id.clone()).boxed()),

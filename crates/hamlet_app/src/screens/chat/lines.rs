@@ -256,6 +256,16 @@ pub(super) enum Row {
         thinking: bool,
         open: bool,
     },
+    /// The files a turn that ended changed, after its reply.
+    Changes {
+        chat: Entity,
+        /// The entry its turn is known by.
+        first: String,
+        /// The edits that were applied, in order.
+        edits: Vec<String>,
+        /// When its turn ended.
+        at: u64,
+    },
 }
 
 /// Whether `entry` is drawn as a [`Row::Card`].
@@ -277,6 +287,7 @@ fn is_card(entry: &Entry) -> bool {
 struct Turn {
     first: String,
     steps: Vec<String>,
+    edits: Vec<String>,
     failed: usize,
     start: u64,
     end: u64,
@@ -291,6 +302,7 @@ impl Turn {
         Turn {
             first,
             steps: Vec::new(),
+            edits: Vec::new(),
             failed: 0,
             start: at,
             end: at,
@@ -304,8 +316,13 @@ impl Turn {
             self.start = item.at;
         }
         let ms = match &item.entry {
-            Entry::Tool { exit, ms, .. } => {
+            Entry::Tool {
+                exit, ms, change, ..
+            } => {
                 self.failed += exit.is_some_and(|c| c != 0) as usize;
+                if change.is_some() && *exit == Some(0) {
+                    self.edits.push(item.id.clone());
+                }
                 ms.unwrap_or(0)
             }
             _ => 0,
@@ -333,7 +350,7 @@ impl Turn {
                 chat,
                 open: running
                     || open.contains(&(chat, self.first.clone())),
-                first: self.first,
+                first: self.first.clone(),
                 steps: self.steps,
                 failed: self.failed,
                 start: self.start,
@@ -344,6 +361,14 @@ impl Turn {
         }
         if let Some(id) = reply {
             rows.push(Row::Entry { chat, id });
+        }
+        if !running && !self.edits.is_empty() {
+            rows.push(Row::Changes {
+                chat,
+                first: self.first,
+                edits: self.edits,
+                at: self.end,
+            });
         }
     }
 }
@@ -602,6 +627,7 @@ fn worked<B: Board>(
 pub(super) enum RowKey {
     Entry(Entity, Entity, String, u64),
     Fold(Entity, Entity, String),
+    Changes(Entity, Entity, String),
 }
 
 impl Line {
@@ -617,6 +643,9 @@ impl Line {
             }
             Row::Fold { chat, first, .. } => {
                 RowKey::Fold(self.agent, *chat, first.clone())
+            }
+            Row::Changes { chat, first, .. } => {
+                RowKey::Changes(self.agent, *chat, first.clone())
             }
         }
     }

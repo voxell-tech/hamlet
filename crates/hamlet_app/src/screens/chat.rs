@@ -2,7 +2,8 @@
 //! in. An agent's one conversation is laid in one line of time
 //! (`timeline`), kept as rows (`lines`) and drawn as a group chat
 //! (`bubble`) over the `field` a message is typed in, where what is
-//! attached sits as chips (`attach`). An edit shows its `change`,
+//! attached sits as chips (`attach`). An edit shows its `change`, a
+//! turn the files it changed (`edits`),
 //! the chief's own messages the way back to them (`rewind`), and a
 //! summary, a merge or a worker its `card`. A message can `reply` to
 //! another, and `quote` lines as chat apps do.
@@ -12,6 +13,7 @@ pub(crate) mod bubble;
 mod card;
 mod change;
 mod commands;
+mod edits;
 mod entry;
 mod field;
 mod held;
