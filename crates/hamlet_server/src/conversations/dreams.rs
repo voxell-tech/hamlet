@@ -45,7 +45,7 @@ const ENDING_WINDOW: i64 = 24 * 3_600_000;
 const DREAM_CHECK: std::time::Duration =
     std::time::Duration::from_secs(60);
 
-/// A look for a due dream every [`DREAM_CHECK`], and another once a
+/// A check for a due dream every [`DREAM_CHECK`], and another once a
 /// dream ended; what the hires learned, found at the start.
 pub(crate) fn plugin(app: &mut bevy_app::App) {
     app.init_resource::<Learned>()
