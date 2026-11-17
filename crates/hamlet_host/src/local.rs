@@ -524,8 +524,14 @@ impl Stop {
         if destroyed {
             let path = actor_path(&host.dir, &owned.at);
             let removed = destroy_file_off_runtime(path).await;
-            // A destroy that joined this stop answers it too.
             if let Err(error) = &removed {
+                host.keep(
+                    &owned.at,
+                    "host failed to remove the files of an actor it \
+                     destroyed",
+                    Some(error),
+                );
+                // A destroy that joined this stop answers it too.
                 owned.fail(error);
             }
             return removed;
@@ -1254,7 +1260,7 @@ impl Host {
     /// longer hold the folder. A destroy answers `Ok` only once the
     /// actor's files are gone: a removal that fails fails the destroy
     /// and every caller that waited for it, whichever stop removed
-    /// them.
+    /// them, and leaves the actor in [`Host::kept`].
     ///
     /// A stop ends within [`HostOptions::stop_deadline`], whatever
     /// the actor does. An actor that does not stop by then is given
