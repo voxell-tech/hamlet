@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import { type TestContext, test } from "node:test";
+import { setTimeout as delay } from "node:timers/promises";
 import {
     type AssistantMessage,
     type FauxResponseStep,
@@ -12,7 +13,7 @@ import type {
     HarnessSettings,
 } from "@earendil-works/pi-durable";
 import type { Calls } from "../src/actor/actor/mod.ts";
-import type { Input, ReadAnswer } from "../src/agent/messages.ts";
+import type { Finished, Input, ReadAnswer } from "../src/agent/messages.ts";
 import { conversationOfChat } from "../src/agent/sessions.ts";
 import {
     fakeCalls,
@@ -312,7 +313,6 @@ test("retry is refused after an answer", async (t) => {
     const client = agent.by(from.client);
     const retry = (id: string) => agent.actions.retry(client, { id, to: 7 });
 
-    assert.equal((await retry("r-0")).type, "refused");
     await told(agent, "a");
     // As `crates/hamlet_server/src/society/refusal.rs` words them.
     assert.deepEqual(await retry("r-1"), {
@@ -689,4 +689,264 @@ test("a letter to a busy agent waits for the next run", async (t) => {
         "A letter from Ada (`hire#12`):\n\nThanks",
         "Thanks.",
     ]);
+});
+
+// As today, a retry of a session with nothing in it is admitted
+// (`crates/hamlet_server/src/talk/chats.rs`, `retry`).
+test("a retry of an empty session carries on", async (t) => {
+    const agent = await wake(t, fakes().calls, [
+        fauxAssistantMessage("Carried."),
+    ]);
+
+    assert.deepEqual(
+        await agent.actions.retry(agent.by(from.client), { id: "r-1", to: 7 }),
+        { type: "done" },
+    );
+    await agent.idle();
+    assert.deepEqual(await said(agent, await now(agent)), [
+        "Carry on from where you stopped.",
+        "Carried.",
+    ]);
+});
+
+test("of two retries at once, the second is refused running", async (t) => {
+    const { calls, sent } = fakes();
+    const slow = held();
+    const agent = await wake(
+        t,
+        calls,
+        [failure("the model fell over"), slow.step],
+        NO_RETRIES,
+    );
+    await told(agent, "Go");
+    const client = agent.by(from.client);
+
+    const answers = await Promise.all([
+        agent.actions.retry(client, { id: "r-1", to: 7 }),
+        agent.actions.retry(client, { id: "r-2", to: 7 }),
+    ]);
+    assert.deepEqual(answers, [
+        { type: "done" },
+        {
+            type: "refused",
+            why: { type: "running" },
+            words: "a turn is running here; stop it, then retry",
+        },
+    ]);
+    slow.answer(fauxAssistantMessage("Recovered."));
+    await agent.idle();
+    assert.equal(named(sent, "open_task").length, 1);
+    assert.deepEqual(
+        (await said(agent, await now(agent))).filter(
+            (text) => text === "Carry on from where you stopped.",
+        ),
+        ["Carry on from where you stopped."],
+    );
+});
+
+test("a chief's line sent while a rewind is out lands in the session it goes to", async (t) => {
+    const lapse = Promise.withResolvers<null>();
+    const lapsing = Promise.withResolvers<void>();
+    const { calls } = fakes({
+        realm: {
+            lapse: () => {
+                lapsing.resolve();
+                return lapse.promise;
+            },
+        },
+    });
+    const agent = await wake(t, calls, [
+        fauxAssistantMessage("First."),
+        fauxAssistantMessage("Second."),
+        fauxAssistantMessage("Third."),
+    ]);
+    await told(agent, "One");
+    await told(agent, "Two");
+    const left = await now(agent);
+    const rewinding = agent.actions.rewind(agent.by(from.client), {
+        id: "rw-1",
+        chat: { with: 7 },
+        item: await itemOfLine(agent, "Two"),
+    });
+    await lapsing.promise;
+
+    const sending = submitted(agent, line("Three"));
+    // A line left to race the rewind is admitted in a few milliseconds, so
+    // a second is far past that on a busy machine. An agent that holds the
+    // line until the rewind has moved never answers it in that time, so the
+    // wait decides only whether the race is caught, never whether it passes.
+    await Promise.race([sending, delay(1_000)]);
+    lapse.resolve(null);
+    assert.deepEqual(await rewinding, { type: "rewound", text: "Two" });
+    await sending;
+    await agent.idle();
+    assert.deepEqual(await said(agent, await now(agent)), [
+        "One",
+        "First.",
+        "Three",
+        "Third.",
+    ]);
+    assert.deepEqual(await said(agent, left), [
+        "One",
+        "First.",
+        "Two",
+        "Second.",
+    ]);
+});
+
+const TESTS_FAILED: Finished["outcome"] = {
+    type: "run",
+    end: {
+        type: "ran",
+        command: 4,
+        exit: { type: "code", code: 1 },
+        output: "2 failed\n",
+        policy: "3f2a",
+        took_ms: 12_000,
+    },
+};
+
+function callOfRun(sent: Parameters<typeof named>[0]): string {
+    const [run] = named(sent, "run");
+    assert.ok(run !== undefined, "the command was run");
+    return (run.message as { call: string }).call;
+}
+
+test("a rewind while a command's end has not come is refused working", async (t) => {
+    const { calls, sent } = fakes({
+        workspace: { run: () => ({ type: "running", command: 4 }) },
+    });
+    const agent = await wake(t, calls, [
+        fauxAssistantMessage("First."),
+        toolCall("bash", { command: "cargo test", timeout: 60 }),
+        fauxAssistantMessage("It runs; I will hear its end."),
+        fauxAssistantMessage("The tests failed."),
+    ]);
+    await told(agent, "One");
+    await told(agent, "Run the tests");
+    const client = agent.by(from.client);
+    const rewind = async (id: string) =>
+        agent.actions.rewind(client, {
+            id,
+            chat: { with: 7 },
+            item: await itemOfLine(agent, "Run the tests"),
+        });
+
+    assert.deepEqual(await rewind("rw-1"), {
+        type: "refused",
+        why: { type: "working" },
+        words: "a turn is running here; stop it, then rewind",
+    });
+    await agent.actions.finished(agent.by(from.workspace), {
+        call: callOfRun(sent),
+        outcome: TESTS_FAILED,
+    });
+    await agent.idle();
+    assert.deepEqual(await rewind("rw-2"), {
+        type: "rewound",
+        text: "Run the tests",
+    });
+    assert.deepEqual(await said(agent, await now(agent)), ["One", "First."]);
+});
+
+test("a fork does not wait for a command whose end came to the session it left", async (t) => {
+    const { calls, sent } = fakes({
+        workspace: { run: () => ({ type: "running", command: 4 }) },
+    });
+    const agent = await wake(t, calls, [
+        toolCall("bash", { command: "cargo test", timeout: 60 }),
+        fauxAssistantMessage("It runs."),
+        fauxAssistantMessage("Ok."),
+        fauxAssistantMessage("The tests failed."),
+        fauxAssistantMessage("Four."),
+    ]);
+    await told(agent, "Run the tests");
+    await told(agent, "Three");
+    await agent.actions.finished(agent.by(from.workspace), {
+        call: callOfRun(sent),
+        outcome: TESTS_FAILED,
+    });
+    await agent.idle();
+    const client = agent.by(from.client);
+    const rewind = async (id: string, text: string) =>
+        agent.actions.rewind(client, {
+            id,
+            chat: { with: 7 },
+            item: await itemOfLine(agent, text),
+        });
+
+    assert.equal((await rewind("rw-1", "Three")).type, "rewound");
+    await told(agent, "Four");
+    assert.deepEqual(await rewind("rw-2", "Four"), {
+        type: "rewound",
+        text: "Four",
+    });
+});
+
+test("a rewind while a question has no answer is refused working", async (t) => {
+    const agent = await wake(
+        t,
+        fakes({ realm: { ask: () => ({ type: "done" }) } }).calls,
+        [
+            toolCall("ask", { to: "hire#12", question: "Which file?" }),
+            fauxAssistantMessage("Asked Ada."),
+            fauxAssistantMessage("Thanks."),
+        ],
+    );
+    await told(agent, "Ask Ada");
+    const client = agent.by(from.client);
+    const asking = await now(agent);
+    const rewind = async (id: string) =>
+        agent.actions.rewind(client, {
+            id,
+            chat: { with: 7 },
+            item: await itemOfLine(agent, "Ask Ada"),
+        });
+
+    assert.deepEqual(await rewind("rw-1"), {
+        type: "refused",
+        why: { type: "working" },
+        words: "a turn is running here; stop it, then rewind",
+    });
+    await submitted(agent, {
+        type: "answer",
+        question: 3,
+        from: ADA,
+        text: "notes.md",
+        conversation: String(asking),
+    });
+    await agent.idle();
+    assert.deepEqual(await rewind("rw-2"), {
+        type: "rewound",
+        text: "Ask Ada",
+    });
+});
+
+test("a line steered into a running turn is charged to its own task", async (t) => {
+    const workspace = slowRead();
+    const { calls, sent } = fakes({ workspace });
+    const agent = await wake(t, calls, [
+        toolCall("read", { path: "/work/project/notes.md" }),
+        fauxAssistantMessage("Both done."),
+    ]);
+    await agent.actions.submit(agent.by(from.realm), {
+        id: "line-a",
+        task: "task-a",
+        input: line("Read the notes"),
+    });
+    await workspace.reading;
+    await agent.actions.submit(agent.by(from.realm), {
+        id: "line-b",
+        task: "task-b",
+        input: line("And add a title"),
+    });
+    workspace.answer();
+    await agent.idle();
+
+    const tasks = (name: string) =>
+        named(sent, name).map(
+            (call) => (call.message as { task: string }).task,
+        );
+    assert.deepEqual(tasks("may_spend"), ["task-a", "task-b"]);
+    assert.deepEqual(tasks("charge"), ["task-a", "task-b"]);
 });

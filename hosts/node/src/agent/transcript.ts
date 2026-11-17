@@ -143,7 +143,7 @@ export async function readHistory(
     });
 }
 
-function textOf(entry: EntryRecord): string {
+export function textOf(entry: EntryRecord): string {
     return (entry.model ?? [])
         .flatMap((message) =>
             typeof message.content === "string"

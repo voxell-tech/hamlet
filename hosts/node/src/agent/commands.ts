@@ -8,7 +8,6 @@ import {
     type ConversationId,
     type Cursor,
     type EntryId,
-    type EntryRecord,
     type Harness,
     LiveDoc,
     type SubmissionDraft,
@@ -30,13 +29,15 @@ import {
 import { reflectOnLeaving } from "./reflect.ts";
 import {
     begin,
+    chiefSession,
     current,
     makeCurrent,
     moveTo,
     nowSeconds,
     session,
 } from "./sessions.ts";
-import { conversationsOf, draftOf, isBusy, refOf } from "./turn.ts";
+import { textOf } from "./transcript.ts";
+import { callOf, conversationsOf, draftOf, isBusy, refOf } from "./turn.ts";
 
 type Answer<N extends keyof ClientActions> = Promise<
     ReturnType<ClientActions[N]>
@@ -69,7 +70,9 @@ export async function newSession(
     c: AgentCall,
     message: NewSession,
 ): Answer<"new_session"> {
-    const { number, to, left } = await begin(c, message.id);
+    const { number, to, left } = await generationOf(c).inTurn(() =>
+        begin(c, message.id),
+    );
     // As `crates/hamlet_server/src/talk/chats.rs` writes it.
     await noticed(c, to, `new:${message.id}`, "Started a new session.");
     // A repeat ends the session left again: a kill or a failure may have
@@ -103,9 +106,13 @@ export async function resume(
     // transaction. The session left reflects before the move too, so a
     // repeat after a kill still asks it.
     await lapsed(c, to, "resumed");
-    const left = await current(c.db);
-    if (left !== undefined && left !== to) await reflectOnLeaving(c, left);
-    await makeCurrent(c, to);
+    await generationOf(c).inTurn(async () => {
+        const left = await current(c.db);
+        if (left !== undefined && left !== to) {
+            await reflectOnLeaving(c, left);
+        }
+        await makeCurrent(c, to);
+    });
     await noticed(
         c,
         to,
@@ -165,44 +172,45 @@ async function lapsed(
 
 /**
  * Carries on the current session's failed or stopped turn as a visible new
- * input with a task of its own (H12). The earlier answer stays.
+ * input with a task of its own (H12). The earlier answer stays. As today, a
+ * session with nothing in it is carried on too.
  */
 export async function retry(
     c: AgentCall,
     message: Retry,
 ): Promise<RetryAnswer> {
-    const conversation = await current(c.db);
-    if (conversation === undefined) return retryRefused("no_turn");
     const requestId = `retry:${message.id}`;
-    const { options, peers } = generationOf(c);
-    const why = await withHarness(c, options, (harness, context) =>
-        refusedRetry(harness, conversation, requestId, context),
-    );
-    if (why === "admitted") return { type: "done" };
-    if (why !== undefined) return retryRefused(why);
-    const opened = await peers.reach.open_task({ turn: "retry" });
-    if (opened.type === "refused") throw new Error(opened.words);
-    await submittedTo(
-        c,
-        conversation,
-        draftOf({
-            kind: "retry",
-            id: requestId,
-            // As `crates/hamlet_server/src/talk/chats.rs` words it.
-            content: "Carry on from where you stopped.",
-            task: opened.task,
-        }),
-    );
-    return { type: "done" };
+    const { options, peers, inTurn } = generationOf(c);
+    return inTurn(async () => {
+        const conversation = await chiefSession(c);
+        const why = await withHarness(c, options, (harness, context) =>
+            refusedRetry(harness, conversation, requestId, context),
+        );
+        if (why === "admitted") return { type: "done" };
+        if (why !== undefined) return retryRefused(why);
+        const opened = await peers.reach.open_task({ turn: "retry" });
+        if (opened.type === "refused") throw new Error(opened.words);
+        await submittedTo(
+            c,
+            conversation,
+            draftOf({
+                kind: "retry",
+                id: requestId,
+                // As `crates/hamlet_server/src/talk/chats.rs` words it.
+                content: "Carry on from where you stopped.",
+                task: opened.task,
+            }),
+        );
+        return { type: "done" };
+    });
 }
 
-type RetryRefusal = "running" | "answered" | "no_turn";
+type RetryRefusal = "running" | "answered";
 
 const RETRY_WORDS: Readonly<Record<RetryRefusal, string>> = {
     // As `crates/hamlet_server/src/society/refusal.rs` words them.
     running: "a turn is running here; stop it, then retry",
     answered: "the last message was answered, so there is nothing to carry on",
-    no_turn: "there is no turn here to carry on",
 };
 
 function retryRefused(why: RetryRefusal): RetryAnswer {
@@ -245,7 +253,7 @@ async function refusedRetry(
         }
         cursor = page?.next;
     } while (cursor !== undefined);
-    return "no_turn";
+    return undefined;
 }
 
 /**
@@ -266,27 +274,31 @@ export async function rewind(
             words: "Only the current session of a chief's chat goes back.",
         };
     }
-    const from = await current(c.db);
     const at = entryOf(message.item);
-    if (from === undefined || at === undefined) {
-        return rewindRefused("no_such_item", message.item);
-    }
-    const { options } = generationOf(c);
-    const found = await withHarness(c, options, (harness, context) =>
-        lineAt(harness, from, at, context),
-    );
-    if (typeof found === "string") return rewindRefused(found, message.item);
-    await lapsed(c, from, "rewound");
-    const fork = await withHarness(c, options, async (harness, context) => {
-        const created = { ownership: { kind: "ownerless" } } as const;
-        const kept = await harness.conversation(from, context);
-        if (found.before === undefined || kept === undefined) {
-            return (await harness.createConversation(created, context)).id;
+    const { options, inTurn } = generationOf(c);
+    return inTurn(async () => {
+        const from = await current(c.db);
+        if (from === undefined || at === undefined) {
+            return rewindRefused("no_such_item", message.item);
         }
-        return (await kept.fork(found.before, created, context)).id;
+        const found = await withHarness(c, options, (harness, context) =>
+            lineAt(harness, from, at, context),
+        );
+        if (typeof found === "string") {
+            return rewindRefused(found, message.item);
+        }
+        await lapsed(c, from, "rewound");
+        const fork = await withHarness(c, options, async (harness, context) => {
+            const created = { ownership: { kind: "ownerless" } } as const;
+            const kept = await harness.conversation(from, context);
+            if (found.before === undefined || kept === undefined) {
+                return (await harness.createConversation(created, context)).id;
+            }
+            return (await kept.fork(found.before, created, context)).id;
+        });
+        await moveTo(c, from, fork);
+        return { type: "rewound", text: found.text };
     });
-    await moveTo(c, from, fork);
-    return { type: "rewound", text: found.text };
 }
 
 type RewindRefusal = "no_such_item" | "not_a_chief_line" | "working";
@@ -320,7 +332,12 @@ async function lineAt(
     at: EntryId,
     context: Context,
 ): Promise<RewindRefusal | { text: string; before: EntryId | undefined }> {
-    if (await isBusy(harness, conversation, context)) return "working";
+    if (
+        (await isBusy(harness, conversation, context)) ||
+        (await callIsOut(harness, conversation, context))
+    ) {
+        return "working";
+    }
     const kept = await harness.conversation(conversation, context);
     const page = await kept?.entries({ maxEntryId: at }, 2, undefined, context);
     const [line, before] = page?.items ?? [];
@@ -329,16 +346,55 @@ async function lineAt(
     return { text: textOf(line), before: before?.id };
 }
 
-function textOf(entry: EntryRecord): string {
-    return (entry.model ?? [])
-        .flatMap((message) =>
-            typeof message.content === "string"
-                ? [message.content]
-                : message.content.flatMap((part) =>
-                      part.type === "text" ? [part.text] : [],
-                  ),
-        )
-        .join("");
+/**
+ * How the words of `workspace-tools.ts`'s `run` and `waits` and of
+ * `society.ts`'s `ask` end: nothing else in a result says its end comes
+ * later as an input.
+ */
+const ENDS_LATER = " arrives as a new input.";
+
+/**
+ * Whether a call `conversation` made is out: a command or a wait for a chief
+ * whose `finished` was not admitted, or a question with no answer. An answer
+ * names no question, so questions are counted. An entry a fork inherited is
+ * left out: its call's end goes to the conversation that made it.
+ */
+async function callIsOut(
+    harness: Harness,
+    conversation: ConversationId,
+    context: Context,
+): Promise<boolean> {
+    const kept = await harness.conversation(conversation, context);
+    let unanswered = 0;
+    let cursor: Cursor | undefined;
+    do {
+        const page = await kept?.entries({}, 100, cursor, context);
+        for (const entry of page?.items ?? []) {
+            if (entry.conversationId !== conversation) continue;
+            if (entry.kind === "hamlet.answer") unanswered -= 1;
+            const result = entry.model?.[0];
+            if (
+                entry.kind !== "pi.tool-result" ||
+                result?.role !== "toolResult" ||
+                entry.byTaskId === undefined ||
+                !textOf(entry).endsWith(ENDS_LATER)
+            ) {
+                continue;
+            }
+            if (result.toolName === "ask") {
+                unanswered += 1;
+                continue;
+            }
+            const call = callOf({ taskId: entry.byTaskId });
+            const ended = await harness.commit(
+                (tx) => tx.submissionByRequest(conversation, call),
+                context,
+            );
+            if (ended === undefined) return true;
+        }
+        cursor = page?.next;
+    } while (cursor !== undefined);
+    return unanswered > 0;
 }
 
 export function reflectNow(c: AgentCall): Answer<"reflect"> {
