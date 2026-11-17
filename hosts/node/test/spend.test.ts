@@ -113,7 +113,7 @@ test("a refused model call ends the turn with the realm's words and sends no req
         sent
             .map((call) => call.name)
             .filter((name) => name !== "list_tools" && name !== "read_copies"),
-        ["may_spend"],
+        ["may_spend", "turn_failed"],
     );
     const harness = await agent.harness();
     const { submissions } = await harness.inspect(context);

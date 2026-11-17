@@ -16,6 +16,23 @@ import {
 import { type RealmTask, u32 } from "./messages.ts";
 import { Closing, cutOff, modelCall, type Peers, reasonOf } from "./turn.ts";
 
+/** A request the realm refused or held, which the gate ended unsent. */
+export interface Unsent {
+    readonly held: boolean;
+    /** The realm's words. */
+    readonly words: string;
+}
+
+/**
+ * pi-durable hands the message the gate ended with to `afterResponse` as
+ * it is, so the message itself says why.
+ */
+const UNSENT = new WeakMap<AssistantMessage, Unsent>();
+
+export function unsentOf(message: AssistantMessage): Unsent | undefined {
+    return UNSENT.get(message);
+}
+
 export function gated(models: Models, peers: Peers): Models {
     const ask = async (
         model: Model<Api>,
@@ -29,7 +46,13 @@ export function gated(models: Models, peers: Peers): Models {
                 peers.reach.may_spend({ task }),
             );
             if (may.type === "refused") {
-                return { ended: refusalOf(model, may.words) };
+                const ended = refusalOf(model, may.words);
+                UNSENT.set(ended, {
+                    // `Hold` in `crates/hamlet_messages/src/realm/oversight.rs`.
+                    held: may.why.type === "objection",
+                    words: may.words,
+                });
+                return { ended };
             }
             return { task };
         } catch (error) {
