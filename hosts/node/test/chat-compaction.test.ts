@@ -270,7 +270,7 @@ test("a kill while the summary is out compacts once and asks again once", async 
     assert.equal(entries.at(-1)?.text, "Four.");
 });
 
-test("an input that asks again after a queued line fails at a second cut-off", async (t) => {
+test("a line steered in with the ask-again still fails at a second cut-off", async (t) => {
     const released = Promise.withResolvers<void>();
     const run = script(
         [
@@ -278,7 +278,6 @@ test("an input that asks again after a queued line fails at a second cut-off", a
             fauxAssistantMessage("Two."),
             fauxAssistantMessage("Three."),
             cutOffShort(),
-            fauxAssistantMessage("Five."),
             cutOffShort(),
         ],
         () => released.promise,
@@ -301,10 +300,11 @@ test("an input that asks again after a queued line fails at a second cut-off", a
     released.resolve();
     await agent.idle();
 
+    // A chief's line steers, so the line sent while the summary is out
+    // goes in the same request as the ask-again, after it was queued.
     assert.equal(run.summaries, 1);
-    assert.equal(run.asked.length, 6);
-    assert.equal(run.asked[4]?.at(-1), "Line 5. And this.");
-    assert.equal(run.asked[5]?.at(-1), CARRY_ON);
+    assert.deepEqual(run.asked[4]?.slice(-2), ["Line 5. And this.", CARRY_ON]);
+    assert.equal(run.asked.length, 5);
     const notices = (await agent.entries()).filter(
         (entry) => entry.kind === "hamlet.notice",
     );
