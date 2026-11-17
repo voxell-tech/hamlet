@@ -2,6 +2,7 @@
 pub mod actor_context;
 pub mod actor_factory;
 pub mod address;
+pub mod agent_filesystem;
 pub mod cancellation_token;
 pub mod connection;
 pub mod database;

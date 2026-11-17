@@ -195,6 +195,37 @@ export interface JsCallOptions {
     /** Milliseconds, whole, from 1 to 2^32 - 1. */
     deadlineMs: number;
 }
+/** One name in a folder, a link itself rather than what it names. */
+export interface FolderEntry {
+    name: string;
+    /** Its path from the agent's filesystem. */
+    path: string;
+    /** `file`, `directory` or `symlink`. */
+    kind: string;
+    size: number;
+}
+/** A regular file, by its path from the agent's filesystem. */
+export interface FolderFile {
+    path: string;
+    size: number;
+}
+export interface FolderFiles {
+    files: Array<FolderFile>;
+    /** The walk stopped at its bound. */
+    capped: boolean;
+}
+/** A line that matched a search, numbered from 1. */
+export interface FolderMatch {
+    path: string;
+    line: number;
+    /** The line as today's search shows it. */
+    text: string;
+}
+export interface FolderMatches {
+    matches: Array<FolderMatch>;
+    /** The walk stopped at its bound before the search found `most`. */
+    capped: boolean;
+}
 export interface JsBindParam {
     kind: string;
     intValue?: number;
@@ -476,6 +507,60 @@ export declare class WorkflowStepSpan {
 }
 export declare class NapiActorFactory {
     constructor(callbacks: object, config?: JsActorConfig | undefined | null);
+}
+/**
+ * An agent's filesystem, held open. Each call takes a path relative
+ * to it, or an absolute path below it, and fails with a message that
+ * starts with the system error's name, such as `ENOENT: `, or with
+ * `OUTSIDE: ` for a path that leaves the folder.
+ */
+export declare class AgentFolder {
+    /**
+     * Opens the folder at `root`, making it and each of `folders`
+     * inside it where missing.
+     */
+    static open(root: string, folders: Array<string>): AgentFolder;
+    /** The folder's absolute path, with `/` between names. */
+    get path(): string;
+    read(path: string): Promise<Buffer>;
+    /**
+     * Writes the file whole, and answers whether nothing was there
+     * before.
+     */
+    write(path: string, bytes: Buffer): Promise<boolean>;
+    /**
+     * The names in the folder at `path`, sorted. Names that are
+     * neither a file, a folder nor a link are left out.
+     */
+    list(path: string): Promise<Array<FolderEntry>>;
+    /**
+     * Every regular file with one name at or below `path`, after at
+     * most `most` names looked at, or only those `name` matches. In
+     * `name`, `*` stands for any run of characters and `?` for one;
+     * with a `/` in it, it is matched against the file's path from
+     * `path` rather than its name. No link is followed, and no
+     * folder today's walk skips is gone into.
+     */
+    files(
+        path: string,
+        most: number,
+        name?: string | undefined | null,
+    ): Promise<FolderFiles>;
+    /**
+     * The lines that match `pattern`, a regular expression that runs
+     * in linear time, in the text files at or below `path` that
+     * `name` matches as in `files`, up to `most` of them, after at
+     * most `looked` names. A file over 1 MiB, one that is not UTF-8
+     * and one holding NUL are passed over.
+     */
+    search(
+        path: string,
+        pattern: string,
+        ignoreCase: boolean,
+        name: string | undefined | null,
+        most: number,
+        looked: number,
+    ): Promise<FolderMatches>;
 }
 export declare class CancellationToken {
     constructor();

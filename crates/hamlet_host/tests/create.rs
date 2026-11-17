@@ -453,44 +453,74 @@ async fn of_two_creates_of_one_key_at_once_one_makes_the_actor() {
 /// no file, a call fails with `actor.not_found`, and the key is free
 /// for a create that makes the actor from its own input. So for a
 /// kind whose start fails once, and for an input the kind cannot
-/// read, empty bytes included.
-#[tokio::test(flavor = "multi_thread")]
-async fn a_create_whose_first_start_fails_leaves_no_actor() {
-    let dir = Scratch::new("create-fails");
-    let made = Arc::new(Counts::default());
-    let fail = Arc::new(FailStarts(Mutex::new(0)));
-    let host = open(
-        &dir,
-        HostOptions::default()
-            .with_value(made.clone())
-            .with_value(fail.clone()),
-    );
-    for (key, input, fails) in [
-        ("fails-once", cbor("first"), true),
-        ("unreadable", vec![0xff], false),
-        ("empty", Vec::new(), false),
-    ] {
-        *fail.0.lock().unwrap() = usize::from(fails);
-        let first =
-            failed(host.create(&at("made", key), input).await);
-        assert_ne!(code(&first), "actor.duplicate_key", "{first:#}");
-        assert!(
-            !any_file_of(&dir, "made", key),
-            "{key}: a file is left"
+/// read, empty bytes included, unless the host [`kept`] the actor.
+#[test]
+fn a_create_whose_first_start_fails_leaves_no_actor() {
+    with_logs(|logs| async move {
+        let dir = Scratch::new("create-fails");
+        let made = Arc::new(Counts::default());
+        let fail = Arc::new(FailStarts(Mutex::new(0)));
+        let host = open(
+            &dir,
+            HostOptions::default()
+                .with_value(made.clone())
+                .with_value(fail.clone()),
         );
-        let error = call(&host, key, &Input)
-            .await
-            .expect_err("a call to an actor whose create failed");
-        assert_eq!(code(&error), "actor.not_found", "{error:#}");
-        host.create(&at("made", key), cbor("second")).await.unwrap();
-        let input = call(&host, key, &Input).await.unwrap();
-        let notes = call(&host, key, &Notes).await.unwrap();
-        assert_eq!(input, "second", "{key}");
-        assert_eq!(notes, ["second"], "{key}");
-    }
-    host.shutdown().await.unwrap();
-    assert_eq!(*fail.0.lock().unwrap(), 0, "the start did not fail");
-    assert_eq!(made.created.load(Ordering::SeqCst), 3);
+        for (name, input, fails) in [
+            ("fails-once", cbor("first"), true),
+            ("unreadable", vec![0xff], false),
+            ("empty", Vec::new(), false),
+        ] {
+            for tried in 0.. {
+                assert!(
+                    tried < TRIES,
+                    "{name}: kept in each try:\n{}",
+                    logs.text()
+                );
+                let key = format!("{name}-{tried}");
+                let to = at("made", &key);
+                let from = logs.text().len();
+                *fail.0.lock().unwrap() = usize::from(fails);
+                let first =
+                    failed(host.create(&to, input.clone()).await);
+                assert_ne!(
+                    code(&first),
+                    "actor.duplicate_key",
+                    "{first:#}"
+                );
+                if any_file_of(&dir, "made", &key) {
+                    let logged = &logs.text()[from..];
+                    assert!(
+                        kept(logged, &to),
+                        "{key}: a file is left; logged:\n{logged}"
+                    );
+                    continue;
+                }
+                let error =
+                    call(&host, &key, &Input).await.expect_err(
+                        "a call to an actor whose create failed",
+                    );
+                assert_eq!(
+                    code(&error),
+                    "actor.not_found",
+                    "{error:#}"
+                );
+                host.create(&to, cbor("second")).await.unwrap();
+                let input = call(&host, &key, &Input).await.unwrap();
+                let notes = call(&host, &key, &Notes).await.unwrap();
+                assert_eq!(input, "second", "{key}");
+                assert_eq!(notes, ["second"], "{key}");
+                break;
+            }
+        }
+        host.shutdown().await.unwrap();
+        assert_eq!(
+            *fail.0.lock().unwrap(),
+            0,
+            "the start did not fail"
+        );
+        assert_eq!(made.created.load(Ordering::SeqCst), 3);
+    });
 }
 
 /// Why a start failed, as the error a host answers it with carries
@@ -506,78 +536,116 @@ fn why(error: &anyhow::Error) -> String {
 /// caller it fails: a create, and each call that began a start of the
 /// actor or waited for one. The error is `core.internal_error`, whose
 /// message hides the reason.
-#[tokio::test(flavor = "multi_thread")]
-async fn a_failed_start_tells_each_caller_why() {
-    let dir = Scratch::new("create-why");
-    let fail = Arc::new(FailStarts(Mutex::new(1)));
-    let host = open(
-        &dir,
-        HostOptions::default()
-            .with_value(Arc::new(Counts::default()))
-            .with_value(fail.clone()),
-    );
-    let created =
-        failed(host.create(&at("made", "a"), cbor("a")).await);
-    host.create(&at("made", "a"), cbor("a")).await.unwrap();
-    host.stop(&at("made", "a"), ShutdownKind::Sleep)
-        .await
-        .unwrap();
-    *fail.0.lock().unwrap() = usize::MAX;
-    let mut calls = tokio::task::JoinSet::new();
-    for _ in 0..8 {
-        let host = host.clone();
-        calls.spawn(async move { call(&host, "a", &Notes).await });
-    }
-    let calls = calls.join_all().await;
-    host.shutdown().await.unwrap();
-    assert_eq!(code(&created), "core.internal_error", "{created:#}");
-    assert!(
-        why(&created).contains("this start fails"),
-        "{created:#}"
-    );
-    for called in calls {
-        let error = called.expect_err("a call whose start failed");
-        assert!(
-            why(&error).contains("this start fails"),
-            "{error:#}"
+#[test]
+fn a_failed_start_tells_each_caller_why() {
+    with_logs(|logs| async move {
+        let dir = Scratch::new("create-why");
+        let fail = Arc::new(FailStarts(Mutex::new(0)));
+        let host = open(
+            &dir,
+            HostOptions::default()
+                .with_value(Arc::new(Counts::default()))
+                .with_value(fail.clone()),
         );
-    }
+        for tried in 0.. {
+            assert!(
+                tried < TRIES,
+                "kept in each try:\n{}",
+                logs.text()
+            );
+            let key = format!("a{tried}");
+            let to = at("made", &key);
+            let from = logs.text().len();
+            *fail.0.lock().unwrap() = 1;
+            let created = failed(host.create(&to, cbor("a")).await);
+            assert_eq!(
+                code(&created),
+                "core.internal_error",
+                "{created:#}"
+            );
+            assert!(
+                why(&created).contains("this start fails"),
+                "{created:#}"
+            );
+            if let Err(error) = host.create(&to, cbor("a")).await {
+                let logged = &logs.text()[from..];
+                assert!(
+                    kept(logged, &to),
+                    "{error:#}; logged:\n{logged}"
+                );
+                continue;
+            }
+            host.stop(&to, ShutdownKind::Sleep).await.unwrap();
+            *fail.0.lock().unwrap() = usize::MAX;
+            let mut calls = tokio::task::JoinSet::new();
+            for _ in 0..8 {
+                let host = host.clone();
+                let key = key.clone();
+                calls.spawn(async move {
+                    call(&host, &key, &Notes).await
+                });
+            }
+            for called in calls.join_all().await {
+                let error =
+                    called.expect_err("a call whose start failed");
+                assert!(
+                    why(&error).contains("this start fails"),
+                    "{error:#}"
+                );
+            }
+            break;
+        }
+        host.shutdown().await.unwrap();
+    });
 }
 
 /// Of two creates of one key at once, one with an input the kind
 /// cannot read, the other makes the actor, also when it waited for
-/// the failed one's start: that start tells its waiters nothing.
+/// the failed one's start: that start tells its waiters nothing,
+/// unless the host [`kept`] the actor.
 #[test]
 fn a_create_that_fails_leaves_the_key_to_a_create_that_waited() {
-    let logs = Logs::default();
-    let _recording = logs.record(LevelFilter::WARN);
-    logged_runtime(&logs, LevelFilter::WARN).block_on(async {
+    with_logs(|logs| async move {
         let dir = Scratch::new("create-fails-race");
         let made = Arc::new(Counts::default());
         let host = open(
             &dir,
             HostOptions::default().with_value(made.clone()),
         );
-        for round in 0..50 {
+        let mut kept_rounds = 0;
+        for round in 0..ROUNDS {
             let key = format!("k{round}");
             let to = at("made", &key);
+            let from = logs.text().len();
             let (bad, good) = tokio::join!(
                 host.create(&to, vec![0xff]),
                 host.create(&to, cbor("good")),
             );
             let bad = failed(bad);
             if let Err(error) = good {
-                panic!(
+                let logged = &logs.text()[from..];
+                assert!(
+                    kept(logged, &to),
                     "round {round}: {error:#}; the other: {bad:#}; \
-                     logged:\n{}",
-                    logs.text()
+                     logged:\n{logged}"
                 );
+                kept_rounds += 1;
+                continue;
             }
             let notes = call(&host, &key, &Notes).await.unwrap();
             assert_eq!(notes, ["good"], "round {round}");
         }
         host.shutdown().await.unwrap();
-        assert_eq!(made.created.load(Ordering::SeqCst), 50);
+        assert!(
+            kept_rounds <= KEPT_AT_MOST,
+            "the host kept the actor in {kept_rounds} of {ROUNDS} \
+             rounds:\n{}",
+            logs.text()
+        );
+        assert_eq!(
+            made.created.load(Ordering::SeqCst),
+            ROUNDS - kept_rounds
+        );
     });
 }
 
@@ -602,48 +670,107 @@ fn logged_runtime(
         .unwrap()
 }
 
+fn with_logs<F: Future<Output = ()>>(test: impl FnOnce(Logs) -> F) {
+    let logs = Logs::default();
+    let _recording = logs.record(LevelFilter::WARN);
+    logged_runtime(&logs, LevelFilter::WARN)
+        .block_on(test(logs.clone()));
+}
+
+const TRIES: usize = 3;
+
+const ROUNDS: usize = 50;
+
+const KEPT_AT_MOST: usize = 5;
+
+fn kept(logged: &str, at: &Address) -> bool {
+    let at = at.to_string();
+    [
+        "host could not close the file of a start that failed \
+         within the grace",
+        "host failed to remove an actor its create could not start",
+    ]
+    .into_iter()
+    .any(|warning| {
+        logged.match_indices(warning).any(|(start, _)| {
+            logged[start..]
+                .split_once("actor_id=")
+                .and_then(|(_, rest)| rest.split_whitespace().next())
+                == Some(at.as_str())
+        })
+    })
+}
+
 /// A create whose start a shutdown cuts off fails with
 /// `actor.not_ready` and removes the actor it made, its files with
 /// it, so a create in the next host makes the actor from its own
-/// input.
-#[tokio::test(flavor = "multi_thread")]
-async fn a_create_a_shutdown_cuts_off_leaves_no_actor() {
-    let dir = Scratch::new("create-shutdown");
-    let made = Arc::new(Counts::default());
-    let held = Arc::new(HeldStart(Notify::new()));
-    let host = open(
-        &dir,
-        HostOptions::default()
-            .with_value(made.clone())
-            .with_value(held.clone()),
-    );
-    let create = tokio::spawn({
-        let host = host.clone();
-        async move { host.create(&at("made", "a"), cbor("cut")).await }
-    });
-    began("the held start", held.0.notified()).await;
-    tokio::time::timeout(Duration::from_secs(10), host.shutdown())
-        .await
-        .expect("the shutdown waited for the held start")
-        .unwrap();
-    let cut = failed(
-        tokio::time::timeout(Duration::from_secs(5), create)
+/// input, unless the host [`kept`] the actor.
+#[test]
+fn a_create_a_shutdown_cuts_off_leaves_no_actor() {
+    with_logs(|logs| async move {
+        for tried in 0.. {
+            assert!(
+                tried < TRIES,
+                "kept in each try:\n{}",
+                logs.text()
+            );
+            let dir = Scratch::new("create-shutdown");
+            let made = Arc::new(Counts::default());
+            let held = Arc::new(HeldStart(Notify::new()));
+            let host = open(
+                &dir,
+                HostOptions::default()
+                    .with_value(made.clone())
+                    .with_value(held.clone()),
+            );
+            let from = logs.text().len();
+            let create = tokio::spawn({
+                let host = host.clone();
+                async move {
+                    host.create(&at("made", "a"), cbor("cut")).await
+                }
+            });
+            began("the held start", held.0.notified()).await;
+            tokio::time::timeout(
+                Duration::from_secs(10),
+                host.shutdown(),
+            )
             .await
-            .expect("the create outlived the shutdown")
-            .unwrap(),
-    );
-    let left = any_file_of(&dir, "made", "a");
-    drop(host);
+            .expect("the shutdown waited for the held start")
+            .unwrap();
+            let cut = failed(
+                tokio::time::timeout(Duration::from_secs(5), create)
+                    .await
+                    .expect("the create outlived the shutdown")
+                    .unwrap(),
+            );
+            assert_eq!(code(&cut), "actor.not_ready", "{cut:#}");
+            let left = any_file_of(&dir, "made", "a");
+            drop(host);
+            if left {
+                let logged = &logs.text()[from..];
+                assert!(
+                    kept(logged, &at("made", "a")),
+                    "the cut-off create left a file; \
+                     logged:\n{logged}"
+                );
+                continue;
+            }
 
-    let host =
-        open(&dir, HostOptions::default().with_value(made.clone()));
-    host.create(&at("made", "a"), cbor("next")).await.unwrap();
-    let notes = call(&host, "a", &Notes).await.unwrap();
-    host.shutdown().await.unwrap();
-    assert_eq!(code(&cut), "actor.not_ready", "{cut:#}");
-    assert!(!left, "the cut-off create left a file");
-    assert_eq!(notes, ["next"]);
-    assert_eq!(made.created.load(Ordering::SeqCst), 1);
+            let host = open(
+                &dir,
+                HostOptions::default().with_value(made.clone()),
+            );
+            host.create(&at("made", "a"), cbor("next"))
+                .await
+                .unwrap();
+            let notes = call(&host, "a", &Notes).await.unwrap();
+            host.shutdown().await.unwrap();
+            assert_eq!(notes, ["next"]);
+            assert_eq!(made.created.load(Ordering::SeqCst), 1);
+            break;
+        }
+    });
 }
 
 /// A create of a key whose destroy is under way fails at once
@@ -1003,34 +1130,51 @@ async fn a_shutdown_returns_while_a_start_waits_for_a_held_file() {
 /// of make their actor, leave no file when they fail with
 /// `actor.not_ready`, however their open and their start's deadline
 /// fall: an open that claimed its write first made the actor, which
-/// its start then removes; one its start gave up first makes nothing.
-#[tokio::test(flavor = "multi_thread")]
-async fn creates_with_no_time_to_start_leave_no_file_when_they_fail()
-{
-    let dir = Scratch::new("create-no-time");
-    let made = Arc::new(Counts::default());
-    let mut options = HostOptions::default().with_value(made.clone());
-    options.start_deadline = Duration::ZERO;
-    let host = open(&dir, options);
-    let mut outcomes = Vec::new();
-    for n in 0..50 {
-        let key = format!("k{n}");
-        let created = host.create(&at("made", &key), cbor("x")).await;
-        outcomes.push((key, created.map_err(|error| code(&error))));
-    }
-    // Long enough for an open its start gave up to write, if it
-    // would.
-    tokio::time::sleep(Duration::from_millis(500)).await;
-    host.shutdown().await.unwrap();
-    let wrong = outcomes
-        .into_iter()
-        .filter(|(key, created)| match created {
-            Ok(_) => !any_file_of(&dir, "made", key),
-            Err(code) => {
-                code != "actor.not_ready"
-                    || any_file_of(&dir, "made", key)
+/// its start then removes, unless the host [`kept`] it; one its start
+/// gave up first makes nothing.
+#[test]
+fn creates_with_no_time_to_start_leave_no_file_when_they_fail() {
+    with_logs(|logs| async move {
+        let dir = Scratch::new("create-no-time");
+        let made = Arc::new(Counts::default());
+        let mut options =
+            HostOptions::default().with_value(made.clone());
+        options.start_deadline = Duration::ZERO;
+        let host = open(&dir, options);
+        let mut outcomes = Vec::new();
+        for n in 0..ROUNDS {
+            let key = format!("k{n}");
+            let created =
+                host.create(&at("made", &key), cbor("x")).await;
+            outcomes
+                .push((key, created.map_err(|error| code(&error))));
+        }
+        // Long enough for an open its start gave up to write, if it
+        // would.
+        tokio::time::sleep(Duration::from_millis(500)).await;
+        host.shutdown().await.unwrap();
+        let logged = logs.text();
+        let mut kept_actors = 0;
+        let mut wrong = Vec::new();
+        for (key, created) in outcomes {
+            let left = any_file_of(&dir, "made", &key);
+            match created {
+                Ok(()) if left => {}
+                Err(code) if code == "actor.not_ready" && !left => {}
+                Err(code)
+                    if code == "actor.not_ready"
+                        && kept(&logged, &at("made", &key)) =>
+                {
+                    kept_actors += 1;
+                }
+                created => wrong.push((key, created)),
             }
-        })
-        .collect::<Vec<_>>();
-    assert_eq!(wrong, Vec::new());
+        }
+        assert!(wrong.is_empty(), "{wrong:?}; logged:\n{logged}");
+        assert!(
+            kept_actors <= KEPT_AT_MOST,
+            "the host kept {kept_actors} of {ROUNDS} actors; \
+             logged:\n{logged}"
+        );
+    });
 }

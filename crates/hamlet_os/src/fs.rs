@@ -2,6 +2,7 @@
 //! time without following a link at that name.
 
 mod error;
+mod folder;
 mod mode;
 mod name;
 pub mod path;
@@ -13,6 +14,9 @@ use std::io;
 use std::path::Path;
 
 pub use self::error::{SystemError, system_error};
+pub use self::folder::{
+    Folder, Found, Listed, NotLone, Outside, Walked,
+};
 pub use self::mode::Mode;
 pub use self::name::{BadName, Name, TreePath};
 use self::sys::{Os, System as _};

@@ -27,6 +27,8 @@ scc.workspace = true
 hamlet_actor_error.workspace = true
 hamlet_actor_core.workspace = true
 hamlet_host.workspace = true
+hamlet_os.workspace = true
+regex.workspace = true
 
 [build-dependencies]
 napi-build = "2"
