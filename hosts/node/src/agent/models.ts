@@ -30,6 +30,7 @@ import {
 } from "@earendil-works/pi-durable";
 import { withHarness } from "../pi/runtime.ts";
 import { type AgentContext, generationOf } from "./actor.ts";
+import { PROVIDER as CLAUDE } from "./claude.ts";
 import type { ReadCopies } from "./copies.ts";
 import {
     type CredentialAnswer,
@@ -122,8 +123,8 @@ export function withheld(text: string): string {
 export interface Keys {
     /**
      * The key a request to `provider` carries, `undefined` for the faux
-     * models. Without one it throws, so no key from the host's environment
-     * is used.
+     * models and for `claude`. Without one it throws, so no key from the
+     * host's environment is used.
      */
     of(provider: string): Promise<string | undefined>;
 }
@@ -196,7 +197,10 @@ export function keysOf(
                 // A refusal or a failed call is asked again at the next request.
                 asking.catch(() => asked.delete(provider));
             }
-            return keyOf(provider, await asking);
+            const kept = await asking;
+            // The Claude program signs in itself; the realm's credential only marks that it did.
+            if (provider === CLAUDE) return undefined;
+            return keyOf(provider, kept);
         },
     };
 }
