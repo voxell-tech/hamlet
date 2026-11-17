@@ -520,9 +520,8 @@ async function wake(c: AgentContext, config: AgentConfig): Promise<void> {
 const BRIEF_ID = "brief";
 
 /**
- * A worker's or an errand's one turn. Each wake admits it again under
- * `BRIEF_ID`, so a call a kill cut off is made again and the turn never
- * runs twice.
+ * Each wake admits a worker's or an errand's one turn again under `BRIEF_ID`,
+ * so a call a kill cut off is made again and the turn never runs twice.
  */
 async function briefTurn(
     c: AgentContext,

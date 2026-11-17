@@ -126,7 +126,6 @@ function cutOffTask(tell: TellFailed) {
                     context,
                     { at: task.input.answer },
                 );
-                // Counts the messages before the answer: one is no history.
                 const spoken = view.messages.filter(
                     (message) => message.role !== "system",
                 ).length;

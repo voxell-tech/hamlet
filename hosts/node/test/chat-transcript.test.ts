@@ -231,7 +231,7 @@ test("a client reading after a gap misses nothing", async (t) => {
     assert.equal(again.working, false);
     assert.equal(again.pending, 0);
 
-    // What the client missed is what the events carried.
+    // The events carried what the client missed.
     const followed = new Followed(CHIEF, first);
     for (const event of chatEvents(agent)) {
         assert.ok(followed.take(event), `event ${event.number} applies`);

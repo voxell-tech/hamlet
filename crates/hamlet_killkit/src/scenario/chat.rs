@@ -315,8 +315,8 @@ pub const SCENARIOS: &[Scenario] = &[
             "pi pid",
             "pi refuse on",
             "pi say 1 hello",
-            // No charge comes: this waits out the 10 s the refused
-            // turn takes to fail.
+            // No charge comes: this waits out its 10 s, far past the
+            // refused turn's failure.
             "pi charges 1 1 10000",
             "pi refuse off",
         ],

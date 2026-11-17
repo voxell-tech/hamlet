@@ -354,17 +354,14 @@ async function lineAt(
 }
 
 /**
- * How the words of `workspace-tools.ts`'s `run` and `waits` and of
- * `society.ts`'s `ask` end: nothing else in a result says its end comes
- * later as an input.
+ * The ending of `workspace-tools.ts`'s `run` and `waits` and `society.ts`'s
+ * `ask` results: no other result says its end comes later as an input.
  */
 const ENDS_LATER = " arrives as a new input.";
 
 /**
- * Whether a call `conversation` made is out: a command or a wait for a chief
- * whose `finished` was not admitted, or a question with no answer. An answer
- * names no question, so questions are counted. An entry a fork inherited is
- * left out: its call's end goes to the conversation that made it.
+ * Whether a command or a wait for a chief `conversation` made has no admitted
+ * `finished`, or a question it asked no answer.
  */
 async function callIsOut(
     harness: Harness,
@@ -377,7 +374,9 @@ async function callIsOut(
     do {
         const page = await kept?.entries({}, 100, cursor, context);
         for (const entry of page?.items ?? []) {
+            // A call a fork inherited ends in the conversation that made it.
             if (entry.conversationId !== conversation) continue;
+            // An answer names no question, so questions are counted.
             if (entry.kind === "hamlet.answer") unanswered -= 1;
             const result = entry.model?.[0];
             if (

@@ -169,7 +169,7 @@ export function failedTurns(
     withHarness: WithHarness,
     tell: TellFailed,
 ): FailedTurns {
-    // What each request's task answered with last, until its run ends: the
+    // Each request's task's last answer, until its run ends: the
     // error item an error leaves already shows its words.
     const answered = new Map<TaskId, "unsent" | "error">();
     const extension = defineExtension({

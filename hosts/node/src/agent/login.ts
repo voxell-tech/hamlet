@@ -159,7 +159,7 @@ class SignIn {
               readonly answer: (value: string) => void;
           }
         | undefined;
-    /** What the chief typed, scrubbed from this sign-in's failure. */
+    /** The chief's typed answers, scrubbed from this sign-in's failure. */
     readonly #answers: string[] = [];
     #end: End | undefined;
     #changed = Promise.withResolvers<void>();
@@ -222,9 +222,8 @@ class SignIn {
     }
 
     /**
-     * The next step the flow gave, or its end with the credential kept. With
-     * nothing new in time, the step given last again, or, before the first, a
-     * failure that ends the sign-in.
+     * With nothing new in time, the step given last again, or, before the
+     * first, a failure that ends the sign-in.
      */
     async next(login: string, keep: Keep): Promise<LoginAnswer> {
         // Scrubbed as it goes out, since a step can quote a typed answer.

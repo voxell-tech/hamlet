@@ -716,9 +716,8 @@ const WRITTEN: readonly Written[] = [
         },
     },
     {
-        // A subscription to `anthropic` is not signed in to, but a login the
-        // realm holds is rotated, and its expiry has passed. A rotation runs
-        // once in the host, so only this test reads that answer.
+        // The realm's expired login is rotated. A rotation runs once in the
+        // host, so only this test reads that answer.
         fixture: "realm/keep_credential.oauth",
         drive: async (t, calls) => {
             const keysSeen: (string | undefined)[] = [];

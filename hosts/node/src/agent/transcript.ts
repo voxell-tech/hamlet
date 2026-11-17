@@ -192,9 +192,8 @@ function conversationOfChange(
 }
 
 /**
- * A change to a conversation no fold follows: a past session's readers
- * read again, and a session made current since the attach is folded from
- * here on, its readers reading again too.
+ * A past session's readers read again; a session made current since the
+ * attach is folded from here on, and its readers read again too.
  */
 function changed(
     c: AgentContext,
@@ -242,9 +241,8 @@ function reopened(c: AgentContext, follow: Following, watch: Watch): void {
 }
 
 /**
- * The fold of a conversation the watches follow. A conversation made
- * after the attach is sent whole; any other starts from its view when
- * first folded, which a client reading in this epoch already has.
+ * A conversation made after the attach is sent whole; any other starts from
+ * its view when first folded, which a client reading in this epoch has.
  */
 function foldOf(
     c: AgentContext,
