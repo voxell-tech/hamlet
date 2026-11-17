@@ -135,7 +135,7 @@ fn web_chip(
         State::Loading => note("Fetching...").boxed(),
         _ => {
             let address = address.to_string();
-            action(Glyph::Eye, "Show picture", move |world| {
+            action(Glyph::Eye, "Show Picture", move |world| {
                 fetch(world, &address);
             })
         }
