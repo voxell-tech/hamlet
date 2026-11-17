@@ -12,9 +12,12 @@ import {
     defineExtension,
     defineTask,
     type EntryId,
+    type EntryRecord,
     type Extension,
     GenerationTask,
+    type HookApi,
     hook,
+    type RunSummary,
     runEndTask,
     type TaskId,
     type TaskRuntime,
@@ -22,12 +25,11 @@ import {
 import type { RealmTask } from "./messages.ts";
 import { draftOf } from "./turn.ts";
 
-/** A fifth of the window is kept for the answer (`harnesses/pi/src/models.ts:24`). */
+/** Today's, in `harnesses/pi/src/models.ts` and `runtime.ts`. */
 const ANSWER_SHARE = 0.2;
-/** Background compaction starts a tenth of the window before it blocks. */
 const BACKGROUND_SHARE = 0.1;
 
-/** As today's `harnesses/pi/src/runtime.ts:88-95`, per listed model. */
+/** Compaction sized by each model's window. */
 export function compactionFor(
     models: readonly Model<Api>[],
 ): CompactionSettings {
@@ -49,7 +51,7 @@ export function compactionFor(
     };
 }
 
-/** The fewest output tokens an answer cut off for its own length has (`verdicts.rs:31`). */
+/** Today's rule and words, in `crates/hamlet_server/src/talk/verdicts.rs`. */
 const ROOMY = 1024;
 
 /**
@@ -60,7 +62,6 @@ const ASKED_AGAIN = "hamlet.cut-off";
 
 const NOTICE = "hamlet.notice";
 
-/** Today's words, `crates/hamlet_server/src/talk/verdicts.rs:18-29` and `:86-97`. */
 const NO_ROOM =
     "the model has no room left to answer, even with the conversation summarised. Start a new session, or choose a model that holds more";
 const NO_SUMMARY =
@@ -68,16 +69,15 @@ const NO_SUMMARY =
 const TOO_LONG = "the message is longer than the model can hold";
 const SUMMARY_FAILED = "Summarization failed: ";
 
-/** Today's retry input, `crates/hamlet_server/src/talk/chats.rs:412`. */
+/** Today's retry input, in `crates/hamlet_server/src/talk/chats.rs`. */
 const CARRY_ON = "Carry on from where you stopped.";
 
-type CutOffInput = { first: EntryId; answer: EntryId };
+type CutOffInput = { input: EntryId; answer: EntryId };
 
 type CutOffState =
     | { phase: "rule" }
     | { phase: "summarised"; summary: TaskId<CompactionResult> };
 
-/** As `verdicts.rs:50-58` and `:71-75`. */
 function cutOffShort(answer: AssistantMessage): boolean {
     const stands = answer.content.some(
         (block) =>
@@ -99,8 +99,8 @@ const CutOff = defineTask<CutOffInput, CutOffState, null>({
     initial: () => ({ phase: "rule" }),
     phases: {
         rule: async (task, runtime, context) => {
-            const first = await runtime.entry(task.input.first, context);
-            if (first?.kind === ASKED_AGAIN) {
+            const input = await runtime.entry(task.input.input, context);
+            if (input?.kind === ASKED_AGAIN) {
                 return notice(runtime, NO_ROOM, context);
             }
             const view = await runtime.context(
@@ -149,8 +149,8 @@ const CutOff = defineTask<CutOffInput, CutOffState, null>({
                     context,
                 );
             }
-            const first = await runtime.entry(task.input.first, context);
-            const charged = (first?.data as { task?: RealmTask } | null)?.task;
+            const input = await runtime.entry(task.input.input, context);
+            const charged = (input?.data as { task?: RealmTask } | null)?.task;
             const asked = draftOf({
                 id: `cut-off:${runtime.taskId}`,
                 kind: "retry",
@@ -180,7 +180,6 @@ const CutOff = defineTask<CutOffInput, CutOffState, null>({
         ),
 });
 
-/** The turn fails with `words`, shown when the run ends. */
 async function notice(
     runtime: TaskRuntime<CutOffInput, CutOffState, null, object>,
     words: string,
@@ -205,6 +204,27 @@ async function notice(
     }, context);
 }
 
+/**
+ * The entry of the input the run answers. A write placed with it, such as
+ * a notice, can come first.
+ */
+async function inputOf(
+    api: Pick<HookApi, "entries">,
+    run: RunSummary,
+    context: Context,
+): Promise<EntryRecord | undefined> {
+    const page = await api.entries(
+        { minEntryId: run.first, maxEntryId: run.answer, order: "ascending" },
+        20,
+        undefined,
+        context,
+    );
+    return page.items.find(
+        (entry) =>
+            entry.kind.startsWith("hamlet.") && entry.model !== undefined,
+    );
+}
+
 export function cutOff(): Extension {
     return defineExtension({
         name: "hamlet.cut-off",
@@ -217,13 +237,18 @@ export function cutOff(): Extension {
                     if (answer?.role !== "assistant" || !cutOffShort(answer)) {
                         return undefined;
                     }
+                    const input = await inputOf(api, run, context);
                     // Today's rule leaves a reflection's empty answer to C29.
-                    const first = await api.entry(run.first, context);
-                    if (first?.kind === "hamlet.reflection") return undefined;
+                    if (
+                        input === undefined ||
+                        input.kind === "hamlet.reflection"
+                    ) {
+                        return undefined;
+                    }
                     return {
                         tasks: [
                             runEndTask(CutOff, {
-                                first: run.first,
+                                input: input.id,
                                 answer: run.answer,
                             }),
                         ],

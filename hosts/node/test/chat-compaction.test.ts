@@ -16,8 +16,9 @@ import {
     until,
     type Woken,
     wakeAgent,
+    within,
 } from "./agent-testing.ts";
-import { fauxModels } from "./testing.ts";
+import { context, fauxModels } from "./testing.ts";
 
 const SUMMARY = "Lines 1 and 2 asked for words.";
 
@@ -267,4 +268,79 @@ test("a kill while the summary is out compacts once and asks again once", async 
         1,
     );
     assert.equal(entries.at(-1)?.text, "Four.");
+});
+
+test("an input that asks again after a queued line fails at a second cut-off", async (t) => {
+    const released = Promise.withResolvers<void>();
+    const run = script(
+        [
+            fauxAssistantMessage("One."),
+            fauxAssistantMessage("Two."),
+            fauxAssistantMessage("Three."),
+            cutOffShort(),
+            fauxAssistantMessage("Five."),
+            cutOffShort(),
+        ],
+        () => released.promise,
+    );
+    const { calls } = fakeCalls({});
+    const agent = await wakeAgent(t, { calls, responses: run.steps });
+    for (const n of [1, 2, 3]) await say(agent, n, long(n));
+
+    await agent.actions.submit(agent.by(from.realm), {
+        id: "input-4",
+        task: "task-4",
+        input: { type: "line", text: "Line 4. Answer now." },
+    });
+    await until(() => run.summaries === 1);
+    await agent.actions.submit(agent.by(from.realm), {
+        id: "input-5",
+        task: "task-5",
+        input: { type: "line", text: "Line 5. And this." },
+    });
+    released.resolve();
+    await agent.idle();
+
+    assert.equal(run.summaries, 1);
+    assert.equal(run.asked.length, 6);
+    assert.equal(run.asked[4]?.at(-1), "Line 5. And this.");
+    assert.equal(run.asked[5]?.at(-1), CARRY_ON);
+    const notices = (await agent.entries()).filter(
+        (entry) => entry.kind === "hamlet.notice",
+    );
+    assert.equal(notices.length, 1);
+});
+
+test("a stop while the summary is out asks nothing again", async (t) => {
+    const run = script(
+        [
+            fauxAssistantMessage("One."),
+            fauxAssistantMessage("Two."),
+            fauxAssistantMessage("Three."),
+            cutOffShort(),
+        ],
+        () => new Promise(() => {}),
+    );
+    const { calls } = fakeCalls({});
+    const agent = await wakeAgent(t, { calls, responses: run.steps });
+    for (const n of [1, 2, 3]) await say(agent, n, long(n));
+
+    await agent.actions.submit(agent.by(from.realm), {
+        id: "input-4",
+        task: "task-4",
+        input: { type: "line", text: "Line 4. Answer now." },
+    });
+    await until(() => run.summaries === 1);
+    const root = await (await agent.harness()).root(context);
+    // A stop ends in milliseconds; a hang waits for a summary that never comes.
+    assert.equal(
+        await within(root.abort(context), 5_000, "the stop hung"),
+        undefined,
+    );
+
+    assert.equal(run.asked.length, 4);
+    const kinds = (await agent.entries()).map((entry) => entry.kind);
+    assert.ok(!kinds.includes("pi.compaction"));
+    assert.ok(!kinds.includes("hamlet.cut-off"));
+    assert.ok(!kinds.includes("hamlet.notice"));
 });
