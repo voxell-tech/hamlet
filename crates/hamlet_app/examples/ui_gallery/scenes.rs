@@ -183,7 +183,8 @@ pub enum Scene {
     /// A long chat with a turn's steps unfolded.
     Chat,
     /// An agent's chat with the chief, the mayor and other agents in
-    /// it: the earlier messages summarized, a letter, a worker and a
+    /// it: the earlier messages summarized, a notification, a worker
+    /// and a
     /// line that waits its turn.
     Group,
     /// A chat with links of every kind in it, the pointer on one.

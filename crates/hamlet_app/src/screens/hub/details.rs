@@ -1,8 +1,7 @@
 //! The details sheet beside a thread: what only it shows of the
-//! agent. Its kind, lead and hires are in the path and the rail, its
-//! model in the composer and its sessions and side chats in the
-//! session menu, so they are not repeated here. Its scholar is named
-//! over the version of it the agent works from.
+//! agent. Its kind, lead and hires are in the path and the rail, and
+//! its model in the composer, so they are not repeated here. Its
+//! scholar is named over the version of it the agent works from.
 
 use bevy::ecs::entity::Entity;
 use bevy::ecs::world::World;

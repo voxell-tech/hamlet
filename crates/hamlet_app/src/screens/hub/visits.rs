@@ -144,9 +144,9 @@ fn travel(world: &mut World, way: Way) {
     let Some(next) = next else {
         return;
     };
-    // The world's ring moves with it. A page of an agent's sessions
-    // or prompt leaves the ring where it is, as selecting the agent
-    // would turn the Hub to its chat.
+    // The world's ring moves with it. An agent's prompt page leaves
+    // the ring where it is, as selecting the agent would turn the Hub
+    // to its chat.
     if let Some(thing) = thing_of(world, &next)
         && world.resource::<Selected>().0 != thing
     {

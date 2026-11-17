@@ -596,7 +596,7 @@ fn chips(agent: Entity) -> impl View {
     })
 }
 
-/// The session and the agent the chat is with.
+/// The chat shown and the agent it is with.
 fn seated() -> Signal<(Entity, Entity)> {
     resource::<Convo, _>(|convo| (convo.session, convo.agent))
 }
