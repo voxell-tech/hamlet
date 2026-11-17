@@ -27,7 +27,7 @@ use bevy_fynix::views::{
 };
 use bevy_fynix::{
     Prop, ReducedMotion, ScopedExt, Signal, ViewExt, Visual, derived,
-    each, every_frame, resource, style,
+    each, resource, style,
 };
 use hamlet_client::messages::{Answer, Response, ServerFault};
 use hamlet_client::outbox::RequestId;
@@ -49,7 +49,7 @@ use hamlet_ui::widgets::icons::Glyph;
 use hamlet_ui::{AnyView, Cx, View, kinds, rules, with_cx};
 
 use crate::hub::Showing;
-use crate::models::model_title;
+use crate::models::{Shelf, model_title};
 use crate::screens::petition::{self, Need, Pending, answers};
 use crate::standing::Standing;
 use crate::updates::{self, Offer, Ready};
@@ -710,7 +710,7 @@ fn card(toast: &Toast) -> AnyView {
                 let head = derived(move |world: &World| {
                     setup_head(world, id)
                 })
-                .when(every_frame());
+                .when(head_moved(id));
                 let line = match (setup.cause, setup.model.is_empty())
                 {
                     (SetupCause::Model, true) => {
@@ -1013,6 +1013,37 @@ fn setup_head(world: &World, id: u64) -> String {
         return format!("{who} {has} no model");
     }
     format!("{who} can't use {}", model_title(world, &setup.model))
+}
+
+/// Whether the head of the setup toast `id` may say something else:
+/// its waits, the realm or the models changed.
+fn head_moved(
+    id: u64,
+) -> impl FnMut(&World) -> bool + Send + Sync + 'static {
+    let mut seen = None;
+    move |world: &World| {
+        let waits = match world
+            .get_resource::<Toasts>()
+            .and_then(|toasts| toasts.get(id))
+            .map(|toast| &toast.what)
+        {
+            Some(What::Setup { waits, .. }) => waits.len(),
+            _ => 0,
+        };
+        let realm = world
+            .get_resource_change_ticks::<Seen>()
+            .map(|ticks| ticks.changed);
+        let models = world
+            .get_resource_change_ticks::<Shelf>()
+            .map(|ticks| ticks.changed);
+        // A write with no system run since gets the tick already
+        // seen.
+        let now = world.read_change_tick();
+        let open = realm == Some(now) || models == Some(now);
+        let moved = open || seen != Some((waits, realm, models));
+        seen = Some((waits, realm, models));
+        moved
+    }
 }
 
 /// Answers every fault of the setup toast `id` with Dismiss, and
