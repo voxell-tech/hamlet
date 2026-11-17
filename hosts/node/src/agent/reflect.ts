@@ -130,6 +130,12 @@ export function owedOf(withHarness: WithHarness): Owed {
                     context,
                 );
                 for (const entry of page.items) {
+                    // A fork reads its parent's entries, reflections too,
+                    // but none of its parent's submissions.
+                    if (entry.kind === "hamlet.reflection") {
+                        turns = 0;
+                        open = false;
+                    }
                     if (CHIEF_TURNS.has(entry.kind)) open = true;
                     if (entry.kind !== "pi.assistant") continue;
                     const stop = (
