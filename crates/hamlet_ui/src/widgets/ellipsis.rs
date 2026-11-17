@@ -209,6 +209,7 @@ fn fit(
             &mut Text,
             &mut Ellipsis,
             Ref<TextFont>,
+            &mut Node,
             &ComputedNode,
             &ComputedTextBlock,
             &mut TextLayoutInfo,
@@ -221,8 +222,15 @@ fn fit(
         )>,
     >,
 ) {
-    for (mut text, mut ellipsis, font, node, block, mut info) in
-        &mut texts
+    for (
+        mut text,
+        mut ellipsis,
+        font,
+        mut ui,
+        node,
+        block,
+        mut info,
+    ) in &mut texts
     {
         // Its stops hold for one text in one font at one scale.
         if text.0 != ellipsis.shown
@@ -250,6 +258,22 @@ fn fit(
             if ellipsis.dots.is_none() {
                 ellipsis.dots = dots_width(layout, &ellipsis.shown);
             }
+        }
+        // The node asks for the whole text's width, not its cut's, so
+        // it grows again when its parent gives it more room.
+        let width = match ellipsis.stops.last() {
+            Some(&(_, whole)) => {
+                let chrome =
+                    node.size().x - node.content_box().width();
+                Val::Px(
+                    (whole + chrome + 1.0).ceil()
+                        * node.inverse_scale_factor(),
+                )
+            }
+            None => Val::Auto,
+        };
+        if ui.width != width {
+            ui.width = width;
         }
         let room = node.content_box().width();
         if !ellipsis.stops.is_empty() && room > 0.0 {
@@ -308,8 +332,8 @@ mod tests {
     }
 
     #[test]
-    fn a_new_label_too_wide_shows_within_its_room_from_its_first_frame()
-     {
+    fn a_label_shows_within_its_room_from_its_first_frame_and_refits()
+    {
         use bevy::asset::{AssetApp, AssetPlugin};
         use bevy::camera::{
             Camera, Camera2d, ComputedCameraValues, RenderTargetInfo,
@@ -385,5 +409,18 @@ mod tests {
         };
         drawn(&mut app);
         assert!(drawn(&mut app).ends_with(DOTS));
+
+        // It refits when its room widens, and is cut again when it
+        // narrows.
+        let resize = |app: &mut App, width: f32| {
+            app.world_mut().get_mut::<Node>(room).unwrap().width =
+                px(width);
+            (0..4).map(|_| drawn(app)).last().unwrap()
+        };
+        assert_eq!(
+            resize(&mut app, 1000.0),
+            "A name much wider than its room"
+        );
+        assert!(resize(&mut app, 60.0).ends_with(DOTS));
     }
 }
