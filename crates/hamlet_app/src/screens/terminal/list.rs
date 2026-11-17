@@ -500,7 +500,7 @@ pub(super) fn side(panel: &PanelId) -> impl View + use<> {
         let first = cx.theme().terminal.list;
         column((
             row((
-                row((caption("TERMINALS".to_string(), Tone::Faint),))
+                row((caption("Terminals".to_string(), Tone::Faint),))
                     .grow(1.0),
                 button(glyph(Glyph::Plus, ICON).tone(Tone::Dim))
                     .padding(UiRect::all(px(4.0)))
@@ -699,7 +699,7 @@ fn heading(
 ) -> impl View + use<> {
     let panel = panel.clone();
     let key = group.key.clone();
-    let title = group.title.to_uppercase();
+    let title = group.title.clone();
     let home = group.key.is_empty();
     with_cx(move |cx| {
         let space = &cx.theme().space;

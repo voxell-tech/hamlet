@@ -31,8 +31,7 @@ use bevy::input_focus::{FocusCause, InputFocus};
 use bevy::picking::Pickable;
 use bevy::ui::widget::Text;
 use bevy::ui::{
-    AlignItems, Node, Outline, Overflow, PositionType, UiRect,
-    percent, px,
+    AlignItems, Outline, Overflow, PositionType, UiRect, percent, px,
 };
 use bevy_fynix::dock::{DockTab, DockTree, DockWindowKind};
 use bevy_fynix::tokens::Tone;
@@ -113,16 +112,11 @@ fn window(id: &str) -> DockWindowKind<HamletTheme> {
 }
 
 /// The name of a Terminal panel, and of its tab while it shows none.
-const TITLE: &str = "TERMINAL";
+const TITLE: &str = "Terminal";
 
-/// The letters a Terminal panel's tab holds: its name is cut to them
-/// with an ellipsis, and the tab is as wide as them whatever it
-/// shows, so it does not jump as commands of other lengths run.
-const TAB_LETTERS: usize = 32;
-
-/// The width of a letter of a tab's name, in ems of the body size:
-/// a little over the display face's capitals, on average.
-const TAB_LETTER_EM: f32 = 0.58;
+/// The most letters of a terminal's name a Terminal panel's tab
+/// shows.
+const TAB_LETTERS: usize = 20;
 
 /// Whether the dock window `id` is a Terminal panel.
 fn is_panel(id: &str) -> bool {
@@ -178,15 +172,12 @@ fn name_tabs(
     tree: Option<Res<DockTree>>,
     panels: Res<Panels>,
     listed: Res<Listed>,
-    theme: Option<Res<Theme<HamletTheme>>>,
     children: Query<&Children>,
-    mut texts: Query<(&mut Text, &mut Node)>,
+    mut texts: Query<&mut Text>,
 ) {
-    let (Some(tree), Some(theme)) = (tree, theme) else {
+    let Some(tree) = tree else {
         return;
     };
-    let width =
-        px(TAB_LETTERS as f32 * TAB_LETTER_EM * theme.0.text.body);
     for (node, tab) in &tabs {
         let Some(window) = tree.leaf(tab.leaf).and_then(|leaf| {
             leaf.tabs()
@@ -208,30 +199,23 @@ fn name_tabs(
         else {
             continue;
         };
-        let Ok((mut text, mut node)) = texts.get_mut(label) else {
+        let Ok(mut text) = texts.get_mut(label) else {
             continue;
         };
         if text.0 != name {
             text.0 = name;
         }
-        if node.width != width {
-            node.width = width;
-            node.overflow = Overflow::clip();
-        }
     }
 }
 
-/// The name of the tab of a panel showing `item`, cut to
-/// [`TAB_LETTERS`].
+/// The name of the tab of a panel showing `item`: the terminal's
+/// name, cut to [`TAB_LETTERS`]. Its last command is in the panel's
+/// heading.
 fn tab_name(item: Option<&list::Item>) -> String {
-    let name = match item {
+    match item {
         None => TITLE.to_owned(),
-        Some(item) => match &item.last {
-            Some(last) => format!("{TITLE} ({}): {last}", item.name),
-            None => format!("{TITLE} ({})", item.name),
-        },
-    };
-    list::elided(&name, TAB_LETTERS)
+        Some(item) => list::elided(&item.name, TAB_LETTERS),
+    }
 }
 
 /// Forgets the panels the dock no longer holds. One a desk still
@@ -709,10 +693,10 @@ fn heading(panel: &PanelId) -> impl View + use<> {
 fn hints(item: &list::Item) -> Vec<AnyView> {
     let mut hints = Vec::<AnyView>::new();
     if item.commands {
-        hints.push(badge("READ-ONLY", Tone::Accent).boxed());
+        hints.push(badge("Read-Only", Tone::Accent).boxed());
     }
     if let Some(code) = item.exit {
-        hints.push(badge(format!("EXIT {code}"), Tone::Dim).boxed());
+        hints.push(badge(format!("Exit {code}"), Tone::Dim).boxed());
     }
     hints
 }
@@ -769,7 +753,7 @@ fn press(
         .boxed()
 }
 
-/// Small capitals in `tone`.
+/// Small bold words in `tone`.
 fn badge(text: impl Into<String>, tone: Tone) -> impl View {
     caption(text.into(), tone)
 }
@@ -978,29 +962,6 @@ mod tests {
         forget_closed(app.world_mut());
         keep_watching(app.world_mut());
         assert_eq!(noted(&app), pairs(&[("terminal", "t1")]));
-    }
-
-    #[test]
-    fn a_tab_is_named_after_its_terminal_and_its_last_command() {
-        let item = |last: Option<&str>| list::Item {
-            terminal: Entity::PLACEHOLDER,
-            name: "zsh 3".into(),
-            owner: "chief".into(),
-            exit: None,
-            commands: false,
-            key: None,
-            last: last.map(str::to_owned),
-            running: false,
-            crumbs: Vec::new(),
-        };
-        assert_eq!(tab_name(None), "TERMINAL");
-        assert_eq!(tab_name(Some(&item(None))), "TERMINAL (zsh 3)");
-        assert_eq!(
-            tab_name(Some(&item(Some(
-                "cat notes/today.md | grep -n pears"
-            )))),
-            "TERMINAL (zsh 3): cat notes/t..."
-        );
     }
 
     #[test]
