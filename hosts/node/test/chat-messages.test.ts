@@ -42,11 +42,11 @@ test("every copies fixture reads back as itself", () => {
     }
 });
 
-test("a client's number past a safe integer names no agent and no session", () => {
+test("a client's agent number past a safe integer names no agent, and a session number keeps its value", () => {
     const [resume] = readClient.resume([
         { id: "r", number: 2n ** 63n - 1n, to: 2n ** 64n - 1n },
     ]);
-    assert.equal(resume.number, Number.POSITIVE_INFINITY);
+    assert.equal(resume.number, 2n ** 63n - 1n);
     assert.equal(resume.to, Number.POSITIVE_INFINITY);
 });
 

@@ -460,10 +460,18 @@ test("an input that arrives while the agent is busy waits, then has its own turn
             fauxAssistantMessage("Two of them."),
         ],
     });
-    await agent.actions.submit(
-        agent.by(from.realm),
-        line("input-1", "Start.", "task-1"),
-    );
+    // Both are questions from one peer, so they share its chat and the
+    // second waits for the first.
+    await agent.actions.submit(agent.by(from.realm), {
+        id: "input-1",
+        task: "task-1",
+        input: {
+            type: "question",
+            letter: 4,
+            from: { agent: 12 },
+            text: "Start.",
+        },
+    });
     await held.promise;
     // The agent is in a tool call. The question is admitted at once, and answered `null`.
     assert.equal(
@@ -490,7 +498,10 @@ test("an input that arrives while the agent is busy waits, then has its own turn
     );
     assert.deepEqual(
         named(sent, "reply").map((call) => call.message),
-        [{ question: 5, text: "Two of them." }],
+        [
+            { question: 4, text: "Told." },
+            { question: 5, text: "Two of them." },
+        ],
     );
     await agent.stop();
 });
@@ -876,17 +887,21 @@ test("a reply the realm refuses, or one that fails, is reported and leaves the r
         .filter((entry) => entry.kind === "pi.assistant")
         .map((entry) => entry.text);
     const harness = await agent.harness();
-    const root = await harness.root(context);
-    const settled = await harness.commit(
-        async (tx) =>
-            Promise.all(
-                ["input-1", "input-2", "input-3"].map(
-                    async (id) =>
-                        (await tx.submissionByRequest(root.id, id))?.status,
-                ),
-            ),
-        context,
-    );
+    const settled = await harness.commit(async (tx) => {
+        const conversations = (await tx.scanConversations({}, 100)).items;
+        return Promise.all(
+            ["input-1", "input-2", "input-3"].map(async (id) => {
+                for (const { id: conversation } of conversations) {
+                    const found = await tx.submissionByRequest(
+                        conversation,
+                        id,
+                    );
+                    if (found !== undefined) return found.status;
+                }
+                return undefined;
+            }),
+        );
+    }, context);
     await agent.stop();
 
     assert.deepEqual(
@@ -896,7 +911,8 @@ test("a reply the realm refuses, or one that fails, is reported and leaves the r
             { question: 6, text: "Three of them." },
         ],
     );
-    assert.deepEqual(answers, ["Two of them.", "Three of them.", "Done."]);
+    // The questions are answered in their peer's chat, the line in the chief's.
+    assert.deepEqual(answers, ["Done."]);
     assert.deepEqual(settled, ["done", "done", "done"]);
     assert.deepEqual(agent.reported, [
         "a reply was refused: the question is answered",

@@ -59,7 +59,7 @@ import { agentModels, configured } from "./models.ts";
 import { ownFiles } from "./own-files.ts";
 import { type PromptSources, promptPart } from "./prompt.ts";
 import { owedOf, reflectEvery, reflection } from "./reflect.ts";
-import { migrateChats } from "./sessions.ts";
+import { conversationFor, migrateChats } from "./sessions.ts";
 import { society } from "./society.ts";
 import { gated } from "./spend.ts";
 import { timers } from "./timers.ts";
@@ -67,7 +67,6 @@ import { type Following, following, watching } from "./transcript.ts";
 import {
     type Admission,
     Closing,
-    conversationOf,
     draftOf,
     type Peers,
     peersOf,
@@ -417,16 +416,12 @@ function liveHarness(c: AgentContext): WithHarness {
 
 /** Answers when the admission is committed, not when the turn ends. */
 async function submit(c: AgentCall, message: Submit): Promise<void> {
+    const id = await conversationFor(c, message.input);
     await withHarness(c, generationOf(c).options, async (harness, context) => {
-        const named =
-            message.input.type === "answer"
-                ? conversationOf(message.input.conversation)
-                : undefined;
-        const conversation =
-            (named === undefined
-                ? undefined
-                : await harness.conversation(named, context)) ??
-            (await harness.root(context));
+        const conversation = await harness.conversation(id, context);
+        if (conversation === undefined) {
+            throw new Error(`the agent has no conversation ${id}`);
+        }
         await conversation.submit(draftOf(admissionOf(message)), context);
     });
 }

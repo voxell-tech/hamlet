@@ -3,8 +3,13 @@
  * the history of sessions, and the `chat` events, numbered within the
  * wake's epoch.
  */
-import type { ConversationId, EntryRecord } from "@earendil-works/pi-durable";
-import type { AgentCall, AgentContext } from "./actor.ts";
+import type {
+    ConversationId,
+    Cursor,
+    EntryRecord,
+} from "@earendil-works/pi-durable";
+import { withHarness } from "../pi/runtime.ts";
+import { type AgentCall, type AgentContext, generationOf } from "./actor.ts";
 import type {
     ChatEvent,
     ChatItem,
@@ -13,6 +18,7 @@ import type {
     ChatRef,
     ClientActions,
     Open,
+    Session,
 } from "./messages.ts";
 
 /** The number a client follows: one more than the last change, within `epoch`. */
@@ -67,9 +73,94 @@ export function readChat(c: AgentCall, message: Open): Promise<ChatPage> {
     return Promise.reject(new Error("not built: U3"));
 }
 
-export function readHistory(
+/**
+ * The chief's sessions, newest first, each titled by its first line, as
+ * `crates/hamlet_server/src/clients/documents.rs` lists them. A session
+ * with no line yet is left out.
+ */
+export async function readHistory(
     c: AgentCall,
 ): Promise<ReturnType<ClientActions["read_history"]>> {
-    void c;
-    return Promise.reject(new Error("not built: U2"));
+    const rows = await c.db.all<{
+        session: number;
+        conversation: ConversationId;
+        began: number;
+        current: number;
+    }>(
+        "SELECT session, conversation, began, current FROM chat WHERE kind = 'chief' ORDER BY session DESC",
+    );
+    return withHarness(c, generationOf(c).options, async (harness, context) => {
+        const sessions: Session[] = [];
+        for (const row of rows) {
+            const conversation = await harness.conversation(
+                row.conversation,
+                context,
+            );
+            if (conversation === undefined) continue;
+            let first: string | undefined;
+            let messages = 0;
+            let modified = row.began;
+            let cursor: Cursor | undefined;
+            do {
+                const page = await conversation.entries(
+                    { order: "ascending" },
+                    500,
+                    cursor,
+                    context,
+                );
+                for (const entry of page.items) {
+                    for (const message of entry.model ?? []) {
+                        modified = Math.max(
+                            modified,
+                            Math.floor(message.timestamp / 1000),
+                        );
+                    }
+                    if (entry.kind === "hamlet.line") {
+                        messages += 1;
+                        const text = textOf(entry);
+                        if (first === undefined && text.trim() !== "") {
+                            first = text;
+                        }
+                    } else if (entry.kind === "pi.assistant") {
+                        messages += 1;
+                    }
+                }
+                cursor = page.next;
+            } while (cursor !== undefined);
+            if (first === undefined) continue;
+            sessions.push({
+                number: row.session,
+                began: row.began,
+                modified,
+                current: row.current === 1,
+                messages,
+                // Today's history counts no tokens either.
+                tokens: "0",
+                title: titleOf(first),
+            });
+        }
+        return { sessions };
+    });
+}
+
+function textOf(entry: EntryRecord): string {
+    return (entry.model ?? [])
+        .flatMap((message) =>
+            typeof message.content === "string"
+                ? [message.content]
+                : message.content.flatMap((part) =>
+                      part.type === "text" ? [part.text] : [],
+                  ),
+        )
+        .join("");
+}
+
+function titleOf(line: string): string {
+    const words =
+        line
+            .split("\n")
+            .find((part) => part.trim() !== "")
+            ?.trim() ?? "";
+    const chars = [...words];
+    return chars.length > 90 ? `${chars.slice(0, 90).join("")}...` : words;
 }

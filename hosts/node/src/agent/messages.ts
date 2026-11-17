@@ -706,7 +706,8 @@ export interface NewSession {
 
 export interface Resume {
     readonly id: RequestId;
-    readonly number: number;
+    /** A bigint past 2^53, which names no session but is worded as asked. */
+    readonly number: number | bigint;
     readonly to: AgentNumber;
 }
 
@@ -979,7 +980,7 @@ export const readClient: {
     })),
     resume: first(
         obj({ id: str(), number: WIDE, to: WIDE }, OPEN),
-        ({ id, number, to }) => ({ id, number: wide(number), to: wide(to) }),
+        ({ id, number, to }) => ({ id, number, to: wide(to) }),
     ),
     retry: first(obj({ id: str(), to: WIDE }, OPEN), ({ id, to }) => ({
         id,
