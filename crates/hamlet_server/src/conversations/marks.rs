@@ -88,6 +88,17 @@ pub(crate) struct From {
     pub images: Vec<String>,
 }
 
+impl From {
+    /// The images sent with it.
+    pub fn images(&self) -> Vec<AttachedImage> {
+        self.images
+            .iter()
+            .filter_map(|image| image.parse().ok())
+            .map(AttachedImage::last)
+            .collect()
+    }
+}
+
 impl Mark {
     /// The mark of the protocol's `mark`; `None` for a kind outside
     /// `hamlet.`, which the server does not make.
@@ -114,12 +125,9 @@ impl Mark {
     pub fn images(&self) -> Vec<AttachedImage> {
         match self {
             Self::Chief { images, .. } => images.clone(),
-            Self::Notification(From { images, .. })
-            | Self::Request(From { images, .. }) => images
-                .iter()
-                .filter_map(|image| image.parse().ok())
-                .map(AttachedImage::last)
-                .collect(),
+            Self::Notification(from) | Self::Request(from) => {
+                from.images()
+            }
             _ => Vec::new(),
         }
     }

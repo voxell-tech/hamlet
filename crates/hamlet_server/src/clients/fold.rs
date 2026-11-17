@@ -414,9 +414,8 @@ struct Sender {
 }
 
 fn sender(from: From) -> Sender {
-    let mark = Mark::Notification(from.clone());
     Sender {
-        images: mark.images(),
+        images: from.images(),
         author: Some(from.author),
         from: wire(from.from),
         text: from.text,
