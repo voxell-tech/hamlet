@@ -1,15 +1,17 @@
 //! The change of an `edit` call drawn: its file, its count, and its
 //! lines taken out and put in.
 
-use bevy::color::Color;
+use bevy::color::{Alpha, Color};
 use bevy::ecs::entity::Entity;
 use bevy::ecs::resource::Resource;
 use bevy::ecs::world::World;
-use bevy::ui::{AlignItems, Overflow, UiRect, percent, px};
+use bevy::ui::{
+    AlignItems, JustifyContent, Overflow, UiRect, percent, px,
+};
 use bevy_fynix::tokens::{TextTokens, Tone};
 use bevy_fynix::views::{
-    BehaviorExt, FrameProps, TooltipExt, button, column, ghost,
-    label, row,
+    BehaviorExt, FrameProps, TooltipExt, button, column, frame,
+    ghost, label, row,
 };
 use bevy_fynix::{ScopedExt, ViewExt, component, keyed, resource};
 use hamlet_client::chats::{Entry, Transcript};
@@ -88,62 +90,77 @@ fn flip(all: &mut Vec<(Entity, String)>, one: (Entity, String)) {
     }
 }
 
-/// The lines of a change, one row each, the lines taken out and put
-/// in tinted across the whole plate. Their words are selected as one.
+/// The lines of a change, one row each with no gap between them, the
+/// lines taken out and put in tinted in their hue across the whole
+/// plate, with a stronger edge of it at their left. Their words are
+/// selected as one.
 fn block(lines: &[Line]) -> AnyView {
     let lines = lines.to_vec();
     with_cx(move |cx| {
         let theme = cx.theme();
+        let size = theme.text.small;
         let rows = lines
             .iter()
             .map(|line| {
-                let (lead, ink, fill) = match line.mark {
-                    Mark::Space => ("  ", None, Color::NONE),
-                    Mark::Minus => (
-                        "- ",
-                        Some(theme.tone(Tone::Critical)),
-                        theme.palette.danger,
-                    ),
-                    Mark::Plus => (
-                        "+ ",
-                        Some(theme.palette.green),
-                        theme.palette.green_deep,
-                    ),
+                let (lead, hue) = match line.mark {
+                    Mark::Space => (" ", None),
+                    Mark::Minus => {
+                        ("-", Some(theme.tone(Tone::Critical)))
+                    }
+                    Mark::Plus => ("+", Some(theme.palette.green)),
                 };
+                let (edge, fill) =
+                    hue.map_or((Color::NONE, Color::NONE), |hue| {
+                        (hue.with_alpha(EDGE), hue.with_alpha(TINT))
+                    });
                 let tone = match line.mark {
                     Mark::Space => Tone::Dim,
                     Mark::Minus | Mark::Plus => Tone::Body,
                 };
-                let lead = match ink {
-                    Some(ink) => inked(lead.to_string(), ink, SIZE),
-                    None => {
-                        label(lead).size(SIZE).wrap(false).boxed()
-                    }
-                };
                 row((
-                    lead.tagged(MonoText),
+                    frame()
+                        .width(px(EDGE_WIDTH))
+                        .shrink(0.0)
+                        .fill(edge),
+                    row((label(lead)
+                        .size(size)
+                        .tone(Tone::Faint)
+                        .wrap(false)
+                        .tagged(MonoText),))
+                    .width(px(GUTTER))
+                    .shrink(0.0)
+                    .justify(JustifyContent::Center),
                     label(line.text.clone())
-                        .size(SIZE)
+                        .size(size)
                         .tone(tone)
                         .tagged(MonoText),
                 ))
+                .gap(0.0)
+                .align(AlignItems::Stretch)
                 .min_width(px(0.0))
-                .padding(UiRect::horizontal(px(PAD)))
+                .padding(UiRect::right(px(PAD)))
                 .fill(fill)
                 .boxed()
             })
             .collect::<Vec<_>>();
-        column(rows).min_width(px(0.0)).tagged(Area)
+        column(rows).gap(0.0).min_width(px(0.0)).tagged(Area)
     })
     .boxed()
 }
 
-/// The size of a change's lines.
-const SIZE: f32 = 15.0;
+/// The opacity of the tint under a line taken out or put in, and of
+/// the edge at its left.
+const TINT: f32 = 0.12;
+const EDGE: f32 = 0.6;
+
+/// The width of a changed line's edge, and of the column its mark
+/// stands in.
+const EDGE_WIDTH: f32 = 2.0;
+const GUTTER: f32 = 16.0;
 
 /// The room between a change's plate and its words, across and down.
 const PAD: f32 = 12.0;
-const DOWN: f32 = 8.0;
+const DOWN: f32 = 4.0;
 
 /// The lines of `change` on their plate, the first `most` of them,
 /// with a count of the rest.
@@ -158,11 +175,29 @@ fn plate(
     let lost =
         (change.total as usize).saturating_sub(change.lines.len());
     if most >= change.lines.len() && lost > 0 {
-        after.push(note(format!("... {lost} more lines")).boxed());
+        after.push(
+            row((quiet(format!("... {lost} more lines")),))
+                .padding(UiRect::axes(px(FOLD_PAD), px(2.0)))
+                .boxed(),
+        );
     }
-    let after = column(after).padding(UiRect::horizontal(px(PAD)));
     // Its lines run to its sides, so their tints do too.
-    inset((block(shown), after)).padding(UiRect::vertical(px(DOWN)))
+    inset((block(shown), column(after)))
+        .padding(UiRect::vertical(px(DOWN)))
+        .gap(0.0)
+        .overflow(Overflow::clip())
+}
+
+/// The room before a quiet line under a change's lines, which sets it
+/// with their words.
+const FOLD_PAD: f32 = EDGE_WIDTH + GUTTER;
+
+/// `words` small, faint and on one line.
+fn quiet(words: String) -> impl View {
+    label(words)
+        .wrap(false)
+        .tone(Tone::Faint)
+        .rules(small_rules)
 }
 
 /// The lines a change adds in green and takes out in red, its count
@@ -389,7 +424,11 @@ fn lines_view(
             )
         };
         let more = (change.lines.len() > most).then(|| {
-            button(label(words).tone(Tone::Dim).rules(small_rules))
+            button(quiet(words))
+                .width(percent(100.0))
+                .justify(JustifyContent::FlexStart)
+                .padding(UiRect::axes(px(FOLD_PAD), px(2.0)))
+                .radius(0.0)
                 .rules(ghost)
                 .on_activate(move |world| {
                     flip(
