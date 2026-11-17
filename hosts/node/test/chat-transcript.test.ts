@@ -1,13 +1,17 @@
 import assert from "node:assert/strict";
 import { type TestContext, test } from "node:test";
 import { isDeepStrictEqual } from "node:util";
+import { setFlagsFromString } from "node:v8";
+import { runInNewContext } from "node:vm";
 import {
     type AssistantMessage,
     createAssistantMessageEventStream,
     type FauxResponseStep,
     fauxAssistantMessage,
+    type Message,
     type Models,
 } from "@earendil-works/pi-ai";
+import type { Harness } from "@earendil-works/pi-durable";
 import { UserError } from "../src/actor/actor/mod.ts";
 import type {
     ChatEvent,
@@ -17,6 +21,7 @@ import type {
     ChatRef,
     Input,
 } from "../src/agent/messages.ts";
+import { conversationOfChat } from "../src/agent/sessions.ts";
 import {
     FAKE_ROOT,
     fakeCalls,
@@ -517,4 +522,253 @@ test("a page read after the wake could not open the harness is followed", async 
         "user: b",
         "assistant: Two.",
     ]);
+});
+
+test("an ask-again after a short cut-off shows only the summary's notice", async (t) => {
+    const answers = [
+        fauxAssistantMessage("One."),
+        fauxAssistantMessage("Two."),
+        fauxAssistantMessage("Three."),
+        fauxAssistantMessage([], { stopReason: "length" }),
+        fauxAssistantMessage("Four."),
+    ];
+    const step: FauxResponseStep = async (request) =>
+        request.messages.some((message) =>
+            wordsOf(message).startsWith("<conversation>"),
+        )
+            ? fauxAssistantMessage("Summary.")
+            : (answers.shift() ?? fauxAssistantMessage("none"));
+    const agent = await wake(
+        t,
+        Array.from({ length: 20 }, () => step),
+    );
+    for (const n of [1, 2, 3, 4]) {
+        await agent.actions.submit(agent.by(from.realm), {
+            id: `cut-${n}`,
+            task: `task-${n}`,
+            input: line(
+                n < 4 ? `Line ${n}. ${"word ".repeat(7_000)}` : "Line 4.",
+            ),
+        });
+        await agent.idle();
+    }
+    const page = await read(agent, CHIEF);
+    assert.deepEqual(shown(page.items).slice(-3), [
+        "user: Line 4.",
+        "notice: The conversation grew longer than the model can hold, so the earlier part of it was summarised.",
+        "assistant: Four.",
+    ]);
+});
+
+function wordsOf(message: Message): string {
+    return typeof message.content === "string"
+        ? message.content
+        : message.content
+              .map((part) => (part.type === "text" ? part.text : ""))
+              .join("");
+}
+
+/** Counts the conversations the harness is asked to observe from now on. */
+async function observed(
+    t: TestContext,
+    agent: Woken,
+): Promise<{ count: number }> {
+    const harness = await agent.harness();
+    const proto = Object.getPrototypeOf(harness) as Harness;
+    const original = proto.observeConversation;
+    const seen = { count: 0 };
+    proto.observeConversation = function (this: Harness, ...args) {
+        seen.count += 1;
+        return original.apply(this, args);
+    };
+    t.after(() => {
+        proto.observeConversation = original;
+    });
+    return seen;
+}
+
+test("a wake follows the current session and the peers' chats, and resets a past session that changes", async (t) => {
+    const first = await wake(
+        t,
+        Array.from({ length: 12 }, (_, at) => fauxAssistantMessage(`A${at}.`)),
+    );
+    const send = sender(first);
+    await send(letter("Hello."));
+    for (let at = 0; at < 4; at += 1) {
+        await send(line(`L${at}`));
+        await first.actions.new_session(first.by(from.client), {
+            id: `00000000-0000-4000-8000-00000000000${at}`,
+            to: 7,
+        });
+    }
+    await send(line("L4"));
+    const seen = await observed(t, first);
+    await first.stop();
+    const next = await first.again();
+    t.after(() => next.stop());
+    await read(next, CHIEF);
+    await read(next, LETTERS);
+    assert.equal(seen.count, 2, "the current session and the letters");
+
+    const past: ChatRef = { with: 7, past: 1 };
+    const conversation = await conversationOfChat(next.by(from.client), past);
+    const answer = (text: string) =>
+        sender(next)({
+            type: "answer",
+            question: 6,
+            from: { agent: 3, name: "Ada" },
+            text,
+            conversation: String(conversation),
+        });
+    await answer("Late.");
+    assert.equal(seen.count, 2, "a past session no client read is not folded");
+    assert.ok(
+        chatEvents(next).some(
+            (event) =>
+                isDeepStrictEqual(event.chat, past) &&
+                event.ops.some((op) => op.type === "reset"),
+        ),
+        "a client that read it before reads again",
+    );
+
+    const page = await read(next, past);
+    await answer("Later.");
+    const followed = new Followed(past, page);
+    for (const event of chatEvents(next)) assert.ok(followed.take(event));
+    const now = await read(next, past);
+    assert.deepEqual(followed.items, now.items);
+    assert.equal(now.items.at(-2)?.text.endsWith("Later."), true);
+});
+
+test("a client following the chief's chat reads again after /resume to a session past at the wake", async (t) => {
+    const first = await wake(t, [
+        fauxAssistantMessage("One."),
+        fauxAssistantMessage("Two."),
+        fauxAssistantMessage("Three."),
+    ]);
+    await sender(first)(line("a"));
+    await first.actions.new_session(first.by(from.client), {
+        id: "new-1",
+        to: 7,
+    });
+    await sender(first)(line("b"));
+    await first.stop();
+    const next = await first.again();
+    t.after(() => next.stop());
+    const page = await read(next, CHIEF);
+    await next.actions.resume(next.by(from.client), {
+        id: "back-1",
+        number: 1,
+        to: 7,
+    });
+    const followed = new Followed(CHIEF, page);
+    await until(() => chatEvents(next).some((event) => !followed.take(event)));
+    const again = await read(next, CHIEF);
+    assert.equal(again.session, 1);
+    await sender(next)(line("c"));
+    const back = new Followed(CHIEF, again);
+    for (const event of chatEvents(next)) assert.ok(back.take(event));
+    assert.deepEqual(back.items, (await read(next, CHIEF)).items);
+    assert.deepEqual(shown(back.items).slice(-2), [
+        "user: c",
+        "assistant: Three.",
+    ]);
+});
+
+/** A weak hold on the first item an event added with `text`. */
+function heldWeakly(agent: Woken, text: string): WeakRef<ChatItem> {
+    for (const event of chatEvents(agent)) {
+        for (const op of event.ops) {
+            if (op.type === "add" && op.item.text === text) {
+                return new WeakRef(op.item);
+            }
+        }
+    }
+    throw new Error(`no item says ${text}`);
+}
+
+test("the watches keep no answer's text once it is sent", async (t) => {
+    setFlagsFromString("--expose-gc");
+    const gc = runInNewContext("gc") as () => void;
+    const big = "x".repeat(50_000);
+    const agent = await wake(t, [
+        fauxAssistantMessage(big),
+        fauxAssistantMessage("Two."),
+    ]);
+    await read(agent, CHIEF);
+    await sender(agent)(line("a"));
+    const answer = heldWeakly(agent, big);
+    agent.events.length = 0;
+    await until(() => {
+        gc();
+        return answer.deref() === undefined;
+    });
+    await sender(agent)(line("b"));
+    assert.deepEqual(shown((await read(agent, CHIEF)).items).slice(-2), [
+        "user: b",
+        "assistant: Two.",
+    ]);
+});
+
+test("a client following the chief's chat reads again after a rewind, then follows the fork", async (t) => {
+    const agent = await wake(t, [
+        fauxAssistantMessage("One."),
+        fauxAssistantMessage("Two."),
+        fauxAssistantMessage("Three."),
+    ]);
+    const send = sender(agent);
+    await send(line("a"));
+    await send(line("b"));
+    const page = await read(agent, CHIEF);
+    const b = page.items.find((item) => item.text === "b");
+    assert.ok(b !== undefined);
+    const rewound = await agent.actions.rewind(agent.by(from.client), {
+        id: "rewind-1",
+        chat: CHIEF,
+        item: b.id,
+    });
+    assert.equal(rewound.type, "rewound");
+    const followed = new Followed(CHIEF, page);
+    // Nothing is sent after the rewind: the reset comes of the move alone.
+    await until(() => chatEvents(agent).some((event) => !followed.take(event)));
+    const again = await read(agent, CHIEF);
+    assert.deepEqual(shown(again.items), ["user: a", "assistant: One."]);
+    await send(line("c"));
+    const fork = new Followed(CHIEF, again);
+    for (const event of chatEvents(agent)) {
+        assert.ok(fork.take(event), `event ${event.number} applies`);
+    }
+    assert.deepEqual(fork.items, (await read(agent, CHIEF)).items);
+    assert.deepEqual(shown(fork.items), [
+        "user: a",
+        "assistant: One.",
+        "user: c",
+        "assistant: Three.",
+    ]);
+});
+
+test("a client following the chief's chat reads again after a rewind to the session's first line", async (t) => {
+    const agent = await wake(t, [
+        fauxAssistantMessage("One."),
+        fauxAssistantMessage("Two."),
+    ]);
+    await sender(agent)(line("a"));
+    const page = await read(agent, CHIEF);
+    const a = page.items.find((item) => item.text === "a");
+    assert.ok(a !== undefined);
+    const rewound = await agent.actions.rewind(agent.by(from.client), {
+        id: "rewind-1",
+        chat: CHIEF,
+        item: a.id,
+    });
+    assert.equal(rewound.type, "rewound");
+    const followed = new Followed(CHIEF, page);
+    // Nothing is sent after the rewind: the reset comes of the move alone.
+    await until(() => chatEvents(agent).some((event) => !followed.take(event)));
+    const again = await read(agent, CHIEF);
+    assert.deepEqual(again.items, []);
+    await sender(agent)(line("b"));
+    const fork = new Followed(CHIEF, again);
+    for (const event of chatEvents(agent)) assert.ok(fork.take(event));
+    assert.deepEqual(shown(fork.items), ["user: b", "assistant: Two."]);
 });

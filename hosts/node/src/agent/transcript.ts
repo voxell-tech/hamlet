@@ -10,6 +10,7 @@ import type {
     ToolResultMessage,
 } from "@earendil-works/pi-ai";
 import {
+    type CommitChange,
     type ConversationId,
     type ConversationView,
     type Cursor,
@@ -25,7 +26,9 @@ import {
 import { UserError } from "../actor/actor/mod.ts";
 import { piRuntime, withHarness } from "../pi/runtime.ts";
 import { type AgentCall, type AgentContext, generationOf } from "./actor.ts";
+import { clip, editOf } from "./change.ts";
 import {
+    type Author,
     type ChatEvent,
     type ChatItem,
     type ChatOp,
@@ -35,11 +38,11 @@ import {
     type ItemKind,
     type Open,
     type Session,
-    type ToolChange,
     type Usage,
     u32,
 } from "./messages.ts";
 import { conversationOfChat, current } from "./sessions.ts";
+import type { Kept } from "./turn.ts";
 
 /** The number a client follows: one more than the last change, within `epoch`. */
 export interface Following {
@@ -88,8 +91,8 @@ interface Watch {
 interface Attached {
     readonly watch: Watch;
     readonly harness: Harness;
-    /** The conversations it held when attached; the others are new. */
-    readonly before: Set<ConversationId>;
+    /** The conversations made since it attached, which are sent whole. */
+    readonly made: Set<ConversationId>;
     readonly folds: Map<ConversationId, Promise<Fold>>;
 }
 
@@ -132,6 +135,11 @@ function attached(
     return watch.attached;
 }
 
+/**
+ * Folds the chief's current session and the peers' chats, and every
+ * conversation made from now on. A past session is folded once a client
+ * reads it; until then a change to it only tells its readers to read again.
+ */
 async function attach(
     c: AgentContext,
     follow: Following,
@@ -141,22 +149,27 @@ async function attach(
     const at: Attached = {
         watch,
         harness,
-        before: new Set(),
+        made: new Set(),
         folds: new Map(),
     };
-    const made = new Set<ConversationId>();
     harness.observeCommits({
         advance: (publication) => {
+            const touched = new Set<ConversationId>();
             for (const change of publication.changes) {
-                if (change.type !== "conversation") continue;
-                const id = change.value.id;
-                if (made.has(id)) continue;
-                made.add(id);
-                // An observer may not call the harness.
-                queueMicrotask(
-                    () => void foldOf(c, follow, at, id).catch(warn(c)),
-                );
+                // A conversation's record never changes after it is made.
+                if (change.type === "conversation") {
+                    const id = change.value.id;
+                    at.made.add(id);
+                    // An observer may not call the harness.
+                    queueMicrotask(
+                        () => void foldOf(c, follow, at, id).catch(warn(c)),
+                    );
+                    continue;
+                }
+                const id = conversationOfChange(change);
+                if (id !== undefined && !at.folds.has(id)) touched.add(id);
             }
+            for (const id of touched) changed(c, follow, at, id);
         },
         end: () => {},
     });
@@ -164,22 +177,57 @@ async function attach(
         queueMicrotask(() => reopened(c, follow, watch)),
     );
     watch.current ??= await current(c.db);
-    const ids = await harness.commit(async (tx) => {
-        const all: ConversationId[] = [];
-        let cursor: Cursor | undefined;
-        do {
-            const page = await tx.scanConversations({}, 500, cursor);
-            all.push(...page.items.map((conversation) => conversation.id));
-            cursor = page.next;
-        } while (cursor !== undefined);
-        return all;
-    }, BACKGROUND_CONTEXT);
-    for (const id of ids) {
-        if (made.has(id)) continue;
-        at.before.add(id);
-        void foldOf(c, follow, at, id).catch(warn(c));
+    const rows = await c.db.all<{ conversation: ConversationId }>(
+        "SELECT conversation FROM chat WHERE kind <> 'chief' OR current = 1",
+    );
+    for (const { conversation } of rows) {
+        void foldOf(c, follow, at, conversation).catch(warn(c));
     }
     return at;
+}
+
+function conversationOfChange(
+    change: Exclude<CommitChange, { type: "conversation" }>,
+): ConversationId | undefined {
+    switch (change.type) {
+        case "entry":
+        case "submission":
+        case "task":
+            return change.value.conversationId;
+        default:
+            return change.conversationId;
+    }
+}
+
+/**
+ * A change to a conversation no fold follows: a past session's readers
+ * read again, and a session made current since the attach is folded from
+ * here on, its readers reading again too.
+ */
+function changed(
+    c: AgentContext,
+    follow: Following,
+    at: Attached,
+    conversation: ConversationId,
+): void {
+    const { watch } = at;
+    watch.queue = watch.queue
+        .then(async () => {
+            // A conversation made in the same commit is folded whole.
+            if (at.made.has(conversation) || at.folds.has(conversation)) {
+                return;
+            }
+            const row = await rowOf(c, conversation);
+            if (row === undefined) return;
+            if (row.kind === "chief" && row.current === 0) {
+                follow.send(refOfRow(agentOf(c), row), [{ type: "reset" }]);
+                return;
+            }
+            await foldOf(c, follow, at, conversation);
+            if (row.kind === "chief") watch.current = conversation;
+            follow.send(refOfRow(agentOf(c), row), [{ type: "reset" }]);
+        })
+        .catch(warn(c));
 }
 
 /**
@@ -203,8 +251,8 @@ function reopened(c: AgentContext, follow: Following, watch: Watch): void {
 
 /**
  * The fold of a conversation the watches follow. A conversation made
- * after the attach is sent whole; one held before starts from its view
- * at the attach, which a client reading in this epoch already has.
+ * after the attach is sent whole; any other starts from its view when
+ * first folded, which a client reading in this epoch already has.
  */
 function foldOf(
     c: AgentContext,
@@ -235,8 +283,8 @@ function foldOf(
             },
             BACKGROUND_CONTEXT,
         );
-        if (at.before.has(id)) fold.view(observation.value);
-        else take(observation.value);
+        if (at.made.has(id)) take(observation.value);
+        else fold.view(observation.value);
         for (const view of early) take(view);
         early = undefined;
         return fold;
@@ -254,28 +302,22 @@ async function sent(
     conversation: ConversationId,
     ops: readonly ChatOp[],
 ): Promise<void> {
-    if (ops.length === 0) return;
+    // An empty session a rewind moved the chief to shows no op, and its
+    // readers still read again.
     const row = await rowOf(c, conversation);
     if (row === undefined) {
-        watch.unnamed.add(conversation);
+        if (ops.length > 0) watch.unnamed.add(conversation);
         return;
     }
-    const chat = refOfRow(agentOf(c), row);
     // Its chat was kept after a change was folded and not sent.
-    if (watch.unnamed.delete(conversation)) {
-        follow.send(chat, [{ type: "reset" }]);
-        return;
-    }
+    let reset = watch.unnamed.delete(conversation);
     if (row.kind === "chief" && row.current === 1) {
-        const was = watch.current;
-        watch.current = conversation;
         // The current chat is another session now.
-        if (was !== undefined && was !== conversation) {
-            follow.send(chat, [{ type: "reset" }]);
-            return;
-        }
+        reset ||= watch.current !== undefined && watch.current !== conversation;
+        watch.current = conversation;
     }
-    follow.send(chat, ops);
+    if (reset) follow.send(refOfRow(agentOf(c), row), [{ type: "reset" }]);
+    else if (ops.length > 0) follow.send(refOfRow(agentOf(c), row), ops);
 }
 
 type ChatRow = {
@@ -367,7 +409,8 @@ export async function readChat(c: AgentCall, message: Open): Promise<ChatPage> {
             const at = await followed(c, follow);
             const live = await foldOf(c, follow, at, conversation);
             const number = follow.now();
-            const kept = new Fold();
+            const fold = new Fold();
+            const kept = new Map<string, ChatItem>();
             const held = await harness.conversation(conversation, context);
             let cursor: Cursor | undefined;
             do {
@@ -377,14 +420,18 @@ export async function readChat(c: AgentCall, message: Open): Promise<ChatPage> {
                     cursor,
                     context,
                 );
-                for (const entry of page?.items ?? []) kept.entry(entry);
+                for (const entry of page?.items ?? []) {
+                    for (const op of fold.entry(entry)) {
+                        if (op.type === "add") kept.set(op.item.id, op.item);
+                    }
+                }
                 cursor = page?.next;
             } while (cursor !== undefined);
             return { live, number, kept };
         },
     );
     const items = [
-        ...kept.items(),
+        ...kept.values(),
         ...live.streamed().filter((item) => !kept.has(item.id)),
     ];
     const end =
@@ -419,13 +466,14 @@ interface Shown {
 }
 
 /**
- * A conversation's items, kept in step with its entries and the answer
- * being written, as `crates/hamlet_server/src/clients/fold.rs` folds them.
+ * Turns a conversation's entries and the answer being written into ops on
+ * its items, as `crates/hamlet_server/src/clients/fold.rs` folds them. It
+ * keeps only the answer being written and the calls not yet answered, so a
+ * watch holds no text for the whole wake.
  */
 class Fold {
-    readonly #items = new Map<string, ChatItem>();
     /** The item of each tool call by the call's id, until its result. */
-    readonly #calls = new Map<string, string>();
+    readonly #calls = new Map<string, ChatItem>();
     /** The items of the answer being written, by content block. */
     readonly #live = new Map<number, ChatItem>();
     #seen = -1;
@@ -433,14 +481,6 @@ class Fold {
     working = false;
     pending = 0;
     usage: Usage = usageOf(undefined, 0);
-
-    items(): ChatItem[] {
-        return [...this.#items.values()];
-    }
-
-    has(id: string): boolean {
-        return this.#items.has(id);
-    }
 
     streamed(): ChatItem[] {
         return [...this.#live.values()];
@@ -487,11 +527,8 @@ class Fold {
         if (entry.kind === "pi.tool-result") return this.#ended(entry);
         const answer = entry.kind === "pi.assistant";
         const ops = itemsOf(entry).map(({ block, item, call }) => {
-            if (call !== undefined) this.#calls.set(call, item.id);
-            return this.#add(
-                item,
-                answer ? this.#live.get(block)?.id : undefined,
-            );
+            if (call !== undefined) this.#calls.set(call, item);
+            return added(item, answer ? this.#live.get(block)?.id : undefined);
         });
         if (answer) {
             this.#live.clear();
@@ -503,18 +540,17 @@ class Fold {
 
     #ended(entry: EntryRecord): ChatOp[] {
         const result = entry.model?.[0] as ToolResultMessage | undefined;
-        const id =
+        const item =
             result === undefined
                 ? undefined
                 : this.#calls.get(result.toolCallId);
-        const item = id === undefined ? undefined : this.#items.get(id);
         if (result === undefined || item?.tool === undefined) return [];
         this.#calls.delete(result.toolCallId);
         const text = result.content
             .map((part) => (part.type === "text" ? part.text : ""))
             .join("");
         return [
-            this.#add({
+            added({
                 ...item,
                 tool: {
                     ...item.tool,
@@ -554,17 +590,15 @@ class Fold {
         }
         return ops;
     }
+}
 
-    /** Adds `item`, or replaces the item with its id where it is. */
-    #add(item: ChatItem, replaces?: string): ChatOp {
-        if (replaces !== undefined) this.#items.delete(replaces);
-        this.#items.set(item.id, item);
-        return {
-            type: "add",
-            item,
-            ...(replaces === undefined ? {} : { replaces }),
-        };
-    }
+/** Adds `item`, or replaces the item with its id where it is. */
+function added(item: ChatItem, replaces?: string): ChatOp {
+    return {
+        type: "add",
+        item,
+        ...(replaces === undefined ? {} : { replaces }),
+    };
 }
 
 /** The words a chat shows where earlier entries were summarised (`clients/fold.rs`). */
@@ -613,13 +647,32 @@ function itemsOf(entry: EntryRecord): Shown[] {
             return one("notice", "reflection");
         case "hamlet.retry":
             return one("notice", textOf(entry));
+        // The ask-again of a short cut-off (C28) shows as its summary's notice.
+        case "hamlet.cut-off":
+            return [];
         case "hamlet.line":
             return one("user", textOf(entry), { rewindable: true });
+        case "hamlet.letter":
+        case "hamlet.question":
+        case "hamlet.answer": {
+            const { from } = (entry.data ?? {}) as Kept;
+            return one(
+                "user",
+                textOf(entry),
+                from === undefined ? {} : { author: authorOf(from) },
+            );
+        }
         default:
             return entry.kind === "pi.user" || entry.kind.startsWith("hamlet.")
                 ? one("user", textOf(entry))
                 : [];
     }
+}
+
+/** As `crates/hamlet_server/src/society/addresses.rs`'s `name_of` shows a hire. */
+function authorOf(from: Author): string {
+    const address = `hire#${from.agent}`;
+    return from.name === undefined ? address : `${address} (${from.name})`;
 }
 
 function blocksOf(
@@ -741,145 +794,6 @@ function money(micros: number): string {
     if (micros >= 1 && micros < 10_000) return "<$0.01";
     const cents = Math.floor((micros + 5_000) / 10_000);
     return `$${Math.floor(cents / 100)}.${`${cents % 100}`.padStart(2, "0")}`;
-}
-
-/** The most lines of an edit's change kept, and characters of a line (`work/cut.rs`). */
-const KEPT = 200;
-const WIDE = 240;
-/** The lines shown around those that differ. */
-const AROUND = 3;
-/** The most pairs of lines compared one by one. */
-const PAIRS = 1_000_000;
-
-type Mark = ToolChange["lines"][number]["mark"];
-
-/** An edit's change from its arguments alone, as `work/cut.rs`'s `change_of`. */
-function editOf(args: unknown): ToolChange | undefined {
-    const { path, edits } = (args ?? {}) as { path?: unknown; edits?: unknown };
-    if (typeof path !== "string" || !Array.isArray(edits)) return undefined;
-    const old: string[] = [];
-    const now: string[] = [];
-    for (const edit of edits as { oldText?: unknown; newText?: unknown }[]) {
-        if (
-            typeof edit?.oldText !== "string" ||
-            typeof edit.newText !== "string"
-        ) {
-            return undefined;
-        }
-        old.push(edit.oldText);
-        now.push(edit.newText);
-    }
-    const lines = compare(old.join("\n"), now.join("\n"));
-    const first = lines.findIndex(([mark]) => mark !== "same");
-    const last = lines.findLastIndex(([mark]) => mark !== "same");
-    const shown =
-        first === -1
-            ? []
-            : lines.slice(Math.max(0, first - AROUND), last + 1 + AROUND);
-    const added = lines.filter(([mark]) => mark === "added").length;
-    const removed = lines.filter(([mark]) => mark === "removed").length;
-    const count = (n: number) => (n === 1 ? "1 line" : `${n} lines`);
-    return {
-        path: clip(path, WIDE),
-        created: false,
-        added,
-        removed,
-        total: shown.length,
-        count:
-            added === 0 && removed === 0
-                ? "No line changed"
-                : removed === 0
-                  ? `${count(added)} added`
-                  : added === 0
-                    ? `${count(removed)} removed`
-                    : `${count(added)} added, ${removed} removed`,
-        lines: shown
-            .slice(0, KEPT)
-            .map(([mark, text]) => ({ mark, text: clip(text, WIDE) })),
-    };
-}
-
-/** The lines of `old` and `now` in a diff's order (`work/cut.rs`). */
-function compare(old: string, now: string): [Mark, string][] {
-    const a = linesOf(old);
-    const b = linesOf(now);
-    let head = 0;
-    while (head < a.length && head < b.length && a[head] === b[head]) {
-        head += 1;
-    }
-    let tail = 0;
-    while (
-        tail < a.length - head &&
-        tail < b.length - head &&
-        a[a.length - 1 - tail] === b[b.length - 1 - tail]
-    ) {
-        tail += 1;
-    }
-    const out = a.slice(head, a.length - tail);
-    const into = b.slice(head, b.length - tail);
-    const lines: [Mark, string][] = a
-        .slice(0, head)
-        .map((line) => ["same", line]);
-    if (out.length * into.length > PAIRS) {
-        lines.push(...out.map((line): [Mark, string] => ["removed", line]));
-        lines.push(...into.map((line): [Mark, string] => ["added", line]));
-    } else {
-        // The longest run of lines both have, from each pair of places on.
-        const wide = into.length + 1;
-        const common = new Uint32Array((out.length + 1) * wide);
-        const at = (i: number, j: number) => common[i * wide + j] ?? 0;
-        for (let i = out.length - 1; i >= 0; i -= 1) {
-            for (let j = into.length - 1; j >= 0; j -= 1) {
-                common[i * wide + j] =
-                    out[i] === into[j]
-                        ? at(i + 1, j + 1) + 1
-                        : Math.max(at(i + 1, j), at(i, j + 1));
-            }
-        }
-        let i = 0;
-        let j = 0;
-        while (i < out.length && j < into.length) {
-            if (out[i] === into[j]) {
-                lines.push(["same", out[i] ?? ""]);
-                i += 1;
-                j += 1;
-            } else if (at(i + 1, j) >= at(i, j + 1)) {
-                lines.push(["removed", out[i] ?? ""]);
-                i += 1;
-            } else {
-                lines.push(["added", into[j] ?? ""]);
-                j += 1;
-            }
-        }
-        lines.push(
-            ...out.slice(i).map((line): [Mark, string] => ["removed", line]),
-        );
-        lines.push(
-            ...into.slice(j).map((line): [Mark, string] => ["added", line]),
-        );
-    }
-    lines.push(
-        ...a
-            .slice(a.length - tail)
-            .map((line): [Mark, string] => ["same", line]),
-    );
-    return lines;
-}
-
-/** A last newline ends a line, and a carriage return that ends one goes. */
-function linesOf(text: string): string[] {
-    if (text === "") return [];
-    const lines = text.split("\n");
-    if (lines.at(-1) === "") lines.pop();
-    return lines.map((line) =>
-        line.endsWith("\r") ? line.slice(0, -1) : line,
-    );
-}
-
-/** At most `most` characters of `text`. */
-function clip(text: string, most: number): string {
-    const chars = [...text];
-    return chars.length > most ? chars.slice(0, most).join("") : text;
 }
 
 /**
