@@ -11,8 +11,11 @@ use bevy::ecs::entity::Entity;
 use bevy::ecs::observer::On;
 use bevy::ecs::query::With;
 use bevy::ecs::resource::Resource;
+use bevy::ecs::schedule::IntoScheduleConfigs;
+use bevy::ecs::schedule::common_conditions::resource_changed;
 use bevy::ecs::system::{Commands, Local, Query, Res, ResMut};
 use bevy::ecs::world::{FromWorld, World};
+use bevy::time::Time;
 use bevy::ui::{AlignItems, UiRect, px};
 use bevy_fynix::tokens::Tone;
 use bevy_fynix::views::{
@@ -31,6 +34,7 @@ use hamlet_ui::styles::{
     self, ICON, Looks, description, good_action, lettered, link_row,
     note, note_rules,
 };
+use hamlet_ui::theme::StatusKind;
 use hamlet_ui::widgets::effects::Variant;
 use hamlet_ui::widgets::ellipsis::one_line;
 use hamlet_ui::widgets::icons::{Glyph, glyph};
@@ -38,6 +42,7 @@ use hamlet_ui::{AnyView, View, with_cx};
 
 use super::Welcome;
 use super::pages::{footed, over, sheet};
+use crate::toasts::Toasts;
 
 /// The file in the window's folder that says the projects were
 /// offered on this machine.
@@ -49,7 +54,14 @@ pub(super) fn plugin(app: &mut App) {
     app.init_resource::<Projects>()
         .init_resource::<Asker>()
         .add_observer(chosen)
-        .add_systems(Update, (offer, pick_suggested));
+        .add_systems(
+            Update,
+            (
+                offer,
+                pick_suggested,
+                tell_failures.run_if(resource_changed::<Imports>),
+            ),
+        );
 }
 
 /// The card of projects and what is picked on it.
@@ -253,7 +265,40 @@ fn bring(world: &mut World) {
         .collect::<Vec<_>>();
     if !projects.is_empty() {
         world.trigger(BringIn { projects });
+        // It goes on with the card closed: the hamlets show in the
+        // rail as they come, and what fails in a toast.
+        close(world);
     }
+}
+
+/// Tells in a toast of each project that was not brought in while the
+/// card is closed, the card's own list being out of sight.
+fn tell_failures(
+    imports: Res<Imports>,
+    projects: Res<Projects>,
+    time: Res<Time>,
+    toasts: Option<ResMut<Toasts>>,
+    mut told: Local<usize>,
+) {
+    // A new bringing in begins its outcomes again.
+    if imports.outcomes.len() < *told {
+        *told = 0;
+    }
+    let Some(mut toasts) = toasts.filter(|_| !projects.open) else {
+        *told = imports.outcomes.len();
+        return;
+    };
+    for outcome in &imports.outcomes[*told..] {
+        if let Err(why) = &outcome.said {
+            toasts.note(
+                StatusKind::Danger,
+                format!("{} was not brought in", outcome.name),
+                why.clone(),
+                time.elapsed_secs(),
+            );
+        }
+    }
+    *told = imports.outcomes.len();
 }
 
 /// When `at` was, as a row of a conversation says it.
