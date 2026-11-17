@@ -4,12 +4,14 @@
 
 use bevy::app::{App, PreUpdate};
 use bevy::ecs::entity::Entity;
+use bevy::ecs::lifecycle::Remove;
+use bevy::ecs::observer::On;
 use bevy::ecs::resource::Resource;
 use bevy::ecs::schedule::IntoScheduleConfigs;
-use bevy::ecs::world::World;
+use bevy::ecs::world::{DeferredWorld, World};
 use bevy::time::Time;
 use hamlet_client::realm::{
-    self as agents, Closed, Kind, Left, LivesIn, Parent,
+    self as agents, Closed, Identity, Kind, Left, LivesIn, Parent,
 };
 use hamlet_realm::pick::{Selected, Thing, select};
 use hamlet_ui::theme::StatusKind;
@@ -20,10 +22,12 @@ use crate::convo::talk_to;
 use crate::toasts::Toasts;
 
 pub(super) fn plugin(app: &mut App) {
-    app.init_resource::<Erasures>().add_systems(
-        PreUpdate,
-        settle.run_if(is_unsettled).in_set(PanelSystems::Follow),
-    );
+    app.init_resource::<Erasures>()
+        .add_observer(resolve)
+        .add_systems(
+            PreUpdate,
+            settle.run_if(is_unsettled).in_set(PanelSystems::Follow),
+        );
 }
 
 /// The erasures asked for that the server has yet to make.
@@ -56,9 +60,38 @@ enum Landing {
 }
 
 /// Follows the erasure of `agent`, which has left: once it is gone
-/// the Hub goes to its lead's thread, else its hamlet's page, else
-/// the realm's, as the rail lists them over it.
+/// the Hub goes to where it was last, as [`resolve`] finds it.
 pub(crate) fn expect_agent(world: &mut World, agent: Entity) {
+    let name = agents::shown_of(world, agent);
+    let after = Landing::Page(Showing::Realm);
+    expect(world, Erased::Entity(agent), name, after);
+}
+
+/// Where the Hub goes once an agent being erased is gone: to its
+/// lead's thread, else its hamlet's page, else the realm's, as the
+/// rail lists them over it. Found as it goes, so a hire moved after
+/// its erasure was asked for lands where it was moved to.
+fn resolve(gone: On<Remove<Identity>>, mut world: DeferredWorld) {
+    let agent = gone.entity;
+    let erased = Erased::Entity(agent);
+    if !world
+        .resource::<Erasures>()
+        .0
+        .iter()
+        .any(|e| e.of == erased)
+    {
+        return;
+    }
+    let after = landing(&world, agent);
+    for erasure in &mut world.resource_mut::<Erasures>().0 {
+        if erasure.of == erased {
+            erasure.after = after;
+        }
+    }
+}
+
+/// Where the Hub goes from the page of `agent`, where it is now.
+fn landing(world: &World, agent: Entity) -> Landing {
     let home =
         |of: Entity| world.get::<LivesIn>(of).map(|lives| lives.0);
     let hamlet = home(agent)
@@ -69,15 +102,13 @@ pub(crate) fn expect_agent(world: &mut World, agent: Entity) {
         .and_then(|parent| agents::agent(world, parent.0))
         .filter(|lead| world.get::<Left>(*lead).is_none())
         .filter(|lead| hamlet.is_none() || home(*lead) == hamlet);
-    let after = match (lead, hamlet) {
+    match (lead, hamlet) {
         (Some(lead), _) => Landing::Thread(lead),
         (None, Some(hamlet)) => {
             Landing::Page(Showing::Hamlet(hamlet))
         }
         (None, None) => Landing::Page(Showing::Realm),
-    };
-    let name = agents::shown_of(world, agent);
-    expect(world, Erased::Entity(agent), name, after);
+    }
 }
 
 /// Follows the erasure of `scholar`.
@@ -237,7 +268,6 @@ mod tests {
             .init_resource::<hamlet_realm::pick::Also>();
         let world = app.world_mut();
         let ada = agents::named(world, "hire#2").unwrap();
-        let hamlet = world.get::<LivesIn>(ada).unwrap().0;
         world.entity_mut(ada).insert(Left);
         *world.resource_mut::<Showing>() = Showing::Gone(ada);
         world.resource_mut::<Selected>().0 = Some(Thing::Ruin(ada));
@@ -249,6 +279,9 @@ mod tests {
             Showing::Gone(ada)
         );
 
+        // Moved to another hamlet before it is gone, it lands there.
+        let hamlet = app.world_mut().spawn_empty().id();
+        app.world_mut().entity_mut(ada).insert(LivesIn(hamlet));
         app.world_mut().despawn(ada);
         app.update();
         let world = app.world();
