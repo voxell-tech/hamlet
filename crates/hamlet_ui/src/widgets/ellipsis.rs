@@ -233,17 +233,29 @@ fn fit(
     ) in &mut texts
     {
         // Its stops hold for one text in one font at one scale.
-        if text.0 != ellipsis.shown
+        let written = text.0 != ellipsis.shown;
+        let mut rewritten = false;
+        if written
             || font.is_changed()
             || info.scale_factor != ellipsis.scale
         {
-            let full = text.0.clone();
+            // Another font or scale measures the whole text again,
+            // never the cut on show, which would then stay cut.
+            let full = match written {
+                true => text.0.clone(),
+                false => ellipsis.full.clone(),
+            };
+            if text.0 != full {
+                text.0.clone_from(&full);
+                rewritten = true;
+            }
             ellipsis.reset(full);
             ellipsis.scale = info.scale_factor;
         }
         // A layout made since is of the text last written, which is
-        // laid out in the update it is written in or the next.
-        if info.is_changed() {
+        // laid out in the update it is written in or the next. One
+        // made this update is of the cut just put back.
+        if info.is_changed() && !rewritten {
             ellipsis.laying = false;
         }
         let layout = block.buffer();
@@ -422,5 +434,15 @@ mod tests {
             "A name much wider than its room"
         );
         assert!(resize(&mut app, 60.0).ends_with(DOTS));
+
+        // Made bold while it is cut, it still shows its whole text
+        // once that fits.
+        app.world_mut().get_mut::<TextFont>(name).unwrap().weight =
+            bevy::text::FontWeight::BOLD;
+        drawn(&mut app);
+        assert_eq!(
+            resize(&mut app, 1000.0),
+            "A name much wider than its room"
+        );
     }
 }
