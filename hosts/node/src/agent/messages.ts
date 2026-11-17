@@ -1164,7 +1164,6 @@ function placeOf({
     };
 }
 
-/** As `placeOf`, the row keeps only the fields the agent knows. */
 function briefOf({
     instructions,
     text,

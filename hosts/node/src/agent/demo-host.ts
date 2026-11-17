@@ -176,7 +176,6 @@ interface Script {
     readonly steps: Step[];
 }
 
-/** A script as its file holds it; the demo's lanes write it, so it is trusted. */
 interface ScriptFile {
     readonly models?: readonly {
         readonly id: string;
@@ -249,7 +248,6 @@ function stepOf(step: StepFile): Step {
     return usage === undefined ? { answer } : { answer, usage };
 }
 
-/** Each answer with `usage` in place of the faux model's estimate, priced. */
 function measured(
     source: AssistantMessageEventStream,
     model: Model<Api>,
@@ -295,8 +293,6 @@ const script: Script =
 const core = ai.createFauxCore(
     script.models === undefined ? {} : { models: [...script.models] },
 );
-// Each request takes its step as it is made, so the answer and its usage
-// stay together when requests overlap.
 const stream: StreamFunction<string, SimpleStreamOptions> = (
     model,
     context,
@@ -315,7 +311,6 @@ models.setProvider(
         api: { stream, streamSimple: stream },
     }),
 );
-// With no Claude program found, the provider is not listed, as today.
 const executable = claudeExecutable();
 if (executable !== undefined)
     withClaude(models, { executable, folder: join(home, "claude") });

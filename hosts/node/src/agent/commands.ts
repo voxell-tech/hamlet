@@ -1,6 +1,6 @@
 /**
  * The chief's commands to an agent: what each changes and how it is
- * refused. `chat.ts` makes each a client action.
+ * refused.
  */
 import type { Context } from "@earendil-works/chord/context";
 import type { AssistantMessage } from "@earendil-works/pi-ai";
@@ -83,8 +83,6 @@ export async function newSession(
         );
         return begun;
     });
-    // A repeat ends the session left again: a kill or a failure may have
-    // cut the first off after the session began.
     if (left !== undefined) {
         await lapsed(c, left, "ended");
         await reflectOnLeaving(c, left);
@@ -225,11 +223,6 @@ function retryRefused(why: RetryRefusal): RetryAnswer {
     return { type: "refused", why: { type: why }, words: RETRY_WORDS[why] };
 }
 
-/**
- * Why the turn cannot be carried on, `admitted` when this retry already
- * was, or `undefined`. As today, an answer that stopped normally or at its
- * length, with words or a call, is not carried on.
- */
 async function refusedRetry(
     harness: Harness,
     conversation: ConversationId,
@@ -338,7 +331,6 @@ function entryOf(item: string): EntryId | undefined {
     return entry === undefined ? undefined : (Number(entry) as EntryId);
 }
 
-/** The chief's line at `at` and the entry before it, or why there is none. */
 async function lineAt(
     harness: Harness,
     conversation: ConversationId,
@@ -359,19 +351,8 @@ async function lineAt(
     return { text: textOf(line), before: before?.id };
 }
 
-/**
- * How the words of `workspace-tools.ts`'s `run` and `waits` and of
- * `society.ts`'s `ask` end: nothing else in a result says its end comes
- * later as an input.
- */
 const ENDS_LATER = " arrives as a new input.";
 
-/**
- * Whether a call `conversation` made is out: a command or a wait for a chief
- * whose `finished` was not admitted, or a question with no answer. An answer
- * names no question, so questions are counted. An entry a fork inherited is
- * left out: its call's end goes to the conversation that made it.
- */
 async function callIsOut(
     harness: Harness,
     conversation: ConversationId,

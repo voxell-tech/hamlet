@@ -37,7 +37,6 @@ import { reasonOf } from "./turn.ts";
 export const PROVIDER = "claude";
 
 export interface ClaudeProgram {
-    /** The program to run, from `claudeExecutable` or a test's fake. */
     readonly executable: string;
     /** The realm's `claude/`, which holds the program's own login. */
     readonly folder: string;
@@ -46,7 +45,6 @@ export interface ClaudeProgram {
 /** How the Claude program names Hamlet in the requests it makes. */
 const APP = "hamlet/0.1.0";
 
-/** How long `claude auth login` has to give its link. */
 const LINK_WAIT_MS = 30_000;
 
 /**
@@ -90,7 +88,6 @@ export function claudeExecutable(): string | undefined {
     return undefined;
 }
 
-/** `models` with the provider `claude`, run by `program`. */
 export function withClaude(
     models: MutableModels,
     program: ClaudeProgram,
@@ -174,7 +171,6 @@ export function environment(at: Folders): Record<string, string> {
         ...GUARDS,
         CLAUDE_CONFIG_DIR: at.config,
         CLAUDE_AGENT_SDK_CLIENT_APP: APP,
-        // A script, as a test's fake program is, runs on the Node running the host.
         PATH: [dirname(process.execPath), env.PATH ?? ""].join(delimiter),
     };
 }
@@ -243,8 +239,6 @@ async function signIn(
     try {
         const url = await Promise.race([
             linkIn(link, AbortSignal.any([signal, looked.signal])),
-            // A program that wrote its link and ended at once is not
-            // waited on for the next look.
             exited.then(() => linkAt(link)),
         ]);
         if (url === undefined)
@@ -293,7 +287,6 @@ function opener(at: Folders, link: string): string {
     return opener;
 }
 
-/** The link written to `link`, once it is there. */
 async function linkIn(
     link: string,
     signal: AbortSignal,

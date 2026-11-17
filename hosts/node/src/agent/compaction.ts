@@ -30,7 +30,6 @@ import { draftOf } from "./turn.ts";
 /** Today's, in `harnesses/pi/src/models.ts` and `runtime.ts`. */
 const ANSWER_SHARE = 0.2;
 const BACKGROUND_SHARE = 0.1;
-/** The window today assumes for a model the listing does not hold. */
 const DEFAULT_WINDOW = 32_768;
 
 /** Compaction sized by each model's window, and by today's default window for any other. */
@@ -59,10 +58,6 @@ function sized(window: number) {
 /** Today's rule and words, in `crates/hamlet_server/src/talk/verdicts.rs`. */
 const ROOMY = 1024;
 
-/**
- * The kind of the input that asks again, and so the mark that the run was
- * tried once: a second cut-off fails.
- */
 const ASKED_AGAIN = "hamlet.cut-off";
 
 const NO_ROOM =
@@ -99,10 +94,6 @@ export function hasWordsOrCall(answer: AssistantMessage): boolean {
     );
 }
 
-/**
- * The compaction is created in the commit that waits for it, so a kill
- * never makes a second one.
- */
 function cutOffTask(tell: TellFailed) {
     return defineTask<CutOffInput, CutOffState, null>({
         name: "hamlet.cut-off",
@@ -126,7 +117,6 @@ function cutOffTask(tell: TellFailed) {
                     context,
                     { at: task.input.answer },
                 );
-                // Today counted the messages before the answer: one is no history.
                 const spoken = view.messages.filter(
                     (message) => message.role !== "system",
                 ).length;
@@ -191,7 +181,6 @@ function cutOffTask(tell: TellFailed) {
                         context,
                     );
                 }
-                // A question's second try answers the question.
                 const { task: charged, question } =
                     (input?.data as {
                         task?: RealmTask;
@@ -225,10 +214,6 @@ function cutOffTask(tell: TellFailed) {
     });
 }
 
-/**
- * The entry of the input the run answers. A write placed with it, such as
- * a notice, can come first.
- */
 async function inputOf(
     api: Pick<HookApi, "entries">,
     run: RunSummary,

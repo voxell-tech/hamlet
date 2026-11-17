@@ -19,7 +19,6 @@ import { Closing, cutOff, modelCall, type Peers, reasonOf } from "./turn.ts";
 /** A request the realm refused or held, which the gate ended unsent. */
 export interface Unsent {
     readonly held: boolean;
-    /** The realm's words. */
     readonly words: string;
 }
 

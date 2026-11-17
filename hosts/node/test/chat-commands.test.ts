@@ -25,10 +25,8 @@ import {
 } from "./agent-testing.ts";
 import { context } from "./testing.ts";
 
-/** A model response held until the test answers it, or the run is aborted. */
 function held(): {
     readonly step: FauxResponseStep;
-    /** Resolves with what the request carried, once it is asked. */
     readonly asked: Promise<readonly Message[]>;
     answer(message: AssistantMessage): void;
 } {
@@ -56,7 +54,6 @@ function held(): {
     };
 }
 
-/** Records what the request carried, then answers `text`. */
 function seen(asked: (readonly Message[])[], text: string): FauxResponseStep {
     return (request) => {
         asked.push(request.messages);
@@ -93,7 +90,6 @@ async function entriesOf(
     return [...(page?.items ?? [])];
 }
 
-/** What a conversation shows a person, oldest first. */
 async function said(agent: Woken, id: ConversationId): Promise<string[]> {
     return (await entriesOf(agent, id))
         .map(shown)
@@ -115,7 +111,6 @@ async function lettersOf(agent: Woken): Promise<ConversationId> {
     return id;
 }
 
-/** The id a client reads for the chief's line `text` in the current session. */
 async function itemOfLine(agent: Woken, text: string): Promise<string> {
     const entry = (await entriesOf(agent, await now(agent))).find(
         (each) => each.kind === "hamlet.line" && shown(each) === text,
@@ -160,7 +155,6 @@ const ADA = { agent: 12, name: "Ada" };
 
 const NO_RETRIES: HarnessSettings = { retry: { maxRetries: 0 } };
 
-/** Answers `cancel` and `open_task`, which `fakeCalls` does not. */
 function fakes(answers: Parameters<typeof fakeCalls>[0] = {}) {
     return fakeCalls({
         workspace: {
@@ -181,7 +175,6 @@ function failure(words: string): AssistantMessage {
     });
 }
 
-/** A workspace whose `read_file` answers only when the test says. */
 function slowRead() {
     const read = Promise.withResolvers<ReadAnswer>();
     const reading = Promise.withResolvers<void>();
@@ -217,8 +210,6 @@ test("stop ends the run and drops the queue", async (t) => {
         await agent.actions.stop(agent.by(from.client), { id: "stop-1" }),
         { turns: 2 },
     );
-    // As today, every call of the agent is cancelled and all it was trusted
-    // with lapses.
     assert.deepEqual(
         named(sent, "cancel").map((call) => call.message),
         [{ which: { type: "all" } }],
@@ -250,7 +241,6 @@ test("a repeated stop answers 0", async (t) => {
     assert.deepEqual(await agent.actions.stop(client, { id: "stop-1" }), {
         turns: 0,
     });
-    // Sent again, so the repeat of a stop cut off before them sends them.
     assert.equal(named(sent, "cancel").length, 2);
     assert.deepEqual(
         named(sent, "lapse").map((call) => call.message),
@@ -771,10 +761,6 @@ test("a chief's line sent while a rewind is out lands in the session it goes to"
     await lapsing.promise;
 
     const sending = submitted(agent, line("Three"));
-    // A line left to race the rewind is admitted in a few milliseconds, so
-    // a second is far past that on a busy machine. An agent that holds the
-    // line until the rewind has moved never answers it in that time, so the
-    // wait decides only whether the race is caught, never whether it passes.
     await Promise.race([sending, delay(1_000)]);
     lapse.resolve(null);
     assert.deepEqual(await rewinding, { type: "rewound", text: "Two" });

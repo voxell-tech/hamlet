@@ -36,7 +36,6 @@ const CANCELLED = "Sign-in cancelled.";
 /** As `crates/hamlet_server/src/providers.rs` words a request that timed out. */
 const LATE = "The provider did not answer in time.";
 
-/** The realm's keep, reached from the call that ends a sign-in. */
 export type Keep = BareRealm["keep_credential"];
 
 export interface SignIns {
@@ -47,8 +46,8 @@ export interface SignInOptions {
     /** The installation's id, which a provider's sign-in may name the host by. */
     readonly deviceId?: string;
     /**
-     * Resolves when a call has waited long enough for a step. Tests hold it.
-     * `stop` aborts once the call has its answer.
+     * Resolves when a call has waited long enough for a step. `stop` aborts
+     * once the call has its answer.
      */
     readonly waited?: (stop: AbortSignal) => Promise<void>;
 }
@@ -143,18 +142,14 @@ interface Answered {
     readonly answer: Promise<LoginAnswer>;
 }
 
-/** How a flow ended: its credential as the realm keeps it, or the words it failed with. */
 type End = { readonly kept: Kept } | { readonly failed: string };
 
-/** One sign-in: the steps its flow gave that no call has answered yet. */
 class SignIn {
     readonly provider: string;
-    /** Answered with its end, after which only a repeat is answered. */
     closed = false;
     readonly #waited: (stop: AbortSignal) => Promise<void>;
     readonly #stop = new AbortController();
     readonly #steps: LoginStep[] = [];
-    /** The step the last call answered with, as the flow gave it. */
     #given: LoginStep | undefined;
     #asking:
         | {
@@ -163,7 +158,6 @@ class SignIn {
               readonly answer: (value: string) => void;
           }
         | undefined;
-    /** What the chief typed, scrubbed from this sign-in's failure. */
     readonly #answers: string[] = [];
     #end: End | undefined;
     #changed = Promise.withResolvers<void>();
@@ -189,7 +183,6 @@ class SignIn {
         );
     }
 
-    /** The answer a call with `id` was given, when it was the start or the last call. */
     repeat(id: RequestId): Promise<LoginAnswer> | undefined {
         for (const answered of [this.#start, this.#last]) {
             if (answered?.id === id) return answered.answer;
@@ -207,17 +200,11 @@ class SignIn {
         return answer;
     }
 
-    /**
-     * Gives `value` to the prompt the last call answered with. A reply to
-     * any other step asks only for the next one.
-     */
     reply(value: string): void {
         const asking = this.#asking;
         if (asking === undefined || asking.step !== this.#given) return;
         this.#asking = undefined;
         this.#answers.push(value);
-        // Only a secret: a choice or a name such as `default` would be
-        // scrubbed from everything the host shows.
         if (asking.secret) remember(value);
         asking.answer(value);
     }
@@ -230,13 +217,7 @@ class SignIn {
         this.#wake();
     }
 
-    /**
-     * The next step the flow gave, or its end with the credential kept.
-     * With nothing new in time, the step given last again, or, before the
-     * first, a failure that ends the sign-in, as today's timeout does.
-     */
     async next(login: string, keep: Keep): Promise<LoginAnswer> {
-        // Scrubbed as it goes out, since a step can quote a typed answer.
         const given = (step: LoginStep): LoginAnswer => ({
             type: "step",
             login,
@@ -305,8 +286,6 @@ class SignIn {
             signal.addEventListener(
                 "abort",
                 () => {
-                    // The flow went on without it, as when a browser's
-                    // callback wins.
                     if (this.#asking?.step === step) this.#asking = undefined;
                     const queued = this.#steps.indexOf(step);
                     if (queued !== -1) this.#steps.splice(queued, 1);

@@ -66,20 +66,16 @@ export function conversationFor(
                     (await named(input.conversation)) ??
                     (await harness.root(context))
                 ).id;
-            // One the realm names no conversation for is the chief's.
             case "notice":
                 return (await named(input.conversation))?.id ?? chiefSession(c);
         }
     });
 }
 
-/** The conversation a client's `ChatRef` names, or `undefined`. */
 export async function conversationOfChat(
     c: AgentCall,
     chat: ChatRef,
 ): Promise<ConversationId | undefined> {
-    // As today's server reads it: a peer names a peer's chat, letters
-    // unless it says questions, and `kind` alone names nothing more.
     if (chat.from !== undefined) {
         return Number.isSafeInteger(chat.from)
             ? keptChat(c, chat.kind ?? "letters", chat.from)
@@ -99,7 +95,6 @@ export function chiefSession(c: AgentCall): Promise<ConversationId> {
     );
 }
 
-/** Session `number`'s conversation, or `undefined` when there is none. */
 export async function session(
     c: AgentCall,
     number: number | bigint,
@@ -121,8 +116,6 @@ export async function session(
 export async function begin(c: AgentCall, id: RequestId): Promise<Begun> {
     const before = await begunBy(c.db, id);
     if (before !== undefined) return before;
-    // As today, a chat with no session begins session 1 first, so the
-    // first `/new` answers 2.
     await chiefSession(c);
     const to = await withHarness(
         c,
@@ -149,7 +142,6 @@ export async function begin(c: AgentCall, id: RequestId): Promise<Begun> {
     });
 }
 
-/** Makes the session of conversation `to` current. */
 export async function makeCurrent(
     c: AgentCall,
     to: ConversationId,
@@ -160,7 +152,6 @@ export async function makeCurrent(
     );
 }
 
-/** Points the current session at `fork`, the conversation a rewind made. */
 export async function moveTo(
     c: AgentCall,
     from: ConversationId,
@@ -180,7 +171,6 @@ export function nowSeconds(): number {
     return Math.floor(Date.now() / 1000);
 }
 
-/** A session `/new` began, and the conversation of the one it left. */
 interface Begun {
     readonly number: number;
     readonly to: ConversationId;
@@ -205,7 +195,6 @@ async function begunBy(db: Rows, id: RequestId): Promise<Begun | undefined> {
           };
 }
 
-/** The current session's conversation. */
 export async function current(db: Rows): Promise<ConversationId | undefined> {
     const row = await db.get<{ conversation: ConversationId }>(
         "SELECT conversation FROM chat WHERE kind = 'chief' AND current = 1",
@@ -249,10 +238,6 @@ export async function created(
     return conversation;
 }
 
-/**
- * Keeps the chat `key` with the conversation `make` gives. A chat a
- * concurrent input kept first wins, and its conversation is answered.
- */
 async function made(
     c: AgentCall,
     key: readonly [kind: string, peer: number, session: number],

@@ -53,7 +53,7 @@ export interface Following {
     send(chat: ChatRef, ops: readonly ChatOp[]): ChatEvent;
 }
 
-/** Adds one to `agent.epoch` and counts from 0. Called once per wake. */
+/** Adds one to `agent.epoch` and counts from 0. */
 export async function following(
     c: Pick<AgentContext, "db" | "broadcast">,
 ): Promise<Following> {
@@ -75,24 +75,17 @@ export async function following(
     };
 }
 
-/** What one wake's watches keep. */
 interface Watch {
-    /** The open of the agent's harness the watches follow. */
     of?: Promise<unknown> | undefined;
     attached?: Promise<Attached>;
-    /** The conversation the last event of the chief's current chat showed. */
     current: ConversationId | undefined;
-    /** One at a time, so the events go out in the order of the commits. */
     queue: Promise<void>;
-    /** Conversations with changes folded while they had no chat. */
     readonly unnamed: Set<ConversationId>;
 }
 
-/** The watches of one open harness. */
 interface Attached {
     readonly watch: Watch;
     readonly harness: Harness;
-    /** The conversations made since it attached, which are sent whole. */
     readonly made: Set<ConversationId>;
     readonly folds: Map<ConversationId, Promise<Fold>>;
 }
@@ -107,14 +100,9 @@ export function watching(c: AgentContext, follow: Following): void {
         unnamed: new Set(),
     };
     WATCHES.set(follow, watch);
-    // `wake` begins to open the harness before it first waits.
     queueMicrotask(() => void attached(c, follow, watch)?.catch(warn(c)));
 }
 
-/**
- * Attaches the watches to the harness open now, once per open, so a
- * harness reopened after a failure is followed too.
- */
 function attached(
     c: AgentContext,
     follow: Following,
@@ -128,7 +116,6 @@ function attached(
         watch.attached = open.then(({ harness }) =>
             attach(c, follow, watch, harness),
         );
-        // A failed open is tried again by the next read.
         watch.attached.catch(() => {
             if (watch.of === open) watch.of = undefined;
         });
@@ -136,11 +123,6 @@ function attached(
     return watch.attached;
 }
 
-/**
- * Folds the chief's current session and the peers' chats, and every
- * conversation made from now on. A past session is folded once a client
- * reads it; until then a change to it only tells its readers to read again.
- */
 async function attach(
     c: AgentContext,
     follow: Following,
@@ -200,11 +182,6 @@ function conversationOfChange(
     }
 }
 
-/**
- * A change to a conversation no fold follows: a past session's readers
- * read again, and a session made current since the attach is folded from
- * here on, its readers reading again too.
- */
 function changed(
     c: AgentContext,
     follow: Following,
@@ -214,7 +191,6 @@ function changed(
     const { watch } = at;
     watch.queue = watch.queue
         .then(async () => {
-            // A conversation made in the same commit is folded whole.
             if (at.made.has(conversation) || at.folds.has(conversation)) {
                 return;
             }
@@ -231,10 +207,6 @@ function changed(
         .catch(warn(c));
 }
 
-/**
- * A harness closed while the agent is open was reopened: the events of
- * the commits between are lost, so every chat is read again.
- */
 function reopened(c: AgentContext, follow: Following, watch: Watch): void {
     watch.queue = watch.queue
         .then(async () => {
@@ -250,11 +222,6 @@ function reopened(c: AgentContext, follow: Following, watch: Watch): void {
         .catch(warn(c));
 }
 
-/**
- * The fold of a conversation the watches follow. A conversation made
- * after the attach is sent whole; any other starts from its view when
- * first folded, which a client reading in this epoch already has.
- */
 function foldOf(
     c: AgentContext,
     follow: Following,
@@ -291,7 +258,6 @@ function foldOf(
         return fold;
     })();
     at.folds.set(id, made);
-    // A failed attach is tried again by the next read.
     made.catch(() => at.folds.delete(id));
     return made;
 }
@@ -303,17 +269,13 @@ async function sent(
     conversation: ConversationId,
     ops: readonly ChatOp[],
 ): Promise<void> {
-    // An empty session a rewind moved the chief to shows no op, and its
-    // readers still read again.
     const row = await rowOf(c, conversation);
     if (row === undefined) {
         if (ops.length > 0) watch.unnamed.add(conversation);
         return;
     }
-    // Its chat was kept after a change was folded and not sent.
     let reset = watch.unnamed.delete(conversation);
     if (row.kind === "chief" && row.current === 1) {
-        // The current chat is another session now.
         reset ||= watch.current !== undefined && watch.current !== conversation;
         watch.current = conversation;
     }
@@ -355,11 +317,6 @@ function warn(c: Pick<AgentContext, "log">): (error: unknown) => void {
     return (error) => c.log.warn({ msg: "a chat was not followed", error });
 }
 
-/**
- * The watches of the harness open now. Called inside `withHarness`, which
- * opens it even after a wake that could not, so a page read is followed
- * from its number on.
- */
 async function followed(c: AgentCall, follow: Following): Promise<Attached> {
     const watch = WATCHES.get(follow);
     const at = watch === undefined ? undefined : attached(c, follow, watch);
@@ -389,7 +346,6 @@ export async function readChat(c: AgentCall, message: Open): Promise<ChatPage> {
         if (chat.past !== undefined) {
             throw refused(`there is no past session ${chat.past} here`);
         }
-        // The chief's chat before its first line, as today.
         await withHarness(c, generationOf(c).options, () =>
             followed(c, follow),
         );
@@ -459,7 +415,6 @@ function refused(words: string): UserError {
     return new UserError(words, { code: "refused" });
 }
 
-/** An item and the content block it shows, with its call's id for a tool. */
 interface Shown {
     readonly block: number;
     readonly item: ChatItem;
@@ -473,9 +428,7 @@ interface Shown {
  * watch holds no text for the whole wake.
  */
 class Fold {
-    /** The item of each tool call by the call's id, until its result. */
     readonly #calls = new Map<string, ChatItem>();
-    /** The items of the answer being written, by content block. */
     readonly #live = new Map<number, ChatItem>();
     #seen = -1;
     #lastInput = 0;
@@ -487,7 +440,6 @@ class Fold {
         return [...this.#live.values()];
     }
 
-    /** Takes in a revision of the conversation's view: the ops that bring a client to it. */
     view(view: ConversationView): ChatOp[] {
         const ops: ChatOp[] = [];
         for (const entry of view.entries) {
@@ -576,7 +528,6 @@ class Fold {
         )) {
             if (whole.tool !== undefined) continue;
             const scrubbed = scrub(whole);
-            // A secret may yet be streaming in.
             const item = { ...scrubbed, text: withheld(scrubbed.text) };
             const shown = this.#live.get(block);
             if (shown !== undefined && item.text === shown.text) continue;
@@ -596,11 +547,6 @@ class Fold {
     }
 }
 
-/**
- * Adds `item`, or replaces the item with its id where it is. Every item a
- * client reads goes through here or `#partial`, scrubbed of the host's
- * secrets, so an `append`'s offset counts the text a client holds.
- */
 function added(item: ChatItem, replaces?: string): ChatOp {
     return {
         type: "add",
@@ -613,7 +559,6 @@ function added(item: ChatItem, replaces?: string): ChatOp {
 const SUMMARY_NOTICE =
     "The conversation grew longer than the model can hold, so the earlier part of it was summarised.";
 
-/** The items an entry shows; a tool's result shows in its call's item. */
 function itemsOf(entry: EntryRecord): Shown[] {
     const at = timeOf(entry);
     const one = (
@@ -648,15 +593,12 @@ function itemsOf(entry: EntryRecord): Shown[] {
         }
         case "pi.compaction":
             return one("notice", SUMMARY_NOTICE);
-        // A notice the realm told the model is an input; one for people
-        // alone keeps its text in its data.
         case "hamlet.notice":
             return one(
                 "notice",
                 (entry.data as { text?: string } | undefined)?.text ??
                     textOf(entry),
             );
-        // Today's words for a reflection's mark.
         case "hamlet.reflection":
             return one("notice", "reflection");
         case "hamlet.retry":
@@ -747,7 +689,6 @@ function blocksOf(
     return shown;
 }
 
-/** Whole seconds: a notice's own time, else its message's. */
 function timeOf(entry: EntryRecord): number {
     const message = entry.model?.[0];
     if (message !== undefined) return Math.floor(message.timestamp / 1000);
@@ -762,7 +703,6 @@ function toolOf(name: string, args: unknown): NonNullable<ChatItem["tool"]> {
     const change = name === "edit" ? editOf(args) : undefined;
     return {
         name,
-        // Today's server writes the arguments' keys sorted.
         summary: clip(
             JSON.stringify(args, (_key, value: unknown) =>
                 value !== null &&
@@ -895,7 +835,6 @@ export async function readHistory(
                 modified,
                 current: row.current === 1,
                 messages,
-                // Today's history counts no tokens either.
                 tokens: "0",
                 title: titleOf(scrub(first)),
             });

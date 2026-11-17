@@ -34,13 +34,6 @@ function textOf(message: Message): string {
         .join("");
 }
 
-/**
- * Answers a summarising request with `SUMMARY` and every other request with
- * the next of `answers`, so a compaction never takes an answer meant for a
- * turn. `asked` keeps the texts of every request but the summaries'. A
- * summary is answered once `summarising` resolves, or fails when its
- * request is aborted first.
- */
 function script(
     answers: AssistantMessage[],
     summarising: () => Promise<void> = () => Promise.resolve(),
@@ -164,7 +157,6 @@ test("a long faux run compacts and keeps 20000 tokens", async (t) => {
     }
 });
 
-/** An empty answer cut off for its length, as a model out of room gives. */
 function cutOffShort(): AssistantMessage {
     return fauxAssistantMessage([], { stopReason: "length" });
 }
@@ -300,8 +292,6 @@ test("a line steered in with the ask-again still fails at a second cut-off", asy
     released.resolve();
     await agent.idle();
 
-    // A chief's line steers, so the line sent while the summary is out
-    // goes in the same request as the ask-again, after it was queued.
     assert.equal(run.summaries, 1);
     assert.deepEqual(run.asked[4]?.slice(-2), ["Line 5. And this.", CARRY_ON]);
     assert.equal(run.asked.length, 5);
@@ -332,7 +322,6 @@ test("a stop while the summary is out asks nothing again", async (t) => {
     });
     await until(() => run.summaries === 1);
     const root = await (await agent.harness()).root(context);
-    // A stop ends in milliseconds; a hang waits for a summary that never comes.
     assert.equal(
         await within(root.abort(context), 5_000, "the stop hung"),
         undefined,
@@ -358,7 +347,6 @@ test("a question cut off short replies with its second try's answer", async (t) 
     });
     const agent = await wakeAgent(t, { calls, responses: run.steps });
 
-    // A peer's questions share a chat of their own, so its history is theirs.
     for (const n of [1, 2, 3, 4]) {
         await agent.actions.submit(agent.by(from.realm), {
             id: `input-${n}`,

@@ -383,8 +383,6 @@ async function reply(
 ): Promise<undefined> {
     try {
         const input = await peers.turns.of(api.conversationId);
-        // An answer with nothing in it fails its turn or, cut off short, is
-        // asked again, and the second try replies.
         if (input.question === undefined || !hasWordsOrCall(answer))
             return undefined;
         const text = answer.content

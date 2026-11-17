@@ -23,8 +23,6 @@
 
 use super::{Demo, Expect, Is, Kill, Probe, Read, Scenario};
 
-/// The value that holds the Node host's process id: `pi pid`'s
-/// answer.
 const NODE_PID: &str = "node/pid";
 
 const fn agent(name: &'static str, sql: &'static str) -> Probe {
@@ -80,8 +78,6 @@ const TELL_RESULTS: Probe = agent(
      'pi.tool-result' AND record ->> '$.model[0].toolName' = 'tell'",
 );
 
-/// A `tell` result the model was told was interrupted: a repeat the
-/// realm refused, rather than answered from what it kept.
 const TELLS_CUT_OFF: Probe = agent(
     "agent.tells_cut_off",
     "SELECT COUNT(*) FROM pi_entries WHERE record ->> '$.kind' = \
@@ -95,7 +91,6 @@ const SESSIONS: Probe = agent(
     "SELECT COUNT(*) FROM chat WHERE kind = 'chief'",
 );
 
-/// Today's words for `/new`, which it writes as its notice.
 const NEW_NOTICES: Probe = agent(
     "agent.new_notices",
     "SELECT COUNT(*) FROM pi_entries WHERE record ->> '$.kind' = \
@@ -125,7 +120,6 @@ const RETRIES: Probe = agent(
      'hamlet.retry'",
 );
 
-/// The faux model's answer to today's retry input.
 const RETRIES_ANSWERED: Probe = agent(
     "agent.retries_answered",
     "SELECT COUNT(*) FROM pi_entries WHERE record ->> '$.kind' = \
@@ -133,11 +127,6 @@ const RETRIES_ANSWERED: Probe = agent(
      'Heard: Carry on from where you stopped.'",
 );
 
-/// After restart `n`, each of which says one line. Charged: the
-/// three long lines, the summary, the request after the tell's
-/// result, and each restart's line. Answered: the three long lines,
-/// the request after the tell's result, and each restart's line,
-/// all but the first two from the summary on.
 const fn compacted_once(n: i64) -> [Expect; 9] {
     [
         exactly("charges/1", 5 + n),
@@ -152,8 +141,6 @@ const fn compacted_once(n: i64) -> [Expect; 9] {
     ]
 }
 
-/// After restart `n`, each of which says one line in the new
-/// session.
 const fn new_once(n: i64) -> [Expect; 6] {
     [
         exactly("charges/1", 1 + n),
@@ -165,8 +152,6 @@ const fn new_once(n: i64) -> [Expect; 6] {
     ]
 }
 
-/// The cut-off retry's `open_task` and the one of the retry the
-/// first restart asks again.
 const fn retried_once(again: Is) -> [Expect; 6] {
     [
         Expect {
@@ -241,8 +226,6 @@ pub const SCENARIOS: &[Scenario] = &[
         due: None,
         restart: [
             &[
-                // The next Node host's answer after the tell's
-                // result.
                 "pi charges 1 5 30000",
                 "pi say 1 after",
                 "pi charges 1 6 30000",
@@ -323,8 +306,6 @@ pub const SCENARIOS: &[Scenario] = &[
             "pi pid",
             "pi refuse on",
             "pi say 1 hello",
-            // No charge comes: this waits out the 10 s in which the
-            // refused turn fails, a step of well under a second.
             "pi charges 1 1 10000",
             "pi refuse off",
         ],

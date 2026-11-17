@@ -7,9 +7,7 @@ import type { ToolChange } from "./messages.ts";
 /** The most lines of an edit's change kept, and characters of a line (`work/cut.rs`). */
 const KEPT = 200;
 const WIDE = 240;
-/** The lines shown around those that differ. */
 const AROUND = 3;
-/** The most pairs of lines compared one by one. */
 const PAIRS = 1_000_000;
 
 type Mark = ToolChange["lines"][number]["mark"];
@@ -85,7 +83,6 @@ function compare(old: string, now: string): [Mark, string][] {
         lines.push(...out.map((line): [Mark, string] => ["removed", line]));
         lines.push(...into.map((line): [Mark, string] => ["added", line]));
     } else {
-        // The longest run of lines both have, from each pair of places on.
         const wide = into.length + 1;
         const common = new Uint32Array((out.length + 1) * wide);
         const at = (i: number, j: number) => common[i * wide + j] ?? 0;
@@ -127,7 +124,6 @@ function compare(old: string, now: string): [Mark, string][] {
     return lines;
 }
 
-/** A last newline ends a line, and a carriage return that ends one goes. */
 function linesOf(text: string): string[] {
     if (text === "") return [];
     const lines = text.split("\n");
@@ -137,7 +133,6 @@ function linesOf(text: string): string[] {
     );
 }
 
-/** At most `most` characters of `text`. */
 export function clip(text: string, most: number): string {
     const chars = [...text];
     return chars.length > most ? chars.slice(0, most).join("") : text;

@@ -27,7 +27,6 @@ import {
 } from "./agent-testing.ts";
 import { context } from "./testing.ts";
 
-/** An action's arguments or a create input, as the host decodes them. */
 function fixture(name: string): unknown {
     return decodeCborCompat(
         readFileSync(
@@ -42,7 +41,6 @@ function fixture(name: string): unknown {
 const ERRAND = fixture("agent/errand.input") as AgentInput;
 const WORKER = fixture("agent/worker.input") as AgentInput;
 
-/** Each request the faux model received, answered `words`. */
 function asked(seen: Context[], words: string): FauxResponseFactory {
     return (context) => {
         seen.push(context);
@@ -50,13 +48,11 @@ function asked(seen: Context[], words: string): FauxResponseFactory {
     };
 }
 
-/** The tools the root conversation offers the model, by name. */
 async function offered(agent: Woken): Promise<string[]> {
     const root = await (await agent.harness()).root(context);
     return (await root.agent(context)).tools.map((tool) => tool.name).sort();
 }
 
-/** What the model read as a user's words in a request. */
 function userWords(context: Context): string[] {
     return context.messages.flatMap((message) =>
         message.role !== "user"
@@ -183,7 +179,6 @@ test("a worker is offered only the built-in tools its brief names", async (t) =>
     });
     t.after(() => agent.stop());
     await until(() => named(sent, "worker_done").length === 1);
-    // The tools a workspace lists arrive after the wake.
     await until(async () => (await offered(agent)).includes("lint"));
 
     // As today (`calls/place.rs:189-197`): no society tool, no timer.
@@ -289,7 +284,6 @@ test("a notice, a worker's answer and a reviewed line's note are taken and shown
         },
         { kind: "assistant", text: "Fixing them." },
     ]);
-    // A client following the chat is sent the same items.
     const inputs = (items: readonly ChatItem[]) =>
         items.filter((item) => item.kind !== "assistant").map(shown);
     const added = agent.events

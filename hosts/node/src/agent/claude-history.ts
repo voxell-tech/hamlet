@@ -40,7 +40,6 @@ function anthropicMessages(messages: readonly Message[]): SessionMessage[] {
         if (message.role === "user") {
             converted.push({ role: "user", content: userContent(message) });
         } else if (message.role === "assistant") {
-            // A turn stopped before anything was written answered nothing.
             if (message.content.length === 0) continue;
             const blocks = message.content.flatMap((block): ContentBlock[] => {
                 if (block.type === "text")
@@ -107,7 +106,6 @@ export function userContent(
     return blocks.length > 0 ? blocks : "[empty]";
 }
 
-/** pi's text and images as Anthropic blocks. */
 function anthropicBlocks(
     content: readonly (TextContent | ImageContent)[],
 ): UserContentBlock[] {

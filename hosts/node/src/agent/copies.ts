@@ -37,7 +37,6 @@ export interface Held {
 
 export type Part = keyof Copies;
 
-/** What the prompt, the models and reflection read, at each use. */
 export type ReadCopies = () => Promise<Held>;
 
 /** Keeps each part whose version is newer. */
@@ -70,7 +69,6 @@ export function copiesOf(db: AgentContext["db"]): ReadCopies {
     };
 }
 
-/** The versions held, as the realm's `read_copies` takes them. */
 async function versionsOf(db: AgentContext["db"]): Promise<Versions> {
     const rows = await db.all<{ name: string; version: number }>(
         "SELECT name, version FROM copy",
@@ -78,10 +76,7 @@ async function versionsOf(db: AgentContext["db"]): Promise<Versions> {
     return Object.fromEntries(rows.map((row) => [row.name, row.version]));
 }
 
-/**
- * Asks the realm for the parts newer than those held and keeps them. Called
- * once after each wake and never awaited there.
- */
+/** Asks the realm for the parts newer than those held and keeps them. */
 export async function refreshed(
     c: Pick<AgentContext, "db">,
     peers: Peers,

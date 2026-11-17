@@ -141,11 +141,6 @@ interface Written {
     readonly own?: readonly string[];
     /** Fields the agent always writes the same, checked and then taken from the fixture. */
     readonly constant?: Readonly<Record<string, unknown>>;
-    /**
-     * Drives a feature other than a turn of the Hand's, and gives back the
-     * agent it woke. The last call the agent sends of the fixture's action
-     * is compared.
-     */
     readonly drive?: (
         t: TestContext,
         calls: Calls,
@@ -173,7 +168,6 @@ function ownForms(
 
 const CHIEF: ChatRef = { with: 7 };
 
-/** The realm's answers to what a chief's command asks of it. */
 const COMMANDED: Answers = {
     realm: {
         lapse: () => answer("realm/lapse"),
@@ -181,13 +175,10 @@ const COMMANDED: Answers = {
     },
 };
 
-/** The made-up key the fixtures hold. */
 const KEY = "sk-test";
 
-/** The words of a failed turn the fixtures hold. */
 const FAILED_WORDS = "the model answered 529";
 
-/** The workspace's and the realm's answers to a stop. */
 const STOPPING: Answers = {
     workspace: { cancel: () => answer("workspace/cancel.cancelled") },
     realm: { lapse: () => answer("realm/lapse") },
@@ -205,7 +196,6 @@ async function say(agent: Woken, text: string): Promise<void> {
     await agent.idle();
 }
 
-/** The Hand, answering a chief's lines with `answers` in turn. */
 function chief(
     t: TestContext,
     calls: Calls,
@@ -229,7 +219,6 @@ function retry(agent: Woken) {
     return agent.actions.retry(agent.by(from.client), { id: uuid(6), to: 7 });
 }
 
-/** A provider's error, which ends the turn with `words`. */
 function modelFailed(words: string): AssistantMessage {
     return fauxAssistantMessage([], {
         stopReason: "error",
@@ -237,7 +226,6 @@ function modelFailed(words: string): AssistantMessage {
     });
 }
 
-/** The Hand's turn on `task`, which the model fails with `words`. */
 async function failed(
     t: TestContext,
     calls: Calls,
@@ -263,14 +251,8 @@ async function stopped(t: TestContext, calls: Calls): Promise<Woken> {
     return agent;
 }
 
-/** The realm's login in the fixtures, which expired long ago. */
 const LOGIN = (answer("realm/credential.oauth") as { login: OauthLogin }).login;
 
-/**
- * A stand-in for the provider the credential fixtures name, so no request
- * leaves the host. Each request answers and keeps the key it carried; its
- * sign-in asks for a key, and a refresh gives the fixtures' login.
- */
 function anthropic(keysSeen: (string | undefined)[]) {
     const core = createFauxCore({
         provider: "anthropic",
@@ -324,7 +306,6 @@ function anthropic(keysSeen: (string | undefined)[]) {
     };
 }
 
-/** The Hand, its model copied as one of `anthropic`'s. */
 async function onAnthropic(
     t: TestContext,
     calls: Calls,
@@ -341,7 +322,6 @@ async function onAnthropic(
     return agent;
 }
 
-/** A client signs the Hand in to `anthropic` with the fixtures' key. */
 async function signedIn(t: TestContext, calls: Calls): Promise<Woken> {
     const agent = await wakeAgent(t, {
         calls,
@@ -569,7 +549,6 @@ const WRITTEN: readonly Written[] = [
         },
         own: ["call"],
     },
-    // Sent at the first wake, which holds no copy yet.
     { fixture: "realm/read_copies.none" },
     {
         fixture: "realm/read_copies",
@@ -579,7 +558,6 @@ const WRITTEN: readonly Written[] = [
                 input: HAND,
                 models: anthropic([]),
             });
-            // Its model is one of `anthropic`'s.
             const [copies] = fixture("agent/copies.args") as [Copies];
             await first.actions.copies(first.by(from.realm), copies);
             await first.stop();
@@ -731,9 +709,6 @@ const WRITTEN: readonly Written[] = [
         },
     },
     {
-        // A subscription to `anthropic` is not signed in to, but a login the
-        // realm holds is rotated, and its expiry has passed. A rotation runs
-        // once in the host, so only this test reads that answer.
         fixture: "realm/keep_credential.oauth",
         drive: async (t, calls) => {
             const keysSeen: (string | undefined)[] = [];
@@ -815,8 +790,6 @@ for (const row of WRITTEN) {
         const { to, action } = actionOf(row.fixture);
         const of = () =>
             sent.filter((one) => one.to === to && one.name === action);
-        // `turn_failed`, `read_copies` and a brief's end go out after the
-        // work they follow has settled.
         await until(() => of().length > 0);
         assert.deepEqual(agent.reported, []);
         await agent.stop();
@@ -951,7 +924,6 @@ for (const input of CREATED) {
             input: created,
             responses: [fauxAssistantMessage(LAST_WORDS)],
         });
-        // A worker's or an errand's brief is its one turn, which ends with a call.
         if (created.kind === "worker" || created.kind === "errand") {
             const done = `${created.kind}_done`;
             await until(() => named(sent, done).length === 1);
@@ -1085,7 +1057,6 @@ for (const name of answersTo("realm/may_spend")) {
         if (given.type === "refused") {
             assert.equal(agent.faux.state.callCount, 0);
             const detail = String(submission?.detail);
-            // A hold's item is the realm's words alone.
             assert.ok(
                 given.why?.type === "objection"
                     ? detail === given.words
@@ -1212,7 +1183,6 @@ test("a client's call is refused in its fixture's words", {
     );
 });
 
-/** A value's form: each leaf as its type. */
 function formOf(value: unknown): unknown {
     if (Array.isArray(value)) return value.map(formOf);
     if (value !== null && typeof value === "object") {
@@ -1245,7 +1215,6 @@ test("the agent's chat events equal their fixtures, and its status, usage and re
     });
     await send("input-3", { type: "line", text: "Again." });
     const harness = await agent.harness();
-    // A harness reopened after a failed commit resets every chat.
     const lost = agent.failNextCommit();
     await agent.actions
         .submit(agent.by(from.realm), {
@@ -1286,8 +1255,6 @@ test("the agent's chat events equal their fixtures, and its status, usage and re
     const ops = events()
         .filter((event) => isDeepStrictEqual(event.chat, whole.chat))
         .flatMap((event) => event.ops);
-    // An append needs a stream held mid-answer, as `chat-transcript.test.ts`
-    // holds one.
     for (const op of whole.ops.filter(
         (one) => one.type !== "add" && one.type !== "append",
     )) {
@@ -1445,7 +1412,6 @@ const NOT_THE_AGENTS: readonly (readonly [RegExp, string])[] = [
     [/^workspace\/parcel(_part)?\./, "the realm's call of the workspace"],
 ];
 
-/** The fixtures of a client's calls, which `chat-messages.test.ts` reads back, and of the realm's `copies`. */
 const CLIENT_CALLS = new RegExp(
     `^agent/(${[...Object.keys(readClient), "copies"].join("|")})(\\..+)?\\.(args|answer)$`,
 );
