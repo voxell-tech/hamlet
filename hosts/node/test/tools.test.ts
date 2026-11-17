@@ -170,6 +170,47 @@ test("a relative path, and a left-out one, start from the agent's filesystem", a
     await agent.stop();
 });
 
+// Today's rule, which the prompt states (`talk/prompt.rs` `project`).
+test("a relative path starts from the project", {
+    todo: "the file tools start a relative path from the agent's own filesystem (`own-files.ts` `start`)",
+}, async (t) => {
+    const { calls, sent } = fakeCalls({
+        workspace: {
+            read_file: () => ({ type: "text", text: "notes", notes: [] }),
+        },
+    });
+    const agent = await wakeAgent(t, {
+        calls,
+        input: {
+            kind: "hire",
+            task: "standing-7",
+            place: {
+                version: 1,
+                lead: 1,
+                hires: [],
+                roads: [],
+                tools_off: [],
+                folder: "/work",
+            },
+        },
+        responses: [
+            toolCall("read", { path: "notes.md" }, "c1"),
+            fauxAssistantMessage("Read it."),
+        ],
+    });
+    t.after(() => agent.stop());
+    await agent.actions.submit(agent.by(from.realm), line("input-1", "Look."));
+    await agent.idle();
+
+    // The prompt reads the project's AGENTS.md and CLAUDE.md too.
+    assert.deepEqual(
+        named(sent, "read_file")
+            .map(({ message }) => message as { path: string })
+            .filter((read) => !/\/(AGENTS|CLAUDE)\.md$/.test(read.path)),
+        [{ path: "/work/notes.md" }],
+    );
+});
+
 test("a path that only begins with the root's name goes to the workspace", async (t) => {
     const { calls, sent } = fakeCalls({
         workspace: {
