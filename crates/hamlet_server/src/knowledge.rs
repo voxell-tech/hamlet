@@ -6,6 +6,7 @@ mod edits;
 pub(crate) mod folder;
 pub(crate) mod library;
 mod merges;
+pub(crate) mod papers;
 pub(crate) mod promotion;
 pub(crate) mod run;
 pub(crate) mod versions;

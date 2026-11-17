@@ -17,6 +17,7 @@ use crate::conversations::dreams::Dreamer;
 use crate::conversations::{self, chats, reflections};
 use crate::core::Core;
 use crate::knowledge::memory_path;
+use crate::knowledge::papers::papers;
 use crate::knowledge::versions::pinned;
 use crate::realm::change::{Done, done, refuse};
 use crate::society::addresses::{self, Reach};
@@ -251,8 +252,9 @@ impl Core<'_, '_> {
                 let of = Keeper::Agent(protocol::AgentId(
                     u64::try_from(agent.0)?,
                 ));
-                Ok(self
-                    .papers(of)?
+                let layout = self.realm.layout().clone();
+                let db = self.realm.store().connection();
+                Ok(papers(db, &layout, of)?
                     .map(|papers| cut(paper_text(&papers))))
             }
         }
