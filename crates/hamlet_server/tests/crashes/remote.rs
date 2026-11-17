@@ -419,7 +419,7 @@ async fn moved_to(
     faux: Faux,
 ) -> (Realm, Server, Client) {
     let mut realm = Realm::new();
-    let (server, mut chief) = realm.serve(Faux::new()).await;
+    let (mut server, mut chief) = realm.serve(Faux::new()).await;
     // What the Hand learned before, which the move must carry.
     let hand = chief.hand();
     let reply = chief
@@ -460,7 +460,10 @@ async fn moved_to(
         .request(|id| ClientMessage::MoveLodges(MoveLodges { id }))
         .await;
     assert_eq!(reply.kind, ReplyKind::Notice, "{}", reply.text);
-    drop((server, chief));
+    drop(chief);
+    // A killed server leaves its pi on the realm's store, where the
+    // next server's pi would meet it. A stop ends its pi first.
+    assert_eq!(server.stop().await, Some(0));
     let (server, chief) = realm.serve(faux).await;
     (realm, server, chief)
 }
