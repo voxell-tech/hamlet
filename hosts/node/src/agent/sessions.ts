@@ -4,11 +4,18 @@
  * questions each have a chat of their own (C22). Only these functions write
  * the `chat` table.
  */
-import type { ConversationId } from "@earendil-works/pi-durable";
+import type { Context } from "@earendil-works/chord/context";
+import type {
+    Conversation,
+    ConversationCreateOptions,
+    ConversationId,
+    Harness,
+} from "@earendil-works/pi-durable";
 import type { RawAccess } from "../actor/db/mod.ts";
 import { withHarness } from "../pi/runtime.ts";
 import { type AgentCall, generationOf } from "./actor.ts";
 import type { ChatRef, Input, RequestId } from "./messages.ts";
+import { onCopiedModel } from "./models.ts";
 import { conversationOf } from "./turn.ts";
 
 export async function migrateChats(
@@ -43,12 +50,7 @@ export function conversationFor(
                 const peer = input.from.agent;
                 return (
                     (await keptChat(c, kind, peer)) ??
-                    made(c, [kind, peer, 0], () =>
-                        harness.createConversation(
-                            { ownership: { kind: "ownerless" } },
-                            context,
-                        ),
-                    )
+                    made(c, [kind, peer, 0], () => created(c, harness, context))
                 );
             }
             case "answer": {
@@ -117,13 +119,7 @@ export async function begin(c: AgentCall, id: RequestId): Promise<Begun> {
     const to = await withHarness(
         c,
         generationOf(c).options,
-        async (harness, context) =>
-            (
-                await harness.createConversation(
-                    { ownership: { kind: "ownerless" } },
-                    context,
-                )
-            ).id,
+        async (harness, context) => (await created(c, harness, context)).id,
     );
     return c.db.transaction(async (tx) => {
         const raced = await begunBy(tx, id);
@@ -220,6 +216,29 @@ async function keptChat(
         peer,
     );
     return row?.conversation;
+}
+
+/**
+ * A new conversation, empty unless `make` forks one, on the model the
+ * agent's copy names. The copy is read once it exists, so `configured`
+ * finds it for any copy kept later.
+ */
+export async function created(
+    c: AgentCall,
+    harness: Harness,
+    context: Context,
+    make: (options: ConversationCreateOptions) => Promise<Conversation> = (
+        options,
+    ) => harness.createConversation(options, context),
+): Promise<Conversation> {
+    const conversation = await make({ ownership: { kind: "ownerless" } });
+    await onCopiedModel(
+        harness,
+        context,
+        conversation.id,
+        generationOf(c).copies,
+    );
+    return conversation;
 }
 
 /**
