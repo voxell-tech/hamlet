@@ -536,12 +536,14 @@ function admissionOf(message: Submit): Admission {
             return {
                 ...base,
                 kind: "letter",
+                from: input.from,
                 content: `A letter from ${from(input.from)}:\n\n${input.text}`,
             };
         case "question":
             return {
                 ...base,
                 kind: "question",
+                from: input.from,
                 question: input.letter,
                 content: `A question from ${from(input.from)}. Your answer to this turn is sent back as the reply:\n\n${input.text}`,
             };
@@ -549,6 +551,7 @@ function admissionOf(message: Submit): Admission {
             return {
                 ...base,
                 kind: "answer",
+                from: input.from,
                 content: `${from(input.from)} answers your question:\n\n${input.text}`,
             };
     }
