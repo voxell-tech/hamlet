@@ -7,7 +7,7 @@ mod oversight;
 mod promotion;
 mod shelves;
 mod society;
-pub(crate) mod targets;
+mod targets;
 pub(crate) mod versions;
 
 use anyhow::{Result, anyhow};
