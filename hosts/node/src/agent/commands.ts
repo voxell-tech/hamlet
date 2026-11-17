@@ -39,7 +39,7 @@ import {
     session,
 } from "./sessions.ts";
 import { textOf } from "./transcript.ts";
-import { callOf, conversationsOf, draftOf, isBusy, refOf } from "./turn.ts";
+import { conversationsOf, draftOf, isBusy, refOf } from "./turn.ts";
 
 type Answer<N extends keyof ClientActions> = Promise<
     ReturnType<ClientActions[N]>
@@ -339,69 +339,13 @@ async function lineAt(
     at: EntryId,
     context: Context,
 ): Promise<RewindRefusal | { text: string; before: EntryId | undefined }> {
-    if (
-        (await isBusy(harness, conversation, context)) ||
-        (await callIsOut(harness, conversation, context))
-    ) {
-        return "working";
-    }
+    if (await isBusy(harness, conversation, context)) return "working";
     const kept = await harness.conversation(conversation, context);
     const page = await kept?.entries({ maxEntryId: at }, 2, undefined, context);
     const [line, before] = page?.items ?? [];
     if (line?.id !== at) return "no_such_item";
     if (line.kind !== "hamlet.line") return "not_a_chief_line";
     return { text: textOf(line), before: before?.id };
-}
-
-/**
- * The ending of `workspace-tools.ts`'s `run` and `waits` and `society.ts`'s
- * `ask` results: no other result says its end comes later as an input.
- */
-const ENDS_LATER = " arrives as a new input.";
-
-/**
- * Whether a command or a wait for a chief `conversation` made has no admitted
- * `finished`, or a question it asked no answer.
- */
-async function callIsOut(
-    harness: Harness,
-    conversation: ConversationId,
-    context: Context,
-): Promise<boolean> {
-    const kept = await harness.conversation(conversation, context);
-    let unanswered = 0;
-    let cursor: Cursor | undefined;
-    do {
-        const page = await kept?.entries({}, 100, cursor, context);
-        for (const entry of page?.items ?? []) {
-            // A call a fork inherited ends in the conversation that made it.
-            if (entry.conversationId !== conversation) continue;
-            // An answer names no question, so questions are counted.
-            if (entry.kind === "hamlet.answer") unanswered -= 1;
-            const result = entry.model?.[0];
-            if (
-                entry.kind !== "pi.tool-result" ||
-                result?.role !== "toolResult" ||
-                result.isError ||
-                entry.byTaskId === undefined ||
-                !textOf(entry).endsWith(ENDS_LATER)
-            ) {
-                continue;
-            }
-            if (result.toolName === "ask") {
-                unanswered += 1;
-                continue;
-            }
-            const call = callOf({ taskId: entry.byTaskId });
-            const ended = await harness.commit(
-                (tx) => tx.submissionByRequest(conversation, call),
-                context,
-            );
-            if (ended === undefined) return true;
-        }
-        cursor = page?.next;
-    } while (cursor !== undefined);
-    return unanswered > 0;
 }
 
 /** As `crates/hamlet_server/src/commands/oversight.rs:249-266` asks. */

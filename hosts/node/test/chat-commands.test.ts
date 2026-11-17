@@ -795,78 +795,52 @@ function callOfRun(sent: Parameters<typeof named>[0]): string {
     return (run.message as { call: string }).call;
 }
 
-test("a rewind while a command's end has not come is refused working", async (t) => {
-    const { calls, sent } = fakes({
-        workspace: { run: () => ({ type: "running", command: 4 }) },
-    });
-    const agent = await wake(t, calls, [
-        fauxAssistantMessage("First."),
-        toolCall("bash", { command: "cargo test", timeout: 60 }),
-        fauxAssistantMessage("It runs; I will hear its end."),
-        fauxAssistantMessage("The tests failed."),
-    ]);
-    await told(agent, "One");
-    await told(agent, "Run the tests");
-    const client = agent.by(from.client);
-    const rewind = async (id: string) =>
-        agent.actions.rewind(client, {
-            id,
-            chat: { with: 7 },
-            item: await itemOfLine(agent, "Run the tests"),
+// As today, only a running turn refuses a rewind (`talk/chats.rs:313-317`).
+// A call's end that comes later lands in the conversation that made the
+// call, which the session has left, as today's reply does
+// (`talk/letters.rs:285-345`): the fork shows none of it.
+for (const [what, run] of [
+    ["a command's end has not come", { type: "running", command: 4 }],
+    [
+        "a wait for a chief is open",
+        { type: "waits_for_chief", needs: ["network"] },
+    ],
+] as const) {
+    test(`a rewind while ${what} goes ahead, and the end lands in the session it left`, async (t) => {
+        const { calls, sent } = fakes({ workspace: { run: () => run } });
+        const agent = await wake(t, calls, [
+            fauxAssistantMessage("First."),
+            toolCall("bash", { command: "cargo test", timeout: 60 }),
+            fauxAssistantMessage("It runs; I will hear its end."),
+            fauxAssistantMessage("The tests failed."),
+        ]);
+        await told(agent, "One");
+        await told(agent, "Run the tests");
+        const left = await now(agent);
+
+        assert.deepEqual(
+            await agent.actions.rewind(agent.by(from.client), {
+                id: "rw-1",
+                chat: { with: 7 },
+                item: await itemOfLine(agent, "Run the tests"),
+            }),
+            { type: "rewound", text: "Run the tests" },
+        );
+        await agent.actions.finished(agent.by(from.workspace), {
+            call: callOfRun(sent),
+            outcome: TESTS_FAILED,
         });
+        await agent.idle();
 
-    assert.deepEqual(await rewind("rw-1"), {
-        type: "refused",
-        why: { type: "working" },
-        words: "a turn is running here; stop it, then rewind",
+        assert.deepEqual(await said(agent, await now(agent)), [
+            "One",
+            "First.",
+        ]);
+        assert.equal((await said(agent, left)).at(-1), "The tests failed.");
     });
-    await agent.actions.finished(agent.by(from.workspace), {
-        call: callOfRun(sent),
-        outcome: TESTS_FAILED,
-    });
-    await agent.idle();
-    assert.deepEqual(await rewind("rw-2"), {
-        type: "rewound",
-        text: "Run the tests",
-    });
-    assert.deepEqual(await said(agent, await now(agent)), ["One", "First."]);
-});
+}
 
-test("a fork does not wait for a command whose end came to the session it left", async (t) => {
-    const { calls, sent } = fakes({
-        workspace: { run: () => ({ type: "running", command: 4 }) },
-    });
-    const agent = await wake(t, calls, [
-        toolCall("bash", { command: "cargo test", timeout: 60 }),
-        fauxAssistantMessage("It runs."),
-        fauxAssistantMessage("Ok."),
-        fauxAssistantMessage("The tests failed."),
-        fauxAssistantMessage("Four."),
-    ]);
-    await told(agent, "Run the tests");
-    await told(agent, "Three");
-    await agent.actions.finished(agent.by(from.workspace), {
-        call: callOfRun(sent),
-        outcome: TESTS_FAILED,
-    });
-    await agent.idle();
-    const client = agent.by(from.client);
-    const rewind = async (id: string, text: string) =>
-        agent.actions.rewind(client, {
-            id,
-            chat: { with: 7 },
-            item: await itemOfLine(agent, text),
-        });
-
-    assert.equal((await rewind("rw-1", "Three")).type, "rewound");
-    await told(agent, "Four");
-    assert.deepEqual(await rewind("rw-2", "Four"), {
-        type: "rewound",
-        text: "Four",
-    });
-});
-
-test("a rewind while a question has no answer is refused working", async (t) => {
+test("a rewind while a question has no answer goes ahead, and the answer lands in the session it left", async (t) => {
     const agent = await wake(
         t,
         fakes({ realm: { ask: () => ({ type: "done" }) } }).calls,
@@ -877,20 +851,16 @@ test("a rewind while a question has no answer is refused working", async (t) => 
         ],
     );
     await told(agent, "Ask Ada");
-    const client = agent.by(from.client);
     const asking = await now(agent);
-    const rewind = async (id: string) =>
-        agent.actions.rewind(client, {
-            id,
+
+    assert.deepEqual(
+        await agent.actions.rewind(agent.by(from.client), {
+            id: "rw-1",
             chat: { with: 7 },
             item: await itemOfLine(agent, "Ask Ada"),
-        });
-
-    assert.deepEqual(await rewind("rw-1"), {
-        type: "refused",
-        why: { type: "working" },
-        words: "a turn is running here; stop it, then rewind",
-    });
+        }),
+        { type: "rewound", text: "Ask Ada" },
+    );
     await submitted(agent, {
         type: "answer",
         question: 3,
@@ -899,10 +869,9 @@ test("a rewind while a question has no answer is refused working", async (t) => 
         conversation: String(asking),
     });
     await agent.idle();
-    assert.deepEqual(await rewind("rw-2"), {
-        type: "rewound",
-        text: "Ask Ada",
-    });
+
+    assert.deepEqual(await said(agent, await now(agent)), []);
+    assert.equal((await said(agent, asking)).at(-1), "Thanks.");
 });
 
 test("a line steered into a running turn is charged to its own task", async (t) => {
