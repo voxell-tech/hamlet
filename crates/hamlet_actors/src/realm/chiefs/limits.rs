@@ -3,9 +3,10 @@
 
 use anyhow::{Context as _, Result};
 use hamlet_actor::BindParam;
-use hamlet_messages::realm::budget::{BudgetLimit, Payer};
+use hamlet_messages::realm::budget::{self, BudgetLimit, Payer};
 use hamlet_messages::realm::{
-    Done, HamletId, HamletRefusal, Refusable, SetLimits,
+    Done, HamletId, HamletRefusal, Limit, Refusable, ReservedAct,
+    Review, SetLimits,
 };
 use hamlet_messages::sender::Client;
 use serde::{Deserialize, Serialize};
@@ -14,16 +15,34 @@ use super::super::act::{Act, Decided, Decision};
 use super::super::callers::Decider as _;
 use super::super::calls::Made;
 use super::super::change::{Affected, Rows, Writer};
-use super::super::record;
 use super::super::world::Part;
+use super::super::{documents, record};
 
-#[derive(
-    Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize,
-)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(default)]
 pub(in crate::realm) struct Limits {
     budget: Budget,
     pub road: RoadRules,
+    pub reserved: Reserved,
+    pub asking: Asking,
+    /// How many days of decisions each hire is told (H17).
+    pub told_days: u32,
+    /// How long after a chief's task a lead may not end the hire
+    /// (H7).
+    pub protected_minutes: u32,
+}
+
+impl Default for Limits {
+    fn default() -> Self {
+        Self {
+            budget: Budget::default(),
+            road: RoadRules::default(),
+            reserved: Reserved::default(),
+            asking: Asking::default(),
+            told_days: 7,
+            protected_minutes: 0,
+        }
+    }
 }
 
 impl Limits {
@@ -31,14 +50,95 @@ impl Limits {
     pub(super) fn of_row(text: &str) -> Result<Self> {
         Ok(serde_json::from_str(text)?)
     }
+
+    fn set(&mut self, limit: &Limit) -> Result<(), HamletRefusal> {
+        match *limit {
+            Limit::Questions { most } => self.asking.questions = most,
+            Limit::Refusals { most } => self.asking.refusals = most,
+            Limit::Review { review } => self.asking.review = review,
+            Limit::ProtectedMinutes { minutes } => {
+                self.protected_minutes = minutes;
+            }
+            Limit::ToldDays { days } => self.told_days = days,
+            Limit::Reserved { act, reserved } => {
+                *self.reserved.of(act) = reserved;
+            }
+            Limit::RoadPrice { micros } => {
+                // A price is kept as SQLite's integer.
+                if i64::try_from(micros).is_err() {
+                    return Err(HamletRefusal::MisshapenLimits);
+                }
+                self.road.price = micros;
+            }
+            Limit::RoadsMost { most } => self.road.most = most,
+            Limit::RoadsGrowOverDays { days } => {
+                self.road.grows_over_days = days;
+            }
+            Limit::RoadsBetween { .. } => {
+                return Err(HamletRefusal::MisshapenLimits);
+            }
+        }
+        Ok(())
+    }
 }
 
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(default)]
+struct RealmLimits {
+    budget: Budget,
+    /// Whether mayors may agree roads between their hamlets.
+    roads_between: bool,
+}
+
+impl Default for RealmLimits {
+    fn default() -> Self {
+        Self {
+            budget: Budget::default(),
+            roads_between: true,
+        }
+    }
+}
+
+/// The leads' acts a chief keeps for itself.
 #[derive(
     Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize,
 )]
 #[serde(default)]
-struct RealmLimits {
-    budget: Budget,
+pub(in crate::realm) struct Reserved {
+    pub end: bool,
+    pub hire: bool,
+    pub merge: bool,
+    pub roads: bool,
+}
+
+impl Reserved {
+    fn of(&mut self, act: ReservedAct) -> &mut bool {
+        match act {
+            ReservedAct::End => &mut self.end,
+            ReservedAct::Hire => &mut self.hire,
+            ReservedAct::Merge => &mut self.merge,
+            ReservedAct::Roads => &mut self.roads,
+        }
+    }
+}
+
+/// What may ask a chief in one turn (H10, H11).
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(default)]
+pub(in crate::realm) struct Asking {
+    pub questions: u32,
+    pub refusals: u32,
+    pub review: Review,
+}
+
+impl Default for Asking {
+    fn default() -> Self {
+        Self {
+            questions: 3,
+            refusals: 3,
+            review: Review::Remote,
+        }
+    }
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -69,6 +169,12 @@ impl Budget {
             }
             BudgetLimit::Time { ms } => {
                 self.ms = Some(ms);
+            }
+            BudgetLimit::Period { period } => {
+                self.period = match period {
+                    budget::Period::Day => Period::Day,
+                    budget::Period::Month => Period::Month,
+                };
             }
         }
     }
@@ -134,15 +240,26 @@ pub(in crate::realm) async fn budget(
     })
 }
 
+/// Whether mayors may agree roads between their hamlets. Before the
+/// realm's first start writes its row, the default.
+pub(in crate::realm) async fn roads_between(
+    rows: &Rows<'_>,
+) -> Result<bool> {
+    Ok(stored(rows).await?.unwrap_or_default().roads_between)
+}
+
 async fn realm(rows: &Rows<'_>) -> Result<RealmLimits> {
-    let text = rows
-        .value::<String>(
-            "SELECT limits FROM realm WHERE id = 1",
-            Vec::new(),
-        )
-        .await?
-        .context("the realm's row")?;
-    Ok(serde_json::from_str(&text)?)
+    stored(rows).await?.context("the realm's row")
+}
+
+async fn stored(rows: &Rows<'_>) -> Result<Option<RealmLimits>> {
+    rows.value::<String>(
+        "SELECT limits FROM realm WHERE id = 1",
+        Vec::new(),
+    )
+    .await?
+    .map(|text| Ok(serde_json::from_str(&text)?))
+    .transpose()
 }
 
 /// Limits with the row that keeps them.
@@ -162,44 +279,66 @@ impl Kept {
             Row::Hamlet(_, limits) => &mut limits.budget,
         }
     }
+
+    fn set(&mut self, limit: &Limit) -> Result<(), HamletRefusal> {
+        match (&mut self.0, limit) {
+            (
+                Row::Realm(limits),
+                &Limit::RoadsBetween { allowed },
+            ) => {
+                limits.roads_between = allowed;
+                Ok(())
+            }
+            (Row::Realm(_), _) => Err(HamletRefusal::MisshapenLimits),
+            (Row::Hamlet(_, limits), limit) => limits.set(limit),
+        }
+    }
 }
 
 impl Act<Client> for SetLimits {
     type Output = Done<HamletRefusal>;
-    /// `None` for a hamlet the realm does not hold.
-    type Loaded = Option<Kept>;
+    type Loaded = Result<Kept, HamletRefusal>;
     type Done = ();
 
     async fn load(
         &self,
         _by: &Client,
         rows: &Rows<'_>,
-    ) -> Result<Option<Kept>> {
+    ) -> Result<Result<Kept, HamletRefusal>> {
         Ok(match &self.hamlet {
-            None => Some(Kept(Row::Realm(realm(rows).await?))),
-            Some(id) => {
-                super::hamlet(rows, id).await?.map(|hamlet| {
-                    Kept(Row::Hamlet(hamlet.id, hamlet.limits))
-                })
-            }
+            None => Ok(Kept(Row::Realm(realm(rows).await?))),
+            Some(id) => match super::hamlet(rows, id).await? {
+                Some(hamlet) => {
+                    Ok(Kept(Row::Hamlet(hamlet.id, hamlet.limits)))
+                }
+                None => Err(HamletRefusal::NoSuchHamlet {
+                    id: id.clone(),
+                }),
+            },
         })
     }
 
     fn decide(
         &self,
         by: &Client,
-        kept: Option<Kept>,
+        kept: Result<Kept, HamletRefusal>,
     ) -> Decision<(), Self::Output> {
-        let Some(mut kept) = kept else {
-            return Decision::Answer(Done::refused(
-                HamletRefusal::NoSuchHamlet,
-            ));
+        let mut kept = match kept {
+            Ok(kept) => kept,
+            Err(refusal) => {
+                return Decision::Answer(Done::refused(refusal));
+            }
         };
-        if self.budget.is_empty() {
+        if self.budget.is_empty() && self.limits.is_empty() {
             return Decision::Answer(Done::Done);
         }
         for limit in &self.budget {
             kept.budget_mut().set(limit);
+        }
+        for limit in &self.limits {
+            if let Err(refusal) = kept.set(limit) {
+                return Decision::Answer(Done::refused(refusal));
+            }
         }
         Decision::Change(
             Decided::new(())
@@ -220,21 +359,45 @@ pub(super) async fn set(
     writer: &Writer<'_>,
     kept: Kept,
 ) -> Result<Affected> {
-    let (sql, params) = match kept.0 {
-        Row::Realm(limits) => (
-            "UPDATE realm SET limits = ?1 WHERE id = 1",
-            vec![BindParam::Text(serde_json::to_string(&limits)?)],
-        ),
-        Row::Hamlet(id, limits) => (
-            "UPDATE hamlet SET limits = ?2 WHERE id = ?1",
-            vec![
-                BindParam::Text(id.0),
-                BindParam::Text(serde_json::to_string(&limits)?),
-            ],
-        ),
+    let rows = writer.rows();
+    let mut affected = Affected::default();
+    let (budget_moved, sql, params) = match kept.0 {
+        Row::Realm(limits) => {
+            let was = stored(&rows).await?.unwrap_or_default();
+            if was.roads_between != limits.roads_between {
+                affected.places = documents::living(&rows)
+                    .await?
+                    .into_iter()
+                    .collect();
+                affected.seen.insert(Part::Roads);
+            }
+            (
+                was.budget != limits.budget,
+                "UPDATE realm SET limits = ?1 WHERE id = 1",
+                vec![BindParam::Text(serde_json::to_string(
+                    &limits,
+                )?)],
+            )
+        }
+        Row::Hamlet(id, limits) => {
+            let was = super::hamlet(&rows, &id)
+                .await?
+                .map(|hamlet| hamlet.limits.budget);
+            (
+                was.as_ref() != Some(&limits.budget),
+                "UPDATE hamlet SET limits = ?2 WHERE id = ?1",
+                vec![
+                    BindParam::Text(id.0),
+                    BindParam::Text(serde_json::to_string(&limits)?),
+                ],
+            )
+        }
     };
+    if budget_moved {
+        affected.seen.insert(Part::Spend);
+    }
     writer.execute(sql, params).await?;
-    Ok(Affected::seen([Part::Spend]))
+    Ok(affected)
 }
 
 #[cfg(test)]
@@ -252,18 +415,13 @@ mod tests {
         SetLimits {
             hamlet: hamlet.map(|hamlet| HamletId(hamlet.to_owned())),
             budget,
+            limits: Vec::new(),
         }
     }
 
     #[test]
     fn set_limits_sets_each_limit_in_order() {
-        let realm = || Some(Kept(Row::Realm(RealmLimits::default())));
-        assert_eq!(
-            set(Some("x"), Vec::new()).decide(&Client, None),
-            Decision::Answer(Done::refused(
-                HamletRefusal::NoSuchHamlet
-            ))
-        );
+        let realm = || Ok(Kept(Row::Realm(RealmLimits::default())));
         assert_eq!(
             set(None, Vec::new()).decide(&Client, realm()),
             Decision::Answer(Done::Done)
@@ -272,18 +430,27 @@ mod tests {
             BudgetLimit::Cost { micros: 1 },
             BudgetLimit::Time { ms: 2 },
             BudgetLimit::Cost { micros: 3 },
+            BudgetLimit::Period {
+                period: budget::Period::Month,
+            },
         ];
-        let Decision::Change(decided) =
-            set(None, limits).decide(&Client, realm())
+        let act = SetLimits {
+            limits: vec![Limit::RoadsBetween { allowed: false }],
+            ..set(None, limits)
+        };
+        let Decision::Change(decided) = act.decide(&Client, realm())
         else {
             panic!("the limits change");
         };
         let budget = Budget {
             micros: Some(3),
             ms: Some(2),
-            period: Period::Day,
+            period: Period::Month,
         };
-        let kept = Kept(Row::Realm(RealmLimits { budget }));
+        let kept = Kept(Row::Realm(RealmLimits {
+            budget,
+            roads_between: false,
+        }));
         assert_eq!(
             decided.changes,
             [change::Change::from(super::super::Change::Limits(
@@ -337,7 +504,12 @@ mod tests {
             );
         }
         let missing = set(Some("x"), cost);
-        assert_eq!(missing.load(&Client, &rows).await.unwrap(), None);
+        assert_eq!(
+            missing.load(&Client, &rows).await.unwrap(),
+            Err(HamletRefusal::NoSuchHamlet {
+                id: HamletId("x".to_owned())
+            })
+        );
         started.stop().await;
     }
 }

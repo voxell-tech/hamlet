@@ -58,8 +58,8 @@ impl Refusable for SayAnswer {
 )]
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum SayRefusal {
-    #[error("no agent is at that address")]
-    NoSuchAgent,
+    #[error("no agent has the address `{address}`")]
+    NoSuchAgent { address: String },
     #[error("`hire#{}` is still being hired; send the line again", agent.0)]
     StillHiring { agent: AgentNumber },
     #[error("`hire#{}` has left: {left}", agent.0)]
@@ -96,6 +96,16 @@ pub enum AnswerRefusal {
     NothingWaits { wait: String },
     #[error("that is not an answer to this wait")]
     NotOffered,
+    #[error("Say what to reply.")]
+    BlankReply,
+    #[error("every question needs an answer")]
+    Unequal,
+    #[error("question {question} has no such option")]
+    NoOption { question: u32 },
+    #[error("question {question} takes an option")]
+    TakesOption { question: u32 },
+    #[error("question {question} needs words")]
+    NoWords { question: u32 },
 }
 
 /// Reads the world a client shows. It answers while the realm

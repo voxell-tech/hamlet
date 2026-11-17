@@ -1,8 +1,9 @@
 use std::time::Duration;
 
 use hamlet_messages::realm::{
-    Asked, Done, End, EndRefusal, FoundAnswer, Hire, HireAnswer,
-    HireRefusal, HowEnded, LeadRefusal, Left, Named, Rank,
+    Asked, Done, End, EndRefusal, FoundAnswer, HamletId, Hire,
+    HireAnswer, HireRefusal, HowEnded, LeadRefusal, Left, Named,
+    Rank,
 };
 use hamlet_messages::sender::Hand;
 use hamlet_messages::workspace::AgentNumber;
@@ -118,7 +119,7 @@ async fn an_end_moves_the_children_and_drops_the_reach() {
         .await
         .unwrap();
     let (lead_of_4, (status, how, why)) = realm
-        .rows(|db| {
+        .stopped_rows(|db| {
             let lead = db.query_row(
                 "SELECT lead FROM hire WHERE agent = 4",
                 [],
@@ -213,7 +214,7 @@ async fn an_end_of_a_hire_still_hiring_closes_its_steps() {
 
     let hired_3 = realm.tool(MAYOR, &tool("h1", hire(None))).await;
     until("the drive of 3 waits on the held branch", || {
-        realm.seen.held.receiver_count() > 0
+        realm.seen.is_waiting(Callee::Branch, AgentNumber(3))
     })
     .await;
     let ended = realm
@@ -269,7 +270,7 @@ async fn an_end_of_a_hire_still_hiring_closes_its_steps() {
     assert_eq!((made_3, filled_3), (false, false));
     assert_eq!(reaches_3, [Reach::Ended]);
     let (status, done, closed) = realm
-        .rows(|db| {
+        .stopped_rows(|db| {
             db.query_row(
                 "SELECT agent.status, step.done, step.closed FROM \
                  agent JOIN step ON step.kind = 'hire' AND step.n = \
@@ -338,7 +339,7 @@ async fn a_repeated_hire_hires_once() {
         .filter(|(agent, _)| *agent == AgentNumber(3))
         .count();
     let (agents, hires) = realm
-        .rows(|db| {
+        .stopped_rows(|db| {
             let count = |table: &str| {
                 db.query_row(
                     &format!("SELECT COUNT(*) FROM {table}"),
@@ -484,14 +485,51 @@ async fn a_hire_under_the_hand_names_no_agent() {
     assert_eq!(
         by_the_chief,
         HireAnswer::Refused {
-            why: HireRefusal::NoSuchAgent
+            why: HireRefusal::NoSuchAgent {
+                address: "hand".to_owned()
+            }
         }
     );
     for answer in [by_the_hand, by_the_mayor] {
         assert_eq!(
             answer.unwrap(),
-            refused_to_an_agent(HireRefusal::NoSuchAgent)
+            refused_to_an_agent(HireRefusal::NoSuchAgent {
+                address: "hand".to_owned()
+            })
         );
     }
+    realm.host.shutdown().await.unwrap();
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn the_hands_hire_names_its_hamlet_in_todays_words() {
+    // As today's hire by the Hand (calls/society.rs:860-874).
+    let realm = Realm::start().await;
+    founded(&realm).await;
+    let unnamed = hire(None);
+    let nowhere = Hire {
+        hamlet: Some(HamletId("nowhere".to_owned())),
+        ..hire(None)
+    };
+
+    let unnamed =
+        realm.tool(Hand::NUMBER, &tool("h1", unnamed)).await;
+    let nowhere =
+        realm.tool(Hand::NUMBER, &tool("h2", nowhere)).await;
+
+    let words = |answer: HireAnswer<LeadRefusal<HireRefusal>>| {
+        let HireAnswer::Refused { why } = answer else {
+            panic!("{answer:?}");
+        };
+        why.to_string()
+    };
+    assert_eq!(
+        words(unnamed.unwrap()),
+        "Say which hamlet to hire into."
+    );
+    assert_eq!(
+        words(nowhere.unwrap()),
+        "no hamlet has the id `nowhere`"
+    );
     realm.host.shutdown().await.unwrap();
 }

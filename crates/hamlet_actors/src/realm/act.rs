@@ -2,17 +2,18 @@ use std::convert::Infallible;
 use std::future::Future;
 use std::sync::Arc;
 
-use anyhow::Result;
+use anyhow::{Result, bail};
 use hamlet_actor::Ctx;
-use hamlet_messages::realm::SocietyTool;
-use serde::Serialize;
+use hamlet_messages::realm::world::WaitId;
+use hamlet_messages::realm::{Gate, SocietyTool, Tool};
 use serde::de::DeserializeOwned;
+use serde::{Deserialize, Serialize};
 
 use super::callers::{Member, Stood, Witness};
 use super::calls::{self, Calls, Made, Push};
 use super::change::{self, Change, Rows};
+use super::oversight::reserved::{self, Kept};
 use super::peer::When;
-use super::world::World;
 use super::{Realm, marker, record, steps};
 
 /// An action that may change the realm, made by a caller of kind
@@ -47,14 +48,19 @@ pub(super) trait Act<By>:
     fn answer(&self, done: Self::Done, made: &Made) -> Self::Output;
 }
 
-/// A read of the copy in memory.
+/// A read of a copy the realm holds in memory.
 pub(super) trait Look<By>:
     Send + Sync + Sized + 'static
 {
     type Output: Send + 'static;
 
-    fn look(&self, by: &By, world: &World) -> Self::Output;
+    fn look(&self, by: &By, realm: &Realm) -> Self::Output;
 }
+
+/// The outcome of an act that only reads: there is none, so it
+/// answers from `decide`.
+#[derive(Debug, PartialEq, Serialize, Deserialize)]
+pub(super) enum Unchanged {}
 
 #[derive(Debug, PartialEq)]
 pub(super) enum Decision<D, O> {
@@ -109,37 +115,91 @@ where
     By: Witness,
     A: Act<By> + Serialize,
 {
-    let stood = exec(realm, ctx, by, id, name, act, async |_, _| {
-        Ok(None::<Infallible>)
-    });
+    let stood = exec(
+        realm,
+        ctx,
+        by,
+        id,
+        name,
+        act,
+        async |_, _, _| Ok(None::<Barred<Infallible>>),
+        |wait| {
+            bail!("wait {} keeps an act no chief reserves", wait.0)
+        },
+    );
     Ok(stood.await?.unwrap_or_else(|never| match never {}))
 }
 
+/// Runs a society tool: refused by the caller's standing, then kept
+/// for a chief when the limits reserve it for one, then the act.
 pub(super) async fn run_tool<By, A>(
     realm: &Arc<Realm>,
     ctx: &Ctx<Realm>,
     by: By,
-    id: marker::Id,
     name: &'static str,
-    tool: SocietyTool,
-    act: A,
+    society: SocietyTool,
+    tool: Tool<A>,
 ) -> Result<Result<A::Output, Stood>>
 where
     By: Member,
     A: Act<By> + Serialize,
 {
+    let Tool {
+        call,
+        task,
+        conversation,
+        act,
+    } = tool;
     exec(
         realm,
         ctx,
         by,
-        Some(id),
+        Some(marker::Id::Call(call)),
         name,
         act,
-        async move |by, rows| by.standing(rows, tool).await,
+        async move |by: &By, rows: &Rows<'_>, act: &A| {
+            if let Some(stood) = by.standing(rows).await? {
+                return Ok(Some(Barred::Stood(stood)));
+            }
+            let kept = reserved::reserve(
+                rows,
+                society,
+                by.agent(),
+                task.as_ref(),
+                conversation.as_ref(),
+                act,
+            )
+            .await?;
+            Ok(kept.map(|kept| match kept {
+                Kept::Waits(kept) => Barred::Reserved(kept),
+                Kept::Refused(why) => Barred::Stood(Stood::Gate(why)),
+            }))
+        },
+        |wait| Ok(Stood::Gate(Gate::Reserved { wait })),
     )
     .await
 }
 
+/// What a caller meets before its act is loaded.
+enum Barred<S> {
+    /// It is refused.
+    Stood(S),
+    /// The act is kept for a chief by these changes.
+    Reserved(Decided<WaitId>),
+}
+
+/// What a marker keeps of a first run.
+#[derive(Serialize, Deserialize)]
+enum Ran<D> {
+    Act(D),
+    /// The act waits for a chief.
+    Reserved(WaitId),
+}
+
+#[expect(
+    clippy::too_many_arguments,
+    reason = "the two runs differ only in the bar"
+)]
 async fn exec<By, A, S>(
     realm: &Arc<Realm>,
     ctx: &Ctx<Realm>,
@@ -147,7 +207,8 @@ async fn exec<By, A, S>(
     id: Option<marker::Id>,
     name: &'static str,
     act: A,
-    stand: impl AsyncFn(&By, &Rows<'_>) -> Result<Option<S>>,
+    bar: impl AsyncFn(&By, &Rows<'_>, &A) -> Result<Option<Barred<S>>>,
+    reserved: impl Fn(WaitId) -> Result<S>,
 ) -> Result<Result<A::Output, S>>
 where
     By: Witness,
@@ -168,7 +229,8 @@ where
         let read = async {
             if let Some(key) = &key
                 && let Some(found) =
-                    marker::find::<A::Done>(&tx.rows(), key).await?
+                    marker::find::<Ran<A::Done>>(&tx.rows(), key)
+                        .await?
             {
                 return match found {
                     marker::Found::Same { done, pushes } => {
@@ -177,16 +239,50 @@ where
                     marker::Found::Other => Err(key.reused()),
                 };
             }
-            if let Some(stood) = stand(&by, &tx.rows()).await? {
-                return Ok(Read::Stood(stood));
+            match bar(&by, &tx.rows(), &act).await? {
+                Some(Barred::Stood(stood)) => {
+                    return Ok(Read::Stood(stood));
+                }
+                Some(Barred::Reserved(kept)) => {
+                    return Ok(Read::Reserved(kept));
+                }
+                None => {}
             }
             let loaded = act.load(&by, &tx.rows()).await?;
             anyhow::Ok(Read::Decided(act.decide(&by, loaded)))
         }
         .await;
         let decision = match read? {
-            Read::Repeat { done, pushes } => break (done, pushes),
+            Read::Repeat {
+                done: Ran::Act(done),
+                pushes,
+            } => break (done, pushes),
+            Read::Repeat {
+                done: Ran::Reserved(wait),
+                pushes,
+            } => {
+                after_reserving(realm, ctx, pushes);
+                return Ok(Err(reserved(wait)?));
+            }
             Read::Stood(stood) => return Ok(Err(stood)),
+            Read::Reserved(kept) => {
+                let wait = kept.done;
+                let ran = Ran::<()>::Reserved(wait);
+                let pushes = tx
+                    .commit(
+                        realm,
+                        change::Write {
+                            changes: kept.changes,
+                            entries: kept.entries,
+                            marker: key
+                                .as_ref()
+                                .map(|key| (key, &ran)),
+                        },
+                    )
+                    .await?;
+                after_reserving(realm, ctx, pushes);
+                return Ok(Err(reserved(wait)?));
+            }
             Read::Decided(decision) => decision,
         };
         match decision {
@@ -203,6 +299,7 @@ where
                 waited = true;
             }
             Decision::Change(decided) => {
+                let ran = Ran::Act(&decided.done);
                 let pushes = tx
                     .commit(
                         realm,
@@ -211,7 +308,7 @@ where
                             entries: decided.entries,
                             marker: key
                                 .as_ref()
-                                .map(|key| (key, &decided.done)),
+                                .map(|key| (key, &ran)),
                         },
                     )
                     .await?;
@@ -237,9 +334,23 @@ where
     Ok(Ok(answer))
 }
 
+fn after_reserving(
+    realm: &Arc<Realm>,
+    ctx: &Ctx<Realm>,
+    pushes: Vec<Push>,
+) {
+    ctx.register_task(calls::after_answer(
+        realm.clone(),
+        ctx.clone(),
+        Vec::new(),
+        pushes,
+    ));
+}
+
 enum Read<D, O, S> {
-    Repeat { done: D, pushes: Vec<Push> },
+    Repeat { done: Ran<D>, pushes: Vec<Push> },
     Stood(S),
+    Reserved(Decided<WaitId>),
     Decided(Decision<D, O>),
 }
 
@@ -252,5 +363,5 @@ where
     By: Witness,
     L: Look<By>,
 {
-    look.look(by, &realm.world.current())
+    look.look(by, realm)
 }

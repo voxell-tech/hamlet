@@ -1,27 +1,35 @@
 //! The `realm` actor, one per realm.
 
 mod act;
+mod allowance;
 mod budget;
 mod callers;
 mod calls;
 mod change;
 mod chiefs;
+mod documents;
 mod hire;
 mod laid;
 mod letters;
 mod marker;
+mod oversight;
+mod parcels;
 mod peer;
 mod place;
 mod reach;
 mod record;
+mod reviews;
 mod roads;
 mod say;
 mod secrets;
+mod settings;
+mod society;
 mod steps;
 mod tasks;
 mod tree;
 mod versions;
 mod waits;
+mod workers;
 mod world;
 
 use std::sync::Arc;
@@ -32,11 +40,30 @@ use hamlet_actor::{Actor, Ctx, Registry};
 use hamlet_actor_core::{ActorConfig, ActorFactory};
 use hamlet_host::{Caller, HostRef};
 use hamlet_messages::address::{self, Party};
-use hamlet_messages::realm::budget::{Charge, MaySpend, ResetBudget};
+use hamlet_messages::realm::budget::{
+    Charge, MaySpend, OpenTask, ReadBudget, ResetBudget,
+};
+use hamlet_messages::realm::choices::{SetModel, SetNickname};
 use hamlet_messages::realm::client::{Answer, ReadWorld, Say};
+use hamlet_messages::realm::documents::{
+    EditCatalogue, EditCharter, EditSettings, ReadCharter, ReadCopies,
+};
+use hamlet_messages::realm::hamlets::{
+    MoveHamlet, NameHamlet, ReadRecord, SetFolder, SetMode,
+};
+use hamlet_messages::realm::models::{
+    Credential, KeepCredential, TurnFailed,
+};
+use hamlet_messages::realm::oversight::{
+    AskChief, Lapse, Object, Revoke,
+};
+use hamlet_messages::realm::parcels::FetchPart;
+use hamlet_messages::realm::workers::{
+    ErrandDone, SetAllowance, StartWorker, WorkerDone,
+};
 use hamlet_messages::realm::{
-    Ask, Asked, End, Found, Hire, LayRoad, NeedsChief, Reply,
-    RequestRoad, Seat, Secrets, SetLimits, SetTier, SetTools,
+    AgreeRoad, Ask, Asked, End, Found, Hire, LayRoad, NeedsChief,
+    Reply, RequestRoad, Seat, Secrets, SetLimits, SetTier, SetTools,
     TakeUpRoad, Tell, Tool,
 };
 
@@ -45,6 +72,8 @@ use self::callers::{Bare, ByHand, Looks};
 const SCHEMA: &str = include_str!("realm/schema.sql");
 
 const HIRING_WAIT: Duration = Duration::from_secs(4);
+
+const REVIEW_DEADLINE: Duration = Duration::from_secs(120);
 
 const SHORTEST_CALLER_DEADLINE: Duration = Duration::from_secs(10);
 
@@ -61,6 +90,17 @@ pub struct Options {
     /// The longest a line or a letter to a `hiring` hire waits for
     /// its steps.
     pub hiring_wait: Duration,
+    /// The longest a line held for a lead's review waits for it.
+    pub review_deadline: Duration,
+}
+
+impl Default for Options {
+    fn default() -> Self {
+        Self {
+            hiring_wait: HIRING_WAIT,
+            review_deadline: REVIEW_DEADLINE,
+        }
+    }
 }
 
 /// The realm's kind.
@@ -82,6 +122,7 @@ pub fn factory() -> ActorFactory {
 struct Realm {
     peers: peer::Peers,
     world: world::Held,
+    secrets: secrets::Held,
     drives: steps::Drives,
     hiring_wait: Duration,
 }
@@ -118,6 +159,38 @@ impl Actor for Realm {
         Tool<SetTools>,
         Asked<SetTier>,
         Asked<SetLimits>,
+        Asked<Revoke>,
+        Bare<TurnFailed>,
+        Bare<Lapse>,
+        Tool<AskChief>,
+        Tool<Object>,
+        Bare<ErrandDone>,
+        Tool<StartWorker>,
+        Asked<StartWorker>,
+        Bare<WorkerDone>,
+        Tool<SetAllowance>,
+        Asked<SetAllowance>,
+        Tool<ReadBudget>,
+        Bare<OpenTask>,
+        Asked<NameHamlet>,
+        Asked<MoveHamlet>,
+        Asked<SetMode>,
+        Asked<SetFolder>,
+        Tool<SetNickname>,
+        Asked<SetNickname>,
+        Tool<SetModel>,
+        Asked<SetModel>,
+        ByHand<Tool<ReadRecord>>,
+        Asked<ReadRecord>,
+        Asked<EditCharter>,
+        Asked<EditSettings>,
+        Asked<EditCatalogue>,
+        Bare<ReadCharter>,
+        Bare<ReadCopies>,
+        Tool<AgreeRoad>,
+        Looks<Credential>,
+        KeepCredential,
+        FetchPart,
     );
     type Events = ();
     type ConnParams = Option<Caller>;
@@ -130,6 +203,7 @@ impl Actor for Realm {
             hiring_wait: host
                 .value::<Options>()
                 .map_or(HIRING_WAIT, |options| options.hiring_wait),
+            secrets: secrets::Held::load(host.folder())?,
             peers: peer::Peers::new(host),
             world: world::Held::load(ctx).await?,
             drives: steps::Drives::default(),
@@ -147,6 +221,7 @@ impl Actor for Realm {
     }
 
     async fn on_start(self: Arc<Self>, ctx: Ctx<Self>) -> Result<()> {
+        parcels::sweep(&self, &ctx).await?;
         let rows = change::Rows::outside(&ctx)?;
         steps::undone(&rows, &self.drives).await?.start(&self, &ctx);
         Ok(())

@@ -12,13 +12,18 @@ use hamlet_messages::workspace::AgentNumber;
 use serde::{Deserialize, Serialize};
 
 use super::change::Affected;
+use super::oversight::asking;
 use super::peer::When;
-use super::{Realm, letters, place, reach, steps, waits};
+use super::tasks::TaskId;
+use super::{
+    Realm, documents, letters, place, reach, steps, waits, workers,
+};
 
 /// A call that carries an act's content.
 #[derive(Debug, PartialEq)]
 pub(super) enum Delivery {
-    /// A chief's line.
+    /// An input carried whole: a chief's line, or a notice with no
+    /// row of its own.
     Line { to: AgentNumber, submit: Submit },
     /// The letter or the question `0`, from its row, to its receiver.
     Letter(LetterId),
@@ -28,6 +33,14 @@ pub(super) enum Delivery {
     /// The chief's answer to the wait `0`, from its row, to the
     /// workspace.
     ChiefAnswer(WaitId),
+    /// The notice that closes the wait `0`, from its row, to its
+    /// agent.
+    Notice(WaitId),
+    /// The answer of the worker `0`, from its row, to its starter.
+    WorkerAnswer(AgentNumber),
+    /// The letters and answers held on the task `0`, to their
+    /// receivers.
+    Held(TaskId),
 }
 
 #[derive(Debug, Default, PartialEq)]
@@ -76,17 +89,21 @@ pub(super) enum Push {
     Reach(AgentNumber),
     /// The steps of a row.
     Drive(steps::StepId),
+    /// A part of the copies, to the agents that read it.
+    Copies(documents::Copied),
 }
 
 impl Push {
     /// The pushes of a commit, in the order they are made: the
-    /// drives, then the reaches, then the places.
+    /// drives, then the reaches, then the copies, then the places.
     pub fn of(affected: &Affected) -> Vec<Self> {
         let drives = affected.begun.iter().copied().map(Self::Drive);
         let reaches =
             affected.reaches.iter().copied().map(Self::Reach);
+        let copies =
+            affected.copies.iter().copied().map(Self::Copies);
         let places = affected.places.iter().copied().map(Self::Place);
-        drives.chain(reaches).chain(places).collect()
+        drives.chain(reaches).chain(copies).chain(places).collect()
     }
 }
 
@@ -108,6 +125,15 @@ pub(super) async fn deliver_all(
             }
             Delivery::ChiefAnswer(wait) => {
                 waits::deliver(realm, ctx, wait).await
+            }
+            Delivery::Notice(wait) => {
+                waits::notice(realm, ctx, wait).await
+            }
+            Delivery::WorkerAnswer(worker) => {
+                workers::answer(realm, ctx, worker).await
+            }
+            Delivery::Held(task) => {
+                asking::deliver_held(realm, ctx, task).await
             }
         };
         if let Err(error) = delivered {
@@ -132,6 +158,9 @@ async fn push(
         Push::Drive(row) => {
             realm.drives.start(realm, ctx, row);
             Ok(())
+        }
+        Push::Copies(copied) => {
+            documents::send(realm, ctx, copied).await
         }
     }
 }

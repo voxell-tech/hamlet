@@ -7,6 +7,7 @@ mod agent;
 mod chat;
 mod counter;
 mod link;
+mod realm;
 mod workspace;
 
 /// One way to kill the demo host and what must hold after it.
@@ -51,6 +52,9 @@ pub enum Demo {
     /// host has, and that each start has a Node host of its own and
     /// no other child when that value comes.
     Linked { pid: &'static str },
+    /// `demo --realm-actor serve`: the realm actor with stand-in
+    /// agents.
+    RealmActor,
 }
 
 /// When the kit kills the host, once the trigger was sent and, for a
@@ -111,6 +115,7 @@ pub fn all() -> impl Iterator<Item = &'static Scenario> {
         counter::SCENARIOS,
         workspace::SCENARIOS,
         link::SCENARIOS,
+        realm::SCENARIOS,
         agent::SCENARIOS,
         chat::SCENARIOS,
     ]

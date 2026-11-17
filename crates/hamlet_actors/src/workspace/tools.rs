@@ -6,6 +6,7 @@ use std::collections::BTreeSet;
 use std::path::{Path, PathBuf};
 use std::time::Duration;
 
+use hamlet_messages::realm::workers::BUILT_IN;
 use hamlet_messages::workspace::refusal::ToolRefusal;
 use hamlet_messages::workspace::{
     AddedTool, ConversationId, Fault, Program, Run, ToolList,
@@ -172,17 +173,10 @@ pub fn list(home: &RealmFolder) -> ToolList {
 }
 
 // Copied from `hamlet_server/src/work/added.rs`, with the names it
-// reserves from `work/tools.rs` and `work/catalogue.rs`.
-/// The names a tool added by hand may not take: the built-in tools
-/// and the society's.
-const RESERVED: [&str; 35] = [
-    "read",
-    "write",
-    "edit",
-    "bash",
-    "powershell",
-    "search",
-    "find",
+// reserves from `work/catalogue.rs`.
+/// The names a tool added by hand may not take besides the built-in
+/// tools: the society's.
+const RESERVED: [&str; 28] = [
     "tell",
     "ask",
     "start_worker",
@@ -285,7 +279,9 @@ fn load(home: &RealmFolder) -> (Vec<Tool>, Vec<Fault>) {
                     .map_err(Unloaded::Unread)?;
             let tool = parse(&data, &dir, &folder)?;
             let name = &tool.spec.name;
-            if RESERVED.contains(&name.as_str()) {
+            if BUILT_IN.contains(&name.as_str())
+                || RESERVED.contains(&name.as_str())
+            {
                 return Err(Unloaded::Reserved(name.clone()));
             }
             if !names.insert(name.clone()) {
