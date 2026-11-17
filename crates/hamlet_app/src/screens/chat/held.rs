@@ -17,10 +17,10 @@ use crate::convo::Convo;
 /// How many inputs wait in the shown chat, while a stop holds them.
 fn held(world: &World) -> Option<usize> {
     let convo = world.get_resource::<Convo>()?;
-    if !world.get::<Status>(convo.session)?.held {
+    if !world.get::<Status>(convo.chat)?.held {
         return None;
     }
-    let transcript = world.get::<Transcript>(convo.session)?;
+    let transcript = world.get::<Transcript>(convo.chat)?;
     Some(transcript.items().iter().filter(|item| item.queued).count())
 }
 

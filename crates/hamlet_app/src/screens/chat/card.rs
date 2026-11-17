@@ -35,23 +35,23 @@ use crate::markdown;
 /// and how far from that line what it holds is.
 const GUIDE: f32 = 4.0;
 
-/// The card of the entry `id` of `session`.
-pub(super) fn view(session: Entity, id: String) -> AnyView {
+/// The card of the entry `id` of `chat`.
+pub(super) fn view(chat: Entity, id: String) -> AnyView {
     AnyView::new(move |cx: &mut Cx| {
         let entry = cx
             .world
-            .get::<Transcript>(session)
+            .get::<Transcript>(chat)
             .and_then(|t| t.item(&id))
             .map(|item| item.entry.clone());
         match entry {
-            Some(Entry::Summary(_)) => cx.build(summary(session, id)),
+            Some(Entry::Summary(_)) => cx.build(summary(chat, id)),
             Some(Entry::Merged { from, name }) => {
-                cx.build(merged(session, id, from, name))
+                cx.build(merged(chat, id, from, name))
             }
             Some(Entry::Tool {
                 call: protocol::ToolCall::Worker { task },
                 ..
-            }) => cx.build(worker(session, id, task)),
+            }) => cx.build(worker(chat, id, task)),
             _ => cx.build(frame()),
         }
     })
@@ -100,8 +100,8 @@ fn is_open(world: &World, key: &(Entity, String)) -> bool {
 
 /// A quiet line across the chat where the earlier messages were
 /// summarized, which opens to the summary.
-fn summary(session: Entity, id: String) -> impl View {
-    let key = (session, id.clone());
+fn summary(chat: Entity, id: String) -> impl View {
+    let key = (chat, id.clone());
     let (turned, pressed) = (key.clone(), key.clone());
     let head = button(
         row((
@@ -121,7 +121,7 @@ fn summary(session: Entity, id: String) -> impl View {
         resource::<OpenTools, _>(move |open| open.0.contains(&key)),
         move |open| match open {
             true => held(document(
-                markdown::entry(session, id.clone()),
+                markdown::entry(chat, id.clone()),
                 Tone::Dim,
             ))
             .boxed(),
@@ -151,7 +151,7 @@ fn summary(session: Entity, id: String) -> impl View {
 /// The conversation of the hire `from`, named `name`, merged into
 /// the chat's agent, which opens in place to its rows, read only.
 fn merged(
-    session: Entity,
+    chat: Entity,
     id: String,
     from: Option<protocol::AgentId>,
     name: String,
@@ -160,7 +160,7 @@ fn merged(
     let open = move |world: &World, id: &str| {
         world
             .get_resource::<MergedLines>()
-            .is_some_and(|merged| merged.is_open(session, id))
+            .is_some_and(|merged| merged.is_open(chat, id))
     };
     let words = format!("Merged from {name}");
     let head = button(
@@ -184,11 +184,11 @@ fn merged(
         }
         // A conversation merged in is opened only from the chat, not
         // from one merged into it.
-        let own = world.resource::<Convo>().session == session;
+        let own = world.resource::<Convo>().chat == chat;
         if let (Some(from), true) = (from, own) {
             open_merged(
                 world,
-                session,
+                chat,
                 pressed.clone(),
                 from,
                 name.clone(),
@@ -234,14 +234,14 @@ enum Work {
     Failed,
 }
 
-/// The worker the call `id` of `session` started while it is in the
+/// The worker the call `id` of `chat` started while it is in the
 /// realm, and how it stands.
 fn work(
     world: &World,
-    session: Entity,
+    chat: Entity,
     id: &str,
 ) -> (Option<protocol::AgentId>, Work) {
-    let Some(transcript) = world.get::<Transcript>(session) else {
+    let Some(transcript) = world.get::<Transcript>(chat) else {
         return (None, Work::Running);
     };
     let Some(Entry::Tool { exit, agent, .. }) =
@@ -283,12 +283,12 @@ fn work(
 /// A worker the agent started on `task`: how it stands, which opens
 /// to the whole task, its answer once it has come, and the way to the
 /// worker's own chat.
-fn worker(session: Entity, id: String, task: String) -> impl View {
-    let key = (session, id.clone());
+fn worker(chat: Entity, id: String, task: String) -> impl View {
+    let key = (chat, id.clone());
     let (turned, pressed) = (key.clone(), key.clone());
     let stands = {
         let id = id.clone();
-        derived(move |world: &World| work(world, session, &id))
+        derived(move |world: &World| work(world, chat, &id))
             .when(every_frame())
     };
     let mark = keyed(stands, |(_, work)| {
@@ -333,7 +333,7 @@ fn worker(session: Entity, id: String, task: String) -> impl View {
     .on_activate(move |world| toggle(world, pressed.clone()));
     let body = keyed(
         derived(move |world: &World| {
-            is_open(world, &key).then(|| work(world, session, &key.1))
+            is_open(world, &key).then(|| work(world, chat, &key.1))
         })
         .when(every_frame()),
         move |stands| {
@@ -344,7 +344,7 @@ fn worker(session: Entity, id: String, task: String) -> impl View {
             if let Work::Done(Some(answer)) = work {
                 inside.push(
                     document(
-                        markdown::entry(session, answer),
+                        markdown::entry(chat, answer),
                         Tone::Body,
                     )
                     .boxed(),

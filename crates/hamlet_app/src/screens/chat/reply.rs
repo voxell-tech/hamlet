@@ -75,7 +75,7 @@ impl Answers {
     }
 }
 
-/// The message the next one sent in the chat of a session answers.
+/// The message the next one sent in the chat of a chat answers.
 #[derive(Resource, Default)]
 pub struct Replying(pub Option<(Entity, Answers)>);
 
@@ -161,18 +161,18 @@ pub(super) fn can_reply_to(entry: &Entry) -> bool {
 }
 
 /// Has the next message of the open chat reply to the entry `id` of
-/// `session`, said by `by`, and puts the caret in the field.
-fn take(world: &mut World, session: Entity, id: &str, by: &str) {
+/// `chat`, said by `by`, and puts the caret in the field.
+fn take(world: &mut World, chat: Entity, id: &str, by: &str) {
     let most = world.resource::<ChatSettings>().reply_chars;
     let answers = world
-        .get::<Transcript>(session)
+        .get::<Transcript>(chat)
         .and_then(|said| said.item(id).map(|item| &item.entry))
         .and_then(words)
         .map(|text| Answers::of(by, text, most));
     let Some(answers) = answers else {
         return;
     };
-    let open = world.resource::<Convo>().session;
+    let open = world.resource::<Convo>().chat;
     world.resource_mut::<Replying>().0 = Some((open, answers));
     world.resource_mut::<Draft>().focus = true;
 }
@@ -184,9 +184,9 @@ pub(super) fn attach(world: &World, text: String) -> (String, usize) {
     if text.trim().is_empty() {
         return (text, 0);
     }
-    let open = world.resource::<Convo>().session;
+    let open = world.resource::<Convo>().chat;
     match &world.resource::<Replying>().0 {
-        Some((session, answers)) if *session == open => {
+        Some((chat, answers)) if *chat == open => {
             let words = text.trim();
             let said = replied(answers, words);
             let shift = said.len() - words.len();
@@ -198,11 +198,7 @@ pub(super) fn attach(world: &World, text: String) -> (String, usize) {
 
 /// Drops a reply begun in a chat that is no longer open.
 fn forget(convo: Res<Convo>, mut replying: ResMut<Replying>) {
-    if replying
-        .0
-        .as_ref()
-        .is_some_and(|(at, _)| *at != convo.session)
-    {
+    if replying.0.as_ref().is_some_and(|(at, _)| *at != convo.chat) {
         replying.0 = None;
     }
 }
@@ -215,10 +211,10 @@ pub struct Replies;
 #[derive(Component)]
 struct Mark;
 
-/// The mark beside the message `id` of `session`, said by `by`, out
+/// The mark beside the message `id` of `chat`, said by `by`, out
 /// of sight until the pointer is on its row.
 pub(super) fn mark(
-    session: Entity,
+    chat: Entity,
     id: String,
     by: String,
 ) -> impl View {
@@ -227,7 +223,7 @@ pub(super) fn mark(
             .padding(UiRect::all(px(AROUND)))
             .tip("Reply")
             .variant(Variant::Text)
-            .on_activate(move |world| take(world, session, &id, &by));
+            .on_activate(move |world| take(world, chat, &id, &by));
         let node = cx.build(
             column((reply,))
                 .justify(JustifyContent::Center)

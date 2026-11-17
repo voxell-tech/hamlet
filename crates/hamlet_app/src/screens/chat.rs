@@ -823,9 +823,9 @@ mod tests {
                 0,
             );
         field::set(app.world_mut(), pieces);
-        let session = app.world().resource::<Convo>().session;
+        let chat = app.world().resource::<Convo>().chat;
         app.world_mut().resource_mut::<reply::Replying>().0 = Some((
-            session,
+            chat,
             reply::Answers {
                 by: "Ada".into(),
                 text: "Pear or plum?".into(),
@@ -893,8 +893,8 @@ mod tests {
             .world_mut()
             .spawn((Window::default(), PrimaryWindow))
             .id();
-        let session = app.world().resource::<Convo>().session;
-        app.world_mut().entity_mut(session).insert(
+        let chat = app.world().resource::<Convo>().chat;
+        app.world_mut().entity_mut(chat).insert(
             Transcript::from_items(vec![Item {
                 id: "message/é:7".into(),
                 at: 7,
@@ -955,7 +955,7 @@ mod tests {
         app.world_mut().resource_mut::<InputFocus>().clear();
         app.update();
         app.world_mut().trigger(hamlet_client::messages::Rewound {
-            chat: session,
+            chat,
             text,
             images: Vec::new(),
             files: Vec::new(),
@@ -1029,7 +1029,7 @@ mod tests {
         use hamlet_client::outbox::Outbox;
 
         let mut app = sounding_chat();
-        let chat = app.world().resource::<Convo>().session;
+        let chat = app.world().resource::<Convo>().chat;
         for (rewind, fault) in
             [(false, false), (true, false), (false, true)]
         {
@@ -1418,7 +1418,7 @@ mod tests {
         use crate::testing::{panel_app, words_and_spans};
         let mut app = panel_app();
         app.add_plugins(plugin);
-        let session = app.world().resource::<Convo>().session;
+        let chat = app.world().resource::<Convo>().chat;
         let chief = |id: &str, queued| Item {
             id: id.into(),
             at: 0,
@@ -1430,7 +1430,7 @@ mod tests {
                 files: Vec::new(),
             },
         };
-        app.world_mut().entity_mut(session).insert(
+        app.world_mut().entity_mut(chat).insert(
             Transcript::from_items(vec![
                 chief("chief:0", false),
                 Item {
@@ -1480,7 +1480,7 @@ mod tests {
         use crate::testing::{panel_app, press, words};
         let mut app = panel_app();
         app.add_plugins(plugin);
-        let session = app.world().resource::<Convo>().session;
+        let chat = app.world().resource::<Convo>().chat;
         let tool = |id: &str, exit| Item {
             id: id.into(),
             at: 0,
@@ -1498,7 +1498,7 @@ mod tests {
                 agent: None,
             },
         };
-        app.world_mut().entity_mut(session).insert(
+        app.world_mut().entity_mut(chat).insert(
             Transcript::from_items(vec![
                 Item {
                     id: "chief:0".into(),
@@ -1555,7 +1555,7 @@ mod tests {
         app.world_mut()
             .resource_mut::<OpenTools>()
             .0
-            .push((session, "failed:0".into()));
+            .push((chat, "failed:0".into()));
         app.update();
         app.update();
         assert!(
@@ -1574,8 +1574,8 @@ mod tests {
         use crate::testing::{panel_app, press};
         let mut app = panel_app();
         app.add_plugins(plugin);
-        let session = app.world().resource::<Convo>().session;
-        app.world_mut().entity_mut(session).insert(
+        let chat = app.world().resource::<Convo>().chat;
+        app.world_mut().entity_mut(chat).insert(
             Transcript::from_items(vec![Item {
                 id: "entry-abc:0".into(),
                 at: 1,
@@ -1655,9 +1655,9 @@ mod tests {
         use crate::testing::{panel_app, press};
         let mut app = panel_app();
         app.add_plugins(plugin);
-        let session = app.world().resource::<Convo>().session;
+        let chat = app.world().resource::<Convo>().chat;
         app.world_mut()
-            .entity_mut(session)
+            .entity_mut(chat)
             .insert(Transcript::default());
         app.update();
         bevy_fynix::mount::<HamletTheme>(
@@ -1702,8 +1702,8 @@ mod tests {
         app.add_plugins(plugin);
         for seat in [seat_ada, seat_hand] {
             seat(&mut app);
-            let session = app.world().resource::<Convo>().session;
-            app.world_mut().entity_mut(session).insert(said(40));
+            let chat = app.world().resource::<Convo>().chat;
+            app.world_mut().entity_mut(chat).insert(said(40));
         }
         app.update();
         // Kept from chat to chat, as the hub keeps it.
@@ -1746,8 +1746,8 @@ mod tests {
 
         let (_, following, _) = settle(&mut app);
         assert!(following, "a chat opens at its end");
-        let session = app.world().resource::<Convo>().session;
-        app.world_mut().entity_mut(session).insert(said(41));
+        let chat = app.world().resource::<Convo>().chat;
+        app.world_mut().entity_mut(chat).insert(said(41));
         let (list, following, _) = settle(&mut app);
         assert!(following, "a row that comes keeps it at its end");
 

@@ -184,7 +184,7 @@ pub(crate) fn follow(
     waiting: Query<(Entity, &Waiting, Option<&RaisedBy>)>,
     mut pending: ResMut<Pending>,
 ) {
-    let chat = chats.get(convo.session).ok().map(|chat| &chat.0);
+    let chat = chats.get(convo.chat).ok().map(|chat| &chat.0);
     let mut found = waiting
         .iter()
         .filter(|(_, waits, by)| {
@@ -403,11 +403,11 @@ fn held(
         return None;
     }
     let waiting = world.get::<Waiting>(need.entity)?;
-    let session = need.chat.as_ref().and_then(|reference| {
+    let chat = need.chat.as_ref().and_then(|reference| {
         hamlet_client::chats::find(world, reference)
     });
-    let open = session
-        .and_then(|session| world.get::<Transcript>(session))
+    let open = chat
+        .and_then(|chat| world.get::<Transcript>(chat))
         .and_then(|transcript| {
             transcript.items().iter().rev().find(|item| {
                 matches!(item.entry, Entry::Tool { exit: None, .. })
@@ -419,7 +419,7 @@ fn held(
             _ => None,
         })?;
     Some((
-        session.unwrap_or(Entity::PLACEHOLDER),
+        chat.unwrap_or(Entity::PLACEHOLDER),
         open.map_or_else(
             || waiting.id.clone(),
             |item| item.id.clone(),
@@ -524,8 +524,8 @@ fn strip(need: &Need, tail: AnyView) -> AnyView {
             (Some(asked), _) => {
                 asking::card(need.entity, asked.clone()).boxed()
             }
-            (None, Some((session, id, change))) => chat::change_view(
-                session,
+            (None, Some((chat, id, change))) => chat::change_view(
+                chat,
                 id,
                 change,
                 chat::Underway::Waiting,

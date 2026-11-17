@@ -426,7 +426,7 @@ pub(super) fn papers_on_job(
     let chat = job.chat;
     commands.queue(move |world: &mut World| {
         let convo = world.resource::<Convo>();
-        let ours = chat == convo.session
+        let ours = chat == convo.chat
             || world
                 .get::<TalksTo>(chat)
                 .is_some_and(|to| to.0 == convo.agent);

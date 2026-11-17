@@ -54,7 +54,7 @@ pub(crate) enum Deed {
     /// Takes the open conversation back to just before the message
     /// `entry` of it.
     Rewind {
-        session: Entity,
+        chat: Entity,
         entry: String,
         /// The time of the message, in milliseconds since 1970.
         at: u64,
@@ -138,9 +138,9 @@ impl Deed {
             Deed::MoveLodges => {
                 crate::settings::workspace::move_lodges(world);
             }
-            Deed::Rewind { session, entry, .. } => {
+            Deed::Rewind { chat, entry, .. } => {
                 world.trigger(Rewind {
-                    chat: *session,
+                    chat: *chat,
                     request: RequestId::new(),
                     item: entry.clone(),
                 });

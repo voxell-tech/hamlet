@@ -260,9 +260,9 @@ impl Default for Attached {
 pub(crate) type Places = HashMap<u64, u64>;
 
 impl Attached {
-    /// Makes the draft of `session` the one in the field.
-    pub(super) fn show(&mut self, session: Entity) {
-        self.shown = session;
+    /// Makes the draft of `chat` the one in the field.
+    pub(super) fn show(&mut self, chat: Entity) {
+        self.shown = chat;
     }
 
     /// The images of the shown draft.
@@ -896,7 +896,7 @@ fn chosen(
     convo: Res<Convo>,
     mut commands: Commands,
 ) {
-    if chosen.asker != convo.session {
+    if chosen.asker != convo.chat {
         return;
     }
     let paths = chosen.paths.clone();
@@ -929,9 +929,7 @@ fn paste(
     {
         return;
     }
-    commands.trigger(Paste {
-        asker: convo.session,
-    });
+    commands.trigger(Paste { asker: convo.chat });
 }
 
 /// Attaches what the clipboard held.
@@ -940,7 +938,7 @@ fn pasted(
     convo: Res<Convo>,
     mut commands: Commands,
 ) {
-    if pasted.asker != convo.session {
+    if pasted.asker != convo.chat {
         return;
     }
     let files = pasted.files.iter().cloned().map(Incoming::File);
@@ -1498,7 +1496,7 @@ pub(super) fn holds() -> impl View {
 /// A control that opens the dialog `what` is chosen in.
 fn chooser(which: Glyph, tip: &'static str, what: What) -> AnyView {
     super::tool_button(which, tip, move |world| {
-        let asker = world.resource::<Convo>().session;
+        let asker = world.resource::<Convo>().chat;
         world.trigger(Choose { asker, what });
     })
 }

@@ -55,11 +55,11 @@ pub(super) fn swap_drafts(
     mut commands: Commands,
 ) {
     for (node, mut field, holds) in &mut fields {
-        if holds.is_some_and(|holds| holds.0 == convo.session) {
+        if holds.is_some_and(|holds| holds.0 == convo.chat) {
             continue;
         }
         let draft = drafts
-            .get(convo.session)
+            .get(convo.chat)
             .map(|unsent| unsent.0.clone())
             .unwrap_or_default();
         // Its words are its own, not an edit to read addresses in.
@@ -67,8 +67,8 @@ pub(super) fn swap_drafts(
         if !draft.is_empty() || !field.is_empty() {
             field.set_content(draft);
         }
-        attached.show(convo.session);
-        commands.entity(node).insert(Holds(convo.session));
+        attached.show(convo.chat);
+        commands.entity(node).insert(Holds(convo.chat));
     }
 }
 
@@ -77,12 +77,11 @@ pub(super) fn swap_drafts(
 pub(super) fn keep_draft(world: &mut World, pieces: &[Piece]) {
     let mut fields =
         world.query_filtered::<&Holds, With<ChatField>>();
-    let Some(session) =
-        fields.iter(world).next().map(|holds| holds.0)
+    let Some(held) = fields.iter(world).next().map(|holds| holds.0)
     else {
         return;
     };
-    let Ok(mut chat) = world.get_entity_mut(session) else {
+    let Ok(mut chat) = world.get_entity_mut(held) else {
         return;
     };
     if pieces.is_empty() {

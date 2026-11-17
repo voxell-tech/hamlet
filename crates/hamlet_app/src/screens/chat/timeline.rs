@@ -310,13 +310,13 @@ pub(super) struct Line {
     pub named: bool,
 }
 
-/// The conversation `session` of the agent `of`, drawn by its name
+/// The conversation `chat` of the agent `of`, drawn by its name
 /// when the window does not know it, in display order with its
 /// speakers.
 pub(super) fn timeline(
     convo: &Convo,
     of: (Entity, Option<&str>),
-    session: Entity,
+    chat: Entity,
     transcript: &Transcript,
     open: &[(Entity, String)],
     people: &People,
@@ -329,7 +329,7 @@ pub(super) fn timeline(
     };
     let agent = cast.agent(of.0, of.1);
     let chief = cast.chief(&convo.name);
-    let mut lines = rows(session, transcript, open)
+    let mut lines = rows(chat, transcript, open)
         .into_iter()
         .map(|row| {
             let first = match &row {

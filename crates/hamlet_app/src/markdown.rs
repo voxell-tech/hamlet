@@ -19,10 +19,10 @@ pub(crate) use self::picture::picture_view;
 
 fn words<'a>(
     world: &'a World,
-    session: Entity,
+    chat: Entity,
     id: &str,
 ) -> Option<&'a str> {
-    match &world.get::<Transcript>(session)?.item(id)?.entry {
+    match &world.get::<Transcript>(chat)?.item(id)?.entry {
         Entry::Assistant(text)
         | Entry::Agent { text, .. }
         | Entry::Summary(text) => Some(text),
@@ -32,8 +32,8 @@ fn words<'a>(
 
 /// True while the entry `id` is the last of its conversation and
 /// may have more words to come.
-fn is_growing(world: &World, session: Entity, id: &str) -> bool {
-    world.get::<Transcript>(session).is_some_and(|transcript| {
+fn is_growing(world: &World, chat: Entity, id: &str) -> bool {
+    world.get::<Transcript>(chat).is_some_and(|transcript| {
         transcript.is_answering()
             && transcript.items().last().map(|item| item.id.as_str())
                 == Some(id)
@@ -43,22 +43,22 @@ fn is_growing(world: &World, session: Entity, id: &str) -> bool {
 /// The blocks of an entry of a transcript, parsed again only when
 /// that entry's own text has changed or has stopped growing.
 pub(crate) fn entry(
-    session: Entity,
+    chat: Entity,
     id: String,
 ) -> Signal<Vec<Arc<Block>>> {
-    let mut moved = component::<Transcript, _>(session, |_| ());
+    let mut moved = component::<Transcript, _>(chat, |_| ());
     let read = Arc::new(Mutex::new(Read::default()));
     let shared = read.clone();
     let read_id = id.clone();
     Signal::new(
         move |world: &World| {
             let mut read = shared.lock().unwrap();
-            read.update(world, session, &read_id);
+            read.update(world, chat, &read_id);
             read.blocks.clone()
         },
         move |world: &World| {
             moved.changed(world)
-                && read.lock().unwrap().update(world, session, &id)
+                && read.lock().unwrap().update(world, chat, &id)
         },
     )
 }
@@ -77,11 +77,11 @@ impl Read {
     fn update(
         &mut self,
         world: &World,
-        session: Entity,
+        chat: Entity,
         id: &str,
     ) -> bool {
-        let now = words(world, session, id);
-        let grows = is_growing(world, session, id);
+        let now = words(world, chat, id);
+        let grows = is_growing(world, chat, id);
         let stamp = now.map(|text| (text.len(), hashed(text), grows));
         if self.seen == Some(stamp) {
             return false;
@@ -130,7 +130,7 @@ mod tests {
         app
     }
 
-    /// A session where each of `replies` answers a message.
+    /// A chat where each of `replies` answers a message.
     fn talk(
         app: &mut App,
         replies: &[&str],
@@ -172,9 +172,8 @@ mod tests {
         )
     }
 
-    fn grow(app: &mut App, session: Entity, more: &str) {
-        let transcript =
-            app.world().get::<Transcript>(session).unwrap();
+    fn grow(app: &mut App, chat: Entity, more: &str) {
+        let transcript = app.world().get::<Transcript>(chat).unwrap();
         let mut items = transcript.items().to_vec();
         if let Some(Item {
             entry: Entry::Assistant(text),
@@ -183,7 +182,7 @@ mod tests {
         {
             text.push_str(more);
         }
-        app.world_mut().entity_mut(session).insert(
+        app.world_mut().entity_mut(chat).insert(
             Transcript::from_items(items).with_answering(true),
         );
     }
@@ -204,13 +203,13 @@ mod tests {
         std::fs::write(folder.join("plan.md"), "").unwrap();
         let mut app = app();
         app.insert_resource(Roots::new([folder.to_path_buf()]));
-        let (session, ids) = talk(
+        let (chat, ids) = talk(
             &mut app,
             &["Read plan.md and gone.md, then plan.md"],
         );
         mount::<HamletTheme>(
             app.world_mut(),
-            document(entry(session, ids[1].clone()), Tone::Body),
+            document(entry(chat, ids[1].clone()), Tone::Body),
         );
         app.update();
         let said = |app: &mut App| {
@@ -236,12 +235,12 @@ mod tests {
 
         let items = app
             .world()
-            .get::<Transcript>(session)
+            .get::<Transcript>(chat)
             .unwrap()
             .items()
             .to_vec();
         app.world_mut()
-            .entity_mut(session)
+            .entity_mut(chat)
             .insert(Transcript::from_items(items));
         app.update();
         assert_eq!(
@@ -260,9 +259,9 @@ mod tests {
      {
         use hamlet_ui::markdown::Target;
         let mut app = app();
-        let (session, ids) =
+        let (chat, ids) =
             talk(&mut app, &["Ask hire#3 (Mira), then mayor@x."]);
-        let mut read = entry(session, ids[1].clone());
+        let mut read = entry(chat, ids[1].clone());
         let targets = |blocks: Vec<Arc<Block>>| {
             blocks
                 .iter()
@@ -285,12 +284,12 @@ mod tests {
         );
         let items = app
             .world()
-            .get::<Transcript>(session)
+            .get::<Transcript>(chat)
             .unwrap()
             .items()
             .to_vec();
         app.world_mut()
-            .entity_mut(session)
+            .entity_mut(chat)
             .insert(Transcript::from_items(items));
         assert!(read.changed(app.world()));
         let whole = targets(read.get(app.world()));
@@ -306,13 +305,13 @@ mod tests {
     #[test]
     fn only_the_entry_that_changed_is_read_again() {
         let mut app = app();
-        let (session, ids) = talk(&mut app, &["old", "new"]);
-        let mut old = entry(session, ids[1].clone());
-        let mut new = entry(session, ids[3].clone());
+        let (chat, ids) = talk(&mut app, &["old", "new"]);
+        let mut old = entry(chat, ids[1].clone());
+        let mut new = entry(chat, ids[3].clone());
         assert!(old.changed(app.world()));
         assert!(new.changed(app.world()));
 
-        grow(&mut app, session, " words");
+        grow(&mut app, chat, " words");
         assert!(!old.changed(app.world()));
         assert!(new.changed(app.world()));
         let blocks = new.get(app.world());

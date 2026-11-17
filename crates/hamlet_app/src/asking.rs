@@ -466,9 +466,8 @@ mod tests {
     fn the_chat_shows_its_oldest_request_and_sends_its_response() {
         let mut app = panel_app();
         app.add_plugins(crate::petition::plugin);
-        let session = app.world().resource::<Convo>().session;
-        let chat =
-            app.world().get::<Chat>(session).unwrap().0.clone();
+        let shown = app.world().resource::<Convo>().chat;
+        let chat = app.world().get::<Chat>(shown).unwrap().0.clone();
         let question = |id: &str, since, chat: &protocol::ChatRef| {
             serde_json::from_value::<protocol::Wait>(json!({
                 "id": id, "agent": null, "by": "ada",

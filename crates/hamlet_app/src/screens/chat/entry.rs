@@ -78,11 +78,11 @@ pub(crate) enum Underway {
     Waiting,
 }
 
-/// How the tool call at entry `id` of `session` stands, as a mark and
+/// How the tool call at entry `id` of `chat` stands, as a mark and
 /// how long it took.
-pub(super) fn status(session: Entity, id: String) -> impl View {
+pub(super) fn status(chat: Entity, id: String) -> impl View {
     keyed(
-        component::<Transcript, _>(session, move |t| ran(t, &id)),
+        component::<Transcript, _>(chat, move |t| ran(t, &id)),
         |ran| {
             let (which, tone, time) = match ran {
                 Ran::Running => (Glyph::Clock, Tone::Warning, None),
@@ -161,8 +161,8 @@ fn took(ms: u64) -> String {
 
 /// A tool call as one line, its tool, its request and how it went,
 /// that opens to the whole request and why it failed.
-fn tool_row(session: Entity, id: String) -> impl View {
-    let key = (session, id.clone());
+fn tool_row(chat: Entity, id: String) -> impl View {
+    let key = (chat, id.clone());
     let is_open = {
         let key = key.clone();
         move |open: &OpenTools| open.0.contains(&key)
@@ -171,14 +171,14 @@ fn tool_row(session: Entity, id: String) -> impl View {
         let id = id.clone();
         move |f: fn(&Entry) -> String| {
             let id = id.clone();
-            component::<Transcript, _>(session, move |t| {
+            component::<Transcript, _>(chat, move |t| {
                 t.and_then(|t| t.item(&id).map(|item| &item.entry))
                     .map(f)
                     .unwrap_or_default()
             })
         }
     };
-    let status = status(session, id.clone());
+    let status = status(chat, id.clone());
     let turned = is_open.clone();
     let head = button(
         row((
@@ -281,12 +281,12 @@ fn tool_row(session: Entity, id: String) -> impl View {
         .gap(0.0)
 }
 
-/// Whom the notification or request `id` of `session` was sent to,
+/// Whom the notification or request `id` of `chat` was sent to,
 /// by the name the window shows it by, else by the address it was
 /// sent to.
-fn whom(world: &World, session: Entity, id: &str) -> String {
+fn whom(world: &World, chat: Entity, id: &str) -> String {
     let Some(Entry::Tool { call, agent, .. }) = world
-        .get::<Transcript>(session)
+        .get::<Transcript>(chat)
         .and_then(|t| t.item(id))
         .map(|item| &item.entry)
     else {
@@ -307,13 +307,13 @@ fn whom(world: &World, session: Entity, id: &str) -> String {
 
 /// A notification or a request the agent sent another: whom to, how
 /// it went, and its words.
-fn message_row(session: Entity, id: String) -> impl View {
+fn message_row(chat: Entity, id: String) -> impl View {
     let whom = {
         let id = id.clone();
-        derived(move |world: &World| whom(world, session, &id))
+        derived(move |world: &World| whom(world, chat, &id))
             .when(every_frame())
     };
-    let words = component::<Transcript, _>(session, {
+    let words = component::<Transcript, _>(chat, {
         let id = id.clone();
         move |t| match t.and_then(|t| t.item(&id)).map(|i| &i.entry) {
             Some(Entry::Tool {
@@ -334,7 +334,7 @@ fn message_row(session: Entity, id: String) -> impl View {
             .grow(1.0)
             .min_width(px(0.0))
             .overflow(Overflow::clip_x()),
-            status(session, id),
+            status(chat, id),
         ))
         .gap(8.0)
         .align(AlignItems::Center)
@@ -366,13 +366,13 @@ fn failed(why: String) -> impl View {
     })
 }
 
-/// The change of the edit at entry `id` of `session`, at the edge of
+/// The change of the edit at entry `id` of `chat`, at the edge of
 /// what holds it.
-pub(super) fn edit_view(session: Entity, id: String) -> AnyView {
+pub(super) fn edit_view(chat: Entity, id: String) -> AnyView {
     AnyView::new(move |cx: &mut Cx| {
         let change = cx
             .world
-            .get::<Transcript>(session)
+            .get::<Transcript>(chat)
             .and_then(|t| t.item(&id))
             .and_then(|item| match &item.entry {
                 Entry::Tool {
@@ -383,7 +383,7 @@ pub(super) fn edit_view(session: Entity, id: String) -> AnyView {
             });
         match change {
             Some(change) => cx.build(change_view(
-                session,
+                chat,
                 id,
                 change,
                 Underway::Running,
@@ -393,11 +393,11 @@ pub(super) fn edit_view(session: Entity, id: String) -> AnyView {
     })
 }
 
-pub(crate) fn entry_view(session: Entity, id: String) -> AnyView {
+pub(crate) fn entry_view(chat: Entity, id: String) -> AnyView {
     AnyView::new(move |cx: &mut Cx| {
         let kind = cx
             .world
-            .get::<Transcript>(session)
+            .get::<Transcript>(chat)
             .and_then(|t| t.item(&id).map(|item| &item.entry))
             .cloned();
         // Named as the chat names them: the agent by what it is
@@ -406,7 +406,7 @@ pub(crate) fn entry_view(session: Entity, id: String) -> AnyView {
         // A conversation merged in is another agent's.
         let other = cx
             .world
-            .get::<Chat>(session)
+            .get::<Chat>(chat)
             .and_then(|chat| {
                 hamlet_client::realm::agent(cx.world, chat.0.with)
             })
@@ -433,7 +433,7 @@ pub(crate) fn entry_view(session: Entity, id: String) -> AnyView {
         let text_id = id.clone();
         let text = move |f: fn(&Entry) -> String| {
             let id = text_id.clone();
-            component::<Transcript, _>(session, move |t| {
+            component::<Transcript, _>(chat, move |t| {
                 t.and_then(|t| t.item(&id).map(|item| &item.entry))
                     .map(f)
                     .unwrap_or_default()
@@ -453,7 +453,7 @@ pub(crate) fn entry_view(session: Entity, id: String) -> AnyView {
                     .size(meta)
                     .bold(true)
                     .tone(Tone::Faint),
-                document(markdown::entry(session, id), Tone::Body),
+                document(markdown::entry(chat, id), Tone::Body),
             ))
             .gap(2.0)
             .padding(UiRect::axes(px(12.0), px(4.0)))
@@ -472,7 +472,7 @@ pub(crate) fn entry_view(session: Entity, id: String) -> AnyView {
                 change: Some(change),
                 ..
             }) => column((change_view(
-                session,
+                chat,
                 id,
                 change,
                 Underway::Running,
@@ -485,18 +485,16 @@ pub(crate) fn entry_view(session: Entity, id: String) -> AnyView {
                     ToolCall::Notification { .. }
                     | ToolCall::Request { .. },
                 ..
-            }) => column((message_row(session, id),))
+            }) => column((message_row(chat, id),))
                 .width(percent(100.0))
                 .min_width(px(0.0))
                 .padding(UiRect::axes(px(16.0), px(0.0)))
                 .boxed(),
-            Some(Entry::Tool { .. }) => {
-                column((tool_row(session, id),))
-                    .width(percent(100.0))
-                    .min_width(px(0.0))
-                    .padding(UiRect::axes(px(16.0), px(0.0)))
-                    .boxed()
-            }
+            Some(Entry::Tool { .. }) => column((tool_row(chat, id),))
+                .width(percent(100.0))
+                .min_width(px(0.0))
+                .padding(UiRect::axes(px(16.0), px(0.0)))
+                .boxed(),
             Some(Entry::Error(_)) => column((
                 label(text(|e| match e {
                     Entry::Error(s) => format!(
@@ -514,7 +512,7 @@ pub(crate) fn entry_view(session: Entity, id: String) -> AnyView {
                     "Try again",
                     move |world| {
                         let Some(to) = world
-                            .get::<Chat>(session)
+                            .get::<Chat>(chat)
                             .map(|chat| chat.0.with)
                         else {
                             return;

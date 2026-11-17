@@ -28,7 +28,7 @@ pub(crate) fn plugin(app: &mut App) {
         .map(|chief| chief.0.clone())
         .unwrap_or_default();
     app.insert_resource(Convo {
-        session: Entity::PLACEHOLDER,
+        chat: Entity::PLACEHOLDER,
         name,
         agent: Entity::PLACEHOLDER,
         with: None,
@@ -57,7 +57,7 @@ pub(crate) fn chief_name(
 #[derive(Resource)]
 pub struct Convo {
     /// The watched chat.
-    pub session: Entity,
+    pub chat: Entity,
     /// The name the chief signs in with.
     pub name: String,
     /// The agent the chat is with.
@@ -128,14 +128,14 @@ fn seat_as(
     to: protocol::AgentId,
     with: Option<String>,
 ) {
-    let session = watch(world, to);
-    if world.resource::<Convo>().session != session
+    let chat = watch(world, to);
+    if world.resource::<Convo>().chat != chat
         && world.contains_resource::<crate::chat::MergedLines>()
     {
         crate::chat::close_merged(world);
     }
     let mut convo = world.resource_mut::<Convo>();
-    convo.session = session;
+    convo.chat = chat;
     convo.agent = agent;
     convo.with = with;
 }
@@ -244,13 +244,13 @@ pub(crate) fn reseat(world: &mut World) {
 #[cfg(test)]
 impl Convo {
     pub(crate) fn of(
-        session: Entity,
+        chat: Entity,
         agent: Entity,
         name: &str,
         with: Option<&str>,
     ) -> Convo {
         Convo {
-            session,
+            chat,
             name: name.into(),
             agent,
             with: with.map(str::to_string),
@@ -283,7 +283,7 @@ mod tests {
         assert_eq!(convo.name, "alice");
         let chat = app
             .world()
-            .get::<Chat>(convo.session)
+            .get::<Chat>(convo.chat)
             .expect("a watched chat");
         assert_eq!(chat.0.with, protocol::AgentId(1));
         crate::chat::send(
@@ -307,22 +307,22 @@ mod tests {
         let mut app = panel_app();
         let ada = agents::named(app.world_mut(), "hire#2").unwrap();
         let hand = agents::hand(app.world()).unwrap();
-        let first = app.world().resource::<Convo>().session;
+        let first = app.world().resource::<Convo>().chat;
         assert_eq!(app.world().resource::<Convo>().agent, hand);
         talk_to(app.world_mut(), ada);
         let convo = app.world().resource::<Convo>();
         assert_eq!(convo.agent, ada);
         assert_eq!(convo.with.as_deref(), Some("ada"));
-        assert_ne!(convo.session, first);
+        assert_ne!(convo.chat, first);
         assert_eq!(
-            app.world().get::<Chat>(convo.session).unwrap().0.with,
+            app.world().get::<Chat>(convo.chat).unwrap().0.with,
             protocol::AgentId(2)
         );
-        let chat = convo.session;
+        let chat = convo.chat;
         talk_to_hand(app.world_mut());
-        assert_eq!(app.world().resource::<Convo>().session, first);
+        assert_eq!(app.world().resource::<Convo>().chat, first);
         talk_to(app.world_mut(), ada);
-        assert_eq!(app.world().resource::<Convo>().session, chat);
+        assert_eq!(app.world().resource::<Convo>().chat, chat);
     }
 
     #[test]

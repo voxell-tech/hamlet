@@ -150,7 +150,7 @@ pub(super) fn setup(world: &mut World) {
     });
     let usage = serde_json::from_value::<protocol::UsageView>(usage)
         .expect("received usage");
-    let session = world
+    let chat = world
         .spawn((
             Chat(protocol::ChatRef { with: to }),
             talk,
@@ -161,16 +161,16 @@ pub(super) fn setup(world: &mut World) {
     if scene == Scene::Chat {
         // The first turn's steps open, with one call opened in them.
         world.insert_resource(hamlet_app::chat::Unfolded(vec![(
-            session,
+            chat,
             "turn-0-tool-0".into(),
         )]));
         world.insert_resource(hamlet_app::chat::OpenTools(vec![(
-            session,
+            chat,
             "turn-0-tool-1".into(),
         )]));
     }
     world.insert_resource(Convo {
-        session,
+        chat,
         name: "chief".into(),
         agent,
         with: Some("hire#2".into()),
@@ -184,7 +184,7 @@ pub(super) fn setup(world: &mut World) {
     hub::setup(world, scene);
     needs::setup(world, scene);
     if matches!(scene, Scene::Images | Scene::NoImages) {
-        images::setup(world, scene, session);
+        images::setup(world, scene, chat);
     }
     terminal::setup(world, scene);
     if scene == Scene::Chief {

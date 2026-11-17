@@ -260,19 +260,19 @@ fn ended(entry: Option<&Entry>) -> (Option<i64>, Option<String>) {
     }
 }
 
-/// The change of the edit at entry `id` of `session`: its file, its
+/// The change of the edit at entry `id` of `chat`: its file, its
 /// count and how the call stands, over its lines.
 pub(crate) fn change_view(
-    session: Entity,
+    chat: Entity,
     id: String,
     change: Change,
     underway: Underway,
 ) -> AnyView {
-    let key = (session, id.clone());
+    let key = (chat, id.clone());
     let entry_id = id.clone();
     let entry =
         move |world: &World| {
-            ended(world.get::<Transcript>(session).and_then(|t| {
+            ended(world.get::<Transcript>(chat).and_then(|t| {
                 t.item(&entry_id).map(|item| &item.entry)
             }))
         };
@@ -310,7 +310,7 @@ pub(crate) fn change_view(
     // new one is there.
     let path = change.path.clone();
     let file = keyed(
-        component::<Transcript, _>(session, |t| {
+        component::<Transcript, _>(chat, |t| {
             t.is_some_and(Transcript::is_answering)
         }),
         move |_| path_line(path.clone()),
@@ -325,7 +325,7 @@ pub(crate) fn change_view(
         vec![fold.boxed(), file.boxed(), counted(&change)];
     // A held call's card says that it waits, so its head does not.
     if underway == Underway::Running {
-        parts.push(row((status(session, id),)).shrink(0.0).boxed());
+        parts.push(row((status(chat, id),)).shrink(0.0).boxed());
     }
     let head = row(parts)
         .gap(8.0)
@@ -333,7 +333,7 @@ pub(crate) fn change_view(
         .width(percent(100.0))
         .min_width(px(0.0));
 
-    let mut moved = component::<Transcript, _>(session, |_| ());
+    let mut moved = component::<Transcript, _>(chat, |_| ());
     let mut turned = resource::<Changes, _>(|_| ());
     let mut seen = None;
     let read_key = key.clone();

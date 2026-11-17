@@ -208,7 +208,7 @@ impl Selecting {
 /// On a row of the chat whose words can be quoted.
 #[derive(Component, Clone, Debug)]
 pub struct Quotable {
-    pub session: Entity,
+    pub chat: Entity,
     pub entry: String,
 }
 
@@ -698,7 +698,7 @@ fn press(
     let spot = texts.place(&nodes, press.pointer.position, grain);
     let quote = area
         .and_then(|_| chain.iter().find_map(|e| rows.get(*e).ok()))
-        .map(|row| (row.session, row.entry.clone()));
+        .map(|row| (row.chat, row.entry.clone()));
     *selecting = Selecting {
         area: Some(scope),
         quote,
@@ -858,12 +858,10 @@ fn light(
     // The area, found again in its message if that was built anew.
     let area =
         selecting.area.filter(|a| alive.contains(*a)).or_else(|| {
-            let (session, id) = selecting.quote.as_ref()?;
+            let (chat, id) = selecting.quote.as_ref()?;
             let row = rows
                 .iter()
-                .find(|(_, r)| {
-                    r.session == *session && &r.entry == id
-                })?
+                .find(|(_, r)| r.chat == *chat && &r.entry == id)?
                 .0;
             texts
                 .children
@@ -1169,10 +1167,10 @@ mod tests {
         };
         let before = held(world);
 
-        let session = world.spawn_empty().id();
+        let chat = world.spawn_empty().id();
         *world.resource_mut::<Selecting>() = Selecting {
             area: Some(area),
-            quote: Some((session, "message/1".into())),
+            quote: Some((chat, "message/1".into())),
             chosen: "hire#2".into(),
             spot: Some(Vec2::new(40.0, 20.0)),
             ..Selecting::default()

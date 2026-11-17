@@ -58,14 +58,14 @@ pub struct Bar {
 
 pub(crate) fn update_status(
     convo: Res<Convo>,
-    sessions: Query<(Ref<Status>, Ref<Usage>)>,
+    chats: Query<(Ref<Status>, Ref<Usage>)>,
     settings: Res<Settings>,
     connection: Res<Connection>,
     lives: Query<&LivesIn>,
     treasury: Query<Ref<Treasury>>,
     mut bar: ResMut<Bar>,
 ) {
-    let session = sessions.get(convo.session).ok();
+    let chat = chats.get(convo.chat).ok();
     // The Hand is of no hamlet, and has no budget to show here.
     let spend = lives
         .get(convo.agent)
@@ -74,14 +74,14 @@ pub(crate) fn update_status(
     let moved = convo.is_changed()
         || settings.is_changed()
         || connection.is_changed()
-        || session.as_ref().is_some_and(|(status, usage)| {
+        || chat.as_ref().is_some_and(|(status, usage)| {
             status.is_changed() || usage.is_changed()
         })
         || spend.as_ref().is_some_and(DetectChanges::is_changed);
     if !moved {
         return;
     }
-    let busy = session.as_ref().is_some_and(|(s, _)| s.is_working());
+    let busy = chat.as_ref().is_some_and(|(s, _)| s.is_working());
     let next = Bar {
         busy,
         running: if busy { "Working" } else { "Idle" }.into(),
@@ -104,7 +104,7 @@ pub(crate) fn update_status(
             _ => Tone::Dim,
         },
         connection: connection.words.clone(),
-        usage: session.map(|(_, u)| u.summary()).unwrap_or_default(),
+        usage: chat.map(|(_, u)| u.summary()).unwrap_or_default(),
         budget: spend
             .map(|t| t.0.summary.clone())
             .unwrap_or_default(),

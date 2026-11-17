@@ -104,7 +104,7 @@ pub(super) enum Place {
 /// The conversation the chat's list shows.
 #[derive(Component)]
 pub struct Shows {
-    session: Entity,
+    chat: Entity,
     /// The frames left before where the list is counts as where the
     /// chat was left.
     landing: u8,
@@ -132,10 +132,10 @@ pub(super) fn remember_place(
                 None => continue,
             },
         };
-        match places.get_mut(shows.session) {
+        match places.get_mut(shows.chat) {
             Ok(mut kept) => *kept = place,
             Err(_) => {
-                commands.entity(shows.session).try_insert(place);
+                commands.entity(shows.chat).try_insert(place);
             }
         }
     }
@@ -162,7 +162,7 @@ pub(super) fn restore_place(
     for (list, mut state, mut seen, shows) in &mut lists {
         if shows
             .as_ref()
-            .is_some_and(|shows| shows.session == convo.session)
+            .is_some_and(|shows| shows.chat == convo.chat)
         {
             continue;
         }
@@ -173,7 +173,7 @@ pub(super) fn restore_place(
             let count = state.count();
             state.splice(0, count, lines.rows.len());
         }
-        let row = match places.get(convo.session) {
+        let row = match places.get(convo.chat) {
             Ok(Place::Row(key)) => lines.places.get(key).copied(),
             Ok(Place::End) | Err(_) => None,
         };
@@ -181,7 +181,7 @@ pub(super) fn restore_place(
         let last = state.count().saturating_sub(1);
         state.scroll_to(row.unwrap_or(last));
         let now = Shows {
-            session: convo.session,
+            chat: convo.chat,
             landing: LANDING,
         };
         match shows {
@@ -228,18 +228,18 @@ pub struct Unfolded(pub Vec<(Entity, String)>);
 #[derive(Clone, PartialEq, Debug)]
 pub(super) enum Row {
     Entry {
-        session: Entity,
+        chat: Entity,
         id: String,
     },
     /// An entry drawn as a block of its own that opens in place: the
     /// summary of the earlier messages, a conversation merged in, or
     /// a worker started.
     Card {
-        session: Entity,
+        chat: Entity,
         id: String,
     },
     Fold {
-        session: Entity,
+        chat: Entity,
         /// The first entry folded in, shown or not.
         first: String,
         /// The steps shown when it is open.
@@ -274,7 +274,7 @@ fn is_card(entry: &Entry) -> bool {
 /// One conversation with each run of thinking, tool calls and
 /// notices folded.
 pub(super) fn rows(
-    session: Entity,
+    chat: Entity,
     transcript: &Transcript,
     open: &[(Entity, String)],
 ) -> Vec<Row> {
@@ -323,8 +323,8 @@ pub(super) fn rows(
             let reply = matches!(item.entry, Entry::Assistant(_));
             let id = item.id.clone();
             let row = match is_card(&item.entry) {
-                true => Row::Card { session, id },
-                false => Row::Entry { session, id },
+                true => Row::Card { chat, id },
+                false => Row::Entry { chat, id },
             };
             // Steps stand under the reply before them, and those
             // that open a turn under its first reply.
@@ -339,14 +339,14 @@ pub(super) fn rows(
         if !matches!(rows.last(), Some(Row::Fold { .. })) {
             opening = !replied;
             rows.push(Row::Fold {
-                session,
+                chat,
                 first: item.id.clone(),
                 steps: Vec::new(),
                 edits: Vec::new(),
                 tools: 0,
                 failed: 0,
                 running: false,
-                open: open.contains(&(session, item.id.clone())),
+                open: open.contains(&(chat, item.id.clone())),
             });
         }
         let Some(Row::Fold {
@@ -389,7 +389,7 @@ pub(super) const INSET: f32 = 12.0;
 /// them.
 pub(super) fn fold_view<B: Board>(
     key: RowKey,
-    session: Entity,
+    chat: Entity,
     first: String,
 ) -> impl View {
     // The row is built once for its fold. Its heading and what is
@@ -435,7 +435,7 @@ pub(super) fn fold_view<B: Board>(
         .rules(text_button)
         .on_activate(move |world| {
             let unfolded = &mut world.resource_mut::<Unfolded>().0;
-            let fold = (session, first.clone());
+            let fold = (chat, first.clone());
             match unfolded.iter().position(|open| *open == fold) {
                 Some(at) => {
                     unfolded.remove(at);
@@ -447,7 +447,7 @@ pub(super) fn fold_view<B: Board>(
     let inside = each(
         resource::<B, _>(move |b| b.lines().shown(&key)),
         |id: &String| id.clone(),
-        move |id| entry_view(session, id.clone()),
+        move |id| entry_view(chat, id.clone()),
     )
     // As wide as the chat and no wider, so that what is inside is
     // measured at the width it is shown at.
@@ -471,7 +471,7 @@ pub(super) fn fold_view<B: Board>(
     let kept = each(
         resource::<B, _>(move |b| b.lines().kept(&kept_key)),
         |id: &String| id.clone(),
-        move |id| edit_view(session, id.clone()),
+        move |id| edit_view(chat, id.clone()),
     )
     .within(
         column(()).gap(6.0).width(percent(100.0)).min_width(px(0.0)),
@@ -495,15 +495,16 @@ pub(super) enum RowKey {
 impl Line {
     pub(super) fn key(&self) -> RowKey {
         match &self.row {
-            Row::Entry { session, id }
-            | Row::Card { session, id } => RowKey::Entry(
-                self.agent,
-                *session,
-                id.clone(),
-                self.look,
-            ),
-            Row::Fold { session, first, .. } => {
-                RowKey::Fold(self.agent, *session, first.clone())
+            Row::Entry { chat, id } | Row::Card { chat, id } => {
+                RowKey::Entry(
+                    self.agent,
+                    *chat,
+                    id.clone(),
+                    self.look,
+                )
+            }
+            Row::Fold { chat, first, .. } => {
+                RowKey::Fold(self.agent, *chat, first.clone())
             }
         }
     }
@@ -682,19 +683,19 @@ impl MergedLines {
             || self.holder.is_some_and(|(holder, _)| holder == chat)
     }
 
-    /// Whether the row `id` of `session` is the one open.
-    pub(super) fn is_open(&self, session: Entity, id: &str) -> bool {
+    /// Whether the row `id` of `chat` is the one open.
+    pub(super) fn is_open(&self, chat: Entity, id: &str) -> bool {
         self.under
             .as_ref()
-            .is_some_and(|(of, entry)| *of == session && entry == id)
+            .is_some_and(|(of, entry)| *of == chat && entry == id)
     }
 }
 
 /// Opens the conversation of the hire `from`, named `name`, under the
-/// row `id` of `session`, in place of any other that is open.
+/// row `id` of `chat`, in place of any other that is open.
 pub(crate) fn open_merged(
     world: &mut World,
-    session: Entity,
+    chat: Entity,
     id: String,
     from: protocol::AgentId,
     name: String,
@@ -708,7 +709,7 @@ pub(crate) fn open_merged(
     let agent = hamlet_client::realm::agent(world, from)
         .unwrap_or(Entity::PLACEHOLDER);
     *world.resource_mut::<MergedLines>() = MergedLines {
-        under: Some((session, id)),
+        under: Some((chat, id)),
         holder: Some(holder),
         agent: Some((agent, name)),
         reach: MERGED_PAGE,
@@ -790,11 +791,11 @@ pub fn fold_lines(
     mut lists: Query<&mut VirtualList, With<ChatScroll>>,
     mut from: Local<Option<(Entity, usize, u64)>>,
 ) {
-    let Ok(transcript) = transcripts.get(convo.session) else {
+    let Ok(transcript) = transcripts.get(convo.chat) else {
         return;
     };
     let now_from = Some((
-        convo.session,
+        convo.chat,
         transcript.items().len(),
         transcript.shape(),
     ));
@@ -809,7 +810,7 @@ pub fn fold_lines(
     let (rows, cast) = timeline(
         &convo,
         (convo.agent, convo.with.as_deref()),
-        convo.session,
+        convo.chat,
         &transcript,
         &unfolded.0,
         &people,
@@ -885,11 +886,11 @@ pub fn ask_earlier(
             continue;
         }
         if transcripts
-            .get(convo.session)
+            .get(convo.chat)
             .is_ok_and(|said| said.earlier().is_some())
         {
             reading.at_top = true;
-            let chat = convo.session;
+            let chat = convo.chat;
             commands.queue(move |world: &mut World| {
                 let Some(reference) = world
                     .get::<chats::Chat>(chat)

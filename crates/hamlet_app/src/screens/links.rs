@@ -72,7 +72,7 @@ fn roots_moved(mut links: ResMut<PathLinks>) {
 #[derive(Resource, Default, Clone, PartialEq, Eq, Debug)]
 pub struct Roots {
     folders: Vec<PathBuf>,
-    /// The session whose agent they are the folders of.
+    /// The chat whose agent they are the folders of.
     of: Option<Entity>,
     folder: Option<String>,
 }
@@ -102,18 +102,18 @@ fn turn(world: &mut World) {
     let Some(convo) = world.get_resource::<Convo>() else {
         return;
     };
-    let session = convo.session;
+    let chat = convo.chat;
     let folder = world
         .get::<LivesIn>(convo.agent)
         .and_then(|lives| world.get::<Works>(lives.0))
         .and_then(|works| works.folder.clone());
     if world.get_resource::<Roots>().is_some_and(|roots| {
-        roots.of == Some(session) && roots.folder == folder
+        roots.of == Some(chat) && roots.folder == folder
     }) {
         return;
     }
     let roots = Roots {
-        of: Some(session),
+        of: Some(chat),
         folder: folder.clone(),
         ..Roots::new(folder.into_iter().map(PathBuf::from))
     };

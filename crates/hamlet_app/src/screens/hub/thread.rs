@@ -601,7 +601,7 @@ fn chips(agent: Entity) -> impl View {
 
 /// The chat shown and the agent it is with.
 fn seated() -> Signal<(Entity, Entity)> {
-    resource::<Convo, _>(|convo| (convo.session, convo.agent))
+    resource::<Convo, _>(|convo| (convo.chat, convo.agent))
 }
 
 /// The transcript over what the agent waits on from the chief, over
@@ -956,7 +956,7 @@ mod tests {
         assert!(
             app.world().resource::<Outbox>().iter().next().is_none()
         );
-        let chat = app.world().resource::<Convo>().session;
+        let chat = app.world().resource::<Convo>().chat;
         app.world_mut()
             .trigger(hamlet_client::messages::JobFinished { chat });
         app.update();
@@ -1138,13 +1138,13 @@ mod tests {
             hamlet_client::realm::named(app.world_mut(), "hire#3")
                 .unwrap();
         let to = protocol::AgentId(3);
-        let session = app
+        let chat = app
             .world_mut()
             .spawn(Chat(protocol::ChatRef { with: to }))
             .id();
         let mut convo = app.world_mut().resource_mut::<Convo>();
         convo.agent = agent;
-        convo.session = session;
+        convo.chat = chat;
         convo.with = Some("hire#3".into());
         app.update();
     }

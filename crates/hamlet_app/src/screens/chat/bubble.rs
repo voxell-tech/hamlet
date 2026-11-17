@@ -168,11 +168,7 @@ enum Words {
 
 /// One message: a bubble at the right for the chief's own, and at
 /// the left by its speaker's picture for anyone else's.
-fn said<B: Board>(
-    line: Line,
-    session: Entity,
-    id: String,
-) -> AnyView {
+fn said<B: Board>(line: Line, chat: Entity, id: String) -> AnyView {
     AnyView::new(move |cx: &mut Cx| {
         let cast = cx.world.resource::<B>().lines().cast();
         let who = cast.get(line.by).cloned().unwrap_or_default();
@@ -187,7 +183,7 @@ fn said<B: Board>(
             .map(|to| to.name.clone());
         let item = cx
             .world
-            .get::<Transcript>(session)
+            .get::<Transcript>(chat)
             .and_then(|t| t.item(&id));
         let entry = item.map(|item| &item.entry);
         let queued = item.is_some_and(|item| item.queued);
@@ -218,7 +214,7 @@ fn said<B: Board>(
         };
         // A conversation merged in, drawn under its row, is only
         // read.
-        let own = session == cx.world.resource::<Convo>().session;
+        let own = chat == cx.world.resource::<Convo>().chat;
         let replies = words != Words::Fault
             && own
             && !queued
@@ -392,7 +388,7 @@ fn said<B: Board>(
                 } else {
                     let said = linked.unwrap_or_else(|| {
                         label(component::<Transcript, _>(
-                            session,
+                            chat,
                             move |t| match t.and_then(|t| {
                                 t.item(&typed_id)
                                     .map(|item| &item.entry)
@@ -425,7 +421,7 @@ fn said<B: Board>(
                 inside.extend(hour);
             }
             Words::Markdown => {
-                let blocks = markdown::entry(session, id.clone())
+                let blocks = markdown::entry(chat, id.clone())
                     .map(move |blocks| kept_room(blocks, reserve));
                 inside.push(selectable(
                     hamlet_ui::markdown::document(blocks, Tone::Body)
@@ -435,10 +431,7 @@ fn said<B: Board>(
             }
             // Beside the button that tries again.
             Words::Fault => {
-                inside.push(selectable(entry_view(
-                    session,
-                    id.clone(),
-                )));
+                inside.push(selectable(entry_view(chat, id.clone())));
                 inside.extend(hour);
             }
         }
@@ -452,7 +445,7 @@ fn said<B: Board>(
             .fill(fill(palette))
             .border(border)
             .border_color(rewind::ringed(
-                session,
+                chat,
                 id.clone(),
                 edge,
                 palette.accent,
@@ -476,7 +469,7 @@ fn said<B: Board>(
         let above = px(if line.lead { RUN } else { 0.0 });
         let (replying, reply_room) = match replies {
             true => (
-                reply::mark(session, id.clone(), who.name.clone())
+                reply::mark(chat, id.clone(), who.name.clone())
                     .boxed(),
                 reply::ROOM,
             ),
@@ -485,17 +478,17 @@ fn said<B: Board>(
         let view = if mine {
             let (mark, room) = match (back, withdraws) {
                 (true, _) => (
-                    rewind::mark(session, id.clone()).boxed(),
+                    rewind::mark(chat, id.clone()).boxed(),
                     rewind::ROOM,
                 ),
                 (_, true) => (
-                    rewind::withdraw(session, id.clone()).boxed(),
+                    rewind::withdraw(chat, id.clone()).boxed(),
                     rewind::ROOM,
                 ),
                 _ => (frame().boxed(), 0.0),
             };
             let marks = row((replying, mark))
-                .rules(rewind::hiding(session, id.clone()));
+                .rules(rewind::hiding(chat, id.clone()));
             let said = row((marks, bubble))
                 .gap(0.0)
                 .justify(JustifyContent::FlexEnd)
@@ -547,13 +540,13 @@ fn said<B: Board>(
         }
         if back {
             built.insert(Rewinds {
-                session,
+                chat,
                 entry: id.clone(),
                 at: line.at,
             });
         }
         if replies {
-            built.insert((Replies, Quotable { session, entry: id }));
+            built.insert((Replies, Quotable { chat, entry: id }));
         }
         node
     })
@@ -578,33 +571,29 @@ pub(super) fn line_view<B: Board>(line: &Line) -> AnyView {
                 ))
                 .boxed()
         };
-        let (view, session, id) = match &line.row {
-            Row::Entry { session, id } => (
-                said::<B>(line.clone(), *session, id.clone()),
-                *session,
+        let (view, chat, id) = match &line.row {
+            Row::Entry { chat, id } => (
+                said::<B>(line.clone(), *chat, id.clone()),
+                *chat,
                 id.as_str(),
             ),
-            Row::Card { session, id } => (
-                aside(card::view(*session, id.clone()).boxed()),
-                *session,
+            Row::Card { chat, id } => (
+                aside(card::view(*chat, id.clone()).boxed()),
+                *chat,
                 id.as_str(),
             ),
-            Row::Fold { session, first, .. } => (
+            Row::Fold { chat, first, .. } => (
                 aside(
-                    fold_view::<B>(
-                        line.key(),
-                        *session,
-                        first.clone(),
-                    )
-                    .boxed(),
+                    fold_view::<B>(line.key(), *chat, first.clone())
+                        .boxed(),
                 ),
-                *session,
+                *chat,
                 first.as_str(),
             ),
         };
         let queued = cx
             .world
-            .get::<Transcript>(session)
+            .get::<Transcript>(chat)
             .and_then(|t| t.item(id))
             .is_some_and(|item| item.queued);
         let view = match queued {
@@ -616,7 +605,7 @@ pub(super) fn line_view<B: Board>(line: &Line) -> AnyView {
                 })
                 .boxed(),
             false => {
-                view.rules(rewind::fading(session, line.at)).boxed()
+                view.rules(rewind::fading(chat, line.at)).boxed()
             }
         };
         cx.build(view)
