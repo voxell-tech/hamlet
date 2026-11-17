@@ -24,6 +24,7 @@ import {
 import { reflectIn, reflectOnLeaving } from "./reflect.ts";
 import {
     begin,
+    chiefNow,
     current,
     makeCurrent,
     nowSeconds,
@@ -145,14 +146,10 @@ export function rewind(c: AgentCall, message: Rewind): Promise<RewindAnswer> {
 
 /** As `crates/hamlet_server/src/commands/oversight.rs:249-266` asks. */
 export async function reflectNow(c: AgentCall): Answer<"reflect"> {
-    const conversation =
-        (await current(c.db)) ??
-        (await withHarness(
-            c,
-            generationOf(c).options,
-            async (harness, context) => (await harness.root(context)).id,
-        ));
-    return (await reflectIn(c, conversation, 0)) === "already"
-        ? "already"
-        : "asked";
+    const conversation = await withHarness(
+        c,
+        generationOf(c).options,
+        (harness, context) => chiefNow(c, () => harness.root(context)),
+    );
+    return reflectIn(c, conversation);
 }

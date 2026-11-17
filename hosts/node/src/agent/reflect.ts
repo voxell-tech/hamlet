@@ -5,7 +5,6 @@
  * `reflection:<conversation>:<k>`, so a repeat that asks the same one
  * admits it once.
  */
-import type { Context } from "@earendil-works/chord/context";
 import type { AssistantMessage } from "@earendil-works/pi-ai";
 import {
     type ConversationId,
@@ -15,12 +14,13 @@ import {
     type EntryId,
     type Extension,
     GenerationTask,
-    type Harness,
     hook,
     runEndTask,
+    type Tx,
 } from "@earendil-works/pi-durable";
 import { withHarness } from "../pi/runtime.ts";
 import { type AgentCall, generationOf } from "./actor.ts";
+import { isShortCutOff } from "./compaction.ts";
 import type { ReadCopies } from "./copies.ts";
 import type { RealmTask } from "./messages.ts";
 import { cutOff, draftOf, type Peers, type WithHarness } from "./turn.ts";
@@ -33,12 +33,14 @@ export const REFLECT =
 const EVERY = 10;
 
 /**
- * A conversation's reflections: `turns`, the chief turns answered or
- * running since the last one ran, and `k`, the number the next is asked
- * under; when `asked`, reflection `k` is owed or running already.
+ * A conversation's reflections: `answered`, the chief turns answered since
+ * the last one ran, `running` when a chief turn has not ended, and `k`, the
+ * number the next is asked under; when `asked`, reflection `k` is owed or
+ * running already.
  */
 export type Owed = (conversation: ConversationId) => Promise<{
-    readonly turns: number;
+    readonly answered: number;
+    readonly running: boolean;
     readonly k: number;
     readonly asked: boolean;
 }>;
@@ -61,8 +63,10 @@ export function reflection(
                         (await copies()).settings?.reflect_every ??
                         EVERY;
                     if (after === 0) return undefined;
-                    const { turns, k, asked } = await owed(api.conversationId);
-                    if (asked || turns < after) return undefined;
+                    const { answered, k, asked } = await owed(
+                        api.conversationId,
+                    );
+                    if (asked || answered < after) return undefined;
                     return { tasks: [runEndTask(asking, { k })] };
                 },
             }),
@@ -78,41 +82,51 @@ export async function reflectOnLeaving(
     c: AgentCall,
     conversation: ConversationId,
 ): Promise<void> {
-    await reflectIn(c, conversation, 1);
+    const { answered, running } = await owedOf((use) =>
+        withHarness(c, generationOf(c).options, use),
+    )(conversation);
+    if (answered >= 1 || running) await reflectIn(c, conversation);
 }
 
 /**
- * Asks `conversation` to reflect when it has at least `least` chief turns
- * since its last reflection. `already` when one is owed or running.
+ * Asks `conversation` to reflect by the task `hamlet.reflect`, whose memo
+ * keeps a repeat after a kill from asking the realm twice. `already` when
+ * one is owed or running.
  */
-export async function reflectIn(
+export function reflectIn(
     c: AgentCall,
     conversation: ConversationId,
-    least: number,
-): Promise<"asked" | "already" | "owed none"> {
+): Promise<"asked" | "already"> {
     const { peers, options } = generationOf(c);
-    const using: WithHarness = (use) => withHarness(c, options, use);
-    const { turns, k, asked } = await owedOf(using)(conversation);
-    if (asked) return "already";
-    if (turns < least) return "owed none";
-    const task = await opened(peers);
-    await using(async (harness, context) => {
-        const kept = await harness.conversation(conversation, context);
-        if (kept === undefined)
-            throw new Error("the session has no conversation");
-        await kept.submit(admission(conversation, k, task), context);
-    });
-    return "asked";
+    return withHarness(c, options, (harness, context) =>
+        harness.commit(async (tx) => {
+            const { k, asked } = await lastAsked(tx, conversation);
+            if (asked) return "already";
+            await tx.createTask(
+                reflectTask(peers),
+                { k },
+                {
+                    ownership: { kind: "conversation" },
+                    conversationId: conversation,
+                },
+            );
+            return "asked";
+        }, context),
+    );
 }
 
 export function owedOf(withHarness: WithHarness): Owed {
     return (conversation) =>
         withHarness(async (harness, context) => {
-            const last = await lastAsked(harness, conversation, context);
-            if (last.asked) return { turns: 0, ...last };
+            const last = await harness.commit(
+                (tx) => lastAsked(tx, conversation),
+                context,
+            );
+            const none = { answered: 0, running: false, ...last };
+            if (last.asked) return none;
             const kept = await harness.conversation(conversation, context);
-            if (kept === undefined) return { turns: 0, ...last };
-            let turns = 0;
+            if (kept === undefined) return none;
+            let answered = 0;
             // A chief's line or retry is open until the turn answers; lines
             // steered into one turn are one turn.
             let open = false;
@@ -133,49 +147,97 @@ export function owedOf(withHarness: WithHarness): Owed {
                     // A fork reads its parent's entries, reflections too,
                     // but none of its parent's submissions.
                     if (entry.kind === "hamlet.reflection") {
-                        turns = 0;
+                        answered = 0;
                         open = false;
                     }
                     if (CHIEF_TURNS.has(entry.kind)) open = true;
                     if (entry.kind !== "pi.assistant") continue;
-                    const stop = (
-                        entry.model?.[0] as AssistantMessage | undefined
-                    )?.stopReason;
-                    if (stop === "toolUse") continue;
-                    if (open && (stop === "stop" || stop === "length")) {
-                        turns += 1;
-                    }
+                    const answer = entry.model?.[0] as AssistantMessage;
+                    // A short cut-off's second try, `hamlet.cut-off`,
+                    // answers the same turn.
+                    if (
+                        answer.stopReason === "toolUse" ||
+                        isShortCutOff(answer)
+                    )
+                        continue;
+                    if (open && stands(answer)) answered += 1;
                     open = false;
                 }
                 cursor = page.next;
             } while (cursor !== undefined);
-            return { turns: open ? turns + 1 : turns, ...last };
+            // An aborted turn leaves its line open and its run ended.
+            const running =
+                open &&
+                (await harness.commit(
+                    (tx) =>
+                        live(tx, conversation, GenerationTask.definition.name),
+                    context,
+                ));
+            return { answered, running, ...last };
         });
 }
 
 /**
- * The reflection to ask next, and the entry of the last one that ran;
- * `asked` when reflection `k` is admitted and has not ended.
+ * As `crates/hamlet_server/src/talk/verdicts.rs:55-60` rules: an answer
+ * with neither words nor a call fails its turn.
  */
-function lastAsked(
-    harness: Harness,
+function stands(answer: AssistantMessage): boolean {
+    return (
+        (answer.stopReason === "stop" || answer.stopReason === "length") &&
+        answer.content.some(
+            (block) =>
+                block.type === "toolCall" ||
+                (block.type === "text" && block.text.trim() !== ""),
+        )
+    );
+}
+
+/**
+ * The reflection to ask next, and the entry of the last one that ran;
+ * `asked` when reflection `k` is admitted and has not ended, or its task
+ * has not admitted it yet.
+ */
+async function lastAsked(
+    tx: Tx,
     conversation: ConversationId,
-    context: Context,
 ): Promise<{ k: number; asked: boolean; since: EntryId | undefined }> {
-    return harness.commit(async (tx) => {
-        let since: EntryId | undefined;
-        for (let k = 1; ; k += 1) {
-            const asked = await tx.submissionByRequest(
-                conversation,
-                requestOf(conversation, k),
-            );
-            if (asked === undefined) return { k, asked: false, since };
-            if (asked.status === "queued" || asked.status === "placed") {
-                return { k, asked: true, since };
-            }
-            since = asked.entry ?? since;
+    let since: EntryId | undefined;
+    for (let k = 1; ; k += 1) {
+        const asked = await tx.submissionByRequest(
+            conversation,
+            requestOf(conversation, k),
+        );
+        if (asked === undefined) {
+            return {
+                k,
+                asked: await live(tx, conversation, TASK),
+                since,
+            };
         }
-    }, context);
+        if (asked.status === "queued" || asked.status === "placed") {
+            return { k, asked: true, since };
+        }
+        since = asked.entry ?? since;
+    }
+}
+
+/** Whether the newest task of `kind` in `conversation` has not ended. */
+async function live(
+    tx: Tx,
+    conversation: ConversationId,
+    kind: string,
+): Promise<boolean> {
+    const [newest] = (
+        await tx.scanTasks(
+            {
+                conversationId: conversation,
+                kind,
+                order: "descending",
+            },
+            1,
+        )
+    ).items;
+    return newest !== undefined && newest.state.outcome === undefined;
 }
 
 /** `HAMLET_REFLECT_EVERY`; absent, the copy's setting holds. 0 turns it off. */
@@ -183,7 +245,7 @@ export function reflectEvery(): number | undefined {
     // As `crates/hamlet_server/src/settings.rs:168-175` reads it: a value
     // that is not a whole number is ignored.
     const every = process.env.HAMLET_REFLECT_EVERY;
-    return every !== undefined && /^[0-9]+$/.test(every)
+    return every !== undefined && /^\+?[0-9]+$/.test(every)
         ? Number(every)
         : undefined;
 }
@@ -224,9 +286,11 @@ async function opened(peers: Peers): Promise<RealmTask | undefined> {
 
 const ASKED = "asked";
 
+const TASK = "hamlet.reflect";
+
 function reflectTask(peers: Peers) {
     return defineTask<{ k: number }, { phase: "admit" }, null>({
-        name: "hamlet.reflect",
+        name: TASK,
         version: 1,
         initial: () => ({ phase: "admit" }),
         phases: {

@@ -213,7 +213,7 @@ async function keptChat(
 }
 
 /** The current session's conversation; the root begins session 1. */
-async function chiefNow(
+export async function chiefNow(
     c: AgentCall,
     root: () => Promise<Conversation>,
 ): Promise<ConversationId> {

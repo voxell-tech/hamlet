@@ -14,6 +14,7 @@ import {
     type Woken,
     wakeAgent,
 } from "./agent-testing.ts";
+import { context } from "./testing.ts";
 
 // `crates/hamlet_server/src/talk/reflections.rs:18-24`.
 const REFLECT =
@@ -61,6 +62,13 @@ function say(agent: Woken) {
         });
         await agent.idle();
     };
+}
+
+/** A chief's line, not waited for. */
+function send(agent: Woken, id: string, text: string): void {
+    void agent.actions
+        .submit(agent.by(from.realm), { id, input: { type: "line", text } })
+        .catch(() => {});
 }
 
 const words = (text: string) => fauxAssistantMessage(text);
@@ -214,12 +222,7 @@ test("/reflect answers already while one is owed", async (t) => {
         words("Kept more."),
     ]);
     const client = agent.by(from.client);
-    void agent.actions
-        .submit(agent.by(from.realm), {
-            id: "line-1",
-            input: { type: "line", text: "a" },
-        })
-        .catch(() => {});
+    send(agent, "line-1", "a");
     await busy.asked;
 
     assert.equal(await agent.actions.reflect(client), "asked");
@@ -235,4 +238,141 @@ test("/reflect answers already while one is owed", async (t) => {
         { text: REFLECT, data: { task: "reflection-task-2" } },
     ]);
     assert.equal(named(sent, "open_task").length, 2);
+});
+
+// `crates/hamlet_server/src/talk/chats.rs`.
+const CARRY_ON = "Carry on from where you stopped.";
+
+/** A model step that never answers, and fails once its run is aborted. */
+function aborted(): { step: FauxResponseStep; asked: Promise<void> } {
+    const asked = Promise.withResolvers<void>();
+    return {
+        step: (_request, options) => {
+            asked.resolve();
+            return new Promise<never>((_, reject) =>
+                options?.signal?.addEventListener("abort", () =>
+                    reject(new Error("aborted")),
+                ),
+            );
+        },
+        asked: asked.promise,
+    };
+}
+
+test("a short cut-off's second try answers its turn, and the reflection follows it", async (t) => {
+    // Lines long enough that the compaction the cut-off asks has to summarise.
+    const long = (n: number) => `Line ${n}. ${"word ".repeat(7_000)}`;
+    const { agent } = await wake(t, "4", [
+        words("One."),
+        words("Two."),
+        words("Three."),
+        () => fauxAssistantMessage([], { stopReason: "length" }),
+        words("Summary."),
+        words("Four."),
+        words("Kept."),
+    ]);
+    const line = say(agent);
+    for (const n of [1, 2, 3]) await line(long(n));
+    await line("Line 4. Answer now.");
+    assert.deepEqual((await said(agent)).slice(-4), [
+        CARRY_ON,
+        "Four.",
+        REFLECT,
+        "Kept.",
+    ]);
+    assert.equal((await reflections(agent)).length, 1);
+});
+
+test("an empty answer fails its turn, which is not counted", async (t) => {
+    const { agent } = await wake(t, "1", [
+        () => fauxAssistantMessage([]),
+        words("B."),
+        words("Kept."),
+    ]);
+    const line = say(agent);
+    await line("a");
+    assert.deepEqual(await reflections(agent), []);
+    await line("b");
+    assert.deepEqual((await said(agent)).slice(-3), ["B.", REFLECT, "Kept."]);
+});
+
+test("leaving a session whose only turn was aborted asks no reflection", async (t) => {
+    const stopped = aborted();
+    const { agent, sent: calls } = await wake(t, "0", [
+        stopped.step,
+        words("Kept."),
+    ]);
+    send(agent, "line-1", "a");
+    await stopped.asked;
+    const harness = await agent.harness();
+    await (await harness.root(context)).abort(context);
+    await agent.idle();
+
+    await agent.actions.new_session(agent.by(from.client), {
+        id: "new-1",
+        to: 7,
+    });
+    await agent.idle();
+    assert.deepEqual(await reflections(agent), []);
+    assert.deepEqual(named(calls, "open_task"), []);
+});
+
+// As `crates/hamlet_server/src/talk/reflections.rs:42-58` asks a session
+// put away while its turn was ending.
+test("a /new mid-turn at zero reflects once, after the answer", async (t) => {
+    const busy = held("One.");
+    const { agent } = await wake(t, "0", [busy.step, words("Kept.")]);
+    send(agent, "line-1", "a");
+    await busy.asked;
+    await agent.actions.new_session(agent.by(from.client), {
+        id: "new-1",
+        to: 7,
+    });
+    busy.release();
+    await agent.idle();
+    assert.deepEqual(await said(agent), ["a", "One.", REFLECT, "Kept."]);
+    assert.equal((await reflections(agent)).length, 1);
+});
+
+test("a /new repeated after a kill cut off its reflection's task asks the realm once", async (t) => {
+    let hangs = true;
+    const { agent, sent: calls } = await wake(
+        t,
+        "0",
+        [words("One."), words("Kept.")],
+        () =>
+            hangs
+                ? new Promise<never>(() => {})
+                : { type: "opened", task: "reflection-task-2" },
+    );
+    await say(agent)("a");
+    const begin = (woken: Woken) =>
+        woken.actions.new_session(woken.by(from.client), {
+            id: "new-1",
+            to: 7,
+        });
+    void begin(agent).catch(() => {});
+    await until(() => named(calls, "open_task").length === 1);
+    await agent.stop();
+    hangs = false;
+
+    const back = await agent.again();
+    t.after(() => back.stop());
+    assert.deepEqual(await begin(back), { number: 2 });
+    await back.idle();
+    assert.deepEqual(await said(back), ["a", "One.", REFLECT, "Kept."]);
+    assert.deepEqual(await reflections(back), [{ text: REFLECT, data: {} }]);
+    assert.equal(named(calls, "open_task").length, 1);
+});
+
+test("HAMLET_REFLECT_EVERY reads a leading plus, as Rust's parse does", async (t) => {
+    const { agent } = await wake(t, "+2", [
+        words("A."),
+        words("B."),
+        words("Kept."),
+    ]);
+    const line = say(agent);
+    await line("one");
+    await line("two");
+    assert.deepEqual((await said(agent)).slice(-2), [REFLECT, "Kept."]);
 });
