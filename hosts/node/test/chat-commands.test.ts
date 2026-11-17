@@ -21,6 +21,7 @@ import {
     itemOfLine,
     named,
     toolCall,
+    until,
     type Woken,
     wakeAgent,
 } from "./agent-testing.ts";
@@ -287,6 +288,57 @@ test("A4: stop ends a running turn", async (t) => {
     assert.deepEqual(await agent.actions.stop(client, { id: "stop-2" }), {
         turns: 0,
     });
+});
+
+// As today's `talk/follow.rs:70-84` and `talk/letters.rs:249` answer it.
+test("a question turn stopped by /stop replies once that its turn was stopped", async (t) => {
+    const { calls, sent } = fakes({
+        realm: { reply: () => ({ type: "done" }) },
+    });
+    const slow = held();
+    const agent = await wake(t, calls, [slow.step]);
+    await submitted(agent, {
+        type: "question",
+        letter: 1,
+        from: ADA,
+        text: "How?",
+    });
+    await slow.asked;
+    const client = agent.by(from.client);
+
+    assert.deepEqual(await agent.actions.stop(client, { id: "stop-1" }), {
+        turns: 1,
+    });
+    await until(() => named(sent, "reply").length > 0);
+    assert.deepEqual(await agent.actions.stop(client, { id: "stop-2" }), {
+        turns: 0,
+    });
+    await agent.idle();
+    await delay(100);
+
+    assert.deepEqual(
+        named(sent, "reply").map((call) => call.message),
+        [{ question: 1, text: "It could not answer: its turn was stopped" }],
+    );
+    assert.deepEqual(named(sent, "turn_failed"), []);
+});
+
+test("a chief's turn stopped by /stop tells the realm nothing", async (t) => {
+    const { calls, sent } = fakes();
+    const slow = held();
+    const agent = await wake(t, calls, [slow.step]);
+    await submitted(agent, line("Take your time"));
+    await slow.asked;
+
+    assert.deepEqual(
+        await agent.actions.stop(agent.by(from.client), { id: "stop-1" }),
+        { turns: 1 },
+    );
+    await agent.idle();
+    await delay(100);
+
+    assert.deepEqual(named(sent, "turn_failed"), []);
+    assert.deepEqual(named(sent, "reply"), []);
 });
 
 test("retry is refused after an answer", async (t) => {

@@ -62,15 +62,7 @@ export function tellingFailed(
     return async ({ conversation, task, words, cause, question }, signal) => {
         try {
             if (question !== undefined) {
-                // As `crates/hamlet_server/src/talk/letters.rs:249` words it.
-                const text = `It could not answer: ${words}`;
-                const taken = await cutOff(
-                    signal,
-                    peers.reach.reply({ question, text }),
-                );
-                if (taken.type === "refused") {
-                    peers.report("a reply was refused", taken.words);
-                }
+                await couldNotAnswer(peers, question, words, signal);
                 return;
             }
             if ((await chief()) !== conversation) return;
@@ -88,6 +80,20 @@ export function tellingFailed(
             peers.report("a failed turn was not told to the realm", error);
         }
     };
+}
+
+async function couldNotAnswer(
+    peers: Peers,
+    question: LetterId,
+    words: string,
+    signal: AbortSignal | undefined,
+): Promise<void> {
+    // As `crates/hamlet_server/src/talk/letters.rs:249` words it.
+    const text = `It could not answer: ${words}`;
+    const taken = await cutOff(signal, peers.reach.reply({ question, text }));
+    if (taken.type === "refused") {
+        peers.report("a reply was refused", taken.words);
+    }
 }
 
 /**
@@ -281,7 +287,7 @@ export function failedTurns(
     }: FailedRun): Promise<void> {
         const last = answered.get(failure.taskId);
         answered.delete(failure.taskId);
-        if (last === "unsent" || STOPPED.has(failure.reason)) return;
+        if (last === "unsent") return;
         // As today's `fault` words it (`talk/follow.rs:436-446`); a run
         // that failed before its request keeps its words on the failure.
         const said =
@@ -300,6 +306,20 @@ export function failedTurns(
                     : await withHarness((harness, context) =>
                           harness.commit((tx) => tx.entry(at), context),
                       );
+            const kept = entry?.data as Kept | null | undefined;
+            if (STOPPED.has(failure.reason)) {
+                // As today, a stopped turn tells only its asker
+                // (`crates/hamlet_server/src/talk/follow.rs:70-84`).
+                if (kept?.question !== undefined) {
+                    await couldNotAnswer(
+                        peers,
+                        kept.question,
+                        "its turn was stopped",
+                        undefined,
+                    );
+                }
+                return;
+            }
             if (
                 last !== "error" &&
                 !(await noticeOnce(
@@ -313,7 +333,6 @@ export function failedTurns(
             // Today a reflection's failure opens no wait
             // (`crates/hamlet_server/src/talk/follow.rs:168-173`).
             if (entry?.kind === "hamlet.reflection") return;
-            const kept = entry?.data as Kept | null | undefined;
             await tell(
                 {
                     conversation,
