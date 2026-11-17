@@ -4,10 +4,12 @@
  * questions each have a chat of their own (C22). Only these functions write
  * the `chat` table.
  */
-import type { ConversationId } from "@earendil-works/pi-durable";
+import type { Conversation, ConversationId } from "@earendil-works/pi-durable";
 import type { RawAccess } from "../actor/db/mod.ts";
-import type { AgentCall } from "./actor.ts";
+import { withHarness } from "../pi/runtime.ts";
+import { type AgentCall, generationOf } from "./actor.ts";
 import type { ChatRef, Input, RequestId } from "./messages.ts";
+import { conversationOf } from "./turn.ts";
 
 export async function migrateChats(
     raw: Pick<RawAccess, "execute">,
@@ -31,49 +33,130 @@ export function conversationFor(
     c: AgentCall,
     input: Input,
 ): Promise<ConversationId> {
-    void c;
-    void input;
-    return Promise.reject(new Error("not built: U2"));
+    return withHarness(c, generationOf(c).options, async (harness, context) => {
+        switch (input.type) {
+            case "line":
+                return chiefNow(c, () => harness.root(context));
+            case "letter":
+            case "question": {
+                const kind = input.type === "letter" ? "letters" : "questions";
+                const peer = input.from.agent;
+                return (
+                    (await keptChat(c, kind, peer)) ??
+                    made(c, [kind, peer, 0], () =>
+                        harness.createConversation(
+                            { ownership: { kind: "ownerless" } },
+                            context,
+                        ),
+                    )
+                );
+            }
+            case "answer": {
+                const named = conversationOf(input.conversation);
+                const asked =
+                    named === undefined
+                        ? undefined
+                        : await harness.conversation(named, context);
+                return (asked ?? (await harness.root(context))).id;
+            }
+        }
+    });
 }
 
 /** The conversation a client's `ChatRef` names, or `undefined`. */
-export function conversationOfChat(
+export async function conversationOfChat(
     c: AgentCall,
     chat: ChatRef,
 ): Promise<ConversationId | undefined> {
-    void c;
-    void chat;
-    return Promise.reject(new Error("not built: U2"));
+    if (chat.kind !== undefined) {
+        return chat.from === undefined
+            ? undefined
+            : keptChat(c, chat.kind, chat.from);
+    }
+    if (chat.past === undefined) return current(c.db);
+    const row = await c.db.get<{ conversation: ConversationId }>(
+        "SELECT conversation FROM chat WHERE kind = 'chief' AND session = ?",
+        chat.past,
+    );
+    return row?.conversation;
 }
 
 /**
  * Begins a session and makes it current. The request id is kept with it, so
  * a repeat of the same `/new` answers the same number. `left` is the
- * conversation of the session it leaves.
+ * conversation of the session it leaves, absent on a repeat.
  */
-export function begin(
+export async function begin(
     c: AgentCall,
     id: RequestId,
 ): Promise<{
     readonly number: number;
+    readonly to: ConversationId;
     readonly left: ConversationId | undefined;
 }> {
-    void c;
-    void id;
-    return Promise.reject(new Error("not built: U2"));
+    const before = await begunBy(c.db, id);
+    if (before !== undefined) return { ...before, left: undefined };
+    const { left, to } = await withHarness(
+        c,
+        generationOf(c).options,
+        async (harness, context) => ({
+            // As today, a chat with no session begins session 1 first, so
+            // the first `/new` answers 2.
+            left: await chiefNow(c, () => harness.root(context)),
+            to: (
+                await harness.createConversation(
+                    { ownership: { kind: "ownerless" } },
+                    context,
+                )
+            ).id,
+        }),
+    );
+    return c.db.transaction(async (tx) => {
+        const raced = await begunBy(tx, id);
+        if (raced !== undefined) return { ...raced, left: undefined };
+        await tx.run("UPDATE chat SET current = 0 WHERE kind = 'chief'");
+        await tx.run(
+            `INSERT INTO chat (kind, session, conversation, begun_by, current, began)
+             SELECT 'chief', MAX(session) + 1, ?, ?, 1, ? FROM chat WHERE kind = 'chief'`,
+            to,
+            id,
+            nowSeconds(),
+        );
+        const begun = await begunBy(tx, id);
+        if (begun === undefined)
+            throw new Error("the new session was not kept");
+        return { ...begun, left };
+    });
 }
 
-/** Makes session `number` current; `undefined` when there is none. */
-export function resumed(
+/**
+ * Makes session `number` current; `undefined` when there is none. `left` is
+ * absent when it was current already.
+ */
+export async function resumed(
     c: AgentCall,
     number: number,
 ): Promise<
     | { readonly to: ConversationId; readonly left: ConversationId | undefined }
     | undefined
 > {
-    void c;
-    void number;
-    return Promise.reject(new Error("not built: U2"));
+    if (!Number.isSafeInteger(number)) return undefined;
+    return c.db.transaction(async (tx) => {
+        const to = await tx.get<{ conversation: ConversationId }>(
+            "SELECT conversation FROM chat WHERE kind = 'chief' AND session = ?",
+            number,
+        );
+        if (to === undefined) return undefined;
+        const was = await current(tx);
+        await tx.run(
+            "UPDATE chat SET current = (session = ?) WHERE kind = 'chief'",
+            number,
+        );
+        return {
+            to: to.conversation,
+            left: was === to.conversation ? undefined : was,
+        };
+    });
 }
 
 /** Points the current session at `fork`, the conversation a rewind made. */
@@ -86,4 +169,78 @@ export function moveTo(
     void from;
     void fork;
     return Promise.reject(new Error("not built: U4"));
+}
+
+type Rows = Pick<RawAccess, "get">;
+
+/** A time the agent writes: whole seconds, which fit a `u32`. */
+export function nowSeconds(): number {
+    return Math.floor(Date.now() / 1000);
+}
+
+async function begunBy(
+    db: Rows,
+    id: RequestId,
+): Promise<{ number: number; to: ConversationId } | undefined> {
+    const row = await db.get<{ session: number; conversation: ConversationId }>(
+        "SELECT session, conversation FROM chat WHERE begun_by = ?",
+        id,
+    );
+    return row === undefined
+        ? undefined
+        : { number: row.session, to: row.conversation };
+}
+
+async function current(db: Rows): Promise<ConversationId | undefined> {
+    const row = await db.get<{ conversation: ConversationId }>(
+        "SELECT conversation FROM chat WHERE kind = 'chief' AND current = 1",
+    );
+    return row?.conversation;
+}
+
+async function keptChat(
+    c: AgentCall,
+    kind: "letters" | "questions",
+    peer: number,
+): Promise<ConversationId | undefined> {
+    const row = await c.db.get<{ conversation: ConversationId }>(
+        "SELECT conversation FROM chat WHERE kind = ? AND peer = ?",
+        kind,
+        peer,
+    );
+    return row?.conversation;
+}
+
+/** The current session's conversation; the root begins session 1. */
+async function chiefNow(
+    c: AgentCall,
+    root: () => Promise<Conversation>,
+): Promise<ConversationId> {
+    return (await current(c.db)) ?? made(c, ["chief", 0, 1], root, 1);
+}
+
+/**
+ * Keeps the chat `key` with the conversation `make` gives. A chat a
+ * concurrent input kept first wins, and its conversation is answered.
+ */
+async function made(
+    c: AgentCall,
+    key: readonly [kind: string, peer: number, session: number],
+    make: () => Promise<{ readonly id: ConversationId }>,
+    isCurrent: 0 | 1 = 0,
+): Promise<ConversationId> {
+    const { id } = await make();
+    await c.db.run(
+        "INSERT OR IGNORE INTO chat (kind, peer, session, conversation, current, began) VALUES (?, ?, ?, ?, ?, ?)",
+        ...key,
+        id,
+        isCurrent,
+        nowSeconds(),
+    );
+    const row = await c.db.get<{ conversation: ConversationId }>(
+        "SELECT conversation FROM chat WHERE kind = ? AND peer = ? AND session = ?",
+        ...key,
+    );
+    if (row === undefined) throw new Error(`the ${key[0]} chat was not kept`);
+    return row.conversation;
 }
