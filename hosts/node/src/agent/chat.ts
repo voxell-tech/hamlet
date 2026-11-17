@@ -6,6 +6,7 @@ import {
     type AgentCall,
     type AgentConfig,
     generationOf,
+    rowAt,
     wrongCaller,
 } from "./actor.ts";
 import {
@@ -65,9 +66,12 @@ export function chatActions(config: AgentConfig): ChatHandlers {
             };
         }),
         reflect: askedBy("reflect", reflectNow),
-        login: askedBy("login", (c, login) => {
+        login: askedBy("login", async (c, login) => {
             if (config.signIns === undefined) {
-                return Promise.reject(new Error("this host signs no one in"));
+                throw new Error("this host signs no one in");
+            }
+            if ((await rowAt(c)).kind !== "hand") {
+                throw new Error("only the Hand signs in");
             }
             return config.signIns.step(
                 login,

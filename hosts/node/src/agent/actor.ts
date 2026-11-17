@@ -331,7 +331,7 @@ interface Row {
     readonly brief: Brief | undefined;
 }
 
-async function rowAt(c: AgentContext): Promise<Row> {
+export async function rowAt(c: AgentContext): Promise<Row> {
     const row = await c.db.get<{
         kind: AgentInput["kind"];
         task: string;

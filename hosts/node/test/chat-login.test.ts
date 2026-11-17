@@ -215,6 +215,27 @@ test("a key sign-in leaves the key only in credentials.json", async (t) => {
     await agent.stop();
 });
 
+test("a hire signs no one in: sign-in is the Hand's alone", async (t) => {
+    const { calls, sent } = credentialsFile();
+    const agent = await wakeAgent(t, {
+        calls,
+        key: "9",
+        input: {
+            kind: "hire",
+            task: "standing-9",
+            place: { version: 1, lead: 1, hires: [], roads: [], tools_off: [] },
+        },
+        models: loopback(() => fauxAssistantMessage("Hello.")),
+    });
+    t.after(() => agent.stop());
+    const hire = client(agent, signIns(agent.config.models));
+
+    await assert.rejects(hire.start("loopback", "key"), {
+        message: "only the Hand signs in",
+    });
+    assert.deepEqual(named(sent, "keep_credential"), []);
+});
+
 test("A13: a key sign-in's refusals and its repeats are today's", async (t) => {
     const key = secret(t, "key");
     const { file, calls, sent } = credentialsFile();
