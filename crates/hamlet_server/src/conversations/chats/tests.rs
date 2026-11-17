@@ -203,6 +203,41 @@ fn a_stop_holds_the_queue_until_a_chiefs_line_runs_first_or_a_resume()
 }
 
 #[test]
+fn a_retry_runs_before_the_notifications_queued_first_once_resumed() {
+    let mut realm = Realm::new();
+    let (mayor, bo) = pair(&mut realm, "bo");
+    notification(&mut realm, bo, mayor, "k1", "Done.");
+    let (env, chief) = (env(), realm.chief);
+    realm.chief(|cx| Ok(Ok(stop(cx, mayor, &[])?))).unwrap();
+    let retried =
+        realm.chief(|cx| retry(cx, &env, mayor, chief)).unwrap();
+    // Stopped again, the retry no longer runs first by the hold's
+    // release, only by its kind.
+    realm.chief(|cx| Ok(Ok(stop(cx, mayor, &[])?))).unwrap();
+    let conversation = retried.conversation;
+    let order = |realm: &mut Realm| {
+        inputs::queued(realm.db(), conversation)
+            .unwrap()
+            .into_iter()
+            .map(|input| input.kind)
+            .collect::<Vec<_>>()
+    };
+    assert_eq!(
+        order(&mut realm),
+        [InputKind::Retry, InputKind::Notification]
+    );
+    realm.chief(|cx| Ok(Ok(resume(cx, mayor)?))).unwrap();
+    let owed = inputs::owed(
+        realm.db(),
+        conversation,
+        Resend::Nothing,
+        |_| false,
+    )
+    .unwrap();
+    assert_eq!(owed[0].request, retried.request);
+}
+
+#[test]
 fn a_queued_line_shows_until_the_chief_takes_it_back() {
     let mut realm = Realm::new();
     let (mayor, _) = pair(&mut realm, "bo");
