@@ -90,6 +90,8 @@
 //!
 //! With `HAMLET_DEMO_FAUX` naming a faux script, the Node host's
 //! model answers from it, as hosts/node/src/agent/demo-host.ts says.
+//! The Node host is started with only `HAMLET_HOME` and `PATH`, so
+//! the demo hands it the script's path.
 //!
 //! `pi` commands need this mode: in any other they fail at once.
 
@@ -158,6 +160,8 @@ const POLL: Duration = Duration::from_millis(25);
 /// reads them as settled.
 const QUIET: Duration = Duration::from_secs(1);
 
+/// Longer than `login.ts`'s 25 s `STEP_WAIT_MS`, which a sign-in's
+/// step waits for its provider.
 const ASK_WITHIN: Duration = Duration::from_secs(60);
 
 const HAND: AgentNumber = AgentNumber(1);
@@ -519,6 +523,8 @@ async fn login(
     asked(host, HAND, &Login(login)).await
 }
 
+/// Answers as `Ok` JSON both the agent's answer and the actor's error
+/// it failed with.
 async fn asked<M>(
     host: &Host,
     n: AgentNumber,

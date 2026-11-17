@@ -228,6 +228,7 @@ test("a stop while a provider error waits to be tried again ends the agent", asy
     const { calls, sent } = fakeCalls({});
     const agent = await wakeAgent(t, {
         calls,
+        // Long enough that the retry is still asleep at the stop.
         settings: {
             retry: { enabled: true, maxRetries: 2, baseDelayMs: 600_000 },
         },
@@ -242,7 +243,9 @@ test("a stop while a provider error waits to be tried again ends the agent", asy
         (await agent.entries()).some((entry) => entry.kind === "pi.assistant"),
     );
 
+    // A stop takes milliseconds; a hang waits for the retry's sleep.
     assert.equal(await within(agent.stop(), 30_000, "hung"), undefined);
+    // What the close cut off has settled by the end of the next wake.
     await (await agent.again()).stop();
     assert.deepEqual(agent.reported, []);
     assert.deepEqual(named(sent, "turn_failed"), []);
@@ -312,6 +315,7 @@ test("a kill while the realm is told of a refusal sends nothing again", async (t
     const { calls, sent } = fakeCalls({
         realm: {
             may_spend: () => refused,
+            // The first is cut off by the kill and never answered.
             turn_failed: () => {
                 told.resolve();
                 return new Promise<never>(() => {});
@@ -354,6 +358,7 @@ test("a kill while the realm is told of a refusal sends nothing again", async (t
 test("a refused automatic compaction fails the turn with the realm's words", async (t) => {
     let asked = 0;
     const { calls, sent } = fakeCalls({
+        // The fourth is the summary the fourth line's turn compacts with.
         realm: { may_spend: () => (++asked >= 4 ? refused : { type: "done" }) },
     });
     const agent = await wakeAgent(t, {
@@ -363,6 +368,8 @@ test("a refused automatic compaction fails the turn with the realm's words", asy
             fauxAssistantMessage("Two."),
             fauxAssistantMessage("Three."),
         ]),
+        // Blocks at about 35,000 tokens of the faux model's 128,000: past
+        // three lines, short of four.
         settings: {
             compaction: {
                 reserveTokens: 93_000,
@@ -518,6 +525,7 @@ test("an empty answer to a question sends no reply", async (t) => {
 test("a refused summary in the cut-off rule fails with the realm's words", async (t) => {
     let asked = 0;
     const { calls, sent } = fakeCalls({
+        // The fifth is the cut-off rule's summary.
         realm: { may_spend: () => (++asked >= 5 ? refused : { type: "done" }) },
     });
     const agent = await wakeAgent(t, {
@@ -574,6 +582,7 @@ test("a close while the realm is told of a failed turn reports nothing", async (
     await told.promise;
 
     await agent.stop();
+    // The tell the close cut off has settled by the next wake's end.
     const again = await agent.again();
     await again.idle();
 
@@ -603,6 +612,7 @@ for (const [what, given] of [
         });
         await until(() => named(sent, "turn_failed").length > 0);
 
+        // An idle conversation is idle in milliseconds; 30 s is far past a busy machine.
         assert.equal(await within(agent.idle(), 30_000, "hung"), undefined);
         await agent.stop();
     });

@@ -85,6 +85,7 @@ class Followed {
         this.number = page.number;
     }
 
+    /** False when the client must read again. */
     take(event: ChatEvent): boolean {
         if (event.epoch === this.epoch && event.number <= this.number) {
             return true;
@@ -122,6 +123,10 @@ function shown(items: readonly ChatItem[]): string[] {
     );
 }
 
+/**
+ * Answers the reflection a `/new` or a `/resume` asks "Kept.", and every
+ * other request from `answers` in order, whichever conversation asks first.
+ */
 function reflecting(answers: string[]): FauxResponseStep[] {
     const step: FauxResponseStep = (request) => {
         const last = request.messages.at(-1);
@@ -191,6 +196,7 @@ test("a client reading after a gap misses nothing", async (t) => {
     const first = await read(agent, CHIEF);
     assert.deepEqual(shown(first.items), ["user: a", "assistant: One."]);
 
+    // The client misses every event from here on.
     await send(line("b"));
     const again = await read(agent, CHIEF);
     assert.deepEqual(shown(again.items), [
@@ -225,6 +231,7 @@ test("a client reading after a gap misses nothing", async (t) => {
     assert.equal(again.working, false);
     assert.equal(again.pending, 0);
 
+    // What the client missed is what the events carried.
     const followed = new Followed(CHIEF, first);
     for (const event of chatEvents(agent)) {
         assert.ok(followed.take(event), `event ${event.number} applies`);
@@ -344,6 +351,7 @@ test("an append repeated, or crossing a read, applies once", async (t) => {
         Promise.withResolvers<void>(),
         Promise.withResolvers<void>(),
     ];
+    // A failure before the gates open would leave the run held at the stop.
     t.after(() => {
         for (const gate of gates) gate.resolve();
     });
@@ -373,6 +381,7 @@ test("an append repeated, or crossing a read, applies once", async (t) => {
     const events = chatEvents(agent);
     const once = new Followed(CHIEF, page);
     for (const event of events) assert.ok(once.take(event));
+    // Every event, those the page already holds too, applied twice.
     let twice = [...page.items];
     for (const event of events) {
         if (isDeepStrictEqual(event.chat, CHIEF)) {
@@ -412,6 +421,7 @@ test("read_chat of a chat that does not exist is refused as today words it", asy
 });
 
 test("a page before a cursor holds the items before it", async (t) => {
+    // No reflection every ten lines, so the page holds lines and answers only.
     const every = process.env.HAMLET_REFLECT_EVERY;
     process.env.HAMLET_REFLECT_EVERY = "0";
     t.after(() => {
@@ -791,6 +801,7 @@ test("a client following the chief's chat reads again after a rewind, then follo
     });
     assert.equal(rewound.type, "rewound");
     const followed = new Followed(CHIEF, page);
+    // Nothing is sent after the rewind: the reset comes of the move alone.
     await until(() => chatEvents(agent).some((event) => !followed.take(event)));
     const again = await read(agent, CHIEF);
     assert.deepEqual(shown(again.items), ["user: a", "assistant: One."]);
@@ -824,6 +835,7 @@ test("a client following the chief's chat reads again after a rewind to the sess
     });
     assert.equal(rewound.type, "rewound");
     const followed = new Followed(CHIEF, page);
+    // Nothing is sent after the rewind: the reset comes of the move alone.
     await until(() => chatEvents(agent).some((event) => !followed.take(event)));
     const again = await read(agent, CHIEF);
     assert.deepEqual(again.items, []);

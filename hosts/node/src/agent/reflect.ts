@@ -127,6 +127,8 @@ export function owedOf(withHarness: WithHarness): Owed {
             const kept = await harness.conversation(conversation, context);
             if (kept === undefined) return none;
             let answered = 0;
+            // A chief's line or retry is open until the turn answers; lines
+            // steered into one turn are one turn.
             let open = false;
             let cursor: Cursor | undefined;
             do {
@@ -151,6 +153,8 @@ export function owedOf(withHarness: WithHarness): Owed {
                     if (CHIEF_TURNS.has(entry.kind)) open = true;
                     if (entry.kind !== "pi.assistant") continue;
                     const answer = entry.model?.[0] as AssistantMessage;
+                    // A short cut-off's second try, `hamlet.cut-off`,
+                    // answers the same turn.
                     if (
                         answer.stopReason === "toolUse" ||
                         isShortCutOff(answer)
@@ -161,6 +165,7 @@ export function owedOf(withHarness: WithHarness): Owed {
                 }
                 cursor = page.next;
             } while (cursor !== undefined);
+            // An aborted turn leaves its line open and its run ended.
             const running =
                 open &&
                 (await harness.commit(
@@ -183,6 +188,11 @@ function stands(answer: AssistantMessage): boolean {
     );
 }
 
+/**
+ * The reflection to ask next, and the entry of the last one that ran;
+ * `asked` when reflection `k` is admitted and has not ended, or its task
+ * has not admitted it yet.
+ */
 async function lastAsked(
     tx: Tx,
     conversation: ConversationId,

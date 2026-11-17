@@ -96,6 +96,7 @@ pub fn factory() -> ActorFactory {
 }
 
 struct StandIn {
+    /// Held while `credentials.json` is read and written.
     credentials: Mutex<()>,
 }
 

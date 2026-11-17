@@ -36,6 +36,7 @@ import {
 } from "./agent-testing.ts";
 import { context } from "./testing.ts";
 
+/** Made up; no provider has ever issued it. */
 const KEY = "sk-made-up-7c0ffee-4u7";
 
 const LISTED = { input: 2, output: 4, cacheRead: 1, cacheWrite: 3 };
@@ -177,6 +178,8 @@ test("a model changed mid-session runs from the next call", async (t) => {
         models: second.add,
         responses: [
             ran(names, async () => {
+                // Kept while the run's first request is out, so the run is
+                // busy when the copy arrives.
                 if (agent === undefined) throw new Error("not woken");
                 await agent.actions.copies(
                     agent.by(from.realm),
@@ -220,6 +223,7 @@ test("a configure cut off by a kill is done at the next wake", async (t) => {
     await failed;
     await agent.stop();
     const next = await agent.again();
+    // The wake configures without being awaited.
     await until(async () => (await rootModel(next))?.provider === "loopback");
     second.core.setResponses([ran(names, fauxAssistantMessage("Hello."))]);
     await say(next, "Hello again.");
@@ -254,6 +258,7 @@ test("each answer names its model and its price", async (t) => {
         [{ model: "loopback::large" }, "large", LISTED],
         [{ model: "loopback::remote" }, "remote", flat(1)],
         [{ model: "loopback::home" }, "home", flat(0.1)],
+        // A listing's cost counts only with all four rates.
         [{ model: "loopback::partly" }, "partly", flat(1)],
     ];
 
@@ -376,6 +381,7 @@ test("a check is not charged", async () => {
         type: "failed",
         words: "That key was not accepted. Check it was copied whole and is still active.",
     });
+    // Scrubbed before the cut to 160 characters, so no part of the key is left.
     assert.deepEqual(await checkModel(listed, keys, "loopback::large"), {
         type: "failed",
         words: `That model did not answer a hello. Pick another one. (Error: ${"x".repeat(150)} [R)`,
@@ -644,6 +650,7 @@ for (const at of [6, 12, KEY.length - 1]) {
             id: "line-key",
             input: { type: "line", text: "Say your key." },
         });
+        // The partial holding the delta is kept before the kill.
         await until(async () => (await dumped(agent)).includes("My key is"));
         await agent.stop();
         const next = await agent.again();
@@ -677,6 +684,7 @@ test("a kill while a call's arguments stream a key keeps none of it", async (t) 
         id: "line-key",
         input: { type: "line", text: "Read it." },
     });
+    // The partial holding both deltas is kept before the kill.
     await until(async () => (await dumped(agent)).includes("call-with-key"));
     await agent.stop();
     const next = await agent.again();
@@ -793,6 +801,8 @@ test("a request with no key from the realm fails and uses no other key", async (
         assert.ok(failed !== undefined, "the request failed");
         if (tried === 0) assert.equal(failed, NOT_SIGNED_IN.words);
         assert.ok(!(await dumped(agent)).includes("sk-made-up-host-0dd"));
+        // The request asks once, and the wake may ask for the copy's key
+        // once more; nothing asks again.
         assert.ok(named(sent, "credential").length <= 2);
         await agent.stop();
     }
@@ -937,6 +947,7 @@ test("a /new whose copy read waits behind a newer copy ends on it", async (t) =>
     );
     second.core.setResponses([fauxAssistantMessage("Root.")]);
     await say(agent, "Root first.");
+    // Holds the /new's first read of the copy until the newer copy is kept.
     const db = agent.c.db as { all: (...args: unknown[]) => Promise<unknown> };
     const all = db.all.bind(db);
     const held = Promise.withResolvers<void>();
@@ -988,6 +999,8 @@ test("a rewind's conversation runs on the copy's model", async (t) => {
     await say(agent, "First line.");
     await say(agent, "Second line.");
 
+    // The first rewind forks before the second line; the second leaves the
+    // session empty.
     for (const [line, again] of [
         ["Second line.", "Second, again."],
         ["First line.", "From the start."],

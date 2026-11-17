@@ -179,6 +179,7 @@ test("a worker is offered only the built-in tools its brief names", async (t) =>
     });
     t.after(() => agent.stop());
     await until(() => named(sent, "worker_done").length === 1);
+    // The tools a workspace lists arrive after the wake.
     await until(async () => (await offered(agent)).includes("lint"));
 
     // As today (`calls/place.rs:189-197`): no society tool, no timer.

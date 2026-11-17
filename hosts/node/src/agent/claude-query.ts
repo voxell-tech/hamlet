@@ -45,6 +45,7 @@ import { scrub } from "./models.ts";
 import { emptyAnswer } from "./spend.ts";
 import { reasonOf } from "./turn.ts";
 
+/** How long a query waits at its tool calls before it is stopped; their results then start a new one. */
 const IDLE_MS = 5 * 60_000;
 
 const CONTINUE =
@@ -63,6 +64,7 @@ const EFFORTS: Record<string, EffortLevel> = {
     max: "max",
 };
 
+/** A query stopped at Claude's tool calls, by the pi-durable session it answers. */
 interface Parked {
     readonly run: Run;
     readonly at: number;
@@ -126,6 +128,7 @@ function answered(
         : undefined;
 }
 
+/** One query of the Claude program, which may answer several calls of pi-durable. */
 class Run {
     readonly #claude: Program;
     readonly #session: string | undefined;
@@ -390,11 +393,13 @@ interface Tokens {
 }
 
 class Reply {
+    /** How many messages the call was given, which is where pi-durable keeps this answer. */
     readonly at: number;
     readonly #model: Model<Api>;
     readonly #out: AssistantMessageEventStream;
     readonly #signal: AbortSignal | undefined;
     readonly #message: AssistantMessage;
+    /** The open blocks of the message being streamed, by Claude's index: where each is, and a call's input so far. */
     readonly #open = new Map<number, { at: number; json: string }>();
     #started = false;
     #ended = false;

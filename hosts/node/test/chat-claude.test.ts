@@ -31,6 +31,7 @@ import {
 
 const FAKE = join(import.meta.dirname, "fixtures", "claude-fake", "claude.mjs");
 
+/** The host's own environment, which the Claude program must not see. */
 const HOST = {
     ANTHROPIC_API_KEY: "made-up-chief-key",
     CLAUDE_CODE_OAUTH_TOKEN: "made-up-chief-token",
@@ -160,6 +161,10 @@ async function page(agent: Woken): Promise<ChatPage> {
     });
 }
 
+/**
+ * How long a query's Node child may take to end: ten times the three
+ * seconds it takes at most on a busy machine.
+ */
 const SESSION_ENDS_MS = 30_000;
 
 function sessions(folder: string): string[] {
@@ -244,6 +249,10 @@ async function claudeAgent(
 const TOKEN = "made-up-subscription-token";
 const REFRESH = "made-up-subscription-refresh";
 
+/**
+ * Tokens made up for one test: the host's scrub list outlives a test, so
+ * tokens another test signed in with would be scrubbed already.
+ */
 function madeUpTokens(test: string) {
     return {
         token: `made-up-access-of-${test}`,
@@ -332,6 +341,7 @@ test("a claude turn runs through the fake program", async (t) => {
         isError: false,
     });
 
+    // Hamlet spawns the sign-in itself, so it sets every Claude variable.
     assert.deepEqual(
         Object.keys(signedIn?.env as object)
             .filter((name) => name.startsWith("CLAUDE"))
@@ -405,11 +415,13 @@ test("the next input resumes a session the SDK reads as the agent's history", as
     const written = join(copy, String(again?.file));
     mkdirSync(dirname(written), { recursive: true });
     writeFileSync(written, String(again?.resumed));
+    // Planted with the host's environment, so put back after the test.
     process.env.CLAUDE_CONFIG_DIR = copy;
     const history = await getSessionMessages(String(again?.resume), {
         dir: join(folder, "work"),
     });
     assert.deepEqual(
+        // A message's id is made up as it is written.
         history.map(({ type, message }) => {
             const { id: _, ...said } = message as Record<string, unknown>;
             return [type, said];
@@ -499,6 +511,7 @@ test("a program that dies with its tokens on stderr shows them nowhere", async (
         [{ die: `fatal: bad token ${tokens.token} ${tokens.refresh}\n` }],
     ]);
     marked(claude);
+    // The login the program kept when the chief signed in, before this host started.
     writeFileSync(
         join(claude.folder, ".credentials.json"),
         JSON.stringify({

@@ -171,6 +171,7 @@ export function environment(at: Folders): Record<string, string> {
         ...GUARDS,
         CLAUDE_CONFIG_DIR: at.config,
         CLAUDE_AGENT_SDK_CLIENT_APP: APP,
+        // A script, as a test's fake program is, runs on the Node running the host.
         PATH: [dirname(process.execPath), env.PATH ?? ""].join(delimiter),
     };
 }
@@ -239,6 +240,8 @@ async function signIn(
     try {
         const url = await Promise.race([
             linkIn(link, AbortSignal.any([signal, looked.signal])),
+            // A program that wrote its link and ended at once is not
+            // waited on for the next look.
             exited.then(() => linkAt(link)),
         ]);
         if (url === undefined)

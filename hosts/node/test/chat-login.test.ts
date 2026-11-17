@@ -36,6 +36,10 @@ function secret(t: TestContext, what: string): string {
     return `made-up-${what}-"${t.name.replace(/\W+/g, "-")}`;
 }
 
+/**
+ * Every form a secret takes in text: as it is, escaped in JSON, and escaped
+ * twice, as in a row's JSON column dumped as JSON.
+ */
 function forms(text: string): string[] {
     const once = JSON.stringify(text).slice(1, -1);
     return [text, once, JSON.stringify(once).slice(1, -1)];
@@ -466,6 +470,7 @@ test("an OAuth sign-in dropped halfway starts again", async (t) => {
     const gone = client(agent, host);
     const dropped = (await gone.start("chatgpt", "subscription")).login;
 
+    // The client went away; it starts again on the same host.
     const again = client(agent, host);
     const second = (await again.start("chatgpt", "subscription")).login;
     assert.equal(fixture.dropped, 1, "the first sign-in's flow ended");
@@ -475,6 +480,7 @@ test("an OAuth sign-in dropped halfway starts again", async (t) => {
         words: "No sign-in of yours is open.",
     });
 
+    // The host was killed: what it held is gone.
     const restarted = client(agent, signIns(agent.config.models));
     assert.deepEqual(await restarted.reply(second, fixture.code), {
         type: "failed",
@@ -510,6 +516,7 @@ test("an OAuth credential is refreshed once and kept", async (t) => {
         type: "oauth",
         login: {
             ...fixture.before,
+            // Long past, so the first request refreshes it.
             expires: 1,
             extra: JSON.stringify({ clientId: "stable-installation" }),
         },
@@ -543,6 +550,7 @@ test("an OAuth credential is refreshed once and kept", async (t) => {
         keysOf(realm, () => {}, { listed: agent.config.models, keep }),
         "chatgpt::offline",
     );
+    // A stopped turn leaves the rotation it started to finish.
     await line;
     await agent.actions.stop(agent.by(from.client), { id: "stop-1" });
     fixture.refreshHeld.resolve();
@@ -623,6 +631,7 @@ test("a step waits for its limit, then answers the step it gave", async (t) => {
     await hand.next(login);
     await hand.next(login);
 
+    // The provider gives nothing more until it asks for the code.
     const waiting = hand.next(login);
     limit.resolve();
     assert.deepEqual(await waiting, {
@@ -651,6 +660,7 @@ test("a cancel answers a call waiting for its step", async (t) => {
     const agent = await wakeAgent(t, { calls, models: fixture.listing });
     const hand = client(
         agent,
+        // The limit never passes: only the cancel can answer.
         signIns(agent.config.models, { waited: () => new Promise(() => {}) }),
     );
     const login = (await hand.start("chatgpt", "subscription")).login;
@@ -947,6 +957,8 @@ test("after a wake, the copied model's key is scrubbed from what a client reads"
         calls,
         models: loopback(() => fauxAssistantMessage("Hello.")),
     });
+    // Said to the faux model, so no life of this host asks for the key
+    // before the wake does.
     await say(agent, `My key is ${key}.`);
     await agent.actions.copies(agent.by(from.realm), {
         model: { version: 1, value: { model: "loopback::large", fast: false } },
@@ -956,6 +968,7 @@ test("after a wake, the copied model's key is scrubbed from what a client reads"
     const woken = await agent.again();
     const line = async () =>
         (await page(woken)).items.find((item) => item.kind === "user")?.text;
+    // The wake does not wait for the realm's answer, so neither can a read.
     await until(async () => (await line()) === "My key is [REDACTED].").catch(
         () => {},
     );

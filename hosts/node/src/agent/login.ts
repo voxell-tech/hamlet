@@ -146,6 +146,7 @@ type End = { readonly kept: Kept } | { readonly failed: string };
 
 class SignIn {
     readonly provider: string;
+    /** Answered with its end, after which only a repeat is answered. */
     closed = false;
     readonly #waited: (stop: AbortSignal) => Promise<void>;
     readonly #stop = new AbortController();
@@ -158,6 +159,7 @@ class SignIn {
               readonly answer: (value: string) => void;
           }
         | undefined;
+    /** What the chief typed, scrubbed from this sign-in's failure. */
     readonly #answers: string[] = [];
     #end: End | undefined;
     #changed = Promise.withResolvers<void>();
@@ -205,6 +207,8 @@ class SignIn {
         if (asking === undefined || asking.step !== this.#given) return;
         this.#asking = undefined;
         this.#answers.push(value);
+        // Only a secret: a choice or a name such as `default` would be
+        // scrubbed from everything the host shows.
         if (asking.secret) remember(value);
         asking.answer(value);
     }
@@ -217,7 +221,13 @@ class SignIn {
         this.#wake();
     }
 
+    /**
+     * The next step the flow gave, or its end with the credential kept. With
+     * nothing new in time, the step given last again, or, before the first, a
+     * failure that ends the sign-in.
+     */
     async next(login: string, keep: Keep): Promise<LoginAnswer> {
+        // Scrubbed as it goes out, since a step can quote a typed answer.
         const given = (step: LoginStep): LoginAnswer => ({
             type: "step",
             login,
@@ -286,6 +296,8 @@ class SignIn {
             signal.addEventListener(
                 "abort",
                 () => {
+                    // The flow went on without it, as when a browser's
+                    // callback wins.
                     if (this.#asking?.step === step) this.#asking = undefined;
                     const queued = this.#steps.indexOf(step);
                     if (queued !== -1) this.#steps.splice(queued, 1);

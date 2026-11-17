@@ -19,8 +19,10 @@ import type { AgentFilesystem, FileEntry } from "./filesystem.ts";
 import type { AgentInput, Place, ReadAnswer } from "./messages.ts";
 import { type Peers, readFile } from "./turn.ts";
 
+/** Characters of the memory's root files together, and of the project's instructions, a prompt shows. */
 const MEMORY_SHOWN = 8000;
 const CHARACTER_SHOWN = 4000;
+/** The files that hold a project's own instructions for agents, the first that reads winning. */
 const INSTRUCTIONS = ["AGENTS.md", "CLAUDE.md"] as const;
 
 /** The agent's kind and place, as its row holds them now. */

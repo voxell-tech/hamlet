@@ -79,7 +79,9 @@ interface Watch {
     of?: Promise<unknown> | undefined;
     attached?: Promise<Attached>;
     current: ConversationId | undefined;
+    /** One at a time, so the events go out in the order of the commits. */
     queue: Promise<void>;
+    /** Conversations with changes folded while they had no chat. */
     readonly unnamed: Set<ConversationId>;
 }
 
@@ -100,9 +102,11 @@ export function watching(c: AgentContext, follow: Following): void {
         unnamed: new Set(),
     };
     WATCHES.set(follow, watch);
+    // `wake` begins to open the harness before it first waits.
     queueMicrotask(() => void attached(c, follow, watch)?.catch(warn(c)));
 }
 
+/** Attaches once per open, so a harness reopened after a failure is followed too. */
 function attached(
     c: AgentContext,
     follow: Following,
@@ -116,6 +120,7 @@ function attached(
         watch.attached = open.then(({ harness }) =>
             attach(c, follow, watch, harness),
         );
+        // A failed open is tried again by the next read.
         watch.attached.catch(() => {
             if (watch.of === open) watch.of = undefined;
         });
@@ -123,6 +128,10 @@ function attached(
     return watch.attached;
 }
 
+/**
+ * A past session is folded once a client reads it; until then a change to
+ * it only tells its readers to read again.
+ */
 async function attach(
     c: AgentContext,
     follow: Following,
@@ -182,6 +191,11 @@ function conversationOfChange(
     }
 }
 
+/**
+ * A change to a conversation no fold follows: a past session's readers
+ * read again, and a session made current since the attach is folded from
+ * here on, its readers reading again too.
+ */
 function changed(
     c: AgentContext,
     follow: Following,
@@ -191,6 +205,7 @@ function changed(
     const { watch } = at;
     watch.queue = watch.queue
         .then(async () => {
+            // A conversation made in the same commit is folded whole.
             if (at.made.has(conversation) || at.folds.has(conversation)) {
                 return;
             }
@@ -207,6 +222,10 @@ function changed(
         .catch(warn(c));
 }
 
+/**
+ * A harness closed while the agent is open was reopened: the events of
+ * the commits between are lost, so every chat is read again.
+ */
 function reopened(c: AgentContext, follow: Following, watch: Watch): void {
     watch.queue = watch.queue
         .then(async () => {
@@ -222,6 +241,11 @@ function reopened(c: AgentContext, follow: Following, watch: Watch): void {
         .catch(warn(c));
 }
 
+/**
+ * The fold of a conversation the watches follow. A conversation made
+ * after the attach is sent whole; any other starts from its view when
+ * first folded, which a client reading in this epoch already has.
+ */
 function foldOf(
     c: AgentContext,
     follow: Following,
@@ -258,6 +282,7 @@ function foldOf(
         return fold;
     })();
     at.folds.set(id, made);
+    // A failed attach is tried again by the next read.
     made.catch(() => at.folds.delete(id));
     return made;
 }
@@ -269,11 +294,14 @@ async function sent(
     conversation: ConversationId,
     ops: readonly ChatOp[],
 ): Promise<void> {
+    // An empty session a rewind moved the chief to shows no op, and its
+    // readers still read again.
     const row = await rowOf(c, conversation);
     if (row === undefined) {
         if (ops.length > 0) watch.unnamed.add(conversation);
         return;
     }
+    // Its chat was kept after a change was folded and not sent.
     let reset = watch.unnamed.delete(conversation);
     if (row.kind === "chief" && row.current === 1) {
         reset ||= watch.current !== undefined && watch.current !== conversation;
@@ -317,6 +345,10 @@ function warn(c: Pick<AgentContext, "log">): (error: unknown) => void {
     return (error) => c.log.warn({ msg: "a chat was not followed", error });
 }
 
+/**
+ * Called inside `withHarness`, which opens the harness even after a wake
+ * that could not, so a page read is followed from its number on.
+ */
 async function followed(c: AgentCall, follow: Following): Promise<Attached> {
     const watch = WATCHES.get(follow);
     const at = watch === undefined ? undefined : attached(c, follow, watch);
@@ -528,6 +560,7 @@ class Fold {
         )) {
             if (whole.tool !== undefined) continue;
             const scrubbed = scrub(whole);
+            // A secret may yet be streaming in.
             const item = { ...scrubbed, text: withheld(scrubbed.text) };
             const shown = this.#live.get(block);
             if (shown !== undefined && item.text === shown.text) continue;
@@ -547,6 +580,10 @@ class Fold {
     }
 }
 
+/**
+ * Every item a client reads goes through here or `#partial`, which scrub it,
+ * so an `append`'s offset counts the text a client holds.
+ */
 function added(item: ChatItem, replaces?: string): ChatOp {
     return {
         type: "add",
@@ -559,6 +596,7 @@ function added(item: ChatItem, replaces?: string): ChatOp {
 const SUMMARY_NOTICE =
     "The conversation grew longer than the model can hold, so the earlier part of it was summarised.";
 
+/** The items an entry shows; a tool's result shows in its call's item. */
 function itemsOf(entry: EntryRecord): Shown[] {
     const at = timeOf(entry);
     const one = (
@@ -593,6 +631,8 @@ function itemsOf(entry: EntryRecord): Shown[] {
         }
         case "pi.compaction":
             return one("notice", SUMMARY_NOTICE);
+        // A notice the realm told the model is an input; one for people
+        // alone keeps its text in its data.
         case "hamlet.notice":
             return one(
                 "notice",

@@ -139,6 +139,7 @@ export type AgentDefinition = ActorDefinition<
 
 interface Offer {
     readonly builtIn: (extension: Extension) => Extension;
+    /** Whether the society's tools, the timers and reflection are offered. */
     readonly society: boolean;
 }
 
@@ -488,6 +489,8 @@ async function wake(c: AgentContext, config: AgentConfig): Promise<void> {
         .catch((error: unknown) =>
             peers.report("the copy's model's key was not read", error),
         );
+    // Configured at every wake, even when the realm was not reached, so a
+    // configure a kill cut off is done again.
     const copied = read
         .then(() => configured(c, copies))
         .catch((error: unknown) =>
@@ -498,6 +501,8 @@ async function wake(c: AgentContext, config: AgentConfig): Promise<void> {
         row.brief !== undefined
     ) {
         const { kind, brief } = row;
+        // A new worker or errand holds no copies yet, so its turn waits for
+        // the realm's answer, whatever it is.
         void copied
             .then(() =>
                 briefTurn(c, options, peers, kind, brief, row.standingTask),
@@ -514,6 +519,11 @@ async function wake(c: AgentContext, config: AgentConfig): Promise<void> {
 /** pi-durable admits it once: the brief is the root conversation's one input. */
 const BRIEF_ID = "brief";
 
+/**
+ * A worker's or an errand's one turn. Each wake admits it again under
+ * `BRIEF_ID`, so a call a kill cut off is made again and the turn never
+ * runs twice.
+ */
 async function briefTurn(
     c: AgentContext,
     options: PiOptions,
@@ -537,6 +547,7 @@ async function briefTurn(
             return settled;
         },
     );
+    // A call of its own, so the agent does not sleep before the realm is told.
     await withHarness(c, options, async (harness, context) => {
         const last = await lastOf(
             await harness.root(context),

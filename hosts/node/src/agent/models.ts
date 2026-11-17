@@ -42,9 +42,12 @@ import {
 } from "./messages.ts";
 import { type BareRealm, type Peers, reasonOf } from "./turn.ts";
 
+/** Dollars per million tokens of a model nothing prices. */
 const RATE = 1;
+/** {@link RATE} for a model served on this machine. */
 const LOCAL_RATE = 0.1;
 
+/** The provider of the faux models, which take no credential. */
 const FAUX = "faux";
 
 /** The APIs whose requests carry a `service_tier`. */
@@ -191,6 +194,7 @@ export function keysOf(
             if (asking === undefined) {
                 asking = ask(provider);
                 asked.set(provider, asking);
+                // A refusal or a failed call is asked again at the next request.
                 asking.catch(() => asked.delete(provider));
             }
             const kept = await asking;
@@ -201,6 +205,10 @@ export function keysOf(
     };
 }
 
+/**
+ * Each rotation by the login it retires, so one refresh runs per login in
+ * the host and every agent still holding the old one takes the new.
+ */
 const ROTATIONS = new Map<string, Promise<OauthLogin>>();
 
 /**
@@ -218,6 +226,7 @@ function rotated(
     let rotation = ROTATIONS.get(retired);
     if (rotation === undefined) {
         rotation = (async () => {
+            // Not the request's signal: a rotation started is finished.
             const fresh = loginOf(
                 await oauth.refresh(
                     credentialOf(login),
@@ -229,6 +238,7 @@ function rotated(
             try {
                 await to.keep({ provider, value });
             } catch (error) {
+                // This host keeps using it; the realm still holds the old one.
                 to.report(
                     `the rotated login for ${provider} was not kept`,
                     scrubbedError(error),
@@ -291,6 +301,7 @@ export function agentModels(
         const key = keys.of(model.provider);
         const [{ model: choice }, given] = await Promise.all([
             copies(),
+            // A stop does not wait for a refresh, which goes on.
             options?.signal === undefined
                 ? key
                 : raceWithAbortSignal(key, options.signal),
@@ -405,6 +416,10 @@ class Scrubbed extends AssistantMessageEventStream {
         }
     }
 
+    /**
+     * `source` scrubbed, with each text still streaming withheld. `shown` holds
+     * each block's text as last shown, `received` each call's argument text so far.
+     */
     #withheld(
         source: AssistantMessageEvent,
         shown: Map<number, string>,
@@ -445,6 +460,7 @@ class Scrubbed extends AssistantMessageEventStream {
     }
 }
 
+/** An answer whose text may end in part of a key. */
 function isCutOff(message: AssistantMessage): boolean {
     return message.stopReason === "error" || message.stopReason === "aborted";
 }
@@ -459,6 +475,7 @@ function withheldIn(message: AssistantMessage, ended?: number): void {
     }
 }
 
+/** The spend gate keeps a thrown error's words as the answer. */
 function scrubbedError(error: unknown): Error {
     return new Error(scrub(reasonOf(error)));
 }
@@ -633,6 +650,7 @@ export async function checkModel(
         }
         return { type: "answered", words: scrub(text) };
     } catch (error) {
+        // Scrubbed before `plainly` cuts it, so no part of a key is left.
         return { type: "failed", words: plainly(scrub(String(error))) };
     }
 }

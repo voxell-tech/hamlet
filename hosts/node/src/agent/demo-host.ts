@@ -176,6 +176,7 @@ interface Script {
     readonly steps: Step[];
 }
 
+/** A script as its file holds it; the demo's lanes write it, so it is trusted. */
 interface ScriptFile {
     readonly models?: readonly {
         readonly id: string;
@@ -293,6 +294,8 @@ const script: Script =
 const core = ai.createFauxCore(
     script.models === undefined ? {} : { models: [...script.models] },
 );
+// Each request takes its step as it is made, so the answer and its usage
+// stay together when requests overlap.
 const stream: StreamFunction<string, SimpleStreamOptions> = (
     model,
     context,

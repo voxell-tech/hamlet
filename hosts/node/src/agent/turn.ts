@@ -49,6 +49,7 @@ export interface Peers {
     readonly [CALLS]: Calls;
 }
 
+/** The realm's actions an agent calls outside a tool. */
 const BARE = [
     "may_spend",
     "charge",
@@ -229,6 +230,8 @@ export function turnsOf(withHarness: WithHarness, standing: RealmTask): Turns {
             }
             const [first] = placed;
             if (first === undefined) return none;
+            // A chief's line steered into the run pays from the next call on: each
+            // line runs under its own task.
             const task = placed.findLast(({ kept }) => kept.task !== undefined)
                 ?.kept.task;
             return {

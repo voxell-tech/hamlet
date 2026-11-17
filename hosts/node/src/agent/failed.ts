@@ -146,6 +146,7 @@ export interface FailedTurns {
     follow(harness: Harness): void;
 }
 
+/** A run a chief stopped ends this way; it failed only when nobody did. */
 const STOPPED: ReadonlySet<RunFailureReason> = new Set(["aborted", "reset"]);
 
 type Unanswered = Extract<SubmissionRecord, { status: "unanswered" }>;
@@ -168,12 +169,16 @@ export function failedTurns(
     withHarness: WithHarness,
     tell: TellFailed,
 ): FailedTurns {
+    // What each request's task answered with last, until its run ends: the
+    // error item an error leaves already shows its words.
     const answered = new Map<TaskId, "unsent" | "error">();
     const extension = defineExtension({
         name: "hamlet.failed",
         hooks: [
             hook(GenerationTask, {
                 afterResponse: async (message, api) => {
+                    // The wrapper opens a harness again after a failed
+                    // commit, which the wake never saw.
                     await withHarness(async (harness) => follow(harness)).catch(
                         (error: unknown) => {
                             if (!(error instanceof Closing)) throw error;
@@ -235,6 +240,7 @@ export function failedTurns(
             words,
         );
         if (!noticed || input.kind === "reflection") return;
+        // Not awaited: the run ends without the realm's answer.
         void tell(
             { conversation, task: input.task.task, words, cause: "budget" },
             undefined,
@@ -255,6 +261,8 @@ export function failedTurns(
             typeof input.detail === "string"
                 ? input.detail
                 : (failure.detail ?? input.reason);
+        // The gate's words in an error item are its failure to ask the
+        // realm, which refused nothing.
         const realm = last === "error" ? undefined : realmWordsIn(said);
         const words = realm ?? said;
         try {
@@ -294,6 +302,7 @@ export function failedTurns(
         }
     }
 
+    /** Whether this wrote the notice: a repeat finds it written. */
     function noticeOnce(
         conversation: ConversationId,
         requestId: string,

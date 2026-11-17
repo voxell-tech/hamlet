@@ -31,6 +31,7 @@ function opening(): OpenTask {
     };
 }
 
+/** `HAMLET_REFLECT_EVERY` is read at each wake, so it holds to the test's end. */
 async function wake(
     t: TestContext,
     every: string,
@@ -203,6 +204,8 @@ test("a reflection's repeat after a kill is admitted once", async (t) => {
     t.after(() => back.stop());
     await back.idle();
     assert.deepEqual(await said(back), ["a", "One.", REFLECT, "Kept it."]);
+    // The call the kill cut off may have opened a task, so it is not
+    // asked again: the reflection is charged to the standing task.
     assert.deepEqual(await reflections(back), [{ text: REFLECT, data: {} }]);
     assert.equal(named(sent, "open_task").length, 1);
 });
@@ -252,6 +255,7 @@ function aborted(): { step: FauxResponseStep; asked: Promise<void> } {
 }
 
 test("a short cut-off's second try answers its turn, and the reflection follows it", async (t) => {
+    // Lines long enough that the compaction the cut-off asks has to summarise.
     const long = (n: number) => `Line ${n}. ${"word ".repeat(7_000)}`;
     const { agent } = await wake(t, "4", [
         words("One."),

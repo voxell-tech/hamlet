@@ -121,6 +121,7 @@ test("a repeated /new answers the same number", async (t) => {
         await agent.actions.new_session(client, { id: "new-1", to: 7 }),
         { number: 2 },
     );
+    // The session left reflects first, so the faux answers come in order.
     await agent.idle();
     await send(line("b"));
 

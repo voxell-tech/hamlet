@@ -8,6 +8,10 @@ import type { ToolChange } from "./messages.ts";
 const KEPT = 200;
 const WIDE = 240;
 const AROUND = 3;
+/**
+ * The most pairs of lines compared one by one; past it, the diff shows
+ * every old line removed, then every new one added.
+ */
 const PAIRS = 1_000_000;
 
 type Mark = ToolChange["lines"][number]["mark"];
@@ -83,6 +87,7 @@ function compare(old: string, now: string): [Mark, string][] {
         lines.push(...out.map((line): [Mark, string] => ["removed", line]));
         lines.push(...into.map((line): [Mark, string] => ["added", line]));
     } else {
+        // The longest run of lines both have, from each pair of places on.
         const wide = into.length + 1;
         const common = new Uint32Array((out.length + 1) * wide);
         const at = (i: number, j: number) => common[i * wide + j] ?? 0;

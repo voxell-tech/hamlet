@@ -155,6 +155,7 @@ const ADA = { agent: 12, name: "Ada" };
 
 const NO_RETRIES: HarnessSettings = { retry: { maxRetries: 0 } };
 
+/** Answers `cancel` and `open_task`, which `fakeCalls` does not. */
 function fakes(answers: Parameters<typeof fakeCalls>[0] = {}) {
     return fakeCalls({
         workspace: {
@@ -241,6 +242,7 @@ test("a repeated stop answers 0", async (t) => {
     assert.deepEqual(await agent.actions.stop(client, { id: "stop-1" }), {
         turns: 0,
     });
+    // Sent again, so the repeat of a stop cut off before them sends them.
     assert.equal(named(sent, "cancel").length, 2);
     assert.deepEqual(
         named(sent, "lapse").map((call) => call.message),
@@ -761,6 +763,8 @@ test("a chief's line sent while a rewind is out lands in the session it goes to"
     await lapsing.promise;
 
     const sending = submitted(agent, line("Three"));
+    // A line racing the rewind is admitted in milliseconds, so a second
+    // decides only whether the race is caught, never whether it passes.
     await Promise.race([sending, delay(1_000)]);
     lapse.resolve(null);
     assert.deepEqual(await rewinding, { type: "rewound", text: "Two" });

@@ -83,6 +83,8 @@ export async function newSession(
         );
         return begun;
     });
+    // A repeat ends the session left again: a kill or a failure may have
+    // cut the first off after the session began.
     if (left !== undefined) {
         await lapsed(c, left, "ended");
         await reflectOnLeaving(c, left);
@@ -351,8 +353,19 @@ async function lineAt(
     return { text: textOf(line), before: before?.id };
 }
 
+/**
+ * How the words of `workspace-tools.ts`'s `run` and `waits` and of
+ * `society.ts`'s `ask` end: nothing else in a result says its end comes
+ * later as an input.
+ */
 const ENDS_LATER = " arrives as a new input.";
 
+/**
+ * Whether a call `conversation` made is out: a command or a wait for a chief
+ * whose `finished` was not admitted, or a question with no answer. An answer
+ * names no question, so questions are counted. An entry a fork inherited is
+ * left out: its call's end goes to the conversation that made it.
+ */
 async function callIsOut(
     harness: Harness,
     conversation: ConversationId,

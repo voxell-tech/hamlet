@@ -66,6 +66,7 @@ export function conversationFor(
                     (await named(input.conversation)) ??
                     (await harness.root(context))
                 ).id;
+            // One the realm names no conversation for is the chief's.
             case "notice":
                 return (await named(input.conversation))?.id ?? chiefSession(c);
         }
@@ -76,6 +77,8 @@ export async function conversationOfChat(
     c: AgentCall,
     chat: ChatRef,
 ): Promise<ConversationId | undefined> {
+    // A peer names a peer's chat, letters unless it says questions, and
+    // `kind` alone names nothing more.
     if (chat.from !== undefined) {
         return Number.isSafeInteger(chat.from)
             ? keptChat(c, chat.kind ?? "letters", chat.from)
@@ -116,6 +119,8 @@ export async function session(
 export async function begin(c: AgentCall, id: RequestId): Promise<Begun> {
     const before = await begunBy(c.db, id);
     if (before !== undefined) return before;
+    // A chat with no session begins session 1 first, so the first `/new`
+    // answers 2.
     await chiefSession(c);
     const to = await withHarness(
         c,
@@ -238,6 +243,7 @@ export async function created(
     return conversation;
 }
 
+/** A chat a concurrent input kept first wins, and its conversation is answered. */
 async function made(
     c: AgentCall,
     key: readonly [kind: string, peer: number, session: number],
