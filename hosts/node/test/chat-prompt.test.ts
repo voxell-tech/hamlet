@@ -172,6 +172,30 @@ test("the prompt cuts each part at its limit", async (t) => {
         ),
     );
 
+    const cutByTheWorkspace = await renderPrompt({
+        copies: async () => ({}),
+        files: listedFiles({}),
+        where: async () => ({ kind: "hire", place: HIRE.place }),
+        readFile: async () => ({
+            type: "text",
+            text: "Use tabs.",
+            notes: [],
+            truncation: {
+                by: "lines",
+                total_lines: 3000,
+                total_bytes: 9000,
+                output_lines: 2000,
+                output_bytes: 6000,
+                first_line_exceeds_limit: false,
+            },
+        }),
+    });
+    assert.ok(
+        cutByTheWorkspace.includes(
+            "# The project's AGENTS.md\nUse tabs.\n[AGENTS.md is cut here.]",
+        ),
+    );
+
     await sendCopies(agent, {
         character: { version: 2, value: "c".repeat(4000) },
     });
@@ -211,6 +235,7 @@ test("refreshed keeps what read_copies answers", async (t) => {
     );
     assert.deepEqual(named(sent, "read_copies")[0]?.message, {});
 
+    await agent.stop();
     const again = await agent.again();
     await until(() => named(sent, "read_copies").length === 2);
     assert.deepEqual(named(sent, "read_copies")[1]?.message, { charter: 3 });

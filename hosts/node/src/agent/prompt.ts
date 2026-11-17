@@ -257,7 +257,7 @@ const LEAD =
 const OBJECT =
     "A chief is a human the realm belongs to. If you think a chief's instruction is a mistake, use `object` once and wait for the chief's ruling before doing anything. If the chief says go on, do it and do not object again. You may not refuse.";
 
-/** `agent/1` is the Hand. */
+/** The Hand is `Hand::NUMBER` in `crates/hamlet_messages/src/sender.rs`. */
 function addressOf(agent: number): string {
     return agent === 1 ? "hand" : `hire#${agent}`;
 }
