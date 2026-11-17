@@ -87,13 +87,18 @@ struct Unfolded(HashSet<Entity>);
 /// What the agent of the open chat waits on from the chief, oldest
 /// first, and the one shown over its message bar.
 #[derive(Resource, Default, PartialEq)]
-struct Pending {
+pub(crate) struct Pending {
     waits: Vec<Entity>,
     /// The one turned to, else the oldest is shown.
     shown: Option<Entity>,
 }
 
 impl Pending {
+    /// Whether `wait` is one of them.
+    pub(crate) fn holds(&self, wait: Entity) -> bool {
+        self.waits.contains(&wait)
+    }
+
     /// The wait shown, its place among them and how many there are.
     fn on_show(&self) -> Option<(Entity, usize, usize)> {
         let at = self
@@ -173,7 +178,7 @@ fn keep_queue(
 
 /// Keeps [`Pending`] as the waits raised by the agent the chat is
 /// with, or by a turn of the chat itself.
-fn follow(
+pub(crate) fn follow(
     convo: Res<Convo>,
     chats: Query<&Chat>,
     waiting: Query<(Entity, &Waiting, Option<&RaisedBy>)>,

@@ -48,10 +48,9 @@ use hamlet_ui::theme::{HamletTheme, StatusKind};
 use hamlet_ui::widgets::icons::Glyph;
 use hamlet_ui::{AnyView, Cx, View, kinds, rules, with_cx};
 
-use crate::convo::Convo;
 use crate::hub::Showing;
 use crate::models::model_title;
-use crate::screens::petition::{Need, answers};
+use crate::screens::petition::{self, Need, Pending, answers};
 use crate::standing::Standing;
 use crate::updates::{self, Offer, Ready};
 use crate::{PanelSystems, chat};
@@ -87,7 +86,7 @@ pub fn plugin(app: &mut App) {
         .add_observer(refused)
         .add_systems(
             PreUpdate,
-            (raise, judged, keep, settle)
+            (raise, judged, keep.after(petition::follow), settle)
                 .chain()
                 .in_set(PanelSystems::Bind),
         );
@@ -500,9 +499,9 @@ fn answered(answer: On<Answer>, mut toasts: ResMut<Toasts>) {
 fn keep(
     time: Res<Time>,
     pile: Query<&Hovered, With<Pile>>,
-    waiting: Query<Option<&RaisedBy>, With<Waiting>>,
+    waiting: Query<(), With<Waiting>>,
     showing: Option<Res<Showing>>,
-    convo: Option<Res<Convo>>,
+    pending: Option<Res<Pending>>,
     mut toasts: ResMut<Toasts>,
 ) {
     let open = pile.iter().any(Hovered::get);
@@ -513,9 +512,7 @@ fn keep(
         return;
     }
     let now = time.elapsed_secs();
-    let chatting = convo
-        .filter(|_| showing.is_some_and(|s| *s == Showing::Thread))
-        .map(|convo| convo.agent);
+    let chatting = showing.is_some_and(|s| *s == Showing::Thread);
     let mut next = toasts.shown.clone();
     for toast in &mut next {
         if open {
@@ -532,9 +529,11 @@ fn keep(
             && match &toast.what {
                 // Its chat, open, shows it in full.
                 What::Petition(wait) => {
-                    waiting.get(*wait).is_ok_and(|by| {
-                        by.is_none_or(|by| Some(by.0) != chatting)
-                    })
+                    waiting.contains(*wait)
+                        && !(chatting
+                            && pending
+                                .as_ref()
+                                .is_some_and(|p| p.holds(*wait)))
                 }
                 What::Setup { waits, .. } => !waits.is_empty(),
                 What::Notice { .. }
@@ -957,7 +956,7 @@ fn opening(what: What, content: impl View) -> impl View {
         .rules(opener)
         .on_activate(move |world| {
             if let What::Petition(wait) = &what {
-                crate::petition::open(world, *wait);
+                petition::open(world, *wait);
             }
         })
 }
