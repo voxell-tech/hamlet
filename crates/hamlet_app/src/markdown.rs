@@ -11,7 +11,9 @@ use bevy::ecs::entity::Entity;
 use bevy::ecs::world::World;
 use bevy_fynix::{Signal, component};
 use hamlet_client::chats::{Entry, Transcript};
-use hamlet_ui::markdown::{Block, Reading, hashed, unsettle};
+use hamlet_ui::markdown::{
+    Block, Reading, hashed, is_address_in, unsettle,
+};
 
 pub(crate) use self::picture::picture_view;
 
@@ -86,7 +88,7 @@ impl Read {
         }
         self.seen = Some(stamp);
         self.blocks = now
-            .map(|text| self.reading.read(text))
+            .map(|text| self.reading.read(text, is_address_in(world)))
             .unwrap_or_default();
         if grows {
             unsettle(&mut self.blocks);
@@ -121,7 +123,8 @@ mod tests {
         .insert_resource(PathLinks {
             resolve: seek,
             generation: 0,
-        });
+        })
+        .insert_resource(crate::reference::links());
         theme::show(app.world_mut(), HamletTheme::designed());
         app.update();
         app

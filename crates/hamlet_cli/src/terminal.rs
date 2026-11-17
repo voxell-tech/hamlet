@@ -8,6 +8,7 @@ use std::path::PathBuf;
 use std::{env, fs};
 
 use anyhow::{Context, Result, bail};
+use hamlet_protocol::address::Address;
 use hamlet_protocol::client::*;
 #[cfg(unix)]
 use rustix::termios::{
@@ -221,15 +222,11 @@ async fn models(
 /// The scholar or agent `whom` addresses, for its character or
 /// memory: `scholar#<id>` or an agent's address.
 fn keeper(state: &State, whom: &str) -> Result<Keeper> {
-    if let Some(id) = whom.strip_prefix("scholar#") {
-        let scholar = id
-            .parse::<u64>()
-            .ok()
-            .and_then(|id| {
-                state.scholars.iter().find(|s| {
-                    s.id == ScholarId(id) && s.left.is_none()
-                })
-            })
+    if let Ok(Address::Scholar(id)) = whom.parse::<Address>() {
+        let scholar = state
+            .scholars
+            .iter()
+            .find(|s| s.id == id && s.left.is_none())
             .with_context(|| format!("no scholar at `{whom}`"))?;
         return Ok(Keeper::Scholar(scholar.id));
     }

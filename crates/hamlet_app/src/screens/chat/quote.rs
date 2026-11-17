@@ -9,9 +9,9 @@ use bevy_fynix::tokens::Tone;
 use bevy_fynix::views::{
     Atom, FrameProps, column, frame, label, row,
 };
-use hamlet_ui::AnyView;
-use hamlet_ui::markdown::{ATOM, typed, typed_with};
+use hamlet_ui::markdown::{ATOM, is_address_in, typed, typed_with};
 use hamlet_ui::styles::Fills;
+use hamlet_ui::{AnyView, Cx};
 
 /// The parts of `text` in order: each its words, and whether they are
 /// quoted.
@@ -103,8 +103,14 @@ pub(super) fn drawn(
                     Tone::Dim,
                     atoms,
                 )),
-                (false, true) => typed(&words, "")
-                    .unwrap_or_else(|| label(words).boxed()),
+                (false, true) => AnyView::new(move |cx: &mut Cx| {
+                    let view =
+                        typed(&words, "", is_address_in(cx.world))
+                            .unwrap_or_else(|| {
+                                label(words.clone()).boxed()
+                            });
+                    cx.build(view)
+                }),
                 (false, false) => {
                     typed_with(&words, "", Tone::Body, atoms)
                 }

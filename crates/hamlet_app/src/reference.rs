@@ -26,6 +26,7 @@ use hamlet_client::realm::{
     Shown,
 };
 use hamlet_desktop::clipboard::CopyRich;
+use hamlet_protocol::address::{Address, is_address};
 use hamlet_protocol::client as protocol;
 use hamlet_realm::sound::{Cue, Sound};
 use hamlet_ui::markdown::AgentLinks;
@@ -46,13 +47,22 @@ const CHIP_TEXT: f32 = 12.0;
 /// Draws the addresses in the chat as chips, and opens what a clicked
 /// one names.
 pub(crate) fn plugin(app: &mut App) {
-    app.insert_resource(AgentLinks {
+    app.insert_resource(links())
+        .add_observer(tap)
+        .add_observer(open)
+        .add_systems(
+            PreUpdate,
+            named_moved.in_set(PanelSystems::Bind),
+        );
+}
+
+/// The addresses the chat takes and the chips it draws them as.
+pub(crate) fn links() -> AgentLinks {
+    AgentLinks {
+        is_address,
         resolve: chip_of,
         generation: 0,
-    })
-    .add_observer(tap)
-    .add_observer(open)
-    .add_systems(PreUpdate, named_moved.in_set(PanelSystems::Bind));
+    }
 }
 
 /// What a chip opens.
@@ -104,16 +114,17 @@ fn escape(text: &str) -> String {
 
 /// The living agent or the scholar `address` names.
 fn named(world: &World, address: &str) -> Option<Named> {
-    if let Some(id) = address.strip_prefix("scholar#") {
-        let id = protocol::ScholarId(id.parse().ok()?);
-        return agents::scholar(world, id).map(Named::Scholar);
-    }
-    let agent = match address {
-        "hand" => agents::hand(world),
-        _ => match address.strip_prefix("mayor@") {
-            Some(hamlet) => agents::mayor_of(world, hamlet),
-            None => agents::named(world, address),
-        },
+    let agent = match address.parse::<Address>().ok()? {
+        Address::Scholar(id) => {
+            return agents::scholar(world, id).map(Named::Scholar);
+        }
+        Address::Hand => agents::hand(world),
+        Address::Mayor { hamlet } => {
+            agents::mayor_of(world, &hamlet?)
+        }
+        address @ (Address::Hire(_) | Address::Worker(_)) => {
+            agents::named(world, &address.to_string())
+        }
     }?;
     world
         .get::<Left>(agent)

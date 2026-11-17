@@ -5,8 +5,8 @@ use std::io::{IsTerminal, Write};
 use std::path::{Path, PathBuf};
 
 use anyhow::{Context, Result, bail};
+use hamlet_protocol::address::Address;
 use hamlet_protocol::client::{transcript, *};
-use hamlet_protocol::{HAND, MAYOR};
 use tokio::io::{AsyncBufReadExt, BufReader};
 
 use crate::client::{self, Client, ServerAddress};
@@ -38,38 +38,40 @@ fn tool_line(tool: &ItemTool) -> String {
 /// The living agent `to` addresses: `hand`, `mayor@<hamlet>`,
 /// `hire#<id>` or `worker#<id>`.
 pub(crate) fn resolve(state: &State, to: &str) -> Result<AgentId> {
-    if to == HAND {
-        return Ok(state.hand);
-    }
-    anyhow::ensure!(
-        to != MAYOR,
-        "mayor needs a hamlet: mayor@<hamlet>"
-    );
-    if let Some(hamlet) = to.strip_prefix("mayor@") {
-        let found = state
-            .hamlets
-            .iter()
-            .find(|h| h.id == hamlet)
-            .with_context(|| {
-                format!("no hamlet has the id `{hamlet}`")
-            })?;
-        return Ok(found.mayor);
-    }
+    let nobody = || {
+        anyhow::anyhow!(
+            "no agent is at `{to}`; use hand, mayor@<hamlet>, \
+             hire#<id> or worker#<id>"
+        )
+    };
+    let (id, kind) =
+        match to.parse::<Address>().map_err(|_| nobody())? {
+            Address::Hand => return Ok(state.hand),
+            Address::Mayor { hamlet: None } => {
+                bail!("mayor needs a hamlet: mayor@<hamlet>")
+            }
+            Address::Mayor {
+                hamlet: Some(hamlet),
+            } => {
+                let found = state
+                    .hamlets
+                    .iter()
+                    .find(|h| h.id == hamlet)
+                    .with_context(|| {
+                        format!("no hamlet has the id `{hamlet}`")
+                    })?;
+                return Ok(found.mayor);
+            }
+            Address::Hire(id) => (id, AgentKind::Hire),
+            Address::Worker(id) => (id, AgentKind::Worker),
+            Address::Scholar(_) => return Err(nobody()),
+        };
     state
         .agents
         .iter()
-        .find(|a| {
-            a.left.is_none()
-                && a.kind != AgentKind::Hand
-                && a.name == to
-        })
+        .find(|a| a.left.is_none() && a.kind == kind && a.id == id)
         .map(|agent| agent.id)
-        .with_context(|| {
-            format!(
-                "no agent is at `{to}`; use hand, mayor@<hamlet>, \
-                 hire#<id> or worker#<id>"
-            )
-        })
+        .ok_or_else(nobody)
 }
 
 /// Chats until EOF has received every submitted line's reply;

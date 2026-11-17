@@ -13,7 +13,7 @@ use bevy::ecs::system::{Commands, Query, Res, ResMut};
 use bevy::ecs::world::World;
 use bevy::input_focus::{FocusCause, InputFocus};
 use bevy_fynix::views::{Caret, Piece, Plain, PlainAtom, RichField};
-use hamlet_ui::markdown::agent_addresses;
+use hamlet_ui::markdown::{agent_addresses, is_address_in};
 
 use super::attach::Attached;
 use super::{ChatField, Draft};
@@ -245,7 +245,8 @@ pub(super) fn chip_references(world: &mut World, pieces: &[Piece]) {
             }
         };
         let mut from = 0;
-        for (part, address) in agent_addresses(text) {
+        let is_address = is_address_in(world);
+        for (part, address) in agent_addresses(text, is_address) {
             let whole = at + part.start..at + part.end;
             let touched =
                 whole.start <= edit.end && edit.start <= whole.end;

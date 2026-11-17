@@ -6,6 +6,7 @@ use bevy_ecs::name::Name;
 use bevy_ecs::prelude::*;
 use bevy_ecs::system::SystemParam;
 use bevy_ecs::world::DeferredWorld;
+use hamlet_protocol::address::Address;
 use hamlet_protocol::client as protocol;
 pub use hamlet_protocol::{HAND, MAYOR};
 
@@ -431,7 +432,7 @@ pub fn shown_of(world: &World, entity: Entity) -> String {
 
 /// The address commands name a scholar by: `scholar#<id>`.
 pub fn scholar_address(id: protocol::ScholarId) -> String {
-    format!("scholar#{}", id.0)
+    Address::Scholar(id).to_string()
 }
 
 /// Lookups of living agents and mayors for systems.

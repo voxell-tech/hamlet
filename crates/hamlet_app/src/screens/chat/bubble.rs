@@ -323,7 +323,11 @@ fn said<B: Board>(
                 palette.gold_4,
                 Vec::new(),
             )),
-            false => hamlet_ui::markdown::typed(&typed, reserve),
+            false => hamlet_ui::markdown::typed(
+                &typed,
+                reserve,
+                hamlet_ui::markdown::is_address_in(cx.world),
+            ),
         };
         let shown = !time.is_empty();
         let hour = label(time)

@@ -141,8 +141,25 @@ pub struct PathLinks {
 /// answers may have changed.
 #[derive(Resource, Clone, Copy)]
 pub struct AgentLinks {
+    pub is_address: IsAddress,
     pub resolve: fn(&mut World, &str, &str, String) -> Option<Atom>,
     pub generation: u64,
+}
+
+/// Whether a word is an agent's or a scholar's address.
+pub type IsAddress = fn(&str) -> bool;
+
+/// The [`IsAddress`] of [`AgentLinks`], which takes no word without
+/// it.
+pub fn is_address_in(world: &World) -> IsAddress {
+    world
+        .get_resource::<AgentLinks>()
+        .map_or(no_address, |links| links.is_address)
+}
+
+/// The [`IsAddress`] that takes no word.
+pub fn no_address(_: &str) -> bool {
+    false
 }
 
 /// How a picture block is drawn, from its caption and target. Without

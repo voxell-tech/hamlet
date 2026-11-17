@@ -2,10 +2,9 @@
 //! workers and scholars, by ids and never by a scholar's name (C30,
 //! H14).
 
-use std::fmt;
-
 use anyhow::Result;
 use diesel::prelude::*;
+use hamlet_protocol::address::{Address, bare};
 use hamlet_store::Db;
 use hamlet_store::ids::{Actor, AgentId, HamletId, ScholarId};
 use hamlet_store::schema::{agent, hire, scholar, worker};
@@ -14,33 +13,8 @@ use super::agents::{self, AgentKind};
 use super::names::hamlet_id;
 use super::refusal::Refusal;
 use super::{chiefs, hamlets, hand, tree};
+use crate::clients::state::{wire_agent, wire_scholar};
 use crate::realm::change::{Done, done, refuse};
-
-/// A name for an agent.
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub(crate) enum Address {
-    Hand,
-    /// A hamlet's mayor, or the speaker's own.
-    Mayor {
-        hamlet: Option<HamletId>,
-    },
-    Hire(AgentId),
-    Worker(AgentId),
-}
-
-impl fmt::Display for Address {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self {
-            Self::Hand => f.write_str("hand"),
-            Self::Mayor { hamlet: None } => f.write_str("mayor"),
-            Self::Mayor {
-                hamlet: Some(hamlet),
-            } => write!(f, "mayor@{hamlet}"),
-            Self::Hire(id) => write!(f, "hire#{id}"),
-            Self::Worker(id) => write!(f, "worker#{id}"),
-        }
-    }
-}
 
 /// Which agents or scholars an address may name.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -51,43 +25,20 @@ pub(crate) enum Reach {
     Kept,
 }
 
-/// `text` without the ` (<name>)` an address is shown and copied
-/// with, as in `hire#2 (Mayor)`.
-fn bare(text: &str) -> &str {
-    let text = text.trim();
-    match text.split_once(" (") {
-        Some((address, _)) if text.ends_with(')') => {
-            address.trim_end()
-        }
-        _ => text,
-    }
-}
-
-/// Reads an address: `hand`, `mayor`, `mayor@<hamlet>`, `hire#<id>`
-/// or `worker#<id>`, with or without the name shown beside it.
+/// Reads an agent's address, with or without the name shown beside
+/// it.
 pub(crate) fn parse(text: &str) -> Result<Address, Refusal> {
     let text = bare(text);
-    let bad = || Refusal::BadAddress {
+    match text.parse::<Address>() {
+        Ok(Address::Mayor {
+            hamlet: Some(hamlet),
+        }) if hamlet_id(&hamlet).is_none() => {}
+        Ok(Address::Scholar(_)) | Err(_) => {}
+        Ok(address) => return Ok(address),
+    }
+    Err(Refusal::BadAddress {
         address: text.into(),
-    };
-    if text == "hand" {
-        return Ok(Address::Hand);
-    }
-    if text == "mayor" {
-        return Ok(Address::Mayor { hamlet: None });
-    }
-    if let Some(hamlet) = text.strip_prefix("mayor@") {
-        return Ok(Address::Mayor {
-            hamlet: Some(hamlet_id(hamlet).ok_or_else(bad)?),
-        });
-    }
-    let (kind, id) = text.split_once('#').ok_or_else(bad)?;
-    let id = AgentId(id.parse::<i64>().map_err(|_| bad())?);
-    match kind {
-        "hire" => Ok(Address::Hire(id)),
-        "worker" => Ok(Address::Worker(id)),
-        _ => Err(bad()),
-    }
+    })
 }
 
 /// Reads a scholar's address, `scholar#<id>`, with or without the
@@ -96,17 +47,19 @@ pub(crate) fn parse_scholar(
     text: &str,
 ) -> Result<ScholarId, Refusal> {
     let text = bare(text);
-    text.strip_prefix("scholar#")
-        .and_then(|id| id.parse::<i64>().ok())
-        .map(ScholarId)
-        .ok_or_else(|| Refusal::BadAddress {
-            address: text.into(),
-        })
+    match text.parse::<Address>() {
+        Ok(Address::Scholar(id)) => i64::try_from(id.0).ok(),
+        _ => None,
+    }
+    .map(ScholarId)
+    .ok_or_else(|| Refusal::BadAddress {
+        address: text.into(),
+    })
 }
 
 /// The address of the scholar `id`.
 pub(crate) fn scholar_address(id: ScholarId) -> String {
-    format!("scholar#{id}")
+    Address::Scholar(wire_scholar(id)).to_string()
 }
 
 /// The agent `address` names, said in `here`, the speaker's hamlet.
@@ -119,29 +72,45 @@ pub(crate) fn resolve(
     let none = || Refusal::NoOne {
         address: address.to_string(),
     };
+    let stored = |id: hamlet_protocol::client::AgentId| {
+        i64::try_from(id.0).ok().map(AgentId)
+    };
     match address {
         Address::Hand => Ok(Ok(hand::id(db)?)),
         Address::Mayor { hamlet } => {
-            let Some(hamlet) = hamlet.as_ref().or(here) else {
+            let named = hamlet.as_deref().map(hamlet_id);
+            let hamlet = match named {
+                Some(Some(hamlet)) => hamlet,
+                Some(None) => refuse!(none()),
+                None => match here {
+                    Some(here) => here.clone(),
+                    None => refuse!(none()),
+                },
+            };
+            done!(hamlets::living(db, &hamlet));
+            Ok(Ok(tree::mayor(db, &hamlet)?))
+        }
+        Address::Scholar(_) => refuse!(none()),
+        Address::Worker(id) => {
+            let Some(id) = stored(*id) else {
                 refuse!(none());
             };
-            done!(hamlets::living(db, hamlet));
-            Ok(Ok(tree::mayor(db, hamlet)?))
-        }
-        Address::Worker(id) => {
-            let found = agents::find(db, *id)?;
+            let found = agents::find(db, id)?;
             match found {
                 Some(found)
                     if found.kind == AgentKind::Worker
                         && (reach == Reach::Kept
                             || found.is_living()) =>
                 {
-                    Ok(Ok(*id))
+                    Ok(Ok(id))
                 }
                 _ => refuse!(none()),
             }
         }
         Address::Hire(id) => {
+            let Some(id) = stored(*id) else {
+                refuse!(none());
+            };
             let mut query = hire::table
                 .inner_join(agent::table)
                 .inner_join(scholar::table)
@@ -192,8 +161,8 @@ pub(crate) fn address_of(db: &mut Db, id: AgentId) -> Result<String> {
     let kind = agents::get(db, id)?.kind;
     Ok(match kind {
         AgentKind::Hand => Address::Hand,
-        AgentKind::Hire => Address::Hire(id),
-        AgentKind::Worker => Address::Worker(id),
+        AgentKind::Hire => Address::Hire(wire_agent(id)),
+        AgentKind::Worker => Address::Worker(wire_agent(id)),
     }
     .to_string())
 }
@@ -235,26 +204,4 @@ pub(crate) fn scholar_name_of(
         .select(scholar::name)
         .first::<String>(db)?;
     Ok(format!("{} ({name})", scholar_address(id)))
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn a_copied_address_reads_with_its_name() {
-        assert_eq!(
-            parse("hire#2 (Mayor)"),
-            Ok(Address::Hire(AgentId(2)))
-        );
-        assert_eq!(
-            parse("worker#7 (Sam (old))"),
-            Ok(Address::Worker(AgentId(7)))
-        );
-        assert_eq!(
-            parse_scholar("scholar#4 (Mira)"),
-            Ok(ScholarId(4))
-        );
-        assert!(parse("hire#2 (Mayor").is_err());
-    }
 }

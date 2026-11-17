@@ -629,6 +629,7 @@ mod tests {
             .init_resource::<bevy_fynix::dock::DockDrag>()
             .init_resource::<crate::hub::Showing>()
             .init_resource::<crate::hover::Card>()
+            .insert_resource(crate::reference::links())
             .add_plugins((plugin, crate::sounds::plugin));
         bevy_fynix::mount::<HamletTheme>(
             app.world_mut(),

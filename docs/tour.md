@@ -118,7 +118,8 @@ keyboard prints it (`⌘⇧K` on a Mac, `Ctrl+Shift+K` elsewhere). `markdown/` p
 Markdown and draws it. A control asks for a sound with `ControlSound`
 and lights its panel from `Attention`; the app plays the one and keeps
 the other. A document finds a written path's file through `PathLinks`,
-draws a written agent's address as a chip through `AgentLinks` and
+takes the words that are an agent's address and draws each as a chip
+through `AgentLinks`, and
 draws a picture through `PictureView`, which the app's `links` screen,
 `reference.rs` and `pictures` screen set. The panels' steps before fynix mounts are `PanelSystems` in
 `hamlet_app/src/lib.rs` (`Follow`, `Bind`), in `PreUpdate`;
@@ -236,6 +237,7 @@ built-in ones.
 | Approvals, grants and waits | `hamlet_server/src/society/oversight/gate.rs`, `society/oversight.rs`, `calls/held.rs`, `calls/answer.rs` |
 | Selecting, quoting and replying to chat text | `hamlet_app/src/select.rs`, `screens/chat/quote.rs`, `screens/chat/reply.rs` |
 | Copying an agent's or a hamlet's ID, and the chips an address in the chat is drawn as | `hamlet_app/src/reference.rs`; the address found in words in `hamlet_ui/src/markdown/links.rs` |
+| An address's form, `hand`, `mayor@<hamlet>`, `hire#<id>`, `worker#<id>` or `scholar#<id>`, read and written | `hamlet_protocol/src/address.rs` |
 | Who may do what | `hamlet_server/src/society/authority.rs` |
 | Founding, hiring, ending, restoring, seating a mayor, the tree | `hamlet_server/src/society/hamlets.rs`, `hires.rs`, `tree.rs`; the tools in `calls/society.rs`, the commands in `clients/commands.rs` |
 | Scholars and their versions | `hamlet_server/src/society/city.rs`, `clients/commands/versions.rs`, `clients/commands/promotion.rs`, `knowledge/`; the repositories in `hamlet_git` |

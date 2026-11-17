@@ -30,8 +30,8 @@ use bevy_fynix::{
 
 use super::parse::{parse, plain};
 use super::{
-    AgentLinks, Align, Anchor, Area, Block, Kind, Marker, PathLinks,
-    PictureView, Row, Span, Style, Target,
+    AgentLinks, Align, Anchor, Area, Block, IsAddress, Kind, Marker,
+    PathLinks, PictureView, Row, Span, Style, Target, is_address_in,
 };
 use crate::kinds::inset;
 use crate::styles::{Fills, bare, small_rules};
@@ -743,8 +743,12 @@ pub fn picture_words(
 
 /// Words set as they were typed, with `tail` after them, if there
 /// may be a link in them.
-pub fn typed(text: &str, tail: &str) -> Option<AnyView> {
-    let mut spans = plain(text);
+pub fn typed(
+    text: &str,
+    tail: &str,
+    is_address: IsAddress,
+) -> Option<AnyView> {
+    let mut spans = plain(text, is_address);
     if spans.iter().all(|span| span.link.is_none()) {
         return None;
     }
@@ -783,15 +787,18 @@ pub fn typed_with(
     tone: Tone,
     atoms: Vec<Atom>,
 ) -> AnyView {
-    let mut spans = plain(text);
-    spans.push(Span {
+    let tail = Span {
         text: tail.to_string(),
         style: Style::default(),
         link: None,
-    });
+    };
+    let text = text.to_string();
     relinked(move || {
-        let (spans, atoms) = (spans.clone(), atoms.clone());
+        let (text, tail, atoms) =
+            (text.clone(), tail.clone(), atoms.clone());
         AnyView::new(move |cx: &mut Cx| {
+            let mut spans = plain(&text, is_address_in(cx.world));
+            spans.push(tail);
             let accent = cx.theme().tone(Tone::Accent);
             let mut atoms = atoms.into_iter();
             let mut runs = Vec::new();
@@ -870,14 +877,26 @@ pub fn typed_with(
 /// A Markdown document that is drawn once, one view per block. Its
 /// words are selected as one.
 pub fn fixed(text: &str, tone: Tone) -> impl View {
-    drawn(parse(text), tone, Setting::Running)
+    let text = text.to_string();
+    AnyView::new(move |cx: &mut Cx| {
+        let blocks = parse(&text, is_address_in(cx.world));
+        cx.build(drawn(blocks, tone, Setting::Running))
+    })
 }
 
 /// A [`fixed`] document of words given to a model, set as a page: its
 /// paths and addresses are code, since they name no file here and are
 /// read as written, and its lines stand further apart.
 pub fn page(text: &str, tone: Tone) -> impl View {
-    let mut blocks = parse(text);
+    let text = text.to_string();
+    AnyView::new(move |cx: &mut Cx| {
+        let blocks = parse(&text, is_address_in(cx.world));
+        cx.build(drawn(paged(blocks), tone, Setting::Page))
+    })
+}
+
+/// `blocks` with their paths and addresses set as code.
+fn paged(mut blocks: Vec<Block>) -> Vec<Block> {
     for block in &mut blocks {
         let spans = match &mut block.kind {
             Kind::Paragraph(spans) | Kind::Heading(_, spans) => {
@@ -898,7 +917,7 @@ pub fn page(text: &str, tone: Tone) -> impl View {
             }
         }
     }
-    drawn(blocks, tone, Setting::Page)
+    blocks
 }
 
 /// `blocks` drawn once, one view per block, set as `setting` says.
