@@ -61,7 +61,11 @@ pub(crate) fn source(
         )?;
         repository.tip(&branch(hire))?
     };
-    let character = match commit.or(repository.tip(MAIN)?) {
+    let read_at = match commit {
+        Some(commit) => Some(commit),
+        None => repository.tip(MAIN)?,
+    };
+    let character = match read_at {
         Some(at) => {
             repository.read(at, CHARACTER)?.unwrap_or_default()
         }
