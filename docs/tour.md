@@ -692,11 +692,11 @@ the realm's start, each step row not closed goes on from its last done
 step, and `End` closes the row.
 
 The rest is by module: `chiefs.rs` founds a hamlet, with
-`chiefs/hamlet.rs` its name, site, folder and model, `chiefs/limits.rs`
+`chiefs/hamlet.rs` its name, site, mode and folder, `chiefs/limits.rs`
 and `chiefs/tier.rs`; `tree.rs` keeps the tree, with `Hire`, `End` and
 `Seat` in `tree/lead.rs`, the tools a lead turns off in
-`tree/tools.rs`, and nicknames and model choices in
-`tree/choices.rs`; `workers.rs` starts a lead's workers, which answer
+`tree/tools.rs`, and nicknames and the models chosen for an agent or
+a hamlet in `tree/choices.rs`; `workers.rs` starts a lead's workers, which answer
 their starter once and end with it, and `workers/errands.rs` runs
 errands, short-lived agents outside the tree, such as a review;
 `roads.rs` says which agents have a road, `laid.rs` keeps the roads a
