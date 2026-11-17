@@ -34,8 +34,16 @@ export function conversationFor(
     c: AgentCall,
     input: Input,
 ): Promise<ConversationId> {
-    if (input.type === "line") return chiefSession(c);
+    if (input.type === "line" || input.type === "worker_answer") {
+        return chiefSession(c);
+    }
     return withHarness(c, generationOf(c).options, async (harness, context) => {
+        const named = async (ref: string | undefined) => {
+            const id = ref === undefined ? undefined : conversationOf(ref);
+            return id === undefined
+                ? undefined
+                : harness.conversation(id, context);
+        };
         switch (input.type) {
             case "letter":
             case "question": {
@@ -51,14 +59,14 @@ export function conversationFor(
                     )
                 );
             }
-            case "answer": {
-                const named = conversationOf(input.conversation);
-                const asked =
-                    named === undefined
-                        ? undefined
-                        : await harness.conversation(named, context);
-                return (asked ?? (await harness.root(context))).id;
-            }
+            case "answer":
+                return (
+                    (await named(input.conversation)) ??
+                    (await harness.root(context))
+                ).id;
+            // One the realm names no conversation for is the chief's.
+            case "notice":
+                return (await named(input.conversation))?.id ?? chiefSession(c);
         }
     });
 }

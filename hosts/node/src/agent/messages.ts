@@ -458,6 +458,19 @@ export type Input =
           readonly text: string;
           readonly images?: readonly Attached[];
           readonly files?: readonly Attached[];
+          /** The note of the lead who reviewed the line. */
+          readonly note?: string;
+      }
+    /** A chief's ruling, or news the realm tells the agent. */
+    | {
+          readonly type: "notice";
+          readonly text: string;
+          readonly conversation?: string;
+      }
+    | {
+          readonly type: "worker_answer";
+          readonly worker: AgentNumber;
+          readonly text: string;
       }
     | { readonly type: "letter"; readonly from: Author; readonly text: string }
     | {
@@ -506,10 +519,20 @@ export interface Fill {
 }
 
 export interface AgentInput {
-    readonly kind: "hand" | "hire";
+    readonly kind: "hand" | "hire" | "worker" | "errand";
     /** The standing task: it pays for a turn whose input names none. */
     readonly task: RealmTask;
     readonly place: Place;
+    readonly brief?: Brief;
+}
+
+/** The one turn a worker or an errand runs when it is created. */
+export interface Brief {
+    /** An errand's whole prompt; absent for a worker. */
+    readonly instructions?: string;
+    readonly text: string;
+    readonly tools?: readonly { readonly name: string }[];
+    readonly model?: string;
 }
 
 export interface Versioned<T> {
@@ -853,6 +876,15 @@ const MODEL = obj(
     },
     OPEN,
 );
+const BRIEF = obj(
+    {
+        instructions: opt(str()),
+        text: str(),
+        tools: opt(arr(obj({ name: str() }, OPEN))),
+        model: opt(str()),
+    },
+    OPEN,
+);
 const SETTINGS = obj({ reflect_every: U32, allow_net: bool() }, OPEN);
 
 function versioned<S extends Schema>(value: S) {
@@ -876,9 +908,12 @@ const INPUT = union([
             text: str(),
             images: opt(arr(unknown())),
             files: opt(arr(unknown())),
+            note: opt(str()),
         },
         OPEN,
     ),
+    obj({ type: lit("notice"), text: str(), conversation: opt(str()) }, OPEN),
+    obj({ type: lit("worker_answer"), worker: U32, text: str() }, OPEN),
     obj({ type: lit("letter"), from: AUTHOR, text: str() }, OPEN),
     obj(
         { type: lit("question"), letter: U32, from: AUTHOR, text: str() },
@@ -903,8 +938,21 @@ export const read: {
     ) => Parameters<AgentActions[N]>[0];
 } & { readonly agentInput: (raw: unknown) => AgentInput } = {
     agentInput: reader(
-        obj({ kind: oneOf(["hand", "hire"]), task: str(), place: PLACE }, OPEN),
-        ({ kind, task, place }) => ({ kind, task, place: placeOf(place) }),
+        obj(
+            {
+                kind: oneOf(["hand", "hire", "worker", "errand"]),
+                task: str(),
+                place: PLACE,
+                brief: opt(BRIEF),
+            },
+            OPEN,
+        ),
+        ({ kind, task, place, brief }) => ({
+            kind,
+            task,
+            place: placeOf(place),
+            ...(brief === undefined ? {} : { brief: briefOf(brief) }),
+        }),
     ),
     submit: reader(
         obj({ id: str(), task: opt(str()), input: INPUT }, OPEN),
@@ -1113,5 +1161,22 @@ function placeOf({
         roads,
         tools_off: tools_off.map(({ name }) => ({ name })),
         ...(folder === undefined ? {} : { folder }),
+    };
+}
+
+/** As `placeOf`, the row keeps only the fields the agent knows. */
+function briefOf({
+    instructions,
+    text,
+    tools,
+    model,
+}: Static<typeof BRIEF>): Brief {
+    return {
+        ...(instructions === undefined ? {} : { instructions }),
+        text,
+        ...(tools === undefined
+            ? {}
+            : { tools: tools.map(({ name }) => ({ name })) }),
+        ...(model === undefined ? {} : { model }),
     };
 }
