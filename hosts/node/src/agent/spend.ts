@@ -46,12 +46,12 @@ export function gated(models: Models, peers: Peers): Models {
                 peers.reach.may_spend({ task }),
             );
             if (may.type === "refused") {
-                const ended = refusalOf(model, may.words);
-                UNSENT.set(ended, {
-                    // `Hold` in `crates/hamlet_messages/src/realm/oversight.rs`.
-                    held: may.why.type === "objection",
-                    words: may.words,
-                });
+                // `Hold` in `crates/hamlet_messages/src/realm/oversight.rs`.
+                const held = may.why.type === "objection";
+                const ended = held
+                    ? heldOf(model, may.words)
+                    : refusalOf(model, may.words);
+                UNSENT.set(ended, { held, words: may.words });
                 return { ended };
             }
             return { task };
@@ -165,8 +165,26 @@ export function refusalOf(model: Model<Api>, why: string): AssistantMessage {
             },
         },
         stopReason: "error",
-        errorMessage: `${NEVER_RETRIED}: ${why}`,
+        errorMessage: `${REFUSED}${why}`,
         timestamp: Date.now(),
+    };
+}
+
+/** The realm's words in the text of a failure the gate's refusal caused. */
+export function realmWordsIn(text: string): string | undefined {
+    const at = text.indexOf(REFUSED);
+    return at === -1 ? undefined : text.slice(at + REFUSED.length);
+}
+
+/**
+ * The realm's words alone, as today's item reads. pi-durable tries again
+ * only an `error`, and a held task's name can hold a status code.
+ */
+function heldOf(model: Model<Api>, words: string): AssistantMessage {
+    return {
+        ...refusalOf(model, ""),
+        stopReason: "aborted",
+        errorMessage: words,
     };
 }
 
@@ -190,5 +208,5 @@ function abortOf(signal: AbortSignal | undefined): Promise<void> {
 }
 
 /** Holds "billing", which pi-ai's `isRetryableAssistantError` never retries. */
-const NEVER_RETRIED =
-    "The realm's billing did not allow this model request, and it was not sent";
+const REFUSED =
+    "The realm's billing did not allow this model request, and it was not sent: ";

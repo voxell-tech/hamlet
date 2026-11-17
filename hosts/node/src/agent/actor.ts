@@ -40,7 +40,12 @@ import {
     type ReadCopies,
     refreshed,
 } from "./copies.ts";
-import { failedTurns, type TellFailed, tellingFailed } from "./failed.ts";
+import {
+    type FailedTurns,
+    failedTurns,
+    type TellFailed,
+    tellingFailed,
+} from "./failed.ts";
 import type { AgentFilesystem } from "./filesystem.ts";
 import type { SignIns } from "./login.ts";
 import {
@@ -129,12 +134,13 @@ function parts(
     prompt: PromptSources,
     withHarness: WithHarness,
     tell: TellFailed,
+    failed: FailedTurns,
 ): Extension[] {
     return [
         promptPart(prompt),
         reflection(peers, prompt.copies, owedOf(withHarness), reflectEvery()),
         cutOffRule(tell),
-        failedTurns(peers, withHarness, tell),
+        failed.extension,
         workspaceTools(peers),
         ownFiles(peers),
         society(peers, off),
@@ -348,7 +354,15 @@ async function wake(c: AgentContext, config: AgentConfig): Promise<void> {
     const copies = copiesOf(c.db);
     const prompt = promptSources(c, copies, peers);
     const tell = tellingFailed(peers, row.standingTask, () => current(c.db));
-    for (const part of parts(peers, row.toolsOff, prompt, withHarness, tell)) {
+    const failed = failedTurns(peers, withHarness, tell);
+    for (const part of parts(
+        peers,
+        row.toolsOff,
+        prompt,
+        withHarness,
+        tell,
+        failed,
+    )) {
         registry.install(part);
     }
     const options: PiOptions = {
@@ -399,6 +413,7 @@ async function wake(c: AgentContext, config: AgentConfig): Promise<void> {
         });
         return;
     }
+    failed.follow(harness);
     harness.resume();
     // Configured at every wake, not only when a newer model was kept, and
     // even when the realm was not reached, so a configure a kill cut off

@@ -24,6 +24,7 @@ import {
 } from "@earendil-works/pi-durable";
 import { emptyAnswer, failTurn, type TellFailed } from "./failed.ts";
 import type { LetterId, RealmTask } from "./messages.ts";
+import { realmWordsIn } from "./spend.ts";
 import { draftOf } from "./turn.ts";
 
 /** Today's, in `harnesses/pi/src/models.ts` and `runtime.ts`. */
@@ -111,7 +112,14 @@ function cutOffTask(tell: TellFailed) {
             rule: async (task, runtime, context) => {
                 const input = await runtime.entry(task.input.input, context);
                 if (input?.kind === ASKED_AGAIN) {
-                    return failTurn(runtime, input, NO_ROOM, tell, context);
+                    return failTurn(
+                        runtime,
+                        input,
+                        NO_ROOM,
+                        "model",
+                        tell,
+                        context,
+                    );
                 }
                 const view = await runtime.context(
                     runtime.conversationId,
@@ -123,7 +131,14 @@ function cutOffTask(tell: TellFailed) {
                     (message) => message.role !== "system",
                 ).length;
                 if (spoken <= 2) {
-                    return failTurn(runtime, input, TOO_LONG, tell, context);
+                    return failTurn(
+                        runtime,
+                        input,
+                        TOO_LONG,
+                        "model",
+                        tell,
+                        context,
+                    );
                 }
                 await runtime.commit(async (tx) => {
                     const summary = await tx.createTask(
@@ -154,12 +169,24 @@ function cutOffTask(tell: TellFailed) {
                         outcome?.status === "faulted"
                             ? outcome.error.message
                             : "";
+                    const realm = realmWordsIn(error);
+                    if (realm !== undefined) {
+                        return failTurn(
+                            runtime,
+                            input,
+                            realm,
+                            "budget",
+                            tell,
+                            context,
+                        );
+                    }
                     return failTurn(
                         runtime,
                         input,
                         error.startsWith(SUMMARY_FAILED)
                             ? `provider error: ${error.slice(SUMMARY_FAILED.length)}`
                             : NO_SUMMARY,
+                        "model",
                         tell,
                         context,
                     );

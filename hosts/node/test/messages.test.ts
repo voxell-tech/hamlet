@@ -617,7 +617,7 @@ for (const name of answersTo("realm/may_spend")) {
         if (given.type === "refused") {
             assert.equal(agent.faux.state.callCount, 0);
             const detail = String(submission?.detail);
-            assert.ok(detail.endsWith(`: ${given.words}`), detail);
+            assert.ok(detail.endsWith(String(given.words)), detail);
         } else {
             assert.equal(agent.faux.state.callCount, 1);
         }

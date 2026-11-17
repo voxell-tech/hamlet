@@ -12,7 +12,7 @@ import {
     hook,
     type ToolRegistration,
 } from "@earendil-works/pi-durable";
-import { isShortCutOff } from "./compaction.ts";
+import { hasWordsOrCall } from "./compaction.ts";
 import {
     type Named,
     type ProfileId,
@@ -383,8 +383,9 @@ async function reply(
 ): Promise<undefined> {
     try {
         const input = await peers.turns.of(api.conversationId);
-        // A cut-off answer is asked again, and the second try replies.
-        if (input.question === undefined || isShortCutOff(answer))
+        // An answer with nothing in it fails its turn or, cut off short, is
+        // asked again, and the second try replies.
+        if (input.question === undefined || !hasWordsOrCall(answer))
             return undefined;
         const text = answer.content
             .map((block) => (block.type === "text" ? block.text : ""))

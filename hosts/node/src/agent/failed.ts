@@ -6,6 +6,7 @@
  */
 import type { Context } from "@earendil-works/chord/context";
 import {
+    type CommitChange,
     type ConversationId,
     defineExtension,
     defineTask,
@@ -13,19 +14,26 @@ import {
     type EntryRecord,
     type Extension,
     GenerationTask,
+    type Harness,
     hook,
+    LiveDoc,
+    type LiveState,
+    type RunFailure,
+    type RunFailureReason,
+    type SubmissionId,
+    type SubmissionRecord,
     type TaskId,
     type TaskRuntime,
 } from "@earendil-works/pi-durable";
 import { notice } from "./commands.ts";
 import type { RealmTask, TurnFailed } from "./messages.ts";
-import { unsentOf } from "./spend.ts";
+import { realmWordsIn, unsentOf } from "./spend.ts";
 import {
     Closing,
     cutOff,
+    type Kept,
     type Peers,
     refOf,
-    type TurnInput,
     type WithHarness,
 } from "./turn.ts";
 
@@ -61,6 +69,7 @@ export function tellingFailed(
                 }),
             );
         } catch (error) {
+            if (error instanceof Closing || signal?.aborted) return;
             peers.report("a failed turn was not told to the realm", error);
         }
     };
@@ -74,6 +83,7 @@ export async function failTurn<I, S>(
     runtime: TaskRuntime<I, S, null, object>,
     input: EntryRecord | undefined,
     words: string,
+    cause: TurnFailed["cause"],
     tell: TellFailed,
     context: Context,
 ): Promise<void> {
@@ -91,9 +101,9 @@ export async function failTurn<I, S>(
             outcome: { status: "completed", result: null },
         };
     }, context);
-    const task = (input?.data as { task?: RealmTask } | null)?.task;
+    const task = (input?.data as Kept | null)?.task;
     await tell(
-        { conversation: runtime.conversationId, task, words, cause: "model" },
+        { conversation: runtime.conversationId, task, words, cause },
         context.abortSignal,
     );
 }
@@ -119,7 +129,7 @@ export function emptyAnswer(tell: TellFailed) {
                     task.input.input === null
                         ? undefined
                         : await runtime.entry(task.input.input, context);
-                await failTurn(runtime, input, EMPTY, tell, context);
+                await failTurn(runtime, input, EMPTY, "model", tell, context);
             },
         },
         abort: (_task, runtime, context) =>
@@ -130,48 +140,79 @@ export function emptyAnswer(tell: TellFailed) {
     });
 }
 
+export interface FailedTurns {
+    readonly extension: Extension;
+    /** Follows every run of `harness` that fails from now on. */
+    follow(harness: Harness): void;
+}
+
+/** A run a chief stopped ends this way; it failed only when nobody did. */
+const STOPPED: ReadonlySet<RunFailureReason> = new Set(["aborted", "reset"]);
+
+type Unanswered = Extract<SubmissionRecord, { status: "unanswered" }>;
+
+interface FailedRun {
+    readonly conversation: ConversationId;
+    readonly failure: RunFailure;
+    /** The run's first input, settled with the failure. */
+    readonly input: Unanswered;
+}
+
+/**
+ * Follows each run that fails, where pi-durable ends it: no hook sees a run
+ * that fails before its request (`no_model`, a refused compaction) or after
+ * a kill (`interrupted`, `restart_limit`). A kill before the follow loses
+ * its notice and its wait.
+ */
 export function failedTurns(
     peers: Peers,
     withHarness: WithHarness,
     tell: TellFailed,
-): Extension {
-    // A retried request answers again on the same task.
-    const followed = new Set<TaskId>();
-    return defineExtension({
+): FailedTurns {
+    // What each request's task answered with last, until its run ends: the
+    // error item an error leaves already shows its words.
+    const answered = new Map<TaskId, "unsent" | "error">();
+    const extension = defineExtension({
         name: "hamlet.failed",
         hooks: [
             hook(GenerationTask, {
-                afterResponse: async (message, api, context) => {
+                afterResponse: async (message, api) => {
                     const unsent = unsentOf(message);
-                    if (unsent?.held === true) return;
-                    if (unsent === undefined && message.stopReason !== "error")
-                        return;
-                    const input = await peers.turns.of(api.conversationId);
                     if (unsent !== undefined) {
-                        await refused(
-                            api.conversationId,
-                            api.taskId,
-                            input,
-                            unsent.words,
-                            context.abortSignal,
-                        );
-                        return;
+                        answered.set(api.taskId, "unsent");
+                        if (!unsent.held) {
+                            await refused(
+                                api.conversationId,
+                                api.taskId,
+                                unsent.words,
+                            );
+                        }
+                    } else if (
+                        message.stopReason === "error" ||
+                        message.stopReason === "aborted"
+                    ) {
+                        answered.set(api.taskId, "error");
+                    } else {
+                        answered.delete(api.taskId);
                     }
-                    // Today a reflection's failure opens no wait
-                    // (`crates/hamlet_server/src/talk/follow.rs:168-173`).
-                    if (input.kind === "reflection" || followed.has(api.taskId))
-                        return;
-                    followed.add(api.taskId);
-                    void ended(
-                        api.conversationId,
-                        api.taskId,
-                        input,
-                        context.abortSignal,
-                    );
                 },
             }),
         ],
     });
+    return {
+        extension,
+        follow: (harness) => {
+            harness.observeCommits({
+                advance: ({ changes }) => {
+                    for (const run of failedIn(changes)) {
+                        // An observer may not call the harness.
+                        queueMicrotask(() => void followed(run));
+                    }
+                },
+                end: () => {},
+            });
+        },
+    };
 
     /**
      * pi-durable never retries the gate's ending, so the turn ends here.
@@ -181,12 +222,79 @@ export function failedTurns(
     async function refused(
         conversation: ConversationId,
         taskId: TaskId,
-        input: TurnInput,
         words: string,
-        signal: AbortSignal | undefined,
     ): Promise<void> {
-        const requestId = `refused:${taskId}`;
-        const noticed = await withHarness(async (harness, context) => {
+        const input = await peers.turns.of(conversation);
+        const noticed = await noticeOnce(
+            conversation,
+            `refused:${taskId}`,
+            words,
+        );
+        if (!noticed || input.kind === "reflection") return;
+        // Not awaited: the run ends without the realm's answer.
+        void tell(
+            { conversation, task: input.task.task, words, cause: "budget" },
+            undefined,
+        );
+    }
+
+    async function followed({
+        conversation,
+        failure,
+        input,
+    }: FailedRun): Promise<void> {
+        const last = answered.get(failure.taskId);
+        answered.delete(failure.taskId);
+        if (last === "unsent" || STOPPED.has(failure.reason)) return;
+        // As today's `fault` words it (`talk/follow.rs:436-446`).
+        const said =
+            typeof input.detail === "string" ? input.detail : input.reason;
+        const realm = realmWordsIn(said);
+        const words = realm ?? said;
+        try {
+            const at = input.entry;
+            const entry =
+                at === undefined
+                    ? undefined
+                    : await withHarness((harness, context) =>
+                          harness.commit((tx) => tx.entry(at), context),
+                      );
+            if (
+                last !== "error" &&
+                !(await noticeOnce(
+                    conversation,
+                    `failed:${failure.taskId}`,
+                    words,
+                ))
+            ) {
+                return;
+            }
+            // Today a reflection's failure opens no wait
+            // (`crates/hamlet_server/src/talk/follow.rs:168-173`).
+            if (entry?.kind === "hamlet.reflection") return;
+            await tell(
+                {
+                    conversation,
+                    task: (entry?.data as Kept | null)?.task,
+                    words,
+                    cause: realm === undefined ? "model" : "budget",
+                },
+                undefined,
+            );
+        } catch (error) {
+            if (!(error instanceof Closing)) {
+                peers.report("a failed turn was not followed", error);
+            }
+        }
+    }
+
+    /** Whether this wrote the notice: a repeat finds it written. */
+    function noticeOnce(
+        conversation: ConversationId,
+        requestId: string,
+        words: string,
+    ): Promise<boolean> {
+        return withHarness(async (harness, context) => {
             const before = await harness.commit(
                 (tx) => tx.submissionByRequest(conversation, requestId),
                 context,
@@ -198,49 +306,38 @@ export function failedTurns(
             );
             return true;
         });
-        if (!noticed || input.kind === "reflection") return;
-        await tell(
-            { conversation, task: input.task.task, words, cause: "budget" },
-            signal,
-        );
     }
+}
 
-    /**
-     * Only the request's task knows whether pi-durable tries again, so the
-     * realm is told once it has failed. A kill before then loses the wait.
-     * A close cuts the wait off, and the next wake follows the task again.
-     */
-    async function ended(
-        conversation: ConversationId,
-        taskId: TaskId,
-        input: TurnInput,
-        closed: AbortSignal | undefined,
-    ): Promise<void> {
-        try {
-            const settled = await withHarness((harness, context) =>
-                harness.waitForTask(taskId, context),
-            );
-            const { outcome } = settled.state;
-            if (
-                outcome.status !== "failed" ||
-                (outcome.error.detail as { reason?: string } | undefined)
-                    ?.reason !== "model_error"
-            ) {
-                return;
-            }
-            await tell(
-                {
-                    conversation,
-                    task: input.task.task,
-                    words: outcome.error.message,
-                    cause: "model",
-                },
-                undefined,
-            );
-        } catch (error) {
-            if (!(error instanceof Closing || closed?.aborted)) {
-                peers.report("a failed turn was not followed", error);
-            }
+/** The runs a commit ended with a failure, each with its first input. */
+function failedIn(changes: readonly CommitChange[]): FailedRun[] {
+    const settled = new Map<SubmissionId, Unanswered>();
+    for (const change of changes) {
+        if (
+            change.type === "submission" &&
+            change.value.status === "unanswered"
+        ) {
+            settled.set(change.value.id, change.value);
         }
     }
+    return changes.flatMap((change) => {
+        if (
+            change.type !== "document" ||
+            change.kind !== "change" ||
+            change.record.kind !== LiveDoc.definition.kind ||
+            change.conversationId === undefined
+        ) {
+            return [];
+        }
+        // `runFailure` stays until the next run starts: the run failed in
+        // this commit only when its input was settled in it too.
+        const failure = (change.value as LiveState).runFailure;
+        const input =
+            failure?.inputs[0] === undefined
+                ? undefined
+                : settled.get(failure.inputs[0]);
+        return failure === undefined || input === undefined
+            ? []
+            : [{ conversation: change.conversationId, failure, input }];
+    });
 }
