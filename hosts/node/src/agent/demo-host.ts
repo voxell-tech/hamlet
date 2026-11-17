@@ -168,6 +168,7 @@ const { provider, id } = faux.getModel();
 const agent = agentActor({
     models: answering(models, faux),
     model: `${provider}/${id}`,
+    listed: () => models.getModels(),
     files: (n) => dyingIn(openAgentFilesystem(home, n)),
 });
 
