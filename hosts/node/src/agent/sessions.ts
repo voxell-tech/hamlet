@@ -21,6 +21,7 @@ export async function migrateChats(
             session INTEGER NOT NULL DEFAULT 0,
             conversation INTEGER NOT NULL UNIQUE,
             begun_by TEXT UNIQUE,
+            followed INTEGER,
             current INTEGER NOT NULL DEFAULT 0 CHECK (current IN (0, 1)),
             began INTEGER NOT NULL,
             PRIMARY KEY (kind, peer, session)
@@ -75,91 +76,75 @@ export async function conversationOfChat(
             ? keptChat(c, chat.kind ?? "letters", chat.from)
             : undefined;
     }
-    if (chat.past === undefined) return current(c.db);
-    if (!Number.isSafeInteger(chat.past)) return undefined;
+    return chat.past === undefined ? current(c.db) : session(c, chat.past);
+}
+
+/** Session `number`'s conversation, or `undefined` when there is none. */
+export async function session(
+    c: AgentCall,
+    number: number | bigint,
+): Promise<ConversationId | undefined> {
+    const asked = Number(number);
+    if (!Number.isSafeInteger(asked)) return undefined;
     const row = await c.db.get<{ conversation: ConversationId }>(
         "SELECT conversation FROM chat WHERE kind = 'chief' AND session = ?",
-        chat.past,
+        asked,
     );
     return row?.conversation;
 }
 
 /**
- * Begins a session and makes it current. The request id is kept with it, so
- * a repeat of the same `/new` answers the same number. `left` is the
- * conversation of the session it leaves, absent on a repeat.
+ * Begins a session and makes it current. The request id and the session it
+ * left are kept with it, so a repeat of the same `/new` answers the same
+ * number and can end the session left again.
  */
-export async function begin(
-    c: AgentCall,
-    id: RequestId,
-): Promise<{
-    readonly number: number;
-    readonly to: ConversationId;
-    readonly left: ConversationId | undefined;
-}> {
+export async function begin(c: AgentCall, id: RequestId): Promise<Begun> {
     const before = await begunBy(c.db, id);
-    if (before !== undefined) return { ...before, left: undefined };
-    const { left, to } = await withHarness(
+    if (before !== undefined) return before;
+    const to = await withHarness(
         c,
         generationOf(c).options,
-        async (harness, context) => ({
+        async (harness, context) => {
             // As today, a chat with no session begins session 1 first, so
             // the first `/new` answers 2.
-            left: await chiefNow(c, () => harness.root(context)),
-            to: (
+            await chiefNow(c, () => harness.root(context));
+            return (
                 await harness.createConversation(
                     { ownership: { kind: "ownerless" } },
                     context,
                 )
-            ).id,
-        }),
+            ).id;
+        },
     );
     return c.db.transaction(async (tx) => {
         const raced = await begunBy(tx, id);
-        if (raced !== undefined) return { ...raced, left: undefined };
+        if (raced !== undefined) return raced;
+        const left = await current(tx);
         await tx.run("UPDATE chat SET current = 0 WHERE kind = 'chief'");
         await tx.run(
-            `INSERT INTO chat (kind, session, conversation, begun_by, current, began)
-             SELECT 'chief', MAX(session) + 1, ?, ?, 1, ? FROM chat WHERE kind = 'chief'`,
+            `INSERT INTO chat (kind, session, conversation, begun_by, followed, current, began)
+             SELECT 'chief', MAX(session) + 1, ?, ?, ?, 1, ? FROM chat WHERE kind = 'chief'`,
             to,
             id,
+            left ?? null,
             nowSeconds(),
         );
         const begun = await begunBy(tx, id);
         if (begun === undefined)
             throw new Error("the new session was not kept");
-        return { ...begun, left };
+        return begun;
     });
 }
 
-/**
- * Makes session `number` current; `undefined` when there is none. `left` is
- * absent when it was current already.
- */
-export async function resumed(
+/** Makes the session of conversation `to` current. */
+export async function makeCurrent(
     c: AgentCall,
-    number: number,
-): Promise<
-    | { readonly to: ConversationId; readonly left: ConversationId | undefined }
-    | undefined
-> {
-    if (!Number.isSafeInteger(number)) return undefined;
-    return c.db.transaction(async (tx) => {
-        const to = await tx.get<{ conversation: ConversationId }>(
-            "SELECT conversation FROM chat WHERE kind = 'chief' AND session = ?",
-            number,
-        );
-        if (to === undefined) return undefined;
-        const was = await current(tx);
-        await tx.run(
-            "UPDATE chat SET current = (session = ?) WHERE kind = 'chief'",
-            number,
-        );
-        return {
-            to: to.conversation,
-            left: was === to.conversation ? undefined : was,
-        };
-    });
+    to: ConversationId,
+): Promise<void> {
+    await c.db.run(
+        "UPDATE chat SET current = (conversation = ?) WHERE kind = 'chief'",
+        to,
+    );
 }
 
 /** Points the current session at `fork`, the conversation a rewind made. */
@@ -181,20 +166,33 @@ export function nowSeconds(): number {
     return Math.floor(Date.now() / 1000);
 }
 
-async function begunBy(
-    db: Rows,
-    id: RequestId,
-): Promise<{ number: number; to: ConversationId } | undefined> {
-    const row = await db.get<{ session: number; conversation: ConversationId }>(
-        "SELECT session, conversation FROM chat WHERE begun_by = ?",
+/** A session `/new` began, and the conversation of the one it left. */
+interface Begun {
+    readonly number: number;
+    readonly to: ConversationId;
+    readonly left: ConversationId | undefined;
+}
+
+async function begunBy(db: Rows, id: RequestId): Promise<Begun | undefined> {
+    const row = await db.get<{
+        session: number;
+        conversation: ConversationId;
+        followed: ConversationId | null;
+    }>(
+        "SELECT session, conversation, followed FROM chat WHERE begun_by = ?",
         id,
     );
     return row === undefined
         ? undefined
-        : { number: row.session, to: row.conversation };
+        : {
+              number: row.session,
+              to: row.conversation,
+              left: row.followed ?? undefined,
+          };
 }
 
-async function current(db: Rows): Promise<ConversationId | undefined> {
+/** The current session's conversation. */
+export async function current(db: Rows): Promise<ConversationId | undefined> {
     const row = await db.get<{ conversation: ConversationId }>(
         "SELECT conversation FROM chat WHERE kind = 'chief' AND current = 1",
     );

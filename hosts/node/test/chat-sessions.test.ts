@@ -9,6 +9,7 @@ import {
     fakeCalls,
     from,
     named,
+    until,
     type Woken,
     wakeAgent,
 } from "./agent-testing.ts";
@@ -239,10 +240,10 @@ test("a letter and a question from one peer go to two chats of their own", async
 test("/resume of a session that does not exist is refused with today's words", async (t) => {
     const agent = await wake(t, fakeCalls({}).calls, ["One."]);
     const client = agent.by(from.client);
-    const refusal = (number: number) => ({
+    const refusal = (number: number, asked: number | bigint = number) => ({
         type: "refused",
         why: { type: "no_such_session", number },
-        words: `there is no past session ${number} here`,
+        words: `there is no past session ${asked} here`,
     });
     assert.deepEqual(
         await agent.actions.resume(client, { id: "r-1", number: 1, to: 7 }),
@@ -257,16 +258,16 @@ test("/resume of a session that does not exist is refused with today's words", a
         await agent.actions.resume(client, { id: "r-3", number: 1, to: 7 }),
         { type: "back", number: 1 },
     );
-    // A client's `u64` past 2^53 arrives as a bigint; the refusal's number
-    // stays a `u32`.
-    const wide = (2n ** 63n) as unknown as number;
+    // A client's `u64` past 2^53 arrives as a bigint: worded as asked, as
+    // today, while the refusal's number stays a `u32`.
+    const wide = 2n ** 63n;
     assert.deepEqual(
         await agent.actions.resume(client, { id: "r-4", number: wide, to: 7 }),
-        refusal(2 ** 32 - 1),
+        refusal(2 ** 32 - 1, wide),
     );
 });
 
-test("/new lapses the session it leaves", async (t) => {
+test("a /new whose lapse fails is answered by its repeat, which lapses the session left again", async (t) => {
     let fails = true;
     const { calls, sent } = fakeCalls({
         realm: {
@@ -281,26 +282,119 @@ test("/new lapses the session it leaves", async (t) => {
     await sender(agent)(line("a"));
     const { root } = await chats(agent);
 
+    await assert.rejects(
+        agent.actions.new_session(client, { id: "new-1", to: 7 }),
+        /the realm is away/,
+    );
+    fails = false;
     assert.deepEqual(
         await agent.actions.new_session(client, { id: "new-1", to: 7 }),
         { number: 2 },
     );
-    assert.equal(agent.reported.length, 1);
-    assert.match(agent.reported[0] ?? "", /the realm is away/);
-    fails = false;
-    assert.deepEqual(
-        await agent.actions.new_session(client, { id: "new-2", to: 7 }),
-        { number: 3 },
-    );
-    const { all } = await chats(agent);
-    const [second] = holding(all, "Started a new session.");
     assert.deepEqual(
         named(sent, "lapse").map((call) => call.message),
         [
             { conversation: String(root), why: "ended" },
-            { conversation: String(second), why: "ended" },
+            { conversation: String(root), why: "ended" },
         ],
     );
+});
+
+test("a /new cut off by a kill before the realm answers lapses the session left when repeated", async (t) => {
+    let hangs = true;
+    const { calls, sent } = fakeCalls({
+        realm: {
+            lapse: () => (hangs ? new Promise<null>(() => {}) : null),
+        },
+    });
+    const agent = await wake(t, calls, ["One."]);
+    await sender(agent)(line("a"));
+    const { root } = await chats(agent);
+    void agent.actions
+        .new_session(agent.by(from.client), { id: "new-1", to: 7 })
+        .catch(() => {});
+    await until(() => named(sent, "lapse").length === 1);
+    await agent.stop();
+    hangs = false;
+
+    const back = await agent.again();
+    t.after(() => back.stop());
+    assert.deepEqual(
+        await back.actions.new_session(back.by(from.client), {
+            id: "new-1",
+            to: 7,
+        }),
+        { number: 2 },
+    );
+    assert.deepEqual(
+        named(sent, "lapse").map((call) => call.message),
+        [
+            { conversation: String(root), why: "ended" },
+            { conversation: String(root), why: "ended" },
+        ],
+    );
+});
+
+test("two /new at once each lapse the session they left", async (t) => {
+    const { calls, sent } = fakeCalls({});
+    const agent = await wake(t, calls, ["One."]);
+    await sender(agent)(line("a"));
+    const client = agent.by(from.client);
+    const answers = await Promise.all([
+        agent.actions.new_session(client, { id: "new-1", to: 7 }),
+        agent.actions.new_session(client, { id: "new-2", to: 7 }),
+    ]);
+    assert.deepEqual(answers.map((answer) => answer.number).sort(), [2, 3]);
+    const sessions = await Promise.all(
+        [1, 2].map((past) => conversationOfChat(client, { with: 7, past })),
+    );
+    assert.deepEqual(
+        named(sent, "lapse")
+            .map(
+                (call) =>
+                    (call.message as { conversation: string }).conversation,
+            )
+            .sort(),
+        sessions.map(String).sort(),
+    );
+});
+
+test("a /resume whose lapse fails moves nothing, and its repeat goes back", async (t) => {
+    let fails = false;
+    const { calls, sent } = fakeCalls({
+        realm: {
+            lapse: () => {
+                if (fails) throw new Error("the realm is away");
+                return null;
+            },
+        },
+    });
+    const agent = await wake(t, calls, ["One."]);
+    const client = agent.by(from.client);
+    await sender(agent)(line("a"));
+    await agent.actions.new_session(client, { id: "new-1", to: 7 });
+    const [first, second] = await Promise.all(
+        [1, 2].map((past) => conversationOfChat(client, { with: 7, past })),
+    );
+    fails = true;
+
+    await assert.rejects(
+        agent.actions.resume(client, { id: "r-1", number: 1, to: 7 }),
+        /the realm is away/,
+    );
+    assert.equal(await conversationOfChat(client, { with: 7 }), second);
+    fails = false;
+    assert.deepEqual(
+        await agent.actions.resume(client, { id: "r-1", number: 1, to: 7 }),
+        { type: "back", number: 1 },
+    );
+    assert.equal(await conversationOfChat(client, { with: 7 }), first);
+    assert.deepEqual(named(sent, "lapse").at(-1)?.message, {
+        conversation: String(first),
+        why: "resumed",
+    });
+    const { all } = await chats(agent);
+    assert.equal(holding(all, "Went back to an earlier session.").length, 1);
 });
 
 test("the history titles a session by its line's first words, cut at 90, and leaves out one with no line", async (t) => {

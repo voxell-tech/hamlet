@@ -22,7 +22,13 @@ import {
     u32,
 } from "./messages.ts";
 import { reflectOnLeaving } from "./reflect.ts";
-import { begin, nowSeconds, resumed } from "./sessions.ts";
+import {
+    begin,
+    current,
+    makeCurrent,
+    nowSeconds,
+    session,
+} from "./sessions.ts";
 import { refOf } from "./turn.ts";
 
 type Answer<N extends keyof ClientActions> = Promise<
@@ -42,6 +48,8 @@ export async function newSession(
     const { number, to, left } = await begin(c, message.id);
     // As `crates/hamlet_server/src/talk/chats.rs` writes it.
     await noticed(c, to, `new:${message.id}`, "Started a new session.");
+    // A repeat ends the session left again: a kill or a failure may have
+    // cut the first off after the session began.
     if (left !== undefined) {
         await lapsed(c, left, "ended");
         await reflectOnLeaving(c, left);
@@ -53,26 +61,34 @@ export async function resume(
     c: AgentCall,
     message: Resume,
 ): Promise<ResumeAnswer> {
-    const back = await resumed(c, message.number);
-    if (back === undefined) {
-        const number = u32(message.number);
+    const to = await session(c, message.number);
+    if (to === undefined) {
+        const { number } = message;
         return {
             type: "refused",
-            why: { type: "no_such_session", number },
+            why: {
+                type: "no_such_session",
+                number: u32(typeof number === "bigint" ? Infinity : number),
+            },
             // As `crates/hamlet_server/src/society/refusal.rs` words it.
-            words: `there is no past session ${Number.isSafeInteger(message.number) ? message.number : number} here`,
+            words: `there is no past session ${number} here`,
         };
     }
+    // A session gone back to asks again what it was trusted with (H11),
+    // before it is current, as today resets trust in the move's own
+    // transaction. The session left reflects before the move too, so a
+    // repeat after a kill still asks it.
+    await lapsed(c, to, "resumed");
+    const left = await current(c.db);
+    if (left !== undefined && left !== to) await reflectOnLeaving(c, left);
+    await makeCurrent(c, to);
     await noticed(
         c,
-        back.to,
+        to,
         `resume:${message.id}`,
         "Went back to an earlier session.",
     );
-    // A session gone back to asks again what it was trusted with (H11).
-    await lapsed(c, back.to, "resumed");
-    if (back.left !== undefined) await reflectOnLeaving(c, back.left);
-    return { type: "back", number: message.number };
+    return { type: "back", number: Number(message.number) };
 }
 
 /**
@@ -104,21 +120,15 @@ async function noticed(
     });
 }
 
-/** Reported, not thrown: the session has already moved. */
 async function lapsed(
     c: AgentCall,
     conversation: ConversationId,
     why: LapseReason,
 ): Promise<void> {
-    const { peers } = generationOf(c);
-    try {
-        await peers.reach.lapse({
-            conversation: refOf(conversation),
-            why,
-        });
-    } catch (error) {
-        peers.report(`the realm was not told the session ${why}`, error);
-    }
+    await generationOf(c).peers.reach.lapse({
+        conversation: refOf(conversation),
+        why,
+    });
 }
 
 export function retry(c: AgentCall, message: Retry): Promise<RetryAnswer> {
