@@ -31,7 +31,7 @@ import {
 
 const FAKE = join(import.meta.dirname, "fixtures", "claude-fake", "claude.mjs");
 
-/** What the host's own environment holds, which the Claude program must not see. */
+/** The host's own environment, which the Claude program must not see. */
 const HOST = {
     ANTHROPIC_API_KEY: "made-up-chief-key",
     CLAUDE_CODE_OAUTH_TOKEN: "made-up-chief-token",
@@ -54,7 +54,6 @@ function planted(t: TestContext, env: Record<string, string>): void {
 
 const say = (message: Record<string, unknown>) => ({ say: message });
 
-/** Claude's answer `text`, streamed as message events, then the end of the query's turn. */
 const streamed = (text: string) => [
     ...[
         {
@@ -87,7 +86,6 @@ const streamed = (text: string) => [
     say({ type: "result", subtype: "success", is_error: false, result: text }),
 ];
 
-/** Claude's call of the tool `read` on `path`, which the fake program then makes. */
 const readCall = (path: string) => [
     say({
         type: "assistant",
@@ -109,7 +107,6 @@ const readCall = (path: string) => [
     { call: { id: "toolu_1", name: "read", arguments: { path } } },
 ];
 
-/** Claude's answer `text`, delivered whole, then the end of the query's turn. */
 const whole = (text: string) => [
     say({
         type: "assistant",
@@ -124,7 +121,6 @@ const whole = (text: string) => [
     say({ type: "result", subtype: "success", is_error: false, result: text }),
 ];
 
-/** The realm's half of a sign-in: `credentials.json` as the calls see it. */
 function credentialsFile() {
     const file = new Map<string, Kept>();
     const faked = fakeCalls({
@@ -166,13 +162,11 @@ async function page(agent: Woken): Promise<ChatPage> {
 }
 
 /**
- * How long a query's Node child may take to end, with its stderr relayed
- * and its session deleted: ten times the three seconds this takes at most
- * on a busy machine.
+ * How long a query's Node child may take to end: ten times the three
+ * seconds it takes at most on a busy machine.
  */
 const SESSION_ENDS_MS = 30_000;
 
-/** The Claude Code sessions in the program's folder. */
 function sessions(folder: string): string[] {
     const projects = join(folder, "projects");
     return existsSync(projects)
@@ -199,11 +193,6 @@ async function dumped(agent: Woken): Promise<string> {
     return text;
 }
 
-/**
- * An agent with the provider `claude` on the fake program running `runs`,
- * one list of steps per process, in a scratch realm folder. `more` adds to
- * the fake's script.
- */
 async function claudeAgent(
     t: TestContext,
     runs: unknown[][],
@@ -241,7 +230,6 @@ async function claudeAgent(
         folder,
         file,
         sent,
-        /** What each run of the fake program noted, in order. */
         noted: () =>
             readFileSync(log, "utf8")
                 .trim()
@@ -258,7 +246,6 @@ async function claudeAgent(
     };
 }
 
-/** The made-up subscription tokens the fake program keeps at its sign-in. */
 const TOKEN = "made-up-subscription-token";
 const REFRESH = "made-up-subscription-refresh";
 
@@ -273,7 +260,6 @@ function madeUpTokens(test: string) {
     };
 }
 
-/** The names of the values in `seen` that hold either of `tokens`. */
 function holding(
     seen: Record<string, unknown>,
     tokens: { token: string; refresh: string },
@@ -287,7 +273,6 @@ function holding(
         .map(([what]) => what);
 }
 
-/** The realm's marker that the chief signed in to Claude. */
 function marked(claude: { file: Map<string, Kept> }): void {
     claude.file.set("claude", {
         type: "oauth",
@@ -299,7 +284,6 @@ function marked(claude: { file: Map<string, Kept> }): void {
     });
 }
 
-/** What this process writes to its stderr while the test runs. */
 function stderrWrites(t: TestContext): string[] {
     const written: string[] = [];
     const write = process.stderr.write;
@@ -388,7 +372,6 @@ test("a claude turn runs through the fake program", async (t) => {
             );
     }
     assert.equal(statSync(folder).mode & 0o777, 0o700);
-    // The query ends with its turn, and removes the session it wrote.
     await until(() => sessions(folder).length === 0, SESSION_ENDS_MS);
 
     assert.match(

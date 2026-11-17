@@ -27,7 +27,7 @@
  * provider's is. A restarted host begins the script again.
  *
  * Given `--sign-in`, it also lists two providers to sign in to, on
- * loopback: `signInProviders` below.
+ * loopback.
  */
 // Only Node's own modules and the native module are imported before the
 // take, as in `src/main.ts`.
@@ -252,7 +252,6 @@ function stepOf(step: StepFile): Step {
     return usage === undefined ? { answer } : { answer, usage };
 }
 
-/** Each answer with `usage` in place of the faux model's estimate, priced. */
 function measured(
     source: AssistantMessageEventStream,
     model: Model<Api>,
@@ -312,19 +311,11 @@ const stream: StreamFunction<string, SimpleStreamOptions> = (
     return measured(core.stream(model, context, options), model, step.usage);
 };
 
-/** The made-up tokens `chatgpt`'s sign-in ends with. */
 const DEMO_OAUTH = {
     access: 'made-up-oauth-access-"demo',
     refresh: 'made-up-oauth-refresh-"demo',
 };
 
-/**
- * Two providers to sign in to, on loopback, after the ones
- * `test/chat-login.test.ts` fakes: `loopback`, whose sign-in asks for a
- * key, and `chatgpt`, whose sign-in shows a link, a device code and a
- * progress line, then asks for a code. Any code is taken, for the tokens
- * `DEMO_OAUTH`. Their models answer as the demo's own does.
- */
 function signInProviders() {
     const modelsOf = (provider: string) =>
         ai.createFauxCore({
@@ -412,7 +403,6 @@ models.setProvider(
 if (args.includes("--sign-in")) {
     for (const provider of signInProviders()) models.setProvider(provider);
 }
-// With no Claude program found, the provider is not listed, as today.
 const executable = claudeExecutable();
 if (executable !== undefined)
     withClaude(models, { executable, folder: join(home, "claude") });

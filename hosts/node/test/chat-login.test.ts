@@ -57,7 +57,6 @@ function assertNowhere(
     }
 }
 
-/** The realm's half: `credentials.json` as the calls see it. */
 function credentialsFile() {
     const file = new Map<string, Kept>();
     const { calls, sent } = fakeCalls({
@@ -120,7 +119,6 @@ function loopback(answer: FauxResponseFactory) {
 
 let requests = 0;
 
-/** A client's `login` calls of the Hand, with every answer kept. */
 function client(agent: Woken, given: SignIns) {
     const login = chatActions({ ...agent.config, signIns: given }).login;
     const answers: LoginAnswer[] = [];
@@ -142,10 +140,8 @@ function client(agent: Woken, given: SignIns) {
             call({ start: { provider, method } }),
         reply: (login: string, value: string) =>
             call({ reply: { login, value } }),
-        /** Asks for the next step of a sign-in that asks for nothing. */
         next: (login: string) => call({ reply: { login, value: "" } }),
         cancel: (login: string) => call({ cancel: login }),
-        /** The last call again, under its request id. */
         again: () => {
             if (last === undefined) throw new Error("nothing was called");
             return send(last);
@@ -287,22 +283,16 @@ test("A13: a key sign-in's refusals and its repeats are today's", async (t) => {
     await agent.stop();
 });
 
-/** A loopback subscription's sign-in, its refresh, and what they did. */
 interface Fixture {
     readonly listing: (listed: Models) => Models;
-    /** The code the sign-in takes. */
     readonly code: string;
     readonly before: { readonly access: string; readonly refresh: string };
     readonly after: { readonly access: string; readonly refresh: string };
-    /** Sign-ins begun, and those cancelled before they ended. */
     begun: number;
     dropped: number;
     refreshes: number;
-    /** What each request to the model carried as its key. */
     readonly keysSeen: (string | undefined)[];
-    /** Held until a test lets the refresh answer. */
     readonly refreshHeld: PromiseWithResolvers<void>;
-    /** The sign-in asks for its code once this resolves, as a slow provider would. */
     beforePrompt: Promise<void>;
 }
 
@@ -821,7 +811,6 @@ test("A15: a check's refusals are today's plain words", async (t) => {
     await agent.stop();
 });
 
-/** The provider `id`, which has no model and signs in with a key by `login`. */
 function keySignIn(
     id: string,
     login: NonNullable<ApiKeyAuth["login"]>,

@@ -35,11 +35,8 @@ function textOf(message: Message): string {
 }
 
 /**
- * Answers a summarising request with `SUMMARY` and every other request with
- * the next of `answers`, so a compaction never takes an answer meant for a
- * turn. `asked` keeps the texts of every request but the summaries'. A
- * summary is answered once `summarising` resolves, or fails when its
- * request is aborted first.
+ * Answers summaries with `SUMMARY` and other requests with the next of
+ * `answers`, so a compaction never takes an answer meant for a turn.
  */
 function script(
     answers: AssistantMessage[],
@@ -164,7 +161,6 @@ test("a long faux run compacts and keeps 20000 tokens", async (t) => {
     }
 });
 
-/** An empty answer cut off for its length, as a model out of room gives. */
 function cutOffShort(): AssistantMessage {
     return fauxAssistantMessage([], { stopReason: "length" });
 }

@@ -189,9 +189,8 @@ function stands(answer: AssistantMessage): boolean {
 }
 
 /**
- * The reflection to ask next, and the entry of the last one that ran;
- * `asked` when reflection `k` is admitted and has not ended, or its task
- * has not admitted it yet.
+ * `asked` when reflection `k` is admitted and has not ended, or its task has
+ * not admitted it yet.
  */
 async function lastAsked(
     tx: Tx,
@@ -217,7 +216,6 @@ async function lastAsked(
     }
 }
 
-/** Whether the newest task of `kind` in `conversation` has not ended. */
 async function live(
     tx: Tx,
     conversation: ConversationId,

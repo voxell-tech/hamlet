@@ -23,8 +23,6 @@
 
 use super::{Demo, Expect, Is, Kill, Probe, Read, Scenario};
 
-/// The value that holds the Node host's process id: `pi pid`'s
-/// answer.
 const NODE_PID: &str = "node/pid";
 
 const fn agent(name: &'static str, sql: &'static str) -> Probe {
@@ -95,7 +93,6 @@ const SESSIONS: Probe = agent(
     "SELECT COUNT(*) FROM chat WHERE kind = 'chief'",
 );
 
-/// Today's words for `/new`, which it writes as its notice.
 const NEW_NOTICES: Probe = agent(
     "agent.new_notices",
     "SELECT COUNT(*) FROM pi_entries WHERE record ->> '$.kind' = \
@@ -125,7 +122,6 @@ const RETRIES: Probe = agent(
      'hamlet.retry'",
 );
 
-/// The faux model's answer to today's retry input.
 const RETRIES_ANSWERED: Probe = agent(
     "agent.retries_answered",
     "SELECT COUNT(*) FROM pi_entries WHERE record ->> '$.kind' = \
@@ -133,11 +129,8 @@ const RETRIES_ANSWERED: Probe = agent(
      'Heard: Carry on from where you stopped.'",
 );
 
-/// After restart `n`, each of which says one line. Charged: the
-/// three long lines, the summary, the request after the tell's
-/// result, and each restart's line. Answered: the three long lines,
-/// the request after the tell's result, and each restart's line,
-/// all but the first two from the summary on.
+/// Charged: 3 long lines, the summary, the post-tell request, a line
+/// per restart. Answered: all but the summary, 2 before it.
 const fn compacted_once(n: i64) -> [Expect; 9] {
     [
         exactly("charges/1", 5 + n),
@@ -152,8 +145,7 @@ const fn compacted_once(n: i64) -> [Expect; 9] {
     ]
 }
 
-/// After restart `n`, each of which says one line in the new
-/// session.
+/// After restart `n`, each saying one line in the new session.
 const fn new_once(n: i64) -> [Expect; 6] {
     [
         exactly("charges/1", 1 + n),
@@ -323,8 +315,8 @@ pub const SCENARIOS: &[Scenario] = &[
             "pi pid",
             "pi refuse on",
             "pi say 1 hello",
-            // No charge comes: this waits out the 10 s in which the
-            // refused turn fails, a step of well under a second.
+            // No charge comes: this waits out its 10 s, far past the
+            // refused turn's failure.
             "pi charges 1 1 10000",
             "pi refuse off",
         ],

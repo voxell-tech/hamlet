@@ -41,7 +41,6 @@ const KEY = "sk-made-up-7c0ffee-4u7";
 
 const LISTED = { input: 2, output: 4, cacheRead: 1, cacheWrite: 3 };
 
-/** Prices each answer from the model it is handed, as a real provider does. */
 function priced(
     stream: StreamFunction<string, SimpleStreamOptions>,
 ): StreamFunction<string, SimpleStreamOptions> {
@@ -64,14 +63,12 @@ function priced(
     };
 }
 
-/** A model its listing gives no cost, as a listing may leave it out. */
 function unpriced(id: string, baseUrl: string): Model<Api> {
     const { cost: _, ...rest } = createFauxCore({ provider: "loopback" })
         .models[0];
     return { ...rest, id, name: id, baseUrl } as unknown as Model<Api>;
 }
 
-/** A model its listing gives only input and output rates. */
 function partlyPriced(): Model<Api> {
     return {
         ...unpriced("partly", "https://models.example/v1"),
@@ -79,10 +76,6 @@ function partlyPriced(): Model<Api> {
     } as unknown as Model<Api>;
 }
 
-/**
- * A second provider beside the agent's faux one, signed in with a key,
- * whose models price their answers.
- */
 function loopback(models: readonly Model<Api>[] = []) {
     const core = createFauxCore({
         provider: "loopback",
@@ -127,7 +120,6 @@ function signedIn() {
     });
 }
 
-/** Records which model each request ran, then answers with `answer`. */
 function ran(
     names: string[],
     answer: FauxResponseFactory | AssistantMessage,
@@ -157,7 +149,6 @@ async function rootModel(agent: Woken) {
     return (await root.agent(context)).model;
 }
 
-/** The root conversation's answers, oldest first. */
 async function answers(agent: Woken): Promise<AssistantMessage[]> {
     const root = await (await agent.harness()).root(context);
     const page = await root.entries(
@@ -267,7 +258,7 @@ test("each answer names its model and its price", async (t) => {
         [{ model: "loopback::large" }, "large", LISTED],
         [{ model: "loopback::remote" }, "remote", flat(1)],
         [{ model: "loopback::home" }, "home", flat(0.1)],
-        // As today, a listing's cost counts only with all four rates.
+        // A listing's cost counts only with all four rates.
         [{ model: "loopback::partly" }, "partly", flat(1)],
     ];
 
@@ -331,7 +322,6 @@ test("the copy's effort and fast tier reach its requests", async (t) => {
     await agent.stop();
 });
 
-/** A realm that answers `credential` and lists every call it was sent. */
 function recordingRealm(): {
     realm: Pick<BareRealm, "credential">;
     asked: string[];
@@ -424,7 +414,6 @@ test("the model list names each listed model with its window and price", () => {
     );
 });
 
-/** `listed` whose requests, while `broken()`, throw with the key in the words. */
 function breaking(listed: Models, broken: () => boolean): Models {
     return new Proxy(listed, {
         get(target, name, receiver) {
@@ -545,7 +534,6 @@ test("a new conversation takes the copy's model", async (t) => {
     await agent.stop();
 });
 
-/** Every row of every table, as text. */
 async function dumped(agent: Woken): Promise<string> {
     const tables = await agent.c.db.all<{ name: string }>(
         "SELECT name FROM sqlite_master WHERE type = 'table'",
@@ -563,11 +551,6 @@ async function dumped(agent: Woken): Promise<string> {
     return text;
 }
 
-/**
- * The provider `split`, signed in with a key, whose one model streams
- * `chunks` as deltas of a text or of a call's arguments, then breaks, or
- * waits for its request to be aborted.
- */
 function splitting(
     chunks: readonly string[],
     end: "breaks" | "waits",
@@ -917,7 +900,6 @@ test("requests at once ask the realm for a key once", async () => {
     assert.equal(asked, 2, "a refusal is asked again");
 });
 
-/** The chief's current session's conversation. */
 async function currentSession(agent: Woken) {
     const id = await conversationOfChat(agent.by(from.client), { with: 7 });
     assert.ok(id !== undefined, "the chief has a current session");
@@ -933,7 +915,6 @@ async function sessionModel(agent: Woken) {
     return (await (await currentSession(agent)).agent(context)).model;
 }
 
-/** The id a client reads for the chief's line `text` in the current session. */
 async function itemOfLine(agent: Woken, text: string): Promise<string> {
     const page = await (await currentSession(agent)).entries(
         { order: "ascending" },

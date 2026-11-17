@@ -22,7 +22,6 @@ import {
     wakeAgent,
 } from "./agent-testing.ts";
 
-/** `fakeFiles` with a `list` that sees the files, and paths taken whole or from the root. */
 function listedFiles(files: Record<string, string>): AgentFilesystem {
     const base = fakeFiles(files);
     const inside = (path: string) =>
@@ -56,7 +55,6 @@ function listedFiles(files: Record<string, string>): AgentFilesystem {
     };
 }
 
-/** Each request's system prompt, as the model reads it once the transcript's system messages are replayed. */
 function recorder(): {
     readonly prompts: string[];
     step(answer: AssistantMessage): FauxResponseFactory;

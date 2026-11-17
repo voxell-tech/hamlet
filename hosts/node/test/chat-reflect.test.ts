@@ -64,7 +64,6 @@ function say(agent: Woken) {
     };
 }
 
-/** A chief's line, not waited for. */
 function send(agent: Woken, id: string, text: string): void {
     void agent.actions
         .submit(agent.by(from.realm), { id, input: { type: "line", text } })
@@ -73,7 +72,6 @@ function send(agent: Woken, id: string, text: string): void {
 
 const words = (text: string) => fauxAssistantMessage(text);
 
-/** An answer the model gives only once `release` is called. */
 function held(text: string): {
     step: FauxResponseStep;
     asked: Promise<void>;
@@ -92,7 +90,6 @@ function held(text: string): {
     };
 }
 
-/** The root's inputs and answers, as the model reads them. */
 async function said(agent: Woken): Promise<string[]> {
     return (await agent.entries())
         .filter((entry) => entry.text !== "")
@@ -132,7 +129,6 @@ test("A5: the Hand reflects every few answered turns", async (t) => {
     assert.deepEqual(await reflections(agent), [
         { text: REFLECT, data: { task: "reflection-task-1" } },
     ]);
-    // The count starts again after a reflection.
     await line("three");
     assert.deepEqual((await said(agent)).slice(-2), ["three", "C."]);
     assert.equal((await reflections(agent)).length, 1);
@@ -243,7 +239,6 @@ test("/reflect answers already while one is owed", async (t) => {
 // `crates/hamlet_server/src/talk/chats.rs`.
 const CARRY_ON = "Carry on from where you stopped.";
 
-/** A model step that never answers, and fails once its run is aborted. */
 function aborted(): { step: FauxResponseStep; asked: Promise<void> } {
     const asked = Promise.withResolvers<void>();
     return {

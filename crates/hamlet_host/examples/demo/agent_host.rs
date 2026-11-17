@@ -144,7 +144,6 @@ use crate::stand_in_realm::{
 
 const CHOOSE: (&str, &str) = ("HAMLET_DEMO_AGENT", "pi");
 
-/// Names the faux script the Node host's model answers from.
 const FAUX: &str = "HAMLET_DEMO_FAUX";
 
 /// Lists the loopback providers the sign-in lanes sign in to.
@@ -166,11 +165,10 @@ const POLL: Duration = Duration::from_millis(25);
 /// reads them as settled.
 const QUIET: Duration = Duration::from_secs(1);
 
-/// How long a client's call of an agent may take: a sign-in's step
-/// waits up to 25 s for its provider.
+/// Longer than `login.ts`'s 25 s `STEP_WAIT_MS`, which a sign-in's
+/// step waits for its provider.
 const ASK_WITHIN: Duration = Duration::from_secs(60);
 
-/// The agent whose `login` signs in to a provider: the Hand.
 const HAND: AgentNumber = AgentNumber(1);
 
 pub fn chosen() -> Result<bool> {
@@ -403,7 +401,6 @@ const USAGE: &str =
      <value> | login cancel <login> | follow <n> | answered <verb> \
      <n> [<words>...]";
 
-/// Runs a client's call of agent `n` other than `login`.
 async fn client(
     host: &Host,
     verb: &str,
@@ -466,8 +463,6 @@ async fn client(
     }
 }
 
-/// The chat of agent `with` that `words` name, and the item a page
-/// ends before.
 fn chat_of(
     with: AgentId,
     words: &[&str],
@@ -537,8 +532,8 @@ async fn login(
     asked(host, HAND, &Login(login)).await
 }
 
-/// Calls agent `n` with `message` as a client does. Answers its
-/// answer, or the actor's error it failed with, as JSON.
+/// Answers as `Ok` JSON both the agent's answer and the actor's error
+/// it failed with.
 async fn asked<M>(
     host: &Host,
     n: AgentNumber,

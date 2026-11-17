@@ -38,7 +38,6 @@ function shown(entry: EntryRecord): Shown {
     return { kind: entry.kind, text };
 }
 
-/** Every conversation of the agent with what it shows, and the root's id. */
 async function chats(
     agent: Woken,
 ): Promise<{ root: ConversationId; all: Map<ConversationId, Shown[]> }> {
@@ -71,7 +70,6 @@ function holding(
         .map(([id]) => id);
 }
 
-/** What a conversation shows a person: its inputs, answers and notices. */
 function said(all: Map<ConversationId, Shown[]>, id: ConversationId): string[] {
     return (all.get(id) ?? [])
         .filter((entry) => entry.text !== "")

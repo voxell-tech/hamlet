@@ -48,11 +48,9 @@ import { reasonOf } from "./turn.ts";
 /** How long a query waits at its tool calls before it is stopped; their results then start a new one. */
 const IDLE_MS = 5 * 60_000;
 
-/** The prompt of a query whose history ends at tool results its own query no longer waits for. */
 const CONTINUE =
     "[Your session was interrupted and resumed. What precedes this ends with the tool result you were waiting for. Continue the task from there.]";
 
-/** The words a turn fails with when Claude bills past the plan, which a subscription login is for. */
 const OVERAGE =
     "Claude is billing this beyond your plan, to extra usage, so Hamlet stopped. It goes on once your plan's limit resets.";
 
@@ -69,7 +67,6 @@ const EFFORTS: Record<string, EffortLevel> = {
 /** A query stopped at Claude's tool calls, by the pi-durable session it answers. */
 interface Parked {
     readonly run: Run;
-    /** Where pi-durable keeps the answer that made the calls. */
     readonly at: number;
     readonly calls: readonly string[];
     readonly timer: NodeJS.Timeout;
@@ -77,7 +74,6 @@ interface Parked {
 
 const parked = new Map<string, Parked>();
 
-/** Answers one call of `model` into `out`. */
 export function answer(
     claude: Program,
     model: Model<Api>,
@@ -113,7 +109,6 @@ export function answer(
     }
 }
 
-/** The results this call brings for `held`'s calls; none when the history moved on otherwise. */
 function answered(
     held: Parked,
     messages: readonly Message[],
@@ -144,7 +139,6 @@ class Run {
     readonly #early = new Map<string, CallToolResult>();
     /** Messages already streamed as events, whose whole copies are passed over. */
     readonly #streamed = new Set<string>();
-    /** The Claude sessions this query wrote, removed once it ends. */
     readonly #sessions = new Set<string>();
     #reply: Reply | undefined;
     #closed = false;
@@ -225,12 +219,10 @@ class Run {
         return this.#closed;
     }
 
-    /** Why the query was stopped for good, when it was. */
     get refusal(): string | undefined {
         return this.#refusal;
     }
 
-    /** Answers `reply` once `results` reach the calls they answer. */
     resume(reply: Reply, results: readonly ToolResultMessage[]): void {
         this.#attach(reply);
         for (const result of results) {
@@ -254,7 +246,6 @@ class Run {
         }
     }
 
-    /** Stops the Claude program, failing the call it answers. */
     close(): void {
         if (this.#closed) return;
         this.#closed = true;
@@ -277,7 +268,6 @@ class Run {
         reply.onAbort(() => this.close());
     }
 
-    /** The MCP server `hamlet`, offering `tools` with their schemas as pi-durable has them. */
     #server(tools: readonly Tool[]) {
         const server = new McpServer(
             { name: "hamlet", version: "0.1.0" },
@@ -367,7 +357,6 @@ class Run {
         }
     }
 
-    /** Ends the call at Claude's tool calls, if it made any, and keeps the query for pi-durable's results. */
     #park(): void {
         const reply = this.#reply;
         if (reply === undefined || reply.calls.length === 0) return;
@@ -403,7 +392,6 @@ interface Tokens {
     cache_creation_input_tokens?: number | null;
 }
 
-/** The answer to one call of pi-durable, written as Claude's message events come. */
 class Reply {
     /** How many messages the call was given, which is where pi-durable keeps this answer. */
     readonly at: number;
@@ -437,7 +425,6 @@ class Reply {
         );
     }
 
-    /** Calls `stop` once if pi-durable stops this call while it runs. */
     onAbort(stop: () => void): void {
         this.#aborted = () => {
             this.fail("The call was stopped.", true);
@@ -450,7 +437,6 @@ class Reply {
             });
     }
 
-    /** Takes one event of the streamed message. */
     event(event: StreamEvent): void {
         switch (event.type) {
             case "message_start":
@@ -667,7 +653,6 @@ class Reply {
     }
 }
 
-/** The events' name of each kind of content. */
 const KINDS = {
     text: "text",
     thinking: "thinking",
@@ -711,7 +696,6 @@ function thinking(
         : { effort, extraArgs: { "thinking-display": "summarized" } };
 }
 
-/** A query's streaming input: its prompt, open until the query ends. */
 class Input implements AsyncIterable<SDKUserMessage> {
     readonly #queue: SDKUserMessage[] = [];
     #wake: (() => void) | undefined;

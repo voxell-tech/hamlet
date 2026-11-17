@@ -528,7 +528,6 @@ impl Handler<NeedsChief> for StandIn {
 
 const CREDENTIALS: &str = "credentials.json";
 
-/// Each provider's credential, as `credentials.json` holds it.
 type Held = BTreeMap<String, Kept>;
 
 impl Handler<Credential> for StandIn {
@@ -588,8 +587,6 @@ fn credentials(file: &Path) -> Result<Held> {
     }
 }
 
-/// Replaces `file` whole with `bytes`, made at mode 0600 beside it
-/// and renamed over it.
 fn write_private(file: &Path, bytes: &[u8]) -> Result<()> {
     let temporary = file.with_extension("tmp");
     let _ = std::fs::remove_file(&temporary);
@@ -713,7 +710,6 @@ impl Handler<OpenTask> for StandIn {
     }
 }
 
-/// Handlers that only log and count their call.
 macro_rules! counted {
     ($($message:ty),+) => {$(
         impl Handler<$message> for StandIn {

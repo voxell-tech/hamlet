@@ -37,7 +37,6 @@ import {
 const CHIEF: ChatRef = { with: 7 };
 const LETTERS: ChatRef = { with: 7, from: 3, kind: "letters" };
 
-/** Applies `ops` to `items` as a client does. */
 function applied(
     items: readonly ChatItem[],
     ops: readonly ChatOp[],
@@ -73,7 +72,6 @@ function applied(
     return kept;
 }
 
-/** A chat as a client follows it: a page, then the agent's events in order. */
 class Followed {
     readonly chat: ChatRef;
     items: ChatItem[];
@@ -117,7 +115,6 @@ function read(agent: Woken, chat: ChatRef, before?: string): Promise<ChatPage> {
     });
 }
 
-/** What a person reads of a chat: each item's kind and words. */
 function shown(items: readonly ChatItem[]): string[] {
     return items.map((item) =>
         item.tool === undefined
@@ -227,7 +224,6 @@ test("a client reading after a gap misses nothing", async (t) => {
             { mark: "added", text: "B" },
         ],
     });
-    // Today's summary is the arguments' JSON with its keys in order.
     assert.equal(
         again.items[3]?.tool?.summary,
         JSON.stringify({ content: "a\nb\n", path }),
@@ -235,7 +231,7 @@ test("a client reading after a gap misses nothing", async (t) => {
     assert.equal(again.working, false);
     assert.equal(again.pending, 0);
 
-    // What the client missed is what the events carried.
+    // The events carried what the client missed.
     const followed = new Followed(CHIEF, first);
     for (const event of chatEvents(agent)) {
         assert.ok(followed.take(event), `event ${event.number} applies`);
@@ -288,10 +284,6 @@ test("events number one more each over every chat, and a new wake starts a new e
     );
 });
 
-/**
- * The first answer streams "Héllo ", then "wörld" once `gates[0]` opens,
- * then "!" once `gates[1]` opens.
- */
 function held(gates: readonly Promise<void>[]): (models: Models) => Models {
     let first = true;
     return (models) =>
@@ -654,7 +646,6 @@ test("a letter's, a question's and an answer's item names its author as today", 
     ]);
 });
 
-/** Counts the conversations the harness is asked to observe from now on. */
 async function observed(
     t: TestContext,
     agent: Woken,
@@ -757,7 +748,6 @@ test("a client following the chief's chat reads again after /resume to a session
     ]);
 });
 
-/** A weak hold on the first item an event added with `text`. */
 function heldWeakly(agent: Woken, text: string): WeakRef<ChatItem> {
     for (const event of chatEvents(agent)) {
         for (const op of event.ops) {

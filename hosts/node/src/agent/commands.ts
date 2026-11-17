@@ -1,6 +1,6 @@
 /**
  * The chief's commands to an agent: what each changes and how it is
- * refused. `chat.ts` makes each a client action.
+ * refused.
  */
 import type { Context } from "@earendil-works/chord/context";
 import type { AssistantMessage } from "@earendil-works/pi-ai";
@@ -225,11 +225,6 @@ function retryRefused(why: RetryRefusal): RetryAnswer {
     return { type: "refused", why: { type: why }, words: RETRY_WORDS[why] };
 }
 
-/**
- * Why the turn cannot be carried on, `admitted` when this retry already
- * was, or `undefined`. As today, an answer that stopped normally or at its
- * length, with words or a call, is not carried on.
- */
 async function refusedRetry(
     harness: Harness,
     conversation: ConversationId,
@@ -338,7 +333,6 @@ function entryOf(item: string): EntryId | undefined {
     return entry === undefined ? undefined : (Number(entry) as EntryId);
 }
 
-/** The chief's line at `at` and the entry before it, or why there is none. */
 async function lineAt(
     harness: Harness,
     conversation: ConversationId,
@@ -360,17 +354,14 @@ async function lineAt(
 }
 
 /**
- * How the words of `workspace-tools.ts`'s `run` and `waits` and of
- * `society.ts`'s `ask` end: nothing else in a result says its end comes
- * later as an input.
+ * The ending of `workspace-tools.ts`'s `run` and `waits` and `society.ts`'s
+ * `ask` results: no other result says its end comes later as an input.
  */
 const ENDS_LATER = " arrives as a new input.";
 
 /**
- * Whether a call `conversation` made is out: a command or a wait for a chief
- * whose `finished` was not admitted, or a question with no answer. An answer
- * names no question, so questions are counted. An entry a fork inherited is
- * left out: its call's end goes to the conversation that made it.
+ * Whether a command or a wait for a chief `conversation` made has no admitted
+ * `finished`, or a question it asked no answer.
  */
 async function callIsOut(
     harness: Harness,
@@ -383,7 +374,9 @@ async function callIsOut(
     do {
         const page = await kept?.entries({}, 100, cursor, context);
         for (const entry of page?.items ?? []) {
+            // A call a fork inherited ends in the conversation that made it.
             if (entry.conversationId !== conversation) continue;
+            // An answer names no question, so questions are counted.
             if (entry.kind === "hamlet.answer") unanswered -= 1;
             const result = entry.model?.[0];
             if (

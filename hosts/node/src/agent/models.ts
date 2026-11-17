@@ -42,12 +42,12 @@ import {
 } from "./messages.ts";
 import { type BareRealm, type Peers, reasonOf } from "./turn.ts";
 
-/** Dollars per million tokens of a model nothing prices, as today. */
+/** Dollars per million tokens of a model nothing prices. */
 const RATE = 1;
 /** {@link RATE} for a model served on this machine. */
 const LOCAL_RATE = 0.1;
 
-/** The provider of the faux models, which take no credential, as today. */
+/** The provider of the faux models, which take no credential. */
 const FAUX = "faux";
 
 /** The APIs whose requests carry a `service_tier`. */
@@ -226,7 +226,7 @@ function rotated(
     let rotation = ROTATIONS.get(retired);
     if (rotation === undefined) {
         rotation = (async () => {
-            // Not the request's signal: a rotation started is finished, as today.
+            // Not the request's signal: a rotation started is finished.
             const fresh = loginOf(
                 await oauth.refresh(
                     credentialOf(login),
@@ -417,9 +417,8 @@ class Scrubbed extends AssistantMessageEventStream {
     }
 
     /**
-     * `source` scrubbed, with each text still streaming withheld and its
-     * delta the growth of the text shown. `shown` holds each block's text
-     * as last shown, `received` each call's argument text so far.
+     * `source` scrubbed, each text still streaming withheld. `shown` holds each
+     * block's text as last shown, `received` each call's arguments so far.
      */
     #withheld(
         source: AssistantMessageEvent,
@@ -466,7 +465,6 @@ function isCutOff(message: AssistantMessage): boolean {
     return message.stopReason === "error" || message.stopReason === "aborted";
 }
 
-/** Withholds the tail of each text in `message` but block `ended`'s. */
 function withheldIn(message: AssistantMessage, ended?: number): void {
     for (const [index, block] of message.content.entries()) {
         if (index === ended) continue;
@@ -482,7 +480,6 @@ function scrubbedError(error: unknown): Error {
     return new Error(scrub(reasonOf(error)));
 }
 
-/** `provider::model`, as the catalogue and the copy name a model. */
 function nameOf(model: Pick<Model<Api>, "provider" | "id">): string {
     return `${model.provider}::${model.id}`;
 }
@@ -653,8 +650,7 @@ export async function checkModel(
         }
         return { type: "answered", words: scrub(text) };
     } catch (error) {
-        // As today, the words come from the error's text, scrubbed before
-        // `plainly` cuts it.
+        // Scrubbed before `plainly` cuts it, so no part of a key is left.
         return { type: "failed", words: plainly(scrub(String(error))) };
     }
 }
@@ -680,7 +676,6 @@ function plainly(error: string): string {
     return `That model did not answer a hello. Pick another one. (${detail})`;
 }
 
-/** The keys an agent's model calls carry, OAuth logins refreshed. */
 function agentKeys(listed: Models, peers: Peers): Keys {
     return keysOf(peers.reach, peers.report, {
         listed,
@@ -768,7 +763,6 @@ interface CopiedAgent {
     readonly thinkingLevel: Effort | null;
 }
 
-/** The copy's {@link CopiedAgent}; `undefined` with no model copy. */
 async function copiedAgent(
     copies: ReadCopies,
 ): Promise<CopiedAgent | undefined> {

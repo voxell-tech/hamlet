@@ -100,7 +100,7 @@ export interface AgentConfig {
     readonly files: (agent: number) => AgentFilesystem;
     readonly fill?: (files: AgentFilesystem, fill: Fill) => Promise<void>;
     readonly settings?: HarnessSettings;
-    /** The models the listing holds now, which compaction is sized by. */
+    /** The models the listing holds now. */
     readonly listed?: () => readonly Model<Api>[];
     /** Answers the Hand's `login`; a host without it signs no one in. */
     readonly signIns?: SignIns;
@@ -138,7 +138,6 @@ export type AgentDefinition = ActorDefinition<
 >;
 
 interface Offer {
-    /** Narrows a set of built-in tools to those offered. */
     readonly builtIn: (extension: Extension) => Extension;
     /** Whether the society's tools, the timers and reflection are offered. */
     readonly society: boolean;
@@ -391,9 +390,7 @@ export interface Generation {
     readonly following: Following;
     /**
      * Runs `work` once every earlier `work` has settled. What reads the
-     * current session and then writes by it runs here, so a line, `/retry`,
-     * `/new`, `/resume` and a rewind each see the session the one before
-     * left.
+     * current session and then writes by it runs here.
      */
     readonly inTurn: <T>(work: () => Promise<T>) => Promise<T>;
 }
@@ -484,9 +481,6 @@ async function wake(c: AgentContext, config: AgentConfig): Promise<void> {
     }
     failed.follow(harness);
     harness.resume();
-    // Configured at every wake, not only when a newer model was kept, and
-    // even when the realm was not reached, so a configure a kill cut off
-    // after the copy was kept is done again.
     const read = refreshed(c, peers).catch((error: unknown) =>
         peers.report("the copies were not read from the realm", error),
     );
@@ -495,6 +489,8 @@ async function wake(c: AgentContext, config: AgentConfig): Promise<void> {
         .catch((error: unknown) =>
             peers.report("the copy's model's key was not read", error),
         );
+    // Configured at every wake, even when the realm was not reached, so a
+    // configure a kill cut off is done again.
     const copied = read
         .then(() => configured(c, copies))
         .catch((error: unknown) =>
@@ -524,9 +520,8 @@ async function wake(c: AgentContext, config: AgentConfig): Promise<void> {
 const BRIEF_ID = "brief";
 
 /**
- * A worker's or an errand's one turn, from create. Each wake admits it again
- * under the same id, waits for it to end and tells the realm how, so a call
- * a kill cut off is made once more and the turn never runs twice.
+ * Each wake admits a worker's or an errand's one turn again under `BRIEF_ID`,
+ * so a call a kill cut off is made again and the turn never runs twice.
  */
 async function briefTurn(
     c: AgentContext,
@@ -597,10 +592,6 @@ interface Last {
      * last answer that has any, its blocks joined by lines and trimmed.
      */
     readonly words?: string;
-    /**
-     * The last notice for people alone, which says why a turn failed, as
-     * today's input's reason does.
-     */
     readonly notice?: string;
 }
 
@@ -693,7 +684,6 @@ async function submit(c: AgentCall, message: Submit): Promise<void> {
             );
         });
     };
-    // These are admitted to the current session, so they wait their turn.
     await (BY_SESSION.has(message.input.type) ? inTurn(admit) : admit());
 }
 

@@ -30,7 +30,7 @@ import { draftOf } from "./turn.ts";
 /** Today's, in `harnesses/pi/src/models.ts` and `runtime.ts`. */
 const ANSWER_SHARE = 0.2;
 const BACKGROUND_SHARE = 0.1;
-/** The window today assumes for a model the listing does not hold. */
+/** The window assumed for a model the listing does not hold. */
 const DEFAULT_WINDOW = 32_768;
 
 /** Compaction sized by each model's window, and by today's default window for any other. */
@@ -126,7 +126,6 @@ function cutOffTask(tell: TellFailed) {
                     context,
                     { at: task.input.answer },
                 );
-                // Today counted the messages before the answer: one is no history.
                 const spoken = view.messages.filter(
                     (message) => message.role !== "system",
                 ).length;

@@ -245,7 +245,7 @@ test("a stop while a provider error waits to be tried again ends the agent", asy
 
     // A stop takes milliseconds; a hang waits for the retry's sleep.
     assert.equal(await within(agent.stop(), 30_000, "hung"), undefined);
-    // What the close cut off has settled by the end of the next wake.
+    // The work the close cut off has settled by the end of the next wake.
     await (await agent.again()).stop();
     assert.deepEqual(agent.reported, []);
     assert.deepEqual(named(sent, "turn_failed"), []);
@@ -263,7 +263,6 @@ function textOf(message: Message): string {
         .join("");
 }
 
-/** Answers a summarising request with a summary, every other with the next of `answers`. */
 function script(answers: AssistantMessage[]): FauxResponseStep[] {
     const step: FauxResponseStep = (request) =>
         request.messages

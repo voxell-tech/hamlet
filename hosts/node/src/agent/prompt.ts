@@ -31,7 +31,7 @@ export interface Where {
     readonly place: Omit<Place, "version">;
 }
 
-/** What the prompt's parts are read from, by the sections and by `read_prompt`. */
+/** What the prompt's parts are read from. */
 export interface PromptSources {
     readonly copies: ReadCopies;
     readonly files: AgentFilesystem;
@@ -62,7 +62,6 @@ export function promptSources(
                 place: JSON.parse(row.place) as Where["place"],
             };
         },
-        // As today, a file that cannot be read is left out of the prompt.
         readFile: (path) =>
             readFile(peers, { path }).catch((error: unknown) => {
                 peers.report(`${path} was not read for the prompt`, error);
@@ -93,7 +92,6 @@ function partsOf(
     ];
 }
 
-/** A part with nothing but blanks is left out, as today. */
 async function rendered(
     render: Render,
     sources: PromptSources,
@@ -178,7 +176,6 @@ async function character(sources: PromptSources): Promise<string | undefined> {
     return `# Your character\n${cut(text, CHARACTER_SHOWN, "[The character is cut here.]")}`;
 }
 
-/** The root files of `memory/`, then each folder's description from its `MEMORY.md`. */
 async function memory(
     sources: PromptSources,
     context: Context,
@@ -289,17 +286,12 @@ async function place(sources: PromptSources): Promise<string> {
     return lines.join("\n");
 }
 
-/** `text` cut to `most` characters, with `note` where it was cut; `longer` when it came cut already. */
 function cut(text: string, most: number, note: string, longer = false): string {
     const characters = [...text];
     if (characters.length <= most && !longer) return text;
     return `${characters.slice(0, most).join("")}\n${note}`;
 }
 
-/**
- * A missing folder lists nothing; one that cannot be listed is reported and
- * `undefined`.
- */
 async function listed(
     sources: PromptSources,
     path: string,

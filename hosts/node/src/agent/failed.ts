@@ -154,7 +154,6 @@ type Unanswered = Extract<SubmissionRecord, { status: "unanswered" }>;
 interface FailedRun {
     readonly conversation: ConversationId;
     readonly failure: RunFailure;
-    /** The run's first input, settled with the failure. */
     readonly input: Unanswered;
 }
 
@@ -170,7 +169,7 @@ export function failedTurns(
     withHarness: WithHarness,
     tell: TellFailed,
 ): FailedTurns {
-    // What each request's task answered with last, until its run ends: the
+    // Each request's task's last answer, until its run ends: the
     // error item an error leaves already shows its words.
     const answered = new Map<TaskId, "unsent" | "error">();
     const extension = defineExtension({
@@ -324,7 +323,6 @@ export function failedTurns(
     }
 }
 
-/** The runs a commit ended with a failure, each with its first input. */
 function failedIn(changes: readonly CommitChange[]): FailedRun[] {
     const settled = new Map<SubmissionId, Unanswered>();
     for (const change of changes) {
