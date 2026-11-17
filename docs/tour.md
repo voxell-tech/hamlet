@@ -626,7 +626,8 @@ a client only, and a sign-in's on the Hand alone.
 - `failed.ts` writes a failed turn's notice and tells the realm
   `turn_failed`.
 - `models.ts` gives each model call the realm's `credential` and the
-  copy's price, and scrubs every key and token from what a client reads.
+  copy's price. The host keeps a list of the secrets it holds, and
+  `models.ts` scrubs them from what a client reads.
   `login.ts` runs a sign-in step by step and gives the credential to the
   realm's `keep_credential`.
 - `claude.ts` adds the provider `claude`, which runs Anthropic's program
@@ -635,7 +636,8 @@ a client only, and a sign-in's on the Hand alone.
 
 A worker or an errand runs its brief's one turn and tells the realm its
 end with `worker_done` or `errand_done`. An errand is offered no tool, and
-a worker only the built-in tools its brief names.
+a worker the built-in tools its brief names, or all of them when it names
+none.
 
 A tool's name, parameters and descriptions are today's server's, word
 for word, except `wake`, because today's server has no timer an agent can
@@ -644,7 +646,7 @@ holding its turn open. The timer's input starts a new turn.
 
 `hosts/node/test/` tests the agent on fake calls (`agent-testing.ts`) in
 `agent.test.ts`, `spend.test.ts`, `tools.test.ts`, `society.test.ts` and
-`timers.test.ts`, the chat in one `chat-<part>.test.ts` per module, and
+`timers.test.ts`, the chat in the `chat-*.test.ts` files, and
 `messages.test.ts` checks each message the agent
 writes or takes against `hamlet_messages`'s fixtures.
 `test/native/agent-actor.test.ts` runs the agent on the native host.
