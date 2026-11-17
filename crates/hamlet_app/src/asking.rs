@@ -24,7 +24,7 @@ use bevy_fynix::{
 };
 use hamlet_client::messages::{Answer, Answered};
 use hamlet_client::waits::{Choice, Refused, Waiting};
-use hamlet_protocol::client::{Offer, Pick, Questions};
+use hamlet_protocol::client::{Offer, Pick, Questions, RequestId};
 use hamlet_ui::styles::{
     Fills, Looks, bare, marked, note, note_rules, small_rules,
     text_input, transparent,
@@ -151,6 +151,7 @@ fn submit(world: &mut World, card: Entity, count: usize) {
         None => {
             world.trigger(Answered {
                 entity: card,
+                request: RequestId::new(),
                 picks: picks.into_iter().flatten().collect(),
             });
             world.flush();
@@ -161,6 +162,7 @@ fn submit(world: &mut World, card: Entity, count: usize) {
 fn dismiss(world: &mut World, card: Entity) {
     world.trigger(Answer {
         wait: card,
+        request: RequestId::new(),
         choice: Choice::Dismiss,
         text: None,
     });

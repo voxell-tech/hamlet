@@ -403,7 +403,10 @@ notifications, requests and responses contribute to activity and spend even when
 no chief watches their conversation.
 
 `hamlet_client` reconciles state and changes into entities, keeping the
-entities of hamlets and agents still present. When reconnecting it sends
+entities of hamlets and agents still present. Each event that sends a
+chat's line, an answer, a stop, a resume, a rewind, a compaction or a
+withdrawal carries the `RequestId` its caller made, which the request is
+sent with, so the caller knows the `reply` to it. When reconnecting it sends
 `hello` again, retains unsent requests in its
 Outbox and opens its watched chats again. A lost connection retries; a
 refused token stops retries and shows the server's words.

@@ -39,6 +39,7 @@ use bevy_fynix::{
     ScopedExt, ViewExt, derived, every_frame, keyed, resource,
 };
 use hamlet_client::messages::Veto;
+use hamlet_client::outbox::RequestId;
 use hamlet_client::realm::{self as agents, Deeds};
 use hamlet_realm::orders;
 use hamlet_realm::pick::{Asked, AskedGround, Thing};
@@ -308,10 +309,15 @@ fn field<R: Resource<Mutability = Mutable>>(
     .rules(hamlet_ui::styles::text_input)
 }
 
-/// Stops what `agent` is doing now.
-pub(super) fn stop(world: &mut World, agent: Entity) {
-    world.trigger(Veto { agent: Some(agent) });
+/// Stops what `agent` is doing now, and gives the id of the request.
+pub(super) fn stop(world: &mut World, agent: Entity) -> RequestId {
+    let request = RequestId::new();
+    world.trigger(Veto {
+        request: request.clone(),
+        agent: Some(agent),
+    });
     world.flush();
+    request
 }
 
 /// The place of the pointer, in the panels' pixels.

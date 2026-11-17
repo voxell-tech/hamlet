@@ -205,6 +205,12 @@ pub(super) fn refused(world: &mut World, id: protocol::RequestId) {
     world.resource_mut::<Requests>().0.insert(id, Said::Refusal);
 }
 
+/// Says the reply to the request `id` under the field, or its
+/// refusal.
+pub(super) fn replied(world: &mut World, id: protocol::RequestId) {
+    world.resource_mut::<Requests>().0.insert(id, Said::Reply);
+}
+
 fn remember_said(
     message: On<ChiefMessage>,
     mut requests: ResMut<Requests>,

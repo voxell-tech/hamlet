@@ -39,13 +39,18 @@ fn chief_messages_become_requests_with_fresh_uuid_ids_and_wire_ids() {
     world.trigger(ChiefMessage::words(ada(), "hello".into()));
     world.trigger(Answer {
         wait,
+        request: protocol::RequestId::new(),
         choice: Choice::Allow,
         text: Some("go".into()),
     });
     world.trigger(Veto {
+        request: protocol::RequestId::new(),
         agent: Some(ada_entity),
     });
-    world.trigger(Veto { agent: None });
+    world.trigger(Veto {
+        request: protocol::RequestId::new(),
+        agent: None,
+    });
     world.trigger(Rewind {
         chat,
         request: protocol::RequestId::new(),
@@ -112,6 +117,7 @@ fn structured_questions_reconcile_and_send_picks_without_forging_chief_text()
     // The server, not the window, judges an answer.
     world.trigger(Answered {
         entity,
+        request: protocol::RequestId::new(),
         picks: vec![protocol::Pick::Words {
             text: "Left".into(),
         }],
@@ -142,6 +148,7 @@ fn structured_questions_reconcile_and_send_picks_without_forging_chief_text()
     );
     world.trigger(Answered {
         entity,
+        request: protocol::RequestId::new(),
         picks: vec![protocol::Pick::Offer { index: 1 }],
     });
     world.flush();

@@ -38,6 +38,7 @@ pub fn plugin(app: &mut App) {
                 send_answer(
                     &mut world,
                     answer.wait,
+                    answer.request.clone(),
                     answer.choice.clone(),
                     answer.text.clone(),
                     None,
@@ -50,6 +51,7 @@ pub fn plugin(app: &mut App) {
                 send_answer(
                     &mut world,
                     answer.entity,
+                    answer.request.clone(),
                     Choice::Reply,
                     None,
                     Some(answer.picks.clone()),
@@ -57,7 +59,8 @@ pub fn plugin(app: &mut App) {
             },
         )
         .add_observer(|veto: On<Veto>, mut world: DeferredWorld| {
-            let agent = match veto.event().agent {
+            let veto = veto.event();
+            let agent = match veto.agent {
                 Some(entity) => {
                     let Some(id) = id_of(&world, entity) else {
                         return;
@@ -66,12 +69,12 @@ pub fn plugin(app: &mut App) {
                 }
                 None => None,
             };
-            world.resource_mut::<Outbox>().send(|id| {
+            world.resource_mut::<Outbox>().push(
                 protocol::ClientMessage::Stop(protocol::Stop {
-                    id,
+                    id: veto.request.clone(),
                     agent,
-                })
-            });
+                }),
+            );
         })
         .add_observer(
             |resume: On<Resume>, mut world: DeferredWorld| {
@@ -169,6 +172,7 @@ impl ChiefMessage {
 pub struct Answer {
     #[event_target]
     pub wait: Entity,
+    pub request: RequestId,
     pub choice: Choice,
     pub text: Option<String>,
 }
@@ -177,12 +181,14 @@ pub struct Answer {
 #[derive(EntityEvent, Clone, Debug)]
 pub struct Answered {
     pub entity: Entity,
+    pub request: RequestId,
     pub picks: Vec<protocol::Pick>,
 }
 
 /// A stop request for one agent, or every agent when absent.
-#[derive(Event, Clone, Copy, Debug)]
+#[derive(Event, Clone, Debug)]
 pub struct Veto {
+    pub request: RequestId,
     pub agent: Option<Entity>,
 }
 
@@ -272,25 +278,28 @@ struct Answers(HashMap<RequestId, Entity>);
 fn send_answer(
     world: &mut DeferredWorld,
     need: Entity,
+    request: RequestId,
     choice: Choice,
     text: Option<String>,
     picks: Option<Vec<protocol::Pick>>,
 ) {
-    let Some(waiting) =
-        world.get::<Waiting>(need).map(|w| w.id.clone())
+    let Some(wait) = world.get::<Waiting>(need).map(|w| w.id.clone())
     else {
         return;
     };
-    let request = world.resource_mut::<Outbox>().send(|id| {
+    world
+        .resource_mut::<Answers>()
+        .0
+        .insert(request.clone(), need);
+    world.resource_mut::<Outbox>().push(
         protocol::ClientMessage::Answer(protocol::Answer {
-            id,
-            wait: waiting,
+            id: request,
+            wait,
             choice,
             text,
             picks,
-        })
-    });
-    world.resource_mut::<Answers>().0.insert(request, need);
+        }),
+    );
 }
 
 pub(crate) fn receive(

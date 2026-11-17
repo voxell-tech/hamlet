@@ -25,7 +25,7 @@ use hamlet_client::chats::{Chat, Entry, Transcript};
 use hamlet_client::messages::Answer;
 use hamlet_client::waits::{Choice, ChoiceExt, RaisedBy, Waiting};
 use hamlet_protocol::client::{
-    Change, Lasting, Questions, WaitDanger, WaitDetail,
+    Change, Lasting, Questions, RequestId, WaitDanger, WaitDetail,
 };
 use hamlet_realm::needs::{TagAnswered, TagOpened};
 use hamlet_ui::kinds::card;
@@ -223,6 +223,7 @@ fn answer(world: &mut World, need: &Need, choice: Choice) {
     }
     world.trigger(Answer {
         wait: need.entity,
+        request: RequestId::new(),
         choice,
         text: None,
     });
@@ -244,6 +245,7 @@ pub(crate) fn tag_answered(
     if let Some(choice) = choice {
         commands.trigger(Answer {
             wait: item,
+            request: RequestId::new(),
             choice,
             text: None,
         });

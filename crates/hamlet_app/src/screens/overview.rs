@@ -23,6 +23,7 @@ use bevy_fynix::{
     ScopedExt, ViewExt, Visual, derived, keyed, resource,
 };
 use hamlet_client::messages::Veto;
+use hamlet_client::outbox::RequestId;
 use hamlet_client::realm::{
     Busy, Closed, Deeds, HamletId, Identity, Left, Scholar, Treasury,
 };
@@ -256,7 +257,12 @@ fn stop_all() -> AnyView {
         .when(bevy_fynix::every_frame()),
         |&any| {
             let stop = bad_action(Glyph::Stop, "Stop all", |world| {
-                world.trigger(Veto { agent: None });
+                let request = RequestId::new();
+                crate::toasts::watch(world, request.clone());
+                world.trigger(Veto {
+                    request,
+                    agent: None,
+                });
                 world.flush();
             });
             if any {

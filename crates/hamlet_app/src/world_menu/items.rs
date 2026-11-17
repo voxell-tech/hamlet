@@ -163,7 +163,8 @@ fn pin_bash(world: &World, agent: Entity) -> Option<AnyView> {
 fn for_mayor(world: &World) -> Vec<AnyView> {
     let mut items = vec![item("Stop the Mayor".into(), |world| {
         if let Some(mayor) = agents::first_mayor(world) {
-            stop(world, mayor);
+            let request = stop(world, mayor);
+            crate::toasts::watch(world, request);
         }
     })];
     if let Some(mayor) = agents::first_mayor(world) {

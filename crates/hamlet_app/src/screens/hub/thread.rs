@@ -514,7 +514,8 @@ fn send_or_stop(agent: Entity) -> impl View {
                     .tagged(Stopping)
                     .tip("Stop")
                     .on_activate(move |world| {
-                        world_menu::stop(world, agent);
+                        let request = world_menu::stop(world, agent);
+                        chat::replied(world, request);
                     })
                     .boxed()
             } else {

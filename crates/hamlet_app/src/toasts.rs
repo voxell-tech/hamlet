@@ -1059,6 +1059,7 @@ fn dismiss_group(world: &mut World, id: u64) {
     for wait in waits {
         world.trigger(Answer {
             wait,
+            request: RequestId::new(),
             choice: Choice::Dismiss,
             text: None,
         });
