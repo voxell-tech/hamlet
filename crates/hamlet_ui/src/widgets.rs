@@ -14,6 +14,7 @@ pub mod platform;
 pub mod providers;
 pub mod rainbow;
 pub mod range;
+pub mod shimmer;
 pub mod spoken;
 pub mod switch;
 pub mod tabs;
@@ -34,6 +35,7 @@ pub fn plugin(app: &mut App) {
         hint::plugin,
         providers::plugin,
         rainbow::plugin,
+        shimmer::plugin,
         spoken::plugin,
     ));
 }

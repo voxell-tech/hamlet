@@ -208,7 +208,7 @@ fn quiet(words: String) -> impl View {
 
 /// The lines a change adds in green and takes out in red, its count
 /// in words under the pointer; the words alone when it changed none.
-fn counted(change: &Change) -> AnyView {
+pub(super) fn counted(change: &Change) -> AnyView {
     let words = change.count.clone();
     if change.added == 0 && change.removed == 0 {
         return note(words).boxed();
@@ -269,13 +269,6 @@ pub(crate) fn change_view(
     underway: Underway,
 ) -> AnyView {
     let key = (chat, id.clone());
-    let entry_id = id.clone();
-    let entry =
-        move |world: &World| {
-            ended(world.get::<Transcript>(chat).and_then(|t| {
-                t.item(&entry_id).map(|item| &item.entry)
-            }))
-        };
     let verb = if change.created { "Create" } else { "Edit" };
     let fold_key = key.clone();
     let toggle_key = key.clone();
@@ -325,13 +318,39 @@ pub(crate) fn change_view(
         vec![fold.boxed(), file.boxed(), counted(&change)];
     // A held call's card says that it waits, so its head does not.
     if underway == Underway::Running {
-        parts.push(row((status(chat, id),)).shrink(0.0).boxed());
+        parts.push(
+            row((status(chat, id.clone()),)).shrink(0.0).boxed(),
+        );
     }
     let head = row(parts)
         .align(AlignItems::Center)
         .width(percent(100.0))
         .min_width(px(0.0));
+    let body = diff(chat, id, change);
+    with_cx(move |cx| {
+        let gap = cx.theme().space.gap;
+        column((head.gap(gap), body))
+            .gap(gap / 4.0)
+            .width(percent(100.0))
+    })
+    .boxed()
+}
 
+/// The lines the edit at entry `id` of `chat` changed, unless they
+/// were shut, or why it was not applied.
+pub(super) fn diff(
+    chat: Entity,
+    id: String,
+    change: Change,
+) -> AnyView {
+    let key = (chat, id.clone());
+    let entry_id = id;
+    let entry =
+        move |world: &World| {
+            ended(world.get::<Transcript>(chat).and_then(|t| {
+                t.item(&entry_id).map(|item| &item.entry)
+            }))
+        };
     let mut moved = component::<Transcript, _>(chat, |_| ());
     let mut turned = resource::<Changes, _>(|_| ());
     let mut seen = None;
@@ -359,7 +378,7 @@ pub(crate) fn change_view(
             differs
         },
     );
-    let body = keyed(drawn, move |(extent, refused)| {
+    keyed(drawn, move |(extent, refused)| {
         let mut parts = Vec::new();
         if let Some(refused) = refused {
             parts.push(
@@ -377,13 +396,7 @@ pub(crate) fn change_view(
         })
         .boxed()
     })
-    .within(bare());
-    with_cx(move |cx| {
-        let gap = cx.theme().space.gap;
-        column((head.gap(gap), body))
-            .gap(gap / 4.0)
-            .width(percent(100.0))
-    })
+    .within(bare())
     .boxed()
 }
 

@@ -35,14 +35,14 @@ use hamlet_client::realm::Kind;
 use hamlet_protocol::client as protocol;
 use hamlet_realm::hand::FileDrop;
 use hamlet_ui::styles::{
-    Fills, LINE, Looks, Tipped, lettered, note, small_rules,
-    text_button,
+    Fills, Looks, Tipped, lettered, note, small_rules, text_button,
 };
 use hamlet_ui::widgets::edges::faded;
 use hamlet_ui::widgets::icons::{Glyph, glyph};
+use hamlet_ui::widgets::shimmer::shimmer;
 use hamlet_ui::{AnyView, Cx, View, with_cx};
 
-use super::entry::{edit_view, entry_view};
+use super::entry::entry_view;
 use super::timeline::{Line, People, Who, timeline};
 use super::{AwayFromEnd, ChatScroll, bubble};
 use crate::convo::Convo;
@@ -238,18 +238,22 @@ pub(super) enum Row {
         chat: Entity,
         id: String,
     },
+    /// The steps of one turn under a header, open while it runs.
     Fold {
         chat: Entity,
-        /// The first entry folded in, shown or not.
+        /// The entry the turn is known by: the one before it, else
+        /// its first step.
         first: String,
         /// The steps shown when it is open.
         steps: Vec<String>,
-        /// The edits among them, whose changes are shown when it is
-        /// shut too.
-        edits: Vec<String>,
-        tools: usize,
         failed: usize,
+        /// When its first step began and its last ended, as far as
+        /// the steps tell, in milliseconds since 1970.
+        start: u64,
+        end: u64,
         running: bool,
+        /// Its model reasons now.
+        thinking: bool,
         open: bool,
     },
 }
@@ -258,12 +262,10 @@ pub(super) enum Row {
 fn is_card(entry: &Entry) -> bool {
     match entry {
         Entry::Summary(_) | Entry::Merged { .. } => true,
-        Entry::Tool { call, .. } => {
-            matches!(call, protocol::ToolCall::Worker { .. })
-        }
         Entry::Chief { .. }
         | Entry::Assistant(_)
         | Entry::Reasoning(_)
+        | Entry::Tool { .. }
         | Entry::Error(_)
         | Entry::Notice(_)
         | Entry::Answered(_)
@@ -271,21 +273,118 @@ fn is_card(entry: &Entry) -> bool {
     }
 }
 
-/// One conversation with each run of thinking, tool calls and
-/// notices folded.
+/// One turn of the agent while its steps are gathered.
+struct Turn {
+    first: String,
+    steps: Vec<String>,
+    failed: usize,
+    start: u64,
+    end: u64,
+    /// The last step is words the agent wrote, which are its reply
+    /// unless a step follows.
+    replied: bool,
+    reasons: bool,
+}
+
+impl Turn {
+    fn new(first: String, at: u64) -> Self {
+        Turn {
+            first,
+            steps: Vec::new(),
+            failed: 0,
+            start: at,
+            end: at,
+            replied: false,
+            reasons: false,
+        }
+    }
+
+    fn take(&mut self, item: &chats::Item) {
+        if self.steps.is_empty() && item.at > 0 {
+            self.start = item.at;
+        }
+        let ms = match &item.entry {
+            Entry::Tool { exit, ms, .. } => {
+                self.failed += exit.is_some_and(|c| c != 0) as usize;
+                ms.unwrap_or(0)
+            }
+            _ => 0,
+        };
+        self.end = self.end.max(item.at + ms);
+        self.steps.push(item.id.clone());
+        self.replied = matches!(item.entry, Entry::Assistant(_));
+        self.reasons = matches!(item.entry, Entry::Reasoning(_));
+    }
+
+    /// Its rows: the steps under their header, then its reply.
+    fn close(
+        mut self,
+        chat: Entity,
+        running: bool,
+        open: &[(Entity, String)],
+        rows: &mut Vec<Row>,
+    ) {
+        let reply = match self.replied {
+            true => self.steps.pop(),
+            false => None,
+        };
+        if running || !self.steps.is_empty() {
+            rows.push(Row::Fold {
+                chat,
+                open: running
+                    || open.contains(&(chat, self.first.clone())),
+                first: self.first,
+                steps: self.steps,
+                failed: self.failed,
+                start: self.start,
+                end: self.end,
+                running,
+                thinking: running && self.reasons,
+            });
+        }
+        if let Some(id) = reply {
+            rows.push(Row::Entry { chat, id });
+        }
+    }
+}
+
+/// One conversation with the steps of each turn folded under its
+/// header, and its reply after them.
 pub(super) fn rows(
     chat: Entity,
     transcript: &Transcript,
     open: &[(Entity, String)],
 ) -> Vec<Row> {
+    let live = transcript.is_answering();
     let mut rows = Vec::<Row>::new();
-    // Whether the last row is a fold that opened its turn, and
-    // whether the last entry was a reply.
-    let (mut opening, mut replied) = (false, false);
+    let mut turn = None::<Turn>;
+    // The entry a turn that begins now is known by, and whether a
+    // turn has followed it.
+    let mut before = None::<&chats::Item>;
+    let mut answered = false;
+    // The turn that runs ends where the queue begins.
+    let mut queue = false;
     // The fault the last row says, if it says one: the same fault
     // again, as each try that fails the same way raises, stands in
     // its place, so a run of them is one row, its last.
     let mut fault: Option<&str> = None;
+    let end = |turn: Option<Turn>,
+               before: Option<&chats::Item>,
+               answered: bool,
+               rows: &mut Vec<Row>| {
+        match turn {
+            Some(turn) => turn.close(chat, live, open, rows),
+            // A turn that has shown nothing yet, known by what it
+            // answers.
+            None if live && !answered => {
+                if let Some(before) = before {
+                    Turn::new(before.id.clone(), before.at)
+                        .close(chat, true, open, rows);
+                }
+            }
+            None => {}
+        }
+    };
     for item in transcript.items() {
         if let Entry::Error(said) = &item.entry {
             if fault == Some(said.as_str()) {
@@ -302,115 +401,162 @@ pub(super) fn rows(
         let step = match &item.entry {
             // Nothing said is no message: a model that calls a tool
             // often says nothing with it, and that neither makes a
-            // bubble nor parts the steps before it from those after.
+            // row nor parts the steps before it from those after.
             Entry::Assistant(text) if text.trim().is_empty() => {
                 continue;
             }
-            entry if is_card(entry) => None,
-            Entry::Tool { exit, .. } => Some((true, *exit)),
-            Entry::Reasoning(_) | Entry::Notice(_) => {
-                Some((false, Some(0)))
-            }
-            Entry::Chief { .. }
-            | Entry::Assistant(_)
+            Entry::Tool { .. }
+            | Entry::Reasoning(_)
+            | Entry::Assistant(_) => true,
+            // A notice often follows a turn's reply, and stands
+            // after it.
+            Entry::Notice(_)
+            | Entry::Chief { .. }
             | Entry::Error(_)
             | Entry::Answered(_)
             | Entry::Agent { .. }
             | Entry::Summary(_)
-            | Entry::Merged { .. } => None,
+            | Entry::Merged { .. } => false,
         };
-        let Some((tool, exit)) = step else {
-            let reply = matches!(item.entry, Entry::Assistant(_));
-            let id = item.id.clone();
-            let row = match is_card(&item.entry) {
-                true => Row::Card { chat, id },
-                false => Row::Entry { chat, id },
-            };
-            // Steps stand under the reply before them, and those
-            // that open a turn under its first reply.
-            if reply && opening {
-                rows.insert(rows.len() - 1, row);
-            } else {
-                rows.push(row);
-            }
-            (opening, replied) = (false, reply);
+        if step {
+            let first = before.unwrap_or(item);
+            turn.get_or_insert_with(|| {
+                Turn::new(first.id.clone(), first.at)
+            })
+            .take(item);
+            answered = true;
             continue;
-        };
-        if !matches!(rows.last(), Some(Row::Fold { .. })) {
-            opening = !replied;
-            rows.push(Row::Fold {
-                chat,
-                first: item.id.clone(),
-                steps: Vec::new(),
-                edits: Vec::new(),
-                tools: 0,
-                failed: 0,
-                running: false,
-                open: open.contains(&(chat, item.id.clone())),
-            });
         }
-        let Some(Row::Fold {
-            steps,
-            edits,
-            tools,
-            failed,
-            running,
-            ..
-        }) = rows.last_mut()
-        else {
-            continue;
-        };
-        *running |= exit.is_none();
-        steps.push(item.id.clone());
-        if matches!(
-            item.entry,
-            Entry::Tool {
-                change: Some(_),
-                ..
-            }
-        ) {
-            edits.push(item.id.clone());
+        if item.queued && !queue {
+            queue = true;
+            end(turn.take(), before, answered, &mut rows);
+        } else if let Some(done) = turn.take() {
+            done.close(chat, false, open, &mut rows);
         }
-        *tools += tool as usize;
-        *failed += exit.is_some_and(|c| c != 0) as usize;
+        let id = item.id.clone();
+        rows.push(match is_card(&item.entry) {
+            true => Row::Card { chat, id },
+            false => Row::Entry { chat, id },
+        });
+        if !item.queued {
+            (before, answered) = (Some(item), false);
+        }
+    }
+    if !queue {
+        end(turn.take(), before, answered, &mut rows);
     }
     rows
 }
-
-/// How far in from a fold's edge the line down from its chevron is,
-/// and how far from that line its steps are.
-const GUIDE: f32 = 4.0;
 
 /// How far in from a fold's edge its chevron is, as a bubble's words
 /// are from its edge.
 pub(super) const INSET: f32 = 12.0;
 
-/// The steps of a turn as one line that opens, as board `B` holds
-/// them.
+/// `ms` as a person reads a span of time: `13s`, `2m 49s`, `1h 4m`.
+pub(super) fn lasted(ms: u64) -> String {
+    let seconds = ms / 1000;
+    match seconds {
+        0..60 => format!("{seconds}s"),
+        60..3600 => format!("{}m {}s", seconds / 60, seconds % 60),
+        _ => format!("{}h {}m", seconds / 3600, seconds / 60 % 60),
+    }
+}
+
+/// The steps of a turn under its header, as board `B` holds them:
+/// how long it has worked, and the steps while it runs or when it is
+/// opened.
 pub(super) fn fold_view<B: Board>(
     key: RowKey,
     chat: Entity,
     first: String,
 ) -> impl View {
-    // The row is built once for its fold. Its heading and what is
-    // inside read the fold as it stands, so opening it or a new step
+    // The row is built once for its fold. Its header and what is
+    // inside read the fold as it stands, so a new step or its end
     // builds neither the row nor its button again.
-    let heading_key = key.clone();
-    let tone_key = key.clone();
-    let turn_key = key.clone();
-    // A quiet fold's words take the button's tone, which brightens
-    // under the pointer; one running or failed keeps its own.
-    let heading = keyed(
-        resource::<B, _>(move |b| b.lines().tone(&tone_key)),
-        move |tone| {
-            let key = heading_key.clone();
-            let words = label(resource::<B, _>(move |b| {
-                b.lines().heading(&key)
-            }));
-            match tone {
-                Tone::Dim => words.rules(small_rules).boxed(),
-                tone => words.tone(*tone).rules(small_rules).boxed(),
+    let running_key = key.clone();
+    let head_key = key.clone();
+    let head = keyed(
+        resource::<B, _>(move |b| b.lines().is_running(&running_key)),
+        move |running| match running {
+            true => working::<B>(head_key.clone()).boxed(),
+            false => {
+                worked::<B>(head_key.clone(), chat, first.clone())
+                    .boxed()
             }
+        },
+    )
+    .within(row(()).width(percent(100.0)));
+    let inside = each(
+        resource::<B, _>(move |b| b.lines().shown(&key)),
+        |id: &String| id.clone(),
+        move |id| entry_view(chat, id.clone()),
+    )
+    // As wide as the chat and no wider, so that what is inside is
+    // measured at the width it is shown at.
+    .within(column(()).width(percent(100.0)).min_width(px(0.0)));
+    with_cx(move |cx| {
+        let theme = cx.theme();
+        let rule = frame()
+            .height(px(theme.space.border))
+            .width(percent(100.0))
+            .fill(theme.palette.gold_6);
+        column((head, rule, inside))
+            .gap(theme.space.gap / 2.0)
+            .align(AlignItems::FlexStart)
+            .width(percent(100.0))
+            .min_width(px(0.0))
+    })
+}
+
+/// The header of a turn that runs: "Working for 13s", or "Thinking"
+/// while its model reasons, the word shimmering.
+fn working<B: Board>(key: RowKey) -> impl View {
+    let thinking_key = key.clone();
+    let word = keyed(
+        resource::<B, _>(move |b| {
+            b.lines().is_thinking(&thinking_key)
+        }),
+        |thinking| {
+            shimmer(if *thinking { "Thinking" } else { "Working" })
+                .rules(small_rules)
+                .boxed()
+        },
+    )
+    .within(row(()));
+    let since = derived(move |world: &World| {
+        let start = world.resource::<B>().lines().start(&key);
+        match start {
+            Some(start) if start > 0 => format!(
+                " for {}",
+                lasted(crate::status::now_ms().saturating_sub(start))
+            ),
+            _ => String::new(),
+        }
+    })
+    .when(every_frame());
+    row((word, label(since).wrap(false).tone(Tone::Dim)))
+        .padding(UiRect::axes(px(INSET), px(2.0)))
+        .align(AlignItems::Center)
+        .rules(small_rules)
+}
+
+/// The header of a turn that ended, which opens to its steps:
+/// "Worked for 2m 49s", and how many of them failed.
+fn worked<B: Board>(
+    key: RowKey,
+    chat: Entity,
+    first: String,
+) -> impl View {
+    let (turn_key, failed_key) = (key.clone(), key.clone());
+    let failed = keyed(
+        resource::<B, _>(move |b| b.lines().failed(&failed_key)),
+        |failed| match failed {
+            0 => frame().boxed(),
+            n => label(format!(" · {n} failed"))
+                .wrap(false)
+                .tone(Tone::Critical)
+                .rules(small_rules)
+                .boxed(),
         },
     )
     .within(row(()));
@@ -424,13 +570,17 @@ pub(super) fn fold_view<B: Board>(
                 }
             },
         )),
-        heading,
+        row((
+            label(resource::<B, _>(move |b| b.lines().heading(&key)))
+                .wrap(false)
+                .rules(small_rules),
+            failed,
+        )),
     ))
     .gap(6.0)
     .align(AlignItems::Center);
-    // Words alone, so it reads as a note on the reply, its chevron in
-    // line with the bubbles' words.
-    let head = button(words)
+    // Words alone, its chevron in line with the words of the rows.
+    button(words)
         .padding(UiRect::axes(px(INSET), px(2.0)))
         .rules(text_button)
         .on_activate(move |world| {
@@ -442,45 +592,7 @@ pub(super) fn fold_view<B: Board>(
                 }
                 None => unfolded.push(fold),
             }
-        });
-    let kept_key = key.clone();
-    let inside = each(
-        resource::<B, _>(move |b| b.lines().shown(&key)),
-        |id: &String| id.clone(),
-        move |id| entry_view(chat, id.clone()),
-    )
-    // As wide as the chat and no wider, so that what is inside is
-    // measured at the width it is shown at.
-    .within(
-        column(()).gap(6.0).width(percent(100.0)).min_width(px(0.0)),
-    );
-    // A line down from the chevron holds what is shown inside, under
-    // its heading.
-    let inside = with_cx(move |cx| {
-        let guide = frame()
-            .width(px(LINE))
-            .shrink(0.0)
-            .margin(UiRect::left(px(GUIDE)))
-            .fill(cx.theme().palette.gold_6);
-        row((guide, inside))
-            .gap(GUIDE)
-            .align(AlignItems::Stretch)
-            .width(percent(100.0))
-            .min_width(px(0.0))
-    });
-    let kept = each(
-        resource::<B, _>(move |b| b.lines().kept(&kept_key)),
-        |id: &String| id.clone(),
-        move |id| edit_view(chat, id.clone()),
-    )
-    .within(
-        column(()).gap(6.0).width(percent(100.0)).min_width(px(0.0)),
-    );
-    column((head, inside, kept))
-        .gap(4.0)
-        .align(AlignItems::FlexStart)
-        .width(percent(100.0))
-        .min_width(px(0.0))
+        })
 }
 
 /// The identity of a row for as long as it is the same row: the agent
@@ -566,80 +678,57 @@ impl Lines {
         &self.cast
     }
 
-    /// The words on a fold's button.
+    /// The words on the header of a turn that ended.
     fn heading(&self, key: &RowKey) -> String {
-        let Some(Row::Fold {
-            tools,
-            failed,
-            running,
-            ..
-        }) = self.fold(key)
-        else {
-            return String::new();
-        };
-        let plural = if *tools == 1 { "step" } else { "steps" };
-        let mut text = match (*running, *tools) {
-            (true, 0) => "Working".to_string(),
-            (true, n) => format!("Working, {n} {plural} so far"),
-            (false, 0) => "Thought it over".to_string(),
-            (false, n) => format!("Worked, {n} {plural}"),
-        };
-        if *failed > 0 {
-            text.push_str(&format!(", {failed} failed"));
-        }
-        text
-    }
-
-    /// Whether a fold is open. A fold of edits alone is open until it
-    /// is shut, as its edits are shown under a shut fold of more.
-    fn is_open(&self, key: &RowKey) -> bool {
         match self.fold(key) {
-            Some(Row::Fold {
-                steps, edits, open, ..
-            }) => *open != (steps.len() == edits.len()),
-            _ => false,
+            Some(Row::Fold { start, end, .. })
+                if *end >= start + 1000 =>
+            {
+                format!("Worked for {}", lasted(end - start))
+            }
+            _ => "Worked".to_string(),
         }
     }
 
-    /// Whether a fold holds steps besides its edits.
-    fn has_more(&self, key: &RowKey) -> bool {
+    fn is_open(&self, key: &RowKey) -> bool {
+        matches!(self.fold(key), Some(Row::Fold { open: true, .. }))
+    }
+
+    fn is_running(&self, key: &RowKey) -> bool {
         matches!(
             self.fold(key),
-            Some(Row::Fold { steps, edits, .. })
-                if steps.len() > edits.len()
+            Some(Row::Fold { running: true, .. })
         )
     }
 
-    fn tone(&self, key: &RowKey) -> Tone {
+    fn is_thinking(&self, key: &RowKey) -> bool {
+        matches!(
+            self.fold(key),
+            Some(Row::Fold { thinking: true, .. })
+        )
+    }
+
+    /// When a turn began.
+    fn start(&self, key: &RowKey) -> Option<u64> {
         match self.fold(key) {
-            Some(Row::Fold { running: true, .. }) => Tone::Warning,
-            Some(Row::Fold { failed: 0, .. }) | None => Tone::Dim,
-            _ => Tone::Critical,
+            Some(Row::Fold { start, .. }) => Some(*start),
+            _ => None,
+        }
+    }
+
+    fn failed(&self, key: &RowKey) -> usize {
+        match self.fold(key) {
+            Some(Row::Fold { failed, .. }) => *failed,
+            _ => 0,
         }
     }
 
     /// The steps of a fold that is open.
     fn shown(&self, key: &RowKey) -> Vec<String> {
         match self.fold(key) {
-            Some(Row::Fold { steps, .. })
-                if self.has_more(key) && self.is_open(key) =>
-            {
-                steps.clone()
-            }
-            _ => Vec::new(),
-        }
-    }
-
-    /// The edits that stand under a fold's heading as their own
-    /// cards: those of a shut fold of more, or of an open fold of
-    /// edits alone.
-    fn kept(&self, key: &RowKey) -> Vec<String> {
-        match self.fold(key) {
-            Some(Row::Fold { edits, .. })
-                if self.has_more(key) != self.is_open(key) =>
-            {
-                edits.clone()
-            }
+            Some(Row::Fold {
+                steps, open: true, ..
+            }) => steps.clone(),
             _ => Vec::new(),
         }
     }

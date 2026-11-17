@@ -332,11 +332,14 @@ pub(super) fn timeline(
     let mut lines = rows(chat, transcript, open)
         .into_iter()
         .map(|row| {
-            let first = match &row {
-                Row::Entry { id, .. } | Row::Card { id, .. } => id,
-                Row::Fold { first, .. } => first,
+            // A turn is the agent's, whatever it is known by.
+            let (item, at) = match &row {
+                Row::Entry { id, .. } | Row::Card { id, .. } => {
+                    let item = transcript.item(id);
+                    (item, item.map_or(0, |item| item.at))
+                }
+                Row::Fold { start, .. } => (None, *start),
             };
-            let item = transcript.item(first);
             let (by, to) = match item.map(|item| &item.entry) {
                 Some(Entry::Agent { name, from, .. }) => {
                     (cast.peer(*from, name), agent)
@@ -361,7 +364,7 @@ pub(super) fn timeline(
                 agent: of.0,
                 by,
                 to,
-                at: item.map_or(0, |item| item.at),
+                at,
                 look: 0,
                 lead: false,
                 named: false,

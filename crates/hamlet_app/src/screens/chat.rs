@@ -1480,7 +1480,7 @@ mod tests {
     }
 
     #[test]
-    fn received_items_show_tool_outcomes_folded_steps_and_notices() {
+    fn a_turns_steps_fold_under_one_header_and_a_failed_call_opens() {
         use hamlet_client::chats::{Entry, Item, Transcript};
 
         use crate::testing::{panel_app, press, words};
@@ -1546,18 +1546,21 @@ mod tests {
             transcript(),
         );
         app.update();
-        // The steps before the first reply join those after it.
-        press(&mut app, "Working, 3 steps so far, 1 failed");
-        press(&mut app, "Thought it over");
+        // Every step of the turn is under one header, its reply after
+        // it.
+        let shown = words(&mut app);
+        assert!(
+            shown.contains(&" · 1 failed".to_string()),
+            "{shown:?}"
+        );
+        press(&mut app, "Worked");
         app.update();
-        // Each call is a row of its request; a finished one says how
-        // long it took, and the failed one opens to its exit.
+        // Each call is a line of its request, and the failed one
+        // opens to its exit.
         let shown = words(&mut app);
         let count =
             |text: &str| shown.iter().filter(|s| *s == text).count();
         assert_eq!(count("pwd"), 3, "{shown:?}");
-        assert_eq!(count("0.4s"), 2, "{shown:?}");
-        assert_eq!(count("A received notice"), 1, "{shown:?}");
         app.world_mut()
             .resource_mut::<OpenTools>()
             .0
@@ -1699,7 +1702,19 @@ mod tests {
                         id: format!("message/{at}"),
                         at: at as u64,
                         queued: false,
-                        entry: Entry::Assistant(format!("Row {at}")),
+                        // Each reply answers a line, so none is a
+                        // step of the turn of the next.
+                        entry: match at % 2 {
+                            0 => Entry::Chief {
+                                name: "chief".into(),
+                                text: format!("Row {at}"),
+                                images: Vec::new(),
+                                files: Vec::new(),
+                            },
+                            _ => {
+                                Entry::Assistant(format!("Row {at}"))
+                            }
+                        },
                     })
                     .collect(),
             )
