@@ -801,7 +801,6 @@ pub(super) struct Waiting {
 }
 
 impl Waiting {
-    /// `choice` as this wait takes it, or why it does not.
     fn takes(
         &self,
         choice: &protocol::Choice,

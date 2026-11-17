@@ -165,8 +165,6 @@ impl Held {
         })
     }
 
-    /// Drops the credentials of `providers`, as today's server does
-    /// for a model server the chief removes.
     pub fn forget(&self, providers: &[String]) -> Result<()> {
         self.change(|stored| {
             let dropped = providers
