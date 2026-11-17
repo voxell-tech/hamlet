@@ -141,7 +141,10 @@ pub(super) fn plugin(app: &mut App) {
         .add_observer(drag)
         .add_observer(drop)
         .add_systems(Update, (read_search, tabs::mark::<Tab>))
-        .add_systems(Update, gather.before(FynixSystems::Mount))
+        .add_systems(
+            Update,
+            gather.after(read_search).before(FynixSystems::Mount),
+        )
         .add_systems(PostUpdate, reveal.after(UiSystems::Layout));
 }
 
