@@ -2,8 +2,6 @@
  * A turn that ended with no answer. Its words go to its conversation as a
  * notice. A turn in the chief's current session tells the realm, which
  * opens a wait for the chief, and a turn on a question replies to its asker.
- * The notice is committed first, so a `turn_failed` or reply lost loses only
- * that.
  */
 import type { Context } from "@earendil-works/chord/context";
 import {
@@ -44,7 +42,6 @@ export interface Failure {
     readonly task: RealmTask | undefined;
     readonly words: string;
     readonly cause: TurnFailed["cause"];
-    /** The question the turn was to answer. */
     readonly question: LetterId | undefined;
 }
 
@@ -65,7 +62,7 @@ export function tellingFailed(
     return async ({ conversation, task, words, cause, question }, signal) => {
         try {
             if (question !== undefined) {
-                // As `crates/hamlet_server/src/talk/letters.rs:244-246` words it.
+                // As `crates/hamlet_server/src/talk/letters.rs:249` words it.
                 const text = `It could not answer: ${words}`;
                 const taken = await cutOff(
                     signal,

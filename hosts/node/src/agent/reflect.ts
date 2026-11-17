@@ -3,8 +3,7 @@
  * and when a chief leaves the session or asks, the agent is asked to keep
  * what it learned. Reflection `k` of a conversation is admitted under
  * `reflection:<conversation>:<k>`, so a repeat that asks the same one
- * admits it once. A reflection is admitted only when its conversation runs
- * nothing, so a chief's line queued as a turn ends runs first, alone.
+ * admits it once.
  */
 
 import type { Context } from "@earendil-works/chord/context";

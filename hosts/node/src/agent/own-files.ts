@@ -117,7 +117,6 @@ export function ownFiles(peers: Peers): Extension {
             ) => {
                 const at = reached(peers.files, args.path);
                 const resolved = { ...args, path: at.path };
-                // The workspace scrubs its own results (C32).
                 return at.own
                     ? own[name](resolved, api, context).then(scrub)
                     : tool.execute(resolved, api, context);

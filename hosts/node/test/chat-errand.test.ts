@@ -361,7 +361,6 @@ test("a worker's turn waits for the copies the realm holds", async (t) => {
     );
 });
 
-/** A worker's prompt as the model reads it, from a brief started in `/work`. */
 async function workerPrompt(t: TestContext): Promise<string> {
     const seen: Context[] = [];
     const { calls, sent } = fakeCalls({

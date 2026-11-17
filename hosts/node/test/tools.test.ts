@@ -170,7 +170,6 @@ test("a relative path, and a left-out one, start from the agent's filesystem", a
     await agent.stop();
 });
 
-// Today's rule, which the prompt states (`talk/prompt.rs` `project`).
 test("a relative path starts from the project", {
     todo: "the file tools start a relative path from the agent's own filesystem (`own-files.ts` `start`)",
 }, async (t) => {
@@ -202,7 +201,6 @@ test("a relative path starts from the project", {
     await agent.actions.submit(agent.by(from.realm), line("input-1", "Look."));
     await agent.idle();
 
-    // The prompt reads the project's AGENTS.md and CLAUDE.md too.
     assert.deepEqual(
         named(sent, "read_file")
             .map(({ message }) => message as { path: string })

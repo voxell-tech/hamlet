@@ -54,7 +54,7 @@ type Answer<N extends keyof ClientActions> = Promise<
 export async function stop(c: AgentCall): Answer<"stop"> {
     const generation = generationOf(c);
     const { options, peers } = generation;
-    generation.stops += 1;
+    generation.stopsBegun += 1;
     const stopped = await withHarness(c, options, async (harness, context) => {
         const each = await Promise.all(
             (await conversationsOf(harness, context)).map(async (id) => {
@@ -199,11 +199,10 @@ export async function retry(
         );
         if (why === "admitted") return { type: "done" };
         if (why !== undefined) return retryRefused(why);
-        const stops = generation.stops;
+        const begun = generation.stopsBegun;
         const opened = await peers.reach.open_task({ turn: "retry" });
         if (opened.type === "refused") throw new Error(opened.words);
-        // A stop that came while the task opened stops the retry too.
-        if (generation.stops !== stops) return { type: "done" };
+        if (generation.stopsBegun !== begun) return { type: "done" };
         await submittedTo(
             c,
             conversation,

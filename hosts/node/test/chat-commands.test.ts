@@ -828,7 +828,7 @@ function callOfRun(sent: Parameters<typeof named>[0]): string {
     return (run.message as { call: string }).call;
 }
 
-// As today, only a running turn refuses a rewind (`talk/chats.rs:313-317`).
+// As today, only a running turn refuses a rewind (`talk/chats.rs:322-326`).
 // A call's end that comes later lands in the conversation that made the
 // call, which the session has left, as today's reply does
 // (`talk/letters.rs:285-345`): the fork shows none of it.

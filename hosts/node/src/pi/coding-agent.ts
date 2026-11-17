@@ -2,9 +2,7 @@
  * The parts of `@earendil-works/pi-coding-agent` the host uses. The
  * package's root also loads its interactive mode and terminal UI, which
  * the host never shows, and its exports name no smaller entry, so each
- * part is loaded from its file beside the root. The version is pinned in
- * `package.json`; a part that moves fails every test that loads this
- * module.
+ * part is loaded from its file beside the root.
  */
 import type * as CodingAgent from "@earendil-works/pi-coding-agent";
 

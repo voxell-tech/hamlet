@@ -353,7 +353,6 @@ test("a memory folder that cannot be listed leaves the memory out, as today, and
     await agent.stop();
 });
 
-/** The tools the prompt names (`talk/prompt/place.rs`) that the agent does not offer yet. */
 const NAMED_NOT_OFFERED = [
     "object",
     "create_scholar",

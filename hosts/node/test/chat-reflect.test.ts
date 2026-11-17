@@ -386,8 +386,6 @@ function lastUserText(messages: readonly Message[]): string | undefined {
               .join("");
 }
 
-// A chief's line queued as a turn ends starts the next run, and the
-// reflection owed waits behind it (`p6-design.md` section 3, box 3).
 for (const [owed, every] of [
     ["every turn", "1"],
     ["by /reflect", "0"],
@@ -419,7 +417,6 @@ for (const [owed, every] of [
             input: { type: "line", text: "b" },
         });
         first.release();
-        // The reflection's run starts only once the line's has ended.
         await until(async () => {
             const shown = await said(agent);
             return shown.includes(REFLECT) && shown.at(-1) !== REFLECT;

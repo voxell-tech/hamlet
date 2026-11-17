@@ -25,7 +25,7 @@ const CHARACTER_SHOWN = 4000;
 /** The files that hold a project's own instructions for agents, the first that reads winning. */
 const INSTRUCTIONS = ["AGENTS.md", "CLAUDE.md"] as const;
 
-/** The agent's number, kind and place, as its row holds them now. */
+/** The agent's number, and its kind and place as its row holds them now. */
 export interface Where {
     readonly number: number;
     readonly kind: AgentInput["kind"];
@@ -94,7 +94,6 @@ function partsOf(
     ];
 }
 
-/** A part of an agent that keeps a memory: a worker keeps none. */
 function keptMemory(render: Render): Render {
     return async (sources, context) =>
         (await sources.where()).kind === "worker"
@@ -274,8 +273,6 @@ async function place(sources: PromptSources): Promise<string> {
     const { number, kind, place } = await sources.where();
     const lines = ["# Your place"];
     if (kind === "worker") {
-        // No message names a worker's starter, so it is "a chief", as today
-        // writes a worker with none.
         lines.push(
             `You are worker#${number}, started by a chief for one task, given as your first message. Do it, then answer in your final message: that answer is all a chief gets. Your lodge is a scratch folder that ends with you; you keep no memory.`,
         );
