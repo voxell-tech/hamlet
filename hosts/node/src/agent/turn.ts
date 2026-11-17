@@ -24,6 +24,8 @@ import {
     type ConversationRef,
     type LetterId,
     REALM,
+    type ReadAnswer,
+    type ReadFile,
     type RealmActions,
     type RealmTask,
     type SocietyActs,
@@ -466,6 +468,10 @@ async function stamped(
 
 export function listTools(peers: Peers): Promise<ToolList> {
     return reaching(peers[CALLS])(WORKSPACE, "list_tools", []);
+}
+
+export function readFile(peers: Peers, message: ReadFile): Promise<ReadAnswer> {
+    return reaching(peers[CALLS])(WORKSPACE, "read_file", [message]);
 }
 
 /** The work itself goes on: a call that is out stays out. */
