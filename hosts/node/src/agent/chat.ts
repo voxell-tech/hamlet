@@ -2,7 +2,12 @@
  * A client's calls of an agent. Each checks that a client called and
  * answers a value; only `askedBy` makes one.
  */
-import { type AgentCall, type AgentConfig, wrongCaller } from "./actor.ts";
+import {
+    type AgentCall,
+    type AgentConfig,
+    generationOf,
+    wrongCaller,
+} from "./actor.ts";
 import {
     newSession,
     reflectNow,
@@ -12,6 +17,7 @@ import {
     stop,
 } from "./commands.ts";
 import { type ClientActions, readClient } from "./messages.ts";
+import { promptSources, renderPrompt } from "./prompt.ts";
 import { readChat, readHistory } from "./transcript.ts";
 
 declare const asked: unique symbol;
@@ -52,9 +58,12 @@ export function chatActions(config: AgentConfig): ChatHandlers {
         rewind: askedBy("rewind", rewind),
         read_chat: askedBy("read_chat", readChat),
         read_history: askedBy("read_history", readHistory),
-        read_prompt: askedBy("read_prompt", () =>
-            Promise.reject(new Error("not built: U1")),
-        ),
+        read_prompt: askedBy("read_prompt", async (c) => {
+            const { copies, peers } = generationOf(c);
+            return {
+                text: await renderPrompt(promptSources(c, copies, peers)),
+            };
+        }),
         reflect: askedBy("reflect", reflectNow),
         login: askedBy("login", (_c, login) => {
             if (config.signIns === undefined) {
