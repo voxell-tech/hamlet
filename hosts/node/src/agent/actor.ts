@@ -312,6 +312,13 @@ export interface Generation {
     readonly registry: Registry;
     readonly copies: ReadCopies;
     readonly following: Following;
+    /**
+     * Runs `work` once every earlier `work` has settled. What reads the
+     * current session and then writes by it runs here, so a line, `/retry`,
+     * `/new`, `/resume` and a rewind each see the session the one before
+     * left.
+     */
+    readonly inTurn: <T>(work: () => Promise<T>) => Promise<T>;
 }
 
 const AGENT: unique symbol = Symbol.for("@hamlet/agent");
@@ -350,9 +357,8 @@ async function wake(c: AgentContext, config: AgentConfig): Promise<void> {
             peers.report(`pi-durable reported ${report.kind}`, report.error),
         settings: {
             ...config.settings,
-            // One follow-up starts each run, so a run's first input is its
-            // only input, and the turn's task and the reply read
-            // `run.inputs[0]` alone.
+            // One follow-up starts each run; a chief's line may join it
+            // as a steer.
             followUpMode: "one-at-a-time",
             compaction: {
                 ...compactionFor(config.listed?.() ?? []),
@@ -367,6 +373,7 @@ async function wake(c: AgentContext, config: AgentConfig): Promise<void> {
         registry,
         copies,
         following: follow,
+        inTurn: oneAfterAnother(),
     };
     watching(c, follow);
     // Not awaited, so a slow workspace does not hold `submit` past the
@@ -402,6 +409,15 @@ async function wake(c: AgentContext, config: AgentConfig): Promise<void> {
         );
 }
 
+function oneAfterAnother(): Generation["inTurn"] {
+    let last: Promise<unknown> = Promise.resolve();
+    return (work) => {
+        const done = last.then(work);
+        last = done.catch(() => undefined);
+        return done;
+    };
+}
+
 /**
  * Never recovers a harness, as the wrapper's `withHarness` does: a recovery
  * closes the harness, and a close waits for the very work that would be
@@ -424,14 +440,25 @@ function liveHarness(c: AgentContext): WithHarness {
 
 /** Answers when the admission is committed, not when the turn ends. */
 async function submit(c: AgentCall, message: Submit): Promise<void> {
-    const id = await conversationFor(c, message.input);
-    await withHarness(c, generationOf(c).options, async (harness, context) => {
-        const conversation = await harness.conversation(id, context);
-        if (conversation === undefined) {
-            throw new Error(`the agent has no conversation ${id}`);
-        }
-        await conversation.submit(draftOf(admissionOf(message)), context);
-    });
+    const { options, inTurn } = generationOf(c);
+    const admit = async () => {
+        const id = await conversationFor(c, message.input);
+        await withHarness(c, options, async (harness, context) => {
+            const conversation = await harness.conversation(id, context);
+            if (conversation === undefined) {
+                throw new Error(`the agent has no conversation ${id}`);
+            }
+            await conversation.submit(
+                draftOf(
+                    admissionOf(message),
+                    message.input.type === "line" ? "steer" : undefined,
+                ),
+                context,
+            );
+        });
+    };
+    // Only a chief's line goes by the current session.
+    await (message.input.type === "line" ? inTurn(admit) : admit());
 }
 
 async function finished(c: AgentCall, message: Finished): Promise<void> {

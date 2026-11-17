@@ -40,10 +40,9 @@ export function conversationFor(
     c: AgentCall,
     input: Input,
 ): Promise<ConversationId> {
+    if (input.type === "line") return chiefSession(c);
     return withHarness(c, generationOf(c).options, async (harness, context) => {
         switch (input.type) {
-            case "line":
-                return chiefNow(c, () => harness.root(context));
             case "letter":
             case "question": {
                 const kind = input.type === "letter" ? "letters" : "questions";
@@ -80,6 +79,17 @@ export async function conversationOfChat(
     return chat.past === undefined ? current(c.db) : session(c, chat.past);
 }
 
+/** The current session's conversation; with none, the root begins session 1. */
+export function chiefSession(c: AgentCall): Promise<ConversationId> {
+    return withHarness(
+        c,
+        generationOf(c).options,
+        async (harness, context) =>
+            (await current(c.db)) ??
+            made(c, ["chief", 0, 1], () => harness.root(context), 1),
+    );
+}
+
 /** Session `number`'s conversation, or `undefined` when there is none. */
 export async function session(
     c: AgentCall,
@@ -102,15 +112,13 @@ export async function session(
 export async function begin(c: AgentCall, id: RequestId): Promise<Begun> {
     const before = await begunBy(c.db, id);
     if (before !== undefined) return before;
+    // As today, a chat with no session begins session 1 first, so the
+    // first `/new` answers 2.
+    await chiefSession(c);
     const to = await withHarness(
         c,
         generationOf(c).options,
-        async (harness, context) => {
-            // As today, a chat with no session begins session 1 first, so
-            // the first `/new` answers 2.
-            await chiefNow(c, () => harness.root(context));
-            return (await created(c, harness, context)).id;
-        },
+        async (harness, context) => (await created(c, harness, context)).id,
     );
     return c.db.transaction(async (tx) => {
         const raced = await begunBy(tx, id);
@@ -144,15 +152,16 @@ export async function makeCurrent(
 }
 
 /** Points the current session at `fork`, the conversation a rewind made. */
-export function moveTo(
+export async function moveTo(
     c: AgentCall,
     from: ConversationId,
     fork: ConversationId,
 ): Promise<void> {
-    void c;
-    void from;
-    void fork;
-    return Promise.reject(new Error("not built: U4"));
+    await c.db.run(
+        "UPDATE chat SET conversation = ? WHERE kind = 'chief' AND conversation = ?",
+        fork,
+        from,
+    );
 }
 
 type Rows = Pick<RawAccess, "get">;
@@ -222,14 +231,6 @@ async function created(
         },
         context,
     );
-}
-
-/** The current session's conversation; the root begins session 1. */
-async function chiefNow(
-    c: AgentCall,
-    root: () => Promise<Conversation>,
-): Promise<ConversationId> {
-    return (await current(c.db)) ?? made(c, ["chief", 0, 1], root, 1);
 }
 
 /**

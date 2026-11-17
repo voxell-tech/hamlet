@@ -186,34 +186,40 @@ export function turnsOf(withHarness: WithHarness, standing: RealmTask): Turns {
     const of = (conversation: ConversationId): Promise<TurnInput> =>
         withHarness(async (harness, context) => {
             const live = await harness.snapshot(LiveDoc, conversation, context);
-            const first = live?.run?.inputs[0];
-            if (first === undefined) return none;
-            const submission = await harness.submission(first, context);
-            const record = await submission?.status(context);
-            if (record?.type !== "input" || record.entry === undefined) {
-                return none;
-            }
             const handle = await harness.conversation(conversation, context);
-            const page = await handle?.entries(
-                { minEntryId: record.entry, maxEntryId: record.entry },
-                1,
-                undefined,
-                context,
-            );
-            const entry = page?.items[0];
-            if (entry === undefined || !entry.kind.startsWith(KIND)) {
-                return none;
+            const placed: { kind: InputKind; kept: Kept }[] = [];
+            for (const input of live?.run?.inputs ?? []) {
+                const submission = await harness.submission(input, context);
+                const record = await submission?.status(context);
+                if (record?.type !== "input" || record.entry === undefined) {
+                    continue;
+                }
+                const page = await handle?.entries(
+                    { minEntryId: record.entry, maxEntryId: record.entry },
+                    1,
+                    undefined,
+                    context,
+                );
+                const entry = page?.items[0];
+                if (entry?.kind.startsWith(KIND)) {
+                    placed.push({
+                        kind: entry.kind.slice(KIND.length) as InputKind,
+                        kept: (entry.data ?? {}) as Kept,
+                    });
+                }
             }
-            const kept = (entry.data ?? {}) as Kept;
+            const [first] = placed;
+            if (first === undefined) return none;
+            // A chief's line steered into the run pays from the next call
+            // on, as each line runs under its own task today.
+            const task = placed.findLast(({ kept }) => kept.task !== undefined)
+                ?.kept.task;
             return {
-                kind: entry.kind.slice(KIND.length) as InputKind,
-                task:
-                    kept.task === undefined
-                        ? none.task
-                        : { from: "input", task: kept.task },
-                ...(kept.question === undefined
+                kind: first.kind,
+                task: task === undefined ? none.task : { from: "input", task },
+                ...(first.kept.question === undefined
                     ? {}
-                    : { question: kept.question }),
+                    : { question: first.kept.question }),
             };
         });
     const conversationOfSession = (
@@ -222,14 +228,7 @@ export function turnsOf(withHarness: WithHarness, standing: RealmTask): Turns {
         withHarness(async (harness, context) => {
             const known = sessions.get(sessionId);
             if (known !== undefined) return known;
-            const all = await harness.commit(
-                async (tx) =>
-                    (await tx.scanConversations({}, 10_000)).items.map(
-                        (conversation) => conversation.id,
-                    ),
-                context,
-            );
-            for (const id of all) {
+            for (const id of await conversationsOf(harness, context)) {
                 const provider = await harness.snapshot(
                     ProviderDoc,
                     id,
@@ -251,8 +250,32 @@ export function turnsOf(withHarness: WithHarness, standing: RealmTask): Turns {
     };
 }
 
+/** Every conversation of the agent. */
+export async function conversationsOf(
+    harness: Harness,
+    context: Context,
+): Promise<ConversationId[]> {
+    return harness.commit(
+        async (tx) =>
+            (await tx.scanConversations({}, 10_000)).items.map(
+                (conversation) => conversation.id,
+            ),
+        context,
+    );
+}
+
+/** Whether a run is going on in `conversation`, its `afterRun` tasks included. */
+export async function isBusy(
+    harness: Harness,
+    conversation: ConversationId,
+    context: Context,
+): Promise<boolean> {
+    const live = await harness.snapshot(LiveDoc, conversation, context);
+    return live?.run !== undefined;
+}
+
 /**
- * Absent when the run's first input had none: only `may_spend` and `charge`
+ * Absent when no input of the run had one: only `may_spend` and `charge`
  * fall back to the standing task.
  */
 function carried(task: TurnTask): RealmTask | undefined {
