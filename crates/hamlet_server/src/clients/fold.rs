@@ -32,7 +32,7 @@ pub(crate) struct Fold {
     /// A chief's stop holds what waits.
     pub held: bool,
     /// The `held` the last status carried.
-    held_told: bool,
+    held_sent: bool,
     /// An answer landed without some of what it showed being kept,
     /// which no operation takes away.
     pub stale: bool,
@@ -81,11 +81,11 @@ impl Fold {
         if running != self.working
             || pending != self.pending
             || lasts != self.lasts
-            || self.held != self.held_told
+            || self.held != self.held_sent
         {
             self.working = running;
             self.pending = pending;
-            self.held_told = self.held;
+            self.held_sent = self.held;
             self.operations.push(TranscriptOperation::Status {
                 held: self.held,
                 working: running,
@@ -294,14 +294,14 @@ impl Fold {
         self.items.insert(at, item);
     }
 
-    /// Shows `waiting`: its lines in their order, those no longer
+    /// Shows `queue`: its lines in their order, those no longer
     /// waiting and not taken up yet removed, and whether a stop holds
     /// them.
-    pub fn queue(&mut self, waiting: Waiting) {
-        let Waiting {
+    pub fn queue(&mut self, queue: Queue) {
+        let Queue {
             items: queued,
             held,
-        } = waiting;
+        } = queue;
         if held != self.held {
             self.held = held;
             let (working, pending, lasts) =
@@ -332,7 +332,7 @@ impl Fold {
 
 /// The lines of a conversation that wait for a turn, as a transcript
 /// shows them, and whether a chief's stop holds them.
-pub(crate) struct Waiting {
+pub(crate) struct Queue {
     pub items: Vec<Item>,
     pub held: bool,
 }
@@ -341,8 +341,8 @@ pub(crate) struct Waiting {
 pub(crate) fn waiting(
     db: &mut Db,
     conversation: ConversationId,
-) -> Result<Waiting> {
-    Ok(Waiting {
+) -> Result<Queue> {
+    Ok(Queue {
         items: queued(db, conversation)?,
         held: crate::conversations::get(db, conversation)?.held,
     })

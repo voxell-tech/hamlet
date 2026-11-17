@@ -171,16 +171,19 @@ fn agent_view(
         .filter(|a| a.working)
         .map_or(protocol::Doing::Rest, |a| a.doing.clone());
     let mut doing_words = activity::words(&doing).to_owned();
-    // An agent at rest that asked another waits on its answer.
+    // An agent at rest that sent another a request waits on its
+    // response.
     if doing == protocol::Doing::Rest
-        && let Some(asked) =
+        && let Some(awaited) =
             crate::conversations::messages::awaited(db, id)?
                 .first()
                 .copied()
     {
         doing = protocol::Doing::Await;
-        doing_words =
-            format!("Waiting on {}", addresses::name_of(db, asked)?);
+        doing_words = format!(
+            "Waiting on {}",
+            addresses::name_of(db, awaited)?
+        );
     }
     let spent = spend::of_agent(db, id, at)?;
     let left = match (found.ended_at, found.ended_how) {

@@ -1,6 +1,6 @@
-//! The files an agent sends with a `tell` or `ask` (H30): found under
-//! the paths it names without following links, and read as it may
-//! read.
+//! The files an agent sends with a `notify` or `request` (H30): found
+//! under the paths it names without following links, and read as it
+//! may read.
 
 use std::path::{Path, PathBuf};
 

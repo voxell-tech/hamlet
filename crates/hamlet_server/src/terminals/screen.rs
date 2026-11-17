@@ -18,7 +18,7 @@ pub(super) const LAST: usize = 200;
 
 /// What a terminal printed, and what a window needs to draw it again.
 pub(crate) struct Screen {
-    pub(super) parser: vt100::Parser<Requested>,
+    pub(super) parser: vt100::Parser<TerminalCallbacks>,
     /// What it printed, with a size mark where it was resized.
     replay: VecDeque<u8>,
     /// Its size where `replay` starts.
@@ -38,15 +38,15 @@ pub(crate) struct Screen {
     pub(super) ended: Option<i64>,
 }
 
-/// What the program in a terminal set or asked of it as it printed.
+/// What the program in a terminal set or queried as it printed.
 #[derive(Default)]
-pub(super) struct Requested {
+pub(super) struct TerminalCallbacks {
     pub(super) title: Option<String>,
     /// The answers to its queries, not yet sent to it.
     answers: Vec<u8>,
 }
 
-impl vt100::Callbacks for Requested {
+impl vt100::Callbacks for TerminalCallbacks {
     fn set_window_title(
         &mut self,
         _: &mut vt100::Screen,
@@ -117,7 +117,7 @@ impl Screen {
                 cells(size.rows),
                 cells(size.cols),
                 SCROLLBACK,
-                Requested::default(),
+                TerminalCallbacks::default(),
             ),
             replay: VecDeque::new(),
             start: size,
