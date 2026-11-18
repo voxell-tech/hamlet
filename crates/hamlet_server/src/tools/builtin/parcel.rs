@@ -1,6 +1,4 @@
-//! The files an agent sends with a `notify` or `request` (H30): found
-//! under the paths it names without following links, and read as it
-//! may read.
+//! The files an agent sends with a `notify` or `request` (H30).
 
 use std::path::{Path, PathBuf};
 
@@ -11,7 +9,7 @@ use hamlet_sandbox::{FileError, FileKind};
 use super::environment::Reach;
 use crate::attachments::images::store::Images;
 use crate::attachments::inbox::Inbox;
-use crate::realm::change::Done;
+use crate::realm::change::{Done, checked};
 use crate::society::refusal::Refusal;
 
 /// The most entries, files or not, that one send visits.
@@ -55,10 +53,7 @@ pub(super) async fn run(
     most_file: u64,
     mut to: Option<To<'_>>,
 ) -> Done<Sent> {
-    let found = match find(env, paths, most_file).await {
-        Ok(found) => found,
-        Err(refusal) => return Ok(Err(refusal)),
-    };
+    let found = checked!(find(env, paths, most_file).await);
     let mut sent = Sent {
         files: found.pieces.len(),
         bytes: found.bytes,

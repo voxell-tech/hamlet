@@ -1,6 +1,4 @@
-//! An agent's objection to a chief's instruction (H10): one per task,
-//! a wait the chief rules on, and every call of the turn held until
-//! it does.
+//! An agent's objection to a chief's instruction (H10).
 
 use anyhow::Result;
 use diesel::prelude::*;

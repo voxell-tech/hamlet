@@ -1,6 +1,4 @@
-//! A chief's commands on skills and dreams: giving a skill to a
-//! scholar, taking one off the library's shelves, and having a hire
-//! or a scholar dream.
+//! A chief's commands on skills and dreams.
 
 use hamlet_store::ids::Actor;
 

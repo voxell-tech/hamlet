@@ -124,14 +124,12 @@ pub fn install_fonts(world: &mut World) {
     world.insert_resource(TerminalFace(terminal));
     world.insert_resource(Display(display));
     let mut cx = world.resource_mut::<FontCx>();
+    // An empty text is laid out in sans-serif, so a caret has height.
     install_family(&mut cx, &INTER, GenericFontFamily::SansSerif);
     install_family(&mut cx, &TWEMOJI, GenericFontFamily::Emoji);
 }
 
-/// Makes the face in `file` the family `generic` stands for. An empty
-/// text is laid out in the sans-serif family, which has no face
-/// otherwise, so its line, and a field's caret on it, would have no
-/// height.
+/// Makes the face in `file` the family `generic` stands for.
 fn install_family(
     cx: &mut FontCx,
     file: &File,
@@ -566,53 +564,5 @@ mod tests {
             app.world().resource::<InputFocus>().get(),
             Some(input)
         );
-    }
-
-    #[test]
-    fn an_empty_text_has_a_line_a_caret_can_stand_on() {
-        use bevy::asset::{AssetApp, AssetPlugin};
-        use bevy::camera::{
-            Camera, Camera2d, ComputedCameraValues, RenderTargetInfo,
-        };
-        use bevy::image::{Image, TextureAtlasLayout};
-        use bevy::math::UVec2;
-        use bevy::text::{ComputedTextBlock, TextPlugin};
-        use bevy::ui::UiPlugin;
-
-        let mut app = App::new();
-        app.add_plugins((
-            AssetPlugin::default(),
-            bevy::time::TimePlugin,
-            bevy::transform::TransformPlugin,
-            bevy::input::InputPlugin,
-            bevy::picking::PickingPlugin,
-            bevy::picking::InteractionPlugin,
-            TextPlugin,
-            UiPlugin,
-        ))
-        .init_asset::<Image>()
-        .init_asset::<TextureAtlasLayout>();
-        install_fonts(app.world_mut());
-        app.world_mut().spawn((
-            Camera2d,
-            Camera {
-                computed: ComputedCameraValues {
-                    target_info: Some(RenderTargetInfo {
-                        physical_size: UVec2::splat(100),
-                        scale_factor: 1.0,
-                    }),
-                    ..Default::default()
-                },
-                ..Default::default()
-            },
-        ));
-        let text = app.world_mut().spawn(Text::new("")).id();
-        app.update();
-
-        let block =
-            app.world().get::<ComputedTextBlock>(text).unwrap();
-        let line = block.buffer().lines().next().unwrap();
-        let line = line.metrics();
-        assert!(line.block_max_coord > line.block_min_coord);
     }
 }

@@ -1,6 +1,4 @@
-//! The tag beside an agent of a scholar of the city: the scholar it
-//! is of, marked while the agent holds what it learned that no dream
-//! has brought home yet. Pressed, it opens the scholar's page.
+//! The tag of an agent's city scholar, which opens its page.
 
 use bevy::ecs::entity::Entity;
 use bevy::ecs::world::World;
@@ -37,11 +35,9 @@ const BADGE_ICON: f32 = 7.0;
 pub(crate) struct ScholarTag {
     pub scholar: Entity,
     pub name: String,
-    /// Whether the agent goes by its scholar's name, which the tag
-    /// then leaves out.
+    /// Whether the agent goes by its scholar's name.
     pub same_name: bool,
-    /// Whether the agent holds what it learned that no dream has
-    /// brought home to the scholar yet.
+    /// Whether the agent learned what no dream has brought home yet.
     pub learned: bool,
 }
 
@@ -77,8 +73,7 @@ pub(crate) fn learned_words(scholar: &str) -> String {
     )
 }
 
-/// The mark of what a hire learned that its scholar lacks: a small
-/// dot in the accent.
+/// The mark of what a hire learned that its scholar lacks.
 pub(crate) fn learned_mark() -> impl View {
     with_cx(|cx| {
         frame()
@@ -90,8 +85,7 @@ pub(crate) fn learned_mark() -> impl View {
     })
 }
 
-/// `tag` as a quiet capsule: the scholar's icon, its name where the
-/// agent goes by another, and the mark of what the agent learned.
+/// `tag` as a capsule.
 pub(crate) fn tag(tag: &ScholarTag) -> AnyView {
     let mut parts = vec![glyph(Glyph::Scholar, TAG_ICON).boxed()];
     if !tag.same_name {
@@ -117,9 +111,7 @@ pub(crate) fn tag(tag: &ScholarTag) -> AnyView {
         .boxed()
 }
 
-/// `tag` as a little disc with the scholar's icon, laid on the
-/// top-left corner of the agent's icon. Its icon is in the accent
-/// while the agent holds what it learned.
+/// `tag` as a badge on the top-left corner of the agent's icon.
 pub(crate) fn badge(tag: &ScholarTag) -> AnyView {
     let scholar = tag.scholar;
     let tip = tag.tip();
@@ -144,8 +136,6 @@ pub(crate) fn badge(tag: &ScholarTag) -> AnyView {
         .boxed()
 }
 
-/// A badge is a disc of the panel's background, ringed by the hover's
-/// fill, its icon dim, and in the accent under the pointer.
 fn badge_style(cx: &mut Cx, learned: bool) {
     style::<HamletTheme>()
         .frame(|f, t| {
@@ -162,8 +152,6 @@ fn badge_style(cx: &mut Cx, learned: bool) {
         .apply(cx);
 }
 
-/// A tag is set in a capsule of the hover's fill, its words dim, and
-/// in the accent under the pointer.
 fn tag_style(cx: &mut Cx) {
     style::<HamletTheme>()
         .frame(|f, t| {

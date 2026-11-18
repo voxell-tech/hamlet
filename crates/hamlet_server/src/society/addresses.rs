@@ -1,6 +1,4 @@
-//! Addresses: how chiefs and agents name the Hand, mayors, hires,
-//! workers and scholars, by ids and never by a scholar's name (C30,
-//! H14).
+//! Addresses of agents and scholars, by ids (C30, H14).
 
 use anyhow::Result;
 use diesel::prelude::*;
@@ -14,14 +12,13 @@ use super::agents::{self, AgentKind};
 use super::names::hamlet_id;
 use super::refusal::Refusal;
 use super::{chiefs, city, hamlets, hand, tree};
-use crate::realm::change::{Done, done, refuse};
+use crate::realm::change::{Done, checked, done, refuse};
 
 /// Which agents or scholars an address may name.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum Reach {
     Living,
-    /// The ended agents and the archived scholars too, but not the
-    /// erased.
+    /// The ended agents and the archived scholars too.
     Kept,
 }
 
@@ -63,10 +60,7 @@ pub(crate) fn scholar_at(
     text: &str,
     reach: Reach,
 ) -> Done<ScholarId> {
-    let id = match parse_scholar(text) {
-        Ok(id) => id,
-        Err(refusal) => return Ok(Err(refusal)),
-    };
+    let id = checked!(parse_scholar(text));
     let found = city::find(db, id)?.filter(|found| {
         found.kind == city::ScholarKind::Scholar
             && (reach == Reach::Kept || found.is_living())
@@ -79,8 +73,7 @@ pub(crate) fn scholar_at(
     })
 }
 
-/// The living scholar `text` addresses, `scholar#<id>` with
-/// `@<version>` to pin one, and that version.
+/// The living scholar `text` addresses, and the `@<version>` it pins.
 pub(crate) fn scholar_pinned(
     db: &mut Db,
     text: &str,
@@ -214,10 +207,7 @@ pub(crate) fn address_of(db: &mut Db, id: AgentId) -> Result<String> {
     .to_string())
 }
 
-/// How `id` is shown to chiefs and agents: its address, and beside it
-/// the nickname of a hire, or else its scholar's name, as in
-/// `hire#3 (Mira)`, or a worker's nickname. An erased hire shows its
-/// address only.
+/// How `id` is shown to chiefs and agents, as in `hire#3 (Mira)`.
 pub(crate) fn name_of(db: &mut Db, id: AgentId) -> Result<String> {
     let address = address_of(db, id)?;
     let found = agents::get(db, id)?;

@@ -1,7 +1,4 @@
-//! A lead's review of a chief's instruction to a hire under it (H10):
-//! an errand run alongside the hire's work once, which may object for
-//! the chief to rule on; and the hold of the hire's next model call
-//! while a chief considers an objection.
+//! A lead's review of a chief's instruction to a hire under it (H10).
 
 use anyhow::Result;
 use diesel::prelude::*;

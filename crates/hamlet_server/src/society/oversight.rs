@@ -1,6 +1,4 @@
-//! What waits for a chief (H11, H10, H34): approvals, questions,
-//! objections, faults and newcomers, each a row until a chief answers
-//! it or the agent that raised it goes.
+//! What waits for a chief (H11, H10, H34).
 
 pub(crate) mod gate;
 
@@ -264,8 +262,7 @@ pub(crate) struct Raise {
     pub change: Option<String>,
     pub answers: Vec<Choice>,
     pub questions: Option<Questions>,
-    /// A fault's cause a chief sets up once for every agent it
-    /// stops.
+    /// A cause a chief sets up once for every agent it stops.
     pub setup: Option<protocol::Setup>,
 }
 
@@ -338,8 +335,7 @@ pub(crate) fn open(db: &mut Db) -> Result<Vec<Wait>> {
         .load(db)?)
 }
 
-/// Ends the open wait `id` as `ruling`, with a chief's words. `false`
-/// when it no longer waits.
+/// Ends the open wait `id` as `ruling`, with a chief's words.
 pub(crate) fn settle(
     cx: &mut Change<'_>,
     id: WaitId,

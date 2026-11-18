@@ -271,9 +271,8 @@ pub(crate) fn set_fast(
     Ok(Ok(()))
 }
 
-/// Chooses the model of the living agent `id`, or lets it follow its
-/// hamlet's or the realm's default when `None` (H29). A lead may not
-/// change a chief's choice for a hire.
+/// Chooses the model of the living agent `id`, or its hamlet's or the
+/// realm's default when `None` (H29).
 pub(crate) fn set_model(
     cx: &mut Change<'_>,
     id: AgentId,

@@ -124,13 +124,10 @@ skills/<name>/SKILL.md    one folder per skill, with its files
   (H45).
 - A chief, the Hand or a lead over a hire, living or ended, can make a
   scholar of the city of what it has become (`/make-scholar`,
-  `make_scholar`). A blank hire's own scholar joins the city, and the
-  hire's branch is merged into its `main`; the hire stays its hire. A
-  hire of a city scholar starts a new scholar instead, whose first commit
-  is its branch's tip: its memory and skills, with the character of its
-  scholar, named as the hire is called unless named. That hire stays its
-  old scholar's. Either arrives as a scholar newly made by its maker
-  does, and is removed or turned away as any scholar is.
+  `make_scholar`). A blank hire's own scholar joins the city with the
+  hire's branch merged into its `main`. A hire of a city scholar starts a
+  new scholar from its branch's tip instead, and stays its old scholar's.
+  Either arrives as a scholar newly made by its maker does.
 - A blank agent is a hire that is not of a scholar of the city: `/hire
   blank`, `hire` with no scholar, or a hamlet founded with no scholar named.
   It is a scholar of its own all the same, made for that hire alone, from
@@ -294,11 +291,9 @@ skill as `<skill>-from-<absorbed>`. The absorbed hire is archived as merged.
 No model rewrites memory at a merge; a dream tidies it later (H43).
 
 The kept hire's conversation is given the absorbed hire's without a turn:
-for its model, who said what in it, from its latest summary on, at most
-[24000] characters and the newest kept, as past work and not instructions;
-for a chief, a folded block that opens the absorbed hire's conversation.
-The absorbed hire's conversation stays as it was, so a split (H20) gives it
-back unchanged.
+who said what, from its latest summary on, at most [24000] characters, as
+past work and not instructions. The absorbed hire's conversation stays as
+it was, so a split (H20) gives it back unchanged.
 
 **H7.** A hire working on a chief's task cannot be ended or merged by a lead
 until it has answered, nor for [0] minutes after.
@@ -353,11 +348,9 @@ absorbed it, and are not charged again.
 
 - **A notification** (`notify`): the other agent works on it as a turn of
   its own in its one conversation (C22). No response is expected.
-- **A request** (`request`): it goes into the other agent's one
-  conversation as a turn of its own, which runs in the receiver's lodge and
-  whose tool calls pass the gate (H11) as any turn's do. The receiver's
-  final answer to that turn goes back to the sender as the response, a turn
-  of its own in the sender's conversation.
+- **A request** (`request`): a turn of the other agent's one conversation,
+  gated (H11) as any turn. Its final answer goes back to the sender as the
+  response, a turn of the sender's.
 
 Each notification, request and response names its sender (C11, C30). An address
 names its agent with or without the name shown beside it, as
@@ -380,14 +373,11 @@ A hire can propose to its lead a road to another hire of its hamlet
 **H31.** Neither a notification nor a request holds its sender: `request`
 returns as soon as the request is sent, and the sender's turn goes on or
 ends. A response reaches the sender's conversation as it is then, its fork
-after a rewind. An agent at rest with a request not yet answered is shown
-waiting on the agent it sent it to. A request that fails, because the
-receiver has no model it can use, its turn failed or was stopped, or it
-ended or refused, comes back as an error response: it is shown in the
-sender's conversation and given to its model, but starts no turn of its
-own. The cause is said in plain words, and a cause of setup, such as no
-model or no credentials, is shown to the chief once for every agent it stops,
-not once for each.
+after a rewind. An agent at rest with a request unanswered is shown
+waiting on its receiver. A request that fails comes back as an error
+response, given to the sender's model but starting no turn, its cause in
+plain words. A setup cause, such as no model or no credentials, is shown
+to the chief once for every agent it stops.
 
 **H12.** Every message a chief sends starts a task, and the task follows
 every message and turn it causes, in every agent it reaches. A retry, a
@@ -448,19 +438,13 @@ and the last dream of a hire ended with one, run whatever those say.
 - **A scholar's dream** tidies `main` itself, as one commit, at most once a
   day, for a scholar with living hires.
 - A hire ended with a dream (`/end <address> dream`, `end_hire` with
-  `dream`) dreams once more right after; one ended without it does not.
-  When its conversation reflects first (C5), the dream waits for that
-  reflection to end, however it ends, and is given what the lodge holds
-  then.
-- A hire's dream that ends is told in its conversation, with what it
-  brought home or that nothing was. The agent that ended a hire with a
-  dream is told at once by its call when the dream ended there, and
-  otherwise gets a notification from the hire once it ends.
+  `dream`) dreams once more, after its last reflection (C5) ends.
+- A hire's dream that ends is told in its conversation, and to the agent
+  that ended it with a dream.
 - A chief can ask for any dream (`/dream`), and the Hand for one of a
-  scholar it keeps or a hire it leads (`dream`). Asked of a scholar, each
-  of its living hires that learned what it lacks dreams first, then the
-  scholar. One asked while another runs waits its turn; dreams asked for
-  go first, then the last dreams of ended hires, then scheduled ones.
+  scholar it keeps or a hire it leads (`dream`). Asked of a scholar, its
+  hires that learned what it lacks dream first. Dreams asked for go first,
+  then the last dreams of ended hires, then scheduled ones.
 
 ## Between hamlets
 

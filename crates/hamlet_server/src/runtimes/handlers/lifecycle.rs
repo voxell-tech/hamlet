@@ -1,6 +1,4 @@
-//! The messages of a runtime's and its conversations' lifecycle: a
-//! runtime's hello, a conversation made, configured or cancelled, an
-//! input admitted and settled, and what a turn kept and is doing.
+//! The messages of a runtime's and its conversations' lifecycle.
 
 use std::collections::BTreeMap;
 

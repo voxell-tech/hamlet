@@ -1,5 +1,5 @@
-//! The field a message is typed in: text with the chips of what is
-//! attached to it and of the agents named in it.
+//! The field a message is typed in, with chips for attachments and
+//! agents.
 
 use std::ops::Range;
 
@@ -25,8 +25,8 @@ const REFERENCE: &str = "reference:";
 /// What stands for an atom in [`flat`] text.
 const ATOM: &str = "\u{FFFC}";
 
-/// The field's content as it was last seen, in [`flat`] text, and the
-/// chips of agents put in it so far.
+/// The field's content as last seen, in [`flat`] text, and its agent
+/// chips.
 #[derive(Resource, Default)]
 pub(super) struct Typed {
     flat: String,
@@ -41,8 +41,7 @@ pub(super) struct Unsent(Vec<Piece>);
 #[derive(Component)]
 pub(super) struct Holds(Entity);
 
-/// Puts the draft of the shown chat in the field, when the field is
-/// new or another chat is shown.
+/// Puts the shown chat's draft in the field.
 pub(super) fn swap_drafts(
     convo: Res<Convo>,
     drafts: Query<&Unsent>,
@@ -62,7 +61,7 @@ pub(super) fn swap_drafts(
             .get(convo.chat)
             .map(|unsent| unsent.0.clone())
             .unwrap_or_default();
-        // Its words are its own, not an edit to read addresses in.
+        // Not an edit to read addresses in.
         typed.flat = flat(&draft);
         if !draft.is_empty() || !field.is_empty() {
             field.set_content(draft);
@@ -72,8 +71,7 @@ pub(super) fn swap_drafts(
     }
 }
 
-/// Keeps `pieces`, the content of the field, as the draft of the chat
-/// it holds.
+/// Keeps `pieces` as the draft of the field's chat.
 pub(super) fn keep_draft(world: &mut World, pieces: &[Piece]) {
     let mut fields =
         world.query_filtered::<&Holds, With<ChatField>>();
@@ -101,8 +99,7 @@ pub(super) fn with_field<R>(
     fields.iter_mut(world).next().map(edit)
 }
 
-/// The text of the field, with each agent's chip as its words and a
-/// place for each chip of an attachment.
+/// The field's text, agent chips as words, and attachment places.
 pub(super) fn typed(world: &mut World) -> Option<Plain> {
     with_field(world, |field| {
         let mut plain = Plain::default();
@@ -124,15 +121,13 @@ pub(super) fn typed(world: &mut World) -> Option<Plain> {
     })
 }
 
-/// Puts `pieces` in the field, with the caret at their end, and gives
-/// it the focus.
+/// Puts `pieces` in the field and gives it the focus.
 pub(super) fn set(world: &mut World, pieces: Vec<Piece>) {
     with_field(world, |mut field| field.set_content(pieces));
     world.resource_mut::<Draft>().focus = true;
 }
 
-/// Gives the field the focus when it was asked for. The ask waits for
-/// a field that is not mounted yet, as when the thread is just shown.
+/// Gives the field the focus when asked, once it is mounted.
 pub fn refocus(
     mut draft: ResMut<Draft>,
     fields: Query<Entity, With<ChatField>>,
@@ -158,8 +153,7 @@ fn flat(pieces: &[Piece]) -> String {
         .collect()
 }
 
-/// The part of `now` an edit of `was` put there, found by what the
-/// two start and end with.
+/// The part of `now` an edit of `was` put there.
 fn edited(was: &str, now: &str) -> Range<usize> {
     let head = was
         .char_indices()
@@ -176,10 +170,8 @@ fn edited(was: &str, now: &str) -> Range<usize> {
     head..now.len() - tail
 }
 
-/// Whether the address at `part` of `text` is written whole: a space,
-/// a mark or a chip follows it, or the edit `edit` put all of it
-/// there at once, as a paste does. Typed a letter at a time, an
-/// address is whole only once something follows it.
+/// Whether the address at `part` is whole: followed, or pasted at
+/// once.
 fn is_whole(
     text: &str,
     part: &Range<usize>,
@@ -193,9 +185,7 @@ fn is_whole(
     ended || (edit.start <= part.start && part.end <= edit.end)
 }
 
-/// Turns each agent's or scholar's address the last edit wrote whole
-/// in the field into its chip, as the chat draws it, with the caret
-/// kept where the edit left it.
+/// Turns each address the last edit wrote whole into its chip.
 pub(super) fn chip_references(world: &mut World, pieces: &[Piece]) {
     let now = flat(pieces);
     let was = std::mem::replace(
@@ -278,8 +268,7 @@ pub(super) fn chip_references(world: &mut World, pieces: &[Piece]) {
     if !chipped {
         return;
     }
-    // The caret stands at the end of what was typed or pasted: in the
-    // words it ends, or after the chip it ends in.
+    // The caret stays at the end of what was typed or pasted.
     let caret = edit.end;
     let place = parts.iter().find_map(|(part, kind)| match kind {
         Part::Text(plain)

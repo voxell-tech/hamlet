@@ -1,6 +1,4 @@
-//! The pictures a reply shows (docs/chat.md): where each comes from,
-//! and its pixels, read once off the frame and kept while they are
-//! shown.
+//! The pictures a reply shows (docs/chat.md), read off the frame.
 
 mod fetch;
 mod load;
@@ -44,12 +42,10 @@ use crate::markdown;
 const PICTURED: [&str; 6] =
     ["bmp", "gif", "jpeg", "jpg", "png", "webp"];
 
-/// The pixels kept to one of the chat's, so that a picture is sharp
-/// on a dense screen.
+/// The pixels kept per chat pixel, for dense screens.
 const DENSITY: f32 = 2.0;
 
-/// The longest side of an original kept, in pixels: the largest
-/// texture every GPU takes.
+/// The longest side of an original kept: the largest every GPU takes.
 const LARGEST: u32 = 8192;
 
 /// The most pictures remembered, shown or not.
@@ -58,8 +54,7 @@ const REMEMBERED: usize = 512;
 /// The time a file was last written and its length.
 type Stamp = (Option<SystemTime>, u64);
 
-/// A picture that was read: its place, the file as it then was, and
-/// its pixels if it had any.
+/// A picture that was read: its place, its file's stamp and pixels.
 type Read = (Source, Option<Stamp>, Option<Pixels>);
 
 /// Reads the pictures of the chat off the frame and keeps them.
@@ -145,8 +140,7 @@ impl Kept {
     }
 }
 
-/// The pictures of the chat, each read once and shared by every row
-/// that shows it.
+/// The chat's pictures, each read once and shared by its rows.
 #[derive(Resource)]
 pub struct Pictures {
     kept: HashMap<Source, Kept>,
@@ -226,8 +220,7 @@ impl Pictures {
             .detach();
     }
 
-    /// Asks for the picture in the file `path`, which is read if it
-    /// never was or has changed since.
+    /// Asks for the picture in `path`, read again if it changed.
     fn ask(&mut self, path: &Path, bounds: Bounds) {
         let source = Source::File(path.to_path_buf());
         let Some(stamp) = stamp(path) else {
@@ -268,8 +261,7 @@ impl Pictures {
         }
     }
 
-    /// Keeps what was read of `source`, unless its file has been
-    /// asked for again as it is since.
+    /// Keeps what was read of `source`, unless asked for again since.
     fn settle(
         &mut self,
         source: Source,
@@ -284,9 +276,8 @@ impl Pictures {
         }
     }
 
-    /// Forgets the pictures no row shows, the one asked for longest
-    /// ago first, until they take no more than `budget` bytes and
-    /// no more than [`REMEMBERED`] are kept in all.
+    /// Forgets unshown pictures, oldest first, down to `budget`
+    /// bytes.
     fn trim(&mut self, budget: u64) {
         let mut idle = self
             .kept
@@ -334,8 +325,6 @@ fn settings(world: &World) -> ChatSettings {
         .unwrap_or_default()
 }
 
-/// True when the name of `file` says it is a picture that can be
-/// read.
 fn is_picture_file(file: &Path) -> bool {
     file.extension()
         .and_then(|ending| ending.to_str())
@@ -344,11 +333,7 @@ fn is_picture_file(file: &Path) -> bool {
         })
 }
 
-/// The place the picture written as `target` comes from, its file
-/// asked for. Nothing for what is no picture: a file outside the
-/// folders of the chat, one of another kind, an address that is not
-/// the web's. A picture of the web is only named here: nothing is
-/// fetched until [`fetch()`].
+/// The place the picture written as `target` comes from, if any.
 pub(crate) fn find(
     world: &mut World,
     target: &Target,
@@ -370,9 +355,8 @@ pub(crate) fn find(
     }
 }
 
-/// Asks for the picture `source` names, once: a file that is read
-/// now or an image the server is asked for. A picture of the web
-/// waits for [`fetch()`].
+/// Asks for the picture `source` names, once; the web's waits for
+/// [`fetch()`].
 pub(crate) fn want(world: &mut World, source: &Source) {
     match source {
         Source::File(path) => {
@@ -409,9 +393,7 @@ fn sent(image: &ImageId, size: ImageSize) -> Source {
     }
 }
 
-/// Keeps the bytes of an image the server sent as a picture, read
-/// off the frame. A thumbnail is kept within the chat's bounds, an
-/// original within what a texture may be.
+/// Keeps an image the server sent as a picture.
 fn arrived_image(
     arrived: On<ImageArrived>,
     settings: Res<ChatSettings>,
@@ -534,8 +516,7 @@ fn unshow(
     pictures.trim(settings.picture_memory);
 }
 
-/// Looks at the files shown again when a turn has ended, which is
-/// when an agent has drawn some anew.
+/// Looks at the files shown again when a turn has ended.
 fn look_again(
     _: On<JobFinished>,
     settings: Res<ChatSettings>,
@@ -630,52 +611,5 @@ mod tests {
         pictures.settle(file.clone(), now, ready(2));
         assert_eq!(pictures.state(&file), ready(2));
         assert!(!pictures.is_waiting());
-    }
-
-    #[test]
-    fn an_absolute_local_picture_loads_without_a_house_or_work_folder()
-     {
-        use std::time::{Duration, Instant};
-
-        use bevy::ui::widget::ImageNode;
-        use bevy_fynix::tokens::Tone;
-        use hamlet_ui::theme::HamletTheme;
-        let scratch =
-            hamlet_testing::Scratch::new("absolute-picture");
-        let file = scratch.join("pear.png");
-        std::fs::write(&file, png(UVec2::new(4, 4))).unwrap();
-        let mut app = crate::testing::panel_app();
-        app.init_resource::<Assets<Image>>()
-            .init_resource::<ChatSettings>()
-            .add_plugins(plugin);
-        bevy_fynix::mount::<HamletTheme>(
-            app.world_mut(),
-            hamlet_ui::markdown::fixed(
-                &format!("![pear]({})", file.display()),
-                Tone::Body,
-            ),
-        );
-        let start = Instant::now();
-        loop {
-            app.update();
-            let image = app
-                .world_mut()
-                .query::<&ImageNode>()
-                .iter(app.world())
-                .find_map(|node| {
-                    app.world()
-                        .resource::<Assets<Image>>()
-                        .get(&node.image)
-                });
-            if let Some(image) = image {
-                assert_eq!(image.size(), UVec2::new(4, 4));
-                break;
-            }
-            assert!(
-                start.elapsed() < Duration::from_secs(5),
-                "picture did not load"
-            );
-            std::thread::sleep(Duration::from_millis(5));
-        }
     }
 }

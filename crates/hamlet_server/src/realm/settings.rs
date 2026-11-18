@@ -164,9 +164,7 @@ pub(crate) fn stored(db: &mut Db) -> Result<Settings> {
     })
 }
 
-/// What the process puts over the saved settings, read once at
-/// start: the environment's overrides, and faux models in place of
-/// every model.
+/// What the process puts over the saved settings, read once at start.
 #[derive(Clone, Debug, Default)]
 pub(crate) struct Overrides {
     pub faux: bool,
@@ -234,8 +232,7 @@ pub(crate) fn faux_model() -> ModelRef {
 }
 
 impl Core<'_, '_> {
-    /// Keeps the settings `set` changes, and the workspace it
-    /// chooses.
+    /// Keeps the settings `set` changes.
     pub(crate) fn edit_settings(
         &mut self,
         set: EditSettingsSet,
@@ -326,8 +323,7 @@ impl Core<'_, '_> {
     }
 }
 
-/// The fault of `endpoints`, in words; none when they hold. A key
-/// goes in a sign-in, never in an address.
+/// The fault of `endpoints`, in words.
 fn endpoint_fault(endpoints: &[Endpoint]) -> Option<String> {
     for (at, endpoint) in endpoints.iter().enumerate() {
         if endpoint.name.is_empty() || endpoint.name.contains("::") {

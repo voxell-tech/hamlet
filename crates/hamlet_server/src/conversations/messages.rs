@@ -1,7 +1,4 @@
-//! Notifications and requests between agents along roads (H30, H31):
-//! each kept once per tool call as an input to the receiver's one
-//! conversation, and a request's final answer carried back to its
-//! sender's as a response.
+//! Messages between agents along roads (H30, H31).
 
 use anyhow::Result;
 use diesel::deserialize::FromSqlRow;
@@ -171,8 +168,7 @@ pub(crate) fn find(
         .optional()?)
 }
 
-/// The agents whose response `sender` waits for, by the requests it
-/// sent that have none yet.
+/// The agents whose response `sender` waits for.
 pub(crate) fn awaited(
     db: &mut Db,
     sender: AgentId,
@@ -187,8 +183,8 @@ pub(crate) fn awaited(
         .load(db)?)
 }
 
-/// Keeps the response to the request whose input `request` of
-/// `conversation` ended, once, and gives it to its sender.
+/// Gives the sender the response to the request whose input `request`
+/// of `conversation` ended, once.
 pub(crate) fn responded(
     cx: &mut Change<'_>,
     conversation: ConversationId,
@@ -253,8 +249,7 @@ pub(crate) fn responded(
 pub(crate) enum Carried {
     /// An answer, which starts a turn of the caller's.
     Answer,
-    /// Why there is no answer, given to the caller's conversation
-    /// without starting a turn.
+    /// Why there is no answer, given without starting a turn.
     Error,
 }
 
@@ -274,10 +269,8 @@ pub(crate) struct Carry<'a> {
     pub author: Option<&'a str>,
 }
 
-/// Gives the words of `carry` to its call: the call to wake while it
-/// waits in a turn that goes on, else a response kept for the
-/// caller's conversation as it is now, an error one written in
-/// without a turn.
+/// Gives the words of `carry` to its call if it still waits, else as
+/// a response to the caller's conversation.
 pub(crate) fn carry(
     cx: &mut Change<'_>,
     carry: Carry<'_>,

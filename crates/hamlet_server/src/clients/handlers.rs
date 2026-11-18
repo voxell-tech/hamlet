@@ -1,10 +1,4 @@
-//! A client's requests: one system for each kind. `PreUpdate` takes
-//! in a connection's event and reads a welcomed client's message into
-//! its request, written as a [`FromClient`] of its kind, and `Update`
-//! runs the system for that kind. Whatever awaits the disk or the
-//! workspace runs on a task, whose result comes back as an input of
-//! its own. It is the partner of `runtimes/handlers.rs`, which takes
-//! in a runtime's lines.
+//! A client's requests, one system for each kind.
 
 use bevy_app::{App, PreUpdate};
 use bevy_ecs::error::Result;
@@ -89,9 +83,7 @@ pub(crate) struct ReadModels {
     refresh: Option<bool>,
 }
 
-/// Takes in what a connection did: a client that is late or gone is
-/// dealt with, and a welcomed client's message is written as a
-/// request of its kind.
+/// Takes in what each connection did.
 fn take_in_client_event(
     mut events: ResMut<Messages<ClientEvent>>,
     mut core: Core,
@@ -141,8 +133,7 @@ fn connect(
     }
 }
 
-/// Writes `message` from `client` as a [`FromClient`] of its kind,
-/// for its system to read.
+/// Writes `message` from `client` as a [`FromClient`] of its kind.
 fn write(
     commands: &mut Commands,
     client: u64,
@@ -563,8 +554,7 @@ fn put_file_part(
         })
 }
 
-/// The chief's chat taken back to before one of its lines, which is
-/// given back to be said again.
+/// The chief's chat taken back to before one of its lines.
 fn rewind(
     mut received: ResMut<Messages<FromClient<protocol::Rewind>>>,
     mut core: Core,

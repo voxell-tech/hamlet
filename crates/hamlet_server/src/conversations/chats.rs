@@ -1,6 +1,4 @@
-//! Each agent's one conversation (C22, C24): what its chiefs say, the
-//! notifications, requests and responses of other agents, and the
-//! results of its workers, one turn at a time.
+//! Each agent's one conversation (C22, C24).
 
 use anyhow::{Context, Result};
 use diesel::prelude::*;
@@ -28,8 +26,8 @@ use crate::society::{agents, chiefs};
 #[cfg(test)]
 mod tests;
 
-/// What a summary must keep, beside the harness's own wants.
-pub(crate) const COMPACT: &str =
+/// What a summary must keep beside the harness's own instructions.
+const COMPACT: &str =
     "Several people write to this agent. Say who said each thing: a \
      chief's lines as that chief's, and each notification, request \
      and response by the address in its heading, such as `hire#3 \
@@ -44,8 +42,7 @@ pub(crate) struct Said {
     pub request: String,
 }
 
-/// The conversation of `agent`, begun when it has none. A worker's
-/// is the one its task began.
+/// The conversation of `agent`, begun when it has none.
 pub(crate) fn current(
     cx: &mut Change<'_>,
     env: &EffectiveSettings,
@@ -55,20 +52,15 @@ pub(crate) fn current(
         return Ok(conversation);
     }
     let conversation = begin(cx, env, agent)?;
-    diesel::insert_into(chat::table)
-        .values((
-            chat::agent.eq(agent),
-            chat::conversation.eq(conversation),
-        ))
-        .execute(cx.db)?;
+    set(cx.db, agent, conversation)?;
     Ok(conversation)
 }
 
-/// The conversation of `agent`, when it has one.
 pub(crate) fn of(
     db: &mut Db,
     agent: AgentId,
 ) -> Result<Option<ConversationId>> {
+    // A worker's is the one its task began.
     if agents::get(db, agent)?.kind == agents::AgentKind::Worker {
         return Ok(conversations::of_agent(db, agent)?
             .into_iter()
@@ -82,7 +74,6 @@ pub(crate) fn of(
         .optional()?)
 }
 
-/// Makes `conversation` the one of `agent`, in place of any it had.
 pub(crate) fn set(
     db: &mut Db,
     agent: AgentId,
@@ -100,8 +91,6 @@ pub(crate) fn set(
     Ok(())
 }
 
-/// Begins a conversation of `agent`, in the runtime of its harness,
-/// with the model it runs now.
 pub(crate) fn begin(
     cx: &mut Change<'_>,
     env: &EffectiveSettings,
@@ -120,8 +109,7 @@ pub(crate) fn begin(
     )
 }
 
-/// Keeps `chief`'s line `text` for `agent` as a task of its own, an
-/// input to its conversation.
+/// Keeps `chief`'s line `text` for `agent` as a task of its own.
 pub(crate) fn say(
     cx: &mut Change<'_>,
     env: &EffectiveSettings,
@@ -133,9 +121,7 @@ pub(crate) fn say(
     say_with(cx, env, agent, chief, request, &Line::words(text))
 }
 
-/// [`say`] for a line that carries images and files (C33): the model
-/// is given the line's content, with a caption where each sits, and
-/// the transcript the images and files at their places.
+/// [`say`] for a line that carries images and files (C33).
 pub(crate) fn say_with(
     cx: &mut Change<'_>,
     env: &EffectiveSettings,
@@ -146,9 +132,7 @@ pub(crate) fn say_with(
 ) -> Result<Said> {
     let conversation = current(cx, env, agent)?;
     let text = line.text.as_str();
-    let name = chiefs::find(cx.db, chief)?
-        .context("the chief is not in the realm")?
-        .name;
+    let name = chief_name(cx.db, chief)?;
     let task = tasks::mint(
         cx,
         Origin::Chief,
@@ -186,24 +170,37 @@ pub(crate) fn say_with(
     })
 }
 
-/// Writes `text` into `conversation` for people alone (C30).
-pub(crate) fn notice(
+pub(crate) fn chief_name(
+    db: &mut Db,
+    chief: ChiefId,
+) -> Result<String> {
+    Ok(chiefs::find(db, chief)?
+        .context("the chief is not in the realm")?
+        .name)
+}
+
+/// Keeps an input of `kind` with no task in `conversation`.
+fn keep_mark(
     cx: &mut Change<'_>,
     conversation: ConversationId,
-    text: &str,
+    kind: InputKind,
+    content: String,
+    mark: Mark,
 ) -> Result<()> {
+    let prefix = match kind {
+        InputKind::Compaction => "compaction",
+        InputKind::Merged => "merged",
+        _ => "notice",
+    };
     inputs::keep(
         cx,
         Keep {
             conversation,
-            request: format!("notice:{}", uuid::Uuid::new_v4()),
-            kind: InputKind::Notice,
+            request: format!("{prefix}:{}", uuid::Uuid::new_v4()),
+            kind,
             task: None,
-            content: String::new(),
-            mark: Mark::Notice {
-                text: text.to_owned(),
-                at: cx.at,
-            },
+            content,
+            mark,
             steer: false,
             boundary: false,
         },
@@ -211,8 +208,27 @@ pub(crate) fn notice(
     Ok(())
 }
 
-/// Writes `event` into `agent`'s conversation for people alone (C30),
-/// when it has one.
+/// Writes `text` into `conversation` for people alone (C30).
+pub(crate) fn notice(
+    cx: &mut Change<'_>,
+    conversation: ConversationId,
+    text: &str,
+) -> Result<()> {
+    let mark = Mark::Notice {
+        text: text.to_owned(),
+        at: cx.at,
+    };
+    keep_mark(
+        cx,
+        conversation,
+        InputKind::Notice,
+        String::new(),
+        mark,
+    )
+}
+
+/// Writes `event` into `agent`'s conversation, if any, for people
+/// alone (C30).
 pub(crate) fn event(
     cx: &mut Change<'_>,
     agent: AgentId,
@@ -221,32 +237,22 @@ pub(crate) fn event(
     let Some(conversation) = of(cx.db, agent)? else {
         return Ok(());
     };
-    inputs::keep(
+    let mark = Mark::Event { event, at: cx.at };
+    keep_mark(
         cx,
-        Keep {
-            conversation,
-            request: format!("notice:{}", uuid::Uuid::new_v4()),
-            kind: InputKind::Notice,
-            task: None,
-            content: String::new(),
-            mark: Mark::Event { event, at: cx.at },
-            steer: false,
-            boundary: false,
-        },
+        conversation,
+        InputKind::Notice,
+        String::new(),
+        mark,
     )?;
     cx.touched.agents.insert(agent);
     Ok(())
 }
 
-/// Who makes the change `cx`, as an event names them: a chief by
-/// name, an agent by its address and name.
+/// The name an event gives the actor of `cx`.
 pub(crate) fn by(cx: &mut Change<'_>) -> Result<String> {
     Ok(match cx.actor {
-        Actor::Chief(chief) => {
-            chiefs::find(cx.db, chief)?
-                .context("the chief is not in the realm")?
-                .name
-        }
+        Actor::Chief(chief) => chief_name(cx.db, chief)?,
         Actor::Agent(agent) => {
             crate::society::addresses::name_of(cx.db, agent)?
         }
@@ -254,8 +260,6 @@ pub(crate) fn by(cx: &mut Change<'_>) -> Result<String> {
     })
 }
 
-/// The model `agent` runs and how hard it thinks, as an event names
-/// them.
 fn model_of(
     cx: &mut Change<'_>,
     env: &EffectiveSettings,
@@ -275,8 +279,8 @@ fn model_of(
     })
 }
 
-/// Makes `change` to the model of `agent` or how hard it thinks, and
-/// writes what changed into its conversation.
+/// Makes `change` and writes any change of `agent`'s model or effort
+/// into its conversation.
 pub(crate) fn remodel(
     cx: &mut Change<'_>,
     env: &EffectiveSettings,
@@ -295,34 +299,27 @@ pub(crate) fn remodel(
     Ok(done)
 }
 
-/// Asks `agent`'s conversation to summarize its earlier part now, as
-/// it does by itself when its context fills.
+/// Asks `agent`'s conversation to summarize its earlier part now.
 pub(crate) fn compact(
     cx: &mut Change<'_>,
     env: &EffectiveSettings,
     agent: AgentId,
 ) -> Result<()> {
     let conversation = current(cx, env, agent)?;
-    inputs::keep(
+    let mark = Mark::Compaction { at: cx.at };
+    keep_mark(
         cx,
-        Keep {
-            conversation,
-            request: format!("compaction:{}", uuid::Uuid::new_v4()),
-            kind: InputKind::Compaction,
-            task: None,
-            content: COMPACT.into(),
-            mark: Mark::Compaction { at: cx.at },
-            steer: false,
-            boundary: false,
-        },
+        conversation,
+        InputKind::Compaction,
+        COMPACT.into(),
+        mark,
     )?;
     cx.touched.agents.insert(agent);
     Ok(())
 }
 
-/// Gives `kept`'s conversation what the hire `absorbed`, merged into
-/// it, said and did: a block a chat opens on `absorbed`'s own
-/// conversation, which stays as it is, and its words for the model.
+/// Gives `kept`'s conversation a digest of the conversation of
+/// `absorbed`, merged into it.
 pub(crate) fn merged(
     cx: &mut Change<'_>,
     env: &EffectiveSettings,
@@ -335,23 +332,12 @@ pub(crate) fn merged(
         Some(theirs) => digest(cx.db, theirs, &author)?,
         None => String::new(),
     };
-    inputs::keep(
-        cx,
-        Keep {
-            conversation,
-            request: format!("merged:{}", uuid::Uuid::new_v4()),
-            kind: InputKind::Merged,
-            task: None,
-            content,
-            mark: Mark::Merged {
-                from: absorbed,
-                author,
-                at: cx.at,
-            },
-            steer: false,
-            boundary: false,
-        },
-    )?;
+    let mark = Mark::Merged {
+        from: absorbed,
+        author,
+        at: cx.at,
+    };
+    keep_mark(cx, conversation, InputKind::Merged, content, mark)?;
     cx.touched.agents.insert(kept);
     Ok(())
 }
@@ -359,9 +345,8 @@ pub(crate) fn merged(
 /// The most characters of a merged conversation the model is given.
 const DIGEST: usize = 24_000;
 
-/// Who said what in `conversation`, the agent `author`'s, from its
-/// latest summary on, the newest last and at most [`DIGEST`]
-/// characters of it.
+/// Who said what in `author`'s `conversation` since its latest
+/// summary, the newest last.
 fn digest(
     db: &mut Db,
     conversation: ConversationId,
@@ -427,8 +412,7 @@ fn digest(
     ))
 }
 
-/// Takes `chief`'s line shown as the queued `item` back out of
-/// `agent`'s queue, before its turn takes it up.
+/// Takes `chief`'s queued line `item` back out of `agent`'s queue.
 pub(crate) fn withdraw(
     cx: &mut Change<'_>,
     agent: AgentId,
@@ -441,9 +425,7 @@ pub(crate) fn withdraw(
     let Some(request) = item.strip_prefix(super::QUEUED) else {
         refuse!(Refusal::NotQueued);
     };
-    let name = chiefs::find(cx.db, chief)?
-        .context("the chief is not in the realm")?
-        .name;
+    let name = chief_name(cx.db, chief)?;
     let Some(input) = inputs::find(cx.db, conversation, request)?
     else {
         refuse!(Refusal::NotQueued);
@@ -462,10 +444,8 @@ pub(crate) fn withdraw(
     Ok(Ok(()))
 }
 
-/// Takes `agent`'s conversation back to before the chief's line shown
-/// as `item` (C27): the agent's conversation is a fork of it made at
-/// the entry before that line, and what waited since lapses. Returns
-/// the line's words and images, for the chief to send again.
+/// Forks `agent`'s conversation at the entry before the chief's line
+/// `item` (C27). Returns the line's words, images and files.
 pub(crate) fn rewind(
     cx: &mut Change<'_>,
     env: &EffectiveSettings,
@@ -488,9 +468,7 @@ pub(crate) fn rewind(
     else {
         refuse!(not_a_line());
     };
-    let name = chiefs::find(cx.db, chief)?
-        .context("the chief is not in the realm")?
-        .name;
+    let name = chief_name(cx.db, chief)?;
     let mark = items[target]
         .1
         .mark
@@ -527,7 +505,7 @@ pub(crate) fn rewind(
 }
 
 /// Carries on the conversation's failed or stopped turn as a new
-/// task (C26). Returns the input's request.
+/// task (C26).
 pub(crate) fn retry(
     cx: &mut Change<'_>,
     env: &EffectiveSettings,
@@ -576,12 +554,8 @@ pub(crate) fn retry(
     }))
 }
 
-/// Stops every running turn of `agent` (C25), those of `working`, the
-/// conversations its runtime runs or was sent a turn of, among them,
-/// and holds its one conversation: what waits in its queue stays
-/// there until a chief's line or [`resume`]. Returns how many
-/// conversations it stopped; a turn already stopped, whose end its
-/// runtime has not yet reported, is not stopped again.
+/// Stops every running turn of `agent` and holds its queue (C25).
+/// Returns how many conversations it stopped.
 pub(crate) fn stop(
     cx: &mut Change<'_>,
     agent: AgentId,
@@ -622,8 +596,8 @@ pub(crate) fn stop(
     Ok(stopped)
 }
 
-/// Ends the hold a stop put on `agent`'s conversation, so what waits
-/// in its queue takes its turns again. Returns whether it was held.
+/// Ends the hold a stop put on `agent`'s conversation. Returns
+/// whether it was held.
 pub(crate) fn resume(
     cx: &mut Change<'_>,
     agent: AgentId,

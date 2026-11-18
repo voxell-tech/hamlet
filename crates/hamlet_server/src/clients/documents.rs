@@ -1,5 +1,4 @@
-//! The documents a chief edits and reads: the charter, characters,
-//! memory, limits, settings, papers and the prompt.
+//! The documents a chief edits and reads.
 
 use anyhow::Result;
 use diesel::prelude::*;
@@ -16,7 +15,7 @@ use crate::conversations::{chats, prompt};
 use crate::core::Core;
 use crate::knowledge::papers::papers;
 use crate::knowledge::{CHARACTER, memory_path};
-use crate::realm::change::{Done, done, refuse};
+use crate::realm::change::{Done, checked, done, refuse};
 use crate::society::authority;
 use crate::society::city::{self, CHARACTER_MOST};
 use crate::society::limits::{self, Limit, Limits, RealmLimits};
@@ -43,10 +42,7 @@ impl Core<'_, '_> {
                 self.edit_character(scholar, text)
             }
             Edit::Memory { of, path, text, .. } => {
-                let path = match memory_path(&path) {
-                    Ok(path) => path,
-                    Err(refusal) => refuse!(refusal),
-                };
+                let path = checked!(memory_path(&path));
                 match of {
                     Keeper::Scholar(scholar) => {
                         let scholar =
@@ -71,14 +67,11 @@ impl Core<'_, '_> {
                 )
             }
             Edit::Limits(EditLimits::Set { hamlet, set, .. }) => {
-                let limit = match Limit::read(
+                let limit = checked!(Limit::read(
                     &set.section,
                     &set.key,
-                    set.value,
-                ) {
-                    Ok(limit) => limit,
-                    Err(refusal) => refuse!(refusal),
-                };
+                    set.value
+                ));
                 let hamlet = hamlet.map(HamletId);
                 let chief = self.realm.chief();
                 let done =
@@ -150,8 +143,7 @@ impl Core<'_, '_> {
         Ok(Ok("The memory is saved.".into()))
     }
 
-    /// Writes a memory file of `agent`'s lodge, empty removing it,
-    /// and has the lodge committed.
+    /// Writes a memory file of `agent`'s lodge; empty removes it.
     fn edit_lodge_memory(
         &mut self,
         agent: AgentId,

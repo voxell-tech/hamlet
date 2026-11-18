@@ -10,8 +10,7 @@ use serde::{Deserialize, Serialize};
 use crate::realm::change::Change;
 use crate::society::dreams::Outcome;
 
-/// Declares [`Job`] with each job's kind written once: the tag it is
-/// kept under, which [`Job::kind`] gives back.
+/// Declares [`Job`] with the tag each kind is kept under.
 macro_rules! jobs {
     ($(
         $(#[$doc:meta])*

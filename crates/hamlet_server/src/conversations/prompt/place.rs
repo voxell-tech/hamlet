@@ -1,6 +1,4 @@
-//! Who an agent is and where (C11, H17): its office, the hires above
-//! and under it, its roads, what it may not use, how its hamlet was
-//! run lately, and for the Hand and mayors the other hamlets.
+//! Who an agent is and where (C11, H17).
 
 use anyhow::Result;
 use hamlet_store::Db;
@@ -280,8 +278,7 @@ pub(super) fn realm(
     Ok(Some(format!("{head}\n{}", lines.join("\n"))))
 }
 
-/// The scholars of the city that `id` may hire, for the Hand and for
-/// hires that lead: what `hire` takes as `scholar`.
+/// The scholars of the city that `id` may hire.
 pub(super) fn scholars(
     db: &mut Db,
     id: AgentId,

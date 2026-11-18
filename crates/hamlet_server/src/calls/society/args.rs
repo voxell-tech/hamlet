@@ -1,7 +1,4 @@
-//! The arguments of each society tool, read once when its call runs.
-//! Each type is both what a call is read into and the JSON Schema a
-//! model is offered: its doc comment is the tool's description, and
-//! each field's is the argument's.
+//! Each society tool's arguments, whose doc comments a model reads.
 
 use std::collections::BTreeMap;
 
@@ -21,17 +18,14 @@ const ADDRESS: &str = "An agent's address: `hand`, `mayor`, \
 const REASON: &str =
     "Why, in a sentence, if it helps; the record keeps it.";
 const PATHS: &str =
-    "Files or folders to send with it, in your lodge or your \
-     hamlet's folder. They are copied into the receiver's inbox, \
-     and the message says where. Links are not followed. A chief \
-     approves a send of more than 32 MiB or 1000 files.";
+    "Files or folders in your lodge or your hamlet's folder, copied \
+     into the receiver's inbox; the message says where. Links are \
+     not followed. Over 32 MiB or 1000 files waits for a chief.";
 const SCHOLAR: &str = "The scholar's address, `scholar#<id>`.";
 const HAMLET: &str = "The hamlet's id.";
 
-/// Send a notification to an agent you have a road to. It goes into
-/// their conversation as a turn of its own; you do not wait, and
-/// expect no response. `to` takes an address, with or without the
-/// name beside it.
+/// Send a notification to an agent you have a road to. It starts a
+/// turn of theirs; you do not wait, and expect no response.
 #[derive(Deserialize, JsonSchema)]
 pub(crate) struct Notify {
     #[schemars(description = ADDRESS)]
@@ -43,13 +37,10 @@ pub(crate) struct Notify {
     pub paths: Vec<String>,
 }
 
-/// Send a request to an agent you have a road to. It goes into their
-/// conversation as a turn of its own and this call returns at once:
-/// their final answer comes back to you later as the response, which
-/// starts a turn of yours. A request that fails comes back as an
-/// error response you read on your next turn, without starting one.
-/// End your turn if you have nothing else to do meanwhile. Request
-/// only what you need.
+/// Send a request to an agent you have a road to. It returns at once;
+/// the answer comes later as a response that starts a turn of yours,
+/// or as an error response on your next turn. End your turn if you
+/// have nothing else to do.
 #[derive(Deserialize, JsonSchema)]
 pub(crate) struct Request {
     #[schemars(description = ADDRESS)]
@@ -63,8 +54,7 @@ pub(crate) struct Request {
 
 /// Start a worker on a task: a helper with your tools that works in a
 /// scratch folder and where you work, then answers once. With `wait`,
-/// you wait for its answer; without, the answer comes to you later as
-/// a response.
+/// you wait for its answer; else it comes later as a response.
 #[derive(Deserialize, JsonSchema)]
 pub(crate) struct StartWorker {
     /// What the worker is to do, and what to answer.
@@ -157,12 +147,10 @@ pub(crate) struct Hire {
     pub hamlet: String,
 }
 
-/// Make a scholar of the city of what a hire under you learned, to
-/// hire again. A blank hire's own scholar joins the city with that
-/// learning; a hire of a city scholar starts a new scholar from its
-/// memory and skills, with its scholar's character, while it stays
-/// that scholar's hire. A scholar you make may wait at the harbor
-/// until it is let into the city.
+/// Make a scholar of the city from what a hire under you learned: a
+/// blank hire's own scholar joins it; a city scholar's hire starts a
+/// new scholar with its memory and skills, and stays a hire. It may
+/// wait at the harbor until let in.
 #[derive(Deserialize, JsonSchema)]
 pub(crate) struct MakeScholar {
     #[schemars(description = ADDRESS)]
@@ -175,16 +163,13 @@ pub(crate) struct MakeScholar {
     pub reason: String,
 }
 
-/// End a hire under you. Its lodge and branch are archived with what
-/// it learned. With `dream`, it reflects on its conversation and then
-/// dreams once more to bring that home to its scholar, so later hires
-/// of the scholar start with it, and you are notified of what it
-/// brought home; without, its scholar gets none of it.
+/// End a hire under you; its lodge and branch are archived. With
+/// `dream`, it reflects and dreams once more to bring what it learned
+/// home to its scholar, and you are notified of what it brought.
 #[derive(Deserialize, JsonSchema)]
 pub(crate) struct EndHire {
     #[schemars(description = ADDRESS)]
     pub hire: String,
-    /// Dream once more to bring what it learned home to its scholar.
     #[serde(default)]
     pub dream: bool,
     #[serde(default)]
@@ -407,9 +392,8 @@ pub(crate) struct ResetBudget {
     pub hamlet: String,
 }
 
-/// Set one limit of a hamlet, or of the realm, as the Settings show
-/// them: a key of a section, such as `cost` of `budget`; a chief
-/// approves it first.
+/// Set one limit of a hamlet, or of the realm, by its section and key
+/// in the Settings; a chief approves it first.
 #[derive(Deserialize, JsonSchema)]
 pub(crate) struct EditLimits {
     /// The hamlet's id; the realm's limits when left out.
@@ -419,7 +403,7 @@ pub(crate) struct EditLimits {
     /// `asking`; empty for a key outside every section.
     #[serde(default)]
     pub section: String,
-    /// The limit.
+    /// The limit, such as `cost` of `budget`.
     pub key: String,
     /// Its new value.
     pub value: Value,
@@ -631,9 +615,8 @@ pub(crate) struct SetFast {
 }
 
 /// Have a hire bring what it learned home to its scholar, or a
-/// scholar's hires do so and the scholar tidy its `main`. It runs
-/// whether dreams are on or not; one dreams at a time, and the
-/// others wait their turn.
+/// scholar's hires do so and the scholar tidy its `main`, even with
+/// dreams off.
 #[derive(Deserialize, JsonSchema)]
 pub(crate) struct Dream {
     /// A hire's address, or a scholar's, `scholar#<id>`.
@@ -740,9 +723,7 @@ pub(crate) struct Unshelve {
     pub reason: String,
 }
 
-/// Says each society tool's arguments once: the calls they are read
-/// into, and the schemas a model is offered. `request_chief` reads
-/// its own questions.
+/// [`Called`] and each tool's schema, from the argument types.
 macro_rules! called {
     ($($tool:ident),* $(,)?) => {
         /// A call of a society tool, with its arguments read.
@@ -751,8 +732,6 @@ macro_rules! called {
         }
 
         impl Called {
-            /// Reads the call of `tool` with `arguments`, refusing
-            /// arguments that do not fit it.
             pub fn read(
                 tool: Society,
                 arguments: &BTreeMap<String, Value>,
@@ -762,6 +741,7 @@ macro_rules! called {
                     $(Society::$tool => {
                         Ok(Self::$tool(parse(tool, given)?))
                     })*
+                    // `request_chief` reads its own arguments.
                     Society::RequestChief => {
                         Err(Refusal::Unsupported {
                             what: format!("the tool {}", tool.name()),
@@ -771,8 +751,6 @@ macro_rules! called {
             }
         }
 
-        /// The schema of `tool`'s arguments; none for
-        /// `request_chief`.
         fn schema(tool: Society) -> Option<Schema> {
             let generator = SchemaSettings::draft07()
                 .with(|settings| settings.meta_schema = None)
@@ -854,12 +832,10 @@ called!(
     Unshelve,
 );
 
-/// The arguments kept as written, untrimmed: a file's content.
+/// The arguments kept untrimmed.
 const VERBATIM: [&str; 1] = ["content"];
 
-/// The arguments as given, read leniently as a model writes them:
-/// each text trimmed but those [`VERBATIM`], and a null left out as
-/// if not given.
+/// `arguments` trimmed, without nulls.
 fn given(arguments: &BTreeMap<String, Value>) -> Value {
     Value::Object(
         arguments
@@ -914,9 +890,7 @@ pub(crate) fn specs() -> Vec<ToolSpec> {
         .collect()
 }
 
-/// A schema as a model is offered it: its description apart, as the
-/// tool's, and only what the arguments' shape needs, with each
-/// description's wrapped lines joined.
+/// The tool's description and parameters from `schema`.
 fn offered(schema: Schema) -> (String, BTreeMap<String, Value>) {
     let mut value = schema.to_value();
     plain(&mut value);
@@ -928,16 +902,14 @@ fn offered(schema: Schema) -> (String, BTreeMap<String, Value>) {
         _ => String::new(),
     };
     map.remove("title");
-    // Some providers want an object's properties even when it has
-    // none.
+    // Some providers want `properties` even when empty.
     map.entry("properties")
         .or_insert_with(|| Value::Object(serde_json::Map::new()));
     (description, map.into_iter().collect())
 }
 
-/// Leaves out of `schema` what no model needs, the formats, the
-/// defaults and the null an argument left out may be, and joins each
-/// description's wrapped lines; then so for each schema inside it.
+/// Strips formats, defaults and nullable types from `schema` and
+/// unwraps its descriptions.
 fn plain(schema: &mut Value) {
     let Value::Object(map) = schema else {
         return;
@@ -965,7 +937,6 @@ fn plain(schema: &mut Value) {
     }
 }
 
-/// `text` with the line breaks inside each paragraph made spaces.
 fn unwrapped(text: &str) -> String {
     text.split("\n\n")
         .map(|paragraph| {

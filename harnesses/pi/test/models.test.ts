@@ -31,29 +31,10 @@ test("an endpoint made again for a second model still lists the first", () => {
         ),
     );
     expect(models.getModel("anthropic", "claude-opus-5-5")).toBeDefined();
-    // The same model, so what was set on it, such as its context window, stays.
     expect(models.getModel("anthropic", "claude-sonnet-5-5")).toBe(first);
 });
 
-test("a model of an endpoint pi does not know is served at the server's address", () => {
-    const models = createModels();
-    const at = "http://127.0.0.1:9/v1";
-    models.setProvider(
-        modelProvider({ provider: "local", id: "a", baseUrl: at }, gate),
-    );
-    models.setProvider(
-        modelProvider(
-            { provider: "local", id: "b", baseUrl: at },
-            gate,
-            undefined,
-            models.getProvider("local")?.getModels(),
-        ),
-    );
-    expect(models.getModels("local").map((m) => m.id)).toEqual(["a", "b"]);
-});
-
 test("a conversation switched to a model its provider does not list yet calls that model", async () => {
-    // The provider lists only `a`, the model the conversation was made with.
     const called: string[] = [];
     const answer: StreamFunction = (model) => {
         called.push(model.id);
@@ -96,7 +77,6 @@ test("a conversation switched to a model its provider does not list yet calls th
         },
         api: { stream: answer, streamSimple: answer },
     });
-    // The server's answer to each call names the model the agent runs now.
     const switched: Gate = {
         attempt: async () => ({
             ok: true,

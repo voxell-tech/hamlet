@@ -15,7 +15,7 @@ use super::limits::{self, Micros};
 use super::record::{self, Decision, DecisionKind};
 use super::refusal::Refusal;
 use super::{city, hamlets, tree};
-use crate::realm::change::{Change, Done, done, refuse};
+use crate::realm::change::{Change, Done, checked, done, refuse};
 use crate::realm::jobs::{self, Job};
 
 #[derive(Clone, Debug, PartialEq, Queryable, Selectable)]
@@ -38,8 +38,7 @@ pub(crate) struct Hire {
     pub ending_dream: bool,
 }
 
-/// Whether a hire that ends dreams once more, to bring what it
-/// learned home to its scholar.
+/// Whether an ended hire dreams once more.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub(crate) enum LastDream {
     Without,
@@ -82,8 +81,8 @@ pub(crate) struct Hired {
     pub hamlet: HamletId,
 }
 
-/// Hires a scholar into a hamlet under a parent. With no parent, the
-/// hire is the mayor of a hamlet being founded.
+/// Hires a scholar into a hamlet under a parent, or as the mayor of a
+/// hamlet being founded.
 pub(crate) fn hire(cx: &mut Change<'_>, spec: Spec) -> Done<Hired> {
     let place = hamlets::get(cx.db, &spec.hamlet)?;
     if !place.is_living() {
@@ -184,9 +183,8 @@ pub(crate) fn get(db: &mut Db, id: AgentId) -> Result<Hire> {
 /// The most letters of a first message a purpose keeps.
 const PURPOSE_KEPT: usize = 200;
 
-/// Gives `agent`, a hire hired without saying what for, the first
-/// line of `text`, the first message it is given, as its purpose.
-/// Anything else is left as it is.
+/// Gives a hire with no purpose the first line of `text` as its
+/// purpose.
 pub(crate) fn take_purpose(
     cx: &mut Change<'_>,
     agent: AgentId,
@@ -295,10 +293,7 @@ pub(crate) fn require_living(db: &mut Db, id: AgentId) -> Done<()> {
     Ok(Ok(()))
 }
 
-/// Ends the living hire `id`, with or without a last dream, before
-/// which its conversation reflects. Its children go to its parent,
-/// but when its whole hamlet is removed and the tree is kept to come
-/// back.
+/// Ends the living hire `id`.
 pub(crate) fn end(
     cx: &mut Change<'_>,
     id: AgentId,
@@ -441,8 +436,8 @@ pub(crate) fn erase(cx: &mut Change<'_>, id: AgentId) -> Done<()> {
     Ok(Ok(()))
 }
 
-/// Gives the office of `hamlet` to its hire `id`. The old mayor and
-/// its children go under the new one.
+/// Gives the office of `hamlet` to its hire `id`, the old mayor going
+/// under it.
 pub(crate) fn seat(
     cx: &mut Change<'_>,
     hamlet_id: &HamletId,
@@ -492,7 +487,7 @@ pub(crate) fn seat(
 }
 
 /// Chooses the model of the living hire `id`, or its hamlet's when
-/// `None` (H29). A lead may not change a chief's choice.
+/// `None` (H29).
 pub(crate) fn set_model(
     cx: &mut Change<'_>,
     id: AgentId,
@@ -603,8 +598,7 @@ pub(crate) fn set_allowance(
     Ok(Ok(()))
 }
 
-/// Pins the living hire `id` to `version`, or to `main` when none;
-/// its branch takes the new target in when it is next idle.
+/// Pins the living hire `id` to `version`, or to `main` when none.
 pub(crate) fn set_pin(
     cx: &mut Change<'_>,
     id: AgentId,
@@ -632,8 +626,7 @@ pub(crate) fn set_pin(
 /// The most letters a nickname has.
 pub(crate) const NICKNAME: usize = 24;
 
-/// `nickname` trimmed, none when it is empty, or the refusal of one
-/// that is too long or more than one line.
+/// `nickname` trimmed, none when it is empty.
 pub(crate) fn check_nickname(
     nickname: Option<&str>,
 ) -> Result<Option<&str>, Refusal> {
@@ -649,8 +642,7 @@ pub(crate) fn check_nickname(
     }
 }
 
-/// Writes the name the agent `id` is shown by now into its
-/// conversation, when `changed`.
+/// Writes `id`'s new name into its conversation, when `changed`.
 pub(crate) fn renamed(
     cx: &mut Change<'_>,
     id: AgentId,
@@ -677,10 +669,7 @@ pub(crate) fn set_nickname(
 ) -> Done<()> {
     let hire = get(cx.db, id)?;
     done!(require_living(cx.db, id));
-    let nickname = match check_nickname(nickname) {
-        Ok(nickname) => nickname,
-        Err(refusal) => refuse!(refusal),
-    };
+    let nickname = checked!(check_nickname(nickname));
     diesel::update(hire::table.find(id))
         .set(hire::nickname.eq(nickname))
         .execute(cx.db)?;

@@ -1,7 +1,4 @@
-//! The society's tools (H35): what an agent does in the society, each
-//! checked against the caller's standing as a chief's command is.
-//! A call's arguments are read once, into the tool's own type
-//! ([`args`]).
+//! The society's tools (H35).
 
 mod agent_acts;
 pub(super) mod args;
@@ -27,7 +24,7 @@ use super::{Call, refused, said};
 use crate::conversations::dreams::Notify;
 use crate::core::Core;
 use crate::knowledge::{promotion, versions};
-use crate::realm::change::{Change, Done, done, refuse};
+use crate::realm::change::{Change, Done, checked, done, refuse};
 use crate::realm::settings::EffectiveSettings;
 use crate::society::addresses::{self, Reach};
 use crate::society::agents::{self, AgentKind, EndHow};
@@ -128,15 +125,7 @@ impl Core<'_, '_> {
                 name,
                 character,
             }) => {
-                let task = self.task_of(call)?;
-                let db = self.realm.store().connection();
-                let chief = task_chief(db, task)?;
-                let owner = authority::owner_for(
-                    db,
-                    Actor::Agent(agent),
-                    here,
-                    chief,
-                )?;
+                let owner = self.owner(call, here)?;
                 self.carry(call, |cx, env| {
                     let character = if character.is_empty() {
                         env.settings.character.clone()
@@ -160,15 +149,7 @@ impl Core<'_, '_> {
                     here,
                     Reach::Kept
                 ));
-                let task = self.task_of(call)?;
-                let db = self.realm.store().connection();
-                let chief = task_chief(db, task)?;
-                let owner = authority::owner_for(
-                    db,
-                    Actor::Agent(agent),
-                    here,
-                    chief,
-                )?;
+                let owner = self.owner(call, here)?;
                 let layout = self.realm.layout().clone();
                 let make = promotion::make_scholar(
                     self.realm.store().connection(),
@@ -370,15 +351,7 @@ impl Core<'_, '_> {
                 scholar,
                 purpose,
             }) => {
-                let task = self.task_of(call)?;
-                let db = self.realm.store().connection();
-                let overseer = task_chief(db, task)?;
-                let chief = authority::owner_for(
-                    db,
-                    Actor::Agent(agent),
-                    None,
-                    overseer,
-                )?;
+                let chief = self.owner(call, None)?;
                 let mayor = if scholar.is_empty() {
                     Hiring::Blank {
                         name: String::new(),
@@ -487,17 +460,27 @@ impl Core<'_, '_> {
             | Called::StartWorker(_)
             | Called::SubmitSkill(_)
             | Called::RequestLibrarian(_) => {
-                Ok(Err(Refusal::Unsupported {
-                    what: format!("the tool {}", call.tool),
-                }))
+                Ok(Err(unsupported(call)))
             }
         }
     }
 
-    /// Makes the change of `call` by its agent, and keeps the call's
-    /// answer in the same transaction: a call cut off by a crash
-    /// after its change is answered the same when it is made again,
-    /// and never changes anything twice.
+    /// The chief who owns what `call`'s agent makes in `here`.
+    fn owner(
+        &mut self,
+        call: &Call<'_>,
+        here: Option<&HamletId>,
+    ) -> Result<ChiefId> {
+        let task = self.task_of(call)?;
+        let db = self.realm.store().connection();
+        let chief = task_chief(db, task)?;
+        let by = Actor::Agent(call.conversation.agent);
+        authority::owner_for(db, by, here, chief)
+    }
+
+    /// Makes the change of `call` and keeps its answer in the same
+    /// transaction, so a call replayed after a crash never changes
+    /// anything twice.
     fn carry(
         &mut self,
         call: &Call<'_>,
@@ -541,10 +524,8 @@ impl Core<'_, '_> {
         Ok(made)
     }
 
-    /// Marks `call` begun before an effect outside the store, which
-    /// no transaction keeps with its answer: cut off by a crash, it
-    /// is answered as interrupted when it is made again, never run
-    /// twice.
+    /// Marks `call` begun before an effect outside the store, so a
+    /// call replayed after a crash is answered as interrupted.
     fn begin(&mut self, call: &Call<'_>) -> Result<()> {
         let db = self.realm.store().connection();
         hamlet_store::marker::begin(
@@ -585,10 +566,7 @@ impl Core<'_, '_> {
         here: Option<&HamletId>,
         reach: Reach,
     ) -> Done<AgentId> {
-        let address = match addresses::parse(address) {
-            Ok(address) => address,
-            Err(refusal) => refuse!(refusal),
-        };
+        let address = checked!(addresses::parse(address));
         let db = self.realm.store().connection();
         addresses::resolve(db, &address, here, reach)
     }
@@ -702,7 +680,6 @@ impl Core<'_, '_> {
             },
             (false, false) => refuse!(Refusal::HireBoth),
         };
-        let task = self.task_of(call)?;
         let db = self.realm.store().connection();
         if let Hiring::Existing { scholar, .. } = &hiring
             && !authority::may_hire(
@@ -715,13 +692,7 @@ impl Core<'_, '_> {
             let name = city::get(db, *scholar)?.label();
             refuse!(Refusal::ScholarNotOwn { name });
         }
-        let overseer = task_chief(db, task)?;
-        let owner = authority::owner_for(
-            db,
-            Actor::Agent(agent),
-            Some(&hamlet),
-            overseer,
-        )?;
+        let owner = self.owner(call, Some(&hamlet))?;
         // An agent says what it hires for; only a chief may leave it
         // to the hire's first message.
         if purpose.is_empty() {
@@ -780,9 +751,7 @@ impl Core<'_, '_> {
     }
 }
 
-/// The words for the agent that made a scholar: it lives in the
-/// city, or waits at the harbor, with the Hand called on to judge it
-/// when the realm leaves newcomers to the Hand.
+/// Where the scholar `id`, just made, arrived, for its maker.
 fn arrived(
     cx: &mut Change<'_>,
     env: &EffectiveSettings,
@@ -805,8 +774,7 @@ fn arrived(
     ))
 }
 
-/// The budget of `agent`, for `read_budget`: what its hamlet or the
-/// realm spent this period, what it spent, and its allowance.
+/// The budget of `agent`, for `read_budget`.
 fn budget(
     db: &mut hamlet_store::Db,
     agent: AgentId,
@@ -832,7 +800,13 @@ fn budget(
     Ok(lines.join("\n"))
 }
 
-/// The chief overseeing task `task`.
+/// The refusal of a tool the dispatcher did not expect.
+pub(super) fn unsupported(call: &Call<'_>) -> Refusal {
+    Refusal::Unsupported {
+        what: format!("the tool {}", call.tool),
+    }
+}
+
 pub(super) fn task_chief(
     db: &mut hamlet_store::Db,
     task: Option<TaskId>,

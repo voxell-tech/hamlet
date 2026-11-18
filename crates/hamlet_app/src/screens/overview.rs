@@ -66,8 +66,7 @@ pub fn plugin(app: &mut App) {
         .add_systems(Update, tabs::mark::<Page>);
 }
 
-/// A heading over a part of the panel, behind its icon: larger than
-/// the names of the settings under it.
+/// A heading over a part of the panel, behind its icon.
 pub(crate) fn heading(
     which: Glyph,
     text: impl Into<String>,
@@ -102,8 +101,7 @@ pub(crate) fn heading_line(
     .boxed()
 }
 
-/// The title of a part of a list, small, bold and in `tone`, as the
-/// rail heads its parts.
+/// The title of a part of a list, as the rail heads its parts.
 pub(crate) fn part_title(text: String, tone: Tone) -> impl View {
     with_cx(move |cx| {
         label(text.clone())
@@ -114,8 +112,7 @@ pub(crate) fn part_title(text: String, tone: Tone) -> impl View {
     })
 }
 
-/// A [`part_title`] with how many there are after it, dim, as the
-/// rail counts its parts.
+/// A [`part_title`] with its count.
 fn counted(text: &str, count: usize) -> AnyView {
     row((
         part_title(text.to_owned(), Tone::Faint),
@@ -129,9 +126,7 @@ fn counted(text: &str, count: usize) -> AnyView {
 /// The size of a figure of the day.
 const FIGURE: f32 = 24.0;
 
-/// The realm at a glance: its figures, what waits for the chief in
-/// full, then the hamlets, open and closed down. The hamlets and the
-/// Hand are in the rail beside it too.
+/// The realm's page: its figures, what waits, and the hamlets.
 pub fn overview() -> impl View {
     with_cx(move |cx| {
         column((
@@ -139,8 +134,7 @@ pub fn overview() -> impl View {
             row((title("Realm"), frame().grow(1.0), stop_all()))
                 .gap(cx.theme().space.gap)
                 .align(AlignItems::Center),
-            // A realm with no hamlet has no figures worth showing,
-            // only the ways to begin.
+            // A realm with no hamlet shows only the ways to begin.
             keyed(derived(any_hamlet).when(stale()), |&any| {
                 if any { today() } else { get_started() }
             })
@@ -182,8 +176,7 @@ fn any_hamlet(world: &World) -> bool {
         })
 }
 
-/// The two ways a chief new to a realm begins: talking to the Hand,
-/// or founding a hamlet on a folder.
+/// The ways a new chief begins: the Hand, or a hamlet.
 fn get_started() -> AnyView {
     with_cx(move |cx| {
         column((
@@ -246,8 +239,7 @@ fn start_card(
     .boxed()
 }
 
-/// Stops every agent, as a danger button that cannot be pressed
-/// while none works or waits.
+/// The button that stops every agent.
 fn stop_all() -> AnyView {
     keyed(
         derived(|world: &World| {
@@ -282,8 +274,7 @@ fn stop_all() -> AnyView {
     .boxed()
 }
 
-/// See-through, as what cannot be pressed: half over dark panels,
-/// and less over light ones, where the same fade leaves a red button
+/// Faded as disabled, less in light mode where red would be
 /// unreadable.
 fn faded(cx: &mut Cx) {
     let opacity = if lit_panels(cx.theme()) { 0.85 } else { 0.5 };
@@ -338,11 +329,7 @@ fn today_of(world: &World) -> Today {
     }
 }
 
-/// One figure of the day on a card of its own: its mark and how
-/// many, large, over what they are, all in `tone`, or dim while
-/// there are none, and `tip` under the pointer. The cards share the
-/// row's width and are as tall as the tallest; a card that does not
-/// fit beside the others goes on below.
+/// One figure of the day on a card of its own.
 fn figure(
     count: usize,
     which: Glyph,
@@ -374,8 +361,7 @@ fn figure(
     .boxed()
 }
 
-/// The day's figures: what waits, what works and rests, and the
-/// scholars in the city and the newcomers at its harbor.
+/// The day's figures.
 fn today() -> AnyView {
     keyed(
         derived(today_of).when(bevy_fynix::every_frame()),
@@ -422,8 +408,7 @@ fn today() -> AnyView {
                     words::HARBOR,
                 ),
             ];
-            // Closer than cards elsewhere, and narrow, so five fit
-            // a narrow page.
+            // Tight, so five fit a narrow page.
             row(figures)
                 .gap(6.0)
                 .align(AlignItems::Stretch)
@@ -436,8 +421,7 @@ fn today() -> AnyView {
     .boxed()
 }
 
-/// What waits for the chief, in full, under its heading while there
-/// is any.
+/// What waits for the chief, under its heading.
 fn needs() -> AnyView {
     let head = keyed(resource(Queue::len), |&count| {
         counted("Needs you", count)
@@ -497,8 +481,7 @@ fn hamlet_cards(world: &World) -> Vec<HamletCard> {
                     how_many(Standing::Waits),
                 ),
                 mayor,
-                // A card shows its budget only once something is
-                // spent.
+                // Its budget shows once something is spent.
                 account: match world.get::<Treasury>(facts.hamlet) {
                     Some(t)
                         if t.0.spent.micros > 0

@@ -1,5 +1,4 @@
-//! The Hub's page of a scholar: who it is, what it knows, its
-//! versions and hires, and what a chief can do with it.
+//! The Hub's page of a scholar.
 
 use bevy::ecs::component::Component;
 use bevy::ecs::entity::Entity;
@@ -36,8 +35,7 @@ use crate::scholar_tag::{learned_mark, learned_words};
 use crate::standing::Standing;
 use crate::{chat, world_menu};
 
-/// The deeds a scholar's page offers, in the names the server
-/// advertises them by.
+/// The server's names of the deeds a scholar's page offers.
 const DEEDS: [&str; 13] = [
     "name-scholar",
     "welcome",
@@ -104,8 +102,7 @@ fn place_of(world: &World, hire: Entity) -> Place {
     Place::Under { hamlet, lead }
 }
 
-/// Where a hire stands, each hamlet and lead with its entity and
-/// name.
+/// Where a hire stands.
 #[derive(Clone, PartialEq)]
 enum Place {
     Mayor(Option<(Entity, String)>),
@@ -131,7 +128,6 @@ struct HireShown {
 /// A scholar and its hires as the page reads them.
 #[derive(Clone, PartialEq)]
 struct Shown {
-    /// The scholar's entity, for what acts on it in the world.
     entity: Entity,
     scholar: protocol::Scholar,
     hires: Vec<HireShown>,
@@ -183,8 +179,7 @@ fn ask(world: &mut World, act: Act) {
     };
 }
 
-/// The command `act` makes of the scholar at `address`, called
-/// `name`, and the words typed.
+/// The command `act` makes of the scholar and the words typed.
 fn command(
     address: &str,
     name: &str,
@@ -353,8 +348,7 @@ fn form(address: String, name: String, act: Act) -> AnyView {
     .boxed()
 }
 
-/// The form of the deed asked for, where `here` says it belongs to
-/// the part of the page this stands in.
+/// The form of the deed asked for, where `here` places it.
 fn form_view(
     address: String,
     name: String,
@@ -376,8 +370,7 @@ fn is_careful(act: &Act) -> bool {
     matches!(act, Act::Purge(_) | Act::Remove | Act::Erase)
 }
 
-/// Whether `act` is done from the foot of the page, where what ends
-/// the scholar is.
+/// Whether `act` is done from the foot of the page.
 fn is_of_foot(act: &Act) -> bool {
     matches!(act, Act::Remove | Act::Erase)
 }
@@ -397,8 +390,7 @@ fn is_of_header(act: &Act) -> bool {
     matches!(act, Act::Fork(None))
 }
 
-/// Where the scholar stands, said beside its name: in the city, at
-/// the harbor or archived.
+/// Where the scholar stands, said beside its name.
 fn standing(scholar: &protocol::Scholar) -> (&'static str, Tone) {
     match (&scholar.left, scholar.arrival) {
         (Some(_), _) => ("Archived", Tone::Dim),
@@ -417,8 +409,7 @@ fn standing(scholar: &protocol::Scholar) -> (&'static str, Tone) {
     }
 }
 
-/// The deeds under its name: what changes where it stands short of
-/// sending it away. A double click on its name renames it.
+/// The deeds under its name that change where it stands.
 fn arrival(shown: &Shown) -> AnyView {
     let address = scholar_address(shown.scholar.id);
     let can = |deed| shown.allowed.contains(&deed);
@@ -457,8 +448,7 @@ fn arrival(shown: &Shown) -> AnyView {
                 ));
             }
         }
-        // Picked up and set down in the world, or sent back to wait
-        // at the harbor.
+        // Moved in the world, or sent back to the harbor.
         (None, protocol::Arrival::Housed) => {
             if can("move-house") {
                 let scholar = shown.entity;
@@ -498,8 +488,7 @@ fn arrival(shown: &Shown) -> AnyView {
     buttons(buttons_row).boxed()
 }
 
-/// The versions in their section, each with what can be done from it,
-/// and the form of what was asked for from them.
+/// The versions in their section, each with its menu.
 fn versions(shown: &Shown) -> AnyView {
     let can = |deed| shown.allowed.contains(&deed);
     let address = scholar_address(shown.scholar.id);
@@ -508,8 +497,7 @@ fn versions(shown: &Shown) -> AnyView {
     if shown.scholar.versions.is_empty() {
         parts.push(note("No version is named yet.").boxed());
     }
-    // Newest first; each with its own menu of what can be done from
-    // it, named in full there.
+    // Newest first.
     for version in shown.scholar.versions.iter().rev() {
         let name = version.name.clone();
         let followers = shown
@@ -571,8 +559,7 @@ fn versions(shown: &Shown) -> AnyView {
     section(Glyph::History, "Versions", None, column(parts).gap(4.0))
 }
 
-/// The "..." button that opens each of `deeds`, named in full, with
-/// what it asks for, and `tip` under the pointer.
+/// The "..." button that opens `deeds`.
 fn deed_menu(
     tip: &'static str,
     deeds: Vec<(String, Act)>,
@@ -597,8 +584,7 @@ fn deed_menu(
     .boxed()
 }
 
-/// Where a hire stands, in dim words between its hamlet, which leads
-/// to the hamlet's page, and its lead, which leads to its chat.
+/// Where a hire stands, its hamlet and lead as links.
 fn place_view(place: &Place) -> AnyView {
     let words =
         |text: &'static str| label(text).tone(Tone::Dim).boxed();
@@ -642,8 +628,7 @@ fn link(
         .boxed()
 }
 
-/// Its hires in their section, each led to and pinned to a version
-/// from here.
+/// Its hires in their section, each with its version.
 fn hires(shown: &Shown) -> AnyView {
     if shown.hires.is_empty() {
         return section_line(
@@ -736,8 +721,7 @@ fn hires(shown: &Shown) -> AnyView {
     section(Glyph::Hire, "Hires", None, column(parts).gap(4.0))
 }
 
-/// What it knows, each part in its section: the character a chief may
-/// edit, its memory with a dream that tidies it, and its skills.
+/// Its character, memory and skills, each in its section.
 fn knowledge(shown: &Shown) -> [AnyView; 3] {
     [
         memory::character_section(),
@@ -759,8 +743,7 @@ fn knowledge(shown: &Shown) -> [AnyView; 3] {
     ]
 }
 
-/// What makes the button of a dream, which brings home what its hires
-/// learned, while the scholar may have one.
+/// The dream button, while the scholar may have one.
 fn dream(
     shown: &Shown,
 ) -> impl Fn() -> Option<AnyView> + Send + Sync + 'static {
@@ -788,16 +771,14 @@ fn dream(
     }
 }
 
-/// What makes the menu of a memory file, while one may be taken out
-/// of the scholar's history.
+/// A memory file's menu, while one may be purged.
 fn file_menu(shown: &Shown) -> memory::FileMenu {
     let may = shown.scholar.left.is_none()
         && shown.allowed.contains(&"purge");
     may.then_some(erase_menu)
 }
 
-/// The menu of the memory file at `path`, which takes it out of the
-/// scholar's whole history.
+/// The menu that purges `path` from the scholar's history.
 fn erase_menu(path: &str) -> AnyView {
     deed_menu(
         "What can be done to this file",
@@ -809,8 +790,7 @@ fn erase_menu(path: &str) -> AnyView {
     )
 }
 
-/// What changes the scholar for good, kept at the foot of its page
-/// in its own section.
+/// What changes the scholar for good, at the foot of its page.
 fn careful(shown: &Shown) -> AnyView {
     let name = shown.scholar.name.clone();
     let address = scholar_address(shown.scholar.id);
@@ -865,9 +845,7 @@ fn careful(shown: &Shown) -> AnyView {
     )
 }
 
-/// The scholar's page: where it stands and what it is called, then a
-/// section each for its hires, what it knows, its versions and what
-/// changes it for good.
+/// The scholar's page.
 fn body(shown: &Shown) -> AnyView {
     let scholar = shown.entity;
     let name = shown.scholar.name.clone();
@@ -936,8 +914,7 @@ fn body(shown: &Shown) -> AnyView {
     .boxed()
 }
 
-/// Does the deed the form of the scholar shown asks for, as its first
-/// button does.
+/// Does the deed the shown scholar's form asks for.
 pub(super) fn submit(world: &mut World) {
     let Some(Showing::Scholar(scholar)) =
         world.get_resource::<Showing>().copied()

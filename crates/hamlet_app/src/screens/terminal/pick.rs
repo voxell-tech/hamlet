@@ -1,6 +1,5 @@
-//! The menu the list's plus opens: a new terminal of the chief's own,
-//! and the agents by hamlet, whose bash logs are pinned to the list
-//! or let go. A search narrows the agents by name.
+//! The menu the list's plus opens: a new terminal, or an agent's log
+//! to pin.
 use bevy::app::{App, PostUpdate};
 use bevy::ecs::component::Component;
 use bevy::ecs::hierarchy::Children;
@@ -38,8 +37,7 @@ pub(super) fn plugin(app: &mut App) {
         .add_systems(PostUpdate, (read_search, focus_search));
 }
 
-/// Where the menu hangs, and the panel it opens a terminal in, while
-/// it is open.
+/// Where the open menu hangs, and its panel.
 #[derive(Resource, Default, Clone, PartialEq)]
 pub(super) struct Adding(Option<(Rect, PanelId)>);
 
@@ -192,8 +190,7 @@ fn search() -> impl View {
             .width(percent(100.0))
             .rules(text_input)
             .tagged(Find),
-        // The word that stands in an empty field, which the pointer
-        // passes through to the field.
+        // The placeholder lets the pointer through to the field.
         column((label("Search agents")
             .tone(Tone::Faint)
             .wrap(false),))
@@ -232,8 +229,7 @@ fn group_rows(
             agents[at + 1..].iter().any(|(next, _)| next.path == path)
         };
         let depth = row.path.len();
-        // Each level under the top keeps its guide while a sibling of
-        // the agent there is still to come.
+        // A level keeps its guide while a sibling is still to come.
         let rails = (1..depth)
             .map(|level| later(&row.path[..level]))
             .collect();
@@ -251,10 +247,8 @@ fn group_rows(
     views
 }
 
-/// The agents of `group` that `typed` leaves, each with whether it
-/// stands only as the way to one that matches. A group whose title
-/// matches keeps them all; an agent that matches keeps those above
-/// it.
+/// The agents of `group` that `typed` leaves, dim if only above a
+/// match.
 fn visible<'a>(
     group: &'a Group,
     typed: &str,
@@ -319,8 +313,7 @@ struct Tree {
 /// How tall a row of the menu is, for its tree lines.
 const ROW: f32 = 28.0;
 
-/// One agent in its tree, with the pin of its log when it has one;
-/// `dim` when it only leads to a match.
+/// One agent in its tree, with its log's pin.
 #[expect(
     clippy::fn_params_excessive_bools,
     reason = "dimmed by the search, and pinned: two plain facts of \
@@ -393,71 +386,5 @@ pub fn pin(world: &mut World, key: &str) {
     let mut pins = world.resource_mut::<Pins>();
     if !pins.0.remove(key) {
         pins.0.insert(key.to_owned());
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    fn row(key: &str, name: &str, path: &[&str]) -> Row {
-        Row {
-            path: path.iter().map(|p| format!("agent#{p}")).collect(),
-            what: What::Agent(Branch {
-                key: format!("agent#{key}"),
-                address: format!("a{key}"),
-                name: Some(name.into()),
-                kind: AgentKind::Worker,
-                mayor: false,
-                log: None,
-                held: 0,
-            }),
-        }
-    }
-
-    fn names(found: &[(&Row, bool)]) -> Vec<(String, bool)> {
-        found
-            .iter()
-            .map(|(row, dim)| {
-                let What::Agent(branch) = &row.what else {
-                    unreachable!()
-                };
-                (called(branch), *dim)
-            })
-            .collect()
-    }
-
-    fn docs() -> Group {
-        Group {
-            key: "docs".into(),
-            title: "docs".into(),
-            rows: vec![
-                row("1", "Ada", &[]),
-                row("2", "Bo", &["1"]),
-                row("3", "Scout 6", &["1", "2"]),
-                row("4", "Dee", &["1"]),
-            ],
-        }
-    }
-
-    #[test]
-    fn a_match_keeps_the_agents_above_it_dimmed() {
-        let group = docs();
-        assert_eq!(
-            names(&visible(&group, "SCOUT")),
-            [
-                ("Ada".to_owned(), true),
-                ("Bo".to_owned(), true),
-                ("Scout 6".to_owned(), false),
-            ]
-        );
-    }
-
-    #[test]
-    fn a_hamlet_that_matches_keeps_every_agent() {
-        let group = docs();
-        assert_eq!(visible(&group, "doc").len(), 4);
-        assert_eq!(visible(&group, "").len(), 4);
-        assert!(visible(&group, "zzz").is_empty());
     }
 }

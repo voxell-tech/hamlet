@@ -1,5 +1,4 @@
-//! The quiet line at the end of a chat a chief stopped: how many of
-//! its inputs wait under the hold, and Resume.
+//! The line at the end of a stopped chat: inputs waiting, and Resume.
 
 use bevy::ecs::world::World;
 use bevy::ui::{AlignItems, Display, JustifyContent};
@@ -24,8 +23,7 @@ fn held(world: &World) -> Option<usize> {
     Some(transcript.items().iter().filter(|item| item.queued).count())
 }
 
-/// "Stopped · 3 waiting" and Resume, shown while a stop holds the
-/// chat's queue.
+/// "Stopped · 3 waiting" and Resume.
 pub(super) fn line() -> impl View {
     with_cx(|cx| {
         let words = derived(|world: &World| match held(world) {

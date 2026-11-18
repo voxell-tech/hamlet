@@ -1,5 +1,4 @@
-//! One entry of a conversation, drawn plainly: in a fold and for a
-//! reply that failed.
+//! One entry of a conversation, drawn plainly.
 
 use bevy::ecs::entity::Entity;
 use bevy::ecs::resource::Resource;
@@ -49,12 +48,10 @@ fn clip(s: &str, max: usize) -> String {
     }
 }
 
-/// The letters of a request a tool's row lays out, which its line
-/// cuts again to the room it has.
+/// The most letters of a request a tool's row lays out.
 const TOOL_TEXT: usize = 400;
 
-/// The request to a tool on one line: its command, its path or its
-/// arguments.
+/// The request to a tool on one line.
 fn tool_text(call: &ToolCall, summary: &str) -> String {
     let shown = match call {
         ToolCall::Command { command } => command,
@@ -80,8 +77,7 @@ pub(crate) enum Underway {
     Waiting,
 }
 
-/// How the tool call at entry `id` of `chat` stands, as a mark and
-/// how long it took.
+/// How the tool call at entry `id` of `chat` stands.
 pub(super) fn status(chat: Entity, id: String) -> impl View {
     keyed(
         component::<Transcript, _>(chat, move |t| ran(t, &id)),
@@ -95,8 +91,6 @@ pub(super) fn status(chat: Entity, id: String) -> impl View {
             };
             row((
                 glyph(which, 12.0).tone(tone),
-                // A call quicker than a tenth of a second says no
-                // time.
                 label(
                     time.filter(|ms| *ms >= 100)
                         .map(took)
@@ -113,8 +107,7 @@ pub(super) fn status(chat: Entity, id: String) -> impl View {
     )
 }
 
-/// The tool calls opened to show their whole request, and the cards
-/// opened in place, by their conversation and entry.
+/// The tool calls and cards opened, by their conversation and entry.
 #[derive(Resource, Default)]
 pub struct OpenTools(pub Vec<(Entity, String)>);
 
@@ -169,7 +162,7 @@ struct Step {
     verb: &'static str,
     running: bool,
     failed: bool,
-    /// What it acts on, on one line, and whole under the pointer.
+    /// What it acts on.
     object: String,
     whole: String,
     /// A command or a tool's own name, set as code.
@@ -178,7 +171,6 @@ struct Step {
     counts: Option<Change>,
 }
 
-/// The last part of `path`, the file it names.
 fn file_name(path: &str) -> String {
     path.trim_end_matches(['/', '\\'])
         .rsplit(['/', '\\'])
@@ -187,8 +179,7 @@ fn file_name(path: &str) -> String {
         .to_string()
 }
 
-/// `to` with the name the window shows its agent by, as
-/// `hire#4 (Mira)`, when the window knows a name for it.
+/// `to` with its agent's name, as `hire#4 (Mira)`.
 fn whom(
     world: &World,
     to: &str,
@@ -289,8 +280,7 @@ fn step_of(world: &World, chat: Entity, id: &str) -> Option<Step> {
     Some(step)
 }
 
-/// A step's line: its icon, its verb, which shimmers while it runs,
-/// what it acts on, cut in its middle, and an edit's count.
+/// A step's line.
 fn step_line(step: &Step) -> AnyView {
     let step = step.clone();
     with_cx(move |cx| {
@@ -304,8 +294,7 @@ fn step_line(step: &Step) -> AnyView {
             false => label(step.verb).wrap(false).tone(tone).boxed(),
         };
         let whole = step.whole.clone();
-        // What tells one call from the next is often at the end, as
-        // the file a command reads.
+        // Cut in the middle: the end often tells calls apart.
         let object =
             one_line(label(step.object.clone()).tone(Tone::Faint))
                 .keep(Keep::Ends);
@@ -339,9 +328,7 @@ fn step_line(step: &Step) -> AnyView {
     .boxed()
 }
 
-/// A tool call as one quiet line that opens to the whole request,
-/// why it failed, the words of a notification or a request, and the
-/// lines an edit changed.
+/// A tool call as one quiet line that opens to all of it.
 fn step_row(chat: Entity, id: String) -> impl View {
     let key = (chat, id.clone());
     let is_open = {
@@ -459,8 +446,7 @@ fn step_row(chat: Entity, id: String) -> impl View {
         .gap(0.0)
 }
 
-/// How long the model reasoned for the thinking at entry `id`: the
-/// time to its next message, less the tools that ran between.
+/// How long the thinking at `id` took, less the tools run after it.
 fn thought(transcript: &Transcript, id: &str) -> Option<u64> {
     let items = transcript.items();
     let at = items.iter().position(|item| item.id == id)?;
@@ -477,8 +463,7 @@ fn thought(transcript: &Transcript, id: &str) -> Option<u64> {
     None
 }
 
-/// Whether the model may still be writing the thinking at `id`: its
-/// turn runs, and no input after it was taken up.
+/// Whether the model may still be writing the thinking at `id`.
 fn is_thinking(transcript: &Transcript, id: &str) -> bool {
     transcript.is_answering()
         && transcript
@@ -497,8 +482,7 @@ fn is_thinking(transcript: &Transcript, id: &str) -> bool {
             })
 }
 
-/// The model's thinking: the end of its words on one dim line while
-/// it thinks, then "Thought for 6s", which opens to them.
+/// The model's thinking: its last words, then how long it took.
 fn reasoning_row(chat: Entity, id: String) -> impl View {
     let read_id = id.clone();
     let stands = component::<Transcript, _>(chat, move |t| {
@@ -625,7 +609,6 @@ pub(crate) fn entry_view(chat: Entity, id: String) -> AnyView {
             .get::<Transcript>(chat)
             .and_then(|t| t.item(&id).map(|item| &item.entry))
             .cloned();
-        // The chief by "You".
         let convo = cx.world.resource::<Convo>();
         let chief = match &kind {
             Some(Entry::Chief { name, .. })
@@ -655,7 +638,6 @@ pub(crate) fn entry_view(chat: Entity, id: String) -> AnyView {
                 })),
             ))
             .boxed(),
-            // Words the agent wrote between the steps of a turn.
             Some(Entry::Assistant(_)) => column((document(
                 markdown::entry(chat, id),
                 Tone::Body,
@@ -682,7 +664,6 @@ pub(crate) fn entry_view(chat: Entity, id: String) -> AnyView {
                     _ => String::new(),
                 }))
                 .tone(Tone::Critical),
-                // In a row, so that it is as wide as its words.
                 row((tinted_action(
                     StatusKind::Warning,
                     Glyph::Restore,
@@ -723,7 +704,6 @@ pub(crate) fn entry_view(chat: Entity, id: String) -> AnyView {
                 })),
             ))
             .boxed(),
-            // Rows of their own.
             Some(
                 Entry::Agent { .. }
                 | Entry::Summary(_)

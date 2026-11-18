@@ -239,8 +239,7 @@ fn fit(
             || font.is_changed()
             || info.scale_factor != ellipsis.scale
         {
-            // Another font or scale measures the whole text again,
-            // never the cut on show, which would then stay cut.
+            // Measure the whole text again, not the cut on show.
             let full = match written {
                 true => text.0.clone(),
                 false => ellipsis.full.clone(),
@@ -252,9 +251,8 @@ fn fit(
             ellipsis.reset(full);
             ellipsis.scale = info.scale_factor;
         }
-        // A layout made since is of the text last written, which is
-        // laid out in the update it is written in or the next. One
-        // made this update is of the cut just put back.
+        // A layout made since is of the text last written, but not of
+        // the text just put back.
         if info.is_changed() && !rewritten {
             ellipsis.laying = false;
         }
@@ -271,8 +269,7 @@ fn fit(
                 ellipsis.dots = dots_width(layout, &ellipsis.shown);
             }
         }
-        // The node asks for the whole text's width, not its cut's, so
-        // it grows again when its parent gives it more room.
+        // The whole text's width, so it grows again with more room.
         let width = match ellipsis.stops.last() {
             Some(&(_, whole)) => {
                 let chrome =
@@ -296,10 +293,8 @@ fn fit(
                 ellipsis.laying = true;
             }
         }
-        // A frame draws the layout of the text before this cut, which
-        // can be wider than the room: it is cut at the room's edge
-        // until the cut is laid out, so the label never shows blank
-        // or past its room.
+        // Until the cut is laid out, the old layout is clipped to the
+        // room.
         if room > 0.0 && info.size.x > room + 0.5 {
             clip(&mut info.glyphs, room);
         }
@@ -346,44 +341,12 @@ mod tests {
     #[test]
     fn a_label_shows_within_its_room_from_its_first_frame_and_refits()
     {
-        use bevy::asset::{AssetApp, AssetPlugin};
-        use bevy::camera::{
-            Camera, Camera2d, ComputedCameraValues, RenderTargetInfo,
-        };
         use bevy::ecs::hierarchy::ChildOf;
-        use bevy::image::{Image, TextureAtlasLayout};
-        use bevy::math::UVec2;
-        use bevy::text::{TextLayout, TextPlugin};
-        use bevy::ui::{UiPlugin, px};
+        use bevy::text::TextLayout;
+        use bevy::ui::px;
 
-        let mut app = App::new();
-        app.add_plugins((
-            AssetPlugin::default(),
-            bevy::time::TimePlugin,
-            bevy::transform::TransformPlugin,
-            bevy::input::InputPlugin,
-            bevy::picking::PickingPlugin,
-            bevy::picking::InteractionPlugin,
-            TextPlugin,
-            UiPlugin,
-            plugin,
-        ))
-        .init_asset::<Image>()
-        .init_asset::<TextureAtlasLayout>();
-        crate::widgets::platform::install_fonts(app.world_mut());
-        app.world_mut().spawn((
-            Camera2d,
-            Camera {
-                computed: ComputedCameraValues {
-                    target_info: Some(RenderTargetInfo {
-                        physical_size: UVec2::splat(400),
-                        scale_factor: 2.0,
-                    }),
-                    ..Default::default()
-                },
-                ..Default::default()
-            },
-        ));
+        let mut app = crate::testing::ui_app(400, 2.0);
+        app.add_plugins(plugin);
         let room = app
             .world_mut()
             .spawn(Node {
@@ -422,8 +385,6 @@ mod tests {
         drawn(&mut app);
         assert!(drawn(&mut app).ends_with(DOTS));
 
-        // It refits when its room widens, and is cut again when it
-        // narrows.
         let resize = |app: &mut App, width: f32| {
             app.world_mut().get_mut::<Node>(room).unwrap().width =
                 px(width);
@@ -435,8 +396,7 @@ mod tests {
         );
         assert!(resize(&mut app, 60.0).ends_with(DOTS));
 
-        // Made bold while it is cut, it still shows its whole text
-        // once that fits.
+        // Made bold while cut.
         app.world_mut().get_mut::<TextFont>(name).unwrap().weight =
             bevy::text::FontWeight::BOLD;
         drawn(&mut app);

@@ -236,9 +236,8 @@ pub struct Agent {
     pub hamlet: Option<String>,
     pub id: AgentId,
     pub kind: AgentKind,
-    /// Whether a hire's branch holds what it learned that no dream
-    /// has brought home to its scholar's `main` yet; left out while
-    /// not.
+    /// Whether a hire's branch holds learning no dream has brought
+    /// home yet.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub learned: bool,
     #[serde(default, skip_serializing_if = "Option::is_none")]

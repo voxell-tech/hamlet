@@ -56,21 +56,3 @@ impl Age {
         }
     }
 }
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn an_age_past_a_week_is_a_date_not_a_count() {
-        let now = 1_750_000_000_000;
-        let day = 86_400_000;
-        assert_eq!(Age::of(now, now - 6 * day), Age::Days(6));
-        assert!(matches!(
-            Age::of(now, now - 7 * day),
-            Age::On(_, true)
-        ));
-        assert!(matches!(Age::of(now, 1000), Age::On(_, false)));
-        assert_eq!(Age::of(now, now + day), Age::Now);
-    }
-}

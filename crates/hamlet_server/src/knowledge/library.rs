@@ -1,6 +1,4 @@
-//! The library (H33): a repository of skills every agent shares,
-//! whose `main` is checked out read-only at `library/`. Its first
-//! commit holds the starter skills built into the server.
+//! The library, a repository of skills every agent shares (H33).
 
 use anyhow::{Context, Result};
 use hamlet_git::{Author, Change, CommitId, MAIN, Repository};
@@ -180,7 +178,7 @@ pub(crate) fn shelve(
 }
 
 /// Takes the skill `name` off the shelf, by `by`, and checks the
-/// library out. `None` when it was not shelved.
+/// library out.
 pub(crate) fn unshelve(
     layout: &Layout,
     name: &str,

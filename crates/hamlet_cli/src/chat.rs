@@ -12,8 +12,7 @@ use tokio::io::{AsyncBufReadExt, BufReader};
 use crate::client::{self, Client, ServerAddress};
 use crate::mentions;
 
-/// The command that takes back the chief's last queued line, kept in
-/// the terminal.
+/// The command that takes back the chief's last queued line.
 const UNSEND: &str = "/unsend";
 
 /// The start of the id of a line that waits its turn.
@@ -52,8 +51,7 @@ fn event_words(event: &ItemEvent) -> String {
     }
 }
 
-/// A tool call as a line: what a notification or a request said and
-/// to whom, else the tool and its arguments.
+/// A tool call as a line.
 fn tool_line(tool: &ItemTool) -> String {
     match &tool.call {
         ToolCall::Notification { to, text }
@@ -437,8 +435,7 @@ impl TerminalChat {
             .await
     }
 
-    /// Takes back the chief's last line to the agent talked to that
-    /// waits its turn.
+    /// Takes back the chief's last queued line to the agent.
     async fn unsend(&mut self) -> Result<()> {
         let chat = chat_ref(self.target);
         let Some(item) = self.screen.last_queued(&chat)? else {
@@ -702,7 +699,7 @@ impl Screen {
         Ok(())
     }
 
-    /// The id of the chief's last line in `chat` that waits its turn.
+    /// The id of the chief's last queued line in `chat`.
     fn last_queued(&self, chat: &ChatRef) -> Result<Option<String>> {
         let key = serde_json::to_string(chat)?;
         Ok(self.views.get(&key).and_then(|items| {

@@ -1,27 +1,23 @@
-//! What a command's words name: an agent or a scholar by its address,
-//! a scholar to hire at a version, and the chief's right over a
-//! hamlet, a hire or an agent's model.
+//! What a command's words name, and the chief's right over it.
 
 use hamlet_store::ids::{Actor, AgentId, ChiefId, HamletId};
 
 use crate::core::Core;
 use crate::knowledge::versions;
-use crate::realm::change::Done;
+use crate::realm::change::{Done, checked, done, refuse};
 use crate::society::addresses::{self, Reach};
 use crate::society::agents::{self, AgentKind};
 use crate::society::hires::Hiring;
 use crate::society::refusal::Refusal;
 use crate::society::{authority, city, hamlets};
 
-/// The check that `word` is a scholar's address, with or without a
-/// version.
 pub(super) fn is_scholar(word: &str) -> bool {
     word.starts_with("scholar#")
 }
 
 impl Core<'_, '_> {
-    /// The scholar `text` addresses: a living one of the chief's, at
-    /// its `main` or pinned to `@version`.
+    /// The living scholar of `chief`'s that `text` addresses, at its
+    /// `main` or pinned to `@version`.
     pub(super) fn hiring(
         &mut self,
         text: &str,
@@ -30,14 +26,11 @@ impl Core<'_, '_> {
         let layout = self.realm.layout().clone();
         let db = self.realm.store().connection();
         let (scholar, version) =
-            match addresses::scholar_pinned(db, text)? {
-                Ok(found) => found,
-                Err(refusal) => return Ok(Err(refusal)),
-            };
+            done!(addresses::scholar_pinned(db, text));
         if city::get(db, scholar)?.chief != Some(chief) {
-            return Ok(Err(Refusal::ScholarNotOwn {
+            refuse!(Refusal::ScholarNotOwn {
                 name: addresses::scholar_name_of(db, scholar)?,
-            }));
+            });
         }
         versions::existing(db, &layout, scholar, version)
     }
@@ -49,10 +42,7 @@ impl Core<'_, '_> {
         here: Option<&HamletId>,
         reach: Reach,
     ) -> Done<AgentId> {
-        let address = match addresses::parse(text) {
-            Ok(address) => address,
-            Err(refusal) => return Ok(Err(refusal)),
-        };
+        let address = checked!(addresses::parse(text));
         let db = self.realm.store().connection();
         addresses::resolve(db, &address, here, reach)
     }

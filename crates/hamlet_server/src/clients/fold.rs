@@ -1,13 +1,11 @@
-//! A conversation's transcript as a chief's client holds it (C30),
-//! folded from the entries its runtime keeps, with the operations
-//! that keep a client in step.
+//! A conversation's transcript as a client holds it (C30).
 
 use std::collections::{BTreeMap, HashMap};
 
 use anyhow::{Context, Result};
 use hamlet_protocol::client::{
-    AgentId as WireAgent, Change, Item, ItemKind, ItemTool,
-    LastActivity, ToolCall, TranscriptOperation,
+    AgentId as WireAgent, Change, Item, ItemKind, ItemMessage,
+    ItemTool, LastActivity, ToolCall, TranscriptOperation,
 };
 use hamlet_protocol::runtime::{self, Block};
 use hamlet_sandbox::scrub::Scrubber;
@@ -148,25 +146,14 @@ impl Fold {
                 && let Some(text) =
                     crate::conversations::questions::said(&entry.text)
             {
-                self.add(
-                    Item {
-                        id: format!("{}:0", entry.entry),
-                        at: entry.at,
-                        files: Vec::new(),
-                        from: None,
-                        images: Vec::new(),
-                        kind: ItemKind::Answered,
-                        message: None,
-                        queued: false,
-                        text: text.into(),
-                        author: None,
-                        chief: None,
-                        event: None,
-                        rewindable: None,
-                        tool: None,
-                    },
-                    None,
+                let id = format!("{}:0", entry.entry);
+                let answered = bare(
+                    id,
+                    ItemKind::Answered,
+                    text.into(),
+                    entry.at,
                 );
+                self.add(answered, None);
             }
             return Ok(());
         }
@@ -296,9 +283,7 @@ impl Fold {
         self.items.insert(at, item);
     }
 
-    /// Shows `queue`: its lines in their order, those no longer
-    /// waiting and not taken up yet removed, and whether a stop holds
-    /// them.
+    /// Shows `queue` in place of the queued lines shown.
     pub fn queue(&mut self, queue: Queue) {
         let Queue {
             items: queued,
@@ -332,14 +317,13 @@ impl Fold {
     }
 }
 
-/// The lines of a conversation that wait for a turn, as a transcript
-/// shows them, and whether a chief's stop holds them.
+/// The lines of a conversation that wait for a turn.
 pub(crate) struct Queue {
     pub items: Vec<Item>,
+    /// A chief's stop holds them.
     pub held: bool,
 }
 
-/// What waits in `conversation`.
 pub(crate) fn waiting(
     db: &mut Db,
     conversation: ConversationId,
@@ -350,9 +334,7 @@ pub(crate) fn waiting(
     })
 }
 
-/// The lines of `conversation` that wait for a turn, as a transcript
-/// shows them.
-pub(crate) fn queued(
+fn queued(
     db: &mut Db,
     conversation: ConversationId,
 ) -> Result<Vec<Item>> {
@@ -362,20 +344,13 @@ pub(crate) fn queued(
         let at = u64::try_from(mark.at()).unwrap_or_default();
         let sent = mark.message();
         let item = |kind, text: String| Item {
-            at,
-            author: None,
-            chief: None,
-            event: None,
-            files: Vec::new(),
-            from: None,
-            id: format!("{QUEUED}{}", input.request),
-            images: Vec::new(),
-            kind,
-            message: None,
             queued: true,
-            rewindable: None,
-            text,
-            tool: None,
+            ..bare(
+                format!("{QUEUED}{}", input.request),
+                kind,
+                text,
+                at,
+            )
         };
         out.push(match mark {
             Mark::Chief {
@@ -392,16 +367,11 @@ pub(crate) fn queued(
             },
             Mark::Notification(from)
             | Mark::Request(from)
-            | Mark::Response(from) => {
-                let from = sender(from);
-                Item {
-                    author: from.author,
-                    from: from.from,
-                    images: from.images,
-                    message: sent,
-                    ..item(ItemKind::User, from.text)
-                }
-            }
+            | Mark::Response(from) => sent_by(
+                from,
+                sent,
+                item(ItemKind::User, String::new()),
+            ),
             Mark::Retry { .. } => {
                 item(ItemKind::Notice, input.content.clone())
             }
@@ -411,20 +381,39 @@ pub(crate) fn queued(
     Ok(out)
 }
 
-/// What a row of a message from another agent shows of it.
-struct Sender {
-    author: Option<String>,
-    from: Option<WireAgent>,
-    text: String,
-    images: Vec<hamlet_protocol::client::AttachedImage>,
+/// An item with nothing but its id, kind, text and time.
+fn bare(id: String, kind: ItemKind, text: String, at: u64) -> Item {
+    Item {
+        at,
+        author: None,
+        chief: None,
+        event: None,
+        files: Vec::new(),
+        from: None,
+        id,
+        images: Vec::new(),
+        kind,
+        message: None,
+        queued: false,
+        rewindable: None,
+        text,
+        tool: None,
+    }
 }
 
-fn sender(from: From) -> Sender {
-    Sender {
+/// `item` as the message `from` sent.
+fn sent_by(
+    from: From,
+    message: Option<ItemMessage>,
+    item: Item,
+) -> Item {
+    Item {
         images: from.images(),
         author: Some(from.author),
         from: wire(from.from),
         text: from.text,
+        message,
+        ..item
     }
 }
 
@@ -436,22 +425,8 @@ fn wire(agent: AgentId) -> Option<WireAgent> {
 pub(crate) fn items_of(
     entry: &runtime::Item,
 ) -> Result<Vec<(usize, Item)>> {
-    let id = format!("{}:0", entry.entry);
-    let item = |kind, text: String, at| Item {
-        at,
-        author: None,
-        chief: None,
-        event: None,
-        files: Vec::new(),
-        from: None,
-        id: id.clone(),
-        images: Vec::new(),
-        kind,
-        message: None,
-        queued: false,
-        rewindable: None,
-        text,
-        tool: None,
+    let item = |kind, text: String, at| {
+        bare(format!("{}:0", entry.entry), kind, text, at)
     };
     let mark = Mark::of_item(entry.mark.as_ref())?;
     let at = match &mark {
@@ -463,37 +438,27 @@ pub(crate) fn items_of(
         None => entry.at,
     };
     let sent = mark.as_ref().and_then(Mark::message);
-    match mark {
+    let one = match mark {
         Some(Mark::Chief {
             chief,
             text,
             images,
             files,
             ..
-        }) => {
-            return Ok(vec![(
-                0,
-                Item {
-                    chief: Some(chief),
-                    files,
-                    images,
-                    rewindable: Some(true),
-                    ..item(ItemKind::User, text, at)
-                },
-            )]);
-        }
+        }) => Item {
+            chief: Some(chief),
+            files,
+            images,
+            rewindable: Some(true),
+            ..item(ItemKind::User, text, at)
+        },
         Some(Mark::Notice { text, .. }) => {
-            return Ok(vec![(0, item(ItemKind::Notice, text, at))]);
+            item(ItemKind::Notice, text, at)
         }
-        Some(Mark::Earlier { chief, .. }) => {
-            return Ok(vec![(
-                0,
-                Item {
-                    chief: Some(chief),
-                    ..item(ItemKind::User, entry.text.clone(), at)
-                },
-            )]);
-        }
+        Some(Mark::Earlier { chief, .. }) => Item {
+            chief: Some(chief),
+            ..item(ItemKind::User, entry.text.clone(), at)
+        },
         Some(Mark::Step { tool, summary, .. }) => {
             // Another program's tool, whose shortened input may not
             // be JSON.
@@ -501,93 +466,64 @@ pub(crate) fn items_of(
                 .map_or(ToolCall::Other, |arguments| {
                     plain_call(&arguments)
                 });
-            return Ok(vec![(
-                0,
-                Item {
-                    tool: Some(ItemTool {
-                        agent: None,
-                        call,
-                        change: None,
-                        exit: Some(0),
-                        failure: None,
-                        ms: None,
-                        name: tool,
-                        summary,
-                    }),
-                    ..item(ItemKind::Tool, String::new(), at)
-                },
-            )]);
+            Item {
+                tool: Some(ItemTool {
+                    agent: None,
+                    call,
+                    change: None,
+                    exit: Some(0),
+                    failure: None,
+                    ms: None,
+                    name: tool,
+                    summary,
+                }),
+                ..item(ItemKind::Tool, String::new(), at)
+            }
         }
         Some(Mark::Reflection { .. }) => {
-            return Ok(vec![(
-                0,
-                item(ItemKind::Notice, "reflection".into(), at),
-            )]);
+            item(ItemKind::Notice, "reflection".into(), at)
         }
         Some(Mark::Retry { .. }) => {
-            return Ok(vec![(
-                0,
-                item(ItemKind::Notice, entry.text.clone(), at),
-            )]);
+            item(ItemKind::Notice, entry.text.clone(), at)
         }
         Some(
             Mark::Notification(message)
             | Mark::Request(message)
             | Mark::Response(message)
             | Mark::ErrorResponse(message),
-        ) if entry.kind == runtime::ItemKind::User => {
-            let from = sender(message);
-            return Ok(vec![(
-                0,
-                Item {
-                    author: from.author,
-                    from: from.from,
-                    images: from.images,
-                    message: sent,
-                    ..item(ItemKind::User, from.text, at)
-                },
-            )]);
-        }
-        Some(Mark::Merged { from, author, .. }) => {
-            return Ok(vec![(
-                0,
-                Item {
-                    from: wire(from),
-                    ..item(ItemKind::Merged, author, at)
-                },
-            )]);
-        }
-        Some(Mark::Event { event, .. }) => {
-            return Ok(vec![(
-                0,
-                Item {
-                    event: Some(event),
-                    ..item(ItemKind::Event, String::new(), at)
-                },
-            )]);
-        }
-        _ => {}
-    }
-    Ok(match entry.kind {
-        runtime::ItemKind::Summary => vec![(
-            0,
-            item(ItemKind::Summary, entry.text.clone(), entry.at),
-        )],
-        runtime::ItemKind::User => {
-            vec![(
-                0,
-                item(ItemKind::User, entry.text.clone(), entry.at),
-            )]
-        }
-        runtime::ItemKind::Assistant => blocks_of(
-            entry.blocks.as_deref().unwrap_or_default(),
-            entry.at,
-            entry.stop.as_deref(),
-            entry.failure.as_deref(),
-            |block| format!("{}:{block}", entry.entry),
+        ) if entry.kind == runtime::ItemKind::User => sent_by(
+            message,
+            sent,
+            item(ItemKind::User, String::new(), at),
         ),
-        _ => Vec::new(),
-    })
+        Some(Mark::Merged { from, author, .. }) => Item {
+            from: wire(from),
+            ..item(ItemKind::Merged, author, at)
+        },
+        Some(Mark::Event { event, .. }) => Item {
+            event: Some(event),
+            ..item(ItemKind::Event, String::new(), at)
+        },
+        _ => match entry.kind {
+            runtime::ItemKind::Summary => {
+                item(ItemKind::Summary, entry.text.clone(), entry.at)
+            }
+            runtime::ItemKind::User => {
+                item(ItemKind::User, entry.text.clone(), entry.at)
+            }
+            runtime::ItemKind::Assistant => {
+                return Ok(blocks_of(
+                    entry.blocks.as_deref().unwrap_or_default(),
+                    entry.at,
+                    entry.stop.as_deref(),
+                    entry.failure.as_deref(),
+                    |block| format!("{}:{block}", entry.entry),
+                ));
+            }
+            _ => return Ok(Vec::new()),
+        },
+    };
+    Ok(vec![(0, one)])
 }
 
 /// The items of an answer's content blocks, and the error it ended
@@ -599,21 +535,8 @@ fn blocks_of(
     failure: Option<&str>,
     id: impl Fn(usize) -> String,
 ) -> Vec<(usize, Item)> {
-    let item = |index, kind, text: &str| Item {
-        at,
-        author: None,
-        chief: None,
-        event: None,
-        files: Vec::new(),
-        from: None,
-        id: id(index),
-        images: Vec::new(),
-        kind,
-        message: None,
-        queued: false,
-        rewindable: None,
-        text: text.into(),
-        tool: None,
+    let item = |index, kind, text: &str| {
+        bare(id(index), kind, text.into(), at)
     };
     let mut items = Vec::new();
     for (index, block) in blocks.iter().enumerate() {
@@ -717,14 +640,16 @@ fn ending(entry: &runtime::Item) -> Result<Ending> {
     })
 }
 
+fn text_of(arguments: &Value, key: &str) -> Option<String> {
+    arguments
+        .get(key)
+        .and_then(Value::as_str)
+        .map(str::to_owned)
+}
+
 /// What the row of a call of `name` with `arguments` shows.
 fn call_of(name: &str, arguments: &Value) -> ToolCall {
-    let text = |key: &str| {
-        arguments
-            .get(key)
-            .and_then(Value::as_str)
-            .map(str::to_owned)
-    };
+    let text = |key| text_of(arguments, key);
     match (Society::named(name), text("to"), text("text")) {
         (Some(Society::Notify), Some(to), Some(text)) => {
             ToolCall::Notification { to, text }
@@ -741,15 +666,9 @@ fn call_of(name: &str, arguments: &Value) -> ToolCall {
     }
 }
 
-/// The command or the path a call's `arguments` name, which tells
-/// one call from the next.
+/// The command or the path a call's `arguments` name.
 fn plain_call(arguments: &Value) -> ToolCall {
-    let text = |key: &str| {
-        arguments
-            .get(key)
-            .and_then(Value::as_str)
-            .map(str::to_owned)
-    };
+    let text = |key| text_of(arguments, key);
     if let Some(command) = text("command") {
         return ToolCall::Command { command };
     }

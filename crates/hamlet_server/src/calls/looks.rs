@@ -1,10 +1,4 @@
-//! The looks a call's request waits on, which the loop must not do:
-//! the files a `notify` or a `request` sends, measured for the gate
-//! and then copied into the receiver's inbox (H30), and the file an
-//! edit writes as it is now, for the chief to see the change. Each
-//! look runs on a task and its finding is kept on its call's entity;
-//! the runtime's request runs again and finds it, and the runtime
-//! waits for its answer meanwhile.
+//! The file reads and copies a call waits on, run off the loop (H30).
 
 use std::path::PathBuf;
 
@@ -24,12 +18,10 @@ use crate::tools::builtin::parcel::To;
 /// The files a parcel holds and their bytes, as measured.
 pub(crate) type Measure = (usize, u64);
 
-/// A copied parcel's captions, which say where each file landed, and
-/// the images among them.
+/// A copied parcel's captions and the images among them.
 pub(crate) type Copy = (String, Vec<ImageId>);
 
-/// A call whose looks found something: an entity until the call is
-/// settled, with a component for each finding.
+/// A call whose looks found something, until it is settled.
 #[derive(Component)]
 pub(crate) struct CallWithLooks(CallId);
 

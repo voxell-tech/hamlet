@@ -1,5 +1,4 @@
-//! A chief's answer to what waits: checked, kept with what it gives
-//! or counts in one change, then told to the calls it ruled on.
+//! A chief's answer to what waits.
 
 use anyhow::Result;
 use hamlet_protocol::client::{Choice, Permission, Pick};
@@ -81,8 +80,7 @@ fn words(
     Ok(Ok(format!("{} {}", questions::ANSWERS, text.trim())))
 }
 
-/// Withdraws the chief's instruction of `task`: its turn in
-/// `conversation` stops, and the transcript says why.
+/// Withdraws the chief's instruction of `task`, stopping its turn.
 fn withdraw(
     cx: &mut Change<'_>,
     conversation: hamlet_store::ids::ConversationId,
@@ -111,8 +109,7 @@ struct Ruled {
     net: bool,
 }
 
-/// The effect of `ruling` on `wait` of its own kind: a newcomer let
-/// in, an objection ruled on and its instruction withdrawn.
+/// The effect of `ruling` on `wait` of its own kind.
 fn rule_wait(
     cx: &mut Change<'_>,
     wait: &Wait,
@@ -162,9 +159,7 @@ fn grant_always(
     Ok(())
 }
 
-/// The effect of `chief`'s `ruling` on each call `wait` held: its
-/// network kept when it may run, its conversation trusted after an
-/// `/always`, and its turn told once of a denial.
+/// The effect of `chief`'s `ruling` on each call `wait` held.
 fn rule_calls(
     cx: &mut Change<'_>,
     wait: &Wait,

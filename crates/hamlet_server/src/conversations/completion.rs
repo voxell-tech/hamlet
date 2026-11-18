@@ -1,7 +1,4 @@
-//! What follows an input's end, once: its conversation's last turn,
-//! its chief's instruction answered, a request's response and a
-//! worker's answer carried back, and once its agent is idle, the
-//! agent's lodge committed and its scholar's learning taken in.
+//! What follows an input's end, once.
 
 use anyhow::Result;
 use diesel::prelude::*;
@@ -30,8 +27,7 @@ use crate::society::{dreams, workers};
 pub(crate) struct Followed {
     /// The tool calls, by runtime and key, whose wait is over.
     pub wake: Vec<(String, String)>,
-    /// An ended hire's reflection ended, so its last dream may
-    /// begin.
+    /// An ended hire's reflection ended.
     pub dream: bool,
 }
 
@@ -192,9 +188,7 @@ pub(crate) fn follow(
     Ok(followed)
 }
 
-/// What follows an errand's end: the librarian's answer carried to
-/// the call that put the question, or its verdict kept on the skill
-/// offered.
+/// What follows an errand's end.
 fn errand_ended(
     cx: &mut Change<'_>,
     kept: &Conversation,

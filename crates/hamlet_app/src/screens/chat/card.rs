@@ -1,7 +1,4 @@
-//! The rows that are blocks of their own and open in place: the
-//! centred lines between turns, for the summary that stands for the
-//! earlier messages, the conversation of a hire merged in and each
-//! change to the agent, and a worker the agent started.
+//! The rows that are cards of their own and open in place.
 
 use bevy::ecs::entity::Entity;
 use bevy::ecs::world::World;
@@ -32,8 +29,7 @@ use super::lines::{
 use crate::convo::Convo;
 use crate::markdown;
 
-/// How far in from a block's edge the line down from its chevron is,
-/// and how far from that line what it holds is.
+/// How far in the line under a chevron is, and what it holds past it.
 const GUIDE: f32 = 4.0;
 
 /// The card of the entry `id` of `chat`.
@@ -73,8 +69,7 @@ fn chevron(
     )
 }
 
-/// What a block holds while it is open, under a line down from its
-/// chevron.
+/// What a block holds while it is open.
 fn held(inside: impl View + 'static) -> impl View {
     with_cx(move |cx| {
         let guide = frame()
@@ -93,15 +88,13 @@ fn held(inside: impl View + 'static) -> impl View {
     })
 }
 
-/// Whether the card `key` is open.
 fn is_open(world: &World, key: &(Entity, String)) -> bool {
     world
         .get_resource::<OpenTools>()
         .is_some_and(|open| open.0.contains(key))
 }
 
-/// A centred line between two rules across the chat: `head`, with
-/// what it opens to under it.
+/// A centred line between two rules across the chat, over `body`.
 fn between(head: AnyView, body: AnyView) -> impl View {
     with_cx(move |cx| {
         let theme = cx.theme();
@@ -142,8 +135,7 @@ fn line_words(mark: Glyph, words: String) -> impl View {
     .min_width(px(0.0))
 }
 
-/// "Context compacted" where the earlier messages were summarized,
-/// which opens to the summary.
+/// "Context compacted", which opens to the summary.
 fn summary(chat: Entity, id: String) -> impl View {
     let key = (chat, id.clone());
     let (turned, pressed) = (key.clone(), key.clone());
@@ -173,8 +165,7 @@ fn summary(chat: Entity, id: String) -> impl View {
     between(head.boxed(), body.boxed())
 }
 
-/// The effort of `model` in the chief's words, "Default" where it
-/// takes the realm's.
+/// The model and effort of `model`, "Default" for the realm's.
 fn model_words(world: &World, model: &protocol::ItemModel) -> String {
     let effort = model
         .effort
@@ -185,8 +176,7 @@ fn model_words(world: &World, model: &protocol::ItemModel) -> String {
     )
 }
 
-/// `from` and `to` with the words at their start that they share
-/// said once: "Claude Opus 5.5 Medium → High".
+/// `from` and `to` with their shared first words said once.
 fn changed(from: &str, to: &str) -> String {
     let (from, to) = (
         from.split(' ').collect::<Vec<_>>(),
@@ -210,8 +200,7 @@ fn changed(from: &str, to: &str) -> String {
     )
 }
 
-/// Who made a change, as a line says it: "you" for the chief at this
-/// window.
+/// Who made a change: "you" for the chief at this window.
 fn who(world: &World, by: &str) -> String {
     match by == world.resource::<Convo>().name {
         true => "you".to_string(),
@@ -289,8 +278,7 @@ fn event(event: protocol::ItemEvent) -> impl View {
     })
 }
 
-/// "Merged hire#7 (Bo) into this chat", which opens in place to the
-/// conversation of the hire `from`, named `name`, read only.
+/// A merged hire's line, which opens to its conversation.
 fn merged(
     chat: Entity,
     id: String,
@@ -319,8 +307,7 @@ fn merged(
             close_merged(world);
             return;
         }
-        // A conversation merged in is opened only from the chat, not
-        // from one merged into it.
+        // Opened only from the chat itself.
         let own = world.resource::<Convo>().chat == chat;
         if let (Some(from), true) = (from, own) {
             open_merged(
@@ -345,8 +332,7 @@ fn merged(
     between(head.boxed(), body.boxed())
 }
 
-/// The way to the rows of the merged conversation before those
-/// built.
+/// The way to earlier rows of the merged conversation.
 fn earlier() -> impl View {
     keyed(
         resource::<MergedLines, _>(MergedLines::has_earlier),
@@ -367,8 +353,7 @@ enum Work {
     Failed,
 }
 
-/// The worker the call `id` of `chat` started while it is in the
-/// realm, and how it stands.
+/// The worker the call `id` of `chat` started, and how it stands.
 fn work(
     world: &World,
     chat: Entity,
@@ -413,9 +398,7 @@ fn work(
     (worker.filter(|_| living), work)
 }
 
-/// A worker the agent started on `task`: how it stands, which opens
-/// to the whole task, its answer once it has come, and the way to the
-/// worker's own chat.
+/// A worker started on `task`, which opens to the task and answer.
 fn worker(chat: Entity, id: String, task: String) -> impl View {
     let key = (chat, id.clone());
     let (turned, pressed) = (key.clone(), key.clone());

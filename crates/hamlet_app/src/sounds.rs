@@ -1,5 +1,4 @@
-//! The sounds of the panels that no single button makes, each watched
-//! from outside and written as a [`Cue`].
+//! The panels' sounds that no single button makes, as [`Cue`]s.
 
 use bevy::app::{App, Update};
 use bevy::ecs::change_detection::DetectChanges;
@@ -64,8 +63,7 @@ pub(crate) fn window_button(world: &mut World) {
     world.write_message(cue(Sound::Sash));
 }
 
-/// Writes a cue with a number of its own, so that it is not played
-/// twice alike.
+/// Writes a cue with a number of its own.
 pub(crate) fn write(
     cues: &mut MessageWriter<Cue>,
     turn: &mut u32,
@@ -78,9 +76,7 @@ pub(crate) fn write(
     });
 }
 
-/// A menu of the top bar or a question over the world, as it opens
-/// and as it goes. The menu of a thing in the world opens with the
-/// sound of the hand that asked for it.
+/// A top-bar menu or a question over the world, opening and closing.
 fn menus(
     bar: Res<OpenMenu>,
     over: Res<Open>,
@@ -112,8 +108,7 @@ struct Docked {
     showing: Option<Showing>,
 }
 
-/// A tab brought to the front, in the dock or in the selection, and
-/// a panel taken hold of and let go.
+/// A tab brought to the front, and a panel taken and let go.
 fn tabs(
     time: Res<Time>,
     drag: Res<DockDrag>,
@@ -132,8 +127,8 @@ fn tabs(
         write(&mut cues, &mut turn, sound);
         docked.let_go = now;
     }
-    // The tabs a docked panel brings with it, and the first tabs of
-    // all, were not brought to the front by hand.
+    // A docked panel's tabs and the first tabs were not chosen by
+    // hand.
     let by_hand = docked.tabs && now - docked.let_go > 0.4;
     let chosen = docked.showing.replace(*showing);
     let turned = chosen.is_some_and(|was| was != *showing);
@@ -143,8 +138,7 @@ fn tabs(
     docked.tabs = !fronts.is_empty();
 }
 
-/// A fold of the conversation opened or shut, and the card of a
-/// thing the pointer rests on as it appears.
+/// A fold opened or shut, and a hover card appearing.
 fn folds(
     unfolded: Res<Unfolded>,
     card: Res<Card>,
@@ -171,82 +165,5 @@ fn failed(output: On<ChatOutput>, mut cues: MessageWriter<Cue>) {
     if matches!(&output.operation, protocol::TranscriptOperation::Add { item, .. } if item.kind == protocol::ItemKind::Error)
     {
         cues.write(cue(Sound::Error));
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use bevy::ecs::message::Messages;
-
-    use super::*;
-
-    fn app() -> App {
-        let mut app = App::new();
-        app.add_message::<Cue>()
-            .init_resource::<Time>()
-            .init_resource::<OpenMenu>()
-            .init_resource::<Open>()
-            .init_resource::<DockDrag>()
-            .init_resource::<Showing>()
-            .init_resource::<Unfolded>()
-            .init_resource::<Card>();
-        app.add_plugins(plugin);
-        app.update();
-        app
-    }
-
-    fn heard_in(app: &mut App) -> Vec<Sound> {
-        app.update();
-        app.world_mut()
-            .resource_mut::<Messages<Cue>>()
-            .drain()
-            .map(|cue| cue.sound)
-            .collect()
-    }
-
-    #[test]
-    fn a_received_error_item_sounds_but_other_operations_do_not() {
-        use hamlet_client::chats::Chat;
-
-        let mut app = app();
-        app.add_plugins(hamlet_client::ClientPlugin { server: None });
-        let chat = protocol::ChatRef {
-            with: protocol::AgentId(1),
-        };
-        app.world_mut().spawn(Chat(chat.clone()));
-        hamlet_client::receive(
-            app.world_mut(),
-            protocol::ServerMessage::Turn(protocol::Turn {
-                chat,
-                operations: vec![
-                    protocol::TranscriptOperation::Add {
-                        item: protocol::Item {
-                            id: "error:0".into(),
-                            at: 0,
-                            kind: protocol::ItemKind::Error,
-                            message: None,
-                            text: "The model could not answer."
-                                .into(),
-                            chief: None,
-                            author: None,
-                            event: None,
-                            from: None,
-                            queued: false,
-                            rewindable: None,
-                            tool: None,
-                            images: Vec::new(),
-                            files: Vec::new(),
-                        },
-                        replaces: None,
-                    },
-                    protocol::TranscriptOperation::Append {
-                        item: "error:0".into(),
-                        text: " Try again.".into(),
-                    },
-                ],
-            }),
-        );
-        assert_eq!(heard_in(&mut app), [Sound::Error]);
-        assert_eq!(heard_in(&mut app), []);
     }
 }

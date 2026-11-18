@@ -1,5 +1,4 @@
-//! The line at the foot of the window, and the words it is made
-//! of.
+//! The status bar at the foot of the window.
 
 use std::time::{SystemTime, UNIX_EPOCH};
 
@@ -50,8 +49,7 @@ pub struct Bar {
     pub connection: String,
     /// Tokens and cost (or model time) of the chat.
     pub usage: String,
-    /// The spend against the budget of the hamlet the chat's agent
-    /// lives in.
+    /// The spend against the chat agent's hamlet budget.
     pub budget: String,
 }
 
@@ -158,9 +156,7 @@ fn alarm(
     label(text).bold(true).tone(tone).rules(small_rules)
 }
 
-/// One of the bar's facts: an icon and what `text` reads, with `tip`
-/// to name it under the pointer. Nothing while there is nothing to
-/// say.
+/// One of the bar's facts, while `text` says anything.
 fn fact(
     which: Glyph,
     text: fn(&Bar) -> String,
@@ -184,8 +180,7 @@ fn fact(
     .boxed()
 }
 
-/// What confines the agents' commands. In insecure mode nothing
-/// does, and the bar says so in the critical tone.
+/// What confines the agents' commands.
 fn confinement() -> AnyView {
     keyed(
         resource::<Confinement, _>(|c| c.0.clone()),
@@ -224,8 +219,7 @@ fn confinement() -> AnyView {
     .boxed()
 }
 
-/// How the agents reach their models: what confines their commands,
-/// the default model and the link.
+/// The confinement, the default model and the link.
 fn setup() -> impl View {
     with_cx(|cx| {
         row((
@@ -270,8 +264,7 @@ fn setup() -> impl View {
     })
 }
 
-/// What the chat used, after a short upright line that sets it apart
-/// from [`setup`]. Nothing while there is no chat.
+/// What the chat used.
 fn spent() -> impl View {
     keyed(
         resource::<Bar, _>(|bar| {

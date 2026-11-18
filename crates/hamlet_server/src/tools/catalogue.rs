@@ -1,14 +1,10 @@
 //! The tools of the society, offered to each agent by its role (H35).
-//! A model names a tool with words; they are read into a [`Society`]
-//! once, where the call arrives, and what is known of each tool is
-//! said once, in [`FACTS`].
 
 use hamlet_protocol::client::Doing;
 
 use crate::society::limits::Reserved;
 
-/// A tool of the society. A tool added by hand may not take the name
-/// of one.
+/// A tool of the society.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub(crate) enum Society {
     Notify,

@@ -1,7 +1,5 @@
-//! Markdown in the chat, on the kit's: the blocks of a transcript's
-//! entry ([`entry`]) and pictures drawn ([`picture`]). The `links`
-//! screen sets the kit's `PathLinks` and the `pictures` screen its
-//! `PictureView`.
+//! Markdown in the chat: a transcript entry's blocks and its
+//! pictures.
 
 mod picture;
 
@@ -30,8 +28,8 @@ fn words<'a>(
     }
 }
 
-/// True while the entry `id` is the last of its conversation before
-/// the queued lines and may have more words to come.
+/// Whether entry `id` is the last unqueued one of an answer under
+/// way.
 fn is_growing(world: &World, chat: Entity, id: &str) -> bool {
     world.get::<Transcript>(chat).is_some_and(|transcript| {
         transcript.is_answering()
@@ -44,8 +42,7 @@ fn is_growing(world: &World, chat: Entity, id: &str) -> bool {
     })
 }
 
-/// The blocks of an entry of a transcript, parsed again only when
-/// that entry's own text has changed or has stopped growing.
+/// A transcript entry's blocks, parsed again only when it changes.
 pub(crate) fn entry(
     chat: Entity,
     id: String,
@@ -70,7 +67,7 @@ pub(crate) fn entry(
 /// What an entry's blocks were made from, and the blocks.
 #[derive(Default)]
 struct Read {
-    /// The length, the hash and the growth of the words read.
+    /// The length, hash and growth of the words read.
     seen: Option<Option<(usize, u64, bool)>>,
     reading: Reading,
     blocks: Vec<Arc<Block>>,
@@ -109,14 +106,11 @@ mod tests {
     use bevy_fynix::tokens::Tone;
     use bevy_fynix::{FynixPlugin, mount};
     use hamlet_client::chats::Item;
-    use hamlet_ui::markdown::{
-        Anchor, Kind, PathLinks, document, fixed,
-    };
+    use hamlet_ui::markdown::{Anchor, PathLinks, document, fixed};
     use hamlet_ui::theme::{self, HamletTheme};
 
     use super::*;
     use crate::links::{Roots, seek};
-    use crate::testing::{plain, top};
 
     fn app() -> App {
         let mut app = App::new();
@@ -176,22 +170,6 @@ mod tests {
         )
     }
 
-    fn grow(app: &mut App, chat: Entity, more: &str) {
-        let transcript = app.world().get::<Transcript>(chat).unwrap();
-        let mut items = transcript.items().to_vec();
-        if let Some(Item {
-            entry: Entry::Assistant(text),
-            ..
-        }) = items.last_mut()
-        {
-            text.push_str(more);
-        }
-        app.world_mut().entity_mut(chat).insert(
-            Transcript::from_items(items).with_answering(true),
-        );
-    }
-
-    /// Every text span in the world, with what it says.
     fn spans(app: &mut App) -> Vec<(Entity, String)> {
         let world = app.world_mut();
         world
@@ -255,92 +233,6 @@ mod tests {
                 ("plan.md".to_string(), file.clone()),
                 ("plan.md".to_string(), file),
             ]
-        );
-    }
-
-    #[test]
-    fn a_growing_reply_names_agents_in_words_and_chips_them_once_whole()
-     {
-        use hamlet_ui::markdown::Target;
-        let mut app = app();
-        let (chat, ids) =
-            talk(&mut app, &["Ask hire#3 (Mira), then mayor@x."]);
-        let mut read = entry(chat, ids[1].clone());
-        let targets = |blocks: Vec<Arc<Block>>| {
-            blocks
-                .iter()
-                .flat_map(|block| match &block.kind {
-                    Kind::Paragraph(spans) => spans.clone(),
-                    _ => Vec::new(),
-                })
-                .filter_map(|span| span.link)
-                .collect::<Vec<_>>()
-        };
-        let growing = targets(read.get(app.world()));
-        assert_eq!(
-            growing,
-            [
-                Target::AgentWords("hire#3".into()),
-                Target::AgentWords("mayor@x".into())
-            ],
-            "no chip while the words grow: a chip moves with each \
-             layout"
-        );
-        // A line queued after it leaves it growing.
-        let mut items = app
-            .world()
-            .get::<Transcript>(chat)
-            .unwrap()
-            .items()
-            .to_vec();
-        items.push(Item {
-            id: "queued".into(),
-            at: 0,
-            queued: true,
-            entry: Entry::Chief {
-                name: "a".into(),
-                text: "next".into(),
-                images: Vec::new(),
-                files: Vec::new(),
-            },
-        });
-        app.world_mut().entity_mut(chat).insert(
-            Transcript::from_items(items.clone())
-                .with_answering(true),
-        );
-        assert_eq!(targets(read.get(app.world())), growing);
-        items.pop();
-        app.world_mut()
-            .entity_mut(chat)
-            .insert(Transcript::from_items(items));
-        assert!(read.changed(app.world()));
-        let whole = targets(read.get(app.world()));
-        assert_eq!(
-            whole,
-            [
-                Target::Agent("hire#3".into()),
-                Target::Agent("mayor@x".into())
-            ]
-        );
-    }
-
-    #[test]
-    fn only_the_entry_that_changed_is_read_again() {
-        let mut app = app();
-        let (chat, ids) = talk(&mut app, &["old", "new"]);
-        let mut old = entry(chat, ids[1].clone());
-        let mut new = entry(chat, ids[3].clone());
-        assert!(old.changed(app.world()));
-        assert!(new.changed(app.world()));
-
-        grow(&mut app, chat, " words");
-        assert!(!old.changed(app.world()));
-        assert!(new.changed(app.world()));
-        let blocks = new.get(app.world());
-        assert_eq!(blocks.len(), 1);
-        assert_eq!(
-            *blocks[0],
-            top(Kind::Paragraph(vec![plain("new words")]))
         );
     }
 

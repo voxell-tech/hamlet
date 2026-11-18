@@ -1,6 +1,4 @@
-//! The gate every tool call passes before it runs (C7, H11): what it
-//! reaches, what the chief's mode, grants and trust allow, what the
-//! chief keeps for itself, and what the chief refused in the turn.
+//! The gate every tool call passes before it runs (C7, H11).
 
 use anyhow::Result;
 use diesel::prelude::*;
@@ -58,7 +56,7 @@ pub(crate) enum Call {
 }
 
 /// The call of `tool` with `args`; `added` when it is a tool added by
-/// hand, with its network. A write's old text is read apart.
+/// hand, with its network.
 pub(crate) fn call_of(
     tool: &str,
     args: &Value,
@@ -261,8 +259,7 @@ pub(crate) fn rule(
     }
 }
 
-/// A society act the chief keeps for itself (H22): a lead's acts its
-/// hamlet's limits reserve, and the Hand's acts on what chiefs own.
+/// A society act the chief keeps for itself (H22).
 fn is_reserved(
     call: &Call,
     caller: Caller,
@@ -578,8 +575,7 @@ pub(crate) fn give(
     Ok(())
 }
 
-/// Takes `permission` back from `agent`, as `by` says. `false` when
-/// it held no grant.
+/// Takes `permission` back from `agent`, as `by` says.
 pub(crate) fn revoke(
     db: &mut Db,
     agent: AgentId,

@@ -1,7 +1,4 @@
-//! The Hand's acts on an agent: a hire pinned, restored or erased, a
-//! model's effort and fast tier, a dream, a reflection, a stop and a
-//! resume, a lodge's memory written, and its prompt and papers read.
-//! A reserved act waits for a chief before it gets here.
+//! The Hand's acts on an agent.
 
 use anyhow::Result;
 use hamlet_protocol::client::{self as protocol, Keeper};
@@ -12,14 +9,14 @@ use super::args::{
     ReadPrompt, Reflect, RestoreHire, Resume, SetEffort, SetFast,
     Stop,
 };
-use super::{Call, cut};
+use super::{Call, cut, unsupported};
 use crate::conversations::dreams::Dreamer;
 use crate::conversations::{self, chats, reflections};
 use crate::core::Core;
 use crate::knowledge::memory_path;
 use crate::knowledge::papers::papers;
 use crate::knowledge::versions::{pin_target, pinned};
-use crate::realm::change::{Done, done, refuse};
+use crate::realm::change::{Done, checked, done, refuse};
 use crate::society::addresses::{self, Reach};
 use crate::society::agents::{self, Effort};
 use crate::society::refusal::Refusal;
@@ -29,7 +26,7 @@ use crate::society::{authority, hires, merges};
 const ALL: &str = "all";
 
 impl Core<'_, '_> {
-    /// Carries out the Hand's call `called` on a hire it leads.
+    /// Carries out the Hand's `called` on a hire it leads.
     pub(super) fn led_tool(
         &mut self,
         call: &Call<'_>,
@@ -104,13 +101,10 @@ impl Core<'_, '_> {
                     }))
                 })
             }
-            _ => refuse!(Refusal::Unsupported {
-                what: format!("the tool {}", call.tool),
-            }),
+            _ => refuse!(unsupported(call)),
         }
     }
 
-    /// Carries out the Hand's call `called` on an agent.
     pub(super) fn agent_tool(
         &mut self,
         call: &Call<'_>,
@@ -135,9 +129,7 @@ impl Core<'_, '_> {
             | Called::ReadPapers(ReadPapers { agent }) => {
                 agent.clone()
             }
-            _ => refuse!(Refusal::Unsupported {
-                what: format!("the tool {}", call.tool),
-            }),
+            _ => refuse!(unsupported(call)),
         };
         let agent = done!(self.named(&address, None));
         let name = self.name(agent)?;
@@ -226,10 +218,7 @@ impl Core<'_, '_> {
             Called::EditMemory(EditMemory {
                 path, content, ..
             }) => {
-                let path = match memory_path(&path) {
-                    Ok(path) => path,
-                    Err(refusal) => refuse!(refusal),
-                };
+                let path = checked!(memory_path(&path));
                 self.begin(call)?;
                 self.write_lodge_memory(by, agent, &path, &content)?;
                 Ok(Ok(format!("Wrote {path} of {name}'s lodge.")))
@@ -264,7 +253,7 @@ impl Core<'_, '_> {
         }
     }
 
-    /// Every living agent but the caller of `call`.
+    /// Every living agent but `call`'s.
     fn others(&mut self, call: &Call<'_>) -> Result<Vec<AgentId>> {
         let caller = call.conversation.agent;
         let db = self.realm.store().connection();
@@ -274,8 +263,6 @@ impl Core<'_, '_> {
             .collect())
     }
 
-    /// Stops every running turn of every agent but the caller of
-    /// `call`.
     fn stop_all(&mut self, call: &Call<'_>) -> Done<String> {
         let others = self.others(call)?;
         let working = self.working()?;
@@ -288,7 +275,6 @@ impl Core<'_, '_> {
         })
     }
 
-    /// Resumes every stopped agent but the caller of `call`.
     fn resume_all(&mut self, call: &Call<'_>) -> Done<String> {
         let others = self.others(call)?;
         self.carry(call, |cx, _| {
@@ -302,8 +288,6 @@ impl Core<'_, '_> {
         })
     }
 
-    /// Carries out the Hand's `dream` of a scholar or of a hire it
-    /// leads.
     pub(super) fn dream_tool(
         &mut self,
         call: &Call<'_>,
@@ -331,7 +315,6 @@ impl Core<'_, '_> {
     }
 }
 
-/// `papers` as a model reads them.
 fn paper_text(papers: &protocol::Papers) -> String {
     let mut lines =
         vec!["# Character".to_owned(), papers.character.clone()];

@@ -1,7 +1,4 @@
-//! The projects of other programs brought in (C35): each a hamlet
-//! working on its folder, with a hire for each conversation picked.
-//! Offered once, when first-run setup ends on a realm with no hamlet,
-//! and from Settings.
+//! The projects of other programs brought in as hamlets (C35).
 
 use std::collections::BTreeSet;
 use std::time::SystemTime;
@@ -44,8 +41,7 @@ use super::Welcome;
 use super::pages::{footed, over, sheet};
 use crate::toasts::Toasts;
 
-/// The file in the window's folder that says the projects were
-/// offered on this machine.
+/// The file that marks the projects as offered on this machine.
 const OFFERED: &str = "projects-offered";
 /// How far in a project's conversations stand under it.
 const INDENT: f32 = 32.0;
@@ -72,8 +68,7 @@ pub struct Projects {
     picked: BTreeSet<String>,
     /// The projects whose conversations are listed, by their key.
     unfolded: BTreeSet<String>,
-    /// Every project is listed, not only the suggested ones and
-    /// those with a conversation picked.
+    /// Every project is listed.
     all: bool,
     /// The suggested ones were picked for the projects found.
     seeded: bool,
@@ -89,8 +84,7 @@ impl FromWorld for Asker {
     }
 }
 
-/// A row of the list: a project, or one of its conversations under
-/// it.
+/// A row of the list: a project or one of its conversations.
 #[derive(Clone, PartialEq)]
 enum Line {
     Project {
@@ -143,8 +137,7 @@ fn close(world: &mut World) {
     }
 }
 
-/// Opens the card when first-run setup ends on a realm with no
-/// hamlet, unless it was offered on this machine before.
+/// Opens the card once, when setup ends on a realm with no hamlet.
 fn offer(
     welcome: Res<Welcome>,
     folder: Option<Res<ViewFolder>>,
@@ -161,8 +154,7 @@ fn offer(
     }
 }
 
-/// Picks the newest conversations of the suggested projects once they
-/// are found.
+/// Picks the suggested projects' newest conversations once found.
 fn pick_suggested(
     imports: Res<Imports>,
     mut projects: ResMut<Projects>,
@@ -242,8 +234,7 @@ fn unfold(world: &mut World, project: &str) {
     }
 }
 
-/// Brings in each project with a conversation picked, with those
-/// picked alone.
+/// Brings in each project with its picked conversations.
 fn bring(world: &mut World) {
     let picked = world.resource::<Projects>().picked.clone();
     let projects = world
@@ -265,14 +256,12 @@ fn bring(world: &mut World) {
         .collect::<Vec<_>>();
     if !projects.is_empty() {
         world.trigger(BringIn { projects });
-        // It goes on with the card closed: the hamlets show in the
-        // rail as they come, and what fails in a toast.
+        // Failures are toasted once the card is closed.
         close(world);
     }
 }
 
-/// Shows a toast for each project that was not brought in while the
-/// card is closed, the card's own list being out of sight.
+/// Toasts each project not brought in while the card is closed.
 fn toast_failures(
     imports: Res<Imports>,
     projects: Res<Projects>,
@@ -380,8 +369,7 @@ fn line_view(line: &Line) -> AnyView {
         } => {
             let picking = key.clone();
             let folding = key;
-            // The chevron points up unturned: down while the
-            // project's conversations are listed, else left.
+            // Unturned, the chevron points up.
             let turn = if unfolded { 180.0 } else { 270.0 };
             row((
                 checkbox(picked).on_change(move |world, on| {
@@ -440,8 +428,7 @@ fn line_view(line: &Line) -> AnyView {
     }
 }
 
-/// What the card says over the list: what it does, or what was
-/// brought in.
+/// What the card says over the list.
 fn status() -> AnyView {
     keyed(
         derived(|world: &World| {
@@ -537,8 +524,7 @@ fn page() -> AnyView {
     let bring = keyed(
         derived(|world: &World| {
             let imports = world.resource::<Imports>();
-            // While projects are looked for, those picked may be of
-            // the list they replace.
+            // Those picked may be of the list being replaced.
             (
                 world.resource::<Projects>().picked.len(),
                 imports.is_busy() || imports.looking,

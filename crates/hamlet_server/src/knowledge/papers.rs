@@ -1,5 +1,4 @@
-//! A scholar's or a lodge's papers: its character, memory and skills,
-//! and what a lodge learned that its scholar lacks.
+//! A scholar's or a lodge's papers.
 
 use hamlet_git::{MAIN, Repository};
 use hamlet_protocol::client::{self as protocol, Keeper};

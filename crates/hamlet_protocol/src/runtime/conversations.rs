@@ -124,9 +124,8 @@ pub struct Submit {
 }
 
 /// An entry written without a turn, admitted once by its request id:
-/// one only people see, written at once even while a turn runs, or,
-/// with `content`, words added to the model's context at the next
-/// boundary.
+/// one only people see, or with `content`, words for the model's
+/// context.
 #[derive(
     Clone, Debug, PartialEq, Serialize, Deserialize, JsonSchema,
 )]
@@ -153,11 +152,8 @@ pub struct Write {
     pub v: Version,
 }
 
-/// Summarizes the earlier part of a conversation now, while it keeps
-/// working; the summary is placed at once when it is idle, else at
-/// its next boundary. Answered by `admitted`, done once the
-/// compaction is under way; asked again under one request id, it
-/// may summarize again.
+/// Summarizes the earlier part of a conversation now, placing the
+/// summary when idle or at its next boundary. Answered by `admitted`.
 #[derive(
     Clone, Debug, PartialEq, Serialize, Deserialize, JsonSchema,
 )]

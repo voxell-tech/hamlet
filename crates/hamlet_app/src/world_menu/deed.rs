@@ -1,5 +1,4 @@
-//! The deeds that end an agent or a hamlet or change who runs one,
-//! and the question asked before each.
+//! The deeds asked about before they are done.
 
 use bevy::ecs::entity::Entity;
 use bevy::ecs::query::{With, Without};
@@ -31,13 +30,11 @@ use super::close;
 use crate::chat;
 use crate::convo::Convo;
 
-/// Something that ends an agent or a hamlet, or changes who runs
-/// one.
+/// A deed asked about before it is done.
 #[derive(Clone, PartialEq)]
 pub(crate) enum Deed {
     End(Entity),
-    /// Ends this hire, which dreams once more to bring what it
-    /// learned home to its scholar.
+    /// Ends this hire after one more dream.
     EndWithDream(Entity),
     Merge {
         absorbed: Entity,
@@ -51,8 +48,7 @@ pub(crate) enum Deed {
     Unshelve(String),
     /// Makes this agent the mayor of its hamlet.
     Mayor(Entity),
-    /// Takes the open conversation back to just before the message
-    /// `entry` of it.
+    /// Rewinds the open conversation to before message `entry`.
     Rewind {
         chat: Entity,
         entry: String,
@@ -61,13 +57,11 @@ pub(crate) enum Deed {
     },
     /// Ends the realm's own charter, so the built-in one stands.
     DefaultCharter,
-    /// Copies every lodge to the saved workspace, over the lodges
-    /// there.
+    /// Copies every lodge to the saved workspace.
     MoveLodges,
 }
 
-/// The reason typed under a question, which may be left out, and
-/// whether its field is shown.
+/// The reason typed under a question, and whether its field is shown.
 #[derive(Resource, Default, Clone, PartialEq)]
 pub(crate) struct Reason {
     text: String,
@@ -81,8 +75,7 @@ pub(super) fn answer(world: &mut World, deed: &Deed) {
 }
 
 impl Deed {
-    /// Gives the chief's command that does it to the hamlet it is
-    /// about, with the reason typed under its question, if any.
+    /// Sends the chief's command that does it, with any reason typed.
     pub(crate) fn run(&self, world: &mut World) {
         if !self.is_available(world) {
             return;
@@ -149,8 +142,7 @@ impl Deed {
         }
     }
 
-    /// Whether the record keeps a reason for it, which the chief may
-    /// give.
+    /// Whether the record keeps a reason for it.
     fn takes_reason(&self) -> bool {
         matches!(
             self,
@@ -331,8 +323,7 @@ impl Deed {
     }
 }
 
-/// The question before `deed`, against `anchor`, with a warning for
-/// each agent that is at work.
+/// The question before `deed`, warning of each agent at work.
 pub(crate) fn question(deed: Deed, anchor: Rect) -> impl View {
     built(move |cx| {
         if !deed.is_available(cx.world) {
@@ -412,8 +403,8 @@ pub(crate) fn question(deed: Deed, anchor: Rect) -> impl View {
         ))
         .gap(section)
         .width(px(300.0));
-        // The chief's own message, at the chat's right, has its
-        // question hang from its right edge, touching it.
+        // The chief's own message hangs its question from its right
+        // edge.
         let placements = match deed {
             Deed::Rewind { .. } => {
                 [PopoverSide::Bottom, PopoverSide::Top]

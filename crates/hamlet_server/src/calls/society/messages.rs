@@ -1,6 +1,4 @@
-//! An agent's messages to another along a road (H30, H31), its
-//! proposal of a road, and the workers it starts, each kept once per
-//! call.
+//! An agent's messages, road proposals and workers (H30, H31).
 
 use anyhow::Result;
 use diesel::prelude::*;
@@ -18,6 +16,7 @@ use crate::conversations::messages::{
 use crate::conversations::tasks::{self, Origin};
 use crate::conversations::{Kind, briefs};
 use crate::core::Core;
+use crate::realm::change::done;
 use crate::society::agents::{self, EndHow};
 use crate::society::refusal::Refusal;
 use crate::society::workers::{self, Start, Starter};
@@ -193,9 +192,8 @@ impl Core<'_, '_> {
         }
     }
 
-    /// The look that copies the files under `paths`, as the caller
-    /// may read them, into `receiver`'s inbox, with the captions that
-    /// say where each landed and the images among them.
+    /// The look that copies the files under `paths` into `receiver`'s
+    /// inbox.
     fn parcel(
         &mut self,
         call: &Call<'_>,
@@ -223,8 +221,7 @@ impl Core<'_, '_> {
         })
     }
 
-    /// What a message kept for a call answers it: sent, and for a
-    /// request that its response comes later.
+    /// The answer of the call that sent `found`.
     fn sent(&mut self, found: &Message) -> Result<Step> {
         let name = self.name(found.receiver)?;
         let words = match found.kind {
@@ -288,7 +285,7 @@ impl Core<'_, '_> {
         let chief = task_chief(db, task)?;
         let done =
             self.attempt(Actor::Agent(starter), |cx, env| {
-                let id = match workers::start(
+                let id = done!(workers::start(
                     cx,
                     Start {
                         starter: Starter::Agent(starter),
@@ -299,10 +296,7 @@ impl Core<'_, '_> {
                         waits,
                         call: Some((runtime, key)),
                     },
-                )? {
-                    Ok(id) => id,
-                    Err(refusal) => return Ok(Err(refusal)),
-                };
+                ));
                 briefs::give(cx, env, id, &brief, &author, chief)?;
                 Ok(Ok(id))
             })?;
@@ -345,8 +339,7 @@ impl Core<'_, '_> {
     }
 }
 
-/// `outcome` with the agent its call reached, which a transcript
-/// shows it by.
+/// `outcome` with the agent its call reached, for the transcript.
 fn reached(mut outcome: Outcome, agent: AgentId) -> Outcome {
     outcome
         .details

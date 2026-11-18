@@ -1,6 +1,4 @@
-//! A tool call carried out once under its key (S19): its kept answer
-//! when it was made before, else answered by a chief or the gate, run
-//! as a society tool, or run as a built-in or added tool on a task.
+//! A tool call carried out once under its key (S19).
 
 use anyhow::Result;
 use bevy_ecs::entity::Entity;
@@ -383,8 +381,7 @@ impl Core<'_, '_> {
     }
 }
 
-/// The refusal of a write or edit of `CHARACTER.md` at the lodge's
-/// root, which is the scholar's own.
+/// The refusal of a write or edit of the lodge's `CHARACTER.md`.
 fn character_refusal(
     place: &crate::tools::builtin::Place,
     call: &Call<'_>,

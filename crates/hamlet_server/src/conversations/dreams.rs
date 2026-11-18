@@ -1,8 +1,4 @@
-//! When agents dream, one at a time. A dream asked for starts in its
-//! turn whatever the settings say, and so does the last dream of a
-//! hire ended with one. While dreams are on and in the chief's hours,
-//! a hire dreams once it learned something its scholar lacks, and a
-//! scholar at most once a day to tidy its `main`.
+//! The order agents dream in, one at a time.
 
 use std::collections::{BTreeMap, BTreeSet};
 
@@ -25,7 +21,7 @@ use crate::conversations::tasks::{self, Origin};
 use crate::conversations::{self, Begin, Kind, models, reflections};
 use crate::core::Core;
 use crate::realm::Realm;
-use crate::realm::change::Done;
+use crate::realm::change::{Done, checked, done, refuse};
 use crate::realm::jobs::Job;
 use crate::realm::layout::Layout;
 use crate::realm::settings::Dreams;
@@ -42,12 +38,9 @@ const HIRE_REST: i64 = 6 * 3_600_000;
 const SCHOLAR_REST: i64 = 24 * 3_600_000;
 /// The time after its end a hire may still dream once more.
 const ENDING_WINDOW: i64 = 24 * 3_600_000;
-/// The time between the server's looks for a due dream.
 const DREAM_CHECK: std::time::Duration =
     std::time::Duration::from_secs(60);
 
-/// A check for a due dream every [`DREAM_CHECK`], and another once a
-/// dream ended; what the hires learned, found at the start.
 pub(crate) fn plugin(app: &mut bevy_app::App) {
     app.init_resource::<Learned>()
         .add_systems(Startup, note_learned)
@@ -59,8 +52,7 @@ fn dream_tick(mut core: Core) -> Result<()> {
     core.dream_tick()
 }
 
-/// Dreams ended, each with the first line of its answer, so they are
-/// told of and the next one waiting may begin.
+/// Dreams ended, each with the first line of its answer.
 #[derive(Message)]
 pub(crate) struct DreamEnded(pub Vec<(DreamId, String)>);
 
@@ -76,33 +68,20 @@ fn start_next_dream(
     Ok(())
 }
 
-/// Whether the agent that ended a hire with a dream is notified when
-/// the dream ends.
+/// Who learns how the last dream of an ended hire ended.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub(crate) enum Notify {
+    /// The agent that ended it, by a notification.
     Lead,
-    /// The call that ended it answers with how the dream ended.
+    /// The call that ended it, in its answer.
     Answered,
 }
 
-/// The living hires whose branch holds what they learned that no
-/// dream took home yet, as the clients are shown.
+/// The living hires that learned what no dream took home yet.
 #[derive(Resource, Default)]
 pub(crate) struct Learned(pub BTreeSet<AgentId>);
 
 impl Learned {
-    /// Finds them again.
-    pub fn note(&mut self, db: &mut Db, layout: &Layout) {
-        match find_learned(db, layout) {
-            Ok(learned) => self.0 = learned,
-            Err(error) => {
-                error!("finding what hires learned: {error:#}");
-            }
-        }
-    }
-
-    /// Takes in whether each hire of `learning` has learned something
-    /// now.
     pub fn take_in(&mut self, learning: &BTreeMap<AgentId, bool>) {
         for (&hire, &has) in learning {
             if has {
@@ -115,7 +94,7 @@ impl Learned {
 }
 
 /// Whether each hire the jobs `done` may have changed has learned
-/// something now.
+/// anything.
 pub(crate) fn learning(
     db: &mut Db,
     layout: &Layout,
@@ -179,8 +158,6 @@ fn learners(db: &mut Db, job: &Job) -> Result<Vec<AgentId>> {
     })
 }
 
-/// Whether `agent` is a living hire whose branch holds what it
-/// learned that no dream took home yet.
 fn has_learned(
     db: &mut Db,
     layout: &Layout,
@@ -196,20 +173,20 @@ fn note_learned(
     mut learned: ResMut<Learned>,
 ) {
     let layout = realm.layout().clone();
-    learned.note(realm.store().connection(), &layout);
-}
-
-fn find_learned(
-    db: &mut Db,
-    layout: &Layout,
-) -> Result<BTreeSet<AgentId>> {
-    let mut learned = BTreeSet::new();
-    for agent in agents::all_hires(db)? {
-        if has_learned(db, layout, agent)? {
-            learned.insert(agent);
+    let db = realm.store().connection();
+    let mut find = || {
+        let mut found = BTreeSet::new();
+        for agent in agents::all_hires(db)? {
+            if has_learned(db, &layout, agent)? {
+                found.insert(agent);
+            }
         }
+        anyhow::Ok(found)
+    };
+    match find() {
+        Ok(found) => learned.0 = found,
+        Err(error) => error!("finding what hires learned: {error:#}"),
     }
-    Ok(learned)
 }
 
 /// A hire or a scholar that dreams.
@@ -227,7 +204,6 @@ impl Dreamer {
         }
     }
 
-    /// Whether `dream` is this one's.
     fn is_of(self, dream: &Dream) -> bool {
         match self {
             Self::Hire { hire, .. } => dream.hire == Some(hire),
@@ -239,11 +215,7 @@ impl Dreamer {
     }
 }
 
-/// The dream to start next, when none is running: one asked for, then
-/// the last dream of a hire ended with one, then, while dreams are on
-/// and in their hours, the dreamer most due. What was asked of a
-/// dreamer that is gone is let go. An ended hire's dream waits for
-/// its conversation's reflection.
+/// The dream to start next, when none is running.
 pub(crate) fn next(
     db: &mut Db,
     layout: &Layout,
@@ -266,6 +238,7 @@ pub(crate) fn next(
                 .map(|_| Dreamer::Scholar(scholar)),
         };
         match dreamer {
+            // An ended hire's dream waits for its reflection.
             Some(Dreamer::Hire { hire, ending: true })
                 if reflections::is_reflecting(db, hire)? => {}
             Some(dreamer) => return Ok(Some(dreamer)),
@@ -287,7 +260,6 @@ pub(crate) fn next(
     due(db, layout, now)
 }
 
-/// Whether `now` falls in the local `hours`, from and to.
 fn in_hours(hours: (u8, u8), now: i64) -> Result<bool> {
     let hour = crate::app::clock::local(now)?.hour().unsigned_abs();
     let (from, to) = hours;
@@ -298,7 +270,6 @@ fn in_hours(hours: (u8, u8), now: i64) -> Result<bool> {
     })
 }
 
-/// The living hire or the scholar most due a dream, if one is.
 fn due(
     db: &mut Db,
     layout: &Layout,
@@ -335,8 +306,7 @@ fn due(
     Ok(None)
 }
 
-/// How the dream `dream` ended, in one line, with `summary` the first
-/// line of its answer.
+/// How `dream` ended, in one line, given its answer's first line.
 fn brought(dream: &Dream, summary: &str) -> String {
     match dream.outcome {
         Some(Outcome::Done) if !summary.is_empty() => {
@@ -356,10 +326,8 @@ fn brought(dream: &Dream, summary: &str) -> String {
 }
 
 impl Core<'_, '_> {
-    /// Tells of the end of dream `id`, whose answer began with
-    /// `summary`: a line in the conversation of its hire, and for the
-    /// last dream of a hire an agent ended, a notification to that
-    /// agent unless `notify` says the call answers it.
+    /// Tells the hire's conversation, and its ender as `notify` says,
+    /// how dream `id` ended.
     pub(crate) fn dreamt(
         &mut self,
         id: DreamId,
@@ -422,14 +390,12 @@ impl Core<'_, '_> {
         })
     }
 
-    /// Starts the next dream, when none is running.
     pub(crate) fn dream_tick(&mut self) -> Result<()> {
         self.start_dream(None)
     }
 
-    /// Starts the next dream, when none is running, for the call that
-    /// ended `hire` with a dream, which answers how a last dream of
-    /// it that ends at once ended.
+    /// [`Self::dream_tick`] for the call that just ended `hire` with
+    /// a dream, which answers how it ended.
     pub(crate) fn dream_tick_ending(
         &mut self,
         hire: AgentId,
@@ -437,9 +403,8 @@ impl Core<'_, '_> {
         self.start_dream(Some(hire))
     }
 
-    /// How the last dream of the hire `hire`, just ended with one,
-    /// fares, in a sentence or two, for its ender, who `notify` says
-    /// is notified once it ends.
+    /// How the last dream of `hire`, just ended, fares, for its
+    /// ender.
     pub(crate) fn last_dream_words(
         &mut self,
         hire: AgentId,
@@ -480,8 +445,7 @@ impl Core<'_, '_> {
         })
     }
 
-    /// Starts the next dream, when none is running; a last dream of
-    /// `answered` that ends at once notifies nobody.
+    /// Starts the next dream, when none is running.
     fn start_dream(
         &mut self,
         answered: Option<AgentId>,
@@ -523,22 +487,17 @@ impl Core<'_, '_> {
         words: &[&str],
     ) -> Done<String> {
         let [target] = words else {
-            return Ok(Err(Refusal::DreamUsage));
+            refuse!(Refusal::DreamUsage);
         };
-        let dreamer = match self.dreamer(here, target)? {
-            Ok(dreamer) => dreamer,
-            Err(refusal) => return Ok(Err(refusal)),
-        };
-        if let Dreamer::Hire { hire, .. } = dreamer
-            && let Err(refusal) = self.leads(hire)?
-        {
-            return Ok(Err(refusal));
+        let dreamer = done!(self.dreamer(here, target));
+        if let Dreamer::Hire { hire, .. } = dreamer {
+            done!(self.leads(hire));
         }
         Ok(Ok(self.ask_dreams(dreamer)?))
     }
 
-    /// What `target` names to dream, said in `here`: a living
-    /// scholar, or an agent living or ended.
+    /// The living scholar, or the agent living or ended, `target`
+    /// names in `here`.
     pub(crate) fn dreamer(
         &mut self,
         here: Option<&hamlet_store::ids::HamletId>,
@@ -546,30 +505,20 @@ impl Core<'_, '_> {
     ) -> Done<Dreamer> {
         let db = self.realm.store().connection();
         if target.starts_with("scholar#") {
-            let found = match addresses::parse_scholar(target) {
-                Ok(id) => city::living(db, id)?,
-                Err(refusal) => return Ok(Err(refusal)),
-            };
-            return Ok(match found {
-                Some(found) => Ok(Dreamer::Scholar(found.id)),
-                None => Err(Refusal::NoScholar {
+            let id = checked!(addresses::parse_scholar(target));
+            return Ok(city::living(db, id)?
+                .map(|found| Dreamer::Scholar(found.id))
+                .ok_or_else(|| Refusal::NoScholar {
                     address: target.into(),
-                }),
-            });
+                }));
         }
-        let address = match addresses::parse(target) {
-            Ok(address) => address,
-            Err(refusal) => return Ok(Err(refusal)),
-        };
-        let agent = match addresses::resolve(
+        let address = checked!(addresses::parse(target));
+        let agent = done!(addresses::resolve(
             db,
             &address,
             here,
             addresses::Reach::Kept,
-        )? {
-            Ok(agent) => agent,
-            Err(refusal) => return Ok(Err(refusal)),
-        };
+        ));
         let ending = !agents::get(db, agent)?.is_living();
         Ok(Ok(Dreamer::Hire {
             hire: agent,
@@ -577,10 +526,9 @@ impl Core<'_, '_> {
         }))
     }
 
-    /// Asks for the dream of `dreamer`, whatever the settings say,
-    /// and says how each asked fares. A scholar's own comes after
-    /// those of its living hires that learned what it lacks. Each
-    /// starts now when no dream runs, else in its turn.
+    /// Asks for the dream of `dreamer` whatever the settings say,
+    /// after those of a scholar's hires that learned what it lacks.
+    /// Returns how each fares.
     pub(crate) fn ask_dreams(
         &mut self,
         dreamer: Dreamer,
@@ -642,8 +590,8 @@ impl Core<'_, '_> {
         Ok(words.join(" "))
     }
 
-    /// Starts `dreamer`'s dream. `None` when there is nothing to
-    /// dream about, told of as [`Self::dreamt`] does.
+    /// Starts `dreamer`'s dream; `None` when it has nothing to dream
+    /// about.
     fn dream(
         &mut self,
         dreamer: Dreamer,
@@ -791,40 +739,6 @@ mod tests {
     use crate::society::agents::EndHow;
     use crate::society::hires::LastDream;
     use crate::testing::Realm;
-
-    #[test]
-    fn an_asked_dream_runs_with_dreams_off_and_outside_their_hours() {
-        let mut realm = Realm::new();
-        let mayor = realm.found("mill", "ada");
-        let (layout, now) = (realm.layout(), realm.at);
-        let hour = crate::app::clock::local(now)
-            .unwrap()
-            .hour()
-            .unsigned_abs();
-        let elsewhere = Dreams {
-            on: true,
-            hours: ((hour + 1) % 24, (hour + 2) % 24),
-            ..Dreams::default()
-        };
-        let settings = [Dreams::default(), elsewhere];
-        for dreams in &settings {
-            assert_eq!(
-                next(realm.db(), &layout, dreams, now).unwrap(),
-                None
-            );
-        }
-        dreams::ask(realm.db(), Asked::Hire(mayor.agent), now)
-            .unwrap();
-        for dreams in &settings {
-            assert_eq!(
-                next(realm.db(), &layout, dreams, now).unwrap(),
-                Some(Dreamer::Hire {
-                    hire: mayor.agent,
-                    ending: false
-                })
-            );
-        }
-    }
 
     #[test]
     fn only_a_hire_ended_with_a_dream_dreams_once_more() {

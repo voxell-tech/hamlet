@@ -1,6 +1,4 @@
-//! A message that answers another: a line at its head naming the
-//! message it answers, the mark on a message that replies to it, and
-//! what is replied to shown over the field until the message is sent.
+//! A message that answers another, and the mark that starts one.
 
 use bevy::app::{App, Update};
 use bevy::camera::visibility::Visibility;
@@ -34,7 +32,7 @@ use super::{ChatSettings, Draft};
 use crate::convo::Convo;
 
 /// The room of a mark about its picture.
-const AROUND: f32 = 4.0;
+pub(super) const AROUND: f32 = 4.0;
 
 /// The room a mark takes beside its message.
 pub(super) const ROOM: f32 = ICON + AROUND * 3.0;
@@ -79,15 +77,13 @@ impl Answers {
 #[derive(Resource, Default)]
 pub struct Replying(pub Option<(Entity, Answers)>);
 
-/// `words` sent as a reply to `answers`: a first line that names it,
-/// its words as a JSON string, then the words.
+/// `words` sent as a reply to `answers`, under a line quoting it.
 pub fn replied(answers: &Answers, words: &str) -> String {
     let said = serde_json::Value::from(answers.text.as_str());
     format!("{HEAD}{}: {said})\n\n{words}", answers.by)
 }
 
-/// What `text` replies to and the words after it. `None` when it is
-/// no reply.
+/// What `text` replies to and the words after it.
 pub fn unreplied(text: &str) -> Option<(Answers, &str)> {
     let (head, words) = text.split_once("\n\n")?;
     let (by, said) = head
@@ -111,10 +107,8 @@ pub(super) fn rest(text: &str) -> &str {
     unreplied(text).map_or(text, |(_, words)| words)
 }
 
-/// `text` as its sender typed it, after any reply line it opens with,
-/// and the words it quotes of the message it replies to, which that
-/// message shows in place of a quote of its own. The words stay
-/// whole when the quote is of anything else.
+/// The words `text` quotes of the message it replies to, and the
+/// rest.
 pub fn own_words(text: &str) -> (Option<String>, String) {
     let Some((answers, words)) = unreplied(text) else {
         return (None, text.to_string());
@@ -139,7 +133,6 @@ pub fn own_words(text: &str) -> (Option<String>, String) {
     }
 }
 
-/// `text` with every run of white space one space.
 fn squashed(text: &str) -> String {
     text.split_whitespace().collect::<Vec<_>>().join(" ")
 }
@@ -155,13 +148,12 @@ pub(super) fn words(entry: &Entry) -> Option<&str> {
     }
 }
 
-/// True when `entry` can be replied to.
 pub(super) fn can_reply_to(entry: &Entry) -> bool {
     words(entry).is_some_and(|text| !text.trim().is_empty())
 }
 
-/// Has the next message of the open chat reply to the entry `id` of
-/// `chat`, said by `by`, and puts the caret in the field.
+/// Makes the next message reply to entry `id` of `chat`, said by
+/// `by`.
 fn take(world: &mut World, chat: Entity, id: &str, by: &str) {
     let most = world.resource::<ChatSettings>().reply_chars;
     let answers = world
@@ -177,9 +169,7 @@ fn take(world: &mut World, chat: Entity, id: &str, by: &str) {
     world.resource_mut::<Draft>().focus = true;
 }
 
-/// `text` as a reply to the message waiting in the open chat, and
-/// the bytes the reply puts before the words. Without one, `text`
-/// and no bytes.
+/// `text` as a reply, if one waits, and the bytes put before it.
 pub(super) fn attach(world: &World, text: String) -> (String, usize) {
     if text.trim().is_empty() {
         return (text, 0);
@@ -211,8 +201,7 @@ pub struct Replies;
 #[derive(Component)]
 struct Mark;
 
-/// The mark beside the message `id` of `chat`, said by `by`, out
-/// of sight until the pointer is on its row.
+/// The mark beside message `id` of `chat`, shown on hover.
 pub(super) fn mark(
     chat: Entity,
     id: String,
@@ -247,7 +236,17 @@ fn reveal(
     let Ok(hovered) = rows.get(row) else {
         return;
     };
-    let want = match hovered.get() {
+    show_marks(row, hovered.get(), &under, &mut marks);
+}
+
+/// Shows or hides the marks `M` under `row`.
+pub(super) fn show_marks<M: Component>(
+    row: Entity,
+    shown: bool,
+    under: &Query<&Children>,
+    marks: &mut Query<&mut Visibility, With<M>>,
+) {
+    let want = match shown {
         true => Visibility::Inherited,
         false => Visibility::Hidden,
     };
@@ -260,9 +259,7 @@ fn reveal(
     }
 }
 
-/// The message a reply answers, as a quote at the head of the reply:
-/// who said it over its words, with `selected` of them lit where the
-/// reply quoted them.
+/// The message a reply answers, `selected` words highlighted.
 pub(super) fn answered(
     answers: &Answers,
     selected: Option<String>,
@@ -306,8 +303,7 @@ pub(super) fn answered(
     })
 }
 
-/// The message the next one answers, over the field, and the way to
-/// let it go.
+/// The message the next one answers, over the field.
 pub(super) fn preview() -> impl View {
     keyed(
         resource::<Replying, _>(|r| {

@@ -1,6 +1,4 @@
-//! A runtime's requests while a turn runs: whether a tool call may
-//! run (C7, H11), and the call carried out once under its key (S19).
-//! A chief's answer to what waits lets held calls go on.
+//! A runtime's tool calls while a turn runs (C7, H11, S19).
 
 mod answer;
 mod deciding;
@@ -333,9 +331,8 @@ impl Core<'_, '_> {
         Ok(Err(Answer::Waiting(WAITING.into())))
     }
 
-    /// Tells whether a chief oversees the turn that makes `call`: any
-    /// turn of an agent's one conversation, which its chiefs have, or
-    /// a chief's own line elsewhere.
+    /// Whether a chief oversees the turn that makes `call`: any turn
+    /// of an agent's one conversation, or a chief's line elsewhere.
     fn is_overseen(&mut self, call: &Call<'_>) -> Result<bool> {
         if call.conversation.kind == Kind::Chat {
             return Ok(true);
@@ -356,8 +353,7 @@ impl Core<'_, '_> {
     }
 }
 
-/// `conversation` when a chief may trust its edits and commands: an
-/// agent's one conversation.
+/// `conversation` when a chief may trust its edits and commands.
 pub(crate) fn trusting(
     conversation: &Conversation,
 ) -> Option<ConversationId> {

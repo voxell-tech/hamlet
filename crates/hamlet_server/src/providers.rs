@@ -1,6 +1,5 @@
-//! The chief's model catalogue, what the server requests of a
-//! runtime's providers, and sign-ins owned by the connection that
-//! began them (S7).
+//! The chief's model catalogue, the runtimes' providers and sign-ins
+//! (S7).
 
 use std::collections::{BTreeMap, HashMap};
 use std::path::PathBuf;

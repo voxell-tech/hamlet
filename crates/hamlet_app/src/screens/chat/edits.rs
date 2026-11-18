@@ -1,5 +1,4 @@
-//! The files a turn changed: a card after its reply that opens to
-//! their tree, and each file to the lines its edits changed.
+//! The files a turn changed, as a card that opens to their tree.
 
 use bevy::ecs::entity::Entity;
 use bevy::ui::{AlignItems, Overflow, UiRect, percent, px};
@@ -31,14 +30,13 @@ struct File {
     removed: u64,
 }
 
-/// The parts of `path`, between its slashes.
 fn parts(path: &str) -> Vec<&str> {
     path.split(['/', '\\'])
         .filter(|part| !part.is_empty())
         .collect()
 }
 
-/// The files the edits `edits` of `chat` changed, by their folders.
+/// The files `edits` changed, by folder.
 fn files(transcript: &Transcript, edits: &[String]) -> Vec<File> {
     let mut files = Vec::<File>::new();
     for id in edits {
@@ -125,8 +123,7 @@ fn chevron(key: (Entity, String)) -> impl View {
     ))
 }
 
-/// "2 changed files +13 -5", which opens to the tree of the files the
-/// edits `edits` of the turn known by `first` changed.
+/// "2 changed files +13 -5", which opens to the tree of the files.
 pub(super) fn view(
     chat: Entity,
     first: String,
@@ -219,8 +216,7 @@ fn folders(
     })
 }
 
-/// A file of the tree, which opens to the lines each of its edits
-/// changed.
+/// A file of the tree, which opens to the lines its edits changed.
 fn file_row(chat: Entity, first: &str, file: &File) -> impl View {
     let key = (chat, format!("{first} {}", file.path));
     let pressed = key.clone();

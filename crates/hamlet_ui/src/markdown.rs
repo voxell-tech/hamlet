@@ -1,10 +1,9 @@
 //! Markdown: its blocks ([`parse()`]), the links in its words and the
 //! views that draw them ([`document`], [`fixed`], [`page`],
-//! [`typed`]). Where a written path leads, what a written agent's
-//! address is drawn as and how a picture is drawn are the app's, set
-//! with [`PathLinks`], [`AgentLinks`] and [`PictureView`]; without
-//! them a path and an address are plain text and a picture is its
-//! caption.
+//! [`typed`]). The app sets where a path leads, what an address is
+//! drawn as and how a picture is drawn with [`PathLinks`],
+//! [`AgentLinks`] and [`PictureView`]; without them they are plain
+//! text.
 
 mod chips;
 mod draw;
@@ -27,7 +26,6 @@ pub use self::links::agent_addresses;
 pub use self::parse::{Reading, hashed, parse};
 use crate::AnyView;
 
-/// Puts the chips in a line where it holds their places.
 pub fn plugin(app: &mut App) {
     app.add_plugins(chips::plugin);
 }
@@ -50,9 +48,7 @@ pub enum Target {
     Path(String),
     /// An agent's or a scholar's address, which may name no one.
     Agent(String),
-    /// An agent's or a scholar's address in words that still grow,
-    /// drawn as words in the link's colour: a chip there would move
-    /// with every layout of the growing line.
+    /// An [`Target::Agent`] in words that still grow, drawn as words.
     AgentWords(String),
 }
 
@@ -141,31 +137,27 @@ pub struct PathLinks {
     pub generation: u64,
 }
 
-/// The chip an agent's or a scholar's address written in a document
-/// is drawn as, from the address, the words it was written in and the
-/// chip's key in its line. `None` when the address names no one, and
-/// the words stay plain. The app moves `generation` on when the
-/// answers may have changed.
+/// The chip a written address is drawn as, from the address, its
+/// words and the chip's key. `None` leaves the words plain.
 #[derive(Resource, Clone, Copy)]
 pub struct AgentLinks {
     pub is_address: IsAddress,
     pub resolve: fn(&mut World, &str, &str, String) -> Option<Atom>,
+    /// Moved on when the answers may have changed.
     pub generation: u64,
 }
 
 /// Whether a word is an agent's or a scholar's address.
 pub type IsAddress = fn(&str) -> bool;
 
-/// The [`IsAddress`] of [`AgentLinks`], which takes no word without
-/// it.
+/// The [`IsAddress`] of [`AgentLinks`], else one that takes no word.
 pub fn is_address_in(world: &World) -> IsAddress {
     world
         .get_resource::<AgentLinks>()
         .map_or(no_address, |links| links.is_address)
 }
 
-/// The [`IsAddress`] that takes no word.
-pub fn no_address(_: &str) -> bool {
+fn no_address(_: &str) -> bool {
     false
 }
 

@@ -40,8 +40,7 @@ pub(super) fn said(text: impl Into<String>) -> AnyView {
     description(text.into()).boxed()
 }
 
-/// The news of the last thing asked: that it is awaited, or the
-/// reason it did not work.
+/// Whether the last thing asked is awaited, or why it failed.
 pub(super) fn news(waiting: &'static str) -> AnyView {
     keyed(
         resource::<Welcome, _>(|welcome| {
@@ -95,9 +94,8 @@ pub(super) fn linked(
     .boxed()
 }
 
-/// A first-run page: its name and what it is for beside the way to
-/// close it, the track of the steps with the step `at` lit, `body`,
-/// and the buttons of `foot` under a rule.
+/// A first-run page: its head, the track at step `at`, `body` and
+/// `foot`.
 pub(super) fn card(
     at: usize,
     body: impl View + 'static,
@@ -138,8 +136,7 @@ pub(super) fn card(
     sheet(head, body, foot)
 }
 
-/// A card: `head` over `body`, which scrolls, over the buttons of
-/// `foot`, with rules between.
+/// A card: `head`, a scrolling `body`, then `foot`.
 pub(super) fn sheet(
     head: impl View + 'static,
     body: impl View + 'static,
@@ -150,8 +147,7 @@ pub(super) fn sheet(
         let space = &theme.space;
         let line = theme.palette.gold_6;
         let pad = UiRect::all(px(space.overlay_padding));
-        // Only the body scrolls, and only up and down: the name and
-        // the buttons stay, and nothing passes the card's corners.
+        // Only the body scrolls, and only up and down.
         let body = faded(
             scroll((column((body,))
                 .gap(space.gap)
@@ -168,8 +164,7 @@ pub(super) fn sheet(
             hairline(line).shrink(0.0),
             body,
             hairline(line).shrink(0.0),
-            // Its buttons stretch to its height, so each stands
-            // taller than one in a panel.
+            // Its buttons stretch to its height.
             row(foot)
                 .gap(8.0)
                 .align(AlignItems::Stretch)
@@ -192,9 +187,8 @@ pub(super) fn sheet(
 /// The side of a step's disc in the track.
 const DISC: f32 = 24.0;
 
-/// The steps of setup as a trail of numbered waypoints, the step `at`
-/// lit and those before it checked. Two while a provider is added, as
-/// its models go to Settings, else three.
+/// The steps of setup, the step `at` highlighted and those before
+/// checked.
 fn track(at: usize) -> AnyView {
     keyed(
         resource::<Welcome, _>(|welcome| welcome.adding),
@@ -286,8 +280,7 @@ fn track(at: usize) -> AnyView {
     .boxed()
 }
 
-/// The button that leaves setup: for later on first run, else a
-/// cancel.
+/// The button that leaves setup.
 fn later() -> AnyView {
     keyed(
         resource::<Welcome, _>(|welcome| welcome.adding),
@@ -307,8 +300,7 @@ fn later() -> AnyView {
     .boxed()
 }
 
-/// What a keyed button at a page's foot is built under: a row, which
-/// stretches it to the foot's height as the foot stretches the row.
+/// The row a keyed foot button is built in, to stretch to the foot.
 pub(super) fn footed() -> Stack<()> {
     row(()).gap(0.0)
 }
@@ -321,8 +313,7 @@ pub(super) fn to_providers(text: &'static str) -> AnyView {
 /// The side of a mark on a provider's tile.
 const MARK: f32 = 18.0;
 
-/// How tall the providers are while every one is shown, whatever
-/// the search finds.
+/// How tall the providers are while every one is shown.
 const TALL: f32 = 296.0;
 
 const TILE_GAP: f32 = 12.0;
@@ -343,9 +334,7 @@ const FOOT: f32 = 36.0;
 /// The side of the disc that checks the picked tile.
 const CHECKED: f32 = 20.0;
 
-/// A provider tile's look over a default button's: its room left to
-/// the row inside, and while it is `picked`, ringed in the accent
-/// with its words lit.
+/// A provider tile's rules, ringed in the accent while `picked`.
 fn tile_rules(picked: bool) -> impl FnOnce(&mut Cx) + Send + Sync {
     move |cx| {
         let mut rules = style::<HamletTheme>()
@@ -386,9 +375,7 @@ fn tile(tile: &Tile, picked: bool) -> AnyView {
     let name = tile.name.clone();
     with_cx(move |cx| {
         let space = &cx.theme().space;
-        // Washed as a row of the Hub's rail is. The wash is on the
-        // row, as the button's own gradient is its glow, and the row
-        // rounds itself to the border, as a clip is a rectangle.
+        // The row rounds itself, as a clip is a rectangle.
         let words = row((
             face,
             label(name).wrap(false),
@@ -409,8 +396,7 @@ fn tile(tile: &Tile, picked: bool) -> AnyView {
             .grow(1.0)
             .width(px(0.0))
             .min_width(px(0.0))
-            // Set here, as a call site's props beat the button's
-            // rules, so the row's corners are sure to match.
+            // A call site's props beat the button's rules.
             .radius(space.round_card)
             .variant(Variant::Default)
             .rules(tile_rules(picked))
@@ -509,8 +495,7 @@ fn providers_shown() -> AnyView {
             .gap(8.0)
             .boxed();
         }
-        // Built once, so it keeps its focus and text as the
-        // tiles change.
+        // Built once, keeping its focus and text.
         let search = built(|cx| {
             let seek = cx.world.resource::<Welcome>().seek.clone();
             cx.build(crate::search::search(
@@ -601,8 +586,7 @@ fn provider_page() -> AnyView {
     )
 }
 
-/// The model a new hamlet is offered first: the realm's default
-/// when it is listed, else the first listed.
+/// The realm's default when listed, else the first listed.
 fn recommended(models: &[String], default: &str) -> Option<String> {
     models
         .iter()
@@ -620,8 +604,7 @@ fn best(world: &World) -> Option<String> {
     recommended(&world.resource::<Welcome>().models, &default)
 }
 
-/// The model Continue tries: the one picked, else the one
-/// recommended.
+/// The model Continue tries: the one picked, else the recommended.
 fn chosen(world: &World) -> Option<String> {
     let welcome = world.resource::<Welcome>();
     welcome
@@ -771,8 +754,7 @@ fn local() -> AnyView {
     )
 }
 
-/// An endpoint typed in by hand: its name and the address it
-/// answers at.
+/// An endpoint typed in by hand.
 fn manual() -> AnyView {
     let field = |read: fn(&Welcome) -> String,
                  write: fn(&mut World, String),
@@ -870,19 +852,15 @@ fn screen() -> AnyView {
     .boxed()
 }
 
-/// How much of what is behind the card its veil hides: the realm on
-/// first run, a desk while a provider is added.
+/// How much of what is behind the card its veil hides.
 const VEIL: f32 = 0.7;
 
 /// The card over a veil on whatever is behind.
 pub(super) fn over(cx: &Cx, page: AnyView) -> impl View + use<> {
     let theme = cx.theme();
     let space = &theme.space;
-    // The page pads its own parts, so its rules run edge to edge,
-    // and scrolls its own body.
-    // Its height is what the window leaves: a percentage of a parent
-    // sized by its content means nothing, so it shrinks from its
-    // content's height instead, and its body scrolls.
+    // A percentage of a parent sized by its content means nothing, so
+    // it shrinks from its content's height.
     let card = kinds::card((page,))
         .width(percent(100.0))
         .min_height(px(0.0))

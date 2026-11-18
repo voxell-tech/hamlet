@@ -64,7 +64,6 @@ fn empty_state<R: Resource>(
 }
 
 /// The library's skills, each with the press that takes it out.
-/// Whoever shows them scrolls them.
 pub(crate) fn skills() -> impl View {
     column((
         empty_state(
@@ -76,9 +75,7 @@ pub(crate) fn skills() -> impl View {
             resource::<Skills, _>(skill_rows),
             |r: &SkillRow| format!("{}|{}", r.name, r.description),
             |r| {
-                // The press that takes it out is in its card,
-                // beside its name, so that what it does has the
-                // card's whole width.
+                // Beside its name, so the words have the full width.
                 let gone = r.name.clone();
                 let out = bad_action(
                     Glyph::Delete,
@@ -110,9 +107,7 @@ pub fn item(title: String, detail: String, tone: Tone) -> impl View {
     card(title, detail, tone, None)
 }
 
-/// One card: a title, with `beside` it at the card's right when
-/// there is something to press, over a dim line the card's whole
-/// width.
+/// One card: a title with `beside` at its right, over a dim line.
 pub fn card(
     title: String,
     detail: String,

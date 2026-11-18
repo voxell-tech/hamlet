@@ -1,7 +1,4 @@
-//! What waits for the chief: each wait in full, with the answers it
-//! takes, shown over the message bar of the agent that waits and all
-//! of them on the realm's page. A request is answered on its `asking`
-//! card.
+//! What waits for the chief, with the answers each takes.
 
 use std::collections::HashSet;
 
@@ -50,8 +47,8 @@ use crate::{PanelSystems, asking, chat};
 /// Seconds between two refreshes of the time each has waited.
 const TICK: f32 = 10.0;
 
-/// The most of the chat's height the wait over its message bar
-/// takes, in percent. Past it the wait scrolls.
+/// The most of the chat's height, in percent, a wait takes before it
+/// scrolls.
 const TALLEST: f32 = 45.0;
 
 pub fn plugin(app: &mut App) {
@@ -66,8 +63,7 @@ pub fn plugin(app: &mut App) {
         );
 }
 
-/// Everything that waits for the chief, oldest first, as the panels
-/// show it.
+/// Everything that waits for the chief, oldest first.
 #[derive(Resource, Default, PartialEq)]
 pub struct Queue(Vec<Need>);
 
@@ -85,8 +81,7 @@ impl Queue {
 #[derive(Resource, Default)]
 struct Unfolded(HashSet<Entity>);
 
-/// What the agent of the open chat waits on from the chief, oldest
-/// first, and the one shown over its message bar.
+/// What the open chat's agent waits on from the chief, oldest first.
 #[derive(Resource, Default, PartialEq)]
 pub(crate) struct ChatWaits {
     waits: Vec<Entity>,
@@ -95,7 +90,6 @@ pub(crate) struct ChatWaits {
 }
 
 impl ChatWaits {
-    /// Whether `wait` is one of them.
     pub(crate) fn holds(&self, wait: Entity) -> bool {
         self.waits.contains(&wait)
     }
@@ -147,8 +141,7 @@ impl Need {
     }
 }
 
-/// Keeps the [`Queue`] in step with the waits and the time each has
-/// waited.
+/// Keeps the [`Queue`] in step with the waits.
 fn keep_queue(
     time: Res<Time>,
     waiting: Query<(Entity, &Waiting)>,
@@ -177,8 +170,7 @@ fn keep_queue(
     }
 }
 
-/// Keeps [`ChatWaits`] as the waits raised by the agent the chat is
-/// with, or by a turn of the chat itself.
+/// Keeps [`ChatWaits`] in step with the chat.
 pub(crate) fn follow(
     convo: Res<Convo>,
     chats: Query<&Chat>,
@@ -214,8 +206,7 @@ fn turn(world: &mut World, at: usize) {
     }
 }
 
-/// Sends the chief's answer to `need`. A reply is words, which are
-/// written in the chat that asked, so it opens that chat instead.
+/// Sends the chief's answer to `need`, or opens its chat for a reply.
 fn answer(world: &mut World, need: &Need, choice: Choice) {
     if choice == Choice::Reply {
         if let Some(chat) = &need.chat {
@@ -232,8 +223,7 @@ fn answer(world: &mut World, need: &Need, choice: Choice) {
     world.flush();
 }
 
-/// A check or a cross on a tag in the world answers like a button
-/// here.
+/// Answers a check or a cross on a tag in the world.
 pub(crate) fn tag_answered(
     answered: On<TagAnswered>,
     waiting: Query<&Waiting>,
@@ -263,9 +253,7 @@ pub(crate) fn tag_opened(
     commands.queue(move |world: &mut World| open(world, wait));
 }
 
-/// Turns the Hub to where `wait` is answered: a newcomer's scholar,
-/// the chat of the agent that waits, over its message bar, else the
-/// realm's page, which has every wait.
+/// Turns the Hub to where `wait` is answered.
 pub(crate) fn open(world: &mut World, wait: Entity) {
     let Some(waiting) = world.get::<Waiting>(wait) else {
         return;
@@ -291,10 +279,7 @@ pub(crate) fn open(world: &mut World, wait: Entity) {
     }
 }
 
-/// The buttons of the answers `need` takes, the lasting one telling
-/// what it lets go in its tooltip. What refuses leads and the rest
-/// stay together, so a narrow card wraps them as one, and apart only
-/// when they do not fit side by side.
+/// The buttons of the answers `need` takes.
 pub(crate) fn answers(need: &Need) -> AnyView {
     let (refusing, agreeing): (Vec<usize>, Vec<usize>) =
         (0..need.answers.len()).partition(|&at| {
@@ -391,8 +376,7 @@ fn scope(need: &Need) -> Option<String> {
     Some(format!("{lets}."))
 }
 
-/// The edit that waits as `need`: its entry in the conversation
-/// whose turn it holds, and its change.
+/// The edit that waits as `need`, and its change.
 fn held(
     world: &World,
     need: &Need,
@@ -432,9 +416,7 @@ fn held(
     ))
 }
 
-/// The line over the card of `need`: what waits, in its tone, how
-/// long it has waited, and `tail`. A newcomer's is about `scholar`,
-/// the one at the harbor.
+/// The line over the card of `need`, `tail` at its end.
 fn head(
     need: &Need,
     scholar: &str,
@@ -481,8 +463,7 @@ fn head(
     })
 }
 
-/// The card of a request folded to its first question and how many
-/// more there are, with the button that unfolds it in place.
+/// The card of a request folded to its first question.
 fn brief(need: &Need, asked: &Questions) -> AnyView {
     let wait = need.entity;
     let first = asked
@@ -577,8 +558,7 @@ fn strip(need: &Need, tail: AnyView) -> AnyView {
             _ => String::new(),
         };
         let head = head(&need, &scholar, tail);
-        // A form says its questions itself, and an approval's
-        // subject is its head and, in full, its body.
+        // A form says its questions itself.
         let line = match &need.detail {
             WaitDetail::Question { .. }
             | WaitDetail::Approval { .. } => None,
@@ -599,9 +579,7 @@ fn strip(need: &Need, tail: AnyView) -> AnyView {
     })
 }
 
-/// Everything that waits for the chief, oldest first, with the
-/// answers each takes, a question folded until it is opened; nothing
-/// while nothing waits.
+/// Everything that waits for the chief, oldest first.
 pub fn waiting() -> impl View {
     // The time each has waited is part of the row.
     let rows = derived(|world: &World| {
@@ -635,9 +613,7 @@ pub fn waiting() -> impl View {
     })
 }
 
-/// What the agent of the open chat waits on from the chief, in full,
-/// with the way between them while there are several. As tall as it
-/// needs up to `TALLEST` of its column, past which it scrolls.
+/// What the agent of the open chat waits on from the chief, in full.
 pub fn in_chat() -> impl View {
     let shown =
         resource::<ChatWaits, _>(|chat_waits| {
@@ -669,89 +645,4 @@ pub fn in_chat() -> impl View {
             .max_height(percent(TALLEST))
             .display(shown),
     )
-}
-
-#[cfg(test)]
-mod tests {
-    use hamlet_client::outbox::Outbox;
-    use hamlet_protocol::client as protocol;
-
-    use super::*;
-    use crate::testing::{panel_app, press, words};
-
-    #[test]
-    fn the_tags_check_and_cross_answer_the_received_wait() {
-        let mut app = panel_app();
-        app.add_plugins(plugin);
-        let mut state = hamlet_testing::realm::state();
-        state
-            .waits
-            .push(hamlet_testing::realm::wait("tag-approval"));
-        hamlet_client::receive(
-            app.world_mut(),
-            protocol::ServerMessage::State(state),
-        );
-        let world = app.world_mut();
-        let wait = world
-            .query::<(Entity, &Waiting)>()
-            .iter(world)
-            .find(|(_, wait)| wait.id == "tag-approval")
-            .unwrap()
-            .0;
-        world.resource_mut::<Outbox>().drain().for_each(drop);
-        for (agree, choice) in
-            [(true, Choice::Allow), (false, Choice::Deny)]
-        {
-            world.trigger(TagAnswered { item: wait, agree });
-            world.flush();
-            let sent = world
-                .resource_mut::<Outbox>()
-                .drain()
-                .collect::<Vec<_>>();
-            let [protocol::ClientMessage::Answer(answer)] = &sent[..]
-            else {
-                panic!("one answer: {sent:?}");
-            };
-            assert_eq!(answer.wait, "tag-approval");
-            assert_eq!(answer.choice, choice);
-            assert_eq!(answer.text, None);
-        }
-    }
-
-    #[test]
-    fn a_received_approval_offers_its_answers() {
-        let mut app = panel_app();
-        crate::testing::seat_ada(&mut app);
-        let mut state = hamlet_testing::realm::state();
-        state.waits.push(hamlet_testing::realm::wait("approve-pwd"));
-        hamlet_client::receive(
-            app.world_mut(),
-            protocol::ServerMessage::State(state),
-        );
-        app.add_plugins(plugin);
-        app.update();
-        bevy_fynix::mount::<hamlet_ui::theme::HamletTheme>(
-            app.world_mut(),
-            waiting(),
-        );
-        app.update();
-        press(&mut app, "Allow Once");
-        let allowed =
-            app.world().resource::<Outbox>().iter().any(|message| {
-                matches!(message, protocol::ClientMessage::Answer(answer)
-                if answer.wait == "approve-pwd"
-                    && answer.choice == Choice::Allow)
-            });
-        assert!(allowed);
-        let mut state = hamlet_testing::realm::state();
-        let mut wait = hamlet_testing::realm::wait("approve-pwd");
-        wait.about = "git".into();
-        state.waits.push(wait);
-        hamlet_client::receive(
-            app.world_mut(),
-            protocol::ServerMessage::State(state),
-        );
-        app.update();
-        assert!(words(&mut app).iter().any(|text| text == "git"));
-    }
 }

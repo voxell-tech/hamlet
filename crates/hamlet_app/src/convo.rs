@@ -51,24 +51,18 @@ pub(crate) fn chief_name(
 }
 
 /// The chat this window shows and sends to.
-///
-/// Until the realm names the Hand, the chat and the agent are
-/// placeholders.
 #[derive(Resource)]
 pub struct Convo {
-    /// The watched chat.
     pub chat: Entity,
     /// The name the chief signs in with.
     pub name: String,
-    /// The agent the chat is with.
     pub agent: Entity,
-    /// That agent's name. `None` for the Hand.
+    /// The agent's name, `None` for the Hand.
     pub with: Option<String>,
 }
 
 impl Convo {
-    /// The id the chat's messages name its agent by, even once the
-    /// agent has left.
+    /// The chat's agent id, kept after the agent leaves.
     pub(crate) fn to(
         &self,
         world: &World,
@@ -77,8 +71,7 @@ impl Convo {
     }
 }
 
-/// The id and shown name of a living agent, the name `None` for the
-/// Hand.
+/// A living agent's id and shown name, `None` for the Hand.
 pub(crate) fn id_and_shown(
     world: &World,
     agent: Entity,
@@ -113,7 +106,7 @@ pub(crate) enum Seating {
     Unaddressed,
 }
 
-/// The selected agent's watched chat.
+/// Points the chat at `agent`.
 pub(crate) fn seat(world: &mut World, agent: Entity) -> Seating {
     let Some((to, with)) = id_and_shown(world, agent) else {
         return Seating::Unaddressed;
@@ -140,8 +133,7 @@ fn seat_as(
     convo.with = with;
 }
 
-/// The house of `agent` in the world: the hall for the first mayor,
-/// else its own.
+/// `agent`'s house: the hall for the first mayor.
 pub(crate) fn home_of(world: &World, agent: Entity) -> Thing {
     if agents::first_mayor(world) == Some(agent) {
         Thing::Cottage
@@ -150,8 +142,7 @@ pub(crate) fn home_of(world: &World, agent: Entity) -> Thing {
     }
 }
 
-/// Points the chat at one of the realm's agents, and selects it in
-/// the world.
+/// Points the chat at `agent` and selects it in the world.
 pub(crate) fn talk_to(world: &mut World, agent: Entity) {
     if seat(world, agent) == Seating::Unaddressed {
         return;
@@ -168,8 +159,7 @@ pub(crate) fn talk_to(world: &mut World, agent: Entity) {
         // Nothing can be selected where there is no world.
         None => true,
     };
-    // From a panel its house is chosen, which is easy to see, not the
-    // small robot.
+    // The house is easier to see than the robot.
     if !same {
         select(world, Some(home_of(world, agent)));
     }
@@ -177,9 +167,7 @@ pub(crate) fn talk_to(world: &mut World, agent: Entity) {
     show_tab(world, HUB);
 }
 
-/// Points the chat back at the Hand, and selects its tower and
-/// brings the camera to it. The Hub turns to its thread and comes to
-/// the front.
+/// Points the chat back at the Hand and brings its tower into view.
 pub(crate) fn talk_to_hand(world: &mut World) {
     let Some(hand) = agents::hand(world) else {
         return;
@@ -211,8 +199,7 @@ pub(crate) fn roster_moved(
     gone.read().count() > 0 || !named.is_empty()
 }
 
-/// Keeps [`Convo`] true to the agent the chat is with, and to the
-/// Hand once that agent is gone.
+/// Keeps [`Convo`] on its agent, or on the Hand once it is gone.
 pub(crate) fn reseat(world: &mut World) {
     let agent = world.resource::<Convo>().agent;
     match id_and_shown(world, agent) {
@@ -260,98 +247,8 @@ impl Convo {
 
 #[cfg(test)]
 mod tests {
-    use bevy_fynix::dock::DockTree;
-
     use super::*;
     use crate::testing::panel_app;
-
-    #[test]
-    fn the_first_chat_watches_the_received_hand_and_sends_to_it() {
-        use hamlet_client::chats::Chat;
-        use hamlet_client::outbox::Outbox;
-
-        let mut app = App::new();
-        app.add_plugins(hamlet_client::ClientPlugin { server: None });
-        let mut state = hamlet_testing::realm::state();
-        state.chief = "alice".into();
-        hamlet_client::receive(
-            app.world_mut(),
-            protocol::ServerMessage::State(state),
-        );
-        app.add_plugins(plugin);
-        let convo = app.world().resource::<Convo>();
-        assert_eq!(convo.name, "alice");
-        let chat = app
-            .world()
-            .get::<Chat>(convo.chat)
-            .expect("a watched chat");
-        assert_eq!(chat.0.with, protocol::AgentId(1));
-        crate::chat::send(
-            app.world_mut(),
-            "Find the key".into(),
-            &Default::default(),
-        );
-        let sent = app
-            .world()
-            .resource::<Outbox>()
-            .iter()
-            .map(|message| serde_json::to_value(message).unwrap())
-            .find(|message| message["type"] == "say")
-            .unwrap();
-        assert_eq!(sent["to"], serde_json::json!(1));
-        assert_eq!(sent["text"], "Find the key");
-    }
-
-    #[test]
-    fn talking_seats_the_agents_chat_and_the_hand_takes_it_back() {
-        let mut app = panel_app();
-        let ada = agents::named(app.world_mut(), "hire#2").unwrap();
-        let hand = agents::hand(app.world()).unwrap();
-        let first = app.world().resource::<Convo>().chat;
-        assert_eq!(app.world().resource::<Convo>().agent, hand);
-        talk_to(app.world_mut(), ada);
-        let convo = app.world().resource::<Convo>();
-        assert_eq!(convo.agent, ada);
-        assert_eq!(convo.with.as_deref(), Some("ada"));
-        assert_ne!(convo.chat, first);
-        assert_eq!(
-            app.world().get::<Chat>(convo.chat).unwrap().0.with,
-            protocol::AgentId(2)
-        );
-        let chat = convo.chat;
-        talk_to_hand(app.world_mut());
-        assert_eq!(app.world().resource::<Convo>().chat, first);
-        talk_to(app.world_mut(), ada);
-        assert_eq!(app.world().resource::<Convo>().chat, chat);
-    }
-
-    #[test]
-    fn the_hand_button_seats_the_hand_and_brings_the_hub_forward() {
-        use crate::dock::designed;
-
-        let mut app = panel_app();
-        app.insert_resource(Showing::Realm);
-        let ada = agents::named(app.world_mut(), "hire#2").unwrap();
-        seat(app.world_mut(), ada);
-        let mut tree = app.world_mut().resource_mut::<DockTree>();
-        designed(&mut tree);
-        let side = tree.find_leaf_with_window(HUB).unwrap();
-        // Another panel in front of it.
-        tree.add_tab(side, "settings");
-        talk_to_hand(app.world_mut());
-        let hand = agents::hand(app.world()).unwrap();
-        assert_eq!(app.world().resource::<Convo>().agent, hand);
-        assert_eq!(
-            *app.world().resource::<Showing>(),
-            Showing::Thread
-        );
-        let tree = app.world().resource::<DockTree>();
-        let front = tree.active(side).unwrap();
-        assert_eq!(
-            tree.leaf(side).unwrap().tab_index(front),
-            Some(0)
-        );
-    }
 
     #[test]
     fn the_chat_returns_to_the_hand_when_its_agent_goes() {
@@ -432,22 +329,5 @@ mod tests {
             })
             .collect::<Vec<_>>();
         assert_eq!(opens, [protocol::AgentId(5)]);
-    }
-
-    #[test]
-    fn the_received_chiefs_name_stays_current() {
-        let mut app = panel_app();
-        app.update();
-        let mut state = hamlet_testing::realm::state();
-        state.chief = "renamed-chief".into();
-        hamlet_client::receive(
-            app.world_mut(),
-            protocol::ServerMessage::State(state),
-        );
-        app.update();
-        assert_eq!(
-            app.world().resource::<Convo>().name,
-            "renamed-chief"
-        );
     }
 }

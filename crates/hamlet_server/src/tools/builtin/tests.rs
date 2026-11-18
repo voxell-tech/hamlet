@@ -44,7 +44,6 @@ async fn call(
     .await
 }
 
-/// A worker's lodge is not made by anything but its first tool.
 #[tokio::test]
 async fn a_tool_makes_the_lodge_it_works_in() {
     let scratch = Scratch::new("new-lodge");

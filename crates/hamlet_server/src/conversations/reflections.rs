@@ -1,6 +1,4 @@
-//! Reflection (C5): an agent told to keep what its conversation
-//! taught it, in its memory and its skills, after enough answered
-//! turns, when a chief requests it, or before a hire's last dream.
+//! Reflection, an agent keeping what its conversation taught it (C5).
 
 use anyhow::Result;
 use diesel::prelude::*;
@@ -24,22 +22,19 @@ pub(crate) const REFLECT: &str =
      for anything you did that is likely to come up again. If \
      nothing is worth keeping, say so in one line.";
 
-/// The instruction to a hire ended with a dream to keep its
-/// conversation's lessons before the dream.
+/// The instruction to reflect before a hire's last dream.
 const LAST_REFLECT: &str =
     "Last reflection (automatic, not from a chief). You were ended, \
-     and this is your last chance to keep what you learned before \
-     you end: your last dream brings home to your scholar only what \
-     your lodge holds. Look back over your whole conversation, \
-     including any part brought in from another program. Keep what \
-     is worth remembering about the chiefs and the lessons learned \
-     in the memory/ folder of your lodge, and save or improve a \
-     skill in its skills/ for anything you did that is likely to \
-     come up again. If nothing is worth keeping, say so in one line.";
+     and your last dream brings home to your scholar only what your \
+     lodge holds. Look back over your whole conversation, including \
+     any part brought in from another program. Keep what is worth \
+     remembering about the chiefs and the lessons learned in your \
+     lodge's memory/ folder, and save or improve a skill in its \
+     skills/ for anything likely to come up again. If nothing is \
+     worth keeping, say so in one line.";
 
-/// Counts a chief's turn of `id` that was answered, and requests a
-/// reflection once `every` turns were. Returns the reflection's
-/// request when one was made.
+/// Counts an answered chief's turn of `id`, and requests a reflection
+/// once `every` turns were.
 pub(crate) fn answered(
     cx: &mut Change<'_>,
     id: ConversationId,
@@ -67,10 +62,8 @@ pub(crate) fn reflect(
     request(cx, id, REFLECT)
 }
 
-/// Tells the conversation of the hire `agent`, ended with a dream,
-/// to reflect before the dream, when it has turns no reflection
-/// looked back over or was brought in from another program and
-/// never reflected. One stopped by a chief is left as it is.
+/// Tells the conversation of `agent`, ended with a dream, to reflect
+/// before the dream if it has anything new to reflect on.
 pub(crate) fn before_last_dream(
     cx: &mut Change<'_>,
     agent: AgentId,

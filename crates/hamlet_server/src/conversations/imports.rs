@@ -1,8 +1,4 @@
-//! Projects of other programs brought in (C35): a hamlet for each,
-//! working on its folder, and a hire for each of its conversations,
-//! whose chat begins with it. The server holds a conversation's
-//! entries until its runtime has made it with them, which then keeps
-//! them alone (ADR 0002).
+//! Projects of other programs brought in as hamlets with hires (C35).
 
 use anyhow::{Context, Result};
 use diesel::prelude::*;
@@ -19,7 +15,6 @@ use super::marks::Mark;
 use crate::attachments::files::Files;
 use crate::realm::change::{Change, Done, done};
 use crate::realm::settings::EffectiveSettings;
-use crate::society::chiefs;
 use crate::society::hamlets::{self, Founding};
 use crate::society::hires::{self, Hiring, Spec};
 use crate::society::names::NAME_LENGTH;
@@ -178,8 +173,7 @@ pub(crate) fn bring_in_project(
     Ok(Ok(brought))
 }
 
-/// `text` as a name: one line with no colon, cut to the longest a
-/// name is; `or` when nothing is left.
+/// `text` as a name, else `or`.
 fn label(text: &str, or: &str) -> String {
     let line = text
         .replace(':', " ")
@@ -221,9 +215,7 @@ fn begin(
     let source = imported.source.word();
     let conversation = chats::begin(cx, env, agent)?;
     chats::set(cx.db, agent, conversation)?;
-    let name = chiefs::find(cx.db, chief)?
-        .context("the chief is not in the realm")?
-        .name;
+    let name = chats::chief_name(cx.db, chief)?;
     let earlier = earlier_of(imported, &name)?;
     diesel::insert_into(import::table)
         .values((
@@ -268,8 +260,8 @@ pub(crate) fn read(
     Ok(serde_json::from_value(value).map_err(|_| unfit()))
 }
 
-/// The entries `conversation` begins with, while its runtime has not
-/// made it.
+/// The entries `conversation` begins with, held until its runtime
+/// makes it (ADR 0002).
 pub(crate) fn earlier(
     db: &mut Db,
     conversation: ConversationId,
@@ -285,9 +277,7 @@ pub(crate) fn earlier(
     })
 }
 
-/// The entries `conversation` begins with as its transcript shows
-/// them, while its runtime has not made it, as while no model is set
-/// up.
+/// [`earlier`] as transcript entries.
 pub(crate) fn held(
     db: &mut Db,
     conversation: ConversationId,
@@ -354,8 +344,7 @@ pub(crate) fn made(
     Ok(held)
 }
 
-/// The runtime's entries for `imported`: a notice of where it came
-/// from, then its messages and tool calls.
+/// The runtime's entries for `imported`.
 fn earlier_of(
     imported: &Imported,
     chief: &str,

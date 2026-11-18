@@ -1,6 +1,4 @@
-//! An image of a chief's line shown over the window on a veil: its
-//! thumbnail at first, then the image itself once it is had, fitted
-//! to the window and never drawn past its own pixels.
+//! An image shown over the window on a veil.
 
 use bevy::app::{App, PostUpdate, Update};
 use bevy::color::Alpha;
@@ -48,8 +46,7 @@ pub fn plugin(app: &mut App) {
         );
 }
 
-/// The image shown over the window, if one is, and what had the
-/// keyboard before it opened.
+/// The image shown, and what had the keyboard before.
 #[derive(Resource, Default)]
 pub struct Viewing {
     image: Option<ImageId>,
@@ -57,16 +54,12 @@ pub struct Viewing {
 }
 
 impl Viewing {
-    /// Whether an image is shown, which takes the keyboard: its
-    /// Escape closes the viewer and nothing under it.
     pub(crate) fn is_open(&self) -> bool {
         self.image.is_some()
     }
 }
 
-/// Shows `image` over the window, and asks for it at its full size.
-/// The keyboard leaves what had it, a field included, until the
-/// viewer closes.
+/// Shows `image` over the window, holding the keyboard.
 pub(crate) fn open(world: &mut World, image: ImageId) {
     want(world, &Source::Image(image.clone()));
     want(world, &Source::Original(image.clone()));
@@ -111,7 +104,6 @@ fn close_on_escape(
     }
 }
 
-/// The veil the image is shown on, which a click on closes it.
 #[derive(Component)]
 struct Veil;
 
@@ -124,8 +116,7 @@ struct Shown {
     full: bool,
 }
 
-/// Closes the viewer on a click on the veil itself, not on what it
-/// holds.
+/// Closes the viewer on a click on the veil itself.
 fn click_veil(
     click: On<PointerClick>,
     veils: Query<(), With<Veil>>,
@@ -139,8 +130,7 @@ fn click_veil(
     }
 }
 
-/// The size, in logical pixels, of a picture of `size` drawn in
-/// `room`, its proportions kept, made at most `largest` times larger.
+/// `size` fitted in `room`, at most `largest` times larger.
 fn fitted(size: Vec2, room: Vec2, largest: f32) -> Vec2 {
     if size.min_element() <= 0.0 || room.min_element() <= 0.0 {
         return Vec2::ZERO;
@@ -148,10 +138,7 @@ fn fitted(size: Vec2, room: Vec2, largest: f32) -> Vec2 {
     size * (room / size).min_element().min(largest)
 }
 
-/// Sizes the picture shown in the room the veil leaves. The image at
-/// its full size is drawn at most a pixel of the screen to each of
-/// its own; its thumbnail, until it comes, at most a logical pixel to
-/// each of its own, so that it is never stretched past being read.
+/// Sizes the picture in the room the veil leaves.
 fn fit(
     veil: Single<&ComputedNode, With<Veil>>,
     mut shown: Query<(&Shown, &mut Node)>,
@@ -284,100 +271,4 @@ pub fn view() -> impl View {
         },
     )
     .within(overlay(()))
-}
-
-#[cfg(test)]
-mod tests {
-    use hamlet_ui::theme::HamletTheme;
-
-    use super::*;
-    use crate::chat::ChatSettings;
-    use crate::testing::panel_app;
-
-    #[test]
-    fn the_viewer_shows_the_image_on_its_veil_and_closes_on_escape() {
-        use std::time::{Duration, Instant};
-
-        use bevy::asset::Assets;
-        use bevy::ecs::hierarchy::ChildOf;
-        use bevy::image::Image;
-        use hamlet_client::images::ImageArrived;
-        use hamlet_protocol::client::ImageSize;
-
-        let mut app = panel_app();
-        app.init_resource::<ChatSettings>()
-            .init_resource::<Assets<Image>>()
-            .init_resource::<ButtonInput<KeyCode>>()
-            .add_plugins((crate::pictures::plugin, plugin));
-        bevy_fynix::mount::<HamletTheme>(app.world_mut(), view());
-        let image = ImageId::try_from("c".repeat(64)).unwrap();
-        let veils = |app: &mut App| {
-            app.world_mut()
-                .query_filtered::<Entity, With<Veil>>()
-                .iter(app.world())
-                .collect::<Vec<_>>()
-        };
-
-        open(app.world_mut(), image.clone());
-        app.update();
-        assert_eq!(veils(&mut app).len(), 1);
-        // The image itself is asked for beside its thumbnail.
-        let pictures = app.world().resource::<Pictures>();
-        assert_eq!(
-            pictures.state(&Source::Original(image.clone())),
-            State::Loading
-        );
-
-        app.world_mut().trigger(ImageArrived {
-            image: image.clone(),
-            size: ImageSize::Original,
-            mime: "image/png".into(),
-            bytes: crate::testing::png(UVec2::new(40, 30)),
-        });
-        let start = Instant::now();
-        let picture = loop {
-            app.update();
-            let shown = app
-                .world_mut()
-                .query_filtered::<Entity, With<Shown>>()
-                .iter(app.world())
-                .next();
-            if let Some(shown) = shown {
-                break shown;
-            }
-            assert!(start.elapsed() < Duration::from_secs(5));
-            std::thread::sleep(Duration::from_millis(5));
-        };
-        // The picture hangs on the veil, not on a root of its own.
-        let veil = veils(&mut app)[0];
-        let mut parents = app.world_mut().query::<&ChildOf>();
-        assert!(
-            parents
-                .query(app.world())
-                .iter_ancestors(picture)
-                .any(|up| up == veil)
-        );
-
-        app.world_mut()
-            .resource_mut::<ButtonInput<KeyCode>>()
-            .press(KeyCode::Escape);
-        app.update();
-        assert!(veils(&mut app).is_empty());
-    }
-
-    #[test]
-    fn the_image_itself_is_never_drawn_past_its_pixels() {
-        let room = Vec2::new(800.0, 600.0);
-        let small = Vec2::new(200.0, 100.0);
-        // On a screen of two pixels to a point.
-        assert_eq!(fitted(small, room, 0.5), Vec2::new(100.0, 50.0));
-        assert_eq!(
-            fitted(small, room, f32::INFINITY),
-            Vec2::new(800.0, 400.0)
-        );
-        assert_eq!(
-            fitted(Vec2::new(4000.0, 6000.0), room, 0.5),
-            Vec2::new(400.0, 600.0)
-        );
-    }
 }

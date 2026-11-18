@@ -1822,7 +1822,7 @@ export const schema = {
                 },
                 {
                     "additionalProperties": false,
-                    "description": "An entry written without a turn, admitted once by its request id:\none only people see, written at once even while a turn runs, or,\nwith `content`, words added to the model's context at the next\nboundary.",
+                    "description": "An entry written without a turn, admitted once by its request id:\none only people see, or with `content`, words for the model's\ncontext.",
                     "properties": {
                         "boundary": {
                             "description": "Written at a boundary, so the inputs queued behind a run that\nended without them are placed after it and run.",
@@ -1867,7 +1867,7 @@ export const schema = {
                 },
                 {
                     "additionalProperties": false,
-                    "description": "Summarizes the earlier part of a conversation now, while it keeps\nworking; the summary is placed at once when it is idle, else at\nits next boundary. Answered by `admitted`, done once the\ncompaction is under way; asked again under one request id, it\nmay summarize again.",
+                    "description": "Summarizes the earlier part of a conversation now, placing the\nsummary when idle or at its next boundary. Answered by `admitted`.",
                     "properties": {
                         "conversation": {
                             "minLength": 1,

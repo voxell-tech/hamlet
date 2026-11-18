@@ -1,7 +1,5 @@
 //! The conversations' state each ready runtime is owed, sent in
-//! order: made or forked, cancelled, told its tools, then each kept
-//! input. The images of an input are fitted to its model on a thread
-//! of their own before it is sent.
+//! order.
 
 use std::path::Path;
 
@@ -56,8 +54,7 @@ pub(crate) struct FittedImages {
     pub pictures: Vec<Picture>,
 }
 
-/// An input whose images are being fitted, or were and are not sent
-/// yet: an entity until they are.
+/// An input whose images are fitted to its model, until it is sent.
 #[derive(Component)]
 pub(crate) struct FittingImages {
     conversation: ConversationId,

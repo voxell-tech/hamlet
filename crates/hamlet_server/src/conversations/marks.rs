@@ -1,5 +1,4 @@
-//! What an input is, as its runtime keeps it with the input and a
-//! transcript shows it. The runtime protocol carries it untyped.
+//! What an input is, kept beside it by its runtime, untyped.
 
 use anyhow::{Context, Result};
 use hamlet_protocol::client::{
@@ -40,8 +39,7 @@ pub(crate) enum Mark {
     Request(From),
     #[serde(rename = "hamlet.response")]
     Response(From),
-    /// Why a request or a worker has no answer, written in without a
-    /// turn.
+    /// Why a request or a worker has no answer.
     #[serde(rename = "hamlet.error-response")]
     ErrorResponse(From),
     /// A one-off call's instructions.
@@ -66,8 +64,7 @@ pub(crate) enum Mark {
     /// A summary asked of the conversation now.
     #[serde(rename = "hamlet.compaction")]
     Compaction { at: i64 },
-    /// The conversation of a hire merged into this one, given to the
-    /// model as what it said and did.
+    /// The conversation of a hire merged into this one.
     #[serde(rename = "hamlet.merged")]
     Merged {
         from: AgentId,
@@ -145,8 +142,7 @@ impl Mark {
         }
     }
 
-    /// The words a model reads for a message from another agent:
-    /// what it is and who sent it, then its words.
+    /// The words a model reads for a message from another agent.
     pub fn heading(&self) -> Option<String> {
         let (heading, from) = match self {
             Self::Notification(from) => (

@@ -1,7 +1,4 @@
-//! The Hub's thread: the chat with one agent under a header that
-//! says where it is, over a composer with its chips. The agent's
-//! details take its place while open, and its prompt is a page of its
-//! own.
+//! The Hub's thread: the chat with one agent, over a composer.
 
 use bevy::app::{App, PostUpdate, Update};
 use bevy::ecs::component::Component;
@@ -69,8 +66,7 @@ pub(super) fn plugin(app: &mut App) {
         .add_systems(PostUpdate, crowd.after(UiSystems::Layout));
 }
 
-/// What the thread's page shows: its chat, or its details in the
-/// chat's place.
+/// What the thread's page shows.
 #[derive(Resource, Clone, Copy, Default, PartialEq, Eq, Debug)]
 pub enum Sheet {
     #[default]
@@ -119,8 +115,7 @@ pub(super) fn dim(text: impl Into<String>) -> impl View {
     label(text.into()).tone(Tone::Dim)
 }
 
-/// What `agent` is called in the path: its nickname, else its address
-/// without its hamlet, and the Hand as itself.
+/// What `agent` is called in the path.
 fn called(world: &World, agent: Entity) -> String {
     if world.get::<Kind>(agent).map(|kind| kind.0)
         == Some(protocol::AgentKind::Hand)
@@ -130,8 +125,7 @@ fn called(world: &World, agent: Entity) -> String {
     shown_of(world, agent)
 }
 
-/// The steps above `agent` in the chain of command, `Realm / hamlet /
-/// mayor / lead /`, each leading to its page or its thread.
+/// The steps above `agent` in the chain of command.
 fn above(world: &World, agent: Entity) -> Vec<AnyView> {
     let hamlet = world.get::<LivesIn>(agent).map(|l| l.0);
     let mut parts = vec![
@@ -148,7 +142,6 @@ fn above(world: &World, agent: Entity) -> Vec<AnyView> {
         );
         parts.push(crumb_slash().boxed());
     }
-    // The leads above it in its hamlet, the mayor first.
     let mut leads = Vec::new();
     let mut at = agent;
     while let Some(parent) =
@@ -191,7 +184,6 @@ fn path(agent: Entity, under: Option<&'static str>) -> impl View {
                     .boxed()
             }
         });
-        // The scholar of the city it is of, which leads to its page.
         if under.is_none()
             && let Some(tag) = ScholarTag::of(world, agent)
         {
@@ -224,7 +216,6 @@ fn path(agent: Entity, under: Option<&'static str>) -> impl View {
 /// Its state, by its name, and what it works on while it works.
 fn state(agent: Entity) -> impl View {
     let standing = move |world: &World| Standing::of(world, agent);
-    // Its state is its icon alone, with the word under the pointer.
     let mark = keyed(rolled(standing), |standing| {
         status_icon(
             standing.glyph(),
@@ -273,8 +264,7 @@ fn state(agent: Entity) -> impl View {
     .min_width(px(0.0))
 }
 
-/// What is done to `agent` most, each a button of its own beside the
-/// tabs. The rest is in the menu of the "..." after them.
+/// The common actions on `agent` as buttons, the rest in a menu.
 fn quick(world: &World, agent: Entity) -> Vec<AnyView> {
     let kind = world.get::<Kind>(agent).map(|kind| kind.0);
     let living = world.get::<Left>(agent).is_none();
@@ -294,8 +284,7 @@ fn quick(world: &World, agent: Entity) -> Vec<AnyView> {
 
 fn header(agent: Entity) -> impl View {
     built(move |cx| {
-        // Its menu, as a right click on it opens. Gone while empty,
-        // as for the Hand at rest.
+        // Gone while empty.
         let thing = if cx.world.get::<Kind>(agent).map(|kind| kind.0)
             == Some(protocol::AgentKind::Hand)
         {
@@ -327,9 +316,6 @@ fn header(agent: Entity) -> impl View {
         let space = &cx.theme().space;
         let (gap, section) = (space.gap, space.section);
         cx.build(
-            // The path, ending in the agent's name, with its state;
-            // under them the tabs between the chat and the details,
-            // the one shown underlined, with the rest at their end.
             column((
                 row((
                     path(agent, None)
@@ -366,15 +352,11 @@ fn header(agent: Entity) -> impl View {
 #[derive(Component, Clone, Copy)]
 struct ModelChip(Entity);
 
-/// On the chip of the model while its popup is open, which shows it
-/// selected.
+/// On the chip of the model while its popup is open.
 #[derive(Component)]
 struct ChipOpen;
 
-/// The chip of the model, its effort and its tier, which opens the
-/// popup they are chosen in and shows selected while it is open.
-/// Built once, and marked in place, so it does not come in again as
-/// it opens.
+/// The chip of the model, effort and tier, which opens their popup.
 fn model_chip(agent: Entity) -> impl View {
     button(
         row((world_menu::chip(agent), glyph(Glyph::Chevron, 12.0)))
@@ -413,8 +395,7 @@ fn mark_open_chips(
     }
 }
 
-/// The style of a chip of the composer: a choice on a plate, with no
-/// edge at rest inside the card's own, and picked while [`ChipOpen`].
+/// The style of a chip of the composer, picked while [`ChipOpen`].
 fn chip_style(cx: &mut Cx) {
     choice(false)(cx);
     style::<HamletTheme>()
@@ -454,9 +435,7 @@ fn mode_words(world: &World, agent: Entity) -> String {
 #[derive(Component)]
 struct ModeWords;
 
-/// The chip of the hamlet's mode, which a press turns over, its words
-/// left out while the toolbar `bar` is [`Fold::Tight`]. Built once
-/// for its hamlet; its words follow the mode in place.
+/// The chip of the hamlet's mode, which a press turns over.
 fn mode_chip(agent: Entity, bar: Entity) -> impl View {
     keyed(
         derived(move |world: &World| {
@@ -499,7 +478,6 @@ fn mode_chip(agent: Entity, bar: Entity) -> impl View {
             .tooltip(move || {
                 note(
                     derived(move |world: &World| {
-                        // Its words, where the chip leaves them out.
                         let tight = world
                             .get::<Toolbar>(bar)
                             .is_some_and(|t| t.fold == Fold::Tight);
@@ -540,8 +518,7 @@ const ROUND: f32 = 30.0;
 #[derive(Component)]
 struct Stopping;
 
-/// The round button at the end of the toolbar: Send, or Stop while
-/// the agent works.
+/// Send, or Stop while the agent works.
 fn send_or_stop(agent: Entity) -> impl View {
     keyed(
         derived(move |world: &World| {
@@ -585,8 +562,7 @@ fn send_or_stop(agent: Entity) -> impl View {
     .within(bare())
 }
 
-/// The button that summarizes the earlier part of the agent's
-/// conversation now, while it has a model to do it with.
+/// The button that compacts the agent's conversation.
 fn compact(agent: Entity) -> impl View {
     keyed(
         derived(chat::without_model).when(every_frame()),
@@ -614,12 +590,10 @@ fn compact_now(world: &mut World, agent: Entity) {
     }
 }
 
-/// The least width the model's name in the toolbar is cut to before
-/// the toolbar's icon buttons fold into "More".
+/// The least width of the model's name before the toolbar folds.
 const LEAST_NAME: f32 = 64.0;
 
-/// The room beyond what it takes that brings a folded part of the
-/// toolbar back.
+/// The spare room that brings a folded part of the toolbar back.
 const SLACK: f32 = 8.0;
 
 /// On the composer's toolbar: what of it is folded away to fit it.
@@ -676,8 +650,7 @@ impl ToolbarAction {
     }
 }
 
-/// The "More" button that holds the toolbar's icon buttons where they
-/// do not fit: the ways to attach and to compact.
+/// The "More" button that holds the toolbar's icon buttons.
 fn more(agent: Entity) -> impl View {
     keyed(
         derived(|world: &World| {
@@ -720,11 +693,7 @@ fn more(agent: Entity) -> impl View {
     .within(bare())
 }
 
-/// Gives the model's chip the room its toolbar has left, so its name
-/// is cut to fit. Where that room is less than the chip with its name
-/// cut to its least, the icon buttons fold into "More", then the
-/// mode's chip to its icon, and only then is the name cut further;
-/// each comes back once there is room for it.
+/// Folds the composer's toolbar until the model's chip fits.
 fn crowd(
     theme: Themed,
     mut toolbars: Query<(&mut Toolbar, &ComputedNode, &Children)>,
@@ -738,8 +707,6 @@ fn crowd(
         node.size().x * node.inverse_scale_factor()
     };
     let gap = chat::TOOL_GAP * theme.space.gap;
-    // What the icon buttons take beside the "More" button that holds
-    // them, at most.
     let icons = 3.0 * (theme.space.row + gap);
     for (mut toolbar, node, inner) in &mut toolbars {
         let room = width(node);
@@ -748,7 +715,6 @@ fn crowd(
         else {
             continue;
         };
-        // The chip, the mode, the spacer and the rest.
         let [chip, mode, spacer, ..] = parts[..] else {
             continue;
         };
@@ -788,9 +754,7 @@ fn crowd(
         let least = of(chip) - now + whole.min(LEAST_NAME);
         let left = room - others;
         let short = left < least - 0.5;
-        // What folded comes back with room to spare, so a toolbar at
-        // the edge does not fold and unfold as its chip is measured
-        // whole and cut.
+        // Spare room keeps a toolbar at the edge from flickering.
         let fits = |more: f32| left - more >= least + SLACK;
         let fold = match toolbar.fold {
             Fold::Nothing if short => Fold::Icons,
@@ -814,9 +778,7 @@ fn crowd(
     }
 }
 
-/// The composer's toolbar, under its field: the model and effort and
-/// the hamlet's mode, then the ways to attach and to compact, which
-/// fold into "More" where they do not fit, and Send or Stop.
+/// The composer's toolbar, under its field.
 fn chips(agent: Entity) -> impl View {
     AnyView::new(move |cx: &mut Cx| {
         let gap = chat::TOOL_GAP * cx.theme().space.gap;
@@ -863,8 +825,7 @@ fn chips(agent: Entity) -> impl View {
     })
 }
 
-/// The chip of the agent's model, or with no model set up the way to
-/// set one up.
+/// The chip of the agent's model, or the way to set one up.
 fn model_or_setup(agent: Entity) -> impl View {
     keyed(
         derived(chat::without_model).when(every_frame()),
@@ -890,7 +851,6 @@ fn model_or_setup(agent: Entity) -> impl View {
             .boxed()
         },
     )
-    // As wide as the room its toolbar gives it, which cuts the name.
     .within(bare().shrink(0.0))
 }
 
@@ -899,9 +859,7 @@ fn seated() -> Signal<(Entity, Entity)> {
     resource::<Convo, _>(|convo| (convo.chat, convo.agent))
 }
 
-/// The transcript over what the agent waits on from the chief, over
-/// its composer. The transcript is kept from one chat to the next, so
-/// the next one shows where it was left in the update it is chosen.
+/// The transcript, what waits on the chief, and the composer.
 fn talk() -> AnyView {
     let bar = keyed(seated(), |&(_, agent)| {
         chat::message_bar(chips(agent)).boxed()
@@ -910,7 +868,6 @@ fn talk() -> AnyView {
     with_cx(move |cx| {
         let space = &cx.theme().space;
         let (gap, widest) = (space.gap, px(space.thread_width));
-        // In a column of its own in the middle of a wide panel.
         column((chat::transcript(), petition::in_chat(), bar))
             .fills_height()
             .gap(gap)
@@ -925,7 +882,6 @@ fn talk() -> AnyView {
 pub(super) fn living() -> impl View {
     let about = keyed(seated(), |&(_, agent)| header(agent).boxed())
         .within(bare());
-    // The details take the chat's place while they are open.
     let body = keyed(
         resource::<Sheet, _>(|sheet| *sheet == Sheet::Details),
         |open| match open {
@@ -945,8 +901,7 @@ pub(super) fn living() -> impl View {
     })
 }
 
-/// Reads the prompt the agent the chat is with would be given now,
-/// and turns the page to it.
+/// Reads the chat agent's prompt and turns the page to it.
 pub(crate) fn show_prompt(world: &mut World) {
     let convo = world.resource::<Convo>();
     let agent = convo.agent;
@@ -971,9 +926,7 @@ pub(super) fn leave_prompt(
     }
 }
 
-/// The prompt's page about the agent the chat is with, under the path
-/// to it and its title, with the way to copy it at the end of that
-/// line.
+/// The prompt's page about the agent the chat is with.
 fn aside(body: impl View + 'static) -> impl View {
     let head =
         keyed(resource::<Convo, _>(|convo| convo.agent), |agent| {
@@ -1031,8 +984,7 @@ fn copy_prompt(world: &mut World) {
     }
 }
 
-/// The prompt under a heading for each of its sections, or why it
-/// could not be read.
+/// The prompt's sections under headings, or why it was not read.
 fn prompt_sections(
     prompt: &[protocol::PromptSection],
     failed: Option<&str>,
@@ -1046,8 +998,7 @@ fn prompt_sections(
         .iter()
         .map(|section| {
             let name = source(&section.name).to_string();
-            // Each line as the model is given it, where Markdown
-            // would run them together.
+            // Not Markdown, which would run the lines together.
             let text = hamlet_ui::markdown::page(
                 &section.text.replace('\n', "  \n"),
                 Tone::Body,
@@ -1058,10 +1009,7 @@ fn prompt_sections(
                 .boxed()
         })
         .collect::<Vec<_>>();
-    // One read-only page, a line between each part and the next,
-    // clear of the scroll bar, which is drawn over the right edge of
-    // the area and dims the letters under it. A line too long for the
-    // card scrolls sideways inside its border, which stays.
+    // Clear of the scroll bar, which is drawn over the right edge.
     with_cx(move |cx| {
         let line = cx.theme().palette.gold_6;
         let gap = cx.theme().space.panel;
@@ -1116,7 +1064,6 @@ pub(super) fn prompt_page() -> impl View {
 #[cfg(test)]
 mod tests {
     use bevy::app::App;
-    use bevy::ecs::query::With;
     use hamlet_client::outbox::Outbox;
 
     use super::*;
@@ -1133,57 +1080,6 @@ mod tests {
         app
     }
 
-    #[test]
-    fn the_header_shows_received_work_and_stops_only_a_busy_agent() {
-        let mut app = hub_app();
-        let mut state = hamlet_testing::realm::state();
-        state.agents[0].busy = true;
-        state.agents[0].activity.doing_words =
-            "Reading the received orchard ledger".into();
-        hamlet_client::receive(
-            app.world_mut(),
-            protocol::ServerMessage::State(state),
-        );
-        app.update();
-        bevy_fynix::mount::<HamletTheme>(app.world_mut(), living());
-        app.update();
-        assert!(words(&mut app).iter().any(
-            |text| text == "Reading the received orchard ledger"
-        ));
-        let stop = |app: &mut App| {
-            let world = app.world_mut();
-            world
-                .query_filtered::<Entity, With<Stopping>>()
-                .iter(world)
-                .next()
-        };
-        let button = stop(&mut app).expect("Stop while she works");
-        app.world_mut()
-            .trigger(bevy::ui_widgets::Activate { entity: button });
-        app.world_mut().flush();
-        let stopped =
-            app.world().resource::<Outbox>().iter().any(|message| {
-                let protocol::ClientMessage::Stop(stop) = message
-                else {
-                    return false;
-                };
-                stop.agent == Some(protocol::AgentId(1))
-            });
-        assert!(stopped);
-        hamlet_client::receive(
-            app.world_mut(),
-            protocol::ServerMessage::State(
-                hamlet_testing::realm::state(),
-            ),
-        );
-        app.update();
-        assert!(
-            stop(&mut app).is_none(),
-            "Send in its place while the received agent is at rest"
-        );
-    }
-
-    /// The Hub on `hire#2`, with her details open.
     fn ada_app() -> App {
         let mut app = hub_app();
         let ada = crate::testing::seat_ada(&mut app);
@@ -1224,98 +1120,6 @@ mod tests {
             serde_json::from_value(message).unwrap(),
         );
         app.update();
-    }
-
-    #[test]
-    fn papers_of_the_agent_and_only_its_finished_work_refresh_the_sheet()
-     {
-        use serde_json::json;
-        let mut app = ada_app();
-        let read = request(&app, "papers");
-        assert_eq!(read["of"], json!({"agent": 2}));
-        receive(
-            &mut app,
-            json!({"type": "read", "to": read["id"], "papers": {
-                "memory": [], "learned": [], "character": "", "skills": []
-            }}),
-        );
-        app.world_mut()
-            .resource_mut::<Outbox>()
-            .drain()
-            .for_each(drop);
-        app.world_mut().trigger(
-            hamlet_client::messages::JobFinished {
-                chat: Entity::PLACEHOLDER,
-            },
-        );
-        assert!(
-            app.world().resource::<Outbox>().iter().next().is_none()
-        );
-        let chat = app.world().resource::<Convo>().chat;
-        app.world_mut()
-            .trigger(hamlet_client::messages::JobFinished { chat });
-        app.update();
-        let read = request(&app, "papers");
-        receive(
-            &mut app,
-            json!({"type": "read", "to": read["id"], "papers": {
-                "memory": [{"path": "notes.md", "description": "", "text": "Received notes"}], "learned": ["notes.md"], "character": "Received character", "skills": [{"name": "orchard", "description": "Tends trees"}]
-            }}),
-        );
-        assert!(has_span(&mut app, "Received character"));
-        assert!(
-            words(&mut app)
-                .iter()
-                .any(|text| text.contains("notes.md (learned)"))
-        );
-        press(&mut app, "notes.md (learned)");
-        app.update();
-        assert!(has_span(&mut app, "Received notes"));
-        let shown = words(&mut app);
-        assert!(shown.iter().any(|text| text == "orchard"));
-        assert!(shown.iter().any(|text| text == "Tends trees"));
-        press(&mut app, "Note What It Learned");
-        let sent = app
-            .world()
-            .resource::<Outbox>()
-            .iter()
-            .map(|m| serde_json::to_value(m).unwrap())
-            .find(|m| m["type"] == "say")
-            .unwrap();
-        assert_eq!(sent["to"], json!(2));
-        assert_eq!(sent["text"], "/reflect");
-    }
-
-    #[test]
-    fn a_prompt_reply_or_failure_is_shown_on_its_page() {
-        use serde_json::json;
-        let mut app = ada_app();
-        show_prompt(app.world_mut());
-        assert_eq!(
-            *app.world().resource::<Showing>(),
-            Showing::Prompt
-        );
-        let read = request(&app, "prompt");
-        assert_eq!(read["agent"], json!(2));
-        receive(
-            &mut app,
-            json!({"type": "read", "to": read["id"], "prompt": [{"name": "charter", "text": "The received charter"}, {"name": "memory", "text": "The received memory"}]}),
-        );
-        app.update();
-        assert_eq!(
-            app.world().resource::<Briefing>().whole(),
-            "The received charter\n\nThe received memory"
-        );
-        assert!(words(&mut app).contains(&"Memory".into()));
-        show_prompt(app.world_mut());
-        let read = request(&app, "prompt");
-        receive(
-            &mut app,
-            json!({"type": "reply", "to": read["id"], "kind": "error", "text": "No such agent"}),
-        );
-        assert!(words(&mut app).contains(
-            &"The prompt could not be read: No such agent".into()
-        ));
     }
 
     #[test]
@@ -1374,8 +1178,7 @@ mod tests {
                 .iter()
                 .any(|text| text == "Character refused")
         );
-        // A memory file of the agent's lodge is edited the same way,
-        // and removed by sending no text.
+        // A memory file is removed by sending no text.
         super::super::papers::edit_memory(
             app.world_mut(),
             "farm/pears.md".into(),

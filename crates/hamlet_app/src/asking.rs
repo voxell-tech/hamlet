@@ -1,7 +1,5 @@
-//! The request an agent sends the chief with `request_chief`, drawn
-//! as one card: a question at a time with its options as a list and a
-//! line for words of the chief's own, and the response sent once each
-//! question has one. The card is in the petition.
+//! The card of a request an agent sends the chief with
+//! `request_chief`, one question at a time.
 
 use std::collections::HashMap;
 
@@ -67,7 +65,6 @@ impl Answering {
             .map_or(0, |sheet| sheet.picks.iter().flatten().count())
     }
 
-    /// The sheet of `card`, which asks `count` questions.
     fn sheet(&mut self, card: Entity, count: usize) -> &mut Sheet {
         self.0.entry(card).or_insert_with(|| Sheet {
             at: 0,
@@ -88,8 +85,7 @@ fn forget(
     }
 }
 
-/// Makes `pick` the answer to the question `at` of `card`, which asks
-/// `count`. An option picked moves on to the next question.
+/// Answers question `at` of `card` with `pick`.
 pub fn choose(
     world: &mut World,
     card: Entity,
@@ -107,8 +103,7 @@ pub fn choose(
     }
 }
 
-/// Words typed for the question `at`. Empty words leave an option
-/// picked as it was.
+/// Words typed for question `at`; empty words keep the option picked.
 fn write(
     world: &mut World,
     card: Entity,
@@ -138,8 +133,7 @@ pub fn turn(
         to.min(count - 1);
 }
 
-/// Sends the answers of `card` once each question has one, and shows
-/// the first without one otherwise.
+/// Sends `card`'s answers, or shows the first question left open.
 fn submit(world: &mut World, card: Entity, count: usize) {
     let picks = world
         .resource_mut::<Answering>()
@@ -198,8 +192,8 @@ fn picked(cx: &mut Cx) {
         .apply(cx);
 }
 
-/// The options of the question `at`, as a list, the one picked lit.
-/// A click on the one picked takes it back.
+/// The options of question `at`; pressing the one picked takes it
+/// back.
 fn options(
     card: Entity,
     count: usize,
@@ -274,8 +268,7 @@ fn options(
     })
 }
 
-/// The way between `count` pages turned by `to`, and that the page
-/// `at` is shown.
+/// The way between `count` pages turned by `to`, at page `at`.
 pub(crate) fn pager(
     at: usize,
     count: usize,

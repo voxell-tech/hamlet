@@ -34,27 +34,25 @@ pub(super) fn web(address: &str) -> Option<Target> {
         .then(|| Target::Web(address.to_string()))
 }
 
-/// The longest name taken in the parentheses after an agent's
-/// address, in bytes.
+/// The longest name taken after an address, in bytes.
 const LONGEST_NAME: usize = 64;
 
 /// The marks that make a word worth reading as a link.
 const MARKS: [char; 5] = ['/', '\\', '.', '#', '@'];
 
-/// `text` as the address of an agent or a scholar.
 fn agent(text: &str, is_address: IsAddress) -> Option<Target> {
     (text.len() <= LONGEST && is_address(text))
         .then(|| Target::Agent(text.to_string()))
 }
 
-/// Whether `target` is an address with no mark in it, which in
-/// running words is most often no address.
+/// Whether `target` is an address with no mark, as `hand`, which in
+/// running words is most often a plain word.
 fn is_plain_address(target: &Target) -> bool {
     matches!(target, Target::Agent(at) if !at.contains(MARKS))
 }
 
-/// The length of the ` (<name>)` that `rest` opens with, the name a
-/// copied address carries after it, when a word ends with it.
+/// The length of the ` (<name>)` a copied address carries, if `rest`
+/// opens with one.
 fn named(rest: &str) -> Option<usize> {
     let name = rest.strip_prefix(" (")?;
     let end = name.find(')')?;
@@ -68,8 +66,7 @@ fn named(rest: &str) -> Option<usize> {
     plain.then_some(end + 3)
 }
 
-/// `text` as an agent's address and nothing more, alone or with its
-/// name in parentheses after it.
+/// `text` as an address alone, its copied name allowed.
 fn whole_agent(text: &str, is_address: IsAddress) -> Option<Target> {
     let text = text.trim();
     agent(text, is_address).or_else(|| {
@@ -192,12 +189,11 @@ fn word(
     Some((start..start + link.len(), target))
 }
 
-/// Whether an address with no mark in it, alone in running words, is
-/// an address.
+/// When an address with no mark in running words is one.
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum Plain {
     Never,
-    /// Only with the name a copied address carries after it.
+    /// With its copied name after it.
     Copied,
 }
 
@@ -209,10 +205,8 @@ fn find(
     scan(text, Plain::Never, is_address)
 }
 
-/// The agents' and scholars' addresses written in `text`, each with
-/// the part of the text it is, the name copied after it included, and
-/// the address. One with no mark in it is one only with its name
-/// after it, as it is copied.
+/// The addresses written in `text`, each with its part of the text,
+/// copied name included.
 pub fn agent_addresses(
     text: &str,
     is_address: IsAddress,
@@ -228,8 +222,6 @@ pub fn agent_addresses(
         .collect()
 }
 
-/// The links in `text`, with an address with no mark in it one as
-/// `plain` says.
 fn scan(
     text: &str,
     plain: Plain,
@@ -323,7 +315,6 @@ mod tests {
     use super::*;
     use crate::markdown::Style;
 
-    /// The addresses the app would take, for these tests.
     fn is_address(word: &str) -> bool {
         matches!(
             word,

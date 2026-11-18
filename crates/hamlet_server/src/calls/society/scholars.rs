@@ -1,7 +1,4 @@
-//! The Hand's reads and changes of a scholar: its files at a version,
-//! a file of `main` written, a version named or listed, a commit
-//! undone, a fork, a purge, and its place in the city. A reserved
-//! change waits for a chief before it gets here.
+//! The Hand's reads and changes of a scholar.
 
 use anyhow::Result;
 use hamlet_git::{
@@ -14,7 +11,7 @@ use super::args::{
     Purge, ReadScholar, RemoveScholar, RestoreScholar, Revert, Tag,
     TurnAway, Versions, Welcome,
 };
-use super::{Call, cut, task_chief};
+use super::{Call, cut, unsupported};
 use crate::core::Core;
 use crate::knowledge::CHARACTER;
 use crate::knowledge::versions::versions;
@@ -48,10 +45,7 @@ impl Core<'_, '_> {
         Ok(Ok(id))
     }
 
-    /// Carries out the Hand's call `called` on a scholar of the city:
-    /// letting it in or turning it away, naming, moving, removing,
-    /// restoring or erasing it, listing its versions, forking it, or
-    /// purging a path from it.
+    /// Carries out the Hand's `called` on a scholar of the city.
     pub(super) fn scholar_tool(
         &mut self,
         call: &Call<'_>,
@@ -75,9 +69,7 @@ impl Core<'_, '_> {
             | Called::RemoveScholar(RemoveScholar {
                 scholar, ..
             }) => (scholar.clone(), Reach::Living),
-            _ => refuse!(Refusal::Unsupported {
-                what: format!("the tool {}", call.tool),
-            }),
+            _ => refuse!(unsupported(call)),
         };
         let scholar = done!(self.kept_scholar(call, &address, reach));
         let shown = addresses::scholar_name_of(
@@ -97,15 +89,7 @@ impl Core<'_, '_> {
                 let repo = self.repository(scholar)?;
                 let commit =
                     done!(Self::version_of(&repo, &shown, &version));
-                let task = self.task_of(call)?;
-                let db = self.realm.store().connection();
-                let overseer = task_chief(db, task)?;
-                let owner = authority::owner_for(
-                    db,
-                    Actor::Agent(call.conversation.agent),
-                    None,
-                    overseer,
-                )?;
+                let owner = self.owner(call, None)?;
                 self.carry(call, |cx, _| {
                     let fork = jobs::Fork {
                         from: scholar,

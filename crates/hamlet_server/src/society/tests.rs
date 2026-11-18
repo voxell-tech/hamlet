@@ -67,7 +67,6 @@ fn of_city(realm: &mut Realm, name: &str) -> Hiring {
     Hiring::Existing { scholar, pin: None }
 }
 
-/// Ends the hire `id`, with no last dream.
 fn end(cx: &mut Change<'_>, id: AgentId) -> Done<()> {
     hires::end(cx, id, EndHow::Ended, LastDream::Without, "done")
 }

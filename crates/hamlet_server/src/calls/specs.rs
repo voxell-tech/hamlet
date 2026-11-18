@@ -13,8 +13,7 @@ use super::society;
 use crate::conversations::{Conversation, questions};
 use crate::tools::builtin::Outcome;
 
-/// The tools the server adds to every runtime's own: `request_chief`
-/// and the society's.
+/// The tools the server adds to every runtime's own.
 pub(crate) fn specs() -> Vec<ToolSpec> {
     let mut specs = vec![spec(
         "request_chief",

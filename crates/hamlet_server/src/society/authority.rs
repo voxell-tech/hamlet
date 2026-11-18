@@ -36,9 +36,7 @@ pub(crate) fn is_hand(db: &mut Db, actor: Actor) -> Result<bool> {
     })
 }
 
-/// Whether `actor` may govern `hamlet`: name, move, remove, restore
-/// or erase it, and set its tier, folder, mode, limits and budget. A
-/// chief of it may, and the Hand, whose acts on it wait for a chief.
+/// Whether `actor` may govern `hamlet`: a chief of it, or the Hand.
 pub(crate) fn may_govern(
     db: &mut Db,
     actor: Actor,
@@ -51,8 +49,7 @@ pub(crate) fn may_govern(
     })
 }
 
-/// Whether `actor` may change the realm's settings, charter and
-/// limits: any chief, and the Hand, whose changes wait for a chief.
+/// Whether `actor` may change the realm: any chief, or the Hand.
 pub(crate) fn may_rule(db: &mut Db, actor: Actor) -> Result<bool> {
     Ok(match actor {
         Actor::Chief(_) | Actor::Realm => true,
@@ -60,11 +57,7 @@ pub(crate) fn may_rule(db: &mut Db, actor: Actor) -> Result<bool> {
     })
 }
 
-/// Whether `actor` may reach the agent `id`: stop it, have it
-/// reflect, read its prompt and papers and write its lodge's memory.
-/// A chief reaches the Hand, the hires of its hamlets and the workers
-/// it started or that work in them or in none; the Hand reaches
-/// every agent.
+/// Whether `actor` may reach the agent `id`.
 pub(crate) fn may_reach(
     db: &mut Db,
     actor: Actor,
@@ -127,10 +120,8 @@ pub(crate) fn may_lead(
     })
 }
 
-/// Whether `actor` may choose the model, effort and fast tier of the
-/// agent `id`: whoever may lead a hire; a chief for the Hand; for a
-/// worker, its starter, a chief of its hamlet, or the chief who
-/// started it, any chief when it belongs to none.
+/// Whether `actor` may choose the model, effort and fast tier of
+/// `id`.
 pub(crate) fn may_steer(
     db: &mut Db,
     actor: Actor,
@@ -159,9 +150,7 @@ pub(crate) fn may_steer(
     })
 }
 
-/// Whether `actor` may keep the scholar `id`: change it, tag, revert,
-/// fork or purge it, archive, restore or erase it. Its chief may, and
-/// the Hand, whose acts wait for a chief.
+/// Whether `actor` may keep the scholar `id`: its chief, or the Hand.
 pub(crate) fn may_keep(
     db: &mut Db,
     actor: Actor,
@@ -175,9 +164,7 @@ pub(crate) fn may_keep(
     })
 }
 
-/// Whether `actor` may hire the scholar `id` into `hamlet`: a chief
-/// its own scholar into its own hamlet, the Hand any, and a lead any
-/// scholar of its hamlet's chiefs.
+/// Whether `actor` may hire the scholar `id` into `hamlet`.
 pub(crate) fn may_hire(
     db: &mut Db,
     actor: Actor,
@@ -200,10 +187,7 @@ pub(crate) fn may_hire(
     })
 }
 
-/// The chief a scholar belongs to when `actor` makes it: a chief owns
-/// what it makes; an agent's belongs to the chief whose task it works
-/// on, else to the chief who founded its hamlet, else to the realm's
-/// first chief.
+/// The chief a scholar belongs to when `actor` makes it.
 pub(crate) fn owner_for(
     db: &mut Db,
     actor: Actor,

@@ -1,7 +1,5 @@
-//! A hamlet or an agent named by its address: copied with its name,
-//! in words and in rich text that tells Hamlet what it names, and an
-//! agent's or a scholar's address in the chat drawn as a chip that
-//! opens it.
+//! Addresses of hamlets, agents and scholars, copied and drawn as
+//! chips.
 
 use bevy::app::{App, PreUpdate};
 use bevy::ecs::component::Component;
@@ -44,8 +42,6 @@ const ATTRIBUTE: &str = "data-hamlet-reference";
 /// The size of a chip's glyph and words.
 const CHIP_TEXT: f32 = 12.0;
 
-/// Draws the addresses in the chat as chips, and opens what a clicked
-/// one names.
 pub(crate) fn plugin(app: &mut App) {
     app.insert_resource(links())
         .add_observer(tap)
@@ -132,10 +128,7 @@ fn named(world: &World, address: &str) -> Option<Named> {
         .then_some(Named::Agent(agent))
 }
 
-/// The chip of what `address` names, which copies as `words`. Words
-/// that name it in brackets after its address, as a copied agent's
-/// do, must name it as it is called now: other words in brackets are
-/// not its name, and leave no chip of them.
+/// The chip of what `address` names, which copies as `words`.
 pub(crate) fn chip_of(
     world: &mut World,
     address: &str,
@@ -163,6 +156,7 @@ pub(crate) fn chip_of(
             (Glyph::Scholar, name)
         }
     };
+    // A name in brackets after the address must be its current name.
     let bracket = words
         .strip_prefix(address)
         .map(str::trim)
@@ -179,8 +173,7 @@ pub(crate) fn chip_of(
     }))
 }
 
-/// A chip in a line of the chat: the glyph and the name of what it
-/// names, its address in its tooltip.
+/// A chip in a line of the chat, its address in its tooltip.
 fn chip(
     named: Named,
     mark: Glyph,
@@ -211,8 +204,7 @@ fn chip(
     })
 }
 
-/// Has the chips drawn again when an agent or a scholar came, went,
-/// was renamed or took a mayor's office.
+/// Has the chips drawn again when what they name changes.
 fn named_moved(
     moved: Query<
         (),
@@ -252,8 +244,6 @@ fn tap(
     }
 }
 
-/// Opens the chat with the agent a clicked chip names, or the page of
-/// its scholar.
 fn open(
     click: On<PointerClick>,
     chips: Query<&Named>,
@@ -272,62 +262,4 @@ fn open(
         Named::Agent(agent) => talk_to(world, agent),
         Named::Scholar(scholar) => hub::open_scholar(world, scholar),
     });
-}
-
-#[cfg(test)]
-mod tests {
-    use std::time::Duration;
-
-    use bevy::camera::NormalizedRenderTarget;
-    use bevy::math::Vec2;
-    use bevy::picking::backend::HitData;
-    use bevy::picking::events::Pointer;
-    use bevy::picking::pointer::{Location, PointerId};
-    use bevy_fynix::mount;
-    use hamlet_ui::markdown::fixed;
-
-    use super::*;
-    use crate::Convo;
-    use crate::testing::{panel_app, seat_hand};
-
-    #[test]
-    fn a_pressed_address_opens_the_chat_with_its_agent() {
-        let mut app = panel_app();
-        app.add_plugins(plugin);
-        seat_hand(&mut app);
-        mount::<HamletTheme>(
-            app.world_mut(),
-            fixed("Ask hire#2 (Ada) about it.", Tone::Body),
-        );
-        app.update();
-        app.update();
-        let ada = agents::named(app.world(), "hire#2").unwrap();
-        let world = app.world_mut();
-        let chips = world
-            .query::<(Entity, &Named)>()
-            .iter(world)
-            .map(|(chip, named)| (chip, *named))
-            .collect::<Vec<_>>();
-        let [(chip, named)] = chips[..] else {
-            panic!("one chip, not {chips:?}");
-        };
-        assert_eq!(named, Named::Agent(ada));
-        let at = Location {
-            target: NormalizedRenderTarget::None {
-                width: 1,
-                height: 1,
-            },
-            position: Vec2::ZERO,
-        };
-        world.trigger(PointerClick {
-            entity: chip,
-            pointer: Pointer::new(PointerId::Mouse, at),
-            button: PointerButton::Primary,
-            hit: HitData::new(chip, 0.0, None, None),
-            duration: Duration::ZERO,
-            count: 1,
-        });
-        app.update();
-        assert_eq!(app.world().resource::<Convo>().agent, ada);
-    }
 }

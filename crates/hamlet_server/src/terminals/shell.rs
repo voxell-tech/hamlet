@@ -26,8 +26,7 @@ pub(super) struct Launch {
     cwd: String,
 }
 
-/// Starts `launch` on a terminal of `size`, printing to `feed`: one
-/// task reads and waits for the shell, another types into it.
+/// Starts `launch` on a terminal of `size`, printing to `feed`.
 pub(super) fn start(
     launch: Launch,
     size: Size,
@@ -170,9 +169,7 @@ pub(super) fn open(core: &mut Core<'_, '_>, size: Size) -> String {
     )
 }
 
-/// How a kept terminal of `view` starts again, or None when it
-/// cannot: one an agent or a hamlet held belongs to the days agents
-/// had shells.
+/// How a kept terminal of `view` starts again, if it can.
 pub(super) fn relaunch(view: &TerminalView) -> Option<Launch> {
     (view.agent.is_none() && view.hamlet.is_none()).then(unbounded)
 }

@@ -191,8 +191,7 @@ pub struct Busy;
 #[derive(Component, Clone, Copy, Debug)]
 pub struct Faulted;
 
-/// A hire whose branch holds what it learned that no dream has
-/// brought home to its scholar's `main` yet.
+/// A hire whose branch holds learning no dream has brought home yet.
 #[derive(Component, Clone, Copy, Debug)]
 pub struct Learned;
 
@@ -542,8 +541,7 @@ pub fn scholar(
     world.get_resource::<Index>()?.scholar(id)
 }
 
-/// The scholar of the city `agent` is of; none for the Hand and a
-/// blank agent, whose scholars are not the city's.
+/// The city's scholar `agent` is of, if any.
 pub fn city_scholar(world: &World, agent: Entity) -> Option<Entity> {
     let found = scholar(world, world.get::<OfScholar>(agent)?.0)?;
     (world.get::<Scholar>(found)?.0.arrival

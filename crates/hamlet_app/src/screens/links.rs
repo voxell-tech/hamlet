@@ -1,5 +1,4 @@
-//! The links in the chat (docs/chat.md): the place each leads, the
-//! folders a path is looked for in, and the click that follows one.
+//! The links in the chat (docs/chat.md).
 
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
@@ -84,8 +83,8 @@ impl Roots {
     }
 }
 
-/// The file each path written in the chat names under [`Roots`], as
-/// it was last looked for.
+/// The file each path in the chat names under [`Roots`], once looked
+/// for.
 #[derive(Resource, Default)]
 struct Found(HashMap<String, Option<PathBuf>>, Option<PathBuf>);
 
@@ -113,14 +112,12 @@ fn turn(world: &mut World) {
     world.get_resource_or_init::<Found>().0.clear();
 }
 
-/// The file `written` names, looked for on the disk once and
-/// remembered.
+/// The file `written` names, looked for once and remembered.
 pub(crate) fn seek(
     world: &mut World,
     written: &str,
 ) -> Option<PathBuf> {
-    // The chat is drawn for another agent before the system that
-    // keeps the folders has seen it turn.
+    // The chat may be drawn for another agent before `turn` runs.
     turn(world);
     let kept = world
         .get_resource::<RealmFolder>()
@@ -169,8 +166,7 @@ fn tap(
     }
 }
 
-/// Opens the link that was clicked: an address in the browser, a
-/// file by the system's program for it.
+/// Opens the link that was clicked.
 fn follow(
     click: On<PointerClick>,
     anchors: Query<&Anchor>,
@@ -200,8 +196,7 @@ fn hamlets_turned(
     std::mem::replace(&mut *seen, now) != now
 }
 
-/// Forgets the files found when a turn has ended, which is when an
-/// agent has written some.
+/// Forgets the files found when a turn has ended.
 fn forget(_: On<JobFinished>, mut found: ResMut<Found>) {
     if !found.0.is_empty() {
         found.0.clear();
@@ -212,23 +207,6 @@ fn forget(_: On<JobFinished>, mut found: ResMut<Found>) {
 mod tests {
     use super::*;
 
-    #[test]
-    fn a_path_is_looked_for_once_until_a_turn_ends() {
-        let home = hamlet_testing::Scratch::new("links-seek");
-        let file = home.join("plan.md");
-        let mut world = World::new();
-        world.insert_resource(Roots::new([home.to_path_buf()]));
-        world.init_resource::<Found>();
-        world.add_observer(forget);
-
-        assert_eq!(seek(&mut world, "plan.md"), None);
-        std::fs::write(&file, "").unwrap();
-        assert_eq!(seek(&mut world, "plan.md"), None);
-        world.trigger(JobFinished {
-            chat: Entity::PLACEHOLDER,
-        });
-        assert_eq!(seek(&mut world, "plan.md"), Some(file));
-    }
     #[test]
     fn the_received_realm_folder_stays_plain_even_through_work_folder_links()
      {

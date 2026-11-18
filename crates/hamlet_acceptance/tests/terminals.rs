@@ -11,8 +11,7 @@ use hamlet_acceptance::*;
 use hamlet_protocol::client::*;
 use serde_json::json;
 
-/// The server's environment for `home`, with the chief's terminals
-/// starting a known shell: zsh, else `sh`, never this machine's own.
+/// [`QUIET`] with the chief's terminals starting zsh, else `sh`.
 fn known_shell(home: &Home) -> Vec<(&'static str, String)> {
     let shell = ["/bin/zsh", "/usr/bin/zsh"]
         .into_iter()
@@ -30,8 +29,6 @@ fn known_shell(home: &Home) -> Vec<(&'static str, String)> {
     env
 }
 
-/// Starts a server on `home` answering with `faux`, its terminals on
-/// a [`known_shell`].
 async fn serve(home: &mut Home, faux: &Faux) -> Server {
     let env = known_shell(home);
     let env = env
@@ -41,7 +38,6 @@ async fn serve(home: &mut Home, faux: &Faux) -> Server {
     home.serve(faux, &env).await
 }
 
-/// A session with `faux` whose terminals start a [`known_shell`].
 async fn session(faux: Faux) -> Session {
     let mut home = Home::new();
     let server = serve(&mut home, &faux).await;

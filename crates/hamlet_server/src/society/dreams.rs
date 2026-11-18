@@ -1,6 +1,4 @@
-//! Dreams as rows: what dreamt, what it cost, and the commits it
-//! made. A hire's dream brings what it learned home to its scholar; a
-//! scholar's dream tidies its `main`.
+//! Dreams as rows.
 
 use anyhow::{Context, Result};
 use diesel::deserialize::FromSqlRow;
@@ -149,8 +147,7 @@ pub(crate) enum Asked {
     Scholar(ScholarId),
 }
 
-/// Keeps a dream of `asked` asked for, to start in its turn, unless
-/// one of it waits already.
+/// Keeps a dream of `asked` asked for, unless one waits already.
 pub(crate) fn ask(db: &mut Db, asked: Asked, at: i64) -> Result<()> {
     let (hire, scholar) = match asked {
         Asked::Hire(hire) => (Some(hire), None),

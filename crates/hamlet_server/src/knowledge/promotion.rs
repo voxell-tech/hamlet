@@ -12,16 +12,13 @@ use crate::realm::layout::Layout;
 use crate::society::city::{self, Arrival};
 use crate::society::hires;
 
-/// A scholar made of a hire.
 pub(crate) struct Made {
     pub scholar: ScholarId,
-    /// The character it starts with.
     pub character: String,
 }
 
-/// The change that makes a scholar of the city of what `hire` has
-/// become, for `owner`, named `name`, else as the hire is called.
-/// What it starts from is read now, before the change.
+/// The change that makes a scholar of the city of what `hire`
+/// learned, read now.
 pub(crate) fn make_scholar(
     db: &mut Db,
     layout: &Layout,
@@ -51,16 +48,11 @@ pub(crate) fn make_scholar(
 /// What a scholar made of a hire starts from.
 struct Source {
     name: String,
-    /// The tip of the hire's branch, which a new scholar is forked
-    /// from; none for a blank hire, whose own scholar joins the
-    /// city.
+    /// The tip of the hire's branch to fork; none for a blank hire.
     commit: Option<String>,
     character: String,
 }
 
-/// What the scholar made of `hire` starts from, named `name`, else
-/// as the hire is called. A city scholar's hire has its lodge
-/// committed first, so its branch's tip holds all it learned.
 fn source(
     db: &mut Db,
     layout: &Layout,
@@ -90,6 +82,7 @@ fn source(
     let commit = if scholar.arrival == Arrival::Apart {
         None
     } else {
+        // So the branch's tip holds all it learned.
         super::run::commit(
             db,
             layout,

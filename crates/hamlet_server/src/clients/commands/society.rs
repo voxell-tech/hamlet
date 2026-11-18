@@ -1,6 +1,4 @@
 //! The commands that shape the society: hamlets, hires and scholars.
-//! Each is a function of its own, named in [`SOCIETY`] beside how it
-//! is written.
 
 use hamlet_store::ids::{Actor, HamletId};
 
@@ -9,6 +7,7 @@ use super::{Answer, Command, Line};
 use crate::conversations::chats;
 use crate::conversations::dreams::Notify;
 use crate::core::Core;
+use crate::realm::change::done;
 use crate::society::addresses::{self, Reach};
 use crate::society::agents::{self, AgentKind, Effort, EndHow};
 use crate::society::hamlets::{self, Founding, Mode};
@@ -259,11 +258,8 @@ pub(super) const SOCIETY: &[Command] = &[
 /// The fate a command gives a hamlet or a hire that may end.
 #[derive(Clone, Copy, PartialEq)]
 enum Fate {
-    /// It ends, or the hamlet is removed.
     Remove,
-    /// It comes back.
     Restore,
-    /// It goes for good.
     Erase,
 }
 
@@ -284,24 +280,12 @@ enum Roadwork {
     TakeUp,
 }
 
-/// The chief as the actor of a command.
 fn by(core: &Core<'_, '_>) -> Actor {
     Actor::Chief(core.realm.chief())
 }
 
-/// The usage of `line`'s command, as its refusal.
 fn usage(core: &Core<'_, '_>, line: &Line) -> Answer {
     Ok(Err(core.deeds.usage(&line.name)))
-}
-
-/// Refuses as it is, or goes on with what was found.
-macro_rules! found {
-    ($result:expr) => {
-        match $result? {
-            Ok(found) => found,
-            Err(refusal) => return Ok(Err(refusal)),
-        }
-    };
 }
 
 fn list_hamlets(core: &mut Core<'_, '_>, _: &Line) -> Answer {
@@ -330,7 +314,7 @@ fn create_hamlet(core: &mut Core<'_, '_>, line: &Line) -> Answer {
     let (mayor, name_at) = match words.first() {
         Some(&BLANK) => (blank(), 1),
         Some(scholar) if is_scholar(scholar) => {
-            (found!(core.hiring(scholar, chief)), 1)
+            (done!(core.hiring(scholar, chief)), 1)
         }
         _ => (blank(), 0),
     };
@@ -348,7 +332,7 @@ fn create_hamlet(core: &mut Core<'_, '_>, line: &Line) -> Answer {
         "" => format!("Mayor of {shown}."),
         given => given.to_owned(),
     };
-    let hired = found!(core.attempt(by(core), |cx, _| {
+    let hired = done!(core.attempt(by(core), |cx, _| {
         hamlets::found(
             cx,
             Founding {
@@ -372,7 +356,7 @@ fn name_hamlet(core: &mut Core<'_, '_>, line: &Line) -> Answer {
         return usage(core, line);
     };
     let id = HamletId(id.to_owned());
-    found!(core.chief_of(&id));
+    done!(core.chief_of(&id));
     let shown = line.tail(1);
     let done = core.attempt(by(core), |cx, _| {
         hamlets::rename(cx, &id, &shown)
@@ -392,7 +376,7 @@ fn move_hamlet(core: &mut Core<'_, '_>, line: &Line) -> Answer {
         return usage(core, line);
     };
     let id = HamletId((*id).to_owned());
-    found!(core.chief_of(&id));
+    done!(core.chief_of(&id));
     let done = core
         .attempt(by(core), |cx, _| hamlets::place(cx, &id, x, z))?;
     Ok(done.map(|()| {
@@ -409,7 +393,7 @@ fn hamlet_fate(
         return usage(core, line);
     };
     let id = HamletId(id.to_owned());
-    found!(core.chief_of(&id));
+    done!(core.chief_of(&id));
     // The chief needs no reason to close a hamlet down.
     let reason = match line.tail(1) {
         said if !said.is_empty() => said,
@@ -443,7 +427,7 @@ fn tier(core: &mut Core<'_, '_>, line: &Line) -> Answer {
     else {
         return usage(core, line);
     };
-    found!(core.chief_of(&id));
+    done!(core.chief_of(&id));
     let done = core.attempt(by(core), |cx, _| {
         hamlets::set_tier(cx, &id, tier)
     })?;
@@ -459,8 +443,8 @@ fn mayor(core: &mut Core<'_, '_>, line: &Line) -> Answer {
     let Some(text) = line.words().first().copied() else {
         return usage(core, line);
     };
-    found!(core.chief_of(&id));
-    let hire = found!(core.resolve(text, Some(&id), Reach::Living));
+    done!(core.chief_of(&id));
+    let hire = done!(core.resolve(text, Some(&id), Reach::Living));
     let reason = line.tail(1);
     let done = core.attempt(by(core), |cx, _| {
         hires::seat(cx, &id, hire, &reason)
@@ -484,7 +468,7 @@ fn hire(core: &mut Core<'_, '_>, line: &Line) -> Answer {
     while let [key, value, more @ ..] = rest {
         match *key {
             "under" => {
-                parent = Some(found!(core.resolve(
+                parent = Some(done!(core.resolve(
                     value,
                     hamlet.as_ref(),
                     Reach::Living,
@@ -498,13 +482,13 @@ fn hire(core: &mut Core<'_, '_>, line: &Line) -> Answer {
     let Some(hamlet) = hamlet else {
         return Ok(Err(core.no_hamlet()));
     };
-    found!(core.chief_of(&hamlet));
+    done!(core.chief_of(&hamlet));
     let purpose = rest.join(" ");
     let parent = match parent {
         Some(parent) => parent,
         None => {
             let db = core.realm.store().connection();
-            found!(hamlets::living(db, &hamlet)).mayor
+            done!(hamlets::living(db, &hamlet)).mayor
         }
     };
     let hiring = if *scholar == BLANK {
@@ -513,9 +497,9 @@ fn hire(core: &mut Core<'_, '_>, line: &Line) -> Answer {
             character: String::new(),
         }
     } else {
-        found!(core.hiring(scholar, chief))
+        done!(core.hiring(scholar, chief))
     };
-    let hired = found!(core.attempt(Actor::Chief(chief), |cx, _| {
+    let hired = done!(core.attempt(Actor::Chief(chief), |cx, _| {
         hires::hire(
             cx,
             Spec {
@@ -548,8 +532,8 @@ fn hire_fate(
     } else {
         Reach::Kept
     };
-    let hire = found!(core.resolve(text, line.here.as_ref(), reach));
-    found!(core.leads(hire));
+    let hire = done!(core.resolve(text, line.here.as_ref(), reach));
+    done!(core.leads(hire));
     let last = match (fate, line.words().get(1)) {
         (Fate::Remove, Some(&"dream")) => LastDream::With,
         _ => LastDream::Without,
@@ -608,11 +592,10 @@ fn merge(core: &mut Core<'_, '_>, line: &Line) -> Answer {
         return usage(core, line);
     };
     let here = line.here.as_ref();
-    let absorbed =
-        found!(core.resolve(absorbed, here, Reach::Living));
-    let kept = found!(core.resolve(kept, here, Reach::Living));
+    let absorbed = done!(core.resolve(absorbed, here, Reach::Living));
+    let kept = done!(core.resolve(kept, here, Reach::Living));
     for hire in [absorbed, kept] {
-        found!(core.leads(hire));
+        done!(core.leads(hire));
     }
     let reason = match line.tail(3) {
         reason if reason.is_empty() => {
@@ -641,8 +624,8 @@ fn model(core: &mut Core<'_, '_>, line: &Line) -> Answer {
         return usage(core, line);
     };
     let hire =
-        found!(core.resolve(text, line.here.as_ref(), Reach::Living));
-    found!(core.steers(hire));
+        done!(core.resolve(text, line.here.as_ref(), Reach::Living));
+    done!(core.steers(hire));
     let model = (*model != "none").then_some(*model);
     let reason = line.tail(2);
     let done = core.attempt(by(core), |cx, env| {
@@ -665,8 +648,8 @@ fn effort(core: &mut Core<'_, '_>, line: &Line) -> Answer {
         return usage(core, line);
     };
     let agent =
-        found!(core.resolve(text, line.here.as_ref(), Reach::Living));
-    found!(core.steers(agent));
+        done!(core.resolve(text, line.here.as_ref(), Reach::Living));
+    done!(core.steers(agent));
     let effort = match *value {
         "none" => None,
         level => match level.parse::<Effort>() {
@@ -697,8 +680,8 @@ fn fast(core: &mut Core<'_, '_>, line: &Line) -> Answer {
         return usage(core, line);
     };
     let agent =
-        found!(core.resolve(text, line.here.as_ref(), Reach::Living));
-    found!(core.steers(agent));
+        done!(core.resolve(text, line.here.as_ref(), Reach::Living));
+    done!(core.steers(agent));
     let fast = match *value {
         "on" => true,
         "off" => false,
@@ -717,16 +700,16 @@ fn nickname(core: &mut Core<'_, '_>, line: &Line) -> Answer {
         return usage(core, line);
     };
     let agent =
-        found!(core.resolve(text, line.here.as_ref(), Reach::Living));
+        done!(core.resolve(text, line.here.as_ref(), Reach::Living));
     // A worker is named by whoever may steer it, a hire by its leads.
     let worker = {
         let db = core.realm.store().connection();
         agents::get(db, agent)?.kind == AgentKind::Worker
     };
     if worker {
-        found!(core.steers(agent));
+        done!(core.steers(agent));
     } else {
-        found!(core.leads(agent));
+        done!(core.leads(agent));
     }
     let nickname = line.tail(1);
     let given = (!nickname.is_empty()).then_some(nickname);
@@ -751,8 +734,8 @@ fn tools(core: &mut Core<'_, '_>, line: &Line) -> Answer {
         return usage(core, line);
     };
     let hire =
-        found!(core.resolve(text, line.here.as_ref(), Reach::Living));
-    found!(core.leads(hire));
+        done!(core.resolve(text, line.here.as_ref(), Reach::Living));
+    done!(core.leads(hire));
     let marked = |mark: char| {
         words[1..]
             .iter()
@@ -783,8 +766,8 @@ fn allowance(core: &mut Core<'_, '_>, line: &Line) -> Answer {
         return usage(core, line);
     };
     let hire =
-        found!(core.resolve(text, line.here.as_ref(), Reach::Living));
-    found!(core.leads(hire));
+        done!(core.resolve(text, line.here.as_ref(), Reach::Living));
+    done!(core.leads(hire));
     let allowance = match *amount {
         "none" => None,
         amount => match amount.trim_start_matches('$').parse::<f64>()
@@ -820,10 +803,10 @@ fn road(
         return usage(core, line);
     };
     let here = line.here.as_ref();
-    let a = found!(core.resolve(a, here, Reach::Living));
-    let b = found!(core.resolve(b, here, Reach::Living));
+    let a = done!(core.resolve(a, here, Reach::Living));
+    let b = done!(core.resolve(b, here, Reach::Living));
     for end in [a, b] {
-        found!(core.leads(end));
+        done!(core.leads(end));
     }
     let reason = line.tail(2);
     match work {
@@ -846,7 +829,7 @@ fn folder(core: &mut Core<'_, '_>, line: &Line) -> Answer {
     let Some(id) = line.here.clone() else {
         return Ok(Err(core.no_hamlet()));
     };
-    found!(core.chief_of(&id));
+    done!(core.chief_of(&id));
     let folder = match line.words().first() {
         None => return usage(core, line),
         Some(&"none") => None,
@@ -870,7 +853,7 @@ fn mode(core: &mut Core<'_, '_>, line: &Line) -> Answer {
     let Some(id) = line.here.clone() else {
         return Ok(Err(core.no_hamlet()));
     };
-    found!(core.chief_of(&id));
+    done!(core.chief_of(&id));
     let mode = match line.words().first() {
         Some(&"manual") => Mode::Manual,
         Some(&"auto") => Mode::Auto,
@@ -894,7 +877,7 @@ fn budget(core: &mut Core<'_, '_>, line: &Line) -> Answer {
 
 fn reset_budget(core: &mut Core<'_, '_>, line: &Line) -> Answer {
     if let Some(id) = &line.here {
-        found!(core.chief_of(id));
+        done!(core.chief_of(id));
     }
     let chief = core.realm.chief();
     let at = crate::app::clock::now();
@@ -944,7 +927,7 @@ fn new_scholar(core: &mut Core<'_, '_>, line: &Line) -> Answer {
             (scholar.to_owned(), character.trim().to_owned())
         },
     );
-    let id = found!(core.attempt(by(core), |cx, _| {
+    let id = done!(core.attempt(by(core), |cx, _| {
         city::make(cx, &scholar, chief, &character, None)
     }));
     let db = core.realm.store().connection();
@@ -961,14 +944,14 @@ fn name_scholar(core: &mut Core<'_, '_>, line: &Line) -> Answer {
     let by = by(core);
     let db = core.realm.store().connection();
     let scholar =
-        found!(addresses::scholar_at(db, text, Reach::Living));
+        done!(addresses::scholar_at(db, text, Reach::Living));
     if !authority::may_keep(db, by, scholar)? {
         return Ok(Err(Refusal::NotOwner {
             owner: addresses::scholar_name_of(db, scholar)?,
         }));
     }
     let new = line.tail(1);
-    found!(core.attempt(by, |cx, _| city::rename(cx, scholar, &new)));
+    done!(core.attempt(by, |cx, _| city::rename(cx, scholar, &new)));
     let db = core.realm.store().connection();
     Ok(Ok(format!(
         "The scholar is now named `{}`.",
@@ -989,7 +972,7 @@ fn kept_scholar(
     };
     let by = by(core);
     let db = core.realm.store().connection();
-    let scholar = found!(addresses::scholar_at(db, text, reach));
+    let scholar = done!(addresses::scholar_at(db, text, reach));
     let shown = addresses::scholar_name_of(db, scholar)?;
     if !authority::may_keep(db, by, scholar)? {
         return Ok(Err(Refusal::NotOwner { owner: shown }));
@@ -1008,7 +991,7 @@ fn scholar_fate(
         } else {
             Reach::Living
         };
-    let (scholar, text) = found!(kept_scholar(core, line, reach));
+    let (scholar, text) = done!(kept_scholar(core, line, reach));
     let reason = line.tail(1);
     let done = core.attempt(by(core), |cx, _| match housing {
         Housing::Remove => city::archive(cx, scholar, &reason),
@@ -1032,7 +1015,7 @@ fn scholar_fate(
 
 fn move_house(core: &mut Core<'_, '_>, line: &Line) -> Answer {
     let (scholar, text) =
-        found!(kept_scholar(core, line, Reach::Living));
+        done!(kept_scholar(core, line, Reach::Living));
     let words = line.words();
     let number =
         |at: usize| words.get(at).map(|w| w.parse::<f64>().ok());

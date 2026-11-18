@@ -1,6 +1,4 @@
-//! An agent's chat as one line of time: who speaks in it, the chief
-//! and the agents that write to it, and what was said in the order
-//! it was said.
+//! An agent's chat as one line of time, with who speaks in it.
 
 use std::hash::{DefaultHasher, Hash, Hasher};
 
@@ -81,7 +79,6 @@ fn tag_of(purpose: &str) -> String {
     format!("{}...", words[..kept].join(" "))
 }
 
-/// `name` with its first letter a capital.
 fn titled(name: &str) -> String {
     let mut letters = name.chars();
     match letters.next() {
@@ -236,8 +233,7 @@ impl Cast<'_, '_, '_> {
         self.all.len() - 1
     }
 
-    /// The agent `agent`, drawn by `name` when the window does not
-    /// know it, or as the Hand without one.
+    /// `agent`, drawn by `name` when the window does not know it.
     fn agent(&mut self, agent: Entity, name: Option<&str>) -> usize {
         let people = self.people;
         self.place(Id::Agent(agent), || {
@@ -256,8 +252,7 @@ impl Cast<'_, '_, '_> {
         })
     }
 
-    /// Another agent that writes to the chat's, as the window knows
-    /// it, else by the address `name` its message carries.
+    /// Another agent writing to the chat, else its address `name`.
     fn peer(
         &mut self,
         from: Option<protocol::AgentId>,
@@ -296,23 +291,17 @@ pub(super) struct Line {
     /// The speaker and the one spoken to, as [`Who`]s of the chat.
     pub by: usize,
     pub to: usize,
-    /// The time it was said, in milliseconds since 1970. 0 when that
-    /// is not known.
+    /// In milliseconds since 1970; 0 when not known.
     pub at: u64,
-    /// A number that changes when the speaker's or the listener's
-    /// name or look does.
+    /// Changes when the speaker's or listener's name or look does.
     pub look: u64,
-    /// The first row of a run of rows by one speaker to one
-    /// listener.
+    /// The first row of a run by one speaker to one listener.
     pub lead: bool,
-    /// The first message of its run, which is named and which the
-    /// speaker's picture stands by.
+    /// The first message of its run, which is named.
     pub named: bool,
 }
 
-/// The conversation `chat` of the agent `of`, drawn by its name
-/// when the window does not know it, in display order with its
-/// speakers.
+/// Agent `of`'s conversation `chat` in order, with its speakers.
 pub(super) fn timeline(
     convo: &Convo,
     of: (Entity, Option<&str>),
@@ -399,8 +388,7 @@ fn is_card(line: &Line) -> bool {
     matches!(line.row, Row::Card { .. })
 }
 
-/// Sets where each run of rows by one speaker to one listener
-/// begins, and its first message. A card is a run of its own.
+/// Marks where each run of one speaker to one listener begins.
 fn mark_runs(lines: &mut [Line]) {
     let mut start = 0;
     while start < lines.len() {

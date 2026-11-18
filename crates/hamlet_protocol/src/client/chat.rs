@@ -39,8 +39,8 @@ pub struct Stop {
     pub id: RequestId,
 }
 
-/// Ends the hold a stop put on an agent, or on every agent the chief
-/// reaches when `agent` is left out, so what waits takes its turns.
+/// Ends a stop's hold on `agent`, or on every agent the chief
+/// reaches.
 #[derive(
     Clone, Debug, PartialEq, Serialize, Deserialize, JsonSchema,
 )]
@@ -142,8 +142,7 @@ pub struct Transcript {
     pub chat: ChatRef,
     #[serde(deserialize_with = "Option::deserialize")]
     pub earlier: Option<String>,
-    /// A chief's stop holds what waits: no queued turn starts until
-    /// a chief's line or a resume.
+    /// Whether a chief's stop holds the queued turns.
     pub held: bool,
     pub items: Vec<Item>,
     #[serde(deserialize_with = "Option::deserialize")]
@@ -195,7 +194,7 @@ pub enum TranscriptOperation {
     },
     #[serde(rename = "status")]
     Status {
-        /// A chief's stop holds what waits.
+        /// Whether a chief's stop holds the queued turns.
         held: bool,
         #[serde(deserialize_with = "Option::deserialize")]
         last: Option<LastActivity>,
@@ -233,8 +232,7 @@ pub struct Item {
     /// The files a chief's line carried.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub files: Vec<AttachedFile>,
-    /// The agent a message from another agent is from, or the hire a
-    /// `merged` item brought in.
+    /// The agent a message is from, or the hire a merge brought in.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[serde(deserialize_with = "crate::client::present")]
     #[schemars(with = "AgentId")]
@@ -249,9 +247,8 @@ pub struct Item {
     #[serde(deserialize_with = "crate::client::present")]
     #[schemars(with = "ItemMessage")]
     pub message: Option<ItemMessage>,
-    /// A line kept for the agent that its turn has not taken up yet.
-    /// Queued items are the last of a transcript, in the order their
-    /// turns will run.
+    /// A line no turn has taken up yet. Queued items come last, in
+    /// run order.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub queued: bool,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -283,16 +280,13 @@ pub enum ItemKind {
     Error,
     #[serde(rename = "answered")]
     Answered,
-    /// The summary that stands for the earlier part of the
-    /// conversation in the model's context.
+    /// The summary of the conversation's earlier part.
     #[serde(rename = "summary")]
     Summary,
-    /// Another hire's conversation, brought in by a merge; `from`
-    /// names it.
+    /// Another hire's conversation, brought in by a merge.
     #[serde(rename = "merged")]
     Merged,
-    /// A change to the agent, shown between its turns for people
-    /// alone; `event` says what changed.
+    /// A change to the agent, for people alone.
     #[serde(rename = "event")]
     Event,
 }
@@ -320,8 +314,7 @@ pub enum ItemMessage {
     ErrorResponse,
 }
 
-/// A change to an agent its conversation shows between turns. The
-/// model never reads it.
+/// A change to an agent shown between turns, never to the model.
 #[derive(
     Clone, Debug, PartialEq, Serialize, Deserialize, JsonSchema,
 )]
@@ -340,8 +333,7 @@ pub enum ItemEvent {
     /// The hold of a stop ended by `by`.
     #[serde(rename = "resumed")]
     Resumed { by: String },
-    /// A dream ended; `summary` is the first line of its answer, or
-    /// says nothing was brought home.
+    /// A dream ended; `summary` is the first line of its answer.
     #[serde(rename = "dreamed")]
     Dreamed { summary: String },
     /// A scholar of the city, `scholar`, was made of what it became.
@@ -355,8 +347,7 @@ pub enum ItemEvent {
     Fast { on: bool },
 }
 
-/// A model an agent runs and how hard it thinks, as an event names
-/// them.
+/// A model and its effort, as an event names them.
 #[derive(
     Clone, Debug, PartialEq, Serialize, Deserialize, JsonSchema,
 )]

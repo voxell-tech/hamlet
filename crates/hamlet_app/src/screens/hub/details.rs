@@ -1,7 +1,4 @@
-//! The details sheet beside a thread: what only it shows of the
-//! agent. Its kind, lead and hires are in the path and the rail, and
-//! its model in the composer, so they are not repeated here. Its
-//! scholar is named over the version of it the agent works from.
+//! The details sheet beside a thread.
 
 use bevy::ecs::entity::Entity;
 use bevy::ecs::world::World;
@@ -53,16 +50,14 @@ struct Facts {
     scholar: Option<ScholarTag>,
     /// The version it is pinned to, none for its scholar's `main`.
     pin: Option<String>,
-    /// Its scholar's named versions, when the chief may pin it to
-    /// one.
+    /// Its scholar's versions, when the chief may pin it to one.
     versions: Option<Vec<String>>,
     /// Its address, and what it is called in the world.
     address: String,
     called: String,
     roads: Vec<(Entity, String)>,
     spent: String,
-    /// Its allowance in dollars, and the period of its hamlet's
-    /// budget that it is for.
+    /// Its allowance in dollars for its hamlet's budget period.
     allowance: Option<f64>,
     period: &'static str,
 }
@@ -149,8 +144,7 @@ fn setting(
     .boxed()
 }
 
-/// A setting's value that is not typed over, its words where a
-/// field's words start.
+/// A setting's value, aligned with a field's words.
 fn read_only(text: String) -> AnyView {
     with_cx(move |cx| {
         let space = &cx.theme().space;
@@ -160,8 +154,7 @@ fn read_only(text: String) -> AnyView {
     .boxed()
 }
 
-/// What a hire is called in the world, typed over: Enter gives it the
-/// nickname, and a field left empty its own name again.
+/// A hire's nickname field; empty gives back its own name.
 fn nickname_field(facts: &Facts) -> AnyView {
     let address = facts.address.clone();
     let had = facts.called.clone();
@@ -186,8 +179,7 @@ fn dollars(typed: &str) -> &str {
     typed.trim().trim_start_matches('$').trim()
 }
 
-/// Its allowance in dollars, typed over: Enter gives it the amount,
-/// and a field left empty no allowance.
+/// Its allowance field in dollars; empty means none.
 fn allowance_field(facts: &Facts) -> AnyView {
     let address = facts.address.clone();
     let shown = facts
@@ -214,8 +206,7 @@ fn allowance_field(facts: &Facts) -> AnyView {
     .boxed()
 }
 
-/// The version of its scholar it works from, chosen from the
-/// scholar's versions where it may be pinned.
+/// The version of its scholar it works from.
 fn version(facts: &Facts) -> AnyView {
     let now = facts.pin.clone().unwrap_or_else(|| "main".into());
     let Some(versions) = &facts.versions else {
@@ -256,8 +247,7 @@ fn version(facts: &Facts) -> AnyView {
     .boxed()
 }
 
-/// A version as the chief reads it: `main` is what its scholar knows
-/// now.
+/// A version as the chief reads it.
 fn shown_version(name: &str) -> String {
     match name {
         "main" => "Latest".to_string(),
@@ -265,8 +255,7 @@ fn shown_version(name: &str) -> String {
     }
 }
 
-/// The built-in tools a hire can be kept from, each with what it
-/// does.
+/// The built-in tools a hire can be kept from.
 const TOOLS: [(&str, &str); 6] = [
     ("read", "Reads files"),
     ("write", "Writes whole files"),
@@ -276,9 +265,7 @@ const TOOLS: [(&str, &str); 6] = [
     ("find", "Finds files by name"),
 ];
 
-/// A switch for each of `agent`'s built-in tools. Each follows the
-/// tools it is kept from by itself, so that turning one does not
-/// build the others again.
+/// A switch for each of `agent`'s built-in tools.
 fn tools(agent: Entity, facts: &Facts) -> AnyView {
     let rows = TOOLS
         .iter()
@@ -319,8 +306,7 @@ fn link(entity: Entity, name: String) -> AnyView {
         .boxed()
 }
 
-/// The name of the scholar of `tag`, which leads to its page, with
-/// the mark of what the agent learned that the scholar lacks.
+/// The name of the scholar of `tag`, which leads to its page.
 fn scholar_link(tag: &ScholarTag) -> AnyView {
     let scholar = tag.scholar;
     let mut parts = vec![
@@ -396,8 +382,7 @@ fn about(facts: &Facts) -> Option<AnyView> {
     })
 }
 
-/// The agents it has a road to, each to take up, and a way to build
-/// another.
+/// The agents it has a road to, and a way to build another.
 fn roads(agent: Entity, facts: &Facts) -> AnyView {
     let mut parts = Vec::new();
     for (other, name) in facts.roads.iter().cloned() {
@@ -424,8 +409,7 @@ fn roads(agent: Entity, facts: &Facts) -> AnyView {
     section(Glyph::Signpost, "Roads", None, column(parts).gap(6.0))
 }
 
-/// The sections of the agent's own facts that `build` makes, kept in
-/// step with the world.
+/// The sections `build` makes of the agent's facts.
 fn facts_sections(
     agent: Entity,
     build: fn(Entity, &Facts, bool) -> Vec<AnyView>,
@@ -465,9 +449,7 @@ fn powers(
     parts
 }
 
-/// A part of a page, flat under a hairline: its name under `which`,
-/// the one thing done to it at the end of that line, and `body` under
-/// it.
+/// A part of a page under a hairline: its name, `end` and `body`.
 pub(super) fn section(
     which: Glyph,
     name: &'static str,
@@ -488,8 +470,7 @@ pub(super) fn section(
     .boxed()
 }
 
-/// A [`section`] that is only its line: its name under `which` and
-/// `end`, such as what an empty one says.
+/// A [`section`] that is only its line.
 pub(super) fn section_line(
     which: Glyph,
     name: &'static str,
@@ -544,8 +525,7 @@ fn reflect() -> AnyView {
     .boxed()
 }
 
-/// The sheet that takes the place of the thread of `agent` while it
-/// is open.
+/// The sheet in place of `agent`'s thread while it is open.
 pub(super) fn sheet(agent: Entity) -> impl View {
     column((scroll_area((column((
         facts_sections(agent, head),

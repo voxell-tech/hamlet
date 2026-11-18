@@ -283,8 +283,7 @@ pub fn receive(world: &mut World, message: protocol::ServerMessage) {
     }
 }
 
-/// Takes in what the server sent of `chat`: whether it runs, and
-/// `sent`, whose `pending` counts the queued alone.
+/// Takes in `chat`'s status; `sent.pending` counts the queued alone.
 fn status(
     world: &mut World,
     chat: Entity,
@@ -445,8 +444,7 @@ pub enum Entry {
         ms: Option<u64>,
         failure: Option<String>,
         change: Option<protocol::Change>,
-        /// The agent a `notify`, `request` or `start_worker` call
-        /// reached.
+        /// The agent a society call reached.
         agent: Option<protocol::AgentId>,
     },
     Error(String),
@@ -457,14 +455,12 @@ pub enum Entry {
     Agent {
         name: String,
         from: Option<protocol::AgentId>,
-        /// What it is: a notification, a request or a response.
         message: Option<protocol::ItemMessage>,
         text: String,
     },
-    /// The summary that stands for the earlier part of the
-    /// conversation.
+    /// The summary of the conversation's earlier part.
     Summary(String),
-    /// Another hire's conversation merged into this one, by its name.
+    /// Another hire's conversation merged into this one.
     Merged {
         from: Option<protocol::AgentId>,
         name: String,
@@ -540,8 +536,6 @@ pub struct Transcript {
     pub(crate) items: Vec<Item>,
     pub(crate) shape: u64,
     pub(crate) answering: bool,
-    /// The last item that was not queued when the agent was seen to
-    /// begin answering.
     pub(crate) began_after: Option<String>,
     pub(crate) earlier: Option<String>,
 }
@@ -613,10 +607,8 @@ impl Transcript {
         self.answering
     }
 
-    /// The last item that was not queued when the answer under way
-    /// was seen to begin: what it answers is this item or a later
-    /// one. `None` when its beginning was not seen, as in a page read
-    /// while it runs.
+    /// The last unqueued item when the answer under way was seen to
+    /// begin, if it was.
     pub fn began_after(&self) -> Option<&str> {
         self.began_after.as_deref()
     }
@@ -632,7 +624,7 @@ impl Transcript {
 pub struct Status {
     /// Messages queued or running.
     pub pending: u64,
-    /// A chief's stop holds what waits until a line or a resume.
+    /// Whether a chief's stop holds the queued turns.
     pub held: bool,
     pub last: Option<(u64, String)>,
 }

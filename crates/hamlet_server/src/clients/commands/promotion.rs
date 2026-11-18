@@ -1,12 +1,11 @@
-//! A scholar of the city made of what a hire has become (H38): a
-//! blank hire's own scholar let into the city, or a new scholar
-//! forked from a city scholar's hire.
+//! A scholar of the city made of what a hire learned (H38).
 
 use hamlet_store::ids::Actor;
 
 use super::{Answer, Line};
 use crate::core::Core;
 use crate::knowledge::promotion;
+use crate::realm::change::done;
 use crate::society::addresses::Reach;
 use crate::society::city;
 
@@ -19,13 +18,8 @@ pub(super) fn make_scholar(
         return Ok(Err(core.deeds.usage(&line.name)));
     };
     let hire =
-        match core.resolve(text, line.here.as_ref(), Reach::Kept)? {
-            Ok(found) => found,
-            Err(refusal) => return Ok(Err(refusal)),
-        };
-    if let Err(refusal) = core.leads(hire)? {
-        return Ok(Err(refusal));
-    }
+        done!(core.resolve(text, line.here.as_ref(), Reach::Kept));
+    done!(core.leads(hire));
     let layout = core.realm.layout().clone();
     let chief = core.realm.chief();
     let make = promotion::make_scholar(

@@ -1,6 +1,5 @@
-//! Conversations, their inputs and turns, the prompts they are given,
-//! and what follows an input's end. Each conversation is bound for
-//! good to the runtime it began in (S17).
+//! Conversations, each bound for good to the runtime it began in
+//! (S17).
 
 pub(crate) mod activity;
 pub(crate) mod briefs;
@@ -128,14 +127,11 @@ pub(crate) struct Conversation {
     pub tools: Option<String>,
     pub tools_told: Option<String>,
     pub cancelling: bool,
-    /// A chief stopped its running turn, whose end is then no
-    /// failure.
+    /// A chief stopped its running turn.
     pub stopped: bool,
-    /// A chief stopped it, and no queued turn starts until a line of
-    /// theirs or a resume.
+    /// No queued turn starts until a chief's line or a resume.
     pub held: bool,
-    /// The chief's input that ended a hold, which runs before the
-    /// rest queued.
+    /// The chief's input that ended a hold, run before the rest.
     pub runs_first: Option<String>,
     pub last: Option<Last>,
     pub unreflected: i64,
@@ -184,8 +180,7 @@ impl Begin {
     }
 }
 
-/// Begins a conversation in `runtime` with `model`. The runtime makes
-/// its own id for it when it is told.
+/// Begins a conversation in `runtime` with `model`.
 pub(crate) fn begin(
     cx: &mut Change<'_>,
     begin: Begin,
@@ -380,8 +375,8 @@ pub(crate) fn hold(
     Ok(())
 }
 
-/// Ends `id`'s hold, with the chief's input that ends it to run
-/// first. Returns whether it was held.
+/// Ends `id`'s hold, running `first` before the rest. Returns whether
+/// it was held.
 pub(crate) fn release(
     cx: &mut Change<'_>,
     id: ConversationId,
@@ -413,8 +408,7 @@ pub(crate) fn set_last(
     Ok(())
 }
 
-/// Narrows the tools `id` offers; the runtime is told before its next
-/// input.
+/// Narrows the tools `id` offers.
 pub(crate) fn set_tools(
     db: &mut Db,
     id: ConversationId,

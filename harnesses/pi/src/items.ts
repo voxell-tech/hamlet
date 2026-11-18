@@ -16,7 +16,7 @@ function markOf(entry: EntryRecord): Mark | undefined {
     };
 }
 
-/** The words of a compaction's summary, without the tags the harness wraps it in for the model. */
+/** The words of a compaction's summary, without its `<summary>` tags. */
 function summaryOf(messages: readonly Message[]): string {
     const [message] = messages;
     if (message === undefined || message.role !== "user") return "";

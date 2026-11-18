@@ -72,8 +72,7 @@ fn endpoint(endpoint: &protocol::SettingsViewEndpoints) -> AnyView {
     .boxed()
 }
 
-/// A provider the server holds a sign-in or a key for, by its mark
-/// and name.
+/// A provider the server holds a sign-in or key for.
 fn configured(id: &str, name: &str) -> AnyView {
     beside((
         row((mark(id, ICON), label(name.to_string()).bold(true)))
@@ -208,8 +207,7 @@ const LIMIT_WIDE: f32 = 72.0;
 /// The bytes in a megabyte of an image's limit.
 const MEGABYTE: f64 = 1_048_576.0;
 
-/// Sets what the model `name` takes of images: `None` leaves it to
-/// the endpoint's listing, which for a custom endpoint is none.
+/// Sets what images `name` takes; `None` leaves it to the endpoint.
 fn save_images(
     world: &mut World,
     name: &str,
@@ -226,10 +224,7 @@ fn save_images(
     );
 }
 
-/// The field of one limit of the model `name`, showing `value`,
-/// that `set` writes into what the model takes. `range` is what it
-/// may be, `step` how much a pixel of dragging changes it, and
-/// `decimals` how many it is shown with.
+/// The field of one image limit of the model `name`.
 fn limit(
     name: &str,
     title: &'static str,
@@ -262,9 +257,7 @@ fn limit(
     .boxed()
 }
 
-/// A switch that says whether the model `name` takes images, and the
-/// limits it takes them within once it does. A model its endpoint
-/// lists as taking images keeps doing so when the switch is off.
+/// Whether `name` takes images, and its limits once it does.
 fn images(name: &str) -> AnyView {
     let (known, name) = (name.to_string(), name.to_string());
     keyed(
@@ -361,8 +354,7 @@ fn images(name: &str) -> AnyView {
     .boxed()
 }
 
-/// The widths of the table's columns after the model's name: its
-/// provider, its context and what stands at the row's end.
+/// The widths of the table's columns after the model's name.
 const PROVIDER_WIDE: f32 = 96.0;
 /// The side of a provider's mark, and the room after it.
 const MARK: f32 = 16.0;
@@ -370,8 +362,7 @@ const MARK_GAP: f32 = 8.0;
 const CONTEXT_WIDE: f32 = 60.0;
 const END_WIDE: f32 = 64.0;
 
-/// The table's columns, `name` first, each as wide as its column, the
-/// numbers set to its right edge and the default mark centred.
+/// The table's columns, `name` first.
 fn columns(
     name: impl View + 'static,
     provider: impl View + 'static,
@@ -416,9 +407,7 @@ fn header() -> AnyView {
     .boxed()
 }
 
-/// A model as a row of the table: its mark and name, its provider,
-/// its prices, how much it holds, and the way to make it the default
-/// or the mark that it is.
+/// A model as a row of the table.
 fn entry(model: &protocol::Listed, default: &str) -> AnyView {
     let name = model.name.clone();
     let id = model.name.clone();
@@ -467,9 +456,8 @@ fn entry(model: &protocol::Listed, default: &str) -> AnyView {
     .boxed()
 }
 
-/// The names holding every word of `narrow`, as the `page`th page of
-/// them, the last when there are fewer, with that page's number and
-/// how many pages there are.
+/// Page `page` of the names holding every word of `narrow`, and the
+/// pages.
 pub(crate) fn narrowed<N: AsRef<str>>(
     names: impl Iterator<Item = N>,
     narrow: &str,

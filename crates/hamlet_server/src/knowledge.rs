@@ -30,8 +30,8 @@ pub(crate) fn plugin(app: &mut bevy_app::App) {
 /// The character's file in a scholar's repository.
 pub(crate) const CHARACTER: &str = "CHARACTER.md";
 
-/// Whether a lodge keeps `path` out of git: the character, which no
-/// agent writes (C13), and the inbox, whose files are not knowledge.
+/// Whether a lodge keeps `path` out of git: the character (C13) and
+/// the inbox.
 pub(crate) fn outside_git(path: &str) -> bool {
     path == CHARACTER || path == "inbox" || path.starts_with("inbox/")
 }

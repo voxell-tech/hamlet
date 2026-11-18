@@ -1,5 +1,4 @@
-//! The questions an agent puts to the chief with `request_chief`:
-//! read from the call and checked, set out as words, and answered.
+//! The questions an agent puts to the chief with `request_chief`.
 
 use hamlet_protocol::client::{Offer, Pick, Question, Questions};
 use serde::Deserialize;
@@ -162,8 +161,7 @@ fn question(
     })
 }
 
-/// The questions as words, for a chief who reads them as text. One
-/// plain question is its own words.
+/// The questions as words, for a chief who reads them as text.
 pub(crate) fn about(put: &Questions) -> String {
     if let [only] = put.questions.as_slice()
         && put.message.is_empty()
@@ -203,8 +201,7 @@ pub(crate) fn about(put: &Questions) -> String {
 }
 
 /// The answer the agent is given for `picks`, one for each question
-/// of `put` in order: the chief's reply, each question quoted over
-/// its answer.
+/// of `put`.
 pub(crate) fn answer(
     put: &Questions,
     picks: &[Pick],
@@ -245,8 +242,7 @@ pub(crate) fn answer(
     Ok(format!("{ANSWERS}\n{}", body.join("\n\n")))
 }
 
-/// The chief's own words in a result of `request_chief`. `None` when
-/// the chief did not answer.
+/// The chief's own words in a result of `request_chief`.
 pub(crate) fn said(result: &str) -> Option<&str> {
     result
         .strip_prefix(ANSWERS)

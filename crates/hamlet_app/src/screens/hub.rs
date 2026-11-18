@@ -1,5 +1,4 @@
-//! The Hub: a rail of the realm's agents and the page beside it,
-//! which is a thread, a scholar, a hamlet, the library or the realm.
+//! The Hub: a rail of the realm's agents and the page beside it.
 
 mod details;
 pub(crate) mod erasure;
@@ -107,8 +106,7 @@ pub enum Showing {
     Library,
 }
 
-/// Turns the Hub's page to `showing`, and the rail to the tab that
-/// lists it.
+/// Turns the Hub's page to `showing`, and the rail to its tab.
 pub(crate) fn show(world: &mut World, showing: Showing) {
     if let Some(mut now) = world.get_resource_mut::<Showing>()
         && *now != showing
@@ -127,14 +125,12 @@ pub(crate) fn show(world: &mut World, showing: Showing) {
     }
 }
 
-/// Turns the Hub to `scholar`'s page and brings it to the front, with
-/// its house chosen and in view where there is a world.
+/// Turns the Hub to `scholar`'s page, its house chosen in the world.
 pub(crate) fn open_scholar(world: &mut World, scholar: Entity) {
     open(world, Showing::Scholar(scholar), Thing::Scholar(scholar));
 }
 
-/// Turns the Hub to `hamlet`'s page and brings it to the front, with
-/// its common chosen and in view where there is a world.
+/// Turns the Hub to `hamlet`'s page, its common chosen in the world.
 pub(crate) fn open_hamlet(world: &mut World, hamlet: Entity) {
     open(world, Showing::Hamlet(hamlet), Thing::Common(hamlet));
 }
@@ -186,9 +182,7 @@ pub fn screen() -> impl View {
     })
 }
 
-/// A click on a robot or a house selects its agent, and the Hub turns
-/// to the thing selected. The panel is not brought to the front: it
-/// flashes, and its tab with it, when it is behind another.
+/// Turns the Hub to what is selected in the world.
 pub(crate) fn follow_selection(world: &mut World) {
     let selected = world.resource_ref::<Selected>();
     if !selected.is_changed() {
@@ -247,9 +241,8 @@ pub(crate) fn follow_selection(world: &mut World) {
     }
 }
 
-/// A realm with no hamlet opens on the Hand's chat, so a chief new to
-/// it starts by talking; one with hamlets opens on the realm's page.
-/// Decided once, when the first state has brought the Hand.
+/// Opens on the Hand's chat in a realm with no hamlet, else the
+/// realm.
 pub(crate) fn open_first(
     world: &mut World,
     mut decided: Local<bool>,
@@ -278,8 +271,7 @@ fn seat_if_new(world: &mut World, agent: Entity) {
     }
 }
 
-/// Tells the panels that flash that the Hub shows something else:
-/// another page, or on a thread, another agent.
+/// Tells the flashing panels that the Hub shows something else.
 pub(crate) fn tell_page(
     world: &mut World,
     mut seen: Local<Option<(Showing, Option<Entity>)>>,

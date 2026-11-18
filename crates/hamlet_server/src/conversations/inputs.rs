@@ -41,16 +41,14 @@ pub(crate) enum InputKind {
     Notification,
     Request,
     Response,
-    /// Why a request or a worker has no answer, written into the
-    /// context without a turn.
+    /// Why a request or a worker has no answer.
     ErrorResponse,
     Errand,
     Worker,
     Dream,
     /// A summary of the conversation's earlier part, asked now.
     Compaction,
-    /// What a hire merged into this one said and did, added to the
-    /// context.
+    /// What a hire merged into this one said and did.
     Merged,
 }
 hamlet_store::named_text!(InputKind);
@@ -64,8 +62,7 @@ const NOT_TURNS: [InputKind; 4] = [
 ];
 
 impl InputKind {
-    /// Whether its turn runs ahead of the others queued: a chief's
-    /// own.
+    /// Whether its turn runs ahead of the others queued.
     fn is_first(self) -> bool {
         matches!(self, Self::Chief | Self::Retry)
     }
@@ -156,8 +153,7 @@ impl Input {
         Ok(serde_json::from_str(&self.mark)?)
     }
 
-    /// Whether it is written into the transcript rather than
-    /// answered.
+    /// Whether it is written into the transcript, unanswered.
     pub fn is_write(&self) -> bool {
         matches!(
             self.kind,
@@ -187,14 +183,14 @@ pub(crate) struct Keep {
     pub task: Option<TaskId>,
     pub content: String,
     pub mark: Mark,
-    /// Whether it steers a running turn rather than waiting for it.
+    /// Whether it steers a running turn.
     pub steer: bool,
     /// Whether a notice ends a turn's queue in the transcript.
     pub boundary: bool,
 }
 
-/// Keeps an input, after every other of its conversation. Returns
-/// `false` when its request was kept already, which keeps nothing.
+/// Keeps an input last. Returns `false` when its request was kept
+/// already.
 pub(crate) fn keep(cx: &mut Change<'_>, keep: Keep) -> Result<bool> {
     let ordinal = input::table
         .filter(input::conversation.eq(keep.conversation))
@@ -270,8 +266,7 @@ pub(crate) enum Resend {
     Unended,
 }
 
-/// What a chief's stop and the line after it do to the order of a
-/// conversation's turns.
+/// A conversation's hold and the input that runs first.
 struct Hold {
     /// No queued turn starts.
     held: bool,
@@ -291,12 +286,7 @@ fn hold_of(
 }
 
 /// What `conversation` is owed, in order: its kept writes and
-/// compactions, and one turn at a time. With no turn open and no
-/// hold, that is the next kept input a turn answers, a chief's first;
-/// with an open turn and `resend` [`Resend::Unended`], it is the one
-/// admitted whose end was not heard, so its runtime answers it again.
-/// `sent` says which kept inputs are on their way, one of which holds
-/// the next back as an open turn does.
+/// compactions, and at most one turn.
 pub(crate) fn owed(
     db: &mut Db,
     conversation: ConversationId,
@@ -362,8 +352,8 @@ fn in_turn_order<'a>(
     waiting
 }
 
-/// The inputs of `conversation` that wait for a turn to take them
-/// up, in the order their turns run.
+/// The inputs of `conversation` that wait for a turn, in the order
+/// their turns run.
 pub(crate) fn queued(
     db: &mut Db,
     conversation: ConversationId,
@@ -389,8 +379,7 @@ pub(crate) fn queued(
     .collect())
 }
 
-/// Takes the kept input `request` out of its queue, never to be
-/// sent.
+/// Takes the kept input `request` out of its queue for good.
 pub(crate) fn withdraw(
     cx: &mut Change<'_>,
     conversation: ConversationId,
@@ -505,8 +494,7 @@ pub(crate) fn drop_kept(
     Ok(requests)
 }
 
-/// Whether `conversation` has an input to answer not ended: kept, or
-/// admitted with no end heard.
+/// Whether `conversation` has a turn kept or running.
 pub(crate) fn is_busy(
     db: &mut Db,
     conversation: ConversationId,
@@ -514,8 +502,6 @@ pub(crate) fn is_busy(
     Ok(open(db, &[conversation])? > 0)
 }
 
-/// Whether any conversation of `agent` has an input to answer not
-/// ended.
 pub(crate) fn is_agent_busy(
     db: &mut Db,
     agent: AgentId,

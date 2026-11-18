@@ -13,12 +13,10 @@ and sits above every mayor. It has a lodge, `hand/`, and a scholar that no
 chief hires out; its character starts from `crates/hamlet_server/assets/hand.md`. It is the agent
 `hamlet chat` talks to unless told otherwise, and a new realm has no hamlet,
 so a chief asks the Hand, or types `/create-hamlet`, to make the first. It has
-a tool for each of the chief's acts on the realm (H35) except signing in,
-credentials, endpoints and the network, answering what waits, grants, and its
-own model, effort and fast tier. Its changes to a scholar's `main`, a purge,
-removing or erasing anything, a hamlet's tier, folder, mode, limits and
-budget, and the realm's settings and charter wait for a chief
-(`HAND_RESERVED` in `oversight/gate.rs`), as every reserved act does.
+a tool for each of the chief's acts on the realm (H35) but sign-in,
+credentials, endpoints, the network, answering waits, grants and its own
+model. Its reserved acts wait for a chief (`HAND_RESERVED` in
+`oversight/gate.rs`).
 
 The city holds the scholars. A scholar is a git repository
 (`scholars/<id>.git`) with a character, memory and skills, and a house in the
@@ -44,18 +42,13 @@ errand (`hand`, `calls/society/welcome.rs`). A newcomer waits at the
 harbor, its hires working all the while. `/welcome` lets a scholar at the
 harbor in and `/turn-away` sends one back, undoing the Hand's verdicts.
 
-`/make-scholar <address> [name]`, Make Scholar in a hire's menu, or a lead's
-or the Hand's `make_scholar` makes a scholar of the city of what a hire, living
-or ended, has learned (`commands/promotion.rs`, `city::make_of_hire`). A blank
-hire's own scholar joins the city, renamed when a name is given, and a job
-merges the hire's branch into its `main`; the hire stays its hire. A city
-scholar's hire starts a new scholar instead, forked from its branch's tip
-after its lodge is committed: the hire's memory and skills with the
-character of the scholar it came from, named as the hire is called unless a
-name is given. The hire stays a hire of its old scholar. Either arrives as a
-scholar newly made does: housed at once when a chief or the Hand makes it, a
-newcomer when a lead does. The record keeps it as `made-scholar`, and the new
-scholar is removed or turned away as any other is.
+`/make-scholar <address> [name]`, Make Scholar in a hire's menu, or
+`make_scholar` makes a scholar of the city of what a hire has learned
+(`commands/promotion.rs`, `city::make_of_hire`). A blank hire's own scholar
+joins the city with the hire's branch merged into its `main`. A city
+scholar's hire starts a new scholar forked from its branch, keeping its old
+scholar. Either arrives as a new scholar does: housed when a chief or the
+Hand makes it, a newcomer when a lead does.
 
 A chief reads and edits a scholar's character and memory through the
 Hub or `hamlet edit character <scholar#id>` and `hamlet edit memory`, and
@@ -125,48 +118,30 @@ have a road once both mayors call `agree_road`, while the realm's limits allow
 it.
 
 `notify` sends a notification and `request` a request, which expects a
-response. Neither waits: each goes into the receiver's one conversation as a
-turn of its own, under a heading that names its sender, as
-`[A notification from hire#3 (Mira)]`. The receiver's final answer to a
-request's turn goes back to the sender as the response, which starts a turn
-of the sender's (H30, H31). A request that fails, because the receiver had
-no model it could use, failed, ended or was refused, comes back as an error
-response: it is shown in the sender's chat and is in its context, but starts
-no turn (`conversations/messages.rs`). An agent at rest with a request not yet
-answered shows "Waiting on" the agent it sent it to. Either can name `paths`,
-files or folders the sender may read, which land in the receiver's
+response. Neither waits: each is a turn of the receiver's one conversation,
+and the receiver's final answer to a request goes back as a response, a
+turn of the sender's (H30, H31). A request that fails comes back as an
+error response, which starts no turn (`conversations/messages.rs`). An
+agent at rest with a request unanswered shows "Waiting on" its receiver.
+Either can name `paths` the sender may read, which land in the receiver's
 `inbox/from-<sender>/`; a send over 32 MiB or 1000 files waits for a chief.
 The task follows their work and charges, and a response is delivered even
-when the message cap has been reached. Messages between hamlets are paid by
-the sender's hamlet.
+past the message cap. Messages between hamlets are paid by the sender's
+hamlet. See [`chat.md`](chat.md) for the queue and a stop.
 
-A conversation takes one turn at a time. The chief's lines and retries go
-ahead of the notifications, requests and responses that wait; those take
-their turns as they came. In the chat their authors are shown as agents,
-never as the chief. See [`chat.md`](chat.md) for the queue, a stop and
-watches.
-
-An address is read with or without the name shown beside it, as
-`hire#2 (Mayor)` or `scholar#4 (Mira)`, the form "Copy Agent ID" copies, so
-a copied ID works as a tool's argument or in a command.
+An address is read with or without its name beside it, as `hire#2 (Mayor)`,
+so a copied ID works as a tool's argument or in a command.
 
 ## Ending, merging and restoring
 
 `/end` ends a hire: its turns stop, its waits lapse, its grants are taken
 back, its lodge is committed one last time and archived, and its hires go to
-its parent. What it learned stays on its branch. `/end <address> dream`, End
-with Dream in the window's question, or `end_hire` with `dream` also has it
-dream once more right after, whatever the settings say about dreams, to bring
-that home to its scholar's `main`; the choice is kept with the hire
-(`hire.ending_dream`). When its conversation has turns no reflection looked
-back over, or was brought in from another program and never reflected, it
-is first told to reflect a last time into its lodge
-(`reflections::before_last_dream`), and the dream waits for that reflection
-to end however it ends (`conversations/dreams.rs`, `next`). The dream's end
-is a "Dreamed" line in the hire's conversation, saying what it brought home
-or that nothing was; an agent that ended it is told by `end_hire`'s answer
-when the dream ended at once, and otherwise by a notification from the hire
-(`Core::dreamt`). The mayor cannot be ended; give the office away first. A lead,
+its parent. What it learned stays on its branch. `/end <address> dream`,
+End with Dream, or `end_hire` with `dream` also has it dream once more to
+bring that home (`hire.ending_dream`), after a last reflection when turns
+are unreflected (`reflections::before_last_dream`). The agent that ended it
+is told how the dream went (`Core::dreamt`). The mayor cannot be ended;
+give the office away first. A lead,
 the Hand included, may not end or merge a hire on a chief's task (H7): while
 an input of that task is still to end in its conversations, or until the
 hamlet's `protectedMinutes` have passed since the chief's instruction was
@@ -177,9 +152,8 @@ Hires of one scholar merge their branches; hires of different scholars bring
 what the absorbed hire learned into the kept branch, a clashing file kept as
 `<name>.from-<absorbed>` and a clashing skill as `<skill>-from-<absorbed>`,
 with the absorbed hire as `hire-<id>`. The kept hire's conversation is
-given the absorbed one's without a turn: who said what in it, from its
-latest summary on and at most 24000 characters, with a folded block in
-the chat that opens it. The absorbed hire's conversation stays as it was.
+given the absorbed one's, from its latest summary and at most 24000
+characters, without a turn.
 `/restore` brings an ended hire back under the same id, or splits a
 merged one out again by undoing the merge's commit. `/erase` deletes an ended hire's lodge and branch for good. A
 message to a hire that has left is refused with how it left.
@@ -189,11 +163,9 @@ message to a hire that has left is refused with how it left.
 `/erase-hamlet` deletes the lodges and branches. Removed hamlets appear
 apart from the living ones in the overview.
 
-Once the server has erased a hire, a scholar or a hamlet the chief asked
-to erase in the window, a toast says "<name> was erased", the selection
-lets go of it, and the Hub leaves its page for its lead's thread, else
-its hamlet's page, else the realm's (`screens/hub/erasure.rs`). A page
-whose subject is gone for any other reason turns to the realm's.
+Once something the chief erased in the window is gone, a toast says so and
+the Hub turns to its lead's thread, else its hamlet's page, else the
+realm's (`screens/hub/erasure.rs`).
 
 ## Memory, reflection and dreams
 
@@ -204,13 +176,12 @@ turned on in the settings, a hire that is idle and has learned something its
 scholar lacks dreams, within the chief's hours: it is given its lodge and a
 checkout of `main`, and decides what goes to the scholar and what stays. A
 scholar with living hires dreams once a day to tidy `main`. One dream runs at
-a time. A dream asked for runs whatever the settings say: `/dream`, the
-Hand's `dream`, Dream in a hire's menu, or Note what its hires learned on a
-scholar's page. Asked of a scholar, each living hire of it that learned what
-it lacks dreams first, then the scholar tidies. One asked while another runs
-waits its turn in `asked_dream`, ahead of the last dream of a hire ended with
-one, which comes ahead of the scheduled ones (`conversations/dreams.rs`, `next`). A dream is a
-task with a cost cap, and its commits are named after it.
+a time. A dream asked for (`/dream`, the Hand's `dream`, the window's menus)
+runs whatever the settings say; of a scholar, its hires that learned
+something dream first. Asked dreams wait in `asked_dream`, ahead of a
+hire's last dream, ahead of scheduled ones (`conversations/dreams.rs`,
+`next`). A dream is a task with a cost cap, and its commits are named after
+it.
 
 ## The shared library and chief oversight
 
@@ -229,9 +200,8 @@ may raise its own objection. An agent can put questions to a chief
 turn of a chief's own line, and wait for reply or dismiss. These waits appear in the Hub and survive a
 server restart. Tool calls wait too (H11): the network, manual-mode edits and
 commands, the acts a chief's limits reserve, and the Hand's acts on scholars.
-Answering allows once, for the agent's conversation, or always; a rewind
-forks a conversation that trusts nothing yet. `/grants` lists and `/revoke`
-takes back what was allowed for good.
+Answering allows once, for the agent's conversation, or always; `/grants`
+lists and `/revoke` takes back what was allowed for good.
 
 ## Several hamlets
 

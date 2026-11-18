@@ -145,7 +145,7 @@ impl Screen {
         }
     }
 
-    /// Takes `bytes` printed. The answers to the queries they hold.
+    /// Takes `bytes` printed. Returns the answers to its queries.
     pub(super) fn take(&mut self, bytes: &[u8]) -> Vec<u8> {
         let mut rest = bytes;
         // The line entered is read at the echo of its Enter, before

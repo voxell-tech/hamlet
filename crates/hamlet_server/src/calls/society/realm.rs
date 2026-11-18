@@ -1,14 +1,11 @@
-//! The Hand's acts on the realm: its settings, but for sign-ins,
-//! endpoints and the network, its charter and the library's shelves;
-//! and its reads of the charter and the models. A reserved act waits
-//! for a chief before it gets here.
+//! The Hand's acts on the realm.
 
 use hamlet_protocol::client::EditSettingsSet;
 use hamlet_store::ids::Actor;
 use serde_json::{Map, Value};
 
 use super::args::{Called, EditCharter, EditSettings, Unshelve};
-use super::{Call, cut};
+use super::{Call, cut, unsupported};
 use crate::conversations::prompt;
 use crate::core::Core;
 use crate::realm::change::{Done, refuse};
@@ -16,7 +13,6 @@ use crate::society::authority;
 use crate::society::refusal::Refusal;
 
 impl Core<'_, '_> {
-    /// Carries out the Hand's call `called` on the realm.
     pub(super) fn realm_tool(
         &mut self,
         call: &Call<'_>,
@@ -51,14 +47,11 @@ impl Core<'_, '_> {
                 self.begin(call)?;
                 self.edit_settings(set)
             }
-            _ => refuse!(Refusal::Unsupported {
-                what: format!("the tool {}", call.tool),
-            }),
+            _ => refuse!(unsupported(call)),
         }
     }
 }
 
-/// The settings `args` change, as a chief's edit of them says them.
 fn settings_set(
     args: EditSettings,
 ) -> serde_json::Result<EditSettingsSet> {

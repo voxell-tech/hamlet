@@ -1,5 +1,4 @@
-//! The count of changes to what the panels show, and the checks a
-//! signal reads again by.
+//! The count of changes to what the panels show, and checks on it.
 
 use bevy::app::{App, PreUpdate};
 use bevy::ecs::lifecycle::RemovedComponents;
@@ -57,8 +56,7 @@ pub(crate) fn plugin(app: &mut App) {
         .add_systems(PreUpdate, turn_roll.in_set(PanelSystems::Bind));
 }
 
-/// Counts the changes to what the panels show, so a panel reads
-/// again only then.
+/// The changes to what the panels show.
 #[derive(Resource, Default, Clone, Copy, PartialEq, Eq, Debug)]
 pub struct Roll {
     /// The agents.
@@ -89,8 +87,7 @@ pub(crate) fn agents_moved()
     }
 }
 
-/// A check that fires when the record, the ledger or the limits of a
-/// hamlet moved, or a hamlet came or went.
+/// A check that fires when a hamlet or its record changed.
 pub(crate) fn hamlets_moved()
 -> impl FnMut(&World) -> bool + Send + Sync + 'static {
     let mut seen = None;

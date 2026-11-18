@@ -1,5 +1,4 @@
-//! The conversation as rows: each entry, the steps of a turn folded
-//! into one, and only the rows near the view built.
+//! The conversation as rows, each turn's steps folded into one.
 
 use std::collections::HashMap;
 
@@ -47,29 +46,27 @@ use super::timeline::{Line, People, Who, timeline};
 use super::{AwayFromEnd, ChatScroll, bubble};
 use crate::convo::Convo;
 
-/// The least width the conversation is laid out at. A panel
-/// narrower than this cuts it off.
+/// The least width the conversation is laid out at.
 const LEAST: f32 = 240.0;
 
 /// The height of a row of the chat before it is laid out.
 const ROW_ESTIMATE: f32 = 60.0;
 
-/// What can be said first to the Hand, which sets things up.
+/// What can be said first to the Hand.
 const HAND_STARTERS: &[&str] = &[
     "What can you do for me here?",
     "Help me work on a project folder.",
     "Set up a hamlet for a new project.",
 ];
 
-/// What can be said first to a hire, which works on its hamlet's
-/// folder.
+/// What can be said first to a hire.
 const HIRE_STARTERS: &[&str] = &[
     "What are you working on?",
     "Look through the folder and tell me what you see.",
     "What do you remember so far?",
 ];
 
-/// What can be said first to a worker, which has one task.
+/// What can be said first to a worker.
 const WORKER_STARTERS: &[&str] =
     &["How far along are you?", "What have you found so far?"];
 
@@ -79,7 +76,6 @@ pub(super) fn plugin(app: &mut App) {
         .add_observer(page_received);
 }
 
-/// What can be said first to `agent`, by what it is.
 fn starters(world: &World, agent: Entity) -> &'static [&'static str] {
     match world.get::<Kind>(agent).map(|kind| kind.0) {
         Some(protocol::AgentKind::Hand) => HAND_STARTERS,
@@ -88,16 +84,14 @@ fn starters(world: &World, agent: Entity) -> &'static [&'static str] {
     }
 }
 
-/// The frames a list put back where its chat was left is given to
-/// land before where it is counts as where it was left.
+/// The frames a restored list settles for before its place is kept.
 const LANDING: u8 = 3;
 
-/// Where the chief left a chat, kept on the chat.
+/// Where the chief left a chat.
 #[derive(Component, Clone)]
 pub(super) enum Place {
-    /// At its end, which it follows as rows come.
     End,
-    /// With this row the first that shows.
+    /// With this row the first shown.
     Row(RowKey),
 }
 
@@ -105,8 +99,7 @@ pub(super) enum Place {
 #[derive(Component)]
 pub struct Shows {
     chat: Entity,
-    /// The frames left before where the list is counts as where the
-    /// chat was left.
+    /// The frames left before its place is kept.
     landing: u8,
 }
 
@@ -141,9 +134,7 @@ pub(super) fn remember_place(
     }
 }
 
-/// Puts the chat's list where its conversation was left, or at its
-/// end, when it is built or shows another conversation. A list is
-/// built hidden and shown once it is put there.
+/// Puts the chat's list where its conversation was left.
 pub(super) fn restore_place(
     mut commands: Commands,
     convo: Res<Convo>,
@@ -167,8 +158,7 @@ pub(super) fn restore_place(
             continue;
         }
         seen.set_if_neq(Visibility::Inherited);
-        // Every row is of another conversation, whose heights are not
-        // known.
+        // The rows' heights are another conversation's.
         if shows.is_some() {
             let count = state.count();
             state.splice(0, count, lines.rows.len());
@@ -177,7 +167,6 @@ pub(super) fn restore_place(
             Ok(Place::Row(key)) => lines.places.get(key).copied(),
             Ok(Place::End) | Err(_) => None,
         };
-        // The last row first is the end, as far as the list scrolls.
         let last = state.count().saturating_sub(1);
         state.scroll_to(row.unwrap_or(last));
         let now = Shows {
@@ -223,47 +212,38 @@ fn page_received(
 #[derive(Resource, Default)]
 pub struct Unfolded(pub Vec<(Entity, String)>);
 
-/// A row of a conversation: one entry, or the steps of a turn
-/// folded into one.
+/// A row of a conversation.
 #[derive(Clone, PartialEq, Debug)]
 pub(super) enum Row {
     Entry {
         chat: Entity,
         id: String,
     },
-    /// An entry drawn as a block of its own that opens in place: the
-    /// summary of the earlier messages, a conversation merged in, or
-    /// a worker started.
+    /// An entry drawn as a card that opens in place.
     Card {
         chat: Entity,
         id: String,
     },
-    /// The steps of one turn under a header, open while it runs.
+    /// The steps of one turn under a header.
     Fold {
         chat: Entity,
         /// The entry the turn is known by: the one before it, else
         /// its first step.
         first: String,
-        /// The steps shown when it is open.
         steps: Vec<String>,
         failed: usize,
-        /// When its first step began and its last ended, as far as
-        /// the steps tell, in milliseconds since 1970.
+        /// In milliseconds since 1970.
         start: u64,
         end: u64,
         running: bool,
-        /// Its model reasons now.
         thinking: bool,
         open: bool,
     },
-    /// The files a turn that ended changed, after its reply.
+    /// The files a turn that ended changed.
     Changes {
         chat: Entity,
-        /// The entry its turn is known by.
         first: String,
-        /// The edits that were applied, in order.
         edits: Vec<String>,
-        /// When its turn ended.
         at: u64,
     },
 }
@@ -290,19 +270,17 @@ struct Turn {
     first: String,
     /// The place of `first` in the transcript.
     from: usize,
-    /// Its steps, with the lines between turns that came while it
-    /// ran in their places among them.
+    /// Its steps, with the lines that came while it ran among them.
     steps: Vec<String>,
-    /// How many of the last of `steps` are such lines, after its
-    /// last step.
+    /// How many of `steps` after its last step are such lines.
     trail: usize,
     stepped: bool,
     edits: Vec<String>,
     failed: usize,
     start: u64,
     end: u64,
-    /// The last step is words the agent wrote, which are its reply
-    /// unless a step follows.
+    /// The last step is the agent's words, its reply unless a step
+    /// follows.
     replied: bool,
     reasons: bool,
 }
@@ -354,10 +332,7 @@ impl Turn {
         self.reasons = matches!(item.entry, Entry::Reasoning(_));
     }
 
-    /// Its rows: the steps under their header, then its reply. While
-    /// it runs, its words and the lines that came after its last step
-    /// stay among its steps, so nothing leaves the header as it
-    /// grows.
+    /// Its rows: the steps under their header, then its reply.
     fn close(
         mut self,
         chat: Entity,
@@ -409,28 +384,23 @@ impl Turn {
 /// What an entry is to the turns.
 #[derive(Clone, Copy)]
 enum Part {
-    /// A step of the turn it is in.
     Step,
     /// What the agent answers, which begins a turn.
     Input,
-    /// A line between turns, which stays in a turn that goes on
-    /// after it.
+    /// A line between turns, held by a turn that goes on after it.
     Line,
     /// A reply that failed, which ends its turn.
     Fault,
 }
 
-/// One conversation with the steps of each turn folded under its
-/// header, and its reply after them.
+/// A conversation's rows, each turn's steps under its header.
 pub(super) fn rows(
     chat: Entity,
     transcript: &Transcript,
     open: &[(Entity, String)],
 ) -> Vec<Row> {
     let items = transcript.items();
-    // The answer under way is the last turn's, unless that turn began
-    // before the agent was seen to begin it: then what it answers has
-    // not come yet.
+    // A turn from before the answer began is not the one under way.
     let begun = transcript
         .began_after()
         .and_then(|id| items.iter().position(|item| item.id == id));
@@ -443,14 +413,10 @@ pub(super) fn rows(
     };
     let mut rows = Vec::<Row>::new();
     let mut turn = None::<Turn>;
-    // The entry a turn that begins with a step is known by, and its
-    // place.
+    // The entry a turn that begins with a step is known by.
     let mut before = None::<(usize, &chats::Item)>;
-    // The turn that runs ends where the queue begins.
     let mut queue = false;
-    // The fault the last row says, if it says one: the same fault
-    // again, as each try that fails the same way raises, stands in
-    // its place, so a run of them is one row, its last.
+    // A run of the same fault is one row, its last.
     let mut fault: Option<&str> = None;
     for (at, item) in items.iter().enumerate() {
         if let Entry::Error(said) = &item.entry {
@@ -462,13 +428,10 @@ pub(super) fn rows(
             &item.entry,
             Entry::Assistant(text) if text.trim().is_empty()
         ) {
-            // A reply that says nothing makes no row to part them.
             fault = None;
         }
         let part = match &item.entry {
-            // Nothing said is no message: a model that calls a tool
-            // often says nothing with it, and that neither makes a
-            // row nor parts the steps before it from those after.
+            // Empty words beside a tool call are no row.
             Entry::Assistant(text) if text.trim().is_empty() => {
                 continue;
             }
@@ -528,8 +491,7 @@ pub(super) fn rows(
     rows
 }
 
-/// How far in from a fold's edge its chevron is, as a bubble's words
-/// are from its edge.
+/// How far in from a fold's edge its chevron is.
 pub(super) const INSET: f32 = 12.0;
 
 /// `ms` as a person reads a span of time: `13s`, `2m 49s`, `1h 4m`.
@@ -542,17 +504,14 @@ pub(super) fn lasted(ms: u64) -> String {
     }
 }
 
-/// The steps of a turn under its header, as board `B` holds them:
-/// how long it has worked, and the steps while it runs or when it is
-/// opened.
+/// The steps of a turn under its header, as board `B` holds them.
 pub(super) fn fold_view<B: Board>(
     key: RowKey,
     chat: Entity,
     first: String,
 ) -> impl View {
-    // The row is built once for its fold. Its header and what is
-    // inside read the fold as it stands, so a new step or its end
-    // builds neither the row nor its button again.
+    // Built once per fold; a new step rebuilds neither row nor
+    // header.
     let running_key = key.clone();
     let head_key = key.clone();
     let head = keyed(
@@ -571,8 +530,6 @@ pub(super) fn fold_view<B: Board>(
         |id: &String| id.clone(),
         move |id| step_view(chat, id.clone()),
     )
-    // As wide as the chat and no wider, so that what is inside is
-    // measured at the width it is shown at.
     .within(column(()).width(percent(100.0)).min_width(px(0.0)));
     with_cx(move |cx| {
         let theme = cx.theme();
@@ -588,7 +545,6 @@ pub(super) fn fold_view<B: Board>(
     })
 }
 
-/// A step of a turn, or a line between turns that came while it ran.
 fn step_view(chat: Entity, id: String) -> AnyView {
     AnyView::new(move |cx: &mut Cx| {
         let line = cx
@@ -603,8 +559,7 @@ fn step_view(chat: Entity, id: String) -> AnyView {
     })
 }
 
-/// The header of a turn that runs: "Working for 13s", or "Thinking"
-/// while its model reasons, the word shimmering.
+/// The header of a turn that runs: "Working for 13s" or "Thinking".
 fn working<B: Board>(key: RowKey) -> impl View {
     let thinking_key = key.clone();
     let word = keyed(
@@ -636,8 +591,7 @@ fn working<B: Board>(key: RowKey) -> impl View {
         .rules(small_rules)
 }
 
-/// The header of a turn that ended, which opens to its steps:
-/// "Worked for 2m 49s", and how many of them failed.
+/// The header of a turn that ended: "Worked for 2m 49s".
 fn worked<B: Board>(
     key: RowKey,
     chat: Entity,
@@ -675,7 +629,6 @@ fn worked<B: Board>(
     ))
     .gap(6.0)
     .align(AlignItems::Center);
-    // Words alone, its chevron in line with the words of the rows.
     button(words)
         .padding(UiRect::axes(px(INSET), px(2.0)))
         .rules(text_button)
@@ -691,9 +644,7 @@ fn worked<B: Board>(
         })
 }
 
-/// The identity of a row for as long as it is the same row: the agent
-/// whose chat it is in, its conversation, and its entry with the look
-/// of its speaker, or the first step of its fold.
+/// The identity of a row: its agent, conversation and entry.
 #[derive(Clone, PartialEq, Eq, Hash, Debug)]
 pub(super) enum RowKey {
     Entry(Entity, Entity, String, u64),
@@ -722,12 +673,10 @@ impl Line {
     }
 }
 
-/// The rows of the chat, kept in step with the conversations and the
-/// open folds.
+/// The rows of the chat.
 #[derive(Resource, Default, PartialEq)]
 pub struct Lines {
     rows: Vec<Line>,
-    /// The place of each row in `rows`.
     places: HashMap<RowKey, usize>,
     /// The rows before these that are not built.
     earlier: usize,
@@ -736,8 +685,7 @@ pub struct Lines {
     cast: Vec<Who>,
 }
 
-/// A resource that holds the rows of a conversation as the chat
-/// draws them.
+/// A resource holding rows the chat draws.
 pub(crate) trait Board: Resource {
     fn lines(&self) -> &Lines;
 }
@@ -778,7 +726,6 @@ impl Lines {
         &self.cast
     }
 
-    /// The words on the header of a turn that ended.
     fn heading(&self, key: &RowKey) -> String {
         match self.fold(key) {
             Some(Row::Fold { start, end, .. })
@@ -808,7 +755,6 @@ impl Lines {
         )
     }
 
-    /// When a turn began.
     fn start(&self, key: &RowKey) -> Option<u64> {
         match self.fold(key) {
             Some(Row::Fold { start, .. }) => Some(*start),
@@ -823,7 +769,6 @@ impl Lines {
         }
     }
 
-    /// The steps of a fold that is open.
     fn shown(&self, key: &RowKey) -> Vec<String> {
         match self.fold(key) {
             Some(Row::Fold {
@@ -834,20 +779,16 @@ impl Lines {
     }
 }
 
-/// Rows of a merged conversation added each time more of it is asked
-/// for.
+/// Rows of a merged conversation added each time more is asked for.
 const MERGED_PAGE: usize = 40;
 
-/// The conversation of a hire merged into the chat's agent, open in
-/// place under the row that says so and drawn as the chat is.
+/// A hire's conversation merged into the chat, open under its row.
 #[derive(Resource, Default)]
 pub struct MergedLines {
-    /// The row it is open under, by its conversation and entry.
+    /// The row it is open under.
     under: Option<(Entity, String)>,
-    /// The chat watched for it, and whether it was watched for this
-    /// alone.
+    /// The chat watched for it, and whether only for this.
     holder: Option<(Entity, bool)>,
-    /// The hire merged in, and its name.
     agent: Option<(Entity, String)>,
     /// Rows built, counted from the end.
     reach: usize,
@@ -872,7 +813,6 @@ impl MergedLines {
             || self.holder.is_some_and(|(holder, _)| holder == chat)
     }
 
-    /// Whether the row `id` of `chat` is the one open.
     pub(super) fn is_open(&self, chat: Entity, id: &str) -> bool {
         self.under
             .as_ref()
@@ -880,8 +820,7 @@ impl MergedLines {
     }
 }
 
-/// Opens the conversation of the hire `from`, named `name`, under the
-/// row `id` of `chat`, in place of any other that is open.
+/// Opens hire `from`'s conversation under row `id` of `chat`.
 pub(crate) fn open_merged(
     world: &mut World,
     chat: Entity,
@@ -906,8 +845,7 @@ pub(crate) fn open_merged(
     };
 }
 
-/// Shuts the merged conversation that is open, and stops watching it
-/// if it was watched for this alone.
+/// Shuts the merged conversation that is open.
 pub(crate) fn close_merged(world: &mut World) {
     let merged =
         std::mem::take(&mut *world.resource_mut::<MergedLines>());
@@ -919,8 +857,7 @@ pub(crate) fn close_merged(world: &mut World) {
     }
 }
 
-/// Builds a page more of the merged conversation, and asks the server
-/// for its earlier rows once every row it has is built.
+/// Builds a page more of the merged conversation.
 pub(crate) fn merged_earlier(world: &mut World) {
     let mut merged = world.resource_mut::<MergedLines>();
     let Some((holder, _)) = merged.holder else {
@@ -969,8 +906,8 @@ pub fn fold_merged(
     }
 }
 
-/// The rows of the received chat. The list is told which rows
-/// changed, so the rows around them keep their place on screen.
+/// The chat's rows, spliced into its list so the others keep their
+/// place.
 pub fn fold_lines(
     convo: Res<Convo>,
     unfolded: Res<Unfolded>,
@@ -983,8 +920,7 @@ pub fn fold_lines(
     let Ok(transcript) = transcripts.get(convo.chat) else {
         return;
     };
-    // A turn's header says whether it runs, which changes with no
-    // change of shape.
+    // Whether a turn runs changes no shape.
     let now_from = Some((
         convo.chat,
         transcript.items().len(),
@@ -1018,8 +954,7 @@ pub fn fold_lines(
     *lines = now;
 }
 
-/// Tells `list` that the rows between the start and the end `was` and
-/// `now` share changed.
+/// Tells `list` which rows changed between `was` and `now`.
 fn splice(list: &mut VirtualList, was: &[Line], now: &[Line]) {
     // A list built since the rows last changed already counts them.
     if list.count() != was.len() {
@@ -1047,8 +982,7 @@ pub struct Reading {
     at_top: bool,
 }
 
-/// Asks for the earlier rows of the chat once it is read to its top,
-/// or while all of it fits.
+/// Asks for earlier rows once the chat is at its top or all fits.
 pub fn ask_earlier(
     mut commands: Commands,
     convo: Res<Convo>,
@@ -1064,8 +998,7 @@ pub fn ask_earlier(
     }
     for (node, at) in &scrolls {
         let furthest = super::furthest(node);
-        // Once the top is left, or while there is no top to leave,
-        // reaching it asks again.
+        // Reaching the top again asks again.
         if furthest == 0.0 || at.y > 1.0 {
             reading.at_top = false;
         }
@@ -1091,7 +1024,6 @@ pub fn ask_earlier(
                     return;
                 };
                 let id = chats::earlier(world, chat);
-                // A page refused is said under the field.
                 if let Some(id) = &id {
                     super::refused(world, id.clone());
                 }
@@ -1102,14 +1034,11 @@ pub fn ask_earlier(
     }
 }
 
-/// The room between two rows of one run. A run is set further
-/// from the one before it.
+/// The room between two rows of one run.
 const GAP: f32 = 2.0;
 
 /// The chat with whoever `Convo` points at.
 pub fn transcript() -> impl View {
-    // Only the rows near the view are built, and the view stays at
-    // the end as the chat grows until it is scrolled up.
     let said = virtual_list(
         resource::<Lines, _>(|l| l.rows.len()),
         ROW_ESTIMATE,
@@ -1118,11 +1047,8 @@ pub fn transcript() -> impl View {
     .follow_bottom(true)
     .tagged(ChatScroll)
     .tagged(FileDrop)
-    // Its rows are placed at its top in the update it is built, and
-    // where its chat was left only in the next.
+    // Shown once put where its chat was left.
     .tagged(Visibility::Hidden);
-    // The way back to the end, over the corner of the chat, offered
-    // only when the chat is not at its end.
     let back = each(
         resource::<AwayFromEnd, _>(|away| {
             if away.0 { vec![()] } else { Vec::new() }
@@ -1147,9 +1073,7 @@ pub fn transcript() -> impl View {
     column((faded(said), quiet(), corner)).fills_height()
 }
 
-/// The window's words over a chat nothing has been said in: whom to
-/// say hello to and what could be said first, which a press puts in
-/// the field.
+/// The greeting and starters over an empty chat.
 fn quiet() -> impl View {
     let empty = each(
         derived(|world: &World| {
@@ -1202,8 +1126,6 @@ fn quiet() -> impl View {
                     column(starters)
                         .gap(theme.space.gap)
                         .align(AlignItems::Center),
-                    // Centred line by line, as it wraps under the
-                    // rest.
                     note(
                         "Agents can make mistakes, so check \
                          anything important.",
@@ -1222,26 +1144,22 @@ fn quiet() -> impl View {
         .align(AlignItems::Center)
 }
 
-/// The column the rows of a conversation stand in.
-fn rows_column() -> impl View {
-    column(())
-        .gap(GAP)
-        .width(percent(100.0))
-        .min_width(px(LEAST))
-}
-
-/// The merged conversation's rows, drawn as the chat's are.
+/// The merged conversation's rows.
 pub(super) fn merged_rows() -> impl View {
     each(
         resource::<MergedLines, _>(|m| m.lines.rows.clone()),
         |line: &Line| line.key(),
         bubble::line_view::<MergedLines>,
     )
-    .within(rows_column())
+    .within(
+        column(())
+            .gap(GAP)
+            .width(percent(100.0))
+            .min_width(px(LEAST)),
+    )
 }
 
-/// The row of the chat that `slot` shows, built again only when the
-/// slot shows another row.
+/// The row `slot` shows, built again only when it shows another.
 fn chat_row(slot: RowSlot) -> AnyView {
     let index = slot.index();
     let mut moved = slot.index();
@@ -1277,8 +1195,7 @@ fn chat_row(slot: RowSlot) -> AnyView {
     .boxed()
 }
 
-/// Lets a word that is wider than the conversation break inside
-/// itself, so that a long path or address wraps like anything else.
+/// Lets a word wider than the conversation break inside itself.
 pub fn break_long_words(
     scrolls: Query<(), With<ChatScroll>>,
     parents: Query<&ChildOf>,

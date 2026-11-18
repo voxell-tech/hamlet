@@ -1,5 +1,5 @@
-//! Words a bright band crosses letter by letter while what they name
-//! goes on, or that pulse slowly while less motion is asked for.
+//! Words a bright band crosses letter by letter, or that pulse under
+//! reduced motion.
 
 use std::f32::consts::TAU;
 
@@ -18,14 +18,13 @@ use bevy_fynix::views::label;
 use crate::theme::Themed;
 use crate::{AnyView, Cx};
 
-/// The seconds the band takes to cross a word, from before its first
-/// letter to past its last.
+/// The seconds the band takes to cross a word.
 const PERIOD: f64 = 2.4;
 
 /// The letters either side of the band's middle that it brightens.
 const SPREAD: f32 = 3.0;
 
-/// The seconds one pulse takes, and how far toward bright it goes.
+/// The seconds of one pulse, and how far toward bright it goes.
 const PULSE: f64 = 2.4;
 const PULSE_REACH: f32 = 0.6;
 
@@ -38,7 +37,6 @@ pub(super) fn plugin(app: &mut App) {
 pub struct Shimmer;
 
 /// `word` in the dim tone, a band of the body's tone crossing it.
-/// The rules of its scope set its size and weight.
 pub fn shimmer(word: impl Into<String>) -> AnyView {
     let word = word.into();
     AnyView::new(move |cx: &mut Cx| {
@@ -61,7 +59,6 @@ pub fn shimmer(word: impl Into<String>) -> AnyView {
     })
 }
 
-/// How bright each letter of every shimmer is now.
 fn glide(
     time: Res<Time>,
     reduced: Option<Res<ReducedMotion>>,

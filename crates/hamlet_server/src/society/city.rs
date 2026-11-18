@@ -1,7 +1,4 @@
-//! The city: every scholar of the realm, with its house. A scholar a
-//! chief or the Hand makes moves in at once; one another agent makes
-//! waits at the harbor until it is let in, as the realm's settings
-//! say (H45).
+//! The city: every scholar of the realm, with its house (H45).
 
 use std::f64::consts::PI;
 
@@ -26,7 +23,7 @@ use super::names::check_name;
 use super::oversight::{self, Raise, Ruling, WaitKind};
 use super::record::{self, Decision, DecisionKind};
 use super::refusal::Refusal;
-use crate::realm::change::{Change, Done, done, refuse};
+use crate::realm::change::{Change, Done, checked, done, refuse};
 use crate::realm::jobs::{self, Fork, Job};
 
 /// The most characters a character may have (C11, C13).
@@ -87,8 +84,7 @@ pub(crate) enum Arrival {
     Housed,
     /// It waits at the harbor to be let in.
     Waiting,
-    /// It was turned away, and waits at the harbor until a chief
-    /// lets it in.
+    /// It was turned away, and waits at the harbor for a chief.
     Turned,
     /// It is a blank hire's alone, and never of the city.
     Apart,
@@ -128,15 +124,14 @@ impl Scholar {
         format!("{} ({})", scholar_address(self.id), self.name)
     }
 
-    /// The refusal of a call that names this scholar when it has left
-    /// the city or is the Hand's.
+    /// The refusal for a scholar that left the city or is the Hand's.
     pub fn gone(&self) -> Option<Refusal> {
         (!self.is_living() || self.kind != ScholarKind::Scholar)
             .then(|| Refusal::ScholarGone { name: self.label() })
     }
 
-    /// The refusal of a call that would hire, house or send to the
-    /// harbor a blank hire's scholar, which is never of the city.
+    /// The refusal for a blank hire's scholar, which is never of the
+    /// city.
     pub fn apart(&self) -> Option<Refusal> {
         (self.arrival == Arrival::Apart)
             .then(|| Refusal::Apart { name: self.label() })
@@ -158,11 +153,7 @@ pub(crate) fn make(
     Ok(Ok(id))
 }
 
-/// Makes a scholar of the city of what the hire `hire` has become,
-/// named `name`, and keeps the decision. A blank hire's own scholar
-/// joins the city, and its branch is brought home to `main`; any
-/// other's branch at `commit`, its tip, starts a new scholar for
-/// `owner`. Either arrives as a scholar newly made does (H45).
+/// Makes a scholar of the city of what `hire` learned (H45).
 pub(crate) fn make_of_hire(
     cx: &mut Change<'_>,
     hire: AgentId,
@@ -177,10 +168,7 @@ pub(crate) fn make_of_hire(
         refuse!(refusal);
     }
     let id = if scholar.arrival == Arrival::Apart {
-        let name = match check_name(name) {
-            Ok(name) => name,
-            Err(refusal) => refuse!(refusal),
-        };
+        let name = checked!(check_name(name));
         diesel::update(scholar::table.find(scholar.id))
             .set(scholar::name.eq(name))
             .execute(cx.db)?;
@@ -216,8 +204,7 @@ pub(crate) fn make_of_hire(
 }
 
 /// Lets the new scholar `id` into the city, or has it wait at the
-/// harbor when another agent than the Hand brings it in a realm whose
-/// newcomers are not let in at once (H45).
+/// harbor as the realm's settings say (H45).
 fn arrive(cx: &mut Change<'_>, id: ScholarId) -> Result<()> {
     match newcomer(cx)? {
         Some((maker, policy)) => {
@@ -258,9 +245,7 @@ fn arrive(cx: &mut Change<'_>, id: ScholarId) -> Result<()> {
     Ok(())
 }
 
-/// Makes the scholar of a blank hire, named `name`, for `chief`: one
-/// apart from the city, with no house, that never waits at the
-/// harbor and is not listed with the city's scholars.
+/// Makes the scholar of a blank hire, apart from the city.
 pub(crate) fn make_apart(
     cx: &mut Change<'_>,
     name: &str,
@@ -287,10 +272,7 @@ fn insert(
     character: &str,
     fork: Option<Fork>,
 ) -> Done<ScholarId> {
-    let name = match check_name(name) {
-        Ok(name) => name,
-        Err(refusal) => refuse!(refusal),
-    };
+    let name = checked!(check_name(name));
     if character.chars().count() > CHARACTER_MOST {
         refuse!(Refusal::LongCharacter);
     }
@@ -325,8 +307,7 @@ fn insert(
 }
 
 /// The agent making a scholar now and who lets it in, when it waits
-/// at the harbor: when an agent other than the Hand makes it in a
-/// realm that is not open.
+/// at the harbor.
 fn newcomer(
     cx: &mut Change<'_>,
 ) -> Result<Option<(AgentId, Newcomers)>> {
@@ -398,7 +379,7 @@ fn is_clear(taken: &[(f64, f64)], x: f64, z: f64) -> bool {
 }
 
 /// The first spot on a golden-angle spiral out from the middle that
-/// keeps clear of every house, as a sunflower lays its seeds.
+/// keeps clear of every house.
 pub(crate) fn free_spot(db: &mut Db) -> Result<(f64, f64)> {
     let taken = houses(db, None)?;
     let golden = PI * (3.0 - 5f64.sqrt());
@@ -563,10 +544,7 @@ pub(crate) fn rename(
     if let Some(refusal) = scholar.gone() {
         refuse!(refusal);
     }
-    let name = match check_name(name) {
-        Ok(name) => name,
-        Err(refusal) => refuse!(refusal),
-    };
+    let name = checked!(check_name(name));
     diesel::update(scholar::table.find(id))
         .set(scholar::name.eq(name))
         .execute(cx.db)?;
@@ -642,8 +620,7 @@ pub(crate) fn place(
     Ok(Ok(()))
 }
 
-/// Archives the scholar `id`, ending its living hires first. Refused
-/// while one of its hires holds a hamlet's office.
+/// Archives the scholar `id`, ending its living hires first.
 pub(crate) fn archive(
     cx: &mut Change<'_>,
     id: ScholarId,

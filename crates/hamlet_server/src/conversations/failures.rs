@@ -1,6 +1,4 @@
-//! Why a turn failed, from the reason its runtime gave: words a
-//! person or a model reads, never the runtime's code, and whether a
-//! chief sets the cause up once for every agent it stops.
+//! Why a turn failed, in words, from the reason its runtime gave.
 
 use hamlet_protocol::client::SetupCause;
 use serde_json::Value;

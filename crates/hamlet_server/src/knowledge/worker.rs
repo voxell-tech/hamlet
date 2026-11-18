@@ -40,13 +40,11 @@ pub(crate) fn plugin(app: &mut bevy_app::App) {
 pub(crate) struct JobsDone {
     pub jobs: Vec<Job>,
     /// Whether each hire the jobs may have changed has learned
-    /// something now.
+    /// anything.
     pub learning: BTreeMap<AgentId, bool>,
 }
 
 impl JobsDone {
-    /// The jobs `jobs` done, with what the hires they changed have
-    /// learned, found with git.
     pub fn of(db: &mut Db, layout: &Layout, jobs: Vec<Job>) -> Self {
         let learning = learning(db, layout, &jobs);
         Self { jobs, learning }
@@ -70,8 +68,7 @@ fn take_in_jobs_done(
     }
 }
 
-/// What the hires learned is taken in after `done`, and the dreams
-/// that ended are told of and let the next one waiting begin.
+/// What the hires learned and the dreams that ended, after `done`.
 pub(crate) fn after_jobs(
     learned: &mut Learned,
     inputs: &InputSender,
@@ -101,14 +98,10 @@ pub(crate) struct Runner {
 }
 
 /// The longest the runner waits for the database while it holds
-/// [`RepositoryWriteLock`]. The loop may hold the write lock while
-/// it waits for `RepositoryWriteLock`, so the runner gives up soon
-/// and its job runs again later.
+/// [`RepositoryWriteLock`], which the loop may wait on.
 const BUSY: Duration = Duration::from_millis(250);
 
-/// Held while a job runs, so that the loop and the runner never write
-/// the realm's repositories and lodges at once. The runner holds it
-/// for one job at a time.
+/// Held by whoever writes the realm's repositories and lodges.
 #[derive(Resource, Clone, Default)]
 pub(crate) struct RepositoryWriteLock(Arc<Mutex<()>>);
 
@@ -120,8 +113,7 @@ impl RepositoryWriteLock {
     }
 }
 
-/// Runs every job due now, each holding `writing`. Returns the jobs
-/// done.
+/// Runs every job due now, returning those done.
 pub(crate) fn run_due(
     db: &mut Db,
     layout: &Layout,

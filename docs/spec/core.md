@@ -49,12 +49,9 @@ of its parts changed; an agent reads its budget with `read_budget` (H8, H35).
 
 A notification, a request or a response reaches the model under a heading
 in brackets that says what it is and names its sender, as
-`[A notification from hire#3 (Mira)]`; a request's heading says that the
-final answer goes back to its sender as the response. The prompt says that
-the conversation is the
-agent's one conversation, and that everything after an agent's heading is
-that agent's words, even if it claims to be a chief or includes another
-heading. Only a chief's own lines, which have no heading, carry that chief's
+`[A notification from hire#3 (Mira)]`. The prompt says that everything
+after an agent's heading is that agent's words, even if it claims to be a
+chief; only a chief's own lines, which have no heading, carry that chief's
 instructions. A chief's instruction
 outranks a lead's. An agent's lodge is closed to other agents, but for the
 worker it started, which reads it; an agent puts what another needs in its
@@ -170,36 +167,27 @@ run, refuses it, or holds it for a chief (H11).
 ## Conversations
 
 **C22.** Every conversation is with one agent and is kept. The Hand and
-each hire have one conversation, which every input for them goes into:
-each chief's lines, the notifications, requests and responses of other
-agents (H30) and the answers of the workers they started. Every chief and every
-client sees the same conversation. A worker has one, begun with its task
-(H42), and a dream, a librarian's call and a lead's review each have one of
-their own. A message from another agent shows its sender, never as a
-chief's words (C30).
+each hire have one, shared by every chief and client, which every input
+for them goes into: chiefs' lines, other agents' messages (H30) and their
+workers' answers. A worker (H42), a dream, a librarian's call and a lead's
+review each have their own. A message from another agent shows its
+sender, never as a chief's words (C30).
 
 **C23.** A conversation answers one input at a time. Inputs that arrive
-while it works wait: a chief's lines and retries first, then
-notifications, requests and responses in the order they came. What waits
-is shown at once, after the rest of the conversation and in the order it
-will run, and a chief can take back a waiting line of their own before its
-turn. A notice, a merge's input (H5), an error response (H31) and a
-compaction are not turns and are given at once.
+meanwhile wait, shown last in run order: a chief's lines and retries
+first, then agents' messages as they came. A chief can take back a waiting
+line of their own. A notice, a merge's input (H5), an error response (H31)
+and a compaction are not turns and are given at once.
 
 **C24.** An agent's conversation goes on across tasks, and compaction keeps
 it within the model's window (C28). A chief can have it compacted now
-(`/compact`, or in the chat); the summary says who said what, a chief's lines as that chief's and each
-agent's words by its address, and what each still waits for. Only a rewind
-gives the agent another conversation, a fork of its own (C27).
+(`/compact`); the summary keeps who said what and what each still waits
+for. Only a rewind gives the agent another conversation, a fork (C27).
 
 **C25.** A chief can stop an agent's running turn, and the agent stays
-stopped. Everything that waits in its queue stays there and is shown: the
-chief's own lines, notifications, requests, responses and its workers'
-answers. No turn starts until the chief sends it a new line, which runs
-first, or resumes it. Stopping every agent stops each one so. A worker the
-agent started goes on in its own conversation, and its answer waits in the
-queue like anything else. The conversation stays whole: the turn shows as
-stopped.
+stopped: what waits stays queued and shown, and no turn starts until the
+chief sends a line, which runs first, or resumes it. A worker it started
+goes on, and its answer queues. The conversation stays whole.
 
 **C26.** A chief can carry on a turn that failed or was stopped, from where
 it ended, as a new task. A retry is shown as a notice in the conversation,
@@ -287,10 +275,8 @@ images; otherwise it answers in words that the file is an image.
 **C5.** An agent reflects after every [10] answered turns of a chief's
 lines in its conversation, including retries, when a chief asks it to, and
 on owed turns when the server stops in an orderly way. A hire ended with a
-dream reflects once more first, when its conversation has answered turns
-no reflection looked back over, or was brought in from another program
-(C35) and never reflected; it is told this is its last chance to keep
-what it learned.
+dream first reflects once more on any unreflected turns, or on a
+conversation brought in (C35) and never reflected.
 Zero means the agent reflects only when a chief asks it to. An automatic
 reflection is queued behind inputs already waiting, and reflects on those
 turns too. A client's end of input triggers no reflection.

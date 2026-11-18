@@ -10,14 +10,16 @@ pub mod styles;
 pub mod theme;
 pub mod widgets;
 
+#[cfg(test)]
+mod testing;
+
 use bevy::app::App;
 use bevy::ecs::entity::Entity;
 use bevy_fynix::Bevy;
 
 use self::theme::HamletTheme;
 
-/// The theme, the widgets' systems, the fields and the chips in
-/// Markdown.
+/// The theme, the widgets, the fields and Markdown.
 pub fn plugin(app: &mut App) {
     app.add_plugins((
         theme::plugin,

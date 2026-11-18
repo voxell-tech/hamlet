@@ -1,10 +1,4 @@
-//! The prompt, built before every model call (C11): the charter, the
-//! machine, the project, the character, the memory, the skills, the
-//! agent's place, the realm and the scholars it may hire. Nothing in
-//! it changes with spending, so it stays the same from one input to
-//! the next; an agent reads its budget with `read_budget`.
-//! An errand's and a dream's are their own instructions; a worker's
-//! are the charter, the machine, the project and its place.
+//! The prompt, built before every model call (C11).
 
 mod place;
 
@@ -311,7 +305,7 @@ fn character(
 }
 
 /// The memory at the lodge's `memory/`: its root files, then each
-/// folder's description, which reading its `MEMORY.md` gives whole.
+/// folder's description.
 fn memory(lodge: &Path) -> String {
     let Ok(folder) = Folder::open(lodge) else {
         return String::new();

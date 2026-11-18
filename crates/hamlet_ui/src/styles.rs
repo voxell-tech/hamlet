@@ -128,9 +128,8 @@ pub fn back_link(cx: &mut Cx) {
         .apply(cx);
 }
 
-/// A button of words alone, with no plate at rest or under the
-/// pointer: its words and icon dim, brightening to the body's tone
-/// under the pointer and while it has the keys.
+/// A button of dim words alone, brightening under the pointer and
+/// focus.
 pub fn text_button(cx: &mut Cx) {
     style::<HamletTheme>()
         .frame(|f, _| f.fill(Color::NONE))
@@ -561,8 +560,7 @@ pub fn marked(
     marking(which, label(text).wrap(false))
 }
 
-/// A button with an icon before its text, no wider than what holds
-/// it: where that is narrower than its text, the text wraps.
+/// A [`marked`] button whose text wraps to fit what holds it.
 pub fn marked_wrapping(
     which: Glyph,
     text: impl Into<Prop<String>>,

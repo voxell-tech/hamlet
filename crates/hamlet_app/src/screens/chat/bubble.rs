@@ -1,5 +1,4 @@
-//! The chat drawn as a group chat: a bubble for each message, each
-//! speaker's picture and name by its run of them, and who is in it.
+//! The chat drawn as a group chat, a bubble for each message.
 
 use std::sync::Arc;
 
@@ -40,13 +39,11 @@ use crate::convo::Convo;
 use crate::markdown;
 use crate::select::Quotable;
 
-/// The room at the left of the chat that a speaker's picture stands
-/// in, and the width of the picture.
+/// The room at the left a speaker's picture stands in, and its width.
 const GUTTER: f32 = 30.0;
 const FACE: f32 = 24.0;
 
-/// The room a bubble leaves at the far side, so that whose it is
-/// shows from where it sits.
+/// The room a bubble leaves at the far side.
 const FAR: f32 = 24.0;
 
 /// The corner by the picture of the first bubble of a run.
@@ -76,9 +73,7 @@ pub(super) fn inked(
     })
 }
 
-/// A speaker's picture: the mark the Hub's tree gives it, on its
-/// robot's paint. The mayor's is ringed in gold, and a chief's is
-/// square.
+/// A speaker's picture.
 fn face(cx: &Cx, who: &Who, size: f32) -> impl View + use<> {
     let theme = cx.theme();
     let mark = match who.kind {
@@ -113,8 +108,7 @@ fn face(cx: &Cx, who: &Who, size: f32) -> impl View + use<> {
     }
 }
 
-/// `blocks` with room for the hour at the end of the last line: on
-/// the last paragraph, or on a line of its own after any other block.
+/// `blocks` with room for the hour at the end of the last line.
 fn kept_room(
     mut blocks: Vec<Arc<Block>>,
     reserve: &'static str,
@@ -155,30 +149,24 @@ fn hour(at: u64) -> String {
         .unwrap_or_default()
 }
 
-/// The bubble of a message.
 #[derive(Component)]
 pub(super) struct Bubble;
 
 /// The words of a message, by how they are set.
 #[derive(Clone, Copy, PartialEq)]
 enum Words {
-    /// As they were typed.
     Plain,
     Markdown,
-    Fault,
 }
 
-/// One message: a bubble at the right for the chief's own, and at
-/// the left by its speaker's picture for anyone else's.
+/// One message: the chief's on the right, others' by their picture.
 fn said<B: Board>(line: Line, chat: Entity, id: String) -> AnyView {
     AnyView::new(move |cx: &mut Cx| {
         let cast = cx.world.resource::<B>().lines().cast();
         let who = cast.get(line.by).cloned().unwrap_or_default();
-        // Beside the agent and the chief, a picture alone does not
-        // say who speaks.
+        // Past two speakers, a picture alone does not say who speaks.
         let group = cast.len() > 2;
-        // The agent the chat is with comes first, and what is said
-        // to it or to the chief needs no saying.
+        // Words to the chat's agent or the chief name no one.
         let to = cast
             .get(line.to)
             .filter(|to| line.to != 0 && to.kind != Kind::Me)
@@ -189,8 +177,6 @@ fn said<B: Board>(line: Line, chat: Entity, id: String) -> AnyView {
             .and_then(|t| t.item(&id));
         let entry = item.map(|item| &item.entry);
         let queued = item.is_some_and(|item| item.queued);
-        // Another agent's words, never drawn as the chief's.
-        let peer = matches!(entry, Some(Entry::Agent { .. }));
         let (words, typed) = match entry {
             Some(Entry::Chief { text, .. }) => {
                 (Words::Plain, text.as_str())
@@ -198,13 +184,9 @@ fn said<B: Board>(line: Line, chat: Entity, id: String) -> AnyView {
             Some(Entry::Answered(said)) => {
                 (Words::Plain, said.as_str())
             }
-            Some(Entry::Error(_)) => (Words::Fault, ""),
             _ => (Words::Markdown, ""),
         };
-        // The message a reply answers is drawn on its own, with what
-        // the reply quotes of it.
-        // The bytes the reply line puts before the words, which the
-        // places of attachments count.
+        // Attachment places count the reply line's bytes too.
         let head = typed.len() - reply::rest(typed).len();
         let (answers, selected, typed) = match reply::unreplied(typed)
         {
@@ -214,21 +196,13 @@ fn said<B: Board>(line: Line, chat: Entity, id: String) -> AnyView {
             }
             None => (None, None, typed.to_string()),
         };
-        // A conversation merged in, drawn under its row, is only
-        // read.
+        // A merged conversation is only read.
         let own = chat == cx.world.resource::<Convo>().chat;
-        let replies = words != Words::Fault
-            && own
-            && !queued
-            && entry.is_some_and(reply::can_reply_to);
+        let replies =
+            own && !queued && entry.is_some_and(reply::can_reply_to);
         let mine = who.kind == Kind::Me;
-        let chief_line = mine
-            && own
-            && matches!(entry, Some(Entry::Chief { .. }))
-            && words == Words::Plain;
-        // The chief's own words are what the conversation can be
-        // taken back to, and those that wait their turn can be taken
-        // back.
+        let chief_line =
+            mine && own && matches!(entry, Some(Entry::Chief { .. }));
         let back = chief_line && !queued;
         let withdraws = chief_line && queued;
         let palette = &cx.theme().palette;
@@ -238,40 +212,17 @@ fn said<B: Board>(line: Line, chat: Entity, id: String) -> AnyView {
             (cx.theme().space.gap, cx.theme().space.card_padding_x);
         let fill: fn(&Palette) -> Color =
             if mine { |p| p.gold_6 } else { |p| p.card };
-        // A line that waits its turn says so under the bubble, and
-        // has no hour yet.
+        // A queued line has no hour yet.
         let time = match queued {
             true => String::new(),
             false => hour(line.at),
         };
         let ink = contrast::reach(who.paint, &[fill(palette)], TEXT);
-        // Another agent's message is edged in its paint.
-        let edge = if peer { ink } else { palette.gold_6 };
 
         let mut inside = Vec::new();
-        if line.named && !mine && (group || peer) {
+        if line.named && !mine && group {
             let mut head = vec![inked(who.name.clone(), ink, 12.0)];
-            // Who another agent wrote to, by an arrow.
-            let to = match peer {
-                true => cast.get(line.to).map(|to| to.name.clone()),
-                false => to,
-            };
-            if peer && let Some(to) = to {
-                head.push(
-                    glyph(Glyph::Back, 10.0)
-                        .tone(Tone::Dim)
-                        .rotation(180.0)
-                        .boxed(),
-                );
-                head.push(
-                    label(to)
-                        .wrap(false)
-                        .bold(true)
-                        .tone(Tone::Dim)
-                        .rules(small_rules)
-                        .boxed(),
-                );
-            } else if let Some(to) = to {
+            if let Some(to) = to {
                 head.push(
                     label(format!("to {to}"))
                         .wrap(false)
@@ -281,8 +232,7 @@ fn said<B: Board>(line: Line, chat: Entity, id: String) -> AnyView {
                 );
             }
             head.push(frame().grow(1.0).min_width(px(4.0)).boxed());
-            // The panel over the chat says what its own agent is
-            // for.
+            // The chat's own agent is tagged in the header.
             let tag = if line.by == 0 { "" } else { &who.tag };
             let tag = label(tag.to_string()).wrap(false);
             head.push(match who.kind {
@@ -303,17 +253,14 @@ fn said<B: Board>(line: Line, chat: Entity, id: String) -> AnyView {
         }
         let typed_id = id.clone();
         let reserve = if time.is_empty() { "" } else { RESERVE };
-        // The words of a message, selected as one.
-        let selectable = |said: AnyView| match replies {
-            true => column((said,))
+        let selectable = |said: AnyView| {
+            let words = column((said,))
                 .min_width(px(0.0))
-                .max_width(percent(100.0))
-                .tagged(Area)
-                .boxed(),
-            false => column((said,))
-                .min_width(px(0.0))
-                .max_width(percent(100.0))
-                .boxed(),
+                .max_width(percent(100.0));
+            match replies {
+                true => words.tagged(Area).boxed(),
+                false => words.boxed(),
+            }
         };
         // Words with a link in them are set once, span by span.
         let linked = match quote::has_quote(&typed) {
@@ -334,8 +281,7 @@ fn said<B: Board>(line: Line, chat: Entity, id: String) -> AnyView {
             .wrap(false)
             .tone(if mine { Tone::Faint } else { Tone::Dim })
             .rules(small_rules);
-        // The hour stands outside the words, so it is never selected
-        // with them, in the room kept at the end of their last line.
+        // Outside the words, so it is never selected with them.
         let hour = shown.then(|| {
             row((hour,))
                 .position(PositionType::Absolute)
@@ -362,12 +308,11 @@ fn said<B: Board>(line: Line, chat: Entity, id: String) -> AnyView {
                     ),
                     _ => (Vec::new(), [].as_slice()),
                 };
-                // The images of the line over its words.
                 if !images.is_empty() {
                     inside.push(attach::tiles(images).boxed());
                 }
-                // The words the places count are the ones drawn,
-                // unless the reply's quote was taken out of them.
+                // Places count the words drawn, unless a quote was
+                // taken out.
                 let placed = selected.is_none()
                     && chips.iter().any(|(at, _)| at.is_some());
                 let (said, after) = if placed {
@@ -422,7 +367,6 @@ fn said<B: Board>(line: Line, chat: Entity, id: String) -> AnyView {
                 {
                     inside.push(attach::after_words(chips).boxed());
                 }
-                inside.extend(hour);
             }
             Words::Markdown => {
                 let blocks = markdown::entry(chat, id.clone())
@@ -431,19 +375,12 @@ fn said<B: Board>(line: Line, chat: Entity, id: String) -> AnyView {
                     hamlet_ui::markdown::document(blocks, Tone::Body)
                         .boxed(),
                 ));
-                inside.extend(hour);
-            }
-            // Beside the button that tries again.
-            Words::Fault => {
-                inside.push(selectable(entry_view(chat, id.clone())));
-                inside.extend(hour);
             }
         }
+        inside.extend(hour);
         let bubble = column(inside)
             .gap(gap / 4.0)
             .padding(UiRect::axes(px(padding_x), px(6.0)))
-            // No wider than its row, however long the names over
-            // its words are: what does not fit there is cut.
             .min_width(px(0.0))
             .max_width(percent(100.0))
             .fill(fill(palette))
@@ -451,7 +388,7 @@ fn said<B: Board>(line: Line, chat: Entity, id: String) -> AnyView {
             .border_color(rewind::ringed(
                 chat,
                 id.clone(),
-                edge,
+                palette.gold_6,
                 palette.accent,
             ))
             .corners({
@@ -470,7 +407,6 @@ fn said<B: Board>(line: Line, chat: Entity, id: String) -> AnyView {
                 }
             })
             .tagged(Bubble);
-        // A gap over the first bubble of a run.
         let above = px(if line.lead { gap } else { 0.0 });
         let (replying, reply_room) = match replies {
             true => (
@@ -484,11 +420,11 @@ fn said<B: Board>(line: Line, chat: Entity, id: String) -> AnyView {
             let (mark, room) = match (back, withdraws) {
                 (true, _) => (
                     rewind::mark(chat, id.clone()).boxed(),
-                    rewind::ROOM,
+                    reply::ROOM,
                 ),
                 (_, true) => (
                     rewind::withdraw(chat, id.clone()).boxed(),
-                    rewind::ROOM,
+                    reply::ROOM,
                 ),
                 _ => (frame().boxed(), 0.0),
             };
@@ -504,8 +440,6 @@ fn said<B: Board>(line: Line, chat: Entity, id: String) -> AnyView {
                     px(0.0),
                 ));
             match queued {
-                // Under the bubble's right edge, where it cannot
-                // touch the words.
                 true => column((
                     said,
                     row((note("Queued"),))
@@ -557,8 +491,7 @@ fn said<B: Board>(line: Line, chat: Entity, id: String) -> AnyView {
     })
 }
 
-/// The agent's own words across the chat with no bubble: its reply,
-/// why a reply failed, or a notice, by the agent shown as `name`.
+/// The agent's own words across the chat with no bubble.
 fn written(chat: Entity, id: String, name: String) -> AnyView {
     AnyView::new(move |cx: &mut Cx| {
         let entry = cx
@@ -566,8 +499,7 @@ fn written(chat: Entity, id: String, name: String) -> AnyView {
             .get::<Transcript>(chat)
             .and_then(|t| t.item(&id))
             .map(|item| item.entry.clone());
-        // A conversation merged in, drawn under its row, is only
-        // read.
+        // A merged conversation is only read.
         let own = chat == cx.world.resource::<Convo>().chat;
         let reply = matches!(entry, Some(Entry::Assistant(_)));
         let replies = own
@@ -609,12 +541,11 @@ fn written(chat: Entity, id: String, name: String) -> AnyView {
     })
 }
 
-/// The letters of a message's first line its folded card lays out,
-/// which its line cuts again to the room it has.
+/// The most letters of a message's first line a folded card lays out.
 const PREVIEW: usize = 200;
 
-/// The first line of `text` that says something, without the marks
-/// that start a heading or a quote.
+/// The first line of `text` with words, without heading or quote
+/// marks.
 fn first_line(text: &str) -> String {
     let line = text
         .lines()
@@ -624,10 +555,7 @@ fn first_line(text: &str) -> String {
     cut(line, PREVIEW)
 }
 
-/// A message from another agent: a compact card headed by what it is
-/// and its sender's chip, "Request from hire#3 (Mira)", and the first
-/// line of its words, which a press opens to all of them. An error
-/// response is edged in red.
+/// A message from another agent, as a card a press opens.
 fn message(chat: Entity, id: String) -> AnyView {
     AnyView::new(move |cx: &mut Cx| {
         let item = cx
@@ -666,8 +594,6 @@ fn message(chat: Entity, id: String) -> AnyView {
             hamlet_ui::markdown::is_address_in(cx.world),
         )
         .unwrap_or_else(|| label(heading).bold(true).boxed());
-        // Kept by its entry, so it stays open or folded as the chat
-        // is built again.
         let key = (chat, id.clone());
         let is_open = {
             let key = key.clone();
@@ -771,7 +697,6 @@ fn message(chat: Entity, id: String) -> AnyView {
     })
 }
 
-/// The room the reply mark takes beside a message, when it has one.
 fn reply_room(replies: bool) -> f32 {
     if replies { reply::ROOM } else { 0.0 }
 }
@@ -783,8 +708,6 @@ const WAITING: f32 = 0.55;
 pub(super) fn line_view<B: Board>(line: &Line) -> AnyView {
     let line = line.clone();
     AnyView::new(move |cx: &mut Cx| {
-        // A turn, its reply and the cards are the agent's own, across
-        // the chat, a gap over the first of a run.
         let run = cx.theme().space.gap;
         let aside = |view: AnyView| {
             row((view,))

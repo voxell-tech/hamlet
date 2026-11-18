@@ -1,5 +1,4 @@
-//! The change of an `edit` call drawn: its file, its count, and its
-//! lines taken out and put in.
+//! The change of an `edit` call: its file, count and lines.
 
 use bevy::color::{Alpha, Color};
 use bevy::ecs::entity::Entity;
@@ -40,8 +39,7 @@ pub struct ChatSettings {
     pub picture_width: f32,
     /// The tallest a picture in a reply is drawn.
     pub picture_height: f32,
-    /// The height of the plate that stands for a picture while it
-    /// is read.
+    /// The height of a picture's plate while it is read.
     pub picture_wait: f32,
     /// The largest file read as a picture, in bytes.
     pub picture_bytes: u64,
@@ -51,8 +49,7 @@ pub struct ChatSettings {
     pub reply_chars: usize,
 }
 
-/// The changes a chief has shut, and those asked for whole, by
-/// their conversation and entry.
+/// The changes a chief shut, and those asked for whole.
 #[derive(Resource, Default)]
 pub struct Changes {
     shut: Vec<(Entity, String)>,
@@ -96,10 +93,7 @@ fn flip(all: &mut Vec<(Entity, String)>, one: (Entity, String)) {
     }
 }
 
-/// The lines of a change, one row each with no gap between them, the
-/// lines taken out and put in tinted in their hue across the whole
-/// plate, with a stronger edge of it at their left. Their words are
-/// selected as one.
+/// The lines of a change, tinted across the plate, selected as one.
 fn block(lines: &[Line]) -> AnyView {
     let lines = lines.to_vec();
     with_cx(move |cx| {
@@ -154,13 +148,11 @@ fn block(lines: &[Line]) -> AnyView {
     .boxed()
 }
 
-/// The opacity of the tint under a line taken out or put in, and of
-/// the edge at its left.
+/// The opacity of a changed line's tint, and of its edge.
 const TINT: f32 = 0.12;
 const EDGE: f32 = 0.6;
 
-/// The width of a changed line's edge, and of the column its mark
-/// stands in.
+/// The width of a changed line's edge, and of its mark's column.
 const EDGE_WIDTH: f32 = 2.0;
 const GUTTER: f32 = 16.0;
 
@@ -168,8 +160,7 @@ const GUTTER: f32 = 16.0;
 const PAD: f32 = 12.0;
 const DOWN: f32 = 4.0;
 
-/// The lines of `change` on their plate, the first `most` of them,
-/// with a count of the rest.
+/// The first `most` lines of `change` on their plate.
 fn plate(
     change: &Change,
     most: usize,
@@ -187,15 +178,13 @@ fn plate(
                 .boxed(),
         );
     }
-    // Its lines run to its sides, so their tints do too.
     inset((block(shown), column(after)))
         .padding(UiRect::vertical(px(DOWN)))
         .gap(0.0)
         .overflow(Overflow::clip())
 }
 
-/// The room before a quiet line under a change's lines, which sets it
-/// with their words.
+/// The room before a quiet line under a change's lines.
 const FOLD_PAD: f32 = EDGE_WIDTH + GUTTER;
 
 /// `words` small, faint and on one line.
@@ -206,8 +195,7 @@ fn quiet(words: String) -> impl View {
         .rules(small_rules)
 }
 
-/// The lines a change adds in green and takes out in red, its count
-/// in words under the pointer; the words alone when it changed none.
+/// The lines a change adds and takes out.
 pub(super) fn counted(change: &Change) -> AnyView {
     let words = change.count.clone();
     if change.added == 0 && change.removed == 0 {
@@ -241,8 +229,8 @@ pub(super) fn counted(change: &Change) -> AnyView {
     .boxed()
 }
 
-/// The end of a tool call's entry, and the words for an edit that
-/// changed nothing.
+/// A tool call's exit, and the words for an edit that changed
+/// nothing.
 fn ended(entry: Option<&Entry>) -> (Option<i64>, Option<String>) {
     match entry {
         Some(Entry::Tool { exit, failure, .. }) => {
@@ -260,8 +248,7 @@ fn ended(entry: Option<&Entry>) -> (Option<i64>, Option<String>) {
     }
 }
 
-/// The change of the edit at entry `id` of `chat`: its file, its
-/// count and how the call stands, over its lines.
+/// The change of the edit at entry `id` of `chat`.
 pub(crate) fn change_view(
     chat: Entity,
     id: String,
@@ -299,8 +286,7 @@ pub(crate) fn change_view(
             toggle_key.clone(),
         );
     });
-    // The file is looked for again once the turn has ended, when a
-    // new one is there.
+    // Looked for again once the turn has ended.
     let path = change.path.clone();
     let file = keyed(
         component::<Transcript, _>(chat, |t| {
@@ -336,8 +322,7 @@ pub(crate) fn change_view(
     .boxed()
 }
 
-/// The lines the edit at entry `id` of `chat` changed, unless they
-/// were shut, or why it was not applied.
+/// The lines the edit at `id` changed, or why it was not applied.
 pub(super) fn diff(
     chat: Entity,
     id: String,
@@ -400,8 +385,7 @@ pub(super) fn diff(
     .boxed()
 }
 
-/// `path` on one line, cut in its middle so its file's name shows,
-/// whole under the pointer. It opens its file when it names one.
+/// `path` on one line, cut in its middle, which opens its file.
 fn path_line(path: String) -> AnyView {
     AnyView::new(move |cx: &mut Cx| {
         let found = cx
@@ -431,8 +415,7 @@ fn path_line(path: String) -> AnyView {
     })
 }
 
-/// The lines of `change` as far as `extent` goes, with the button
-/// that shows the rest or puts it away.
+/// The lines of `change` up to `extent`, and the button for the rest.
 fn lines_view(
     key: (Entity, String),
     change: &Change,

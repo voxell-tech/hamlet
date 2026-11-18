@@ -1,5 +1,4 @@
-//! The doing and saying of one conversation's agent, folded from
-//! what its runtime tells as it happens.
+//! What one conversation's agent is doing now.
 
 use std::collections::{BTreeMap, HashSet};
 

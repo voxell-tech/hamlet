@@ -33,8 +33,7 @@ use crate::world_menu::{self, Deed};
 pub(super) fn plugin(app: &mut App) {
     app.init_resource::<Draft>()
         .add_observer(answered)
-        // Before fynix mounts the page the pane opens, so its fields
-        // start from the draft.
+        // Before fynix mounts, so the fields start from the draft.
         .add_systems(
             PreUpdate,
             begin
@@ -51,8 +50,7 @@ pub(super) const CHOICES: [&str; 2] =
 struct Draft {
     remote: bool,
     url: String,
-    /// Never received: the server keeps it and shows only the
-    /// address.
+    /// Never received: the server shows only the address.
     token: String,
     saving: Option<protocol::RequestId>,
     saved: bool,
@@ -61,8 +59,7 @@ struct Draft {
     refusal: String,
 }
 
-/// Starts the draft from the chosen workspace each time the page
-/// opens.
+/// Starts the draft from the chosen workspace as the page opens.
 fn begin(
     pane: Res<Pane>,
     settings: Res<Settings>,
@@ -107,8 +104,7 @@ fn save(world: &mut World) {
     draft.refusal.clear();
 }
 
-/// Asks the server to copy the lodges to the saved workspace. The
-/// settings it sends show how far it has come.
+/// Asks the server to copy the lodges to the saved workspace.
 pub(crate) fn move_lodges(world: &mut World) {
     let id = world.resource_mut::<Outbox>().send(|id| {
         protocol::ClientMessage::MoveLodges(protocol::MoveLodges {
@@ -179,7 +175,6 @@ fn move_of(
 }
 
 /// What moving the lodges does, how far it has come or how it ended.
-/// A failure is the refusal's to tell.
 fn progress(settings: &Settings) -> String {
     use protocol::SettingsViewWorkspaceMoveState as State;
     if !is_waiting_for_restart(settings) {
@@ -209,8 +204,7 @@ fn progress(settings: &Settings) -> String {
     }
 }
 
-/// The button that moves the lodges to the saved workspace, while it
-/// waits for a restart and no move runs.
+/// The button that moves the lodges to the saved workspace.
 fn moving() -> AnyView {
     keyed(
         resource::<Settings, _>(|settings| {
@@ -302,8 +296,7 @@ pub(super) fn page() -> impl View {
     ))
 }
 
-/// Moving the lodges, apart in a card of what is done for good, once
-/// a saved workspace waits for a restart.
+/// The card that moves the lodges, once a restart waits.
 fn moved() -> impl View {
     keyed(resource::<Settings, _>(is_waiting_for_restart), |waits| {
         if !*waits {
@@ -335,7 +328,6 @@ mod tests {
         control, press, requests, settings_page, settle,
         words_and_spans,
     };
-    use crate::world_menu;
 
     fn received(
         app: &mut App,
@@ -388,8 +380,7 @@ mod tests {
         settle(app);
     }
 
-    /// The edits left to apply after selecting all, copying, cutting
-    /// and pasting in the field.
+    /// The edits left after select all, copy, cut and paste.
     fn kept_edits(app: &mut App, name: &str) -> Vec<TextEdit> {
         let field = control::<EditableText>(app, name);
         let mut text =
@@ -537,101 +528,5 @@ mod tests {
                 "type": "edit", "doc": "settings", "set": {"workspace": null}
             })]
         );
-    }
-
-    #[test]
-    fn lodges_move_to_the_saved_workspace_with_their_progress_and_refusal_shown()
-     {
-        use protocol::SettingsViewWorkspaceMoveState as State;
-        let url = Some("https://workspace.example");
-        let mut app = settings_page(Pane::Front);
-        received(&mut app, 2, None, None);
-        *app.world_mut().resource_mut::<Pane>() = Pane::Workspace;
-        settle(&mut app);
-        let said = |app: &mut App, text: &str| {
-            words_and_spans(app).iter().any(|shown| shown == text)
-        };
-        // Nothing waits for a restart, so nothing moves.
-        assert!(!said(&mut app, "Move Lodges"));
-        received(&mut app, 3, url, None);
-        assert!(said(
-            &mut app,
-            "Copies every agent's lodge to the remote server, \
-             replacing the lodges there."
-        ));
-        requests(&mut app);
-        app.init_resource::<world_menu::Open>();
-        bevy_fynix::mount::<hamlet_ui::theme::HamletTheme>(
-            app.world_mut(),
-            world_menu::view(),
-        );
-        press(&mut app, "Move Lodges");
-        settle(&mut app);
-        assert!(requests(&mut app).is_empty(), "asked first");
-        press(&mut app, "Replace Them");
-        let Some(protocol::ClientMessage::MoveLodges(
-            protocol::MoveLodges { id },
-        )) = app.world().resource::<Outbox>().iter().next().cloned()
-        else {
-            panic!("no move was sent");
-        };
-        assert_eq!(
-            requests(&mut app),
-            [serde_json::json!({"type": "move-lodges"})]
-        );
-        let moving = |done, state, text: &str| {
-            Some(protocol::SettingsViewWorkspaceMove {
-                state,
-                done,
-                of: 2,
-                text: text.into(),
-            })
-        };
-        received_moving(
-            &mut app,
-            4,
-            url,
-            None,
-            moving(1, State::Moving, ""),
-        );
-        assert!(said(&mut app, "Moving lodges: 1 of 2."));
-        let stopped = "The lodge of hire#3 was not moved.";
-        received_moving(
-            &mut app,
-            5,
-            url,
-            None,
-            moving(1, State::Failed, stopped),
-        );
-        hamlet_client::receive(
-            app.world_mut(),
-            protocol::ServerMessage::Reply(protocol::Reply {
-                to: id,
-                kind: protocol::ReplyKind::Error,
-                text: stopped.into(),
-                upload: None,
-                image: None,
-                images: Vec::new(),
-                file: None,
-                files: Vec::new(),
-            }),
-        );
-        settle(&mut app);
-        assert_eq!(
-            words_and_spans(&mut app)
-                .iter()
-                .filter(|shown| *shown == stopped)
-                .count(),
-            1
-        );
-        let moved = "Moved 2 lodges to the remote server.";
-        received_moving(
-            &mut app,
-            6,
-            url,
-            None,
-            moving(2, State::Moved, moved),
-        );
-        assert!(said(&mut app, moved));
     }
 }

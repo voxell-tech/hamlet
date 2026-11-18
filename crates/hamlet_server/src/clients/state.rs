@@ -1,5 +1,4 @@
-//! The realm as a client sees it: composed from the database, the
-//! repositories and what the agents are doing now.
+//! The realm as a client sees it.
 
 use std::collections::{BTreeMap, BTreeSet};
 
@@ -520,8 +519,7 @@ fn scholar_view(
     })
 }
 
-/// The hires of `scholar` not erased, living ones and ended ones that
-/// may come back.
+/// The hires of `scholar` not erased.
 fn hires_of(db: &mut Db, scholar: &Scholar) -> Result<Vec<AgentId>> {
     use hamlet_store::schema::hire;
     Ok(hire::table

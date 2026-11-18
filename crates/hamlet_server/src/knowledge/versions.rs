@@ -1,5 +1,4 @@
-//! A scholar's versions as a chief or an agent reads them, and the
-//! version a hire is made or pinned at.
+//! A scholar's versions, and the version a hire is made or pinned at.
 
 use hamlet_git::{CommitId, MAIN, Repository};
 use hamlet_store::Db;
@@ -52,7 +51,6 @@ pub(crate) fn versions(repo: &Repository) -> anyhow::Result<String> {
     Ok(lines.join("\n"))
 }
 
-/// What pinning the hire `name` to `target`, or to none, comes to.
 pub(crate) fn pinned(name: &str, target: Option<&str>) -> String {
     match target {
         Some(version) => format!(
@@ -88,8 +86,7 @@ pub(crate) fn existing(
     }))
 }
 
-/// The version `version` of the scholar of `hire` to pin it to, none
-/// for `main`.
+/// The version to pin `hire` to, none for `main`.
 pub(crate) fn pin_target(
     db: &mut Db,
     layout: &Layout,
@@ -110,7 +107,6 @@ pub(crate) fn pin_target(
     Ok(Ok(Some(version.into())))
 }
 
-/// A commit's id as a chief reads it.
 pub(crate) fn short(commit: CommitId) -> String {
     commit.to_string().chars().take(8).collect()
 }

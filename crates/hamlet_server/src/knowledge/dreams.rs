@@ -1,7 +1,4 @@
-//! The repositories' side of a dream: a checkout of the scholar's
-//! `main` the dream writes beside the hire's lodge, and at its end
-//! the scholar's side committed to `main`, the hire's to its branch,
-//! and the new `main` taken in.
+//! The repositories' side of a dream.
 
 use std::path::PathBuf;
 
@@ -51,8 +48,7 @@ pub(crate) fn has_learned(
     Ok(!dreamt && repo.merge_base(tip, main)? != Some(tip))
 }
 
-/// Readies dream `id`: the hire's lodge committed, and `main` checked
-/// out. `false` when a hire's branch holds nothing `main` lacks.
+/// Readies dream `id`; `false` when it has nothing to dream about.
 pub(crate) fn prepare(
     db: &mut Db,
     layout: &Layout,
@@ -82,9 +78,8 @@ pub(crate) fn prepare(
     Ok(true)
 }
 
-/// Ends dream `id`, once: what it left in its checkout becomes a
-/// commit on `main` and a hire's lodge a commit on its branch, which
-/// takes the new `main` in. `last` is how its turn ended.
+/// Ends dream `id` once, committing what it left; `last` is how its
+/// turn ended.
 pub(super) fn end(
     db: &mut Db,
     layout: &Layout,

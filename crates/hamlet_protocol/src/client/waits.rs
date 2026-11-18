@@ -61,8 +61,7 @@ pub enum WaitDetail {
     },
     #[serde(rename = "fault")]
     Fault {
-        /// The cause, when it is one a chief sets up once for every
-        /// agent it stops.
+        /// The cause, when a chief sets it up once for every agent.
         #[serde(deserialize_with = "Option::deserialize")]
         setup: Option<Setup>,
     },
@@ -76,8 +75,7 @@ pub enum WaitDetail {
     Newcomer { scholar: ScholarId },
 }
 
-/// A fault's cause that a chief sets up once, for every agent it
-/// stops.
+/// A fault's cause a chief sets up once for every agent.
 #[derive(
     Clone,
     Debug,

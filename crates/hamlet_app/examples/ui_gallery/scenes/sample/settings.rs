@@ -68,8 +68,7 @@ pub(super) fn setup(world: &mut World, scene: Scene) {
         world.init_resource::<VolumetricFogSettings>();
         world.init_resource::<DistanceFogSettings>();
         world.init_resource::<WindChoice>();
-        // Settled: the sky at the clock's hour and north where it
-        // is set, as they are but for a moment after a change.
+        // Settled: the sky at the clock's hour and north where set.
         let now = jiff::Zoned::now();
         world.insert_resource(Sky {
             hour: f32::from(now.hour())
@@ -82,8 +81,7 @@ pub(super) fn setup(world: &mut World, scene: Scene) {
     if let Scene::Appearance(shade) = scene {
         // The computer's, which the panels follow by default.
         world.insert_resource(ColorScheme::Says(shade));
-        // The family `GALLERY_THEME` names, else Hamlet, in the
-        // scene's shade.
+        // The family `GALLERY_THEME` names, else Hamlet.
         let themes = world.resource::<Themes>();
         let palette = crate::scenes::chosen_family(themes)
             .unwrap_or_else(|| themes.get(&ThemeId::default()))

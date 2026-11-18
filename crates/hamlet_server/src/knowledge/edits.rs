@@ -1,5 +1,5 @@
-//! A scholar's `main` and a lodge's files changed outside the jobs,
-//! under the write lock: commits, a lodge's memory and purges.
+//! Changes to a scholar's `main` and a lodge's files outside the
+//! jobs, under the write lock.
 
 use anyhow::Result;
 use hamlet_git::{Author, Change as GitChange, MAIN, Repository};
@@ -14,8 +14,7 @@ use crate::society::refusal::Refusal;
 use crate::society::{addresses, hires};
 
 impl Core<'_, '_> {
-    /// Commits `changes` to the `main` of `scholar` as `by`'s, and
-    /// has its idle hires take them in.
+    /// Commits `changes` to the `main` of `scholar`.
     pub(crate) fn commit_main(
         &mut self,
         by: Actor,
@@ -41,8 +40,7 @@ impl Core<'_, '_> {
         self.main_moved(by, scholar)
     }
 
-    /// Has the idle hires of `scholar` take in its `main`, which `by`
-    /// moved.
+    /// Has the idle hires of `scholar` take in its `main`.
     pub(crate) fn main_moved(
         &mut self,
         by: Actor,
@@ -62,9 +60,8 @@ impl Core<'_, '_> {
         Ok(())
     }
 
-    /// Writes `text` to the memory file `path` of the lodge of
-    /// `agent`, as `by` asks, empty removing it, and has the lodge
-    /// committed.
+    /// Writes the memory file `path` of `agent`'s lodge; empty
+    /// removes it.
     pub(crate) fn write_lodge_memory(
         &mut self,
         by: Actor,
@@ -92,8 +89,8 @@ impl Core<'_, '_> {
         })
     }
 
-    /// Takes `path` out of every commit, every branch and every lodge
-    /// of the hires of the scholar `id`, as `by` asks.
+    /// Takes `path` out of the history of the scholar `id` and its
+    /// hires' lodges.
     pub(crate) fn purge_path(
         &mut self,
         by: Actor,

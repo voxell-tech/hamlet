@@ -1,7 +1,5 @@
-//! The chips in a line of text, put where the line holds their
-//! places in the frame it is drawn: fynix moves a chip's view to its
-//! place only at the next layout, so a line that reflows would draw
-//! its chips where the line was before.
+//! The chips in a line of text, put in their places in the frame the
+//! line is drawn, a layout before fynix would.
 
 use std::collections::HashMap;
 
@@ -16,38 +14,38 @@ use bevy::ecs::resource::Resource;
 use bevy::ecs::schedule::IntoScheduleConfigs;
 use bevy::ecs::system::{Query, ResMut};
 use bevy::ecs::world::World;
-use bevy::math::{Affine2, Vec2};
+use bevy::math::Vec2;
 use bevy::text::{InlineBox, InlineBoxKind, TextLayoutInfo};
 use bevy::ui::{
     ComputedNode, Node, PositionType, UiGlobalTransform, Val,
 };
+
+use crate::widgets::shift;
 
 pub(super) fn plugin(app: &mut App) {
     app.init_resource::<ChipSizes>()
         .add_systems(Last, (place, (remember, show)).chain());
 }
 
-/// The frames a text that is laid out waits for its chips' sizes
-/// before it shows without them.
+/// The laid-out frames a text waits for its chips' sizes before it
+/// shows anyway.
 const WAIT: u8 = 4;
 
-/// On the node a text with chips is built in.
+/// A text with chips.
 #[derive(Component)]
 struct Chips {
-    /// The words of each chip, in the order of the line.
+    /// The words of each chip, in line order.
     words: Vec<String>,
-    /// The frames it has been laid out while hidden.
+    /// The frames laid out while hidden.
     waited: u8,
 }
 
-/// The size each chip was last given in a line, by its words, so that
-/// a line built again lays out its chips from its first frame.
+/// The size each chip was last given, by its words.
 #[derive(Resource, Default)]
 struct ChipSizes(HashMap<String, Vec2>);
 
-/// Gives the chips of the text `body` holds the sizes they were last
-/// given, and hides it until each of them has its size in the line,
-/// so its words show once, where they stay.
+/// Gives the chips of the text in `body` their last sizes, and hides
+/// it until each chip has its size, so its words never jump.
 pub(super) fn seed(
     world: &mut World,
     body: Entity,
@@ -81,8 +79,7 @@ pub(super) fn seed(
     world.entity_mut(body).insert(Chips { words, waited: 0 });
 }
 
-/// The inline boxes of the text `body` holds, in the order of its
-/// line.
+/// The inline boxes of the text in `body`, in line order.
 fn boxes(world: &World, body: Entity) -> Vec<Entity> {
     text_of(world, body)
         .and_then(|text| world.get::<Children>(text))
@@ -99,7 +96,6 @@ fn text_of(world: &World, body: Entity) -> Option<Entity> {
     world.get::<Children>(body)?.first().copied()
 }
 
-/// Keeps the size each chip has been given.
 fn remember(
     bodies: Query<(&Chips, &Children)>,
     texts: Query<&Children, With<TextLayoutInfo>>,
@@ -124,8 +120,8 @@ fn remember(
     }
 }
 
-/// Shows a hidden text once its line was laid out with every chip at
-/// its size, or after [`WAIT`] frames laid out.
+/// Shows a hidden text once every chip is laid out at its size, or
+/// after [`WAIT`] frames.
 fn show(
     mut bodies: Query<(&Children, &mut Visibility, &mut Chips)>,
     texts: Query<(&TextLayoutInfo, &ComputedNode, &Children)>,
@@ -164,8 +160,7 @@ fn show(
     }
 }
 
-/// Moves each chip's view, and all inside it, to the place fynix set
-/// for it from this frame's line.
+/// Moves each chip's view to its place in this frame's line.
 fn place(
     bodies: Query<(Entity, &Children), With<Chips>>,
     nodes: Query<(&Node, &ComputedNode)>,
@@ -207,27 +202,6 @@ fn place(
     }
 }
 
-/// Moves the node `at` and all inside it by `by`, in physical
-/// pixels.
-fn shift(
-    at: Entity,
-    by: Vec2,
-    transforms: &mut Query<&mut UiGlobalTransform>,
-    inside: &Query<&Children>,
-) {
-    if let Ok(mut transform) = transforms.get_mut(at) {
-        let mut moved = Affine2::from(*transform);
-        moved.translation += by;
-        *transform = moved.into();
-    }
-    if let Ok(kids) = inside.get(at) {
-        for &kid in kids {
-            shift(kid, by, transforms, inside);
-        }
-    }
-}
-
-/// The logical pixels of `value`, none for anything else.
 fn logical(value: Val) -> Option<f32> {
     match value {
         Val::Px(px) => Some(px),

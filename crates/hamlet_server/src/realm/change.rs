@@ -1,5 +1,4 @@
-//! A change to the realm in progress: its transaction, its time, who
-//! makes it, and what it touched for the clients to see again.
+//! A change to the realm in progress.
 
 use std::collections::BTreeSet;
 
@@ -22,13 +21,21 @@ macro_rules! refuse {
 }
 pub(crate) use refuse;
 
-/// Unwraps a change's result, or ends the change with its refusal.
-macro_rules! done {
+/// Unwraps a check's result, or ends the change with its refusal.
+macro_rules! checked {
     ($result:expr) => {
-        match $result? {
+        match $result {
             Ok(value) => value,
             Err(refusal) => return Ok(Err(refusal)),
         }
+    };
+}
+pub(crate) use checked;
+
+/// Unwraps a change's result, or ends the change with its refusal.
+macro_rules! done {
+    ($result:expr) => {
+        $crate::realm::change::checked!($result?)
     };
 }
 pub(crate) use done;
@@ -75,8 +82,8 @@ impl From<diesel::result::Error> for Stop {
     }
 }
 
-/// Makes the change `make` by `actor` at `at` in a savepoint of the
-/// open transaction. A refusal leaves nothing of it.
+/// Makes the change `make` by `actor` at `at` in a savepoint, rolled
+/// back on a refusal.
 pub(crate) fn run<T>(
     db: &mut Db,
     at: i64,

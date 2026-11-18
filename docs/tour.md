@@ -105,7 +105,7 @@ before the world are `RealmSystems` in `hamlet_realm/src/stage.rs`
 [`bevy.md`](bevy.md#order) says what goes in each. In the generator,
 `society::Ground` is what can be picked up and set down (a hamlet, the
 chief's place, the library), and `Trips` the messages on the roads right
-now, each carried as a letter.
+now.
 
 `hamlet_app/src/screens/` groups the panels drawn from the client's
 state; the other panels live beside that folder, and `tuning.rs` loads

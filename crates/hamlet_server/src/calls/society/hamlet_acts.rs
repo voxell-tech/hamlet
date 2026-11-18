@@ -1,24 +1,21 @@
-//! The Hand's acts on a hamlet: its name, its place, its removal,
-//! restoring and erasure, its tier, folder, mode, budget and limits.
-//! A reserved act waits for a chief before it gets here.
+//! The Hand's acts on a hamlet.
 
 use hamlet_store::ids::{Actor, HamletId};
 
-use super::Call;
 use super::args::{
     Called, EditLimits, EraseHamlet, MoveHamlet, NameHamlet,
     RemoveHamlet, ResetBudget, RestoreHamlet, SetFolder, SetMode,
     SetTier,
 };
+use super::{Call, unsupported};
 use crate::core::Core;
-use crate::realm::change::{Done, refuse};
+use crate::realm::change::{Done, checked, refuse};
 use crate::society::hamlets::{self, Mode};
 use crate::society::limits::{self, Limit};
 use crate::society::refusal::Refusal;
 use crate::society::{authority, spend};
 
 impl Core<'_, '_> {
-    /// Carries out the Hand's call `called` on a hamlet.
     pub(super) fn hamlet_tool(
         &mut self,
         call: &Call<'_>,
@@ -47,9 +44,7 @@ impl Core<'_, '_> {
             | Called::ResetBudget(ResetBudget { hamlet }) => {
                 hamlet.clone()
             }
-            _ => refuse!(Refusal::Unsupported {
-                what: format!("the tool {}", call.tool),
-            }),
+            _ => refuse!(unsupported(call)),
         };
         let id = HamletId(named.clone());
         let db = self.realm.store().connection();
@@ -142,7 +137,6 @@ impl Core<'_, '_> {
         }
     }
 
-    /// Starts the budget period of `hamlet`, or the realm's, again.
     fn reset_budget(
         &mut self,
         call: &Call<'_>,
@@ -159,20 +153,16 @@ impl Core<'_, '_> {
         })
     }
 
-    /// Sets one limit of a hamlet, or of the realm.
     fn edit_limits(
         &mut self,
         call: &Call<'_>,
         args: &EditLimits,
     ) -> Done<String> {
-        let limit = match Limit::read(
+        let limit = checked!(Limit::read(
             &args.section,
             &args.key,
             args.value.clone(),
-        ) {
-            Ok(limit) => limit,
-            Err(refusal) => refuse!(refusal),
-        };
+        ));
         let hamlet = (!args.hamlet.is_empty())
             .then(|| HamletId(args.hamlet.clone()));
         // The chief who allowed it is the one this server serves.

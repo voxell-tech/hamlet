@@ -1,8 +1,4 @@
-//! The gate's decision of a call (C7, H11): the one kept, else one
-//! made now and kept. Making one goes in steps: what the call is,
-//! with what it sends or writes looked at off the loop first; where
-//! it runs and who makes it; then the gate's rule, kept with any wait
-//! it raises.
+//! The gate's decision of a call (C7, H11), made once and kept.
 
 use anyhow::Result;
 use hamlet_store::ids::Actor;
@@ -24,8 +20,7 @@ use crate::tools::builtin::Network;
 use crate::tools::catalogue::Society;
 use crate::tools::edit_diff::change_between;
 
-/// A call as the gate rules on it, or the decision made before the
-/// gate is consulted: a look to wait for, or a block.
+/// A call as the gate rules on it, or the decision made before it.
 type Classified = Result<Result<gate::Call, Decision>>;
 
 impl Core<'_, '_> {

@@ -24,7 +24,7 @@ use super::limits::Limits;
 use super::names::{check_name, new_hamlet_id};
 use super::record::{self, Decision, DecisionKind};
 use super::refusal::Refusal;
-use crate::realm::change::{Change, Done, done, refuse};
+use crate::realm::change::{Change, Done, checked, done, refuse};
 use crate::realm::jobs::{self, Job};
 
 /// The tiers a hamlet's cap of hires may take.
@@ -97,10 +97,7 @@ pub(crate) fn found(
     cx: &mut Change<'_>,
     founding: Founding,
 ) -> Done<Hired> {
-    let name = match check_name(&founding.name) {
-        Ok(name) => name.to_owned(),
-        Err(refusal) => refuse!(refusal),
-    };
+    let name = checked!(check_name(&founding.name)).to_owned();
     if founding.purpose.trim().is_empty() {
         refuse!(Refusal::NoPurpose);
     }
@@ -205,10 +202,7 @@ pub(crate) fn rename(
     name: &str,
 ) -> Done<()> {
     done!(living(cx.db, id));
-    let name = match check_name(name) {
-        Ok(name) => name,
-        Err(refusal) => refuse!(refusal),
-    };
+    let name = checked!(check_name(name));
     diesel::update(hamlet::table.find(id))
         .set(hamlet::name.eq(name))
         .execute(cx.db)?;
@@ -399,8 +393,7 @@ pub(crate) fn remove(
 }
 
 /// Brings back the removed hamlet `id` with the hires its removal
-/// ended, refused while any of their scholars has left the city
-/// (H20).
+/// ended (H20).
 pub(crate) fn restore(
     cx: &mut Change<'_>,
     id: &HamletId,

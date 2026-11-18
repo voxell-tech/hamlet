@@ -40,9 +40,8 @@ use crate::theme::Palette;
 use crate::widgets::platform::{Mono, MonoText};
 use crate::{AnyView, Cx, View};
 
-/// `blocks` as words that still grow are drawn: every address in them
-/// as words, not a chip, and no link on a path or an address they end
-/// with, which may be the start of a longer one.
+/// `blocks` set as growing words: addresses as words, and no link on
+/// a trailing path or address, which may still grow.
 pub fn unsettle(blocks: &mut [Arc<Block>]) {
     let names_agent = |spans: &[Span]| {
         spans
@@ -97,7 +96,6 @@ pub fn unsettle(blocks: &mut [Arc<Block>]) {
     }
 }
 
-/// `spans` with each agent's address drawn as words.
 fn spell_out(spans: &mut [Span]) {
     for span in spans {
         if let Some(Target::Agent(address)) = &span.link {
@@ -146,20 +144,16 @@ pub struct Ink {
     pub face: Face,
 }
 
-/// A part of a line as it is drawn.
+/// A part of a drawn line.
 enum Piece {
-    /// Words, and the place they lead if they are a link.
     Words(Span, Option<Anchor>),
-    /// The chip of an agent or a scholar.
     Chip(Atom),
     /// An address drawn as words in the link's colour.
     Address(Span),
 }
 
-/// `spans` with the place each link leads. A path that names no
-/// file, an address that names no one, or either without
-/// [`PathLinks`] or [`AgentLinks`], is no link, and its words join
-/// those beside it again.
+/// `spans` with the place each link leads. A link that leads nowhere
+/// joins the words beside it.
 fn anchored(world: &mut World, spans: Vec<Span>) -> Vec<Piece> {
     let paths =
         world.get_resource::<PathLinks>().map(|links| links.resolve);
@@ -188,8 +182,8 @@ fn anchored(world: &mut World, spans: Vec<Span>) -> Vec<Piece> {
                     all.push(Piece::Chip(chip));
                     continue;
                 }
-                // Words in brackets after the address that are not
-                // its name stay words after its chip.
+                // Bracketed words that are not its name follow the
+                // chip.
                 if let Some(rest) = span
                     .text
                     .strip_prefix(address.as_str())
@@ -238,8 +232,7 @@ fn kept_whole(text: &str) -> String {
     joined
 }
 
-/// `view`, built again when the folders paths are searched in or the
-/// agents change, as a link in it may then lead somewhere else.
+/// `view`, built again when [`PathLinks`] or [`AgentLinks`] change.
 fn relinked(
     view: impl Fn() -> AnyView + Send + Sync + 'static,
 ) -> AnyView {
@@ -257,7 +250,7 @@ fn relinked(
             )
         })
         .when(move |world: &World| {
-            // Both are asked, so each takes in its change.
+            // Both are asked, so neither change is missed.
             let paths = paths.changed(world);
             agents.changed(world) || paths
         }),
@@ -378,8 +371,7 @@ fn set_rich(spans: &[Span], ink: Ink, setting: Setting) -> AnyView {
     })
 }
 
-/// A paragraph with chips in its line, its words set as [`set_rich`]
-/// sets them.
+/// A [`set_rich`] paragraph with chips in its line.
 fn chipped(cx: &mut Cx, pieces: Vec<Piece>, ink: Ink) -> Entity {
     let theme = cx.theme();
     let size = ink.size.unwrap_or(theme.text.body);
@@ -440,9 +432,7 @@ fn chipped(cx: &mut Cx, pieces: Vec<Piece>, ink: Ink) -> Entity {
             .size(size)
             .tone(ink.tone)
             .atoms()
-            // In a row the text is as wide as its one line wherever
-            // its words size it, as in a table's cell, and never
-            // wraps.
+            // In a row the text would never wrap, as in a table cell.
             .direction(FlexDirection::Column)
             .max_width(percent(100.0)),
     );
@@ -463,8 +453,7 @@ fn chipped(cx: &mut Cx, pieces: Vec<Piece>, ink: Ink) -> Entity {
     body
 }
 
-/// The node of each run of a rich text built with its atoms, in
-/// order.
+/// The node of each run of a rich text with atoms, in order.
 fn runs_of(world: &World, body: Entity) -> Vec<Entity> {
     world
         .get::<Children>(body)
@@ -504,10 +493,9 @@ fn code_view(cx: &Cx, lang: &str, text: &str) -> impl View {
     inset(parts)
 }
 
-/// Columns as wide as the least their cells take, a word or a chip,
-/// with the rest of the width shared in proportion to `widths`, so
-/// that the words in a cell wrap and the table never grows wider
-/// than the chat.
+/// Columns at least as wide as their widest word or chip, sharing the
+/// rest in proportion to `widths`, so the table never outgrows the
+/// chat.
 fn shared(widths: &[usize]) -> Vec<RepeatedGridTrack> {
     widths
         .iter()
@@ -521,8 +509,7 @@ fn shared(widths: &[usize]) -> Vec<RepeatedGridTrack> {
         .collect()
 }
 
-/// How wide each of `columns` is on one line, in letters: its widest
-/// cell's.
+/// The letters in each column's widest cell.
 fn column_widths(rows: &[Row], columns: usize) -> Vec<usize> {
     (0..columns)
         .map(|at| {
@@ -805,9 +792,8 @@ pub fn typed(
 /// as a view in the line does.
 pub const ATOM: char = '\u{2028}';
 
-/// On a text node [`typed_with`] draws: the words each atom in it is
-/// copied as, at the byte of the node's words it stands at, in order.
-/// An atom has no words in the text itself.
+/// The words each atom of a [`typed_with`] text is copied as, by the
+/// byte it stands at.
 #[derive(Component, Clone, Default, PartialEq, Debug)]
 pub struct AtomWords(pub Vec<(usize, String)>);
 
@@ -837,7 +823,6 @@ pub fn typed_with(
             let mut runs = Vec::new();
             // The place each run leads to, in the order of the runs.
             let mut leads = Vec::new();
-            // How far into the words each atom stands, and its words.
             let (mut at_byte, mut copies) = (0, AtomWords::default());
             for piece in anchored(cx.world, spans) {
                 let (span, anchor) = match piece {
@@ -922,8 +907,7 @@ pub fn fixed(text: &str, tone: Tone) -> impl View {
 }
 
 /// A [`fixed`] document of words given to a model, set as a page: its
-/// paths and addresses are code, since they name no file here and are
-/// read as written, and its lines stand further apart.
+/// paths and addresses are code and its lines stand further apart.
 pub fn page(text: &str, tone: Tone) -> impl View {
     let text = text.to_string();
     AnyView::new(move |cx: &mut Cx| {
@@ -932,7 +916,6 @@ pub fn page(text: &str, tone: Tone) -> impl View {
     })
 }
 
-/// `blocks` with their paths and addresses set as code.
 fn paged(mut blocks: Vec<Block>) -> Vec<Block> {
     for block in &mut blocks {
         let spans = match &mut block.kind {
@@ -977,23 +960,14 @@ fn drawn(
 
 #[cfg(test)]
 mod tests {
-    use bevy::app::App;
-    use bevy::asset::{AssetApp, AssetPlugin};
-    use bevy::camera::{
-        Camera, Camera2d, ComputedCameraValues, RenderTargetInfo,
-    };
-    use bevy::image::{Image, TextureAtlasLayout};
-    use bevy::math::UVec2;
-    use bevy::text::{TextLayoutInfo, TextPlugin};
-    use bevy::ui::{ComputedNode, UiGlobalTransform, UiPlugin};
+    use bevy::text::TextLayoutInfo;
+    use bevy::ui::{ComputedNode, UiGlobalTransform};
     use bevy_fynix::{FynixPlugin, mount};
 
     use super::*;
+    use crate::testing::ui_app;
     use crate::theme::{self, HamletTheme};
-    use crate::widgets::platform::install_fonts;
 
-    /// A chip of the address alone, so that the words in brackets
-    /// after it stay words.
     fn chip(
         _: &mut World,
         address: &str,
@@ -1012,40 +986,14 @@ mod tests {
 
     #[test]
     fn the_words_in_a_tables_cells_wrap_inside_them() {
-        let mut app = App::new();
-        app.add_plugins((
-            AssetPlugin::default(),
-            bevy::time::TimePlugin,
-            bevy::transform::TransformPlugin,
-            bevy::input::InputPlugin,
-            bevy::picking::PickingPlugin,
-            bevy::picking::InteractionPlugin,
-            TextPlugin,
-            UiPlugin,
-            FynixPlugin::<HamletTheme>::default(),
-        ))
-        .init_asset::<Image>()
-        .init_asset::<TextureAtlasLayout>()
-        .insert_resource(AgentLinks {
-            is_address: |word| word == "hire#2",
-            resolve: chip,
-            generation: 0,
-        });
-        install_fonts(app.world_mut());
+        let mut app = ui_app(1000, 1.0);
+        app.add_plugins(FynixPlugin::<HamletTheme>::default())
+            .insert_resource(AgentLinks {
+                is_address: |word| word == "hire#2",
+                resolve: chip,
+                generation: 0,
+            });
         theme::show(app.world_mut(), HamletTheme::designed());
-        app.world_mut().spawn((
-            Camera2d,
-            Camera {
-                computed: ComputedCameraValues {
-                    target_info: Some(RenderTargetInfo {
-                        physical_size: UVec2::splat(1000),
-                        scale_factor: 1.0,
-                    }),
-                    ..Default::default()
-                },
-                ..Default::default()
-            },
-        ));
         let text = "| Hire | Role |\n|---|---|\n| hire#2 (Hamlet \
                     Reorg Design) | Design for reorganizing \
                     hamlets, with words enough to wrap over two \

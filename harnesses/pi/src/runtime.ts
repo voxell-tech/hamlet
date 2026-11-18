@@ -552,8 +552,7 @@ class Runtime {
         const known = { ...bound, key, sessionId: provider.sessionId };
         this.#known.set(String(bound.conversation), known);
         this.#bySession.set(provider.sessionId, known);
-        // A generation looks its conversation's own model up before each call, so every model the endpoint's
-        // conversations were made with is listed, not only the first.
+        // Each conversation looks its own model up, so the endpoint keeps listing every one.
         const { provider: endpoint, id } = bound.model;
         if (
             endpoint !== FAUX.provider &&

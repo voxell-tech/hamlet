@@ -21,8 +21,7 @@ use super::{close, restore, stop};
 use crate::scholar_tag::ScholarTag;
 use crate::screens::terminal::{Pins, pin};
 
-/// A hire of the hamlet that is not its mayor and has not left, with
-/// its name.
+/// A living hire that is not its hamlet's mayor, with its name.
 fn plain_agent(
     world: &World,
     thing: Thing,
@@ -77,8 +76,7 @@ fn hire_under(world: &World, lead: Entity) -> Option<AnyView> {
     })
 }
 
-/// Goes to the page of the scholar of the city `agent` is of, and
-/// brings home in a dream what it learned that the scholar lacks.
+/// The items about the city scholar `agent` is of.
 fn of_scholar(world: &World, agent: Entity) -> Vec<AnyView> {
     let Some(tag) = ScholarTag::of(world, agent) else {
         return Vec::new();
@@ -100,8 +98,7 @@ fn of_scholar(world: &World, agent: Entity) -> Vec<AnyView> {
     items
 }
 
-/// Makes a scholar of the city of what the hire `agent` learned: its
-/// own scholar when it is a blank hire, else a new one.
+/// Makes a city scholar of what the hire `agent` learned.
 fn make_scholar(world: &World, agent: Entity) -> Option<AnyView> {
     let hire = world.get::<Kind>(agent).map(|kind| kind.0)
         == Some(protocol::AgentKind::Hire);
@@ -134,8 +131,7 @@ fn road(world: &World, agent: Entity) -> Option<AnyView> {
     })
 }
 
-/// Pins the log of the commands `agent` ran to the Terminal list, or
-/// lets it go, while it has one.
+/// Pins `agent`'s command log to the Terminal list, or lets it go.
 fn pin_bash(world: &World, agent: Entity) -> Option<AnyView> {
     let id = world.get::<Identity>(agent)?.0;
     let logged = world
@@ -192,8 +188,7 @@ fn for_ruin(world: &World, agent: Entity) -> Vec<AnyView> {
     items
 }
 
-/// What can be done to `agent` that its chat, which choosing it
-/// opens, has no control for.
+/// What can be done to `agent` that its chat has no control for.
 fn for_agent(
     world: &World,
     thing: Thing,
@@ -268,8 +263,7 @@ fn for_agent(
     items
 }
 
-/// What can be done to `hamlet` that its page, which choosing it
-/// opens, has no control for.
+/// What can be done to `hamlet` that its page has no control for.
 fn for_common(
     world: &World,
     hamlet: Entity,
@@ -329,8 +323,7 @@ fn for_library(thing: Thing) -> Vec<AnyView> {
     ]
 }
 
-/// Whether [`items`] holds anything for `thing`: for the Hand, only
-/// while it can be stopped.
+/// Whether [`items`] holds anything for `thing`.
 pub(super) fn has_items(world: &World, thing: Thing) -> bool {
     match (thing, agents::hand(world)) {
         (Thing::Hand, Some(hand)) => {
@@ -370,16 +363,12 @@ pub(super) fn items(
             for_chief(thing, chief)
         }
         Thing::Library => for_library(thing),
-        // Its tower stands where the city puts it: only the view
-        // moves.
-        // Choosing it opens its chat, with the rest.
+        // Its tower stays where the city puts it.
         Thing::Hand => match agents::hand(world) {
             Some(hand) => Vec::from_iter(stop_hand(world, hand)),
             None => Vec::new(),
         },
-        // A scholar's house, or the scholar waiting on the pier.
-        // Selecting it already opens its page, where it is renamed,
-        // and it is in view.
+        // Selecting it already opens its page.
         Thing::Scholar(scholar) => {
             let mut items = Vec::new();
             let housed = world

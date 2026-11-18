@@ -49,8 +49,7 @@ impl Default for Limits {
 }
 
 impl Limits {
-    /// What is wrong with these limits, in words; none when they
-    /// hold.
+    /// What is wrong with these limits, in words.
     pub fn fault(&self) -> Option<String> {
         let negative = [
             ("a road's price", self.road.price),
@@ -71,7 +70,7 @@ impl Limits {
 }
 
 impl Budget {
-    /// What is wrong with this budget, in words; none when it holds.
+    /// What is wrong with this budget, in words.
     pub fn fault(&self) -> Option<String> {
         if self.cost.is_some_and(|cost| cost < 0)
             || self.minutes.is_some_and(|minutes| minutes < 0)
@@ -145,8 +144,7 @@ pub(crate) struct Reserved {
     pub merge: bool,
 }
 
-/// How much one turn may bring to a chief: its questions, its
-/// refused requests and its review (H10, H11).
+/// How much one turn may bring to a chief (H10, H11).
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(default, rename_all = "camelCase")]
 pub(crate) struct ChiefQuestions {
@@ -243,8 +241,8 @@ pub(crate) enum Limit {
 }
 
 impl Limit {
-    /// The limit `key` of `section`, empty for a key outside every
-    /// section, set to `value`, as the Settings name it.
+    /// The limit `key` of `section`, as the Settings name it, set to
+    /// `value`.
     pub fn read(
         section: &str,
         key: &str,
@@ -356,8 +354,7 @@ impl RealmLimits {
     }
 }
 
-/// Sets `limit` of the hamlet `hamlet`, or of the realm's limits
-/// when none; `chief` is who the realm's limits are kept by.
+/// Sets `limit` of `hamlet`, or of the realm, kept by `chief`.
 pub(crate) fn set_one(
     cx: &mut Change<'_>,
     chief: ChiefId,
@@ -370,8 +367,7 @@ pub(crate) fn set_one(
     }
 }
 
-/// Replaces the limits of the hamlet `id` with what `edit` makes of
-/// them.
+/// Replaces the limits of `id` with what `edit` makes of them.
 pub(crate) fn set_hamlet(
     cx: &mut Change<'_>,
     id: &HamletId,
@@ -423,7 +419,6 @@ pub(crate) fn set_realm(
     Ok(Ok(()))
 }
 
-/// What setting the limits of `hamlet`, or the realm's, comes to.
 pub(crate) fn saved(hamlet: Option<&HamletId>) -> String {
     match hamlet {
         Some(id) => format!("The limits of `{id}` are saved."),

@@ -1,6 +1,4 @@
-//! An agent and the library (H33): a skill offered to the librarian,
-//! and a request for the skills that help. Each runs as an errand the
-//! call waits for.
+//! An agent's errands to the librarian (H33).
 
 use anyhow::Result;
 use hamlet_store::ids::Actor;

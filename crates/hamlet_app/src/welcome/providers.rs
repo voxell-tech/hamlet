@@ -62,8 +62,7 @@ pub(super) struct Login {
     prompt: Option<(String, bool)>,
     progress: String,
     pub(super) answer: String,
-    /// Whether `answer` is a key typed before the sign-in asked for
-    /// it, to be its answer once it does.
+    /// Whether `answer` was typed before the sign-in asked for it.
     held: bool,
 }
 
@@ -133,20 +132,17 @@ pub(super) fn cancel(world: &mut World) {
     }
 }
 
-/// Back to the providers after a reconnection, as a sign-in under
-/// way was lost with the old connection.
+/// Back to the providers, as a reconnection loses a sign-in.
 pub(super) fn reconnected(world: &mut World) {
     if world.resource::<Login>().start.is_some() {
         go(world, Step::Provider);
     }
 }
 
-/// The providers signed in to with a plan, offered first, in this
-/// order.
+/// The providers signed in to with a plan, offered first.
 const PLANS: [&str; 3] = ["chatgpt", "claude", "openrouter"];
 
-/// The providers that take a key offered after this computer, in
-/// this order.
+/// The key providers offered after this computer.
 const POPULAR: [&str; 4] =
     ["anthropic", "openai", "google", "deepseek"];
 
@@ -185,10 +181,7 @@ impl Way {
     }
 }
 
-/// The provider step's tiles: the plans, this computer and the
-/// popular keys first, then every other provider A to Z. With a
-/// search, only those whose name holds every word of it, best first.
-/// The server's endpoints are left to Settings.
+/// The provider step's tiles, best first under a search.
 pub(crate) fn tiles(world: &World) -> Vec<Tile> {
     let providers = &world.resource::<Providers>().0;
     let endpoints = &world.resource::<Settings>().0.endpoints;
@@ -251,8 +244,7 @@ pub(crate) fn tiles(world: &World) -> Vec<Tile> {
     found.into_iter().map(|(_, shown)| shown).collect()
 }
 
-/// How well `name` answers every word of `search`, best lowest; none
-/// when a word is not in it.
+/// How well `name` holds every word of `search`, best lowest.
 fn rank(name: &str, search: &str) -> Option<usize> {
     let name = name.to_lowercase();
     search.split_whitespace().try_fold(0, |sum, word| {
@@ -274,8 +266,7 @@ fn keyed_provider(world: &World) -> Option<String> {
     world.resource::<Login>().provider.clone()
 }
 
-/// Shows every provider, narrowed to those `text` finds, picking the
-/// first found when the one picked is not.
+/// Narrows the providers to those `text` finds.
 pub fn search(world: &mut World, text: &str) {
     let mut welcome = world.resource_mut::<Welcome>();
     welcome.more = true;
@@ -299,8 +290,7 @@ pub fn search(world: &mut World, text: &str) {
     }
 }
 
-/// Goes on with the provider `id`: a sign-in when it has one, else
-/// the page for its key.
+/// Signs in to the provider `id`, else asks for its key.
 pub(super) fn proceed(world: &mut World, id: &str) {
     let Some(provider) = world
         .resource::<Providers>()
@@ -345,8 +335,7 @@ fn keyed_too(world: &World) -> Option<protocol::ProviderView> {
         .cloned()
 }
 
-/// Starts a sign-in with the chosen provider that answers its prompt
-/// with the key typed.
+/// Starts a sign-in answered with the key typed.
 fn send_key(world: &mut World) {
     let answer = world.resource::<Login>().answer.clone();
     let Some(provider) = keyed_provider(world) else {
@@ -562,10 +551,7 @@ fn prompt() -> AnyView {
     .boxed()
 }
 
-/// The page for the key of the provider picked: its mark and name,
-/// where it hands keys out, the field the key is pasted in, why the
-/// last try failed under it, and the button that sends it once it is
-/// typed.
+/// The page for the picked provider's key.
 pub(super) fn key_page() -> AnyView {
     let named = keyed(
         derived(|world: &World| {
@@ -647,8 +633,7 @@ pub(super) fn key_page() -> AnyView {
     )
 }
 
-/// Where the provider `id` hands out keys: the address as shown, and
-/// as opened.
+/// Where the provider `id` hands out keys, as shown and as opened.
 fn keys_at(id: &str) -> Option<(&'static str, &'static str)> {
     Some(match id {
         "openrouter" => {
@@ -732,9 +717,8 @@ pub(super) fn focus_key(
     }
 }
 
-/// Holds back the button that sends a key while its field, as it is
-/// typed in, is empty or still holds the key that was refused, and
-/// marks the field [`Refused`] until it is changed.
+/// Holds the send button while the field is empty or holds a refused
+/// key.
 pub(super) fn hold_send(
     mut commands: Commands,
     sends: Query<(Entity, Has<InteractionDisabled>), With<KeySend>>,
@@ -785,8 +769,7 @@ pub(super) fn hold_send(
     }
 }
 
-/// A sign-in address on one line, cut where it runs past the card,
-/// with the ways to open it again and to copy it.
+/// A sign-in address on one line, with ways to open and copy it.
 fn address(url: &str) -> AnyView {
     let (opened, copied) = (url.to_string(), url.to_string());
     let open = is_browsable(url).then(|| {

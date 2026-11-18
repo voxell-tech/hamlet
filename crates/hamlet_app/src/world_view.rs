@@ -1,5 +1,4 @@
-//! The world in the window: the 3D scene drawn into a dock panel, the
-//! sky's hour.
+//! The 3D world drawn into a dock panel, and the sky's hour.
 
 use bevy::app::{App, PostUpdate, PreUpdate, Update};
 use bevy::asset::{Assets, RenderAssetUsages};
@@ -100,8 +99,7 @@ pub(crate) struct WorldCam(Entity);
 #[derive(Component)]
 pub(crate) struct WorldPanel;
 
-/// The sky following the clock, or held at day, at night or at an
-/// hour.
+/// The sky following the clock, or held at an hour.
 #[derive(
     Resource,
     Clone,
@@ -152,18 +150,15 @@ pub(crate) struct NorthTarget(pub(crate) f32);
 #[derive(Resource, Default)]
 pub(crate) struct Gliding(bool);
 
-/// The share of what is left that the sky closes each second, as the
-/// rate of its fall.
+/// The share of what is left that the sky closes each second.
 const GLIDE: f32 = 4.0;
 
-/// The way from `from` to `to` round a circle of `whole`, the short
-/// way, clockwise positive.
+/// The short way from `from` to `to` round a circle of `whole`.
 fn way(from: f32, to: f32, whole: f32) -> f32 {
     (to - from + whole / 2.0).rem_euclid(whole) - whole / 2.0
 }
 
-/// Moves the sky's hour and north toward the ones chosen, the short
-/// way round. The first frame puts them there at once.
+/// Moves the sky's hour and north toward the ones chosen.
 pub(crate) fn glide_sky(
     time: Res<Time>,
     (chosen, set, sky): (Res<TimeOfDay>, Res<SkySettings>, Res<Sky>),
@@ -217,9 +212,7 @@ pub(crate) fn attach(world: &mut World) {
     else {
         return;
     };
-    // A UI pixel is `scale` texture pixels, so the camera's viewport
-    // is measured in the same units as the panel and labels
-    // placed over the scene line up.
+    // A UI pixel is `scale` texture pixels, so labels line up.
     let scale = world
         .query_filtered::<&Window, With<PrimaryWindow>>()
         .iter(world)
@@ -247,8 +240,7 @@ pub(crate) fn attach(world: &mut World) {
     world.insert_resource(WorldCam(camera));
 }
 
-/// Keeps the world's picture at the window's pixel scale, which
-/// changes when the window moves to a display of another density.
+/// Keeps the world's picture at the window's pixel scale.
 pub(crate) fn follow_scale(
     window: Single<&Window, With<PrimaryWindow>>,
     mut target: Single<&mut RenderTarget, With<WorldCamera>>,
@@ -265,10 +257,8 @@ pub(crate) fn follow_scale(
     }
 }
 
-/// Keeps the world's picture no larger than the window. Bevy sizes it
-/// from the panel's layout, and a minimized window on Windows lays
-/// the panel out at a size far past what the GPU allows, which fails
-/// the bloom texture and every pass after it.
+/// Keeps the world's picture no larger than the window, which a
+/// minimized window on Windows lays out past the GPU's limits.
 pub(crate) fn cap_picture(
     window: Single<&Window, With<PrimaryWindow>>,
     target: Single<&RenderTarget, With<WorldCamera>>,
@@ -291,10 +281,8 @@ pub(crate) fn cap_picture(
     }
 }
 
-/// Gives the pointer forwarded into the world panel the camera's own
-/// target. Bevy forwards it as if the picture's scale were one, which
-/// names a target no camera has, and nothing in the world could be
-/// hit.
+/// Gives the pointer forwarded into the world the camera's own
+/// target, which Bevy names as if the picture's scale were one.
 pub(crate) fn match_pointer_target(
     window: Query<Entity, With<PrimaryWindow>>,
     cameras: Query<&RenderTarget, With<WorldCamera>>,
@@ -324,14 +312,11 @@ pub(crate) fn match_pointer_target(
     }
 }
 
-/// The panel: an ordinary frame whose node shows the world camera's
-/// picture.
+/// The panel showing the world camera's picture.
 pub fn view() -> impl View {
     built(|cx| {
         let camera = cx.world.get_resource::<WorldCam>().map(|c| c.0);
-        // The tags, signs and balloons hang off this node at the
-        // camera's viewport coordinates, so one that runs past the
-        // panel is cut here.
+        // Labels hang off this node, so one past the panel is cut.
         let panel = frame()
             .fills_width()
             .min_height(px(0.0))
@@ -347,8 +332,7 @@ pub fn view() -> impl View {
     })
 }
 
-/// Hangs every label placed in the camera's viewport off the panel
-/// that shows it.
+/// Hangs every label in the camera's viewport off the world panel.
 pub(crate) fn adopt_tags(
     mut commands: Commands,
     panel: Query<Entity, With<WorldPanel>>,
@@ -364,8 +348,7 @@ pub(crate) fn adopt_tags(
     >,
     mut away: Local<Option<Entity>>,
 ) {
-    // With no panel to hang off, they are put away where nothing is
-    // drawn.
+    // With no panel, they are put where nothing is drawn.
     let panel = panel.iter().next().unwrap_or_else(|| {
         *away.get_or_insert_with(|| {
             commands
@@ -383,8 +366,7 @@ pub(crate) fn adopt_tags(
     }
 }
 
-/// The sky's night state, at the hour the sky is at, not the one it
-/// glides to, so the two never disagree.
+/// The sky's night state at the hour the sky is at.
 pub(crate) fn drive(
     hour: Res<Hour>,
     sky_set: Res<SkySettings>,
@@ -396,8 +378,7 @@ pub(crate) fn drive(
     }
 }
 
-/// Draws every frame while something moves, and at the window's slow
-/// tick otherwise.
+/// Draws every frame while something moves, else at the slow tick.
 pub(crate) fn pace(
     busy: Query<(), With<Busy>>,
     waiting: Query<(), With<Waiting>>,

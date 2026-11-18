@@ -1,7 +1,4 @@
-//! Whether a final answer stands (C28): one with neither words nor a
-//! call fails its turn, and one cut off for room is summarised and
-//! tried again once. A failed answer in a chief's chat waits for the
-//! chief as a fault.
+//! Whether a final answer stands (C28).
 
 use anyhow::Result;
 use diesel::prelude::*;

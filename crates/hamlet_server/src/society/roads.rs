@@ -1,5 +1,4 @@
-//! Roads, along which agents send notifications and requests (H3,
-//! H14, H30): the tree's, the mayors', and those laid or agreed.
+//! Roads, along which agents send messages (H3, H14, H30).
 
 use anyhow::Result;
 use diesel::deserialize::FromSqlRow;
@@ -310,8 +309,7 @@ fn charge(
     Ok(())
 }
 
-/// Takes up the laid or agreed road between `a` and `b`. What it cost
-/// is not given back.
+/// Takes up the laid or agreed road between `a` and `b`.
 pub(crate) fn take_up(
     cx: &mut Change<'_>,
     a: AgentId,
@@ -351,9 +349,8 @@ pub(crate) enum Agreed {
     Laid(RoadId),
 }
 
-/// Keeps the agreement of `mayor` to a road between hires `a` and `b`
-/// of different hamlets, one of them its own, and lays the road once
-/// the other hamlet's mayor agreed too (H14).
+/// Keeps the agreement of `mayor` to a road between hires of two
+/// hamlets, laid once both mayors agree (H14).
 pub(crate) fn agree(
     cx: &mut Change<'_>,
     mayor: AgentId,

@@ -1,9 +1,5 @@
-//! The chat's rows drawn where they settle in the frame they are laid
-//! out. The list places its rows from the heights it measured the
-//! frame before, so a row that grows or is built would show cut to
-//! its old height, or at its estimate, with the view a frame behind:
-//! after layout, each row is shown whole and the view is kept at the
-//! end it follows, or on the row it shows first.
+//! Draws the chat's rows at their new heights in the frame they
+//! change.
 
 use bevy::app::{App, PostUpdate};
 use bevy::ecs::entity::Entity;
@@ -16,6 +12,7 @@ use bevy::ui::{
     ComputedNode, IgnoreScroll, UiGlobalTransform, UiSystems,
 };
 use bevy_fynix::views::VirtualList;
+use hamlet_ui::widgets::shift;
 
 use super::ChatScroll;
 
@@ -38,9 +35,8 @@ struct Laid {
     whole: f32,
 }
 
-/// Moves the chat's rows, and the view over them, to where the list
-/// puts them in the next frame, from the heights laid out in this
-/// one.
+/// Moves the rows and the view to where the list puts them next
+/// frame.
 fn settle(
     lists: Query<
         (Entity, &VirtualList, &ComputedNode, &Children),
@@ -93,8 +89,7 @@ fn settle(
         let furthest = (area.content_size.y + grown - seen).max(0.0);
         let moved = match list.is_following() {
             true => furthest.floor() - scrolled,
-            // The first row that shows keeps its place, as the rows
-            // above it grow.
+            // The first row shown keeps its place as rows above grow.
             false => {
                 let above = rows
                     .iter()
@@ -127,25 +122,6 @@ fn settle(
                 }
             }
             pushed += row.whole - row.given;
-        }
-    }
-}
-
-/// Moves the node `at` and all inside it by `by`.
-fn shift(
-    at: Entity,
-    by: Vec2,
-    transforms: &mut Query<&mut UiGlobalTransform>,
-    inside: &Query<&Children>,
-) {
-    if let Ok(mut transform) = transforms.get_mut(at) {
-        let mut moved = Affine2::from(*transform);
-        moved.translation += by;
-        *transform = moved.into();
-    }
-    if let Ok(kids) = inside.get(at) {
-        for &kid in kids {
-            shift(kid, by, transforms, inside);
         }
     }
 }
@@ -183,8 +159,7 @@ mod tests {
          between mayors: none.\n\nThe mayor can ask each hire how \
          far along it is.";
 
-    /// The top and bottom of the rows drawn in the chat and of its
-    /// view, in that order.
+    /// The top and bottom of each row drawn, and of the view.
     fn drawn(world: &mut World) -> (Vec<(f32, f32)>, (f32, f32)) {
         let (list, area, kids) = world
             .query_filtered::<(Entity, &ComputedNode, &Children), With<ChatScroll>>()

@@ -144,7 +144,6 @@ pub fn plugin(app: &mut App) {
 /// A chief's typed line addressed to an agent.
 #[derive(Event, Clone, Debug)]
 pub struct ChiefMessage {
-    /// The id of the `say` request, which its reply is to.
     pub request: RequestId,
     pub to: protocol::AgentId,
     pub text: String,
@@ -192,7 +191,7 @@ pub struct Veto {
     pub agent: Option<Entity>,
 }
 
-/// A request that a stopped agent take what waits for it again.
+/// A request to end a stop's hold on an agent.
 #[derive(Event, Clone, Debug)]
 pub struct Resume {
     pub request: RequestId,
@@ -208,8 +207,7 @@ pub struct Rewind {
     pub item: String,
 }
 
-/// A request to summarize the earlier part of an agent's
-/// conversation now.
+/// A request to compact an agent's conversation now.
 #[derive(Event, Clone, Debug)]
 pub struct Compact {
     pub request: RequestId,

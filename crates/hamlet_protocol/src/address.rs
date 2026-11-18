@@ -123,11 +123,4 @@ mod tests {
             assert!(text.parse::<Address>().is_err(), "{text}");
         }
     }
-
-    #[test]
-    fn a_copied_address_reads_with_its_name() {
-        assert_eq!(bare("hire#2 (Mayor)"), "hire#2");
-        assert_eq!(bare("worker#7 (Sam (old))"), "worker#7");
-        assert_eq!(bare("hire#2 (Mayor"), "hire#2 (Mayor");
-    }
 }

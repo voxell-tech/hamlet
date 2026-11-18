@@ -1,5 +1,4 @@
-//! The loop's answers to client messages: the hello, a chief's lines
-//! and commands, watching conversations, and a chat's deeds.
+//! The loop's answers to client messages.
 
 use std::collections::BTreeMap;
 
@@ -23,7 +22,7 @@ use crate::conversations::{
     self, QUEUED, chats, imports, items, models,
 };
 use crate::core::{Core, Live};
-use crate::realm::change::Done;
+use crate::realm::change::{Done, done};
 use crate::society::agents::Effort;
 use crate::society::authority;
 use crate::society::refusal::Refusal;
@@ -35,8 +34,7 @@ pub(crate) const COMPACTING: &str =
 /// The most transcript entries one page holds.
 const PAGE: usize = 100;
 
-/// A connection went: the sign-ins its client began end with it. Its
-/// uploads go with its entity.
+/// Ends the sign-ins a client began once its connection goes.
 pub(crate) fn left(
     gone: On<Remove<Connection>>,
     mut core: Core,
@@ -153,9 +151,7 @@ impl Core<'_, '_> {
         Ok(())
     }
 
-    /// A chief's line to an agent, with the images and files it
-    /// carries, kept for the agent; its reply is owed once the agent
-    /// is done with it.
+    /// Keeps a chief's line to an agent.
     pub(crate) fn say(
         &mut self,
         client: u64,
@@ -216,9 +212,8 @@ impl Core<'_, '_> {
         Ok(COMPACTING.into())
     }
 
-    /// Takes the chief's line shown as the queued `item` back out of
-    /// `agent`'s queue; the line's own `say` is answered as if it
-    /// ended.
+    /// Takes the chief's queued line `item` back out of `agent`'s
+    /// queue.
     pub(crate) fn withdraw_line(
         &mut self,
         agent: AgentId,
@@ -287,10 +282,7 @@ impl Core<'_, '_> {
         }
         let mut conversations = Vec::new();
         for file in &project.files {
-            match imports::read(&files, file)? {
-                Ok(imported) => conversations.push(imported),
-                Err(refusal) => return Ok(Err(refusal)),
-            }
+            conversations.push(done!(imports::read(&files, file)));
         }
         let wanted = imports::Project {
             name: &project.name,
@@ -332,8 +324,8 @@ impl Core<'_, '_> {
         Ok(format!("Stopped {stopped} running turns."))
     }
 
-    /// Takes the chief's chat with `agent` back to before its line
-    /// `item`, giving back what the line said and carried.
+    /// Rewinds `agent`'s conversation to before the chief's line
+    /// `item`.
     pub(crate) fn rewind_chat(
         &mut self,
         agent: AgentId,
@@ -376,8 +368,6 @@ impl Core<'_, '_> {
         }
     }
 
-    /// The check that `agent` runs a model, as it does once the chief
-    /// set one up.
     pub(crate) fn has_model(
         &mut self,
         agent: AgentId,

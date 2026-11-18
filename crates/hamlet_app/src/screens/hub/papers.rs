@@ -20,8 +20,7 @@ use crate::convo::Convo;
 /// The text a new memory file starts with in the editor.
 const NEW_FILE: &str = "---\ndescription: \n---\n\n";
 
-/// The memory, character and skills received for the agent or the
-/// scholar the Hub shows.
+/// The memory, character and skills of whoever the Hub shows.
 #[derive(Resource, Default, PartialEq)]
 pub struct Papers {
     pub(super) memory: Vec<protocol::MemoryFile>,
@@ -69,8 +68,7 @@ pub(super) fn selected(world: &World) -> Option<protocol::AgentId> {
     id_of(world, world.resource::<Convo>().agent)
 }
 
-/// Whose papers the Hub shows: a scholar's on its page, otherwise
-/// those of the agent the chat is with.
+/// Whose papers the Hub shows: a scholar's, else the chat agent's.
 pub(super) fn keeper(world: &World) -> Option<protocol::Keeper> {
     if let Some(&Showing::Scholar(scholar)) =
         world.get_resource::<Showing>()
@@ -223,8 +221,7 @@ pub(super) fn remove_memory(world: &mut World, path: String) {
         .insert(id, Request::Remove(of));
 }
 
-/// Opens `text` in the editor as the document of `target`, which
-/// the Hub showed as `shown`.
+/// Opens `text` in the editor as the document of `target`.
 fn open_document(
     world: &mut World,
     shown: protocol::Keeper,

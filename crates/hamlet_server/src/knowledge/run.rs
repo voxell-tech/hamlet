@@ -16,10 +16,8 @@ use crate::society::{city, hires, library as shelf};
 /// The longest a failed job waits before it runs again.
 const MOST_WAIT: i64 = 300_000;
 
-/// Runs every job due at `now`, once each and each holding `writing`,
-/// returning those done. A job that fails, panics or cannot be read
-/// runs again later, waiting longer each time, and the jobs after it
-/// still run.
+/// Runs every job due at `now`, each holding `writing`, returning
+/// those done.
 pub(crate) fn due(
     db: &mut Db,
     layout: &Layout,
@@ -125,8 +123,8 @@ pub(crate) fn run(
     }
 }
 
-/// Shelves the skill of `offer`, which the librarian took, once, and
-/// takes it out of the offerer's lodge while it is as offered.
+/// Shelves the skill of `offer` once, and takes it out of the
+/// offerer's lodge while it is as offered.
 fn shelve(
     db: &mut Db,
     layout: &Layout,

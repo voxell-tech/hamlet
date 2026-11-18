@@ -440,10 +440,7 @@ function servedModel(
     return compatibleModel(ref.provider, ref.id, ref.baseUrl);
 }
 
-/**
- * A provider whose calls use only the server's per-attempt model and credential. It lists `ref` after the models it
- * `keeps`, which are those of the endpoint's conversations already known, so each can still be found by its own model.
- */
+/** A provider whose calls use only the server's per-attempt model and credential, listing `keeps` and then `ref`. */
 export function modelProvider(
     ref: ModelRef,
     gate: Gate,

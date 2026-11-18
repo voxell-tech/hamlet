@@ -24,7 +24,6 @@ use hamlet_realm::sky::{
     DistanceFogSettings, Quality, VolumetricFogSettings,
 };
 use hamlet_realm::sound::SoundSettings;
-use hamlet_ui::markdown::{Block, Kind, Span, Style};
 use hamlet_ui::theme::{self, HamletTheme, ThemeChanged};
 use hamlet_vfx::wind::WindChoice;
 use image::{ImageFormat, RgbaImage};
@@ -38,8 +37,7 @@ use crate::welcome::Browser;
 use crate::world_menu::Favorites;
 use crate::world_view::{NorthTarget, TimeOfDay};
 
-/// A window's panels on the received fixture state: the chat's
-/// agent, the roll and the asking, with no page of first-run setup.
+/// A window's panels on the fixture state, with no first-run setup.
 pub(crate) fn panel_app() -> App {
     let mut app = App::new();
     app.add_plugins((
@@ -64,9 +62,6 @@ pub(crate) fn panel_app() -> App {
     app
 }
 
-/// Points the chat at the fixture's mayor `hire#2`, who lives in
-/// the first hamlet, and returns it.
-/// Points the chat at the Hand and returns it.
 pub(crate) fn seat_hand(app: &mut App) -> Entity {
     let hand =
         hamlet_client::realm::named(app.world_mut(), "hand").unwrap();
@@ -81,9 +76,7 @@ pub(crate) fn seat_ada(app: &mut App) -> Entity {
     ada
 }
 
-/// First-run setup with input and the secret prompt, and a browser
-/// that fails the test if anything opens it. Nothing is received
-/// until [`connect`].
+/// First-run setup with a browser that fails the test if opened.
 pub(crate) fn welcome_app() -> App {
     let mut app = App::new();
     app.add_plugins((
@@ -104,8 +97,8 @@ pub(crate) fn welcome_app() -> App {
     app
 }
 
-/// Connects and receives the fixture state, its settings unset or
-/// not, and runs the update the pages follow it in.
+/// Connects and receives the fixture state, its settings `unset` or
+/// not.
 pub(crate) fn connect(app: &mut App, unset: bool) {
     let mut state = hamlet_testing::realm::state();
     state.settings.unset = unset;
@@ -129,8 +122,7 @@ pub(crate) fn settings_page(pane: Pane) -> App {
     app
 }
 
-/// Writes the view into `folder` as the window does, with every
-/// choice it keeps at its default. The app keeps its own `Time`.
+/// Writes the view into `folder` as the window does.
 pub(crate) fn keeping(app: &mut App, folder: PathBuf) {
     app.insert_resource(ViewFolder(folder))
         .init_resource::<Selected>()
@@ -189,8 +181,7 @@ pub(crate) fn words_and_spans(app: &mut App) -> Vec<String> {
     shown
 }
 
-/// The control of kind `T` beside the label that says `name`: the
-/// first found under the label's parent.
+/// The control of kind `T` beside the label `name`.
 pub(crate) fn control<T: Component>(
     app: &mut App,
     name: &str,
@@ -215,8 +206,7 @@ pub(crate) fn control<T: Component>(
     panic!("no control under {name}");
 }
 
-/// Activates the first button or menu item whose label says `text`,
-/// with no frame run after.
+/// Activates the first button or menu item labelled `text`.
 pub(crate) fn press(app: &mut App, text: &str) {
     let world = app.world_mut();
     let entity = world
@@ -244,8 +234,7 @@ pub(crate) fn press_and_update(app: &mut App, text: &str) {
     app.update();
 }
 
-/// Takes what the window has sent the server since it was last
-/// taken, as JSON.
+/// Takes what the window sent since last taken, as JSON.
 pub(crate) fn sent(app: &mut App) -> Vec<serde_json::Value> {
     app.world_mut()
         .resource_mut::<Outbox>()
@@ -254,9 +243,7 @@ pub(crate) fn sent(app: &mut App) -> Vec<serde_json::Value> {
         .collect()
 }
 
-/// Takes the requests the window has sent since they were last
-/// taken, as JSON with no `id`, after checking each has one; chats
-/// it opened are left out.
+/// Takes the requests sent since last taken, as JSON without `id`.
 pub(crate) fn requests(app: &mut App) -> Vec<serde_json::Value> {
     app.world_mut()
         .resource_mut::<Outbox>()
@@ -275,30 +262,10 @@ pub(crate) fn requests(app: &mut App) -> Vec<serde_json::Value> {
         .collect()
 }
 
-/// Receives the server message `value` and runs the update the
-/// pages follow it in.
+/// Receives the server message `value` and settles.
 pub(crate) fn incoming(app: &mut App, value: serde_json::Value) {
     receive(app.world_mut(), serde_json::from_value(value).unwrap());
     settle(app);
-}
-
-/// One span of `text` in no style and with no link.
-pub(crate) fn plain(text: &str) -> Span {
-    Span {
-        text: text.into(),
-        style: Style::default(),
-        link: None,
-    }
-}
-
-/// A block of `kind` outside any quote or list.
-pub(crate) fn top(kind: Kind) -> Block {
-    Block {
-        quote: 0,
-        indent: 0,
-        marker: None,
-        kind,
-    }
 }
 
 /// A PNG of `size`, one colour all over.

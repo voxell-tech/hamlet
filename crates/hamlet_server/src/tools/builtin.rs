@@ -1,6 +1,4 @@
-//! The tools every agent works with, whether or not its hamlet works
-//! on a folder (C16): `read`, `write`, `edit`, a shell, `search` and
-//! `find`.
+//! The tools every agent works with (C16).
 
 mod diff;
 mod environment;
@@ -313,7 +311,7 @@ fn object(value: Value) -> BTreeMap<String, Value> {
 }
 
 /// An agent's tools: on this machine under the sandbox, or in a
-/// remote workspace, which never falls back to this machine.
+/// remote workspace.
 pub(crate) enum ToolSession {
     Local {
         place: Place,
@@ -649,9 +647,6 @@ fn scrub(secrets: &[String], outcome: &mut Outcome) {
 }
 
 /// The environment of an agent's tools, under the sandbox (S12, C18).
-/// It works in the folder, or in the lodge when there is none; writes
-/// the lodge and the folder; reads the shared folders; and never
-/// reads the rest of the realm. The lodge is made first if missing.
 pub(crate) fn environment(
     sandbox: &Sandbox,
     place: &Place,
@@ -685,10 +680,8 @@ pub(crate) fn environment(
     Env::new(&text(cwd), policy, *sandbox)
 }
 
-/// The full path a tool's `path` names (C20). A full path stays as it
-/// is. A relative one is the folder's, unless `own`: only the lodge
-/// has its first part, as with `memory/`, `skills/` and `inbox/`.
-/// With no folder it is the lodge's.
+/// The full path a tool's `path` names (C20): a relative one is the
+/// folder's, else the lodge's when only the lodge has its first part.
 fn footing(
     path: &str,
     lodge: &str,

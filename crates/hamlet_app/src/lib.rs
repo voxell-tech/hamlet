@@ -1,6 +1,4 @@
-//! The window (I4): the world, the dock of panels around it, the top
-//! bar and its menus, the foot and the pointer, on the client's
-//! state and built from the widgets of `hamlet_ui`.
+//! The window (I4): the world and the panels around it.
 
 mod age;
 pub mod appearance;
@@ -71,25 +69,18 @@ pub use self::screens::{
 pub use self::status::Bar;
 pub use self::window::window_plugin;
 
-/// The panels' steps before fynix mounts the views, in order, after
-/// this frame's server frames, input and clicks. They run in
-/// `PreUpdate`: fynix mounts in `Update`, in sets the vendored crate
-/// keeps private and that stay so, and only an earlier schedule can
-/// come before them.
+/// The panels' steps before fynix mounts the views.
 #[derive(SystemSet, Debug, Clone, PartialEq, Eq, Hash)]
 pub enum PanelSystems {
-    /// The panels' state follows what was received, clicked or set:
-    /// the chat's agent, the selection, the setup and the models.
+    /// The panels' state follows what was received or clicked.
     Follow,
-    /// The values the views read, worked out from what was received
-    /// and from what Follow set: the roll, the status bar's words and
-    /// the question on show.
+    /// The values the views read, worked out from Follow's.
     Bind,
 }
 
-/// Orders [`PanelSystems`].
 pub(crate) fn panel_sets(app: &mut App) {
     app.configure_sets(
+        // fynix mounts in `Update`, in sets it keeps private.
         PreUpdate,
         (PanelSystems::Follow, PanelSystems::Bind)
             .chain()
@@ -99,11 +90,7 @@ pub(crate) fn panel_sets(app: &mut App) {
     );
 }
 
-/// The app's panels, added after the client's plugin, a
-/// [`hamlet_client::ViewFolder`] with the [`Remembered`] view and the
-/// chiefs' [`hamlet_realm::chief::Kept`] files read from it, the
-/// world's plugin and Bevy's default plugins set with
-/// [`window_plugin`].
+/// The app's panels.
 pub struct UiPlugin;
 
 impl Plugin for UiPlugin {
@@ -151,8 +138,7 @@ impl Plugin for UiPlugin {
                 sounds::plugin,
             ),
         ))
-        // The world panel shows the world's camera, which the world
-        // has spawned by now.
+        // The world has spawned its camera by now.
         .add_systems(
             OnEnter(ThemeState::Ready),
             (world_view::attach, dock::seed, root::mount).chain(),
@@ -275,8 +261,7 @@ mod tests {
                     .unwrap_or_default()
             })),
         );
-        // Read before the first update, in which the client connects
-        // and the frame may already arrive.
+        // The frame may arrive in the first update.
         let before = *app.world().resource::<Roll>();
         app.update();
         // One wake for the connection, one for the state.

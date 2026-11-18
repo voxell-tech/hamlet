@@ -241,7 +241,7 @@ async fn notifications_requests_and_responses_share_one_conversation_and_request
                         json!({"to": "hire#3", "text": "Hello cy"}),
                     ),
                     words("Told."),
-                    // The form "Copy Agent ID" puts on the clipboard.
+                    // As "Copy Agent ID" copies it.
                     call(
                         "request",
                         json!({"to": "hire#3 (cy)", "text": "Which colour?"}),
@@ -282,8 +282,7 @@ async fn notifications_requests_and_responses_share_one_conversation_and_request
     assert_eq!(notification.from, Some(ada));
     assert_eq!(notification.chief, None);
 
-    // ada's turn ends while cy, taking the request up, asks the
-    // chief from its turn.
+    // ada's turn ends while cy asks the chief.
     s.chief.tell(ada, "Ask cy a question.").await;
     s.chief.shows(&now, "Asked cy.").await;
     let asked = s

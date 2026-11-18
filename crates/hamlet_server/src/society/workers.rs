@@ -1,5 +1,4 @@
-//! Workers: short-lived agents anyone starts for one task, each a
-//! child of whoever started it.
+//! Workers: short-lived agents started for one task.
 
 use anyhow::{Context, Result};
 use diesel::prelude::*;
@@ -10,7 +9,7 @@ use hamlet_store::schema::{agent, worker};
 use super::agents::{self, AgentKind, EndHow};
 use super::hires;
 use super::refusal::Refusal;
-use crate::realm::change::{Change, Done, done, refuse};
+use crate::realm::change::{Change, Done, checked, done, refuse};
 
 /// Who starts a worker.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -132,10 +131,7 @@ pub(crate) fn set_nickname(
 ) -> Done<()> {
     let was = get(cx.db, id)?.nickname;
     done!(hires::require_living(cx.db, id));
-    let nickname = match hires::check_nickname(nickname) {
-        Ok(nickname) => nickname,
-        Err(refusal) => refuse!(refusal),
-    };
+    let nickname = checked!(hires::check_nickname(nickname));
     diesel::update(worker::table.find(id))
         .set(worker::nickname.eq(nickname))
         .execute(cx.db)?;
