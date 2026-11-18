@@ -411,6 +411,7 @@ fn earlier_of(
                 text: text.clone(),
             },
             ImportedEntry::Assistant { at, text } => {
+                time(*at)?;
                 Earlier::Assistant {
                     at: *at,
                     model: model.to_owned(),
@@ -433,6 +434,11 @@ fn earlier_of(
     Ok(earlier)
 }
 
+/// An imported time, refused past the year 9999 as the clock does.
 fn time(at: u64) -> Result<i64> {
-    i64::try_from(at).context("a time past the year 292 million")
+    let at =
+        i64::try_from(at).context("a time past the year 9999")?;
+    jiff::Timestamp::from_millisecond(at)
+        .context("a time past the year 9999")?;
+    Ok(at)
 }

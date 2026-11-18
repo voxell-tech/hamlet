@@ -2303,17 +2303,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "chrono"
-version = "0.4.45"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "1aa79e62e7697b8e29b513a68abacf485adcd1fe8284a4316c5ae868e6633327"
-dependencies = [
- "iana-time-zone",
- "num-traits",
- "windows-link",
-]
-
-[[package]]
 name = "clipboard-win"
 version = "5.4.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -4407,7 +4396,6 @@ dependencies = [
  "bevy",
  "bevy_app",
  "bevy_fynix",
- "chrono",
  "hamlet_assets",
  "hamlet_client",
  "hamlet_desktop",
@@ -4419,6 +4407,7 @@ dependencies = [
  "hamlet_update",
  "hamlet_vfx",
  "image",
+ "jiff",
  "parley",
  "pulldown-cmark",
  "reqwest",
@@ -4451,11 +4440,11 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "base64 0.22.1",
- "chrono",
  "futures",
  "hamlet_import",
  "hamlet_protocol",
  "hamlet_update",
+ "jiff",
  "rfd",
  "rustix 1.1.6",
  "serde",
@@ -4529,8 +4518,8 @@ name = "hamlet_import"
 version = "0.1.0"
 dependencies = [
  "anyhow",
- "chrono",
  "hamlet_protocol",
+ "jiff",
  "serde_json",
  "zip",
 ]
@@ -4567,12 +4556,12 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "bevy",
- "chrono",
  "hamlet_assets",
  "hamlet_client",
  "hamlet_protocol",
  "hamlet_testing",
  "hamlet_vfx",
+ "jiff",
  "serde",
  "serde_json",
  "tokio",
@@ -4605,7 +4594,6 @@ dependencies = [
  "bevy_ecs",
  "bevy_log",
  "bevy_state",
- "chrono",
  "diesel",
  "futures",
  "hamlet_acceptance",
@@ -4618,6 +4606,7 @@ dependencies = [
  "hamlet_workspace_wire",
  "image",
  "interprocess",
+ "jiff",
  "jsonschema",
  "notify",
  "regex",
@@ -4954,30 +4943,6 @@ dependencies = [
  "tokio",
  "tower-service",
  "tracing",
-]
-
-[[package]]
-name = "iana-time-zone"
-version = "0.1.65"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "e31bc9ad994ba00e440a8aa5c9ef0ec67d5cb5e5cb0cc7f8b744a35b389cc470"
-dependencies = [
- "android_system_properties",
- "core-foundation-sys",
- "iana-time-zone-haiku",
- "js-sys",
- "log",
- "wasm-bindgen",
- "windows-core",
-]
-
-[[package]]
-name = "iana-time-zone-haiku"
-version = "0.1.2"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "f31827a206f56af32e590ba56d5d2d085f558508192593743f16b2306495269f"
-dependencies = [
- "cc",
 ]
 
 [[package]]

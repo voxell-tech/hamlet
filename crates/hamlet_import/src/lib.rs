@@ -476,9 +476,8 @@ fn listing<T>(
 
 /// An RFC 3339 time in milliseconds since the epoch.
 fn time(stamp: &Value) -> Option<u64> {
-    let stamp =
-        chrono::DateTime::parse_from_rfc3339(stamp.as_str()?).ok()?;
-    u64::try_from(stamp.timestamp_millis()).ok()
+    let stamp = stamp.as_str()?.parse::<jiff::Timestamp>().ok()?;
+    u64::try_from(stamp.as_millisecond()).ok()
 }
 
 /// The modified time of `path`.

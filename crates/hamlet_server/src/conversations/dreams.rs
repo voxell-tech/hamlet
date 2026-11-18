@@ -5,7 +5,6 @@
 //! `main`.
 
 use anyhow::Result;
-use chrono::Timelike;
 use hamlet_git::{MAIN, Repository};
 use hamlet_store::ids::{Actor, AgentId, DreamId, ScholarId};
 
@@ -53,9 +52,10 @@ impl Core<'_, '_> {
         if !dreams.on {
             return Ok(());
         }
-        let hour =
+        let hour = u32::try_from(
             crate::app::clock::local(crate::app::clock::now())?
-                .hour();
+                .hour(),
+        )?;
         let (from, to) =
             (u32::from(dreams.hours.0), u32::from(dreams.hours.1));
         let in_hours = if from <= to {

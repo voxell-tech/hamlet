@@ -1,6 +1,8 @@
 //! How long ago something happened, as a person reads it.
 
-use chrono::{DateTime, Datelike, Local, NaiveDate};
+use jiff::Timestamp;
+use jiff::civil::Date;
+use jiff::tz::TimeZone;
 
 /// Days from which an age is given as the date it began.
 const DATED: u64 = 7;
@@ -13,7 +15,7 @@ pub(crate) enum Age {
     Hours(u64),
     Days(u64),
     /// The day it began, and whether that is in the year of now.
-    On(NaiveDate, bool),
+    On(Date, bool),
 }
 
 impl Age {
@@ -29,10 +31,10 @@ impl Age {
             }
             _ => {
                 let day = |ms: u64| {
-                    DateTime::from_timestamp_millis(ms as i64)
+                    Timestamp::from_millisecond(ms as i64)
                         .unwrap_or_default()
-                        .with_timezone(&Local)
-                        .date_naive()
+                        .to_zoned(TimeZone::system())
+                        .date()
                 };
                 let (began, today) = (day(then), day(now));
                 Self::On(began, began.year() == today.year())
@@ -67,9 +69,9 @@ impl Age {
             Self::Hours(n) => format!("{n} h"),
             Self::Days(1) => "1 day".into(),
             Self::Days(n) => format!("{n} days"),
-            Self::On(day, true) => day.format("%-d %b").to_string(),
+            Self::On(day, true) => day.strftime("%-d %b").to_string(),
             Self::On(day, false) => {
-                day.format("%-d %b %Y").to_string()
+                day.strftime("%-d %b %Y").to_string()
             }
         }
     }

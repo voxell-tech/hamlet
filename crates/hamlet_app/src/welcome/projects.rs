@@ -258,9 +258,9 @@ fn bring(world: &mut World) {
 
 /// When `at` was, as a row of a conversation says it.
 fn when(at: SystemTime) -> String {
-    chrono::DateTime::<chrono::Local>::from(at)
-        .format("%-d %b, %H:%M")
-        .to_string()
+    jiff::Zoned::try_from(at)
+        .map(|at| at.strftime("%-d %b, %H:%M").to_string())
+        .unwrap_or_default()
 }
 
 fn lines(world: &World) -> Vec<Line> {

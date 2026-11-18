@@ -32,7 +32,6 @@ use bevy::winit::{UpdateMode, WinitSettings};
 use bevy_fynix::ViewExt;
 use bevy_fynix::dock::DockWindowKind;
 use bevy_fynix::views::{BehaviorExt, FrameProps, column, frame};
-use chrono::Timelike;
 use hamlet_client::realm::Busy;
 use hamlet_client::waits::Waiting;
 use hamlet_realm::bubble::Bubble;
@@ -141,8 +140,8 @@ impl TimeOfDay {
 }
 
 fn wall_hour() -> f32 {
-    let now = chrono::Local::now();
-    now.hour() as f32 + now.minute() as f32 / 60.0
+    let now = jiff::Zoned::now();
+    f32::from(now.hour()) + f32::from(now.minute()) / 60.0
 }
 
 /// Degrees north is to be at; [`North`] glides to it.

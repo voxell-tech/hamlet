@@ -2,7 +2,6 @@
 //! task's, an agent's, and whether another model call may be made.
 
 use anyhow::{Context, Result};
-use chrono::{Datelike, Timelike};
 use diesel::dsl::max;
 use diesel::prelude::*;
 use hamlet_protocol::client as protocol;
@@ -68,19 +67,20 @@ fn duration(ms: i64) -> String {
 /// When the period holding `at` began.
 fn period_start(period: Period, at: i64) -> Result<i64> {
     let local = clock::local(at)?;
-    let midnight = local
-        .with_hour(0)
-        .and_then(|t| t.with_minute(0))
-        .and_then(|t| t.with_second(0))
-        .and_then(|t| t.with_nanosecond(0))
-        .context("local midnight")?;
+    // The first of the month before its midnight: a day whose
+    // midnight is skipped starts later than 00:00, and that time
+    // would carry over to the first.
     let start = match period {
-        Period::Day => midnight,
-        Period::Month => {
-            midnight.with_day(1).context("the first of the month")?
+        Period::Day => {
+            local.start_of_day().context("local midnight")?
         }
+        Period::Month => local
+            .first_of_month()
+            .context("the first of the month")?
+            .start_of_day()
+            .context("local midnight")?,
     };
-    Ok(start.timestamp_millis())
+    Ok(start.timestamp().as_millisecond())
 }
 
 /// What `payer`, a hamlet or the realm, spent in its period at `at`:
@@ -371,12 +371,16 @@ pub(crate) fn report(
             .unwrap_or_else(|| money(spent.micros))
     );
     let local = clock::local(at)?;
-    let day = f64::from(local.num_seconds_from_midnight()) / 86400.0;
+    let day = local
+        .time()
+        .duration_since(jiff::civil::Time::midnight())
+        .as_secs_f64()
+        / 86400.0;
     let gone = match budget.period {
         Period::Day => day,
         Period::Month => {
-            let days = days_in_month(local.year(), local.month());
-            (f64::from(local.day()) - 1.0 + day) / f64::from(days)
+            (f64::from(local.day()) - 1.0 + day)
+                / f64::from(local.days_in_month())
         }
     };
     Ok(protocol::Report {
@@ -460,17 +464,6 @@ pub(crate) fn usage_view(
         ),
         unreported,
     })
-}
-
-fn days_in_month(year: i32, month: u32) -> u32 {
-    let (next_year, next_month) = if month == 12 {
-        (year + 1, 1)
-    } else {
-        (year, month + 1)
-    };
-    chrono::NaiveDate::from_ymd_opt(next_year, next_month, 1)
-        .and_then(|date| date.pred_opt())
-        .map_or(30, |date| date.day())
 }
 
 #[cfg(test)]
