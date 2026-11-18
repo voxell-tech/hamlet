@@ -108,6 +108,7 @@ impl Plugin for GalleryPlugin {
             // about.
             .init_resource::<hamlet_realm::pick::Asked>()
             .init_resource::<hamlet_realm::pick::AskedGround>()
+            .init_resource::<welcome::projects::Projects>()
             .add_plugins((
                 hamlet_app::world_menu::plugin,
                 hamlet_app::search::plugin,
