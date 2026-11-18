@@ -288,7 +288,15 @@ fn is_card(entry: &Entry) -> bool {
 /// One turn of the agent while its steps are gathered.
 struct Turn {
     first: String,
+    /// The place of `first` in the transcript.
+    from: usize,
+    /// Its steps, with the lines between turns that came while it
+    /// ran in their places among them.
     steps: Vec<String>,
+    /// How many of the last of `steps` are such lines, after its
+    /// last step.
+    trail: usize,
+    stepped: bool,
     edits: Vec<String>,
     failed: usize,
     start: u64,
@@ -300,23 +308,34 @@ struct Turn {
 }
 
 impl Turn {
-    fn new(first: String, at: u64) -> Self {
+    fn new(first: &chats::Item, from: usize) -> Self {
         Turn {
-            first,
+            first: first.id.clone(),
+            from,
             steps: Vec::new(),
+            trail: 0,
+            stepped: false,
             edits: Vec::new(),
             failed: 0,
-            start: at,
-            end: at,
+            start: first.at,
+            end: first.at,
             replied: false,
             reasons: false,
         }
     }
 
+    /// Takes a line between turns that came while it ran.
+    fn hold(&mut self, item: &chats::Item) {
+        self.steps.push(item.id.clone());
+        self.trail += 1;
+    }
+
     fn take(&mut self, item: &chats::Item) {
-        if self.steps.is_empty() && item.at > 0 {
+        if !self.stepped && item.at > 0 {
             self.start = item.at;
         }
+        self.stepped = true;
+        self.trail = 0;
         let ms = match &item.entry {
             Entry::Tool {
                 exit, ms, change, ..
@@ -335,7 +354,10 @@ impl Turn {
         self.reasons = matches!(item.entry, Entry::Reasoning(_));
     }
 
-    /// Its rows: the steps under their header, then its reply.
+    /// Its rows: the steps under their header, then its reply. While
+    /// it runs, its words and the lines that came after its last step
+    /// stay among its steps, so nothing leaves the header as it
+    /// grows.
     fn close(
         mut self,
         chat: Entity,
@@ -343,7 +365,13 @@ impl Turn {
         open: &[(Entity, String)],
         rows: &mut Vec<Row>,
     ) {
-        let reply = match self.replied {
+        let after = match running {
+            true => Vec::new(),
+            false => {
+                self.steps.split_off(self.steps.len() - self.trail)
+            }
+        };
+        let reply = match self.replied && !running {
             true => self.steps.pop(),
             false => None,
         };
@@ -372,7 +400,24 @@ impl Turn {
                 at: self.end,
             });
         }
+        rows.extend(
+            after.into_iter().map(|id| Row::Card { chat, id }),
+        );
     }
+}
+
+/// What an entry is to the turns.
+#[derive(Clone, Copy)]
+enum Part {
+    /// A step of the turn it is in.
+    Step,
+    /// What the agent answers, which begins a turn.
+    Input,
+    /// A line between turns, which stays in a turn that goes on
+    /// after it.
+    Line,
+    /// A reply that failed, which ends its turn.
+    Fault,
 }
 
 /// One conversation with the steps of each turn folded under its
@@ -382,37 +427,32 @@ pub(super) fn rows(
     transcript: &Transcript,
     open: &[(Entity, String)],
 ) -> Vec<Row> {
-    let live = transcript.is_answering();
+    let items = transcript.items();
+    // The answer under way is the last turn's, unless that turn began
+    // before the agent was seen to begin it: then what it answers has
+    // not come yet.
+    let begun = transcript
+        .began_after()
+        .and_then(|id| items.iter().position(|item| item.id == id));
+    let end = |turn: Option<Turn>, rows: &mut Vec<Row>| {
+        if let Some(turn) = turn {
+            let running = transcript.is_answering()
+                && begun.is_none_or(|at| turn.from >= at);
+            turn.close(chat, running, open, rows);
+        }
+    };
     let mut rows = Vec::<Row>::new();
     let mut turn = None::<Turn>;
-    // The entry a turn that begins now is known by, and whether a
-    // turn has followed it.
-    let mut before = None::<&chats::Item>;
-    let mut answered = false;
+    // The entry a turn that begins with a step is known by, and its
+    // place.
+    let mut before = None::<(usize, &chats::Item)>;
     // The turn that runs ends where the queue begins.
     let mut queue = false;
     // The fault the last row says, if it says one: the same fault
     // again, as each try that fails the same way raises, stands in
     // its place, so a run of them is one row, its last.
     let mut fault: Option<&str> = None;
-    let end = |turn: Option<Turn>,
-               before: Option<&chats::Item>,
-               answered: bool,
-               rows: &mut Vec<Row>| {
-        match turn {
-            Some(turn) => turn.close(chat, live, open, rows),
-            // A turn that has shown nothing yet, known by what it
-            // answers.
-            None if live && !answered => {
-                if let Some(before) = before {
-                    Turn::new(before.id.clone(), before.at)
-                        .close(chat, true, open, rows);
-                }
-            }
-            None => {}
-        }
-    };
-    for item in transcript.items() {
+    for (at, item) in items.iter().enumerate() {
         if let Entry::Error(said) = &item.entry {
             if fault == Some(said.as_str()) {
                 rows.pop();
@@ -425,7 +465,7 @@ pub(super) fn rows(
             // A reply that says nothing makes no row to part them.
             fault = None;
         }
-        let step = match &item.entry {
+        let part = match &item.entry {
             // Nothing said is no message: a model that calls a tool
             // often says nothing with it, and that neither makes a
             // row nor parts the steps before it from those after.
@@ -434,32 +474,41 @@ pub(super) fn rows(
             }
             Entry::Tool { .. }
             | Entry::Reasoning(_)
-            | Entry::Assistant(_) => true,
-            // A notice often follows a turn's reply, and stands
-            // after it.
-            Entry::Notice(_)
-            | Entry::Chief { .. }
-            | Entry::Error(_)
-            | Entry::Answered(_)
+            | Entry::Assistant(_) => Part::Step,
+            Entry::Chief { .. }
             | Entry::Agent { .. }
-            | Entry::Summary(_)
+            | Entry::Answered(_)
+            | Entry::Notice(_) => Part::Input,
+            Entry::Summary(_)
             | Entry::Merged { .. }
-            | Entry::Event(_) => false,
+            | Entry::Event(_) => Part::Line,
+            Entry::Error(_) => Part::Fault,
         };
-        if step {
-            let first = before.unwrap_or(item);
-            turn.get_or_insert_with(|| {
-                Turn::new(first.id.clone(), first.at)
-            })
-            .take(item);
-            answered = true;
-            continue;
-        }
-        if item.queued && !queue {
-            queue = true;
-            end(turn.take(), before, answered, &mut rows);
-        } else if let Some(done) = turn.take() {
-            done.close(chat, false, open, &mut rows);
+        if item.queued {
+            if !queue {
+                queue = true;
+                end(turn.take(), &mut rows);
+            }
+        } else {
+            match (part, &mut turn) {
+                (Part::Step, _) => {
+                    let (from, first) = before.unwrap_or((at, item));
+                    turn.get_or_insert_with(|| {
+                        Turn::new(first, from)
+                    })
+                    .take(item);
+                    continue;
+                }
+                (Part::Line, Some(going)) => {
+                    going.hold(item);
+                    continue;
+                }
+                (Part::Line | Part::Input | Part::Fault, _) => {
+                    if let Some(done) = turn.take() {
+                        done.close(chat, false, open, &mut rows);
+                    }
+                }
+            }
         }
         let id = item.id.clone();
         rows.push(match is_card(&item.entry) {
@@ -467,11 +516,14 @@ pub(super) fn rows(
             false => Row::Entry { chat, id },
         });
         if !item.queued {
-            (before, answered) = (Some(item), false);
+            before = Some((at, item));
+            if matches!(part, Part::Input) {
+                turn = Some(Turn::new(item, at));
+            }
         }
     }
     if !queue {
-        end(turn.take(), before, answered, &mut rows);
+        end(turn.take(), &mut rows);
     }
     rows
 }
@@ -517,7 +569,7 @@ pub(super) fn fold_view<B: Board>(
     let inside = each(
         resource::<B, _>(move |b| b.lines().shown(&key)),
         |id: &String| id.clone(),
-        move |id| entry_view(chat, id.clone()),
+        move |id| step_view(chat, id.clone()),
     )
     // As wide as the chat and no wider, so that what is inside is
     // measured at the width it is shown at.
@@ -533,6 +585,21 @@ pub(super) fn fold_view<B: Board>(
             .align(AlignItems::FlexStart)
             .width(percent(100.0))
             .min_width(px(0.0))
+    })
+}
+
+/// A step of a turn, or a line between turns that came while it ran.
+fn step_view(chat: Entity, id: String) -> AnyView {
+    AnyView::new(move |cx: &mut Cx| {
+        let line = cx
+            .world
+            .get::<Transcript>(chat)
+            .and_then(|t| t.item(&id))
+            .is_some_and(|item| is_card(&item.entry));
+        match line {
+            true => cx.build(super::card::view(chat, id.clone())),
+            false => cx.build(entry_view(chat, id.clone())),
+        }
     })
 }
 
@@ -563,6 +630,7 @@ fn working<B: Board>(key: RowKey) -> impl View {
     })
     .when(every_frame());
     row((word, label(since).wrap(false).tone(Tone::Dim)))
+        .gap(0.0)
         .padding(UiRect::axes(px(INSET), px(2.0)))
         .align(AlignItems::Center)
         .rules(small_rules)
@@ -910,15 +978,18 @@ pub fn fold_lines(
     people: People,
     mut lines: ResMut<Lines>,
     mut lists: Query<&mut VirtualList, With<ChatScroll>>,
-    mut from: Local<Option<(Entity, usize, u64)>>,
+    mut from: Local<Option<(Entity, usize, u64, bool)>>,
 ) {
     let Ok(transcript) = transcripts.get(convo.chat) else {
         return;
     };
+    // A turn's header says whether it runs, which changes with no
+    // change of shape.
     let now_from = Some((
         convo.chat,
         transcript.items().len(),
         transcript.shape(),
+        transcript.is_answering(),
     ));
     if !convo.is_changed()
         && !unfolded.is_changed()

@@ -195,6 +195,8 @@ pub fn receive(world: &mut World, message: protocol::ServerMessage) {
                     world.get_mut::<Transcript>(chat).unwrap();
                 if prepend {
                     items.append(&mut said.items);
+                } else {
+                    said.began_after = None;
                 }
                 said.items = items;
                 said.earlier = page.earlier.clone();
@@ -235,6 +237,16 @@ pub fn receive(world: &mut World, message: protocol::ServerMessage) {
                             pending,
                             last,
                         } => {
+                            let mut said = world
+                                .get_mut::<Transcript>(chat)
+                                .unwrap();
+                            if *working && !said.answering {
+                                said.began_after = said
+                                    .items
+                                    .iter()
+                                    .rfind(|item| !item.queued)
+                                    .map(|item| item.id.clone());
+                            }
                             status(
                                 world,
                                 chat,
@@ -528,6 +540,9 @@ pub struct Transcript {
     pub(crate) items: Vec<Item>,
     pub(crate) shape: u64,
     pub(crate) answering: bool,
+    /// The last item that was not queued when the agent was seen to
+    /// begin answering.
+    pub(crate) began_after: Option<String>,
     pub(crate) earlier: Option<String>,
 }
 
@@ -596,6 +611,14 @@ impl Transcript {
     /// The presence of an unfinished answer in the transcript.
     pub fn is_answering(&self) -> bool {
         self.answering
+    }
+
+    /// The last item that was not queued when the answer under way
+    /// was seen to begin: what it answers is this item or a later
+    /// one. `None` when its beginning was not seen, as in a page read
+    /// while it runs.
+    pub fn began_after(&self) -> Option<&str> {
+        self.began_after.as_deref()
     }
 
     /// The cursor for a page before the displayed items.

@@ -117,9 +117,18 @@ a disc in the paint of its robot.
 **A turn.** Everything the agent does between one input and the next is
 one turn (`lines.rs`, `Turn`): its thinking, its tool calls and the words
 it writes between them are its steps, and the last words it writes, when
-no step follows them, are its reply. While the turn runs, a header across
+no step follows them, are its reply. An input is a line of the chief's,
+a message from another agent, the chief's answers to its questions or a
+notice; a reply that failed ends its turn. A line between turns that
+comes while the turn goes on, as a summary or a change of model, stands
+among its steps. While the turn runs, a header across
 the chat says "Working for 13s", or "Thinking" while its model reasons,
-with a thin rule under it and its steps under that. A band of the body's
+with a thin rule under it and its steps under that, its words among them
+too: the reply leaves them only once the turn ends, so nothing moves out
+from under the header while it runs. The header is built once for the
+turn and only its words change. The turn runs from the input the agent
+was seen to take up, so a line taken up after the agent began does not
+open the turn before it. A band of the body's
 tone crosses the word, letter by letter
 (`hamlet_ui/src/widgets/shimmer.rs`), or the word pulses slowly while
 less motion is asked for. Each step is one quiet line with an icon: the
@@ -532,7 +541,8 @@ the questions in them.
 ## What it costs
 
 The chat is put in order again only when a conversation's shape changes:
-an entry added, a tool ended, the selection or a fold changed. A word
+an entry added, a tool ended, the agent beginning or ending its answer,
+the selection or a fold changed. A word
 added to a reply changes no shape.
 
 The chat is a virtual list, fynix's `virtual_list`. Only the rows within

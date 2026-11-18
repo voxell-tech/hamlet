@@ -1797,4 +1797,203 @@ mod tests {
         assert!(!following);
         assert_eq!(first, left_at);
     }
+
+    #[test]
+    fn a_running_turns_header_stays_built_as_its_steps_come() {
+        use bevy::ecs::hierarchy::Children;
+        use bevy::text::TextSpan;
+        use hamlet_client::chats::Chat;
+        use hamlet_ui::widgets::shimmer::Shimmer;
+        use protocol::TranscriptOperation as Op;
+
+        let mut app = crate::testing::panel_app();
+        app.add_plugins(plugin);
+        let chat = app.world().resource::<Convo>().chat;
+        let reference =
+            app.world().get::<Chat>(chat).unwrap().0.clone();
+        let item = |id: &str, kind, text: &str| protocol::Item {
+            id: id.into(),
+            at: 1_000,
+            kind,
+            message: None,
+            text: text.into(),
+            chief: None,
+            author: None,
+            event: None,
+            from: None,
+            queued: false,
+            rewindable: None,
+            tool: None,
+            images: Vec::new(),
+            files: Vec::new(),
+        };
+        let tool = |id: &str| protocol::Item {
+            tool: Some(protocol::ItemTool {
+                agent: None,
+                call: protocol::ToolCall::Command {
+                    command: "pwd".into(),
+                },
+                change: None,
+                exit: None,
+                failure: None,
+                ms: None,
+                name: "bash".into(),
+                summary: "pwd".into(),
+            }),
+            ..item(id, protocol::ItemKind::Tool, "")
+        };
+        let add = |item, replaces: Option<&str>| Op::Add {
+            item,
+            replaces: replaces.map(str::to_string),
+        };
+        let working = |working| Op::Status {
+            held: false,
+            last: None,
+            pending: u64::from(working),
+            working,
+        };
+        let send = |app: &mut App, operations| {
+            hamlet_client::receive(
+                app.world_mut(),
+                protocol::ServerMessage::Turn(protocol::Turn {
+                    chat: reference.clone(),
+                    operations,
+                }),
+            );
+            app.update();
+        };
+        // The working row of the header of the turn that runs.
+        let header = |app: &mut App| {
+            let world = app.world_mut();
+            let words = world
+                .query_filtered::<(Entity, &Children), With<Shimmer>>(
+                )
+                .iter(world)
+                .map(|(word, letters)| {
+                    let said = letters
+                        .iter()
+                        .filter_map(|l| world.get::<TextSpan>(*l))
+                        .map(|span| span.0.as_str())
+                        .collect::<String>();
+                    (word, said)
+                })
+                .collect::<Vec<_>>();
+            let word = words
+                .iter()
+                .find(|(_, said)| {
+                    said == "Working" || said == "Thinking"
+                })
+                .map(|(word, _)| *word)?;
+            let up = |at| world.get::<ChildOf>(at).unwrap().parent();
+            Some(up(up(word)))
+        };
+
+        let mut done = tool("done:1");
+        done.tool.as_mut().unwrap().exit = Some(0);
+        send(
+            &mut app,
+            vec![
+                add(
+                    item("chief:0", protocol::ItemKind::User, "Go"),
+                    None,
+                ),
+                add(done, None),
+                add(
+                    item(
+                        "reply:0",
+                        protocol::ItemKind::Assistant,
+                        "Done.",
+                    ),
+                    None,
+                ),
+            ],
+        );
+        bevy_fynix::mount::<HamletTheme>(
+            app.world_mut(),
+            transcript(),
+        );
+        app.update();
+        let mut queued =
+            item("queued:1", protocol::ItemKind::User, "More");
+        queued.queued = true;
+        send(&mut app, vec![add(queued, None)]);
+        // Seen to begin before its line is taken up, the answer does
+        // not open the turn that ended.
+        send(&mut app, vec![working(true)]);
+        assert_eq!(header(&mut app), None);
+
+        let chief = item("chief:1", protocol::ItemKind::User, "More");
+        send(&mut app, vec![add(chief, Some("queued:1"))]);
+        let shown = header(&mut app).expect("the turn's header");
+        let steps = [
+            vec![add(
+                item(
+                    "live:0",
+                    protocol::ItemKind::Assistant,
+                    "Let me",
+                ),
+                None,
+            )],
+            vec![
+                add(
+                    item(
+                        "said:1",
+                        protocol::ItemKind::Assistant,
+                        "Let me",
+                    ),
+                    Some("live:0"),
+                ),
+                add(tool("tool:1"), None),
+            ],
+            vec![add(
+                item(
+                    "summary:1",
+                    protocol::ItemKind::Summary,
+                    "Before",
+                ),
+                None,
+            )],
+            vec![Op::Close {
+                agent: None,
+                change: None,
+                exit: 0,
+                failure: None,
+                item: "tool:1".into(),
+                ms: Some(400),
+            }],
+            vec![add(
+                item(
+                    "thought:1",
+                    protocol::ItemKind::Reasoning,
+                    "Hmm",
+                ),
+                None,
+            )],
+            vec![add(tool("tool:2"), None)],
+        ];
+        for operations in steps {
+            send(&mut app, operations);
+            assert_eq!(header(&mut app), Some(shown));
+        }
+        send(
+            &mut app,
+            vec![
+                add(
+                    item(
+                        "said:2",
+                        protocol::ItemKind::Assistant,
+                        "Done.",
+                    ),
+                    None,
+                ),
+                working(false),
+            ],
+        );
+        assert_eq!(header(&mut app), None);
+        assert!(
+            crate::testing::words(&mut app)
+                .iter()
+                .any(|w| w.starts_with("Worked"))
+        );
+    }
 }
