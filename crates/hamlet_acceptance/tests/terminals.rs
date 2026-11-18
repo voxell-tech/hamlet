@@ -172,6 +172,30 @@ async fn the_chief_types_into_an_unbounded_terminal_resizes_and_closes_it()
 }
 
 #[tokio::test]
+async fn a_program_in_a_terminal_gets_its_queries_answered() {
+    let mut s = session(Faux::new()).await;
+    let id = open(&mut s.chief).await;
+    // Each query's reply is read back from the terminal's input and
+    // shown byte by byte, as a line editor waiting for it would.
+    let ask = |query: &str, reply: usize| {
+        format!(
+            "printf '{query}'; dd bs=1 count={reply} 2>/dev/null | \
+             od -An -c | tr -d ' '; "
+        )
+    };
+    let command = format!(
+        "stty -icanon -echo min 1; {}{}{}stty sane\r",
+        ask("\\033[5n", 4),
+        ask("\\033[H\\033[6n", 6),
+        ask("\\033[c", 9),
+    );
+    type_in(&mut s.chief, &id, &command).await;
+    shows(&mut s.chief, &id, "033[0n").await;
+    shows(&mut s.chief, &id, "033[1;1R").await;
+    shows(&mut s.chief, &id, "033[?62;22c").await;
+}
+
+#[tokio::test]
 async fn a_terminal_keeps_its_last_command_and_the_name_the_chief_gives_it()
  {
     let mut s = session(Faux::new()).await;

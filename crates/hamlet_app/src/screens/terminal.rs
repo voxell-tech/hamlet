@@ -940,4 +940,25 @@ mod tests {
         keep_watching(app.world_mut());
         assert_eq!(noted(&app), pairs(&[("terminal", "t1")]));
     }
+
+    #[test]
+    fn a_tab_shows_only_its_terminal_s_name_cut_short() {
+        let item = |name: &str| list::Item {
+            terminal: Entity::PLACEHOLDER,
+            name: name.into(),
+            owner: "chief".into(),
+            exit: None,
+            commands: false,
+            key: None,
+            last: Some("cat notes/today.md".into()),
+            running: false,
+            crumbs: Vec::new(),
+        };
+        assert_eq!(tab_name(None), "Terminal");
+        assert_eq!(tab_name(Some(&item("zsh 3"))), "zsh 3");
+        assert_eq!(
+            tab_name(Some(&item("a-terminal-with-a-long-name"))),
+            "a-terminal-with-a..."
+        );
+    }
 }
