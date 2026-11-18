@@ -579,8 +579,9 @@ fn send_or_stop(hub: Entity, agent: Entity) -> impl View {
     .within(bare())
 }
 
-/// The button that compacts the agent's conversation.
-fn compact(agent: Entity) -> impl View {
+/// The button that compacts the agent's conversation, its answer
+/// shown in `hub`.
+fn compact(hub: Entity, agent: Entity) -> impl View {
     keyed(
         derived(move |world: &World| {
             chat::has_no_model(world, agent)
@@ -594,7 +595,9 @@ fn compact(agent: Entity) -> impl View {
                 Glyph::Notes,
                 "Compact now: summarize the earlier messages",
                 move |world| {
-                    compact_now(world, agent);
+                    if let Some(request) = compact_now(world, agent) {
+                        chat::asked_in(world, request, hub);
+                    }
                 },
             )
         },
@@ -826,12 +829,13 @@ fn chips(hub: Entity, agent: Entity) -> impl View {
             }),
             move |&folded| match folded {
                 true => more(hub, agent).boxed(),
-                false => {
-                    row((chat::attach::control(hub), compact(agent)))
-                        .gap(gap)
-                        .align(AlignItems::Center)
-                        .boxed()
-                }
+                false => row((
+                    chat::attach::control(hub),
+                    compact(hub, agent),
+                ))
+                .gap(gap)
+                .align(AlignItems::Center)
+                .boxed(),
             },
         )
         .within(bare().shrink(0.0));
