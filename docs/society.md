@@ -158,7 +158,15 @@ its parent. What it learned stays on its branch. `/end <address> dream`, End
 with Dream in the window's question, or `end_hire` with `dream` also has it
 dream once more right after, whatever the settings say about dreams, to bring
 that home to its scholar's `main`; the choice is kept with the hire
-(`hire.ending_dream`). The mayor cannot be ended; give the office away first. A lead,
+(`hire.ending_dream`). When its conversation has turns no reflection looked
+back over, or was brought in from another program and never reflected, it
+is first told to reflect a last time into its lodge
+(`reflections::before_last_dream`), and the dream waits for that reflection
+to end however it ends (`conversations/dreams.rs`, `next`). The dream's end
+is a "Dreamed" line in the hire's conversation, saying what it brought home
+or that nothing was; an agent that ended it is told by `end_hire`'s answer
+when the dream ended at once, and otherwise by a notification from the hire
+(`Core::dreamt`). The mayor cannot be ended; give the office away first. A lead,
 the Hand included, may not end or merge a hire on a chief's task (H7): while
 an input of that task is still to end in its conversations, or until the
 hamlet's `protectedMinutes` have passed since the chief's instruction was

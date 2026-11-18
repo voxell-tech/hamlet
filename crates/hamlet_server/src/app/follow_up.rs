@@ -306,6 +306,9 @@ fn follow_ended_input(
     for (runtime, key) in followed.wake {
         core.wake_call(&runtime, &key);
     }
+    if followed.dream {
+        core.dream_tick()?;
+    }
     Ok(())
 }
 

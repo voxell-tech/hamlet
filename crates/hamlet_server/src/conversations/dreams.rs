@@ -12,6 +12,7 @@ use bevy_ecs::message::{Message, Messages};
 use bevy_ecs::resource::Resource;
 use bevy_ecs::system::ResMut;
 use bevy_log::error;
+use hamlet_protocol::client::ItemEvent;
 use hamlet_store::Db;
 use hamlet_store::ids::{Actor, AgentId, DreamId, ScholarId};
 
@@ -19,8 +20,9 @@ use crate::app::input::AddHandler;
 use crate::app::timers::AddTimer;
 use crate::conversations::inputs::{self, InputKind, Keep};
 use crate::conversations::marks::Mark;
+use crate::conversations::messages::{self, MessageKind};
 use crate::conversations::tasks::{self, Origin};
-use crate::conversations::{self, Begin, Kind, models};
+use crate::conversations::{self, Begin, Kind, models, reflections};
 use crate::core::Core;
 use crate::realm::Realm;
 use crate::realm::change::Done;
@@ -57,17 +59,30 @@ fn dream_tick(mut core: Core) -> Result<()> {
     core.dream_tick()
 }
 
-/// A dream ended, so the next one waiting may begin.
+/// Dreams ended, each with the first line of its answer, so they are
+/// told of and the next one waiting may begin.
 #[derive(Message)]
-pub(crate) struct DreamEnded;
+pub(crate) struct DreamEnded(pub Vec<(DreamId, String)>);
 
 fn start_next_dream(
     mut ended: ResMut<Messages<DreamEnded>>,
     mut core: Core,
 ) -> bevy_ecs::error::Result {
-    ended.clear();
+    let ended = ended.drain().flat_map(|e| e.0).collect::<Vec<_>>();
+    for (dream, summary) in ended {
+        core.dreamt(dream, &summary, Notify::Lead)?;
+    }
     core.dream_tick()?;
     Ok(())
+}
+
+/// Whether the agent that ended a hire with a dream is notified when
+/// the dream ends.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub(crate) enum Notify {
+    Lead,
+    /// The call that ended it answers with how the dream ended.
+    Answered,
 }
 
 /// The living hires whose branch holds what they learned that no
@@ -227,7 +242,8 @@ impl Dreamer {
 /// The dream to start next, when none is running: one asked for, then
 /// the last dream of a hire ended with one, then, while dreams are on
 /// and in their hours, the dreamer most due. What was asked of a
-/// dreamer that is gone is let go.
+/// dreamer that is gone is let go. An ended hire's dream waits for
+/// its conversation's reflection.
 pub(crate) fn next(
     db: &mut Db,
     layout: &Layout,
@@ -250,6 +266,8 @@ pub(crate) fn next(
                 .map(|_| Dreamer::Scholar(scholar)),
         };
         match dreamer {
+            Some(Dreamer::Hire { hire, ending: true })
+                if reflections::is_reflecting(db, hire)? => {}
             Some(dreamer) => return Ok(Some(dreamer)),
             None => dreams::forget(db, asked)?,
         }
@@ -259,7 +277,7 @@ pub(crate) fn next(
     {
         let dreamt = dreams::last_of_hire(db, hire)?
             .is_some_and(|d| d.ending && d.began >= ended);
-        if !dreamt {
+        if !dreamt && !reflections::is_reflecting(db, hire)? {
             return Ok(Some(Dreamer::Hire { hire, ending: true }));
         }
     }
@@ -317,9 +335,157 @@ fn due(
     Ok(None)
 }
 
+/// How the dream `dream` ended, in one line, with `summary` the first
+/// line of its answer.
+fn brought(dream: &Dream, summary: &str) -> String {
+    match dream.outcome {
+        Some(Outcome::Done) if !summary.is_empty() => {
+            summary.to_owned()
+        }
+        Some(Outcome::Done) => "Brought what it learned home.".into(),
+        Some(Outcome::Failed) => {
+            "It failed; nothing was brought home.".into()
+        }
+        Some(Outcome::Stopped) => {
+            "It was stopped; nothing was brought home.".into()
+        }
+        Some(Outcome::Nothing) | None => {
+            "Nothing was brought home.".into()
+        }
+    }
+}
+
 impl Core<'_, '_> {
+    /// Tells of the end of dream `id`, whose answer began with
+    /// `summary`: a line in the conversation of its hire, and for the
+    /// last dream of a hire an agent ended, a notification to that
+    /// agent unless `notify` says the call answers it.
+    pub(crate) fn dreamt(
+        &mut self,
+        id: DreamId,
+        summary: &str,
+        notify: Notify,
+    ) -> Result<()> {
+        let db = self.realm.store().connection();
+        let dream = dreams::get(db, id)?;
+        let Some(hire) = dream.hire else {
+            return Ok(());
+        };
+        let line = brought(&dream, summary);
+        let lead = match agents::get(db, hire)?.ended_by {
+            Some(Actor::Agent(lead))
+                if dream.ending
+                    && notify == Notify::Lead
+                    && lead != hire
+                    && agents::get(db, lead)?.is_living() =>
+            {
+                Some(lead)
+            }
+            _ => None,
+        };
+        self.change(Actor::Realm, |cx, env| {
+            conversations::chats::event(
+                cx,
+                hire,
+                ItemEvent::Dreamed {
+                    summary: line.clone(),
+                },
+            )?;
+            let (Some(lead), Some(from)) =
+                (lead, conversations::chats::of(cx.db, hire)?)
+            else {
+                return Ok(());
+            };
+            let name = addresses::name_of(cx.db, hire)?;
+            let address = addresses::address_of(cx.db, lead)?;
+            let text =
+                format!("The last dream of {name} ended. {line}");
+            let task =
+                tasks::mint(cx, Origin::Notice, hire, None, None)?;
+            messages::send(
+                cx,
+                env,
+                messages::Send {
+                    kind: MessageKind::Notification,
+                    runtime: "hamlet",
+                    key: &format!("dream:{id}"),
+                    sender: hire,
+                    receiver: lead,
+                    from,
+                    address: &address,
+                    task,
+                    text: &text,
+                    images: &[],
+                },
+            )?;
+            Ok(())
+        })
+    }
+
     /// Starts the next dream, when none is running.
     pub(crate) fn dream_tick(&mut self) -> Result<()> {
+        self.start_dream(None)
+    }
+
+    /// Starts the next dream, when none is running, for the call that
+    /// ended `hire` with a dream, which answers how a last dream of
+    /// it that ends at once ended.
+    pub(crate) fn dream_tick_ending(
+        &mut self,
+        hire: AgentId,
+    ) -> Result<()> {
+        self.start_dream(Some(hire))
+    }
+
+    /// How the last dream of the hire `hire`, just ended with one,
+    /// fares, in a sentence or two, for its ender, who `notify` says
+    /// is notified once it ends.
+    pub(crate) fn last_dream_words(
+        &mut self,
+        hire: AgentId,
+        notify: Notify,
+    ) -> Result<String> {
+        let db = self.realm.store().connection();
+        let told = match notify {
+            Notify::Lead => {
+                " You will be notified of what it brings home; until \
+                 then its scholar has nothing new from it."
+            }
+            Notify::Answered => "",
+        };
+        if reflections::is_reflecting(db, hire)? {
+            return Ok(format!(
+                "It reflects on its conversation, then dreams once \
+                 more to bring what it learned home.{told}"
+            ));
+        }
+        let ended = agents::get(db, hire)?.ended_at.unwrap_or(0);
+        let last = dreams::last_of_hire(db, hire)?
+            .filter(|d| d.ending && d.began >= ended);
+        Ok(match last {
+            Some(dream) if dream.ended.is_some() => {
+                format!(
+                    "Its last dream ended. {}",
+                    brought(&dream, "")
+                )
+            }
+            Some(_) => format!(
+                "It dreams once more to bring what it learned \
+                 home.{told}"
+            ),
+            None => format!(
+                "It dreams once more, in its turn, to bring what it \
+                 learned home.{told}"
+            ),
+        })
+    }
+
+    /// Starts the next dream, when none is running; a last dream of
+    /// `answered` that ends at once notifies nobody.
+    fn start_dream(
+        &mut self,
+        answered: Option<AgentId>,
+    ) -> Result<()> {
         let layout = self.realm.layout().clone();
         let settings = self.env.settings.dreams.clone();
         let mut tried = Vec::new();
@@ -336,7 +502,15 @@ impl Core<'_, '_> {
                 return Ok(());
             }
             tried.push(dreamer);
-            if self.dream(dreamer)?.is_some() {
+            let notify = match dreamer {
+                Dreamer::Hire { hire, .. }
+                    if Some(hire) == answered =>
+                {
+                    Notify::Answered
+                }
+                _ => Notify::Lead,
+            };
+            if self.dream(dreamer, notify)?.is_some() {
                 return Ok(());
             }
         }
@@ -469,10 +643,11 @@ impl Core<'_, '_> {
     }
 
     /// Starts `dreamer`'s dream. `None` when there is nothing to
-    /// dream about.
-    pub(crate) fn dream(
+    /// dream about, told of as [`Self::dreamt`] does.
+    fn dream(
         &mut self,
         dreamer: Dreamer,
+        notify: Notify,
     ) -> Result<Option<DreamId>> {
         let layout = self.realm.layout().clone();
         let db = self.realm.store().connection();
@@ -518,6 +693,7 @@ impl Core<'_, '_> {
                 None,
                 crate::app::clock::now(),
             )?;
+            self.dreamt(id, "", notify)?;
             return Ok(None);
         }
         let checkout = knowledge::dreams::checkout(&layout, id);

@@ -271,8 +271,9 @@ for people alone, which the model never reads. An `event` item's `event`
 says what changed, discriminated by `kind`: `model`, with `by`, who made
 the change, and `from` and `to`, each a `model` (`provider::id`) and a
 nullable `effort`; `stopped`, with `by` and `waiting`, the inputs held;
-`resumed`, with `by`; `dreamed`, with the first line of the dream's answer
-as `summary`; `scholar`, the `scholar` of the city made of the agent;
+`resumed`, with `by`; `dreamed`, a hire's dream that ended, with the first
+line of its answer as `summary`, or a line saying nothing was brought home
+when it changed nothing, failed or was stopped; `scholar`, the `scholar` of the city made of the agent;
 `renamed`, with the `name` it is shown by now; and `fast`, with `on`. `by`
 is a chief's name or an agent's address and name. A notification, request or response from another agent
 is a `user` item with `author`, its sender's address and name, `from`,

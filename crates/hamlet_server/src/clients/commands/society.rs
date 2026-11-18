@@ -7,6 +7,7 @@ use hamlet_store::ids::{Actor, HamletId};
 use super::targets::is_scholar;
 use super::{Answer, Command, Line};
 use crate::conversations::chats;
+use crate::conversations::dreams::Notify;
 use crate::core::Core;
 use crate::society::addresses::{self, Reach};
 use crate::society::agents::{self, AgentKind, Effort, EndHow};
@@ -578,14 +579,17 @@ fn hire_fate(
             }
             (Fate::Erase, _) => hires::erase(cx, hire),
         })?;
-    if done.is_ok() && last == LastDream::With {
-        core.dream_tick()?;
-    }
+    let dream = if done.is_ok() && last == LastDream::With {
+        core.dream_tick_ending(hire)?;
+        // A chief who ends one reads the line in its conversation.
+        core.last_dream_words(hire, Notify::Answered)?
+    } else {
+        String::new()
+    };
     Ok(done.map(|()| match fate {
-        Fate::Remove if last == LastDream::With => format!(
-            "`{text}` was ended, and dreams once more to bring what \
-             it learned home."
-        ),
+        Fate::Remove if last == LastDream::With => {
+            format!("`{text}` was ended. {dream}")
+        }
         Fate::Remove => format!("`{text}` was ended."),
         Fate::Restore if merge.is_some() => format!(
             "`{text}` is back; what it brought to the hire it was \

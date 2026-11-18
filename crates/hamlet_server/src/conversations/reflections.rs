@@ -1,12 +1,14 @@
 //! Reflection (C5): an agent told to keep what its conversation
 //! taught it, in its memory and its skills, after enough answered
-//! turns or when a chief requests it.
+//! turns, when a chief requests it, or before a hire's last dream.
 
 use anyhow::Result;
 use diesel::prelude::*;
-use hamlet_store::ids::ConversationId;
-use hamlet_store::schema::{chat, conversation, reflection};
+use hamlet_store::Db;
+use hamlet_store::ids::{AgentId, ConversationId};
+use hamlet_store::schema::{chat, conversation, import, reflection};
 
+use super::chats;
 use super::inputs::{self, InputKind, Keep};
 use super::marks::Mark;
 use super::tasks::{self, Origin};
@@ -21,6 +23,19 @@ pub(crate) const REFLECT: &str =
      your memory/ folder, and save or improve a skill in skills/ \
      for anything you did that is likely to come up again. If \
      nothing is worth keeping, say so in one line.";
+
+/// The instruction to a hire ended with a dream to keep its
+/// conversation's lessons before the dream.
+const LAST_REFLECT: &str =
+    "Last reflection (automatic, not from a chief). You were ended, \
+     and this is your last chance to keep what you learned before \
+     you end: your last dream brings home to your scholar only what \
+     your lodge holds. Look back over your whole conversation, \
+     including any part brought in from another program. Keep what \
+     is worth remembering about the chiefs and the lessons learned \
+     in the memory/ folder of your lodge, and save or improve a \
+     skill in its skills/ for anything you did that is likely to \
+     come up again. If nothing is worth keeping, say so in one line.";
 
 /// Counts a chief's turn of `id` that was answered, and requests a
 /// reflection once `every` turns were. Returns the reflection's
@@ -49,26 +64,79 @@ pub(crate) fn reflect(
     cx: &mut Change<'_>,
     id: ConversationId,
 ) -> Result<Option<String>> {
+    request(cx, id, REFLECT)
+}
+
+/// Tells the conversation of the hire `agent`, ended with a dream,
+/// to reflect before the dream, when it has turns no reflection
+/// looked back over or was brought in from another program and
+/// never reflected. One stopped by a chief is left as it is.
+pub(crate) fn before_last_dream(
+    cx: &mut Change<'_>,
+    agent: AgentId,
+) -> Result<()> {
+    let Some(id) = chats::of(cx.db, agent)? else {
+        return Ok(());
+    };
+    let kept = conversations::get(cx.db, id)?;
+    if kept.held {
+        return Ok(());
+    }
+    let brought_in =
+        import::table.find(id).count().get_result::<i64>(cx.db)? > 0;
+    let unreflected = kept.unreflected > 0
+        || (brought_in && reflections_of(cx.db, agent)? == 0);
+    if unreflected {
+        request(cx, id, LAST_REFLECT)?;
+    }
+    Ok(())
+}
+
+/// Whether the conversation of `agent` has a reflection to run.
+pub(crate) fn is_reflecting(
+    db: &mut Db,
+    agent: AgentId,
+) -> Result<bool> {
+    match chats::of(db, agent)? {
+        Some(id) => is_pending(db, id),
+        None => Ok(false),
+    }
+}
+
+/// Whether the conversation `id` has a reflection to run.
+fn is_pending(db: &mut Db, id: ConversationId) -> Result<bool> {
+    Ok(reflection::table
+        .filter(reflection::conversation.eq(id))
+        .count()
+        .get_result::<i64>(db)?
+        > 0)
+}
+
+/// How many reflections `agent`'s conversations were told to make.
+fn reflections_of(db: &mut Db, agent: AgentId) -> Result<i64> {
+    Ok(chat::table
+        .find(agent)
+        .select(chat::reflections)
+        .first::<i64>(db)
+        .optional()?
+        .unwrap_or(0))
+}
+
+/// Tells the conversation `id` to reflect now, told `content`.
+fn request(
+    cx: &mut Change<'_>,
+    id: ConversationId,
+    content: &str,
+) -> Result<Option<String>> {
     let kept = conversations::get(cx.db, id)?;
     if kept.kind != Kind::Chat {
         return Ok(None);
     }
     let chief = crate::society::chiefs::first(cx.db)?;
-    let pending = reflection::table
-        .filter(reflection::conversation.eq(id))
-        .count()
-        .get_result::<i64>(cx.db)?
-        > 0;
-    if pending {
+    if is_pending(cx.db, id)? {
         return Ok(None);
     }
-    let number = chat::table
-        .find(kept.agent)
-        .select(chat::reflections)
-        .first::<i64>(cx.db)
-        .optional()?
-        .unwrap_or(0)
-        + 1;
+    let number = reflections_of(cx.db, kept.agent)? + 1;
     let request = format!("reflection:{id}:{number}");
     let task =
         tasks::mint(cx, Origin::Reflection, kept.agent, chief, None)?;
@@ -79,7 +147,7 @@ pub(crate) fn reflect(
             request: request.clone(),
             kind: InputKind::Reflection,
             task: Some(task),
-            content: REFLECT.into(),
+            content: content.into(),
             mark: Mark::Reflection { at: cx.at },
             steer: false,
             boundary: false,

@@ -295,9 +295,10 @@ pub(crate) fn require_living(db: &mut Db, id: AgentId) -> Done<()> {
     Ok(Ok(()))
 }
 
-/// Ends the living hire `id`, with or without a last dream. Its
-/// children go to its parent, but when its whole hamlet is removed
-/// and the tree is kept to come back.
+/// Ends the living hire `id`, with or without a last dream, before
+/// which its conversation reflects. Its children go to its parent,
+/// but when its whole hamlet is removed and the tree is kept to come
+/// back.
 pub(crate) fn end(
     cx: &mut Change<'_>,
     id: AgentId,
@@ -332,6 +333,9 @@ pub(crate) fn end(
     diesel::update(hire::table.find(id))
         .set(hire::ending_dream.eq(last == LastDream::With))
         .execute(cx.db)?;
+    if last == LastDream::With {
+        crate::conversations::reflections::before_last_dream(cx, id)?;
+    }
     jobs::add(cx, &Job::Commit { hire: id })?;
     cx.touched.hamlets.insert(hire.hamlet);
     cx.touched.scholars.insert(hire.scholar);

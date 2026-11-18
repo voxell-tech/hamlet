@@ -340,8 +340,8 @@ pub enum ItemEvent {
     /// The hold of a stop ended by `by`.
     #[serde(rename = "resumed")]
     Resumed { by: String },
-    /// A dream brought what it learned home; `summary` is the first
-    /// line of the dream's answer.
+    /// A dream ended; `summary` is the first line of its answer, or
+    /// says nothing was brought home.
     #[serde(rename = "dreamed")]
     Dreamed { summary: String },
     /// A scholar of the city, `scholar`, was made of what it became.

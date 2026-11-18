@@ -70,19 +70,25 @@ fn take_in_jobs_done(
     }
 }
 
-/// What the hires learned is taken in after `done`, and a dream that
-/// ended lets the next one waiting begin.
+/// What the hires learned is taken in after `done`, and the dreams
+/// that ended are told of and let the next one waiting begin.
 pub(crate) fn after_jobs(
     learned: &mut Learned,
     inputs: &InputSender,
     done: &JobsDone,
 ) {
     learned.take_in(&done.learning);
-    if done
+    let dreams = done
         .jobs
         .iter()
-        .any(|job| matches!(job, Job::DreamEnd { .. }))
-        && inputs.send(DreamEnded).is_err()
+        .filter_map(|job| match job {
+            Job::DreamEnd { dream, summary, .. } => {
+                Some((*dream, summary.clone()))
+            }
+            _ => None,
+        })
+        .collect::<Vec<_>>();
+    if !dreams.is_empty() && inputs.send(DreamEnded(dreams)).is_err()
     {
         error!("the next dream could not begin: the server stops");
     }

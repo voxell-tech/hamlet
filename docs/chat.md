@@ -83,7 +83,8 @@ conversation for people alone, as an `event` item the model never reads
 (`chats::event`), and drawn as a centred line between two rules
 (`card.rs`): its model or effort changed by a chief or a lead, as
 "Claude Opus 5.5 Medium → High"; "Stopped by you · 2 waiting" and
-"Resumed"; "Dreamed" and the first line of the dream's answer; "Became a
+"Resumed"; "Dreamed" and the first line of the dream's answer, or that
+nothing was brought home when it changed nothing, failed or was stopped; "Became a
 scholar of the city"; "Renamed to map-view"; "Fast tier on".
 
 ## Brought in from another program

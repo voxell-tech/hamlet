@@ -98,6 +98,68 @@ async fn a_hire_dreams_what_it_learned_onto_its_scholars_main() {
 }
 
 #[tokio::test]
+async fn a_hire_ended_with_a_dream_reflects_first_and_brings_that_home()
+ {
+    let home = Home::new();
+    let kept = home.file("hamlets/{{docs}}/3/memory/build.md");
+    let shared = home.file("dreams/1/main/memory/build.md");
+    let mut s = Session::start_in(
+        home,
+        Faux::new().agent(
+            3,
+            [
+                words("The docs build with make."),
+                call(
+                    "write",
+                    json!({
+                        "path": kept.to_str().unwrap(),
+                        "content": note("How the docs build."),
+                    }),
+                )
+                .filled_from(NAMES),
+                words("Kept one note."),
+                call(
+                    "write",
+                    json!({
+                        "path": shared.to_str().unwrap(),
+                        "content": note("How the docs build."),
+                    }),
+                ),
+                words("Brought one note home."),
+            ],
+        ),
+        QUIET,
+    )
+    .await;
+    let ada = s.found("docs", "ada", "keep the docs").await;
+    let bob = s.hire(ada, "bob", "build the docs").await;
+    let scholar = s.chief.scholar("bob").unwrap().id;
+    let now = chat(bob);
+    s.chief.open(&now).await;
+    s.chief.tell(bob, "how do the docs build?").await;
+    s.chief.shows(&now, "The docs build with make.").await;
+
+    // What it learned is only in its conversation until it reflects.
+    s.chief.command(ada, "/end hire#3 dream done").await;
+    tokio::time::timeout(std::time::Duration::from_secs(20), async {
+        while s
+            .chief
+            .papers(Keeper::Scholar(scholar))
+            .await
+            .memory
+            .is_empty()
+        {
+            tokio::time::sleep(std::time::Duration::from_millis(50))
+                .await;
+        }
+    })
+    .await
+    .expect("the dream lands on the scholar's main");
+    let papers = s.chief.papers(Keeper::Scholar(scholar)).await;
+    assert_eq!(papers.memory[0].path, "build.md");
+}
+
+#[tokio::test]
 async fn refuses_a_dream_of_someone_unknown() {
     let mut s = Session::start(Faux::new()).await;
     let hand = s.hand();

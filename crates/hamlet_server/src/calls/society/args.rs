@@ -176,9 +176,10 @@ pub(crate) struct MakeScholar {
 }
 
 /// End a hire under you. Its lodge and branch are archived with what
-/// it learned. With `dream`, it dreams once more to bring that home
-/// to its scholar, so later hires of the scholar start with it;
-/// without, its scholar gets none of it.
+/// it learned. With `dream`, it reflects on its conversation and then
+/// dreams once more to bring that home to its scholar, so later hires
+/// of the scholar start with it, and you are notified of what it
+/// brought home; without, its scholar gets none of it.
 #[derive(Deserialize, JsonSchema)]
 pub(crate) struct EndHire {
     #[schemars(description = ADDRESS)]

@@ -24,6 +24,7 @@ use self::args::{
 };
 use super::looks::Look;
 use super::{Call, refused, said};
+use crate::conversations::dreams::Notify;
 use crate::core::Core;
 use crate::knowledge::{promotion, versions};
 use crate::realm::change::{Change, Done, done, refuse};
@@ -201,13 +202,6 @@ impl Core<'_, '_> {
                     LastDream::Without
                 };
                 let name = self.name(hire)?;
-                let words = match last {
-                    LastDream::With => format!(
-                        "Ended {name}; it dreams once more to bring \
-                         what it learned home."
-                    ),
-                    LastDream::Without => format!("Ended {name}."),
-                };
                 let ended = self.carry(call, |cx, _| {
                     Ok(hires::end(
                         cx,
@@ -216,12 +210,17 @@ impl Core<'_, '_> {
                         last,
                         &reason,
                     )?
-                    .map(|()| words))
+                    .map(|()| format!("Ended {name}.")))
                 })?;
-                if ended.is_ok() && last == LastDream::With {
-                    self.dream_tick()?;
+                match ended {
+                    Ok(words) if last == LastDream::With => {
+                        self.dream_tick_ending(hire)?;
+                        let dream = self
+                            .last_dream_words(hire, Notify::Lead)?;
+                        Ok(Ok(format!("{words} {dream}")))
+                    }
+                    ended => Ok(ended),
                 }
-                Ok(ended)
             }
             Called::SetModel(SetModel {
                 hire,

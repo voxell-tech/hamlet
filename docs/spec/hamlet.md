@@ -231,8 +231,8 @@ branch of its scholar's repository and a lodge of its own (C8).
 - **Ending** a hire stops its turns, lets its waits lapse, takes back its
   grants (H28), makes a final commit of its lodge and archives it. Its lodge
   and branch stay until erased, with what it learned. Its hires go to its
-  parent. Ended with a dream, it dreams once more right after (H43);
-  otherwise its scholar's `main` gets nothing from it.
+  parent. Ended with a dream, it reflects (C5) and then dreams once more
+  (H43); otherwise its scholar's `main` gets nothing from it.
 - **Restoring** it brings it back under the same id and number, when its
   scholar lives, its hamlet lives and holds fewer than its tier. Its parent is
   its old parent when that lives, else the mayor.
@@ -449,6 +449,13 @@ and the last dream of a hire ended with one, run whatever those say.
   day, for a scholar with living hires.
 - A hire ended with a dream (`/end <address> dream`, `end_hire` with
   `dream`) dreams once more right after; one ended without it does not.
+  When its conversation reflects first (C5), the dream waits for that
+  reflection to end, however it ends, and is given what the lodge holds
+  then.
+- A hire's dream that ends is told in its conversation, with what it
+  brought home or that nothing was. The agent that ended a hire with a
+  dream is told at once by its call when the dream ended there, and
+  otherwise gets a notification from the hire once it ends.
 - A chief can ask for any dream (`/dream`), and the Hand for one of a
   scholar it keeps or a hire it leads (`dream`). Asked of a scholar, each
   of its living hires that learned what it lacks dreams first, then the

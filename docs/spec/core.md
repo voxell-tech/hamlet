@@ -286,7 +286,11 @@ images; otherwise it answers in words that the file is an image.
 
 **C5.** An agent reflects after every [10] answered turns of a chief's
 lines in its conversation, including retries, when a chief asks it to, and
-on owed turns when the server stops in an orderly way.
+on owed turns when the server stops in an orderly way. A hire ended with a
+dream reflects once more first, when its conversation has answered turns
+no reflection looked back over, or was brought in from another program
+(C35) and never reflected; it is told this is its last chance to keep
+what it learned.
 Zero means the agent reflects only when a chief asks it to. An automatic
 reflection is queued behind inputs already waiting, and reflects on those
 turns too. A client's end of input triggers no reflection.

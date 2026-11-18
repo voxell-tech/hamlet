@@ -30,6 +30,9 @@ use crate::society::{dreams, workers};
 pub(crate) struct Followed {
     /// The tool calls, by runtime and key, whose wait is over.
     pub wake: Vec<(String, String)>,
+    /// An ended hire's reflection ended, so its last dream may
+    /// begin.
+    pub dream: bool,
 }
 
 /// Follows the end of input `request` of `conversation`, once.
@@ -104,15 +107,6 @@ pub(crate) fn follow(
                         answer.lines().next().map(String::from)
                     })
                     .unwrap_or_default();
-            if let (Last::Done, Some(hire)) = (last, dream.hire) {
-                super::chats::event(
-                    cx,
-                    hire,
-                    hamlet_protocol::client::ItemEvent::Dreamed {
-                        summary: summary.clone(),
-                    },
-                )?;
-            }
             let last = match last {
                 Last::Done => dreams::Outcome::Done,
                 Last::Stopped => dreams::Outcome::Stopped,
@@ -170,6 +164,7 @@ pub(crate) fn follow(
     }
     if input.kind == InputKind::Reflection {
         reflections::ended(cx, conversation, request)?;
+        followed.dream = !agents::get(cx.db, agent)?.is_living();
     } else if kept.kind == Kind::Chat
         && last == Last::Done
         && input.mark()?.is_chief_turn()
