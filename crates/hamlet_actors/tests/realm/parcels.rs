@@ -974,9 +974,11 @@ async fn a_parcel_whose_measure_is_refused_is_refused_and_driven_no_further()
         assert!(begun.elapsed() < DEADLINE, "never: the row closes");
         tokio::time::sleep(Duration::from_millis(100)).await;
     }
+    let told = notice_to_mayor(&realm).await;
     let realm = restart(realm, &files).await;
     let states = parcel_states(&realm).await;
 
+    assert_eq!(told, "The files could not be sent.");
     assert_eq!(states, [("refused".to_owned(), true)]);
     assert_eq!(parcel_rows_closed(&realm).await, [true]);
     assert!(letters_to_three(&realm).is_empty());

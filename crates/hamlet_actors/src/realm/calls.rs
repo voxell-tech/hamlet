@@ -4,7 +4,7 @@ use std::sync::Arc;
 
 use anyhow::Result;
 use futures::future::BoxFuture;
-use hamlet_actor::Ctx;
+use hamlet_actor::{Ctx, KeepAwakeRegion};
 use hamlet_messages::address::Agent;
 use hamlet_messages::agent::Submit;
 use hamlet_messages::realm::LetterId;
@@ -161,18 +161,27 @@ async fn deliver(
     if let (Err(error), Some(owed)) = (&delivered, owed)
         && !peer::refused(error)
     {
-        ctx.register_task(again(realm.clone(), ctx.clone(), owed));
+        let awake = ctx.keep_awake_region();
+        ctx.register_task(again(
+            realm.clone(),
+            ctx.clone(),
+            owed,
+            awake,
+        ));
     }
     delivered
 }
 
 /// Makes `delivery`, which failed in passing, again on the steps'
 /// schedule until it is taken, its callee refuses it, its receiver
-/// has left or the realm stops. An agent takes a repeated input once.
+/// has left or the realm stops, while `_awake` keeps the realm from
+/// sleeping. A repeat of an input the agent took into the same
+/// conversation is that input.
 async fn again(
     realm: Arc<Realm>,
     ctx: Ctx<Realm>,
     delivery: Delivery,
+    _awake: KeepAwakeRegion,
 ) {
     let (realm, ctx) = (&realm, &ctx);
     steps::retried(ctx, Some(steps::FIRST_RETRY), move || {

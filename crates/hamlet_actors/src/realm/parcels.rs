@@ -522,7 +522,7 @@ pub(super) async fn run(
 
 /// The changes that refuse the parcel of row `n`, whose step failed
 /// for good, and the notice that tells its sender, unless it was
-/// refused already or its sender has left.
+/// refused already or its sender or receiver has left.
 pub(super) async fn failed(
     rows: &Rows<'_>,
     n: u64,
@@ -540,7 +540,7 @@ pub(super) async fn failed(
         .into(),
     ];
     let told = sent.state != State::Refused
-        && tree::left(rows, sent.sender).await?.is_none();
+        && !either_left(rows, sent.sender, sent.receiver).await?;
     let calls = if told {
         sent.notice(UNSENT.to_owned())
     } else {
