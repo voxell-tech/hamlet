@@ -6,7 +6,9 @@ use hamlet_testing::Scratch;
 
 use crate::realm::change::{Change, Done, run};
 use crate::realm::layout::Layout;
-use crate::society::hamlet_agents::{NewAgent, ProfileChoice};
+use crate::society::hamlet_agents::{
+    self, NewAgent, ProfileChoice, Spec,
+};
 use crate::society::hamlets::{self, Founding};
 use crate::society::rejection::Rejection;
 use crate::society::{chiefs, hand};
@@ -120,6 +122,33 @@ impl Realm {
                         character: "Careful.".into(),
                     },
                     purpose: "Build it".into(),
+                },
+            )
+        })
+        .unwrap()
+    }
+
+    /// Adds a blank agent named `name` under `parent`, in its hamlet.
+    pub fn add_agent(
+        &mut self,
+        parent: &NewAgent,
+        name: &str,
+    ) -> NewAgent {
+        let owner = self.chief;
+        let name = name.to_owned();
+        self.chief(|cx| {
+            hamlet_agents::add(
+                cx,
+                Spec {
+                    hamlet: parent.hamlet.clone(),
+                    parent: Some(parent.agent),
+                    profile: ProfileChoice::Blank {
+                        name,
+                        character: String::new(),
+                    },
+                    purpose: "Help".into(),
+                    reason: String::new(),
+                    owner,
                 },
             )
         })

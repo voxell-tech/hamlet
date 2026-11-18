@@ -1,8 +1,4 @@
-//! The gate's decision of a call (C7, H11): the one kept, else one
-//! made now and kept. Making one goes in steps: what the call is,
-//! with what it sends or writes looked at off the loop first; where
-//! it runs and who makes it; then the gate's rule, kept with any wait
-//! it raises.
+//! The gate's decision of a call (C7, H11), made once and kept.
 
 use anyhow::Result;
 use hamlet_store::ids::Actor;
@@ -11,7 +7,7 @@ use super::held::{self, State};
 use super::looks::Look;
 use super::objections::OBJECTING;
 use super::place::{self, Workplace};
-use super::society::args::{Ask, Called, Tell};
+use super::society::args::{Called, Notify, Request};
 use super::{
     Call, Decision, NOBODY, STOPPED, WAITING, chat_session, society,
 };
@@ -24,8 +20,7 @@ use crate::tools::builtin::Network;
 use crate::tools::catalogue::Society;
 use crate::tools::edit_diff::change_between;
 
-/// A call as the gate rules on it, or the decision made before the
-/// gate is consulted: a look to wait for, or a block.
+/// A call as the gate rules on it, or the decision made before it.
 type Classified = Result<Result<gate::Call, Decision>>;
 
 impl Core<'_, '_> {
@@ -127,7 +122,7 @@ impl Core<'_, '_> {
             gate::call_of(call.tool, &call.args(), added);
         match classified {
             gate::Call::Society {
-                tool: tool @ (Society::Tell | Society::Ask),
+                tool: tool @ (Society::Notify | Society::Request),
                 args,
             } => self.measured_send(call, at, tool, args),
             gate::Call::Edit {
@@ -141,8 +136,8 @@ impl Core<'_, '_> {
         }
     }
 
-    /// A letter or a question as the gate rules on it: with the files
-    /// it sends, once they are measured.
+    /// A notification or a request as the gate rules on it: with the
+    /// files it sends, once they are measured.
     fn measured_send(
         &mut self,
         call: &Call<'_>,
@@ -153,8 +148,8 @@ impl Core<'_, '_> {
         // Arguments that do not fit are rejected once the call runs.
         let paths = match Called::read(tool, call.arguments) {
             Ok(
-                Called::Tell(Tell { paths, .. })
-                | Called::Ask(Ask { paths, .. }),
+                Called::Notify(Notify { paths, .. })
+                | Called::Request(Request { paths, .. }),
             ) => paths,
             _ => Vec::new(),
         };
@@ -332,6 +327,7 @@ impl Core<'_, '_> {
                             change: change.map(String::from),
                             answers: danger.answers(),
                             questions: None,
+                            setup: None,
                         },
                     )?;
                     held::hold(cx.db, &runtime, &key, wait, change)?;

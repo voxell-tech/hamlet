@@ -64,6 +64,8 @@ pub(crate) enum Rejection {
     ProfileHasAgents { name: String, agents: String },
     #[error("`{name}` has no version `{version}`")]
     NoVersion { name: String, version: String },
+    #[error("`{name}` has no branch yet; try again in a moment")]
+    NoBranch { name: String },
     #[error(
         "`{version}` is not a version's name: use at most 32 \
          letters, digits, dots and hyphens"
@@ -77,6 +79,12 @@ pub(crate) enum Rejection {
     NoPurpose,
     #[error("only a chief of the hamlet `{hamlet}` may do that")]
     NotChief { hamlet: String },
+    #[error("only a chief of the realm may do that")]
+    NotRealmChief,
+    #[error(
+        "only a chief chooses your own model, effort and fast tier"
+    )]
+    OwnSteering,
     #[error("only `{owner}`'s chief may do that")]
     NotOwner { owner: String },
     #[error("only a parent of `{name}` may do that")]
@@ -139,8 +147,8 @@ pub(crate) enum Rejection {
     TierTooSmall { id: String, count: i64, tier: i64 },
     #[error("a channel joins agents of hamlets only")]
     ChannelEnds,
-    #[error("there is no past session {number} here")]
-    NoSession { number: i64 },
+    #[error("that line is no longer queued")]
+    NotQueued,
     #[error("a turn is running here; stop it, then {then}")]
     TurnRunning { then: String },
     #[error(
@@ -243,8 +251,6 @@ pub(crate) enum Rejection {
     WorkspaceNotOpened { error: String },
     #[error("Use /dream <profile#id|address>")]
     DreamUsage,
-    #[error("A dream is running; one dreams at a time.")]
-    DreamRunning,
     #[error("That sign-in is not waiting for an answer.")]
     SignInNotWaiting,
     #[error("No sign-in of yours is open.")]
@@ -272,7 +278,7 @@ pub(crate) enum Rejection {
     #[error("Say this to a hamlet's lead or one of its agents.")]
     SayToLeadOrAgent,
     #[error("Say what you need a skill for.")]
-    NoSkillQuestion,
+    NoSkillRequest,
     #[error(
         "`skill` is its folder under skills/, in letters, digits, \
          hyphens and underscores."
@@ -319,20 +325,23 @@ pub(crate) enum Rejection {
     BadLimits { why: String },
     #[error("Those limits do not fit their form.")]
     LimitsUnfit,
+    #[error("Those settings do not fit their form.")]
+    SettingsUnfit,
+    #[error("The mode is `manual` or `auto`.")]
+    NoMode,
+    #[error("There is no effort `{level}`.")]
+    NoEffort { level: String },
+    #[error("You cannot stop yourself.")]
+    StopSelf,
     #[error("That is you.")]
-    TellSelf,
+    SendToSelf,
     #[error("Say what to send.")]
     NothingToSend,
     #[error(
-        "You have no channel to {other}. Request one from your \
-         parent with request_channel."
+        "You have no channel to {other}. Propose one to your parent \
+         with propose_channel."
     )]
     NoChannelTo { other: String },
-    #[error(
-        "{other} is waiting on your answer already; tell it what it \
-         needs instead of putting a question."
-    )]
-    AlreadyWaitingOn { other: String },
     #[error("That is not one of your lines in this conversation.")]
     NotYourLine,
     #[error("Choose a remote workspace in the settings first.")]

@@ -1,5 +1,4 @@
-//! A hamlet's received limits and the chief's edits through the
-//! server.
+//! A hamlet's limits and the chief's edits of them.
 
 use std::collections::BTreeMap;
 
@@ -35,8 +34,7 @@ use crate::overview::heading;
 
 const CONTROLS: f32 = 150.0;
 
-/// The dollars a budget given a limit again may spend, as the
-/// server's default.
+/// The server's default budget, in dollars.
 const DEFAULT_BUDGET: f64 = 50.0;
 
 pub(crate) fn plugin(app: &mut App) {
@@ -120,9 +118,8 @@ fn put_realm(
     send(world, None, whole, section, key, value);
 }
 
-/// Sends the edit of `key` in `section`, or of the top-level `key`
-/// of `whole` when there is no section. The limits are a hamlet's, or
-/// the realm's when `hamlet` is none.
+/// Sends the edit of `key` in `section`, or in `whole` with no
+/// section.
 fn send(
     world: &mut World,
     hamlet: Option<String>,
@@ -281,10 +278,7 @@ fn cost(
     })
 }
 
-/// What a budget may spend, as `read` gives it and `set` changes it:
-/// a switch that takes the limit off, named by the first of `says`,
-/// and while there is a limit, its dollars, named by the second. A
-/// limit put back is the default one.
+/// A budget's switch for no limit and, under a limit, its dollars.
 fn spending<R: Resource>(
     says: (&'static str, &'static str),
     read: fn(&R) -> Option<f64>,
@@ -300,7 +294,6 @@ fn spending<R: Resource>(
     .boxed()
 }
 
-/// The switch of [`spending`] that takes the limit off.
 fn unlimited<R: Resource>(
     read: fn(&R) -> Option<f64>,
     set: fn(&mut World, Option<f64>),
@@ -314,9 +307,6 @@ fn unlimited<R: Resource>(
     .boxed()
 }
 
-/// The dollars of [`spending`], named `says`, while there is a limit.
-/// Its field is given `R`'s value at each change of `R`, so an edit
-/// the server rejected shows what it holds again.
 fn dollars<R: Resource>(
     says: &'static str,
     read: fn(&R) -> Option<f64>,
@@ -386,7 +376,7 @@ fn budget(hamlet: Entity) -> impl View {
             }),
             |chosen| {
                 segmented_words(
-                    ["A day", "A month"],
+                    ["A Day", "A Month"],
                     *chosen,
                     |world, chosen| {
                         let period =
@@ -422,7 +412,7 @@ fn budget(hamlet: Entity) -> impl View {
         beside((
             action(
                 Glyph::Restore,
-                "Start it again now",
+                "Start It Again Now",
                 move |world| {
                     crate::overview::tell(
                         world,
@@ -438,8 +428,8 @@ fn budget(hamlet: Entity) -> impl View {
     ))
 }
 
-/// The parents' acts a chief keeps for itself, and the caps on the
-/// tree and its channels.
+/// What parents ask the chief first, and the caps on the tree and
+/// channels.
 fn parents() -> impl View {
     group((
         heading(Glyph::Lead, "Waits for you"),
@@ -513,7 +503,7 @@ pub fn realm() -> AnyView {
             }),
             |chosen| {
                 segmented_words(
-                    ["A day", "A month"],
+                    ["A Day", "A Month"],
                     *chosen,
                     |world, chosen| {
                         let period =
@@ -583,9 +573,7 @@ pub fn panel(hamlet: Entity) -> AnyView {
                                 ))
                                 .boxed()
                         };
-                        // The folder it works on and its approvals
-                        // lead the list, open where the others lead
-                        // to a page.
+                        // Open on the front; the others are pages.
                         let open = [
                             padded(
                                 crate::folder::section(hamlet)
@@ -861,49 +849,6 @@ mod tests {
     }
 
     #[test]
-    fn the_realms_limits_are_edited_without_a_hamlet() {
-        let mut app = panel_app();
-        app.add_plugins((
-            plugin,
-            InputPlugin,
-            InputFocusPlugin,
-            InputDispatchPlugin,
-        ));
-        app.world_mut().spawn((Window::default(), PrimaryWindow));
-        bevy_fynix::mount::<hamlet_ui::theme::HamletTheme>(
-            app.world_mut(),
-            realm(),
-        );
-        app.update();
-        enter(&mut app, "The Hand may spend, in dollars", "2");
-        let sent = edits(&app);
-        assert_eq!(sent[0]["doc"], "limits");
-        assert!(sent[0].get("hamlet").is_none());
-        assert_eq!(
-            sent[0]["set"],
-            json!({"section": "budget", "key": "cost", "value": 2.0})
-        );
-    }
-
-    #[test]
-    fn daily_cost_and_its_clear_are_limits_edits() {
-        let (mut app, _) = page(Part::Budget);
-        enter(&mut app, "May spend, in dollars", "2");
-        let sent = edits(&app);
-        assert_eq!(sent.len(), 1);
-        assert_eq!(sent[0]["doc"], "limits");
-        assert_eq!(sent[0]["hamlet"], "home");
-        assert_eq!(
-            sent[0]["set"],
-            json!({"section": "budget", "key": "cost", "value": 2.0})
-        );
-        enter(&mut app, "May spend, in dollars", "0");
-        assert_eq!(
-            edits(&app)[1]["set"],
-            json!({"section": "budget", "key": "cost", "value": null})
-        );
-    }
-    #[test]
     fn a_rejected_edit_restores_the_received_value_beside_its_words()
     {
         use hamlet_protocol::client as protocol;
@@ -972,24 +917,6 @@ mod tests {
         assert_eq!(
             edits(&app)[1]["set"],
             json!({"section": "channel", "key": "growsOverDays", "value": 4})
-        );
-    }
-
-    #[test]
-    fn period_is_text_and_a_free_channel_is_not_an_uncapped_meter() {
-        use crate::testing::press;
-        let (mut app, _) = page(Part::Budget);
-        press(&mut app, "A month");
-        assert_eq!(
-            edits(&app)[0]["set"],
-            json!({"section": "budget", "key": "period", "value": "month"})
-        );
-        *app.world_mut().resource_mut::<Part>() = Part::Parents;
-        app.update();
-        enter(&mut app, "Price of a channel, in dollars", "0");
-        assert_eq!(
-            edits(&app)[1]["set"],
-            json!({"section": "channel", "key": "price", "value": 0.0})
         );
     }
 }

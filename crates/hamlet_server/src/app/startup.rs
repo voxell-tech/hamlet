@@ -1,17 +1,4 @@
 //! How the server comes up, in its first update.
-//!
-//! `PreStartup` opens what it serves, in this order: the sandbox,
-//! the realm and its settings, the credentials and the remote
-//! workspace, the providers, the jobs runner, the harness, the watch
-//! on the tools added by hand, the clients, and last the listener.
-//! One that fails stops the start.
-//!
-//! `Startup` then starts it: the runtimes start, the tools added by
-//! hand load, each agent's tools are narrowed to its role, the
-//! providers are sent a request for what they serve, and the turns
-//! the last stop left are followed. `PostUpdate` keeps what they
-//! changed, and at the end of `Last` the server's address is
-//! published.
 
 use std::net::Ipv4Addr;
 use std::path::PathBuf;
@@ -186,7 +173,7 @@ fn open_harness(
 }
 
 /// Watches the folder of the tools added by hand, so they load again
-/// while the server runs; without a watch, they load only now.
+/// while the server runs.
 fn watch_added_tools(
     realm: Res<Realm>,
     inputs: Res<InputSender>,
@@ -204,8 +191,7 @@ fn watch_added_tools(
     commands.insert_resource(AddedToolsWatch(watching));
 }
 
-/// Opens the realm's terminals, none yet: the kept ones open again
-/// once everything has started.
+/// Opens the realm's terminals, none yet.
 fn open_terminals(realm: Res<Realm>, mut commands: Commands) {
     commands
         .insert_resource(Terminals::new(realm.layout().terminals()));
@@ -220,8 +206,7 @@ fn open_clients(
     Ok(())
 }
 
-/// Listens for clients on the port the options name. A client that
-/// connects now waits for the first update to end.
+/// Listens for clients on the port the options name.
 fn listen(
     options: Res<Options>,
     inputs: Res<InputSender>,
@@ -239,8 +224,7 @@ fn listen(
 }
 
 /// Publishes the server's address in the realm's `server.json` once
-/// its first update is over, so a client finds it only when the
-/// start is done; it stays while the server serves.
+/// its first update is over.
 fn publish_address(
     listening: Res<Listening>,
     mut core: Core,
@@ -299,8 +283,7 @@ fn start_providers(mut core: Core) -> Result {
     Ok(())
 }
 
-/// Follows each input the last stop left unfollowed; no runtime waits
-/// on anything from before it.
+/// Follows each input the last stop left unfollowed.
 fn follow_unfollowed(mut core: Core) -> Result {
     let unfollowed =
         inputs::unfollowed(core.realm.store().connection())?;

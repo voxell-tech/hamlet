@@ -1,7 +1,4 @@
-//! Whether a final answer stands (C28): one with neither words nor a
-//! call fails its turn, and one cut off for room is summarised and
-//! tried again once. A failed answer in a chief's chat waits for the
-//! chief as a fault.
+//! Whether a final answer stands (C28).
 
 use anyhow::Result;
 use diesel::prelude::*;
@@ -20,13 +17,12 @@ const EMPTY: &str =
     "the model answered with nothing. Send the message again";
 /// The words of an answer cut off for room, even summarised.
 const NO_ROOM: &str = "the model has no room left to answer, even \
-                       with the conversation summarised. Start a \
-                       new session, or choose a model that holds \
-                       more";
+                       with the conversation summarised. Choose a \
+                       model that holds more";
 const NO_SUMMARY: &str = "the conversation is longer than the model \
                           can hold, and the model could not \
-                          summarise it. Start a new session, or \
-                          choose a model that holds more";
+                          summarise it. Compact it now, or choose a \
+                          model that holds more";
 /// The fewest output tokens an answer cut off for its own length has.
 const ROOMY: u64 = 1024;
 
@@ -121,6 +117,7 @@ pub(crate) fn rule(
                     change: None,
                     answers: vec![Choice::Dismiss],
                     questions: None,
+                    setup: None,
                 },
             )?;
         }

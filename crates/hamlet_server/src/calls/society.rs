@@ -1,12 +1,12 @@
-//! The society's tools (H35): what an agent does in the society, each
-//! checked against the caller's standing as a chief's command is.
-//! A call's arguments are read once, into the tool's own type
-//! ([`args`]).
+//! The society's tools (H35).
 
+mod agent_acts;
 pub(super) mod args;
-mod letters;
+mod hamlet_acts;
 pub(crate) mod library;
+mod messages;
 mod profiles;
+mod realm;
 pub(crate) mod welcome;
 
 use anyhow::Result;
@@ -16,23 +16,43 @@ use hamlet_store::ids::{
 
 use self::args::{
     AddAgent, AgreeChannel, Called, CreateProfile, EndAgent,
-    FoundHamlet, MergeAgents, ReadRecord, RemoveHamlet, RenameAgent,
+    FoundHamlet, MakeProfile, MergeAgents, ReadRecord, RenameAgent,
     SetAllowance, SetLead, SetModel, SetTools,
 };
 use super::looks::Look;
 use super::{Call, rejected, said};
+use crate::conversations::dreams::Notify;
 use crate::core::Core;
-use crate::realm::change::{Change, Done, done, reject};
+use crate::knowledge::{promotion, versions};
+use crate::realm::change::{Change, Done, checked, done, reject};
 use crate::realm::settings::EffectiveSettings;
 use crate::society::addresses::{self, Reach};
 use crate::society::agents::{self, AgentKind, EndHow};
-use crate::society::hamlet_agents::{self, ProfileChoice, Spec};
+use crate::society::hamlet_agents::{
+    self, LastDream, ProfileChoice, Spec,
+};
 use crate::society::hamlets::{self, Founding};
 use crate::society::rejection::Rejection;
 use crate::society::spend::{self, micros, money};
 use crate::society::{authority, channels, city, limits, record};
 use crate::tools::builtin::Outcome;
 use crate::tools::catalogue::Society;
+
+/// The most of a text a read gives, in bytes.
+const MOST_READ: usize = 50 * 1024;
+
+/// `words`, cut at [`MOST_READ`].
+fn cut(mut words: String) -> String {
+    if words.len() > MOST_READ {
+        let mut end = MOST_READ;
+        while !words.is_char_boundary(end) {
+            end -= 1;
+        }
+        words.truncate(end);
+        words.push_str("\n[cut here]");
+    }
+    words
+}
 
 /// The result of a society call.
 pub(super) enum Step {
@@ -67,10 +87,12 @@ impl Core<'_, '_> {
             Err(rejection) => return Ok(Step::of(Err(rejection))),
         };
         match called {
-            Called::Tell(args) => self.tell(call, args),
-            Called::Ask(args) => self.ask(call, args),
-            Called::RequestChannel(args) => {
-                self.request_channel(call, args)
+            Called::Notify(args) => {
+                self.send_notification(call, args)
+            }
+            Called::Request(args) => self.send_request(call, args),
+            Called::ProposeChannel(args) => {
+                self.propose_channel(call, args)
             }
             Called::StartWorker(args) => {
                 self.start_worker(call, args)
@@ -78,8 +100,8 @@ impl Core<'_, '_> {
             Called::SubmitSkill(args) => {
                 self.submit_skill(call, args)
             }
-            Called::AskLibrarian(args) => {
-                self.ask_librarian(call, args)
+            Called::RequestLibrarian(args) => {
+                self.request_librarian(call, args)
             }
             called => Ok(Step::of(self.act(call, called)?)),
         }
@@ -107,15 +129,7 @@ impl Core<'_, '_> {
                 name,
                 character,
             }) => {
-                let task = self.task_of(call)?;
-                let db = self.realm.store().connection();
-                let chief = task_chief(db, task)?;
-                let owner = authority::owner_for(
-                    db,
-                    Actor::Agent(agent),
-                    here,
-                    chief,
-                )?;
+                let owner = self.owner(call, here)?;
                 self.carry(call, |cx, env| {
                     let character = if character.is_empty() {
                         env.settings.character.clone()
@@ -128,25 +142,75 @@ impl Core<'_, '_> {
                     Ok(Ok(arrived(cx, env, made, &character)?))
                 })
             }
+            Called::MakeProfile(MakeProfile {
+                agent: address,
+                name,
+                reason,
+            }) => {
+                let hamlet_agent = done!(self.child_within(
+                    call,
+                    &address,
+                    here,
+                    Reach::Kept
+                ));
+                let owner = self.owner(call, here)?;
+                let layout = self.realm.layout().clone();
+                let make = promotion::make_profile(
+                    self.realm.store().connection(),
+                    &layout,
+                    &self.writing,
+                    hamlet_agent,
+                    &name,
+                    owner,
+                    reason,
+                )?;
+                self.carry(call, |cx, env| {
+                    let made = done!(make(cx));
+                    Ok(Ok(arrived(
+                        cx,
+                        env,
+                        made.profile,
+                        &made.character,
+                    )?))
+                })
+            }
             Called::AddAgent(args) => {
                 self.add_agent(call, here, args)
             }
             Called::EndAgent(EndAgent {
                 agent: address,
+                dream,
                 reason,
             }) => {
                 let hamlet_agent =
                     done!(self.child(call, &address, here));
+                let last = if dream {
+                    LastDream::With
+                } else {
+                    LastDream::Without
+                };
                 let name = self.name(hamlet_agent)?;
-                self.carry(call, |cx, _| {
+                let ended = self.carry(call, |cx, _| {
                     Ok(hamlet_agents::end(
                         cx,
                         hamlet_agent,
                         EndHow::Ended,
+                        last,
                         &reason,
                     )?
                     .map(|()| format!("Ended {name}.")))
-                })
+                })?;
+                match ended {
+                    Ok(words) if last == LastDream::With => {
+                        self.dream_tick_ending(hamlet_agent)?;
+                        let dream = self.last_dream_words(
+                            hamlet_agent,
+                            Notify::Ender,
+                        )?;
+                        Ok(Ok(format!("{words} {dream}")))
+                    }
+                    ended => Ok(ended),
+                }
             }
             Called::SetModel(SetModel {
                 agent: address,
@@ -161,12 +225,19 @@ impl Core<'_, '_> {
                     "{name} runs {} now.",
                     model.as_deref().unwrap_or("its hamlet's model")
                 );
-                self.carry(call, |cx, _| {
-                    Ok(hamlet_agents::set_model(
+                self.carry(call, |cx, env| {
+                    Ok(crate::conversations::chats::remodel(
                         cx,
+                        env,
                         hamlet_agent,
-                        model.as_deref(),
-                        &reason,
+                        |cx| {
+                            hamlet_agents::set_model(
+                                cx,
+                                hamlet_agent,
+                                model.as_deref(),
+                                &reason,
+                            )
+                        },
                     )?
                     .map(|()| words))
                 })
@@ -290,11 +361,18 @@ impl Core<'_, '_> {
                 let kept = done!(self.child(call, &into, here));
                 let (one, other) =
                     (self.name(absorbed)?, self.name(kept)?);
-                self.carry(call, |cx, _| {
-                    Ok(crate::society::merges::merge(
+                self.carry(call, |cx, env| {
+                    let merged = crate::society::merges::merge(
                         cx, kept, absorbed, &reason,
-                    )?
-                    .map(|_| format!("Merged {one} into {other}.")))
+                    )?;
+                    if merged.is_ok() {
+                        crate::conversations::chats::merged(
+                            cx, env, kept, absorbed,
+                        )?;
+                    }
+                    Ok(merged.map(|_| {
+                        format!("Merged {one} into {other}.")
+                    }))
                 })
             }
             Called::AgreeChannel(args) => {
@@ -305,15 +383,7 @@ impl Core<'_, '_> {
                 profile,
                 purpose,
             }) => {
-                let task = self.task_of(call)?;
-                let db = self.realm.store().connection();
-                let overseer = task_chief(db, task)?;
-                let chief = authority::owner_for(
-                    db,
-                    Actor::Agent(agent),
-                    None,
-                    overseer,
-                )?;
+                let chief = self.owner(call, None)?;
                 let lead = if profile.is_empty() {
                     ProfileChoice::Blank {
                         name: String::new(),
@@ -366,13 +436,47 @@ impl Core<'_, '_> {
                     }))
                 })
             }
-            Called::RemoveHamlet(RemoveHamlet { hamlet, reason }) => {
-                let id = HamletId(hamlet);
-                self.carry(call, |cx, _| {
-                    Ok(hamlets::remove(cx, &id, &reason)?
-                        .map(|()| format!("Removed {id}.")))
-                })
+            called @ (Called::RemoveHamlet(_)
+            | Called::RestoreHamlet(_)
+            | Called::EraseHamlet(_)
+            | Called::NameHamlet(_)
+            | Called::MoveHamlet(_)
+            | Called::SetTier(_)
+            | Called::SetFolder(_)
+            | Called::SetMode(_)
+            | Called::ResetBudget(_)
+            | Called::EditLimits(_)) => {
+                self.hamlet_tool(call, called)
             }
+            called @ (Called::Versions(_)
+            | Called::Fork(_)
+            | Called::Purge(_)
+            | Called::Welcome(_)
+            | Called::TurnAway(_)
+            | Called::NameProfile(_)
+            | Called::MoveHouse(_)
+            | Called::RemoveProfile(_)
+            | Called::RestoreProfile(_)
+            | Called::EraseProfile(_)) => {
+                self.profile_tool(call, called)
+            }
+            called @ (Called::Pin(_)
+            | Called::RestoreAgent(_)
+            | Called::EraseAgent(_)) => self.child_tool(call, called),
+            called @ (Called::SetEffort(_)
+            | Called::SetFast(_)
+            | Called::Reflect(_)
+            | Called::Stop(_)
+            | Called::Resume(_)
+            | Called::EditMemory(_)
+            | Called::ReadPrompt(_)
+            | Called::ReadPapers(_)) => self.agent_tool(call, called),
+            Called::Dream(args) => self.dream_tool(call, args),
+            called @ (Called::EditSettings(_)
+            | Called::EditCharter(_)
+            | Called::ReadCharter(_)
+            | Called::ReadModels(_)
+            | Called::Unshelve(_)) => self.realm_tool(call, called),
             Called::ReadBudget(_) => {
                 let db = self.realm.store().connection();
                 Ok(Ok(budget(db, agent)?))
@@ -390,23 +494,33 @@ impl Core<'_, '_> {
             // The calls answer `object` before the gate, and these
             // before here.
             Called::Object(_)
-            | Called::Tell(_)
-            | Called::Ask(_)
-            | Called::RequestChannel(_)
+            | Called::Notify(_)
+            | Called::Request(_)
+            | Called::ProposeChannel(_)
             | Called::StartWorker(_)
             | Called::SubmitSkill(_)
-            | Called::AskLibrarian(_) => {
-                Ok(Err(Rejection::Unsupported {
-                    what: format!("the tool {}", call.tool),
-                }))
+            | Called::RequestLibrarian(_) => {
+                Ok(Err(unsupported(call)))
             }
         }
     }
 
-    /// Makes the change of `call` by its agent, and keeps the call's
-    /// answer in the same transaction: a call cut off by a crash
-    /// after its change is answered the same when it is made again,
-    /// and never changes anything twice.
+    /// The chief who owns what `call`'s agent makes in `here`.
+    fn owner(
+        &mut self,
+        call: &Call<'_>,
+        here: Option<&HamletId>,
+    ) -> Result<ChiefId> {
+        let task = self.task_of(call)?;
+        let db = self.realm.store().connection();
+        let chief = task_chief(db, task)?;
+        let by = Actor::Agent(call.conversation.agent);
+        authority::owner_for(db, by, here, chief)
+    }
+
+    /// Makes the change of `call` and keeps its answer in the same
+    /// transaction, so a call replayed after a crash never changes
+    /// anything twice.
     fn carry(
         &mut self,
         call: &Call<'_>,
@@ -450,10 +564,8 @@ impl Core<'_, '_> {
         Ok(made)
     }
 
-    /// Marks `call` begun before an effect outside the store, which
-    /// no transaction keeps with its answer: cut off by a crash, it
-    /// is answered as interrupted when it is made again, never run
-    /// twice.
+    /// Marks `call` begun before an effect outside the store, so a
+    /// call replayed after a crash is answered as interrupted.
     fn begin(&mut self, call: &Call<'_>) -> Result<()> {
         let db = self.realm.store().connection();
         hamlet_store::marker::begin(
@@ -484,23 +596,52 @@ impl Core<'_, '_> {
         address: &str,
         here: Option<&HamletId>,
     ) -> Done<AgentId> {
-        let address = match addresses::parse(address) {
-            Ok(address) => address,
-            Err(rejection) => reject!(rejection),
-        };
-        let db = self.realm.store().connection();
-        addresses::resolve(db, &address, here, Reach::Living)
+        self.named_within(address, here, Reach::Living)
     }
 
-    /// The agent of a hamlet at `address`, which `call`'s agent is a
-    /// parent of.
+    /// The agent within `reach` at `address`, read from `here`.
+    fn named_within(
+        &mut self,
+        address: &str,
+        here: Option<&HamletId>,
+        reach: Reach,
+    ) -> Done<AgentId> {
+        let address = checked!(addresses::parse(address));
+        let db = self.realm.store().connection();
+        addresses::resolve(db, &address, here, reach)
+    }
+
+    /// The living agent of a hamlet at `address`, which `call`'s
+    /// agent is a parent of.
     fn child(
         &mut self,
         call: &Call<'_>,
         address: &str,
         here: Option<&HamletId>,
     ) -> Done<AgentId> {
-        let agent = done!(self.named(address, here));
+        self.child_within(call, address, here, Reach::Living)
+    }
+
+    /// The agent of a hamlet within `reach` at `address`, which
+    /// `call`'s agent is a parent of.
+    fn child_within(
+        &mut self,
+        call: &Call<'_>,
+        address: &str,
+        here: Option<&HamletId>,
+        reach: Reach,
+    ) -> Done<AgentId> {
+        let agent = done!(self.named_within(address, here, reach));
+        Ok(self.require_child(call, agent)?.map(|()| agent))
+    }
+
+    /// Rejects unless `agent` is an agent of a hamlet `call`'s agent
+    /// is a parent of.
+    fn require_child(
+        &mut self,
+        call: &Call<'_>,
+        agent: AgentId,
+    ) -> Done<()> {
         let caller = call.conversation.agent;
         let db = self.realm.store().connection();
         if agents::get(db, agent)?.kind != AgentKind::Hamlet {
@@ -517,14 +658,17 @@ impl Core<'_, '_> {
             let name = addresses::name_of(db, agent)?;
             reject!(Rejection::NotParent { name });
         }
-        Ok(Ok(agent))
+        Ok(Ok(()))
     }
 
     /// The profile `text` addresses, as an agent takes it: at `main`,
     /// or pinned to `@<version>`.
     fn chosen_profile(&mut self, text: &str) -> Done<ProfileChoice> {
-        let (profile, version) = done!(self.profile_pinned(text));
-        self.existing(profile, version)
+        let layout = self.realm.layout().clone();
+        let db = self.realm.store().connection();
+        let (profile, version) =
+            done!(addresses::profile_pinned(db, text));
+        versions::existing(db, &layout, profile, version)
     }
 
     fn add_agent(
@@ -582,7 +726,6 @@ impl Core<'_, '_> {
             },
             (false, false) => reject!(Rejection::AddBoth),
         };
-        let task = self.task_of(call)?;
         let db = self.realm.store().connection();
         if let ProfileChoice::Existing { profile, .. } = &choice
             && !authority::may_add(
@@ -595,13 +738,7 @@ impl Core<'_, '_> {
             let name = city::get(db, *profile)?.label();
             reject!(Rejection::ProfileNotOwn { name });
         }
-        let overseer = task_chief(db, task)?;
-        let owner = authority::owner_for(
-            db,
-            Actor::Agent(agent),
-            Some(&hamlet),
-            overseer,
-        )?;
+        let owner = self.owner(call, Some(&hamlet))?;
         // An agent says what it adds an agent for; only a chief may
         // leave it to the new agent's first message.
         if purpose.is_empty() {
@@ -661,9 +798,7 @@ impl Core<'_, '_> {
     }
 }
 
-/// The words for the agent that made a profile: it lives in the
-/// city, or waits at the harbor, with the Hand called on to judge it
-/// when the realm leaves newcomers to the Hand.
+/// Where the profile `id`, just made, arrived, for its maker.
 fn arrived(
     cx: &mut Change<'_>,
     env: &EffectiveSettings,
@@ -687,8 +822,7 @@ fn arrived(
     ))
 }
 
-/// The budget of `agent`, for `read_budget`: what its hamlet or the
-/// realm spent this period, what it spent, and its allowance.
+/// The budget of `agent`, for `read_budget`.
 fn budget(
     db: &mut hamlet_store::Db,
     agent: AgentId,
@@ -714,7 +848,13 @@ fn budget(
     Ok(lines.join("\n"))
 }
 
-/// The chief overseeing task `task`.
+/// The rejection of a tool the dispatcher did not expect.
+pub(super) fn unsupported(call: &Call<'_>) -> Rejection {
+    Rejection::Unsupported {
+        what: format!("the tool {}", call.tool),
+    }
+}
+
 pub(super) fn task_chief(
     db: &mut hamlet_store::Db,
     task: Option<TaskId>,

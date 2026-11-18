@@ -123,5 +123,4 @@ async fn the_realm_comes_back_as_it_was_after_a_stop() {
     chief.command(chief.hand(), "/profile new dee").await;
     chief.until("dee", |c| c.profile("dee").is_some()).await;
     assert!(chief.profile("dee").unwrap().id.0 > newest);
-    assert_eq!(chief.history(hand).await.len(), 1);
 }

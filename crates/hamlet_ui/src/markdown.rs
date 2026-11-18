@@ -1,25 +1,34 @@
 //! Markdown: its blocks ([`parse()`]), the links in its words and the
 //! views that draw them ([`document`], [`fixed`], [`page`],
-//! [`typed`]). Where a written path leads and how a picture is drawn
-//! are the app's, set with [`PathLinks`] and [`PictureView`]; without
-//! them a path is plain text and a picture is its caption.
+//! [`typed`]). The app sets where a path leads, what an address is
+//! drawn as and how a picture is drawn with [`PathLinks`],
+//! [`AgentLinks`] and [`PictureView`]; without them they are plain
+//! text.
 
+mod chips;
 mod draw;
 mod links;
 mod parse;
 
 use std::path::PathBuf;
 
+use bevy::app::App;
 use bevy::ecs::component::Component;
 use bevy::ecs::resource::Resource;
 use bevy::ecs::world::World;
+use bevy_fynix::views::Atom;
 
 pub use self::draw::{
-    ATOM, Face, Ink, JOINER, document, fixed, page, picture_words,
-    rich, typed, typed_with, unsettle,
+    ATOM, AtomWords, Face, Ink, JOINER, document, fixed, page,
+    picture_words, rich, typed, typed_with, unsettle,
 };
+pub use self::links::agent_addresses;
 pub use self::parse::{Reading, hashed, parse};
 use crate::AnyView;
+
+pub fn plugin(app: &mut App) {
+    app.add_plugins(chips::plugin);
+}
 
 /// The style of a run of text.
 #[derive(Clone, Copy, PartialEq, Eq, Debug, Default)]
@@ -37,6 +46,10 @@ pub enum Target {
     Web(String),
     /// A path with no line number, which may name no file.
     Path(String),
+    /// An agent's or a profile's address, which may name no one.
+    Agent(String),
+    /// An [`Target::Agent`] in words that still grow, drawn as words.
+    AgentWords(String),
 }
 
 /// A run of text in one style.
@@ -122,6 +135,30 @@ pub struct Area;
 pub struct PathLinks {
     pub resolve: fn(&mut World, &str) -> Option<PathBuf>,
     pub generation: u64,
+}
+
+/// The chip a written address is drawn as, from the address, its
+/// words and the chip's key. `None` leaves the words plain.
+#[derive(Resource, Clone, Copy)]
+pub struct AgentLinks {
+    pub is_address: IsAddress,
+    pub resolve: fn(&mut World, &str, &str, String) -> Option<Atom>,
+    /// Moved on when the answers may have changed.
+    pub generation: u64,
+}
+
+/// Whether a word is an agent's or a profile's address.
+pub type IsAddress = fn(&str) -> bool;
+
+/// The [`IsAddress`] of [`AgentLinks`], else one that takes no word.
+pub fn is_address_in(world: &World) -> IsAddress {
+    world
+        .get_resource::<AgentLinks>()
+        .map_or(no_address, |links| links.is_address)
+}
+
+fn no_address(_: &str) -> bool {
+    false
 }
 
 /// How a picture block is drawn, from its caption and target. Without

@@ -1,7 +1,7 @@
 # The hamlet: the society of agents
 
 Chiefs, the Hand, the city of profiles, hamlets with their agents, the channels
-and letters between them, the tasks and budgets that bound their work, the
+and messages between them, the tasks and budgets that bound their work, the
 library, dreams, and what waits for a chief. One agent on its own is in
 [`core.md`](core.md).
 
@@ -19,7 +19,7 @@ ending agents and merging them. A reserved act waits for a chief (H11). The real
 limits of its own: whether channels may be agreed between hamlets, and the
 budget of the Hand and of the workers started outside a hamlet (H8).
 
-**H24.** Only a line a human types can be a command. A letter between agents
+**H24.** Only a line a human types can be a command. A message between agents
 is words, whatever it begins with.
 
 **H26.** A chief has these commands. A command that names an agent takes its
@@ -30,10 +30,10 @@ chief is talking to.
 |---|---|
 | `/hand`, `/hamlet <hamlet>`, `/agent <address>` | Talk to the Hand, to a hamlet's lead, or to an agent |
 | `/to <address> <instruction>` | Instruct an agent directly |
-| `/new` | Move at once to a new conversation while the old one finishes its queue (C24) |
-| `/resume [n]` | List earlier conversations, or go back to one by its stable number (C24) |
+| `/compact` | Summarize the earlier part of the agent's conversation now (C24, C28) |
 | `/retry`, `/reflect` | Carry on a failed or stopped turn as a visible new input, reflect now (C26, C5) |
-| `/stop [address\|all]` | Stop an agent's work, or all agents' (H23) |
+| `/stop [address\|all]` | Stop an agent's work and hold what waits for it, or all agents' (H23, C25) |
+| `/resume [address\|all]` | Let a stopped agent, or every one, take what waits again (C25) |
 | `/queue`, `/allow`, `/always`, `/deny`, `/go`, `/withdraw`, `/reply`, `/dismiss` | Answer what waits (H11, H10) |
 | `/grants`, `/revoke <address> <network\|unconfined>` | The lasting permissions, and taking one back |
 | `/hamlets`, `/create-hamlet [profile#id\|blank] <name>[: purpose]` | List hamlets with their ids, or create one named `<name>` with a profile as its lead, a blank agent named Lead by default (H6, H36) |
@@ -42,7 +42,7 @@ chief is talking to.
 | `/tier <50\|100\|200\|500>` | Set how many agents the hamlet holds (H40) |
 | `/lead <address> [reason]` | Give the hamlet's office to another agent (H18) |
 | `/add-agent <profile#id>[@<version>]\|blank [in <hamlet>] [under <address>] [purpose]` | Add an agent of a profile to the hamlet, or a blank agent (H40) |
-| `/end <address> [reason]`, `/merge <address> into <address> [reason]` | End an agent, or make one of two (H5) |
+| `/end <address> [dream] [reason]`, `/merge <address> into <address> [reason]` | End an agent, with `dream` dreaming once more first (H40, H43), or make one of two (H5) |
 | `/restore <address> [reason]`, `/erase <address>` | Bring an ended agent back, or split a merged one out again, or erase it for good (H20) |
 | `/model <address> <model\|none> [reason]`, `/tools <address> -<tool> +<tool>`, `/allowance <address> <dollars\|none>` | An agent's model, tools and allowance (H29, H41, H44) |
 | `/effort <address> <off\|minimal\|low\|medium\|high\|xhigh\|max\|none>`, `/fast <address> <on\|off>` | How hard an agent's model thinks, and whether it asks for the provider's fast tier (H29a) |
@@ -53,11 +53,12 @@ chief is talking to.
 | `/budget`, `/reset-budget` | The hamlet's spend, and starting its period again (H8) |
 | `/history` | The record: who was added, ended, merged and restored, and the other decisions (H17) |
 | `/profiles`, `/profile new <name>[: <character>]`, `/name-profile <profile#id> <name>` | List the city's profiles, make one, or give one a new name (H38) |
+| `/make-profile <address> [name]` | Make a profile of the city of what an agent learned (H38) |
 | `/welcome <profile#id> [reason]`, `/turn-away <profile#id> [reason]` | Let a profile at the harbor into the city, or send one back there (H45) |
 | `/remove-profile <profile#id> <reason>`, `/restore-profile <profile#id> [reason]`, `/erase-profile <profile#id>` | Archive a profile and end its agents, bring it back, or erase it for good (H38) |
 | `/move-house <profile#id> <x> <z> [degrees]` | Set a profile's house down elsewhere in the city |
 | `/tag`, `/versions`, `/pin`, `/revert`, `/fork`, `/purge` | A profile's versions and history (H39) |
-| `/dream <profile#id\|address>` | Have an agent bring its learning home, or a profile tidy, now (H43) |
+| `/dream <profile#id\|address>` | Have an agent bring its learning home, or a profile's agents and then the profile, now or in its turn (H43) |
 | `/unshelve <skill> [reason]` | Take a skill out of the library (H33) |
 
 The server advertises its supported command names. The window offers only
@@ -75,12 +76,20 @@ empty city and no hamlet.
   edits its character as any profile's.
 - Every chief talks to the Hand first. It has a channel to each lead and to no
   other agent.
-- It can do in any hamlet what a parent can (H41), and found hamlets (H6), give
-  a hamlet's office to another agent (H18), remove a hamlet (H19), read a
-  hamlet's record, and read and change profiles (H38, H39).
-- Its changes to a profile's `main` and its removal of a hamlet are reserved:
-  they wait for a chief (H11). It asks for a chief's word before it touches
-  what a chief owns.
+- It can do in any hamlet what a parent can (H41), and what a chief can in
+  the realm: found hamlets (H6), give a hamlet's office to another agent
+  (H18), name, move, remove, restore and erase a hamlet (H19), set its tier,
+  folder, mode, limits and budget, read a hamlet's record, read and change
+  profiles and let newcomers into the city (H38, H39, H45), restore and
+  erase agents, pin, dream, reflect and stop, read an agent's prompt and
+  papers, and change the realm's settings and charter (H35).
+- It never signs in or sets a credential, an endpoint or the network, never
+  answers what waits for a chief or takes back a grant, and never chooses its
+  own model, effort or fast tier.
+- Its changes to a profile's `main`, a purge, removing or erasing anything,
+  a hamlet's tier, folder, mode, limits and budget, and the realm's settings
+  and charter are reserved: they wait for a chief (H11). It asks for a
+  chief's word before it touches what a chief owns.
 - Its spend and that of the workers it starts are charged to the realm's
   budget, not a hamlet's (H8).
 
@@ -115,13 +124,20 @@ skills/<name>/SKILL.md    one folder per skill, with its files
   character and an empty `memory/`. One a chief or the Hand makes has a
   house in the city at once; one a parent makes may wait at the harbor
   (H45).
+- A chief, the Hand or a parent over an agent, living or ended, can make a
+  profile of the city of what it has become (`/make-profile`,
+  `make_profile`). A blank agent's own profile joins the city with the
+  agent's branch merged into its `main`. An agent of a city profile starts
+  a new profile from its branch's tip instead, and stays its old profile's.
+  Either arrives as a profile newly made by its maker does.
 - A blank agent is an agent of a hamlet that is not of a profile of the
   city: `/add-agent blank`, `add_agent` with no profile, or a hamlet founded
   with no profile named. It is a profile of its own all the same, made for
   that agent alone, from the realm's default character for one an agent
-  makes, and named Lead, or Agent and its number, unless a name is given. It
-  has no house, never waits at the harbor, is not listed with the city's
-  profiles and no other agent is added of it.
+  makes, and named Lead, or Agent and its number, unless a name is given.
+  Until a profile of the city is made of its agent, it has no house, never
+  waits at the harbor, is not listed with the city's profiles and no other
+  agent is added of it.
 - The server sets a new house down at the first free spot on a spiral out
   from the city's middle, clear of the middle and of every other house, its
   door toward the middle. A chief can set it down elsewhere
@@ -216,7 +232,10 @@ a branch of its profile's repository and a worktree of its own (C8).
   the worktree. A turn never sees `main` change under it.
 - **Ending** an agent stops its turns, lets its waits lapse, takes back its
   grants (H28), makes a final commit of its worktree and archives it. Its
-  worktree and branch stay until erased. The agents under it go to its parent.
+  worktree and branch stay until erased, with what it learned. The agents
+  under it go to its parent. Ended with a dream, it reflects (C5) and then
+  dreams once more (H43); otherwise its profile's `main` gets nothing from
+  it.
 - **Restoring** it brings it back under the same id and number, when its
   profile lives, its hamlet lives and holds fewer than its tier. Its parent is
   its old parent when that lives, else the lead.
@@ -228,9 +247,10 @@ parents make it. An agent with agents under it is a parent.
 
 - A parent has the lead's powers over the agents under it, and only those:
   to add agents under itself or under an agent of its tree, make profiles,
-  end agents, merge them, choose their models, turn their tools off, give
-  them allowances, and open and close channels among them. Every agent of a
-  hamlet has these tools (H35), so any of them can become a parent.
+  of the agents under it too (H38), end agents, merge them, choose their
+  models, turn their tools off, give them allowances, and open and close
+  channels among them. Every agent of a hamlet has these tools (H35), so any
+  of them can become a parent.
 - The Hand is above every lead, and a chief overrules anything (H23).
 - An agent has a channel to its parent and to each agent under it while they
   live (H3).
@@ -244,10 +264,10 @@ it, which ends when the task is answered.
   tools it may use.
 - It has one conversation, with the task as its first input. Its last answer
   goes back to its starter: as the tool's answer when the starter waits, else
-  as a letter. A chief's worker answers in its own conversation, which the
+  as a response. A chief's worker answers in its own conversation, which the
   chief watches.
 - It has the built-in tools its starter gave it and no society tools, so it
-  starts no workers and sends no letters.
+  starts no workers and sends no messages.
 - It works in the hamlet's folder as its starter does, reads its starter's
   worktree and the library, and writes a scratch folder that is removed when
   it ends.
@@ -275,6 +295,11 @@ absorbed agent learned since its branch took in `main` is committed to the kept
 branch, a clashing file kept aside as `<name>.from-<absorbed>` and a clashing
 skill as `<skill>-from-<absorbed>`. The absorbed agent is archived as merged.
 No model rewrites memory at a merge; a dream tidies it later (H43).
+
+The kept agent's conversation is given the absorbed agent's without a turn:
+who said what, from its latest summary on, at most [24000] characters, as
+past work and not instructions. The absorbed agent's conversation stays as
+it was, so a split (H20) gives it back unchanged.
 
 **H7.** An agent working on a chief's task cannot be ended or merged by a parent
 until it has answered, nor for [0] minutes after.
@@ -306,7 +331,7 @@ effort the model cannot be asked for becomes the nearest it can. A chief may
 also turn on an agent's fast tier, which asks the model's provider for its
 faster, dearer tier where it has one; it is off unless turned on.
 
-## Channels and letters
+## Channels and messages
 
 **H3.** Agents reach each other along channels, of four kinds:
 
@@ -327,21 +352,20 @@ that absorbed it, and are not charged again.
 
 **H30.** An agent sends messages only along its channels, in two ways:
 
-- **A letter** (`tell`): sent without waiting. The other agent works on it
-  in its own conversation with the sender, and the reply comes back later as a
-  new message.
-- **A question** (`ask`): the sender waits while the other agent's turn runs
-  in its own worktree, and gets the reply as the tool's answer. That turn's tool
-  calls pass the same gate as the sender's.
+- **A notification** (`notify`): the other agent works on it as a turn of
+  its own in its one conversation (C22). No response is expected.
+- **A request** (`request`): a turn of the other agent's one conversation,
+  gated (H11) as any turn. Its final answer goes back to the sender as the
+  response, a turn of the sender's.
 
-Each letter, question and reply names its sender (C11, C30). A question
-that would leave a conversation waiting on its own answer, directly or
-through other questions, is refused.
+Each notification, request and response names its sender (C11, C30). An address
+names its agent with or without the name shown beside it, as
+`agent#2 (Lead)`, so an address copied from the window works as it is.
 
-A letter or a question can name `paths`: files or folders in the sender's
-worktree or its hamlet's folder, which the server copies into the receiver's
-worktree under `inbox/from-<sender>/`, links not followed, as far as the
-sender's sandbox lets it read. The message says where each landed. An image among them
+A notification or a request can name `paths`: files or folders in the
+sender's worktree or its hamlet's folder, which the server copies into the
+receiver's worktree under `inbox/from-<sender>/`, links not followed, as far
+as the sender's sandbox lets it read. The message says where each landed. An image among them
 is also given to the receiver's model when that model takes images. One send
 holds at most [32 MiB and 1000 files], images among them; a larger one waits for
 a chief, who is told what is sent and how large, and who allows it or refuses
@@ -349,12 +373,17 @@ it, and the sender is told of a refusal. No send holds more than [256 MiB] in
 one file, [1 GiB] or [10000 files] in all. A remote workspace gives at most 4
 MiB of a file at once, so a sender working there sends no larger file.
 
-An agent can ask its parent for a channel to another agent of its hamlet
-(`request_channel`).
+An agent can propose to its parent a channel to another agent of its hamlet
+(`propose_channel`).
 
-**H31.** While another agent waits on an agent's reply, that agent cannot
-send letters: they would reach the waiting agent after it stopped
-listening.
+**H31.** Neither a notification nor a request holds its sender: `request`
+returns as soon as the request is sent, and the sender's turn goes on or
+ends. A response reaches the sender's conversation as it is then, its fork
+after a rewind. An agent at rest with a request unanswered is shown
+waiting on its receiver. A request that fails comes back as an error
+response, given to the sender's model but starting no turn, its cause in
+plain words. A setup cause, such as no model or no credentials, is shown
+to the chief once for every agent it stops.
 
 **H12.** Every message a chief sends starts a task, and the task follows
 every message and turn it causes, in every agent it reaches. A retry, a
@@ -401,9 +430,10 @@ click on the name at the top of its page in the Hub renames it.
 
 **H43.** What an agent learns stays on its branch until a dream brings it home.
 A dream is a conversation of its own, with a task and a cost, kept as a
-record of what ran and the commits it made. Dreams are off until a chief turns
-them on, and run one at a time in the hours the chief sets [1 to 6], each
-costing at most a cap [$0.20].
+record of what ran and the commits it made. Dreams run one at a time, each
+costing at most a cap [$0.20]. Scheduled dreams are off until a chief turns
+them on, and start in the hours the chief sets [1 to 6]; a dream asked for,
+and the last dream of an agent ended with one, run whatever those say.
 
 - **An agent's dream** runs when the agent is idle and its branch holds
   something `main` lacks, at most every [6] hours. It is given the agent's
@@ -413,8 +443,14 @@ costing at most a cap [$0.20].
   into the branch.
 - **A profile's dream** tidies `main` itself, as one commit, at most once a
   day, for a profile with living agents.
-- Ending an agent runs one more dream for it within a day, when dreams are on.
-- A chief can have any dream run now (`/dream`).
+- An agent ended with a dream (`/end <address> dream`, `end_agent` with
+  `dream`) dreams once more, after its last reflection (C5) ends.
+- An agent's dream that ends is told in its conversation, and to the agent
+  that ended it with a dream.
+- A chief can ask for any dream (`/dream`), and the Hand for one of a
+  profile it keeps or an agent it is the parent of (`dream`). Asked of a
+  profile, its agents that learned what it lacks dream first. Dreams asked
+  for go first, then the last dreams of ended agents, then scheduled ones.
 
 ## Between hamlets
 
@@ -455,7 +491,7 @@ starter skills. An agent offers one of its own skills with a reason
 anything else refuses it. An accepted skill is committed to the library whole.
 Its unchanged worktree copy is removed when possible. Later changes stay in
 the worktree. An agent can ask the librarian which skill does what it needs
-(`ask_librarian`), also in one call without tools. Each call is kept and
+(`request_librarian`), also in one call without tools. Each call is kept and
 charged to the asking agent and its task. The library keeps a record of what
 was shelved, refused and taken out, and a chief can take a skill out
 (`/unshelve`).
@@ -473,7 +509,8 @@ was shelved, refused and taken out, and a chief can take a skill out
   command, not an edit of the agent's own worktree (C21).
 
 A chief answers: allow it once; allow edits or commands for the rest of the
-agent's conversation; allow it always, which for the network or running
+agent's conversation, which a rewind's fork does not inherit (C27); allow
+it always, which for the network or running
 unconfined is a lasting permission kept by the agent until taken back or the
 agent ends; or refuse. Every refused approval counts toward the turn's cap,
 whatever its danger. After [3] refusals in one turn, further requests for
@@ -489,9 +526,12 @@ approval are refused without asking.
   served from another machine] reviews the instruction in one model call
   beside the work, charged to its task, in which it may object by answering
   `OBJECT: <reason>`, or answer `pass`.
-- While a chief oversees it, an agent can ask the chief a question it cannot
-  go on without (`ask_chief`), at most [3] in one turn, and waits for the
-  answer.
+- While a chief oversees it, an agent can ask the chief questions it cannot
+  go on without (`request_chief`), at most [3] calls in one turn, and waits
+  for the answer. A chief oversees every turn of the one conversation of
+  the Hand or an agent of a hamlet, a notification's, a request's and a response's
+  included; elsewhere, as
+  in a worker's, only the turn of a chief's own line.
 
 **H34.** What waited for a chief, and how it ended, is kept. A wait lapses
 when a chief stops its turn, when the conversation is taken back past it,
@@ -505,19 +545,19 @@ the tools in its own row:
 
 | Who | Tools |
 |---|---|
-| Every agent but a worker | `tell`, `ask` (H30), `start_worker` (H42), `submit_skill`, `ask_librarian` (H33), `ask_chief` (H10), `read_budget` (H8) |
-| Every agent of a hamlet | `request_channel` |
-| A parent, and the Hand | `create_profile`, `add_agent`, `end_agent`, `merge_agents`, `set_model`, `set_tools`, `set_allowance`, `rename_agent`, `open_channel`, `close_channel` |
+| Every agent but a worker | `notify`, `request` (H30), `start_worker` (H42), `submit_skill`, `request_librarian` (H33), `request_chief` (H10), `read_budget` (H8) |
+| Every agent of a hamlet | `propose_channel` |
+| A parent, and the Hand | `create_profile`, `make_profile`, `add_agent`, `end_agent`, `merge_agents`, `set_model`, `set_tools`, `set_allowance`, `rename_agent`, `open_channel`, `close_channel` |
 | A lead, when other hamlets live | `agree_channel` |
-| The Hand | `found_hamlet`, `set_lead`, `remove_hamlet`, `read_record`, `read_profile`, `edit_profile`, `tag`, `revert` |
-| Every agent but a worker, in a chief conversation | `object` (H10) |
+| The Hand | On hamlets: `found_hamlet`, `set_lead`, `name_hamlet`, `move_hamlet`, `remove_hamlet`, `restore_hamlet`, `erase_hamlet`, `set_tier`, `set_folder`, `set_mode`, `reset_budget`, `edit_limits`, `read_record`. On profiles: `read_profile`, `edit_profile`, `tag`, `revert`, `versions`, `fork`, `purge`, `welcome`, `turn_away`, `name_profile`, `move_house`, `remove_profile`, `restore_profile`, `erase_profile`. On agents: `pin`, `restore_agent`, `erase_agent`, `set_effort`, `set_fast`, `dream`, `reflect`, `stop`, `resume`, `edit_memory`, `read_prompt`, `read_papers`. On the realm: `edit_settings`, `edit_charter`, `read_charter`, `read_models`, `unshelve` |
+| Every agent but a worker, in its one conversation | `object` (H10) |
 | A worker | None of the society's |
 | A dream | None of the society's |
 | A librarian's call or a review | No tools |
 
 The offered tools follow the agent's current role when the tree or the realm
 changes. A tool called by the wrong role refuses in words. Offering `object`
-does not grant another objection, and `ask_chief` refuses when no chief
+does not grant another objection, and `request_chief` refuses when no chief
 oversees the task (H10). A parent's review objects in its answer, not through a
 tool.
 

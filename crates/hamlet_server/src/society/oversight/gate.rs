@@ -1,7 +1,4 @@
-//! The gate every tool call passes before it runs (C7, H11): what it
-//! reaches, what the chief's mode, grants and session grants allow,
-//! what the chief keeps for itself, and what the chief refused in the
-//! turn.
+//! The gate every tool call passes before it runs (C7, H11).
 
 use anyhow::Result;
 use diesel::prelude::*;
@@ -61,7 +58,7 @@ pub(crate) enum Call {
 }
 
 /// The call of `tool` with `args`; `added` when it is a tool added by
-/// hand, with its network. A write's old text is read apart.
+/// hand, with its network.
 pub(crate) fn call_of(
     tool: &str,
     args: &Value,
@@ -265,9 +262,7 @@ pub(crate) fn rule(
     }
 }
 
-/// A society act the chief keeps for itself (H22): a parent's acts
-/// its hamlet's limits reserve, and the Hand's acts on what chiefs
-/// own.
+/// A society act the chief keeps for itself (H22).
 fn is_reserved(
     call: &Call,
     caller: Caller,
@@ -485,49 +480,43 @@ fn refused(
     })
 }
 
-/// The chat session whose edits and commands a chief may grant for
-/// its length.
-#[derive(Clone, Copy, Debug, PartialEq)]
-pub(crate) struct Session {
-    pub agent: AgentId,
-    pub chief: ChiefId,
-    pub session: i64,
-}
-
-/// Whether the chief granted the edits and the commands of `session`
-/// for its length.
+/// Whether a chief granted the edits and the commands of
+/// `conversation` for the rest of it.
 pub(crate) fn session_granted(
     db: &mut Db,
-    session: Session,
+    conversation: ConversationId,
 ) -> Result<(bool, bool)> {
-    Ok(session_grant::table
-        .find((session.agent, session.chief, session.session))
+    let rows = session_grant::table
+        .filter(session_grant::conversation.eq(conversation))
         .select((session_grant::edit, session_grant::command))
-        .first(db)
-        .optional()?
-        .unwrap_or((false, false)))
+        .load::<(bool, bool)>(db)?;
+    Ok(rows
+        .into_iter()
+        .fold((false, false), |(edit, command), (e, c)| {
+            (edit || e, command || c)
+        }))
 }
 
-/// Grants the edits or the commands of `session` for the rest of it.
+/// Keeps that `chief` granted the edits or the commands of
+/// `conversation` for the rest of it.
 pub(crate) fn grant_session(
     db: &mut Db,
-    session: Session,
+    conversation: ConversationId,
+    chief: ChiefId,
     danger: Danger,
 ) -> Result<()> {
     let (edit, command) =
         (danger == Danger::Edit, danger == Danger::Command);
     diesel::insert_into(session_grant::table)
         .values((
-            session_grant::agent.eq(session.agent),
-            session_grant::chief.eq(session.chief),
-            session_grant::session.eq(session.session),
+            session_grant::conversation.eq(conversation),
+            session_grant::chief.eq(chief),
             session_grant::edit.eq(edit),
             session_grant::command.eq(command),
         ))
         .on_conflict((
-            session_grant::agent,
+            session_grant::conversation,
             session_grant::chief,
-            session_grant::session,
         ))
         .do_update()
         .set((
@@ -538,20 +527,6 @@ pub(crate) fn grant_session(
                 .or(excluded(session_grant::command))),
         ))
         .execute(db)?;
-    Ok(())
-}
-
-/// Takes back the grant of a session that is resumed (H11).
-pub(crate) fn reset_session_grant(
-    db: &mut Db,
-    session: Session,
-) -> Result<()> {
-    diesel::delete(session_grant::table.find((
-        session.agent,
-        session.chief,
-        session.session,
-    )))
-    .execute(db)?;
     Ok(())
 }
 
@@ -608,8 +583,7 @@ pub(crate) fn give(
     Ok(())
 }
 
-/// Takes `permission` back from `agent`, as `by` says. `false` when
-/// it held no grant.
+/// Takes `permission` back from `agent`, as `by` says.
 pub(crate) fn revoke(
     db: &mut Db,
     agent: AgentId,

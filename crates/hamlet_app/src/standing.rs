@@ -1,5 +1,4 @@
-//! What an agent is doing, in one glyph, tone and word wherever the
-//! panels show it.
+//! What an agent is doing, as one glyph, tone and word.
 
 use bevy::ecs::entity::Entity;
 use bevy::ecs::world::World;
@@ -27,9 +26,18 @@ pub(crate) enum Standing {
 impl Standing {
     /// What `agent` is doing.
     pub(crate) fn of(world: &World, agent: Entity) -> Self {
+        Self::raised(world, agent, waits(world, agent))
+    }
+
+    /// What `agent` is doing, which has raised `waits`.
+    pub(crate) fn raised(
+        world: &World,
+        agent: Entity,
+        waits: usize,
+    ) -> Self {
         if world.get::<Left>(agent).is_some() {
             Self::Gone
-        } else if waits(world, agent) > 0 {
+        } else if waits > 0 {
             Self::Waits
         } else if world.get::<Faulted>(agent).is_some() {
             Self::Stopped
@@ -66,9 +74,7 @@ impl Standing {
         }
     }
 
-    /// Its status: orange for what waits on the chief, red for a
-    /// fault or a refusal, ochre for work under way, purple for a
-    /// merge, and neutral for the rest.
+    /// Its status kind.
     pub(crate) fn kind(self) -> StatusKind {
         match self {
             Self::Waits => StatusKind::Attention,
@@ -107,8 +113,7 @@ pub(crate) fn need_you(count: usize) -> &'static str {
     if count == 1 { "needs you" } else { "need you" }
 }
 
-/// How many waits `agent` has raised. A newcomer's wait is about the
-/// profile, not the agent that made it.
+/// How many waits `agent` has raised, newcomers' left out.
 pub(crate) fn waits(world: &World, agent: Entity) -> usize {
     let address = name_of(world, agent);
     world.try_query::<&Waiting>().map_or(0, |mut waiting| {

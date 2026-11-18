@@ -10,8 +10,7 @@ use serde::{Deserialize, Serialize};
 use crate::realm::change::Change;
 use crate::society::dreams::Outcome;
 
-/// Declares [`Job`] with each job's kind written once: the tag it is
-/// kept under, which [`Job::kind`] gives back.
+/// Declares [`Job`] with the tag each kind is kept under.
 macro_rules! jobs {
     ($(
         $(#[$doc:meta])*
@@ -67,6 +66,9 @@ jobs! {
     Merge("merge") { merge: MergeId },
     /// Undoes a merge's commit on the kept agent's branch.
     Split("split") { merge: MergeId },
+    /// Merges an agent's branch into its profile's `main`, and takes
+    /// the new `main` in.
+    BringHome("bring-home") { agent: AgentId },
     /// Puts a skill the librarian took on the shelves, and takes it
     /// out of the worktree it was offered from.
     Shelve("shelve") { offer: OfferId },
@@ -95,6 +97,7 @@ impl Job {
             Self::Worktree { agent }
             | Self::Commit { agent }
             | Self::TakeIn { agent }
+            | Self::BringHome { agent }
             | Self::EraseAgent { agent } => agent.to_string(),
             Self::EraseHamlet { hamlet } => hamlet.to_string(),
             Self::Merge { merge } | Self::Split { merge } => {
@@ -110,9 +113,9 @@ impl Job {
     /// of each must be sent.
     pub fn worktrees(&self, db: &mut Db) -> Vec<AgentId> {
         match self {
-            Self::Worktree { agent } | Self::TakeIn { agent } => {
-                vec![*agent]
-            }
+            Self::Worktree { agent }
+            | Self::TakeIn { agent }
+            | Self::BringHome { agent } => vec![*agent],
             Self::Merge { merge } | Self::Split { merge } => {
                 crate::society::merges::get(db, *merge)
                     .map(|found| vec![found.kept, found.absorbed])

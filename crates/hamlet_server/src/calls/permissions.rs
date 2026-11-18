@@ -1,6 +1,4 @@
-//! The permission check of a tool call, made before it is kept as
-//! begun (C7, H11): the call admitted under its key, then allowed,
-//! refused, held for a chief or looked at off the loop first.
+//! The permission check of a tool call (C7, H11).
 
 use std::collections::BTreeMap;
 
@@ -124,7 +122,7 @@ impl Core<'_, '_> {
         let answer = if !is_offered(&call.conversation, call.tool)?
             || matches!(
                 call.society,
-                Some(Society::AskChief | Society::Object)
+                Some(Society::RequestChief | Society::Object)
             ) {
             Answer::Allowed
         } else {

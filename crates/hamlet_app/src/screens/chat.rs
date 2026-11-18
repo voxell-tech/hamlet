@@ -1,72 +1,71 @@
-//! The chat: the one a typed line goes to and the line it is typed
-//! in. An agent's conversations are laid in one line of time
-//! (`timeline`), kept as rows (`lines`) and drawn as a group chat
-//! (`bubble`) over the `field` a message is typed in, where what is
-//! attached sits as chips (`attach`). An edit shows its `change`,
-//! and the chief's own messages the way back to them (`rewind`). A
-//! message can `reply` to another, and `quote` lines as chat apps
-//! do.
+//! The chat with an agent and the field a message is typed in.
 
-mod attach;
+mod anchor;
+pub(crate) mod attach;
 pub(crate) mod bubble;
+mod card;
 mod change;
 mod commands;
+mod edits;
 mod entry;
 mod field;
+mod held;
 mod lines;
 mod quote;
 pub(crate) mod reply;
 mod rewind;
 mod timeline;
 
-use std::collections::HashSet;
+use std::collections::HashMap;
 
 use bevy::app::{App, PostUpdate, PreUpdate, Update};
 use bevy::color::Color;
-use bevy::ecs::change_detection::DetectChanges;
 use bevy::ecs::component::Component;
 use bevy::ecs::entity::Entity;
 use bevy::ecs::event::Event;
+use bevy::ecs::lifecycle::Remove;
 use bevy::ecs::observer::On;
 use bevy::ecs::query::With;
 use bevy::ecs::resource::Resource;
 use bevy::ecs::schedule::IntoScheduleConfigs;
 use bevy::ecs::system::{Commands, Query, Res, ResMut};
 use bevy::ecs::world::World;
-use bevy::ui::{
-    AlignItems, ComputedNode, Overflow, ScrollPosition, UiRect, px,
-};
+use bevy::ui::{ComputedNode, Overflow, ScrollPosition, UiRect, px};
 use bevy_fynix::scroll::ScrollGoal;
 use bevy_fynix::views::{
     BehaviorExt, Enter, Frame, FrameProps, Piece, VirtualList,
-    column, rich_field, row,
+    button, column, rich_field, row,
 };
-use bevy_fynix::{ScopedExt, derived, every_frame, resource, style};
+use bevy_fynix::{
+    ScopedExt, ViewExt, derived, every_frame, resource, style,
+};
 use hamlet_client::chats::Chat;
 use hamlet_client::messages::{
-    ChiefMessage, Response, Rewind, ServerFault,
+    ChiefMessage, Compact, Response, Resume, Rewind, ServerFault,
+    Withdraw,
 };
-use hamlet_client::outbox::Outbox;
 use hamlet_client::realm as agents;
 use hamlet_protocol::client as protocol;
 use hamlet_realm::hand::FileDrop;
 use hamlet_realm::orders::{Decree, Tell};
-use hamlet_ui::styles::{note, text_input};
+use hamlet_ui::styles::{ICON, Looks, Tipped, note, text_input};
 use hamlet_ui::theme::HamletTheme;
 use hamlet_ui::widgets::effects::Variant;
 use hamlet_ui::widgets::hint::hinted;
-use hamlet_ui::{Cx, View, with_cx};
+use hamlet_ui::widgets::icons::{Glyph, glyph};
+use hamlet_ui::{AnyView, Cx, View, with_cx};
 
 pub(crate) use self::change::change_view;
 pub use self::change::{Changes, ChatSettings};
 pub use self::entry::OpenTools;
 pub(crate) use self::entry::Underway;
 pub use self::field::refocus;
+pub(crate) use self::lines::close_merged;
 pub use self::lines::{
-    Lines, PastLines, Unfolded, ask_earlier, break_long_words,
-    fold_lines, fold_past, transcript,
+    Lines, MergedLines, Unfolded, ask_earlier, break_long_words,
+    fold_lines, fold_merged, transcript,
 };
-pub(crate) use self::lines::{past, read_earlier, read_past};
+use self::lines::{remember_place, restore_place};
 pub use self::rewind::{Rewinds, ask as ask_rewind};
 use crate::PanelSystems;
 use crate::convo::{self, Convo};
@@ -74,8 +73,7 @@ use crate::convo::{self, Convo};
 /// The room at the sides of the field, as the theme gives a field.
 const FIELD_SIDE: f32 = 8.0;
 
-/// The room above and below a single line of the field: what is
-/// left of its height once the line and its frame are taken out.
+/// The room above and below a single line of the field.
 const LINE_ROOM: f32 = 4.5;
 
 /// The least width of the field a chief types in.
@@ -92,6 +90,7 @@ pub fn plugin(app: &mut App) {
         .init_resource::<Unfolded>()
         .init_resource::<Lines>()
         .init_resource::<ToEnd>()
+        .init_resource::<field::Typed>()
         .init_resource::<AwayFromEnd>()
         .init_resource::<hamlet_ui::fields::Resized>()
         .add_observer(decreed)
@@ -99,22 +98,34 @@ pub fn plugin(app: &mut App) {
         .add_observer(fault)
         .add_observer(remember_said)
         .add_observer(remember_rewind)
+        .add_observer(remember_compact)
+        .add_observer(remember_withdraw)
+        .add_observer(remember_resume)
         .add_observer(response)
+        .add_observer(forget_chat)
         .init_resource::<OpenTools>()
-        // A row fades while a rewind that would forget it is asked
-        // about.
+        // Read by the rewind's fading.
         .init_resource::<crate::world_menu::Open>()
         .add_plugins((
+            anchor::plugin,
             attach::plugin,
             rewind::plugin,
             lines::plugin,
             reply::plugin,
         ))
-        // The rows are folded before fynix mounts them, so a received
-        // reply shows in the update it arrives.
+        // Before fynix mounts, so a reply shows in the update it
+        // arrives.
         .add_systems(
             PreUpdate,
-            (keep_end, ask_earlier, fold_lines, fold_past)
+            (
+                remember_place,
+                keep_end,
+                ask_earlier,
+                fold_lines,
+                fold_merged,
+                restore_place,
+                field::swap_drafts,
+            )
                 .chain()
                 .in_set(PanelSystems::Bind),
         )
@@ -122,8 +133,7 @@ pub fn plugin(app: &mut App) {
         .add_systems(PostUpdate, refocus);
 }
 
-/// The field a chief types in, which holds the line's text and the
-/// chips of what is attached to it.
+/// The field a chief types in.
 #[derive(Component)]
 pub struct ChatField;
 
@@ -131,12 +141,29 @@ pub struct ChatField;
 #[derive(Component)]
 pub struct ChatScroll;
 
-/// Whether the field is to be given the focus, and what is said under
-/// it.
+/// Whether the field is to get the focus, and the notice under it.
 #[derive(Resource, Default)]
 pub struct Draft {
     pub(crate) focus: bool,
     notice: String,
+}
+
+/// Forgets what was opened in a chat that is gone.
+fn forget_chat(
+    gone: On<Remove<Chat>>,
+    mut unfolded: ResMut<Unfolded>,
+    mut tools: ResMut<OpenTools>,
+    mut changes: ResMut<Changes>,
+    merged: Res<MergedLines>,
+    mut commands: Commands,
+) {
+    let chat = gone.entity;
+    unfolded.0.retain(|(of, _)| *of != chat);
+    tools.0.retain(|(of, _)| *of != chat);
+    changes.forget(chat);
+    if merged.is_in(chat) {
+        commands.queue(close_merged);
+    }
 }
 
 /// A failure displayed under the chat field.
@@ -152,59 +179,63 @@ fn fault(
     commands.trigger(ChatError);
 }
 
+/// Requests whose replies show under the field.
 #[derive(Resource, Default)]
-struct Requests(HashSet<protocol::RequestId>);
+struct Requests(HashMap<protocol::RequestId, Said>);
 
-fn remember_said(message: On<ChiefMessage>, mut commands: Commands) {
-    let message = message.event().clone();
-    // The client's observers enqueue the requests before this command
-    // keeps their ids.
-    commands.queue(move |world: &mut World| {
-        remember(world, |request| match request {
-            protocol::ClientMessage::Say(say)
-                if say.to == message.to
-                    && say.text == message.text =>
-            {
-                Some(say.id.clone())
-            }
-            _ => None,
-        });
-    });
+/// What of a request's reply shows.
+#[derive(Clone, Copy, PartialEq)]
+enum Said {
+    Rejection,
+    Reply,
+}
+
+/// Says the rejection of the request `id` under the field.
+pub(super) fn rejected(world: &mut World, id: protocol::RequestId) {
+    world
+        .resource_mut::<Requests>()
+        .0
+        .insert(id, Said::Rejection);
+}
+
+/// Says the reply to the request `id` under the field.
+pub(super) fn replied(world: &mut World, id: protocol::RequestId) {
+    world.resource_mut::<Requests>().0.insert(id, Said::Reply);
+}
+
+fn remember_said(
+    message: On<ChiefMessage>,
+    mut requests: ResMut<Requests>,
+) {
+    requests.0.insert(message.request.clone(), Said::Rejection);
 }
 
 fn remember_rewind(
     rewind: On<Rewind>,
-    chats: Query<&Chat>,
-    mut commands: Commands,
+    mut requests: ResMut<Requests>,
 ) {
-    let Ok(chat) = chats.get(rewind.chat) else {
-        return;
-    };
-    let (chat, item) = (chat.0.clone(), rewind.item.clone());
-    commands.queue(move |world: &mut World| {
-        remember(world, |request| match request {
-            protocol::ClientMessage::Rewind(rewind)
-                if rewind.chat == chat && rewind.item == item =>
-            {
-                Some(rewind.id.clone())
-            }
-            _ => None,
-        });
-    });
+    requests.0.insert(rewind.request.clone(), Said::Rejection);
 }
 
-fn remember(
-    world: &mut World,
-    request: impl Fn(
-        &protocol::ClientMessage,
-    ) -> Option<protocol::RequestId>,
+fn remember_compact(
+    compact: On<Compact>,
+    mut requests: ResMut<Requests>,
 ) {
-    let ids = world
-        .resource::<Outbox>()
-        .iter()
-        .filter_map(request)
-        .collect::<Vec<_>>();
-    world.resource_mut::<Requests>().0.extend(ids);
+    requests.0.insert(compact.request.clone(), Said::Rejection);
+}
+
+fn remember_withdraw(
+    withdraw: On<Withdraw>,
+    mut requests: ResMut<Requests>,
+) {
+    requests.0.insert(withdraw.request.clone(), Said::Rejection);
+}
+
+fn remember_resume(
+    resume: On<Resume>,
+    mut requests: ResMut<Requests>,
+) {
+    requests.0.insert(resume.request.clone(), Said::Reply);
 }
 
 fn response(
@@ -213,24 +244,29 @@ fn response(
     mut draft: ResMut<Draft>,
     mut commands: Commands,
 ) {
-    let text = match &response.message {
-        protocol::ServerMessage::Reply(reply) => (reply.kind
-            == protocol::ReplyKind::Error)
-            .then_some(&reply.text),
-        protocol::ServerMessage::Fault(fault) => Some(&fault.text),
-        protocol::ServerMessage::Transcript(_) => None,
+    let (text, rejected) = match &response.message {
+        protocol::ServerMessage::Reply(reply) => {
+            (&reply.text, reply.kind == protocol::ReplyKind::Error)
+        }
+        protocol::ServerMessage::Fault(fault) => (&fault.text, true),
+        protocol::ServerMessage::Transcript(_) => {
+            requests.0.remove(&response.to);
+            return;
+        }
         _ => return,
     };
-    if requests.0.remove(&response.to)
-        && let Some(text) = text
-    {
+    let Some(said) = requests.0.remove(&response.to) else {
+        return;
+    };
+    if rejected {
         draft.notice.clone_from(text);
         commands.trigger(ChatError);
+    } else if said == Said::Reply {
+        draft.notice.clone_from(text);
     }
 }
 
-/// Puts `words` in the field as quoted lines, after what is typed,
-/// with a line under them for the chief's own words.
+/// Puts `words` in the field as quoted lines, after what is typed.
 pub(crate) fn quote_in_field(world: &mut World, words: &str) {
     if words.trim().is_empty() {
         return;
@@ -244,14 +280,12 @@ pub(crate) fn quote_in_field(world: &mut World, words: &str) {
             Some(_) => "\n",
         };
         pieces.push(Piece::Text(format!("{lead}{quoted}")));
-        // The caret is at the end of what is put in.
         field.set_content(pieces);
     });
     world.resource_mut::<Draft>().focus = true;
 }
 
-/// Sends `text` to the open chat, with its attachments at `places`
-/// in it, and says whether it went.
+/// Sends `text` and its attachments to the open chat, if it can.
 pub(crate) fn send(
     world: &mut World,
     text: String,
@@ -263,8 +297,6 @@ pub(crate) fn send(
         .map_or(Some((Vec::new(), Vec::new())), |attached| {
             attached.ready(places)
         });
-    // A line of images or files alone is a line, once they are all
-    // kept.
     let Some((images, files)) = ready else {
         world.resource_mut::<Draft>().notice =
             "Something attached is still being sent, waits to be \
@@ -282,18 +314,12 @@ pub(crate) fn send(
         return false;
     }
     let convo = world.resource::<Convo>();
-    if world
-        .get::<Chat>(convo.session)
-        .is_some_and(|chat| chat.0.past.is_some())
-    {
-        return false;
-    }
     let Some(to) = convo.to(world) else {
         return false;
     };
-    // What is sent is at the end of the chat.
     to_end(world);
     world.trigger(ChiefMessage {
+        request: protocol::RequestId::new(),
         to,
         text,
         images,
@@ -321,17 +347,15 @@ pub(crate) fn command(world: &mut World, text: String) {
     }
 }
 
-/// Sends a command the window made, not one typed in a chat, so its
-/// rejection is toasted rather than said only in a chat.
+/// Sends a command the window made, its rejection toasted.
 fn command_to(world: &mut World, agent: Entity, text: String) {
     if let Some(to) = agents::id_of(world, agent) {
-        world.trigger(ChiefMessage::words(to, text));
-        crate::toasts::watch_last(world);
+        let message = ChiefMessage::words(to, text);
+        crate::toasts::watch(world, message.request.clone());
+        world.trigger(message);
     }
 }
 
-/// Gives a decree of the world's as [`decree`] does, or as
-/// [`command`] does when it is about no hamlet.
 pub(crate) fn decreed(decree: On<Decree>, mut commands: Commands) {
     let Decree { hamlet, text } = decree.event().clone();
     commands.queue(move |world: &mut World| match hamlet {
@@ -352,14 +376,12 @@ fn told(tell: On<Tell>, mut commands: Commands) {
     });
 }
 
-/// Sends what is typed in the field, as Enter does, or says why a
-/// command is not. The field is cleared once its line is sent.
+/// Sends what is typed in the field, as Enter does.
 pub(crate) fn send_typed(world: &mut World) {
     let Some(plain) = field::typed(world) else {
         return;
     };
     world.resource_mut::<Draft>().focus = true;
-    // Commands are not typed here: each has a button or a menu.
     if plain.text.trim_start().starts_with('/') {
         world.resource_mut::<Draft>().notice =
             "Commands are not typed here. Use the menus, or \
@@ -374,8 +396,7 @@ pub(crate) fn send_typed(world: &mut World) {
         return;
     }
     world.resource_mut::<Draft>().notice.clear();
-    // The words are sent trimmed, and a reply puts a line before
-    // them, so each place moves with the words it is in.
+    // Places move with the trimmed words and the reply's line.
     let lead = plain.text.len() - plain.text.trim_start().len();
     let words = plain.text.trim().to_string();
     let (text, shift) = reply::attach(world, words.clone());
@@ -398,8 +419,7 @@ pub(crate) fn send_typed(world: &mut World) {
     }
 }
 
-/// Whether the agent the chat is with runs no model, as before one
-/// is set up: nothing can answer it, so nothing is sent to it.
+/// Whether the agent the chat is with has no model set up.
 pub(crate) fn without_model(world: &World) -> bool {
     world.get_resource::<Convo>().is_some_and(|convo| {
         world
@@ -415,8 +435,7 @@ pub(crate) fn furthest(node: &ComputedNode) -> f32 {
         .max(0.0)
 }
 
-/// True while the chat is shown away from its end, which is when the
-/// way back to it is offered.
+/// Whether the chat is shown away from its end.
 #[derive(Resource, Default)]
 pub struct AwayFromEnd(pub bool);
 
@@ -424,18 +443,14 @@ pub struct AwayFromEnd(pub bool);
 #[derive(Resource, Default)]
 pub struct ToEnd(bool);
 
-/// Takes the chat to its end.
 fn to_end(world: &mut World) {
     if let Some(mut to_end) = world.get_resource_mut::<ToEnd>() {
         to_end.0 = true;
     }
 }
 
-/// Takes the chat to its end when asked and when another
-/// conversation is shown. The list then keeps it there as it grows,
-/// until the chief scrolls up to read.
+/// Takes the chat to its end when asked.
 pub fn keep_end(
-    convo: Res<Convo>,
     mut to_end: ResMut<ToEnd>,
     mut away: ResMut<AwayFromEnd>,
     mut lists: Query<
@@ -448,8 +463,8 @@ pub fn keep_end(
         With<ChatScroll>,
     >,
 ) {
-    let jump = convo.is_changed() || to_end.0;
-    if to_end.0 {
+    let jump = to_end.0;
+    if jump {
         to_end.0 = false;
     }
     for (list, node, mut at, mut goal) in &mut lists {
@@ -465,20 +480,39 @@ pub fn keep_end(
     }
 }
 
-/// The one place to type, under the conversation it adds to: the
-/// field and `tools` under it in one rounded card.
+/// The gap between the composer's buttons, in theme gaps.
+pub(crate) const TOOL_GAP: f32 = 0.25;
+
+/// A round icon button of the composer's toolbar.
+pub(crate) fn tool_button(
+    which: Glyph,
+    tip: &'static str,
+    act: impl Fn(&mut World) + Send + Sync + 'static,
+) -> AnyView {
+    with_cx(move |cx| {
+        let side = cx.theme().space.row;
+        button(glyph(which, ICON))
+            .width(px(side))
+            .height(px(side))
+            .padding(UiRect::all(px(0.0)))
+            .radius(side / 2.0)
+            .variant(Variant::Text)
+            .tip(tip)
+            .on_activate(act)
+    })
+    .boxed()
+}
+
+/// The field and `tools` under it in one rounded card.
 pub fn message_bar(tools: impl View + 'static) -> impl View {
     with_cx(move |cx| {
         let space = &cx.theme().space;
-        // The card is soft and its controls round, so the room
-        // between them is what keeps their corners concentric.
+        // Keeps the corners of the card and its controls concentric.
         let inset = space.soft - space.round;
         message_bar_in(space.gap, inset, tools)
     })
 }
 
-/// The bar with `gap` between its parts and its field `inset` inside
-/// the card.
 fn message_bar_in(
     gap: f32,
     inset: f32,
@@ -495,26 +529,24 @@ fn message_bar_in(
         }
     })
     .when(every_frame());
-    // Hamlet's own hint over the field, as the search fields have.
     let field = row((hinted(
         rich_field()
             .enter(Enter::Submit)
             .on_submit(|world, _| send_typed(world))
             .on_change(|world, pieces| {
                 attach::reconcile(world, &pieces);
+                field::chip_references(world, &pieces);
+                field::keep_draft(world, &pieces);
             })
             .max_lines(MOST_LINES)
             .grow(1.0)
-            // The room above and below one line, kept above the first
-            // line and below the last of many.
             .padding(UiRect {
                 top: px(LINE_ROOM),
                 bottom: px(LINE_ROOM),
                 ..UiRect::horizontal(px(FIELD_SIDE))
             })
             .rules(in_card)
-            // The card around it shows the focus, not a glow behind
-            // its first line.
+            // The card shows the focus.
             .tagged(Variant::Subtle)
             .tagged(ChatField),
         hint,
@@ -527,9 +559,7 @@ fn message_bar_in(
         reply::preview(),
         attach::indicator(),
         attach::holds(),
-        row((attach::control(), field))
-            .gap(gap)
-            .align(AlignItems::Center),
+        field,
         tools,
     ))
     .gap(gap / 2.0)
@@ -537,10 +567,9 @@ fn message_bar_in(
     .rules(card_look)
     .tagged(crate::world_menu::Hook::Composer);
     column((
-        crate::asking::in_chat(),
+        held::line(),
         card,
-        // An empty label has no height. Keep one line so a
-        // notice does not lift the field above it.
+        // One line kept, so a notice does not lift the field.
         column((note(resource::<Draft, _>(|draft| {
             draft.notice.clone()
         })),))
@@ -550,8 +579,7 @@ fn message_bar_in(
     .tagged(FileDrop)
 }
 
-/// The composer's card: a text field's look, rounder, its frame
-/// brightening while anything in it has the focus.
+/// The composer's card, with a text field's look.
 fn card_look(cx: &mut Cx) {
     style::<HamletTheme>()
         .with(text_input)
@@ -559,7 +587,7 @@ fn card_look(cx: &mut Cx) {
         .apply(cx);
 }
 
-/// The field inside the card, which draws no frame of its own.
+/// The field inside the card, with no frame of its own.
 fn in_card(cx: &mut Cx) {
     let bare = |f: Frame, _: &HamletTheme| {
         f.fill(Color::NONE).border_color(Color::NONE)
@@ -574,11 +602,11 @@ fn in_card(cx: &mut Cx) {
 #[cfg(test)]
 mod tests {
     use bevy::ecs::hierarchy::ChildOf;
-    use bevy::ecs::message::Messages;
     use bevy::input::keyboard::Key;
     use bevy::input_focus::{FocusCause, InputFocus};
     use bevy_fynix::views::RichField;
-    use hamlet_realm::sound::{Cue, Sound};
+    use hamlet_client::outbox::Outbox;
+    use hamlet_realm::sound::Cue;
 
     use super::*;
 
@@ -590,6 +618,7 @@ mod tests {
             .init_resource::<bevy_fynix::dock::DockDrag>()
             .init_resource::<crate::hub::Showing>()
             .init_resource::<crate::hover::Card>()
+            .insert_resource(crate::reference::links())
             .add_plugins((plugin, crate::sounds::plugin));
         bevy_fynix::mount::<HamletTheme>(
             app.world_mut(),
@@ -641,9 +670,9 @@ mod tests {
                 0,
             );
         field::set(app.world_mut(), pieces);
-        let session = app.world().resource::<Convo>().session;
+        let chat = app.world().resource::<Convo>().chat;
         app.world_mut().resource_mut::<reply::Replying>().0 = Some((
-            session,
+            chat,
             reply::Answers {
                 by: "Ada".into(),
                 text: "Pear or plum?".into(),
@@ -666,8 +695,7 @@ mod tests {
         let at = say.images[0].at.unwrap() as usize;
         assert_eq!(&say.text[at..], " one is it");
         assert_eq!(say.images[0].id, image);
-        // The line is sent, and leaves no words and no chip in the
-        // field, nor an attachment for the next line.
+        // Nothing is left for the next line.
         let world = app.world_mut();
         let field = world
             .query_filtered::<&RichField, With<ChatField>>()
@@ -679,14 +707,6 @@ mod tests {
             attached.ready(&attach::Places::new()),
             Some((Vec::new(), Vec::new()))
         );
-    }
-
-    fn heard(app: &mut App) -> Vec<Sound> {
-        app.world_mut()
-            .resource_mut::<Messages<Cue>>()
-            .drain()
-            .map(|cue| cue.sound)
-            .collect()
     }
 
     #[test]
@@ -711,11 +731,12 @@ mod tests {
             .world_mut()
             .spawn((Window::default(), PrimaryWindow))
             .id();
-        let session = app.world().resource::<Convo>().session;
-        app.world_mut().entity_mut(session).insert(
+        let chat = app.world().resource::<Convo>().chat;
+        app.world_mut().entity_mut(chat).insert(
             Transcript::from_items(vec![Item {
                 id: "message/é:7".into(),
                 at: 7,
+                queued: false,
                 entry: Entry::Assistant("Paper or digital?".into()),
             }]),
         );
@@ -732,11 +753,7 @@ mod tests {
         let mut mark = world
             .query::<(Entity, &bevy::ui::widget::ImageNode)>()
             .iter(world)
-            .find(|(_, image)| {
-                image.image
-                    == hamlet_ui::widgets::icons::Glyph::Talk
-                        .image(hamlet_ui::styles::ICON)
-            })
+            .find(|(_, image)| image.image == Glyph::Talk.image(ICON))
             .unwrap()
             .0;
         while world.get::<Button>(mark).is_none() {
@@ -776,7 +793,7 @@ mod tests {
         app.world_mut().resource_mut::<InputFocus>().clear();
         app.update();
         app.world_mut().trigger(hamlet_client::messages::Rewound {
-            chat: session,
+            chat,
             text,
             images: Vec::new(),
             files: Vec::new(),
@@ -823,122 +840,6 @@ mod tests {
     }
 
     #[test]
-    fn an_unaddressed_fault_shows_under_the_field_and_sounds_once() {
-        let mut app = sounding_chat();
-        heard(&mut app);
-        hamlet_client::receive(
-            app.world_mut(),
-            protocol::ServerMessage::Fault(protocol::Fault {
-                to: None,
-                text: "The server could not keep that change.".into(),
-            }),
-        );
-        app.update();
-        assert!(
-            crate::testing::words(&mut app).iter().any(|text| text
-                == "The server could not keep that change.")
-        );
-        assert_eq!(heard(&mut app), [Sound::Error]);
-        app.update();
-        assert_eq!(heard(&mut app), []);
-    }
-
-    #[test]
-    fn rejections_of_chat_requests_show_and_sound_but_panel_replies_do_not()
-     {
-        use hamlet_client::messages::Rewind;
-        use hamlet_client::outbox::Outbox;
-
-        let mut app = sounding_chat();
-        let chat = app.world().resource::<Convo>().session;
-        for (rewind, fault) in
-            [(false, false), (true, false), (false, true)]
-        {
-            if rewind {
-                app.world_mut().trigger(Rewind {
-                    chat,
-                    item: "chief:0".into(),
-                });
-            } else {
-                send(
-                    app.world_mut(),
-                    "Find the key".into(),
-                    &attach::Places::new(),
-                );
-            }
-            app.world_mut().flush();
-            let id = app
-                .world_mut()
-                .resource_mut::<Outbox>()
-                .drain()
-                .find_map(|message| match message {
-                    protocol::ClientMessage::Say(say) => Some(say.id),
-                    protocol::ClientMessage::Rewind(rewind) => {
-                        Some(rewind.id)
-                    }
-                    _ => None,
-                })
-                .unwrap();
-            heard(&mut app);
-            let text = "This conversation cannot do that.".into();
-            let message = if fault {
-                protocol::ServerMessage::Fault(protocol::Fault {
-                    to: Some(id),
-                    text,
-                })
-            } else {
-                protocol::ServerMessage::Reply(protocol::Reply {
-                    to: id,
-                    kind: protocol::ReplyKind::Error,
-                    text,
-                    upload: None,
-                    image: None,
-                    images: Vec::new(),
-                    file: None,
-                    files: Vec::new(),
-                })
-            };
-            hamlet_client::receive(app.world_mut(), message);
-            app.update();
-            assert!(
-                crate::testing::words(&mut app)
-                    .iter()
-                    .any(|text| text
-                        == "This conversation cannot do that.")
-            );
-            assert_eq!(heard(&mut app), [Sound::Error]);
-            app.update();
-            assert_eq!(heard(&mut app), []);
-        }
-        let id =
-            app.world_mut().resource_mut::<Outbox>().send(|id| {
-                protocol::ClientMessage::Check(
-                    protocol::Check::Connection { id },
-                )
-            });
-        hamlet_client::receive(
-            app.world_mut(),
-            protocol::ServerMessage::Reply(protocol::Reply {
-                to: id,
-                kind: protocol::ReplyKind::Error,
-                text: "Only the settings panel should show this."
-                    .into(),
-                upload: None,
-                image: None,
-                images: Vec::new(),
-                file: None,
-                files: Vec::new(),
-            }),
-        );
-        app.update();
-        assert!(
-            !crate::testing::words(&mut app).iter().any(|text| text
-                == "Only the settings panel should show this.")
-        );
-        assert_eq!(heard(&mut app), []);
-    }
-
-    #[test]
     fn typed_commands_are_refused_locally_and_address_commands_never_leave()
      {
         use bevy::input::ButtonState;
@@ -955,7 +856,7 @@ mod tests {
             .world_mut()
             .spawn((Window::default(), PrimaryWindow))
             .id();
-        for command in ["/new", "/agent ada", "/hamlet home"] {
+        for command in ["/compact", "/agent ada", "/hamlet home"] {
             type_in(&mut app, command);
             app.update();
             app.world_mut().write_message(KeyboardInput {
@@ -1008,9 +909,7 @@ mod tests {
                 })
         })
         .collect::<Vec<_>>();
-        // The recorded latest page holds 100 items; the window under
-        // test is built for a page of 40, with six older items before
-        // it.
+        // A latest page of 40, with six older items before it.
         let latest = &mut pages[0];
         let keep = latest.items.len() - 40;
         latest.items.drain(..keep);
@@ -1201,201 +1100,304 @@ mod tests {
     }
 
     #[test]
-    fn received_items_show_tool_outcomes_folded_steps_and_notices() {
+    fn a_chat_keeps_its_end_and_is_shown_again_where_it_was_left() {
+        use bevy_fynix::views::VirtualList;
         use hamlet_client::chats::{Entry, Item, Transcript};
 
-        use crate::testing::{panel_app, press, words};
+        use crate::testing::{panel_app, seat_ada, seat_hand};
+        let said = |rows: usize| {
+            Transcript::from_items(
+                (0..rows)
+                    .map(|at| Item {
+                        id: format!("message/{at}"),
+                        at: at as u64,
+                        queued: false,
+                        // Each reply answers a line, so none is a
+                        // step of the turn of the next.
+                        entry: match at % 2 {
+                            0 => Entry::Chief {
+                                name: "chief".into(),
+                                text: format!("Row {at}"),
+                                images: Vec::new(),
+                                files: Vec::new(),
+                            },
+                            _ => {
+                                Entry::Assistant(format!("Row {at}"))
+                            }
+                        },
+                    })
+                    .collect(),
+            )
+        };
         let mut app = panel_app();
         app.add_plugins(plugin);
-        let session = app.world().resource::<Convo>().session;
-        let tool = |id: &str, exit| Item {
+        for seat in [seat_ada, seat_hand] {
+            seat(&mut app);
+            let chat = app.world().resource::<Convo>().chat;
+            app.world_mut().entity_mut(chat).insert(said(40));
+        }
+        app.update();
+        // Kept from chat to chat, as the hub keeps it.
+        bevy_fynix::mount::<HamletTheme>(
+            app.world_mut(),
+            transcript(),
+        );
+        // Nothing is laid out here; the list is sized as it is built.
+        let settle = |app: &mut App| {
+            for _ in 0..6 {
+                let world = app.world_mut();
+                let list = world
+                    .query_filtered::<Entity, With<ChatScroll>>()
+                    .single(world)
+                    .unwrap();
+                if world.get::<ComputedNode>(list).unwrap().size.y
+                    == 0.0
+                {
+                    world.entity_mut(list).insert(ComputedNode {
+                        size: bevy::math::Vec2::new(300.0, 200.0),
+                        content_size: bevy::math::Vec2::new(
+                            300.0, 2400.0,
+                        ),
+                        inverse_scale_factor: 1.0,
+                        ..ComputedNode::default()
+                    });
+                }
+                app.update();
+            }
+            let world = app.world_mut();
+            world
+                .query_filtered::<(Entity, &VirtualList), With<ChatScroll>>()
+                .single(world)
+                .map(|(list, state)| {
+                    (list, state.is_following(), state.first_visible())
+                })
+                .unwrap()
+        };
+
+        let (_, following, _) = settle(&mut app);
+        assert!(following, "a chat opens at its end");
+        let chat = app.world().resource::<Convo>().chat;
+        app.world_mut().entity_mut(chat).insert(said(41));
+        let (list, following, _) = settle(&mut app);
+        assert!(following, "a row that comes keeps it at its end");
+
+        app.world_mut().get_mut::<ScrollPosition>(list).unwrap().y =
+            300.0;
+        let (_, following, left_at) = settle(&mut app);
+        assert!(!following);
+        seat_ada(&mut app);
+        let (_, following, _) = settle(&mut app);
+        assert!(following, "another chat opens at its end");
+        seat_hand(&mut app);
+        // There in the update it is chosen in, not one after.
+        app.update();
+        let world = app.world_mut();
+        let (_, shown) = world
+            .query_filtered::<(Entity, &VirtualList), With<ChatScroll>>()
+            .single(world)
+            .unwrap();
+        assert_eq!(shown.first_visible(), left_at);
+        let (_, following, first) = settle(&mut app);
+        assert!(!following);
+        assert_eq!(first, left_at);
+    }
+
+    #[test]
+    fn a_running_turns_header_stays_built_as_its_steps_come() {
+        use bevy::ecs::hierarchy::Children;
+        use bevy::text::TextSpan;
+        use hamlet_client::chats::Chat;
+        use hamlet_ui::widgets::shimmer::Shimmer;
+        use protocol::TranscriptOperation as Op;
+
+        let mut app = crate::testing::panel_app();
+        app.add_plugins(plugin);
+        let chat = app.world().resource::<Convo>().chat;
+        let reference =
+            app.world().get::<Chat>(chat).unwrap().0.clone();
+        let item = |id: &str, kind, text: &str| protocol::Item {
             id: id.into(),
-            at: 0,
-            entry: Entry::Tool {
+            at: 1_000,
+            kind,
+            message: None,
+            text: text.into(),
+            chief: None,
+            author: None,
+            event: None,
+            from: None,
+            queued: false,
+            rewindable: None,
+            tool: None,
+            images: Vec::new(),
+            files: Vec::new(),
+        };
+        let tool = |id: &str| protocol::Item {
+            tool: Some(protocol::ItemTool {
+                agent: None,
+                call: protocol::ToolCall::Command {
+                    command: "pwd".into(),
+                },
+                change: None,
+                exit: None,
+                failure: None,
+                ms: None,
                 name: "bash".into(),
                 summary: "pwd".into(),
-                exit,
-                ms: Some(400),
-                failure: None,
-                change: None,
-            },
+            }),
+            ..item(id, protocol::ItemKind::Tool, "")
         };
-        app.world_mut().entity_mut(session).insert(
-            Transcript::from_items(vec![
-                Item {
-                    id: "chief:0".into(),
-                    at: 0,
-                    entry: Entry::Chief {
-                        name: "chief".into(),
-                        text: "Go".into(),
-                        images: Vec::new(),
-                        files: Vec::new(),
-                    },
-                },
-                tool("done:0", Some(0)),
-                tool("failed:0", Some(7)),
-                Item {
-                    id: "reply:0".into(),
-                    at: 0,
-                    entry: Entry::Assistant("Still working.".into()),
-                },
-                tool("running:0", None),
-                Item {
-                    id: "reply:1".into(),
-                    at: 0,
-                    entry: Entry::Assistant("The next step.".into()),
-                },
-                Item {
-                    id: "notice:0".into(),
-                    at: 0,
-                    entry: Entry::Notice("A received notice".into()),
-                },
-            ]),
+        let add = |item, replaces: Option<&str>| Op::Add {
+            item,
+            replaces: replaces.map(str::to_string),
+        };
+        let working = |working| Op::Status {
+            held: false,
+            last: None,
+            pending: u64::from(working),
+            working,
+        };
+        let send = |app: &mut App, operations| {
+            hamlet_client::receive(
+                app.world_mut(),
+                protocol::ServerMessage::Turn(protocol::Turn {
+                    chat: reference.clone(),
+                    operations,
+                }),
+            );
+            app.update();
+        };
+        // The working row of the header of the turn that runs.
+        let header = |app: &mut App| {
+            let world = app.world_mut();
+            let words = world
+                .query_filtered::<(Entity, &Children), With<Shimmer>>(
+                )
+                .iter(world)
+                .map(|(word, letters)| {
+                    let said = letters
+                        .iter()
+                        .filter_map(|l| world.get::<TextSpan>(*l))
+                        .map(|span| span.0.as_str())
+                        .collect::<String>();
+                    (word, said)
+                })
+                .collect::<Vec<_>>();
+            let word = words
+                .iter()
+                .find(|(_, said)| {
+                    said == "Working" || said == "Thinking"
+                })
+                .map(|(word, _)| *word)?;
+            let up = |at| world.get::<ChildOf>(at).unwrap().parent();
+            Some(up(up(word)))
+        };
+
+        let mut done = tool("done:1");
+        done.tool.as_mut().unwrap().exit = Some(0);
+        send(
+            &mut app,
+            vec![
+                add(
+                    item("chief:0", protocol::ItemKind::User, "Go"),
+                    None,
+                ),
+                add(done, None),
+                add(
+                    item(
+                        "reply:0",
+                        protocol::ItemKind::Assistant,
+                        "Done.",
+                    ),
+                    None,
+                ),
+            ],
         );
-        app.update();
         bevy_fynix::mount::<HamletTheme>(
             app.world_mut(),
             transcript(),
         );
         app.update();
-        // The steps before the first reply join those after it.
-        press(&mut app, "Working, 3 steps so far, 1 failed");
-        press(&mut app, "Thought it over");
-        app.update();
-        // Each call is a row of its request; a finished one says how
-        // long it took, and the failed one opens to its exit.
-        let shown = words(&mut app);
-        let count =
-            |text: &str| shown.iter().filter(|s| *s == text).count();
-        assert_eq!(count("pwd"), 3, "{shown:?}");
-        assert_eq!(count("0.4s"), 2, "{shown:?}");
-        assert_eq!(count("A received notice"), 1, "{shown:?}");
-        app.world_mut()
-            .resource_mut::<OpenTools>()
-            .0
-            .push((session, "failed:0".into()));
-        app.update();
-        app.update();
-        assert!(
-            words(&mut app).contains(&"Failed (exit 7)".to_string()),
-            "the failed call opened"
-        );
-    }
+        let mut queued =
+            item("queued:1", protocol::ItemKind::User, "More");
+        queued.queued = true;
+        send(&mut app, vec![add(queued, None)]);
+        // Seen to begin before its line is taken up, the answer does
+        // not open the turn that ended.
+        send(&mut app, vec![working(true)]);
+        assert_eq!(header(&mut app), None);
 
-    #[test]
-    fn a_row_rewinds_by_its_string_id_and_returns_the_words_to_the_field()
-     {
-        use bevy::ui_widgets::{Activate, Button};
-        use hamlet_client::chats::{Entry, Item, Transcript};
-        use hamlet_client::outbox::Outbox;
-
-        use crate::testing::{panel_app, press};
-        let mut app = panel_app();
-        app.add_plugins(plugin);
-        let session = app.world().resource::<Convo>().session;
-        app.world_mut().entity_mut(session).insert(
-            Transcript::from_items(vec![Item {
-                id: "entry-abc:0".into(),
-                at: 1,
-                entry: Entry::Chief {
-                    name: "chief".into(),
-                    text: "Change these words".into(),
-                    images: Vec::new(),
-                    files: Vec::new(),
-                },
-            }]),
-        );
-        app.update();
-        bevy_fynix::mount::<HamletTheme>(
-            app.world_mut(),
-            column((
-                transcript(),
-                message_bar(bevy_fynix::views::frame()),
-                crate::world_menu::view(),
-            )),
-        );
-        app.update();
-        let world = app.world_mut();
-        let mut mark = world
-            .query::<(Entity, &bevy::ui::widget::ImageNode)>()
-            .iter(world)
-            .find(|(_, image)| {
-                image.image
-                    == hamlet_ui::widgets::icons::Glyph::Restore
-                        .image(hamlet_ui::styles::ICON)
-            })
-            .unwrap()
-            .0;
-        while world.get::<Button>(mark).is_none() {
-            mark = world.get::<ChildOf>(mark).unwrap().parent();
+        let chief = item("chief:1", protocol::ItemKind::User, "More");
+        send(&mut app, vec![add(chief, Some("queued:1"))]);
+        let shown = header(&mut app).expect("the turn's header");
+        let steps = [
+            vec![add(
+                item(
+                    "live:0",
+                    protocol::ItemKind::Assistant,
+                    "Let me",
+                ),
+                None,
+            )],
+            vec![
+                add(
+                    item(
+                        "said:1",
+                        protocol::ItemKind::Assistant,
+                        "Let me",
+                    ),
+                    Some("live:0"),
+                ),
+                add(tool("tool:1"), None),
+            ],
+            vec![add(
+                item(
+                    "summary:1",
+                    protocol::ItemKind::Summary,
+                    "Before",
+                ),
+                None,
+            )],
+            vec![Op::Close {
+                agent: None,
+                change: None,
+                exit: 0,
+                failure: None,
+                item: "tool:1".into(),
+                ms: Some(400),
+            }],
+            vec![add(
+                item(
+                    "thought:1",
+                    protocol::ItemKind::Reasoning,
+                    "Hmm",
+                ),
+                None,
+            )],
+            vec![add(tool("tool:2"), None)],
+        ];
+        for operations in steps {
+            send(&mut app, operations);
+            assert_eq!(header(&mut app), Some(shown));
         }
-        world.trigger(Activate { entity: mark });
-        app.update();
-        press(&mut app, "Rewind");
-        let request = app
-            .world()
-            .resource::<Outbox>()
-            .iter()
-            .find_map(|message| match message {
-                protocol::ClientMessage::Rewind(request) => {
-                    Some(request.clone())
-                }
-                _ => None,
-            })
-            .unwrap();
-        assert_eq!(request.item, "entry-abc:0");
-        hamlet_client::receive(
-            app.world_mut(),
-            protocol::ServerMessage::Reply(protocol::Reply {
-                to: request.id,
-                kind: protocol::ReplyKind::Rewound,
-                text: "Change these words".into(),
-                upload: None,
-                image: None,
-                images: Vec::new(),
-                file: None,
-                files: Vec::new(),
-            }),
+        send(
+            &mut app,
+            vec![
+                add(
+                    item(
+                        "said:2",
+                        protocol::ItemKind::Assistant,
+                        "Done.",
+                    ),
+                    None,
+                ),
+                working(false),
+            ],
         );
-        app.update();
+        assert_eq!(header(&mut app), None);
         assert!(
-            app.world_mut()
-                .query::<&RichField>()
-                .iter(app.world())
-                .any(|field| field.plain().text
-                    == "Change these words")
-        );
-    }
-
-    #[test]
-    fn a_starter_of_a_quiet_chat_goes_into_the_field() {
-        use hamlet_client::chats::Transcript;
-
-        use crate::testing::{panel_app, press};
-        let mut app = panel_app();
-        app.add_plugins(plugin);
-        let session = app.world().resource::<Convo>().session;
-        app.world_mut()
-            .entity_mut(session)
-            .insert(Transcript::default());
-        app.update();
-        bevy_fynix::mount::<HamletTheme>(
-            app.world_mut(),
-            column((
-                transcript(),
-                message_bar(bevy_fynix::views::frame()),
-            )),
-        );
-        app.update();
-        press(&mut app, "Help me work on a project folder.");
-        app.update();
-        app.update();
-        assert!(
-            app.world_mut()
-                .query::<&RichField>()
-                .iter(app.world())
-                .any(|field| field.plain().text
-                    == "Help me work on a project folder.")
+            crate::testing::words(&mut app)
+                .iter()
+                .any(|w| w.starts_with("Worked"))
         );
     }
 }

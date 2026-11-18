@@ -1,14 +1,11 @@
-//! The repositories' side of a dream: a checkout of the profile's
-//! `main` the dream writes beside the agent's worktree, and at its
-//! end the profile's side committed to `main`, the agent's to its
-//! branch, and the new `main` taken in.
+//! The repositories' side of a dream.
 
 use std::path::PathBuf;
 
 use anyhow::{Context, Result};
 use hamlet_git::{Author, MAIN, Repository};
 use hamlet_store::Db;
-use hamlet_store::ids::DreamId;
+use hamlet_store::ids::{AgentId, DreamId};
 
 use super::folder::{Folder, remove_folder};
 use super::run::{check_out, commit};
@@ -27,9 +24,31 @@ pub(crate) fn checkout(layout: &Layout, id: DreamId) -> PathBuf {
         .join("main")
 }
 
-/// Readies dream `id`: the agent's worktree committed, and `main`
-/// checked out. `false` when an agent's branch holds nothing `main`
-/// lacks.
+/// Whether the branch of `agent` holds what its profile's `main`
+/// lacks and its last dream did not already take home.
+pub(crate) fn has_learned(
+    db: &mut Db,
+    layout: &Layout,
+    agent: AgentId,
+) -> Result<bool> {
+    let found = hamlet_agents::get(db, agent)?;
+    let Ok(repo) =
+        Repository::open(&layout.repository(found.profile))
+    else {
+        return Ok(false);
+    };
+    let (Some(tip), Some(main)) =
+        (repo.tip(&branch(agent))?, repo.tip(MAIN)?)
+    else {
+        return Ok(false);
+    };
+    let dreamt = dreams::last_of_agent(db, agent)?
+        .and_then(|dream| dream.branch_commit)
+        == Some(tip.to_string());
+    Ok(!dreamt && repo.merge_base(tip, main)? != Some(tip))
+}
+
+/// Readies dream `id`; `false` when it has nothing to dream about.
 pub(crate) fn prepare(
     db: &mut Db,
     layout: &Layout,
@@ -59,9 +78,8 @@ pub(crate) fn prepare(
     Ok(true)
 }
 
-/// Ends dream `id`, once: what it left in its checkout becomes a
-/// commit on `main` and an agent's worktree a commit on its branch,
-/// which takes the new `main` in. `last` is how its turn ended.
+/// Ends dream `id` once, committing what it left; `last` is how its
+/// turn ended.
 pub(super) fn end(
     db: &mut Db,
     layout: &Layout,

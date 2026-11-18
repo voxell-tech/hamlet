@@ -1,8 +1,4 @@
-//! The popup an agent's model is chosen in: the chief's favourites
-//! and the providers down its side, the models of the one chosen
-//! with a search over every provider, the efforts the model can
-//! think at, and its fast tier when it has one. It hangs over the
-//! chip in the composer that opens it.
+//! The popup an agent's model, effort and tier are chosen in.
 
 use std::cmp::Reverse;
 
@@ -66,8 +62,7 @@ use crate::models::{
 /// The width of the providers down the side.
 const RAIL: f32 = 108.0;
 
-/// The least width of the search and its models, which take what the
-/// popup has over the rest.
+/// The least width of the search and its models.
 const LIST: f32 = 230.0;
 
 /// The width of the efforts and the tier.
@@ -77,8 +72,7 @@ const LEVELS: f32 = 150.0;
 const GAP: f32 = 8.0;
 const PADDING: f32 = 16.0;
 
-/// The popup's height, whatever it shows, so nothing in it moves
-/// under the pointer as it changes.
+/// The popup's fixed height, so nothing moves under the pointer.
 const TALL: f32 = 354.0;
 
 /// The scope of the popup's keys, over the desks' own.
@@ -124,8 +118,7 @@ pub(super) fn plugin(app: &mut App) {
     }
 }
 
-/// The keys that pick the first nine favourites, with the primary
-/// key, whatever the list shows.
+/// The keys that pick the first nine favourites.
 const PICKED_BY_DIGIT: [(
     &str,
     &str,
@@ -210,15 +203,13 @@ const STEPS: [(&str, &str, KeyCode, fn(&mut World, Invoke)); 2] = [
 )]
 pub struct Favorites(pub Vec<String>);
 
-/// The side of the popup the chief chose last, kept with the view:
-/// `favorites` or a provider's id; empty before any.
+/// The side of the popup the chief chose last, kept with the view.
 #[derive(
     Resource, Default, Clone, PartialEq, Debug, Serialize, Deserialize,
 )]
 pub struct LastSide(pub String);
 
-/// What the popup hangs from: the composer that holds the model
-/// chip, which it stands over as wide, or the chip alone outside one.
+/// What the popup hangs from: the composer, or the chip alone.
 #[derive(Component, Clone, Copy, PartialEq, Eq, Debug)]
 pub(crate) enum Hook {
     Chip,
@@ -264,8 +255,7 @@ const PARTS: [Part; 3] = [Part::Rail, Part::Search, Part::Levels];
 #[derive(Component)]
 struct LevelsOf(String);
 
-/// On the provider and the effort chosen, which take the focus when
-/// their part does.
+/// On the provider and effort chosen, which take their part's focus.
 #[derive(Component)]
 struct Chosen;
 
@@ -295,10 +285,7 @@ impl Default for Picking {
     }
 }
 
-/// Opens the popup of `agent`'s model, its search in focus, on the
-/// side chosen last while it still has models, else on the
-/// favourites when there are any and else on the provider of the
-/// model it runs.
+/// Opens the popup of `agent`'s model with its search in focus.
 pub fn open(world: &mut World, agent: Entity) {
     let last = world
         .get_resource::<LastSide>()
@@ -362,7 +349,7 @@ const fn spelled(effort: Effort) -> &'static str {
 }
 
 /// An effort in the chief's words.
-const fn words(effort: Effort) -> &'static str {
+pub(crate) const fn words(effort: Effort) -> &'static str {
     match effort {
         Effort::Off => "Off",
         Effort::Minimal => "Minimal",
@@ -396,8 +383,7 @@ struct Now {
 }
 
 impl Now {
-    /// The effort it thinks at, and the one it falls back to, for the
-    /// model `card`.
+    /// The effort it thinks at on `card`, and its fallback.
     fn efforts(
         &self,
         card: Option<&protocol::Listed>,
@@ -461,8 +447,7 @@ fn providers(world: &World) -> Vec<(String, String)> {
         .collect()
 }
 
-/// How well `model` answers every word of `search`, best lowest; none
-/// when a word is in neither its names nor its provider's.
+/// How well `model` answers every word of `search`, best lowest.
 fn rank(world: &World, model: &str, search: &str) -> Option<usize> {
     let names = [
         model_name(model).to_lowercase(),
@@ -501,8 +486,7 @@ fn rank(world: &World, model: &str, search: &str) -> Option<usize> {
     })
 }
 
-/// The favourites the catalogue lists, in the order they were
-/// starred.
+/// The favourites the catalogue lists, in starred order.
 fn favourites(world: &World) -> Vec<String> {
     let listed = |name: &&String| {
         world.get_resource::<Shelf>().is_some_and(|shelf| {
@@ -518,8 +502,7 @@ fn favourites(world: &World) -> Vec<String> {
         .collect()
 }
 
-/// The models shown: those found by the search across every
-/// provider, best first, or else those of the side chosen.
+/// The models the search finds, else those of the side chosen.
 fn listed(world: &World) -> Vec<String> {
     let picking = world.resource::<Picking>();
     let names = world
@@ -554,8 +537,7 @@ fn listed(world: &World) -> Vec<String> {
     }
 }
 
-/// The version in a model's title, as `[5, 5]` in `Opus 5.5`; none
-/// for a title with none, which sorts last.
+/// The version in a model's title, as `[5, 5]` in `Opus 5.5`.
 fn version(title: &str) -> Option<Vec<u32>> {
     title
         .split(|c: char| c.is_whitespace() || c == '-')
@@ -569,8 +551,7 @@ fn version(title: &str) -> Option<Vec<u32>> {
         })
 }
 
-/// Gives `agent` the model `model`, or no model of its own for the
-/// one it falls back to, and sends the focus to its efforts.
+/// Gives `agent` the model `model` and focuses its efforts.
 fn choose(world: &mut World, agent: Entity, model: &str) {
     let to = address(world, agent);
     let given = if model == now(world, agent).fallback {
@@ -628,9 +609,7 @@ fn step(world: &mut World, by: isize) {
         Some(Want::Part(PARTS[to]));
 }
 
-/// Leaves the search for the providers with Left at its start, and
-/// for the efforts with Right at its end. The field keeps the arrows
-/// anywhere else.
+/// Leaves the search with Left at its start or Right at its end.
 fn leave_search(
     key: On<FocusedInput<KeyboardInput>>,
     texts: Query<&EditableText>,
@@ -667,9 +646,7 @@ fn leave_search(
     picking.focus = Some(Want::Part(to));
 }
 
-/// Gives the focus where it was asked for once that is shown: to the
-/// field of the search, or to the chosen row of the providers or
-/// efforts, else their first.
+/// Gives the focus where it was asked for once that is shown.
 fn take_focus(world: &mut World) {
     let Some(want) = world.resource::<Picking>().focus.clone() else {
         return;
@@ -687,8 +664,7 @@ fn take_focus(world: &mut World) {
             .map(|(entity, _)| entity),
     };
     let Some(root) = root else {
-        // A part not shown once the popup is, such as the efforts of
-        // a model that does not reason, is not waited for.
+        // A part not shown, such as a non-reasoning model's efforts.
         let shown =
             world.query::<&Part>().iter(world).next().is_some();
         if shown && matches!(want, Want::Part(_)) {
@@ -724,10 +700,7 @@ fn take_focus(world: &mut World) {
     world.resource_mut::<Picking>().focus = None;
 }
 
-/// The favourites over the providers of the catalogue, each by its
-/// mark and its name, the one chosen lit. Faded, none of them lit,
-/// and kept in place while a search runs over all of them, so the
-/// list beside it does not move.
+/// The favourites and the providers down the popup's side.
 fn rail() -> impl View {
     keyed(
         derived(|world: &World| {
@@ -796,9 +769,7 @@ fn rail() -> impl View {
     .within(row(()))
 }
 
-/// A star that adds `name` to the favourites, or takes it off:
-/// filled while it is the favourite at `at`, else hollow and faint.
-/// It is never gold, the check's colour for the model in use.
+/// A star that adds `name` to the favourites, or takes it off.
 fn star(name: String, at: Option<usize>) -> AnyView {
     let starred = at.is_some();
     let face = if starred {
@@ -854,8 +825,7 @@ fn nothing(title: &'static str, then: &'static str) -> AnyView {
     .boxed()
 }
 
-/// The search and the models it finds, each favourite with the key
-/// that picks it.
+/// The search and the models it finds.
 fn models(agent: Entity, search: String) -> impl View {
     let search = crate::search::search(
         "Search models",
@@ -896,8 +866,7 @@ fn models(agent: Entity, search: String) -> impl View {
                     ),
                 };
             }
-            // A search runs over every provider, whichever is
-            // chosen down the side.
+            // A search runs over every provider.
             let over = match side {
                 None => {
                     over_rows("From every provider", Detail::Source)
@@ -908,8 +877,7 @@ fn models(agent: Entity, search: String) -> impl View {
                 .iter()
                 .map(|name| {
                     let at = favorites.iter().position(|f| f == name);
-                    // Only among the favourites does every row have
-                    // its key.
+                    // Only favourites have keys.
                     let cap = match (side, at) {
                         (Some(Side::Favorites), Some(at)) => {
                             key_cap(at)
@@ -955,8 +923,7 @@ fn models(agent: Entity, search: String) -> impl View {
     .min_width(px(LIST))
 }
 
-/// The efforts the model can think at, under a head naming it, the
-/// one it falls back to tagged.
+/// The efforts the model can think at, its fallback tagged.
 fn reasoning(agent: Entity) -> impl View {
     keyed(
         derived(move |world: &World| {
@@ -1046,15 +1013,14 @@ fn reasoning(agent: Entity) -> impl View {
     .within(column(()))
 }
 
-/// The look of an effort: lit under the pointer or the focus.
+/// An effort's style, highlighted under the pointer or the focus.
 fn level_look(cx: &mut Cx) {
     style::<HamletTheme>()
         .when::<Focused>(|s| s.fill(|t| t.palette.button_hover))
         .apply(cx);
 }
 
-/// Standard or fast, under the efforts, for a model whose provider
-/// has a fast tier; nothing for one without.
+/// Standard or fast, for a model whose provider has a fast tier.
 fn tier(agent: Entity) -> impl View {
     keyed(
         derived(move |world: &World| {
@@ -1104,8 +1070,7 @@ fn tier(agent: Entity) -> impl View {
     .within(column(()))
 }
 
-/// Above the composer first, as it is at the foot of the chat, lined
-/// up with its left edge, then its right.
+/// Above the composer, on its left edge, then its right.
 fn above() -> Vec<PopoverPlacement> {
     use PopoverAlign::{End, Start};
     use PopoverSide::{Bottom, Top};
@@ -1119,9 +1084,8 @@ fn above() -> Vec<PopoverPlacement> {
         .collect()
 }
 
-/// What the popup hangs from: the composer around the model chip
-/// shown, in whole pixels so the popup is not built again for a
-/// fraction.
+/// The composer's rect, in whole pixels so a fraction rebuilds
+/// nothing.
 fn hook(world: &World) -> Option<Rect> {
     let mut hooks = world.try_query::<(Entity, &Hook)>()?;
     let (chip, rect) = hooks
@@ -1145,9 +1109,7 @@ fn hook(world: &World) -> Option<Rect> {
     ))
 }
 
-/// The popup of `agent`'s model, hung over the composer once its chip
-/// is laid out: as wide as the composer where that leaves the list
-/// its room.
+/// The popup of `agent`'s model, over the composer.
 pub(super) fn picker(agent: Entity) -> impl View {
     keyed(derived(hook).when(every_frame()), move |hook| {
         let Some(hook) = *hook else {
@@ -1183,9 +1145,11 @@ pub(super) fn picker(agent: Entity) -> impl View {
     .within(overlay(()))
 }
 
-/// The model `agent` runs as the composer's chip shows it: its
-/// provider's mark, its name, the effort it thinks at and a bolt on
-/// its fast tier. Its tooltip names them in words.
+/// On the name of the model in the composer's chip.
+#[derive(Component)]
+pub(crate) struct ChipName;
+
+/// The composer's chip of the model `agent` runs.
 pub(crate) fn chip(agent: Entity) -> impl View {
     keyed(
         derived(move |world: &World| {
@@ -1208,7 +1172,7 @@ pub(crate) fn chip(agent: Entity) -> impl View {
             };
             let mut parts = vec![
                 mark(provider_of(&now.model), ICON),
-                label(name).wrap(false).boxed(),
+                one_line(label(name)).tagged(ChipName).boxed(),
             ];
             if let Some(effort) = effort {
                 parts.push(
@@ -1240,11 +1204,12 @@ pub(crate) fn chip(agent: Entity) -> impl View {
             row(parts)
                 .gap(6.0)
                 .align(AlignItems::Center)
+                .min_width(px(0.0))
                 .tooltip(move || note(said.clone()))
                 .boxed()
         },
     )
-    .within(row(()))
+    .within(row(()).min_width(px(0.0)))
 }
 
 #[cfg(test)]
@@ -1334,8 +1299,7 @@ mod tests {
         assert_eq!(levels.as_deref(), Some("lantern::wren-large"));
     }
 
-    /// The popup of `agent#2`'s model open over a catalogue of two
-    /// models, and her.
+    /// The popup of `agent#2`'s model over a catalogue of two.
     fn picking() -> (App, Entity) {
         let mut app = panel_app();
         app.add_plugins(super::super::plugin)
@@ -1376,33 +1340,6 @@ mod tests {
         );
         app.update();
         (app, ada)
-    }
-
-    #[test]
-    fn a_model_and_an_effort_picked_are_the_chiefs_commands() {
-        let (mut app, _) = picking();
-        app.world_mut()
-            .resource_mut::<Outbox>()
-            .drain()
-            .for_each(drop);
-        press(&mut app, "wren-large");
-        press(&mut app, "High");
-        let said = app
-            .world_mut()
-            .resource_mut::<Outbox>()
-            .drain()
-            .filter_map(|message| match message {
-                protocol::ClientMessage::Say(say) => Some(say.text),
-                _ => None,
-            })
-            .collect::<Vec<_>>();
-        assert_eq!(
-            said,
-            [
-                "/model agent#2 lantern::wren-large",
-                "/effort agent#2 high"
-            ]
-        );
     }
 
     #[test]

@@ -1,6 +1,4 @@
-//! What waits for a chief (H11, H10, H34): approvals, questions,
-//! objections, faults and newcomers, each a row until a chief answers
-//! it or the agent that raised it goes.
+//! What waits for a chief (H11, H10, H34).
 
 pub(crate) mod gate;
 
@@ -21,10 +19,9 @@ use hamlet_store::schema::wait;
 use serde::{Deserialize, Serialize};
 use strum::{Display, EnumString, IntoStaticStr};
 
-use crate::clients::state::{wire_agent, wire_profile};
 use crate::conversations::{self, Kind};
 use crate::realm::change::Change;
-use crate::society::addresses;
+use crate::society::addresses::{self, wire_agent, wire_profile};
 
 #[derive(
     Clone,
@@ -49,7 +46,7 @@ pub(crate) enum WaitKind {
     Approval,
     /// A turn that failed, which a chief can only dismiss.
     Fault,
-    /// `ask_chief`'s questions.
+    /// `request_chief`'s questions.
     Question,
     /// An objection to a chief's instruction.
     Objection,
@@ -106,10 +103,10 @@ impl Danger {
     }
 
     /// What `always` lets go: an edit or a command for the rest of
-    /// the chat's session, the network until it is revoked.
+    /// the conversation, the network until it is revoked.
     pub fn lasting(self) -> Option<Lasting> {
         match self {
-            Self::Edit | Self::Command => Some(Lasting::Session),
+            Self::Edit | Self::Command => Some(Lasting::Conversation),
             Self::Network | Self::Unconfined => Some(Lasting::Grant),
             Self::Reserved | Self::Send => None,
         }
@@ -212,6 +209,7 @@ pub(crate) struct Wait {
     pub change: Option<String>,
     pub answers: String,
     pub questions: Option<String>,
+    pub setup: Option<String>,
     pub since: i64,
     pub asked: i64,
     pub open: bool,
@@ -264,6 +262,8 @@ pub(crate) struct Raise {
     pub change: Option<String>,
     pub answers: Vec<Choice>,
     pub questions: Option<Questions>,
+    /// A cause a chief sets up once for every agent it stops.
+    pub setup: Option<protocol::Setup>,
 }
 
 /// Raises `raise`, or raises again the open wait that is about the
@@ -307,6 +307,11 @@ pub(crate) fn raise(
             wait::change.eq(&raise.change),
             wait::answers.eq(serde_json::to_string(&raise.answers)?),
             wait::questions.eq(questions),
+            wait::setup.eq(raise
+                .setup
+                .as_ref()
+                .map(serde_json::to_string)
+                .transpose()?),
             wait::since.eq(cx.at),
         ))
         .returning(wait::id)
@@ -330,8 +335,7 @@ pub(crate) fn open(db: &mut Db) -> Result<Vec<Wait>> {
         .load(db)?)
 }
 
-/// Ends the open wait `id` as `ruling`, with a chief's words. `false`
-/// when it no longer waits.
+/// Ends the open wait `id` as `ruling`, with a chief's words.
 pub(crate) fn settle(
     cx: &mut Change<'_>,
     id: WaitId,
@@ -451,22 +455,9 @@ fn view(db: &mut Db, wait: &Wait) -> Result<protocol::Wait> {
     let chat = match wait.conversation {
         Some(id) => {
             let kept = conversations::get(db, id)?;
-            match (kept.kind, kept.chief, kept.session) {
-                (Kind::Chat, Some(chief), Some(session)) => {
-                    let current =
-                        conversations::chats::current_number(
-                            db, kept.agent, chief,
-                        )?;
-                    Some(protocol::ChatRef {
-                        with: wire_agent(kept.agent),
-                        past: (current != Some(session))
-                            .then_some(session),
-                        from: None,
-                        kind: None,
-                    })
-                }
-                _ => None,
-            }
+            (kept.kind == Kind::Chat).then(|| protocol::ChatRef {
+                with: wire_agent(kept.agent),
+            })
         }
         None => None,
     };
@@ -484,7 +475,13 @@ fn view(db: &mut Db, wait: &Wait) -> Result<protocol::Wait> {
                 says: danger.says().into(),
             }
         }
-        WaitKind::Fault => WaitDetail::Fault {},
+        WaitKind::Fault => WaitDetail::Fault {
+            setup: wait
+                .setup
+                .as_deref()
+                .map(serde_json::from_str)
+                .transpose()?,
+        },
         WaitKind::Question => WaitDetail::Question {
             questions: wait.questions()?.unwrap_or(Questions {
                 message: String::new(),

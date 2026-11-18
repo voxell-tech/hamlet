@@ -1,15 +1,18 @@
 //! The commands that shape the society: hamlets, agents and profiles.
-//! Each is a function of its own, named in [`SOCIETY`] beside how it
-//! is written.
 
 use hamlet_store::ids::{Actor, HamletId};
 
-use super::targets::{ProfileReach, is_profile};
+use super::targets::is_profile;
 use super::{Answer, Command, Line};
+use crate::conversations::chats;
+use crate::conversations::dreams::Notify;
 use crate::core::Core;
+use crate::realm::change::done;
 use crate::society::addresses::{self, Reach};
 use crate::society::agents::{self, AgentKind, Effort, EndHow};
-use crate::society::hamlet_agents::{self, ProfileChoice, Spec};
+use crate::society::hamlet_agents::{
+    self, LastDream, ProfileChoice, Spec,
+};
 use crate::society::hamlets::{self, Founding, Mode};
 use crate::society::rejection::Rejection;
 use crate::society::{
@@ -86,8 +89,9 @@ pub(super) const SOCIETY: &[Command] = &[
     },
     Command {
         name: "end",
-        usage: "/end <address> [reason]",
-        does: "End an agent",
+        usage: "/end <address> [dream] [reason]",
+        does: "End an agent; with dream, it dreams once more to \
+               bring its learning home",
         run: |core, line| agent_fate(core, line, Fate::Remove),
     },
     Command {
@@ -232,6 +236,14 @@ pub(super) const SOCIETY: &[Command] = &[
         run: move_house,
     },
     Command {
+        name: "make-profile",
+        usage: "/make-profile <address> [name]",
+        does: "Make a profile of the city of what an agent learned: \
+               a blank agent's own profile joins the city, and any \
+               other agent starts a new one",
+        run: super::promotion::make_profile,
+    },
+    Command {
         name: "welcome",
         usage: "/welcome <profile#id> [reason]",
         does: "Let a profile waiting at the harbor into the city",
@@ -248,11 +260,8 @@ pub(super) const SOCIETY: &[Command] = &[
 /// The fate a command gives a hamlet or an agent that may end.
 #[derive(Clone, Copy, PartialEq)]
 enum Fate {
-    /// It ends, or the hamlet is removed.
     Remove,
-    /// It comes back.
     Restore,
-    /// It goes for good.
     Erase,
 }
 
@@ -273,24 +282,12 @@ enum Channelwork {
     Close,
 }
 
-/// The chief as the actor of a command.
 fn by(core: &Core<'_, '_>) -> Actor {
     Actor::Chief(core.realm.chief())
 }
 
-/// The usage of `line`'s command, as its rejection.
 fn usage(core: &Core<'_, '_>, line: &Line) -> Answer {
     Ok(Err(core.actions.usage(&line.name)))
-}
-
-/// Rejects as it is, or goes on with what was found.
-macro_rules! found {
-    ($result:expr) => {
-        match $result? {
-            Ok(found) => found,
-            Err(rejection) => return Ok(Err(rejection)),
-        }
-    };
 }
 
 fn list_hamlets(core: &mut Core<'_, '_>, _: &Line) -> Answer {
@@ -319,7 +316,7 @@ fn create_hamlet(core: &mut Core<'_, '_>, line: &Line) -> Answer {
     let (lead, name_at) = match words.first() {
         Some(&BLANK) => (blank(), 1),
         Some(profile) if is_profile(profile) => {
-            (found!(core.profile_choice(profile, chief)), 1)
+            (done!(core.profile_choice(profile, chief)), 1)
         }
         _ => (blank(), 0),
     };
@@ -337,7 +334,7 @@ fn create_hamlet(core: &mut Core<'_, '_>, line: &Line) -> Answer {
         "" => format!("Lead of {shown}."),
         given => given.to_owned(),
     };
-    let added = found!(core.attempt(by(core), |cx, _| {
+    let added = done!(core.attempt(by(core), |cx, _| {
         hamlets::found(
             cx,
             Founding {
@@ -361,7 +358,7 @@ fn name_hamlet(core: &mut Core<'_, '_>, line: &Line) -> Answer {
         return usage(core, line);
     };
     let id = HamletId(id.to_owned());
-    found!(core.chief_of(&id));
+    done!(core.chief_of(&id));
     let shown = line.tail(1);
     let done = core.attempt(by(core), |cx, _| {
         hamlets::rename(cx, &id, &shown)
@@ -381,7 +378,7 @@ fn move_hamlet(core: &mut Core<'_, '_>, line: &Line) -> Answer {
         return usage(core, line);
     };
     let id = HamletId((*id).to_owned());
-    found!(core.chief_of(&id));
+    done!(core.chief_of(&id));
     let done = core
         .attempt(by(core), |cx, _| hamlets::place(cx, &id, x, z))?;
     Ok(done.map(|()| {
@@ -398,7 +395,7 @@ fn hamlet_fate(
         return usage(core, line);
     };
     let id = HamletId(id.to_owned());
-    found!(core.chief_of(&id));
+    done!(core.chief_of(&id));
     // The chief needs no reason to close a hamlet down.
     let reason = match line.tail(1) {
         said if !said.is_empty() => said,
@@ -432,7 +429,7 @@ fn tier(core: &mut Core<'_, '_>, line: &Line) -> Answer {
     else {
         return usage(core, line);
     };
-    found!(core.chief_of(&id));
+    done!(core.chief_of(&id));
     let done = core.attempt(by(core), |cx, _| {
         hamlets::set_tier(cx, &id, tier)
     })?;
@@ -448,8 +445,8 @@ fn lead(core: &mut Core<'_, '_>, line: &Line) -> Answer {
     let Some(text) = line.words().first().copied() else {
         return usage(core, line);
     };
-    found!(core.chief_of(&id));
-    let agent = found!(core.resolve(text, Some(&id), Reach::Living));
+    done!(core.chief_of(&id));
+    let agent = done!(core.resolve(text, Some(&id), Reach::Living));
     let reason = line.tail(1);
     let done = core.attempt(by(core), |cx, _| {
         hamlet_agents::set_lead(cx, &id, agent, &reason)
@@ -473,7 +470,7 @@ fn add_agent(core: &mut Core<'_, '_>, line: &Line) -> Answer {
     while let [key, value, more @ ..] = rest {
         match *key {
             "under" => {
-                parent = Some(found!(core.resolve(
+                parent = Some(done!(core.resolve(
                     value,
                     hamlet.as_ref(),
                     Reach::Living,
@@ -487,13 +484,13 @@ fn add_agent(core: &mut Core<'_, '_>, line: &Line) -> Answer {
     let Some(hamlet) = hamlet else {
         return Ok(Err(core.no_hamlet()));
     };
-    found!(core.chief_of(&hamlet));
+    done!(core.chief_of(&hamlet));
     let purpose = rest.join(" ");
     let parent = match parent {
         Some(parent) => parent,
         None => {
             let db = core.realm.store().connection();
-            found!(hamlets::living(db, &hamlet)).lead
+            done!(hamlets::living(db, &hamlet)).lead
         }
     };
     let choice = if *profile == BLANK {
@@ -502,9 +499,9 @@ fn add_agent(core: &mut Core<'_, '_>, line: &Line) -> Answer {
             character: String::new(),
         }
     } else {
-        found!(core.profile_choice(profile, chief))
+        done!(core.profile_choice(profile, chief))
     };
-    let added = found!(core.attempt(Actor::Chief(chief), |cx, _| {
+    let added = done!(core.attempt(Actor::Chief(chief), |cx, _| {
         hamlet_agents::add(
             cx,
             Spec {
@@ -537,9 +534,16 @@ fn agent_fate(
     } else {
         Reach::Kept
     };
-    let agent = found!(core.resolve(text, line.here.as_ref(), reach));
-    found!(core.directs(agent));
-    let reason = line.tail(1);
+    let agent = done!(core.resolve(text, line.here.as_ref(), reach));
+    done!(core.directs(agent));
+    let last = match (fate, line.words().get(1)) {
+        (Fate::Remove, Some(&"dream")) => LastDream::With,
+        _ => LastDream::Without,
+    };
+    let reason = match last {
+        LastDream::With => line.tail(2),
+        LastDream::Without => line.tail(1),
+    };
     let db = core.realm.store().connection();
     // A merged agent comes back by splitting its merge.
     let merge = match fate {
@@ -550,9 +554,13 @@ fn agent_fate(
     };
     let done =
         core.attempt(by(core), |cx, _| match (fate, &merge) {
-            (Fate::Remove, _) => {
-                hamlet_agents::end(cx, agent, EndHow::Ended, &reason)
-            }
+            (Fate::Remove, _) => hamlet_agents::end(
+                cx,
+                agent,
+                EndHow::Ended,
+                last,
+                &reason,
+            ),
             (Fate::Restore, Some(merge)) => {
                 crate::society::merges::split(cx, merge.id, &reason)
             }
@@ -561,7 +569,17 @@ fn agent_fate(
             }
             (Fate::Erase, _) => hamlet_agents::erase(cx, agent),
         })?;
+    let dream = if done.is_ok() && last == LastDream::With {
+        core.dream_tick_ending(agent)?;
+        // A chief who ends one reads the line in its conversation.
+        core.last_dream_words(agent, Notify::Answered)?
+    } else {
+        String::new()
+    };
     Ok(done.map(|()| match fate {
+        Fate::Remove if last == LastDream::With => {
+            format!("`{text}` was ended. {dream}")
+        }
         Fate::Remove => format!("`{text}` was ended."),
         Fate::Restore if merge.is_some() => format!(
             "`{text}` is back; what it brought to the agent it was \
@@ -580,11 +598,10 @@ fn merge(core: &mut Core<'_, '_>, line: &Line) -> Answer {
         return usage(core, line);
     };
     let here = line.here.as_ref();
-    let absorbed =
-        found!(core.resolve(absorbed, here, Reach::Living));
-    let kept = found!(core.resolve(kept, here, Reach::Living));
+    let absorbed = done!(core.resolve(absorbed, here, Reach::Living));
+    let kept = done!(core.resolve(kept, here, Reach::Living));
     for agent in [absorbed, kept] {
-        found!(core.directs(agent));
+        done!(core.directs(agent));
     }
     let reason = match line.tail(3) {
         reason if reason.is_empty() => {
@@ -592,8 +609,14 @@ fn merge(core: &mut Core<'_, '_>, line: &Line) -> Answer {
         }
         reason => reason,
     };
-    let done = core.attempt(by(core), |cx, _| {
-        crate::society::merges::merge(cx, kept, absorbed, &reason)
+    let done = core.attempt(by(core), |cx, env| {
+        let merged = crate::society::merges::merge(
+            cx, kept, absorbed, &reason,
+        )?;
+        if merged.is_ok() {
+            chats::merged(cx, env, kept, absorbed)?;
+        }
+        Ok(merged)
     })?;
     Ok(done.map(|_| {
         format!("Merged `{}` into `{}`.", words[0], words[2])
@@ -607,12 +630,14 @@ fn model(core: &mut Core<'_, '_>, line: &Line) -> Answer {
         return usage(core, line);
     };
     let agent =
-        found!(core.resolve(text, line.here.as_ref(), Reach::Living));
-    found!(core.steers(agent));
+        done!(core.resolve(text, line.here.as_ref(), Reach::Living));
+    done!(core.steers(agent));
     let model = (*model != "none").then_some(*model);
     let reason = line.tail(2);
-    let done = core.attempt(by(core), |cx, _| {
-        agents::set_model(cx, agent, model, &reason)
+    let done = core.attempt(by(core), |cx, env| {
+        chats::remodel(cx, env, agent, |cx| {
+            agents::set_model(cx, agent, model, &reason)
+        })
     })?;
     Ok(done.map(|()| {
         format!(
@@ -629,8 +654,8 @@ fn effort(core: &mut Core<'_, '_>, line: &Line) -> Answer {
         return usage(core, line);
     };
     let agent =
-        found!(core.resolve(text, line.here.as_ref(), Reach::Living));
-    found!(core.steers(agent));
+        done!(core.resolve(text, line.here.as_ref(), Reach::Living));
+    done!(core.steers(agent));
     let effort = match *value {
         "none" => None,
         level => match level.parse::<Effort>() {
@@ -638,8 +663,10 @@ fn effort(core: &mut Core<'_, '_>, line: &Line) -> Answer {
             Err(_) => return usage(core, line),
         },
     };
-    let done = core.attempt(by(core), |cx, _| {
-        agents::set_effort(cx, agent, effort)
+    let done = core.attempt(by(core), |cx, env| {
+        chats::remodel(cx, env, agent, |cx| {
+            agents::set_effort(cx, agent, effort)
+        })
     })?;
     Ok(done.map(|()| match effort {
         Some(effort) => format!("`{text}` thinks at {effort}."),
@@ -659,8 +686,8 @@ fn fast(core: &mut Core<'_, '_>, line: &Line) -> Answer {
         return usage(core, line);
     };
     let agent =
-        found!(core.resolve(text, line.here.as_ref(), Reach::Living));
-    found!(core.steers(agent));
+        done!(core.resolve(text, line.here.as_ref(), Reach::Living));
+    done!(core.steers(agent));
     let fast = match *value {
         "on" => true,
         "off" => false,
@@ -679,7 +706,7 @@ fn name_agent(core: &mut Core<'_, '_>, line: &Line) -> Answer {
         return usage(core, line);
     };
     let agent =
-        found!(core.resolve(text, line.here.as_ref(), Reach::Living));
+        done!(core.resolve(text, line.here.as_ref(), Reach::Living));
     // A worker is named by whoever may steer it, an agent by whoever
     // may direct it.
     let worker = {
@@ -687,9 +714,9 @@ fn name_agent(core: &mut Core<'_, '_>, line: &Line) -> Answer {
         agents::get(db, agent)?.kind == AgentKind::Worker
     };
     if worker {
-        found!(core.steers(agent));
+        done!(core.steers(agent));
     } else {
-        found!(core.directs(agent));
+        done!(core.directs(agent));
     }
     let typed = line.tail(1);
     let given = (!typed.is_empty()).then_some(typed);
@@ -714,8 +741,8 @@ fn tools(core: &mut Core<'_, '_>, line: &Line) -> Answer {
         return usage(core, line);
     };
     let agent =
-        found!(core.resolve(text, line.here.as_ref(), Reach::Living));
-    found!(core.directs(agent));
+        done!(core.resolve(text, line.here.as_ref(), Reach::Living));
+    done!(core.directs(agent));
     let marked = |mark: char| {
         words[1..]
             .iter()
@@ -746,8 +773,8 @@ fn allowance(core: &mut Core<'_, '_>, line: &Line) -> Answer {
         return usage(core, line);
     };
     let agent =
-        found!(core.resolve(text, line.here.as_ref(), Reach::Living));
-    found!(core.directs(agent));
+        done!(core.resolve(text, line.here.as_ref(), Reach::Living));
+    done!(core.directs(agent));
     let allowance = match *amount {
         "none" => None,
         amount => match amount.trim_start_matches('$').parse::<f64>()
@@ -783,10 +810,10 @@ fn channel(
         return usage(core, line);
     };
     let here = line.here.as_ref();
-    let a = found!(core.resolve(a, here, Reach::Living));
-    let b = found!(core.resolve(b, here, Reach::Living));
+    let a = done!(core.resolve(a, here, Reach::Living));
+    let b = done!(core.resolve(b, here, Reach::Living));
     for end in [a, b] {
-        found!(core.directs(end));
+        done!(core.directs(end));
     }
     let reason = line.tail(2);
     match work {
@@ -809,18 +836,16 @@ fn folder(core: &mut Core<'_, '_>, line: &Line) -> Answer {
     let Some(id) = line.here.clone() else {
         return Ok(Err(core.no_hamlet()));
     };
-    found!(core.chief_of(&id));
+    done!(core.chief_of(&id));
     let folder = match line.words().first() {
         None => return usage(core, line),
         Some(&"none") => None,
         Some(_) => Some(line.rest.clone()),
     };
     if let Some(folder) = &folder
-        && !std::path::Path::new(folder).is_dir()
+        && let Err(rejection) = hamlets::check_folder(folder)
     {
-        return Ok(Err(Rejection::NoFile {
-            path: folder.clone(),
-        }));
+        return Ok(Err(rejection));
     }
     let done = core.attempt(by(core), |cx, _| {
         hamlets::set_folder(cx, &id, folder.as_deref())
@@ -835,7 +860,7 @@ fn mode(core: &mut Core<'_, '_>, line: &Line) -> Answer {
     let Some(id) = line.here.clone() else {
         return Ok(Err(core.no_hamlet()));
     };
-    found!(core.chief_of(&id));
+    done!(core.chief_of(&id));
     let mode = match line.words().first() {
         Some(&"manual") => Mode::Manual,
         Some(&"auto") => Mode::Auto,
@@ -859,7 +884,7 @@ fn budget(core: &mut Core<'_, '_>, line: &Line) -> Answer {
 
 fn reset_budget(core: &mut Core<'_, '_>, line: &Line) -> Answer {
     if let Some(id) = &line.here {
-        found!(core.chief_of(id));
+        done!(core.chief_of(id));
     }
     let chief = core.realm.chief();
     let at = crate::app::clock::now();
@@ -909,7 +934,7 @@ fn new_profile(core: &mut Core<'_, '_>, line: &Line) -> Answer {
             (profile.to_owned(), character.trim().to_owned())
         },
     );
-    let id = found!(core.attempt(by(core), |cx, _| {
+    let id = done!(core.attempt(by(core), |cx, _| {
         city::make(cx, &profile, chief, &character, None)
     }));
     let db = core.realm.store().connection();
@@ -923,16 +948,17 @@ fn name_profile(core: &mut Core<'_, '_>, line: &Line) -> Answer {
     let Some(text) = line.words().first().copied() else {
         return usage(core, line);
     };
-    let profile = found!(core.profile_at(text, ProfileReach::Living));
     let by = by(core);
     let db = core.realm.store().connection();
+    let profile =
+        done!(addresses::profile_at(db, text, Reach::Living));
     if !authority::may_keep(db, by, profile)? {
         return Ok(Err(Rejection::NotOwner {
             owner: addresses::profile_name_of(db, profile)?,
         }));
     }
     let new = line.tail(1);
-    found!(core.attempt(by, |cx, _| city::rename(cx, profile, &new)));
+    done!(core.attempt(by, |cx, _| city::rename(cx, profile, &new)));
     let db = core.realm.store().connection();
     Ok(Ok(format!(
         "The profile is now named `{}`.",
@@ -945,15 +971,15 @@ fn name_profile(core: &mut Core<'_, '_>, line: &Line) -> Answer {
 fn kept_profile(
     core: &mut Core<'_, '_>,
     line: &Line,
-    reach: ProfileReach,
+    reach: Reach,
 ) -> crate::realm::change::Done<(hamlet_store::ids::ProfileId, String)>
 {
     let Some(text) = line.words().first().copied() else {
         return Ok(Err(core.actions.usage(&line.name)));
     };
-    let profile = found!(core.profile_at(text, reach));
     let by = by(core);
     let db = core.realm.store().connection();
+    let profile = done!(addresses::profile_at(db, text, reach));
     let shown = addresses::profile_name_of(db, profile)?;
     if !authority::may_keep(db, by, profile)? {
         return Ok(Err(Rejection::NotOwner { owner: shown }));
@@ -968,11 +994,11 @@ fn profile_fate(
 ) -> Answer {
     let reach =
         if matches!(housing, Housing::Restore | Housing::Erase) {
-            ProfileReach::Kept
+            Reach::Kept
         } else {
-            ProfileReach::Living
+            Reach::Living
         };
-    let (profile, text) = found!(kept_profile(core, line, reach));
+    let (profile, text) = done!(kept_profile(core, line, reach));
     let reason = line.tail(1);
     let done = core.attempt(by(core), |cx, _| match housing {
         Housing::Remove => city::archive(cx, profile, &reason),
@@ -996,7 +1022,7 @@ fn profile_fate(
 
 fn move_house(core: &mut Core<'_, '_>, line: &Line) -> Answer {
     let (profile, text) =
-        found!(kept_profile(core, line, ProfileReach::Living));
+        done!(kept_profile(core, line, Reach::Living));
     let words = line.words();
     let number =
         |at: usize| words.get(at).map(|w| w.parse::<f64>().ok());

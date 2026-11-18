@@ -33,8 +33,7 @@ const WORLD: &str = concat!(
     "/examples/ui_gallery/world.png"
 );
 
-/// One still: its name, its scene, its size in the interface's
-/// pixels and the pixels to one of them.
+/// One still: its name, scene, size and scale.
 struct Shot {
     name: &'static str,
     scene: Scene,
@@ -42,7 +41,7 @@ struct Shot {
     scale: f32,
 }
 
-const SHOTS: [Shot; 53] = [
+const SHOTS: [Shot; 51] = [
     Shot {
         name: "merged",
         scene: Scene::Merged,
@@ -88,18 +87,6 @@ const SHOTS: [Shot; 53] = [
     Shot {
         name: "chief",
         scene: Scene::Chief,
-        size: UVec2::new(1440, 860),
-        scale: 1.0,
-    },
-    Shot {
-        name: "history",
-        scene: Scene::History,
-        size: UVec2::new(1440, 860),
-        scale: 1.0,
-    },
-    Shot {
-        name: "reading",
-        scene: Scene::Reading,
         size: UVec2::new(1440, 860),
         scale: 1.0,
     },
@@ -363,9 +350,8 @@ const SHOTS: [Shot; 53] = [
     },
 ];
 
-/// The update the done buttons are pressed on unless `--strike` says,
-/// the updates after it the still is taken, and the updates its file
-/// is given to be written.
+/// The update the done buttons are pressed on, unless `--strike`
+/// says.
 const STRIKE: u32 = 240;
 const AFTER: u32 = 7;
 const WRITE: u32 = 60;
@@ -403,8 +389,7 @@ fn main() {
     draw(shot, out.join(format!("{}.png", shot.name)));
 }
 
-/// Opens the scene in a window of its own, to be used by hand: the
-/// same sample realm and layout as its still, with nothing taken.
+/// Opens the scene in a window of its own, to be used by hand.
 fn live(shot: &Shot) {
     let mut app = App::new();
     app.add_plugins(DefaultPlugins.set(WindowPlugin {
@@ -442,8 +427,8 @@ fn live(shot: &Shot) {
     // Nothing is pressed for it: the hand at the window does that.
     app.insert_resource(Strike(u32::MAX))
         .add_plugins(GalleryPlugin(shot.scene))
-        // The stills keep hover off so a held hover stays; a hand at
-        // the window needs it to point at anything.
+        // A hand at the window needs hover, which the stills keep
+        // off.
         .insert_resource(bevy::picking::PickingSettings::default())
         .add_systems(Startup, |mut commands: Commands| {
             commands.spawn((Camera2d, IsDefaultUiCamera));
@@ -507,9 +492,8 @@ fn camera(mut commands: Commands, target: Res<Target>) {
     commands.spawn((Camera2d, target.drawn(), IsDefaultUiCamera));
 }
 
-/// Takes the still a moment after the strike, and leaves once it is
-/// written. An update on which a picture is still being read is not
-/// counted.
+/// Takes the still a moment after the strike, and leaves once
+/// written.
 fn capture(
     mut commands: Commands,
     target: Res<Target>,

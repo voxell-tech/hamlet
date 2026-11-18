@@ -67,8 +67,8 @@ impl Faux {
         self
     }
 
-    /// Answers for the conversations of a kind: `worker`, `errand`,
-    /// `letters`, `questions` or `dream`.
+    /// Answers for the conversations of a kind: `chat`, `worker`,
+    /// `errand` or `dream`.
     pub fn kind(
         mut self,
         kind: &str,

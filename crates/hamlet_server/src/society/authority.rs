@@ -9,7 +9,11 @@ use hamlet_store::ids::{
 use hamlet_store::schema::hamlet_chief;
 
 use super::agents::{self, AgentKind};
-use super::{chiefs, city, hamlet_agents, hamlets, tree, workers};
+use super::rejection::Rejection;
+use super::{
+    addresses, chiefs, city, hamlet_agents, hamlets, tree, workers,
+};
+use crate::realm::change::Done;
 
 /// Whether `chief` is a chief of `hamlet` (C7).
 pub(crate) fn is_chief_of(
@@ -34,6 +38,73 @@ pub(crate) fn is_hand(db: &mut Db, actor: Actor) -> Result<bool> {
     })
 }
 
+/// Whether `actor` may govern `hamlet`: a chief of it, or the Hand.
+pub(crate) fn may_govern(
+    db: &mut Db,
+    actor: Actor,
+    hamlet: &HamletId,
+) -> Result<bool> {
+    Ok(match actor {
+        Actor::Chief(chief) => is_chief_of(db, chief, hamlet)?,
+        Actor::Agent(_) => is_hand(db, actor)?,
+        Actor::Realm => true,
+    })
+}
+
+/// Whether `actor` may change the realm: any chief, or the Hand.
+pub(crate) fn may_rule(db: &mut Db, actor: Actor) -> Result<bool> {
+    Ok(match actor {
+        Actor::Chief(_) | Actor::Realm => true,
+        Actor::Agent(_) => is_hand(db, actor)?,
+    })
+}
+
+/// Whether `actor` may reach the agent `id`.
+pub(crate) fn may_reach(
+    db: &mut Db,
+    actor: Actor,
+    id: AgentId,
+) -> Result<bool> {
+    let chief = match actor {
+        Actor::Chief(chief) => chief,
+        Actor::Agent(_) => return is_hand(db, actor),
+        Actor::Realm => return Ok(true),
+    };
+    Ok(match agents::get(db, id)?.kind {
+        AgentKind::Hand => true,
+        AgentKind::Hamlet => {
+            let agent = hamlet_agents::get(db, id)?;
+            is_chief_of(db, chief, &agent.hamlet)?
+        }
+        AgentKind::Worker => {
+            let worker = workers::get(db, id)?;
+            worker.chief == Some(chief)
+                || match &worker.hamlet {
+                    Some(hamlet) => is_chief_of(db, chief, hamlet)?,
+                    None => true,
+                }
+        }
+    })
+}
+
+/// Rejects unless `actor` may reach the agent `id`.
+pub(crate) fn reaches(
+    db: &mut Db,
+    actor: Actor,
+    id: AgentId,
+) -> Done<()> {
+    let Some(found) = agents::find(db, id)? else {
+        return Ok(Err(Rejection::NoOne {
+            address: id.to_string(),
+        }));
+    };
+    if !may_reach(db, actor, found.id)? {
+        let name = addresses::name_of(db, id)?;
+        return Ok(Err(Rejection::NotYours { name }));
+    }
+    Ok(Ok(()))
+}
+
 /// Whether `actor` may direct the agent `id` of a hamlet: a chief of
 /// its hamlet, the Hand, or an agent above it in its tree.
 pub(crate) fn may_direct(
@@ -51,10 +122,8 @@ pub(crate) fn may_direct(
     })
 }
 
-/// Whether `actor` may choose the model, effort and fast tier of the
-/// agent `id`: whoever may direct it in a hamlet; a chief for the
-/// Hand; for a worker, its starter, a chief of its hamlet, or the
-/// chief who started it, any chief when it belongs to none.
+/// Whether `actor` may choose the model, effort and fast tier of
+/// `id`.
 pub(crate) fn may_steer(
     db: &mut Db,
     actor: Actor,
@@ -83,9 +152,7 @@ pub(crate) fn may_steer(
     })
 }
 
-/// Whether `actor` may keep the profile `id`: change it, tag, revert,
-/// fork or purge it, archive, restore or erase it. Its chief may, and
-/// the Hand, whose acts wait for a chief.
+/// Whether `actor` may keep the profile `id`: its chief, or the Hand.
 pub(crate) fn may_keep(
     db: &mut Db,
     actor: Actor,
@@ -99,9 +166,7 @@ pub(crate) fn may_keep(
     })
 }
 
-/// Whether `actor` may add an agent of the profile `id` to `hamlet`:
-/// a chief of its own profile to its own hamlet, the Hand of any, and
-/// a parent of any profile of its hamlet's chiefs.
+/// Whether `actor` may add an agent of the profile `id` to `hamlet`.
 pub(crate) fn may_add(
     db: &mut Db,
     actor: Actor,
@@ -124,10 +189,7 @@ pub(crate) fn may_add(
     })
 }
 
-/// The chief a profile belongs to when `actor` makes it: a chief owns
-/// what it makes; an agent's belongs to the chief whose task it works
-/// on, else to the chief who founded its hamlet, else to the realm's
-/// first chief.
+/// The chief a profile belongs to when `actor` makes it.
 pub(crate) fn owner_for(
     db: &mut Db,
     actor: Actor,

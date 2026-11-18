@@ -1,8 +1,7 @@
-//! The Hub: a rail of the realm's agents and the page beside it,
-//! which is a thread, a profile, a hamlet, the library or the realm.
+//! The Hub: a rail of the realm's agents and the page beside it.
 
-mod conversations;
 mod details;
+pub(crate) mod erasure;
 mod gone;
 mod memory;
 mod papers;
@@ -20,7 +19,7 @@ use bevy::ecs::query::With;
 use bevy::ecs::resource::Resource;
 use bevy::ecs::schedule::common_conditions::resource_changed;
 use bevy::ecs::schedule::{IntoScheduleConfigs, SystemCondition};
-use bevy::ecs::system::{Local, Res};
+use bevy::ecs::system::Local;
 use bevy::ecs::world::World;
 use bevy::ui::{percent, px};
 use bevy_fynix::dock::DockWindowKind;
@@ -28,7 +27,7 @@ use bevy_fynix::shortcut::Scope;
 use bevy_fynix::views::{BehaviorExt, FrameProps, column, row};
 use bevy_fynix::{ViewExt, keyed, resource};
 use hamlet_client::realm::{HamletId, Left, Seen};
-use hamlet_realm::pick::{Selected, Thing};
+use hamlet_realm::pick::{Selected, Thing, bring_into_view, select};
 use hamlet_ui::styles::{Fills, ICON, filling};
 use hamlet_ui::widgets::effects::{Highlight, Updated};
 use hamlet_ui::widgets::icons::Glyph;
@@ -36,11 +35,11 @@ use hamlet_ui::{View, with_cx};
 
 pub use self::memory::Opened;
 pub use self::papers::{Papers, keep_papers};
+pub use self::rail::Tab as RailTab;
 pub(crate) use self::rail::under_name;
-pub use self::rail::{Rail, Tab as RailTab};
 pub use self::thread::{Briefing, Sheet};
 use crate::convo::{Convo, seat};
-use crate::dock::{HUB, PanelAppExt, highlight_panel};
+use crate::dock::{HUB, PanelAppExt, highlight_panel, show_tab};
 use crate::overview;
 
 pub fn plugin(app: &mut App) {
@@ -58,7 +57,12 @@ pub fn plugin(app: &mut App) {
         })
         .icon(Glyph::Tree.image(ICON)),
     )
-    .add_plugins((rail::plugin, visits::plugin, thread::plugin))
+    .add_plugins((
+        rail::plugin,
+        visits::plugin,
+        thread::plugin,
+        erasure::plugin,
+    ))
     .init_resource::<Showing>()
     .init_resource::<crate::forms::OpenForm>()
     .init_resource::<profile::Form>()
@@ -91,8 +95,6 @@ pub enum Showing {
     Realm,
     /// The chat with the agent the Hub is seated at.
     Thread,
-    /// That agent's past sessions.
-    Sessions,
     /// The whole of that agent's prompt.
     Prompt,
     Profile(Entity),
@@ -104,13 +106,7 @@ pub enum Showing {
     Library,
 }
 
-/// Whether the Hub shows a page that lists the agent's sessions.
-pub(crate) fn reads_sessions(showing: Res<Showing>) -> bool {
-    matches!(*showing, Showing::Thread | Showing::Sessions)
-}
-
-/// Turns the Hub's page to `showing`, and the rail to the tab that
-/// lists it.
+/// Turns the Hub's page to `showing`, and the rail to its tab.
 pub(crate) fn show(world: &mut World, showing: Showing) {
     if let Some(mut now) = world.get_resource_mut::<Showing>()
         && *now != showing
@@ -129,6 +125,25 @@ pub(crate) fn show(world: &mut World, showing: Showing) {
     }
 }
 
+/// Turns the Hub to `profile`'s page, its house chosen in the world.
+pub(crate) fn open_profile(world: &mut World, profile: Entity) {
+    open(world, Showing::Profile(profile), Thing::Profile(profile));
+}
+
+/// Turns the Hub to `hamlet`'s page, its common chosen in the world.
+pub(crate) fn open_hamlet(world: &mut World, hamlet: Entity) {
+    open(world, Showing::Hamlet(hamlet), Thing::Common(hamlet));
+}
+
+fn open(world: &mut World, showing: Showing, thing: Thing) {
+    show(world, showing);
+    show_tab(world, HUB);
+    if world.contains_resource::<Selected>() {
+        select(world, Some(thing));
+        bring_into_view(world, thing);
+    }
+}
+
 /// The Hub's page.
 fn page() -> impl View {
     keyed(resource::<Showing, _>(|showing| *showing), |showing| {
@@ -138,7 +153,6 @@ fn page() -> impl View {
                 profile::page(*profile).boxed()
             }
             Showing::Thread => thread::living().boxed(),
-            Showing::Sessions => thread::sessions().boxed(),
             Showing::Prompt => thread::prompt_page().boxed(),
             Showing::Hamlet(hamlet) => {
                 overview::hamlet(*hamlet).boxed()
@@ -168,9 +182,7 @@ pub fn screen() -> impl View {
     })
 }
 
-/// A click on a robot or a house selects its agent, and the Hub turns
-/// to the thing selected. The panel is not brought to the front: it
-/// flashes, and its tab with it, when it is behind another.
+/// Turns the Hub to what is selected in the world.
 pub(crate) fn follow_selection(world: &mut World) {
     let selected = world.resource_ref::<Selected>();
     if !selected.is_changed() {
@@ -223,11 +235,13 @@ pub(crate) fn follow_selection(world: &mut World) {
         _ => return,
     };
     show(world, showing);
+    if let Some(thing) = world.resource::<Selected>().0 {
+        rail::follow(world, thing);
+    }
 }
 
-/// A realm with no hamlet opens on the Hand's chat, so a chief new to
-/// it starts by talking; one with hamlets opens on the realm's page.
-/// Decided once, when the first state has brought the Hand.
+/// Opens on the Hand's chat in a realm with no hamlet, else the
+/// realm.
 pub(crate) fn open_first(
     world: &mut World,
     mut decided: Local<bool>,
@@ -256,8 +270,7 @@ fn seat_if_new(world: &mut World, agent: Entity) {
     }
 }
 
-/// Tells the panels that flash that the Hub shows something else:
-/// another page, or on a thread, another agent.
+/// Tells the flashing panels that the Hub shows something else.
 pub(crate) fn tell_page(
     world: &mut World,
     mut seen: Local<Option<(Showing, Option<Entity>)>>,

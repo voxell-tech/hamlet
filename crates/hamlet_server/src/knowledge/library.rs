@@ -1,13 +1,16 @@
-//! The library (H33): a repository of skills every agent shares,
-//! whose `main` is checked out read-only at `library/`. Its first
-//! commit holds the starter skills built into the server.
+//! The library, a repository of skills every agent shares (H33).
 
 use anyhow::{Context, Result};
 use hamlet_git::{Author, Change, CommitId, MAIN, Repository};
+use hamlet_store::ids::Actor;
 
 use super::folder::Folder;
 use super::run::write_tree;
+use crate::core::Core;
+use crate::realm::change::Done;
 use crate::realm::layout::Layout;
+use crate::society::library::{self as shelf, Event, EventKind};
+use crate::society::rejection::Rejection;
 
 macro_rules! starter {
     ($name:literal, [$($file:literal),+]) => {
@@ -23,12 +26,8 @@ type Starter =
 const STARTERS: &[Starter] = &[
     starter!("web-search", ["SKILL.md", "scripts/search.py"]),
     starter!("read-webpage", ["SKILL.md", "scripts/read.py"]),
-    starter!("weather", ["SKILL.md", "scripts/weather.py"]),
-    starter!("call-api", ["SKILL.md", "scripts/api.py"]),
-    starter!("system-info", ["SKILL.md", "scripts/info.py"]),
     starter!("write-skill", ["SKILL.md"]),
     starter!("manage-memory", ["SKILL.md"]),
-    starter!("write-typst", ["SKILL.md"]),
 ];
 
 /// The most a skill's files may hold, together.
@@ -179,7 +178,7 @@ pub(crate) fn shelve(
 }
 
 /// Takes the skill `name` off the shelf, by `by`, and checks the
-/// library out. `None` when it was not shelved.
+/// library out.
 pub(crate) fn unshelve(
     layout: &Layout,
     name: &str,
@@ -207,4 +206,52 @@ pub(crate) fn unshelve(
     )?;
     check_out(layout, &repo)?;
     Ok(Some(commit))
+}
+
+impl Core<'_, '_> {
+    /// Takes `skill` off the library's shelves, as `by` asks.
+    pub(crate) fn unshelve_skill(
+        &mut self,
+        by: Actor,
+        skill: &str,
+        reason: &str,
+    ) -> Done<String> {
+        let layout = self.realm.layout().clone();
+        let author = by.to_string();
+        let at = crate::app::clock::now();
+        let message = if reason.is_empty() {
+            format!("Took {skill} off the shelves")
+        } else {
+            format!("Took {skill} off the shelves: {reason}")
+        };
+        let writing = self.writing.clone();
+        let held = writing.hold();
+        let unshelved =
+            unshelve(&layout, skill, &message, &author, at)?;
+        drop(held);
+        let Some(commit) = unshelved else {
+            return Ok(Err(Rejection::NoSkill {
+                name: skill.into(),
+            }));
+        };
+        let (agent, chief) = match by {
+            Actor::Agent(agent) => (Some(agent), None),
+            Actor::Chief(chief) => (None, Some(chief)),
+            Actor::Realm => (None, None),
+        };
+        let db = self.realm.store().connection();
+        shelf::event(
+            db,
+            at,
+            Event {
+                kind: EventKind::Unshelved,
+                skill,
+                agent,
+                chief,
+                reason: (!reason.is_empty()).then_some(reason),
+                commit: Some(&commit.to_string()),
+            },
+        )?;
+        Ok(Ok(format!("Took {skill} off the shelves.")))
+    }
 }

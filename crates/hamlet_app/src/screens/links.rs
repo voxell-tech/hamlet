@@ -1,12 +1,10 @@
-//! The links in the chat (docs/chat.md): the place each leads, the
-//! folders a path is looked for in, and the click that follows one.
+//! The links in the chat (docs/chat.md).
 
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 
 use bevy::app::{App, PreUpdate};
 use bevy::ecs::entity::Entity;
-use bevy::ecs::lifecycle::Remove;
 use bevy::ecs::message::MessageWriter;
 use bevy::ecs::observer::On;
 use bevy::ecs::query::With;
@@ -15,9 +13,7 @@ use bevy::ecs::schedule::common_conditions::resource_changed;
 use bevy::ecs::schedule::{IntoScheduleConfigs, SystemCondition};
 use bevy::ecs::system::{Local, Query, Res, ResMut};
 use bevy::ecs::world::World;
-use bevy::picking::events::{
-    PointerClick, PointerOut, PointerOver, PointerPress,
-};
+use bevy::picking::events::{PointerClick, PointerPress};
 use bevy::picking::pointer::PointerButton;
 use hamlet_client::messages::JobFinished;
 use hamlet_client::realm::{LivesIn, RealmFolder, Works};
@@ -32,19 +28,14 @@ use crate::{PanelSystems, sounds};
 /// The most paths whose files are remembered.
 const REMEMBERED: usize = 4096;
 
-/// Follows the pointer onto the links of the chat and opens the one
-/// that is clicked.
+/// Opens the link of the chat that is clicked.
 pub fn plugin(app: &mut App) {
     app.init_resource::<Roots>()
         .init_resource::<Found>()
-        .init_resource::<Aimed>()
         .insert_resource(PathLinks {
             resolve: seek,
             generation: 0,
         })
-        .add_observer(aim)
-        .add_observer(aim_off)
-        .add_observer(aim_gone)
         .add_observer(tap)
         .add_observer(follow)
         .add_observer(forget)
@@ -72,7 +63,7 @@ fn roots_moved(mut links: ResMut<PathLinks>) {
 #[derive(Resource, Default, Clone, PartialEq, Eq, Debug)]
 pub struct Roots {
     folders: Vec<PathBuf>,
-    /// The session whose agent they are the folders of.
+    /// The chat whose agent they are the folders of.
     of: Option<Entity>,
     folder: Option<String>,
 }
@@ -92,8 +83,8 @@ impl Roots {
     }
 }
 
-/// The file each path written in the chat names under [`Roots`], as
-/// it was last looked for.
+/// The file each path in the chat names under [`Roots`], once looked
+/// for.
 #[derive(Resource, Default)]
 struct Found(HashMap<String, Option<PathBuf>>, Option<PathBuf>);
 
@@ -102,18 +93,18 @@ fn turn(world: &mut World) {
     let Some(convo) = world.get_resource::<Convo>() else {
         return;
     };
-    let session = convo.session;
+    let chat = convo.chat;
     let folder = world
         .get::<LivesIn>(convo.agent)
         .and_then(|lives| world.get::<Works>(lives.0))
         .and_then(|works| works.folder.clone());
     if world.get_resource::<Roots>().is_some_and(|roots| {
-        roots.of == Some(session) && roots.folder == folder
+        roots.of == Some(chat) && roots.folder == folder
     }) {
         return;
     }
     let roots = Roots {
-        of: Some(session),
+        of: Some(chat),
         folder: folder.clone(),
         ..Roots::new(folder.into_iter().map(PathBuf::from))
     };
@@ -121,14 +112,12 @@ fn turn(world: &mut World) {
     world.get_resource_or_init::<Found>().0.clear();
 }
 
-/// The file `written` names, looked for on the disk once and
-/// remembered.
+/// The file `written` names, looked for once and remembered.
 pub(crate) fn seek(
     world: &mut World,
     written: &str,
 ) -> Option<PathBuf> {
-    // The chat is drawn for another agent before the system that
-    // keeps the folders has seen it turn.
+    // The chat may be drawn for another agent before `turn` runs.
     turn(world);
     let kept = world
         .get_resource::<RealmFolder>()
@@ -164,64 +153,6 @@ pub(crate) fn seek(
     file
 }
 
-/// The link under the pointer.
-#[derive(Resource, Default, PartialEq, Eq, Debug)]
-pub struct Aimed {
-    span: Option<Entity>,
-    /// The place it leads, in full. Empty when the pointer is on no
-    /// link.
-    pub address: String,
-}
-
-impl Aimed {
-    /// A pointer that rests on a link to `address`.
-    pub fn at(address: &str) -> Self {
-        Aimed {
-            span: None,
-            address: address.to_string(),
-        }
-    }
-}
-
-fn aim(
-    over: On<PointerOver>,
-    anchors: Query<&Anchor>,
-    mut aimed: ResMut<Aimed>,
-) {
-    let Ok(anchor) = anchors.get(over.entity) else {
-        return;
-    };
-    let address = match anchor {
-        Anchor::Web(address) => address.clone(),
-        Anchor::File(path) => match open::way(path) {
-            open::Way::Open => path.display().to_string(),
-            open::Way::Reveal => {
-                format!("{} (shown in its folder)", path.display())
-            }
-        },
-    };
-    *aimed = Aimed {
-        span: Some(over.entity),
-        address,
-    };
-}
-
-fn leave(aimed: &mut ResMut<Aimed>, span: Entity) {
-    if aimed.span == Some(span) {
-        **aimed = Aimed::default();
-    }
-}
-
-fn aim_off(out: On<PointerOut>, mut aimed: ResMut<Aimed>) {
-    leave(&mut aimed, out.entity);
-}
-
-/// A link that is drawn again under the pointer goes with no word of
-/// the pointer leaving it.
-fn aim_gone(gone: On<Remove<Anchor>>, mut aimed: ResMut<Aimed>) {
-    leave(&mut aimed, gone.entity);
-}
-
 fn tap(
     press: On<PointerPress>,
     anchors: Query<(), With<Anchor>>,
@@ -235,8 +166,7 @@ fn tap(
     }
 }
 
-/// Opens the link that was clicked: an address in the browser, a
-/// file by the system's program for it.
+/// Opens the link that was clicked.
 fn follow(
     click: On<PointerClick>,
     anchors: Query<&Anchor>,
@@ -266,8 +196,7 @@ fn hamlets_turned(
     std::mem::replace(&mut *seen, now) != now
 }
 
-/// Forgets the files found when a turn has ended, which is when an
-/// agent has written some.
+/// Forgets the files found when a turn has ended.
 fn forget(_: On<JobFinished>, mut found: ResMut<Found>) {
     if !found.0.is_empty() {
         found.0.clear();
@@ -278,23 +207,6 @@ fn forget(_: On<JobFinished>, mut found: ResMut<Found>) {
 mod tests {
     use super::*;
 
-    #[test]
-    fn a_path_is_looked_for_once_until_a_turn_ends() {
-        let home = hamlet_testing::Scratch::new("links-seek");
-        let file = home.join("plan.md");
-        let mut world = World::new();
-        world.insert_resource(Roots::new([home.to_path_buf()]));
-        world.init_resource::<Found>();
-        world.add_observer(forget);
-
-        assert_eq!(seek(&mut world, "plan.md"), None);
-        std::fs::write(&file, "").unwrap();
-        assert_eq!(seek(&mut world, "plan.md"), None);
-        world.trigger(JobFinished {
-            chat: Entity::PLACEHOLDER,
-        });
-        assert_eq!(seek(&mut world, "plan.md"), Some(file));
-    }
     #[test]
     fn the_received_realm_folder_stays_plain_even_through_work_folder_links()
      {

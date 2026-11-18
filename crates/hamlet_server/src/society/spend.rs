@@ -1,5 +1,4 @@
-//! What the realm spends (H8): each payer's books for its period, a
-//! task's, an agent's, and whether another model call may be made.
+//! What the realm spends (H8).
 
 use anyhow::{Context, Result};
 use diesel::dsl::max;
@@ -272,7 +271,7 @@ pub(crate) fn stopped(
 }
 
 /// The allowances bounding what `agent` spends: its own and every
-/// parent's above it; a worker counts as its starter.
+/// parent's above it.
 fn allowances(
     db: &mut Db,
     agent: AgentId,

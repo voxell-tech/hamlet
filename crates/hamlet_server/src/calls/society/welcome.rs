@@ -1,6 +1,4 @@
-//! The Hand judging a newcomer for the chiefs (H45): an errand that
-//! answers whether a profile an agent made moves into the city, its
-//! verdict kept in the record for a chief to undo.
+//! The Hand judging a newcomer to the city for the chiefs (H45).
 
 use anyhow::Result;
 use hamlet_store::ids::{Actor, ProfileId};
@@ -79,7 +77,7 @@ pub(crate) fn judge(
             owner: &owner(id),
             agent: the_hand,
             instructions: &instructions,
-            question: &question,
+            content: &question,
             task: Some(task),
         },
     )?;
@@ -87,8 +85,7 @@ pub(crate) fn judge(
 }
 
 /// Carries out the Hand's verdict on the newcomer its errand `owner`
-/// judged. A verdict that is neither is no verdict: the newcomer
-/// waits for a chief.
+/// judged.
 pub(crate) fn judged(
     cx: &mut Change<'_>,
     owner: &str,

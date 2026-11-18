@@ -1,7 +1,4 @@
-//! The city: every profile of the realm, with its house. A profile a
-//! chief or the Hand makes moves in at once; one another agent makes
-//! waits at the harbor until it is let in, as the realm's settings
-//! say (H45).
+//! The city: every profile of the realm, with its house (H45).
 
 use std::f64::consts::PI;
 
@@ -22,12 +19,13 @@ use strum::{Display, EnumString, IntoStaticStr};
 
 use super::addresses::profile_address;
 use super::agents::EndHow;
+use super::hamlet_agents::{self, LastDream};
+use super::hand;
 use super::names::check_name;
 use super::oversight::{self, Raise, Ruling, WaitKind};
 use super::record::{self, Decision, DecisionKind};
 use super::rejection::Rejection;
-use super::{hamlet_agents, hand};
-use crate::realm::change::{Change, Done, done, reject};
+use crate::realm::change::{Change, Done, checked, done, reject};
 use crate::realm::jobs::{self, Fork, Job};
 
 /// The most characters a character may have (C11, C13).
@@ -88,8 +86,7 @@ pub(crate) enum Arrival {
     Housed,
     /// It waits at the harbor to be let in.
     Waiting,
-    /// It was turned away, and waits at the harbor until a chief
-    /// lets it in.
+    /// It was turned away, and waits at the harbor for a chief.
     Turned,
     /// It is a blank agent's alone, and never of the city.
     Apart,
@@ -129,15 +126,14 @@ impl Profile {
         format!("{} ({})", profile_address(self.id), self.name)
     }
 
-    /// The rejection of a call that names this profile when it has
-    /// left the city or is the Hand's.
+    /// The rejection for a profile that left the city or is the
+    /// Hand's.
     pub fn gone(&self) -> Option<Rejection> {
         (!self.is_living() || self.kind != ProfileKind::Profile)
             .then(|| Rejection::ProfileGone { name: self.label() })
     }
 
-    /// The rejection of a call that would add an agent of, house or
-    /// send to the harbor a blank agent's profile, which is never of
+    /// The rejection for a blank agent's profile, which is never of
     /// the city.
     pub fn apart(&self) -> Option<Rejection> {
         (self.arrival == Arrival::Apart)
@@ -156,6 +152,63 @@ pub(crate) fn make(
     fork: Option<Fork>,
 ) -> Done<ProfileId> {
     let id = done!(insert(cx, name, chief, character, fork));
+    arrive(cx, id)?;
+    Ok(Ok(id))
+}
+
+/// Makes a profile of the city of what `agent` learned (H45).
+pub(crate) fn make_of_agent(
+    cx: &mut Change<'_>,
+    agent: AgentId,
+    name: &str,
+    owner: ChiefId,
+    commit: Option<String>,
+    reason: &str,
+) -> Done<ProfileId> {
+    let found = hamlet_agents::get(cx.db, agent)?;
+    let profile = get(cx.db, found.profile)?;
+    if let Some(rejection) = profile.gone() {
+        reject!(rejection);
+    }
+    let id = if profile.arrival == Arrival::Apart {
+        let name = checked!(check_name(name));
+        diesel::update(profile::table.find(profile.id))
+            .set(profile::name.eq(name))
+            .execute(cx.db)?;
+        arrive(cx, profile.id)?;
+        jobs::add(cx, &Job::BringHome { agent })?;
+        profile.id
+    } else {
+        let Some(commit) = commit else {
+            reject!(Rejection::NoBranch {
+                name: super::addresses::name_of(cx.db, agent)?,
+            });
+        };
+        let fork = Fork {
+            from: profile.id,
+            commit,
+        };
+        done!(make(cx, name, owner, "", Some(fork)))
+    };
+    record::keep(
+        cx,
+        Decision::new(DecisionKind::MadeProfile, reason)
+            .hamlet(&found.hamlet)
+            .subject(agent)
+            .profile(id),
+    )?;
+    let profile = get(cx.db, id)?.name;
+    crate::conversations::chats::event(
+        cx,
+        agent,
+        hamlet_protocol::client::ItemEvent::Profile { profile },
+    )?;
+    Ok(Ok(id))
+}
+
+/// Lets the new profile `id` into the city, or has it wait at the
+/// harbor as the realm's settings say (H45).
+fn arrive(cx: &mut Change<'_>, id: ProfileId) -> Result<()> {
     match newcomer(cx)? {
         Some((maker, policy)) => {
             diesel::update(profile::table.find(id))
@@ -167,6 +220,7 @@ pub(crate) fn make(
             // Under the Hand, its errand is begun where the settings
             // and the models are at hand.
             if policy == Newcomers::Chief {
+                let about = get(cx.db, id)?.label();
                 oversight::raise(
                     cx,
                     Raise {
@@ -176,16 +230,14 @@ pub(crate) fn make(
                         profile: Some(id),
                         conversation: None,
                         task: None,
-                        about: format!(
-                            "{} ({name})",
-                            profile_address(id)
-                        ),
+                        about,
                         change: None,
                         answers: vec![
                             Choice::Welcome,
                             Choice::Dismiss,
                         ],
                         questions: None,
+                        setup: None,
                     },
                 )?;
             }
@@ -193,12 +245,10 @@ pub(crate) fn make(
         None => house(cx, id)?,
     }
     cx.touched.profiles.insert(id);
-    Ok(Ok(id))
+    Ok(())
 }
 
-/// Makes the profile of a blank agent, named `name`, for `chief`: one
-/// apart from the city, with no house, that never waits at the
-/// harbor and is not listed with the city's profiles.
+/// Makes the profile of a blank agent, apart from the city.
 pub(crate) fn make_apart(
     cx: &mut Change<'_>,
     name: &str,
@@ -225,10 +275,7 @@ fn insert(
     character: &str,
     fork: Option<Fork>,
 ) -> Done<ProfileId> {
-    let name = match check_name(name) {
-        Ok(name) => name,
-        Err(rejection) => reject!(rejection),
-    };
+    let name = checked!(check_name(name));
     if character.chars().count() > CHARACTER_MOST {
         reject!(Rejection::LongCharacter);
     }
@@ -263,8 +310,7 @@ fn insert(
 }
 
 /// The agent making a profile now and who lets it in, when it waits
-/// at the harbor: when an agent other than the Hand makes it in a
-/// realm that is not open.
+/// at the harbor.
 fn newcomer(
     cx: &mut Change<'_>,
 ) -> Result<Option<(AgentId, Newcomers)>> {
@@ -336,7 +382,7 @@ fn is_clear(taken: &[(f64, f64)], x: f64, z: f64) -> bool {
 }
 
 /// The first spot on a golden-angle spiral out from the middle that
-/// keeps clear of every house, as a sunflower lays its seeds.
+/// keeps clear of every house.
 pub(crate) fn free_spot(db: &mut Db) -> Result<(f64, f64)> {
     let taken = houses(db, None)?;
     let golden = PI * (3.0 - 5f64.sqrt());
@@ -503,10 +549,7 @@ pub(crate) fn rename(
     if let Some(rejection) = profile.gone() {
         reject!(rejection);
     }
-    let name = match check_name(name) {
-        Ok(name) => name,
-        Err(rejection) => reject!(rejection),
-    };
+    let name = checked!(check_name(name));
     diesel::update(profile::table.find(id))
         .set(profile::name.eq(name))
         .execute(cx.db)?;
@@ -584,7 +627,6 @@ pub(crate) fn place(
 }
 
 /// Archives the profile `id`, ending its living agents first.
-/// Rejected while one of its agents holds a hamlet's office.
 pub(crate) fn archive(
     cx: &mut Change<'_>,
     id: ProfileId,
@@ -599,7 +641,8 @@ pub(crate) fn archive(
             cx,
             agent.agent,
             EndHow::Profile,
-            reason
+            LastDream::Without,
+            reason,
         ));
     }
     diesel::update(profile::table.find(id))

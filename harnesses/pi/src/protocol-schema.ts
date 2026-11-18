@@ -135,17 +135,7 @@ export const schema = {
             "oneOf": [
                 {
                     "const": "chat",
-                    "description": "A chief's chat with the agent.",
-                    "type": "string"
-                },
-                {
-                    "const": "letters",
-                    "description": "Another agent's letters to it.",
-                    "type": "string"
-                },
-                {
-                    "const": "questions",
-                    "description": "Another agent's questions to it.",
+                    "description": "The agent's one conversation, with the chiefs and the agents\nthat write to it.",
                     "type": "string"
                 },
                 {
@@ -1832,11 +1822,15 @@ export const schema = {
                 },
                 {
                     "additionalProperties": false,
-                    "description": "An entry only people see, written at once even while a turn runs;\nadmitted once by its request id.",
+                    "description": "An entry written without a turn, admitted once by its request id:\none only people see, or with `content`, words for the model's\ncontext.",
                     "properties": {
                         "boundary": {
                             "description": "Written at a boundary, so the inputs queued behind a run that\nended without them are placed after it and run.",
                             "type": "boolean"
+                        },
+                        "content": {
+                            "description": "Words the model is given as a user message from now on.",
+                            "type": "string"
                         },
                         "conversation": {
                             "minLength": 1,
@@ -1866,6 +1860,44 @@ export const schema = {
                         "conversation",
                         "id",
                         "mark",
+                        "request",
+                        "v"
+                    ],
+                    "type": "object"
+                },
+                {
+                    "additionalProperties": false,
+                    "description": "Summarizes the earlier part of a conversation now, placing the\nsummary when idle or at its next boundary. Answered by `admitted`.",
+                    "properties": {
+                        "conversation": {
+                            "minLength": 1,
+                            "type": "string"
+                        },
+                        "id": {
+                            "minLength": 1,
+                            "type": "string"
+                        },
+                        "instructions": {
+                            "description": "What the summary must keep, beside the harness's own wants.",
+                            "type": "string"
+                        },
+                        "request": {
+                            "minLength": 1,
+                            "type": "string"
+                        },
+                        "type": {
+                            "const": "compact",
+                            "type": "string"
+                        },
+                        "v": {
+                            "$ref": "#/$defs/Version"
+                        }
+                    },
+                    "required": [
+                        "type",
+                        "conversation",
+                        "id",
+                        "instructions",
                         "request",
                         "v"
                     ],

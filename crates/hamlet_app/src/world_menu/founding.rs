@@ -1,6 +1,4 @@
-//! The form a hamlet is founded with: its name and the folder it
-//! works on, and folded under them its lead and what it is for,
-//! which may be left out. Once founded, its lead's chat opens.
+//! The form a hamlet is founded with.
 
 use std::path::PathBuf;
 
@@ -37,12 +35,10 @@ use super::{asks, asks_first, close, optional};
 use crate::hub::{Showing, show};
 use crate::{chat, words};
 
-/// How long a founding is waited for before its folder and chat are
-/// let go, in seconds.
+/// Seconds a founding is waited for before it is let go.
 const WAIT: f64 = 60.0;
 
-/// The name of a hamlet being founded, the folder it works on, the
-/// profile that is its lead, and its purpose.
+/// The founding form's fields.
 #[derive(Resource, Default, Clone, PartialEq)]
 pub(crate) struct Founding {
     name: String,
@@ -64,17 +60,15 @@ impl FromWorld for FolderAsker {
     }
 }
 
-/// A hamlet founded from the form and not yet seen: its name, the
-/// hamlets that had that name already, the folder it is to work on,
-/// and when it is let go.
+/// A hamlet founded from the form and not yet seen.
 #[derive(Resource, Default)]
 pub(crate) struct Awaited(
     Option<(String, Vec<Entity>, Option<PathBuf>, f64)>,
 );
 
 impl Founding {
-    /// The name it is founded under: what was typed, on one line,
-    /// with no colon, since a colon starts the purpose.
+    /// The name typed, on one line with no colon, which starts the
+    /// purpose.
     fn name(&self) -> String {
         self.name
             .replace(':', " ")
@@ -83,13 +77,11 @@ impl Founding {
             .join(" ")
     }
 
-    /// The chief's command that founds it. None until its name is
-    /// given.
+    /// The chief's command that founds it, once it is named.
     fn command(&self) -> Option<String> {
         let name = self.name();
         let purpose = self.purpose.trim();
-        // A blank lead is said, so a name that starts with a word
-        // the command reads as a lead stays whole.
+        // Said, so a name starting like a lead stays whole.
         let lead = self
             .lead
             .map_or_else(|| "blank".to_string(), profile_address);
@@ -100,8 +92,7 @@ impl Founding {
     }
 }
 
-/// The profiles of the city that can be the lead: living ones, by
-/// name.
+/// The living city profiles that can be the lead, by name.
 fn candidates(world: &World) -> Vec<(protocol::ProfileId, String)> {
     let Some(mut profiles) = world.try_query::<&Profile>() else {
         return Vec::new();
@@ -173,8 +164,7 @@ pub(super) fn submit(world: &mut World) {
     };
     close(world);
     *world.resource_mut::<Founding>() = Founding::default();
-    // Names may repeat, so the new hamlet is the one of its name that
-    // was not there before.
+    // Names may repeat, so the new one is the one not there before.
     let name = founding.name();
     let before = named_hamlets(world, &name)
         .into_iter()
@@ -220,8 +210,7 @@ pub(crate) fn chosen(
     });
 }
 
-/// Once the hamlet founded from the form is there, points it at its
-/// folder and opens its lead's chat.
+/// Points a founded hamlet at its folder and opens its lead's chat.
 pub(crate) fn open_founded(world: &mut World) {
     let Some((name, before, _, until)) =
         &world.resource::<Awaited>().0
@@ -263,8 +252,8 @@ fn folder() -> impl View {
         let choose = action(
             Glyph::Folder,
             match folder {
-                Some(_) => "Choose another",
-                None => "Choose a folder",
+                Some(_) => "Choose Another",
+                None => "Choose a Folder",
             },
             |world| {
                 let asker = world.resource::<FolderAsker>().0;

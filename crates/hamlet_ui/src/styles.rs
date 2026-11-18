@@ -10,8 +10,8 @@ use bevy::ui::{
 };
 use bevy_fynix::tokens::{MotionTokens, SurfaceTokens, Tone};
 use bevy_fynix::views::{
-    self, BehaviorExt, Frame, FrameProps, Stack, TooltipExt, column,
-    frame, label, menu_item, row, scroll, tinted_icon,
+    self, BehaviorExt, Frame, FrameProps, Label, Stack, TooltipExt,
+    column, frame, label, menu_item, row, scroll, tinted_icon,
 };
 use bevy_fynix::{
     Bevy, Focused, Prop, ScopedExt, ViewExt, ViewSeq, Visual, style,
@@ -124,6 +124,19 @@ pub fn back_link(cx: &mut Cx) {
         .icon(|i, _| i.tone(Tone::Dim))
         .hovered(|s| s.fill(|_| Color::NONE).tone(Tone::Accent))
         .pressed(|s| s.fill(|_| Color::NONE).tone(Tone::Faint))
+        .transition(HamletTheme::interact)
+        .apply(cx);
+}
+
+/// A button of dim words alone, brightening under the pointer and
+/// focus.
+pub fn text_button(cx: &mut Cx) {
+    style::<HamletTheme>()
+        .frame(|f, _| f.fill(Color::NONE))
+        .tone(Tone::Dim)
+        .hovered(|s| s.fill(|_| Color::NONE).tone(Tone::Body))
+        .pressed(|s| s.fill(|_| Color::NONE).tone(Tone::Body))
+        .when::<Focused>(|s| s.tone(Tone::Body))
         .transition(HamletTheme::interact)
         .apply(cx);
 }
@@ -544,7 +557,19 @@ pub fn marked(
     which: Glyph,
     text: impl Into<Prop<String>>,
 ) -> impl View + FrameProps {
-    views::button(headed(glyph(which, ICON), label(text).wrap(false)))
+    marking(which, label(text).wrap(false))
+}
+
+/// A [`marked`] button whose text wraps to fit what holds it.
+pub fn marked_wrapping(
+    which: Glyph,
+    text: impl Into<Prop<String>>,
+) -> impl View + FrameProps {
+    marking(which, label(text).wrap(true)).max_width(percent(100.0))
+}
+
+fn marking(which: Glyph, words: Label) -> impl View + FrameProps {
+    views::button(headed(glyph(which, ICON), words))
         // Less on the icon's side, which has air of its own.
         .padding(UiRect::new(px(10.0), px(13.0), px(0.0), px(0.0)))
         .min_height(px(CONTROL))
@@ -1161,38 +1186,8 @@ pub fn nav_card(
     holds: impl Into<Prop<String>>,
     act: impl Fn(&mut World) + Send + Sync + 'static,
 ) -> AnyView {
-    nav_item(mark, title, None, Some(holds.into()), None, button, act)
+    nav_item(mark, title, Some(holds.into()), None, button, act)
         .boxed()
-}
-
-/// A [`nav_card`] for the way most should take: outlined in gold,
-/// with `tag` as a [`pill`] after its name.
-pub fn lead_card(
-    which: Glyph,
-    title: &'static str,
-    tag: &'static str,
-    holds: impl Into<Prop<String>>,
-    act: impl Fn(&mut World) + Send + Sync + 'static,
-) -> AnyView {
-    nav_item(
-        glyph(which, ICON),
-        title,
-        Some(tag),
-        Some(holds.into()),
-        None,
-        lead_button,
-        act,
-    )
-    .boxed()
-}
-
-/// A [`button`] outlined in gold.
-fn lead_button(cx: &mut Cx) {
-    style::<HamletTheme>()
-        .with(button)
-        .frame(|f, t| f.border_color(t.palette.gold_4))
-        .hovered(|s| s.frame(|f, t| f.border_color(t.palette.accent)))
-        .apply(cx);
 }
 
 /// The same as a row of a list, with no border about it, and what it
@@ -1203,16 +1198,8 @@ pub fn nav_row(
     holds: Option<Prop<String>>,
     act: impl Fn(&mut World) + Send + Sync + 'static,
 ) -> AnyView {
-    nav_item(
-        glyph(which, ICON),
-        title,
-        None,
-        holds,
-        None,
-        link_row,
-        act,
-    )
-    .boxed()
+    nav_item(glyph(which, ICON), title, holds, None, link_row, act)
+        .boxed()
 }
 
 /// A [`nav_row`] with `now`, the value of what it leads to, dim
@@ -1223,22 +1210,13 @@ pub fn valued_row(
     now: Option<Prop<String>>,
     act: impl Fn(&mut World) + Send + Sync + 'static,
 ) -> AnyView {
-    nav_item(
-        glyph(which, ICON),
-        title,
-        None,
-        None,
-        now,
-        link_row,
-        act,
-    )
-    .boxed()
+    nav_item(glyph(which, ICON), title, None, now, link_row, act)
+        .boxed()
 }
 
 fn nav_item(
     mark: impl View + 'static,
     title: &'static str,
-    tag: Option<&'static str>,
     holds: Option<Prop<String>>,
     now: Option<Prop<String>>,
     rules: fn(&mut Cx),
@@ -1247,24 +1225,16 @@ fn nav_item(
     with_cx(move |cx| {
         let space = &cx.theme().space;
         let mut named = vec![
-            row((
-                headed(
-                    mark,
-                    label(title).wrap(false).rules(|cx: &mut Cx| {
-                        style::<HamletTheme>()
-                            .label(|l, t| {
-                                l.size(t.text.heading).bold(true)
-                            })
-                            .apply(cx);
-                    }),
-                ),
-                match tag {
-                    Some(tag) => pill(tag).boxed(),
-                    None => frame().boxed(),
-                },
-            ))
-            .gap(space.gap)
-            .align(AlignItems::Center)
+            headed(
+                mark,
+                label(title).wrap(false).rules(|cx: &mut Cx| {
+                    style::<HamletTheme>()
+                        .label(|l, t| {
+                            l.size(t.text.heading).bold(true)
+                        })
+                        .apply(cx);
+                }),
+            )
             .boxed(),
         ];
         named.extend(holds.map(|holds| description(holds).boxed()));

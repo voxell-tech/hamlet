@@ -16,10 +16,8 @@ use crate::society::{city, hamlet_agents, library as shelf};
 /// The longest a failed job waits before it runs again.
 const MOST_WAIT: i64 = 300_000;
 
-/// Runs every job due at `now`, once each and each holding `writing`,
-/// returning those done. A job that fails, panics or cannot be read
-/// runs again later, waiting longer each time, and the jobs after it
-/// still run.
+/// Runs every job due at `now`, each holding `writing`, returning
+/// those done.
 pub(crate) fn due(
     db: &mut Db,
     layout: &Layout,
@@ -113,6 +111,9 @@ pub(crate) fn run(
         Job::Split { merge } => {
             super::merges::split(db, layout, *merge, at)
         }
+        Job::BringHome { agent } => {
+            bring_home(db, layout, *agent, at)
+        }
         Job::Shelve { offer } => shelve(db, layout, *offer, at),
         Job::DreamEnd {
             dream,
@@ -124,8 +125,8 @@ pub(crate) fn run(
     }
 }
 
-/// Shelves the skill of `offer`, which the librarian took, once, and
-/// takes it out of the offerer's worktree while it is as offered.
+/// Shelves the skill of `offer` once, and takes it out of the
+/// offerer's worktree while it is as offered.
 fn shelve(
     db: &mut Db,
     layout: &Layout,
@@ -339,6 +340,33 @@ pub(crate) fn commit(
         "Kept what it learned",
         Author { name: &name, at },
     )
+}
+
+/// Merges the branch of `agent`, its worktree committed, into its
+/// profile's `main`, and takes the new `main` in.
+fn bring_home(
+    db: &mut Db,
+    layout: &Layout,
+    agent: AgentId,
+    at: i64,
+) -> Result<()> {
+    let found = worktree(db, layout, agent)?;
+    commit(db, layout, agent, at)?;
+    let repo = Repository::open(&layout.repository(found.profile))?;
+    let Some(tip) = repo.tip(&branch(agent))? else {
+        return Ok(());
+    };
+    let name = Actor::Realm.to_string();
+    repo.merge(
+        MAIN,
+        tip,
+        &format!(
+            "Brought home what {} learned",
+            crate::society::addresses::name_of(db, agent)?
+        ),
+        Author { name: &name, at },
+    )?;
+    take_in(db, layout, agent, at)
 }
 
 /// Takes `main`, or the pin, into the branch of the idle `agent` and

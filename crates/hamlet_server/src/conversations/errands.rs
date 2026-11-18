@@ -1,7 +1,5 @@
-//! Errands: one model call made for a society act, such as the
-//! librarian's answer or a parent's review, in a conversation of its
-//! own made once under its owner's key. Its prompt is its
-//! instructions alone, and it is paid for by the agent it is run for.
+//! Errands: one model call for a society act, in a conversation of
+//! its own.
 
 use anyhow::Result;
 use hamlet_store::Db;
@@ -25,8 +23,8 @@ pub(crate) struct Errand<'a> {
     /// The agent it is run for and paid by.
     pub agent: AgentId,
     pub instructions: &'a str,
-    /// The question put to it.
-    pub question: &'a str,
+    /// What its one input says.
+    pub content: &'a str,
     pub task: Option<TaskId>,
 }
 
@@ -74,7 +72,7 @@ pub(crate) fn run(
             request: request(errand.owner),
             kind: InputKind::Errand,
             task: errand.task,
-            content: errand.question.into(),
+            content: errand.content.into(),
             mark: Mark::Errand { at: cx.at },
             steer: false,
             boundary: false,
@@ -131,10 +129,15 @@ pub(crate) fn ended(
         {
             Ended::Answered(answer)
         }
-        _ => {
-            Ended::Failed(input.reason.clone().unwrap_or_else(|| {
-                "the errand gave no answer".into()
-            }))
-        }
+        _ => Ended::Failed(match &input.reason {
+            Some(_) => {
+                super::failures::of(
+                    input.reason.as_deref(),
+                    input.detail.as_deref(),
+                )
+                .words
+            }
+            None => "the errand gave no answer".into(),
+        }),
     }))
 }

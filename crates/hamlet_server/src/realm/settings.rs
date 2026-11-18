@@ -4,14 +4,21 @@
 use anyhow::Result;
 use bevy_ecs::resource::Resource;
 use diesel::prelude::*;
-use hamlet_protocol::client::{Link, LinkState, Newcomers};
+use hamlet_protocol::client::{
+    EditSettingsSet, Link, LinkState, Newcomers,
+};
 use hamlet_protocol::runtime::ModelRef;
 use hamlet_store::Db;
 use hamlet_store::ids::ChiefId;
 use hamlet_store::schema::document;
 use serde::{Deserialize, Serialize};
 
+use crate::core::Core;
+use crate::realm::change::{Done, reject};
+use crate::realm::credentials::WorkspaceAddress;
 use crate::society::agents::Effort;
+use crate::society::city::CHARACTER_MOST;
+use crate::society::rejection::Rejection;
 
 /// The settings after this process's overrides.
 #[derive(Resource, Clone, Debug)]
@@ -157,9 +164,7 @@ pub(crate) fn stored(db: &mut Db) -> Result<Settings> {
     })
 }
 
-/// What the process puts over the saved settings, read once at
-/// start: the environment's overrides, and faux models in place of
-/// every model.
+/// What the process puts over the saved settings, read once at start.
 #[derive(Clone, Debug, Default)]
 pub(crate) struct Overrides {
     pub faux: bool,
@@ -224,6 +229,135 @@ pub(crate) fn faux_model() -> ModelRef {
         id: "faux-1".into(),
         provider: "faux".into(),
     }
+}
+
+impl Core<'_, '_> {
+    /// Keeps the settings `set` changes.
+    pub(crate) fn edit_settings(
+        &mut self,
+        set: EditSettingsSet,
+    ) -> Done<String> {
+        let db = self.realm.store().connection();
+        let mut settings = stored(db)?;
+        if let Some(model) = set.model {
+            settings.model = model;
+            settings.picked = true;
+        }
+        if let Some(every) = set.reflect_every {
+            let Ok(every) = u64::try_from(every) else {
+                reject!(Rejection::BadReflectEvery);
+            };
+            settings.reflect_every = every;
+        }
+        if let Some(net) = set.allow_net {
+            settings.allow_net = net;
+        }
+        if let Some(effort) = set.effort {
+            settings.effort = effort.map(Effort::of);
+        }
+        if let Some(newcomers) = set.newcomers {
+            settings.newcomers = newcomers;
+        }
+        if let Some(character) = set.character {
+            if character.trim().is_empty() {
+                reject!(Rejection::NoCharacter);
+            }
+            if character.chars().count() > CHARACTER_MOST {
+                reject!(Rejection::LongCharacter);
+            }
+            settings.character = character;
+        }
+        let mut removed = Vec::new();
+        if let Some(endpoints) = set.endpoints {
+            let endpoints = endpoints
+                .into_iter()
+                .map(|e| Endpoint {
+                    name: e.name.trim().to_owned(),
+                    base_url: e.base_url.trim().to_owned(),
+                })
+                .collect::<Vec<_>>();
+            if let Some(why) = endpoint_fault(&endpoints) {
+                reject!(Rejection::BadEndpoint { why });
+            }
+            removed = settings
+                .endpoints
+                .iter()
+                .filter(|old| {
+                    !endpoints.iter().any(|e| e.name == old.name)
+                })
+                .map(|old| old.name.clone())
+                .collect();
+            settings.endpoints = endpoints;
+        }
+        let chosen = match set.workspace {
+            None => None,
+            Some(None) => Some(None),
+            Some(Some(workspace)) => {
+                let address = Endpoint {
+                    name: "workspace".into(),
+                    base_url: workspace.url.trim().to_owned(),
+                };
+                if let Some(why) =
+                    endpoint_fault(std::slice::from_ref(&address))
+                {
+                    reject!(Rejection::BadEndpoint { why });
+                }
+                Some(Some(WorkspaceAddress {
+                    url: address.base_url,
+                    token: workspace.token,
+                }))
+            }
+        };
+        let chief = self.realm.chief();
+        let db = self.realm.store().connection();
+        keep(db, &settings, crate::app::clock::now(), Some(chief))?;
+        for name in removed {
+            self.credentials.save_model(&name, None)?;
+        }
+        if let Some(chosen) = chosen {
+            self.credentials.choose_workspace(chosen)?;
+        }
+        self.env.settings = self.env.overrides.apply(settings);
+        self.publish();
+        Ok(Ok("The settings are saved.".into()))
+    }
+}
+
+/// The fault of `endpoints`, in words.
+fn endpoint_fault(endpoints: &[Endpoint]) -> Option<String> {
+    for (at, endpoint) in endpoints.iter().enumerate() {
+        if endpoint.name.is_empty() || endpoint.name.contains("::") {
+            return Some(
+                "An endpoint has a name without `::`.".into(),
+            );
+        }
+        if endpoints[..at].iter().any(|e| e.name == endpoint.name) {
+            return Some(format!(
+                "Two endpoints are named `{}`.",
+                endpoint.name
+            ));
+        }
+        let Ok(url) = url::Url::parse(&endpoint.base_url) else {
+            return Some(format!(
+                "`{}` is not an address.",
+                endpoint.base_url
+            ));
+        };
+        if !matches!(url.scheme(), "http" | "https") {
+            return Some(format!(
+                "`{}` is not an http or https address.",
+                endpoint.base_url
+            ));
+        }
+        if !url.username().is_empty() || url.password().is_some() {
+            return Some(
+                "An address may not hold a name or a key; sign in \
+                 to the endpoint with its key instead."
+                    .into(),
+            );
+        }
+    }
+    None
 }
 
 /// The model `endpoint::model` names, with its endpoint's address.

@@ -1,13 +1,11 @@
-//! The chief's commands: typed lines that begin with `/` (H24, H26),
-//! said to an agent, whose hamlet is the one they mean. Each command
-//! is a function of its own, named in its table beside how it is
-//! written, and runs as a system of its own.
+//! The chief's commands, lines that begin with `/` (H24, H26).
 
 mod oversight;
+mod promotion;
 mod shelves;
 mod society;
 mod targets;
-mod versions;
+pub(crate) mod versions;
 
 use anyhow::{Result, anyhow};
 use bevy_app::App;
@@ -21,7 +19,7 @@ use hamlet_store::ids::{AgentId, HamletId};
 use crate::app::input::AddHandler;
 use crate::clients::handlers::FromClient;
 use crate::core::Core;
-use crate::realm::change::Done;
+use crate::realm::change::{Done, done};
 use crate::society::addresses::Reach;
 use crate::society::hamlet_agents;
 use crate::society::rejection::Rejection;
@@ -30,15 +28,14 @@ type Run = fn(&mut Core<'_, '_>, &Line) -> Answer;
 
 pub(crate) fn plugin(app: &mut App) {
     app.add_handler::<FromClient<ChiefCommand>, _>(said)
-        .add_commands(SESSIONS)
+        .add_commands(CHAT)
         .add_commands(oversight::OVERSIGHT)
         .add_commands(versions::VERSIONS)
         .add_commands(shelves::SHELVES)
         .add_commands(society::SOCIETY);
 }
 
-/// A command a chief can type: its name, how it is written, what it
-/// does, and the function that does it.
+/// A command a chief can type.
 pub(crate) struct Command {
     name: &'static str,
     usage: &'static str,
@@ -46,9 +43,8 @@ pub(crate) struct Command {
     run: Run,
 }
 
-/// The commands about the chat itself: the same requests a client's
-/// buttons make.
-const SESSIONS: &[Command] = &[
+/// The commands about the chat itself.
+const CHAT: &[Command] = &[
     Command {
         name: "hand",
         usage: "/hand",
@@ -68,16 +64,10 @@ const SESSIONS: &[Command] = &[
         run: choose_in_client,
     },
     Command {
-        name: "new",
-        usage: "/new",
-        does: "Start a new conversation",
-        run: |core, line| Ok(Ok(core.new_session(line.agent)?)),
-    },
-    Command {
-        name: "resume",
-        usage: "/resume [n]",
-        does: "Go back to an earlier conversation",
-        run: resume,
+        name: "compact",
+        usage: "/compact",
+        does: "Summarize the earlier part of the conversation now",
+        run: |core, line| Ok(Ok(core.compact_chat(line.agent)?)),
     },
     Command {
         name: "retry",
@@ -88,14 +78,24 @@ const SESSIONS: &[Command] = &[
     Command {
         name: "stop",
         usage: "/stop [address|all]",
-        does: "Stop an agent's work",
-        run: stop,
+        does: "Stop an agent's work and hold what waits",
+        run: |core, line| match targets(core, line)? {
+            Ok(targets) => Ok(Ok(core.stop_turns(&targets)?)),
+            Err(rejection) => Ok(Err(rejection)),
+        },
+    },
+    Command {
+        name: "resume",
+        usage: "/resume [address|all]",
+        does: "Let a stopped agent take what waits",
+        run: |core, line| match targets(core, line)? {
+            Ok(targets) => Ok(Ok(core.resume_agents(&targets)?)),
+            Err(rejection) => Ok(Err(rejection)),
+        },
     },
 ];
 
-/// A command line said to an agent, as its system's input: the
-/// agent, its hamlet, which it means, the command's name and what
-/// follows it.
+/// A command line said to an agent, as its system's input.
 pub(crate) struct Line {
     pub agent: AgentId,
     pub here: Option<HamletId>,
@@ -118,9 +118,7 @@ impl Line {
 /// A command's answer: words for the chief, or a rejection.
 pub(crate) type Answer = Done<String>;
 
-/// Every command, as the actions a client lists in this order, with
-/// the system that runs it. A command is added with its usage and its
-/// function in one row, so the list and what runs cannot drift.
+/// Every command, in the order a client lists them.
 #[derive(Resource, Default)]
 pub(crate) struct Actions(
     Vec<(&'static Command, SystemId<In<Line>, Answer>)>,
@@ -220,9 +218,7 @@ fn said(world: &mut World) -> bevy_ecs::error::Result {
     )
 }
 
-/// A line to an agent that begins with `/`: a command (H24, H26),
-/// run by the system it was added with, answered once the state it
-/// leaves is published.
+/// Runs the command `say` holds.
 fn run(
     world: &mut World,
     client: u64,
@@ -252,8 +248,7 @@ fn run(
     Ok(())
 }
 
-/// The command `say` holds, said to the agent it names; none when
-/// the agent is not this chief's to reach, which was answered.
+/// The command `say` holds, when its agent is this chief's to reach.
 fn line_of(
     In((client, say)): In<(u64, protocol::Say)>,
     mut core: Core,
@@ -294,51 +289,23 @@ fn answered(
     core.answer(client, crate::clients::check::reply(&id, answer))
 }
 
-/// `/hand`, `/hamlet` and `/agent`: who the chief talks to is the
-/// client's to choose.
+/// `/hand`, `/hamlet` and `/agent`, which the client handles.
 fn choose_in_client(_: &mut Core<'_, '_>, _: &Line) -> Answer {
     Ok(Ok("Choose who you talk to in your client.".into()))
 }
 
-/// Goes back to session `n`, or lists the sessions when none is
-/// given.
-fn resume(core: &mut Core<'_, '_>, line: &Line) -> Answer {
-    let number =
-        line.words().first().and_then(|w| w.parse::<i64>().ok());
-    if let Some(number) = number {
-        return core.resume_session(line.agent, number);
-    }
-    let chief = core.realm.chief();
-    let db = core.realm.store().connection();
-    let sessions =
-        crate::conversations::chats::sessions(db, line.agent, chief)?;
-    let list = sessions
-        .iter()
-        .map(|(number, _, _)| format!("- session {number}"))
-        .collect::<Vec<_>>()
-        .join("\n");
-    Ok(Ok(if list.is_empty() {
-        "No sessions yet.".into()
-    } else {
-        list
-    }))
-}
-
-/// Stops the work of the agent said to, the one named, or all.
-fn stop(core: &mut Core<'_, '_>, line: &Line) -> Answer {
-    let targets = match line.words().first() {
+/// The agents `/stop` and `/resume` mean.
+fn targets(
+    core: &mut Core<'_, '_>,
+    line: &Line,
+) -> Done<Vec<AgentId>> {
+    Ok(Ok(match line.words().first() {
         None => vec![line.agent],
         Some(&"all") => core.reachable()?,
-        Some(text) => {
-            match core.resolve(
-                text,
-                line.here.as_ref(),
-                Reach::Living,
-            )? {
-                Ok(found) => vec![found],
-                Err(rejection) => return Ok(Err(rejection)),
-            }
-        }
-    };
-    Ok(Ok(core.stop_turns(&targets)?))
+        Some(text) => vec![done!(core.resolve(
+            text,
+            line.here.as_ref(),
+            Reach::Living,
+        ))],
+    }))
 }

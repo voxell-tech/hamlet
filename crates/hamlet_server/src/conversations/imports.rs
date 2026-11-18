@@ -1,8 +1,5 @@
-//! Projects of other programs brought in (C35): a hamlet for each,
-//! working on its folder, and an agent for each of its conversations,
-//! whose chat begins with it. The server holds a conversation's
-//! entries until its runtime has made it with them, which then keeps
-//! them alone (ADR 0002).
+//! Projects of other programs brought in as hamlets with agents
+//! (C35).
 
 use anyhow::{Context, Result};
 use diesel::prelude::*;
@@ -10,7 +7,7 @@ use hamlet_protocol::client::{FileId, Imported, ImportedEntry};
 use hamlet_protocol::runtime::{self, Earlier};
 use hamlet_store::Db;
 use hamlet_store::ids::{AgentId, ChiefId, ConversationId, HamletId};
-use hamlet_store::schema::{chat, chat_session, import};
+use hamlet_store::schema::import;
 use schemars::generate::SchemaSettings;
 use serde_json::Value;
 
@@ -19,7 +16,6 @@ use super::marks::Mark;
 use crate::attachments::files::Files;
 use crate::realm::change::{Change, Done, done};
 use crate::realm::settings::EffectiveSettings;
-use crate::society::chiefs;
 use crate::society::hamlet_agents::{self, ProfileChoice, Spec};
 use crate::society::hamlets::{self, Founding};
 use crate::society::names::NAME_LENGTH;
@@ -178,8 +174,7 @@ pub(crate) fn bring_in_project(
     Ok(Ok(brought))
 }
 
-/// `text` as a name: one line with no colon, cut to the longest a
-/// name is; `or` when nothing is left.
+/// `text` as a name, else `or`.
 fn label(text: &str, or: &str) -> String {
     let line = text
         .replace(':', " ")
@@ -209,43 +204,19 @@ fn is_brought_in(
         .is_some())
 }
 
-/// Begins a session of `chief`'s chat with `agent` with `imported`,
-/// current only when the chat has none. Returns its number.
+/// Begins the conversation of the agent `agent`, made for `imported`,
+/// with `imported`'s entries.
 fn begin(
     cx: &mut Change<'_>,
     env: &EffectiveSettings,
     agent: AgentId,
     chief: ChiefId,
     imported: &Imported,
-) -> Result<i64> {
+) -> Result<()> {
     let source = imported.source.word();
-    let has_chat =
-        chats::current_number(cx.db, agent, chief)?.is_some();
-    let number = chats::sessions(cx.db, agent, chief)?
-        .last()
-        .map_or(1, |(number, _, _)| number + 1);
-    let conversation = chats::begin(cx, env, agent, chief, number)?;
-    if !has_chat {
-        diesel::insert_into(chat::table)
-            .values((
-                chat::agent.eq(agent),
-                chat::chief.eq(chief),
-                chat::current.eq(number),
-            ))
-            .execute(cx.db)?;
-    }
-    diesel::insert_into(chat_session::table)
-        .values((
-            chat_session::agent.eq(agent),
-            chat_session::chief.eq(chief),
-            chat_session::session.eq(number),
-            chat_session::conversation.eq(conversation),
-            chat_session::began.eq(time(imported.began)?),
-        ))
-        .execute(cx.db)?;
-    let name = chiefs::find(cx.db, chief)?
-        .context("the chief is not in the realm")?
-        .name;
+    let conversation = chats::begin(cx, env, agent)?;
+    chats::set(cx.db, agent, conversation)?;
+    let name = chats::chief_name(cx.db, chief)?;
     let earlier = earlier_of(imported, &name)?;
     diesel::insert_into(import::table)
         .values((
@@ -258,7 +229,7 @@ fn begin(
         ))
         .execute(cx.db)?;
     cx.touched.agents.insert(agent);
-    Ok(number)
+    Ok(())
 }
 
 /// The conversation a client sent as the file `id`, checked against
@@ -290,8 +261,8 @@ pub(crate) fn read(
     Ok(serde_json::from_value(value).map_err(|_| unfit()))
 }
 
-/// The entries `conversation` begins with, while its runtime has not
-/// made it.
+/// The entries `conversation` begins with, held until its runtime
+/// makes it (ADR 0002).
 pub(crate) fn earlier(
     db: &mut Db,
     conversation: ConversationId,
@@ -307,9 +278,7 @@ pub(crate) fn earlier(
     })
 }
 
-/// The entries `conversation` begins with as its transcript shows
-/// them, while its runtime has not made it, as while no model is set
-/// up.
+/// [`earlier`] as transcript entries.
 pub(crate) fn held(
     db: &mut Db,
     conversation: ConversationId,
@@ -376,8 +345,7 @@ pub(crate) fn made(
     Ok(held)
 }
 
-/// The runtime's entries for `imported`: a notice of where it came
-/// from, then its messages and tool calls.
+/// The runtime's entries for `imported`.
 fn earlier_of(
     imported: &Imported,
     chief: &str,

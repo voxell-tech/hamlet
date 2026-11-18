@@ -72,8 +72,9 @@ gix = { version = "0.90", default-features = false, features = ["sha1", "merge",
 image ={ version = "0.25", default-features = false, features = ["png", "jpeg", "webp", "gif", "bmp"] }
 vt100 = "0.18"
 interprocess = "2"
-# Dates and times, in the local time zone too.
-jiff = "0.2"
+# Dates and times, in the local time zone too: the system's database,
+# bundled on Windows.
+jiff = { version = "0.2", default-features = false, features = ["std", "tz-system", "tzdb-zoneinfo", "tzdb-bundle-platform"] }
 # SQLite itself, built in, for Diesel.
 libsqlite3-sys = { version = "0.38", features = ["bundled"] }
 keyring = "4"

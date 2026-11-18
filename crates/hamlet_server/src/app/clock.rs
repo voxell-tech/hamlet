@@ -9,14 +9,12 @@ pub(crate) fn now() -> i64 {
     Timestamp::now().as_millisecond()
 }
 
-/// `count` minutes in milliseconds, saturating at the bounds of an
-/// `i64`.
+/// `count` minutes in milliseconds, saturating.
 pub(crate) fn minutes(count: i64) -> i64 {
     count.saturating_mul(60_000)
 }
 
-/// `count` days in milliseconds, saturating at the bounds of an
-/// `i64`.
+/// `count` days in milliseconds, saturating.
 pub(crate) fn days(count: i64) -> i64 {
     count.saturating_mul(86_400_000)
 }

@@ -76,7 +76,7 @@ pub(super) fn ruin(agent: Entity) -> impl View {
                     ),
                     bad_action(
                         Glyph::Delete,
-                        "Delete for good",
+                        "Delete",
                         move |world| {
                             world_menu::ask(
                                 world,
@@ -91,8 +91,7 @@ pub(super) fn ruin(agent: Entity) -> impl View {
     })
 }
 
-/// The library, when it is selected in the world: what it is, and
-/// its shelves.
+/// The library's page.
 pub(super) fn library() -> impl View {
     with_cx(|cx| {
         column((
@@ -104,8 +103,7 @@ pub(super) fn library() -> impl View {
                     show(world, Showing::Realm);
                 },
             ),
-            // On a line of their own, and on to another when the
-            // panel is narrow.
+            // Wraps when the panel is narrow.
             buttons(vec![action(Glyph::Move, "Move", |world| {
                 hamlet_realm::moving::pick_up(
                     world,

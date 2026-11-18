@@ -1,12 +1,4 @@
-//! Words selected where they are drawn, in any text of the panels: a
-//! press and a drag, a double-click for a word or a triple-click for
-//! a line. An [`Area`], such as the words of a message or a Markdown
-//! page, is selected across all its text; any other text on its own.
-//! Bevy's text layout and parley's selection find the words and the
-//! boxes to light. What is selected is lit on a layer over the
-//! panels, copied with Cmd+C and, in the chat, quoted in the field
-//! with the button at its end. Buttons and fields keep their own
-//! presses.
+//! Words selected in any text of the panels, to copy or quote.
 
 use std::ops::Range;
 use std::time::Duration;
@@ -51,11 +43,11 @@ use bevy::ui::{
 use bevy::ui_widgets::Button;
 use bevy::window::SystemCursorIcon;
 use bevy_fynix::views::{
-    BehaviorExt, FrameProps, RichField, column, frame, row,
+    BehaviorExt, FrameProps, RichField, frame, overlay, row,
 };
 use bevy_fynix::{EntityCursor, ViewExt, keyed, resource};
 use hamlet_ui::View;
-use hamlet_ui::markdown::Area;
+use hamlet_ui::markdown::{Area, AtomWords};
 use hamlet_ui::styles::{Looks, marked};
 use hamlet_ui::theme::Themed;
 use hamlet_ui::widgets::effects::Variant;
@@ -64,9 +56,9 @@ use parley::{Affinity, AlignmentOptions, Cursor, Layout, Selection};
 
 use crate::chat;
 use crate::convo::Convo;
+use crate::screens::viewer::Viewing;
 
-/// The layer the light is drawn on: over the panels, under the drag
-/// of a tab, the menus and the tooltips.
+/// The highlight's layer: over the panels, under menus and tooltips.
 const LAYER: i32 = 100;
 
 /// The room the quote button is given before the end of the area.
@@ -102,14 +94,11 @@ enum Grain {
     Line,
 }
 
-/// How long after a press the next one still counts as part of the
-/// same run of clicks, and how far from it, in logical pixels.
+/// How long and how far apart presses still count as one run.
 const MULTI: Duration = Duration::from_millis(500);
 const NEAR: f32 = 4.0;
 
-/// The latest press of the primary button: the frame it came in,
-/// when it was let go of (or pressed, until it is), where it was, the
-/// entities it was seen on, and how many in a row it makes.
+/// The latest press of the primary button.
 #[derive(Clone, PartialEq, Debug)]
 struct Click {
     frame: u32,
@@ -119,17 +108,11 @@ struct Click {
     count: u8,
 }
 
-/// The latest press of the primary button, if any.
 #[derive(Resource, Default)]
 struct LastClick(Option<Click>);
 
-/// How many presses in a row the press on `entity` makes, given
-/// `last`. The picking backend sends one press to each entity under
-/// the pointer, each with a count of its own, so the run is counted
-/// here, once per press. The same press seen on another entity is in
-/// the same frame and place and on an entity it was not yet seen on;
-/// a press on an entity already seen is a new one, even in the same
-/// frame, as when a slow frame takes in both of a double click.
+/// How many presses in a row the press on `entity` makes after
+/// `last`.
 fn pressed(
     last: &mut Option<Click>,
     frame: u32,
@@ -147,9 +130,7 @@ fn pressed(
     }
     let count = match last {
         Some(last)
-            // From the release before, as Bevy counts, so that a slow
-            // frame between a press and its release does not end the
-            // run.
+            // From the release before, as Bevy counts.
             if at.saturating_duration_since(last.at) <= MULTI
                 && last.on.distance(on) <= NEAR =>
         {
@@ -167,8 +148,7 @@ fn pressed(
     count
 }
 
-/// A place in selectable words: a text node and the bytes of it that
-/// were pressed on, empty for a letter.
+/// A text node and the bytes pressed on, empty for a letter.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 struct Spot {
     node: Entity,
@@ -181,8 +161,7 @@ struct Spot {
 pub struct Selecting {
     /// The area, or the text node, the words are selected in.
     area: Option<Entity>,
-    /// The message of the chat they are in, by its conversation and
-    /// entry, so they can be quoted.
+    /// The message of the chat they are in.
     quote: Option<(Entity, String)>,
     anchor: Option<Spot>,
     focus: Option<Spot>,
@@ -193,8 +172,8 @@ pub struct Selecting {
     whole: bool,
     /// The words selected.
     pub chosen: String,
-    /// Where the quote button stands in its area, in pixels.
-    spot: Vec2,
+    /// Where the quote button stands, in logical pixels.
+    spot: Option<Vec2>,
 }
 
 impl Selecting {
@@ -206,15 +185,15 @@ impl Selecting {
 /// On a row of the chat whose words can be quoted.
 #[derive(Component, Clone, Debug)]
 pub struct Quotable {
-    pub session: Entity,
+    pub chat: Entity,
     pub entry: String,
 }
 
-/// The layer over the panels that what is selected is lit on.
+/// The layer over the panels that selections are highlighted on.
 #[derive(Component)]
 struct Lit;
 
-/// A box of light on the [`Lit`] layer.
+/// A highlight box on the [`Lit`] layer.
 #[derive(Component)]
 struct Glow;
 
@@ -227,6 +206,7 @@ struct Keeps;
 struct Texts<'w, 's> {
     children: Query<'w, 's, &'static Children>,
     parents: Query<'w, 's, &'static ChildOf>,
+    copies: Query<'w, 's, &'static AtomWords>,
     blocks: Query<
         'w,
         's,
@@ -263,9 +243,7 @@ struct Texts<'w, 's> {
 }
 
 impl Texts<'_, '_> {
-    /// True when the words of the text node `node` can be selected:
-    /// it is seen, the pointer reaches it, and it is not part of a
-    /// button, a field or anything else that has a hand of its own.
+    /// Whether the words of the text node `node` can be selected.
     fn is_selectable(&self, node: Entity) -> bool {
         let seen = self.seen.get(node).is_ok_and(|(shown, pick)| {
             shown.is_none_or(|s| s.get())
@@ -283,8 +261,7 @@ impl Texts<'_, '_> {
             })
     }
 
-    /// The text nodes of `area` that can be selected, in the order
-    /// they are read. A text node is an area of its own.
+    /// The selectable text nodes of `area`, in reading order.
     fn nodes(&self, area: Entity) -> Vec<Entity> {
         if self.blocks.contains(area) {
             return vec![area];
@@ -315,9 +292,21 @@ impl Texts<'_, '_> {
             .collect()
     }
 
-    /// The layout of the text node `node` as it is drawn. Bevy
-    /// measures a node by breaking its layout at other widths too, so
-    /// the one it keeps is broken again here as Bevy draws it.
+    /// The words of `range` of `node`, with each atom's words.
+    fn part(
+        &self,
+        node: Entity,
+        range: Range<usize>,
+    ) -> Option<String> {
+        let copies = self.copies.get(node).ok();
+        spliced(
+            &self.text(node),
+            range,
+            copies.map_or(&[][..], |c| &c.0),
+        )
+    }
+
+    /// The layout of `node`, broken again at its drawn width.
     fn laid(&self, node: Entity) -> Option<Layout<TextBrush>> {
         let (block, text_layout, computed, ..) =
             self.blocks.get(node).ok()?;
@@ -334,8 +323,8 @@ impl Texts<'_, '_> {
         Some(layout)
     }
 
-    /// The top and the bottom of the text node `node` in the window,
-    /// in physical pixels.
+    /// The top and bottom of `node` in the window, in physical
+    /// pixels.
     fn level(&self, node: Entity) -> Option<(f32, f32)> {
         let (_, _, computed, transform, _) =
             self.blocks.get(node).ok()?;
@@ -344,8 +333,8 @@ impl Texts<'_, '_> {
         Some((top, top + content.height()))
     }
 
-    /// The window's `point` in the content of the text node `node`,
-    /// in physical pixels, and the size of that content.
+    /// The window's `point` in `node`'s content, and the content's
+    /// size.
     fn local(
         &self,
         node: Entity,
@@ -361,10 +350,7 @@ impl Texts<'_, '_> {
         Some((local, content.size()))
     }
 
-    /// The place the window's `point` falls on among `nodes`, read
-    /// by `grain`. Of the nodes on its line, the one under it or the
-    /// nearest; between lines, the start of the next; past them all,
-    /// the end of the last.
+    /// The place `point` falls on among `nodes`, read by `grain`.
     fn place(
         &self,
         nodes: &[Entity],
@@ -427,8 +413,7 @@ impl Texts<'_, '_> {
         })
     }
 
-    /// The boxes of `range` of the text node `node` as they are seen,
-    /// cut to what clips it, in logical pixels of the window.
+    /// The clipped boxes of `range` of `node`, in logical pixels.
     fn boxes(&self, node: Entity, range: Range<usize>) -> Vec<Rect> {
         let (Some(layout), Ok((_, _, computed, transform, _))) =
             (self.laid(node), self.blocks.get(node))
@@ -473,8 +458,7 @@ impl Texts<'_, '_> {
     }
 }
 
-/// `seen` cut to what `clip` lets through, in the window; nothing
-/// when the node is clipped away altogether.
+/// `seen` cut to what `clip` lets through.
 fn clipped(clip: &CalculatedClip, seen: Rect) -> Rect {
     let Some(rects) = clip.rects() else {
         return Rect::default();
@@ -493,9 +477,7 @@ fn worded(text: &str) -> usize {
     text.trim_end_matches(RESERVE).len()
 }
 
-/// The part of each of `order` that a selection between `a` and `b`
-/// covers, the nodes it covers none of left out. `len` is the length
-/// of a node's words.
+/// The part of each of `order` a selection from `a` to `b` covers.
 fn covered(
     order: &[Entity],
     a: Spot,
@@ -512,7 +494,7 @@ fn covered(
         } else {
             ((ib, b), (ia, a))
         };
-    // A word or a line pressed at both ends is lit whole.
+    // A word or a line pressed at both ends is selected whole.
     let end = match first == last {
         true => from.end.max(to.end),
         false => to.end,
@@ -529,21 +511,35 @@ fn covered(
         .collect()
 }
 
-/// The words `covered` selects: the parts of nodes on one line of
-/// the window, such as a bullet and its item, with a space between
-/// them, and the parts on different lines with a line between them.
-/// `level` is where a node stands, from its top to its bottom.
+/// `range` of `text`, with the words of each atom of `copies` in it.
+fn spliced(
+    text: &str,
+    range: Range<usize>,
+    copies: &[(usize, String)],
+) -> Option<String> {
+    let within = |at: usize| {
+        range.contains(&at) || (at == range.end && at == text.len())
+    };
+    let (mut part, mut from) = (String::new(), range.start);
+    for (at, copy) in copies.iter().filter(|(at, _)| within(*at)) {
+        part.push_str(text.get(from..*at)?);
+        part.push_str(copy);
+        from = *at;
+    }
+    part.push_str(text.get(from..range.end)?);
+    Some(part)
+}
+
+/// The words `covered` selects, parts on one line joined by a space.
 fn chosen(
     covered: &[(Entity, Range<usize>)],
-    text: impl Fn(Entity) -> String,
+    part: impl Fn(Entity, Range<usize>) -> Option<String>,
     level: impl Fn(Entity) -> Option<(f32, f32)>,
 ) -> String {
     let mut words = String::new();
     let mut was: Option<(f32, f32)> = None;
     for (node, range) in covered {
-        let Some(part) =
-            text(*node).get(range.clone()).map(str::to_string)
-        else {
+        let Some(part) = part(*node, range.clone()) else {
             continue;
         };
         let now = level(*node);
@@ -562,7 +558,7 @@ fn chosen(
     words
 }
 
-/// Spawns the layer over the panels that selections are lit on.
+/// Spawns the layer that selections are highlighted on.
 fn layer(mut commands: Commands) {
     commands.spawn((
         Node {
@@ -597,8 +593,7 @@ fn mark(
     }
 }
 
-/// Starts a selection on a press on selectable words, and lets it go
-/// on a press anywhere else.
+/// Starts a selection on selectable words, or lets it go elsewhere.
 fn press(
     press: On<PointerPress>,
     areas: Query<(), With<Area>>,
@@ -642,10 +637,7 @@ fn press(
         }
         return;
     };
-    // Only a press that can select is counted, so one on empty space
-    // does not make the next press a second. Taken as the press is
-    // read, not from the frame's clock, which can lag the input when
-    // frames are slow.
+    // Timed as read, as the frame's clock can lag the input.
     let count = pressed(
         &mut last.0,
         frame.0,
@@ -662,7 +654,7 @@ fn press(
     let spot = texts.place(&nodes, press.pointer.position, grain);
     let quote = area
         .and_then(|_| chain.iter().find_map(|e| rows.get(*e).ok()))
-        .map(|row| (row.session, row.entry.clone()));
+        .map(|row| (row.chat, row.entry.clone()));
     *selecting = Selecting {
         area: Some(scope),
         quote,
@@ -688,9 +680,7 @@ fn release(release: On<PointerRelease>, mut last: ResMut<LastClick>) {
     released(&mut last.0, Instant::now(), release.entity);
 }
 
-/// Times the run from the release of a press that was counted, which
-/// is on an entity it was seen on. A release of any other press, such
-/// as one on empty space, does not extend the run.
+/// Times the run from the release of a press that was counted.
 fn released(last: &mut Option<Click>, at: Instant, entity: Entity) {
     if let Some(click) = last
         && click.seen.contains(&entity)
@@ -732,18 +722,19 @@ fn drag_end(
     }
 }
 
-/// Copies what is selected on Cmd+C, selects the whole area on
-/// Cmd+A, and lets it go on Esc, unless a field is typed in.
+/// Cmd+C copies, Cmd+A selects the whole area, Esc lets go.
 fn keys(
     mut typed: MessageReader<KeyboardInput>,
     held: Res<ButtonInput<Key>>,
     focus: Res<InputFocus>,
+    viewing: Option<Res<Viewing>>,
     fields: Query<(), Or<(With<EditableText>, With<RichField>)>>,
     clipboard: Option<ResMut<Clipboard>>,
     mut selecting: ResMut<Selecting>,
 ) {
     let typing =
-        focus.get().is_some_and(|node| fields.contains(node));
+        focus.get().is_some_and(|node| fields.contains(node))
+            || viewing.is_some_and(|viewing| viewing.is_open());
     let command = if cfg!(target_os = "macos") {
         held.pressed(Key::Super)
     } else {
@@ -782,8 +773,7 @@ fn keys(
     }
 }
 
-/// Lets go of words selected in the chat once it is with another
-/// agent.
+/// Lets go of the chat's selection once it is with another agent.
 fn forget(
     convo: Option<Res<Convo>>,
     mut with: Local<Option<Entity>>,
@@ -800,8 +790,8 @@ fn forget(
     *with = Some(convo.agent);
 }
 
-/// Lights what is selected, keeps its words for a copy or a quote,
-/// and puts the quote button at its end.
+/// Highlights the selection, keeps its words and places the quote
+/// button.
 fn light(
     mut commands: Commands,
     texts: Texts,
@@ -819,12 +809,10 @@ fn light(
     // The area, found again in its message if that was built anew.
     let area =
         selecting.area.filter(|a| alive.contains(*a)).or_else(|| {
-            let (session, id) = selecting.quote.as_ref()?;
+            let (chat, id) = selecting.quote.as_ref()?;
             let row = rows
                 .iter()
-                .find(|(_, r)| {
-                    r.session == *session && &r.entry == id
-                })?
+                .find(|(_, r)| r.chat == *chat && &r.entry == id)?
                 .0;
             texts
                 .children
@@ -864,9 +852,7 @@ fn light(
         && *shown != boxes
     {
         let (layer, lit) = *layer;
-        // The boxes already there are moved rather than made anew: a
-        // node made after the layout of this frame is not drawn until
-        // the next, which showed as a flicker at each change.
+        // A new node would draw a frame late.
         let mut old = lit
             .into_iter()
             .flatten()
@@ -902,8 +888,6 @@ fn light(
         for spare in old {
             commands.entity(spare).despawn();
         }
-        // The button stands under the end of what is lit, in its
-        // area.
         let end = boxes.iter().max_by(|a, b| {
             (a.max.y, a.max.x)
                 .partial_cmp(&(b.max.y, b.max.x))
@@ -917,11 +901,12 @@ fn light(
             let width = node.size().x * scale;
             let left = (end.max.x - corner.x - BUTTON)
                 .clamp(0.0, (width - BUTTON).max(0.0));
-            Some(Vec2::new(left, end.max.y - corner.y + UNDER))
+            Some(
+                corner
+                    + Vec2::new(left, end.max.y - corner.y + UNDER),
+            )
         });
-        if let Some(spot) = spot
-            && selecting.spot != spot
-        {
+        if selecting.spot != spot {
             selecting.spot = spot;
         }
         *shown = boxes;
@@ -929,7 +914,7 @@ fn light(
 
     let words = chosen(
         &parts,
-        |node| texts.text(node),
+        |node, range| texts.part(node, range),
         |node| texts.level(node),
     )
     .replace(hamlet_ui::markdown::JOINER, "");
@@ -949,14 +934,13 @@ fn quote_chosen(world: &mut World) {
     chat::quote_in_field(world, &chosen);
 }
 
-/// The quote button of the entry `id` of `session`, at the end of
-/// what is selected in it.
-pub fn quote_button(session: Entity, id: String) -> impl View {
+/// The quote button under the end of a message's selection.
+pub fn quote_button() -> impl View {
     keyed(
-        resource::<Selecting, _>(move |s| {
-            s.quote.as_ref().is_some_and(|(chat, entry)| {
-                *chat == session && entry == &id
-            }) && !s.chosen.trim().is_empty()
+        resource::<Selecting, _>(|s| {
+            s.quote.is_some()
+                && s.spot.is_some()
+                && !s.chosen.trim().is_empty()
         }),
         |on| match on {
             true => row((marked(Glyph::Talk, "Quote")
@@ -964,10 +948,11 @@ pub fn quote_button(session: Entity, id: String) -> impl View {
                 .on_activate(quote_chosen),))
             .position(PositionType::Absolute)
             .inset(resource::<Selecting, _>(|s| {
+                let spot = s.spot.unwrap_or_default();
                 UiRect::new(
-                    px(s.spot.x),
+                    px(spot.x),
                     Val::Auto,
-                    px(s.spot.y),
+                    px(spot.y),
                     Val::Auto,
                 )
             }))
@@ -976,11 +961,7 @@ pub fn quote_button(session: Entity, id: String) -> impl View {
             false => frame().boxed(),
         },
     )
-    .within(
-        column(()).position(PositionType::Absolute).inset(
-            UiRect::new(px(0.0), Val::Auto, px(0.0), Val::Auto),
-        ),
-    )
+    .within(overlay(()))
 }
 
 #[cfg(test)]
@@ -1001,7 +982,7 @@ mod tests {
         let parts =
             covered(&order, spot(c, 4, 4), spot(a, 6, 6), len);
         assert_eq!(parts, vec![(a, 6..10), (b, 0..10), (c, 0..4)]);
-        // A click lights nothing.
+        // A click selects nothing.
         assert!(
             covered(&order, spot(b, 3, 3), spot(b, 3, 3), len)
                 .is_empty()
@@ -1033,8 +1014,7 @@ mod tests {
         assert_eq!(pressed(&mut last, 1, ms(0), at, other), 1);
         assert_eq!(pressed(&mut last, 5, ms(300), at, text), 2);
         assert_eq!(pressed(&mut last, 5, ms(300), at, other), 2);
-        // Another press in the same frame, as a slow one takes in
-        // both of a double click.
+        // Another press in the same frame, as a slow frame takes in.
         assert_eq!(pressed(&mut last, 5, ms(301), at, text), 3);
         // Too late, or too far, starts over.
         let mut late = last.clone();
@@ -1079,6 +1059,9 @@ mod tests {
             true => Some((0.0, 20.0)),
             false => Some((24.0, 44.0)),
         };
-        assert_eq!(chosen(&parts, text, lines), "line.\nSecond.");
+        let part = |n: Entity, range: Range<usize>| {
+            text(n).get(range).map(str::to_string)
+        };
+        assert_eq!(chosen(&parts, part, lines), "line.\nSecond.");
     }
 }

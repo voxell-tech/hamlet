@@ -5,8 +5,10 @@
 //!   harness written in Rust.
 //!
 //! [`screen`] keeps a terminal's screen as both ends of the client
-//! protocol draw it.
+//! protocol draw it, and [`address`] reads and writes the addresses
+//! agents and profiles are named by.
 
+pub mod address;
 pub mod client;
 pub mod runtime;
 pub mod screen;

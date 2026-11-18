@@ -60,6 +60,8 @@ pub(crate) enum DecisionKind {
     Tagged,
     Reverted,
     Forked,
+    /// A profile of the city made of what an agent has become.
+    MadeProfile,
     Purged,
     Added,
     Ended,
@@ -237,6 +239,7 @@ impl DecisionKind {
             Self::ChannelRefused => "refused a channel for",
             Self::Pinned => "pinned",
             Self::AgentNamed | Self::ProfileNamed => "renamed",
+            Self::MadeProfile => "made a profile of the city of",
             _ => "changed",
         }
     }

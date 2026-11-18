@@ -1,9 +1,9 @@
-//! The links in a run of words: web addresses and what reads as a
-//! path.
+//! The links in a run of words: web addresses, agents' addresses and
+//! what reads as a path.
 
 use std::ops::Range;
 
-use super::{Span, Target};
+use super::{IsAddress, Span, Target};
 
 /// The longest address or path taken for a link, in bytes.
 const LONGEST: usize = 2048;
@@ -32,6 +32,50 @@ pub(super) fn web(address: &str) -> Option<Target> {
         !address.chars().any(|c| c.is_whitespace() || c.is_control());
     (host.is_alphanumeric() && clean && address.len() <= LONGEST)
         .then(|| Target::Web(address.to_string()))
+}
+
+/// The longest name taken after an address, in bytes.
+const LONGEST_NAME: usize = 64;
+
+/// The marks that make a word worth reading as a link.
+const MARKS: [char; 5] = ['/', '\\', '.', '#', '@'];
+
+fn agent(text: &str, is_address: IsAddress) -> Option<Target> {
+    (text.len() <= LONGEST && is_address(text))
+        .then(|| Target::Agent(text.to_string()))
+}
+
+/// Whether `target` is an address with no mark, as `hand`, which in
+/// running words is most often a plain word.
+fn is_plain_address(target: &Target) -> bool {
+    matches!(target, Target::Agent(at) if !at.contains(MARKS))
+}
+
+/// The length of the ` (<name>)` a copied address carries, if `rest`
+/// opens with one.
+fn named(rest: &str) -> Option<usize> {
+    let name = rest.strip_prefix(" (")?;
+    let end = name.find(')')?;
+    let after = name[end + 1..].chars().next();
+    let name = &name[..end];
+    let plain = !name.trim().is_empty()
+        && name.len() <= LONGEST_NAME
+        && !name.contains(['(', '\n'])
+        && after
+            .is_none_or(|c| c.is_whitespace() || ENDS.contains(&c));
+    plain.then_some(end + 3)
+}
+
+/// `text` as an address alone, its copied name allowed.
+fn whole_agent(text: &str, is_address: IsAddress) -> Option<Target> {
+    let text = text.trim();
+    agent(text, is_address).or_else(|| {
+        let (address, _) = text.split_once(' ')?;
+        let target = agent(address, is_address)?;
+        (named(&text[address.len()..])
+            == Some(text.len() - address.len()))
+        .then_some(target)
+    })
 }
 
 /// `word` with no `:line` or `:line:column` after it.
@@ -90,8 +134,13 @@ fn is_path(path: &str) -> bool {
 
 /// The place `address` leads, as the address of a Markdown link. An
 /// address of any scheme but the web's and mail's leads nowhere.
-pub(super) fn address(address: &str) -> Option<Target> {
-    if let Some(target) = web(address) {
+pub(super) fn address(
+    address: &str,
+    is_address: IsAddress,
+) -> Option<Target> {
+    if let Some(target) =
+        web(address).or_else(|| agent(address, is_address))
+    {
         return Some(target);
     }
     let path = sans_place(address);
@@ -109,7 +158,10 @@ pub(super) fn address(address: &str) -> Option<Target> {
 
 /// The link in a word of running text, and the part of the word it
 /// is.
-fn word(word: &str) -> Option<(Range<usize>, Target)> {
+fn word(
+    word: &str,
+    is_address: IsAddress,
+) -> Option<(Range<usize>, Target)> {
     let start = word.len() - word.trim_start_matches(OPENS).len();
     let mut link = &word[start..];
     loop {
@@ -128,15 +180,53 @@ fn word(word: &str) -> Option<(Range<usize>, Target)> {
             break;
         }
     }
-    let target = web(link).or_else(|| {
+    let named_agent = agent(link, is_address)
+        .filter(|target| !is_plain_address(target));
+    let target = web(link).or(named_agent).or_else(|| {
         let path = sans_place(link);
         is_path(path).then(|| Target::Path(path.to_string()))
     })?;
     Some((start..start + link.len(), target))
 }
 
+/// When an address with no mark in running words is one.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum Plain {
+    Never,
+    /// With its copied name after it.
+    Copied,
+}
+
 /// The links in `text`, each with the part of the text it is.
-fn find(text: &str) -> Vec<(Range<usize>, Target)> {
+fn find(
+    text: &str,
+    is_address: IsAddress,
+) -> Vec<(Range<usize>, Target)> {
+    scan(text, Plain::Never, is_address)
+}
+
+/// The addresses written in `text`, each with its part of the text,
+/// copied name included.
+pub fn agent_addresses(
+    text: &str,
+    is_address: IsAddress,
+) -> Vec<(Range<usize>, String)> {
+    scan(text, Plain::Copied, is_address)
+        .into_iter()
+        .filter_map(|(part, target)| match target {
+            Target::Agent(address) => Some((part, address)),
+            Target::Web(_)
+            | Target::Path(_)
+            | Target::AgentWords(_) => None,
+        })
+        .collect()
+}
+
+fn scan(
+    text: &str,
+    plain: Plain,
+    is_address: IsAddress,
+) -> Vec<(Range<usize>, Target)> {
     let mut found = Vec::new();
     let mut at = 0;
     while let Some(start) = text[at..]
@@ -147,25 +237,54 @@ fn find(text: &str) -> Vec<(Range<usize>, Target)> {
             .find(char::is_whitespace)
             .map_or(text.len(), |end| start + end);
         let one = &text[start..end];
-        if one.contains(['/', '\\', '.'])
-            && let Some((part, target)) = word(one)
-        {
-            found
-                .push((start + part.start..start + part.end, target));
+        let mut next = end;
+        let opens = one.len() - one.trim_start_matches(OPENS).len();
+        let link = match one.contains(MARKS) {
+            true => word(one, is_address),
+            false if plain == Plain::Copied => {
+                agent(&one[opens..], is_address)
+                    .map(|target| (opens..one.len(), target))
+            }
+            false => None,
+        };
+        if let Some((part, target)) = link {
+            let mut part = start + part.start..start + part.end;
+            // A copied address carries its name: `agent#3 (Mira)`.
+            let name = match matches!(target, Target::Agent(_))
+                && part.end == end
+            {
+                true => named(&text[end..]),
+                false => None,
+            };
+            if let Some(name) = name {
+                part.end += name;
+                next = part.end;
+            }
+            if name.is_some() || !is_plain_address(&target) {
+                found.push((part, target));
+            }
         }
-        at = end;
+        at = next;
     }
     found
 }
 
 /// `spans` with each web address and each path in their words set
 /// apart as a span that links to it.
-pub(super) fn linked(spans: Vec<Span>) -> Vec<Span> {
+pub(super) fn linked(
+    spans: Vec<Span>,
+    is_address: IsAddress,
+) -> Vec<Span> {
     let mut all = Vec::with_capacity(spans.len());
     for span in spans {
-        let found = match span.link {
-            Some(_) => Vec::new(),
-            None => find(&span.text),
+        let found = match (&span.link, span.style.code) {
+            (Some(_), _) => Vec::new(),
+            (None, true) => match whole_agent(&span.text, is_address)
+            {
+                Some(target) => vec![(0..span.text.len(), target)],
+                None => find(&span.text, is_address),
+            },
+            (None, false) => find(&span.text, is_address),
         };
         if found.is_empty() {
             all.push(span);
@@ -194,10 +313,22 @@ pub(super) fn linked(spans: Vec<Span>) -> Vec<Span> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::markdown::Style;
+
+    fn is_address(word: &str) -> bool {
+        matches!(
+            word,
+            "hand"
+                | "agent#3"
+                | "worker#12"
+                | "lead@0b6f-9a"
+                | "profile#4"
+        )
+    }
 
     /// The links of `text`, each as its words and where it leads.
     fn links(text: &str) -> Vec<(&str, Target)> {
-        find(text)
+        find(text, is_address)
             .into_iter()
             .map(|(range, target)| (&text[range], target))
             .collect()
@@ -234,6 +365,54 @@ mod tests {
     }
 
     #[test]
+    fn an_address_takes_the_name_copied_after_it_and_hand_is_one_only_in_code()
+     {
+        let agent = |address: &str| Target::Agent(address.into());
+        assert_eq!(
+            links(
+                "Ask agent#3 (Mira Vale), then worker#12. On the \
+                 other hand (left), see lead@0b6f-9a and profile#4 \
+                 (x)y, not agent#x or agent#3, (Mira)."
+            ),
+            [
+                ("agent#3 (Mira Vale)", agent("agent#3")),
+                ("worker#12", agent("worker#12")),
+                ("lead@0b6f-9a", agent("lead@0b6f-9a")),
+                ("profile#4", agent("profile#4")),
+                ("agent#3", agent("agent#3")),
+            ]
+        );
+        let code = |text: &str| Span {
+            text: text.into(),
+            style: Style {
+                code: true,
+                ..Style::default()
+            },
+            link: None,
+        };
+        assert_eq!(
+            linked(
+                vec![code("hand"), code("agent#3 (Mira)")],
+                is_address
+            )
+            .into_iter()
+            .map(|span| span.link)
+            .collect::<Vec<_>>(),
+            [Some(agent("hand")), Some(agent("agent#3"))]
+        );
+        assert_eq!(address("hand", is_address), Some(agent("hand")));
+        // In a field, `hand` is one as it is copied, with its name.
+        let text = "On the other hand, ask hand (The Hand).";
+        assert_eq!(
+            agent_addresses(text, is_address)
+                .into_iter()
+                .map(|(range, address)| (&text[range], address))
+                .collect::<Vec<_>>(),
+            [("hand (The Hand)", "hand".to_string())]
+        );
+    }
+
+    #[test]
     fn only_the_web_and_a_path_are_links() {
         assert_eq!(
             links(
@@ -242,15 +421,15 @@ mod tests {
             ),
             []
         );
-        assert_eq!(address("file:///etc/passwd"), None);
-        assert_eq!(address("javascript:alert(1)"), None);
-        assert_eq!(address("vscode://file/x"), None);
+        assert_eq!(address("file:///etc/passwd", is_address), None);
+        assert_eq!(address("javascript:alert(1)", is_address), None);
+        assert_eq!(address("vscode://file/x", is_address), None);
         assert_eq!(
-            address("my notes/plan.md:3"),
+            address("my notes/plan.md:3", is_address),
             Some(path("my notes/plan.md"))
         );
         assert_eq!(
-            address("mailto:chief@hamlet.gg"),
+            address("mailto:chief@hamlet.gg", is_address),
             Some(Target::Web("mailto:chief@hamlet.gg".into()))
         );
     }

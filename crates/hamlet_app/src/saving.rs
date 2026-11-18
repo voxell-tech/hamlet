@@ -20,8 +20,7 @@ pub(crate) fn plugin(app: &mut App) {
         .add_systems(Update, settle.run_if(closing));
 }
 
-/// A step the window takes as it closes. It stays open when the step
-/// gives false.
+/// A step the window takes as it closes; false keeps it open.
 pub(crate) type Then = fn(&mut World) -> bool;
 
 #[derive(Resource, Default)]
@@ -42,8 +41,7 @@ pub(crate) fn close(world: &mut World) {
     close_then(world, None);
 }
 
-/// Closes the window like [`close`], taking `then` once the saves are
-/// confirmed or the chief closes with copies, never while one waits.
+/// [`close`], taking `then` once no save waits.
 pub(crate) fn close_then(world: &mut World, then: Option<Then>) {
     let mut saves = world.get_resource_or_init::<Saves>();
     saves.closing = true;
@@ -140,7 +138,7 @@ pub(crate) fn screen() -> impl View {
                     column((
                         note(text),
                         note(format!("Recovery copies:\n{copies}")),
-                        action(Glyph::Back, "Keep open", |world| {
+                        action(Glyph::Back, "Keep Open", |world| {
                             let mut saves =
                                 world.resource_mut::<Saves>();
                             saves.closing = false;
@@ -148,7 +146,7 @@ pub(crate) fn screen() -> impl View {
                         }),
                         bad_action(
                             Glyph::Leave,
-                            "Close with copies",
+                            "Close with Copies",
                             exit,
                         ),
                     ))
@@ -296,14 +294,14 @@ mod tests {
         app.update();
         assert_eq!(app.world().resource::<Steps>().0, 0);
         assert_eq!(app.should_exit(), None);
-        press(&mut app, "Keep open");
+        press(&mut app, "Keep Open");
         app.update();
         assert_eq!(app.world().resource::<Steps>().0, 0);
         assert_eq!(app.should_exit(), None);
 
         super::close_then(app.world_mut(), Some(step));
         app.update();
-        press(&mut app, "Close with copies");
+        press(&mut app, "Close with Copies");
         app.update();
         assert_eq!(app.world().resource::<Steps>().0, 1);
         assert_eq!(app.should_exit(), Some(AppExit::Success));
@@ -364,7 +362,7 @@ mod tests {
         let shown = all_words(&mut app);
         assert!(shown.contains("Inspect the server document"));
         assert!(shown.contains(file.to_str().unwrap()));
-        press(&mut app, "Close with copies");
+        press(&mut app, "Close with Copies");
         app.update();
         assert_eq!(app.should_exit(), Some(AppExit::Success));
         drop(app);

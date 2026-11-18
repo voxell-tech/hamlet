@@ -1,5 +1,4 @@
-//! The actions that end an agent or a hamlet or change who runs one,
-//! and the question asked before each.
+//! The actions asked about before they are done.
 
 use bevy::ecs::entity::Entity;
 use bevy::ecs::query::{With, Without};
@@ -17,6 +16,7 @@ use bevy_fynix::views::{
 };
 use bevy_fynix::{ScopedExt, ViewExt};
 use hamlet_client::messages::Rewind;
+use hamlet_client::outbox::RequestId;
 use hamlet_client::realm::{
     self as agents, Actions, Busy, HamletAgent, HamletId, Left,
     LivesIn,
@@ -31,11 +31,12 @@ use super::close;
 use crate::chat;
 use crate::convo::Convo;
 
-/// Something that ends an agent or a hamlet, or changes who runs
-/// one.
+/// An action asked about before it is done.
 #[derive(Clone, PartialEq)]
 pub(crate) enum Action {
     End(Entity),
+    /// Ends this agent after one more dream.
+    EndWithDream(Entity),
     Merge {
         absorbed: Entity,
         kept: Entity,
@@ -46,27 +47,22 @@ pub(crate) enum Action {
     Erase(Entity),
     /// Takes a skill out of the library.
     Unshelve(String),
-    /// Puts the open conversation away and starts another.
-    NewSession,
     /// Makes this agent the lead of its hamlet.
     Lead(Entity),
-    /// Takes the open conversation back to just before the message
-    /// `entry` of it.
+    /// Rewinds the open conversation to before message `entry`.
     Rewind {
-        session: Entity,
+        chat: Entity,
         entry: String,
         /// The time of the message, in milliseconds since 1970.
         at: u64,
     },
     /// Ends the realm's own charter, so the built-in one stands.
     DefaultCharter,
-    /// Copies every worktree to the saved workspace, over the
-    /// worktrees there.
+    /// Copies every worktree to the saved workspace.
     MoveWorktrees,
 }
 
-/// The reason typed under a question, which may be left out, and
-/// whether its field is shown.
+/// The reason typed under a question, and whether its field is shown.
 #[derive(Resource, Default, Clone, PartialEq)]
 pub(crate) struct Reason {
     text: String,
@@ -80,8 +76,7 @@ pub(super) fn answer(world: &mut World, action: &Action) {
 }
 
 impl Action {
-    /// Gives the chief's command that does it to the hamlet it is
-    /// about, with the reason typed under its question, if any.
+    /// Sends the chief's command that does it, with any reason typed.
     pub(crate) fn run(&self, world: &mut World) {
         if !self.is_available(world) {
             return;
@@ -101,6 +96,11 @@ impl Action {
                 let text = with(format!("/end {}", name(*agent)));
                 orders::decree(world, *agent, text);
             }
+            Action::EndWithDream(agent) => {
+                let text =
+                    with(format!("/end {} dream", name(*agent)));
+                orders::decree(world, *agent, text);
+            }
             Action::Merge { absorbed, kept } => {
                 let text = with(format!(
                     "/merge {} into {}",
@@ -111,14 +111,14 @@ impl Action {
             }
             Action::Erase(agent) => {
                 let text = format!("/erase {}", name(*agent));
+                crate::hub::erasure::expect_agent(world, *agent);
                 orders::decree(world, *agent, text);
             }
             Action::Lead(agent) => {
                 let text = with(format!("/lead {}", name(*agent)));
                 orders::decree(world, *agent, text);
             }
-            // The hamlets and the library are the realm's, and the
-            // open conversation is the open chat's.
+            // The hamlets and the library are the realm's.
             Action::Close(hamlet) => {
                 let text = with(format!("/remove-hamlet {hamlet}"));
                 chat::decree(world, hamlet, text);
@@ -126,16 +126,16 @@ impl Action {
             Action::Unshelve(skill) => {
                 chat::command(world, format!("/unshelve {skill}"));
             }
-            Action::NewSession => crate::convo::new_session(world),
             Action::DefaultCharter => {
                 crate::settings::default_charter(world);
             }
             Action::MoveWorktrees => {
                 crate::settings::workspace::move_worktrees(world);
             }
-            Action::Rewind { session, entry, .. } => {
+            Action::Rewind { chat, entry, .. } => {
                 world.trigger(Rewind {
-                    chat: *session,
+                    chat: *chat,
+                    request: RequestId::new(),
                     item: entry.clone(),
                 });
                 world.flush();
@@ -143,12 +143,12 @@ impl Action {
         }
     }
 
-    /// Whether the record keeps a reason for it, which the chief may
-    /// give.
+    /// Whether the record keeps a reason for it.
     fn takes_reason(&self) -> bool {
         matches!(
             self,
             Action::End(_)
+                | Action::EndWithDream(_)
                 | Action::Merge { .. }
                 | Action::Lead(_)
                 | Action::Close(_)
@@ -157,14 +157,13 @@ impl Action {
 
     fn is_available(&self, world: &World) -> bool {
         let command = match self {
-            Self::End(_) => "end",
+            Self::End(_) | Self::EndWithDream(_) => "end",
             Self::Merge { .. } => "merge",
             Self::Close(_) => "remove-hamlet",
             Self::Erase(_) => "erase",
             Self::Unshelve(_) => "unshelve",
             Self::Lead(_) => "lead",
-            Self::NewSession
-            | Self::DefaultCharter
+            Self::DefaultCharter
             | Self::MoveWorktrees
             | Self::Rewind { .. } => return true,
         };
@@ -174,7 +173,9 @@ impl Action {
     fn question(&self, world: &World) -> String {
         let name = |agent: &Entity| agents::shown_of(world, *agent);
         match self {
-            Action::End(agent) => format!("End {}?", name(agent)),
+            Action::End(agent) | Action::EndWithDream(agent) => {
+                format!("End {}?", name(agent))
+            }
             Action::Merge { absorbed, kept } => format!(
                 "Merge {} into {}?",
                 name(absorbed),
@@ -189,7 +190,6 @@ impl Action {
             Action::Unshelve(skill) => {
                 format!("Take {} out of the library?", skill)
             }
-            Action::NewSession => "Start a new session?".to_string(),
             Action::Lead(agent) => {
                 format!("Make {} lead?", name(agent))
             }
@@ -206,11 +206,16 @@ impl Action {
     fn outcome(&self, world: &World) -> String {
         let name = |agent: &Entity| agents::shown_of(world, *agent);
         match self {
-            Action::End(agent) => format!(
-                "The agent {} goes to the archive, with its memory, \
-                 skills and log. It can be restored.",
-                name(agent)
-            ),
+            Action::End(agent) | Action::EndWithDream(agent) => {
+                format!(
+                    "The agent {} goes to the archive, with its \
+                     memory, skills and log. It can be restored. \
+                     With a dream, it first brings what it learned \
+                     home to its profile, for the profile's later \
+                     agents.",
+                    name(agent)
+                )
+            }
             Action::Merge { absorbed, kept } => format!(
                 "{} takes the memory, skills, files and channels of \
                  {}, whose worktree is archived. It can be split \
@@ -230,11 +235,6 @@ impl Action {
                      from disk. This cannot be undone."
                 )
             }
-            Action::NewSession => "This conversation goes to \
-                                   SESSIONS, where it can be read \
-                                   and resumed. The agent keeps its \
-                                   memory and skills."
-                .to_string(),
             Action::Unshelve(skill) => format!(
                 "{skill} is deleted from the library for every \
                  hamlet. This cannot be undone."
@@ -264,18 +264,26 @@ impl Action {
         }
     }
 
+    /// The other action its question offers beside it.
+    fn alternative(&self) -> Option<Action> {
+        match self {
+            Action::End(agent) => Some(Action::EndWithDream(*agent)),
+            _ => None,
+        }
+    }
+
     fn verb(&self) -> &'static str {
         match self {
             Action::End(_) => "End",
+            Action::EndWithDream(_) => "End with Dream",
             Action::Merge { .. } => "Merge",
-            Action::Close(_) => "Close down",
+            Action::Close(_) => "Close Down",
             Action::Erase(_) => "Delete",
-            Action::Unshelve(_) => "Take out",
-            Action::NewSession => "New session",
-            Action::Lead(_) => "Make lead",
+            Action::Unshelve(_) => "Take Out",
+            Action::Lead(_) => "Make Lead",
             Action::Rewind { .. } => "Rewind",
-            Action::DefaultCharter => "Use the default",
-            Action::MoveWorktrees => "Replace them",
+            Action::DefaultCharter => "Use the Default",
+            Action::MoveWorktrees => "Replace Them",
         }
     }
 
@@ -289,13 +297,14 @@ impl Action {
                 .collect()
         };
         match self {
-            Action::End(agent) => busy(world, &[*agent]),
+            Action::End(agent) | Action::EndWithDream(agent) => {
+                busy(world, &[*agent])
+            }
             Action::Merge { absorbed, kept } => {
                 busy(world, &[*absorbed, *kept])
             }
             Action::Erase(_)
             | Action::Unshelve(_)
-            | Action::NewSession
             | Action::Lead(_)
             | Action::Rewind { .. }
             | Action::DefaultCharter
@@ -321,8 +330,7 @@ impl Action {
     }
 }
 
-/// The question before `action`, against `anchor`, with a warning for
-/// each agent that is at work.
+/// The question before `action`, warning of each agent at work.
 pub(crate) fn question(action: Action, anchor: Rect) -> impl View {
     built(move |cx| {
         if !action.is_available(cx.world) {
@@ -341,6 +349,7 @@ pub(crate) fn question(action: Action, anchor: Rect) -> impl View {
             .boxed(),
         };
         let done = action.clone();
+        let alternative = action.alternative();
         // A merge that completes is purple; the rest end something.
         let variant = match &action {
             Action::Merge { .. } => {
@@ -386,6 +395,15 @@ pub(crate) fn question(action: Action, anchor: Rect) -> impl View {
                 lettered(action.verb())
                     .variant(variant)
                     .on_activate(move |world| answer(world, &done)),
+                match alternative {
+                    Some(other) => lettered(other.verb())
+                        .variant(variant)
+                        .on_activate(move |world| {
+                            answer(world, &other);
+                        })
+                        .boxed(),
+                    None => frame().boxed(),
+                },
                 lettered("Cancel").rules(button).on_activate(close),
                 super::send_keys(),
             ))
@@ -394,8 +412,8 @@ pub(crate) fn question(action: Action, anchor: Rect) -> impl View {
         ))
         .gap(section)
         .width(px(300.0));
-        // The chief's own message, at the chat's right, has its
-        // question hang from its right edge, touching it.
+        // The chief's own message hangs its question from its right
+        // edge.
         let placements = match action {
             Action::Rewind { .. } => {
                 [PopoverSide::Bottom, PopoverSide::Top]

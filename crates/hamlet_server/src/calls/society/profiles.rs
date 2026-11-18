@@ -1,6 +1,4 @@
-//! The Hand's reads and changes of a profile's repository: its files
-//! at a version, a file of `main` written, a version named, a commit
-//! undone. A change waits for a chief before it gets here.
+//! The Hand's reads and changes of a profile.
 
 use anyhow::Result;
 use hamlet_git::{
@@ -8,45 +6,167 @@ use hamlet_git::{
 };
 use hamlet_store::ids::{Actor, ProfileId};
 
-use super::Call;
-use super::args::{EditProfile, ReadProfile, Revert, Tag};
+use super::args::{
+    Called, EditProfile, EraseProfile, Fork, MoveHouse, NameProfile,
+    Purge, ReadProfile, RemoveProfile, RestoreProfile, Revert, Tag,
+    TurnAway, Versions, Welcome,
+};
+use super::{Call, cut, unsupported};
 use crate::core::Core;
 use crate::knowledge::CHARACTER;
-use crate::realm::change::{Done, done};
+use crate::knowledge::versions::versions;
+use crate::realm::change::{Done, done, reject};
+use crate::realm::jobs;
+use crate::society::addresses::{self, Reach};
 use crate::society::city::{self, CHARACTER_MOST};
 use crate::society::rejection::Rejection;
-use crate::society::{addresses, authority, names};
-
-/// The most of a file `read_profile` gives.
-const MOST_READ: usize = 50 * 1024;
+use crate::society::{authority, names};
 
 impl Core<'_, '_> {
-    /// The living profile at `address`, which `call`'s agent may
-    /// keep.
+    /// The profile at `address` within `reach`, which `call`'s agent
+    /// may keep.
     fn kept_profile(
         &mut self,
         call: &Call<'_>,
         address: &str,
+        reach: Reach,
     ) -> Done<ProfileId> {
-        let address = address.to_owned();
-        let id = match addresses::parse_profile(&address) {
-            Ok(id) => id,
-            Err(rejection) => return Ok(Err(rejection)),
-        };
         let db = self.realm.store().connection();
-        let Some(found) = city::living(db, id)? else {
-            return Ok(Err(Rejection::NoProfile { address }));
-        };
+        let id = done!(addresses::profile_at(db, address, reach));
         if !authority::may_keep(
             db,
             Actor::Agent(call.conversation.agent),
-            found.id,
+            id,
         )? {
             return Ok(Err(Rejection::ProfileNotOwn {
-                name: found.label(),
+                name: city::get(db, id)?.label(),
             }));
         }
-        Ok(Ok(found.id))
+        Ok(Ok(id))
+    }
+
+    /// Carries out the Hand's `called` on a profile of the city.
+    pub(super) fn profile_tool(
+        &mut self,
+        call: &Call<'_>,
+        called: Called,
+    ) -> Done<String> {
+        let (address, reach) = match &called {
+            Called::RestoreProfile(RestoreProfile {
+                profile,
+                ..
+            })
+            | Called::EraseProfile(EraseProfile { profile }) => {
+                (profile.clone(), Reach::Kept)
+            }
+            Called::Versions(Versions { profile })
+            | Called::Fork(Fork { profile, .. })
+            | Called::Purge(Purge { profile, .. })
+            | Called::Welcome(Welcome { profile, .. })
+            | Called::TurnAway(TurnAway { profile, .. })
+            | Called::NameProfile(NameProfile { profile, .. })
+            | Called::MoveHouse(MoveHouse { profile, .. })
+            | Called::RemoveProfile(RemoveProfile {
+                profile, ..
+            }) => (profile.clone(), Reach::Living),
+            _ => reject!(unsupported(call)),
+        };
+        let profile = done!(self.kept_profile(call, &address, reach));
+        let shown = addresses::profile_name_of(
+            self.realm.store().connection(),
+            profile,
+        )?;
+        match called {
+            Called::Versions(_) => {
+                Ok(Ok(versions(&self.repository(profile)?)?))
+            }
+            Called::Purge(Purge { path, .. }) => {
+                self.begin(call)?;
+                let by = Actor::Agent(call.conversation.agent);
+                self.purge_path(by, profile, &path)
+            }
+            Called::Fork(Fork { version, name, .. }) => {
+                let repo = self.repository(profile)?;
+                let commit =
+                    done!(Self::version_of(&repo, &shown, &version));
+                let owner = self.owner(call, None)?;
+                self.carry(call, |cx, _| {
+                    let fork = jobs::Fork {
+                        from: profile,
+                        commit: commit.to_string(),
+                    };
+                    let made = done!(city::make(
+                        cx,
+                        &name,
+                        owner,
+                        "",
+                        Some(fork)
+                    ));
+                    let made =
+                        addresses::profile_name_of(cx.db, made)?;
+                    Ok(Ok(format!("Forked {shown} as {made}.")))
+                })
+            }
+            Called::NameProfile(NameProfile { name, .. }) => self
+                .carry(call, |cx, _| {
+                    done!(city::rename(cx, profile, &name));
+                    let named =
+                        addresses::profile_name_of(cx.db, profile)?;
+                    Ok(Ok(format!("The profile is {named} now.")))
+                }),
+            Called::MoveHouse(MoveHouse {
+                x, z, degrees, ..
+            }) => {
+                let turn = degrees.map(f64::to_radians);
+                self.carry(call, |cx, _| {
+                    Ok(city::place(cx, profile, x, z, turn)?.map(
+                        |()| {
+                            format!(
+                                "{shown}'s house stands at {x}, {z}."
+                            )
+                        },
+                    ))
+                })
+            }
+            Called::Welcome(Welcome { reason, .. }) => {
+                self.carry(call, |cx, _| {
+                    Ok(city::welcome(cx, profile, &reason)?.map(
+                        |()| {
+                            format!(
+                                "{shown} moved into its house in \
+                                 the city."
+                            )
+                        },
+                    ))
+                })
+            }
+            Called::TurnAway(TurnAway { reason, .. }) => {
+                self.carry(call, |cx, _| {
+                    Ok(city::turn_away(cx, profile, &reason)?.map(
+                        |()| format!("{shown} waits at the harbor."),
+                    ))
+                })
+            }
+            Called::RemoveProfile(RemoveProfile {
+                reason, ..
+            }) => self.carry(call, |cx, _| {
+                Ok(city::archive(cx, profile, &reason)?.map(|()| {
+                    format!("{shown} left the city, with its agents.")
+                }))
+            }),
+            Called::RestoreProfile(RestoreProfile {
+                reason, ..
+            }) => self.carry(call, |cx, _| {
+                Ok(city::restore(cx, profile, &reason)?.map(|()| {
+                    format!("{shown} is back in the city.")
+                }))
+            }),
+            _ => self.carry(call, |cx, _| {
+                Ok(city::erase(cx, profile)?.map(|()| {
+                    format!("{shown} was erased for good.")
+                }))
+            }),
+        }
     }
 
     fn repository(&self, profile: ProfileId) -> Result<Repository> {
@@ -80,7 +200,8 @@ impl Core<'_, '_> {
             path,
             version,
         } = args;
-        let profile = done!(self.kept_profile(call, &name));
+        let profile =
+            done!(self.kept_profile(call, &name, Reach::Living));
         let repo = self.repository(profile)?;
         let at = done!(Self::version_of(&repo, &name, &version));
         if path.is_empty() {
@@ -97,17 +218,7 @@ impl Core<'_, '_> {
         }
         Ok(match repo.read(at, &path)? {
             Some(bytes) => {
-                let mut words =
-                    String::from_utf8_lossy(&bytes).into_owned();
-                if words.len() > MOST_READ {
-                    let mut end = MOST_READ;
-                    while !words.is_char_boundary(end) {
-                        end -= 1;
-                    }
-                    words.truncate(end);
-                    words.push_str("\n[cut here]");
-                }
-                Ok(words)
+                Ok(cut(String::from_utf8_lossy(&bytes).into_owned()))
             }
             None => Err(Rejection::NoFile { path }),
         })
@@ -124,7 +235,8 @@ impl Core<'_, '_> {
             content,
             message,
         } = args;
-        let profile = done!(self.kept_profile(call, &name));
+        let profile =
+            done!(self.kept_profile(call, &name, Reach::Living));
         if path.is_empty()
             || path.starts_with('/')
             || path.split('/').any(|part| part == "..")
@@ -168,7 +280,8 @@ impl Core<'_, '_> {
             tag,
             note,
         } = args;
-        let profile = done!(self.kept_profile(call, &name));
+        let profile =
+            done!(self.kept_profile(call, &name, Reach::Living));
         let repo = self.repository(profile)?;
         if let Err(rejection) = names::check_version(&tag) {
             return Ok(Err(rejection));
@@ -208,7 +321,8 @@ impl Core<'_, '_> {
             commit,
             reason,
         } = args;
-        let profile = done!(self.kept_profile(call, &name));
+        let profile =
+            done!(self.kept_profile(call, &name, Reach::Living));
         let repo = self.repository(profile)?;
         let commit = done!(Self::version_of(&repo, &name, &commit));
         let by = Actor::Agent(call.conversation.agent);

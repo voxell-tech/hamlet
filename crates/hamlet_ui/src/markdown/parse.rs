@@ -9,10 +9,24 @@ use pulldown_cmark::{
 };
 
 use super::links::{address, linked, web};
-use super::{Align, Block, Kind, Marker, Row, Span, Style, Target};
+use super::{
+    Align, Block, IsAddress, Kind, Marker, Row, Span, Style, Target,
+    no_address,
+};
+
+/// The [`IsAddress`] a [`Reader`] links addresses by.
+#[derive(Clone, Copy)]
+struct Addresses(IsAddress);
+
+impl Default for Addresses {
+    fn default() -> Self {
+        Self(no_address)
+    }
+}
 
 #[derive(Default)]
 struct Reader {
+    addresses: Addresses,
     blocks: Vec<Block>,
     quote: usize,
     /// The next number of each open list, `None` for bullets.
@@ -62,7 +76,7 @@ impl Reader {
             first.text = first.text.trim_start().to_string();
         }
         spans.retain(|span| !span.text.is_empty());
-        let spans = linked(spans);
+        let spans = linked(spans, self.addresses.0);
         let heading = self.heading.take();
         if spans.is_empty() {
             return;
@@ -132,10 +146,13 @@ impl Reader {
                 ..
             } => self.links.push(web(&format!("mailto:{dest_url}"))),
             Tag::Link { dest_url, .. } => {
-                self.links.push(address(&dest_url));
+                self.links.push(address(&dest_url, self.addresses.0));
             }
             Tag::Image { dest_url, .. } => {
-                let target = address(&dest_url);
+                let target = address(&dest_url, self.addresses.0)
+                    .filter(|target| {
+                        !matches!(target, Target::Agent(_))
+                    });
                 // A cell of a table holds words alone.
                 let alone =
                     self.table.is_none() && self.picture.is_none();
@@ -216,7 +233,10 @@ impl Reader {
             },
             TagEnd::TableHead | TagEnd::TableRow => {}
             TagEnd::TableCell => {
-                let cell = linked(std::mem::take(&mut self.spans));
+                let cell = linked(
+                    std::mem::take(&mut self.spans),
+                    self.addresses.0,
+                );
                 if let Some((_, rows)) = &mut self.table
                     && let Some(row) = rows.last_mut()
                 {
@@ -284,22 +304,28 @@ impl Reader {
 
 /// The spans of words set as they were typed, with the links in
 /// them.
-pub(super) fn plain(text: &str) -> Vec<Span> {
-    linked(vec![Span {
-        text: text.to_string(),
-        style: Style::default(),
-        link: None,
-    }])
+pub(super) fn plain(text: &str, is_address: IsAddress) -> Vec<Span> {
+    linked(
+        vec![Span {
+            text: text.to_string(),
+            style: Style::default(),
+            link: None,
+        }],
+        is_address,
+    )
 }
 
 /// The blocks of a Markdown document, which may stop anywhere: it
 /// is read as far as it goes. Text that makes no block is one
 /// paragraph as written.
-pub fn parse(text: &str) -> Vec<Block> {
+pub fn parse(text: &str, is_address: IsAddress) -> Vec<Block> {
     let options = Options::ENABLE_TABLES
         | Options::ENABLE_STRIKETHROUGH
         | Options::ENABLE_TASKLISTS;
-    let mut reader = Reader::default();
+    let mut reader = Reader {
+        addresses: Addresses(is_address),
+        ..Reader::default()
+    };
     for event in Parser::new_ext(text, options) {
         reader.read(event);
     }
@@ -407,7 +433,11 @@ pub struct Reading {
 }
 
 impl Reading {
-    pub fn read(&mut self, text: &str) -> Vec<Arc<Block>> {
+    pub fn read(
+        &mut self,
+        text: &str,
+        is_address: IsAddress,
+    ) -> Vec<Arc<Block>> {
         let kept = text
             .get(..self.end)
             .is_some_and(|head| hashed(head) == self.hash);
@@ -416,12 +446,15 @@ impl Reading {
         }
         let Some(more) = settled(&text[self.end..]) else {
             *self = Self::default();
-            return parse(text).into_iter().map(Arc::new).collect();
+            return parse(text, is_address)
+                .into_iter()
+                .map(Arc::new)
+                .collect();
         };
         if more > 0 {
             let next = self.end + more;
             self.done.extend(
-                parse(&text[self.end..next])
+                parse(&text[self.end..next], is_address)
                     .into_iter()
                     .map(Arc::new),
             );
@@ -430,7 +463,9 @@ impl Reading {
         }
         let mut all = self.done.clone();
         all.extend(
-            parse(&text[self.end..]).into_iter().map(Arc::new),
+            parse(&text[self.end..], is_address)
+                .into_iter()
+                .map(Arc::new),
         );
         all
     }
@@ -441,6 +476,10 @@ mod tests {
     use std::time::{Duration, Instant};
 
     use super::*;
+
+    fn parse(text: &str) -> Vec<Block> {
+        super::parse(text, no_address)
+    }
 
     fn plain(text: &str) -> Span {
         Span {
@@ -650,7 +689,7 @@ mod tests {
             for end in
                 (0..=text.len()).filter(|n| text.is_char_boundary(*n))
             {
-                let grown = reading.read(&text[..end]);
+                let grown = reading.read(&text[..end], no_address);
                 let whole = parse(&text[..end]);
                 assert_eq!(
                     grown.len(),

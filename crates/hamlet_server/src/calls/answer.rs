@@ -1,5 +1,4 @@
-//! A chief's answer to what waits: checked, kept with what it gives
-//! or counts in one change, then told to the calls it ruled on.
+//! A chief's answer to what waits.
 
 use anyhow::Result;
 use hamlet_protocol::client::{Choice, Permission, Pick};
@@ -12,12 +11,12 @@ use crate::conversations::{
 };
 use crate::core::Core;
 use crate::realm::change::Change;
-use crate::society::addresses;
 use crate::society::oversight::gate::{self, TurnGate};
 use crate::society::oversight::{
     self, Danger, Ruling, Wait, WaitKind,
 };
 use crate::society::rejection::Rejection;
+use crate::society::{addresses, authority};
 
 /// The fault in a chief's choice that cannot answer a wait so.
 #[derive(Debug, thiserror::Error)]
@@ -81,15 +80,14 @@ fn words(
     Ok(Ok(format!("{} {}", questions::ANSWERS, text.trim())))
 }
 
-/// Withdraws the chief's instruction of `task`: its turn in
-/// `conversation` stops, and the transcript says why.
+/// Withdraws the chief's instruction of `task`, stopping its turn.
 fn withdraw(
     cx: &mut Change<'_>,
     conversation: hamlet_store::ids::ConversationId,
     task: hamlet_store::ids::TaskId,
 ) -> Result<()> {
     let text = tasks::get(cx.db, task)?.text.unwrap_or_default();
-    inputs::drop_kept(cx.db, conversation)?;
+    inputs::drop_kept(cx, conversation)?;
     if inputs::is_busy(cx.db, conversation)? {
         conversations::set_cancelling(cx.db, conversation, true)?;
         conversations::set_stopped(cx.db, conversation, true)?;
@@ -111,8 +109,7 @@ struct Ruled {
     net: bool,
 }
 
-/// The effect of `ruling` on `wait` of its own kind: a newcomer let
-/// in, an objection ruled on and its instruction withdrawn.
+/// The effect of `ruling` on `wait` of its own kind.
 fn rule_wait(
     cx: &mut Change<'_>,
     wait: &Wait,
@@ -162,13 +159,12 @@ fn grant_always(
     Ok(())
 }
 
-/// The effect of `ruling` on each call `wait` held: its network kept
-/// when it may run, its session granted after an `/always`, and its
-/// turn told once of a denial.
+/// The effect of `chief`'s `ruling` on each call `wait` held.
 fn rule_calls(
     cx: &mut Change<'_>,
     wait: &Wait,
     ruling: Ruling,
+    chief: ChiefId,
     text: &str,
     ruled: &[Ruled],
 ) -> Result<()> {
@@ -187,7 +183,7 @@ fn rule_calls(
                 wait.danger
             && let Some(session) = chat_session(conversation)
         {
-            gate::grant_session(cx.db, session, danger)?;
+            gate::grant_session(cx.db, session, chief, danger)?;
         }
         if ruling == Ruling::Deny
             && let Some(danger) = wait.danger
@@ -233,7 +229,8 @@ impl Core<'_, '_> {
             return Ok(Err(Rejection::NoWait));
         };
         if let Some(agent) = wait.agent
-            && let Err(rejection) = self.reaches(agent)?
+            && let Err(rejection) =
+                authority::reaches(db, Actor::Chief(chief), agent)?
         {
             return Ok(Err(rejection));
         }
@@ -267,7 +264,7 @@ impl Core<'_, '_> {
             }
             rule_wait(cx, &wait, ruling, &text)?;
             grant_always(cx, &wait, ruling, chief)?;
-            rule_calls(cx, &wait, ruling, &text, &ruled)?;
+            rule_calls(cx, &wait, ruling, chief, &text, &ruled)?;
             Ok(true)
         })?;
         if !settled {

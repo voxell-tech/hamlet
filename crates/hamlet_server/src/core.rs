@@ -1,8 +1,5 @@
-//! The realm's live state as one view of the world: the resources
-//! the handlers of the server's inputs reach. Every change of an
-//! input is made in its one transaction, and what it needs woken
-//! after, the jobs, the runtimes and the clients, is left for
-//! `PostUpdate` and `Last` once it is kept.
+//! The realm's live state, as the handlers of the server's inputs
+//! reach it.
 
 use std::collections::{BTreeMap, HashMap};
 
@@ -30,7 +27,8 @@ use crate::clients::connection::UploadOf;
 use crate::clients::fold::Fold;
 use crate::clients::{Clients, Connections, ConversationWatcher};
 use crate::conversations::activity::Activity;
-use crate::conversations::inputs::Resend;
+use crate::conversations::dreams::Learned;
+use crate::conversations::inputs::{self, Resend};
 use crate::conversations::{self, prompt};
 use crate::knowledge::worker::RepositoryWriteLock;
 use crate::providers::Providers;
@@ -47,8 +45,7 @@ use crate::terminals::Terminals;
 use crate::tools::builtin::shell::Shells;
 use crate::tools::custom::Manifest;
 
-/// The live state no other area keeps, empty at the start; the tools
-/// added by hand are loaded into it once the server starts.
+/// The live state no other area keeps.
 pub(crate) fn plugin(app: &mut bevy_app::App) {
     app.init_resource::<Lives>()
         .init_resource::<Leftovers>()
@@ -73,8 +70,7 @@ pub(crate) struct Confined(pub hamlet_sandbox::Sandbox);
 #[derive(Resource, Deref, DerefMut, Default)]
 pub(crate) struct Leftovers(pub hamlet_sandbox::AllLeftovers);
 
-/// The tools added by hand (C17), loaded again whenever their folder
-/// changes.
+/// The tools added by hand (C17).
 #[derive(Resource, Deref, DerefMut, Default)]
 pub(crate) struct Added(pub Vec<Manifest>);
 
@@ -105,18 +101,15 @@ impl Catalogue {
     }
 }
 
-/// The remote workspace the agents' tools run in, chosen before the
-/// server started; none for this machine.
+/// The remote workspace the agents' tools run in, if any.
 #[derive(Resource, Deref, DerefMut)]
 pub(crate) struct Workspace(pub Option<Transport>);
 
-/// Each worktree as both copies held it when last in step, by agent;
-/// a worktree not here is pushed before its next remote call.
+/// Each worktree as both copies held it when last in step, by agent.
 #[derive(Resource, Deref, DerefMut, Default)]
 pub(crate) struct Worktrees(pub HashMap<AgentId, RemoteCopy>);
 
-/// A worktree whose remote copy is owed a push, by its agent, which
-/// the runner makes before the next input.
+/// The worktrees whose remote copy is owed a push, by agent.
 #[derive(Message)]
 pub(crate) struct UnpushedWorktree(pub AgentId);
 
@@ -210,6 +203,7 @@ pub(crate) struct Core<'w, 's> {
     pub writing: Res<'w, RepositoryWriteLock>,
     /// The chief's shells and the agents' commands terminals.
     pub terminals: ResMut<'w, Terminals>,
+    pub learned: Res<'w, Learned>,
 }
 
 /// A conversation's transcript and activity, as kept and as running.
@@ -270,6 +264,7 @@ impl Core<'_, '_> {
         self.changed.jobs_kept |= touched.jobs;
         self.changed.agents_or_hamlets_changed |=
             !touched.agents.is_empty() || !touched.hamlets.is_empty();
+        self.changed.queues.extend(&touched.queues);
     }
 
     /// Owes the clients the realm's state, sent once the input is
@@ -314,6 +309,50 @@ impl Core<'_, '_> {
         }
     }
 
+    /// The conversations that run a turn or were sent one not yet
+    /// admitted.
+    pub(crate) fn working(&mut self) -> Result<Vec<ConversationId>> {
+        let mut working = self
+            .live
+            .iter()
+            .filter(|(_, live)| live.fold.working)
+            .map(|(id, _)| *id)
+            .collect::<Vec<_>>();
+        let db = self.realm.store().connection();
+        for (conversation, request) in self.runtimes.submitting() {
+            if inputs::find(db, conversation, &request)?
+                .is_some_and(|input| input.is_turn())
+            {
+                working.push(conversation);
+            }
+        }
+        Ok(working)
+    }
+
+    /// Shows the watchers of each changed queue what waits in it now.
+    pub(crate) fn requeue(&mut self) -> Result<()> {
+        let watched = self
+            .changed
+            .queues
+            .iter()
+            .copied()
+            .filter(|c| {
+                self.live.contains_key(c)
+                    && !self.connections.watching(*c).is_empty()
+            })
+            .collect::<Vec<_>>();
+        for conversation in watched {
+            let db = self.realm.store().connection();
+            let waiting =
+                crate::clients::fold::waiting(db, conversation)?;
+            if let Some(live) = self.live.get_mut(&conversation) {
+                live.fold.queue(waiting);
+            }
+            self.stream(conversation)?;
+        }
+        Ok(())
+    }
+
     /// Sends the watchers of `conversation` what changed in its
     /// transcript.
     pub(crate) fn stream(
@@ -338,16 +377,9 @@ impl Core<'_, '_> {
         operations: Vec<protocol::TranscriptOperation>,
     ) -> Result<()> {
         for watch in watching {
-            let number = watch
-                .chat
-                .from
-                .is_none()
-                .then_some(watch.chat.past)
-                .flatten();
             let turn =
                 protocol::ServerMessage::Turn(protocol::Turn {
                     chat: watch.chat.clone(),
-                    number,
                     operations: operations.clone(),
                 });
             self.connections.send(watch.client, turn);

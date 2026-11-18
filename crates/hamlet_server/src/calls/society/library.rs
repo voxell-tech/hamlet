@@ -1,11 +1,9 @@
-//! An agent and the library (H33): a skill offered to the librarian,
-//! and a question of which skills help. Each runs as an errand the
-//! call waits for.
+//! An agent's errands to the librarian (H33).
 
 use anyhow::Result;
 use hamlet_store::ids::Actor;
 
-use super::args::{AskLibrarian, SubmitSkill};
+use super::args::{RequestLibrarian, SubmitSkill};
 use super::{Call, Step, rejected, said};
 use crate::conversations::errands::{self, Ended, Errand};
 use crate::core::Core;
@@ -28,7 +26,7 @@ const ROLE: &str =
 
 /// The owner of the errand that answers the call `key` of `runtime`.
 pub(crate) fn owner_of_call(runtime: &str, key: &str) -> String {
-    format!("ask:{runtime}/{key}")
+    format!("request:{runtime}/{key}")
 }
 
 /// The owner of the errand that judges offer `id`.
@@ -55,10 +53,10 @@ impl Core<'_, '_> {
         Ok(format!("{ROLE}\n\n# The shelves\n{shelves}"))
     }
 
-    pub(in crate::calls) fn ask_librarian(
+    pub(in crate::calls) fn request_librarian(
         &mut self,
         call: &Call<'_>,
-        args: AskLibrarian,
+        args: RequestLibrarian,
     ) -> Result<Step> {
         let owner = owner_of_call(&call.call.runtime, &call.call.key);
         let db = self.realm.store().connection();
@@ -75,9 +73,9 @@ impl Core<'_, '_> {
             }
             None => {}
         }
-        let question = args.question;
-        if question.is_empty() {
-            return Ok(Step::of(Err(Rejection::NoSkillQuestion)));
+        let request = args.text;
+        if request.is_empty() {
+            return Ok(Step::of(Err(Rejection::NoSkillRequest)));
         }
         let by = self.name(call.conversation.agent)?;
         let instructions = format!(
@@ -86,7 +84,7 @@ impl Core<'_, '_> {
              say so.",
             self.librarian()?
         );
-        let question = format!("{by} wants to know: {question}");
+        let request = format!("{by} requests: {request}");
         let task = self.task_of(call)?;
         let agent = call.conversation.agent;
         self.change(Actor::Agent(agent), |cx, env| {
@@ -98,7 +96,7 @@ impl Core<'_, '_> {
                     owner: &owner,
                     agent,
                     instructions: &instructions,
-                    question: &question,
+                    content: &request,
                     task,
                 },
             )
@@ -199,7 +197,7 @@ impl Core<'_, '_> {
              then say why in a sentence or two.",
             self.librarian()?
         );
-        let question = format!(
+        let offered = format!(
             "{by} offers the skill `{name}`: {reason}\n\nIts files: \
              {listed}\n\nIts SKILL.md:\n{shown}"
         );
@@ -213,7 +211,7 @@ impl Core<'_, '_> {
                     owner: &owner,
                     agent,
                     instructions: &instructions,
-                    question: &question,
+                    content: &offered,
                     task,
                 },
             )

@@ -1,7 +1,4 @@
-//! Letters and questions between agents along channels (H30, H31):
-//! each receiver's conversation with each sender, the message kept
-//! once per tool call, and a question's answer carried back to its
-//! sender.
+//! Messages between agents along channels (H30, H31).
 
 use anyhow::Result;
 use diesel::deserialize::FromSqlRow;
@@ -17,12 +14,11 @@ use strum::{Display, EnumString, IntoStaticStr};
 
 use super::inputs::{self, InputKind, Keep};
 use super::marks::{From, Mark};
-use super::{items, models};
-use crate::conversations::{self, Begin, Kind};
+use super::{chats, items};
+use crate::conversations::{self, Kind};
 use crate::realm::change::Change;
 use crate::realm::settings::EffectiveSettings;
-use crate::runtimes;
-use crate::society::{addresses, agents};
+use crate::society::addresses;
 
 #[derive(
     Clone,
@@ -43,8 +39,8 @@ use crate::society::{addresses, agents};
 #[strum(serialize_all = "kebab-case")]
 #[diesel(sql_type = Text)]
 pub(crate) enum MessageKind {
-    Letter,
-    Question,
+    Notification,
+    Request,
 }
 hamlet_store::named_text!(MessageKind);
 
@@ -64,34 +60,9 @@ pub(crate) struct Message {
     pub text: String,
     pub at: i64,
     pub input: Option<String>,
-    pub answer: Option<String>,
+    pub response: Option<String>,
     pub failure: Option<String>,
     pub carried: bool,
-    pub replied: bool,
-    pub refused: bool,
-}
-
-/// The conversation `agent` keeps with `peer` for messages of `kind`,
-/// begun with the first.
-pub(crate) fn with(
-    cx: &mut Change<'_>,
-    env: &EffectiveSettings,
-    agent: AgentId,
-    kind: Kind,
-    peer: AgentId,
-) -> Result<ConversationId> {
-    if let Some(id) =
-        conversations::with_peer(cx.db, agent, kind, peer)?
-    {
-        return Ok(id);
-    }
-    let harness = agents::get(cx.db, agent)?.harness;
-    let runtime = runtimes::of_harness(cx.db, &harness)?;
-    let choice =
-        models::choose(cx.db, &env.settings, &env.overrides, agent)?;
-    let mut opening = Begin::new(agent, kind);
-    opening.peer = Some(peer);
-    conversations::begin(cx, opening, &runtime, &choice.model, None)
 }
 
 /// A message to keep.
@@ -121,11 +92,7 @@ pub(crate) fn send(
     if let Some(found) = find(cx.db, send.runtime, send.key)? {
         return Ok(found);
     }
-    let kind = match send.kind {
-        MessageKind::Letter => Kind::Letters,
-        MessageKind::Question => Kind::Questions,
-    };
-    let to = with(cx, env, send.receiver, kind, send.sender)?;
+    let to = chats::current(cx, env, send.receiver)?;
     let id: i64 = diesel::insert_into(message::table)
         .values((
             message::kind.eq(send.kind),
@@ -146,15 +113,16 @@ pub(crate) fn send(
     let from = From {
         from: send.sender,
         author: addresses::name_of(cx.db, send.sender)?,
+        text: send.text.to_owned(),
         at: cx.at,
         images: send.images.iter().map(ImageId::to_string).collect(),
     };
     let (input_kind, mark) = match send.kind {
-        MessageKind::Letter => {
-            (InputKind::Letter, Mark::Letter(from))
+        MessageKind::Notification => {
+            (InputKind::Notification, Mark::Notification(from))
         }
-        MessageKind::Question => {
-            (InputKind::Question, Mark::Question(from))
+        MessageKind::Request => {
+            (InputKind::Request, Mark::Request(from))
         }
     };
     inputs::keep(
@@ -164,7 +132,7 @@ pub(crate) fn send(
             request: request.clone(),
             kind: input_kind,
             task: Some(send.task),
-            content: send.text.to_owned(),
+            content: mark.heading().unwrap_or_default(),
             mark,
             steer: false,
             boundary: false,
@@ -200,42 +168,24 @@ pub(crate) fn find(
         .optional()?)
 }
 
-/// Whether `sender` putting a question to `receiver` would close a
-/// loop of questions that wait on each other.
-pub(crate) fn would_loop(
+/// The agents whose response `sender` waits for.
+pub(crate) fn awaited(
     db: &mut Db,
     sender: AgentId,
-    receiver: AgentId,
-) -> Result<bool> {
-    let open = message::table
-        .filter(message::kind.eq(MessageKind::Question))
-        .filter(message::answer.is_null())
+) -> Result<Vec<AgentId>> {
+    Ok(message::table
+        .filter(message::sender.eq(sender))
+        .filter(message::kind.eq(MessageKind::Request))
+        .filter(message::response.is_null())
         .filter(message::failure.is_null())
-        .select((message::sender, message::receiver))
-        .load::<(AgentId, AgentId)>(db)?;
-    let mut seen = vec![receiver];
-    let mut next = vec![receiver];
-    while let Some(at) = next.pop() {
-        if at == sender {
-            return Ok(true);
-        }
-        for (_, waited) in
-            open.iter().filter(|(waiting, _)| *waiting == at)
-        {
-            if !seen.contains(waited) {
-                seen.push(*waited);
-                next.push(*waited);
-            }
-        }
-    }
-    Ok(false)
+        .order(message::at)
+        .select(message::receiver)
+        .load(db)?)
 }
 
-/// Keeps the answer to the question whose input `request` of
-/// `conversation` ended, once. Gives the sender's call to wake while
-/// it still waits; a sender whose turn ended gets the answer as a
-/// reply.
-pub(crate) fn answered(
+/// Gives the sender the response to the request whose input `request`
+/// of `conversation` ended, once.
+pub(crate) fn responded(
     cx: &mut Change<'_>,
     conversation: ConversationId,
     request: &str,
@@ -244,31 +194,35 @@ pub(crate) fn answered(
     let found = message::table
         .filter(message::to_conversation.eq(conversation))
         .filter(message::input.eq(request))
-        .filter(message::kind.eq(MessageKind::Question))
+        .filter(message::kind.eq(MessageKind::Request))
         .select(Message::as_select())
         .first(cx.db)
         .optional()?;
     let Some(found) = found else {
         return Ok(None);
     };
-    if found.answer.is_some() || found.failure.is_some() {
+    if found.response.is_some() || found.failure.is_some() {
         return Ok(None);
     }
-    let answer = items::answer_of(cx.db, conversation, request)?;
-    let failure = match (&answer, failed) {
+    let response = items::answer_of(cx.db, conversation, request)?;
+    let failure = match (&response, failed) {
         (Some(_), None) => None,
         (_, Some(words)) => Some(words.to_owned()),
         (None, None) => Some("it gave no answer".to_owned()),
     };
+    let carried = match failure {
+        Some(_) => Carried::Error,
+        None => Carried::Answer,
+    };
     diesel::update(message::table.find(found.id))
         .set((
-            message::answer.eq(&answer),
+            message::response.eq(&response),
             message::failure.eq(&failure),
         ))
         .execute(cx.db)?;
     cx.touched.agents.insert(found.sender);
-    let words = match (&answer, &failure) {
-        (Some(answer), None) => answer.clone(),
+    let words = match (&response, &failure) {
+        (Some(response), None) => response.clone(),
         (_, Some(failure)) => {
             format!("It could not answer: {failure}")
         }
@@ -281,12 +235,22 @@ pub(crate) fn answered(
             key: &found.key,
             from: found.receiver,
             task: found.task,
-            request: &format!("reply:{}", found.id),
+            request: &format!("response:{}", found.id),
             words: &words,
-            waits: true,
+            carried,
+            waits: false,
             author: None,
         },
     )
+}
+
+/// What a response carries.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum Carried {
+    /// An answer, which starts a turn of the caller's.
+    Answer,
+    /// Why there is no answer, given without starting a turn.
+    Error,
 }
 
 /// Words for the caller of a tool call, from the agent it reached.
@@ -295,18 +259,18 @@ pub(crate) struct Carry<'a> {
     pub key: &'a str,
     pub from: AgentId,
     pub task: TaskId,
-    /// The id of the reply, when it is kept as one.
+    /// The id of the response, when it is kept as one.
     pub request: &'a str,
     pub words: &'a str,
+    pub carried: Carried,
     /// Whether the call waits for the words.
     pub waits: bool,
-    /// Who a reply is shown as from, when not `from`'s name.
+    /// Who a response is shown as from, when not `from`'s name.
     pub author: Option<&'a str>,
 }
 
-/// Gives the words of `carry` to its call: the call to wake while it
-/// waits in a turn that goes on, else a reply kept for the caller's
-/// conversation.
+/// Gives the words of `carry` to its call if it still waits, else as
+/// a response to the caller's conversation.
 pub(crate) fn carry(
     cx: &mut Change<'_>,
     carry: Carry<'_>,
@@ -318,6 +282,7 @@ pub(crate) fn carry(
         task,
         request,
         words,
+        carried,
         waits,
         author,
     } = carry;
@@ -348,24 +313,43 @@ pub(crate) fn carry(
         Some(author) => author.to_owned(),
         None => addresses::name_of(cx.db, from)?,
     };
+    // A rewind since the call points the caller at a fork.
+    let caller = conversations::get(cx.db, sender)?;
+    let sender = match caller.kind {
+        Kind::Chat => {
+            chats::of(cx.db, caller.agent)?.unwrap_or(sender)
+        }
+        _ => sender,
+    };
+    let from = From {
+        from,
+        author,
+        text: words.to_owned(),
+        at: cx.at,
+        images: Vec::new(),
+    };
+    let (kind, mark) = match carried {
+        Carried::Answer => {
+            (InputKind::Response, Mark::Response(from))
+        }
+        Carried::Error => {
+            (InputKind::ErrorResponse, Mark::ErrorResponse(from))
+        }
+    };
     inputs::keep(
         cx,
         Keep {
             conversation: sender,
             request: request.to_owned(),
-            kind: InputKind::Reply,
+            kind,
             task: Some(task),
-            content: format!("{author} answers: {words}"),
-            mark: Mark::Reply(From {
-                from,
-                author,
-                at: cx.at,
-                images: Vec::new(),
-            }),
+            content: mark.heading().unwrap_or_default(),
+            mark,
             steer: false,
             boundary: false,
         },
     )?;
+    cx.touched.agents.insert(caller.agent);
     diesel::update(
         message::table
             .filter(message::runtime.eq(runtime))

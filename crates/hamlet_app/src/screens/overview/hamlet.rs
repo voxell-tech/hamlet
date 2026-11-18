@@ -1,5 +1,4 @@
-//! One hamlet's page of the Hub: what it is, what can be done to it,
-//! and its agents, its bylaws and its record as tabs.
+//! One hamlet's page of the Hub.
 
 use std::f32::consts::TAU;
 
@@ -46,7 +45,7 @@ use super::rows::{AgentRow, Meter, agent_rows, hamlet_rows, stale};
 use crate::convo::talk_to;
 use crate::forms::{self, Asking};
 use crate::roll::{either, moved};
-use crate::{words, world_menu};
+use crate::{profile_tag, words, world_menu};
 
 /// The words typed in the field under a root marked `M`.
 pub(crate) fn typed<M: Component>(world: &mut World) -> String {
@@ -74,8 +73,7 @@ fn decree(world: &mut World, id: &str, text: String) {
 /// The tiers a hamlet may hold, in agents.
 const TIERS: [&str; 4] = ["50", "100", "200", "500"];
 
-/// How many agents the hamlet `id` may hold, chosen from its tiers,
-/// showing the one it holds now.
+/// How many agents the hamlet `id` may hold, chosen from its tiers.
 fn size(hamlet: Entity, id: String) -> AnyView {
     let names = TIERS
         .iter()
@@ -145,8 +143,7 @@ const PAGES: [(Page, Glyph, &str); 3] = [
     (Page::History, Glyph::History, "History"),
 ];
 
-/// Everyone in `hamlet`, each pressed to talk to, its agents a step
-/// in from it as the rail shows them.
+/// Everyone in `hamlet` as a tree, each pressed to talk to.
 fn list_of(hamlet: Entity) -> impl View {
     let people =
         derived(move |world: &World| agent_rows(world, Some(hamlet)))
@@ -188,8 +185,7 @@ const TOP: f32 = 4.0;
 
 /// The tree's lines in front of one agent's row.
 struct Branch {
-    /// For each level between the top and its parent's, whether a
-    /// guide runs down it past this row.
+    /// For each level above its parent's, whether a guide runs past.
     rails: Vec<bool>,
     /// Whether it is the last of its parent's agents.
     last: bool,
@@ -197,8 +193,7 @@ struct Branch {
     has_children: bool,
 }
 
-/// The lines in front of each of `rows`, which are in the tree's
-/// order.
+/// The lines in front of each of `rows`, in tree order.
 fn branches(rows: &[&AgentRow]) -> Vec<Branch> {
     // Whether the agent last seen at each depth has more after it.
     let mut more = Vec::<bool>::new();
@@ -226,10 +221,7 @@ fn branches(rows: &[&AgentRow]) -> Vec<Branch> {
         .collect()
 }
 
-/// The lines in front of a row at `depth`: a guide down each level
-/// above its parent's that has more rows after it, then an elbow from
-/// its parent to its icon, running on down while its parent has more.
-/// Each line runs under the icon of the parent it comes from.
+/// The guides and elbow in front of a row at `depth`.
 fn lines(cx: &Cx, depth: usize, branch: &Branch) -> Vec<AnyView> {
     let colour = cx.theme().palette.gold_6;
     let shown = |on: bool| if on { colour } else { Color::NONE };
@@ -252,8 +244,7 @@ fn lines(cx: &Cx, depth: usize, branch: &Branch) -> Vec<AnyView> {
             step(frame().width(px(LINE)).fill(shown(*on)).boxed())
         })
         .collect::<Vec<_>>();
-    // A line laid over the row, `left` and `top` in from its edges;
-    // one with no height runs to its foot.
+    // A line over the row; one with no height runs to its foot.
     let over = |left: f32,
                 top: f32,
                 width: f32,
@@ -303,9 +294,7 @@ fn lines(cx: &Cx, depth: usize, branch: &Branch) -> Vec<AnyView> {
     parts
 }
 
-/// One agent as a row of the list: its kind, its name and state, and
-/// its own model and spending at the end of that line, then what its
-/// row says under them, behind the tree's lines.
+/// One agent as a row of the list.
 fn person(row_of: &AgentRow, branch: Branch) -> AnyView {
     let agent = row_of.agent;
     let gone = row_of.gone;
@@ -322,8 +311,9 @@ fn person(row_of: &AgentRow, branch: Branch) -> AnyView {
         Glyph::HamletAgent
     };
     let standing = row_of.standing;
-    let (name, under, account, depth) = (
+    let (name, tag, under, account, depth) = (
         row_of.name.clone(),
+        row_of.tag.clone(),
         row_of.under.clone(),
         row_of.account.clone(),
         row_of.depth,
@@ -331,21 +321,29 @@ fn person(row_of: &AgentRow, branch: Branch) -> AnyView {
     with_cx(move |cx| {
         let mut parts = lines(cx, depth, &branch);
         let space = &cx.theme().space;
-        let mut words = vec![
-            row((
-                raised(glyph(kind, ICON).tone(Tone::Dim)),
-                label(name.clone()).bold(true).wrap(false),
-                status_icon(
-                    standing.glyph(),
-                    standing.word(),
-                    standing.kind(),
-                ),
-                frame().grow(1.0),
-                label(account.clone()).wrap(false).rules(note_rules),
-            ))
-            .gap(space.gap)
-            .align(AlignItems::Center)
+        let mut head = vec![
+            raised(glyph(kind, ICON).tone(Tone::Dim)).boxed(),
+            label(name.clone()).bold(true).wrap(false).boxed(),
+        ];
+        head.extend(tag.as_ref().map(profile_tag::tag));
+        head.extend([
+            status_icon(
+                standing.glyph(),
+                standing.word(),
+                standing.kind(),
+            )
             .boxed(),
+            frame().grow(1.0).boxed(),
+            label(account.clone())
+                .wrap(false)
+                .rules(note_rules)
+                .boxed(),
+        ]);
+        let mut words = vec![
+            row(head)
+                .gap(space.gap)
+                .align(AlignItems::Center)
+                .boxed(),
         ];
         if !under.is_empty() {
             // Under the name, past the icon.
@@ -412,11 +410,8 @@ const MIN_SHOWN: f32 = 0.06;
 /// The width of the bar of a budget with no limit.
 const UNLIMITED: f32 = 28.0;
 
-/// What the hamlet spent of its budget: when it has a cap, a ring
-/// with nothing inside, drawn clockwise from the top as far as
-/// `spent` says, in the accent while the budget is fine, yellow near
-/// the cap and red at it; with no limit, a bar of running hues; then
-/// the words.
+/// What the hamlet spent: a ring under a cap, else a bar, then
+/// `words`.
 pub(super) fn budget(words: String, spent: Option<Meter>) -> AnyView {
     with_cx(move |cx| {
         let palette = &cx.theme().palette;
@@ -494,8 +489,7 @@ pub fn hamlet(hamlet: Entity) -> impl View {
         };
         let mut actions = Vec::new();
         if *adds {
-            // Under its lead; under another agent from that agent's
-            // menu.
+            // Under its lead; under another agent from its menu.
             let lead_of = facts.id.clone();
             actions.push(action(
                 Glyph::Profile,
@@ -512,7 +506,7 @@ pub fn hamlet(hamlet: Entity) -> impl View {
         if *workers {
             actions.push(action(
                 Glyph::Robot,
-                "Start a worker",
+                "Start a Worker",
                 move |world| {
                     forms::toggle(world, Asking::Worker(hamlet));
                 },
@@ -522,7 +516,7 @@ pub fn hamlet(hamlet: Entity) -> impl View {
         if *carry {
             actions.push(action(
                 Glyph::Move,
-                "Move it",
+                "Move It",
                 move |world| {
                     hamlet_realm::orders::carry(world, hamlet);
                 },
@@ -540,8 +534,7 @@ pub fn hamlet(hamlet: Entity) -> impl View {
                 },
             ));
         }
-        // The path names it and renames it at a double click on its
-        // name; Copy Hamlet in its menu gives what commands call it.
+        // A double click on its name renames it.
         let path = crumbs(vec![
             crumb("Realm", |world| {
                 select(world, None);
@@ -565,8 +558,7 @@ pub fn hamlet(hamlet: Entity) -> impl View {
                         crate::limits::Part::Budget;
                 });
         let mut top = vec![path, spending.boxed()];
-        // The forms open only from these buttons, so without them
-        // nothing stands under the account.
+        // The forms open only from these buttons.
         if !actions.is_empty() {
             top.push(
                 group((

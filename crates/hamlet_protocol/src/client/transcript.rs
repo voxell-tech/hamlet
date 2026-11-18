@@ -1,6 +1,6 @@
 //! A watched chat's items, kept up to date by its live operations.
 
-use crate::client::{Change, Item, TranscriptOperation};
+use crate::client::{AgentId, Change, Item, TranscriptOperation};
 
 /// An item of a chat as a client keeps it.
 pub trait Kept {
@@ -12,6 +12,9 @@ pub trait Kept {
 
     /// Ends the tool call the item holds. False when it holds none.
     fn close(&mut self, closed: Closed<'_>) -> bool;
+
+    /// Whether it is a line its turn has not taken up yet.
+    fn is_queued(&self) -> bool;
 }
 
 /// The end of a tool call, as a [`TranscriptOperation::Close`] gives
@@ -23,6 +26,8 @@ pub struct Closed<'a> {
     pub failure: Option<&'a str>,
     /// The completed write's change, when the operation carries one.
     pub change: Option<Option<&'a Change>>,
+    /// The agent a society call reached.
+    pub agent: Option<AgentId>,
 }
 
 /// An item a [`TranscriptOperation`] refers to that a chat's items
@@ -58,7 +63,17 @@ pub fn apply<T: Kept>(
             if let Some(Ok(at)) = at {
                 items.remove(at);
             }
-            items.push(keep(item));
+            // Queued items stay last, so what is taken up goes
+            // before them.
+            let place = if item.queued {
+                items.len()
+            } else {
+                items
+                    .iter()
+                    .position(Kept::is_queued)
+                    .unwrap_or(items.len())
+            };
+            items.insert(place, keep(item));
             match at {
                 Some(Err(id)) => missing(id),
                 _ => Ok(()),
@@ -74,6 +89,7 @@ pub fn apply<T: Kept>(
             }
         }
         TranscriptOperation::Close {
+            agent,
             item,
             exit,
             ms,
@@ -85,6 +101,7 @@ pub fn apply<T: Kept>(
                 ms: *ms,
                 failure: failure.as_deref(),
                 change: change.as_ref().map(Option::as_ref),
+                agent: *agent,
             };
             match items
                 .iter_mut()
@@ -94,6 +111,15 @@ pub fn apply<T: Kept>(
                 Some(true) => Ok(()),
                 Some(false) => {
                     Err(Mismatch::NoToolCall(item.clone()))
+                }
+                None => missing(item),
+            }
+        }
+        TranscriptOperation::Remove { item } => {
+            match items.iter().position(|kept| kept.id() == item) {
+                Some(at) => {
+                    items.remove(at);
+                    Ok(())
                 }
                 None => missing(item),
             }
@@ -126,7 +152,14 @@ impl Kept for Item {
         if let Some(change) = closed.change {
             tool.change = change.cloned();
         }
+        if closed.agent.is_some() {
+            tool.agent = closed.agent;
+        }
         true
+    }
+
+    fn is_queued(&self) -> bool {
+        self.queued
     }
 }
 
@@ -152,7 +185,8 @@ mod tests {
         let mut items = Vec::new();
         let item = |id: &str, text: &str| json!({"id": id, "at": 1, "kind": "assistant", "text": text});
         let tool = json!({"id": "t", "at": 1, "kind": "tool", "text": "",
-            "tool": {"name": "run", "summary": "", "exit": null,
+            "tool": {"name": "run", "call": {"kind": "other"},
+                     "summary": "", "exit": null,
                      "ms": null, "failure": null, "change": null}});
         fold(
             &mut items,
@@ -205,5 +239,33 @@ mod tests {
         assert_eq!(items.len(), 3);
         fold(&mut items, json!({"op": "reset"})).unwrap();
         assert!(items.is_empty());
+    }
+
+    #[test]
+    fn queued_lines_stay_last_until_taken_up() {
+        let mut items = Vec::new();
+        let line = |id: &str, queued: bool| json!({"id": id, "at": 1, "kind": "user", "text": "", "queued": queued});
+        for id in ["q1", "q2"] {
+            fold(
+                &mut items,
+                json!({"op": "add", "item": line(id, true)}),
+            )
+            .unwrap();
+        }
+        fold(
+            &mut items,
+            json!({"op": "add", "item": line("a", false)}),
+        )
+        .unwrap();
+        fold(
+            &mut items,
+            json!({"op": "add", "replaces": "q1", "item": line("1", false)}),
+        )
+        .unwrap();
+        fold(&mut items, json!({"op": "remove", "item": "q2"}))
+            .unwrap();
+        let ids =
+            items.iter().map(|i| i.id.as_str()).collect::<Vec<_>>();
+        assert_eq!(ids, ["a", "1"]);
     }
 }

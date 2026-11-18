@@ -1,6 +1,7 @@
 //! The thread that runs jobs, apart from the loop, on a database
 //! connection of its own.
 
+use std::collections::BTreeMap;
 use std::panic::{AssertUnwindSafe, catch_unwind};
 use std::sync::mpsc::{self, RecvTimeoutError, Sender};
 use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
@@ -10,15 +11,17 @@ use std::time::Duration;
 use anyhow::Result;
 use bevy_ecs::message::{Message, Messages};
 use bevy_ecs::resource::Resource;
-use bevy_ecs::system::ResMut;
+use bevy_ecs::system::{Res, ResMut};
 use bevy_log::error;
 use diesel::connection::SimpleConnection;
-use hamlet_store::Store;
+use hamlet_store::ids::AgentId;
+use hamlet_store::{Db, Store};
 
 use crate::app::clock;
 use crate::app::failure::panicked;
 use crate::app::follow_up::InputEffects;
 use crate::app::input::{AddHandler, InputSender};
+use crate::conversations::dreams::{DreamEnded, Learned, learning};
 use crate::core::RemoteWorkspace;
 use crate::realm::Realm;
 use crate::realm::jobs::Job;
@@ -34,7 +37,19 @@ pub(crate) fn plugin(app: &mut bevy_app::App) {
 
 /// A pass of the runner that did jobs.
 #[derive(Message)]
-pub(crate) struct JobsDone(pub Vec<Job>);
+pub(crate) struct JobsDone {
+    pub jobs: Vec<Job>,
+    /// Whether each agent the jobs may have changed has learned
+    /// anything.
+    pub learning: BTreeMap<AgentId, bool>,
+}
+
+impl JobsDone {
+    pub fn of(db: &mut Db, layout: &Layout, jobs: Vec<Job>) -> Self {
+        let learning = learning(db, layout, &jobs);
+        Self { jobs, learning }
+    }
+}
 
 /// The worktrees the runner's jobs changed are owed a push, and the
 /// clients see what they did.
@@ -43,10 +58,36 @@ fn take_in_jobs_done(
     mut realm: ResMut<Realm>,
     mut remote: RemoteWorkspace,
     mut changed: ResMut<InputEffects>,
+    mut learned: ResMut<Learned>,
+    inputs: Res<InputSender>,
 ) {
-    for JobsDone(done) in done.drain() {
-        remote.owe_pushes(realm.store().connection(), &done);
+    for done in done.drain() {
+        remote.owe_pushes(realm.store().connection(), &done.jobs);
+        after_jobs(&mut learned, &inputs, &done);
         changed.state_changed_outside_change = true;
+    }
+}
+
+/// What the agents learned and the dreams that ended, after `done`.
+pub(crate) fn after_jobs(
+    learned: &mut Learned,
+    inputs: &InputSender,
+    done: &JobsDone,
+) {
+    learned.take_in(&done.learning);
+    let dreams = done
+        .jobs
+        .iter()
+        .filter_map(|job| match job {
+            Job::DreamEnd { dream, summary, .. } => {
+                Some((*dream, summary.clone()))
+            }
+            _ => None,
+        })
+        .collect::<Vec<_>>();
+    if !dreams.is_empty() && inputs.send(DreamEnded(dreams)).is_err()
+    {
+        error!("the next dream could not begin: the server stops");
     }
 }
 
@@ -57,14 +98,10 @@ pub(crate) struct Runner {
 }
 
 /// The longest the runner waits for the database while it holds
-/// [`RepositoryWriteLock`]. The loop may hold the write lock while
-/// it waits for `RepositoryWriteLock`, so the runner gives up soon
-/// and its job runs again later.
+/// [`RepositoryWriteLock`], which the loop may wait on.
 const BUSY: Duration = Duration::from_millis(250);
 
-/// Held while a job runs, so that the loop and the runner never write
-/// the realm's repositories and worktrees at once. The runner holds
-/// it for one job at a time.
+/// Held by whoever writes the realm's repositories and worktrees.
 #[derive(Resource, Clone, Default)]
 pub(crate) struct RepositoryWriteLock(Arc<Mutex<()>>);
 
@@ -76,10 +113,9 @@ impl RepositoryWriteLock {
     }
 }
 
-/// Runs every job due now, each holding `writing`. Returns the jobs
-/// done.
+/// Runs every job due now, returning those done.
 pub(crate) fn run_due(
-    db: &mut hamlet_store::Db,
+    db: &mut Db,
     layout: &Layout,
     writing: &RepositoryWriteLock,
 ) -> Result<Vec<Job>> {
@@ -122,7 +158,12 @@ impl Runner {
                     let failed = match pass {
                         Ok(Ok(done)) if done.is_empty() => None,
                         Ok(Ok(done)) => {
-                            if inputs.send(JobsDone(done)).is_err() {
+                            let done = JobsDone::of(
+                                store.connection(),
+                                &layout,
+                                done,
+                            );
+                            if inputs.send(done).is_err() {
                                 return;
                             }
                             None

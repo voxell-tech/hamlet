@@ -1,5 +1,5 @@
 //! The shared library: a skill offered to the librarian and judged,
-//! a question to the librarian, and a chief's `/unshelve`.
+//! a request to the librarian, and a chief's `/unshelve`.
 
 use hamlet_acceptance::*;
 use hamlet_protocol::client::*;
@@ -38,7 +38,7 @@ fn tool_answers(client: &Client, chat: &ChatRef) -> Vec<String> {
 }
 
 #[tokio::test]
-async fn the_librarian_judges_offers_and_answers_questions() {
+async fn the_librarian_judges_offers_and_answers_requests() {
     let mut s = Session::start(
         Faux::new()
             .responses([
@@ -49,8 +49,8 @@ async fn the_librarian_judges_offers_and_answers_questions() {
                 offer("greet"),
                 offer("../x"),
                 call(
-                    "ask_librarian",
-                    json!({"question": "How do I say hello?"}),
+                    "request_librarian",
+                    json!({"text": "How do I say hello?"}),
                 ),
                 words("Done."),
             ])
@@ -67,7 +67,7 @@ async fn the_librarian_judges_offers_and_answers_questions() {
     let hand = s.hand();
     let now = chat(hand);
     s.chief.open(&now).await;
-    assert!(shelved(&s.chief).contains(&"weather".to_string()));
+    assert!(shelved(&s.chief).contains(&"web-search".to_string()));
     assert!(!shelved(&s.chief).contains(&"greet".to_string()));
 
     s.chief.tell(hand, "Offer your skills.").await;
@@ -89,7 +89,7 @@ async fn the_librarian_judges_offers_and_answers_questions() {
         "{failures:?}"
     );
 
-    // The question was answered from the shelves.
+    // The request was answered from the shelves.
     let said = s.chief.texts(&now);
     assert!(said.contains(&"Done.".to_string()));
 

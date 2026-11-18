@@ -1,8 +1,9 @@
-//! What an input is, as its runtime keeps it with the input and a
-//! transcript shows it. The runtime protocol carries it untyped.
+//! What an input is, kept beside it by its runtime, untyped.
 
 use anyhow::{Context, Result};
-use hamlet_protocol::client::{AttachedFile, AttachedImage};
+use hamlet_protocol::client::{
+    AttachedFile, AttachedImage, ItemEvent, ItemMessage,
+};
 use hamlet_protocol::runtime;
 use hamlet_store::ids::AgentId;
 use serde::{Deserialize, Serialize};
@@ -32,12 +33,15 @@ pub(crate) enum Mark {
     /// Words for people alone, which the model never sees (C30).
     #[serde(rename = "hamlet.notice")]
     Notice { text: String, at: i64 },
-    #[serde(rename = "hamlet.letter")]
-    Letter(From),
-    #[serde(rename = "hamlet.question")]
-    Question(From),
-    #[serde(rename = "hamlet.reply")]
-    Reply(From),
+    #[serde(rename = "hamlet.notification")]
+    Notification(From),
+    #[serde(rename = "hamlet.request")]
+    Request(From),
+    #[serde(rename = "hamlet.response")]
+    Response(From),
+    /// Why a request or a worker has no answer.
+    #[serde(rename = "hamlet.error-response")]
+    ErrorResponse(From),
     /// A one-off call's instructions.
     #[serde(rename = "hamlet.errand")]
     Errand { at: i64 },
@@ -57,6 +61,19 @@ pub(crate) enum Mark {
         summary: String,
         at: i64,
     },
+    /// A summary asked of the conversation now.
+    #[serde(rename = "hamlet.compaction")]
+    Compaction { at: i64 },
+    /// The conversation of an agent merged into this one.
+    #[serde(rename = "hamlet.merged")]
+    Merged {
+        from: AgentId,
+        author: String,
+        at: i64,
+    },
+    /// A change to the agent, for people alone, between its turns.
+    #[serde(rename = "hamlet.event")]
+    Event { event: ItemEvent, at: i64 },
 }
 
 /// Who a message from another agent is from.
@@ -65,10 +82,23 @@ pub(crate) struct From {
     pub from: AgentId,
     /// The sender as a transcript shows it.
     pub author: String,
+    /// Its words without the heading the model reads them under.
+    pub text: String,
     pub at: i64,
     /// The images sent with it, by their ids.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub images: Vec<String>,
+}
+
+impl From {
+    /// The images sent with it.
+    pub fn images(&self) -> Vec<AttachedImage> {
+        self.images
+            .iter()
+            .filter_map(|image| image.parse().ok())
+            .map(AttachedImage::last)
+            .collect()
+    }
 }
 
 impl Mark {
@@ -97,12 +127,9 @@ impl Mark {
     pub fn images(&self) -> Vec<AttachedImage> {
         match self {
             Self::Chief { images, .. } => images.clone(),
-            Self::Letter(From { images, .. })
-            | Self::Question(From { images, .. }) => images
-                .iter()
-                .filter_map(|image| image.parse().ok())
-                .map(AttachedImage::last)
-                .collect(),
+            Self::Notification(from) | Self::Request(from) => {
+                from.images()
+            }
             _ => Vec::new(),
         }
     }
@@ -115,7 +142,45 @@ impl Mark {
         }
     }
 
-    /// Whether its turn is one a chief requested.
+    /// The words a model reads for a message from another agent.
+    pub fn heading(&self) -> Option<String> {
+        let (heading, from) = match self {
+            Self::Notification(from) => (
+                format!("[A notification from {}]", from.author),
+                from,
+            ),
+            Self::Request(from) => (
+                format!(
+                    "[A request from {}; your final answer goes \
+                     back to it as the response]",
+                    from.author
+                ),
+                from,
+            ),
+            Self::Response(from) => {
+                (format!("[A response from {}]", from.author), from)
+            }
+            Self::ErrorResponse(from) => (
+                format!("[An error response from {}]", from.author),
+                from,
+            ),
+            _ => return None,
+        };
+        Some(format!("{heading}\n\n{}", from.text))
+    }
+
+    /// What it is, when it is a message from another agent.
+    pub fn message(&self) -> Option<ItemMessage> {
+        Some(match self {
+            Self::Notification(_) => ItemMessage::Notification,
+            Self::Request(_) => ItemMessage::Request,
+            Self::Response(_) => ItemMessage::Response,
+            Self::ErrorResponse(_) => ItemMessage::ErrorResponse,
+            _ => return None,
+        })
+    }
+
+    /// Whether its turn is one a chief asked for.
     pub fn is_chief_turn(&self) -> bool {
         matches!(self, Self::Chief { .. } | Self::Retry { .. })
     }
@@ -131,10 +196,14 @@ impl Mark {
             | Self::Worker { at, .. }
             | Self::Dream { at }
             | Self::Earlier { at, .. }
-            | Self::Step { at, .. } => *at,
-            Self::Letter(from)
-            | Self::Question(from)
-            | Self::Reply(from) => from.at,
+            | Self::Step { at, .. }
+            | Self::Compaction { at }
+            | Self::Merged { at, .. }
+            | Self::Event { at, .. } => *at,
+            Self::Notification(from)
+            | Self::Request(from)
+            | Self::Response(from)
+            | Self::ErrorResponse(from) => from.at,
         }
     }
 

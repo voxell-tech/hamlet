@@ -19,6 +19,11 @@ impl Outbox {
         id
     }
 
+    /// Queues `message`, whose id its caller made.
+    pub fn push(&mut self, message: protocol::ClientMessage) {
+        self.0.push(message);
+    }
+
     /// True when no request is queued.
     pub fn is_empty(&self) -> bool {
         self.0.is_empty()

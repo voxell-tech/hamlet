@@ -14,13 +14,11 @@ async fn reads_and_edits() {
     c.until(|c| !c.state().hamlets.is_empty()).await;
     let docs = c.hamlet_id("docs");
     let ada = c.profile("ada");
-    for what in ["prompt", "history"] {
-        assert!(
-            !c.ask(json!({"type":"read","what":what,"agent":HAND}))
-                .await[what]
-                .is_null()
-        );
-    }
+    assert!(
+        !c.ask(json!({"type":"read","what":"prompt","agent":HAND}))
+            .await["prompt"]
+            .is_null()
+    );
     assert!(!c.ask(json!({"type":"read","what":"papers","of":{"profile":ada}})).await["papers"].is_null());
     for what in ["charter", "models"] {
         assert!(

@@ -3,7 +3,8 @@ use hamlet_git::{Author, Change as GitChange, MAIN, Repository};
 use super::{CHARACTER, branch, run};
 use crate::realm::jobs::Job;
 use crate::society::agents::EndHow;
-use crate::society::hamlet_agents;
+use crate::society::city;
+use crate::society::hamlet_agents::{self, LastDream};
 use crate::testing::Realm;
 
 #[test]
@@ -99,7 +100,13 @@ fn an_agent_learns_in_its_worktree_and_takes_in_its_profile() {
     realm.work();
     realm
         .chief(|cx| {
-            hamlet_agents::end(cx, other.agent, EndHow::Ended, "done")
+            hamlet_agents::end(
+                cx,
+                other.agent,
+                EndHow::Ended,
+                LastDream::Without,
+                "done",
+            )
         })
         .unwrap();
     realm
@@ -201,4 +208,68 @@ fn a_merge_keeps_both_sides_learning_and_a_split_takes_it_out() {
     );
     assert_eq!(read("skills/scan/SKILL.md"), None);
     assert!(absorbed.join("skills/scan/SKILL.md").exists());
+}
+
+#[test]
+fn a_city_profiles_agent_starts_a_new_profile_and_stays_an_agent() {
+    let mut realm = Realm::new();
+    let layout = realm.layout();
+    let lead = realm.found("docs", "ada");
+    let chief = realm.chief;
+    let ada = realm
+        .chief(|cx| city::make(cx, "ada", chief, "Careful.", None))
+        .unwrap();
+    let added = realm
+        .chief(|cx| {
+            hamlet_agents::add(
+                cx,
+                hamlet_agents::Spec {
+                    hamlet: lead.hamlet.clone(),
+                    parent: Some(lead.agent),
+                    profile: hamlet_agents::ProfileChoice::Existing {
+                        profile: ada,
+                        pin: None,
+                    },
+                    purpose: "look".into(),
+                    reason: String::new(),
+                    owner: chief,
+                },
+            )
+        })
+        .unwrap();
+    realm.work();
+    let worktree = layout.worktree(&lead.hamlet, added.agent);
+    std::fs::create_dir_all(worktree.join("memory")).unwrap();
+    std::fs::write(worktree.join("memory/notes.md"), "learned")
+        .unwrap();
+    let at = realm.at;
+    run::commit(realm.db(), &layout, added.agent, at).unwrap();
+    let repo = Repository::open(&layout.repository(ada)).unwrap();
+    let tip = repo.tip(&branch(added.agent)).unwrap().unwrap();
+    let made = realm
+        .chief(|cx| {
+            city::make_of_agent(
+                cx,
+                added.agent,
+                "Ada of docs",
+                chief,
+                Some(tip.to_string()),
+                "",
+            )
+        })
+        .unwrap();
+    realm.work();
+    let on_main = |profile, path| {
+        let repo =
+            Repository::open(&layout.repository(profile)).unwrap();
+        let main = repo.tip(MAIN).unwrap().unwrap();
+        repo.read(main, path).unwrap()
+    };
+    assert_eq!(on_main(made, "memory/notes.md").unwrap(), b"learned");
+    assert_eq!(on_main(made, CHARACTER).unwrap(), b"Careful.");
+    assert_eq!(on_main(ada, "memory/notes.md"), None);
+    assert_eq!(
+        hamlet_agents::get(realm.db(), added.agent).unwrap().profile,
+        ada
+    );
 }

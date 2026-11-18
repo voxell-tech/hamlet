@@ -1,7 +1,4 @@
-//! The MEMORY of an agent or a profile, shown as the folder it is:
-//! the files at its root go into every prompt, and a folder is
-//! described by its own `MEMORY.md`. Its skills and character are
-//! listed here too.
+//! The memory, skills and character of an agent or a profile.
 
 use bevy::ecs::resource::Resource;
 use bevy::ecs::world::World;
@@ -27,8 +24,7 @@ use super::details::{section, section_line};
 use super::papers::{self, Papers};
 use super::thread::dim;
 
-/// The memory file whose text is open, and the name typed for a new
-/// one while its field is open.
+/// The memory file open, and the name typed for a new one.
 #[derive(Resource, Default, PartialEq)]
 pub struct Opened {
     pub path: Option<String>,
@@ -85,8 +81,7 @@ pub(super) fn folders(
                 folders.len() - 1
             }
         };
-        // The folder's own index describes it and is not listed
-        // among its files.
+        // A folder's own index describes it and is not listed.
         if rest == "MEMORY.md" && !name.is_empty() {
             folders[at].description = file.description.clone();
         }
@@ -121,8 +116,7 @@ fn size(text: &str) -> String {
 /// What makes the menu at the end of a file's row, from its path.
 pub(super) type FileMenu = Option<fn(&str) -> AnyView>;
 
-/// A file as a row: its name, its size, the way to open it and its
-/// `menu`, then its text and what changes it while it is open.
+/// A file's row, and its text while it is open.
 fn file(entry: &Entry, open: bool, menu: FileMenu) -> AnyView {
     let path = entry.path.clone();
     let name =
@@ -182,8 +176,7 @@ fn file(entry: &Entry, open: bool, menu: FileMenu) -> AnyView {
     column(parts).gap(4.0).boxed()
 }
 
-/// `content` set off as a quote, read only: a rule down its left and
-/// no frame.
+/// `content` set off as a quote, with a rule down its left.
 fn quote(content: impl View + 'static) -> impl View {
     with_cx(move |cx| {
         row((
@@ -197,8 +190,7 @@ fn quote(content: impl View + 'static) -> impl View {
 /// Lines a closed file shows of its text.
 const GIST: usize = 3;
 
-/// The first [`GIST`] lines of the Markdown `text` that say
-/// something, without its headings, code and tables, as plain text.
+/// The first [`GIST`] lines of prose in the Markdown `text`.
 fn gist(text: &str) -> String {
     let mut fenced = false;
     let mut lines = Vec::new();
@@ -253,16 +245,14 @@ fn folder(
     column(parts).gap(6.0).boxed()
 }
 
-/// The button that opens the field a new file is named in, with what
-/// `learn` gives beside it, or that field with the buttons that add
-/// it and that close it.
+/// The button that adds a file, or the field its name is typed in.
 fn add(
     learn: impl Fn() -> Option<AnyView> + Send + Sync + 'static,
 ) -> impl View {
     keyed(resource::<Opened, _>(|o| o.adding), move |adding| {
         if !*adding {
             let mut parts =
-                vec![action(Glyph::Plus, "Add file", |world| {
+                vec![action(Glyph::Plus, "Add File", |world| {
                     world.resource_mut::<Opened>().adding = true;
                 })];
             parts.extend(learn());
@@ -303,8 +293,7 @@ fn add(
     .within(bare())
 }
 
-/// The skills of an agent or a profile, each with what it does, or
-/// one line when it has none.
+/// The skills of an agent or a profile.
 pub(super) fn skills_section() -> AnyView {
     keyed(resource::<Papers, _>(|p| p.skills.clone()), |skills| {
         if skills.is_empty() {
@@ -361,9 +350,8 @@ fn character() -> impl View {
     .within(bare())
 }
 
-/// The memory, each file with `menu`, with the button that adds a
-/// file and the one `learn` gives under it, then the failure of the
-/// last save.
+/// The memory's files, the way to add one, and the last save's
+/// failure.
 pub(super) fn view(
     learn: impl Fn() -> Option<AnyView> + Send + Sync + 'static,
     menu: FileMenu,

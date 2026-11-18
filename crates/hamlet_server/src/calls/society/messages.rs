@@ -1,65 +1,64 @@
-//! An agent's words to another along a channel (H30, H31), its
-//! request for a channel, and the workers it starts, each kept once
-//! per call.
+//! An agent's messages, channel proposals and workers (H30, H31).
 
 use anyhow::Result;
 use diesel::prelude::*;
 use hamlet_store::ids::{Actor, AgentId};
 use hamlet_store::schema::worker;
 
-use super::args::{Ask, RequestChannel, StartWorker, Tell};
+use super::args::{Notify, ProposeChannel, Request, StartWorker};
 use super::{Call, Step, rejected, said, task_chief};
 use crate::attachments::inbox::INBOX;
 use crate::calls::looks::Look;
 use crate::calls::place;
-use crate::conversations::letters::{
+use crate::conversations::messages::{
     self, Message, MessageKind, Send,
 };
 use crate::conversations::tasks::{self, Origin};
 use crate::conversations::{Kind, briefs};
 use crate::core::Core;
+use crate::realm::change::done;
 use crate::society::agents::{self, EndHow};
 use crate::society::rejection::Rejection;
 use crate::society::workers::{self, Start, Starter};
 use crate::society::{addresses, channels, hamlet_agents};
-use crate::tools::builtin::Network;
+use crate::tools::builtin::{Network, Outcome};
 use crate::tools::catalogue::Society;
 
 impl Core<'_, '_> {
-    pub(in crate::calls) fn tell(
+    pub(in crate::calls) fn send_notification(
         &mut self,
         call: &Call<'_>,
-        args: Tell,
+        args: Notify,
     ) -> Result<Step> {
         self.send(
             call,
-            MessageKind::Letter,
+            MessageKind::Notification,
             &args.to,
             &args.text,
             &args.paths,
         )
     }
 
-    pub(in crate::calls) fn ask(
+    pub(in crate::calls) fn send_request(
         &mut self,
         call: &Call<'_>,
-        args: Ask,
+        args: Request,
     ) -> Result<Step> {
         self.send(
             call,
-            MessageKind::Question,
+            MessageKind::Request,
             &args.to,
-            &args.question,
+            &args.text,
             &args.paths,
         )
     }
 
-    /// Requests a channel from the caller's parent, as a letter to
-    /// it.
-    pub(in crate::calls) fn request_channel(
+    /// Proposes a channel to the caller's parent, as a notification
+    /// to it.
+    pub(in crate::calls) fn propose_channel(
         &mut self,
         call: &Call<'_>,
-        args: RequestChannel,
+        args: ProposeChannel,
     ) -> Result<Step> {
         let sender = call.conversation.agent;
         let here = self.hamlet_of(sender)?;
@@ -77,10 +76,10 @@ impl Core<'_, '_> {
         };
         let name = self.name(to)?;
         let words =
-            format!("I request a channel to {name}: {}", args.reason);
+            format!("I propose a channel to {name}: {}", args.reason);
         self.deliver(
             call,
-            MessageKind::Letter,
+            MessageKind::Notification,
             parent,
             "parent",
             &words,
@@ -88,8 +87,8 @@ impl Core<'_, '_> {
         )
     }
 
-    /// Sends a letter or a question, with the files under `paths`,
-    /// to the agent at `address`.
+    /// Sends a notification or a request, with the files under
+    /// `paths`, to the agent at `address`.
     fn send(
         &mut self,
         call: &Call<'_>,
@@ -101,7 +100,7 @@ impl Core<'_, '_> {
         let sender = call.conversation.agent;
         let db = self.realm.store().connection();
         if let Some(found) =
-            letters::find(db, &call.call.runtime, &call.call.key)?
+            messages::find(db, &call.call.runtime, &call.call.key)?
         {
             return self.sent(&found);
         }
@@ -124,7 +123,7 @@ impl Core<'_, '_> {
     ) -> Result<Step> {
         let sender = call.conversation.agent;
         if receiver == sender {
-            return Ok(Step::of(Err(Rejection::TellSelf)));
+            return Ok(Step::of(Err(Rejection::SendToSelf)));
         }
         if words.is_empty() {
             return Ok(Step::of(Err(Rejection::NothingToSend)));
@@ -133,13 +132,6 @@ impl Core<'_, '_> {
         let db = self.realm.store().connection();
         if channels::way(db, sender, receiver)?.is_none() {
             return Ok(Step::of(Err(Rejection::NoChannelTo {
-                other,
-            })));
-        }
-        if kind == MessageKind::Question
-            && letters::would_loop(db, sender, receiver)?
-        {
-            return Ok(Step::of(Err(Rejection::AlreadyWaitingOn {
                 other,
             })));
         }
@@ -180,7 +172,7 @@ impl Core<'_, '_> {
                         None,
                     )?,
                 };
-                Ok(Ok(letters::send(
+                Ok(Ok(messages::send(
                     cx,
                     env,
                     Send {
@@ -203,9 +195,8 @@ impl Core<'_, '_> {
         }
     }
 
-    /// The look that copies the files under `paths`, as the caller
-    /// may read them, into `receiver`'s inbox, with the captions that
-    /// say where each landed and the images among them.
+    /// The look that copies the files under `paths` into `receiver`'s
+    /// inbox.
     fn parcel(
         &mut self,
         call: &Call<'_>,
@@ -233,26 +224,18 @@ impl Core<'_, '_> {
         })
     }
 
-    /// The answer a message kept for a call gives it: a letter is
-    /// sent; a question waits for its answer.
+    /// The answer of the call that sent `found`.
     fn sent(&mut self, found: &Message) -> Result<Step> {
         let name = self.name(found.receiver)?;
-        Ok(match (found.kind, &found.answer, &found.failure) {
-            (MessageKind::Letter, _, _) => {
-                Step::Done(said(format!("Sent to {name}.")))
-            }
-            (MessageKind::Question, Some(answer), _) => {
-                Step::Done(said(format!("{name} answers: {answer}")))
-            }
-            (MessageKind::Question, None, Some(failure)) => {
-                Step::Done(rejected(format!(
-                    "{name} could not answer: {failure}"
-                )))
-            }
-            (MessageKind::Question, None, None) => {
-                Step::Wait(format!("Waiting for {name}'s answer."))
-            }
-        })
+        let words = match found.kind {
+            MessageKind::Notification => format!("Sent to {name}."),
+            MessageKind::Request => format!(
+                "Sent the request to {name}. Its response comes to \
+                 you in a later turn; end this turn if you have \
+                 nothing else to do meanwhile."
+            ),
+        };
+        Ok(Step::Done(reached(said(words), found.receiver)))
     }
 
     /// Starts a worker on the call's task, once per call.
@@ -305,7 +288,7 @@ impl Core<'_, '_> {
         let chief = task_chief(db, task)?;
         let done =
             self.attempt(Actor::Agent(starter), |cx, env| {
-                let id = match workers::start(
+                let id = done!(workers::start(
                     cx,
                     Start {
                         starter: Starter::Agent(starter),
@@ -316,10 +299,7 @@ impl Core<'_, '_> {
                         waits,
                         call: Some((runtime, key)),
                     },
-                )? {
-                    Ok(id) => id,
-                    Err(rejection) => return Ok(Err(rejection)),
-                };
+                ));
                 briefs::give(cx, env, id, &brief, &author, chief)?;
                 Ok(Ok(id))
             })?;
@@ -336,21 +316,37 @@ impl Core<'_, '_> {
         let ended = agents::get(db, id)?;
         let name = addresses::address_of(db, id)?;
         if !found.waits {
-            return Ok(Step::Done(said(format!(
-                "Started {name}; its answer comes to you as a reply."
-            ))));
+            return Ok(Step::Done(reached(
+                said(format!(
+                    "Started {name}; its answer comes to you later \
+                     as a response."
+                )),
+                id,
+            )));
         }
         Ok(match (ended.ended_how, found.answer) {
             (Some(EndHow::Answered), Some(answer)) => {
-                Step::Done(said(format!("{name} answers: {answer}")))
+                Step::Done(reached(
+                    said(format!("{name} answers: {answer}")),
+                    id,
+                ))
             }
-            (Some(how), _) => Step::Done(rejected(format!(
-                "{name} ended: {}.",
-                how.words()
-            ))),
+            (Some(how), _) => Step::Done(reached(
+                rejected(format!("{name} ended: {}.", how.words())),
+                id,
+            )),
             (None, _) => {
                 Step::Wait(format!("Waiting for {name}'s answer."))
             }
         })
     }
+}
+
+/// `outcome` with the agent its call reached, for the transcript.
+fn reached(mut outcome: Outcome, agent: AgentId) -> Outcome {
+    outcome
+        .details
+        .get_or_insert_default()
+        .insert("agent".into(), agent.0.into());
+    outcome
 }

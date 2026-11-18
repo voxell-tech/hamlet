@@ -1,41 +1,34 @@
-//! Images, files and folders attached to the next line (C33):
-//! dropped on the window, pasted in the field or chosen in the
-//! system's dialog, uploaded at once, put in the field as chips, and
-//! sent with the line at the places of their chips. A chip shows a
-//! small picture or an icon, a name and a size. What is attached as
-//! files and folders waits for a chief's word when it is over the
-//! cap. A model that takes no images has its attach control for
-//! images greyed out, and a drag of an image over the window says it
-//! cannot be dropped; files and folders are taken whatever the model.
-//!
-//! The system gives no pointer position with a drop. The hand holds
-//! each dropped file until the pointer is seen over the chat, where
-//! it is attached here.
+//! Images, files and folders attached to the next line (C33).
 
 use std::collections::{HashMap, HashSet};
 use std::path::PathBuf;
+use std::sync::Arc;
 
 use bevy::app::{App, Update};
+use bevy::camera::visibility::Visibility;
+use bevy::ecs::change_detection::{DetectChanges, DetectChangesMut};
 use bevy::ecs::component::Component;
-use bevy::ecs::hierarchy::ChildOf;
+use bevy::ecs::entity::Entity;
+use bevy::ecs::hierarchy::{ChildOf, Children};
 use bevy::ecs::message::MessageReader;
 use bevy::ecs::observer::On;
 use bevy::ecs::query::With;
 use bevy::ecs::resource::Resource;
 use bevy::ecs::schedule::IntoScheduleConfigs;
 use bevy::ecs::system::{Commands, Query, Res, ResMut};
-use bevy::ecs::world::World;
+use bevy::ecs::world::{Ref, World};
 use bevy::input::ButtonInput;
 use bevy::input::keyboard::{KeyCode, KeyboardInput};
-use bevy::input_focus::FocusedInput;
-use bevy::math::Vec2;
+use bevy::input_focus::{FocusedInput, InputFocus};
+use bevy::math::{Rect, UVec2, Vec2};
 use bevy::picking::events::PointerClick;
+use bevy::picking::hover::Hovered;
 use bevy::picking::pointer::PointerButton;
 use bevy::tasks::{AsyncComputeTaskPool, TaskPool};
 use bevy::ui::widget::{ImageNode, NodeImageMode};
 use bevy::ui::{
-    AlignItems, BackgroundColor, BorderColor, BorderRadius, Node,
-    UiRect, px,
+    AlignItems, BackgroundColor, BorderRadius, JustifyContent, Node,
+    PositionType, UiRect, Val, percent, px,
 };
 use bevy::window::FileDragAndDrop;
 use bevy_fynix::tokens::Tone;
@@ -48,25 +41,23 @@ use hamlet_client::files::{
     FilesForget, FilesKept, FilesRejected, Gather, Gathered,
     UploadFiles,
 };
-use hamlet_client::images::{
-    Download, ImageArrived, ImageKept, ImageMissing, ImageRejected,
-    Upload,
-};
+use hamlet_client::images::{ImageKept, ImageRejected, Upload};
 use hamlet_client::realm::Account;
 use hamlet_desktop::choose::{Choose, Chosen, What};
 use hamlet_desktop::clipboard::{Paste, Pasted};
-use hamlet_desktop::open;
 use hamlet_protocol::client::{
-    AttachedFile, AttachedImage, ImageId, ImageInput, ImageSize,
+    AttachedFile, AttachedImage, ImageId, ImageInput,
 };
 use hamlet_realm::hand::FileDropped;
 use hamlet_ui::markdown::ATOM;
-use hamlet_ui::styles::{ICON, back_link, bare, close_button, note};
+use hamlet_ui::styles::{
+    ICON, Looks, Tipped, bare, close_button, note,
+};
 use hamlet_ui::theme::HamletTheme;
 use hamlet_ui::widgets::effects::Variant;
 use hamlet_ui::widgets::icons::{Glyph, glyph};
 use hamlet_ui::widgets::platform::Wraps;
-use hamlet_ui::{AnyView, Cx, View};
+use hamlet_ui::{AnyView, Cx, View, built, with_cx};
 use tokio::sync::mpsc::{
     UnboundedReceiver, UnboundedSender, unbounded_channel,
 };
@@ -74,17 +65,20 @@ use tokio::sync::mpsc::{
 use super::{ChatField, Draft};
 use crate::convo::Convo;
 use crate::models::Shelf;
-use crate::pictures::{Pictures, Source, State, want};
+use crate::pictures::{Drawn, Pictures, Source, State, want};
 use crate::roll::{agents_moved, either, moved};
+use crate::screens::viewer;
 
-/// The side of the small picture of an image in a chip, in pixels.
-const CHIP_PICTURE: f32 = 16.0;
+/// How high Bevy lays out a line of text, in its font size.
+const LINE: f32 = 1.2;
+
+/// The side of a sent image's tile, in pixels.
+const TILE: f32 = 112.0;
 
 /// The most letters of a name a chip shows.
 const NAME_LETTERS: usize = 28;
 
-/// The most bytes of an image file attached. The server rejects
-/// larger ones, so the file is not read.
+/// The most bytes of an image file attached, as the server takes.
 const MOST_BYTES: u64 = 20 * 1024 * 1024;
 
 /// The images a line may carry when the model names no limit.
@@ -93,7 +87,6 @@ const MOST_PER_LINE: usize = 20;
 pub(super) fn plugin(app: &mut App) {
     app.init_resource::<Attached>()
         .init_resource::<Reads>()
-        .init_resource::<Opening>()
         .add_message::<FileDragAndDrop>()
         .add_message::<FileDropped>()
         .add_observer(kept)
@@ -105,14 +98,13 @@ pub(super) fn plugin(app: &mut App) {
         .add_observer(paste)
         .add_observer(pasted)
         .add_observer(open_original)
-        .add_observer(original_arrived)
-        .add_observer(original_missing)
         .add_systems(
             Update,
             (
                 watch_drag,
                 dropped,
                 finish_reads,
+                reveal,
                 forgotten.run_if(|attached: Res<Attached>| {
                     !attached.forget.is_empty()
                 }),
@@ -129,9 +121,7 @@ pub(super) enum Sight {
     Blind,
 }
 
-/// The [`Sight`] of the open chat's agent's model. A model the
-/// catalogue does not list is taken to see: the server rejects what
-/// it cannot.
+/// The [`Sight`] of the open chat's model; an unlisted one sees.
 pub(super) fn sight(world: &World) -> Sight {
     let model = world
         .get_resource::<Convo>()
@@ -157,11 +147,12 @@ pub(super) fn sight(world: &World) -> Sight {
 /// An image on its way to the next line.
 struct Attachment {
     key: u64,
+    /// The conversation whose draft it is attached to.
+    owner: Entity,
     name: String,
     /// The bytes of its file, once they are read.
     size: Option<u64>,
-    /// The source of its picture: its file, or the server's copy
-    /// once that is kept. None while a pasted picture goes up.
+    /// Its picture's source, none while a pasted picture goes up.
     shown: Option<Source>,
     progress: Progress,
     /// Whether its chip has been seen in the field.
@@ -179,7 +170,8 @@ enum Progress {
 /// A file or a folder on its way to the next line.
 struct Parcel {
     key: u64,
-    /// The name it was attached under.
+    /// The conversation whose draft it is attached to.
+    owner: Entity,
     name: String,
     folder: bool,
     /// Links and the like inside it that are left out.
@@ -193,8 +185,7 @@ struct Parcel {
 enum Load {
     /// Its folders are walked and its files counted.
     Reading,
-    /// Its files with those attached already are over the cap, so it
-    /// waits for the chief to say it may be sent.
+    /// Over the cap, it waits for the chief's word.
     Held {
         files: usize,
         bytes: u64,
@@ -218,33 +209,58 @@ enum Dragging {
     Other,
 }
 
-/// The images, files and folders the next line carries, and a drag
-/// over the window.
-#[derive(Resource, Default)]
+/// What the chats' drafts carry, and a drag over the window.
+#[derive(Resource)]
 pub struct Attached {
     list: Vec<Attachment>,
     parcels: Vec<Parcel>,
     next: u64,
-    /// The parcels let go before they were kept, which the client is
-    /// told to stop sending.
+    /// The parcels let go before they were kept.
     forget: Vec<u64>,
     dragging: Dragging,
+    /// The conversation whose draft is in the field.
+    shown: Entity,
+}
+
+impl Default for Attached {
+    fn default() -> Self {
+        Attached {
+            list: Vec::new(),
+            parcels: Vec::new(),
+            next: 0,
+            forget: Vec::new(),
+            dragging: Dragging::default(),
+            shown: Entity::PLACEHOLDER,
+        }
+    }
 }
 
 /// The byte of the line's text each attachment sits at, by its key.
 pub(crate) type Places = HashMap<u64, u64>;
 
 impl Attached {
-    /// The images and files of the line at their `places`, once every
-    /// one is kept. `None` while one still goes up, waits for a word,
-    /// or failed.
+    /// Makes the draft of `chat` the one in the field.
+    pub(super) fn show(&mut self, chat: Entity) {
+        self.shown = chat;
+    }
+
+    fn images(&self) -> impl Iterator<Item = &Attachment> {
+        self.list.iter().filter(|image| image.owner == self.shown)
+    }
+
+    fn shown_parcels(&self) -> impl Iterator<Item = &Parcel> {
+        self.parcels
+            .iter()
+            .filter(|parcel| parcel.owner == self.shown)
+    }
+
+    /// The line's images and files at `places`, once all are kept.
     pub(super) fn ready(
         &self,
         places: &Places,
     ) -> Option<(Vec<AttachedImage>, Vec<AttachedFile>)> {
         let images = self
-            .list
-            .iter()
+            .images()
             .map(|attachment| match &attachment.progress {
                 Progress::Kept(image) => Some(AttachedImage {
                     at: places.get(&attachment.key).copied(),
@@ -254,7 +270,7 @@ impl Attached {
             })
             .collect::<Option<Vec<_>>>()?;
         let mut files = Vec::new();
-        for parcel in &self.parcels {
+        for parcel in self.shown_parcels() {
             match &parcel.load {
                 Load::Kept(kept) => {
                     files.extend(kept.iter().map(|file| {
@@ -270,10 +286,13 @@ impl Attached {
         Some((images, files))
     }
 
-    /// The files and the bytes of what is attached as files and
-    /// folders, which the cap counts together.
-    fn counted(&self) -> (usize, u64) {
-        self.parcels.iter().fold((0, 0), |(files, bytes), parcel| {
+    /// The files and bytes attached to `owner`'s draft.
+    fn counted(&self, owner: Entity) -> (usize, u64) {
+        let parcels = self
+            .parcels
+            .iter()
+            .filter(|parcel| parcel.owner == owner);
+        parcels.fold((0, 0), |(files, bytes), parcel| {
             match &parcel.load {
                 Load::Held {
                     files: more,
@@ -296,27 +315,23 @@ impl Attached {
         })
     }
 
-    /// Lets the parcels go, and tells the client to stop sending
-    /// those not kept yet.
-    fn drop_parcels(&mut self) {
-        let unfinished = self
-            .parcels
-            .drain(..)
-            .filter(|parcel| !matches!(parcel.load, Load::Kept(_)))
-            .map(|parcel| parcel.key);
+    /// Lets the images and files of the shown draft go.
+    pub(super) fn clear(&mut self) {
+        let shown = self.shown;
+        self.list.retain(|image| image.owner != shown);
+        let mut unfinished = Vec::new();
+        self.parcels.retain(|parcel| {
+            let mine = parcel.owner == shown;
+            if mine && !matches!(parcel.load, Load::Kept(_)) {
+                unfinished.push(parcel.key);
+            }
+            !mine
+        });
         self.forget.extend(unfinished);
     }
 
-    /// Lets the images and files go.
-    pub(super) fn clear(&mut self) {
-        self.list.clear();
-        self.drop_parcels();
-    }
-
-    /// Puts `images` and `files`, which the server keeps, in place
-    /// of what is attached, and gives the field's pieces: `words`
-    /// with a chip at each one's place in them. Places are in the
-    /// line's text, which has `shift` bytes before `words`.
+    /// Attaches `images` and `files` again and gives `words` with
+    /// their chips.
     pub(super) fn give_back(
         &mut self,
         images: &[AttachedImage],
@@ -339,6 +354,7 @@ impl Attached {
             self.next += 1;
             self.list.push(Attachment {
                 key,
+                owner: self.shown,
                 name: "Image".into(),
                 size: None,
                 shown: Some(Source::Image(image.id.clone())),
@@ -354,6 +370,7 @@ impl Attached {
             chips.push((place(kept[0].at), key));
             self.parcels.push(Parcel {
                 key,
+                owner: self.shown,
                 name,
                 folder: kept
                     .iter()
@@ -382,8 +399,6 @@ impl Attached {
         pieces
     }
 
-    /// The name the attachment `key` was attached under, which its
-    /// chip copies as.
     fn name_of(&self, key: u64) -> String {
         self.face(key).map(|face| face.name).unwrap_or_default()
     }
@@ -453,16 +468,22 @@ impl Attached {
         })
     }
 
-    /// Notes which chips the field holds, and lets go of an
-    /// attachment whose chip was taken out of it.
+    /// Notes the field's chips and lets go of those taken out.
     fn follow(&mut self, seen: &HashSet<u64>) {
+        let shown = self.shown;
         let mut gone = Vec::new();
         self.list.retain_mut(|image| {
+            if image.owner != shown {
+                return true;
+            }
             let here = seen.contains(&image.key);
             image.placed |= here;
             here || !image.placed
         });
         self.parcels.retain_mut(|parcel| {
+            if parcel.owner != shown {
+                return true;
+            }
             let here = seen.contains(&parcel.key);
             parcel.placed |= here;
             let keep = here || !parcel.placed;
@@ -477,12 +498,10 @@ impl Attached {
     /// Whether the chips the field holds differ from those noted.
     fn is_out_of_step(&self, seen: &HashSet<u64>) -> bool {
         let noted = self
-            .list
-            .iter()
+            .images()
             .map(|image| (image.key, image.placed))
             .chain(
-                self.parcels
-                    .iter()
+                self.shown_parcels()
                     .map(|parcel| (parcel.key, parcel.placed)),
             );
         noted
@@ -491,8 +510,7 @@ impl Attached {
     }
 }
 
-/// Notes the chips among `pieces`, the content of the field, and
-/// lets go of an attachment whose chip is gone from it.
+/// Keeps what is attached in step with the chips among `pieces`.
 pub(super) fn reconcile(world: &mut World, pieces: &[Piece]) {
     let seen = pieces
         .iter()
@@ -506,8 +524,7 @@ pub(super) fn reconcile(world: &mut World, pieces: &[Piece]) {
     }
 }
 
-/// Takes the attachment `key` off the line, and its chip out of the
-/// field.
+/// Takes the attachment `key` and its chip off the line.
 fn remove(world: &mut World, key: u64) {
     let mut fields =
         world.query_filtered::<&mut RichField, With<ChatField>>();
@@ -526,8 +543,7 @@ fn remove(world: &mut World, key: u64) {
     }
 }
 
-/// The chip of the attachment `key` as an atom of the field, which
-/// is `name` where it is copied.
+/// The chip of the attachment `key` as an atom that copies as `name`.
 fn chip_atom(key: u64, name: &str) -> Atom {
     Atom::new::<HamletTheme>(key.to_string(), name, move || {
         composer_chip(key)
@@ -544,8 +560,7 @@ fn put_chip(world: &mut World, key: u64) {
     }
 }
 
-/// `files` grouped by the first part of their names: each file
-/// attached, and each folder with what it holds.
+/// `files` grouped by the first part of their names.
 fn by_top(
     files: &[AttachedFile],
 ) -> Vec<(String, Vec<AttachedFile>)> {
@@ -560,15 +575,13 @@ fn by_top(
     groups
 }
 
-/// An attachment to take in: a file or a folder to read, or a
-/// picture's bytes.
+/// An attachment to take in.
 pub(super) enum Incoming {
     File(PathBuf),
     Picture(Vec<u8>),
 }
 
-/// The files being read, each on a thread of the task pool, with
-/// their bytes or why they were not read.
+/// The files being read on the task pool.
 #[derive(Resource)]
 struct Reads {
     tx: UnboundedSender<(u64, Result<Vec<u8>, String>)>,
@@ -592,10 +605,7 @@ fn read(path: &std::path::Path) -> Result<Vec<u8>, String> {
     std::fs::read(path).map_err(|error| error.to_string())
 }
 
-/// Attaches `incoming` to the next line. An image is read if it is a
-/// file and sent up, and shows as a thumbnail meanwhile; any other
-/// file, and a folder, is walked and counted off the frame, and sent
-/// up unless that is over the cap.
+/// Attaches `incoming` to the next line.
 pub(super) fn attach(world: &mut World, incoming: Vec<Incoming>) {
     let sight = sight(world);
     world.resource_mut::<Draft>().notice.clear();
@@ -617,18 +627,19 @@ pub(super) fn attach(world: &mut World, incoming: Vec<Incoming>) {
                 "This model cannot see images.".into();
             continue;
         };
-        if world.resource::<Attached>().list.len() >= most {
+        if world.resource::<Attached>().images().count() >= most {
             world.resource_mut::<Draft>().notice =
                 format!("A line takes at most {most} images.");
             continue;
         }
         let mut attached = world.resource_mut::<Attached>();
-        let key = attached.next;
+        let (key, owner) = (attached.next, attached.shown);
         attached.next += 1;
         match item {
             Incoming::File(path) => {
                 attached.list.push(Attachment {
                     key,
+                    owner,
                     name: file_name(&path),
                     size: None,
                     shown: Some(Source::File(path.clone())),
@@ -656,6 +667,7 @@ pub(super) fn attach(world: &mut World, incoming: Vec<Incoming>) {
                 let sends = progress == Progress::Sending;
                 attached.list.push(Attachment {
                     key,
+                    owner,
                     name: "Pasted image".into(),
                     size: Some(bytes.len() as u64),
                     shown: None,
@@ -671,7 +683,6 @@ pub(super) fn attach(world: &mut World, incoming: Vec<Incoming>) {
     }
 }
 
-/// The name of the file or folder at `path`.
 fn file_name(path: &std::path::Path) -> String {
     path.file_name()
         .and_then(|name| name.to_str())
@@ -684,10 +695,11 @@ fn parcel(world: &mut World, path: PathBuf) {
     let name = file_name(&path);
     let folder = path.is_dir();
     let mut attached = world.resource_mut::<Attached>();
-    let key = attached.next;
+    let (key, owner) = (attached.next, attached.shown);
     attached.next += 1;
     attached.parcels.push(Parcel {
         key,
+        owner,
         name,
         folder,
         skipped: 0,
@@ -701,17 +713,24 @@ fn parcel(world: &mut World, path: PathBuf) {
     });
 }
 
-/// Sends what was counted, unless it and what is attached already
-/// are over the cap, when it waits for the chief's word.
+/// Sends what was counted, unless the total is over the cap.
 fn gathered(
     gathered: On<Gathered>,
     mut attached: ResMut<Attached>,
     mut commands: Commands,
 ) {
-    let (files, bytes) = attached.counted();
+    // A cross may have let it go while it was counted.
+    let Some(owner) = attached
+        .parcels
+        .iter()
+        .find(|parcel| parcel.key == gathered.key)
+        .map(|parcel| parcel.owner)
+    else {
+        return;
+    };
+    let (files, bytes) = attached.counted(owner);
     let over = files + gathered.files > AttachedFile::CAP_FILES
         || bytes + gathered.bytes > AttachedFile::CAP_BYTES;
-    // A cross may have let it go while it was counted.
     let Some(parcel) = attached
         .parcels
         .iter_mut()
@@ -729,7 +748,6 @@ fn gathered(
     };
 }
 
-/// Sends a parcel that was held, as the chief said it may be.
 fn send_held(world: &mut World, key: u64) {
     let mut attached = world.resource_mut::<Attached>();
     let Some(parcel) =
@@ -773,7 +791,6 @@ fn forgotten(mut attached: ResMut<Attached>, mut commands: Commands) {
     }
 }
 
-/// Sends up the files that were read.
 fn finish_reads(
     mut reads: ResMut<Reads>,
     mut attached: ResMut<Attached>,
@@ -834,7 +851,7 @@ fn chosen(
     convo: Res<Convo>,
     mut commands: Commands,
 ) {
-    if chosen.asker != convo.session {
+    if chosen.asker != convo.chat {
         return;
     }
     let paths = chosen.paths.clone();
@@ -846,9 +863,7 @@ fn chosen(
     });
 }
 
-/// Asks for the files and images on the clipboard when Cmd+V, or
-/// Ctrl+V where there is no Cmd, is pressed in the field. Words
-/// pasted are the field's own.
+/// Asks for the clipboard's files and images on the paste key.
 fn paste(
     key: On<FocusedInput<KeyboardInput>>,
     keys: Res<ButtonInput<KeyCode>>,
@@ -867,9 +882,7 @@ fn paste(
     {
         return;
     }
-    commands.trigger(Paste {
-        asker: convo.session,
-    });
+    commands.trigger(Paste { asker: convo.chat });
 }
 
 /// Attaches what the clipboard held.
@@ -878,7 +891,7 @@ fn pasted(
     convo: Res<Convo>,
     mut commands: Commands,
 ) {
-    if pasted.asker != convo.session {
+    if pasted.asker != convo.chat {
         return;
     }
     let files = pasted.files.iter().cloned().map(Incoming::File);
@@ -925,20 +938,14 @@ fn dropped(
     }
 }
 
-/// The image a sent line or a thumbnail shows, which a click opens in
-/// full.
+/// The image a chip or a tile shows.
 #[derive(Component)]
 struct Original(ImageId);
 
-/// The originals asked for, to be opened when they arrive.
-#[derive(Resource, Default)]
-struct Opening(HashSet<ImageId>);
-
-/// Asks the server for the image that was clicked, in full.
+/// Opens the image that was clicked in the viewer.
 fn open_original(
     click: On<PointerClick>,
     originals: Query<&Original>,
-    mut opening: ResMut<Opening>,
     mut commands: Commands,
 ) {
     if click.button != PointerButton::Primary {
@@ -947,122 +954,164 @@ fn open_original(
     let Ok(Original(image)) = originals.get(click.entity) else {
         return;
     };
-    if opening.0.insert(image.clone()) {
-        commands.trigger(Download {
-            image: image.clone(),
-            size: ImageSize::Original,
-        });
-    }
+    let image = image.clone();
+    commands
+        .queue(move |world: &mut World| viewer::open(world, image));
 }
 
-/// The ending of a file of the media type `mime`.
-fn ending(mime: &str) -> &'static str {
-    match mime {
-        "image/jpeg" => "jpg",
-        "image/webp" => "webp",
-        "image/gif" => "gif",
-        _ => "png",
-    }
-}
-
-/// Opens an original that arrived, by the program the system keeps
-/// for it. The file is written off the frame.
-fn original_arrived(
-    arrived: On<ImageArrived>,
-    mut opening: ResMut<Opening>,
-) {
-    if arrived.size != ImageSize::Original
-        || !opening.0.remove(&arrived.image)
-    {
-        return;
-    }
-    let path = std::env::temp_dir()
-        .join("hamlet-images")
-        .join(format!("{}.{}", arrived.image, ending(&arrived.mime)));
-    let bytes = arrived.bytes.clone();
-    AsyncComputeTaskPool::get_or_init(TaskPool::default)
-        .spawn(async move {
-            let written = path.parent().is_some_and(|folder| {
-                std::fs::create_dir_all(folder).is_ok()
-            }) && std::fs::write(&path, bytes).is_ok();
-            if written {
-                open::show_file(&path);
-            }
-        })
-        .detach();
-}
-
-fn original_missing(
-    missing: On<ImageMissing>,
-    mut opening: ResMut<Opening>,
-) {
-    if missing.size == ImageSize::Original {
-        opening.0.remove(&missing.image);
-    }
-}
-
-/// A thumbnail of `source` no larger than `side` either way, asked
-/// for once, which a plate holds the place of while it is read. One
-/// of an image the server keeps opens it in full when clicked.
-fn thumbnail(source: Source, side: f32) -> impl View {
+/// The picture of `source` cut by `cut`, on a plate while it is read.
+fn picture(
+    source: Source,
+    cut: impl Fn(&Drawn) -> (Vec2, Option<Rect>) + Send + Sync + 'static,
+) -> impl View {
     let of = source.clone();
     let state = resource::<Pictures, _>(move |all| all.state(&of));
+    let cut = Arc::new(cut);
     keyed(state, move |state| {
-        let (source, state) = (source.clone(), state.clone());
+        let (source, state, cut) =
+            (source.clone(), state.clone(), cut.clone());
         AnyView::new(move |cx: &mut Cx| {
             want(cx.world, &source);
             let within = cx.build(bare());
             let theme = cx.theme();
-            let (back, edge, round) = (
-                theme.palette.code,
-                theme.palette.gold_6,
-                theme.space.round,
-            );
+            let (back, round) =
+                (theme.palette.code, theme.space.round_small);
             let mut node = Node {
-                border: UiRect::all(px(1.0)),
+                width: percent(100.0),
+                height: percent(100.0),
                 border_radius: BorderRadius::all(px(round)),
                 ..Node::default()
             };
-            let image = match &state {
+            match &state {
                 State::Ready(drawn) => {
-                    let size = drawn.fitted(Vec2::splat(side));
+                    let (size, rect) = cut(drawn);
                     (node.width, node.height) =
-                        (px(size.x + 2.0), px(size.y + 2.0));
-                    Some(drawn.image.clone())
+                        (px(size.x), px(size.y));
+                    let image = ImageNode {
+                        rect,
+                        ..ImageNode::new(drawn.image.clone())
+                            .with_mode(NodeImageMode::Stretch)
+                    };
+                    cx.world.spawn((node, image, ChildOf(within)));
                 }
                 _ => {
-                    (node.width, node.height) =
-                        (px(side * 0.75), px(side * 0.75));
-                    None
+                    cx.world.spawn((
+                        node,
+                        BackgroundColor(back),
+                        ChildOf(within),
+                    ));
                 }
-            };
-            let opens = match &source {
-                Source::Image(image) => Some(Original(image.clone())),
-                _ => None,
-            };
-            let entity = cx
-                .world
-                .spawn((
-                    node,
-                    BackgroundColor(back),
-                    BorderColor::all(edge),
-                    source,
-                    ChildOf(within),
-                ))
-                .id();
-            if let Some(opens) = opens {
-                cx.world.entity_mut(entity).insert(opens);
-            }
-            if let Some(image) = image {
-                cx.world.entity_mut(entity).insert(
-                    ImageNode::new(image)
-                        .with_mode(NodeImageMode::Stretch),
-                );
             }
             within
         })
     })
-    .within(bare())
+    .within(
+        column(())
+            .width(percent(100.0))
+            .height(percent(100.0))
+            .justify(JustifyContent::Center)
+            .align(AlignItems::Center),
+    )
+}
+
+/// A small picture of `source` fitted in a square of `side`.
+fn thumbnail(source: Source, side: f32) -> impl View {
+    let fitted = picture(source, move |drawn| {
+        (drawn.fitted(Vec2::splat(side)), None)
+    });
+    column((fitted,))
+        .width(px(side))
+        .height(px(side))
+        .shrink(0.0)
+}
+
+/// The middle square of a picture of `size` pixels.
+fn square(size: UVec2) -> Rect {
+    let side = size.min_element() as f32;
+    let corner = (size.as_vec2() - side) / 2.0;
+    Rect::from_corners(corner, corner + side)
+}
+
+/// On a sent image's tile.
+#[derive(Component)]
+struct Tile;
+
+/// The corner of a tile that holds the button opening its image.
+#[derive(Component)]
+struct Zoom;
+
+/// A sent image's square tile, which opens it in the viewer.
+fn tile(image: ImageId) -> AnyView {
+    let opened = image.clone();
+    let zoom = button(glyph(Glyph::ZoomIn, ICON))
+        .padding(UiRect::all(px(4.0)))
+        .tip("View image")
+        .variant(Variant::Default)
+        .on_activate(move |world| {
+            viewer::open(world, opened.clone());
+        });
+    let corner = row((zoom,))
+        .position(PositionType::Absolute)
+        .inset(UiRect::new(Val::Auto, px(4.0), px(4.0), Val::Auto))
+        .tagged(Zoom);
+    let shown = picture(Source::Image(image.clone()), |drawn| {
+        (Vec2::splat(TILE), Some(square(drawn.size)))
+    });
+    built(move |cx| {
+        let node = cx.build(
+            column((shown,))
+                .width(px(TILE))
+                .height(px(TILE))
+                .shrink(0.0)
+                .tagged(Tile),
+        );
+        let corner = cx.build(corner);
+        cx.world
+            .entity_mut(corner)
+            .insert((Visibility::Hidden, ChildOf(node)));
+        cx.world
+            .entity_mut(node)
+            .insert((Original(image), Hovered::default()));
+        node
+    })
+    .boxed()
+}
+
+/// The tiles of a sent line's images, in a row that wraps.
+pub(super) fn tiles(images: &[AttachedImage]) -> impl View {
+    row(images
+        .iter()
+        .map(|image| tile(image.id.clone()))
+        .collect::<Vec<_>>())
+    .gap(6.0)
+    .tagged(Wraps)
+}
+
+/// Shows the button over each tile while it is hovered or focused.
+fn reveal(
+    focus: Res<InputFocus>,
+    tiles: Query<(Ref<Hovered>, &Children), With<Tile>>,
+    parents: Query<&ChildOf>,
+    mut zooms: Query<&mut Visibility, With<Zoom>>,
+) {
+    let focused = focus.get();
+    for (hovered, children) in &tiles {
+        if !hovered.is_changed() && !focus.is_changed() {
+            continue;
+        }
+        for &corner in children {
+            let Ok(mut shown) = zooms.get_mut(corner) else {
+                continue;
+            };
+            let held = focused.is_some_and(|input| {
+                parents.iter_ancestors(input).any(|up| up == corner)
+            });
+            shown.set_if_neq(match hovered.get() || held {
+                true => Visibility::Inherited,
+                false => Visibility::Hidden,
+            });
+        }
+    }
 }
 
 /// The parts of a chip of one attachment.
@@ -1079,7 +1128,6 @@ struct Face {
     image: bool,
 }
 
-/// `files` as words: `1 file`, `12 files`.
 fn counted(files: usize) -> String {
     match files {
         1 => "1 file".to_owned(),
@@ -1087,8 +1135,7 @@ fn counted(files: usize) -> String {
     }
 }
 
-/// The size of a file or folder of `files` files and `bytes` bytes,
-/// as a chip says it.
+/// The size of `files` files of `bytes` bytes, as a chip says it.
 fn parcel_words(folder: bool, files: usize, bytes: u64) -> String {
     let size = AttachedFile::size_words(bytes);
     match folder {
@@ -1097,7 +1144,6 @@ fn parcel_words(folder: bool, files: usize, bytes: u64) -> String {
     }
 }
 
-/// The words of a chip that is held back.
 fn held_words(files: usize, bytes: u64) -> String {
     format!("{}, {}", counted(files), AttachedFile::size_words(bytes))
 }
@@ -1128,17 +1174,18 @@ fn shown_name(name: &str) -> String {
     )
 }
 
-/// A chip: a small picture or an icon, a name and a size, in a
-/// rounded box that sits in the line of a text. `cross` is the
-/// attachment it lets go of, `disabled` why it cannot be sent.
+/// A chip as high as a line of text.
 fn chip(
     face: Face,
     disabled: Option<&'static str>,
     cross: Option<u64>,
 ) -> AnyView {
     AnyView::new(move |cx: &mut Cx| {
-        let palette = &cx.theme().palette;
-        let (fill, round) = (palette.code, cx.theme().space.round);
+        let theme = cx.theme();
+        let palette = &theme.palette;
+        let (fill, round, words) =
+            (palette.code, theme.space.round, theme.text.body);
+        let padding = theme.space.chip_padding_x;
         let edge = match &face.trouble {
             Some(_) => palette.danger_border,
             None => palette.gold_5,
@@ -1149,15 +1196,13 @@ fn chip(
             (None, None) => Tone::Body,
         };
         let mark = match &face.picture {
-            Some(source) => {
-                thumbnail(source.clone(), CHIP_PICTURE).boxed()
-            }
+            Some(source) => thumbnail(source.clone(), ICON).boxed(),
             None => glyph(face.glyph, ICON).tone(tone).boxed(),
         };
         let mut parts = vec![
             mark,
             label(shown_name(&face.name))
-                .size(12.0)
+                .size(words)
                 .wrap(false)
                 .tone(tone)
                 .boxed(),
@@ -1165,7 +1210,7 @@ fn chip(
         if !face.size.is_empty() {
             parts.push(
                 label(face.size.clone())
-                    .size(11.0)
+                    .size(words)
                     .wrap(false)
                     .tone(Tone::Faint)
                     .boxed(),
@@ -1179,7 +1224,8 @@ fn chip(
         let chip = row(parts)
             .gap(5.0)
             .align(AlignItems::Center)
-            .padding(UiRect::axes(px(6.0), px(1.0)))
+            .height(px(words * LINE))
+            .padding(UiRect::horizontal(px(padding)))
             .margin(UiRect::horizontal(px(2.0)))
             .fill(fill)
             .border(1.0)
@@ -1209,9 +1255,7 @@ fn chip(
     })
 }
 
-/// The chip of the attachment `key` as the composer shows it: it
-/// follows the attachment, and is greyed out when it is an image the
-/// open chat's model cannot take.
+/// The chip of the attachment `key` in the composer.
 fn composer_chip(key: u64) -> AnyView {
     let seen = derived(move |world: &World| {
         world
@@ -1238,9 +1282,7 @@ fn composer_chip(key: u64) -> AnyView {
     .boxed()
 }
 
-/// The place of each chip of a sent line, and its chip: a byte of
-/// the line's words, or `None` for the end. Each file of a folder is
-/// part of one chip.
+/// Each chip of a sent line with its byte in the words.
 pub(super) fn sent_chips(
     images: &[AttachedImage],
     files: &[AttachedFile],
@@ -1290,11 +1332,8 @@ fn sent_atom(key: String, face: Face) -> Atom {
     })
 }
 
-/// `words`, the text of a sent line, with an [`ATOM`] where each of
-/// `chips` stands in it, and the chips in the order of those. A chip
-/// with no place, or one that is not at a character of the words,
-/// follows them. The words are then drawn as any are, with the chips
-/// in them where the atoms are.
+/// `words` with an [`ATOM`] at each chip, and the chips in that
+/// order.
 pub(super) fn marked(
     words: &str,
     chips: Vec<(Option<u64>, Atom)>,
@@ -1312,8 +1351,7 @@ pub(super) fn marked(
         })
         .collect::<Vec<_>>();
     chips.sort_by_key(|(at, _)| *at);
-    // The words never hold [`ATOM`] otherwise, so it stands for a
-    // chip alone.
+    // So that an [`ATOM`] stands for a chip alone.
     let clean = |words: &str| words.replace(ATOM, "\n");
     let mut marked = String::new();
     let mut atoms = Vec::new();
@@ -1328,8 +1366,7 @@ pub(super) fn marked(
     (marked, atoms)
 }
 
-/// The chips of a line that carries attachments with no place in its
-/// words, in a row of their own.
+/// The chips with no place in a line's words, in a row of their own.
 pub(super) fn after_words(
     chips: Vec<(Option<u64>, Atom)>,
 ) -> impl View {
@@ -1341,13 +1378,11 @@ pub(super) fn after_words(
     .tagged(Wraps)
 }
 
-/// The row over the field of each file or folder held back by the
-/// cap, with the way to send it anyway.
+/// A row over the field for each file held back by the cap.
 pub(super) fn holds() -> impl View {
     let held = resource::<Attached, _>(|attached| {
         attached
-            .parcels
-            .iter()
+            .shown_parcels()
             .filter_map(|parcel| match parcel.load {
                 Load::Held { files, bytes } => {
                     Some((parcel.key, over(files, bytes)))
@@ -1365,7 +1400,7 @@ pub(super) fn holds() -> impl View {
                     label(words.clone())
                         .size(11.0)
                         .tone(Tone::Critical),
-                    hamlet_ui::styles::lettered("Send anyway")
+                    hamlet_ui::styles::lettered("Send Anyway")
                         .rules(hamlet_ui::styles::button)
                         .on_activate(move |world| {
                             send_held(world, key);
@@ -1382,24 +1417,23 @@ pub(super) fn holds() -> impl View {
     .within(bare())
 }
 
-/// A control that opens the dialog `what` is chosen in.
-fn chooser(which: Glyph, tip: &'static str, what: What) -> AnyView {
-    button(glyph(which, ICON))
-        .padding(UiRect::all(px(4.0)))
-        .tooltip(move || note(tip))
-        .rules(back_link)
-        .tagged(Variant::Text)
-        .on_activate(move |world| {
-            let asker = world.resource::<Convo>().session;
-            world.trigger(Choose { asker, what });
-        })
-        .boxed()
+/// Opens the dialog `what` is chosen in, for the open chat.
+pub(crate) fn choose(world: &mut World, what: What) {
+    let asker = world.resource::<Convo>().chat;
+    world.trigger(Choose { asker, what });
 }
 
-/// The controls that open the dialogs images, files and folders are
-/// chosen in. The one for images is greyed out for a model that
-/// takes none.
-pub(super) fn control() -> impl View {
+pub(crate) fn sees_images(world: &World) -> bool {
+    matches!(sight(world), Sight::Sees(_))
+}
+
+/// A control that opens the dialog `what` is chosen in.
+fn chooser(which: Glyph, tip: &'static str, what: What) -> AnyView {
+    super::tool_button(which, tip, move |world| choose(world, what))
+}
+
+/// The composer's buttons that open the attach dialogs.
+pub(crate) fn control() -> impl View {
     let sees = derived(|world: &World| sight(world)).when(either(
         either(agents_moved(), moved::<Shelf>()),
         moved::<Convo>(),
@@ -1408,24 +1442,30 @@ pub(super) fn control() -> impl View {
         Sight::Sees(_) => {
             chooser(Glyph::Picture, "Attach images", What::Images)
         }
-        Sight::Blind => {
+        Sight::Blind => with_cx(|cx| {
+            let side = cx.theme().space.row;
             column((glyph(Glyph::Picture, ICON).tone(Tone::Faint),))
-                .padding(UiRect::all(px(4.0)))
+                .width(px(side))
+                .height(px(side))
+                .align(AlignItems::Center)
+                .justify(JustifyContent::Center)
                 .tooltip(|| note("This model cannot see images"))
-                .boxed()
-        }
+        })
+        .boxed(),
     })
     .within(bare());
-    row((
-        images,
-        chooser(Glyph::Notes, "Attach files", What::Files),
-        chooser(Glyph::Folder, "Attach a folder", What::Folders),
-    ))
-    .align(AlignItems::Center)
+    with_cx(move |cx| {
+        row((
+            images,
+            chooser(Glyph::Notes, "Attach files", What::Files),
+            chooser(Glyph::Folder, "Attach a folder", What::Folders),
+        ))
+        .gap(super::TOOL_GAP * cx.theme().space.gap)
+        .align(AlignItems::Center)
+    })
 }
 
-/// The indicator shown while a file or folder is dragged over the
-/// window: where it can be dropped, or that it cannot.
+/// The indicator shown while files are dragged over the window.
 pub(super) fn indicator() -> impl View {
     let drag = derived(|world: &World| {
         let dragging = world
@@ -1468,82 +1508,7 @@ pub(super) fn indicator() -> impl View {
 
 #[cfg(test)]
 mod tests {
-    use std::time::{Duration, Instant};
-
-    use bevy::math::UVec2;
-    use hamlet_client::outbox::Outbox;
-    use hamlet_protocol::client as protocol;
-
     use super::*;
-    use crate::testing::{panel_app, png, seat_hand};
-
-    fn listed(images: Option<ImageInput>) -> protocol::Listed {
-        protocol::Listed {
-            context: None,
-            default_effort: None,
-            efforts: Vec::new(),
-            fast: false,
-            images,
-            name: "lantern::wren-large".into(),
-            note: String::new(),
-            price: None,
-            priced: protocol::ListedPriced::Unknown,
-            title: String::new(),
-        }
-    }
-
-    #[test]
-    fn only_a_model_that_sees_takes_an_image_and_a_line_has_its_limit()
-     {
-        let mut app = panel_app();
-        app.add_plugins(plugin)
-            .init_resource::<Draft>()
-            .init_resource::<Shelf>();
-        let hand = seat_hand(&mut app);
-        let world = app.world_mut();
-        world.get_mut::<Account>(hand).unwrap().model =
-            "lantern::wren-large".into();
-        let folder = hamlet_testing::Scratch::new("attach");
-        let pear = folder.join("pear.png");
-        std::fs::write(&pear, png(UVec2::new(4, 4))).unwrap();
-        let before = world.resource::<Outbox>().iter().count();
-
-        world.resource_mut::<Shelf>().models = vec![listed(None)];
-        assert_eq!(sight(world), Sight::Blind);
-        attach(world, vec![Incoming::File(pear.clone())]);
-        assert!(world.resource::<Attached>().list.is_empty());
-        assert!(!world.resource::<Draft>().notice.is_empty());
-        assert_eq!(world.resource::<Outbox>().iter().count(), before);
-
-        let input = ImageInput {
-            per_line: Some(1),
-            ..Default::default()
-        };
-        world.resource_mut::<Shelf>().models =
-            vec![listed(Some(input))];
-        assert_eq!(sight(world), Sight::Sees(1));
-        attach(
-            world,
-            vec![Incoming::File(pear.clone()), Incoming::File(pear)],
-        );
-        // The second image is over the line's limit.
-        assert_eq!(world.resource::<Attached>().list.len(), 1);
-        // The file is read off the frame, then sent up.
-        let start = Instant::now();
-        while !matches!(
-            app.world().resource::<Outbox>().iter().last(),
-            Some(protocol::ClientMessage::PutImage(_))
-        ) {
-            assert!(
-                start.elapsed() < Duration::from_secs(5),
-                "the image was not sent"
-            );
-            app.update();
-            std::thread::sleep(Duration::from_millis(5));
-        }
-        let attached = app.world().resource::<Attached>();
-        assert_eq!(attached.ready(&Places::new()), None);
-    }
 
     #[test]
     fn a_rewound_line_gives_its_chips_back_at_their_places() {
@@ -1578,26 +1543,6 @@ mod tests {
             attached.ready(&Places::new()),
             Some((Vec::new(), Vec::new()))
         );
-    }
-
-    #[test]
-    fn chips_are_marked_in_the_words_at_their_places_in_order() {
-        let chip = |key: u64| (None, chip_atom(key, "name"));
-        let at =
-            |at: u64, key: u64| (Some(at), chip_atom(key, "name"));
-        let (words, atoms) = marked(
-            "one two",
-            vec![at(4, 2), at(3, 1), chip(3), at(99, 4)],
-        );
-        // A chip with no place, and one past the words, are at the
-        // end.
-        assert_eq!(words, format!("one{ATOM} {ATOM}two{ATOM}{ATOM}"));
-        let keys = atoms.iter().map(Atom::key).collect::<Vec<_>>();
-        assert_eq!(keys, ["1", "2", "3", "4"]);
-
-        // The words never hold what stands for a chip.
-        let (words, _) = marked(&format!("a{ATOM}b"), Vec::new());
-        assert_eq!(words, "a\nb");
     }
 
     #[test]

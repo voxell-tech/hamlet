@@ -1,7 +1,4 @@
-//! The projects of other programs brought in (C35): each a hamlet
-//! working on its folder, with an agent for each conversation picked.
-//! Offered once, when first-run setup ends on a realm with no hamlet,
-//! and from Settings.
+//! The projects of other programs brought in as hamlets (C35).
 
 use std::collections::BTreeSet;
 use std::time::SystemTime;
@@ -11,8 +8,11 @@ use bevy::ecs::entity::Entity;
 use bevy::ecs::observer::On;
 use bevy::ecs::query::With;
 use bevy::ecs::resource::Resource;
+use bevy::ecs::schedule::IntoScheduleConfigs;
+use bevy::ecs::schedule::common_conditions::resource_changed;
 use bevy::ecs::system::{Commands, Local, Query, Res, ResMut};
 use bevy::ecs::world::{FromWorld, World};
+use bevy::time::Time;
 use bevy::ui::{AlignItems, UiRect, px};
 use bevy_fynix::tokens::Tone;
 use bevy_fynix::views::{
@@ -31,6 +31,7 @@ use hamlet_ui::styles::{
     self, ICON, Looks, description, good_action, lettered, link_row,
     note, note_rules,
 };
+use hamlet_ui::theme::StatusKind;
 use hamlet_ui::widgets::effects::Variant;
 use hamlet_ui::widgets::ellipsis::one_line;
 use hamlet_ui::widgets::icons::{Glyph, glyph};
@@ -38,9 +39,9 @@ use hamlet_ui::{AnyView, View, with_cx};
 
 use super::Welcome;
 use super::pages::{footed, over, sheet};
+use crate::toasts::Toasts;
 
-/// The file in the window's folder that says the projects were
-/// offered on this machine.
+/// The file that marks the projects as offered on this machine.
 const OFFERED: &str = "projects-offered";
 /// How far in a project's conversations stand under it.
 const INDENT: f32 = 32.0;
@@ -49,7 +50,14 @@ pub(super) fn plugin(app: &mut App) {
     app.init_resource::<Projects>()
         .init_resource::<Asker>()
         .add_observer(chosen)
-        .add_systems(Update, (offer, pick_suggested));
+        .add_systems(
+            Update,
+            (
+                offer,
+                pick_suggested,
+                toast_failures.run_if(resource_changed::<Imports>),
+            ),
+        );
 }
 
 /// The card of projects and what is picked on it.
@@ -60,8 +68,7 @@ pub struct Projects {
     picked: BTreeSet<String>,
     /// The projects whose conversations are listed, by their key.
     unfolded: BTreeSet<String>,
-    /// Every project is listed, not only the suggested ones and
-    /// those with a conversation picked.
+    /// Every project is listed.
     all: bool,
     /// The suggested ones were picked for the projects found.
     seeded: bool,
@@ -77,8 +84,7 @@ impl FromWorld for Asker {
     }
 }
 
-/// A row of the list: a project, or one of its conversations under
-/// it.
+/// A row of the list: a project or one of its conversations.
 #[derive(Clone, PartialEq)]
 enum Line {
     Project {
@@ -131,8 +137,7 @@ fn close(world: &mut World) {
     }
 }
 
-/// Opens the card when first-run setup ends on a realm with no
-/// hamlet, unless it was offered on this machine before.
+/// Opens the card once, when setup ends on a realm with no hamlet.
 fn offer(
     welcome: Res<Welcome>,
     folder: Option<Res<ViewFolder>>,
@@ -149,8 +154,7 @@ fn offer(
     }
 }
 
-/// Picks the newest conversations of the suggested projects once they
-/// are found.
+/// Picks the suggested projects' newest conversations once found.
 fn pick_suggested(
     imports: Res<Imports>,
     mut projects: ResMut<Projects>,
@@ -230,8 +234,7 @@ fn unfold(world: &mut World, project: &str) {
     }
 }
 
-/// Brings in each project with a conversation picked, with those
-/// picked alone.
+/// Brings in each project with its picked conversations.
 fn bring(world: &mut World) {
     let picked = world.resource::<Projects>().picked.clone();
     let projects = world
@@ -253,7 +256,38 @@ fn bring(world: &mut World) {
         .collect::<Vec<_>>();
     if !projects.is_empty() {
         world.trigger(BringIn { projects });
+        // Failures are toasted once the card is closed.
+        close(world);
     }
+}
+
+/// Toasts each project not brought in while the card is closed.
+fn toast_failures(
+    imports: Res<Imports>,
+    projects: Res<Projects>,
+    time: Res<Time>,
+    toasts: Option<ResMut<Toasts>>,
+    mut told: Local<usize>,
+) {
+    // A new bringing in begins its outcomes again.
+    if imports.outcomes.len() < *told {
+        *told = 0;
+    }
+    let Some(mut toasts) = toasts.filter(|_| !projects.open) else {
+        *told = imports.outcomes.len();
+        return;
+    };
+    for outcome in &imports.outcomes[*told..] {
+        if let Err(why) = &outcome.said {
+            toasts.note(
+                StatusKind::Danger,
+                format!("{} was not brought in", outcome.name),
+                why.clone(),
+                time.elapsed_secs(),
+            );
+        }
+    }
+    *told = imports.outcomes.len();
 }
 
 /// When `at` was, as a row of a conversation says it.
@@ -335,8 +369,7 @@ fn line_view(line: &Line) -> AnyView {
         } => {
             let picking = key.clone();
             let folding = key;
-            // The chevron points up unturned: down while the
-            // project's conversations are listed, else left.
+            // Unturned, the chevron points up.
             let turn = if unfolded { 180.0 } else { 270.0 };
             row((
                 checkbox(picked).on_change(move |world, on| {
@@ -395,8 +428,7 @@ fn line_view(line: &Line) -> AnyView {
     }
 }
 
-/// What the card says over the list: what it does, or what was
-/// brought in.
+/// What the card says over the list.
 fn status() -> AnyView {
     keyed(
         derived(|world: &World| {
@@ -455,7 +487,7 @@ fn status() -> AnyView {
 /// The way between the suggested projects and every one.
 fn review() -> AnyView {
     keyed(resource::<Projects, _>(|projects| projects.all), |all| {
-        let text = if *all { "Show suggested" } else { "Review all" };
+        let text = if *all { "Show Suggested" } else { "Review All" };
         lettered(text)
             .variant(Variant::Text)
             .on_activate(|world| {
@@ -492,8 +524,7 @@ fn page() -> AnyView {
     let bring = keyed(
         derived(|world: &World| {
             let imports = world.resource::<Imports>();
-            // While projects are looked for, those picked may be of
-            // the list they replace.
+            // Those picked may be of the list being replaced.
             (
                 world.resource::<Projects>().picked.len(),
                 imports.is_busy() || imports.looking,
@@ -502,7 +533,7 @@ fn page() -> AnyView {
         .when(every_frame()),
         |(picked, busy)| match (*picked, *busy) {
             (_, true) | (0, _) => frame().boxed(),
-            (_, false) => good_action(Glyph::Plus, "Bring in", bring),
+            (_, false) => good_action(Glyph::Plus, "Bring In", bring),
         },
     )
     .within(footed())
@@ -512,7 +543,7 @@ fn page() -> AnyView {
         body,
         vec![
             review(),
-            lettered("From an export file")
+            lettered("From an Export File")
                 .variant(Variant::Text)
                 .on_activate(choose)
                 .boxed(),

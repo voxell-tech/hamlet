@@ -1,5 +1,4 @@
-//! The count of changes to what the panels show, and the checks a
-//! signal reads again by.
+//! The count of changes to what the panels show, and checks on it.
 
 use bevy::app::{App, PreUpdate};
 use bevy::ecs::lifecycle::RemovedComponents;
@@ -12,7 +11,7 @@ use bevy::ecs::world::World;
 use bevy_fynix::{Signal, derived, resource};
 use hamlet_client::realm::{
     Account, Activity, Busy, Bylaws, HamletAgent, HamletId, Lead,
-    Left, Purpose, Treasury, Works,
+    Learned, Left, Purpose, Treasury, Works,
 };
 use hamlet_client::waits::Waiting;
 
@@ -26,6 +25,7 @@ type AgentMoved = (
         Changed<Account>,
         Changed<Activity>,
         Added<Busy>,
+        Added<Learned>,
         Added<Left>,
         Added<Lead>,
     )>,
@@ -44,6 +44,7 @@ type HamletMoved = (
 /// The agents' components whose going changes what is shown.
 type AgentLost<'w, 's> = (
     RemovedComponents<'w, 's, Busy>,
+    RemovedComponents<'w, 's, Learned>,
     RemovedComponents<'w, 's, Left>,
     RemovedComponents<'w, 's, Account>,
     RemovedComponents<'w, 's, HamletAgent>,
@@ -55,8 +56,7 @@ pub(crate) fn plugin(app: &mut App) {
         .add_systems(PreUpdate, turn_roll.in_set(PanelSystems::Bind));
 }
 
-/// Counts the changes to what the panels show, so a panel reads
-/// again only then.
+/// The changes to what the panels show.
 #[derive(Resource, Default, Clone, Copy, PartialEq, Eq, Debug)]
 pub struct Roll {
     /// The agents.
@@ -87,8 +87,7 @@ pub(crate) fn agents_moved()
     }
 }
 
-/// A check that fires when the record, the ledger or the limits of a
-/// hamlet moved, or a hamlet came or went.
+/// A check that fires when a hamlet or its record changed.
 pub(crate) fn hamlets_moved()
 -> impl FnMut(&World) -> bool + Send + Sync + 'static {
     let mut seen = None;
@@ -131,12 +130,20 @@ pub(crate) fn turn_roll(
     agents: Query<(), AgentMoved>,
     hamlets: Query<(), HamletMoved>,
     waits: Query<(), Changed<Waiting>>,
-    (mut idle, mut back, mut closed, mut gone, mut unseated): AgentLost,
+    (
+        mut idle,
+        mut taken_home,
+        mut back,
+        mut closed,
+        mut gone,
+        mut unseated,
+    ): AgentLost,
     mut razed: RemovedComponents<HamletId>,
     mut answered: RemovedComponents<Waiting>,
     mut roll: ResMut<Roll>,
 ) {
     let lost = idle.read().count()
+        + taken_home.read().count()
         + back.read().count()
         + closed.read().count()
         + gone.read().count()

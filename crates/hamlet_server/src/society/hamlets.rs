@@ -19,12 +19,14 @@ use strum::{Display, EnumString, IntoStaticStr};
 
 use super::agents::{self, EndHow};
 use super::city;
-use super::hamlet_agents::{self, NewAgent, ProfileChoice, Spec};
+use super::hamlet_agents::{
+    self, LastDream, NewAgent, ProfileChoice, Spec,
+};
 use super::limits::Limits;
 use super::names::{check_name, new_hamlet_id};
 use super::record::{self, Decision, DecisionKind};
 use super::rejection::Rejection;
-use crate::realm::change::{Change, Done, done, reject};
+use crate::realm::change::{Change, Done, checked, done, reject};
 use crate::realm::jobs::{self, Job};
 
 /// The tiers a hamlet's cap of agents may take.
@@ -97,10 +99,7 @@ pub(crate) fn found(
     cx: &mut Change<'_>,
     founding: Founding,
 ) -> Done<NewAgent> {
-    let name = match check_name(&founding.name) {
-        Ok(name) => name.to_owned(),
-        Err(rejection) => reject!(rejection),
-    };
+    let name = checked!(check_name(&founding.name)).to_owned();
     if founding.purpose.trim().is_empty() {
         reject!(Rejection::NoPurpose);
     }
@@ -205,10 +204,7 @@ pub(crate) fn rename(
     name: &str,
 ) -> Done<()> {
     done!(living(cx.db, id));
-    let name = match check_name(name) {
-        Ok(name) => name,
-        Err(rejection) => reject!(rejection),
-    };
+    let name = checked!(check_name(name));
     diesel::update(hamlet::table.find(id))
         .set(hamlet::name.eq(name))
         .execute(cx.db)?;
@@ -308,6 +304,17 @@ pub(crate) fn set_folder(
     Ok(Ok(()))
 }
 
+/// Rejects `folder` unless it is a folder on this machine.
+pub(crate) fn check_folder(folder: &str) -> Result<(), Rejection> {
+    if std::path::Path::new(folder).is_dir() {
+        Ok(())
+    } else {
+        Err(Rejection::NoFile {
+            path: folder.into(),
+        })
+    }
+}
+
 /// The folders `id` worked on, the latest first.
 pub(crate) fn folders(
     db: &mut Db,
@@ -369,7 +376,8 @@ pub(crate) fn remove(
             cx,
             agent.agent,
             EndHow::Hamlet,
-            reason
+            LastDream::Without,
+            reason,
         ));
     }
     diesel::update(hamlet::table.find(id))
@@ -387,8 +395,7 @@ pub(crate) fn remove(
 }
 
 /// Brings back the removed hamlet `id` with the agents its removal
-/// ended, rejected while any of their profiles has left the city
-/// (H20).
+/// ended (H20).
 pub(crate) fn restore(
     cx: &mut Change<'_>,
     id: &HamletId,

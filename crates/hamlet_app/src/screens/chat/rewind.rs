@@ -1,6 +1,5 @@
-//! The way back in a conversation: the mark on one of the chief's
-//! own messages that takes the conversation back to it, and the
-//! message's words put in the field to be changed and sent again.
+//! The mark on the chief's message that rewinds the conversation to
+//! it.
 
 use bevy::app::App;
 use bevy::camera::visibility::Visibility;
@@ -20,8 +19,9 @@ use bevy::ui::{
 };
 use bevy_fynix::views::{BehaviorExt, FrameProps, button, column};
 use bevy_fynix::{Signal, Visual, resource};
-use hamlet_client::chats::{Chat, Status};
-use hamlet_client::messages::Rewound;
+use hamlet_client::chats::Status;
+use hamlet_client::messages::{Rewound, Withdraw};
+use hamlet_client::outbox::RequestId;
 use hamlet_ui::styles::{ICON, Looks, Tipped};
 use hamlet_ui::widgets::effects::Variant;
 use hamlet_ui::widgets::icons::{Glyph, glyph};
@@ -30,15 +30,9 @@ use hamlet_ui::{Cx, View, built};
 use super::attach::Attached;
 use super::bubble::Bubble;
 use super::field::set;
-use super::reply::{Replying, unreplied};
+use super::reply::{AROUND, Replying, show_marks, unreplied};
 use crate::convo::Convo;
 use crate::world_menu::{self, Action, Open};
-
-/// The room of a mark about its picture, and the room it takes
-/// beside its message.
-const AROUND: f32 = 4.0;
-
-pub(super) const ROOM: f32 = ICON + AROUND * 3.0;
 
 pub(super) fn plugin(app: &mut App) {
     app.add_observer(reveal).add_observer(retype);
@@ -50,10 +44,8 @@ const FORGOTTEN: f32 = 0.4;
 /// A rewindable chat row, ordered by its message time.
 #[derive(Component, Clone, PartialEq, Eq, Debug)]
 pub struct Rewinds {
-    pub session: Entity,
-    /// The row's message.
+    pub chat: Entity,
     pub entry: String,
-    /// The time of the row's message.
     pub at: u64,
 }
 
@@ -61,15 +53,14 @@ pub struct Rewinds {
 #[derive(Component)]
 struct Mark;
 
-/// The mark beside the message `entry` of `session`, out of sight
-/// until the pointer is on its row. It asks before it acts.
-pub(super) fn mark(session: Entity, entry: String) -> impl View {
+/// The mark beside message `entry` of `chat`, shown on hover.
+pub(super) fn mark(chat: Entity, entry: String) -> impl View {
     built(move |cx| {
         let back = button(glyph(Glyph::Restore, ICON))
             .padding(UiRect::all(px(AROUND)))
             .tip("Rewind to here")
             .variant(Variant::Text)
-            .on_activate(move |world| ask(world, session, &entry));
+            .on_activate(move |world| ask(world, chat, &entry));
         let node = cx.build(
             column((back,))
                 .justify(JustifyContent::Center)
@@ -82,13 +73,31 @@ pub(super) fn mark(session: Entity, entry: String) -> impl View {
     })
 }
 
-/// Asks before the conversation `session` is taken back to its
-/// message `entry`, against that message's bubble.
-pub fn ask(world: &mut World, session: Entity, entry: &str) {
+/// The cross that withdraws the queued line `entry` of `chat`.
+pub(super) fn withdraw(chat: Entity, entry: String) -> impl View {
+    let back = button(glyph(Glyph::Cross, ICON))
+        .padding(UiRect::all(px(AROUND)))
+        .tip("Take back")
+        .variant(Variant::Text)
+        .on_activate(move |world| {
+            world.trigger(Withdraw {
+                chat,
+                request: RequestId::new(),
+                item: entry.clone(),
+            });
+        });
+    column((back,))
+        .justify(JustifyContent::Center)
+        .padding(UiRect::right(px(AROUND)))
+        .shrink(0.0)
+}
+
+/// Asks before `chat` is rewound to its message `entry`.
+pub fn ask(world: &mut World, chat: Entity, entry: &str) {
     let mut rows = world.query::<(Entity, &Rewinds)>();
     let Some((row, at)) = rows
         .iter(world)
-        .find(|(_, row)| row.session == session && row.entry == entry)
+        .find(|(_, row)| row.chat == chat && row.entry == entry)
         .map(|(row, rewinds)| (row, rewinds.at))
     else {
         return;
@@ -109,40 +118,34 @@ pub fn ask(world: &mut World, session: Entity, entry: &str) {
         })
         .unwrap_or_default();
     let action = Action::Rewind {
-        session,
+        chat,
         entry: entry.to_string(),
         at,
     };
     world_menu::ask_against(world, action, anchor);
 }
 
-/// The message of `session` a rewind is asked about, and when it was
-/// said.
-fn asked(open: &Open, session: Entity) -> Option<(&str, u64)> {
+/// The message of `chat` a rewind is asked about, and its time.
+fn asked(open: &Open, chat: Entity) -> Option<(&str, u64)> {
     match open {
         Open::Question(
             Action::Rewind {
-                session: of,
+                chat: of,
                 entry,
                 at,
             },
             _,
-        ) if *of == session => Some((entry.as_str(), *at)),
+        ) if *of == chat => Some((entry.as_str(), *at)),
         _ => None,
     }
 }
 
-/// Rules that fade a row of `session` said at `at` while a rewind
-/// that would forget it is asked about. The message asked about is
-/// kept clear, as what the question is against.
-pub(super) fn fading(
-    session: Entity,
-    at: u64,
-) -> impl FnOnce(&mut Cx) {
+/// Fades a row said at `at` while a rewind past it is asked about.
+pub(super) fn fading(chat: Entity, at: u64) -> impl FnOnce(&mut Cx) {
     move |cx| {
         cx.set::<Visual>(move |visual, _| {
             visual.opacity(resource::<Open, _>(
-                move |open| match asked(open, session) {
+                move |open| match asked(open, chat) {
                     Some((_, from)) if at > from => FORGOTTEN,
                     _ => 1.0,
                 },
@@ -151,17 +154,16 @@ pub(super) fn fading(
     }
 }
 
-/// Rules that hide the marks of the message `entry` of `session`
-/// while a rewind to it is asked about.
+/// Hides `entry`'s marks while a rewind to it is asked about.
 pub(super) fn hiding(
-    session: Entity,
+    chat: Entity,
     entry: String,
 ) -> impl FnOnce(&mut Cx) {
     move |cx| {
         cx.set::<Visual>(move |visual, _| {
             let entry = entry.clone();
             visual.opacity(resource::<Open, _>(
-                move |open| match asked(open, session) {
+                move |open| match asked(open, chat) {
                     Some((of, _)) if of == entry => 0.0,
                     _ => 1.0,
                 },
@@ -170,26 +172,24 @@ pub(super) fn hiding(
     }
 }
 
-/// `ring` while a rewind to the message `entry` of `session` is asked
-/// about, else `rest`.
+/// `ring` while a rewind to `entry` is asked about, else `rest`.
 pub(super) fn ringed(
-    session: Entity,
+    chat: Entity,
     entry: String,
     rest: Color,
     ring: Color,
 ) -> Signal<Color> {
-    resource::<Open, _>(move |open| match asked(open, session) {
+    resource::<Open, _>(move |open| match asked(open, chat) {
         Some((of, _)) if of == entry => ring,
         _ => rest,
     })
 }
 
-/// Shows the mark of a row while the pointer is on the row and no
-/// turn runs in its conversation.
+/// Shows a row's mark on hover while no turn runs.
 fn reveal(
     hover: On<Insert<Hovered>>,
     rows: Query<(&Hovered, &Rewinds)>,
-    sessions: Query<(&Status, Option<&Chat>)>,
+    chats: Query<&Status>,
     under: Query<&Children>,
     mut marks: Query<&mut Visibility, With<Mark>>,
 ) {
@@ -198,26 +198,11 @@ fn reveal(
         return;
     };
     let working =
-        sessions.get(rewinds.session).is_ok_and(|(status, chat)| {
-            status.is_working()
-                || chat.is_some_and(|chat| chat.0.past.is_some())
-        });
-    let want = match hovered.get() && !working {
-        true => Visibility::Inherited,
-        false => Visibility::Hidden,
-    };
-    for node in under.iter_descendants(row) {
-        if let Ok(mut shown) = marks.get_mut(node)
-            && *shown != want
-        {
-            *shown = want;
-        }
-    }
+        chats.get(rewinds.chat).is_ok_and(Status::is_working);
+    show_marks(row, hovered.get() && !working, &under, &mut marks);
 }
 
-/// Puts the words of the message the open conversation was taken
-/// back to in the field, with the caret at their end, and what it
-/// replied to over the field.
+/// Puts the rewound message's words in the field.
 fn retype(
     rewound: On<Rewound>,
     convo: Res<Convo>,
@@ -225,13 +210,13 @@ fn retype(
     mut attached: ResMut<Attached>,
     mut commands: Commands,
 ) {
-    if rewound.event().chat != convo.session {
+    if rewound.event().chat != convo.chat {
         return;
     }
     let text = &rewound.event().text;
     let (answers, words) = match unreplied(text) {
         Some((answers, words)) => {
-            (Some((convo.session, answers)), words)
+            (Some((convo.chat, answers)), words)
         }
         None => (None, text.as_str()),
     };

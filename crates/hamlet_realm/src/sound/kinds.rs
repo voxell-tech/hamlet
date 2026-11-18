@@ -6,8 +6,6 @@ use crate::play::Play;
 /// A kind of sound, with a volume and a limit of its own.
 #[derive(Clone, Copy, PartialEq, Eq, Hash, Debug)]
 pub enum Family {
-    /// The animals: birds and owls.
-    Wildlife,
     /// The environment: wind.
     Ambience,
     Steps,
@@ -36,7 +34,6 @@ impl Family {
     /// Its volume, before the master volume.
     pub fn volume(self, set: &SoundSettings) -> f32 {
         match self {
-            Self::Wildlife => set.wildlife,
             Self::Ambience => set.ambience,
             Self::Steps => set.steps,
             Self::Work => set.work,
@@ -52,12 +49,12 @@ impl Family {
     }
 
     /// Number of it that play at once and the least time before one
-    /// repeats. The wildlife and the ambience have no limit: their
-    /// loops are started once.
+    /// repeats. The ambience has no limit: its loops are started
+    /// once.
     pub(super) fn limit(self, set: &SoundSettings) -> Limit {
         let limits = &set.limits;
         match self {
-            Self::Wildlife | Self::Ambience => Limit {
+            Self::Ambience => Limit {
                 most: usize::MAX,
                 gap: 0.0,
             },
@@ -111,8 +108,6 @@ pub enum Sound {
     Fault,
     /// A letter or a page changing hands.
     Letter,
-    Birds,
-    Owl,
     Wind,
     /// The pointer coming onto a button.
     Tick,
@@ -200,7 +195,7 @@ pub enum Sound {
 }
 
 impl Sound {
-    pub const ALL: [Self; 67] = [
+    pub const ALL: [Self; 65] = [
         Self::Step,
         Self::RoadStep,
         Self::Hammer,
@@ -212,8 +207,6 @@ impl Sound {
         Self::Chime,
         Self::Fault,
         Self::Letter,
-        Self::Birds,
-        Self::Owl,
         Self::Wind,
         Self::Tick,
         Self::Tap,
@@ -272,7 +265,6 @@ impl Sound {
 
     pub fn family(self) -> Family {
         match self {
-            Self::Birds | Self::Owl => Family::Wildlife,
             Self::Wind => Family::Ambience,
             Self::Step | Self::RoadStep => Family::Steps,
             Self::Hammer
@@ -336,9 +328,9 @@ impl Sound {
         }
     }
 
-    /// True when it is a loop of the wildlife or the ambience.
+    /// True when it is a loop of the ambience.
     pub fn is_ambient(self) -> bool {
-        matches!(self.family(), Family::Wildlife | Family::Ambience)
+        self.family() == Family::Ambience
     }
 
     /// True when it asks for the chief's attention.
@@ -392,8 +384,6 @@ impl Sound {
             | Self::Kite
             | Self::Door
             | Self::Letter
-            | Self::Birds
-            | Self::Owl
             | Self::Wind
             | Self::Tap
             | Self::Menu
@@ -438,8 +428,6 @@ impl Sound {
             Self::Chime => "chime",
             Self::Fault => "fault",
             Self::Letter => "letter",
-            Self::Birds => "birds",
-            Self::Owl => "owl",
             Self::Wind => "wind",
             Self::Tick => "tick",
             Self::Tap => "tap",

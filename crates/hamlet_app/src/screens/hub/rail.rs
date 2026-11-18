@@ -1,18 +1,19 @@
-//! The Hub's rail: the realm as its chain of command. The realm and
-//! the Hand first, then what waits for the chief, then each hamlet as
-//! the tree of its agents under its lead, then the city's profiles,
-//! the library and those that left. A row keeps its place as its
-//! agent works and rests; only its mark changes.
+//! The Hub's rail: the realm as its chain of command.
 
-use bevy::app::{App, Update};
+use std::collections::{HashMap, HashSet};
+
+use bevy::app::{App, PostUpdate, Update};
 use bevy::color::Color;
+use bevy::ecs::change_detection::{DetectChanges, DetectChangesMut};
 use bevy::ecs::component::Component;
 use bevy::ecs::entity::Entity;
 use bevy::ecs::hierarchy::{ChildOf, Children};
+use bevy::ecs::lifecycle::RemovedComponents;
 use bevy::ecs::observer::On;
-use bevy::ecs::query::{Has, With};
+use bevy::ecs::query::{Changed, Has, With};
 use bevy::ecs::resource::Resource;
-use bevy::ecs::system::{Query, ResMut};
+use bevy::ecs::schedule::IntoScheduleConfigs;
+use bevy::ecs::system::{Commands, Query, Res, ResMut};
 use bevy::ecs::world::World;
 use bevy::picking::events::{
     PointerDrag, PointerDragEnd, PointerDragStart,
@@ -20,30 +21,32 @@ use bevy::picking::events::{
 use bevy::text::EditableText;
 use bevy::ui::{
     AlignItems, ComputedNode, Display, JustifyContent, Overflow,
-    PositionType, UiGlobalTransform, UiRect, Val, percent, px,
+    PositionType, ScrollPosition, UiGlobalTransform, UiRect,
+    UiSystems, Val, percent, px,
 };
 use bevy::window::SystemCursorIcon;
+use bevy_fynix::scroll::ScrollGoal;
 use bevy_fynix::tokens::{MotionTokens, SurfaceTokens, Tone};
 use bevy_fynix::views::{
     self, Axis, BehaviorExt, FrameProps, TooltipExt, button, column,
     frame, label, row, text_field,
 };
 use bevy_fynix::{
-    Dragging, OverrideCursor, ScopedExt, ViewExt, derived,
-    every_frame, keyed, resource, style,
+    Dragging, FynixSystems, OverrideCursor, ScopedExt, ViewExt,
+    derived, each, every_frame, keyed, resource, style,
 };
 use hamlet_client::chats::{Entry, Transcript};
 use hamlet_client::realm::{
     Activity, Busy, HamletId, Identity, Kind, Lead, Left, Lived,
-    LivesIn, MergedInto, Parent, Profile, Purpose, Shown, Skills,
-    name_of, shown_of,
+    LivesIn, MergedInto, Parent, Profile, Purpose, Seen, Shown,
+    Skills, name_of, shown_of,
 };
 use hamlet_client::waits::Waiting;
 use hamlet_protocol::client as protocol;
 use hamlet_realm::pick::{Selected, Thing, bring_into_view, select};
 use hamlet_ui::styles::{
-    ICON, STATUS_PAD, description_rules, note, note_rules, quoted,
-    scroll_area, status_icon_at, text_input, transparent,
+    ICON, STATUS_PAD, note, note_rules, scroll_area, status_icon_at,
+    text_input, transparent,
 };
 use hamlet_ui::theme::HamletTheme;
 use hamlet_ui::widgets::effects::{Edge, Variant, Wash};
@@ -56,14 +59,14 @@ use hamlet_ui::{AnyView, Cx, View, with_cx};
 
 use super::{Showing, show};
 use crate::age::Age;
+use crate::clock::now_ms;
 use crate::convo::{Convo, talk_to, talk_to_hand};
+use crate::profile_tag::{self, ProfileTag};
 use crate::standing::{Standing, need_you};
-use crate::status::now_ms;
 use crate::words;
 use crate::world_menu::Asks;
 
-/// The width of the rail at first, the least it is dragged to, so a
-/// row keeps its name, and the most.
+/// The width of the rail at first, the least and the most.
 const WIDE: f32 = 248.0;
 const NARROWEST: f32 = 200.0;
 const WIDEST: f32 = 520.0;
@@ -73,36 +76,26 @@ const PAGE: f32 = 280.0;
 /// The most that left a rail shows.
 const LEFT_SHOWN: usize = 6;
 
-/// The most letters of a line a row holds; the rail's width cuts it
-/// shorter.
+/// The most letters of the words a row's tooltip quotes.
 const LINE_SHOWN: usize = 90;
 
-/// The most letters of a row's second line, which wraps rather than
-/// being cut at the rail's edge.
-const TITLE_SHOWN: usize = 56;
+/// The longest name a row's tooltip leaves out.
+const NAME_IN_TIP: usize = 24;
 
-/// The least height of a row, so that a row of one line is as easy
-/// to press as one of two.
-const ROW: f32 = 32.0;
+/// The least height of a row.
+const ROW: f32 = 28.0;
 
-/// The height of a worker's row and the side of its icon, smaller
-/// than an agent's, so the agents stand out of their workers.
-const WORKER_ROW: f32 = 26.0;
+/// The height of a worker's row and the side of its icon.
+const WORKER_ROW: f32 = 24.0;
 const WORKER_ICON: f32 = 12.0;
 
 /// How opaque the icon of one that left is.
 const DIMMED: f32 = 0.6;
 
-/// The least height of `line`'s row.
-fn row_height(line: &Line) -> f32 {
-    if line.worker { WORKER_ROW } else { ROW }
-}
-
 /// The column at the rail's edge that holds every chevron.
 const CHEVRON: f32 = 14.0;
 
-/// How far each step down a tree is set in: a chevron's room and a
-/// little more, so a guide under a chevron leads to the next one.
+/// How far each step down a tree is set in.
 const STEP_IN: f32 = 18.0;
 
 /// The deepest a row is set in; deeper rows line up with it.
@@ -118,84 +111,246 @@ const ROW_DOWN: f32 = 6.0;
 /// The room over a section's header inside its block.
 const BLOCK_PAD: f32 = 4.0;
 
-/// The space over each part of the rail: what waits, the tabs and
-/// each hamlet, so that the parts stand apart and evenly.
+/// The space over each part of the rail.
 const PART_GAP: f32 = 16.0;
 
-/// The space over the first part under the tabs, less than
-/// [`PART_GAP`] by what the search row already leaves under it.
+/// The space over the first part under the search row.
 const UNDER_SEARCH: f32 = 12.0;
+
+/// The frames a row asked to be brought into view is waited for.
+const REVEAL_FRAMES: u8 = 10;
 
 pub(super) fn plugin(app: &mut App) {
     app.init_resource::<Rail>()
+        .init_resource::<Width>()
         .init_resource::<Tab>()
+        .init_resource::<Reveal>()
+        .init_resource::<Parts>()
+        .init_resource::<Minute>()
         .add_observer(grab)
         .add_observer(drag)
         .add_observer(drop)
-        .add_systems(Update, (read_search, tabs::mark::<Tab>));
+        .add_systems(Update, (read_search, tabs::mark::<Tab>, tick))
+        .add_systems(
+            Update,
+            gather
+                .run_if(is_stale)
+                .after(read_search)
+                .before(FynixSystems::Mount),
+        )
+        .add_systems(PostUpdate, reveal.after(UiSystems::Layout));
 }
 
-/// The rail's search, what is folded, and its width.
-#[derive(Resource, PartialEq)]
+/// The minute since 1970 the rows' ages are read at.
+#[derive(Resource, Default, PartialEq)]
+struct Minute(u64);
+
+fn tick(mut minute: ResMut<Minute>) {
+    minute.set_if_neq(Minute(now_ms() / 60_000));
+}
+
+/// The row to bring into view and the frames left to wait for it.
+#[derive(Resource, Default)]
+struct Reveal(Option<(Target, u8)>);
+
+/// What a row or header of the rail leads to.
+#[derive(Component, Clone, Copy)]
+struct RailRow(Target);
+
+/// Turns the rail to `thing`'s row and brings it into view.
+pub(super) fn follow(world: &mut World, thing: Thing) {
+    let Some(target) = target_of(world, thing) else {
+        return;
+    };
+    let tab = match target {
+        Target::Agent(_) | Target::Gone(_) | Target::Hamlet(_) => {
+            Some(Tab::Hamlets)
+        }
+        Target::Profile(_) => Some(Tab::City),
+        Target::Realm
+        | Target::Hand
+        | Target::Library
+        | Target::Fold(_) => None,
+    };
+    if let Some(tab) = tab
+        && let Some(mut now) = world.get_resource_mut::<Tab>()
+        && *now != tab
+    {
+        *now = tab;
+    }
+    if let Target::Agent(agent) = target {
+        open_over(world, agent);
+    }
+    let holds = |section: &Section| {
+        section.opens == Some(target)
+            || section.lines.iter().any(|line| line.target == target)
+    };
+    let shut = sections(world)
+        .into_iter()
+        .find(|section| section.folded && holds(section))
+        .map(|section| section.group);
+    if let Some(group) = shut {
+        world.resource_mut::<Rail>().open(group);
+    }
+    world.resource_mut::<Reveal>().0 = Some((target, REVEAL_FRAMES));
+}
+
+fn target_of(world: &World, thing: Thing) -> Option<Target> {
+    let agent = |agent: Entity| match world
+        .get::<Kind>(agent)
+        .map(|kind| kind.0)
+    {
+        Some(protocol::AgentKind::Hand) => Target::Hand,
+        _ => Target::Agent(agent),
+    };
+    Some(match thing {
+        Thing::Agent(one) | Thing::House(one) => agent(one),
+        Thing::Keeper | Thing::Cottage => {
+            agent(hamlet_client::realm::first_lead(world)?)
+        }
+        Thing::Hand => Target::Hand,
+        Thing::Common(hamlet) => Target::Hamlet(hamlet),
+        Thing::Profile(profile) => Target::Profile(profile),
+        Thing::Ruin(agent) => Target::Gone(agent),
+        Thing::Library => Target::Library,
+        _ => return None,
+    })
+}
+
+/// Opens the folds `agent` is under.
+fn open_over(world: &mut World, agent: Entity) {
+    let mut over = Vec::new();
+    let mut child = agent;
+    while let Some(parent) = world
+        .get::<Parent>(child)
+        .and_then(|parent| {
+            hamlet_client::realm::agent(world, parent.0)
+        })
+        .filter(|parent| !over.iter().any(|(at, _)| at == parent))
+    {
+        let worker = world.get::<Kind>(child).map(|kind| kind.0)
+            == Some(protocol::AgentKind::Worker);
+        over.push((parent, worker));
+        child = parent;
+    }
+    let mut rail = world.resource_mut::<Rail>();
+    for (parent, worker) in over {
+        rail.open(match worker {
+            true => Group::Workers(parent),
+            false => Group::Parent(parent),
+        });
+    }
+}
+
+/// Scrolls the rail just enough to show the row asked for.
+fn reveal(
+    mut asked: ResMut<Reveal>,
+    rows: Query<(
+        Entity,
+        &RailRow,
+        &ComputedNode,
+        &UiGlobalTransform,
+    )>,
+    parents: Query<&ChildOf>,
+    mut areas: Query<(
+        &ComputedNode,
+        &UiGlobalTransform,
+        &mut ScrollPosition,
+        &mut ScrollGoal,
+    )>,
+) {
+    let Some((target, left)) = asked.0 else {
+        return;
+    };
+    let laid = rows.iter().find(|(_, row, node, _)| {
+        row.0 == target && node.size().y > 0.0
+    });
+    let Some((row, _, node, place)) = laid else {
+        asked.0 = left.checked_sub(1).map(|left| (target, left));
+        return;
+    };
+    asked.0 = None;
+    let Some((area, at, mut scroll, mut goal)) = parents
+        .iter_ancestors(row)
+        .find(|up| areas.contains(*up))
+        .and_then(|up| areas.get_mut(up).ok())
+    else {
+        return;
+    };
+    let top = |node: &ComputedNode, at: &UiGlobalTransform| {
+        at.translation.y - node.size().y / 2.0
+    };
+    let (row_top, area_top) = (top(node, place), top(area, at));
+    let (row_end, area_end) =
+        (row_top + node.size().y, area_top + area.size().y);
+    let shift = if row_top < area_top {
+        row_top - area_top
+    } else if row_end > area_end {
+        (row_end - area_end).min(row_top - area_top)
+    } else {
+        return;
+    };
+    *goal = ScrollGoal::default();
+    scroll.y =
+        (scroll.y + shift * area.inverse_scale_factor()).max(0.0);
+}
+
+/// The rail's search and folds.
+#[derive(Resource, PartialEq, Default)]
 pub struct Rail {
     search: String,
-    /// The parts folded to their header. A hamlet with something
-    /// waiting opens whatever this says.
     folded: Vec<Group>,
-    /// The groups of workers opened; each is folded until it is.
     opened: Vec<Group>,
-    /// How wide the chief dragged it.
-    width: f32,
-    /// The hamlets left out of it; one with something waiting is
-    /// shown whatever this says.
     hidden: Vec<Entity>,
     /// Whether the list of hamlets to show is open.
     filtering: bool,
 }
 
-/// The part of the realm the rail lists under the realm's own rows
-/// and what waits, one at a time.
+/// How wide the chief dragged the rail.
+#[derive(Resource)]
+struct Width(f32);
+
+impl Default for Width {
+    fn default() -> Self {
+        Self(WIDE)
+    }
+}
+
+/// The part of the realm the rail lists under the tabs.
 #[derive(Resource, Clone, Copy, PartialEq, Eq, Debug, Default)]
 pub enum Tab {
-    /// The hamlets, each the tree under its lead, and the agents
-    /// that left.
     #[default]
     Hamlets,
-    /// The profiles, those at the harbor and those that left.
     City,
 }
 
-impl Default for Rail {
-    fn default() -> Self {
-        Self {
-            search: String::new(),
-            folded: Vec::new(),
-            opened: Vec::new(),
-            width: WIDE,
-            hidden: Vec::new(),
-            filtering: false,
-        }
-    }
+/// Whether `group` starts folded, kept in `opened` once opened.
+fn starts_folded(group: Group) -> bool {
+    matches!(group, Group::Workers(_) | Group::Left)
 }
 
 impl Rail {
-    /// Shows the rail's rows at its first width.
-    pub fn show_rows(&mut self) {
-        self.width = WIDE;
-    }
-
-    /// Folds `group` to its header, or opens it.
     fn toggle(&mut self, group: Group) {
-        // Workers are kept in what is opened, as they start folded.
-        let kept = match group {
-            Group::Workers(_) => &mut self.opened,
-            _ => &mut self.folded,
+        let kept = match starts_folded(group) {
+            true => &mut self.opened,
+            false => &mut self.folded,
         };
         match kept.iter().position(|g| *g == group) {
             Some(at) => {
                 kept.remove(at);
             }
             None => kept.push(group),
+        }
+    }
+
+    /// Opens `group` if it is folded.
+    fn open(&mut self, group: Group) {
+        if starts_folded(group) {
+            if !self.opened.contains(&group) {
+                self.opened.push(group);
+            }
+        } else {
+            self.folded.retain(|folded| *folded != group);
         }
     }
 }
@@ -208,12 +363,9 @@ pub(super) struct Frame;
 #[derive(Component)]
 pub(super) struct Divider;
 
-/// The rail itself, as laid out.
 #[derive(Component)]
 struct Body;
 
-/// The line between the rail and the page: dragged, it sizes the
-/// rail, between [`NARROWEST`] and [`WIDEST`].
 pub(super) fn divider() -> impl View {
     views::divider(Axis::Vertical)
         .rules(revealed_line)
@@ -242,9 +394,7 @@ fn grab(
     }
 }
 
-/// Sizes the rail so that the line is where the pointer is, however
-/// fast it moves. Every desk has a Hub of its own, so the rail
-/// measured is the one beside the line dragged.
+/// Sizes the rail so the dragged line is at the pointer.
 fn drag(
     drag: On<PointerDrag>,
     dividers: Query<&UiGlobalTransform, With<Divider>>,
@@ -252,7 +402,7 @@ fn drag(
     bodies: Query<(&ComputedNode, &UiGlobalTransform), With<Body>>,
     parents: Query<&ChildOf>,
     children: Query<&Children>,
-    mut rail: ResMut<Rail>,
+    mut width: ResMut<Width>,
 ) {
     let Ok(line) = dividers.get(drag.entity) else {
         return;
@@ -281,7 +431,7 @@ fn drag(
     let past = (line.translation.x - edge) * scale;
     let most =
         (node.size().x * scale - PAGE).clamp(NARROWEST, WIDEST);
-    rail.width = (at.x - left - past).clamp(NARROWEST, most);
+    width.0 = (at.x - left - past).clamp(NARROWEST, most);
 }
 
 fn drop(
@@ -324,8 +474,7 @@ pub(super) enum Group {
     Hamlet(Entity),
     /// The agents under a parent, which fold into its row.
     Parent(Entity),
-    /// The workers an agent started, or those a chief started in a
-    /// hamlet, which fold into one row.
+    /// The workers an agent or a chief started, folded into one row.
     Workers(Entity),
     City,
     /// Newcomers waiting to be let in, and those turned away.
@@ -343,13 +492,11 @@ pub(super) enum Target {
     Profile(Entity),
     Library,
     Gone(Entity),
-    /// The group it is folded or opened.
     Fold(Group),
 }
 
 impl Target {
-    /// The thing whose menu a right click on its row opens, as in the
-    /// world.
+    /// The thing whose menu a right click on its row opens.
     fn thing(self) -> Option<Thing> {
         match self {
             Target::Hand => Some(Thing::Hand),
@@ -369,28 +516,28 @@ pub(super) struct Line {
     pub target: Target,
     pub glyph: Glyph,
     pub name: String,
-    pub title: String,
-    /// When what its age counts from happened, in milliseconds; 0
-    /// for none. The age is worked out as it is drawn, so the rows
-    /// are not built anew each minute.
+    /// The profile of the city its agent is of.
+    pub tag: Option<ProfileTag>,
+    /// What its tooltip says beside what it is.
+    pub detail: String,
+    /// When its age counts from, in milliseconds; 0 for none.
     pub since: u64,
     pub mark: Option<Standing>,
     /// What the search also finds it by: its address.
     pub address: String,
-    /// How far under another agent it is set in.
+    /// How far under another agent it is set in. The lead's agents
+    /// are set in as far as the lead.
     pub depth: u8,
+    /// How many agents it is under, which folds go by.
+    pub level: u8,
     /// Whether no row after it is set in under the same agent.
     pub last: bool,
-    /// For each level between the top and its own, whether the guide
-    /// of the agent there carries on past this row.
+    /// For each level above, whether its guide runs past this row.
     pub rails: Vec<bool>,
     pub current: bool,
-    /// For a parent: the fold of the rows under it, and whether it
-    /// is folded.
+    /// For a parent, the fold of the rows under it.
     pub fold: Option<(Group, bool)>,
-    /// Whether it is a worker's, or the row its group folds into:
-    /// one short line, lighter than an agent's, so the agents stand
-    /// out of their workers.
+    /// Whether it is a worker's, or its group's.
     pub worker: bool,
 }
 
@@ -419,16 +566,16 @@ struct Agent {
     hamlet: Option<Entity>,
     lead: bool,
     mark: Option<Standing>,
-    /// Its address, and what it goes by: its name, or its profile's
-    /// name.
+    /// Its address, and its name or its profile's name.
     address: String,
     called: String,
-    title: String,
+    tag: Option<ProfileTag>,
+    /// What it is doing, while it works.
+    doing: String,
     since: u64,
 }
 
-/// How long ago `then` was at `now`, short, or nothing for a time
-/// never set.
+/// How long ago `then` was at `now`, short.
 fn age(now: u64, then: u64) -> String {
     if then == 0 {
         return String::new();
@@ -442,18 +589,12 @@ fn first_line(text: &str, most: usize) -> String {
     cut(line.unwrap_or(""), most)
 }
 
-/// The last thing the chief said to the agent, and when the chat
-/// was last added to.
+/// The chief's last words to the agent and its chat's last change.
 fn thread(
     world: &World,
     id: protocol::AgentId,
 ) -> (Option<String>, u64) {
-    let reference = protocol::ChatRef {
-        kind: None,
-        from: None,
-        with: id,
-        past: None,
-    };
+    let reference = protocol::ChatRef { with: id };
     let Some(chat) = hamlet_client::chats::find(world, &reference)
     else {
         return (None, 0);
@@ -474,16 +615,12 @@ fn thread(
     (said, items.last().map_or(0, |item| item.at))
 }
 
-/// What an agent with `address` is called in the rail: what it is
-/// shown by, else its address.
+/// What an agent with `address` is called in the rail.
 fn called(address: &str, shown: Option<&Shown>) -> String {
     shown.map_or_else(|| address.to_string(), |shown| shown.0.clone())
 }
 
-/// What an agent's row says under its name: its work while it works,
-/// else the chief's last words to it, else what it was asked, and
-/// nothing where its mark already says the same. Then when its chat
-/// was last added to.
+/// The line under an agent's name and its chat's last change.
 pub(crate) fn under_name(
     world: &World,
     agent: Entity,
@@ -514,6 +651,18 @@ pub(crate) fn under_name(
 }
 
 fn agents(world: &World) -> Vec<Agent> {
+    // How many waits each address raised, counted once for every row.
+    let mut raised = HashMap::<&str, usize>::new();
+    if let Some(mut waits) = world.try_query::<&Waiting>() {
+        for wait in waits.iter(world) {
+            if !matches!(
+                wait.detail,
+                protocol::WaitDetail::Newcomer { .. }
+            ) {
+                *raised.entry(wait.by.as_str()).or_default() += 1;
+            }
+        }
+    }
     let Some(mut query) = world.try_query::<(
         Entity,
         &Identity,
@@ -541,7 +690,14 @@ fn agents(world: &World) -> Vec<Agent> {
                 (lead, _),
             )| {
                 let address = name_of(world, entity);
-                let (title, last) = under_name(world, entity);
+                let last = world
+                    .get::<Identity>(entity)
+                    .map_or(0, |id| thread(world, id.0).1);
+                let doing = world
+                    .get::<Busy>(entity)
+                    .and_then(|_| world.get::<Activity>(entity))
+                    .map(|activity| activity.words.clone())
+                    .unwrap_or_default();
                 Agent {
                     entity,
                     id: id.0,
@@ -549,10 +705,18 @@ fn agents(world: &World) -> Vec<Agent> {
                     parent: parent.map(|parent| parent.0),
                     hamlet: lives.map(|lives| lives.0),
                     lead,
-                    mark: Some(Standing::of(world, entity)),
+                    mark: Some(Standing::raised(
+                        world,
+                        entity,
+                        raised
+                            .get(address.as_str())
+                            .copied()
+                            .unwrap_or(0),
+                    )),
                     called: called(&address, shown),
                     address,
-                    title,
+                    tag: ProfileTag::of(world, entity),
+                    doing,
                     since: last.max(lived.since),
                 }
             },
@@ -560,8 +724,7 @@ fn agents(world: &World) -> Vec<Agent> {
         .collect()
 }
 
-/// A place in a tree: an agent, or the workers one started, which
-/// fold into a row of their own under the agents beside them.
+/// A place in a tree: an agent, or the workers one started.
 enum Node<'a> {
     Agent(&'a Agent),
     Workers {
@@ -576,100 +739,129 @@ impl Agent {
     }
 }
 
-/// `root` and everyone under it among `all`, each with its depth
-/// below `root`: agents by name, then the workers each agent started
-/// in a group under it.
+/// The agents and the workers under each agent, by name.
+type Under<'a> =
+    HashMap<protocol::AgentId, (Vec<&'a Agent>, Vec<&'a Agent>)>;
+
+/// Who is under each of `some`, among `some`.
+fn under<'a>(some: &[&'a Agent]) -> Under<'a> {
+    let mut under = Under::new();
+    for agent in some {
+        let Some(parent) = agent.parent else {
+            continue;
+        };
+        let (agents, workers) = under.entry(parent).or_default();
+        match agent.is_worker() {
+            true => workers.push(*agent),
+            false => agents.push(*agent),
+        }
+    }
+    for (agents, workers) in under.values_mut() {
+        agents
+            .sort_by_cached_key(|agent| agent.called.to_lowercase());
+        workers
+            .sort_by_cached_key(|agent| agent.called.to_lowercase());
+    }
+    under
+}
+
+/// `root` and everyone `under` it, each with its depth below `root`.
 fn tree<'a>(
     root: &'a Agent,
-    all: &[&'a Agent],
+    under: &Under<'a>,
 ) -> Vec<(Node<'a>, u8)> {
     fn walk<'a>(
         agent: &'a Agent,
-        all: &[&'a Agent],
+        under: &Under<'a>,
         depth: u8,
-        seen: &mut Vec<protocol::AgentId>,
+        seen: &mut HashSet<protocol::AgentId>,
         out: &mut Vec<(Node<'a>, u8)>,
     ) {
-        if seen.contains(&agent.id) {
+        if !seen.insert(agent.id) {
             return;
         }
-        seen.push(agent.id);
         out.push((Node::Agent(agent), depth));
-        let mut under = all
-            .iter()
-            .copied()
-            .filter(|other| other.parent == Some(agent.id))
-            .collect::<Vec<_>>();
-        under.sort_by_key(|other| other.called.to_lowercase());
-        let (workers, agents): (Vec<_>, Vec<_>) =
-            under.into_iter().partition(|other| other.is_worker());
+        let Some((agents, workers)) = under.get(&agent.id) else {
+            return;
+        };
         let depth = depth.saturating_add(1);
         for child in agents {
-            walk(child, all, depth, seen, out);
+            walk(child, under, depth, seen, out);
         }
         if !workers.is_empty() {
             let group = Group::Workers(agent.entity);
+            let workers = workers.clone();
             out.push((Node::Workers { group, workers }, depth));
         }
     }
     let mut out = Vec::new();
-    walk(root, all, 0, &mut Vec::new(), &mut out);
+    walk(root, under, 0, &mut HashSet::new(), &mut out);
     out
 }
 
-/// The rows of `family`, each set in as deep as it is in the tree,
-/// knowing whether it is the last under the agent above it and which
-/// guides above it carry on past it. A group of workers is one row,
-/// with a row for each of them under it while `open` says it is.
+/// The rows of `family`, each set in as deep as it is in the tree.
 fn family_lines(
     world: &World,
     family: &[(Node<'_>, u8)],
     open: &dyn Fn(Group) -> bool,
 ) -> Vec<Line> {
-    // Each row with the depth it has in the tree.
     let mut rows = Vec::<(Line, u8)>::new();
+    let mut lifted = false;
     for (node, depth) in family {
         let depth = *depth;
+        if depth == 0 {
+            lifted = matches!(node, Node::Agent(agent)
+                if agent.lead || agent.kind == protocol::AgentKind::Hand);
+        }
+        let set_in = |level: u8| {
+            if lifted {
+                level.saturating_sub(1)
+            } else {
+                level
+            }
+        };
         match node {
             Node::Agent(agent) => {
-                let line = agent_line(world, agent, depth, false);
-                rows.push((line, depth));
+                let mut line = agent_line(world, agent, depth, false);
+                line.level = depth;
+                rows.push((line, set_in(depth)));
             }
             Node::Workers { group, workers } => {
                 let shown = open(*group);
-                rows.push((
-                    workers_line(*group, workers, shown, depth),
-                    depth,
-                ));
+                let mut line =
+                    workers_line(*group, workers, shown, depth);
+                line.level = depth;
+                rows.push((line, set_in(depth)));
                 if shown {
                     let under = depth.saturating_add(1);
                     for worker in workers {
-                        let line =
+                        let mut line =
                             agent_line(world, worker, under, false);
-                        rows.push((line, under));
+                        line.level = under;
+                        rows.push((line, set_in(under)));
                     }
                 }
             }
         }
     }
-    let depths =
-        rows.iter().map(|(_, depth)| *depth).collect::<Vec<_>>();
+    // Whether each row is the last at its depth, from the end.
+    let mut lasts = vec![true; rows.len()];
+    let mut follows = Vec::<bool>::new();
+    for (at, (_, depth)) in rows.iter().enumerate().rev() {
+        let level = usize::from(*depth);
+        follows.resize(level + 1, false);
+        lasts[at] = !follows[level];
+        follows[level] = true;
+    }
     // Whether the agent last seen at each depth has more after it.
     let mut more = Vec::<bool>::new();
     rows.into_iter()
-        .enumerate()
-        .map(|(at, (mut line, depth))| {
-            let last = depths.get(at + 1..).is_none_or(|after| {
-                after
-                    .iter()
-                    .take_while(|d| **d >= depth)
-                    .all(|d| *d > depth)
-            });
+        .zip(lasts)
+        .map(|((mut line, depth), last)| {
             let depth = depth.min(DEEPEST);
             let level = usize::from(depth);
             line.depth = depth;
             line.last = last;
-            // The guides of the levels between the top and its own.
             line.rails =
                 more.get(1..level).unwrap_or_default().to_vec();
             more.resize(level + 1, false);
@@ -679,8 +871,7 @@ fn family_lines(
         .collect()
 }
 
-/// The row a group of `workers` folds into: how many there are, and
-/// while it is folded the most pressing of their marks.
+/// The row a group of `workers` folds into.
 fn workers_line(
     group: Group,
     workers: &[&Agent],
@@ -695,7 +886,8 @@ fn workers_line(
             1 => "1 worker".into(),
             n => format!("{n} workers"),
         },
-        title: String::new(),
+        tag: None,
+        detail: String::new(),
         since: 0,
         mark: (!open).then(|| {
             Standing::of_all(workers.iter().filter_map(|w| w.mark))
@@ -708,6 +900,7 @@ fn workers_line(
         depth,
         last: true,
         rails: Vec::new(),
+        level: 0,
         current: false,
         fold: Some((group, !open)),
         worker: true,
@@ -723,16 +916,13 @@ fn kind_glyph(agent: &Agent) -> Glyph {
     }
 }
 
-/// Whether the Hub is turned to `target`.
 fn is_current(world: &World, target: Target) -> bool {
     let showing = world.get_resource::<Showing>().copied();
     let seated = world.get_resource::<Convo>().map(|c| c.agent);
     match (target, showing) {
         (
             Target::Hand | Target::Agent(_),
-            Some(
-                Showing::Thread | Showing::Sessions | Showing::Prompt,
-            ),
+            Some(Showing::Thread | Showing::Prompt),
         ) => match target {
             Target::Agent(agent) => seated == Some(agent),
             _ => seated.is_some_and(|agent| {
@@ -769,65 +959,63 @@ fn agent_line(
         } else {
             agent.called.clone()
         },
-        title: agent.title.clone(),
+        tag: agent.tag.clone(),
+        detail: agent.doing.clone(),
         since: agent.since,
         mark: agent.mark,
         address: agent.address.clone(),
         depth,
         last,
         rails: Vec::new(),
+        level: 0,
         current: is_current(world, target),
         fold: None,
         worker: agent.kind == protocol::AgentKind::Worker,
     }
 }
 
-/// Lets each parent in `lines` stand for the rows set in under it:
-/// while folded they are left out and its mark becomes the most
-/// pressing of theirs. What waits under it is still in the rows of
-/// what needs the chief.
+/// `lines` without the rows under each folded parent.
 fn fold_parents(lines: Vec<Line>, folded: &[Group]) -> Vec<Line> {
     let mut lines = lines;
-    for at in 0..lines.len() {
-        let depth = lines[at].depth;
-        let under = lines[at + 1..]
-            .iter()
-            .take_while(|line| line.depth > depth)
-            .count();
+    // From the end, each open subtree with its most pressing mark.
+    let mut after = Vec::<(u8, Standing)>::new();
+    for at in (0..lines.len()).rev() {
+        let depth = lines[at].level;
+        let mut under = false;
+        let mut mark = Standing::of_all(lines[at].mark);
+        while let Some(&(below, of)) = after.last()
+            && below > depth
+        {
+            after.pop();
+            under = true;
+            mark = Standing::of_all([mark, of]);
+        }
+        after.push((depth, mark));
         let Target::Agent(agent) = lines[at].target else {
             continue;
         };
-        if under == 0 {
+        if !under {
             continue;
         }
-        let range = &lines[at + 1..at + 1 + under];
         let group = Group::Parent(agent);
         let shut = folded.contains(&group);
-        // Open, each row shows its own state; folded, the parent
-        // stands for all of them.
-        let mark = Some(Standing::of_all(
-            std::iter::once(lines[at].mark)
-                .chain(range.iter().map(|line| line.mark))
-                .flatten(),
-        ));
         let line = &mut lines[at];
         line.fold = Some((group, shut));
         if shut {
-            line.mark = mark;
+            line.mark = Some(mark);
         }
     }
-    // Leave out what folded parents hold.
     let mut kept = Vec::with_capacity(lines.len());
     let mut hidden_below: Option<u8> = None;
     for line in lines {
         if let Some(depth) = hidden_below {
-            if line.depth > depth {
+            if line.level > depth {
                 continue;
             }
             hidden_below = None;
         }
         if matches!(line.fold, Some((_, true))) {
-            hidden_below = Some(line.depth);
+            hidden_below = Some(line.level);
         }
         kept.push(line);
     }
@@ -840,37 +1028,38 @@ fn page_line(
     target: Target,
     glyph: Glyph,
     name: &str,
-    title: String,
+    detail: String,
     mark: Option<Standing>,
 ) -> Line {
     Line {
         target,
         glyph,
         name: name.into(),
-        title,
+        tag: None,
+        detail,
         since: 0,
         mark,
         address: String::new(),
         depth: 0,
         last: true,
         rails: Vec::new(),
+        level: 0,
         current: is_current(world, target),
         fold: None,
         worker: false,
     }
 }
 
-/// Whether `line` matches what is typed in the search.
 fn matches(line: &Line, search: &str) -> bool {
     search.is_empty()
         || line.name.to_lowercase().contains(search)
         || line.address.to_lowercase().contains(search)
-        || line.title.to_lowercase().contains(search)
+        || line.tag.as_ref().is_some_and(|tag| {
+            tag.name.to_lowercase().contains(search)
+        })
 }
 
-/// What waits for the chief, one row for each who asks: the words of
-/// its oldest wait, how long it has waited, and how many more; and
-/// how many waits there are in all.
+/// A row for each who waits on the chief, and the count of all waits.
 fn needs(world: &World, all: &[Agent]) -> (Vec<Line>, usize) {
     let Some(mut query) = world.try_query::<&Waiting>() else {
         return (Vec::new(), 0);
@@ -878,11 +1067,15 @@ fn needs(world: &World, all: &[Agent]) -> (Vec<Line>, usize) {
     let mut waits = query.iter(world).collect::<Vec<_>>();
     let total = waits.len();
     waits.sort_by_key(|wait| wait.since);
+    let by_address = all
+        .iter()
+        .map(|agent| (agent.address.as_str(), agent))
+        .collect::<HashMap<_, _>>();
     let mut lines = Vec::<Line>::new();
+    let mut rows = HashMap::<&str, usize>::new();
     let mut counts = Vec::<usize>::new();
     for wait in waits {
-        // A newcomer is about the profile at the harbor, not about
-        // whoever made it, and leads to its page.
+        // A newcomer leads to the profile at the harbor.
         if let protocol::WaitDetail::Newcomer { profile } =
             &wait.detail
             && let Some(entity) =
@@ -896,13 +1089,15 @@ fn needs(world: &World, all: &[Agent]) -> (Vec<Line>, usize) {
                 target: Target::Profile(entity),
                 glyph: Glyph::Profile,
                 name: format!("{name} · harbor"),
-                title: "Wants to move into the city".into(),
+                tag: None,
+                detail: "Wants to move into the city".into(),
                 since: wait.since,
                 mark: Some(Standing::Waits),
                 address: name,
                 depth: 0,
                 last: true,
                 rails: Vec::new(),
+                level: 0,
                 current: false,
                 fold: None,
                 worker: false,
@@ -910,45 +1105,53 @@ fn needs(world: &World, all: &[Agent]) -> (Vec<Line>, usize) {
             counts.push(1);
             continue;
         }
-        if let Some(at) =
-            lines.iter().position(|line| line.address == wait.by)
-        {
+        if let Some(&at) = rows.get(wait.by.as_str()) {
             counts[at] += 1;
             continue;
         }
+        rows.insert(wait.by.as_str(), lines.len());
         let line = wait.line(LINE_SHOWN);
         let said = line
             .strip_prefix(wait.shown.as_str())
             .unwrap_or(&line)
             .trim_start();
-        let asker = all.iter().find(|agent| agent.address == wait.by);
-        let (target, glyph, name) = match asker {
+        let (target, glyph, name, tag) = match by_address
+            .get(wait.by.as_str())
+        {
             Some(agent)
                 if agent.kind == protocol::AgentKind::Hand =>
             {
-                (Target::Hand, Glyph::Tower, "The Hand".to_string())
+                (
+                    Target::Hand,
+                    Glyph::Tower,
+                    "The Hand".to_string(),
+                    None,
+                )
             }
-            // What it goes by; its address, hamlet and all, is the
-            // row's tooltip.
             Some(agent) => (
                 Target::Agent(agent.entity),
                 kind_glyph(agent),
                 agent.called.clone(),
+                agent.tag.clone(),
             ),
             // The realm's page has every wait in full.
-            None => (Target::Realm, Glyph::Bell, wait.shown.clone()),
+            None => {
+                (Target::Realm, Glyph::Bell, wait.shown.clone(), None)
+            }
         };
         lines.push(Line {
             target,
             glyph,
             name,
-            title: capitalised(said),
+            tag,
+            detail: capitalised(said),
             since: wait.since,
             mark: Some(Standing::Waits),
             address: wait.by.clone(),
             depth: 0,
             last: true,
             rails: Vec::new(),
+            level: 0,
             current: false,
             fold: None,
             // What waits is never set lighter.
@@ -958,14 +1161,12 @@ fn needs(world: &World, all: &[Agent]) -> (Vec<Line>, usize) {
     }
     for (line, count) in lines.iter_mut().zip(counts) {
         if count > 1 {
-            line.title = format!("{count} waits · {}", line.title);
+            line.detail = format!("{count} waits · {}", line.detail);
         }
     }
     (lines, total)
 }
 
-/// `text` with its first letter a capital, as every row's line
-/// starts.
 fn capitalised(text: &str) -> String {
     let mut letters = text.chars();
     letters.next().map_or_else(String::new, |first| {
@@ -979,7 +1180,7 @@ fn society(world: &World, sections: &mut Vec<Section>) {
     let mut harbor = Vec::new();
     let mut gone = Vec::new();
     // A newcomer waits for the chief only while the chief holds the
-    // door; under the Hand or an open door nothing waits on them.
+    // door.
     let chief_holds_door = world
         .get_resource::<hamlet_client::realm::Settings>()
         .is_some_and(|s| s.0.newcomers == protocol::Newcomers::Chief);
@@ -1028,8 +1229,7 @@ fn society(world: &World, sections: &mut Vec<Section>) {
                 (None, protocol::Arrival::Housed) => {
                     (format!("In {}", hamlets.join(", ")), None)
                 }
-                // A blank agent's is not of the city: the agent is in
-                // its hamlet's tree.
+                // A blank agent's profile is not the city's.
                 (None, protocol::Arrival::Apart) => continue,
             };
             let line = page_line(
@@ -1121,8 +1321,7 @@ fn society(world: &World, sections: &mut Vec<Section>) {
     });
 }
 
-/// The rail's rows in their groups. A group with no row is left out;
-/// while searching every group is open and keeps only what matches.
+/// The rail's rows in their groups.
 pub(super) fn sections(world: &World) -> Vec<Section> {
     let (search, folded, opened, hidden) =
         world.get_resource::<Rail>().map_or_else(
@@ -1144,8 +1343,6 @@ pub(super) fn sections(world: &World) -> Vec<Section> {
     let all = agents(world);
     let mut sections = Vec::new();
 
-    // The realm, with how many wait for the chief in it, and the
-    // Hand with what it started outside any hamlet.
     let waiting = world
         .try_query::<&Waiting>()
         .map_or(0, |mut waits| waits.iter(world).count());
@@ -1167,9 +1364,9 @@ pub(super) fn sections(world: &World) -> Vec<Section> {
             .iter()
             .filter(|agent| agent.hamlet.is_none())
             .collect::<Vec<_>>();
-        top.extend(family_lines(world, &tree(hand, &outside), &open));
+        let family = tree(hand, &under(&outside));
+        top.extend(family_lines(world, &family, &open));
     }
-    // The library is the realm's, beside the Hand.
     let shelf =
         world.get_resource::<Skills>().map_or(0, |s| s.0.len());
     top.push(page_line(
@@ -1206,30 +1403,34 @@ pub(super) fn sections(world: &World) -> Vec<Section> {
         current: false,
     });
 
-    // Each hamlet as the tree under its lead.
+    let mut by_hamlet = HashMap::<Entity, Vec<&Agent>>::new();
+    for agent in &all {
+        if let Some(hamlet) = agent.hamlet {
+            by_hamlet.entry(hamlet).or_default().push(agent);
+        }
+    }
     for (hamlet, name) in hamlet_names(world) {
-        let here = all
-            .iter()
-            .filter(|agent| agent.hamlet == Some(hamlet))
-            .collect::<Vec<_>>();
+        let here = by_hamlet.remove(&hamlet).unwrap_or_default();
+        let ids =
+            here.iter().map(|agent| agent.id).collect::<HashSet<_>>();
         let mut roots = here
             .iter()
             .copied()
             .filter(|agent| {
-                agent.parent.is_none_or(|parent| {
-                    !here.iter().any(|a| a.id == parent)
-                })
+                agent
+                    .parent
+                    .is_none_or(|parent| !ids.contains(&parent))
             })
             .collect::<Vec<_>>();
         roots
             .sort_by_key(|agent| (!agent.lead, agent.called.clone()));
-        // The workers a chief started in the hamlet answer to no one
-        // in it, and fold into one row after its tree.
+        // The workers a chief started, after the tree.
         let (chiefs, roots): (Vec<_>, Vec<_>) =
             roots.into_iter().partition(|agent| agent.is_worker());
+        let under = under(&here);
         let mut family = Vec::new();
         for root in roots {
-            family.extend(tree(root, &here));
+            family.extend(tree(root, &under));
         }
         if !chiefs.is_empty() {
             let group = Group::Workers(hamlet);
@@ -1270,7 +1471,11 @@ pub(super) fn sections(world: &World) -> Vec<Section> {
             section.group,
             Group::City | Group::Harbor | Group::Left
         ) {
-            section.folded = folded.contains(&section.group)
+            let shut = match starts_folded(section.group) {
+                true => !opened.contains(&section.group),
+                false => folded.contains(&section.group),
+            };
+            section.folded = shut
                 && !section
                     .lines
                     .iter()
@@ -1280,8 +1485,6 @@ pub(super) fn sections(world: &World) -> Vec<Section> {
             section.folded = false;
             section.lines.retain(|line| matches(line, &search));
         }
-        // Of those that left, the tab's own: agents on the hamlets',
-        // profiles on the city's.
         if section.group == Group::Left {
             section.lines.retain(|line| {
                 matches!(line.target, Target::Profile(_))
@@ -1344,9 +1547,7 @@ fn tool(
         .boxed()
 }
 
-/// The search over the rail's rows, with a word in it while it is
-/// empty, and at its end the filter of the hamlets shown and a way to
-/// make what the tab lists.
+/// The search over the rail's rows, with the tab's tools at its end.
 fn search_row() -> impl View {
     let field = search(
         text_field(String::new(), |_, _| {})
@@ -1354,8 +1555,7 @@ fn search_row() -> impl View {
             .tagged(Search),
         "Search",
     );
-    // Every tab's tools are built once and only shown on their tab,
-    // so that a change of tab does not make them anew.
+    // Built once, shown only on their tab.
     let on = |shown: Tab, view: AnyView| {
         column((view,)).display(resource::<Tab, _>(move |tab| {
             if *tab == shown {
@@ -1400,8 +1600,7 @@ fn search_row() -> impl View {
     })
 }
 
-/// A switch for each hamlet that shows or hides it, while the filter
-/// is open on the hamlets' tab.
+/// A switch for each hamlet that shows or hides it.
 fn filter_list() -> impl View {
     keyed(
         derived(|world: &World| {
@@ -1409,7 +1608,11 @@ fn filter_list() -> impl View {
             let open = rail.filtering
                 && world.get_resource::<Tab>().copied()
                     == Some(Tab::Hamlets);
-            (open, rail.hidden.clone(), hamlet_names(world))
+            let names = match open {
+                true => hamlet_names(world),
+                false => Vec::new(),
+            };
+            (open, rail.hidden.clone(), names)
         })
         .when(every_frame()),
         |(open, hidden, names)| {
@@ -1446,8 +1649,7 @@ fn filter_list() -> impl View {
     .within(hamlet_ui::styles::bare())
 }
 
-/// The tabs between the hamlets and the city, in the style of the
-/// panels' tabs, the search under them, and the hamlets to show.
+/// The tabs, the search under them, and the hamlets to show.
 fn tabs_and_search() -> impl View {
     with_cx(|cx| {
         column((
@@ -1487,9 +1689,7 @@ fn go(world: &mut World, target: Target) {
             show(world, Showing::Hamlet(hamlet));
             look_at(world, Thing::Common(hamlet));
         }
-        // A profile's house, or its place on the pier, and the
-        // library are selected and brought into view in the world
-        // too.
+        // Also selected in the world.
         Target::Profile(profile) => {
             show(world, Showing::Profile(profile));
             look_at(world, Thing::Profile(profile));
@@ -1505,8 +1705,7 @@ fn go(world: &mut World, target: Target) {
     }
 }
 
-/// Asks for the focus to go to the chat's field, so that what a chief
-/// types after choosing an agent in the rail goes to it.
+/// Asks for the focus to go to the chat's field.
 fn type_in_thread(world: &mut World) {
     if let Some(mut draft) =
         world.get_resource_mut::<crate::screens::chat::Draft>()
@@ -1515,8 +1714,7 @@ fn type_in_thread(world: &mut World) {
     }
 }
 
-/// Chooses `thing` in the world and brings it into view, where there
-/// is a world.
+/// Chooses `thing` in the world, if any, and brings it into view.
 fn look_at(world: &mut World, thing: Thing) {
     if world.contains_resource::<Selected>() {
         select(world, Some(thing));
@@ -1540,9 +1738,7 @@ fn row_rules(cx: &mut Cx) {
         .apply(cx);
 }
 
-/// `row` on a frame that is washed with light while `held`, and less
-/// under the pointer: the row's own gradient is its glow, which would
-/// take the wash back.
+/// `shown` on a frame highlighted while `held` or hovered.
 fn washed(shown: impl View + 'static, held: bool) -> impl View {
     with_cx(move |cx| {
         row((shown,))
@@ -1553,10 +1749,7 @@ fn washed(shown: impl View + 'static, held: bool) -> impl View {
     })
 }
 
-/// The lines in front of a nested row `height` tall, on a grid of
-/// [`STEP_IN`]: `rails` for the levels above, each with the guide of
-/// an agent that has more under it after this row, then the elbow
-/// from its parent, cut short when it is `last`.
+/// The tree lines before a nested row `height` tall.
 pub(crate) fn guides(
     rails: Vec<bool>,
     last: bool,
@@ -1565,8 +1758,6 @@ pub(crate) fn guides(
     with_cx(move |cx| {
         let colour = cx.theme().palette.gold_6;
         let half = height / 2.0;
-        // A column of the grid, with a guide down its middle where
-        // `on` says, over its top and bottom halves.
         let column_of = |top: bool, bottom: bool, across: bool| {
             let bar = |on: bool| {
                 frame().width(px(1.0)).height(px(half)).fill(if on {
@@ -1601,8 +1792,7 @@ pub(crate) fn guides(
     })
 }
 
-/// The mark at the end of a row or a header, in its place whether or
-/// not there is one, so that marks line up from row to row.
+/// The mark at a row's end, its room kept when empty.
 fn mark_icon(mark: Option<Standing>) -> AnyView {
     match mark {
         Some(standing) => status_icon_at(
@@ -1616,8 +1806,7 @@ fn mark_icon(mark: Option<Standing>) -> AnyView {
     }
 }
 
-/// The chevron that folds `group`, pointing down while open and to
-/// the right while folded, in the rail's one column of chevrons.
+/// The chevron that folds `group`.
 fn chevron(group: Group, shut: bool, says: &'static str) -> AnyView {
     button(
         glyph(Glyph::Chevron, 10.0)
@@ -1639,11 +1828,12 @@ fn chevron(group: Group, shut: bool, says: &'static str) -> AnyView {
     .boxed()
 }
 
-/// A row: its icon, then its name with how long ago and its mark at
-/// the end, over what it is doing, which runs the row's whole width
-/// and wraps rather than being cut. A worker's row is one short line
-/// with what it is doing beside its name, cut at the rail's edge.
-/// A `dimmed` row, of those that left, is set in grey.
+/// The least height of `line`'s row.
+fn row_height(line: &Line) -> f32 {
+    if line.worker { WORKER_ROW } else { ROW }
+}
+
+/// A row of one line. A `dimmed` row, of those that left, is grey.
 fn expanded(line: &Line, dimmed: bool) -> AnyView {
     let (target, since, worker) =
         (line.target, line.since, line.worker);
@@ -1654,96 +1844,54 @@ fn expanded(line: &Line, dimmed: bool) -> AnyView {
     } else {
         Tone::Body
     };
-    let title = cut(&line.title, TITLE_SHOWN);
-    let clipped = |shown: AnyView| {
-        column((shown,))
+    let name =
+        column((one_line(label(line.name.clone()).tone(name_tone)),))
             .min_width(px(0.0))
-            .overflow(Overflow::clip())
-    };
-    let name = clipped(
-        one_line(
-            label(line.name.clone())
-                .tone(name_tone)
-                .bold(!(worker || dimmed)),
-        )
-        .boxed(),
+            .overflow(Overflow::clip());
+    let mut words = vec![name.boxed(), frame().grow(1.0).boxed()];
+    words.push(
+        label(resource::<Minute, _>(move |_| age(now_ms(), since)))
+            .wrap(false)
+            .rules(note_rules)
+            .boxed(),
     );
-    let words = if worker {
-        row((
-            name,
-            clipped(one_line(label(title.clone())).boxed())
-                .grow(1.0)
-                .rules(note_rules),
-        ))
-        .gap(6.0)
-        .align(AlignItems::Center)
-        .grow(1.0)
-        .min_width(px(0.0))
-        .boxed()
-    } else {
-        name.grow(1.0).boxed()
-    };
-    // The icon on the middle of the name's line.
-    let head = row((
+    words.push(mark_icon(line.mark));
+    // The profile's badge sits on the icon's top-left corner.
+    let mut icon = vec![
         glyph(line.glyph, if worker { WORKER_ICON } else { ICON })
             .tone(Tone::Dim)
-            .opacity(if dimmed { DIMMED } else { 1.0 }),
-        row((
-            words,
-            label(
-                derived(move |_: &World| age(now_ms(), since))
-                    .when(every_frame()),
-            )
-            .wrap(false)
-            .rules(note_rules),
-            mark_icon(line.mark),
-        ))
-        .gap(6.0)
-        .align(AlignItems::Center)
-        .grow(1.0)
-        .min_width(px(0.0)),
+            .opacity(if dimmed { DIMMED } else { 1.0 })
+            .boxed(),
+    ];
+    icon.extend(line.tag.as_ref().map(profile_tag::badge));
+    let content = row((
+        row(icon).shrink(0.0),
+        row(words)
+            .gap(6.0)
+            .align(AlignItems::Center)
+            .grow(1.0)
+            .min_width(px(0.0)),
     ))
     .gap(if worker { 6.0 } else { 8.0 })
-    .align(AlignItems::Center);
-    // Under it, from the row's own edge rather than the name's, what
-    // it is doing. A row with nothing more to say is one line.
-    let doing = column((if title.contains('`') {
-        quoted(&title)
-    } else {
-        label(title.clone()).boxed()
-    },))
-    .min_width(px(0.0))
-    .display(if title.is_empty() || worker {
-        Display::None
-    } else {
-        Display::Flex
-    })
-    .rules(description_rules);
-    let content = column((head, doing))
-        .gap(0.0)
-        .justify(JustifyContent::Center)
-        .min_height(px(row_height(line) - 2.0 * ROW_DOWN))
-        .width(percent(100.0));
-    let address = line.address.clone();
+    .align(AlignItems::Center)
+    .min_height(px(row_height(line) - 2.0 * ROW_DOWN))
+    .width(percent(100.0));
     let pressed = button(content)
         .grow(1.0)
         .min_width(px(0.0))
         .rules(row_rules)
         .tagged(Variant::Default)
         .on_activate(move |world| go(world, target));
-    // The right button opens its menu, as on the thing in the world.
     let pressed = match target.thing() {
         Some(thing) => pressed.tagged(Asks(thing)).boxed(),
         None => pressed.boxed(),
     };
     let shown = washed(pressed, line.current).boxed();
-    let shown = match tip_of(line, address) {
+    let shown = match tip_of(line) {
         Some(tip) => shown.tooltip(move || note(tip.clone())).boxed(),
         None => shown.boxed(),
     };
-    // The chevron of a parent, outside the row's press so that
-    // folding does not open the thread, then the step in of a row
-    // under one.
+    // Outside the row's press, so folding does not open the thread.
     let fold = match line.fold {
         Some((group, shut)) => chevron(
             group,
@@ -1761,22 +1909,17 @@ fn expanded(line: &Line, dimmed: bool) -> AnyView {
         .width(px(f32::from(line.depth) * STEP_IN))
         .shrink(0.0);
     let mut parts = vec![step.boxed(), fold, shown];
-    parts.extend(tree_lines(line, title.is_empty() || worker));
+    parts.extend(tree_lines(line));
     row(parts)
         .gap(0.0)
         .align(AlignItems::Center)
         .width(percent(100.0))
+        .tagged(RailRow(target))
         .boxed()
 }
 
-/// The tree's lines over a row, on a grid of [`STEP_IN`]: for each
-/// level above it, the guide of an agent that has more under it after
-/// this row, then the elbow from its own parent, which runs on down
-/// while more follow. Every guide runs under the middle of its
-/// agent's chevron, so the tree lines up however deep it goes, and
-/// an elbow stops short of the row it leads to. A row of `one_line`
-/// has its icon on its middle, one of more on its first.
-fn tree_lines(line: &Line, one_line: bool) -> Vec<AnyView> {
+/// The guides of the levels above a row, then its elbow.
+fn tree_lines(line: &Line) -> Vec<AnyView> {
     if line.depth == 0 {
         return Vec::new();
     }
@@ -1785,12 +1928,7 @@ fn tree_lines(line: &Line, one_line: bool) -> Vec<AnyView> {
         |level: usize| level as f32 * STEP_IN + CHEVRON / 2.0 - 0.5;
     let parent = usize::from(line.depth) - 1;
     // Where the elbow meets the row, and where it stops.
-    let elbow = ROW_DOWN
-        + if one_line {
-            (row_height(line) - 2.0 * ROW_DOWN) / 2.0
-        } else {
-            2.0 + ICON / 2.0
-        };
+    let elbow = row_height(line) / 2.0;
     // A line laid over the row, `left` and `top` in from its edges;
     // one with no height runs to its foot.
     let over =
@@ -1814,7 +1952,6 @@ fn tree_lines(line: &Line, one_line: bool) -> Vec<AnyView> {
             })
             .boxed()
         };
-    // The guides of the levels above that carry on past the row.
     let mut lines = line
         .rails
         .iter()
@@ -1822,9 +1959,7 @@ fn tree_lines(line: &Line, one_line: bool) -> Vec<AnyView> {
         .filter(|(_, on)| **on)
         .map(|(level, _)| over(guide(level), 0.0, 1.0, None))
         .collect::<Vec<_>>();
-    // The elbow from its parent, stopping short of its own chevron,
-    // or of the row's edge where it has no chevron, so it never runs
-    // into the row.
+    // Stops short of its own chevron, or of the row's edge.
     let start = f32::from(line.depth) * STEP_IN;
     let end = match line.fold {
         Some(_) => start - GAP,
@@ -1851,9 +1986,8 @@ fn group_meaning(group: Group) -> Option<&'static str> {
     }
 }
 
-/// What a row's tooltip says: the address it goes by, where that is
-/// not its name, over what it is in plain words.
-fn tip_of(line: &Line, address: String) -> Option<String> {
+/// What a row's tooltip says, a line each.
+fn tip_of(line: &Line) -> Option<String> {
     let meaning = match line.target {
         Target::Realm => Some(words::REALM),
         Target::Library => Some(words::LIBRARY),
@@ -1867,22 +2001,22 @@ fn tip_of(line: &Line, address: String) -> Option<String> {
         Target::Profile(_) => Some(words::PROFILE),
         Target::Hamlet(_) | Target::Fold(_) => None,
     };
-    let address = (!address.is_empty()
-        && address != line.name
+    let name = (line.name.chars().count() > NAME_IN_TIP)
+        .then(|| line.name.clone());
+    let address = (!line.address.is_empty()
+        && line.address != line.name
         && line.target != Target::Hand)
-        .then_some(address);
-    match (address, meaning) {
-        (Some(address), Some(meaning)) => {
-            Some(format!("{address}\n{meaning}"))
-        }
-        (Some(address), None) => Some(address),
-        (None, meaning) => meaning.map(str::to_string),
-    }
+        .then(|| line.address.clone());
+    let detail =
+        (!line.detail.is_empty()).then(|| line.detail.clone());
+    let lines = [name, address, detail, meaning.map(str::to_string)]
+        .into_iter()
+        .flatten()
+        .collect::<Vec<_>>();
+    (!lines.is_empty()).then(|| lines.join("\n"))
 }
 
-/// A section's header, set apart from the rows under it in the
-/// display face: a chevron that folds it, then its title, its count
-/// and its state, pressed whole to open its page where it has one.
+/// A section's header, pressed to open its page where it has one.
 fn header(section: &Section, above: f32) -> AnyView {
     let group = section.group;
     let fold = match group {
@@ -1891,8 +2025,6 @@ fn header(section: &Section, above: f32) -> AnyView {
         }
         _ => chevron(group, section.folded, "Fold or open"),
     };
-    // Those that left are headed in grey, not in the gold of what
-    // can be pressed.
     let tone = if section.current {
         Tone::Accent
     } else if group == Group::Left {
@@ -1900,9 +2032,17 @@ fn header(section: &Section, above: f32) -> AnyView {
     } else {
         Tone::Faint
     };
+    let hamlet = matches!(group, Group::Hamlet(_));
+    let title = section.title.clone();
     let mut words = vec![
-        crate::overview::part_title(section.title.clone(), tone)
-            .boxed(),
+        with_cx(move |cx| {
+            label(title.clone())
+                .size(cx.theme().text.heading)
+                .bold(hamlet)
+                .tone(tone)
+                .wrap(false)
+        })
+        .boxed(),
         label(section.count.to_string()).tone(Tone::Dim).boxed(),
     ];
     if matches!(group, Group::Hamlet(_)) {
@@ -1917,9 +2057,8 @@ fn header(section: &Section, above: f32) -> AnyView {
         None => row((words.boxed(),)),
     };
     match section.opens {
-        // Filled under the pointer as a row is, outside the chevron's
-        // press so that folding does not open the page; its mark in
-        // the column of the rows' marks.
+        // Outside the chevron's press, so folding does not open the
+        // page.
         Some(target) => row((
             fold,
             washed(
@@ -1945,6 +2084,7 @@ fn header(section: &Section, above: f32) -> AnyView {
         .align(AlignItems::Center)
         .padding(UiRect::top(px((above - ROW_DOWN).max(0.0))))
         .width(percent(100.0))
+        .tagged(RailRow(target))
         .boxed(),
         None => row((fold, words))
             .gap(6.0)
@@ -1960,115 +2100,152 @@ fn header(section: &Section, above: f32) -> AnyView {
     }
 }
 
-/// `sections` one under another, the first header `first_above` under
-/// what is over it.
-fn sections_view(sections: &[Section], first_above: f32) -> AnyView {
-    let mut parts = Vec::new();
-    for section in sections {
-        let mut block = Vec::new();
-        // The room over a header is kept outside its block, so a lit
-        // block starts at its header.
-        let mut above = 0.0;
-        if !section.title.is_empty() {
-            above = if parts.is_empty() {
-                first_above
-            } else {
-                PART_GAP
-            };
-            // The title of the hamlet whose page is shown is washed
-            // as a selected row is.
-            block.push(header(section, BLOCK_PAD));
-            above = (above - BLOCK_PAD).max(0.0);
+/// The rail's sections in its three places.
+#[derive(Resource, Default, PartialEq)]
+struct Parts {
+    /// The realm's own and what waits, over the tabs.
+    over: Vec<Section>,
+    /// What the tab chooses, under the search.
+    under: Vec<Section>,
+    /// Those that left, at the foot of the rail.
+    left: Vec<Section>,
+}
+
+/// Which of [`Parts`]' places a part of the rail is in.
+type Place = fn(&Parts) -> &[Section];
+
+/// Whether anything [`sections`] reads changed since this last ran.
+fn is_stale(
+    seen: Option<Res<Seen>>,
+    rail: Res<Rail>,
+    tab: Res<Tab>,
+    showing: Option<Res<Showing>>,
+    convo: Option<Res<Convo>>,
+    transcripts: Query<(), Changed<Transcript>>,
+    mut unwatched: RemovedComponents<Transcript>,
+) -> bool {
+    // Read through each time, so that a removal is seen only once.
+    let unwatched = unwatched.read().count() > 0;
+    let changed = |is: Option<bool>| is.unwrap_or(false);
+    unwatched
+        || !transcripts.is_empty()
+        || changed(seen.map(|seen| seen.is_changed()))
+        || rail.is_changed()
+        || tab.is_changed()
+        || changed(showing.map(|showing| showing.is_changed()))
+        || changed(convo.map(|convo| convo.is_changed()))
+}
+
+/// Keeps [`Parts`] up to date, changed only when a section is.
+fn gather(world: &World, mut commands: Commands) {
+    // The realm's page lists what waits in full.
+    let on_realm =
+        world.get_resource::<Showing>() == Some(&Showing::Realm);
+    let mut parts = Parts::default();
+    for section in sections(world) {
+        match section.group {
+            Group::Top => parts.over.push(section),
+            Group::Needs if !on_realm => parts.over.push(section),
+            Group::Needs => {}
+            Group::Left => parts.left.push(section),
+            _ => parts.under.push(section),
         }
-        let lines = if section.folded {
-            &[][..]
-        } else {
-            &section.lines[..]
-        };
-        let dimmed = section.group == Group::Left;
-        block.extend(lines.iter().map(|line| expanded(line, dimmed)));
-        parts.push(
-            with_cx(move |cx| {
-                column(block)
-                    .gap(0.0)
-                    .margin(UiRect::top(px(above)))
-                    .radius(cx.theme().space.round)
-            })
-            .boxed(),
-        );
     }
-    column(parts).gap(0.0).boxed()
+    if world.get_resource::<Parts>() != Some(&parts) {
+        commands.insert_resource(parts);
+    }
 }
 
-/// Whether `section` is of the realm's own, over the tabs: the realm,
-/// the Hand, the library and what waits.
-fn is_over_tabs(section: &Section) -> bool {
-    matches!(section.group, Group::Top | Group::Needs)
-}
-
-/// The rail down the Hub's left side: the realm's own rows and what
-/// waits, then the tabs and the search, then the part of the realm
-/// the tab chooses. The rows are built anew as they change; the tabs
-/// and the search between them are not, so typing keeps its place.
-pub(super) fn view() -> impl View {
-    let over = keyed(
-        derived(|world: &World| {
-            // The realm's page lists what waits in full.
-            let on_realm = world.get_resource::<Showing>()
-                == Some(&Showing::Realm);
-            sections(world)
-                .into_iter()
-                .filter(is_over_tabs)
-                .filter(|section| {
-                    !(on_realm && section.group == Group::Needs)
+/// The sections of `place`, the first header `first_above` down.
+fn sections_view(place: Place, first_above: f32) -> impl View {
+    each(
+        resource::<Parts, _>(move |parts| {
+            place(parts)
+                .iter()
+                .enumerate()
+                .map(|(at, section)| {
+                    // Outside the block, so a highlight starts at the
+                    // header.
+                    let above = match (section.title.is_empty(), at) {
+                        (true, _) => 0.0,
+                        (false, 0) => first_above - BLOCK_PAD,
+                        (false, _) => PART_GAP - BLOCK_PAD,
+                    };
+                    (section.group, above.max(0.0))
                 })
                 .collect::<Vec<_>>()
-        })
-        .when(every_frame()),
-        |sections| sections_view(sections, PART_GAP),
+        }),
+        |part: &(Group, f32)| *part,
+        move |&(group, above)| section_view(place, group, above),
     )
-    .within(hamlet_ui::styles::bare());
-    let under = keyed(
-        derived(|world: &World| {
-            sections(world)
-                .into_iter()
-                .filter(|section| !is_over_tabs(section))
-                .collect::<Vec<_>>()
-        })
-        .when(every_frame()),
-        |sections| {
-            // Those that left, at the foot of the rail however short
-            // the rest is.
-            let (left, rest): (Vec<_>, Vec<_>) = sections
-                .iter()
-                .cloned()
-                .partition(|section| section.group == Group::Left);
-            column((
-                sections_view(&rest, UNDER_SEARCH),
-                frame().grow(1.0),
-                sections_view(&left, PART_GAP),
-            ))
-            .gap(0.0)
-            .grow(1.0)
-            .boxed()
+    .within(hamlet_ui::styles::bare())
+}
+
+/// The section `group` of `place`: its header and its rows.
+fn section_view(place: Place, group: Group, above: f32) -> AnyView {
+    let find = move |parts: &Parts| {
+        place(parts)
+            .iter()
+            .find(|section| section.group == group)
+            .cloned()
+    };
+    let head = keyed(
+        resource::<Parts, _>(move |parts| {
+            find(parts).map(|section| Section {
+                title: section.title,
+                lines: Vec::new(),
+                ..section
+            })
+        }),
+        |head| match head {
+            Some(head) if !head.title.is_empty() => {
+                header(head, BLOCK_PAD)
+            }
+            _ => column(()).boxed(),
         },
     )
-    .within(hamlet_ui::styles::bare().grow(1.0));
+    .within(hamlet_ui::styles::bare());
+    let dimmed = group == Group::Left;
+    let rows = each(
+        resource::<Parts, _>(move |parts| {
+            find(parts)
+                .filter(|section| !section.folded)
+                .map_or_else(Vec::new, |section| section.lines)
+        }),
+        Line::clone,
+        move |line| expanded(line, dimmed),
+    )
+    .within(hamlet_ui::styles::bare());
+    with_cx(move |cx| {
+        column((head, rows))
+            .gap(0.0)
+            .margin(UiRect::top(px(above)))
+            .radius(cx.theme().space.round)
+    })
+    .boxed()
+}
+
+/// The rail down the Hub's left side.
+pub(super) fn view() -> impl View {
     let body = column((
-        over,
+        sections_view(|parts| &parts.over, PART_GAP),
         column((tabs_and_search(),))
             .padding(UiRect::top(px(PART_GAP))),
-        under,
+        column((
+            sections_view(|parts| &parts.under, UNDER_SEARCH),
+            frame().grow(1.0),
+            sections_view(|parts| &parts.left, PART_GAP),
+        ))
+        .gap(0.0)
+        .grow(1.0),
     ))
     .gap(0.0)
     .grow(1.0);
     with_cx(move |cx| {
         column((scroll_area((body,)),))
             .gap(cx.theme().space.gap)
-            .width(resource::<Rail, _>(|rail| px(rail.width)))
+            .width(resource::<Width, _>(|width| px(width.0)))
             .min_width(px(NARROWEST))
-            // Its width is its own: it neither grows into the page's
-            // room nor shrinks, and only stretches down.
             .shrink(0.0)
             .height(percent(100.0))
             .min_height(px(0.0))
@@ -2121,7 +2298,7 @@ mod tests {
         app.update();
         assert_eq!(names(&app, |g| *g == Group::Needs), ["ada"]);
         // One row for who asks, counted as every wait, as the
-        // realm's page and the status bar count them.
+        // realm's page counts them.
         let needs = sections(app.world())
             .into_iter()
             .find(|section| section.group == Group::Needs)

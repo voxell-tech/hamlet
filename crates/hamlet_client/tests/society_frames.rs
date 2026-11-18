@@ -76,18 +76,7 @@ fn recorded_society_carries_letters_and_questions_with_their_authors()
     );
     assert_eq!(world.query::<&Channel>().iter(world).count(), 3);
     assert!(world.resource::<SeenEvents>().letters >= 2);
-    let scout = entity(world, 3);
-    assert!(
-        world
-            .get::<PeerChats>(scout)
-            .unwrap()
-            .0
-            .iter()
-            .any(|chat| chat.kind
-                == protocol::ConversationViewKind::Questions
-                && chat.count == 1)
-    );
-    assert!(world.query::<&Transcript>().iter(world).flat_map(Transcript::items).any(|item| matches!(&item.entry, Entry::Agent {name, text} if name == "agent#2 (ada)" && text.contains("Hello cy"))));
+    assert!(world.query::<&Transcript>().iter(world).flat_map(Transcript::items).any(|item| matches!(&item.entry, Entry::Agent {name, text, ..} if name == "agent#2 (ada)" && text.contains("Hello cy"))));
 }
 
 #[test]

@@ -1,4 +1,4 @@
-//! Recordings of the society: agents, letters and questions,
+//! Recordings of the society: agents, notifications and requests,
 //! channels, leaving and merging, hamlets, the library, and what
 //! waits for a chief.
 
@@ -32,14 +32,15 @@ async fn society() {
                 2,
                 [
                     call(
-                        "tell",
+                        "notify",
                         json!({"to":"agent#3","text":"Hello cy"}),
                     ),
                     words("Told."),
                     call(
-                        "ask",
-                        json!({"to":"agent#3","question":"Which colour?"}),
+                        "request",
+                        json!({"to":"agent#3","text":"Which colour?"}),
                     ),
+                    words("Asked cy."),
                     words("cy said blue."),
                 ],
             )
@@ -47,35 +48,14 @@ async fn society() {
     )
     .await;
     c.open(2).await;
+    c.open(3).await;
     c.say(2, "Tell cy hello.").await;
     c.shows(2, "Told.").await;
-    c.until(|c| {
-        c.state().agents.iter().any(|a| {
-            a.address == "agent#3"
-                && !a.busy
-                && !a.conversations.is_empty()
-        })
-    })
-    .await;
-    let letters = c.ask(json!({"type":"open","chat":{"with":3,"from":2,"kind":"letters"}})).await;
-    assert!(
-        letters["items"]
-            .as_array()
-            .unwrap()
-            .iter()
-            .any(|i| i["text"] == "Noted.")
-    );
+    c.shows(3, "Noted.").await;
     c.say(2, "Ask cy a question.").await;
+    c.shows(2, "Asked cy.").await;
+    c.shows(3, "Blue.").await;
     c.shows(2, "cy said blue.").await;
-    let questions = c.ask(json!({"type":"open","chat":{"with":3,"from":2,"kind":"questions"}})).await;
-    assert!(
-        questions["items"]
-            .as_array()
-            .unwrap()
-            .iter()
-            .any(|i| i["text"] == "Blue.")
-    );
-    c.open(2).await;
     c.finish("society").await;
 }
 
@@ -208,7 +188,7 @@ async fn library() {
 async fn question() {
     let mut c = Capture::start(Faux::new().responses([
         call(
-            "ask_chief",
+            "request_chief",
             json!({"message":"Before planting","questions":[
                 {"question":"Which grain?","options":[
                     {"title":"Wheat","description":"Winter"},"Oats"]}

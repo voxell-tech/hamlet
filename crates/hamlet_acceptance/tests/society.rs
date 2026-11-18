@@ -1,6 +1,6 @@
 //! What agents do in the society with their tools: the Hand's and a
-//! parent's, letters and questions, workers, and the acts a chief
-//! keeps for itself.
+//! parent's, notifications and requests, workers, and the acts a
+//! chief keeps for itself.
 
 use hamlet_acceptance::*;
 use hamlet_protocol::client::*;
@@ -17,14 +17,6 @@ fn failures(
         .filter_map(|item| item.tool)
         .map(|tool| (tool.name, tool.failure))
         .collect()
-}
-
-fn lane(from: AgentId, kind: ChatRefKind, with: AgentId) -> ChatRef {
-    ChatRef {
-        from: Some(from),
-        kind: Some(kind),
-        ..chat(with)
-    }
 }
 
 #[tokio::test]
@@ -237,7 +229,7 @@ async fn a_parent_runs_the_agents_under_it_and_nothing_beyond_them() {
 }
 
 #[tokio::test]
-async fn letters_and_questions_go_along_channels_and_a_question_back_is_rejected()
+async fn notifications_requests_and_responses_share_one_conversation_and_request_does_not_wait()
  {
     let mut s = Session::start(
         Faux::new()
@@ -245,14 +237,16 @@ async fn letters_and_questions_go_along_channels_and_a_question_back_is_rejected
                 2,
                 [
                     call(
-                        "tell",
+                        "notify",
                         json!({"to": "agent#3", "text": "Hello cy"}),
                     ),
                     words("Told."),
+                    // As "Copy Agent ID" copies it.
                     call(
-                        "ask",
-                        json!({"to": "agent#3", "question": "Which colour?"}),
+                        "request",
+                        json!({"to": "agent#3 (cy)", "text": "Which colour?"}),
                     ),
+                    words("Asked cy."),
                     words("cy said blue."),
                 ],
             )
@@ -261,8 +255,8 @@ async fn letters_and_questions_go_along_channels_and_a_question_back_is_rejected
                 [
                     words("Noted."),
                     call(
-                        "ask",
-                        json!({"to": "agent#2", "question": "And you?"}),
+                        "request_chief",
+                        json!({"questions": [{"question": "Which colour?"}]}),
                     ),
                     words("Blue."),
                 ],
@@ -271,55 +265,46 @@ async fn letters_and_questions_go_along_channels_and_a_question_back_is_rejected
     .await;
     let ada = s.found("docs", "ada", "keep the docs").await;
     let cy = s.add_agent(ada, "cy", "dig").await;
-    let now = chat(ada);
+    let (now, theirs) = (chat(ada), chat(cy));
     s.chief.open(&now).await;
+    s.chief.open(&theirs).await;
 
     s.chief.tell(ada, "Tell cy hello.").await;
     s.chief.shows(&now, "Told.").await;
-    let letters = lane(ada, ChatRefKind::Letters, cy);
-    s.chief
-        .until("cy answered the letter", |c| {
-            c.agent("agent#3").is_some_and(|a| {
-                !a.busy && !a.conversations.is_empty()
-            })
+    s.chief.shows(&theirs, "Noted.").await;
+    let notification = s
+        .chief
+        .items(&theirs)
+        .into_iter()
+        .find(|i| i.text == "Hello cy")
+        .unwrap();
+    assert_eq!(notification.author.as_deref(), Some("agent#2 (ada)"));
+    assert_eq!(notification.from, Some(ada));
+    assert_eq!(notification.chief, None);
+
+    // ada's turn ends while cy asks the chief.
+    s.chief.tell(ada, "Ask cy a question.").await;
+    s.chief.shows(&now, "Asked cy.").await;
+    let asked = s
+        .chief
+        .wait_for("cy's question to the chief", |w| {
+            matches!(w.detail, WaitDetail::Question { .. })
         })
         .await;
-    let page = s.chief.open(&letters).await;
-    let texts = page
-        .items
-        .iter()
-        .map(|i| {
-            (i.kind.clone(), i.text.as_str(), i.author.as_deref())
-        })
-        .collect::<Vec<_>>();
-    assert_eq!(
-        texts,
-        [
-            (ItemKind::User, "Hello cy", Some("agent#2 (ada)")),
-            (ItemKind::Assistant, "Noted.", None)
-        ]
-    );
-
-    // The question waits for its answer; cy cannot ask ada back while
-    // ada waits on it.
-    s.chief.tell(ada, "Ask cy a question.").await;
+    assert_eq!(asked.chat, Some(theirs.clone()));
+    s.chief.choose(&asked.id, Choice::Reply, Some("Blue")).await;
+    s.chief.shows(&theirs, "Blue.").await;
     s.chief.shows(&now, "cy said blue.").await;
-    let questions = lane(ada, ChatRefKind::Questions, cy);
-    let page = s.chief.open(&questions).await;
-    assert_eq!(page.items.first().unwrap().text, "Which colour?");
-    assert_eq!(page.items.last().unwrap().text, "Blue.");
-    let back = failures(&s.chief, &questions);
-    assert_eq!(back.len(), 1);
-    assert_eq!(back[0].0, "ask");
-    assert!(back[0].1.is_some(), "asking back is rejected: {back:?}");
-    let cy = s.chief.agent("agent#3").unwrap();
-    let kinds = cy
-        .conversations
-        .iter()
-        .map(|c| c.kind.clone())
-        .collect::<Vec<_>>();
-    assert!(kinds.contains(&ConversationViewKind::Letters));
-    assert!(kinds.contains(&ConversationViewKind::Questions));
+    let response = s
+        .chief
+        .items(&now)
+        .into_iter()
+        .find(|i| i.author.as_deref() == Some("agent#3 (cy)"))
+        .unwrap();
+    assert_eq!(response.text, "Blue.");
+    assert!(
+        failures(&s.chief, &now).iter().all(|(_, f)| f.is_none())
+    );
 }
 
 #[tokio::test]
@@ -355,10 +340,17 @@ async fn a_worker_answers_its_starter_once_and_ends() {
     assert_eq!(worker.parent, Some(ada));
     assert_eq!(worker.left.unwrap().how, LeftHow::Answered);
 
-    // Without waiting, the answer comes later as a letter.
+    // Without waiting, the answer comes later as a response.
     s.chief.tell(ada, "Count again.").await;
     s.chief.shows(&now, "Started another.").await;
-    s.chief.shows(&now, "worker#4 answers: 43").await;
+    s.chief.shows(&now, "43").await;
+    let reply = s
+        .chief
+        .items(&now)
+        .into_iter()
+        .find(|i| i.text == "43")
+        .unwrap();
+    assert_eq!(reply.from, Some(AgentId(4)));
     s.chief.shows(&now, "The second answer came.").await;
     assert_eq!(
         s.chief.agent("worker#4").unwrap().left.unwrap().how,

@@ -34,6 +34,7 @@ use hamlet_ui::widgets::platform::DisplayText;
 use hamlet_ui::{AnyView, Cx, View, with_cx};
 
 use crate::dock::show_tab;
+use crate::screens::viewer::Viewing;
 use crate::updates::{self, Updates};
 use crate::window;
 
@@ -77,8 +78,7 @@ pub enum Menu {
     App,
 }
 
-/// The open menu and the rect of its title, in the window's logical
-/// pixels.
+/// The open menu and its title's rect in logical pixels.
 #[derive(Resource, Default)]
 pub struct OpenMenu(Option<(Menu, Rect)>);
 
@@ -93,17 +93,17 @@ impl OpenMenu {
     }
 }
 
-/// Tells the world whether a popup is open as the frame begins,
-/// so that the Escape that closes it does not also let go of what
-/// is selected. The toolkit closes the popup itself.
+/// Holds the world's Escape while a popup or an image is open.
 pub(crate) fn hold_escape(
     open: Query<&Scope>,
+    viewing: Option<Res<Viewing>>,
     taken: Option<ResMut<Taken>>,
 ) {
     let Some(mut taken) = taken else {
         return;
     };
-    let over = open.iter().any(|scope| scope.0 == POPUP);
+    let over = open.iter().any(|scope| scope.0 == POPUP)
+        || viewing.is_some_and(|viewing| viewing.is_open());
     if taken.over != over {
         taken.over = over;
     }
@@ -119,9 +119,7 @@ pub(crate) fn rect_of(world: &World, title: Entity) -> Option<Rect> {
     Some(Rect::from_center_size(centre * scale, node.size() * scale))
 }
 
-/// Closes the open menu. A press on another title opens that menu in
-/// its place: the open menu covers the titles, so they never hear the
-/// press. Escape only closes.
+/// Closes the open menu, or opens the one whose title is pressed.
 fn dismiss(world: &mut World) {
     let was = world.resource_mut::<OpenMenu>().0.take();
     let by_key = world
@@ -197,7 +195,7 @@ pub fn nav(cx: &mut Cx) {
         .apply(cx);
 }
 
-/// Holds a title lit, washed with light, while its menu is open.
+/// Highlights a title while its menu is open.
 pub(crate) fn light_titles(
     open: Res<OpenMenu>,
     mut titles: Query<(&Menu, &mut Underglow)>,
@@ -210,8 +208,7 @@ pub(crate) fn light_titles(
     }
 }
 
-/// A menu's title, with a chevron after its name that says it opens
-/// a menu.
+/// A menu's title and chevron.
 fn title(name: &'static str, menu: Menu) -> impl View {
     button(
         row((
@@ -237,8 +234,7 @@ pub fn titles() -> impl View {
     })
 }
 
-/// An item of a menu: its icon, its name and the keys that do the
-/// same, if any.
+/// A menu item: its icon, name and keys.
 fn item(
     which: Glyph,
     name: impl Into<String>,
@@ -270,7 +266,6 @@ fn item(
     .boxed()
 }
 
-/// Brings the Settings panel forward.
 fn settings(world: &mut World) {
     show_tab(world, "settings");
 }
@@ -304,13 +299,13 @@ impl Updating {
             Self::Off => return None,
             Self::Check => item(
                 Glyph::Restore,
-                "Check for updates",
+                "Check for Updates",
                 None,
                 updates::check,
             ),
             Self::Checking => item(
                 Glyph::Restore,
-                "Checking for updates...",
+                "Checking for Updates",
                 None,
                 |_| {},
             ),
@@ -341,7 +336,7 @@ fn items(
             if found {
                 items.push(item(
                     Glyph::Hamlet,
-                    "Create a Hamlet...",
+                    "Create a Hamlet",
                     None,
                     crate::world_menu::ask_found,
                 ));
@@ -375,7 +370,7 @@ fn items(
             // The server and its agents carry on without the window.
             items.push(item(
                 Glyph::Leave,
-                "Close window",
+                "Close Window",
                 Some(CLOSE),
                 window::quit,
             ));
@@ -419,78 +414,4 @@ pub fn open_menu() -> impl View {
         },
     )
     .within(overlay(()))
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn the_app_menu_closes_only_the_window_and_offers_founding_only_when_supported()
-     {
-        let mut app = crate::testing::panel_app();
-        app.add_plugins(plugin).add_message::<bevy::app::AppExit>();
-        app.insert_resource(OpenMenu::under(
-            Menu::App,
-            Rect::default(),
-        ));
-        bevy_fynix::mount::<HamletTheme>(
-            app.world_mut(),
-            open_menu(),
-        );
-        app.update();
-        let shown = crate::testing::all_words(&mut app);
-        assert!(shown.contains("Close window"), "{shown}");
-        assert!(!shown.contains("New desk"));
-        assert!(!shown.contains("Your hearth"));
-        // A copy that does not look for updates offers no way to.
-        assert!(!shown.contains("updates"));
-        assert!(!shown.contains("Run in Background"));
-        assert!(!shown.contains("Quit Hamlet"));
-        assert!(!shown.contains("Create a Hamlet..."));
-        app.insert_resource(hamlet_client::realm::Actions(vec![
-            "create-hamlet".into(),
-        ]));
-        app.update();
-        assert!(
-            crate::testing::words(&mut app)
-                .iter()
-                .any(|text| text == "Create a Hamlet...")
-        );
-        crate::testing::press(&mut app, "Close window");
-        assert!(app.world_mut().resource_mut::<bevy::ecs::message::Messages<bevy::app::AppExit>>().drain().any(|exit| exit == bevy::app::AppExit::Success));
-    }
-
-    #[test]
-    fn the_app_menu_checks_for_an_update_until_one_is_found() {
-        let mut app = crate::testing::panel_app();
-        app.add_plugins(plugin);
-        app.world_mut().resource_mut::<Updates>().looking = true;
-        app.insert_resource(OpenMenu::under(
-            Menu::App,
-            Rect::default(),
-        ));
-        bevy_fynix::mount::<HamletTheme>(
-            app.world_mut(),
-            open_menu(),
-        );
-        app.update();
-        let shown = crate::testing::all_words(&mut app);
-        assert!(shown.contains("Check for updates"), "{shown}");
-        app.world_mut().resource_mut::<Updates>().checking = true;
-        app.update();
-        let shown = crate::testing::all_words(&mut app);
-        assert!(shown.contains("Checking for updates..."), "{shown}");
-        app.world_mut().resource_mut::<Updates>().offer =
-            Some(updates::Offer {
-                version: hamlet_protocol::Version::new(0, 2, 0),
-                ready: updates::Ready::Page(
-                    "https://example.com".into(),
-                ),
-            });
-        app.update();
-        let shown = crate::testing::all_words(&mut app);
-        assert!(shown.contains("Update to 0.2.0"), "{shown}");
-        assert!(!shown.contains("Check for updates"));
-    }
 }

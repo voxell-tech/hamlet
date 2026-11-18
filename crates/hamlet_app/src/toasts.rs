@@ -1,7 +1,6 @@
-//! Toasts: what newly waits for the chief, and what happened that
-//! needs no answer, stacked over the realm view.
+//! Toasts stacked over the realm view.
 
-use std::collections::{HashMap, HashSet};
+use std::collections::HashMap;
 
 use bevy::app::{App, PreUpdate};
 use bevy::clipboard::Clipboard;
@@ -26,19 +25,19 @@ use bevy_fynix::views::{
     BehaviorExt, FrameProps, button, column, row,
 };
 use bevy_fynix::{
-    ReducedMotion, ScopedExt, Signal, ViewExt, Visual, each,
-    resource, style,
+    Prop, ReducedMotion, ScopedExt, Signal, ViewExt, Visual, derived,
+    each, resource, style,
 };
 use hamlet_client::messages::{Answer, Response, ServerFault};
-use hamlet_client::outbox::{Outbox, RequestId};
+use hamlet_client::outbox::RequestId;
 use hamlet_client::realm::{
-    Departure, Faulted, Kind, Left, LivesIn, Profile, Seen, Shown,
-    name_of,
+    Departure, Faulted, Kind, Lead, Left, LivesIn, Profile, Seen,
+    Shown, name_of,
 };
-use hamlet_client::waits::{RaisedBy, Waiting};
+use hamlet_client::waits::{Choice, RaisedBy, Waiting};
 use hamlet_protocol::client::{
-    AgentKind, Arrival, ClientMessage, LeftHow, ProfileId, ReplyKind,
-    ServerMessage, WaitDetail,
+    AgentKind, Arrival, LeftHow, ProfileId, ReplyKind, ServerMessage,
+    Setup, SetupCause, WaitDetail,
 };
 use hamlet_ui::styles::{
     ICON, action, buttons, card_name, close_button, note, quoted,
@@ -48,9 +47,9 @@ use hamlet_ui::theme::{HamletTheme, StatusKind};
 use hamlet_ui::widgets::icons::Glyph;
 use hamlet_ui::{AnyView, Cx, View, kinds, rules, with_cx};
 
-use crate::convo::Convo;
 use crate::hub::Showing;
-use crate::screens::wait::{Need, answers};
+use crate::models::{Shelf, model_title};
+use crate::screens::wait::{self, ChatWaits, Need, answers};
 use crate::standing::Standing;
 use crate::updates::{self, Offer, Ready};
 use crate::{PanelSystems, chat};
@@ -58,12 +57,10 @@ use crate::{PanelSystems, chat};
 /// The most toasts kept at once.
 const MOST: usize = 5;
 
-/// The older toasts whose edges show behind the newest while the
-/// stack is closed.
+/// The toasts folded behind the newest while the stack is closed.
 const FOLDED: usize = 2;
 
-/// The strip of a folded toast that shows above the one in front of
-/// it, and its narrowing on each side.
+/// How much a folded toast narrows per toast in front.
 const EDGE: f32 = 6.0;
 
 /// Seconds a toast stays before it begins to fade.
@@ -83,10 +80,10 @@ pub fn plugin(app: &mut App) {
         .init_resource::<Decreed>()
         .add_observer(answered)
         .add_observer(failed)
-        .add_observer(rejected)
+        .add_observer(responded)
         .add_systems(
             PreUpdate,
-            (raise, judged, keep, settle)
+            (raise, judged, keep.after(wait::follow), settle)
                 .chain()
                 .in_set(PanelSystems::Bind),
         );
@@ -97,8 +94,7 @@ pub fn plugin(app: &mut App) {
 pub struct Toasts {
     shown: Vec<Toast>,
     made: u64,
-    /// The flag for the pointer being on the stack, which lays every
-    /// toast out in full.
+    /// Whether the pointer is on the stack.
     open: bool,
 }
 
@@ -107,8 +103,7 @@ pub struct Toasts {
 enum Place {
     /// In full: the newest, or any while the stack is open.
     Whole,
-    /// Folded behind the newest, this many toasts back, only its
-    /// edge showing.
+    /// Folded behind the newest, this many toasts back.
     Folded(usize),
     /// Too far back to show while the stack is closed.
     Hidden,
@@ -117,12 +112,11 @@ enum Place {
 /// A toast's progress towards its [`Place`], which it eases along.
 #[derive(Clone, Copy, PartialEq, Debug)]
 struct Pose {
-    /// 0 in full, 1 folded to its edge.
+    /// 0 in full, 1 folded away.
     fold: f32,
     /// The number of toasts in front of it, each narrowing it.
     back: f32,
-    /// 1 on show, 0 gone: a new toast comes in from 0, and one too
-    /// far back goes to it.
+    /// 1 on show, 0 gone.
     shown: f32,
 }
 
@@ -166,14 +160,15 @@ struct Toast {
 enum What {
     /// A new wait, with the answers it takes.
     Wait(Entity),
+    /// The open faults of one setup cause, shown as one.
+    Setup { setup: Setup, waits: Vec<Entity> },
     /// Something that happened, which nothing answers.
     Notice {
         kind: StatusKind,
         head: String,
         line: String,
     },
-    /// The Hand let a profile in or turned it away, which a chief
-    /// can undo.
+    /// The Hand let a profile in or turned it away.
     Verdict {
         profile: ProfileId,
         name: String,
@@ -205,8 +200,7 @@ impl Toasts {
             },
             tall: None,
         });
-        // An update stays until it is taken or closed, so the oldest
-        // of the others makes way first.
+        // An update stays, so the oldest other makes way.
         while self.shown.len() > MOST {
             let oldest = self
                 .shown
@@ -216,6 +210,31 @@ impl Toasts {
                 })
                 .unwrap_or(0);
             self.shown.remove(oldest);
+        }
+    }
+
+    /// Shows the fault `wait` in the one toast of its setup cause.
+    fn gather(&mut self, setup: Setup, wait: Entity, now: f32) {
+        let told = self.shown.iter_mut().find(|toast| {
+            matches!(&toast.what, What::Setup { setup: shown, .. }
+                if *shown == setup)
+        });
+        match told {
+            Some(toast) => {
+                if let What::Setup { waits, .. } = &mut toast.what
+                    && !waits.contains(&wait)
+                {
+                    waits.push(wait);
+                }
+                toast.until = toast.until.max(now + STAYS);
+            }
+            None => self.push(
+                What::Setup {
+                    setup,
+                    waits: vec![wait],
+                },
+                now,
+            ),
         }
     }
 
@@ -230,8 +249,7 @@ impl Toasts {
         self.push(What::Notice { kind, head, line }, now);
     }
 
-    /// Offers `offer` in a toast that does not fade, unless one is on
-    /// show already.
+    /// Offers `offer` in a toast that does not fade.
     pub(crate) fn offer(&mut self, offer: Offer, now: f32) {
         let what = What::Update(offer);
         if self.shown.iter().any(|toast| toast.what == what) {
@@ -263,9 +281,7 @@ impl Toasts {
     }
 }
 
-/// Raises a toast for each new wait, each worker that answered and
-/// each agent that failed. What was there when the first state came
-/// in is not new.
+/// Raises a toast for each new wait, answer and failure.
 fn raise(
     time: Res<Time>,
     seen: Option<Res<Seen>>,
@@ -288,7 +304,14 @@ fn raise(
     }
     let now = time.elapsed_secs();
     for entity in &waits {
-        toasts.push(What::Wait(entity), now);
+        match waiting
+            .get(entity)
+            .ok()
+            .and_then(|(wait, _)| setup_of(wait))
+        {
+            Some(setup) => toasts.gather(setup.clone(), entity, now),
+            None => toasts.push(What::Wait(entity), now),
+        }
     }
     for (name, shown, kind, departure) in &answered {
         let name = shown.map_or(name.as_str(), |shown| &shown.0);
@@ -310,7 +333,7 @@ fn raise(
         // A fault the chief is asked about is a wait already.
         let asked = waiting.iter().any(|(wait, by)| {
             by.is_some_and(|by| by.0 == agent)
-                && matches!(wait.detail, WaitDetail::Fault {})
+                && matches!(wait.detail, WaitDetail::Fault { .. })
         });
         if !asked {
             toasts.push(
@@ -325,9 +348,15 @@ fn raise(
     }
 }
 
-/// Raises a toast when the Hand lets a profile in or turns it away:
-/// a profile that went from waiting to housed or turned, by the Hand.
-/// What was there at the first state is not new.
+/// The setup cause of `wait`, when it is a fault of one.
+fn setup_of(wait: &Waiting) -> Option<&Setup> {
+    match &wait.detail {
+        WaitDetail::Fault { setup } => setup.as_ref(),
+        _ => None,
+    }
+}
+
+/// Raises a toast when the Hand lets a profile in or turns it away.
 fn judged(
     time: Res<Time>,
     seen: Option<Res<Seen>>,
@@ -389,56 +418,64 @@ fn failed(
     );
 }
 
-/// The commands the window made, from the world, a form or a button
-/// rather than typed in a chat, whose rejection would otherwise be
-/// said only in the chat they went to.
+/// The commands whose rejection, or response under a head, is
+/// toasted.
 #[derive(Resource, Default)]
-pub(crate) struct Decreed(HashSet<RequestId>);
+pub(crate) struct Decreed(HashMap<RequestId, Option<String>>);
 
-/// Watches the command just queued, the last thing sent, so that its
-/// rejection is toasted.
-pub(crate) fn watch_last(world: &mut World) {
-    let last = world.resource::<Outbox>().iter().last().and_then(
-        |message| match message {
-            ClientMessage::Say(say) => Some(say.id.clone()),
-            _ => None,
-        },
-    );
+/// Watches the request `id`, so that its rejection is toasted.
+pub(crate) fn watch(world: &mut World, id: RequestId) {
+    decree(world, id, None);
+}
+
+/// Watches the request `id`, toasting its response under `head`.
+pub(crate) fn announce(
+    world: &mut World,
+    id: RequestId,
+    head: impl Into<String>,
+) {
+    decree(world, id, Some(head.into()));
+}
+
+fn decree(world: &mut World, id: RequestId, head: Option<String>) {
     // A window drawn without toasts watches nothing.
-    if let Some(id) = last
-        && let Some(mut decreed) = world.get_resource_mut::<Decreed>()
-    {
-        decreed.0.insert(id);
+    if let Some(mut decreed) = world.get_resource_mut::<Decreed>() {
+        decreed.0.insert(id, head);
     }
 }
 
-/// A command given from the world that the server rejected.
-fn rejected(
+/// Toasts the response to a watched command.
+fn responded(
     response: On<Response>,
     time: Res<Time>,
     mut decreed: ResMut<Decreed>,
     mut toasts: ResMut<Toasts>,
 ) {
-    if !decreed.0.remove(&response.to) {
+    let Some(head) = decreed.0.remove(&response.to) else {
         return;
-    }
-    let text = match &response.message {
-        ServerMessage::Reply(reply)
+    };
+    let (kind, head, line) = match (&response.message, head) {
+        (ServerMessage::Reply(reply), _)
             if reply.kind == ReplyKind::Error =>
         {
-            reply.text.clone()
+            (
+                StatusKind::Danger,
+                "Not done".into(),
+                reply.text.clone(),
+            )
         }
-        ServerMessage::Fault(fault) => fault.text.clone(),
+        (ServerMessage::Fault(fault), _) => (
+            StatusKind::Danger,
+            "Not done".into(),
+            fault.text.clone(),
+        ),
+        (ServerMessage::Reply(reply), Some(head)) => {
+            (StatusKind::Success, head, reply.text.clone())
+        }
         _ => return,
     };
-    toasts.push(
-        What::Notice {
-            kind: StatusKind::Danger,
-            head: "Not done".into(),
-            line: text,
-        },
-        time.elapsed_secs(),
-    );
+    toasts
+        .push(What::Notice { kind, head, line }, time.elapsed_secs());
 }
 
 /// An answer from a toast or anywhere else takes its toast away.
@@ -447,15 +484,14 @@ fn answered(answer: On<Answer>, mut toasts: ResMut<Toasts>) {
     toasts.shown.retain(|toast| toast.what != What::Wait(wait));
 }
 
-/// Opens the stack and keeps its toasts while the pointer is on it,
-/// fades them otherwise, and takes away the ones that are over or
-/// whose wait is closed.
+/// Opens the stack on hover, else fades the toasts and drops the
+/// done.
 fn keep(
     time: Res<Time>,
     pile: Query<&Hovered, With<Pile>>,
-    waiting: Query<Option<&RaisedBy>, With<Waiting>>,
+    waiting: Query<(), With<Waiting>>,
     showing: Option<Res<Showing>>,
-    convo: Option<Res<Convo>>,
+    chat_waits: Option<Res<ChatWaits>>,
     mut toasts: ResMut<Toasts>,
 ) {
     let open = pile.iter().any(Hovered::get);
@@ -466,9 +502,7 @@ fn keep(
         return;
     }
     let now = time.elapsed_secs();
-    let chatting = convo
-        .filter(|_| showing.is_some_and(|s| *s == Showing::Thread))
-        .map(|convo| convo.agent);
+    let chatting = showing.is_some_and(|s| *s == Showing::Thread);
     let mut next = toasts.shown.clone();
     for toast in &mut next {
         if open {
@@ -476,16 +510,22 @@ fn keep(
         }
         toast.opacity =
             ((toast.until + FADES - now) / FADES).clamp(0.0, 1.0);
+        if let What::Setup { waits, .. } = &mut toast.what {
+            waits.retain(|wait| waiting.contains(*wait));
+        }
     }
     next.retain(|toast| {
         toast.opacity > 0.0
             && match &toast.what {
                 // Its chat, open, shows it in full.
                 What::Wait(wait) => {
-                    waiting.get(*wait).is_ok_and(|by| {
-                        by.is_none_or(|by| Some(by.0) != chatting)
-                    })
+                    waiting.contains(*wait)
+                        && !(chatting
+                            && chat_waits
+                                .as_ref()
+                                .is_some_and(|w| w.holds(*wait)))
                 }
+                What::Setup { waits, .. } => !waits.is_empty(),
                 What::Notice { .. }
                 | What::Verdict { .. }
                 | What::Update(_) => true,
@@ -496,8 +536,7 @@ fn keep(
     }
 }
 
-/// Eases each toast towards its place in the stack, and notes how
-/// tall what it says was laid out.
+/// Eases each toast towards its place and notes its height.
 fn settle(
     time: Res<Time>,
     theme: Option<Res<bevy_fynix::Theme<HamletTheme>>>,
@@ -509,8 +548,7 @@ fn settle(
         return;
     }
     let expand = theme.map_or(0.22, |theme| theme.0.motion.expand);
-    // Most of the way there in the time the theme gives what opens
-    // or folds away. A theme with no such time moves them at once.
+    // Most of the way in the theme's fold time; at once without one.
     let rate = 3.0 / expand;
     let at_once =
         reduced.is_some_and(|reduced| reduced.0) || expand <= 0.0;
@@ -544,8 +582,7 @@ fn settle(
     }
 }
 
-/// `now` a step of `dt` seconds closer to `want`, at `rate`, and at
-/// `want` once it is too close to tell.
+/// `now` a step of `dt` seconds closer to `want`, at `rate`.
 fn ease(now: f32, want: f32, rate: f32, dt: f32) -> f32 {
     let next = now + (want - now) * (1.0 - (-rate * dt).exp());
     if (want - next).abs() < 0.005 {
@@ -555,10 +592,7 @@ fn ease(now: f32, want: f32, rate: f32, dt: f32) -> f32 {
     }
 }
 
-/// The stack of toasts, at the bottom left of the window over the
-/// status bar, the newest nearest the corner and the older folded
-/// behind it. The pointer on the stack opens it, every toast in full
-/// and a way to close them all above them.
+/// The stack of toasts at the bottom left of the window.
 pub fn stack() -> impl View {
     with_cx(|cx| {
         let space = &cx.theme().space;
@@ -569,7 +603,7 @@ pub fn stack() -> impl View {
                 |toast: &Toast| toast.id,
                 card,
             )
-            .within(column(()).gap(space.gap)),
+            .within(column(())),
         ))
         .gap(space.gap)
         .width(px(WIDTH))
@@ -578,18 +612,16 @@ pub fn stack() -> impl View {
             left: px(space.panel + space.gap),
             top: Val::Auto,
             right: Val::Auto,
-            // The status bar is less high than the menu bar.
-            bottom: px(space.bar + space.gap),
+            bottom: px(space.bar),
         })
         .with(Hovered::default())
         .with(Pile)
     })
 }
 
-/// "Close all", at the end of the line above an open stack of more
-/// than one toast, filled so that it reads over the world.
+/// "Close All", above an open stack of more than one toast.
 fn closing_all() -> impl View {
-    row((action(Glyph::Cross, "Close all", dismiss_all),))
+    row((action(Glyph::Cross, "Close All", dismiss_all),))
         .justify(JustifyContent::FlexEnd)
         .display(resource::<Toasts, _>(|toasts| {
             if toasts.open && toasts.shown.len() > 1 {
@@ -600,8 +632,7 @@ fn closing_all() -> impl View {
         }))
 }
 
-/// A prop of toast `id` that follows where it is on its way to its
-/// place, and how tall what it says is. A toast taken away is gone.
+/// A prop of toast `id` that follows its pose and height.
 fn posed<T: Send + Sync + 'static>(
     id: u64,
     pick: impl Fn(Pose, Option<f32>) -> T + Send + Sync + 'static,
@@ -612,8 +643,7 @@ fn posed<T: Send + Sync + 'static>(
     })
 }
 
-/// The words of a toast's line without the name its wait starts
-/// with.
+/// A toast's line without the name its wait starts with.
 fn said(need: &Need) -> &str {
     need.line
         .strip_prefix(need.shown.as_str())
@@ -621,8 +651,7 @@ fn said(need: &Need) -> &str {
         .trim_start()
 }
 
-/// Where who raised `need` is and how long ago it asked:
-/// `· mill · now`.
+/// Where who raised `need` is and how long ago it asked.
 fn origin(world: &World, need: &Need, by: &str) -> String {
     let age = need.waited.clone();
     if let WaitDetail::Newcomer { .. } = need.detail {
@@ -649,7 +678,7 @@ fn card(toast: &Toast) -> AnyView {
                 };
                 let need = Need::of(*wait, waiting);
                 let kind = match need.detail {
-                    WaitDetail::Fault {} => StatusKind::Danger,
+                    WaitDetail::Fault { .. } => StatusKind::Danger,
                     _ => Standing::Waits.kind(),
                 };
                 let from = origin(cx.world, &need, &waiting.by);
@@ -657,11 +686,53 @@ fn card(toast: &Toast) -> AnyView {
                 (
                     // The bell of NEEDS YOU.
                     Standing::Waits.glyph(),
-                    need.shown.clone(),
+                    Prop::from(need.shown.clone()),
                     from,
                     kind,
                     said(&need).to_string(),
                     answers,
+                )
+            }
+            What::Setup { setup, .. } => {
+                let head = derived(move |world: &World| {
+                    setup_head(world, id)
+                })
+                .when(head_moved(id));
+                let line = match (setup.cause, setup.model.is_empty())
+                {
+                    (SetupCause::Model, true) => {
+                        "No model is set up yet.".to_string()
+                    }
+                    (SetupCause::Model, false) => {
+                        "It is not set up, or not available. Set it \
+                         up once for all of them."
+                            .to_string()
+                    }
+                    (SetupCause::Credentials, _) => {
+                        "Its provider refused the sign-in. Sign in \
+                         again once for all of them."
+                            .to_string()
+                    }
+                };
+                let buttons = buttons(vec![
+                    action(Glyph::Chip, "Set Up Models", |world| {
+                        crate::welcome::again(world);
+                    }),
+                    action(
+                        Glyph::Cross,
+                        "Dismiss All",
+                        move |world| {
+                            dismiss_group(world, id);
+                        },
+                    ),
+                ]);
+                (
+                    Glyph::Chip,
+                    head.into(),
+                    String::new(),
+                    StatusKind::Danger,
+                    line,
+                    buttons.boxed(),
                 )
             }
             What::Notice { kind, head, line } => (
@@ -669,7 +740,7 @@ fn card(toast: &Toast) -> AnyView {
                     StatusKind::Success => Glyph::Check,
                     _ => Glyph::Stop,
                 },
-                head.clone(),
+                Prop::from(head.clone()),
                 String::new(),
                 *kind,
                 line.clone(),
@@ -696,7 +767,7 @@ fn card(toast: &Toast) -> AnyView {
                 };
                 (
                     Glyph::Tower,
-                    head.into(),
+                    Prop::from(head.to_string()),
                     String::new(),
                     kind,
                     line,
@@ -732,7 +803,7 @@ fn card(toast: &Toast) -> AnyView {
                 });
                 (
                     Glyph::Hamlet,
-                    format!("Hamlet {version} is out"),
+                    Prop::from(format!("Hamlet {version} is out")),
                     String::new(),
                     StatusKind::Info,
                     line,
@@ -747,8 +818,6 @@ fn card(toast: &Toast) -> AnyView {
         ))
         .gap(6.0)
         .align(AlignItems::Center);
-        // The close sits at the end of the head's line, centred on
-        // it, after how many more are folded behind it.
         let top = row((
             opening(what.clone(), head),
             note(resource::<Toasts, _>(move |toasts| {
@@ -758,32 +827,29 @@ fn card(toast: &Toast) -> AnyView {
         ))
         .gap(6.0)
         .align(AlignItems::Center);
-        let words =
-            column((top, opening(what.clone(), quoted(&line))))
-                .gap(2.0);
         let theme = cx.theme();
         let space = &theme.space;
-        // Laid out in full even while the card is folded, so that its
-        // height is known to unfold to; it fades as the card folds.
+        let words =
+            column((top, opening(what.clone(), quoted(&line))))
+                .gap(space.gap / 4.0);
+        // Laid out in full while folded, so its height is known.
         let inside = column((words, answers))
             .gap(space.gap)
             .shrink(0.0)
             .with(Inside(id))
             .rules(fading(id));
-        // Its shadow doubled, so it stands off the world and the
-        // panels.
         let mut shadow = theme.shadow();
         shadow.0.extend(theme.shadow().0);
-        // The corner, padding and edge `rules::floating` gives a
-        // card.
         let (gap, round) = (space.gap, space.soft);
         let (border, padding_y) =
             (space.border, space.card_padding_y);
-        // Folded, a card is a strip under the bottom of the one in
-        // front of it, its round corners hidden there, narrower the
-        // further back it is. A card is never shorter than its
-        // padding and edge.
+        // Folded, a card is a strip behind the one in front.
         let strip = (EDGE + round).max(2.0 * (padding_y + border));
+        let whole = move |tall: Option<f32>| {
+            tall.map_or(strip, |tall| {
+                tall + 2.0 * (padding_y + border)
+            })
+        };
         let card = kinds::card((inside,))
             .status(kind)
             .overflow(Overflow::clip())
@@ -799,35 +865,38 @@ fn card(toast: &Toast) -> AnyView {
                     Display::None
                 }
             }))
-            .height(posed(id, move |pose, tall| match tall {
+            .height(posed(id, move |pose, tall| {
                 // In full it takes the height of what it says.
-                _ if pose.fold == 0.0 => Val::Auto,
-                Some(tall) => {
-                    let whole = tall + 2.0 * (padding_y + border);
-                    px(whole + (strip - whole) * pose.fold)
+                if pose.fold == 0.0 {
+                    return Val::Auto;
                 }
-                None => px(strip),
+                let whole = whole(tall);
+                px(whole + (strip - whole) * pose.fold)
             }))
-            .margin(posed(id, move |pose, _| {
-                let aside = EDGE * pose.back * pose.fold;
-                UiRect {
-                    left: px(aside),
-                    right: px(aside),
-                    top: px(0.0),
-                    // Folded, it takes no room: it lies behind the
-                    // one in front, so the stack never moves as it
-                    // grows.
-                    bottom: px(-(gap + strip) * pose.fold),
-                }
+            .margin(posed(id, |pose, _| {
+                UiRect::horizontal(px(EDGE * pose.back * pose.fold))
             }))
+            .shrink(0.0)
             .tagged(shadow)
             .rules(rules::floating);
-        cx.build(card)
+        // A negative margin would not shrink a column.
+        let room = column((card,))
+            .shrink(0.0)
+            .height(posed(id, move |pose, tall| {
+                if pose.fold == 0.0 {
+                    return Val::Auto;
+                }
+                px((whole(tall) + gap) * (1.0 - pose.fold))
+            }))
+            .padding(posed(id, move |pose, _| UiRect {
+                bottom: px(gap * (1.0 - pose.fold)),
+                ..UiRect::ZERO
+            }));
+        cx.build(room)
     })
 }
 
-/// How many toasts are folded behind toast `id`, as `+2`, while it is
-/// the newest of a closed stack; nothing otherwise.
+/// How many toasts are folded behind toast `id`, as `+2`.
 fn behind(toasts: &Toasts, id: u64) -> String {
     let more = toasts.shown.len().saturating_sub(1);
     let newest =
@@ -839,9 +908,7 @@ fn behind(toasts: &Toasts, id: u64) -> String {
     }
 }
 
-/// `content`, a part of the words of the toast of `what`: a
-/// wait's opens it where it is answered. Pressing a toast leaves
-/// it on show; only its close takes it away.
+/// A toast's `content`, pressed to open what it is about.
 fn opening(what: What, content: impl View) -> impl View {
     button(row((content,)))
         .grow(1.0)
@@ -849,13 +916,12 @@ fn opening(what: What, content: impl View) -> impl View {
         .rules(opener)
         .on_activate(move |world| {
             if let What::Wait(wait) = &what {
-                crate::wait::open(world, *wait);
+                wait::open(world, *wait);
             }
         })
 }
 
-/// A toast's words, pressed to open what it is about: no fill of its
-/// own, the card around it is the toast.
+/// A toast's words, with no fill of their own.
 fn opener(cx: &mut Cx) {
     style::<HamletTheme>()
         .frame(|f, _| {
@@ -869,8 +935,7 @@ fn opener(cx: &mut Cx) {
         .apply(cx);
 }
 
-/// The rules that fade every part of what toast `id` says with its
-/// time, and as it folds.
+/// Fades toast `id` with its time and as it folds.
 fn fading(id: u64) -> impl FnOnce(&mut Cx) + Send + Sync + 'static {
     move |cx| {
         cx.set::<Visual>(move |visual, _| {
@@ -885,8 +950,87 @@ fn fading(id: u64) -> impl FnOnce(&mut Cx) + Send + Sync + 'static {
     }
 }
 
-/// Takes every toast away. Waits stay among the waits, and a
-/// closed update is not offered again while the window is open.
+/// The head of the setup toast `id`.
+fn setup_head(world: &World, id: u64) -> String {
+    let Some(What::Setup { setup, waits }) = world
+        .get_resource::<Toasts>()
+        .and_then(|toasts| toasts.get(id))
+        .map(|toast| &toast.what)
+    else {
+        return String::new();
+    };
+    let agents = waits
+        .iter()
+        .filter_map(|wait| world.get::<RaisedBy>(*wait))
+        .map(|by| by.0)
+        .collect::<Vec<_>>();
+    let who = match agents.as_slice() {
+        [one] => hamlet_client::realm::shown_of(world, *one),
+        all if all
+            .iter()
+            .all(|agent| world.get::<Lead>(*agent).is_some()) =>
+        {
+            format!("{} leads", all.len())
+        }
+        all => format!("{} agents", all.len()),
+    };
+    if setup.model.is_empty() {
+        let has = if agents.len() == 1 { "has" } else { "have" };
+        return format!("{who} {has} no model");
+    }
+    format!("{who} can't use {}", model_title(world, &setup.model))
+}
+
+/// Whether the head of the setup toast `id` may have changed.
+fn head_moved(
+    id: u64,
+) -> impl FnMut(&World) -> bool + Send + Sync + 'static {
+    let mut seen = None;
+    move |world: &World| {
+        let waits = match world
+            .get_resource::<Toasts>()
+            .and_then(|toasts| toasts.get(id))
+            .map(|toast| &toast.what)
+        {
+            Some(What::Setup { waits, .. }) => waits.len(),
+            _ => 0,
+        };
+        let realm = world
+            .get_resource_change_ticks::<Seen>()
+            .map(|ticks| ticks.changed);
+        let models = world
+            .get_resource_change_ticks::<Shelf>()
+            .map(|ticks| ticks.changed);
+        // A write with no system run since gets the tick seen.
+        let now = world.read_change_tick();
+        let open = realm == Some(now) || models == Some(now);
+        let moved = open || seen != Some((waits, realm, models));
+        seen = Some((waits, realm, models));
+        moved
+    }
+}
+
+/// Dismisses every fault of the setup toast `id`, and the toast.
+fn dismiss_group(world: &mut World, id: u64) {
+    let waits = match world.resource::<Toasts>().get(id) {
+        Some(Toast {
+            what: What::Setup { waits, .. },
+            ..
+        }) => waits.clone(),
+        _ => Vec::new(),
+    };
+    for wait in waits {
+        world.trigger(Answer {
+            wait,
+            request: RequestId::new(),
+            choice: Choice::Dismiss,
+            text: None,
+        });
+    }
+    dismiss(world, id);
+}
+
+/// Takes every toast away.
 fn dismiss_all(world: &mut World) {
     let update =
         world.resource::<Toasts>().shown.iter().find_map(|toast| {
@@ -901,9 +1045,7 @@ fn dismiss_all(world: &mut World) {
     world.resource_mut::<Toasts>().shown.clear();
 }
 
-/// Says that the page at `address` did not open, with the address
-/// copied for the chief to paste into a browser, or written out when
-/// it could not be copied.
+/// Says that the page at `address` did not open.
 pub(crate) fn unopened(world: &mut World, address: &str) {
     let copied = world.get_resource_mut::<Clipboard>().is_some_and(
         |mut clipboard| {
@@ -924,9 +1066,6 @@ pub(crate) fn unopened(world: &mut World, address: &str) {
     );
 }
 
-/// Takes toast `id` away, and no other, though another says the same.
-/// A wait stays among the waits, and a closed update is not
-/// offered again while the window is open.
 fn dismiss(world: &mut World, id: u64) {
     let version = world
         .resource::<Toasts>()
@@ -951,12 +1090,9 @@ mod tests {
     use std::time::Duration;
 
     use bevy::time::{TimeUpdateStrategy, Virtual};
-    use hamlet_client::outbox::Outbox;
-    use hamlet_client::waits::Choice;
-    use hamlet_protocol::client as protocol;
 
     use super::*;
-    use crate::testing::{panel_app, press, words};
+    use crate::testing::panel_app;
 
     fn app_with_a_wait() -> App {
         let mut app = panel_app();
@@ -979,67 +1115,6 @@ mod tests {
         bevy_fynix::mount::<HamletTheme>(app.world_mut(), stack());
         app.update();
         app
-    }
-
-    #[test]
-    fn a_new_wait_toasts_and_is_answered_in_place() {
-        let mut app = app_with_a_wait();
-        assert_eq!(app.world().resource::<Toasts>().shown.len(), 1);
-        let shown = words(&mut app);
-        assert!(shown.iter().any(|text| text == "ada"), "{shown:?}");
-        // The command on a chip of its own, with no backticks.
-        assert!(shown.iter().any(|text| text == "wants to run"));
-        assert!(shown.iter().any(|text| text == "pwd"));
-        press(&mut app, "Allow once");
-        let allowed =
-            app.world().resource::<Outbox>().iter().any(|message| {
-                matches!(message, ClientMessage::Answer(answer)
-                    if answer.wait == "new" && answer.choice == Choice::Allow)
-            });
-        assert!(allowed);
-        assert!(app.world().resource::<Toasts>().shown.is_empty());
-    }
-
-    #[test]
-    fn the_hands_verdict_toasts_with_a_way_to_undo_it() {
-        let mut app = panel_app();
-        app.add_plugins(plugin);
-        let mut state = hamlet_testing::realm::state();
-        state.settings.newcomers = protocol::Newcomers::Hand;
-        let mut moss = hamlet_testing::realm::profile(3, "moss", &[]);
-        moss.arrival = Arrival::Waiting;
-        moss.house = None;
-        state.profiles.push(moss);
-        hamlet_client::receive(
-            app.world_mut(),
-            ServerMessage::State(state.clone()),
-        );
-        app.update();
-        state.revision += 1;
-        let moss = state.profiles.last_mut().unwrap();
-        moss.arrival = Arrival::Housed;
-        moss.arrival_by = Some(HAND.into());
-        hamlet_client::receive(
-            app.world_mut(),
-            ServerMessage::State(state),
-        );
-        app.update();
-        bevy_fynix::mount::<HamletTheme>(app.world_mut(), stack());
-        app.update();
-        let shown = words(&mut app);
-        assert!(
-            shown
-                .iter()
-                .any(|text| text == "The Hand let a profile in"),
-            "{shown:?}"
-        );
-        press(&mut app, "Undo");
-        let undone =
-            app.world().resource::<Outbox>().iter().any(|message| {
-                matches!(message, ClientMessage::Say(say)
-                    if say.text == "/turn-away profile#3")
-            });
-        assert!(undone);
     }
 
     #[test]
@@ -1150,128 +1225,5 @@ mod tests {
             app.update();
         }
         assert_eq!(folds(&app), [0.0, 0.0]);
-    }
-
-    #[test]
-    fn with_less_motion_toasts_fold_at_once() {
-        let mut app = stacked(faults(2), Duration::from_millis(16));
-        app.insert_resource(ReducedMotion(true));
-        app.update();
-        assert_eq!(folds(&app), [1.0, 0.0]);
-    }
-
-    #[test]
-    fn an_open_stack_closes_all_its_toasts_at_once() {
-        let mut app = stacked(faults(2), Duration::from_millis(16));
-        let pile = pile(&mut app);
-        app.world_mut().entity_mut(pile).insert(Hovered(true));
-        app.update();
-        assert!(app.world().resource::<Toasts>().open);
-        press(&mut app, "Close all");
-        assert!(app.world().resource::<Toasts>().shown.is_empty());
-    }
-
-    #[test]
-    fn an_update_stays_on_show_until_it_is_taken_or_closed() {
-        let mut app = panel_app();
-        app.add_plugins(plugin).init_resource::<updates::Updates>();
-        let step = Duration::from_secs_f32(STAYS + FADES + 1.0);
-        app.insert_resource(TimeUpdateStrategy::ManualDuration(step));
-        app.world_mut()
-            .resource_mut::<Time<Virtual>>()
-            .set_max_delta(step);
-        let offer = Offer {
-            version: hamlet_protocol::Version::new(0, 2, 0),
-            ready: Ready::Page("https://example.com".into()),
-        };
-        let mut toasts = app.world_mut().resource_mut::<Toasts>();
-        toasts.offer(offer.clone(), 0.0);
-        toasts.offer(offer.clone(), 0.0);
-        app.update();
-        app.update();
-        assert_eq!(app.world().resource::<Toasts>().shown.len(), 1);
-        let id = app.world().resource::<Toasts>().shown[0].id;
-        dismiss(app.world_mut(), id);
-        assert!(app.world().resource::<Toasts>().shown.is_empty());
-        assert_eq!(
-            app.world().resource::<updates::Updates>().declined,
-            Some(offer.version)
-        );
-    }
-
-    #[test]
-    fn a_page_that_does_not_open_gives_its_address() {
-        let mut app = panel_app();
-        app.add_plugins(plugin);
-        app.world_mut().remove_resource::<Clipboard>();
-        unopened(app.world_mut(), "https://example.com/v0.2.0");
-        let toasts = app.world().resource::<Toasts>();
-        assert!(matches!(
-            &toasts.shown[..],
-            [Toast { what: What::Notice { head, line, .. }, .. }]
-                if head == "The page did not open"
-                    && line == "Open https://example.com/v0.2.0 in a browser."
-        ));
-    }
-
-    #[test]
-    fn newer_toasts_make_way_around_an_update() {
-        let offer = Offer {
-            version: hamlet_protocol::Version::new(0, 2, 0),
-            ready: Ready::Page("https://example.com".into()),
-        };
-        let mut toasts = Toasts::default();
-        toasts.offer(offer.clone(), 0.0);
-        for n in 0..MOST {
-            toasts.note(
-                StatusKind::Danger,
-                "Fault".into(),
-                n.to_string(),
-                0.0,
-            );
-        }
-        assert_eq!(toasts.shown.len(), MOST);
-        assert_eq!(toasts.shown[0].what, What::Update(offer));
-        assert!(matches!(
-            &toasts.shown[1].what,
-            What::Notice { line, .. } if line == "1"
-        ));
-    }
-
-    #[test]
-    fn a_command_from_the_world_that_is_rejected_toasts() {
-        let mut app = panel_app();
-        app.add_plugins(plugin).add_observer(chat::decreed);
-        app.world_mut().trigger(hamlet_realm::orders::Decree {
-            hamlet: None,
-            text: "/move-house ada 1 1".into(),
-        });
-        app.world_mut().flush();
-        let said = app
-            .world_mut()
-            .resource_mut::<Outbox>()
-            .drain()
-            .filter_map(|message| match message {
-                ClientMessage::Say(say) => Some(say),
-                _ => None,
-            })
-            .collect::<Vec<_>>();
-        let [say] = &said[..] else {
-            panic!("one command: {said:?}");
-        };
-        let rejection = serde_json::from_value(serde_json::json!({
-            "type": "reply",
-            "to": say.id,
-            "kind": "error",
-            "text": "the house would stand on another",
-        }))
-        .unwrap();
-        hamlet_client::receive(app.world_mut(), rejection);
-        let shown = &app.world().resource::<Toasts>().shown;
-        assert!(matches!(
-            &shown[..],
-            [Toast { what: What::Notice { line, .. }, .. }]
-                if line == "the house would stand on another"
-        ));
     }
 }

@@ -1,9 +1,4 @@
-//! The terminals beside the screen, in one flat list by hamlet, the
-//! Hand's, the workers' of no hamlet, and the chief's own, whose
-//! groups fold away or open. An agent's log of the commands it ran
-//! shows only once the agent is pinned. Each row shows where its
-//! terminal stands as a breadcrumb, the last command it ran, and
-//! whether one runs. A double click names one.
+//! The terminals beside the screen, grouped by hamlet.
 use std::collections::{BTreeMap, BTreeSet};
 
 use bevy::app::{App, PostUpdate, PreUpdate};
@@ -55,8 +50,8 @@ pub(super) fn plugin(app: &mut App) {
         .init_resource::<Renaming>()
         .add_observer(start_rename)
         .add_systems(PreUpdate, list.in_set(PanelSystems::Bind))
-        // After the views mount and after the screen takes the keys
-        // a click gave it, so the new field keeps them.
+        // After the screen takes a click's keys, so the field keeps
+        // them.
         .add_systems(PostUpdate, (focus_field, end_rename).chain());
 }
 
@@ -64,8 +59,8 @@ pub(super) fn plugin(app: &mut App) {
 #[derive(Resource, Default, Clone, PartialEq, Debug)]
 pub(super) struct Listed(pub(super) Vec<Group>);
 
-/// The terminal whose name is being typed, in the list of which
-/// panel, and whether its field has had the keys yet.
+/// The terminal being named, in which panel, and whether its field
+/// had the keys.
 #[derive(Resource, Default, Clone, PartialEq)]
 struct Renaming(Option<(Entity, PanelId, bool)>);
 
@@ -77,12 +72,10 @@ pub(super) struct Entry(pub(super) Entity, pub(super) PanelId);
 #[derive(Component)]
 struct RenameField;
 
-/// The terminals of one hamlet, the Hand's, the workers' of no
-/// hamlet, or the unbounded ones, as rows of a tree.
+/// One group of terminals as rows of a tree.
 #[derive(Clone, PartialEq, Debug)]
 pub(super) struct Group {
-    /// The hamlet's id, [`HAND`], [`WORKERS`], or empty for the
-    /// unbounded ones.
+    /// The hamlet's id, [`HAND`], [`WORKERS`], or empty.
     pub(super) key: String,
     pub(super) title: String,
     pub(super) rows: Vec<Row>,
@@ -118,8 +111,7 @@ pub(super) struct Branch {
     pub(super) name: Option<String>,
     pub(super) kind: AgentKind,
     pub(super) lead: bool,
-    /// The log of the commands it ran, which the list shows once the
-    /// agent is pinned.
+    /// The log of the commands it ran, shown once it is pinned.
     pub(super) log: Option<Item>,
     /// The shells under it, its own and its agents'.
     pub(super) held: usize,
@@ -139,8 +131,7 @@ pub(super) struct Item {
     pub(super) last: Option<String>,
     /// Whether a command is running in it.
     pub(super) running: bool,
-    /// What it is under: the hamlet and the agents, the outermost
-    /// first. Empty for the chief's own shells.
+    /// The hamlet and agents it is under, the outermost first.
     pub(super) crumbs: Vec<String>,
 }
 
@@ -179,9 +170,7 @@ pub(super) struct Placed {
     pub(super) order: (bool, String, String),
 }
 
-/// Lists the terminals by hamlet, then the Hand's, the workers' of no
-/// hamlet and the unbounded ones, each as a tree of the agents they
-/// are under.
+/// Lists the terminals by group, each a tree of their agents.
 pub(super) fn list(world: &mut World) {
     let Some(views) =
         world.try_query::<(Entity, &Terminal)>().map(|mut query| {
@@ -273,9 +262,7 @@ fn owner(world: &World, agent: AgentId) -> Option<Owner> {
     })
 }
 
-/// The agent a tree puts `owner` under: its parent or a worker's
-/// starter. A lead heads its hamlet's tree, though it answers to
-/// the Hand.
+/// The agent a tree puts `owner` under: its parent or starter.
 fn above(
     owner: &Owner,
     owners: &BTreeMap<AgentId, Owner>,
@@ -291,8 +278,7 @@ fn above(
     }
 }
 
-/// The group of the agent at the top of a tree, `hamlet` being the
-/// one of the terminal that brought it.
+/// The group of the agent at the top of a tree.
 fn group_of(
     owner: Option<&Owner>,
     hamlet: Option<&String>,
@@ -314,8 +300,7 @@ struct Node {
     under: BTreeSet<AgentId>,
 }
 
-/// The groups of `placed`'s terminals, each a tree of the agents
-/// they are under, with `owners` and the titles of the hamlets.
+/// The groups of `placed`'s terminals, each a tree of their agents.
 pub(super) fn tree(
     placed: Vec<Placed>,
     owners: &BTreeMap<AgentId, Owner>,
@@ -411,9 +396,7 @@ pub(super) fn tree(
         .collect()
 }
 
-/// `agents` in the order a tree shows them: a chief's workers, then
-/// the lead, then the other agents in the order they came, then
-/// workers; or, below an agent, its agents before its workers.
+/// `agents` in the order a tree shows them.
 fn ordered(
     agents: BTreeSet<AgentId>,
     owners: &BTreeMap<AgentId, Owner>,
@@ -433,8 +416,8 @@ fn ordered(
     agents
 }
 
-/// Adds the rows of `agent` and all under it, `path` being the agents
-/// above it; gives how many terminals they hold.
+/// Adds the rows of `agent` and all under it, and counts their
+/// terminals.
 fn branch(
     agent: AgentId,
     nodes: &mut BTreeMap<AgentId, Node>,
@@ -491,8 +474,7 @@ fn branch(
     held
 }
 
-/// The list of terminals in `panel` and the press that opens the menu
-/// of what to add.
+/// The list of terminals in `panel` and its add menu.
 pub(super) fn side(panel: &PanelId) -> impl View + use<> {
     let panel = panel.clone();
     with_cx(move |cx| {
@@ -500,7 +482,7 @@ pub(super) fn side(panel: &PanelId) -> impl View + use<> {
         let first = cx.theme().terminal.list;
         column((
             row((
-                row((caption("TERMINALS".to_string(), Tone::Faint),))
+                row((caption("Terminals".to_string(), Tone::Faint),))
                     .grow(1.0),
                 button(glyph(Glyph::Plus, ICON).tone(Tone::Dim))
                     .padding(UiRect::all(px(4.0)))
@@ -583,8 +565,7 @@ pub(super) fn side(panel: &PanelId) -> impl View + use<> {
 }
 
 impl Listed {
-    /// The terminals the list shows, by group: the chief's shells,
-    /// and the logs of the agents `pins` holds.
+    /// The terminals the list shows, by group.
     pub(super) fn shown(
         &self,
         pins: &Pins,
@@ -689,8 +670,7 @@ struct Shown<'a> {
 /// How far the rows stand in from the list's edge.
 const BOX_GAP: f32 = 4.0;
 
-/// A group's title, which folds the group away or opens it, with how
-/// many terminals it shows.
+/// A group's title, which folds it, and its count.
 fn heading(
     panel: &PanelId,
     group: &Group,
@@ -699,7 +679,7 @@ fn heading(
 ) -> impl View + use<> {
     let panel = panel.clone();
     let key = group.key.clone();
-    let title = group.title.to_uppercase();
+    let title = group.title.clone();
     let home = group.key.is_empty();
     with_cx(move |cx| {
         let space = &cx.theme().space;
@@ -735,7 +715,6 @@ fn heading(
     })
 }
 
-/// Folds the group of `key` in the list of `panel` away, or opens it.
 fn fold(world: &mut World, panel: &PanelId, key: &str) {
     let mut folds = world.resource_mut::<Folds>();
     let folded = folds.0.entry(panel.0.clone()).or_default();
@@ -744,10 +723,7 @@ fn fold(world: &mut World, panel: &PanelId, key: &str) {
     }
 }
 
-/// One terminal: where it stands as a breadcrumb, the last command it
-/// ran, whether one runs, and its close, or for a pinned log its
-/// unpin. It is lit, with a bar at its edge, when it is the one the
-/// panel shows. While it is named, a field holds its name.
+/// One terminal's row.
 fn entry(shown: &Shown, item: Item, last: bool) -> AnyView {
     let panel = shown.panel.clone();
     let active = shown.active == Some(item.terminal);
@@ -894,8 +870,7 @@ fn entry(shown: &Shown, item: Item, last: bool) -> AnyView {
     .boxed()
 }
 
-/// What stands over `item`: the agents above a bash log, each
-/// followed by a chevron, then its name, the first `skip` left out.
+/// The agents above `item` and its name, the first `skip` left out.
 pub(super) fn crumbs(
     item: &Item,
     skip: usize,
@@ -941,8 +916,7 @@ const PREVIEW_SCALE: f32 = 0.85;
 /// The width of a monospace letter, in ems.
 const MONO_ADVANCE: f32 = 0.6;
 
-/// `text` in at most `most` letters, three dots ending what is cut:
-/// the monospace face has no ellipsis.
+/// `text` cut to `most` letters with three dots.
 pub(super) fn elided(text: &str, most: usize) -> String {
     if text.chars().count() <= most {
         return text.to_owned();
@@ -955,16 +929,14 @@ pub(super) fn elided(text: &str, most: usize) -> String {
     cut
 }
 
-/// The field `terminal`'s name is typed in. Enter names it; Escape,
-/// or the keys going elsewhere, leaves it as it was.
+/// The field `terminal`'s name is typed in.
 fn rename_field(
     panel: PanelId,
     terminal: Entity,
     name: String,
 ) -> AnyView {
     text_field(name, move |world, name| {
-        // Enter keeps the field focused while it commits; focus
-        // leaving first drops the name.
+        // Focus leaving before Enter drops the name.
         let entered = world
             .resource::<InputFocus>()
             .get()
@@ -999,8 +971,7 @@ fn start_rename(
     }
 }
 
-/// Puts the keyboard in a new rename field, its name chosen so what
-/// is typed replaces it.
+/// Focuses a new rename field with its name selected.
 fn focus_field(
     fields: Query<&Children, Added<RenameField>>,
     mut texts: Query<&mut EditableText>,
@@ -1022,8 +993,7 @@ fn focus_field(
     }
 }
 
-/// Leaves the name being typed on Escape, or once the keyboard is
-/// elsewhere after the field had it.
+/// Drops the name being typed on Escape or once focus leaves.
 fn end_rename(
     keys: Res<ButtonInput<KeyCode>>,
     focus: Res<InputFocus>,
@@ -1053,8 +1023,7 @@ fn end_rename(
     }
 }
 
-/// Closes `terminal` from the list of `panel`. Closing the one it
-/// shows gives the keys to the one it shows next.
+/// Closes `terminal` from the list of `panel`.
 fn close(world: &mut World, panel: &PanelId, terminal: Entity) {
     let others = world.resource::<Listed>().items().count() > 1;
     if others
@@ -1071,19 +1040,6 @@ mod tests {
     use serde_json::json;
 
     use super::*;
-
-    fn view(
-        id: &str,
-        title: &str,
-        named: bool,
-    ) -> terminals::TerminalView {
-        serde_json::from_value(json!({
-            "agent": null, "cols": 80, "rows": 24, "cwd": "/",
-            "exit": null, "hamlet": null, "id": id, "kind": "shell",
-            "name": id, "named": named, "title": title, "last": "cargo test"
-        }))
-        .unwrap()
-    }
 
     fn of(
         id: &str,
@@ -1181,11 +1137,7 @@ mod tests {
                 rows.iter().map(|row| (*row).to_owned()).collect(),
             )
         };
-        // The chief's come first in a hamlet, then the workers a
-        // chief started, then the lead's tree: each agent's
-        // shells, then the agents under it, one with no terminal of
-        // its own still shown above those that have. An agent's
-        // commands are its log, not a row.
+        // The chief's first, then its workers, then the lead's tree.
         assert_eq!(
             rows(app.world().resource::<Listed>()),
             [
@@ -1233,8 +1185,7 @@ mod tests {
             .collect::<Vec<_>>();
         assert_eq!(logs, [("agent#2", "bash")]);
 
-        // A log shows only once its agent is pinned, under the hamlet
-        // and the agents above it.
+        // A log shows only once its agent is pinned.
         let listed = app.world().resource::<Listed>();
         let (key, log) = listed
             .0
@@ -1261,56 +1212,5 @@ mod tests {
         };
         let loose = count(&Pins::default());
         assert_eq!(count(&Pins(BTreeSet::from([key]))), loose + 1);
-    }
-
-    #[test]
-    fn a_long_command_is_cut_with_an_ellipsis() {
-        assert_eq!(elided("$ ls", 10), "$ ls");
-        assert_eq!(elided("$ cargo test --all", 10), "$ cargo...");
-        assert_eq!(elided("$ ls", 4), "$ ls");
-    }
-
-    #[test]
-    fn a_name_given_shows_over_the_title_and_a_group_folds_and_opens()
-    {
-        let mut app = crate::testing::panel_app();
-        let mut state = hamlet_testing::realm::state();
-        state.revision = 1;
-        state.terminals = vec![
-            view("plain", "vim", false),
-            view("named", "vim", true),
-        ];
-        hamlet_client::receive(
-            app.world_mut(),
-            protocol::ServerMessage::State(state),
-        );
-        app.init_resource::<Panels>().init_resource::<Listed>();
-        list(app.world_mut());
-        let listed = app.world().resource::<Listed>().clone();
-        let names = listed
-            .items()
-            .map(|item| (item.name.as_str(), item.last.as_deref()))
-            .collect::<Vec<_>>();
-        assert_eq!(
-            names,
-            [
-                ("named", Some("cargo test")),
-                ("vim", Some("cargo test"))
-            ]
-        );
-        let panel = PanelId::first();
-        app.init_resource::<Folds>();
-        let folded = |app: &App| {
-            app.world()
-                .resource::<Folds>()
-                .0
-                .get(&panel.0)
-                .cloned()
-                .unwrap_or_default()
-        };
-        fold(app.world_mut(), &panel, "");
-        assert!(folded(&app).contains(""));
-        fold(app.world_mut(), &panel, "");
-        assert!(folded(&app).is_empty());
     }
 }

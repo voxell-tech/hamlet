@@ -17,7 +17,7 @@ use super::limits::{self, Micros};
 use super::record::{self, Decision, DecisionKind};
 use super::rejection::Rejection;
 use super::{city, hamlets, tree};
-use crate::realm::change::{Change, Done, done, reject};
+use crate::realm::change::{Change, Done, checked, done, reject};
 use crate::realm::jobs::{self, Job};
 
 #[derive(Clone, Debug, PartialEq, Queryable, Selectable)]
@@ -37,6 +37,14 @@ pub(crate) struct HamletAgent {
     pub allowance: Option<Micros>,
     pub allowance_by: Option<Actor>,
     pub merged_into: Option<AgentId>,
+    pub ending_dream: bool,
+}
+
+/// Whether an ended agent dreams once more.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub(crate) enum LastDream {
+    Without,
+    With,
 }
 
 /// The profile an agent is of.
@@ -75,8 +83,8 @@ pub(crate) struct NewAgent {
     pub hamlet: HamletId,
 }
 
-/// Adds an agent of a profile to a hamlet under a parent. With no
-/// parent, the agent is the lead of a hamlet being founded.
+/// Adds an agent of a profile to a hamlet under a parent, or as the
+/// lead of a hamlet being founded.
 pub(crate) fn add(cx: &mut Change<'_>, spec: Spec) -> Done<NewAgent> {
     let place = hamlets::get(cx.db, &spec.hamlet)?;
     if !place.is_living() {
@@ -181,9 +189,8 @@ pub(crate) fn get(db: &mut Db, id: AgentId) -> Result<HamletAgent> {
 /// The most letters of a first message a purpose keeps.
 const PURPOSE_KEPT: usize = 200;
 
-/// Gives `agent`, an agent added without saying what for, the first
-/// line of `text`, the first message it is given, as its purpose.
-/// Anything else is left as it is.
+/// Gives an agent with no purpose the first line of `text` as its
+/// purpose.
 pub(crate) fn take_purpose(
     cx: &mut Change<'_>,
     agent: AgentId,
@@ -236,6 +243,25 @@ pub(crate) fn living_of(
         .load(db)?)
 }
 
+/// The agents ended with a last dream since `since`, and when each
+/// ended.
+pub(crate) fn ended_to_dream(
+    db: &mut Db,
+    since: i64,
+) -> Result<Vec<(AgentId, i64)>> {
+    Ok(hamlet_agent::table
+        .inner_join(agent::table)
+        .filter(hamlet_agent::ending_dream.eq(true))
+        .filter(agent::ended_at.ge(since))
+        .filter(agent::erased.eq(false))
+        .order(agent::ended_at)
+        .select((
+            hamlet_agent::agent,
+            agent::ended_at.assume_not_null(),
+        ))
+        .load(db)?)
+}
+
 pub(crate) fn count_living(
     db: &mut Db,
     hamlet: &HamletId,
@@ -276,13 +302,12 @@ pub(crate) fn require_living(db: &mut Db, id: AgentId) -> Done<()> {
     Ok(Ok(()))
 }
 
-/// Ends the living agent `id`. Its children go to its parent, but
-/// when its whole hamlet is removed and the tree is kept to come
-/// back.
+/// Ends the living agent `id`.
 pub(crate) fn end(
     cx: &mut Change<'_>,
     id: AgentId,
     how: EndHow,
+    last: LastDream,
     reason: &str,
 ) -> Done<()> {
     let agent = get(cx.db, id)?;
@@ -310,6 +335,12 @@ pub(crate) fn end(
         )?;
     }
     agents::end(cx, id, how, reason)?;
+    diesel::update(hamlet_agent::table.find(id))
+        .set(hamlet_agent::ending_dream.eq(last == LastDream::With))
+        .execute(cx.db)?;
+    if last == LastDream::With {
+        crate::conversations::reflections::before_last_dream(cx, id)?;
+    }
     jobs::add(cx, &Job::Commit { agent: id })?;
     cx.touched.hamlets.insert(agent.hamlet);
     cx.touched.profiles.insert(agent.profile);
@@ -415,8 +446,8 @@ pub(crate) fn erase(cx: &mut Change<'_>, id: AgentId) -> Done<()> {
     Ok(Ok(()))
 }
 
-/// Gives the office of `hamlet` to its agent `id`. The old lead and
-/// its children go under the new one.
+/// Gives the office of `hamlet` to its agent `id`, the old lead going
+/// under it.
 pub(crate) fn set_lead(
     cx: &mut Change<'_>,
     hamlet_id: &HamletId,
@@ -469,7 +500,7 @@ pub(crate) fn set_lead(
 }
 
 /// Chooses the model of the living agent `id`, or its hamlet's when
-/// `None` (H29). A parent may not change a chief's choice.
+/// `None` (H29).
 pub(crate) fn set_model(
     cx: &mut Change<'_>,
     id: AgentId,
@@ -581,8 +612,7 @@ pub(crate) fn set_allowance(
     Ok(Ok(()))
 }
 
-/// Pins the living agent `id` to `version`, or to `main` when none;
-/// its branch takes the new target in when it is next idle.
+/// Pins the living agent `id` to `version`, or to `main` when none.
 pub(crate) fn set_pin(
     cx: &mut Change<'_>,
     id: AgentId,
@@ -610,8 +640,7 @@ pub(crate) fn set_pin(
 /// The most letters the name of an agent or a worker has.
 pub(crate) const NAME_LETTERS: usize = 24;
 
-/// `name` trimmed, none when it is empty, or the rejection of one
-/// that is too long or more than one line.
+/// `name` trimmed, none when it is empty.
 pub(crate) fn check_name(
     name: Option<&str>,
 ) -> Result<Option<&str>, Rejection> {
@@ -627,6 +656,23 @@ pub(crate) fn check_name(
     }
 }
 
+/// Writes `id`'s new name into its conversation, when `changed`.
+pub(crate) fn renamed(
+    cx: &mut Change<'_>,
+    id: AgentId,
+    changed: bool,
+) -> Result<()> {
+    if !changed {
+        return Ok(());
+    }
+    let name = super::addresses::name_of(cx.db, id)?;
+    crate::conversations::chats::event(
+        cx,
+        id,
+        hamlet_protocol::client::ItemEvent::Renamed { name },
+    )
+}
+
 /// Calls the living agent `id` `name` in the world, or by its
 /// profile's name again when none (H46).
 pub(crate) fn set_name(
@@ -637,13 +683,11 @@ pub(crate) fn set_name(
 ) -> Done<()> {
     let agent = get(cx.db, id)?;
     done!(require_living(cx.db, id));
-    let name = match check_name(name) {
-        Ok(name) => name,
-        Err(rejection) => reject!(rejection),
-    };
+    let name = checked!(check_name(name));
     diesel::update(hamlet_agent::table.find(id))
         .set(hamlet_agent::name.eq(name))
         .execute(cx.db)?;
+    renamed(cx, id, agent.name.as_deref() != name)?;
     record::keep(
         cx,
         Decision::new(DecisionKind::AgentNamed, reason)

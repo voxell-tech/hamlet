@@ -1,7 +1,4 @@
-//! A chief's commands on what waits and on what agents were allowed:
-//! answering a wait, listing what waits and what was granted, taking
-//! a grant back, instructing another agent and requesting a
-//! reflection.
+//! A chief's commands on what waits and on what agents were allowed.
 
 use anyhow::Result;
 use diesel::prelude::*;
@@ -12,8 +9,9 @@ use hamlet_store::schema::permission_grant;
 use super::{Command, Line};
 use crate::conversations::{chats, reflections};
 use crate::core::Core;
-use crate::realm::change::Done;
+use crate::realm::change::{Done, done};
 use crate::society::addresses::{self, Reach};
+use crate::society::authority;
 use crate::society::oversight::{self, gate};
 use crate::society::rejection::Rejection;
 
@@ -30,7 +28,7 @@ pub(super) const OVERSIGHT: &[Command] = &[
     Command {
         name: "reflect",
         usage: "/reflect",
-        does: "Have the agent keep what this session taught it",
+        does: "Have the agent keep what its conversation taught it",
         run: |core, line| core.reflect(line.agent),
     },
     Command {
@@ -213,25 +211,10 @@ impl Core<'_, '_> {
         let Some(permission) = gate::permission(permission) else {
             return Ok(Err(self.actions.usage("revoke")));
         };
-        let address = match addresses::parse(address) {
-            Ok(address) => address,
-            Err(rejection) => return Ok(Err(rejection)),
-        };
-        let db = self.realm.store().connection();
-        let target = match addresses::resolve(
-            db,
-            &address,
-            here,
-            Reach::Kept,
-        )? {
-            Ok(target) => target,
-            Err(rejection) => return Ok(Err(rejection)),
-        };
-        if let Err(rejection) = self.reaches(target)? {
-            return Ok(Err(rejection));
-        }
+        let target = done!(self.resolve(address, here, Reach::Kept));
         let chief = self.realm.chief();
         let db = self.realm.store().connection();
+        done!(authority::reaches(db, Actor::Chief(chief), target));
         let by =
             addresses::actor_name(db, Some(Actor::Chief(chief)))?;
         let name = addresses::name_of(db, target)?;
@@ -273,24 +256,11 @@ impl Core<'_, '_> {
         if text.is_empty() {
             return Ok(Err(self.actions.usage("to")));
         }
-        let address = match addresses::parse(address) {
-            Ok(address) => address,
-            Err(rejection) => return Ok(Err(rejection)),
-        };
-        let db = self.realm.store().connection();
-        let target = match addresses::resolve(
-            db,
-            &address,
-            here,
-            Reach::Living,
-        )? {
-            Ok(target) => target,
-            Err(rejection) => return Ok(Err(rejection)),
-        };
-        if let Err(rejection) = self.reaches(target)? {
-            return Ok(Err(rejection));
-        }
+        let target =
+            done!(self.resolve(address, here, Reach::Living));
         let chief = self.realm.chief();
+        let db = self.realm.store().connection();
+        done!(authority::reaches(db, Actor::Chief(chief), target));
         let line = self.credentials.scrub_text(text);
         let request = format!("to:{}", uuid::Uuid::new_v4());
         self.change(Actor::Chief(chief), |cx, env| {
@@ -304,8 +274,7 @@ impl Core<'_, '_> {
         let chief = self.realm.chief();
         let reflection =
             self.change(Actor::Chief(chief), |cx, env| {
-                let conversation =
-                    chats::current(cx, env, agent, chief)?;
+                let conversation = chats::current(cx, env, agent)?;
                 reflections::reflect(cx, conversation)
             })?;
         let name = self.name_of(agent)?;
@@ -315,8 +284,7 @@ impl Core<'_, '_> {
         }))
     }
 
-    /// Starts a worker on `brief` in `here`, or outside every hamlet,
-    /// whose answer shows in its own transcript.
+    /// Starts a worker on `brief` in `here`, or outside every hamlet.
     pub(super) fn chiefs_worker(
         &mut self,
         here: Option<&HamletId>,
@@ -332,7 +300,7 @@ impl Core<'_, '_> {
         let hamlet = here.cloned();
         let brief = self.credentials.scrub_text(brief);
         let done = self.attempt(Actor::Chief(chief), |cx, env| {
-            let id = match crate::society::workers::start(
+            let id = done!(crate::society::workers::start(
                 cx,
                 crate::society::workers::Start {
                     starter: crate::society::workers::Starter::Chief(
@@ -345,10 +313,7 @@ impl Core<'_, '_> {
                     waits: false,
                     call: None,
                 },
-            )? {
-                Ok(id) => id,
-                Err(rejection) => return Ok(Err(rejection)),
-            };
+            ));
             // A worker no model can run would never start.
             if !crate::conversations::models::has_model(
                 cx.db,

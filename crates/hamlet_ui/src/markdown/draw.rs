@@ -3,6 +3,8 @@
 use std::sync::Arc;
 
 use bevy::color::Color;
+use bevy::ecs::component::Component;
+use bevy::ecs::entity::Entity;
 use bevy::ecs::hierarchy::{ChildOf, Children};
 use bevy::ecs::world::World;
 use bevy::text::{
@@ -11,9 +13,9 @@ use bevy::text::{
     TextSpan, Underline,
 };
 use bevy::ui::{
-    AlignItems, Display, JustifyContent, MaxTrackSizingFunction,
-    MinTrackSizingFunction, Node, RepeatedGridTrack, UiRect, percent,
-    px,
+    AlignItems, Display, FlexDirection, JustifyContent,
+    MaxTrackSizingFunction, MinTrackSizingFunction, Node,
+    RepeatedGridTrack, UiRect, percent, px,
 };
 use bevy::window::SystemCursorIcon;
 use bevy_fynix::tokens::{TextTokens, Tone};
@@ -26,10 +28,11 @@ use bevy_fynix::{
     resource,
 };
 
+use super::chips::seed;
 use super::parse::{parse, plain};
 use super::{
-    Align, Anchor, Area, Block, Kind, Marker, PathLinks, PictureView,
-    Row, Span, Style, Target,
+    AgentLinks, Align, Anchor, Area, Block, IsAddress, Kind, Marker,
+    PathLinks, PictureView, Row, Span, Style, Target, is_address_in,
 };
 use crate::kinds::inset;
 use crate::styles::{Fills, bare, small_rules};
@@ -37,9 +40,37 @@ use crate::theme::Palette;
 use crate::widgets::platform::{Mono, MonoText};
 use crate::{AnyView, Cx, View};
 
-/// Takes the link off a path that `blocks` end with, which may be
-/// the start of a longer one, as while the words still grow.
+/// `blocks` set as growing words: addresses as words, and no link on
+/// a trailing path or address, which may still grow.
 pub fn unsettle(blocks: &mut [Arc<Block>]) {
+    let names_agent = |spans: &[Span]| {
+        spans
+            .iter()
+            .any(|span| matches!(span.link, Some(Target::Agent(_))))
+    };
+    for block in blocks.iter_mut() {
+        let named = match &block.kind {
+            Kind::Paragraph(spans) | Kind::Heading(_, spans) => {
+                names_agent(spans)
+            }
+            Kind::Table { rows, .. } => {
+                rows.iter().flatten().any(|cell| names_agent(cell))
+            }
+            _ => false,
+        };
+        if !named {
+            continue;
+        }
+        match &mut Arc::make_mut(block).kind {
+            Kind::Paragraph(spans) | Kind::Heading(_, spans) => {
+                spell_out(spans);
+            }
+            Kind::Table { rows, .. } => {
+                rows.iter_mut().flatten().for_each(|c| spell_out(c));
+            }
+            _ => {}
+        }
+    }
     let spans = match blocks
         .last_mut()
         .map(|block| &mut Arc::make_mut(block).kind)
@@ -56,9 +87,20 @@ pub fn unsettle(blocks: &mut [Arc<Block>]) {
         _ => return,
     };
     if let Some(last) = spans.last_mut()
-        && matches!(last.link, Some(Target::Path(_)))
+        && matches!(
+            last.link,
+            Some(Target::Path(_) | Target::AgentWords(_))
+        )
     {
         last.link = None;
+    }
+}
+
+fn spell_out(spans: &mut [Span]) {
+    for span in spans {
+        if let Some(Target::Agent(address)) = &span.link {
+            span.link = Some(Target::AgentWords(address.clone()));
+        }
     }
 }
 
@@ -102,31 +144,70 @@ pub struct Ink {
     pub face: Face,
 }
 
-/// `spans` with the place each link leads. A path that names no
-/// file, or any path without [`PathLinks`], is no link, and its words
-/// join those beside it again.
-fn anchored(
-    world: &mut World,
-    spans: Vec<Span>,
-) -> Vec<(Span, Option<Anchor>)> {
-    let resolve =
+/// A part of a drawn line.
+enum Piece {
+    Words(Span, Option<Anchor>),
+    Chip(Atom),
+    /// An address drawn as words in the link's colour.
+    Address(Span),
+}
+
+/// `spans` with the place each link leads. A link that leads nowhere
+/// joins the words beside it.
+fn anchored(world: &mut World, spans: Vec<Span>) -> Vec<Piece> {
+    let paths =
         world.get_resource::<PathLinks>().map(|links| links.resolve);
-    let mut all = Vec::<(Span, Option<Anchor>)>::new();
-    for mut span in spans {
+    let agents = world
+        .get_resource::<AgentLinks>()
+        .map(|links| links.resolve);
+    let mut all = Vec::<Piece>::new();
+    for (at, mut span) in spans.into_iter().enumerate() {
         let anchor = match span.link.take() {
             Some(Target::Web(address)) => Some(Anchor::Web(address)),
-            Some(Target::Path(path)) => resolve
+            Some(Target::Path(path)) => paths
                 .and_then(|resolve| resolve(world, &path))
                 .map(Anchor::File),
+            Some(Target::Agent(address)) => {
+                let chip = |world: &mut World, words: &str| {
+                    agents.and_then(|resolve| {
+                        resolve(
+                            world,
+                            &address,
+                            words,
+                            at.to_string(),
+                        )
+                    })
+                };
+                if let Some(chip) = chip(world, &span.text) {
+                    all.push(Piece::Chip(chip));
+                    continue;
+                }
+                // Bracketed words that are not its name follow the
+                // chip.
+                if let Some(rest) = span
+                    .text
+                    .strip_prefix(address.as_str())
+                    .filter(|rest| !rest.is_empty())
+                    && let Some(chip) = chip(world, &address)
+                {
+                    all.push(Piece::Chip(chip));
+                    span.text = rest.to_string();
+                }
+                None
+            }
+            Some(Target::AgentWords(_)) => {
+                all.push(Piece::Address(span));
+                continue;
+            }
             None => None,
         };
         match all.last_mut() {
-            Some((last, None))
+            Some(Piece::Words(last, None))
                 if anchor.is_none() && last.style == span.style =>
             {
                 last.text.push_str(&span.text);
             }
-            _ => all.push((span, anchor)),
+            _ => all.push(Piece::Words(span, anchor)),
         }
     }
     all
@@ -151,19 +232,28 @@ fn kept_whole(text: &str) -> String {
     joined
 }
 
-/// `view`, built again when the folders paths are searched in
-/// change, as a link in it may then lead somewhere else.
+/// `view`, built again when [`PathLinks`] or [`AgentLinks`] change.
 fn relinked(
     view: impl Fn() -> AnyView + Send + Sync + 'static,
 ) -> AnyView {
-    let mut links = resource::<PathLinks, _>(|_| ());
+    let mut paths = resource::<PathLinks, _>(|_| ());
+    let mut agents = resource::<AgentLinks, _>(|_| ());
     keyed(
         derived(|world: &World| {
-            world
-                .get_resource::<PathLinks>()
-                .map(|links| links.generation)
+            (
+                world
+                    .get_resource::<PathLinks>()
+                    .map(|links| links.generation),
+                world
+                    .get_resource::<AgentLinks>()
+                    .map(|links| links.generation),
+            )
         })
-        .when(move |world: &World| links.changed(world)),
+        .when(move |world: &World| {
+            // Both are asked, so neither change is missed.
+            let paths = paths.changed(world);
+            agents.changed(world) || paths
+        }),
         move |_| view(),
     )
     .within(bare())
@@ -176,7 +266,21 @@ fn set_rich(spans: &[Span], ink: Ink, setting: Setting) -> AnyView {
     relinked(move || {
         let spans = spans.clone();
         AnyView::new(move |cx: &mut Cx| {
-            let spans = anchored(cx.world, spans);
+            let pieces = anchored(cx.world, spans);
+            if pieces
+                .iter()
+                .any(|piece| matches!(piece, Piece::Chip(_)))
+            {
+                return chipped(cx, pieces, ink);
+            }
+            let spans =
+                pieces.into_iter().filter_map(|piece| match piece {
+                    Piece::Words(span, anchor) => {
+                        Some((span, anchor, false))
+                    }
+                    Piece::Address(span) => Some((span, None, true)),
+                    Piece::Chip(_) => None,
+                });
             let theme = cx.theme();
             let size = ink.size.unwrap_or(theme.text.body);
             let root = cx.build(label("").size(size));
@@ -189,7 +293,7 @@ fn set_rich(spans: &[Span], ink: Ink, setting: Setting) -> AnyView {
             cx.world.entity_mut(root).insert(leading);
             let mono =
                 cx.world.get_resource::<Mono>().map(|m| m.0.clone());
-            for (span, anchor) in spans {
+            for (span, anchor, address) in spans {
                 let Style {
                     bold,
                     italic,
@@ -236,6 +340,11 @@ fn set_rich(spans: &[Span], ink: Ink, setting: Setting) -> AnyView {
                     ChildOf(root),
                 ));
                 // Names and links are references, in blue.
+                if address {
+                    entity.insert(TextColor(
+                        theme.tone(Tone::Reference),
+                    ));
+                }
                 if code {
                     entity.insert((
                         MonoText,
@@ -260,6 +369,98 @@ fn set_rich(spans: &[Span], ink: Ink, setting: Setting) -> AnyView {
             root
         })
     })
+}
+
+/// A [`set_rich`] paragraph with chips in its line.
+fn chipped(cx: &mut Cx, pieces: Vec<Piece>, ink: Ink) -> Entity {
+    let theme = cx.theme();
+    let size = ink.size.unwrap_or(theme.text.body);
+    let reference = theme.tone(Tone::Reference);
+    let code_fill = theme.palette.status.info.fill;
+    let mono = cx.world.get_resource::<Mono>().map(|m| m.0.clone());
+    let mut runs = Vec::new();
+    // Whether each run is code, and the place it leads.
+    let mut marks = Vec::<(bool, Option<Anchor>)>::new();
+    let mut chips = Vec::new();
+    for piece in pieces {
+        let (span, anchor, address) = match piece {
+            Piece::Words(span, anchor) => (span, anchor, false),
+            Piece::Address(span) => (span, None, true),
+            Piece::Chip(atom) => {
+                chips.push(atom.text().to_string());
+                runs.push(Run::atom(atom));
+                marks.push((false, None));
+                continue;
+            }
+        };
+        let Style {
+            bold,
+            italic,
+            code,
+            strike,
+        } = span.style;
+        let mut run = Run::new(span.text);
+        if bold || ink.face != Face::Body {
+            run = run.bold();
+        }
+        if italic {
+            run = run.italic();
+        }
+        if code {
+            run = run
+                .size(size - 1.0)
+                .color(reference)
+                .background(code_fill);
+            if let Some(mono) = &mono {
+                run = run.font(mono.clone());
+            }
+        }
+        if address {
+            run = run.color(reference);
+        }
+        if anchor.is_some() {
+            run = run.color(reference).underline(LineColor::Ink);
+        }
+        if strike {
+            run = run.strikethrough(LineColor::Ink);
+        }
+        runs.push(run);
+        marks.push((code, anchor));
+    }
+    let body = cx.build(
+        bevy_fynix::views::rich(runs)
+            .size(size)
+            .tone(ink.tone)
+            .atoms()
+            // In a row the text would never wrap, as in a table cell.
+            .direction(FlexDirection::Column)
+            .max_width(percent(100.0)),
+    );
+    seed(cx.world, body, chips);
+    for (kid, (code, anchor)) in
+        runs_of(cx.world, body).into_iter().zip(marks)
+    {
+        if code {
+            cx.world.entity_mut(kid).insert(MonoText);
+        }
+        if let Some(anchor) = anchor {
+            cx.world.entity_mut(kid).insert((
+                anchor,
+                EntityCursor(SystemCursorIcon::Pointer),
+            ));
+        }
+    }
+    body
+}
+
+/// The node of each run of a rich text with atoms, in order.
+fn runs_of(world: &World, body: Entity) -> Vec<Entity> {
+    world
+        .get::<Children>(body)
+        .and_then(|kids| kids.first().copied())
+        .and_then(|text| world.get::<Children>(text))
+        .map(|kids| kids.to_vec())
+        .unwrap_or_default()
 }
 
 fn code_view(cx: &Cx, lang: &str, text: &str) -> impl View {
@@ -292,15 +493,37 @@ fn code_view(cx: &Cx, lang: &str, text: &str) -> impl View {
     inset(parts)
 }
 
-/// Columns that share the width between them and may shrink to
-/// nothing, so that the words in a cell wrap and the table never
-/// grows wider than the chat.
-fn shared(columns: u16) -> Vec<RepeatedGridTrack> {
-    RepeatedGridTrack::minmax::<Vec<_>>(
-        columns,
-        MinTrackSizingFunction::Px(0.0),
-        MaxTrackSizingFunction::Fraction(1.0),
-    )
+/// Columns at least as wide as their widest word or chip, sharing the
+/// rest in proportion to `widths`, so the table never outgrows the
+/// chat.
+fn shared(widths: &[usize]) -> Vec<RepeatedGridTrack> {
+    widths
+        .iter()
+        .map(|&width| {
+            RepeatedGridTrack::minmax(
+                1,
+                MinTrackSizingFunction::MinContent,
+                MaxTrackSizingFunction::Fraction(width.max(1) as f32),
+            )
+        })
+        .collect()
+}
+
+/// The letters in each column's widest cell.
+fn column_widths(rows: &[Row], columns: usize) -> Vec<usize> {
+    (0..columns)
+        .map(|at| {
+            rows.iter()
+                .filter_map(|row| row.get(at))
+                .map(|cell| {
+                    cell.iter()
+                        .map(|span| span.text.chars().count())
+                        .sum::<usize>()
+                })
+                .max()
+                .unwrap_or(0)
+        })
+        .collect()
 }
 
 /// A grid whose lines are the fill showing between its cells.
@@ -313,6 +536,7 @@ fn table_view(
     let palette = &cx.theme().palette;
     let widest = rows.iter().map(Vec::len).max().unwrap_or(0);
     let columns = align.len().max(widest).clamp(1, 64);
+    let widths = column_widths(rows, columns);
     let mut cells = Vec::<AnyView>::new();
     for (at, cell_row) in rows.iter().enumerate() {
         for column_at in 0..columns {
@@ -355,7 +579,7 @@ fn table_view(
         );
         if let Some(mut ui) = cx.world.get_mut::<Node>(node) {
             ui.display = Display::Grid;
-            ui.grid_template_columns = shared(columns as u16);
+            ui.grid_template_columns = shared(&widths);
         }
         node
     })
@@ -524,7 +748,9 @@ pub fn picture_words(
 ) -> AnyView {
     let written = match target {
         Target::Web(address) => address,
-        Target::Path(path) => path,
+        Target::Path(path)
+        | Target::Agent(path)
+        | Target::AgentWords(path) => path,
     };
     let link = Span {
         text: if caption.is_empty() { written } else { caption }
@@ -537,8 +763,12 @@ pub fn picture_words(
 
 /// Words set as they were typed, with `tail` after them, if there
 /// may be a link in them.
-pub fn typed(text: &str, tail: &str) -> Option<AnyView> {
-    let mut spans = plain(text);
+pub fn typed(
+    text: &str,
+    tail: &str,
+    is_address: IsAddress,
+) -> Option<AnyView> {
+    let mut spans = plain(text, is_address);
     if spans.iter().all(|span| span.link.is_none()) {
         return None;
     }
@@ -562,6 +792,11 @@ pub fn typed(text: &str, tail: &str) -> Option<AnyView> {
 /// as a view in the line does.
 pub const ATOM: char = '\u{2028}';
 
+/// The words each atom of a [`typed_with`] text is copied as, by the
+/// byte it stands at.
+#[derive(Component, Clone, Default, PartialEq, Debug)]
+pub struct AtomWords(pub Vec<(usize, String)>);
+
 /// Words set as [`typed`] sets them, whether or not a link is in
 /// them, in `tone`, with the next of `atoms` in the place of each
 /// [`ATOM`] and `tail` after them.
@@ -571,26 +806,44 @@ pub fn typed_with(
     tone: Tone,
     atoms: Vec<Atom>,
 ) -> AnyView {
-    let mut spans = plain(text);
-    spans.push(Span {
+    let tail = Span {
         text: tail.to_string(),
         style: Style::default(),
         link: None,
-    });
+    };
+    let text = text.to_string();
     relinked(move || {
-        let (spans, atoms) = (spans.clone(), atoms.clone());
+        let (text, tail, atoms) =
+            (text.clone(), tail.clone(), atoms.clone());
         AnyView::new(move |cx: &mut Cx| {
+            let mut spans = plain(&text, is_address_in(cx.world));
+            spans.push(tail);
             let accent = cx.theme().tone(Tone::Accent);
             let mut atoms = atoms.into_iter();
             let mut runs = Vec::new();
             // The place each run leads to, in the order of the runs.
             let mut leads = Vec::new();
-            for (span, anchor) in anchored(cx.world, spans) {
+            let (mut at_byte, mut copies) = (0, AtomWords::default());
+            for piece in anchored(cx.world, spans) {
+                let (span, anchor) = match piece {
+                    Piece::Words(span, anchor) => (span, anchor),
+                    // A chief's line is whole, so this is never one.
+                    Piece::Address(span) => (span, None),
+                    Piece::Chip(chip) => {
+                        copies
+                            .0
+                            .push((at_byte, chip.text().to_string()));
+                        runs.push(Run::atom(chip));
+                        leads.push(None);
+                        continue;
+                    }
+                };
                 let pieces =
                     span.text.split(ATOM).collect::<Vec<_>>();
                 let last = pieces.len() - 1;
                 for (at, piece) in pieces.into_iter().enumerate() {
                     if !piece.is_empty() {
+                        at_byte += piece.len();
                         let run = Run::new(piece);
                         runs.push(match anchor {
                             Some(_) => run
@@ -603,6 +856,9 @@ pub fn typed_with(
                     if at < last
                         && let Some(atom) = atoms.next()
                     {
+                        copies
+                            .0
+                            .push((at_byte, atom.text().to_string()));
                         runs.push(Run::atom(atom));
                         leads.push(None);
                     }
@@ -612,16 +868,22 @@ pub fn typed_with(
                 bevy_fynix::views::rich(runs)
                     .tone(tone)
                     .atoms()
+                    .direction(FlexDirection::Column)
                     .max_width(percent(100.0)),
             );
-            let kids = cx
+            let chips =
+                copies.0.iter().map(|(_, words)| words.clone());
+            seed(cx.world, body, chips.collect());
+            if let Some(text) = cx
                 .world
                 .get::<Children>(body)
                 .and_then(|kids| kids.first().copied())
-                .and_then(|text| cx.world.get::<Children>(text))
-                .map(|kids| kids.to_vec())
-                .unwrap_or_default();
-            for (kid, lead) in kids.into_iter().zip(leads) {
+            {
+                cx.world.entity_mut(text).insert(copies);
+            }
+            for (kid, lead) in
+                runs_of(cx.world, body).into_iter().zip(leads)
+            {
                 if let Some(anchor) = lead {
                     cx.world.entity_mut(kid).insert((
                         anchor,
@@ -637,14 +899,24 @@ pub fn typed_with(
 /// A Markdown document that is drawn once, one view per block. Its
 /// words are selected as one.
 pub fn fixed(text: &str, tone: Tone) -> impl View {
-    drawn(parse(text), tone, Setting::Running)
+    let text = text.to_string();
+    AnyView::new(move |cx: &mut Cx| {
+        let blocks = parse(&text, is_address_in(cx.world));
+        cx.build(drawn(blocks, tone, Setting::Running))
+    })
 }
 
 /// A [`fixed`] document of words given to a model, set as a page: its
-/// paths are code, since they name no file here, and its lines stand
-/// further apart.
+/// paths and addresses are code and its lines stand further apart.
 pub fn page(text: &str, tone: Tone) -> impl View {
-    let mut blocks = parse(text);
+    let text = text.to_string();
+    AnyView::new(move |cx: &mut Cx| {
+        let blocks = parse(&text, is_address_in(cx.world));
+        cx.build(drawn(paged(blocks), tone, Setting::Page))
+    })
+}
+
+fn paged(mut blocks: Vec<Block>) -> Vec<Block> {
     for block in &mut blocks {
         let spans = match &mut block.kind {
             Kind::Paragraph(spans) | Kind::Heading(_, spans) => {
@@ -656,13 +928,16 @@ pub fn page(text: &str, tone: Tone) -> impl View {
             _ => Vec::new(),
         };
         for span in spans {
-            if matches!(span.link, Some(Target::Path(_))) {
+            if matches!(
+                span.link,
+                Some(Target::Path(_) | Target::Agent(_))
+            ) {
                 span.link = None;
                 span.style.code = true;
             }
         }
     }
-    drawn(blocks, tone, Setting::Page)
+    blocks
 }
 
 /// `blocks` drawn once, one view per block, set as `setting` says.
@@ -681,4 +956,117 @@ fn drawn(
             .collect::<Vec<_>>();
         cx.build(column(views).gap(0.0).tagged(Area))
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use bevy::text::TextLayoutInfo;
+    use bevy::ui::{ComputedNode, UiGlobalTransform};
+    use bevy_fynix::{FynixPlugin, mount};
+
+    use super::*;
+    use crate::testing::ui_app;
+    use crate::theme::{self, HamletTheme};
+
+    fn chip(
+        _: &mut World,
+        address: &str,
+        words: &str,
+        key: String,
+    ) -> Option<Atom> {
+        if words != address {
+            return None;
+        }
+        Some(Atom::new::<HamletTheme>(key, words, || {
+            row((label("Usability").size(12.0).wrap(false),))
+                .padding(UiRect::axes(px(6.0), px(1.0)))
+                .boxed()
+        }))
+    }
+
+    #[test]
+    fn the_words_in_a_tables_cells_wrap_inside_them() {
+        let mut app = ui_app(1000, 1.0);
+        app.add_plugins(FynixPlugin::<HamletTheme>::default())
+            .insert_resource(AgentLinks {
+                is_address: |word| word == "agent#2",
+                resolve: chip,
+                generation: 0,
+            });
+        theme::show(app.world_mut(), HamletTheme::designed());
+        let text = "| Agent | Role |\n|---|---|\n| agent#2 (Hamlet \
+                    Reorg Design) | Design for reorganizing \
+                    hamlets, with words enough to wrap over two \
+                    lines or more |\n| agent#2 (Stop and Errors) | \
+                    Stop |";
+        let table = mount::<HamletTheme>(
+            app.world_mut(),
+            fixed(text, Tone::Body),
+        );
+        let room = app
+            .world_mut()
+            .spawn(Node {
+                width: px(320.0),
+                ..Node::default()
+            })
+            .id();
+        app.world_mut().entity_mut(table).insert(ChildOf(room));
+        for _ in 0..4 {
+            app.update();
+        }
+
+        let world = app.world_mut();
+        let grid = world
+            .query::<(Entity, &Node)>()
+            .iter(world)
+            .find(|(_, node)| node.display == Display::Grid)
+            .map(|(grid, _)| grid)
+            .unwrap();
+        // The left of a node and the right of its content.
+        let edges = |world: &World, node: Entity| {
+            let size = world.get::<ComputedNode>(node).unwrap();
+            let at = world.get::<UiGlobalTransform>(node).unwrap();
+            let left = at.translation.x - size.size().x / 2.0;
+            (left, left + size.size().x - size.padding.max_inset.x)
+        };
+        let texts = world
+            .query::<(Entity, &TextLayoutInfo)>()
+            .iter(world)
+            .map(|(text, laid)| {
+                let ends = laid.glyphs.iter().map(|glyph| {
+                    glyph.position.x
+                        + glyph.atlas_info.rect.width() / 2.0
+                });
+                (text, ends.fold(0.0, f32::max))
+            })
+            .collect::<Vec<_>>();
+        let mut checked = 0;
+        for (text, inked) in texts {
+            let mut cell = text;
+            while let Some(up) = world.get::<ChildOf>(cell)
+                && up.parent() != grid
+            {
+                cell = up.parent();
+            }
+            if world.get::<ChildOf>(cell).is_none() {
+                continue;
+            }
+            let (left, _) = edges(world, text);
+            let (_, end) = edges(world, cell);
+            assert!(
+                left + inked <= end + 1.0,
+                "words past their cell"
+            );
+            checked += 1;
+        }
+        assert!(checked >= 6);
+        let wide = world.get::<ComputedNode>(grid).unwrap().size().x;
+        assert!(wide <= 320.0, "a table {wide} wide");
+        // The column of names wraps, so the wordier one has the room.
+        let cells = world.get::<Children>(grid).unwrap();
+        let width = |at: usize| {
+            world.get::<ComputedNode>(cells[at]).unwrap().size().x
+        };
+        assert!(width(0) < width(1), "{} and {}", width(0), width(1));
+    }
 }

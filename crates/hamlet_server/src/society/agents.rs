@@ -6,6 +6,7 @@ use diesel::deserialize::FromSqlRow;
 use diesel::expression::AsExpression;
 use diesel::prelude::*;
 use diesel::sql_types::Text;
+use hamlet_protocol::client::ItemEvent;
 use hamlet_store::Db;
 use hamlet_store::ids::{Actor, AgentId};
 use hamlet_store::schema::{agent, hand, permission_grant, worker};
@@ -255,16 +256,23 @@ pub(crate) fn set_fast(
     fast: bool,
 ) -> Done<()> {
     done!(hamlet_agents::require_living(cx.db, id));
+    let was = get(cx.db, id)?.fast;
     diesel::update(agent::table.find(id))
         .set(agent::fast.eq(fast))
         .execute(cx.db)?;
+    if was != fast {
+        crate::conversations::chats::event(
+            cx,
+            id,
+            ItemEvent::Fast { on: fast },
+        )?;
+    }
     cx.touched.agents.insert(id);
     Ok(Ok(()))
 }
 
-/// Chooses the model of the living agent `id`, or lets it follow its
-/// hamlet's or the realm's default when `None` (H29). A parent may
-/// not change a chief's choice for an agent of a hamlet.
+/// Chooses the model of the living agent `id`, or its hamlet's or the
+/// realm's default when `None` (H29).
 pub(crate) fn set_model(
     cx: &mut Change<'_>,
     id: AgentId,

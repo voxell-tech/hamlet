@@ -11,7 +11,7 @@ a client of it (ADR 0004).
 
 The server is Rust, the crate `hamlet_server`, and keeps everything Hamlet
 means: the Hand, profiles, hamlets, their agents and their tree, workers, channels,
-letters, questions, tasks and their caps, budgets and spend, what waits for a
+notifications, requests, tasks and their caps, budgets and spend, what waits for a
 chief, standing permissions, objections, the charter and settings, which tools
 an agent may run and where, the client protocol and the connection's token.
 

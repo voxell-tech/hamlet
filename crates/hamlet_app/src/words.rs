@@ -1,5 +1,4 @@
-//! What the realm's own words mean, a line each, for the tooltips of
-//! what they name, so a chief new to them learns them where they are.
+//! What the realm's own words mean, for their tooltips.
 
 /// Everything one chief keeps.
 pub(crate) const REALM: &str =
@@ -35,7 +34,7 @@ pub(crate) const LIBRARY: &str = "Skills every agent can use.";
 pub(crate) const HEARTH: &str = "Your own house in the world.";
 
 pub(crate) const NEEDS: &str =
-    "Questions and approvals waiting for your answer.";
+    "Requests and approvals waiting for your response.";
 
 pub(crate) const LEFT: &str =
     "Agents and profiles that left. They can be brought back.";
@@ -56,12 +55,11 @@ pub(crate) const EXISTING_PROFILE: &str =
     "Brings its memory and skills to the job, and can take home \
      what it learns.";
 
-/// A hamlet whose agents ask before each edit and command, as its
-/// approvals say it.
-pub(crate) const ASK_FIRST: &str = "Ask first";
+/// A hamlet whose agents ask before each edit and command.
+pub(crate) const ASK_FIRST: &str = "Ask First";
 
 /// A hamlet whose agents edit and run commands without asking.
-pub(crate) const NO_ASKING: &str = "Don't ask";
+pub(crate) const NO_ASKING: &str = "Don't Ask";
 
 pub(crate) const APPROVALS: &str = "Whether this hamlet's agents \
                                     ask you before they edit its \

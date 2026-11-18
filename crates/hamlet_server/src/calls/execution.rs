@@ -1,6 +1,4 @@
-//! A tool call carried out once under its key (S19): its kept answer
-//! when it was made before, else answered by a chief or the gate, run
-//! as a society tool, or run as a built-in or added tool on a task.
+//! A tool call carried out once under its key (S19).
 
 use anyhow::Result;
 use bevy_ecs::entity::Entity;
@@ -138,13 +136,14 @@ impl Core<'_, '_> {
         if !is_offered(&call.conversation, tool)? {
             return Ok(CallOutcome::Done(unavailable(tool)));
         }
-        if let Some(chief @ (Society::AskChief | Society::Object)) =
-            call.society
+        if let Some(
+            chief @ (Society::RequestChief | Society::Object),
+        ) = call.society
         {
             let ruled = if chief == Society::Object {
                 self.object(call)?
             } else {
-                self.ask_chief(call)?
+                self.request_chief(call)?
             };
             return Ok(match ruled {
                 Ok(outcome) => CallOutcome::Done(outcome),
@@ -383,8 +382,7 @@ impl Core<'_, '_> {
     }
 }
 
-/// The rejection of a write or edit of `CHARACTER.md` at the
-/// worktree's root, which is the profile's own.
+/// The rejection of a write or edit of the worktree's `CHARACTER.md`.
 fn character_rejection(
     place: &crate::tools::builtin::Place,
     call: &Call<'_>,

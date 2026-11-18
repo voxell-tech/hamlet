@@ -51,8 +51,8 @@ Stdin is closed; stdout and stderr go to a log shown on failure.
 
 - `agents`: answers by agent id, as in `Faux::agent(2, [...])`. The Hand
   is 1; the first lead is 2.
-- `kinds`: answers by conversation kind (`worker`, `errand`, `letters`,
-  `questions`, `dream`), as in `Faux::kind("dream", [...])`.
+- `kinds`: answers by conversation kind (`chat`, `worker`, `errand`,
+  `dream`), as in `Faux::kind("dream", [...])`.
 - `responses`: answers for everyone else.
 
 A conversation takes its agent's list first, then its kind's, then
@@ -71,10 +71,10 @@ endpoint, which bills a fixed price per answer.
 |---|---|
 | `connection` | Token, version, hello order, malformed and oversized messages, shared changes, shutdown, one server per realm. |
 | `city` | The empty realm, founding hamlets, the agent tree, removing, restoring and erasing profiles and hamlets, hamlet administration. |
-| `chats` | Answers, sessions, `/new`, `/resume`, `/retry`, `/stop`, `Rewind`, history, reflection. |
-| `oversight` | Network approvals and grants, manual and auto modes, `ask_chief`, objections. |
-| `society` | The Hand's and a parent's tools, tell and ask, workers, reserved acts, channels. |
-| `files` | Files on a line saved in the inbox and named in its item, files sent with `tell`, and a send over the cap held for a chief. |
+| `chats` | Answers, `/retry`, `/stop`, `Rewind`, reflection. |
+| `oversight` | Network approvals and grants, manual and auto modes, `request_chief`, objections. |
+| `society` | The Hand's and a parent's tools, notify and request, workers, reserved acts, channels. |
+| `files` | Files on a line saved in the inbox and named in its item, files sent with `notify`, and a send over the cap held for a chief. |
 | `images` | Images on a line uploaded in parts, kept once by hash, carried by the line's item and read back by id. |
 | `documents` | Charter, character, memory, limits, settings, catalogue, and the prompt that follows them. |
 | `spend` | The realm budget, a task's cap, an agent's allowance. |
@@ -84,7 +84,7 @@ endpoint, which bills a fixed price per answer.
 | `oauth` | Sign-in prompts and token rotation. |
 | `versions` | `/tag`, `/versions`, `/pin`, `/revert`, `/fork` and `/purge`. |
 | `merges` | `/merge` and the split by `/restore`. |
-| `library` | `submit_skill` judged by the librarian, `ask_librarian` and `/unshelve`. |
+| `library` | `submit_skill` judged by the librarian, `request_librarian` and `/unshelve`. |
 | `review` | A parent's review of a chief's line to an agent, and a chief's `/worker`. |
 | `dreams` | `/dream` of an agent and of a profile. |
 | `cli` | `hamlet chat`, `hamlet edit`, switching agents, approvals across a crash, and the bare, dev and insecure commands. |
@@ -93,7 +93,7 @@ endpoint, which bills a fixed price per answer.
 
 `tests/frames/` records 18 real server sessions through the client protocol:
 the Hand's chats, an agent's approvals, reads and edits, sign-in, spend,
-letters and questions, leaving and merging, hamlets and
+notifications and requests, leaving and merging, hamlets and
 channels, the library, and the questions and objections that wait for a chief.
 It uses scratch realms, faux responses and a loopback endpoint, never a live
 provider. Both wire directions are saved as JSONL; connection tokens and the

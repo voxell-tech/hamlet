@@ -16,6 +16,23 @@ function markOf(entry: EntryRecord): Mark | undefined {
     };
 }
 
+/** The words of a compaction's summary, without its `<summary>` tags. */
+function summaryOf(messages: readonly Message[]): string {
+    const [message] = messages;
+    if (message === undefined || message.role !== "user") return "";
+    const text =
+        typeof message.content === "string"
+            ? message.content
+            : message.content
+                  .map((part) => (part.type === "text" ? part.text : ""))
+                  .join("\n");
+    const open = text.indexOf("<summary>");
+    const close = text.lastIndexOf("</summary>");
+    return open === -1 || close < open
+        ? text.trim()
+        : text.slice(open + "<summary>".length, close).trim();
+}
+
 /** The blocks of an answer, in its order. */
 export function blocksOf(message: AssistantMessage): Block[] {
     return message.content.flatMap((part): Block[] => {
@@ -79,6 +96,14 @@ export function itemOf(entry: EntryRecord, request?: string): Item {
         typeof data?.at === "number" && Number.isSafeInteger(data.at)
             ? Math.max(0, data.at)
             : (message?.timestamp ?? 0);
+    if (entry.kind === "pi.compaction")
+        return {
+            entry: id,
+            kind: "summary",
+            at,
+            ...marked,
+            text: summaryOf(messages),
+        };
     if (message === undefined || messages.length > 1)
         return {
             entry: id,

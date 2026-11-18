@@ -8,7 +8,7 @@ use bevy::prelude::*;
 
 use super::clip::Bank;
 use super::{Cue, Family, Hearing, Sound, SoundSettings};
-use crate::{DayPart, WorldCamera};
+use crate::WorldCamera;
 
 /// The place the world is heard from.
 #[derive(Component)]
@@ -95,26 +95,19 @@ pub(super) fn start_ambience(
     }
 }
 
-/// Birds by day, an owl after dark and wind always, each louder or
-/// softer with the camera's height.
+/// Wind always, louder the higher the camera.
 pub(super) fn mix_ambience(
     time: Res<Time>,
     set: Res<SoundSettings>,
-    part: Res<State<DayPart>>,
     ears: Single<&Transform, With<Ears>>,
     mut beds: Query<(&mut Ambient, &mut AudioSink)>,
 ) {
-    let dark = matches!(part.get(), DayPart::Dusk | DayPart::Night);
     let near = (set.close / ears.translation.y.max(1e-3)).min(1.0);
     let step = time.delta_secs() / set.fade.max(1e-3);
+    // The higher the camera, the more of the world is wind.
+    let heard = 1.0 - 0.6 * near;
     for (mut bed, mut sink) in &mut beds {
-        let (want, heard) = match bed.sound {
-            Sound::Birds => (f32::from(!dark), near * set.birds),
-            Sound::Owl => (f32::from(dark), near),
-            // The higher the camera, the more of the world is wind.
-            _ => (1.0, 1.0 - 0.6 * near),
-        };
-        bed.level += (want - bed.level).clamp(-step, step);
+        bed.level += (1.0 - bed.level).clamp(-step, step);
         let family = bed.sound.family();
         let volume = if set.is_on(family) {
             bed.level

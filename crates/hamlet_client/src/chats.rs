@@ -9,7 +9,7 @@ use hamlet_protocol::client::{self as protocol, transcript};
 
 use crate::index::{Index, Refiled};
 use crate::messages::{
-    JobFinished, Reconnected, Response, SessionOutput,
+    ChatOutput, JobFinished, Reconnected, Response,
 };
 use crate::outbox::Outbox;
 use crate::realm::Chief;
@@ -23,7 +23,6 @@ pub fn plugin(app: &mut App) {
     world.register_component::<Transcript>();
     world.register_component::<Status>();
     world.register_component::<Usage>();
-    world.register_component::<ConversationNumber>();
     app.init_resource::<Watches>()
         .add_observer(watch)
         .add_observer(unwatch)
@@ -186,11 +185,6 @@ pub fn receive(world: &mut World, message: protocol::ServerMessage) {
                 {
                     pending.stale = true;
                 }
-                if let Some(number) = page.number {
-                    world
-                        .entity_mut(chat)
-                        .insert(ConversationNumber(number));
-                }
                 let mut items = page
                     .items
                     .iter()
@@ -201,6 +195,8 @@ pub fn receive(world: &mut World, message: protocol::ServerMessage) {
                     world.get_mut::<Transcript>(chat).unwrap();
                 if prepend {
                     items.append(&mut said.items);
+                } else {
+                    said.began_after = None;
                 }
                 said.items = items;
                 said.earlier = page.earlier.clone();
@@ -209,21 +205,20 @@ pub fn receive(world: &mut World, message: protocol::ServerMessage) {
                     world,
                     chat,
                     page.working,
-                    page.pending,
-                    page.last
-                        .as_ref()
-                        .map(|last| (last.at, last.what.clone())),
+                    Status {
+                        pending: page.pending,
+                        held: page.held,
+                        last: page
+                            .last
+                            .as_ref()
+                            .map(|last| (last.at, last.what.clone())),
+                    },
                 );
                 world
                     .entity_mut(chat)
                     .insert(Usage(page.usage.clone()));
             }
             protocol::ServerMessage::Turn(turn) => {
-                if let Some(number) = turn.number {
-                    world
-                        .entity_mut(chat)
-                        .insert(ConversationNumber(number));
-                }
                 for operation in &turn.operations {
                     if matches!(
                         operation,
@@ -237,18 +232,32 @@ pub fn receive(world: &mut World, message: protocol::ServerMessage) {
                     }
                     match operation {
                         protocol::TranscriptOperation::Status {
+                            held,
                             working,
                             pending,
                             last,
                         } => {
+                            let mut said = world
+                                .get_mut::<Transcript>(chat)
+                                .unwrap();
+                            if *working && !said.answering {
+                                said.began_after = said
+                                    .items
+                                    .iter()
+                                    .rfind(|item| !item.queued)
+                                    .map(|item| item.id.clone());
+                            }
                             status(
                                 world,
                                 chat,
                                 *working,
-                                *pending,
-                                last.as_ref().map(|last| {
-                                    (last.at, last.what.clone())
-                                }),
+                                Status {
+                                    pending: *pending,
+                                    held: *held,
+                                    last: last.as_ref().map(|last| {
+                                        (last.at, last.what.clone())
+                                    }),
+                                },
                             );
                         }
                         protocol::TranscriptOperation::Usage {
@@ -263,7 +272,7 @@ pub fn receive(world: &mut World, message: protocol::ServerMessage) {
                             .unwrap()
                             .apply(operation, &chief),
                     }
-                    world.trigger(SessionOutput {
+                    world.trigger(ChatOutput {
                         chat,
                         operation: operation.clone(),
                     });
@@ -274,19 +283,21 @@ pub fn receive(world: &mut World, message: protocol::ServerMessage) {
     }
 }
 
+/// Takes in `chat`'s status; `sent.pending` counts the queued alone.
 fn status(
     world: &mut World,
     chat: Entity,
     working: bool,
-    pending: u64,
-    last: Option<(u64, String)>,
+    sent: Status,
 ) {
     let mut said = world.get_mut::<Transcript>(chat).unwrap();
     let finished = said.answering && !working;
     said.answering = working;
     let mut status = world.get_mut::<Status>(chat).unwrap();
-    status.pending = pending + u64::from(working);
-    status.last = last;
+    *status = Status {
+        pending: sent.pending + u64::from(working),
+        ..sent
+    };
     if finished {
         world.trigger(JobFinished { chat });
     }
@@ -297,6 +308,8 @@ fn received_item(item: protocol::Item, chief: &str) -> Item {
         protocol::ItemKind::User if item.author.is_some() => {
             Entry::Agent {
                 name: item.author.unwrap(),
+                from: item.from,
+                message: item.message,
                 text: item.text,
             }
         }
@@ -311,8 +324,19 @@ fn received_item(item: protocol::Item, chief: &str) -> Item {
         protocol::ItemKind::Notice => Entry::Notice(item.text),
         protocol::ItemKind::Error => Entry::Error(item.text),
         protocol::ItemKind::Answered => Entry::Answered(item.text),
+        protocol::ItemKind::Summary => Entry::Summary(item.text),
+        protocol::ItemKind::Merged => Entry::Merged {
+            from: item.from,
+            name: item.text,
+        },
+        protocol::ItemKind::Event => match item.event {
+            Some(event) => Entry::Event(event),
+            None => Entry::Notice(item.text),
+        },
         protocol::ItemKind::Tool => {
             let tool = item.tool.unwrap_or(protocol::ItemTool {
+                agent: None,
+                call: protocol::ToolCall::Other,
                 name: String::new(),
                 summary: String::new(),
                 exit: None,
@@ -322,42 +346,37 @@ fn received_item(item: protocol::Item, chief: &str) -> Item {
             });
             Entry::Tool {
                 name: tool.name,
+                call: tool.call,
                 summary: tool.summary,
                 exit: tool.exit,
                 ms: tool.ms,
                 failure: tool.failure,
                 change: tool.change,
+                agent: tool.agent,
             }
         }
     };
     Item {
         id: item.id,
         at: item.at,
+        queued: item.queued,
         entry,
     }
 }
 
 /// An earlier-page request for a chat with a cursor and no page
-/// outstanding.
-pub fn earlier(world: &mut World, chat: Entity) {
+/// outstanding, by the id it was sent with.
+pub fn earlier(
+    world: &mut World,
+    chat: Entity,
+) -> Option<protocol::RequestId> {
     if world.resource::<Watches>().pages.contains_key(&chat) {
-        return;
+        return None;
     }
-    let Some(reference) =
-        world.get::<Chat>(chat).map(|chat| chat.0.clone())
-    else {
-        return;
-    };
-    let Some(said) = world.get::<Transcript>(chat) else {
-        return;
-    };
-    if said.earlier.is_none() {
-        return;
-    }
-    let Some(before) = said.items.first().map(|item| item.id.clone())
-    else {
-        return;
-    };
+    let reference = world.get::<Chat>(chat)?.0.clone();
+    let said = world.get::<Transcript>(chat)?;
+    said.earlier.as_ref()?;
+    let before = said.items.first()?.id.clone();
     let id = world.resource_mut::<Outbox>().send(|id| {
         protocol::ClientMessage::Open(protocol::Open {
             id,
@@ -365,10 +384,14 @@ pub fn earlier(world: &mut World, chat: Entity) {
             before: Some(before),
         })
     });
-    world
-        .resource_mut::<Watches>()
-        .pages
-        .insert(chat, Page { id, stale: false });
+    world.resource_mut::<Watches>().pages.insert(
+        chat,
+        Page {
+            id: id.clone(),
+            stale: false,
+        },
+    );
+    Some(id)
 }
 
 /// A watched conversation identified by the server.
@@ -380,10 +403,6 @@ pub fn earlier(world: &mut World, chat: Entity) {
 )]
 #[require(Transcript, Status)]
 pub struct Chat(pub protocol::ChatRef);
-
-/// The server's stable conversation number for a watched chat.
-#[derive(Component, Clone, Copy, Debug, PartialEq, Eq)]
-pub struct ConversationNumber(pub i64);
 
 /// The agent addressed by a chat.
 #[derive(Component, Clone, Copy, Debug, PartialEq, Eq)]
@@ -419,20 +438,35 @@ pub enum Entry {
     Reasoning(String),
     Tool {
         name: String,
+        call: protocol::ToolCall,
         summary: String,
         exit: Option<i64>,
         ms: Option<u64>,
         failure: Option<String>,
         change: Option<protocol::Change>,
+        /// The agent a society call reached.
+        agent: Option<protocol::AgentId>,
     },
     Error(String),
     Notice(String),
     /// The chief's answers, with each question quoted above them.
     Answered(String),
+    /// A message from another agent, by its address.
     Agent {
         name: String,
+        from: Option<protocol::AgentId>,
+        message: Option<protocol::ItemMessage>,
         text: String,
     },
+    /// The summary of the conversation's earlier part.
+    Summary(String),
+    /// Another agent's conversation merged into this one.
+    Merged {
+        from: Option<protocol::AgentId>,
+        name: String,
+    },
+    /// A change to the agent between its turns.
+    Event(protocol::ItemEvent),
 }
 
 /// A transcript entry with its server id and time.
@@ -442,6 +476,8 @@ pub struct Item {
     pub entry: Entry,
     /// Milliseconds since 1970.
     pub at: u64,
+    /// A line its turn has not taken up yet.
+    pub queued: bool,
 }
 
 impl transcript::Kept for Item {
@@ -457,8 +493,11 @@ impl transcript::Kept for Item {
             | Entry::Reasoning(shown)
             | Entry::Notice(shown)
             | Entry::Answered(shown)
+            | Entry::Summary(shown)
             | Entry::Error(shown) => shown.push_str(text),
-            Entry::Tool { .. } => {}
+            Entry::Tool { .. }
+            | Entry::Merged { .. }
+            | Entry::Event(_) => {}
         }
     }
 
@@ -468,6 +507,7 @@ impl transcript::Kept for Item {
             ms,
             failure,
             change,
+            agent,
             ..
         } = &mut self.entry
         else {
@@ -479,7 +519,14 @@ impl transcript::Kept for Item {
         if let Some(closed) = closed.change {
             *change = closed.cloned();
         }
+        if closed.agent.is_some() {
+            *agent = closed.agent;
+        }
         true
+    }
+
+    fn is_queued(&self) -> bool {
+        self.queued
     }
 }
 
@@ -489,6 +536,7 @@ pub struct Transcript {
     pub(crate) items: Vec<Item>,
     pub(crate) shape: u64,
     pub(crate) answering: bool,
+    pub(crate) began_after: Option<String>,
     pub(crate) earlier: Option<String>,
 }
 
@@ -510,7 +558,8 @@ impl Transcript {
                 self.shape += 1;
             }
             protocol::TranscriptOperation::Add { .. }
-            | protocol::TranscriptOperation::Close { .. } => {
+            | protocol::TranscriptOperation::Close { .. }
+            | protocol::TranscriptOperation::Remove { .. } => {
                 self.shape += 1;
             }
             _ => {}
@@ -558,6 +607,12 @@ impl Transcript {
         self.answering
     }
 
+    /// The last unqueued item when the answer under way was seen to
+    /// begin, if it was.
+    pub fn began_after(&self) -> Option<&str> {
+        self.began_after.as_deref()
+    }
+
     /// The cursor for a page before the displayed items.
     pub fn earlier(&self) -> Option<&str> {
         self.earlier.as_deref()
@@ -569,6 +624,8 @@ impl Transcript {
 pub struct Status {
     /// Messages queued or running.
     pub pending: u64,
+    /// Whether a chief's stop holds the queued turns.
+    pub held: bool,
     pub last: Option<(u64, String)>,
 }
 
@@ -614,10 +671,7 @@ mod tests {
 
     fn with(id: u64) -> protocol::ChatRef {
         protocol::ChatRef {
-            kind: None,
-            from: None,
             with: protocol::AgentId(id),
-            past: None,
         }
     }
 

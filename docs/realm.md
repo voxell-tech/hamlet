@@ -9,7 +9,7 @@ and `realm/layout.rs` defines `Layout`. The server's chief is named by
 
 | Path under the realm | Owner and contents |
 |---|---|
-| `realm.sqlite`, its WAL and shared-memory files | `hamlet_store`'s `Store`: who exists and answers to whom, channels, the record, tasks and spend, conversations and their inputs, waits and grants, the chief's documents, markers and jobs |
+| `realm.sqlite`, its WAL and shared-memory files | `hamlet_store`'s `Store`: who exists and answers to whom, channels, the record, tasks and spend, conversations (`chat` names each agent's one) and their inputs, waits, grants and the session grants a chief gave each conversation, the chief's documents, markers and jobs |
 | `realm.id` | The identity also recorded in `realm.sqlite` |
 | `harnesses/<instance>/` | That runtime's own store: conversations, checkpoints, model responses and input admission |
 | `credentials.json` | Server-owned installation ID, connection token and provider credentials |
@@ -54,7 +54,7 @@ the connection runs with WAL, full sync and foreign keys. A tool call is
 identified by its runtime and key, a client request by its chief and id; its
 marker is committed with the change and its charge, so a call asked for again
 gets the first result. A society call is safe to ask again for that reason:
-its answer is kept in its change's transaction, or what it began (a letter, a
+its answer is kept in its change's transaction, or what it began (a message, a
 worker, an errand) is found again by its call. A write of a profile's
 repository, a shell command or an edit is marked begun before it runs and,
 cut off by a crash, is answered as interrupted, never run twice. The files

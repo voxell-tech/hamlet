@@ -1,11 +1,7 @@
-//! What follows an input in `PostUpdate` and `Last`: its changes
-//! kept, or rolled back when a system for it failed; the inputs it
-//! ended followed, the tools narrowed to each agent's role, the jobs
-//! it left run, the stopped turns' tool runs ended and the requested
-//! ones started; then the runtimes sent what they are owed, and the
-//! clients sent the state and then their replies. Each step is worked
-//! out again from the database, so one that fails is made good by the
-//! next input. An input that fails leaves nothing to follow.
+//! What follows an input in `PostUpdate` and `Last`, each step worked
+//! out again from the database.
+
+use std::collections::BTreeSet;
 
 use bevy_app::{App, Last, PostUpdate};
 use bevy_ecs::entity::Entity;
@@ -25,17 +21,18 @@ use hamlet_store::Db;
 use hamlet_store::ids::{Actor, ConversationId};
 
 use super::failure::{self, Failure};
-use super::input::InputOrigin;
+use super::input::{InputOrigin, InputSender};
 use super::tasks::BackgroundWork;
 use crate::calls::place;
 use crate::calls::tool_runs::{self, ToolRuns, UnstartedToolRun};
 use crate::clients::check::{failed, fault};
 use crate::clients::{Connections, check};
 use crate::conversations::completion::follow;
+use crate::conversations::dreams::Learned;
 use crate::conversations::inputs::Resend;
 use crate::core::{Catalogue, Core, RemoteWorkspace};
 use crate::knowledge::worker::{
-    RepositoryWriteLock, Runner, run_due,
+    JobsDone, RepositoryWriteLock, Runner, after_jobs, run_due,
 };
 use crate::providers::Providers;
 use crate::realm::Realm;
@@ -83,6 +80,7 @@ pub(crate) fn plugin(app: &mut App) {
                     send_runtimes_what_they_are_owed
                         .run_if(may_owe_runtimes),
                     wake_held_calls,
+                    requeue.run_if(has_changed_queues),
                 )
                     .chain()
                     .in_set(SendSystems::SendRuntimesWhatTheyAreOwed),
@@ -101,8 +99,7 @@ pub(crate) fn plugin(app: &mut App) {
 }
 
 /// Keeps the input's changes, or rolls them back when a system for it
-/// failed: nothing it queued goes out, and whoever sent it is told.
-/// A kept input stops at its crash test's fault point, if it has one.
+/// failed.
 pub(crate) fn keep_or_roll_back_input(
     mut realm: ResMut<Realm>,
     mut queued: Queued,
@@ -155,9 +152,8 @@ pub(crate) struct Queued<'w, 's> {
 }
 
 impl Queued<'_, '_> {
-    /// Drops what a failed input left to follow it: its transaction
-    /// was rolled back, so nothing it changed is so, and nothing it
-    /// requested runs. Refusals still go, since they close a client.
+    /// Drops what a failed input left to follow it but its refusals,
+    /// which close a client.
     fn discard(&mut self) {
         *self.effects = InputEffects::default();
         self.wakes.clear();
@@ -214,20 +210,14 @@ pub(crate) fn discard(mut queued: Queued) {
     queued.discard();
 }
 
-/// A call held on a wait whose wait was answered: its runtime is
-/// told after the input's changes are sent, so a repeated request may
-/// get further.
+/// A held call whose wait was answered.
 #[derive(Message)]
 pub(crate) struct WakeHeldCall {
     pub runtime: String,
     pub key: String,
 }
 
-/// A runtime's input ended: its follow, which may end a worker or
-/// carry an answer back, and the replies owed for it come once what
-/// said so is kept. Written as a message by the input, it is
-/// triggered for the observers in
-/// [`FollowUpSystems::FollowEndedInputs`].
+/// A runtime's input that ended, followed once that is kept.
 #[derive(Message, Event, Clone)]
 pub(crate) struct InputEnded {
     pub conversation: ConversationId,
@@ -245,11 +235,11 @@ pub(crate) struct InputEffects {
     pub jobs_kept: bool,
     /// A runtime answered a request, so what waited on it may go.
     pub runtime_answered: bool,
-    /// The clients' view changed with no change kept, such as the
-    /// progress of moving the worktrees.
+    /// The conversations whose queued inputs or hold changed.
+    pub queues: BTreeSet<ConversationId>,
+    /// The clients' view changed with no change kept.
     pub state_changed_outside_change: bool,
-    /// The fault point a crash test stops at once the input is kept,
-    /// such as a society call's change kept with its answer.
+    /// The fault point a crash test stops at once the input is kept.
     pub crash_test_fault_point: Option<&'static str>,
 }
 
@@ -275,6 +265,10 @@ fn may_owe_runtimes(effects: Res<InputEffects>) -> bool {
     effects.change_kept || effects.runtime_answered
 }
 
+fn has_changed_queues(effects: Res<InputEffects>) -> bool {
+    !effects.queues.is_empty()
+}
+
 /// Triggers each input that ended for its observers.
 fn trigger_ended_inputs(
     mut ended: MessageReader<InputEnded>,
@@ -296,6 +290,9 @@ fn follow_ended_input(
     })?;
     for (runtime, key) in followed.wake {
         core.wake_call(&runtime, &key);
+    }
+    if followed.dream {
+        core.dream_tick()?;
     }
     Ok(())
 }
@@ -327,7 +324,7 @@ pub(crate) fn narrow_tools_to_roles(
 }
 
 /// Narrows the tools of every living agent's conversations to its
-/// role now; a runtime is told before the next input.
+/// role.
 pub(crate) fn narrow_all_tools_to_roles(
     db: &mut Db,
     catalogue: &Catalogue,
@@ -344,8 +341,7 @@ pub(crate) fn narrow_all_tools_to_roles(
     Ok(())
 }
 
-/// Keeps what the follows and the narrowing changed. A commit that
-/// fails leaves nothing of them.
+/// Keeps what the follows and the narrowing changed.
 fn commit_follow_ups(mut realm: ResMut<Realm>) -> Result {
     let db = realm.store().connection();
     if let Err(error) = hamlet_store::commit(db) {
@@ -356,19 +352,25 @@ fn commit_follow_ups(mut realm: ResMut<Realm>) -> Result {
 }
 
 /// Runs the jobs the kept changes left, and wakes the runner for what
-/// they leave in turn. Their effects come before anything that reads
-/// them; one that fails is run again by the runner.
+/// they leave in turn.
 fn run_kept_jobs(
     mut realm: ResMut<Realm>,
     writing: Res<RepositoryWriteLock>,
     runner: Res<Runner>,
     mut remote: RemoteWorkspace,
+    mut learned: ResMut<Learned>,
+    inputs: Res<InputSender>,
 ) {
     super::fault::point("jobs");
     let layout = realm.layout().clone();
     let db = realm.store().connection();
     match run_due(db, &layout, &writing) {
-        Ok(done) => remote.owe_pushes(db, &done),
+        Ok(done) if done.is_empty() => {}
+        Ok(done) => {
+            remote.owe_pushes(db, &done);
+            let done = JobsDone::of(db, &layout, done);
+            after_jobs(&mut learned, &inputs, &done);
+        }
         Err(error) => {
             error!("running jobs: {error:#}");
         }
@@ -376,8 +378,7 @@ fn run_kept_jobs(
     runner.wake();
 }
 
-/// Stops the tool runs of every conversation being stopped: their
-/// entities go, and their tasks with them.
+/// Stops the tool runs of every conversation being stopped.
 fn stop_cancelled_tool_runs(
     mut realm: ResMut<Realm>,
     runs: ToolRuns,
@@ -416,13 +417,18 @@ fn send_runtimes_what_they_are_owed(
     Ok(())
 }
 
+// Runs once each runtime was sent what it is owed.
+fn requeue(mut core: Core) -> Result {
+    core.requeue()?;
+    Ok(())
+}
+
 fn publish_state(mut core: Core) -> Result {
     core.send_state()?;
     Ok(())
 }
 
-/// Sends the clients what the input queued for them, after the state
-/// it left.
+/// Sends the clients what the input queued for them.
 fn send_client_messages(
     mut connections: Connections,
     credentials: Res<Credentials>,

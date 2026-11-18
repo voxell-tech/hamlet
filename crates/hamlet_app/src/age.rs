@@ -49,48 +49,10 @@ impl Age {
             Self::Minutes(n) => format!("{n}m"),
             Self::Hours(n) => format!("{n}h"),
             Self::Days(n) => format!("{n}d"),
-            Self::On(..) => self.words(),
-        }
-    }
-
-    /// When it was: `just now`, `5 min ago`, `on 4 Mar`.
-    pub(crate) fn ago(self) -> String {
-        match self {
-            Self::Now => "just now".into(),
-            Self::On(..) => format!("on {}", self.words()),
-            _ => format!("{} ago", self.words()),
-        }
-    }
-
-    fn words(self) -> String {
-        match self {
-            Self::Now => "under a minute".into(),
-            Self::Minutes(n) => format!("{n} min"),
-            Self::Hours(n) => format!("{n} h"),
-            Self::Days(1) => "1 day".into(),
-            Self::Days(n) => format!("{n} days"),
             Self::On(day, true) => day.strftime("%-d %b").to_string(),
             Self::On(day, false) => {
                 day.strftime("%-d %b %Y").to_string()
             }
         }
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn an_age_past_a_week_is_a_date_not_a_count() {
-        let now = 1_750_000_000_000;
-        let day = 86_400_000;
-        assert_eq!(Age::of(now, now - 6 * day), Age::Days(6));
-        assert!(matches!(
-            Age::of(now, now - 7 * day),
-            Age::On(_, true)
-        ));
-        assert!(matches!(Age::of(now, 1000), Age::On(_, false)));
-        assert_eq!(Age::of(now, now + day), Age::Now);
     }
 }

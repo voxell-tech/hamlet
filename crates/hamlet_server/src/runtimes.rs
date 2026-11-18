@@ -1,7 +1,4 @@
-//! The harness runtime processes, their lines, and what each is sent.
-//! Each runtime is an entity: started, taken on or rejected at its
-//! hello, started again after a failure (S22, S24), with the requests
-//! in flight to it.
+//! The harness runtime processes and what each is sent (S22, S24).
 
 pub(crate) mod handlers;
 pub(crate) mod leases;
@@ -96,9 +93,8 @@ pub(crate) struct Runtime {
     restart_at: Option<Instant>,
 }
 
-/// A line to a runtime, an entity from the input that sends it until
-/// it is written, and a request's until its reply. It appears once
-/// the input's commands apply: no input reads back a line it sent.
+/// A line to a runtime, until it is written or, for a request,
+/// answered.
 #[derive(Component)]
 pub(crate) struct RuntimeLine {
     /// The count of lines sent before it and with it, which is the
@@ -521,6 +517,19 @@ impl Runtimes<'_, '_> {
         let pending = found.awaited_reply.take()?;
         self.commands.entity(line).despawn();
         Some((to.0, pending))
+    }
+
+    /// The inputs sent to a runtime whose admission was not heard.
+    pub fn submitting(&self) -> Vec<(ConversationId, String)> {
+        self.lines
+            .iter()
+            .filter_map(|(.., line)| match &line.awaited_reply {
+                Some(Pending::Submit(conversation, request)) => {
+                    Some((*conversation, request.clone()))
+                }
+                _ => None,
+            })
+            .collect()
     }
 
     pub fn is_in_flight(

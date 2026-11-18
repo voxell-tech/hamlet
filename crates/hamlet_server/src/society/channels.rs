@@ -1,5 +1,4 @@
-//! Channels, along which agents send letters and questions (H3, H14,
-//! H30): the tree's, the leads', and those opened or agreed.
+//! Channels, along which agents send messages (H3, H14, H30).
 
 use anyhow::Result;
 use diesel::deserialize::FromSqlRow;
@@ -317,8 +316,7 @@ fn charge(
     Ok(())
 }
 
-/// Closes the opened or agreed channel between `a` and `b`. What it
-/// cost is not given back.
+/// Closes the opened or agreed channel between `a` and `b`.
 pub(crate) fn close(
     cx: &mut Change<'_>,
     a: AgentId,
@@ -358,9 +356,8 @@ pub(crate) enum Agreed {
     Opened(ChannelId),
 }
 
-/// Keeps the agreement of `lead` to a channel between agents `a` and
-/// `b` of different hamlets, one of them its own, and opens the
-/// channel once the other hamlet's lead agreed too (H14).
+/// Keeps the agreement of `lead` to a channel between agents of two
+/// hamlets, opened once both leads agree (H14).
 pub(crate) fn agree(
     cx: &mut Change<'_>,
     lead: AgentId,

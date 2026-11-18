@@ -1,26 +1,23 @@
 //! The tools of the society, offered to each agent by its role (H35).
-//! A model names a tool with words; they are read into a [`Society`]
-//! once, where the call arrives, and what is known of each tool is
-//! said once, in [`FACTS`].
 
 use hamlet_protocol::client::Doing;
 
 use crate::society::limits::Reserved;
 
-/// A tool of the society. A tool added by hand may not take the name
-/// of one.
+/// A tool of the society.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub(crate) enum Society {
-    Tell,
-    Ask,
+    Notify,
+    Request,
     StartWorker,
     SubmitSkill,
-    AskLibrarian,
-    AskChief,
+    RequestLibrarian,
+    RequestChief,
     ReadBudget,
     Object,
-    RequestChannel,
+    ProposeChannel,
     CreateProfile,
+    MakeProfile,
     AddAgent,
     EndAgent,
     MergeAgents,
@@ -34,11 +31,47 @@ pub(crate) enum Society {
     FoundHamlet,
     SetLead,
     RemoveHamlet,
+    RestoreHamlet,
+    EraseHamlet,
+    NameHamlet,
+    MoveHamlet,
+    SetTier,
+    SetFolder,
+    SetMode,
+    ResetBudget,
+    EditLimits,
     ReadRecord,
     ReadProfile,
     EditProfile,
     Tag,
     Revert,
+    Versions,
+    Fork,
+    Purge,
+    Welcome,
+    TurnAway,
+    NameProfile,
+    MoveHouse,
+    RemoveProfile,
+    RestoreProfile,
+    EraseProfile,
+    Pin,
+    RestoreAgent,
+    EraseAgent,
+    SetEffort,
+    SetFast,
+    Dream,
+    Reflect,
+    Stop,
+    Resume,
+    EditMemory,
+    ReadPrompt,
+    ReadPapers,
+    EditSettings,
+    EditCharter,
+    ReadCharter,
+    ReadModels,
+    Unshelve,
 }
 
 /// The agents offered a society tool.
@@ -98,7 +131,7 @@ pub(crate) struct Facts {
     pub offered: Offered,
     pub reserve: Reserve,
     /// Its agent's doing while it runs, when that says more than
-    /// that a tool runs.
+    /// that it thinks.
     pub doing: Option<Doing>,
     /// True when a call cut off by a crash may run again when called
     /// again: its change is kept with its answer, or what it began
@@ -141,25 +174,27 @@ impl Facts {
 }
 
 /// Every society tool, once.
-pub(crate) const FACTS: [Facts; 28] = {
+pub(crate) const FACTS: [Facts; 65] = {
     use Offered::{
         Chats, Everyone, HamletAgents, Hand, Leads, Parents,
     };
     use Society as S;
     [
-        facts(S::Tell, "tell", Everyone),
-        facts(S::Ask, "ask", Everyone).doing(Doing::Await),
+        facts(S::Notify, "notify", Everyone),
+        facts(S::Request, "request", Everyone).doing(Doing::Await),
         facts(S::StartWorker, "start_worker", Everyone),
         facts(S::SubmitSkill, "submit_skill", Everyone)
             .doing(Doing::Await),
-        facts(S::AskLibrarian, "ask_librarian", Everyone)
+        facts(S::RequestLibrarian, "request_librarian", Everyone)
             .doing(Doing::Await),
-        facts(S::AskChief, "ask_chief", Everyone),
+        facts(S::RequestChief, "request_chief", Everyone),
         facts(S::ReadBudget, "read_budget", Everyone),
         facts(S::Object, "object", Chats),
-        facts(S::RequestChannel, "request_channel", HamletAgents)
+        facts(S::ProposeChannel, "propose_channel", HamletAgents)
             .doing(Doing::Await),
         facts(S::CreateProfile, "create_profile", Parents)
+            .doing(Doing::Think),
+        facts(S::MakeProfile, "make_profile", Parents)
             .doing(Doing::Think),
         facts(S::AddAgent, "add_agent", Parents)
             .reserved(Reserve::Limit(Limit::Add))
@@ -182,6 +217,20 @@ pub(crate) const FACTS: [Facts; 28] = {
         facts(S::SetLead, "set_lead", Hand),
         facts(S::RemoveHamlet, "remove_hamlet", Hand)
             .reserved(Reserve::Hand),
+        facts(S::RestoreHamlet, "restore_hamlet", Hand),
+        facts(S::EraseHamlet, "erase_hamlet", Hand)
+            .reserved(Reserve::Hand),
+        facts(S::NameHamlet, "name_hamlet", Hand),
+        facts(S::MoveHamlet, "move_hamlet", Hand),
+        facts(S::SetTier, "set_tier", Hand).reserved(Reserve::Hand),
+        facts(S::SetFolder, "set_folder", Hand)
+            .reserved(Reserve::Hand),
+        facts(S::SetMode, "set_mode", Hand).reserved(Reserve::Hand),
+        facts(S::ResetBudget, "reset_budget", Hand)
+            .reserved(Reserve::Hand),
+        facts(S::EditLimits, "edit_limits", Hand)
+            .reserved(Reserve::Hand)
+            .once(),
         facts(S::ReadRecord, "read_record", Hand),
         facts(S::ReadProfile, "read_profile", Hand),
         facts(S::EditProfile, "edit_profile", Hand)
@@ -191,6 +240,42 @@ pub(crate) const FACTS: [Facts; 28] = {
         facts(S::Revert, "revert", Hand)
             .reserved(Reserve::Hand)
             .once(),
+        facts(S::Versions, "versions", Hand),
+        facts(S::Fork, "fork", Hand),
+        facts(S::Purge, "purge", Hand)
+            .reserved(Reserve::Hand)
+            .once(),
+        facts(S::Welcome, "welcome", Hand),
+        facts(S::TurnAway, "turn_away", Hand),
+        facts(S::NameProfile, "name_profile", Hand),
+        facts(S::MoveHouse, "move_house", Hand),
+        facts(S::RemoveProfile, "remove_profile", Hand)
+            .reserved(Reserve::Hand),
+        facts(S::RestoreProfile, "restore_profile", Hand),
+        facts(S::EraseProfile, "erase_profile", Hand)
+            .reserved(Reserve::Hand),
+        facts(S::Pin, "pin", Hand),
+        facts(S::RestoreAgent, "restore_agent", Hand),
+        facts(S::EraseAgent, "erase_agent", Hand)
+            .reserved(Reserve::Hand),
+        facts(S::SetEffort, "set_effort", Hand),
+        facts(S::SetFast, "set_fast", Hand),
+        facts(S::Dream, "dream", Hand).once(),
+        facts(S::Reflect, "reflect", Hand),
+        facts(S::Stop, "stop", Hand),
+        facts(S::Resume, "resume", Hand),
+        facts(S::EditMemory, "edit_memory", Hand).once(),
+        facts(S::ReadPrompt, "read_prompt", Hand),
+        facts(S::ReadPapers, "read_papers", Hand),
+        facts(S::EditSettings, "edit_settings", Hand)
+            .reserved(Reserve::Hand)
+            .once(),
+        facts(S::EditCharter, "edit_charter", Hand)
+            .reserved(Reserve::Hand)
+            .once(),
+        facts(S::ReadCharter, "read_charter", Hand),
+        facts(S::ReadModels, "read_models", Hand),
+        facts(S::Unshelve, "unshelve", Hand).once(),
     ]
 };
 

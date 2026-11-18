@@ -159,6 +159,8 @@ CREATE TABLE hamlet_agent (
     allowance INTEGER CHECK (allowance IS NULL OR allowance >= 0),
     allowance_by TEXT,
     merged_into INTEGER REFERENCES hamlet_agent(agent),
+    -- Whether it was ended with one more dream.
+    ending_dream INTEGER NOT NULL DEFAULT 0 CHECK (ending_dream IN (0, 1)),
     CHECK (parent IS NULL OR parent <> agent)
 ) STRICT;
 CREATE INDEX hamlet_agent_profile ON hamlet_agent(profile);
@@ -364,17 +366,13 @@ CREATE TABLE runtime (
 ) STRICT, WITHOUT ROWID;
 
 -- A conversation of an agent, bound to the runtime it began in (S17).
--- `handle` is the runtime's own id for it. A chat session has its
--- chief; letters and questions their sender as `peer`; an errand its
--- kind, its owner and its instructions.
+-- `handle` is the runtime's own id for it. An errand has its kind, its
+-- owner and its instructions.
 CREATE TABLE conversation (
     id INTEGER PRIMARY KEY,
     agent INTEGER NOT NULL REFERENCES agent(id),
     kind TEXT NOT NULL CHECK (kind IN
-        ('chat', 'letters', 'questions', 'worker', 'errand', 'dream')),
-    chief INTEGER REFERENCES chief(id),
-    session INTEGER,
-    peer INTEGER REFERENCES agent(id),
+        ('chat', 'worker', 'errand', 'dream')),
     errand TEXT,
     owner TEXT,
     instructions TEXT,
@@ -391,6 +389,12 @@ CREATE TABLE conversation (
     cancelling INTEGER NOT NULL DEFAULT 0 CHECK (cancelling IN (0, 1)),
     -- A chief stopped its running turn, whose end is then no failure.
     stopped INTEGER NOT NULL DEFAULT 0 CHECK (stopped IN (0, 1)),
+    -- A chief stopped it, and no queued turn starts until a line of
+    -- theirs or a resume.
+    held INTEGER NOT NULL DEFAULT 0 CHECK (held IN (0, 1)),
+    -- The chief's input that ended a hold, which runs before the rest
+    -- queued.
+    runs_first TEXT,
     last TEXT CHECK (last IS NULL OR last IN ('done', 'failed', 'stopped')),
     unreflected INTEGER NOT NULL DEFAULT 0 CHECK (unreflected >= 0),
     retiring INTEGER NOT NULL DEFAULT 0 CHECK (retiring IN (0, 1)),
@@ -398,39 +402,22 @@ CREATE TABLE conversation (
     last_input TEXT,
     made INTEGER NOT NULL,
     UNIQUE (runtime, handle),
-    CHECK ((kind = 'chat') = (chief IS NOT NULL AND session IS NOT NULL)),
-    CHECK ((kind IN ('letters', 'questions')) = (peer IS NOT NULL)),
     CHECK ((kind = 'errand') = (errand IS NOT NULL))
 ) STRICT;
 CREATE INDEX conversation_agent ON conversation(agent);
-CREATE UNIQUE INDEX conversation_peer ON conversation(agent, kind, peer)
-    WHERE peer IS NOT NULL;
 CREATE UNIQUE INDEX conversation_errand ON conversation(errand, owner)
     WHERE errand IS NOT NULL;
 
--- A chief's chat with an agent, and its current session.
+-- An agent's one conversation, which every input it is given goes
+-- to. A rewind points it at its fork.
 CREATE TABLE chat (
-    agent INTEGER NOT NULL REFERENCES agent(id),
-    chief INTEGER NOT NULL REFERENCES chief(id),
-    current INTEGER NOT NULL CHECK (current >= 1),
-    reflections INTEGER NOT NULL DEFAULT 0 CHECK (reflections >= 0),
-    PRIMARY KEY (agent, chief)
-) STRICT, WITHOUT ROWID;
-
--- The conversation a chat's session stands for now. A rewind points
--- the session at its fork.
-CREATE TABLE chat_session (
-    agent INTEGER NOT NULL,
-    chief INTEGER NOT NULL,
-    session INTEGER NOT NULL CHECK (session >= 1),
+    agent INTEGER PRIMARY KEY REFERENCES agent(id),
     conversation INTEGER NOT NULL UNIQUE REFERENCES conversation(id),
-    began INTEGER NOT NULL,
-    PRIMARY KEY (agent, chief, session),
-    FOREIGN KEY (agent, chief) REFERENCES chat(agent, chief)
-) STRICT, WITHOUT ROWID;
+    reflections INTEGER NOT NULL DEFAULT 0 CHECK (reflections >= 0)
+) STRICT;
 
--- A conversation of another program brought in as a session of a
--- agent's chat (C35), once per chief. `earlier` holds the entries it
+-- A conversation of another program brought in as an agent's
+-- conversation (C35), once per chief. `earlier` holds the entries it
 -- begins with, as JSON, until its runtime has made it with them.
 CREATE TABLE import (
     conversation INTEGER PRIMARY KEY REFERENCES conversation(id),
@@ -449,8 +436,9 @@ CREATE TABLE input (
     request TEXT NOT NULL,
     ordinal INTEGER NOT NULL,
     kind TEXT NOT NULL CHECK (kind IN
-        ('chief', 'retry', 'reflection', 'notice', 'letter', 'question',
-         'reply', 'errand', 'worker', 'dream')),
+        ('chief', 'retry', 'reflection', 'notice', 'notification',
+         'request', 'response', 'error-response', 'errand', 'worker',
+         'dream', 'compaction', 'merged')),
     task INTEGER REFERENCES task(id),
     content TEXT NOT NULL,
     mark TEXT NOT NULL CHECK (json_valid(mark)),
@@ -502,11 +490,11 @@ CREATE TABLE answer_fault (
 
 -- The society
 
--- A letter or question one agent sent another along a channel (H30),
--- once per tool call.
+-- A notification or request one agent sent another along a channel
+-- (H30), once per tool call.
 CREATE TABLE message (
     id INTEGER PRIMARY KEY,
-    kind TEXT NOT NULL CHECK (kind IN ('letter', 'question')),
+    kind TEXT NOT NULL CHECK (kind IN ('notification', 'request')),
     runtime TEXT NOT NULL,
     key TEXT NOT NULL,
     sender INTEGER NOT NULL REFERENCES agent(id),
@@ -518,11 +506,9 @@ CREATE TABLE message (
     text TEXT NOT NULL,
     at INTEGER NOT NULL,
     input TEXT,
-    answer TEXT,
+    response TEXT,
     failure TEXT,
     carried INTEGER NOT NULL DEFAULT 0 CHECK (carried IN (0, 1)),
-    replied INTEGER NOT NULL DEFAULT 0 CHECK (replied IN (0, 1)),
-    refused INTEGER NOT NULL DEFAULT 0 CHECK (refused IN (0, 1)),
     UNIQUE (runtime, key)
 ) STRICT;
 CREATE INDEX message_pair ON message(sender, receiver, at);
@@ -603,6 +589,16 @@ CREATE TABLE dream (
 ) STRICT;
 CREATE INDEX dream_profile ON dream(profile, began);
 
+-- A dream asked for while another ran, of an agent or of a profile,
+-- which starts in its turn.
+CREATE TABLE asked_dream (
+    id INTEGER PRIMARY KEY,
+    profile INTEGER REFERENCES profile(id),
+    agent INTEGER REFERENCES hamlet_agent(agent),
+    at INTEGER NOT NULL,
+    CHECK ((profile IS NULL) <> (agent IS NULL))
+) STRICT;
+
 -- Oversight
 
 -- What waits for a chief (H11, H10, H34). `conversation` is the chat
@@ -623,6 +619,8 @@ CREATE TABLE wait (
     change TEXT CHECK (change IS NULL OR json_valid(change)),
     answers TEXT NOT NULL CHECK (json_valid(answers)),
     questions TEXT CHECK (questions IS NULL OR json_valid(questions)),
+    -- A fault's cause a chief sets up once for every agent it stops.
+    setup TEXT CHECK (setup IS NULL OR json_valid(setup)),
     since INTEGER NOT NULL,
     asked INTEGER NOT NULL DEFAULT 1 CHECK (asked >= 1),
     open INTEGER NOT NULL DEFAULT 1 CHECK (open IN (0, 1)),
@@ -660,14 +658,14 @@ CREATE TABLE turn_gate (
     refused TEXT NOT NULL DEFAULT '[]' CHECK (json_valid(refused))
 ) STRICT;
 
--- Edits and commands a chief allowed for the rest of a chat session.
+-- Edits and commands a chief allowed for the rest of a conversation.
+-- A rewind forks a conversation, which has no grant yet.
 CREATE TABLE session_grant (
-    agent INTEGER NOT NULL REFERENCES agent(id),
+    conversation INTEGER NOT NULL REFERENCES conversation(id),
     chief INTEGER NOT NULL REFERENCES chief(id),
-    session INTEGER NOT NULL CHECK (session >= 1),
     edit INTEGER NOT NULL DEFAULT 0 CHECK (edit IN (0, 1)),
     command INTEGER NOT NULL DEFAULT 0 CHECK (command IN (0, 1)),
-    PRIMARY KEY (agent, chief, session)
+    PRIMARY KEY (conversation, chief)
 ) STRICT, WITHOUT ROWID;
 
 -- A lasting permission a chief gave an agent, until taken back or the

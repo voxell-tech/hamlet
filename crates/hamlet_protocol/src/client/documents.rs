@@ -5,7 +5,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::client::{
     AgentId, Endpoint, ImageBytes, ImageId, ImageInput, ImageSize,
-    Listed, Past, Price, ProfileId, RequestId, Skill,
+    Listed, Price, ProfileId, RequestId, Skill,
 };
 
 #[derive(
@@ -168,8 +168,6 @@ pub struct EditCatalogueSet {
 pub enum Read {
     #[serde(rename = "prompt")]
     Prompt { agent: AgentId, id: RequestId },
-    #[serde(rename = "history")]
-    History { agent: AgentId, id: RequestId },
     #[serde(rename = "models")]
     Models {
         id: RequestId,
@@ -208,10 +206,6 @@ pub enum Read {
 pub enum ReadResult {
     Prompt {
         prompt: Vec<PromptSection>,
-        to: RequestId,
-    },
-    History {
-        history: Vec<Past>,
         to: RequestId,
     },
     Models {

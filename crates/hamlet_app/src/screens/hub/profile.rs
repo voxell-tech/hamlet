@@ -1,5 +1,4 @@
-//! The Hub's page of a profile: who it is, what it knows, its
-//! versions and agents, and what a chief can do with it.
+//! The Hub's page of a profile.
 
 use bevy::ecs::component::Component;
 use bevy::ecs::entity::Entity;
@@ -15,7 +14,7 @@ use bevy_fynix::{
     ScopedExt, ViewExt, derived, every_frame, keyed, resource,
 };
 use hamlet_client::realm::{
-    Actions, LivesIn, Pin, Profile, name_of, profile_address,
+    Actions, Learned, LivesIn, Pin, Profile, name_of, profile_address,
 };
 use hamlet_protocol::client as protocol;
 use hamlet_ui::styles::{
@@ -29,14 +28,14 @@ use hamlet_ui::{AnyView, View, with_cx};
 
 use super::details::{section, section_line};
 use super::thread::dim;
-use super::{Showing, memory, rail, show};
+use super::{Showing, memory, open_hamlet, rail, show};
 use crate::convo::talk_to;
 use crate::overview::typed;
+use crate::profile_tag::{learned_mark, learned_words};
 use crate::standing::Standing;
 use crate::{chat, world_menu};
 
-/// The actions a profile's page offers, in the names the server
-/// advertises them by.
+/// The server's names of the actions a profile's page offers.
 const ACTIONS: [&str; 13] = [
     "name-profile",
     "welcome",
@@ -84,24 +83,34 @@ struct Second;
 
 /// Where `agent` stands: lead of its hamlet, or in it under its
 /// parent.
-fn place_of(world: &World, agent: Entity) -> String {
+fn place_of(world: &World, agent: Entity) -> Place {
     let hamlet = world
         .get::<LivesIn>(agent)
-        .map(|lives| name_of(world, lives.0))
-        .unwrap_or_default();
+        .map(|lives| (lives.0, name_of(world, lives.0)));
     if world.get::<hamlet_client::realm::Lead>(agent).is_some() {
-        return format!("lead of {hamlet}");
+        return Place::Lead(hamlet);
     }
     let parent = world
         .get::<hamlet_client::realm::Parent>(agent)
         .and_then(|parent| {
             hamlet_client::realm::agent(world, parent.0)
         })
-        .map(|parent| hamlet_client::realm::shown_of(world, parent));
-    match parent {
-        Some(parent) => format!("in {hamlet}, under {parent}"),
-        None => format!("in {hamlet}"),
-    }
+        // The Hand above a lead is not in its hamlet.
+        .filter(|parent| world.get::<LivesIn>(*parent).is_some())
+        .map(|parent| {
+            (parent, hamlet_client::realm::shown_of(world, parent))
+        });
+    Place::Under { hamlet, parent }
+}
+
+/// Where an agent stands.
+#[derive(Clone, PartialEq)]
+enum Place {
+    Lead(Option<(Entity, String)>),
+    Under {
+        hamlet: Option<(Entity, String)>,
+        parent: Option<(Entity, String)>,
+    },
 }
 
 /// An agent of the profile as the page shows it.
@@ -111,14 +120,15 @@ struct HamletAgentShown {
     address: String,
     /// What it goes by, and where it stands in its hamlet.
     called: String,
-    place: String,
+    place: Place,
     pin: Option<String>,
+    /// Whether it holds what it learned that the profile lacks.
+    learned: bool,
 }
 
 /// A profile and its agents as the page reads them.
 #[derive(Clone, PartialEq)]
 struct Shown {
-    /// The profile's entity, for what acts on it in the world.
     entity: Entity,
     profile: protocol::Profile,
     agents: Vec<HamletAgentShown>,
@@ -141,6 +151,7 @@ fn shown(world: &World, entity: Entity) -> Option<Shown> {
                 called: hamlet_client::realm::shown_of(world, agent),
                 place: place_of(world, agent),
                 pin: world.get::<Pin>(agent).map(|pin| pin.0.clone()),
+                learned: world.get::<Learned>(agent).is_some(),
                 address,
             }
         })
@@ -169,8 +180,7 @@ fn ask(world: &mut World, act: Act) {
     };
 }
 
-/// The command `act` makes of the profile at `address`, called
-/// `name`, and the words typed.
+/// The command `act` makes of the profile and the words typed.
 fn command(
     address: &str,
     name: &str,
@@ -211,6 +221,15 @@ fn run(world: &mut World, address: &str, name: &str, act: &Act) {
     let first = typed::<First>(world);
     let second = typed::<Second>(world);
     if let Some(text) = command(address, name, act, &first, &second) {
+        if let (Act::Erase, Some(Showing::Profile(profile))) =
+            (act, world.get_resource::<Showing>().copied())
+        {
+            super::erasure::expect_profile(
+                world,
+                profile,
+                name.into(),
+            );
+        }
         tell_hand(world, text);
         world.resource_mut::<Form>().act = None;
     }
@@ -276,9 +295,9 @@ fn form(address: String, name: String, act: Act) -> AnyView {
         move |world: &mut World| run(world, &address, &name, &act)
     };
     let ready = if remove {
-        bad_action(Glyph::Check, "Do it", go)
+        bad_action(Glyph::Check, "Do It", go)
     } else {
-        good_action(Glyph::Check, "Do it", go)
+        good_action(Glyph::Check, "Do It", go)
     };
     with_cx(move |cx| {
         let gap = cx.theme().space.gap;
@@ -330,8 +349,7 @@ fn form(address: String, name: String, act: Act) -> AnyView {
     .boxed()
 }
 
-/// The form of the action asked for, where `here` says it belongs to
-/// the part of the page this stands in.
+/// The form of the action asked for, where `here` places it.
 fn form_view(
     address: String,
     name: String,
@@ -353,8 +371,7 @@ fn is_careful(act: &Act) -> bool {
     matches!(act, Act::Purge(_) | Act::Remove | Act::Erase)
 }
 
-/// Whether `act` is done from the foot of the page, where what ends
-/// the profile is.
+/// Whether `act` is done from the foot of the page.
 fn is_of_foot(act: &Act) -> bool {
     matches!(act, Act::Remove | Act::Erase)
 }
@@ -374,8 +391,7 @@ fn is_of_header(act: &Act) -> bool {
     matches!(act, Act::Fork(None))
 }
 
-/// Where the profile stands, said beside its name: in the city, at
-/// the harbor or archived.
+/// Where the profile stands, said beside its name.
 fn standing(profile: &protocol::Profile) -> (&'static str, Tone) {
     match (&profile.left, profile.arrival) {
         (Some(_), _) => ("Archived", Tone::Dim),
@@ -394,8 +410,7 @@ fn standing(profile: &protocol::Profile) -> (&'static str, Tone) {
     }
 }
 
-/// The actions under its name: what changes where it stands short of
-/// sending it away. A double click on its name renames it.
+/// The actions under its name that change where it stands.
 fn arrival(shown: &Shown) -> AnyView {
     let address = profile_address(shown.profile.id);
     let can = |name| shown.allowed.contains(&name);
@@ -404,7 +419,7 @@ fn arrival(shown: &Shown) -> AnyView {
         buttons_row.push(
             action(
                 Glyph::Profile,
-                "New profile from this one",
+                "New Profile from This One",
                 |world| {
                     ask(world, Act::Fork(None));
                 },
@@ -434,13 +449,12 @@ fn arrival(shown: &Shown) -> AnyView {
                 ));
             }
         }
-        // Picked up and set down in the world, or sent back to wait
-        // at the harbor.
+        // Moved in the world, or sent back to the harbor.
         (None, protocol::Arrival::Housed) => {
             if can("move-house") {
                 let profile = shown.entity;
                 buttons_row.push(
-                    action(Glyph::Move, "Move house", move |world| {
+                    action(Glyph::Move, "Move House", move |world| {
                         hamlet_realm::orders::carry_house(
                             world, profile,
                         );
@@ -461,7 +475,7 @@ fn arrival(shown: &Shown) -> AnyView {
                 let address = address.clone();
                 buttons_row.push(good_action(
                     Glyph::Check,
-                    "Welcome into the city",
+                    "Welcome into the City",
                     move |world| {
                         tell_hand(
                             world,
@@ -475,8 +489,7 @@ fn arrival(shown: &Shown) -> AnyView {
     buttons(buttons_row).boxed()
 }
 
-/// The versions in their section, each with what can be done from it,
-/// and the form of what was asked for from them.
+/// The versions in their section, each with its menu.
 fn versions(shown: &Shown) -> AnyView {
     let can = |name| shown.allowed.contains(&name);
     let address = profile_address(shown.profile.id);
@@ -485,8 +498,7 @@ fn versions(shown: &Shown) -> AnyView {
     if shown.profile.versions.is_empty() {
         parts.push(note("No version is named yet.").boxed());
     }
-    // Newest first; each with its own menu of what can be done from
-    // it, named in full there.
+    // Newest first.
     for version in shown.profile.versions.iter().rev() {
         let name = version.name.clone();
         let followers = shown
@@ -538,7 +550,7 @@ fn versions(shown: &Shown) -> AnyView {
     let mut acts = Vec::new();
     if can("tag") {
         acts.push(
-            action(Glyph::Plus, "Save as a version", |world| {
+            action(Glyph::Plus, "Save as a Version", |world| {
                 ask(world, Act::Tag);
             })
             .tooltip(|| note("Name what the profile knows now"))
@@ -550,8 +562,7 @@ fn versions(shown: &Shown) -> AnyView {
     section(Glyph::History, "Versions", None, column(parts).gap(4.0))
 }
 
-/// The "..." button that opens each of `actions`, named in full, with
-/// what it asks for, and `tip` under the pointer.
+/// The "..." button that opens `actions`.
 fn action_menu(
     tip: &'static str,
     actions: Vec<(String, Act)>,
@@ -576,8 +587,51 @@ fn action_menu(
     .boxed()
 }
 
-/// Its agents in their section, each led to and pinned to a version
-/// from here.
+/// Where an agent stands, its hamlet and parent as links.
+fn place_view(place: &Place) -> AnyView {
+    let words =
+        |text: &'static str| label(text).tone(Tone::Dim).boxed();
+    let hamlet = |found: &Option<(Entity, String)>| {
+        found.clone().map(|(hamlet, name)| {
+            link(name, move |world| open_hamlet(world, hamlet))
+        })
+    };
+    let mut parts = Vec::new();
+    match place {
+        Place::Lead(found) => {
+            parts.push(words("lead of"));
+            parts.extend(hamlet(found));
+        }
+        Place::Under {
+            hamlet: found,
+            parent,
+        } => {
+            parts.push(words("in"));
+            parts.extend(hamlet(found));
+            if let Some((parent, name)) = parent.clone() {
+                parts.push(words("under"));
+                parts.push(link(name, move |world| {
+                    talk_to(world, parent);
+                }));
+            }
+        }
+    }
+    row(parts).gap(4.0).align(AlignItems::Center).boxed()
+}
+
+/// `name` as words that `act` follows when pressed.
+fn link(
+    name: String,
+    act: impl Fn(&mut World) + Send + Sync + 'static,
+) -> AnyView {
+    button(label(name))
+        .padding(UiRect::all(px(0.0)))
+        .variant(Variant::Text)
+        .on_activate(act)
+        .boxed()
+}
+
+/// Its agents in their section, each with its version.
 fn agents(shown: &Shown) -> AnyView {
     if shown.agents.is_empty() {
         return section_line(
@@ -620,9 +674,17 @@ fn agents(shown: &Shown) -> AnyView {
                 })
                 .on_activate(move |world| talk_to(world, agent))
                 .boxed(),
-            label(shown_agent.place.clone()).tone(Tone::Dim).boxed(),
-            frame().grow(1.0).boxed(),
         ];
+        if shown_agent.learned {
+            let words = learned_words(&shown.profile.name);
+            line.push(
+                row((learned_mark(),))
+                    .tooltip(move || note(words.clone()))
+                    .boxed(),
+            );
+        }
+        line.push(place_view(&shown_agent.place));
+        line.push(frame().grow(1.0).boxed());
         if pins {
             let picked = choices.clone();
             line.push(
@@ -667,8 +729,7 @@ fn agents(shown: &Shown) -> AnyView {
     )
 }
 
-/// What it knows, each part in its section: the character a chief may
-/// edit, its memory with a dream that tidies it, and its skills.
+/// Its character, memory and skills, each in its section.
 fn knowledge(shown: &Shown) -> [AnyView; 3] {
     [
         memory::character_section(),
@@ -690,8 +751,7 @@ fn knowledge(shown: &Shown) -> [AnyView; 3] {
     ]
 }
 
-/// What makes the button of a dream, which brings home what its
-/// agents learned, while the profile may have one.
+/// The dream button, while the profile may have one.
 fn dream(
     shown: &Shown,
 ) -> impl Fn() -> Option<AnyView> + Send + Sync + 'static {
@@ -703,7 +763,7 @@ fn dream(
         may.then(|| {
             action(
                 Glyph::Rename,
-                "Note what its agents learned",
+                "Note What Its Agents Learned",
                 move |world| {
                     tell_hand(world, format!("/dream {address}"));
                 },
@@ -719,29 +779,26 @@ fn dream(
     }
 }
 
-/// What makes the menu of a memory file, while one may be taken out
-/// of the profile's history.
+/// A memory file's menu, while one may be purged.
 fn file_menu(shown: &Shown) -> memory::FileMenu {
     let may = shown.profile.left.is_none()
         && shown.allowed.contains(&"purge");
     may.then_some(erase_menu)
 }
 
-/// The menu of the memory file at `path`, which takes it out of the
-/// profile's whole history.
+/// The menu that purges `path` from the profile's history.
 fn erase_menu(path: &str) -> AnyView {
     action_menu(
         "What can be done to this file",
         vec![(
-            "Erase from every version".to_string(),
+            "Erase from Every Version".to_string(),
             // The memory's paths are inside its folder.
             Act::Purge(format!("memory/{path}")),
         )],
     )
 }
 
-/// What changes the profile for good, kept at the foot of its page
-/// in its own section.
+/// What changes the profile for good, at the foot of its page.
 fn careful(shown: &Shown) -> AnyView {
     let name = shown.profile.name.clone();
     let address = profile_address(shown.profile.id);
@@ -756,7 +813,7 @@ fn careful(shown: &Shown) -> AnyView {
         acts.push(
             action(
                 Glyph::Anchor,
-                "Send to the harbor",
+                "Send to the Harbor",
                 move |world| {
                     tell_hand(world, format!("/turn-away {address}"));
                 },
@@ -778,7 +835,7 @@ fn careful(shown: &Shown) -> AnyView {
     if !living && can("erase-profile") {
         acts.push(bad_action(
             Glyph::Delete,
-            "Erase for good",
+            "Erase for Good",
             |world| {
                 ask(world, Act::Erase);
             },
@@ -796,9 +853,7 @@ fn careful(shown: &Shown) -> AnyView {
     )
 }
 
-/// The profile's page: where it stands and what it is called, then a
-/// section each for its agents, what it knows, its versions and what
-/// changes it for good.
+/// The profile's page.
 fn body(shown: &Shown) -> AnyView {
     let profile = shown.entity;
     let name = shown.profile.name.clone();
@@ -867,8 +922,7 @@ fn body(shown: &Shown) -> AnyView {
     .boxed()
 }
 
-/// Does the action the form of the profile shown asks for, as its
-/// first button does.
+/// Does the action the shown profile's form asks for.
 pub(super) fn submit(world: &mut World) {
     let Some(Showing::Profile(profile)) =
         world.get_resource::<Showing>().copied()

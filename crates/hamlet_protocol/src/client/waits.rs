@@ -60,7 +60,11 @@ pub enum WaitDetail {
         says: String,
     },
     #[serde(rename = "fault")]
-    Fault {},
+    Fault {
+        /// The cause, when a chief sets it up once for every agent.
+        #[serde(deserialize_with = "Option::deserialize")]
+        setup: Option<Setup>,
+    },
     #[serde(rename = "question")]
     Question { questions: Questions },
     #[serde(rename = "objection")]
@@ -71,12 +75,53 @@ pub enum WaitDetail {
     Newcomer { profile: ProfileId },
 }
 
+/// A fault's cause a chief sets up once for every agent.
+#[derive(
+    Clone,
+    Debug,
+    PartialEq,
+    Eq,
+    Hash,
+    Serialize,
+    Deserialize,
+    JsonSchema,
+)]
+#[serde(deny_unknown_fields)]
+pub struct Setup {
+    pub cause: SetupCause,
+    /// The model the agent runs, as `provider::id`; empty when none
+    /// is chosen.
+    pub model: String,
+}
+
+#[derive(
+    Clone,
+    Copy,
+    Debug,
+    PartialEq,
+    Eq,
+    Hash,
+    Serialize,
+    Deserialize,
+    JsonSchema,
+)]
+pub enum SetupCause {
+    /// No model is set up, or the one chosen is not available.
+    #[serde(rename = "model")]
+    Model,
+    /// The model's provider refused the credentials, or has none.
+    #[serde(rename = "credentials")]
+    Credentials,
+}
+
 #[derive(
     Clone, Debug, PartialEq, Serialize, Deserialize, JsonSchema,
 )]
 pub enum Lasting {
-    #[serde(rename = "session")]
-    Session,
+    /// The rest of the agent's conversation.
+    #[serde(rename = "conversation")]
+    Conversation,
+    /// A grant, until a chief revokes it.
     #[serde(rename = "grant")]
     Grant,
 }

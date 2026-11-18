@@ -23,12 +23,12 @@ use hamlet_ui::widgets::icons::{Glyph, glyph};
 use hamlet_ui::{AnyView, View, with_cx};
 
 use crate::naming::Naming;
+use crate::profile_tag::ProfileTag;
 use crate::roll::Roll;
 use crate::standing::{Standing, need_you};
 use crate::world_menu;
 
-/// A check that fires when the agents or the hamlets changed,
-/// something began or ended its wait, or a hamlet's naming did.
+/// A check that fires when the agents, hamlets or waits changed.
 pub(crate) fn stale()
 -> impl FnMut(&World) -> bool + Send + Sync + 'static {
     let mut seen = None::<(Option<Roll>, Option<Entity>)>;
@@ -63,8 +63,7 @@ pub(crate) enum Meter {
     Unlimited,
 }
 
-/// The state of a hamlet in a word: the agents `living` in it, and
-/// those of them `working` or `waiting` for the chief.
+/// The state of a hamlet in a word.
 pub(crate) fn standing(
     living: usize,
     working: usize,
@@ -92,6 +91,8 @@ pub(super) struct AgentRow {
     pub id: AgentId,
     /// What it is shown by.
     pub name: String,
+    /// The profile of the city it is of.
+    pub tag: Option<ProfileTag>,
     pub lead: bool,
     pub worker: bool,
     /// What its row says under its name, or the way it left.
@@ -100,8 +101,7 @@ pub(super) struct AgentRow {
     pub gone: bool,
     /// Its own model and what it spent, where it has either.
     pub account: String,
-    /// How many parents there are between it and the top of its
-    /// hamlet's tree.
+    /// How many parents are above it in its hamlet's tree.
     pub depth: usize,
 }
 
@@ -117,8 +117,7 @@ type Told<'a> = (
     &'a Kind,
 );
 
-/// `rows` in the order of their tree: each parent followed by its
-/// agents, the living before those that are gone.
+/// `rows` in tree order, the living before the gone.
 fn in_tree(
     rows: Vec<AgentRow>,
     parents: &[(AgentId, Option<AgentId>)],
@@ -177,9 +176,7 @@ fn in_tree(
     ordered
 }
 
-/// Everyone of `hamlet`, or of every hamlet: the lead, the living
-/// agents in the order they came and the workers after them, then
-/// those that are gone.
+/// Everyone of `hamlet`, or of every hamlet.
 pub(super) fn agent_rows(
     world: &World,
     hamlet: Option<Entity>,
@@ -234,6 +231,7 @@ pub(super) fn agent_rows(
                     agent,
                     id: id.0,
                     name: named(agent),
+                    tag: ProfileTag::of(world, agent),
                     lead,
                     worker: kind.0 == AgentKind::Worker,
                     under,
@@ -285,9 +283,7 @@ pub(super) fn hamlet_rows(world: &World) -> Vec<HamletRow> {
     rows
 }
 
-/// A row that can be pressed: a title with a word of status beside
-/// it, over `lines`, and the mark that it opens at its end. The right
-/// button opens the menu of `thing`.
+/// A pressable row: a title and status over `lines`.
 pub(super) fn pressable(
     thing: Thing,
     title: String,

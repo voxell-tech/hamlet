@@ -26,7 +26,7 @@ use bevy::picking::pointer::PointerButton;
 use bevy::text::{
     DEFAULT_FONT_DATA, EditableText, Font, FontCx, FontSize,
     FontSource, FontVariationTag, FontVariations, FontWeight,
-    LetterSpacing, TextFont,
+    GenericFontFamily, LetterSpacing, TextFont,
 };
 use bevy::ui::widget::Text;
 use bevy::ui::{
@@ -42,6 +42,7 @@ use bevy_fynix::EntityCursor;
 use bevy_fynix::dock::DockTab;
 use bevy_fynix::tokens::{TextTokens, Tone};
 use bevy_fynix::views::RichField;
+use hamlet_assets::File;
 use hamlet_assets::fonts::{
     FRAUNCES, INTER, JETBRAINS_MONO, TWEMOJI,
 };
@@ -122,21 +123,28 @@ pub fn install_fonts(world: &mut World) {
     world.insert_resource(Mono(mono));
     world.insert_resource(TerminalFace(terminal));
     world.insert_resource(Display(display));
-    install_emoji(&mut world.resource_mut::<FontCx>());
+    let mut cx = world.resource_mut::<FontCx>();
+    // An empty text is laid out in sans-serif, so a caret has height.
+    install_family(&mut cx, &INTER, GenericFontFamily::SansSerif);
+    install_family(&mut cx, &TWEMOJI, GenericFontFamily::Emoji);
 }
 
-/// Makes Twemoji the emoji family.
-fn install_emoji(cx: &mut FontCx) {
+/// Makes the face in `file` the family `generic` stands for.
+fn install_family(
+    cx: &mut FontCx,
+    file: &File,
+    generic: GenericFontFamily,
+) {
     // Registered here, since a family is named only once it is in
     // the collection, and a font asset is not until the first layout.
-    let emoji = Font::from_bytes(TWEMOJI.bytes.to_vec());
-    let added = cx.collection.register_fonts(emoji.data, None);
+    let font = Font::from_bytes(file.bytes.to_vec());
+    let added = cx.collection.register_fonts(font.data, None);
     let name = added
         .first()
         .and_then(|(family, _)| cx.collection.family_name(*family))
         .map(str::to_owned);
     if let Some(name) = name {
-        let _ = cx.set_emoji_family(&name);
+        let _ = cx.set_generic_family(generic, &name);
     }
 }
 

@@ -1,7 +1,5 @@
 //! A parent's review of a chief's instruction to an agent under it
-//! (H10): an errand run alongside the agent's work once, which may
-//! object for the chief to rule on; and the hold of the agent's next
-//! model call while a chief considers an objection.
+//! (H10).
 
 use anyhow::Result;
 use diesel::prelude::*;
@@ -113,7 +111,7 @@ impl Core<'_, '_> {
                     owner: &owner,
                     agent: parent,
                     instructions: &instructions,
-                    question: &question,
+                    content: &question,
                     task: Some(task),
                 },
             )?;

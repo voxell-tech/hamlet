@@ -1,7 +1,4 @@
-//! The arguments of each society tool, read once when its call runs.
-//! Each type is both what a call is read into and the JSON Schema a
-//! model is offered: its doc comment is the tool's description, and
-//! each field's is the argument's.
+//! Each society tool's arguments, whose doc comments a model reads.
 
 use std::collections::BTreeMap;
 
@@ -20,36 +17,37 @@ const ADDRESS: &str = "An agent's address: `hand`, `lead`, \
                        `worker#<id>`.";
 const REASON: &str =
     "Why, in a sentence, if it helps; the record keeps it.";
-const PATHS: &str =
-    "Files or folders to send with it, in your worktree or your \
-     hamlet's folder. They are copied into the receiver's inbox, \
-     and the message says where. Links are not followed. A chief \
-     approves a send of more than 32 MiB or 1000 files.";
+const PATHS: &str = "Files or folders in your worktree or your \
+                     hamlet's folder, copied into the receiver's \
+                     inbox; the message says where. Links are not \
+                     followed. Over 32 MiB or 1000 files waits for \
+                     a chief.";
 const PROFILE: &str = "The profile's address, `profile#<id>`.";
 const HAMLET: &str = "The hamlet's id.";
 
-/// Send a letter to an agent you have a channel to. It is queued
-/// for them; you do not wait for an answer.
+/// Send a notification to an agent you have a channel to. It starts
+/// a turn of theirs; you do not wait, and expect no response.
 #[derive(Deserialize, JsonSchema)]
-pub(crate) struct Tell {
+pub(crate) struct Notify {
     #[schemars(description = ADDRESS)]
     pub to: String,
-    /// The letter.
+    /// The notification.
     pub text: String,
     #[serde(default)]
     #[schemars(description = PATHS)]
     pub paths: Vec<String>,
 }
 
-/// Put a question to an agent you have a channel to and wait for
-/// its answer. Put only what you need; a question to someone waiting
-/// on you is rejected.
+/// Send a request to an agent you have a channel to. It returns at
+/// once; the answer comes later as a response that starts a turn of
+/// yours, or as an error response on your next turn. End your turn if
+/// you have nothing else to do.
 #[derive(Deserialize, JsonSchema)]
-pub(crate) struct Ask {
+pub(crate) struct Request {
     #[schemars(description = ADDRESS)]
     pub to: String,
-    /// The question.
-    pub question: String,
+    /// The request.
+    pub text: String,
     #[serde(default)]
     #[schemars(description = PATHS)]
     pub paths: Vec<String>,
@@ -57,8 +55,7 @@ pub(crate) struct Ask {
 
 /// Start a worker on a task: a helper with your tools that works in a
 /// scratch folder and where you work, then answers once. With `wait`,
-/// you wait for its answer; without, the answer comes to you as a
-/// reply.
+/// you wait for its answer; else it comes later as a response.
 #[derive(Deserialize, JsonSchema)]
 pub(crate) struct StartWorker {
     /// What the worker is to do, and what to answer.
@@ -82,12 +79,12 @@ pub(crate) struct SubmitSkill {
     pub reason: String,
 }
 
-/// Put a question to the librarian about which skills in the library
+/// Send the librarian a request for the skills in the library that
 /// help with something.
 #[derive(Deserialize, JsonSchema)]
-pub(crate) struct AskLibrarian {
+pub(crate) struct RequestLibrarian {
     /// What you need a skill for.
-    pub question: String,
+    pub text: String,
 }
 
 /// Read what you may spend: your hamlet's or the realm's spend this
@@ -104,10 +101,10 @@ pub(crate) struct Object {
     pub reason: String,
 }
 
-/// Request from your parent a channel to an agent of your hamlet
-/// you need to reach.
+/// Propose to your parent a channel to an agent of your hamlet you
+/// need to reach.
 #[derive(Deserialize, JsonSchema)]
-pub(crate) struct RequestChannel {
+pub(crate) struct ProposeChannel {
     #[schemars(description = ADDRESS)]
     pub to: String,
     #[serde(default)]
@@ -152,11 +149,31 @@ pub(crate) struct AddAgent {
     pub hamlet: String,
 }
 
-/// End an agent under you. Its work stays in its profile.
+/// Make a profile of the city from what an agent under you learned: a
+/// blank agent's own profile joins it; an agent of a city profile
+/// starts a new profile with its memory and skills, and stays where
+/// it is. It may wait at the harbor until let in.
+#[derive(Deserialize, JsonSchema)]
+pub(crate) struct MakeProfile {
+    #[schemars(description = ADDRESS)]
+    pub agent: String,
+    /// The profile's name; the agent's when left out.
+    #[serde(default)]
+    pub name: String,
+    #[serde(default)]
+    #[schemars(description = REASON)]
+    pub reason: String,
+}
+
+/// End an agent under you; its worktree and branch are archived. With
+/// `dream`, it reflects and dreams once more to bring what it learned
+/// home to its profile, and you are notified of what it brought.
 #[derive(Deserialize, JsonSchema)]
 pub(crate) struct EndAgent {
     #[schemars(description = ADDRESS)]
     pub agent: String,
+    #[serde(default)]
+    pub dream: bool,
     #[serde(default)]
     #[schemars(description = REASON)]
     pub reason: String,
@@ -230,8 +247,8 @@ pub(crate) struct RenameAgent {
     pub reason: String,
 }
 
-/// Open a channel between two agents under you, so they can write
-/// and put questions to each other.
+/// Open a channel between two agents under you, so they can send
+/// each other notifications and requests.
 #[derive(Deserialize, JsonSchema)]
 pub(crate) struct OpenChannel {
     #[schemars(description = ADDRESS)]
@@ -293,7 +310,7 @@ pub(crate) struct SetLead {
     pub reason: String,
 }
 
-/// Remove a hamlet; a chief approves it first.
+/// Remove a hamlet and end its agents; a chief approves it first.
 #[derive(Deserialize, JsonSchema)]
 pub(crate) struct RemoveHamlet {
     #[schemars(description = HAMLET)]
@@ -301,6 +318,97 @@ pub(crate) struct RemoveHamlet {
     #[serde(default)]
     #[schemars(description = REASON)]
     pub reason: String,
+}
+
+/// Bring a removed hamlet back.
+#[derive(Deserialize, JsonSchema)]
+pub(crate) struct RestoreHamlet {
+    #[schemars(description = HAMLET)]
+    pub hamlet: String,
+    #[serde(default)]
+    #[schemars(description = REASON)]
+    pub reason: String,
+}
+
+/// Erase a removed hamlet for good; a chief approves it first.
+#[derive(Deserialize, JsonSchema)]
+pub(crate) struct EraseHamlet {
+    #[schemars(description = HAMLET)]
+    pub hamlet: String,
+}
+
+/// Give a hamlet another name to be shown by.
+#[derive(Deserialize, JsonSchema)]
+pub(crate) struct NameHamlet {
+    #[schemars(description = HAMLET)]
+    pub hamlet: String,
+    /// One line, up to 40 characters, no colon.
+    pub name: String,
+}
+
+/// Set a hamlet down elsewhere on the hamlet island.
+#[derive(Deserialize, JsonSchema)]
+pub(crate) struct MoveHamlet {
+    #[schemars(description = HAMLET)]
+    pub hamlet: String,
+    pub x: f64,
+    pub z: f64,
+}
+
+/// Set how many agents a hamlet holds; a chief approves it first.
+#[derive(Deserialize, JsonSchema)]
+pub(crate) struct SetTier {
+    #[schemars(description = HAMLET)]
+    pub hamlet: String,
+    #[schemars(extend("enum" = [50, 100, 200, 500]))]
+    pub tier: u32,
+}
+
+/// Choose the folder a hamlet works on, or none; a chief approves it
+/// first.
+#[derive(Deserialize, JsonSchema)]
+pub(crate) struct SetFolder {
+    #[schemars(description = HAMLET)]
+    pub hamlet: String,
+    /// A folder on this machine; none when left out.
+    #[serde(default)]
+    pub folder: String,
+}
+
+/// Choose whether a hamlet's edits and commands in its folder wait
+/// for a chief (`manual`) or not (`auto`); a chief approves it first.
+#[derive(Deserialize, JsonSchema)]
+pub(crate) struct SetMode {
+    #[schemars(description = HAMLET)]
+    pub hamlet: String,
+    #[schemars(extend("enum" = ["manual", "auto"]))]
+    pub mode: String,
+}
+
+/// Start a hamlet's budget period again, or the realm's; a chief
+/// approves it first.
+#[derive(Deserialize, JsonSchema)]
+pub(crate) struct ResetBudget {
+    /// The hamlet's id; the realm's budget when left out.
+    #[serde(default)]
+    pub hamlet: String,
+}
+
+/// Set one limit of a hamlet, or of the realm, by its section and key
+/// in the Settings; a chief approves it first.
+#[derive(Deserialize, JsonSchema)]
+pub(crate) struct EditLimits {
+    /// The hamlet's id; the realm's limits when left out.
+    #[serde(default)]
+    pub hamlet: String,
+    /// The section, such as `budget`, `channel`, `reserved` or
+    /// `asking`; empty for a key outside every section.
+    #[serde(default)]
+    pub section: String,
+    /// The limit, such as `cost` of `budget`.
+    pub key: String,
+    /// Its new value.
+    pub value: Value,
 }
 
 /// Read a hamlet's record: every decision with its reason.
@@ -360,9 +468,265 @@ pub(crate) struct Revert {
     pub reason: String,
 }
 
-/// Says each society tool's arguments once: the calls they are read
-/// into, and the schemas a model is offered. `ask_chief` reads its
-/// own questions.
+/// List a profile's versions and the latest commits of its `main`.
+#[derive(Deserialize, JsonSchema)]
+pub(crate) struct Versions {
+    #[schemars(description = PROFILE)]
+    pub profile: String,
+}
+
+/// Make a new profile from a version of another.
+#[derive(Deserialize, JsonSchema)]
+pub(crate) struct Fork {
+    #[schemars(description = PROFILE)]
+    pub profile: String,
+    /// A version or commit; `main` when left out.
+    #[serde(default)]
+    pub version: String,
+    /// The new profile's name.
+    pub name: String,
+}
+
+/// Take a file or folder out of a profile's whole history and its
+/// agents' worktrees; a chief approves it first.
+#[derive(Deserialize, JsonSchema)]
+pub(crate) struct Purge {
+    #[schemars(description = PROFILE)]
+    pub profile: String,
+    /// The path in the profile.
+    pub path: String,
+}
+
+/// Let a profile waiting at the harbor into the city.
+#[derive(Deserialize, JsonSchema)]
+pub(crate) struct Welcome {
+    #[schemars(description = PROFILE)]
+    pub profile: String,
+    #[serde(default)]
+    #[schemars(description = REASON)]
+    pub reason: String,
+}
+
+/// Keep a profile at the harbor, or send one back there from the
+/// city. Its agents work all the same.
+#[derive(Deserialize, JsonSchema)]
+pub(crate) struct TurnAway {
+    #[schemars(description = PROFILE)]
+    pub profile: String,
+    #[serde(default)]
+    #[schemars(description = REASON)]
+    pub reason: String,
+}
+
+/// Give a profile a new name.
+#[derive(Deserialize, JsonSchema)]
+pub(crate) struct NameProfile {
+    #[schemars(description = PROFILE)]
+    pub profile: String,
+    /// One line, up to 40 characters, no colon.
+    pub name: String,
+}
+
+/// Set a profile's house down elsewhere in the city.
+#[derive(Deserialize, JsonSchema)]
+pub(crate) struct MoveHouse {
+    #[schemars(description = PROFILE)]
+    pub profile: String,
+    pub x: f64,
+    pub z: f64,
+    /// Which way its door faces.
+    #[serde(default)]
+    pub degrees: Option<f64>,
+}
+
+/// Archive a profile and end its agents; a chief approves it first.
+#[derive(Deserialize, JsonSchema)]
+pub(crate) struct RemoveProfile {
+    #[schemars(description = PROFILE)]
+    pub profile: String,
+    #[serde(default)]
+    #[schemars(description = REASON)]
+    pub reason: String,
+}
+
+/// Bring an archived profile back with its agents.
+#[derive(Deserialize, JsonSchema)]
+pub(crate) struct RestoreProfile {
+    #[schemars(description = PROFILE)]
+    pub profile: String,
+    #[serde(default)]
+    #[schemars(description = REASON)]
+    pub reason: String,
+}
+
+/// Erase an archived profile for good; a chief approves it first.
+#[derive(Deserialize, JsonSchema)]
+pub(crate) struct EraseProfile {
+    #[schemars(description = PROFILE)]
+    pub profile: String,
+}
+
+/// Hold an agent at a version of its profile, or let it follow `main`
+/// again.
+#[derive(Deserialize, JsonSchema)]
+pub(crate) struct Pin {
+    #[schemars(description = ADDRESS)]
+    pub agent: String,
+    /// The version, or `main`.
+    pub version: String,
+    #[serde(default)]
+    #[schemars(description = REASON)]
+    pub reason: String,
+}
+
+/// Bring an ended agent back, or split a merged one out again.
+#[derive(Deserialize, JsonSchema)]
+pub(crate) struct RestoreAgent {
+    #[schemars(description = ADDRESS)]
+    pub agent: String,
+    #[serde(default)]
+    #[schemars(description = REASON)]
+    pub reason: String,
+}
+
+/// Erase an ended agent for good; a chief approves it first.
+#[derive(Deserialize, JsonSchema)]
+pub(crate) struct EraseAgent {
+    #[schemars(description = ADDRESS)]
+    pub agent: String,
+}
+
+/// Choose how hard an agent's model thinks; `none` for the realm's
+/// setting.
+#[derive(Deserialize, JsonSchema)]
+pub(crate) struct SetEffort {
+    #[schemars(description = ADDRESS)]
+    pub agent: String,
+    #[schemars(extend("enum" = [
+        "off", "minimal", "low", "medium", "high", "xhigh", "max", "none"
+    ]))]
+    pub effort: String,
+}
+
+/// Turn an agent's fast tier on or off.
+#[derive(Deserialize, JsonSchema)]
+pub(crate) struct SetFast {
+    #[schemars(description = ADDRESS)]
+    pub agent: String,
+    pub fast: bool,
+}
+
+/// Have an agent bring what it learned home to its profile, or a
+/// profile's agents do so and the profile tidy its `main`, even with
+/// dreams off.
+#[derive(Deserialize, JsonSchema)]
+pub(crate) struct Dream {
+    /// An agent's address, or a profile's, `profile#<id>`.
+    pub who: String,
+}
+
+/// Have an agent keep what its conversation taught it now.
+#[derive(Deserialize, JsonSchema)]
+pub(crate) struct Reflect {
+    #[schemars(description = ADDRESS)]
+    pub agent: String,
+}
+
+/// Stop an agent's running work, or every agent's but yours with
+/// `all`. A stopped agent takes nothing it is sent until a chief's
+/// line or `resume`.
+#[derive(Deserialize, JsonSchema)]
+pub(crate) struct Stop {
+    /// An agent's address, or `all`.
+    pub agent: String,
+}
+
+/// Let a stopped agent take what waits for it again, or every
+/// stopped agent but you with `all`.
+#[derive(Deserialize, JsonSchema)]
+pub(crate) struct Resume {
+    /// An agent's address, or `all`.
+    pub agent: String,
+}
+
+/// Write a memory file of an agent's worktree; empty content removes
+/// it.
+#[derive(Deserialize, JsonSchema)]
+pub(crate) struct EditMemory {
+    #[schemars(description = ADDRESS)]
+    pub agent: String,
+    /// The path under `memory/`.
+    pub path: String,
+    /// Its new text.
+    pub content: String,
+}
+
+/// Read the prompt of an agent's conversation.
+#[derive(Deserialize, JsonSchema)]
+pub(crate) struct ReadPrompt {
+    #[schemars(description = ADDRESS)]
+    pub agent: String,
+}
+
+/// Read what an agent knows in its worktree: its character, memory
+/// and skills, and what it learned that its profile's `main` lacks.
+#[derive(Deserialize, JsonSchema)]
+pub(crate) struct ReadPapers {
+    #[schemars(description = ADDRESS)]
+    pub agent: String,
+}
+
+/// Change the realm's settings; what is left out stays. A chief
+/// approves it first.
+#[derive(Deserialize, JsonSchema)]
+pub(crate) struct EditSettings {
+    /// The realm's model, as `provider::id`.
+    #[serde(default)]
+    pub model: Option<String>,
+    #[serde(default)]
+    #[schemars(extend("enum" = [
+        "off", "minimal", "low", "medium", "high", "xhigh", "max", "none"
+    ]))]
+    pub effort: Option<String>,
+    /// Turns of a chat before its agent reflects; 0 never.
+    #[serde(default)]
+    pub reflect_every: Option<u64>,
+    /// Who lets a newcomer into the city.
+    #[serde(default)]
+    #[schemars(extend("enum" = ["open", "chief", "hand"]))]
+    pub newcomers: Option<String>,
+    /// The character a blank profile starts from.
+    #[serde(default)]
+    pub character: Option<String>,
+}
+
+/// Replace the realm's charter, which every agent's prompt begins
+/// with; empty for the default. A chief approves it first.
+#[derive(Deserialize, JsonSchema)]
+pub(crate) struct EditCharter {
+    /// The whole charter.
+    pub text: String,
+}
+
+/// Read the realm's charter.
+#[derive(Deserialize, JsonSchema)]
+pub(crate) struct ReadCharter {}
+
+/// List the models agents can run, with what each takes and costs.
+#[derive(Deserialize, JsonSchema)]
+pub(crate) struct ReadModels {}
+
+/// Take a skill off the library's shelves.
+#[derive(Deserialize, JsonSchema)]
+pub(crate) struct Unshelve {
+    /// The skill's name.
+    pub skill: String,
+    #[serde(default)]
+    #[schemars(description = REASON)]
+    pub reason: String,
+}
+
+/// [`Called`] and each tool's schema, from the argument types.
 macro_rules! called {
     ($($tool:ident),* $(,)?) => {
         /// A call of a society tool, with its arguments read.
@@ -371,8 +735,6 @@ macro_rules! called {
         }
 
         impl Called {
-            /// Reads the call of `tool` with `arguments`, rejecting
-            /// arguments that do not fit it.
             pub fn read(
                 tool: Society,
                 arguments: &BTreeMap<String, Value>,
@@ -382,14 +744,16 @@ macro_rules! called {
                     $(Society::$tool => {
                         Ok(Self::$tool(parse(tool, given)?))
                     })*
-                    Society::AskChief => Err(Rejection::Unsupported {
-                        what: format!("the tool {}", tool.name()),
-                    }),
+                    // `request_chief` reads its own arguments.
+                    Society::RequestChief => {
+                        Err(Rejection::Unsupported {
+                            what: format!("the tool {}", tool.name()),
+                        })
+                    }
                 }
             }
         }
 
-        /// The schema of `tool`'s arguments; none for `ask_chief`.
         fn schema(tool: Society) -> Option<Schema> {
             let generator = SchemaSettings::draft07()
                 .with(|settings| settings.meta_schema = None)
@@ -398,22 +762,23 @@ macro_rules! called {
                 $(Society::$tool => {
                     Some(generator.into_root_schema_for::<$tool>())
                 })*
-                Society::AskChief => None,
+                Society::RequestChief => None,
             }
         }
     };
 }
 
 called!(
-    Tell,
-    Ask,
+    Notify,
+    Request,
     StartWorker,
     SubmitSkill,
-    AskLibrarian,
+    RequestLibrarian,
     ReadBudget,
     Object,
-    RequestChannel,
+    ProposeChannel,
     CreateProfile,
+    MakeProfile,
     AddAgent,
     EndAgent,
     MergeAgents,
@@ -427,19 +792,53 @@ called!(
     FoundHamlet,
     SetLead,
     RemoveHamlet,
+    RestoreHamlet,
+    EraseHamlet,
+    NameHamlet,
+    MoveHamlet,
+    SetTier,
+    SetFolder,
+    SetMode,
+    ResetBudget,
+    EditLimits,
     ReadRecord,
     ReadProfile,
     EditProfile,
     Tag,
     Revert,
+    Versions,
+    Fork,
+    Purge,
+    Welcome,
+    TurnAway,
+    NameProfile,
+    MoveHouse,
+    RemoveProfile,
+    RestoreProfile,
+    EraseProfile,
+    Pin,
+    RestoreAgent,
+    EraseAgent,
+    SetEffort,
+    SetFast,
+    Dream,
+    Reflect,
+    Stop,
+    Resume,
+    EditMemory,
+    ReadPrompt,
+    ReadPapers,
+    EditSettings,
+    EditCharter,
+    ReadCharter,
+    ReadModels,
+    Unshelve,
 );
 
-/// The arguments kept as written, untrimmed: a file's content.
+/// The arguments kept untrimmed.
 const VERBATIM: [&str; 1] = ["content"];
 
-/// The arguments as given, read leniently as a model writes them:
-/// each text trimmed but those [`VERBATIM`], and a null left out as
-/// if not given.
+/// `arguments` trimmed, without nulls.
 fn given(arguments: &BTreeMap<String, Value>) -> Value {
     Value::Object(
         arguments
@@ -472,7 +871,7 @@ fn parse<A: DeserializeOwned>(
     })
 }
 
-/// Every society tool but `ask_chief`, as a model is offered it.
+/// Every society tool but `request_chief`, as a model is offered it.
 pub(crate) fn specs() -> Vec<ToolSpec> {
     FACTS
         .iter()
@@ -494,9 +893,7 @@ pub(crate) fn specs() -> Vec<ToolSpec> {
         .collect()
 }
 
-/// A schema as a model is offered it: its description apart, as the
-/// tool's, and only what the arguments' shape needs, with each
-/// description's wrapped lines joined.
+/// The tool's description and parameters from `schema`.
 fn offered(schema: Schema) -> (String, BTreeMap<String, Value>) {
     let mut value = schema.to_value();
     plain(&mut value);
@@ -508,16 +905,14 @@ fn offered(schema: Schema) -> (String, BTreeMap<String, Value>) {
         _ => String::new(),
     };
     map.remove("title");
-    // Some providers want an object's properties even when it has
-    // none.
+    // Some providers want `properties` even when empty.
     map.entry("properties")
         .or_insert_with(|| Value::Object(serde_json::Map::new()));
     (description, map.into_iter().collect())
 }
 
-/// Leaves out of `schema` what no model needs, the formats, the
-/// defaults and the null an argument left out may be, and joins each
-/// description's wrapped lines; then so for each schema inside it.
+/// Strips formats, defaults and nullable types from `schema` and
+/// unwraps its descriptions.
 fn plain(schema: &mut Value) {
     let Value::Object(map) = schema else {
         return;
@@ -545,7 +940,6 @@ fn plain(schema: &mut Value) {
     }
 }
 
-/// `text` with the line breaks inside each paragraph made spaces.
 fn unwrapped(text: &str) -> String {
     text.split("\n\n")
         .map(|paragraph| {

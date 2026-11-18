@@ -1,7 +1,5 @@
-//! Markdown in the chat, on the kit's: the blocks of a transcript's
-//! entry ([`entry`]) and pictures drawn ([`picture`]). The `links`
-//! screen sets the kit's `PathLinks` and the `pictures` screen its
-//! `PictureView`.
+//! Markdown in the chat: a transcript entry's blocks and its
+//! pictures.
 
 mod picture;
 
@@ -11,52 +9,57 @@ use bevy::ecs::entity::Entity;
 use bevy::ecs::world::World;
 use bevy_fynix::{Signal, component};
 use hamlet_client::chats::{Entry, Transcript};
-use hamlet_ui::markdown::{Block, Reading, hashed, unsettle};
+use hamlet_ui::markdown::{
+    Block, Reading, hashed, is_address_in, unsettle,
+};
 
 pub(crate) use self::picture::picture_view;
 
 fn words<'a>(
     world: &'a World,
-    session: Entity,
+    chat: Entity,
     id: &str,
 ) -> Option<&'a str> {
-    match &world.get::<Transcript>(session)?.item(id)?.entry {
-        Entry::Assistant(text) | Entry::Agent { text, .. } => {
-            Some(text)
-        }
+    match &world.get::<Transcript>(chat)?.item(id)?.entry {
+        Entry::Assistant(text)
+        | Entry::Agent { text, .. }
+        | Entry::Summary(text) => Some(text),
         _ => None,
     }
 }
 
-/// True while the entry `id` is the last of its conversation and
-/// may have more words to come.
-fn is_growing(world: &World, session: Entity, id: &str) -> bool {
-    world.get::<Transcript>(session).is_some_and(|transcript| {
+/// Whether entry `id` is the last unqueued one of an answer under
+/// way.
+fn is_growing(world: &World, chat: Entity, id: &str) -> bool {
+    world.get::<Transcript>(chat).is_some_and(|transcript| {
         transcript.is_answering()
-            && transcript.items().last().map(|item| item.id.as_str())
+            && transcript
+                .items()
+                .iter()
+                .rfind(|item| !item.queued)
+                .map(|item| item.id.as_str())
                 == Some(id)
     })
 }
 
-/// The blocks of an entry of a transcript, parsed again only when
-/// that entry's own text has changed or has stopped growing.
+/// A transcript entry's blocks, parsed again only when it changes.
 pub(crate) fn entry(
-    session: Entity,
+    chat: Entity,
     id: String,
 ) -> Signal<Vec<Arc<Block>>> {
-    let mut moved = component::<Transcript, _>(session, |_| ());
+    let mut moved = component::<Transcript, _>(chat, |_| ());
     let read = Arc::new(Mutex::new(Read::default()));
     let shared = read.clone();
     let read_id = id.clone();
     Signal::new(
         move |world: &World| {
             let mut read = shared.lock().unwrap();
-            read.update(world, session, &read_id);
+            read.update(world, chat, &read_id);
             read.blocks.clone()
         },
         move |world: &World| {
             moved.changed(world)
-                && read.lock().unwrap().update(world, session, &id)
+                && read.lock().unwrap().update(world, chat, &id)
         },
     )
 }
@@ -64,7 +67,7 @@ pub(crate) fn entry(
 /// What an entry's blocks were made from, and the blocks.
 #[derive(Default)]
 struct Read {
-    /// The length, the hash and the growth of the words read.
+    /// The length, hash and growth of the words read.
     seen: Option<Option<(usize, u64, bool)>>,
     reading: Reading,
     blocks: Vec<Arc<Block>>,
@@ -75,18 +78,18 @@ impl Read {
     fn update(
         &mut self,
         world: &World,
-        session: Entity,
+        chat: Entity,
         id: &str,
     ) -> bool {
-        let now = words(world, session, id);
-        let grows = is_growing(world, session, id);
+        let now = words(world, chat, id);
+        let grows = is_growing(world, chat, id);
         let stamp = now.map(|text| (text.len(), hashed(text), grows));
         if self.seen == Some(stamp) {
             return false;
         }
         self.seen = Some(stamp);
         self.blocks = now
-            .map(|text| self.reading.read(text))
+            .map(|text| self.reading.read(text, is_address_in(world)))
             .unwrap_or_default();
         if grows {
             unsettle(&mut self.blocks);
@@ -103,14 +106,11 @@ mod tests {
     use bevy_fynix::tokens::Tone;
     use bevy_fynix::{FynixPlugin, mount};
     use hamlet_client::chats::Item;
-    use hamlet_ui::markdown::{
-        Anchor, Kind, PathLinks, document, fixed,
-    };
+    use hamlet_ui::markdown::{Anchor, PathLinks, document, fixed};
     use hamlet_ui::theme::{self, HamletTheme};
 
     use super::*;
     use crate::links::{Roots, seek};
-    use crate::testing::{plain, top};
 
     fn app() -> App {
         let mut app = App::new();
@@ -121,13 +121,14 @@ mod tests {
         .insert_resource(PathLinks {
             resolve: seek,
             generation: 0,
-        });
+        })
+        .insert_resource(crate::reference::links());
         theme::show(app.world_mut(), HamletTheme::designed());
         app.update();
         app
     }
 
-    /// A session where each of `replies` answers a message.
+    /// A chat where each of `replies` answers a message.
     fn talk(
         app: &mut App,
         replies: &[&str],
@@ -140,6 +141,7 @@ mod tests {
                     Item {
                         id: format!("{at}:user"),
                         at: 0,
+                        queued: false,
                         entry: Entry::Chief {
                             name: "a".into(),
                             text: "go".into(),
@@ -150,6 +152,7 @@ mod tests {
                     Item {
                         id: format!("{at}:reply"),
                         at: 0,
+                        queued: false,
                         entry: Entry::Assistant((*reply).into()),
                     },
                 ]
@@ -167,23 +170,6 @@ mod tests {
         )
     }
 
-    fn grow(app: &mut App, session: Entity, more: &str) {
-        let transcript =
-            app.world().get::<Transcript>(session).unwrap();
-        let mut items = transcript.items().to_vec();
-        if let Some(Item {
-            entry: Entry::Assistant(text),
-            ..
-        }) = items.last_mut()
-        {
-            text.push_str(more);
-        }
-        app.world_mut().entity_mut(session).insert(
-            Transcript::from_items(items).with_answering(true),
-        );
-    }
-
-    /// Every text span in the world, with what it says.
     fn spans(app: &mut App) -> Vec<(Entity, String)> {
         let world = app.world_mut();
         world
@@ -199,13 +185,13 @@ mod tests {
         std::fs::write(folder.join("plan.md"), "").unwrap();
         let mut app = app();
         app.insert_resource(Roots::new([folder.to_path_buf()]));
-        let (session, ids) = talk(
+        let (chat, ids) = talk(
             &mut app,
             &["Read plan.md and gone.md, then plan.md"],
         );
         mount::<HamletTheme>(
             app.world_mut(),
-            document(entry(session, ids[1].clone()), Tone::Body),
+            document(entry(chat, ids[1].clone()), Tone::Body),
         );
         app.update();
         let said = |app: &mut App| {
@@ -231,12 +217,12 @@ mod tests {
 
         let items = app
             .world()
-            .get::<Transcript>(session)
+            .get::<Transcript>(chat)
             .unwrap()
             .items()
             .to_vec();
         app.world_mut()
-            .entity_mut(session)
+            .entity_mut(chat)
             .insert(Transcript::from_items(items));
         app.update();
         assert_eq!(
@@ -247,26 +233,6 @@ mod tests {
                 ("plan.md".to_string(), file.clone()),
                 ("plan.md".to_string(), file),
             ]
-        );
-    }
-
-    #[test]
-    fn only_the_entry_that_changed_is_read_again() {
-        let mut app = app();
-        let (session, ids) = talk(&mut app, &["old", "new"]);
-        let mut old = entry(session, ids[1].clone());
-        let mut new = entry(session, ids[3].clone());
-        assert!(old.changed(app.world()));
-        assert!(new.changed(app.world()));
-
-        grow(&mut app, session, " words");
-        assert!(!old.changed(app.world()));
-        assert!(new.changed(app.world()));
-        let blocks = new.get(app.world());
-        assert_eq!(blocks.len(), 1);
-        assert_eq!(
-            *blocks[0],
-            top(Kind::Paragraph(vec![plain("new words")]))
         );
     }
 

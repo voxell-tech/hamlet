@@ -2,6 +2,7 @@
 //! read-only commands of an agent's shell tool, and what a restart
 //! keeps of them.
 
+use std::path::Path;
 use std::time::Duration;
 
 use base64::Engine;
@@ -9,6 +10,44 @@ use base64::engine::general_purpose::STANDARD;
 use hamlet_acceptance::*;
 use hamlet_protocol::client::*;
 use serde_json::json;
+
+/// [`QUIET`] with the chief's terminals starting zsh, else `sh`.
+fn known_shell(home: &Home) -> Vec<(&'static str, String)> {
+    let shell = ["/bin/zsh", "/usr/bin/zsh"]
+        .into_iter()
+        .find(|zsh| Path::new(zsh).is_file())
+        .unwrap_or("/bin/sh");
+    // zsh reads the user's startup files from here, and finds none.
+    let startup = home.side().join("zsh");
+    std::fs::create_dir_all(&startup).unwrap();
+    let mut env = QUIET
+        .iter()
+        .map(|&(name, value)| (name, value.to_owned()))
+        .collect::<Vec<_>>();
+    env.push(("SHELL", shell.into()));
+    env.push(("ZDOTDIR", startup.display().to_string()));
+    env
+}
+
+async fn serve(home: &mut Home, faux: &Faux) -> Server {
+    let env = known_shell(home);
+    let env = env
+        .iter()
+        .map(|(name, value)| (*name, value.as_str()))
+        .collect::<Vec<_>>();
+    home.serve(faux, &env).await
+}
+
+async fn session(faux: Faux) -> Session {
+    let mut home = Home::new();
+    let server = serve(&mut home, &faux).await;
+    let chief = Client::join(&server).await;
+    Session {
+        home,
+        server,
+        chief,
+    }
+}
 
 /// What terminal `id` printed since its last redraw, as text.
 fn printed(chief: &Client, id: &str) -> String {
@@ -91,7 +130,7 @@ async fn view(chief: &mut Client, id: &str) -> TerminalView {
 #[tokio::test]
 async fn the_chief_types_into_an_unbounded_terminal_resizes_and_closes_it()
  {
-    let mut s = Session::start(Faux::new()).await;
+    let mut s = session(Faux::new()).await;
     let id = open(&mut s.chief).await;
     let shown = view(&mut s.chief, &id).await;
     assert_eq!(shown.hamlet, None);
@@ -129,7 +168,7 @@ async fn the_chief_types_into_an_unbounded_terminal_resizes_and_closes_it()
 #[tokio::test]
 async fn a_terminal_keeps_its_last_command_and_the_name_the_chief_gives_it()
  {
-    let mut s = Session::start(Faux::new()).await;
+    let mut s = session(Faux::new()).await;
     let id = open(&mut s.chief).await;
     type_in(&mut s.chief, &id, "echo last-$((1 + 1))\r").await;
     shows(&mut s.chief, &id, "last-2").await;
@@ -173,7 +212,7 @@ async fn an_agent_has_no_terminal_tools_and_its_bash_commands_show_read_only()
             words("Done."),
         ],
     );
-    let mut s = Session::start(faux).await;
+    let mut s = session(faux).await;
     let ada = s.found("docs", "ada", "keep the docs").await;
     let now = chat(ada);
     s.chief.open(&now).await;
@@ -212,7 +251,7 @@ async fn a_running_command_shows_as_running_until_it_ends() {
             words("Done."),
         ],
     );
-    let mut s = Session::start(faux).await;
+    let mut s = session(faux).await;
     let ada = s.found("docs", "ada", "keep the docs").await;
     let now = chat(ada);
     s.chief.open(&now).await;
@@ -253,7 +292,7 @@ async fn a_worker_s_commands_close_when_it_answers() {
             "worker",
             [call("bash", json!({"command": "echo w"})), words("42")],
         );
-    let mut s = Session::start(faux).await;
+    let mut s = session(faux).await;
     let ada = s.found("docs", "ada", "keep the docs").await;
     let now = chat(ada);
     s.chief.open(&now).await;
@@ -290,14 +329,14 @@ async fn a_worker_s_commands_close_when_it_answers() {
 #[tokio::test]
 async fn a_restart_keeps_a_terminal_s_output_below_a_new_shell() {
     let mut home = Home::new();
-    let mut server = home.serve(&Faux::new(), QUIET).await;
+    let mut server = serve(&mut home, &Faux::new()).await;
     let mut chief = Client::join(&server).await;
     let id = open(&mut chief).await;
     type_in(&mut chief, &id, "echo before-$((3 * 3))\r").await;
     shows(&mut chief, &id, "before-9").await;
     chief.close().await;
     server.stop().await;
-    let server = home.serve(&Faux::new(), QUIET).await;
+    let server = serve(&mut home, &Faux::new()).await;
     let mut chief = Client::join(&server).await;
     assert_eq!(view(&mut chief, &id).await.exit, None);
     watch(&mut chief, &id).await;

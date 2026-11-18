@@ -1,29 +1,24 @@
-//! A conversation's transcript as a chief's client holds it (C30),
-//! folded from the entries its runtime keeps, with the operations
-//! that keep a client in step.
+//! A conversation's transcript as a client holds it (C30).
 
 use std::collections::{BTreeMap, HashMap};
 
 use anyhow::{Context, Result};
 use hamlet_protocol::client::{
-    Change, Item, ItemKind, ItemTool, LastActivity,
-    TranscriptOperation,
+    AgentId as WireAgent, Change, Item, ItemKind, ItemMessage,
+    ItemTool, LastActivity, ToolCall, TranscriptOperation,
 };
 use hamlet_protocol::runtime::{self, Block};
 use hamlet_sandbox::scrub::Scrubber;
+use hamlet_store::Db;
+use hamlet_store::ids::{AgentId, ConversationId};
 use serde_json::Value;
 
-use crate::conversations::marks::Mark;
+use crate::conversations::marks::{From, Mark};
+use crate::conversations::{QUEUED, inputs};
 use crate::tools::catalogue::Society;
 
 /// Characters of a tool's arguments a transcript shows.
 const SUMMARY: usize = 200;
-
-/// The words a transcript shows where earlier entries were
-/// summarised.
-pub(crate) const SUMMARY_NOTICE: &str =
-    "The conversation grew longer than the model can hold, so the \
-     earlier part of it was summarised.";
 
 /// A chat's items, kept in step with its conversation.
 #[derive(Debug, Default)]
@@ -32,6 +27,10 @@ pub(crate) struct Fold {
     pub working: bool,
     pub pending: u64,
     pub last: Option<LastActivity>,
+    /// A chief's stop holds what waits.
+    pub held: bool,
+    /// The `held` the last status carried.
+    held_sent: bool,
     /// An answer landed without some of what it showed being kept,
     /// which no operation takes away.
     pub stale: bool,
@@ -80,10 +79,13 @@ impl Fold {
         if running != self.working
             || pending != self.pending
             || lasts != self.lasts
+            || self.held != self.held_sent
         {
             self.working = running;
             self.pending = pending;
+            self.held_sent = self.held;
             self.operations.push(TranscriptOperation::Status {
+                held: self.held,
                 working: running,
                 pending,
                 last: self.last.clone(),
@@ -115,6 +117,7 @@ impl Fold {
                 millis,
                 failure,
                 change,
+                agent,
             } = ending(entry)?;
             if let Some(item) =
                 self.items.iter_mut().find(|i| i.id == id)
@@ -126,8 +129,12 @@ impl Fold {
                 if change.is_some() {
                     tool.change.clone_from(&change);
                 }
+                if agent.is_some() {
+                    tool.agent = agent;
+                }
             }
             self.operations.push(TranscriptOperation::Close {
+                agent,
                 item: id,
                 exit,
                 ms: millis,
@@ -135,32 +142,33 @@ impl Fold {
                 change: change.map(Some),
             });
             if entry.tool.as_deref().and_then(Society::named)
-                == Some(Society::AskChief)
+                == Some(Society::RequestChief)
                 && let Some(text) =
                     crate::conversations::questions::said(&entry.text)
             {
-                self.add(
-                    Item {
-                        id: format!("{}:0", entry.entry),
-                        at: entry.at,
-                        files: Vec::new(),
-                        images: Vec::new(),
-                        kind: ItemKind::Answered,
-                        text: text.into(),
-                        author: None,
-                        chief: None,
-                        rewindable: None,
-                        tool: None,
-                    },
-                    None,
+                let id = format!("{}:0", entry.entry);
+                let answered = bare(
+                    id,
+                    ItemKind::Answered,
+                    text.into(),
+                    entry.at,
                 );
+                self.add(answered, None);
             }
             return Ok(());
         }
         let answer = entry.kind == runtime::ItemKind::Assistant;
+        // The line a turn took up stands where it waited.
+        let taken_up = entry
+            .request
+            .as_ref()
+            .map(|request| format!("{QUEUED}{request}"))
+            .filter(|id| self.items.iter().any(|i| &i.id == id));
         for (block, item) in items_of(entry)? {
             let live = if answer {
                 self.live.remove(&block)
+            } else if block == 0 {
+                taken_up.clone()
             } else {
                 None
             };
@@ -251,8 +259,8 @@ impl Fold {
         }
     }
 
-    /// Adds `item` last, in the place of the item `replaced` when it
-    /// is given.
+    /// Adds `item` last, before the queued lines unless it is one, in
+    /// the place of the item `replaced` when it is given.
     fn add(&mut self, item: Item, replaced: Option<String>) {
         if let Some(replaced) = &replaced
             && let Some(at) =
@@ -264,26 +272,161 @@ impl Fold {
             item: item.clone(),
             replaces: replaced,
         });
-        self.items.push(item);
+        let at = if item.queued {
+            self.items.len()
+        } else {
+            self.items
+                .iter()
+                .position(|i| i.queued)
+                .unwrap_or(self.items.len())
+        };
+        self.items.insert(at, item);
     }
+
+    /// Shows `queue` in place of the queued lines shown.
+    pub fn queue(&mut self, queue: Queue) {
+        let Queue {
+            items: queued,
+            held,
+        } = queue;
+        if held != self.held {
+            self.held = held;
+            let (working, pending, lasts) =
+                (self.working, self.pending, self.lasts);
+            self.status(working, pending, lasts);
+        }
+        let shown = self
+            .items
+            .iter()
+            .filter(|i| i.queued)
+            .map(|i| i.id.clone())
+            .collect::<Vec<_>>();
+        let wanted =
+            queued.iter().map(|i| i.id.clone()).collect::<Vec<_>>();
+        if shown == wanted {
+            return;
+        }
+        for id in shown {
+            self.items.retain(|i| i.id != id);
+            self.operations
+                .push(TranscriptOperation::Remove { item: id });
+        }
+        for item in queued {
+            self.add(item, None);
+        }
+    }
+}
+
+/// The lines of a conversation that wait for a turn.
+pub(crate) struct Queue {
+    pub items: Vec<Item>,
+    /// A chief's stop holds them.
+    pub held: bool,
+}
+
+pub(crate) fn waiting(
+    db: &mut Db,
+    conversation: ConversationId,
+) -> Result<Queue> {
+    Ok(Queue {
+        items: queued(db, conversation)?,
+        held: crate::conversations::get(db, conversation)?.held,
+    })
+}
+
+fn queued(
+    db: &mut Db,
+    conversation: ConversationId,
+) -> Result<Vec<Item>> {
+    let mut out = Vec::new();
+    for input in inputs::queued(db, conversation)? {
+        let mark = input.mark()?;
+        let at = u64::try_from(mark.at()).unwrap_or_default();
+        let sent = mark.message();
+        let item = |kind, text: String| Item {
+            queued: true,
+            ..bare(
+                format!("{QUEUED}{}", input.request),
+                kind,
+                text,
+                at,
+            )
+        };
+        out.push(match mark {
+            Mark::Chief {
+                chief,
+                text,
+                images,
+                files,
+                ..
+            } => Item {
+                chief: Some(chief),
+                images,
+                files,
+                ..item(ItemKind::User, text)
+            },
+            Mark::Notification(from)
+            | Mark::Request(from)
+            | Mark::Response(from) => sent_by(
+                from,
+                sent,
+                item(ItemKind::User, String::new()),
+            ),
+            Mark::Retry { .. } => {
+                item(ItemKind::Notice, input.content.clone())
+            }
+            _ => continue,
+        });
+    }
+    Ok(out)
+}
+
+/// An item with nothing but its id, kind, text and time.
+fn bare(id: String, kind: ItemKind, text: String, at: u64) -> Item {
+    Item {
+        at,
+        author: None,
+        chief: None,
+        event: None,
+        files: Vec::new(),
+        from: None,
+        id,
+        images: Vec::new(),
+        kind,
+        message: None,
+        queued: false,
+        rewindable: None,
+        text,
+        tool: None,
+    }
+}
+
+/// `item` as the message `from` sent.
+fn sent_by(
+    from: From,
+    message: Option<ItemMessage>,
+    item: Item,
+) -> Item {
+    Item {
+        images: from.images(),
+        author: Some(from.author),
+        from: wire(from.from),
+        text: from.text,
+        message,
+        ..item
+    }
+}
+
+fn wire(agent: AgentId) -> Option<WireAgent> {
+    u64::try_from(agent.0).ok().map(WireAgent)
 }
 
 /// The items `entry` shows, by the content block each comes from.
 pub(crate) fn items_of(
     entry: &runtime::Item,
 ) -> Result<Vec<(usize, Item)>> {
-    let id = format!("{}:0", entry.entry);
-    let item = |kind, text: String, at| Item {
-        at,
-        author: None,
-        chief: None,
-        files: Vec::new(),
-        id: id.clone(),
-        images: Vec::new(),
-        kind,
-        rewindable: None,
-        text,
-        tool: None,
+    let item = |kind, text: String, at| {
+        bare(format!("{}:0", entry.entry), kind, text, at)
     };
     let mark = Mark::of_item(entry.mark.as_ref())?;
     let at = match &mark {
@@ -294,100 +437,93 @@ pub(crate) fn items_of(
         }
         None => entry.at,
     };
-    match mark {
+    let sent = mark.as_ref().and_then(Mark::message);
+    let one = match mark {
         Some(Mark::Chief {
             chief,
             text,
             images,
             files,
             ..
-        }) => {
-            return Ok(vec![(
-                0,
-                Item {
-                    chief: Some(chief),
-                    files,
-                    images,
-                    rewindable: Some(true),
-                    ..item(ItemKind::User, text, at)
-                },
-            )]);
-        }
+        }) => Item {
+            chief: Some(chief),
+            files,
+            images,
+            rewindable: Some(true),
+            ..item(ItemKind::User, text, at)
+        },
         Some(Mark::Notice { text, .. }) => {
-            return Ok(vec![(0, item(ItemKind::Notice, text, at))]);
+            item(ItemKind::Notice, text, at)
         }
-        Some(Mark::Earlier { chief, .. }) => {
-            return Ok(vec![(
-                0,
-                Item {
-                    chief: Some(chief),
-                    ..item(ItemKind::User, entry.text.clone(), at)
-                },
-            )]);
-        }
+        Some(Mark::Earlier { chief, .. }) => Item {
+            chief: Some(chief),
+            ..item(ItemKind::User, entry.text.clone(), at)
+        },
         Some(Mark::Step { tool, summary, .. }) => {
-            return Ok(vec![(
-                0,
-                Item {
-                    tool: Some(ItemTool {
-                        change: None,
-                        exit: Some(0),
-                        failure: None,
-                        ms: None,
-                        name: tool,
-                        summary,
-                    }),
-                    ..item(ItemKind::Tool, String::new(), at)
-                },
-            )]);
+            // Another program's tool, whose shortened input may not
+            // be JSON.
+            let call = serde_json::from_str::<Value>(&summary)
+                .map_or(ToolCall::Other, |arguments| {
+                    plain_call(&arguments)
+                });
+            Item {
+                tool: Some(ItemTool {
+                    agent: None,
+                    call,
+                    change: None,
+                    exit: Some(0),
+                    failure: None,
+                    ms: None,
+                    name: tool,
+                    summary,
+                }),
+                ..item(ItemKind::Tool, String::new(), at)
+            }
         }
         Some(Mark::Reflection { .. }) => {
-            return Ok(vec![(
-                0,
-                item(ItemKind::Notice, "reflection".into(), at),
-            )]);
+            item(ItemKind::Notice, "reflection".into(), at)
         }
         Some(Mark::Retry { .. }) => {
-            return Ok(vec![(
-                0,
-                item(ItemKind::Notice, entry.text.clone(), at),
-            )]);
+            item(ItemKind::Notice, entry.text.clone(), at)
         }
         Some(
-            Mark::Letter(letter)
-            | Mark::Question(letter)
-            | Mark::Reply(letter),
-        ) if entry.kind == runtime::ItemKind::User => {
-            return Ok(vec![(
-                0,
-                Item {
-                    author: Some(letter.author),
-                    ..item(ItemKind::User, entry.text.clone(), at)
-                },
-            )]);
-        }
-        _ => {}
-    }
-    Ok(match entry.kind {
-        runtime::ItemKind::Summary => vec![(
-            0,
-            item(ItemKind::Notice, SUMMARY_NOTICE.into(), entry.at),
-        )],
-        runtime::ItemKind::User => {
-            vec![(
-                0,
-                item(ItemKind::User, entry.text.clone(), entry.at),
-            )]
-        }
-        runtime::ItemKind::Assistant => blocks_of(
-            entry.blocks.as_deref().unwrap_or_default(),
-            entry.at,
-            entry.stop.as_deref(),
-            entry.failure.as_deref(),
-            |block| format!("{}:{block}", entry.entry),
+            Mark::Notification(message)
+            | Mark::Request(message)
+            | Mark::Response(message)
+            | Mark::ErrorResponse(message),
+        ) if entry.kind == runtime::ItemKind::User => sent_by(
+            message,
+            sent,
+            item(ItemKind::User, String::new(), at),
         ),
-        _ => Vec::new(),
-    })
+        Some(Mark::Merged { from, author, .. }) => Item {
+            from: wire(from),
+            ..item(ItemKind::Merged, author, at)
+        },
+        Some(Mark::Event { event, .. }) => Item {
+            event: Some(event),
+            ..item(ItemKind::Event, String::new(), at)
+        },
+        _ => match entry.kind {
+            runtime::ItemKind::Summary => {
+                item(ItemKind::Summary, entry.text.clone(), entry.at)
+            }
+            runtime::ItemKind::User => {
+                item(ItemKind::User, entry.text.clone(), entry.at)
+            }
+            runtime::ItemKind::Assistant => {
+                return Ok(blocks_of(
+                    entry.blocks.as_deref().unwrap_or_default(),
+                    entry.at,
+                    entry.stop.as_deref(),
+                    entry.failure.as_deref(),
+                    |block| format!("{}:{block}", entry.entry),
+                ));
+            }
+            _ => return Ok(Vec::new()),
+        },
+    };
+    Ok(vec![(0, one)])
 }
 
 /// The items of an answer's content blocks, and the error it ended
@@ -399,17 +535,8 @@ fn blocks_of(
     failure: Option<&str>,
     id: impl Fn(usize) -> String,
 ) -> Vec<(usize, Item)> {
-    let item = |index, kind, text: &str| Item {
-        at,
-        author: None,
-        chief: None,
-        files: Vec::new(),
-        id: id(index),
-        images: Vec::new(),
-        kind,
-        rewindable: None,
-        text: text.into(),
-        tool: None,
+    let item = |index, kind, text: &str| {
+        bare(id(index), kind, text.into(), at)
     };
     let mut items = Vec::new();
     for (index, block) in blocks.iter().enumerate() {
@@ -435,6 +562,8 @@ fn blocks_of(
                     index,
                     Item {
                         tool: Some(ItemTool {
+                            agent: None,
+                            call: call_of(name, &arguments),
                             change,
                             exit: None,
                             failure: None,
@@ -480,6 +609,8 @@ struct Ending {
     failure: Option<String>,
     /// The record change the call made.
     change: Option<Change>,
+    /// The agent a society call reached.
+    agent: Option<WireAgent>,
 }
 
 fn ending(entry: &runtime::Item) -> Result<Ending> {
@@ -496,12 +627,58 @@ fn ending(entry: &runtime::Item) -> Result<Ending> {
         })
         .transpose()
         .context("reading the change of a tool's result")?;
+    let agent = details
+        .and_then(|details| details.get("agent"))
+        .and_then(Value::as_u64)
+        .map(WireAgent);
     Ok(Ending {
         exit: code.map_or(i64::from(error), |code| code as i64),
         millis: entry.ms,
         failure,
         change,
+        agent,
     })
+}
+
+fn text_of(arguments: &Value, key: &str) -> Option<String> {
+    arguments
+        .get(key)
+        .and_then(Value::as_str)
+        .map(str::to_owned)
+}
+
+/// What the row of a call of `name` with `arguments` shows.
+fn call_of(name: &str, arguments: &Value) -> ToolCall {
+    let text = |key| text_of(arguments, key);
+    match (Society::named(name), text("to"), text("text")) {
+        (Some(Society::Notify), Some(to), Some(text)) => {
+            ToolCall::Notification { to, text }
+        }
+        (Some(Society::Request), Some(to), Some(text)) => {
+            ToolCall::Request { to, text }
+        }
+        (Some(Society::StartWorker), ..)
+            if let Some(task) = text("task") =>
+        {
+            ToolCall::Worker { task }
+        }
+        _ => plain_call(arguments),
+    }
+}
+
+/// The command or the path a call's `arguments` name.
+fn plain_call(arguments: &Value) -> ToolCall {
+    let text = |key| text_of(arguments, key);
+    if let Some(command) = text("command") {
+        return ToolCall::Command { command };
+    }
+    match text("path") {
+        // A search's pattern tells it apart more than its path.
+        Some(path) if arguments.get("pattern").is_none() => {
+            ToolCall::Path { path }
+        }
+        _ => ToolCall::Other,
+    }
 }
 
 /// The first line of a failed call's text that says something.

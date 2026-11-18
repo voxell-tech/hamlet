@@ -32,7 +32,7 @@ pub(super) fn setup(world: &mut World, scene: Scene) {
     wait.detail = protocol::WaitDetail::Approval {
         danger: protocol::WaitDanger::Edit,
         says: "wants to edit".into(),
-        always: Some(protocol::Lasting::Session),
+        always: Some(protocol::Lasting::Conversation),
     };
     wait.about = "src/almanac.rs\nReplace the pear count.".into();
     wait.subject = "src/almanac.rs".into();

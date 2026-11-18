@@ -52,12 +52,7 @@ fn agent() -> AgentId {
 }
 
 fn chat() -> ChatRef {
-    ChatRef {
-        kind: None,
-        from: None,
-        with: agent(),
-        past: Some(2),
-    }
+    ChatRef { with: agent() }
 }
 
 #[test]
@@ -167,22 +162,22 @@ fn chief_requests_carry_addresses_ids_and_choices() {
             chat: chat(),
             item: "entry:0".into(),
         }),
-        json!({"type": "rewind", "id": ID, "chat": {"with": 2, "past": 2}, "item": "entry:0"}),
+        json!({"type": "rewind", "id": ID, "chat": {"with": 2}, "item": "entry:0"}),
     );
     client(
-        ClientMessage::New(New {
+        ClientMessage::Compact(Compact {
             id: id(),
             to: agent(),
         }),
-        json!({"type": "new", "id": ID, "to": 2}),
+        json!({"type": "compact", "id": ID, "to": 2}),
     );
     client(
-        ClientMessage::Resume(Resume {
+        ClientMessage::Withdraw(Withdraw {
             id: id(),
-            to: agent(),
-            number: 2,
+            chat: chat(),
+            item: "queued:chief:1".into(),
         }),
-        json!({"type": "resume", "id": ID, "to": 2, "number": 2}),
+        json!({"type": "withdraw", "id": ID, "chat": {"with": 2}, "item": "queued:chief:1"}),
     );
     client(
         ClientMessage::Retry(Retry {
@@ -328,24 +323,11 @@ fn watches_open_pages_and_close_without_a_request_id() {
             chat: chat(),
             before: Some("entry:0".into()),
         }),
-        json!({"type": "open", "id": ID, "chat": {"with": 2, "past": 2}, "before": "entry:0"}),
-    );
-    client(
-        ClientMessage::Open(Open {
-            id: id(),
-            chat: ChatRef {
-                kind: None,
-                from: None,
-                with: agent(),
-                past: None,
-            },
-            before: None,
-        }),
-        json!({"type": "open", "id": ID, "chat": {"with": 2}}),
+        json!({"type": "open", "id": ID, "chat": {"with": 2}, "before": "entry:0"}),
     );
     client(
         ClientMessage::Close(Close { chat: chat() }),
-        json!({"type": "close", "chat": {"with": 2, "past": 2}}),
+        json!({"type": "close", "chat": {"with": 2}}),
     );
 }
 
@@ -416,13 +398,6 @@ fn checks_and_reads_select_what_the_chief_requested() {
             agent: agent(),
         }),
         json!({"type": "read", "id": ID, "what": "prompt", "agent": 2}),
-    );
-    client(
-        ClientMessage::Read(Read::History {
-            id: id(),
-            agent: agent(),
-        }),
-        json!({"type": "read", "id": ID, "what": "history", "agent": 2}),
     );
     client(
         ClientMessage::Read(Read::Models {
@@ -501,7 +476,7 @@ fn hand_wire() -> Value {
         "activity": {"doing": "rest", "doingWords": "At rest", "step": 0, "failures": 0},
         "saying": {"text": "", "thought": false},
         "spent": {"tokens": 0, "micros": 0, "ms": 0, "cost": "$0.00"},
-        "consulting": false, "conversations": [], "skills": []
+        "consulting": false, "skills": []
     })
 }
 
@@ -515,7 +490,7 @@ fn agent_wire() -> Value {
         "activity": {"doing": "read-file", "doingWords": "Reading a file", "step": 2, "failures": 0},
         "saying": {"text": "Looking", "thought": true},
         "spent": {"tokens": 100, "micros": 1250000, "ms": 200, "cost": "$1.25"},
-        "consulting": false, "conversations": [], "skills": ["release"]
+        "consulting": false, "skills": ["release"]
     })
 }
 
@@ -541,7 +516,7 @@ fn wait_wire() -> Value {
         "about": "NOTES.md", "subject": "NOTES.md", "change": change_wire(),
         "answers": ["allow", "always", "deny", "go", "withdraw", "reply", "dismiss"],
         "since": 1700000000000_u64, "asked": 1, "chat": {"with": 2},
-        "detail": {"kind": "approval", "danger": "edit", "says": "wants to edit", "always": "session"}
+        "detail": {"kind": "approval", "danger": "edit", "says": "wants to edit", "always": "conversation"}
     })
 }
 
@@ -668,9 +643,11 @@ fn turns_keep_every_operation_and_optional_nullable_tool_changes() {
         json!({"op": "add", "item": {"id": "entry:1", "at": 10, "kind": "assistant", "text": "Hello"}, "replaces": "entry:0"}),
         json!({"op": "append", "item": "entry:1", "text": " chief"}),
         json!({"op": "close", "item": "tool:0", "exit": 7, "ms": 20, "failure": "Failed"}),
-        json!({"op": "status", "working": true, "pending": 2, "last": {"what": "Reading", "at": 10}}),
-        json!({"op": "status", "working": false, "pending": 0, "last": null}),
+        json!({"op": "status", "working": true, "pending": 2, "held": false, "last": {"what": "Reading", "at": 10}}),
+        json!({"op": "status", "working": false, "pending": 0, "held": true, "last": null}),
         json!({"op": "usage", "usage": usage_wire()}),
+        json!({"op": "remove", "item": "queued:chief:1"}),
+        json!({"op": "close", "item": "tool:0", "exit": 0, "ms": 1, "failure": null, "agent": 3}),
         json!({"op": "reset"}),
     ];
     for change in [Value::Null, change_wire()] {
@@ -678,7 +655,7 @@ fn turns_keep_every_operation_and_optional_nullable_tool_changes() {
     }
     for operation in operations {
         server(
-            json!({"type": "turn", "chat": {"with": 2}, "number": 2, "ops": [operation]}),
+            json!({"type": "turn", "chat": {"with": 2}, "ops": [operation]}),
         );
     }
     server(json!({"type": "turn", "chat": {"with": 2}, "ops": []}));
@@ -686,25 +663,28 @@ fn turns_keep_every_operation_and_optional_nullable_tool_changes() {
 
 #[test]
 fn transcripts_keep_every_item_kind_and_page_status() {
-    let mut items = ["user", "assistant", "reasoning", "notice", "error"].into_iter()
+    let mut items = ["user", "assistant", "reasoning", "notice", "error", "summary", "merged"].into_iter()
         .map(|kind| json!({"id": kind, "at": 10, "kind": kind, "text": "Words"})).collect::<Vec<_>>();
     items[0]["chief"] = json!("chief");
     items[0]["rewindable"] = json!(true);
+    items[0]["queued"] = json!(true);
+    items[6]["from"] = json!(3);
     for (exit, change) in
         [(Value::Null, Value::Null), (json!(7), change_wire())]
     {
         items.push(json!({"id": "tool:0", "at": 10, "kind": "tool", "text": "", "tool": {
-            "name": "bash", "summary": "echo test", "exit": exit, "ms": null, "failure": null, "change": change
+            "name": "bash", "call": {"kind": "command", "command": "echo test"},
+            "summary": "echo test", "exit": exit, "ms": null, "failure": null, "change": change
         }}));
     }
     server(json!({
-        "type": "transcript", "to": ID, "chat": {"with": 2, "past": 2},
-        "number": 2, "items": items, "earlier": "entry:0", "last": {"what": "Reading", "at": 10},
-        "working": true, "pending": 1, "usage": usage_wire()
+        "type": "transcript", "to": ID, "chat": {"with": 2},
+        "items": items, "earlier": "entry:0", "last": {"what": "Reading", "at": 10},
+        "working": true, "pending": 1, "held": false, "usage": usage_wire()
     }));
     server(json!({
         "type": "transcript", "chat": {"with": 2},
-        "items": [], "earlier": null, "last": null, "working": false, "pending": 0, "usage": usage_wire()
+        "items": [], "earlier": null, "last": null, "working": false, "pending": 0, "held": true, "usage": usage_wire()
     }));
 }
 
@@ -784,7 +764,6 @@ fn society_and_realm_fields_round_trip_without_losing_departures_or_profiles()
     let (a, b) = (json!(2), json!(3));
     wire["agents"][1]["left"] = json!({"how": "merged", "into": a, "at": 12, "by": "the lead", "reason": "Shared work", "words": "scout merged into founder"});
     wire["agents"][1]["consulting"] = json!(true);
-    wire["agents"][1]["conversations"] = json!([{"with": b, "kind": "letters", "count": 2, "last": null}]);
     wire["hamlets"][0]["channels"] = json!([{"a": a, "b": b, "kind": "agreed", "messages": 10, "level": "rail", "lastFrom": null}]);
     wire["profiles"][0]["left"] =
         json!({"at": 14, "by": "the chief", "reason": "Retired"});
@@ -798,25 +777,6 @@ fn society_and_realm_fields_round_trip_without_losing_departures_or_profiles()
     wire["hamlets"][0]["at"] = Value::Null;
     wire["agents"][1]["left"]["into"] = Value::Null;
     server(wire);
-    let wire = json!({"type": "open", "id": ID, "chat": {"with": 2, "from": 3}});
-    client(serde_json::from_value(wire.clone()).unwrap(), wire);
-}
-
-#[test]
-fn a_peer_watch_selects_questions() {
-    client(
-        ClientMessage::Open(Open {
-            id: id(),
-            chat: ChatRef {
-                from: Some(AgentId(3)),
-                kind: Some(ChatRefKind::Questions),
-                past: None,
-                with: agent(),
-            },
-            before: None,
-        }),
-        json!({"type": "open", "id": ID, "chat": {"with": 2, "from": 3, "kind": "questions"}}),
-    );
 }
 
 #[test]

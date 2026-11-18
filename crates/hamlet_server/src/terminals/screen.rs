@@ -18,7 +18,7 @@ pub(super) const LAST: usize = 200;
 
 /// What a terminal printed, and what a window needs to draw it again.
 pub(crate) struct Screen {
-    pub(super) parser: vt100::Parser<Titled>,
+    pub(super) parser: vt100::Parser<TerminalCallbacks>,
     /// What it printed, with a size mark where it was resized.
     replay: VecDeque<u8>,
     /// Its size where `replay` starts.
@@ -38,16 +38,55 @@ pub(crate) struct Screen {
     pub(super) ended: Option<i64>,
 }
 
+/// What the program in a terminal set or queried as it printed.
 #[derive(Default)]
-pub(super) struct Titled(pub(super) Option<String>);
+pub(super) struct TerminalCallbacks {
+    pub(super) title: Option<String>,
+    /// The answers to its queries, not yet sent to it.
+    answers: Vec<u8>,
+}
 
-impl vt100::Callbacks for Titled {
+impl vt100::Callbacks for TerminalCallbacks {
     fn set_window_title(
         &mut self,
         _: &mut vt100::Screen,
         title: &[u8],
     ) {
-        self.0 = Some(String::from_utf8_lossy(title).into_owned());
+        self.title =
+            Some(String::from_utf8_lossy(title).into_owned());
+    }
+
+    // Line editors such as nu's wait for the cursor's place before
+    // they read a key.
+    fn unhandled_csi(
+        &mut self,
+        screen: &mut vt100::Screen,
+        first: Option<u8>,
+        _: Option<u8>,
+        params: &[&[u16]],
+        c: char,
+    ) {
+        if first.is_some() {
+            return;
+        }
+        let param = params.first().and_then(|p| p.first().copied());
+        match (c, param.unwrap_or(0)) {
+            ('n', 5) => self.answers.extend(b"\x1b[0n"),
+            ('n', 6) => {
+                let (row, col) = screen.cursor_position();
+                let cols = screen.size().1.get();
+                self.answers.extend(
+                    format!(
+                        "\x1b[{};{}R",
+                        row + 1,
+                        (col + 1).min(cols)
+                    )
+                    .as_bytes(),
+                );
+            }
+            ('c', 0) => self.answers.extend(b"\x1b[?62;22c"),
+            _ => {}
+        }
     }
 }
 
@@ -78,7 +117,7 @@ impl Screen {
                 cells(size.rows),
                 cells(size.cols),
                 SCROLLBACK,
-                Titled::default(),
+                TerminalCallbacks::default(),
             ),
             replay: VecDeque::new(),
             start: size,
@@ -95,7 +134,10 @@ impl Screen {
     pub(super) fn restore(&mut self, bytes: &[u8]) {
         for part in replayed(bytes) {
             match part {
-                Replayed::Printed(bytes) => self.take(bytes),
+                // Its queries were answered as they were printed.
+                Replayed::Printed(bytes) => {
+                    self.take(bytes);
+                }
                 Replayed::Sized { cols, rows } => {
                     self.resize(Size { rows, cols });
                 }
@@ -103,7 +145,8 @@ impl Screen {
         }
     }
 
-    pub(super) fn take(&mut self, bytes: &[u8]) {
+    /// Takes `bytes` printed. Returns the answers to its queries.
+    pub(super) fn take(&mut self, bytes: &[u8]) -> Vec<u8> {
         let mut rest = bytes;
         // The line entered is read at the echo of its Enter, before
         // what the command prints scrolls it away.
@@ -140,6 +183,7 @@ impl Screen {
             }
         }
         self.seq += 1;
+        std::mem::take(&mut self.parser.callbacks_mut().answers)
     }
 
     /// The bytes that draw it again from a blank screen, each at the
@@ -372,6 +416,13 @@ mod tests {
             shown.contents(),
             screen.parser.screen().contents()
         );
+    }
+
+    #[test]
+    fn a_cursor_query_is_answered_with_the_cursor_s_place() {
+        let mut screen = Screen::new(Size { rows: 4, cols: 20 });
+        assert_eq!(screen.take(b"ab\r\ncd\x1b[6n"), b"\x1b[2;3R");
+        assert!(screen.take(b"ef").is_empty());
     }
 
     /// Types `keys` into `screen`, and has the shell echo `echo`.

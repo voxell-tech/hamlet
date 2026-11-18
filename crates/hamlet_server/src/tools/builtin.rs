@@ -1,6 +1,4 @@
-//! The tools every agent works with, whether or not its hamlet works
-//! on a folder (C16): `read`, `write`, `edit`, a shell, `search` and
-//! `find`.
+//! The tools every agent works with (C16).
 
 mod diff;
 mod environment;
@@ -313,7 +311,7 @@ fn object(value: Value) -> BTreeMap<String, Value> {
 }
 
 /// An agent's tools: on this machine under the sandbox, or in a
-/// remote workspace, which never falls back to this machine.
+/// remote workspace.
 pub(crate) enum ToolSession {
     Local {
         place: Place,
@@ -649,9 +647,6 @@ fn scrub(secrets: &[String], outcome: &mut Outcome) {
 }
 
 /// The environment of an agent's tools, under the sandbox (S12, C18).
-/// It works in the folder, or in the worktree when there is none;
-/// writes the worktree and the folder; reads the shared folders; and
-/// never reads the rest of the realm.
 pub(crate) fn environment(
     sandbox: &Sandbox,
     place: &Place,
@@ -680,14 +675,14 @@ pub(crate) fn environment(
         },
     };
     policy.net = network.is_open();
+    std::fs::create_dir_all(&place.worktree)?;
     let cwd = place.folder.as_ref().unwrap_or(&place.worktree);
     Env::new(&text(cwd), policy, *sandbox)
 }
 
-/// The full path a tool's `path` names (C20). A full path stays as it
-/// is. A relative one is the folder's, unless `own`: only the
-/// worktree has its first part, as with `memory/`, `skills/` and
-/// `inbox/`. With no folder it is the worktree's.
+/// The full path a tool's `path` names (C20): a relative one is the
+/// folder's, else the worktree's when only the worktree has its first
+/// part.
 fn footing(
     path: &str,
     worktree: &str,

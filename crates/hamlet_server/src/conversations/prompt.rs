@@ -1,10 +1,4 @@
-//! The prompt, built before every model call (C11): the charter, the
-//! machine, the project, the character, the memory, the skills, the
-//! agent's place, the realm and the profiles it may add agents of.
-//! Nothing in it changes with spending, so it stays the same from one
-//! input to the next; an agent reads its budget with `read_budget`.
-//! An errand's and a dream's are their own instructions; a worker's
-//! are the charter, the machine, the project and its place.
+//! The prompt, built before every model call (C11).
 
 mod place;
 
@@ -19,9 +13,11 @@ use hamlet_store::Db;
 use hamlet_store::schema::document;
 
 use crate::conversations::Conversation;
+use crate::core::Core;
 use crate::knowledge::folder::Folder;
 use crate::knowledge::library::field;
 use crate::knowledge::{self, CHARACTER};
+use crate::realm::change::Done;
 use crate::realm::layout::Layout;
 use crate::realm::settings::Settings;
 use crate::society::agents::{self, AgentKind};
@@ -122,6 +118,35 @@ pub(crate) fn charter(db: &mut Db) -> Result<String> {
         .first::<String>(db)
         .optional()?
         .unwrap_or_else(|| CHARTER.to_owned()))
+}
+
+impl Core<'_, '_> {
+    /// Keeps the realm's charter, or none when `text` is blank.
+    pub(crate) fn edit_charter(
+        &mut self,
+        text: Option<String>,
+    ) -> Done<String> {
+        let chief = self.realm.chief();
+        let db = self.realm.store().connection();
+        match text.filter(|t| !t.trim().is_empty()) {
+            Some(text) => {
+                diesel::replace_into(document::table)
+                    .values((
+                        document::kind.eq("charter"),
+                        document::value.eq(&text),
+                        document::at.eq(crate::app::clock::now()),
+                        document::chief.eq(chief),
+                    ))
+                    .execute(db)?;
+            }
+            None => {
+                diesel::delete(document::table.find("charter"))
+                    .execute(db)?;
+            }
+        }
+        self.publish();
+        Ok(Ok("The charter is saved.".into()))
+    }
 }
 
 /// The folder `agent` works on, and whether its hamlet's mode holds
@@ -283,7 +308,7 @@ fn character(
 }
 
 /// The memory at the worktree's `memory/`: its root files, then each
-/// folder's description, which reading its `MEMORY.md` gives whole.
+/// folder's description.
 fn memory(worktree: &Path) -> String {
     let Ok(folder) = Folder::open(worktree) else {
         return String::new();

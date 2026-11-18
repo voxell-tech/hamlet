@@ -1,6 +1,4 @@
-//! The Hub's pages gone through, to go back and forward among them:
-//! with the primary key and `[` or `]`, or the mouse's back and
-//! forward buttons, while the pointer is over the Hub.
+//! The Hub's back and forward through the pages gone through.
 
 use bevy::app::{App, Update};
 use bevy::ecs::entity::Entity;
@@ -69,8 +67,7 @@ pub(super) fn plugin(app: &mut App) {
         );
 }
 
-/// One page of the Hub: what it shows, the agent it is seated at
-/// where that matters, and the tab of a thread.
+/// One page of the Hub.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 struct Visit {
     showing: Showing,
@@ -84,12 +81,9 @@ pub(crate) struct Visits(Trail<Visit>);
 
 fn here(world: &World) -> Option<Visit> {
     let showing = *world.get_resource::<Showing>()?;
-    let agent = matches!(
-        showing,
-        Showing::Thread | Showing::Sessions | Showing::Prompt
-    )
-    .then(|| world.get_resource::<Convo>().map(|c| c.agent))
-    .flatten();
+    let agent = matches!(showing, Showing::Thread | Showing::Prompt)
+        .then(|| world.get_resource::<Convo>().map(|c| c.agent))
+        .flatten();
     let sheet = world.get_resource::<Sheet>().copied()?;
     Some(Visit {
         showing,
@@ -118,8 +112,7 @@ fn stands(world: &World, visit: &Visit) -> bool {
     shown && visit.agent.is_none_or(alive)
 }
 
-/// What is selected in the world while `visit` is shown, if the page
-/// has a thing of its own.
+/// What is selected in the world while `visit` is shown.
 fn thing_of(world: &World, visit: &Visit) -> Option<Option<Thing>> {
     Some(match visit.showing {
         Showing::Realm => None,
@@ -131,7 +124,7 @@ fn thing_of(world: &World, visit: &Visit) -> Option<Option<Thing>> {
         Showing::Gone(agent) => Some(Thing::Ruin(agent)),
         Showing::Chief(chief) => Some(Thing::Chief(chief)),
         Showing::Library => Some(Thing::Library),
-        Showing::Sessions | Showing::Prompt => return None,
+        Showing::Prompt => return None,
     })
 }
 
@@ -147,9 +140,7 @@ fn travel(world: &mut World, way: Way) {
     let Some(next) = next else {
         return;
     };
-    // The world's ring moves with it. A page of an agent's sessions
-    // or prompt leaves the ring where it is, as selecting the agent
-    // would turn the Hub to its chat.
+    // Selecting the agent would turn a prompt page to its chat.
     if let Some(thing) = thing_of(world, &next)
         && world.resource::<Selected>().0 != thing
     {
@@ -166,8 +157,7 @@ fn travel(world: &mut World, way: Way) {
     show(world, next.showing);
 }
 
-/// Turns the Hub by the mouse's back or forward button, when the
-/// pointer is over it.
+/// Turns the Hub by the mouse's back or forward button.
 fn mouse_travel(world: &mut World) {
     if let Some(way) = mouse_way(world)
         && pointer_over(world, KEYS)

@@ -1,6 +1,5 @@
-//! Lines quoted in a message the way chat apps quote them: a line
-//! that opens with `> ` is drawn dim beside a bar, and is no more
-//! than words.
+//! Lines quoted in a message: a line opening with `> `, drawn beside
+//! a bar.
 
 use bevy::color::Color;
 use bevy::ui::{AlignItems, px};
@@ -9,12 +8,11 @@ use bevy_fynix::tokens::Tone;
 use bevy_fynix::views::{
     Atom, FrameProps, column, frame, label, row,
 };
-use hamlet_ui::AnyView;
-use hamlet_ui::markdown::{ATOM, typed, typed_with};
+use hamlet_ui::markdown::{ATOM, is_address_in, typed, typed_with};
 use hamlet_ui::styles::Fills;
+use hamlet_ui::{AnyView, Cx};
 
-/// The parts of `text` in order: each its words, and whether they are
-/// quoted.
+/// The parts of `text` in order, each with whether it is quoted.
 pub(super) fn parts(text: &str) -> Vec<(bool, String)> {
     let mut parts = Vec::<(bool, String)>::new();
     for line in text.lines() {
@@ -33,8 +31,7 @@ pub(super) fn parts(text: &str) -> Vec<(bool, String)> {
             _ => parts.push((quoted, words.to_string())),
         }
     }
-    // The blank lines about a quote are the room the bar already
-    // makes.
+    // The bar already makes room for the blank lines about a quote.
     parts
         .into_iter()
         .map(|(quoted, words)| match quoted {
@@ -45,7 +42,6 @@ pub(super) fn parts(text: &str) -> Vec<(bool, String)> {
         .collect()
 }
 
-/// True when `text` quotes a line.
 pub(super) fn has_quote(text: &str) -> bool {
     parts(text).iter().any(|(quoted, _)| *quoted)
 }
@@ -62,9 +58,8 @@ pub(super) fn quoting(text: &str) -> String {
         .join("\n")
 }
 
-/// `text` drawn with its quotes beside a bar of `bar`, and `reserve`
-/// after its last words. Each of `atoms` is in the place of the
-/// [`ATOM`] that is its turn in `text`, in a quote or out of one.
+/// `text` with its quotes beside a bar, each of `atoms` at its
+/// [`ATOM`].
 pub(super) fn drawn(
     text: &str,
     reserve: &str,
@@ -103,8 +98,14 @@ pub(super) fn drawn(
                     Tone::Dim,
                     atoms,
                 )),
-                (false, true) => typed(&words, "")
-                    .unwrap_or_else(|| label(words).boxed()),
+                (false, true) => AnyView::new(move |cx: &mut Cx| {
+                    let view =
+                        typed(&words, "", is_address_in(cx.world))
+                            .unwrap_or_else(|| {
+                                label(words.clone()).boxed()
+                            });
+                    cx.build(view)
+                }),
                 (false, false) => {
                     typed_with(&words, "", Tone::Body, atoms)
                 }

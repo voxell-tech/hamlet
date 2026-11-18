@@ -1,7 +1,6 @@
 //! The received realm shared by the gallery scenes.
 
 mod chat;
-mod history;
 mod hub;
 mod images;
 mod menu;
@@ -150,14 +149,9 @@ pub(super) fn setup(world: &mut World) {
     });
     let usage = serde_json::from_value::<protocol::UsageView>(usage)
         .expect("received usage");
-    let session = world
+    let chat = world
         .spawn((
-            Chat(protocol::ChatRef {
-                kind: None,
-                from: None,
-                with: to,
-                past: None,
-            }),
+            Chat(protocol::ChatRef { with: to }),
             talk,
             Status::default(),
             Usage(usage),
@@ -166,16 +160,16 @@ pub(super) fn setup(world: &mut World) {
     if scene == Scene::Chat {
         // The first turn's steps open, with one call opened in them.
         world.insert_resource(hamlet_app::chat::Unfolded(vec![(
-            session,
+            chat,
             "turn-0-tool-0".into(),
         )]));
         world.insert_resource(hamlet_app::chat::OpenTools(vec![(
-            session,
+            chat,
             "turn-0-tool-1".into(),
         )]));
     }
     world.insert_resource(Convo {
-        session,
+        chat,
         name: "chief".into(),
         agent,
         with: Some("agent#2".into()),
@@ -189,13 +183,9 @@ pub(super) fn setup(world: &mut World) {
     hub::setup(world, scene);
     needs::setup(world, scene);
     if matches!(scene, Scene::Images | Scene::NoImages) {
-        images::setup(world, scene, session);
+        images::setup(world, scene, chat);
     }
     terminal::setup(world, scene);
-    if matches!(scene, Scene::History | Scene::Reading) {
-        world.insert_resource(hamlet_app::hub::Showing::Sessions);
-        history::setup(world, scene == Scene::Reading);
-    }
     if scene == Scene::Chief {
         let chief = hamlet_realm::chief::arrive(
             world,

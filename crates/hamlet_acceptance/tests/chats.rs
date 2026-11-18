@@ -1,5 +1,5 @@
-//! A chief's conversations with the Hand: lines and answers, numbered
-//! sessions, failed and stopped turns, and reflection.
+//! A chief's conversation with the Hand: lines and answers, failed
+//! and stopped turns, and reflection.
 
 use std::time::Duration;
 
@@ -52,54 +52,6 @@ async fn the_hand_answers_and_a_second_connection_sees_the_chat() {
 }
 
 #[tokio::test]
-async fn sessions_are_numbered_and_come_back() {
-    // `/new` has the Hand reflect on the session it leaves.
-    let mut s = Session::start(Faux::new().responses([
-        words("One."),
-        words("Kept it."),
-        words("Two."),
-    ]))
-    .await;
-    let hand = s.hand();
-    let now = chat(hand);
-    s.chief.open(&now).await;
-    s.chief.tell(hand, "a").await;
-    s.chief.shows(&now, "One.").await;
-    assert_eq!(
-        s.chief.command(hand, "/new").await,
-        "Session 2 began."
-    );
-    // The watch of the current session turns to the new one by
-    // itself, as the window's does.
-    s.chief.shows(&now, "Started a new session.").await;
-    let first = ChatRef {
-        past: Some(1),
-        ..chat(hand)
-    };
-    s.chief.open(&first).await;
-    s.chief.shows(&first, "Kept it.").await;
-    s.chief.tell(hand, "b").await;
-    s.chief.shows(&now, "Two.").await;
-
-    let history = s.chief.history(hand).await;
-    let numbers = history
-        .iter()
-        .map(|p| (p.number, p.current, p.title.as_str()))
-        .collect::<Vec<_>>();
-    assert_eq!(numbers, [(2, true, "b"), (1, false, "a")]);
-    let page = s.chief.open(&first).await;
-    assert_eq!(page.items[0].text, "a");
-
-    let listed = s.chief.command(hand, "/resume").await;
-    assert_eq!(listed, "- session 1\n- session 2");
-    assert_eq!(
-        s.chief.command(hand, "/resume 1").await,
-        "Back in session 1."
-    );
-    s.chief.rejected(hand, "/resume 9").await;
-}
-
-#[tokio::test]
 async fn a_failed_turn_waits_for_a_chief_and_retry_carries_on() {
     let mut s = Session::start(Faux::new().responses([
         failure("the model fell over"),
@@ -114,10 +66,10 @@ async fn a_failed_turn_waits_for_a_chief_and_retry_carries_on() {
     let fault = s
         .chief
         .wait_for("the fault", |w| {
-            matches!(w.detail, WaitDetail::Fault {})
+            matches!(w.detail, WaitDetail::Fault { .. })
         })
         .await;
-    assert_eq!(fault.about, "the model fell over");
+    assert_eq!(fault.about, "its model failed: the model fell over");
     assert_eq!(fault.agent, Some(hand));
     assert_eq!(fault.answers, [Choice::Dismiss]);
     s.chief
@@ -162,7 +114,7 @@ async fn stop_ends_a_running_turn() {
     s.chief.until("work", |c| c.is_working(&now)).await;
     assert_eq!(
         s.chief.command(hand, "/stop").await,
-        "Stopped 1 running turns."
+        "Stopped 1 running turn."
     );
     s.chief.until("rest", |c| !c.is_working(&now)).await;
     assert!(!s.chief.texts(&now).contains(&"Slow.".into()));

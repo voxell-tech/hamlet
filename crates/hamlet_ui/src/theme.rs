@@ -536,12 +536,7 @@ pub struct Spacing {
     /// entry's words and its keys.
     pub menu_width: f32,
     pub menu_gap: f32,
-    /// The space across and down inside the status bar, between its
-    /// parts, the side of its icons and the space after each.
-    pub status_padding_x: f32,
-    pub status_padding_y: f32,
-    pub status_gap: f32,
-    pub status_icon: f32,
+    /// The space after a status icon, before its words.
     pub status_icon_gap: f32,
     /// The widest a page of Settings is drawn, and its table of
     /// models, whose columns need more.

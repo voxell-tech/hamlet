@@ -67,7 +67,7 @@ pub fn hand(id: u64) -> protocol::Agent {
         "activity": {"doing": "rest", "doingWords": "At rest", "step": 0, "failures": 0},
         "saying": {"text": "", "thought": false},
         "spent": {"tokens": 0, "micros": 0, "ms": 0, "cost": "$0.00"},
-        "consulting": false, "conversations": [], "skills": []
+        "consulting": false, "skills": []
     })).unwrap()
 }
 
@@ -84,7 +84,7 @@ pub fn agent(id: u64, hamlet: &str, lead: bool) -> protocol::Agent {
         "activity": {"doing": "rest", "doingWords": "At rest", "step": 0, "failures": 0},
         "saying": {"text": "", "thought": false},
         "spent": {"tokens": 0, "micros": 0, "ms": 0, "cost": "$0.00"},
-        "consulting": false, "conversations": [], "skills": []
+        "consulting": false, "skills": []
     })).unwrap()
 }
 
@@ -111,7 +111,7 @@ pub fn wait(id: &str) -> protocol::Wait {
         "answers": ["allow", "always", "deny"], "since": 1000, "asked": 1,
         "chat": {"with": 2},
         "detail": {"kind": "approval", "danger": "command",
-                   "says": "wants to run", "always": "session"}
+                   "says": "wants to run", "always": "conversation"}
     })).unwrap()
 }
 

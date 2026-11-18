@@ -1,5 +1,4 @@
-//! The loop's answers to client messages: the hello, a chief's lines
-//! and commands, watching conversations, and a chat's actions.
+//! The loop's answers to client messages.
 
 use std::collections::BTreeMap;
 
@@ -8,8 +7,8 @@ use bevy_ecs::change_detection::Mut;
 use bevy_ecs::lifecycle::Remove;
 use bevy_ecs::observer::On;
 use hamlet_protocol::client::{
-    self as protocol, ChatRef, ChatRefKind, ClientMessage,
-    ImportProject, RequestId, ServerMessage, Transcript,
+    self as protocol, ChatRef, ClientMessage, ImportProject,
+    RequestId, ServerMessage, Transcript,
 };
 use hamlet_store::ids::{Actor, AgentId, ConversationId};
 
@@ -20,19 +19,22 @@ use super::{OwedReply, changes};
 use crate::attachments::files::Files;
 use crate::conversations::activity::Activity;
 use crate::conversations::{
-    self, Kind, chats, imports, items, models,
+    self, QUEUED, chats, imports, items, models,
 };
 use crate::core::{Core, Live};
-use crate::realm::change::Done;
-use crate::society::agents::{self, AgentKind, Effort};
+use crate::realm::change::{Done, done};
+use crate::society::agents::Effort;
+use crate::society::authority;
 use crate::society::rejection::Rejection;
-use crate::society::{authority, hamlet_agents, workers};
+
+/// The answer to a compaction asked of a conversation.
+pub(crate) const COMPACTING: &str =
+    "Summarizing the earlier part of the conversation.";
 
 /// The most transcript entries one page holds.
 const PAGE: usize = 100;
 
-/// A connection went: the sign-ins its client began end with it. Its
-/// uploads go with its entity.
+/// Ends the sign-ins a client began once its connection goes.
 pub(crate) fn left(
     gone: On<Remove<Connection>>,
     mut core: Core,
@@ -149,9 +151,7 @@ impl Core<'_, '_> {
         Ok(())
     }
 
-    /// A chief's line to an agent, with the images and files it
-    /// carries, kept for the agent; its reply is owed once the agent
-    /// is done with it.
+    /// Keeps a chief's line to an agent.
     pub(crate) fn say(
         &mut self,
         client: u64,
@@ -200,34 +200,65 @@ impl Core<'_, '_> {
         Ok(())
     }
 
-    /// Begins a new session of the chief's chat with `agent`; who
-    /// watches it turns to the new one.
-    pub(crate) fn new_session(
+    /// Asks `agent`'s conversation to summarize its earlier part now.
+    pub(crate) fn compact_chat(
         &mut self,
         agent: AgentId,
     ) -> Result<String> {
         let chief = self.realm.chief();
-        let number = self
-            .change(Actor::Chief(chief), |cx, env| {
-                chats::new_session(cx, env, agent, chief)
-            })?;
-        self.rewatch(agent)?;
-        Ok(format!("Session {number} began."))
+        self.change(Actor::Chief(chief), |cx, env| {
+            chats::compact(cx, env, agent)
+        })?;
+        Ok(COMPACTING.into())
     }
 
-    /// Goes back to session `number` of the chief's chat with
-    /// `agent`.
-    pub(crate) fn resume_session(
+    /// Takes the chief's queued line `item` back out of `agent`'s
+    /// queue.
+    pub(crate) fn withdraw_line(
         &mut self,
         agent: AgentId,
-        number: i64,
+        item: &str,
     ) -> Done<String> {
         let chief = self.realm.chief();
         let done = self.attempt(Actor::Chief(chief), |cx, _| {
-            chats::resume(cx, agent, chief, number)
+            chats::withdraw(cx, agent, chief, item)
         })?;
-        self.rewatch(agent)?;
-        Ok(done.map(|()| format!("Back in session {number}.")))
+        if done.is_ok()
+            && let Some(conversation) =
+                chats::of(self.realm.store().connection(), agent)?
+            && let Some(request) = item.strip_prefix(QUEUED)
+        {
+            for (client, id) in
+                self.connections.settle(conversation, request)
+            {
+                let answer =
+                    reply(&id, Ok::<_, Rejection>(String::new()));
+                self.connections.send(client, answer);
+            }
+        }
+        Ok(done.map(|()| String::new()))
+    }
+
+    /// Ends the hold a stop put on each of `agents`, in one change.
+    pub(crate) fn resume_agents(
+        &mut self,
+        agents: &[AgentId],
+    ) -> Result<String> {
+        let chief = self.realm.chief();
+        let resumed = self.change(Actor::Chief(chief), |cx, _| {
+            let mut resumed = 0;
+            for agent in agents {
+                if chats::resume(cx, *agent)? {
+                    resumed += 1;
+                }
+            }
+            Ok(resumed)
+        })?;
+        Ok(match resumed {
+            0 => "Nothing was stopped.".to_owned(),
+            1 => "Resumed.".to_owned(),
+            n => format!("Resumed {n} agents."),
+        })
     }
 
     /// Brings in the chief's `project` of another program, its
@@ -251,10 +282,7 @@ impl Core<'_, '_> {
         }
         let mut conversations = Vec::new();
         for file in &project.files {
-            match imports::read(&files, file)? {
-                Ok(imported) => conversations.push(imported),
-                Err(rejection) => return Ok(Err(rejection)),
-            }
+            conversations.push(done!(imports::read(&files, file)));
         }
         let wanted = imports::Project {
             name: &project.name,
@@ -285,18 +313,20 @@ impl Core<'_, '_> {
         agents: &[AgentId],
     ) -> Result<String> {
         let chief = self.realm.chief();
+        let working = self.working()?;
         let stopped = self.change(Actor::Chief(chief), |cx, _| {
             let mut stopped = 0;
             for agent in agents {
-                stopped += chats::stop(cx, *agent)?;
+                stopped += chats::stop(cx, *agent, &working)?;
             }
             Ok(stopped)
         })?;
-        Ok(format!("Stopped {stopped} running turns."))
+        let turns = if stopped == 1 { "turn" } else { "turns" };
+        Ok(format!("Stopped {stopped} running {turns}."))
     }
 
-    /// Takes the chief's chat with `agent` back to before its line
-    /// `item`, giving back what the line said and carried.
+    /// Rewinds `agent`'s conversation to before the chief's line
+    /// `item`.
     pub(crate) fn rewind_chat(
         &mut self,
         agent: AgentId,
@@ -328,7 +358,9 @@ impl Core<'_, '_> {
         to: u64,
     ) -> Result<Option<AgentId>> {
         let agent = AgentId(i64::try_from(to)?);
-        match self.reaches(agent)? {
+        let chief = Actor::Chief(self.realm.chief());
+        let db = self.realm.store().connection();
+        match authority::reaches(db, chief, agent)? {
             Ok(()) => Ok(Some(agent)),
             Err(rejection) => {
                 self.answer(client, reply(id, Err(rejection)))?;
@@ -337,8 +369,6 @@ impl Core<'_, '_> {
         }
     }
 
-    /// The check that `agent` runs a model, as it does once the chief
-    /// set one up.
     pub(crate) fn has_model(
         &mut self,
         agent: AgentId,
@@ -352,54 +382,21 @@ impl Core<'_, '_> {
         )
     }
 
-    /// Rejects unless this server's chief may reach `agent` (C7): the
-    /// Hand, an agent of one of its hamlets, or a worker started by
-    /// it or in its hamlets.
-    pub(crate) fn reaches(&mut self, agent: AgentId) -> Done<()> {
-        let chief = self.realm.chief();
-        let db = self.realm.store().connection();
-        let Some(found) = agents::find(db, agent)? else {
-            return Ok(Err(Rejection::NoOne {
-                address: agent.to_string(),
-            }));
-        };
-        let allowed = match found.kind {
-            AgentKind::Hand => true,
-            AgentKind::Hamlet => {
-                let hamlet = hamlet_agents::get(db, agent)?.hamlet;
-                authority::is_chief_of(db, chief, &hamlet)?
-            }
-            AgentKind::Worker => {
-                let worker = workers::get(db, agent)?;
-                worker.chief == Some(chief)
-                    || match &worker.hamlet {
-                        Some(hamlet) => {
-                            authority::is_chief_of(db, chief, hamlet)?
-                        }
-                        None => true,
-                    }
-            }
-        };
-        if !allowed {
-            let name = crate::society::addresses::name_of(db, agent)?;
-            return Ok(Err(Rejection::NotYours { name }));
-        }
-        Ok(Ok(()))
-    }
-
     /// Every living agent this server's chief reaches.
     pub(crate) fn reachable(&mut self) -> Result<Vec<AgentId>> {
+        let chief = Actor::Chief(self.realm.chief());
+        let db = self.realm.store().connection();
         let living = {
             use diesel::prelude::*;
             use hamlet_store::schema::agent;
             agent::table
                 .filter(agent::ended_at.is_null())
                 .select(agent::id)
-                .load::<AgentId>(self.realm.store().connection())?
+                .load::<AgentId>(db)?
         };
         let mut out = Vec::new();
         for agent in living {
-            if self.reaches(agent)?.is_ok() {
+            if authority::reaches(db, chief, agent)?.is_ok() {
                 out.push(agent);
             }
         }
@@ -413,47 +410,21 @@ impl Core<'_, '_> {
     ) -> Done<ConversationId> {
         let chief = self.realm.chief();
         let agent = AgentId(i64::try_from(chat.with.0)?);
-        if let Err(rejection) = self.reaches(agent)? {
+        let db = self.realm.store().connection();
+        if let Err(rejection) =
+            authority::reaches(db, Actor::Chief(chief), agent)?
+        {
             return Ok(Err(rejection));
         }
-        let db = self.realm.store().connection();
-        match (&chat.from, &chat.kind) {
-            (Some(from), kind) => {
-                let peer = AgentId(i64::try_from(from.0)?);
-                let kind = match kind {
-                    Some(ChatRefKind::Questions) => Kind::Questions,
-                    _ => Kind::Letters,
-                };
-                match conversations::with_peer(db, agent, kind, peer)?
-                {
-                    Some(conversation) => Ok(Ok(conversation)),
-                    None => Ok(Err(Rejection::NoOne {
-                        address: format!(
-                            "{peer}'s {kind} to {agent}"
-                        ),
-                    })),
-                }
-            }
-            (None, _) => match chat.past {
-                Some(number) => {
-                    match chats::session(db, agent, chief, number)? {
-                        Some(conversation) => Ok(Ok(conversation)),
-                        None => {
-                            Ok(Err(Rejection::NoSession { number }))
-                        }
-                    }
-                }
-                None => {
-                    let conversation = self.change(
-                        Actor::Chief(chief),
-                        |cx, env| {
-                            chats::current(cx, env, agent, chief)
-                        },
-                    )?;
-                    Ok(Ok(conversation))
-                }
-            },
+        // An agent that left keeps its conversation, read as it was.
+        if let Some(conversation) = chats::of(db, agent)? {
+            return Ok(Ok(conversation));
         }
+        let conversation = self
+            .change(Actor::Chief(chief), |cx, env| {
+                chats::current(cx, env, agent)
+            })?;
+        Ok(Ok(conversation))
     }
 
     /// The fold of `conversation`, read from its kept entries when it
@@ -475,11 +446,17 @@ impl Core<'_, '_> {
                 entries = imports::held(db, conversation)?;
             }
             let agent = conversations::get(db, conversation)?.agent;
+            let mut fold = Fold::of(&entries)?;
+            fold.queue(crate::clients::fold::waiting(
+                db,
+                conversation,
+            )?);
+            fold.take();
             self.live.insert(
                 conversation,
                 Live {
                     agent,
-                    fold: Fold::of(&entries)?,
+                    fold,
                     activity: Activity::of(&entries),
                 },
             );
@@ -499,13 +476,14 @@ impl Core<'_, '_> {
             self.realm.store().connection(),
             conversation,
         )?;
-        let number = conversations::get(
+        // Only watched conversations follow their queue as it moves.
+        let waiting = crate::clients::fold::waiting(
             self.realm.store().connection(),
             conversation,
-        )?
-        .session;
-        let live = self.live(conversation)?;
-        let fold = &live.fold;
+        )?;
+        self.live(conversation)?.fold.queue(waiting);
+        self.stream(conversation)?;
+        let fold = &self.live(conversation)?.fold;
         let end = match before {
             None => fold.items.len(),
             Some(before) => match fold
@@ -527,9 +505,9 @@ impl Core<'_, '_> {
             chat: chat.clone(),
             earlier: (start > 0)
                 .then(|| fold.items[start].id.clone()),
+            held: fold.held,
             items: fold.items[start..end].to_vec(),
             last: fold.last.clone(),
-            number: chat.from.is_none().then_some(number).flatten(),
             pending: fold.pending,
             to: to.cloned(),
             usage,
@@ -537,8 +515,8 @@ impl Core<'_, '_> {
         }))
     }
 
-    /// Sends every watcher of `conversation`, numbered sessions'
-    /// included, its items again, under the ids they have now.
+    /// Sends every watcher of `conversation` its items again, under
+    /// the ids they have now.
     pub(crate) fn retell(
         &mut self,
         conversation: ConversationId,
@@ -555,15 +533,12 @@ impl Core<'_, '_> {
         Ok(())
     }
 
-    /// Sends the watchers of `agent`'s chats the session they now
-    /// stand for.
+    /// Sends the watchers of `agent`'s chat the conversation it now
+    /// stands for, as after a rewind.
     pub(crate) fn rewatch(&mut self, agent: AgentId) -> Result<()> {
         let with = u64::try_from(agent.0).unwrap_or_default();
-        let watchers = self.connections.watchers(|w| {
-            w.chat.with.0 == with
-                && w.chat.from.is_none()
-                && w.chat.past.is_none()
-        });
+        let watchers =
+            self.connections.watchers(|w| w.chat.with.0 == with);
         for watcher in watchers {
             if let Ok(conversation) =
                 self.watch_target(&watcher.chat)?
@@ -683,6 +658,7 @@ impl Core<'_, '_> {
             waits,
             library,
             terminals,
+            learned: &self.learned.0,
         };
         super::state::compose(
             db,

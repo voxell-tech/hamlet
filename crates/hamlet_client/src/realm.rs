@@ -6,6 +6,7 @@ use bevy_ecs::name::Name;
 use bevy_ecs::prelude::*;
 use bevy_ecs::system::SystemParam;
 use bevy_ecs::world::DeferredWorld;
+use hamlet_protocol::address::Address;
 use hamlet_protocol::client as protocol;
 pub use hamlet_protocol::{HAND, LEAD};
 
@@ -124,6 +125,11 @@ pub struct AgentName(pub String);
 #[derive(Component, Clone, Debug, PartialEq, Eq)]
 pub struct Shown(pub String);
 
+/// What a profile's house shows: the name of its agent when it has
+/// exactly one, else the profile's name.
+#[derive(Component, Clone, Debug, PartialEq, Eq)]
+pub struct Lodging(pub String);
+
 /// The version of its profile an agent is pinned to.
 #[derive(Component, Clone, Debug, PartialEq, Eq)]
 pub struct Pin(pub String);
@@ -190,6 +196,11 @@ pub struct Busy;
 /// An agent whose last work failed.
 #[derive(Component, Clone, Copy, Debug)]
 pub struct Faulted;
+
+/// An agent whose branch holds learning no dream has brought home
+/// yet.
+#[derive(Component, Clone, Copy, Debug)]
+pub struct Learned;
 
 /// The kind of paper an agent reads or writes.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -360,10 +371,6 @@ pub struct Skills(pub Vec<protocol::Skill>);
 #[derive(Resource, Clone, Debug, Default, PartialEq)]
 pub struct Closed(pub Vec<protocol::ClosedHamlet>);
 
-/// The received conversations with other agents.
-#[derive(Component, Clone, Debug, Default, PartialEq)]
-pub struct PeerChats(pub Vec<protocol::ConversationView>);
-
 /// How and when an agent left, as the server sent it.
 #[derive(Component, Clone, Debug, PartialEq)]
 pub struct Departure(pub protocol::Left);
@@ -387,6 +394,7 @@ pub fn register(world: &mut World) {
     world.register_component::<Allowance>();
     world.register_component::<AgentName>();
     world.register_component::<Shown>();
+    world.register_component::<Lodging>();
     world.register_component::<OwnModel>();
     world.register_component::<OwnEffort>();
     world.register_component::<Fast>();
@@ -398,6 +406,7 @@ pub fn register(world: &mut World) {
     world.register_component::<Lead>();
     world.register_component::<Busy>();
     world.register_component::<Faulted>();
+    world.register_component::<Learned>();
     world.register_component::<Activity>();
     world.register_component::<Saying>();
     world.register_component::<Account>();
@@ -409,7 +418,6 @@ pub fn register(world: &mut World) {
     world.register_component::<Channel>();
     world.register_component::<Traffic>();
     world.register_component::<Spot>();
-    world.register_component::<PeerChats>();
 }
 
 /// The `Name` of an entity, or an empty string. An agent's is its
@@ -431,10 +439,10 @@ pub fn shown_of(world: &World, entity: Entity) -> String {
 
 /// The address commands name a profile by: `profile#<id>`.
 pub fn profile_address(id: protocol::ProfileId) -> String {
-    format!("profile#{}", id.0)
+    Address::Profile(id).to_string()
 }
 
-/// Lookups of living agents and leads for systems.
+/// Lookups of agents and leads for systems.
 #[derive(SystemParam)]
 pub struct Roster<'w, 's> {
     index: Res<'w, Index>,
@@ -451,6 +459,11 @@ impl Roster<'_, '_> {
     /// A living agent by its address.
     pub fn named(&self, name: &str) -> Option<Entity> {
         self.index.named(name)
+    }
+
+    /// An agent by its id, living or not.
+    pub fn agent(&self, id: protocol::AgentId) -> Option<Entity> {
+        self.index.agent(id)
     }
 
     /// The Hand.
@@ -534,6 +547,14 @@ pub fn profile(
     id: protocol::ProfileId,
 ) -> Option<Entity> {
     world.get_resource::<Index>()?.profile(id)
+}
+
+/// The city's profile `agent` is of, if any.
+pub fn city_profile(world: &World, agent: Entity) -> Option<Entity> {
+    let found = profile(world, world.get::<OfProfile>(agent)?.0)?;
+    (world.get::<Profile>(found)?.0.arrival
+        != protocol::Arrival::Apart)
+        .then_some(found)
 }
 
 /// An agent that has left its hamlet.
@@ -626,6 +647,7 @@ pub(crate) fn state(world: &mut World, state: protocol::State) {
         .filter_map(|agent| upsert_agent(world, agent))
         .collect::<Vec<_>>();
     departures(world);
+    refresh_lodgings(world);
     for hamlet in hamlet_values {
         society(world, hamlet, news);
     }
@@ -729,6 +751,33 @@ fn refresh_shown(world: &mut World, agent: Entity) {
     put(&mut world.entity_mut(agent), Shown(shown));
 }
 
+/// Sets what each profile's house shows.
+fn refresh_lodgings(world: &mut World) {
+    let agents = world
+        .query_filtered::<(&OfProfile, Option<&AgentName>), (
+            With<HamletAgent>,
+            Without<Left>,
+        )>()
+        .iter(world)
+        .map(|(of, name)| (of.0, name.map(|n| n.0.clone())))
+        .collect::<Vec<_>>();
+    let profiles = world
+        .query::<(Entity, &Profile)>()
+        .iter(world)
+        .map(|(entity, profile)| {
+            (entity, profile.0.id, profile.0.name.clone())
+        })
+        .collect::<Vec<_>>();
+    for (entity, id, name) in profiles {
+        let mut of = agents.iter().filter(|(of, _)| *of == id);
+        let shown = match (of.next(), of.next()) {
+            (Some((_, Some(own))), None) => own.clone(),
+            _ => name,
+        };
+        put(&mut world.entity_mut(entity), Lodging(shown));
+    }
+}
+
 fn upsert_agent(
     world: &mut World,
     value: protocol::Agent,
@@ -802,9 +851,9 @@ fn upsert_agent(
     flag(&mut agent, value.lead, Lead);
     flag(&mut agent, value.busy, Busy);
     flag(&mut agent, value.faulted, Faulted);
+    flag(&mut agent, value.learned, Learned);
 
     flag(&mut agent, consulting, Consulting);
-    put(&mut agent, PeerChats(value.conversations));
     if let Some(left) = value.left {
         put(&mut agent, Departure(left));
     } else {
@@ -911,6 +960,7 @@ pub(crate) fn changes(world: &mut World, changes: protocol::Changes) {
         }
     }
     departures(world);
+    refresh_lodgings(world);
     for hamlet in hamlets {
         society(world, hamlet, true);
     }
@@ -1122,7 +1172,7 @@ pub struct Traffic {
     pub last_from: Option<Entity>,
 }
 
-/// A letter carried along a channel.
+/// A message carried along a channel.
 #[derive(Event, Clone, Copy, Debug)]
 pub struct Carried {
     pub channel: Entity,
@@ -1146,7 +1196,10 @@ mod tests {
     use hamlet_protocol::client as protocol;
     use hamlet_testing::realm::{agent, channel, state};
 
-    use super::{channel_between, channels_of, named, shown_of};
+    use super::{
+        Lodging, channel_between, channels_of, named, profile,
+        shown_of,
+    };
     use crate::{ClientPlugin, receive};
 
     #[test]
@@ -1167,6 +1220,32 @@ mod tests {
         receive(world, protocol::ServerMessage::State(realm));
         assert_eq!(shown_of(world, ada), "Countess");
         assert_eq!(named(world, "agent#2"), Some(ada));
+    }
+
+    #[test]
+    fn a_profiles_house_shows_its_only_agents_name() {
+        let mut app = App::new();
+        app.add_plugins(ClientPlugin { server: None });
+        let mut realm = state();
+        let world = app.world_mut();
+        let house = |world: &bevy_ecs::world::World| {
+            let entity = profile(world, protocol::ProfileId(2))?;
+            world.get::<Lodging>(entity).map(|l| l.0.clone())
+        };
+        receive(world, protocol::ServerMessage::State(realm.clone()));
+        assert_eq!(house(world).as_deref(), Some("ada"));
+        realm.revision = 1;
+        realm.agents[1].name = Some("Countess".into());
+        receive(world, protocol::ServerMessage::State(realm.clone()));
+        assert_eq!(house(world).as_deref(), Some("Countess"));
+        // A second agent of the profile leaves the house with the
+        // profile's name.
+        realm.revision = 2;
+        let mut other = agent(3, "home", false);
+        other.profile = Some(protocol::ProfileId(2));
+        realm.agents.push(other);
+        receive(world, protocol::ServerMessage::State(realm.clone()));
+        assert_eq!(house(world).as_deref(), Some("ada"));
     }
 
     #[test]

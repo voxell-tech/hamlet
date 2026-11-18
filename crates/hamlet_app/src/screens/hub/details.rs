@@ -1,7 +1,4 @@
-//! The details sheet beside a thread: what only it shows of the
-//! agent. Its kind, profile, parent and agents are in the path and
-//! the rail, its model in the composer and its sessions and side
-//! chats in the session menu, so they are not repeated here.
+//! The details sheet beside a thread.
 
 use bevy::ecs::entity::Entity;
 use bevy::ecs::world::World;
@@ -35,6 +32,7 @@ use super::memory;
 use super::thread::said;
 use crate::convo::talk_to;
 use crate::overview::heading_line;
+use crate::profile_tag::{ProfileTag, learned_mark, learned_words};
 
 /// How wide the names of the settings are, so their values line up.
 const NAMES: f32 = 76.0;
@@ -48,18 +46,18 @@ struct Facts {
     hand: bool,
     worker: bool,
     purpose: String,
+    /// The profile of the city it is of.
+    profile: Option<ProfileTag>,
     /// The version it is pinned to, none for its profile's `main`.
     pin: Option<String>,
-    /// Its profile's named versions, when the chief may pin it to
-    /// one.
+    /// Its profile's versions, when the chief may pin it to one.
     versions: Option<Vec<String>>,
     /// Its address, and what it is called in the world.
     address: String,
     called: String,
     channels: Vec<(Entity, String)>,
     spent: String,
-    /// Its allowance in dollars, and the period of its hamlet's
-    /// budget that it is for.
+    /// Its allowance in dollars for its hamlet's budget period.
     allowance: Option<f64>,
     period: &'static str,
 }
@@ -86,6 +84,7 @@ fn facts(world: &World, agent: Entity) -> Facts {
             .get::<hamlet_client::realm::Purpose>(agent)
             .map(|purpose| purpose.0.clone())
             .unwrap_or_default(),
+        profile: ProfileTag::of(world, agent),
         pin: world
             .get::<hamlet_client::realm::Pin>(agent)
             .map(|pin| pin.0.clone()),
@@ -145,8 +144,7 @@ fn setting(
     .boxed()
 }
 
-/// A setting's value that is not typed over, its words where a
-/// field's words start.
+/// A setting's value, aligned with a field's words.
 fn read_only(text: String) -> AnyView {
     with_cx(move |cx| {
         let space = &cx.theme().space;
@@ -156,8 +154,7 @@ fn read_only(text: String) -> AnyView {
     .boxed()
 }
 
-/// What an agent is called in the world, typed over: Enter gives it
-/// the name, and a field left empty its own again.
+/// An agent's name field; empty gives back its own name.
 fn name_field(facts: &Facts) -> AnyView {
     let address = facts.address.clone();
     let had = facts.called.clone();
@@ -182,8 +179,7 @@ fn dollars(typed: &str) -> &str {
     typed.trim().trim_start_matches('$').trim()
 }
 
-/// Its allowance in dollars, typed over: Enter gives it the amount,
-/// and a field left empty no allowance.
+/// Its allowance field in dollars; empty means none.
 fn allowance_field(facts: &Facts) -> AnyView {
     let address = facts.address.clone();
     let shown = facts
@@ -210,8 +206,7 @@ fn allowance_field(facts: &Facts) -> AnyView {
     .boxed()
 }
 
-/// The version of its profile it works from, chosen from the
-/// profile's versions where it may be pinned.
+/// The version of its profile it works from.
 fn version(facts: &Facts) -> AnyView {
     let now = facts.pin.clone().unwrap_or_else(|| "main".into());
     let Some(versions) = &facts.versions else {
@@ -252,8 +247,7 @@ fn version(facts: &Facts) -> AnyView {
     .boxed()
 }
 
-/// A version as the chief reads it: `main` is what its profile knows
-/// now.
+/// A version as the chief reads it.
 fn shown_version(name: &str) -> String {
     match name {
         "main" => "Latest".to_string(),
@@ -261,8 +255,7 @@ fn shown_version(name: &str) -> String {
     }
 }
 
-/// The built-in tools an agent can be kept from, each with what it
-/// does.
+/// The built-in tools an agent can be kept from.
 const TOOLS: [(&str, &str); 6] = [
     ("read", "Reads files"),
     ("write", "Writes whole files"),
@@ -272,9 +265,7 @@ const TOOLS: [(&str, &str); 6] = [
     ("find", "Finds files by name"),
 ];
 
-/// A switch for each of `agent`'s built-in tools. Each follows the
-/// tools it is kept from by itself, so that turning one does not
-/// build the others again.
+/// A switch for each of `agent`'s built-in tools.
 fn tools(agent: Entity, facts: &Facts) -> AnyView {
     let rows = TOOLS
         .iter()
@@ -315,6 +306,28 @@ fn link(entity: Entity, name: String) -> AnyView {
         .boxed()
 }
 
+/// The name of the profile of `tag`, which leads to its page.
+fn profile_link(tag: &ProfileTag) -> AnyView {
+    let profile = tag.profile;
+    let mut parts = vec![
+        lettered(tag.name.clone())
+            .variant(Variant::Text)
+            .on_activate(move |world| {
+                super::open_profile(world, profile);
+            })
+            .boxed(),
+    ];
+    if tag.learned {
+        let words = learned_words(&tag.name);
+        parts.push(
+            row((learned_mark(),))
+                .tooltip(move || note(words.clone()))
+                .boxed(),
+        );
+    }
+    row(parts).gap(6.0).align(AlignItems::Center).boxed()
+}
+
 /// Who it is and what it may spend, which a chief changes here.
 fn about(facts: &Facts) -> Option<AnyView> {
     let mut parts = Vec::new();
@@ -327,6 +340,13 @@ fn about(facts: &Facts) -> Option<AnyView> {
             "What it is called in the world; empty for its own name",
             name_field(facts),
         ));
+        if let Some(tag) = &facts.profile {
+            parts.push(setting(
+                "Profile",
+                "The profile of the city it is an agent of",
+                profile_link(tag),
+            ));
+        }
         parts.push(setting(
             "Version",
             "The version of its profile it works from",
@@ -362,8 +382,7 @@ fn about(facts: &Facts) -> Option<AnyView> {
     })
 }
 
-/// The agents it has a channel to, each to close, and a way to open
-/// another.
+/// The agents it has a channel to, and a way to open another.
 fn channels(agent: Entity, facts: &Facts) -> AnyView {
     let mut parts = Vec::new();
     for (other, name) in facts.channels.iter().cloned() {
@@ -382,7 +401,7 @@ fn channels(agent: Entity, facts: &Facts) -> AnyView {
         );
     }
     parts.push(
-        row((action(Glyph::Plus, "Open a channel", move |world| {
+        row((action(Glyph::Plus, "Open a Channel", move |world| {
             crate::world_menu::ask_channel(world, agent);
         }),))
         .boxed(),
@@ -390,8 +409,7 @@ fn channels(agent: Entity, facts: &Facts) -> AnyView {
     section(Glyph::Signpost, "Channels", None, column(parts).gap(6.0))
 }
 
-/// The sections of the agent's own facts that `build` makes, kept in
-/// step with the world.
+/// The sections `build` makes of the agent's facts.
 fn facts_sections(
     agent: Entity,
     build: fn(Entity, &Facts, bool) -> Vec<AnyView>,
@@ -431,9 +449,7 @@ fn powers(
     parts
 }
 
-/// A part of a page, flat under a hairline: its name under `which`,
-/// the one thing done to it at the end of that line, and `body` under
-/// it.
+/// A part of a page under a hairline: its name, `end` and `body`.
 pub(super) fn section(
     which: Glyph,
     name: &'static str,
@@ -454,8 +470,7 @@ pub(super) fn section(
     .boxed()
 }
 
-/// A [`section`] that is only its line: its name under `which` and
-/// `end`, such as what an empty one says.
+/// A [`section`] that is only its line.
 pub(super) fn section_line(
     which: Glyph,
     name: &'static str,
@@ -494,7 +509,7 @@ fn prompt() -> AnyView {
 
 /// A reflection asked now, which writes to its memory.
 fn reflect() -> AnyView {
-    action(Glyph::Rename, "Note what it learned", |world| {
+    action(Glyph::Rename, "Note What It Learned", |world| {
         if let Some(to) = super::papers::selected(world) {
             world.trigger(
                 hamlet_client::messages::ChiefMessage::words(
@@ -510,8 +525,7 @@ fn reflect() -> AnyView {
     .boxed()
 }
 
-/// The sheet that takes the place of the thread of `agent` while it
-/// is open.
+/// The sheet in place of `agent`'s thread while it is open.
 pub(super) fn sheet(agent: Entity) -> impl View {
     column((scroll_area((column((
         facts_sections(agent, head),

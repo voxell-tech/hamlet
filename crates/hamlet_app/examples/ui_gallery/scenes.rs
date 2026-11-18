@@ -17,11 +17,9 @@ use bevy::math::Rect;
 use bevy::picking::PickingSettings;
 use bevy::window::WindowTheme;
 use bevy_fynix::dock::DockPlugin;
-use bevy_fynix::tokens::Tone;
 use bevy_fynix::{AnyView, Bevy, FynixPlugin};
 use hamlet_app::appearance::{Appearance, Zoom};
-use hamlet_app::history::History;
-use hamlet_app::{Bar, Roll, asking, chrome, menu, select, welcome};
+use hamlet_app::{Roll, asking, chrome, menu, select, welcome};
 use hamlet_assets::Tuning;
 use hamlet_desktop::color_scheme::ColorScheme;
 use hamlet_realm::sound::{Cue, SoundSettings};
@@ -49,8 +47,8 @@ impl Plugin for GalleryPlugin {
         ));
         theme::show(app.world_mut(), HamletTheme::designed());
         if let Some((theme, shade)) = chosen() {
-            // As the computer says, so the Appearance page follows
-            // it.
+            // As the computer says, which the Appearance page
+            // follows.
             app.insert_resource(ColorScheme::Says(shade));
             theme::show(app.world_mut(), theme);
         }
@@ -61,19 +59,8 @@ impl Plugin for GalleryPlugin {
                 is_hover_enabled: false,
                 ..PickingSettings::default()
             })
-            .insert_resource(Bar {
-                running: "Idle".into(),
-                running_tone: Tone::Dim,
-                model: "hearth-large".into(),
-                link: "Connected, 1 model".into(),
-                link_tone: Tone::Dim,
-                usage: "12.4k tokens".into(),
-                budget: "$1.20 of $20.00".into(),
-                ..Bar::default()
-            })
             .init_resource::<Roll>()
             .init_resource::<SoundSettings>()
-            .init_resource::<History>()
             .init_resource::<hamlet_app::limits::Book>()
             .init_resource::<hamlet_app::models::Shelf>()
             .init_resource::<hamlet_app::models::Draft>()
@@ -86,8 +73,8 @@ impl Plugin for GalleryPlugin {
             .init_resource::<Appearance>()
             .init_resource::<Zoom>()
             .add_message::<Cue>()
-            // `theme::plugin` owns it; the gallery sets its theme by
-            // hand instead.
+            // The gallery sets its theme by hand, not
+            // `theme::plugin`.
             .add_message::<theme::ThemeChanged>()
             .add_systems(Startup, (setup, chrome::draw_marks))
             .add_systems(
@@ -106,10 +93,10 @@ impl Plugin for GalleryPlugin {
                     ),
                 ),
             )
-            // The menus, and what the world tells them was asked
-            // about.
+            // The menus, and what the world asks of them.
             .init_resource::<hamlet_realm::pick::Asked>()
             .init_resource::<hamlet_realm::pick::AskedGround>()
+            .init_resource::<welcome::projects::Projects>()
             .add_plugins((
                 hamlet_app::world_menu::plugin,
                 hamlet_app::search::plugin,
@@ -119,6 +106,7 @@ impl Plugin for GalleryPlugin {
                 hamlet_app::desk_still,
                 welcome::key_plugin,
                 hamlet_ui::widgets::plugin,
+                hamlet_ui::markdown::plugin,
                 hamlet_app::screens::plugin,
                 asking::plugin,
                 select::plugin,
@@ -126,9 +114,7 @@ impl Plugin for GalleryPlugin {
     }
 }
 
-/// The theme `GALLERY_THEME` names as `<family>:<light|dark>`, as
-/// `Hamlet:light`, and the shade it is shown in. None when it is not
-/// set; a name that matches no family or shade panics.
+/// The theme and shade `GALLERY_THEME` names, as `Hamlet:light`.
 fn chosen() -> Option<(HamletTheme, WindowTheme)> {
     let (family, shade) = named()?;
     let themes = Themes::shipped();
@@ -140,8 +126,7 @@ fn chosen() -> Option<(HamletTheme, WindowTheme)> {
     Some((HamletTheme::new(palette, &Measures::designed()), shade))
 }
 
-/// The family `GALLERY_THEME` names among `themes`; none when it is
-/// not set.
+/// The family `GALLERY_THEME` names among `themes`.
 pub(crate) fn chosen_family(themes: &Themes) -> Option<&Theme> {
     let (family, _) = named()?;
     Some(family_in(themes, &family))
@@ -184,25 +169,19 @@ pub enum Scene {
     Field,
     /// A long chat with a turn's steps unfolded.
     Chat,
-    /// An agent's chat with the chief, the lead and another agent
-    /// in it.
+    /// An agent's chat with several speakers.
     Group,
     /// A chat with links of every kind in it, the pointer on one.
     Links,
     /// A chat with the changes of a turn's edits in it.
     Edits,
-    /// A chat with pictures in it: drawn, made smaller, missing and
-    /// one of the web that waits to be asked for.
+    /// A chat with pictures in it.
     Pictures,
-    /// A chat with images sent in a line and attached to the next,
-    /// an image dragged over the window, and the picture button.
+    /// A chat with images sent, attached and dragged over the window.
     Images,
-    /// The same for a model that sees no images: the button greyed
-    /// out and the drag refused.
+    /// [`Scene::Images`] for a model that sees no images.
     NoImages,
-    /// A chat with the pointer on one of the chief's messages, and
-    /// the question its mark asks before the chat is taken back to
-    /// it.
+    /// A chat asking before a rewind to one of the chief's messages.
     Rewind,
     /// A chat nothing has been said in.
     Quiet,
@@ -224,8 +203,7 @@ pub enum Scene {
     Toasts,
     /// The popup an agent's model is chosen in, over the Hub.
     Models,
-    /// That popup with a search typed in it, found across every
-    /// provider.
+    /// That popup with a search typed in it.
     ModelsSearch,
     /// The Hub's page of the realm, with nothing selected.
     Overview,
@@ -233,10 +211,6 @@ pub enum Scene {
     Hamlet,
     /// The running of that hamlet: its budget, models and limits.
     Bylaws,
-    /// The Hub's sessions page, with its list of sessions.
-    History,
-    /// The Hub's sessions page, with one session being read.
-    Reading,
     /// A chief, with every choice of its look.
     Chief,
     /// The Settings panel.
@@ -245,13 +219,11 @@ pub enum Scene {
     SettingsModels,
     /// The Settings panel at its Charter page.
     Charter,
-    /// The Settings panel at its Workspace page, a remote workspace
-    /// chosen and not yet in use.
+    /// The Settings panel at its Workspace page, a remote one chosen.
     Workspace,
     /// The Settings panel at its Sight page, with its dials.
     Sight,
-    /// The Settings panel at its Appearance page, the computer and
-    /// the panels light or dark.
+    /// The Settings panel at its Appearance page.
     Appearance(WindowTheme),
     /// Every icon, at each size it is drawn for.
     Icons,
@@ -269,14 +241,11 @@ pub enum Scene {
     HubMenu,
     /// The first-run screen at one of its steps.
     Welcome(welcome::Step),
-    /// The first-run provider step, every provider shown and searched
-    /// for the words.
+    /// The first-run provider step, searched for the words.
     ProviderSearch(&'static str),
-    /// The Hub with an agent merged into another: its rail row and
-    /// its page of what is gone.
+    /// The Hub with an agent merged into another.
     Merged,
-    /// The Hub's page of a hamlet, with agents at work, waiting,
-    /// stopped and at rest in its rail and its list.
+    /// The Hub's page of a hamlet with agents in every state.
     Agents,
     /// A chat with inline code and links in it.
     Code,
@@ -295,8 +264,7 @@ impl Scene {
     }
 }
 
-/// The picture that stands where the world is drawn, and the part of
-/// it shown.
+/// The picture in the world's place, and the part of it shown.
 #[derive(Resource)]
 pub struct Stand(pub Handle<Image>, pub Rect);
 

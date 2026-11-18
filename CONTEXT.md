@@ -73,6 +73,31 @@ starter, with a scratch folder and no society tools, which ends with its
 answer.
 _Avoid_: subagent, helper, runtime
 
+**Conversation**:
+What an agent's model reads and answers, kept by its harness. The Hand and
+each agent of a hamlet have one, which every input for it goes into, one turn at a
+time; a rewind makes a fork of it theirs. A worker, a dream and an errand
+have their own.
+_Avoid_: session, chat history, thread (the Hub's thread is where one is
+shown)
+
+**Queued**:
+Said of an input its conversation has not taken up yet. A chief's lines
+and retries go ahead of messages from agents. A chief takes a queued line
+back with Withdraw.
+_Avoid_: pending, backlog
+
+**Stopped**:
+Said of an agent a chief stopped: nothing queued for it starts until the
+chief sends it a line, which runs first, or resumes it.
+_Avoid_: paused, frozen
+
+**Compaction**:
+A summary that stands for the earlier part of a conversation in the model's
+context, made when it fills or a chief asks (`/compact`). Every entry is
+kept.
+_Avoid_: new session, reset, clearing
+
 **Errand**:
 A one-off conversation that is not an agent's: the librarian's answer or a
 parent's review.
@@ -105,13 +130,14 @@ _Avoid_: lodge, house, home
 
 **Dream**:
 A task in which an agent brings what it learned home to its profile's `main`,
-or a profile tidies `main`. Off by default; the settings give its hours, cost
-cap and rests.
+or a profile tidies `main`. Scheduled dreams are off by default; the
+settings give their hours, cost cap and rests. One asked for runs anyway,
+one at a time.
 _Avoid_: sleep, sync
 
 **Merge**:
 Making one agent of two, in one hamlet: the kept agent takes the absorbed
-one's channels, agents, inbox and what it learned.
+one's channels, agents, inbox, what it learned and its conversation.
 
 **Split**:
 Bringing a merged agent back out again, by undoing the merge's commit
@@ -210,15 +236,28 @@ _Avoid_: task (a task is an agent's work)
 ### Between agents
 
 **Channel**:
-A link between two agents along which they send letters. Its kind is tree
-(an agent and its parent, or the Hand and a lead), leads', opened (between two
-agents of a hamlet) or agreed (between agents of two hamlets). The world draws
-a channel as a road.
+A link between two agents along which they send notifications and
+requests. Its kind is tree (an agent and its parent, or the Hand and a
+lead), leads', opened (between two agents of a hamlet) or agreed (between
+agents of two hamlets). The world draws a channel as a road.
 _Avoid_: road, link
 
-**Letter**:
-A message one agent sends another along a channel.
-_Avoid_: mail, DM
+**Notification**:
+A message one agent sends another along a channel (`notify`), taken up as
+a turn of the receiver's; no response is expected.
+_Avoid_: letter, mail, DM
+
+**Request**:
+A message one agent sends another along a channel that expects a response
+(`request`). The sender does not wait; the receiver's final answer comes
+back as the response.
+_Avoid_: question (a question is what an agent puts to a chief), ask
+
+**Response**:
+The answer to a request, or a worker's answer its starter did not wait
+for, taken up as a turn of the sender's. An error response, from a request
+that failed, starts no turn; the sender reads it on its next one.
+_Avoid_: reply, answer (for one agent's to another)
 
 ### Work, waits and grants
 
@@ -228,19 +267,21 @@ spends.
 _Avoid_: job, ticket
 
 **Wait**:
-A question or act held until a chief answers: a question, an objection, a
-tool call that needs a grant, a newcomer to welcome. Waits survive a
-restart. The window shows one in full, with the answers it takes, in the
-thread of the agent that asks and on a toast.
+A question or act held until a chief answers: an agent's questions to the
+chief (`request_chief`), an objection, a tool call that needs a grant, a
+newcomer to welcome, a fault. Waits survive a restart. The window shows one
+in full, with the answers it takes, in the thread of the agent that asks
+and on a toast.
 _Avoid_: petition, pending item, approval request
 
 **Grant**:
-A chief's allowing of an act that waits: once, for the session (a session
-grant), or for good.
+A chief's allowing of an act that waits: once, for the agent's conversation
+(a session grant), or for good.
 _Avoid_: permission, whitelist
 
 **Session grant**:
-A grant for the rest of a session.
+A grant of an agent's edits or commands for the rest of its conversation.
+A rewind's fork has none yet.
 _Avoid_: trust
 
 ### Actions and rejections

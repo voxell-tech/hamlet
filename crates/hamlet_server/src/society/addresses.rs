@@ -1,11 +1,9 @@
-//! Addresses: how chiefs and agents name the Hand, leads, agents,
-//! workers and profiles, by ids and never by a profile's name (C30,
-//! H14).
-
-use std::fmt;
+//! Addresses of agents and profiles, by ids (C30, H14).
 
 use anyhow::Result;
 use diesel::prelude::*;
+use hamlet_protocol::address::{Address, bare};
+use hamlet_protocol::client as protocol;
 use hamlet_store::Db;
 use hamlet_store::ids::{Actor, AgentId, HamletId, ProfileId};
 use hamlet_store::schema::{agent, hamlet_agent, profile, worker};
@@ -13,86 +11,96 @@ use hamlet_store::schema::{agent, hamlet_agent, profile, worker};
 use super::agents::{self, AgentKind};
 use super::names::hamlet_id;
 use super::rejection::Rejection;
-use super::{chiefs, hamlets, hand, tree};
-use crate::realm::change::{Done, done, reject};
+use super::{chiefs, city, hamlets, hand, tree};
+use crate::realm::change::{Done, checked, done, reject};
 
-/// A name for an agent.
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub(crate) enum Address {
-    Hand,
-    /// A hamlet's lead, or the speaker's own.
-    Lead {
-        hamlet: Option<HamletId>,
-    },
-    Agent(AgentId),
-    Worker(AgentId),
-}
-
-impl fmt::Display for Address {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self {
-            Self::Hand => f.write_str("hand"),
-            Self::Lead { hamlet: None } => f.write_str("lead"),
-            Self::Lead {
-                hamlet: Some(hamlet),
-            } => write!(f, "lead@{hamlet}"),
-            Self::Agent(id) => write!(f, "agent#{id}"),
-            Self::Worker(id) => write!(f, "worker#{id}"),
-        }
-    }
-}
-
-/// Which agents an address may name.
+/// Which agents or profiles an address may name.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum Reach {
     Living,
-    /// The ended too, but not the erased.
+    /// The ended agents and the archived profiles too.
     Kept,
 }
 
-/// Reads an address: `hand`, `lead`, `lead@<hamlet>`, `agent#<id>`
-/// or `worker#<id>`.
+/// Reads an agent's address, with or without the name shown beside
+/// it.
 pub(crate) fn parse(text: &str) -> Result<Address, Rejection> {
-    let text = text.trim();
-    let bad = || Rejection::BadAddress {
+    let text = bare(text);
+    match text.parse::<Address>() {
+        Ok(Address::Lead {
+            hamlet: Some(hamlet),
+        }) if hamlet_id(&hamlet).is_none() => {}
+        Ok(Address::Profile(_)) | Err(_) => {}
+        Ok(address) => return Ok(address),
+    }
+    Err(Rejection::BadAddress {
         address: text.into(),
-    };
-    if text == "hand" {
-        return Ok(Address::Hand);
-    }
-    if text == "lead" {
-        return Ok(Address::Lead { hamlet: None });
-    }
-    if let Some(hamlet) = text.strip_prefix("lead@") {
-        return Ok(Address::Lead {
-            hamlet: Some(hamlet_id(hamlet).ok_or_else(bad)?),
-        });
-    }
-    let (kind, id) = text.split_once('#').ok_or_else(bad)?;
-    let id = AgentId(id.parse::<i64>().map_err(|_| bad())?);
-    match kind {
-        "agent" => Ok(Address::Agent(id)),
-        "worker" => Ok(Address::Worker(id)),
-        _ => Err(bad()),
-    }
+    })
 }
 
-/// Reads a profile's address, `profile#<id>`.
+/// Reads a profile's address, `profile#<id>`, with or without the
+/// name shown beside it.
 pub(crate) fn parse_profile(
     text: &str,
 ) -> Result<ProfileId, Rejection> {
-    let text = text.trim();
-    text.strip_prefix("profile#")
-        .and_then(|id| id.parse::<i64>().ok())
-        .map(ProfileId)
-        .ok_or_else(|| Rejection::BadAddress {
+    let text = bare(text);
+    match text.parse::<Address>() {
+        Ok(Address::Profile(id)) => i64::try_from(id.0).ok(),
+        _ => None,
+    }
+    .map(ProfileId)
+    .ok_or_else(|| Rejection::BadAddress {
+        address: text.into(),
+    })
+}
+
+/// The profile `text` addresses, among those `reach` allows.
+pub(crate) fn profile_at(
+    db: &mut Db,
+    text: &str,
+    reach: Reach,
+) -> Done<ProfileId> {
+    let id = checked!(parse_profile(text));
+    let found = city::find(db, id)?.filter(|found| {
+        found.kind == city::ProfileKind::Profile
+            && (reach == Reach::Kept || found.is_living())
+    });
+    Ok(match found {
+        Some(found) => Ok(found.id),
+        None => Err(Rejection::NoProfile {
             address: text.into(),
-        })
+        }),
+    })
+}
+
+/// The living profile `text` addresses, and the `@<version>` it pins.
+pub(crate) fn profile_pinned(
+    db: &mut Db,
+    text: &str,
+) -> Done<(ProfileId, Option<String>)> {
+    let (address, version) = match text.split_once('@') {
+        Some((address, version)) => {
+            (address, Some(version.to_owned()))
+        }
+        None => (text, None),
+    };
+    Ok(profile_at(db, address, Reach::Living)?
+        .map(|profile| (profile, version)))
+}
+
+/// The protocols' form of the agent `id`.
+pub(crate) fn wire_agent(id: AgentId) -> protocol::AgentId {
+    protocol::AgentId(u64::try_from(id.0).unwrap_or_default())
+}
+
+/// The protocols' form of the profile `id`.
+pub(crate) fn wire_profile(id: ProfileId) -> protocol::ProfileId {
+    protocol::ProfileId(u64::try_from(id.0).unwrap_or_default())
 }
 
 /// The address of the profile `id`.
 pub(crate) fn profile_address(id: ProfileId) -> String {
-    format!("profile#{id}")
+    Address::Profile(wire_profile(id)).to_string()
 }
 
 /// The agent `address` names, said in `here`, the speaker's hamlet.
@@ -105,29 +113,44 @@ pub(crate) fn resolve(
     let none = || Rejection::NoOne {
         address: address.to_string(),
     };
+    let stored =
+        |id: protocol::AgentId| i64::try_from(id.0).ok().map(AgentId);
     match address {
         Address::Hand => Ok(Ok(hand::id(db)?)),
         Address::Lead { hamlet } => {
-            let Some(hamlet) = hamlet.as_ref().or(here) else {
+            let named = hamlet.as_deref().map(hamlet_id);
+            let hamlet = match named {
+                Some(Some(hamlet)) => hamlet,
+                Some(None) => reject!(none()),
+                None => match here {
+                    Some(here) => here.clone(),
+                    None => reject!(none()),
+                },
+            };
+            done!(hamlets::living(db, &hamlet));
+            Ok(Ok(tree::lead(db, &hamlet)?))
+        }
+        Address::Profile(_) => reject!(none()),
+        Address::Worker(id) => {
+            let Some(id) = stored(*id) else {
                 reject!(none());
             };
-            done!(hamlets::living(db, hamlet));
-            Ok(Ok(tree::lead(db, hamlet)?))
-        }
-        Address::Worker(id) => {
-            let found = agents::find(db, *id)?;
+            let found = agents::find(db, id)?;
             match found {
                 Some(found)
                     if found.kind == AgentKind::Worker
                         && (reach == Reach::Kept
                             || found.is_living()) =>
                 {
-                    Ok(Ok(*id))
+                    Ok(Ok(id))
                 }
                 _ => reject!(none()),
             }
         }
         Address::Agent(id) => {
+            let Some(id) = stored(*id) else {
+                reject!(none());
+            };
             let mut query = hamlet_agent::table
                 .inner_join(agent::table)
                 .inner_join(profile::table)
@@ -178,16 +201,13 @@ pub(crate) fn address_of(db: &mut Db, id: AgentId) -> Result<String> {
     let kind = agents::get(db, id)?.kind;
     Ok(match kind {
         AgentKind::Hand => Address::Hand,
-        AgentKind::Hamlet => Address::Agent(id),
-        AgentKind::Worker => Address::Worker(id),
+        AgentKind::Hamlet => Address::Agent(wire_agent(id)),
+        AgentKind::Worker => Address::Worker(wire_agent(id)),
     }
     .to_string())
 }
 
-/// How `id` is shown to chiefs and agents: its address, and beside it
-/// the name of an agent, or else its profile's name, as in
-/// `agent#3 (Mira)`, or a worker's name. An erased agent shows its
-/// address only.
+/// How `id` is shown to chiefs and agents, as in `agent#3 (Mira)`.
 pub(crate) fn name_of(db: &mut Db, id: AgentId) -> Result<String> {
     let address = address_of(db, id)?;
     let found = agents::get(db, id)?;

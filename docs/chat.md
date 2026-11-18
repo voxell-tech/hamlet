@@ -15,20 +15,58 @@ A chat entity has `Chat(ChatRef)`, `Transcript`, `Status`, `Usage` and a
 sends `close`. Reconnecting opens every watched chat again.
 
 The server answers with a `transcript` page. Live `turn` operations add or
-replace an item, append text, close a tool, change status or usage, or reset
-the transcript. The client applies those operations; it runs no agent and
-reads no conversation files. Each item has a stable string ID, a time and
-a kind: chief input, assistant text, reasoning, tool, notice, error or
-answered.
+replace an item, append text, close a tool, remove an item, change status
+or usage, or reset the transcript. The client applies those operations; it
+runs no agent and reads no conversation files. Each item has a stable string ID, a time and
+a kind: chief input, assistant text, reasoning, tool, notice, error,
+answered, summary or merged.
 
-The chief's chat with an agent is shared by every client. `/new` moves to a
-new numbered conversation while the old one finishes its queue. History
-comes from `read history`, listed by the day each was last used; Read
-opens a numbered past conversation read-only, drawn as the chat is, and
-Resume sends `/resume <n>`. Every conversation is kept.
+## One conversation
+
+The Hand and each agent of a hamlet have one conversation, shown alike by
+every client.
+The chief's lines, other agents' messages and its workers' answers all go
+into it, one turn at a time. A worker has its own.
+
+A message from another agent carries `author` and `from` instead of
+`chief`, and `message`: notification, request, response or error
+response. The window draws it as a card headed by its kind and sender's
+chip, folded to its first line; a press or Enter opens it (`bubble.rs`).
+The model reads it under a bracketed heading, as
+`[A request from agent#3 (Mira); your final answer goes back to it as the response]`.
+A `notify` or `request` call is a step that names the agent it reached in
+`agent`. An error response starts no turn; its card is edged in red and
+reads "It could not answer: " and the cause in plain words.
+
+**Queued lines.** An input waiting its turn is one of the last items, with
+`queued`, in run order: the chief's lines and retries first, then agents'
+messages. Taken up, it is replaced in place (`add` with `replaces`). The
+window draws it dimmed, marked "Queued". The chief takes one back with
+`withdraw`, and its row leaves with `remove`.
+
+**Stop holds the queue.** Stop ends the running turn and holds the queue
+until the chief sends a line, which runs first, or resumes it (`resume`,
+Resume in the chat, `/resume` in the terminal). `status` carries `held`,
+and the chat ends with "Stopped · 3 waiting" and Resume. Workers go on,
+and their answers queue under the hold (`conversations/chats.rs`).
+
+**Compaction.** pi summarizes the earlier conversation when the context
+fills (C28), or when the chief asks with "Compact now" or `/compact`. The
+summary is a `summary` item, a line between turns that opens to it.
+
+**A merge.** The kept agent's conversation gets a `merged` item whose
+`from` is the absorbed agent, a line that opens that agent's conversation in
+place. It stays as it was, so a split gives it back.
+
+**Lines between turns.** A change to the agent is an `event` item for
+people alone (`chats::event`), drawn as a centred line (`card.rs`): a
+model or effort change, a stop or resume, a dream, becoming a profile of
+the city, a rename, the fast tier.
+
+## Brought in from another program
 
 An agent made for a conversation brought in from another program (C35)
-has it as the first session of its chat. The card "Bring in your
+has it as its conversation. The card "Bring in your
 projects" (`hamlet_app/src/welcome/projects.rs`) lists the projects
 found on the window's machine, or in an export file chosen in the
 system's dialog; it opens once when first-run setup ends on a realm with
@@ -43,27 +81,34 @@ runtime keeps them. It opens with a notice of where it came from. The chief's me
 in it are the chief's rows, not rewindable; the other program's tool
 calls are tool rows of their tool and summary, kept for people alone.
 
-The session menu of the Hub's chat lists the agent's sessions, its
-conversations with other agents and the workers it started. Choosing a
-sender's letters or questions opens a reference with `from` and `kind`;
-without a kind the server selects letters. These watches have paging and
-live updates, but no input field, stop control or rewind. The first entry
-returns to the chief's own conversation. The server also rejects edits of
-peer conversations.
-
-A peer input carries `author`, its sender's address, rather than `chief`.
-The client keeps it as an agent entry, including a letter's reply arriving
-in the chief's chat. It is never drawn as the chief's own words.
-
 ## Order and drawing
 
 Rows follow the transcript's order, even if a clock ran back. Rows by one
 speaker to one listener that follow each other are a run: the first is
 named and has the speaker's picture beside its name. The chief's own
-messages are at the right on brass. The agent's are at the left, with a
-disc in the paint of its robot. The steps of a turn are folded into one
-quiet line that opens, under the reply before them. Steps that open a turn
-stand under its first reply, joined by those after it.
+messages are at the right on brass. Another agent's are at the left, with
+a disc in the paint of its robot.
+
+**A turn.** Everything the agent does between one input and the next is
+one turn (`lines.rs`, `Turn`): its thinking, tool calls and words between
+them are steps, and its last words are the reply. A line between turns
+that comes during it stands among its steps. The turn runs from the input
+the agent was seen to take up. While it runs, a header reads "Working for
+13s" or "Thinking", shimmering (`hamlet_ui/src/widgets/shimmer.rs`), with
+every step under it, the reply's words too, so nothing moves. Each step is
+a quiet line with an icon that opens to its details.
+
+Once the turn ends the header reads "Worked for 2m 49s", with " · 1
+failed" in red when a step failed, and folds its steps away. The time runs
+from the first step to the end of the last. Thinking folds to "Thought for
+6s". The reply follows across the chat with no bubble, then a card of the
+files the turn's edits changed (`edits.rs`). Queued lines stand under the
+running turn.
+
+Only the rows near the view are built. Each row is shown whole in the
+frame it grows or is built, and the view kept at the end or at the first
+row shown (`anchor.rs`). The view moves only when the chief scrolls, sends
+a line or asks for the end.
 
 When a transcript has an earlier page, scrolling to the top, or a chat
 that fits without scrolling, sends `open` with `before` set to the first
@@ -75,11 +120,13 @@ the selected address. Typed slash lines are refused locally with directions
 to use the window's controls; those controls send commands to the server.
 Unaddressed server faults and error replies to the chat's own requests show
 under the field and play the Error sound. Fault waits stay on the realm's page
-in the Hub.
+in the Hub. Faults with a `setup` cause, no model or refused credentials,
+share one toast per cause and model, as "5 leads can't use Claude Sonnet
+5.5" (`toasts.rs`); a fault's words come from `conversations/failures.rs`.
 
 ## Links
 
-A web address or a file named in the chat can be clicked.
+A web address, a file or an agent named in the chat can be clicked.
 
 - `[words](address)` is a link when the address is `http`, `https` or
   `mailto`, or a path whose file is there. Any other scheme is plain words.
@@ -108,11 +155,43 @@ one argument with no shell between. A file the system would run and not
 show (an executable, a script, an app) is revealed in its folder,
 unopened.
 
+## Agents named in the chat
+
+An agent's or a profile's address in a line is drawn as a chip: the glyph
+of what it is, its current name, and the address in its tooltip. A click
+opens the agent's chat or the profile's page.
+
+- `agent#<id>`, `worker#<id>`, `profile#<id>` and `lead@<hamlet>` are
+  chips in running text, inline code and link addresses, as
+  `[Mira](agent#3)`.
+- `hand` is one only in inline code or as a link's address.
+- A copied address's name, `agent#3 (Mira)`, is part of the chip.
+- An address that names no one stays words, as does anything in a fenced
+  code block.
+
+While an answer grows, its addresses are words in the link's colour, and
+become chips once it is whole (`unsettle` in
+`hamlet_ui/src/markdown/draw.rs`): a chip in a reflowing line would jump.
+A line with a chip of unknown size stays hidden until the chip is laid
+out (`hamlet_ui/src/markdown/chips.rs`).
+
+A table's columns are each at least as wide as their longest word or chip,
+and share the rest in proportion to their widest cell.
+
+"Copy Agent ID" in an agent's menu copies `agent#3 (Mira)`; "Copy Hamlet
+ID" copies `hamlet <id> (<name>)`.
+
+In the field, an address becomes a chip once written whole: pasted, or
+typed and followed by a space, a mark or a chip (`screens/chat/field.rs`).
+A bracketed name must be its current one, and `hand` needs its name. The
+chip is an atom of the field and is sent as its words.
+
 ## Edits
 
-An `edit` or `write` call can show its change in place of the tool row:
-the path, the count of lines added and removed, and the lines themselves
-in red and green. `crates/hamlet_server/src/tools/edit_diff.rs` computes the preview and
+An `edit` or `write` call carries its change: the path, the count of
+lines added and removed, and the lines themselves in red and green, shown
+in its step and the turn's card of changed files.
+`crates/hamlet_server/src/tools/edit_diff.rs` computes the preview and
 keeps at most 200 lines, each cut at 240 characters. It arrives in the tool's
 `change` field, both live and when the transcript is read back.
 
@@ -181,9 +260,10 @@ what clips the text. Selectable text shows the text cursor. Cmd+C copies
 it, Cmd+A selects the whole area and Esc lets it go. The parts of nodes
 on one line, such as a bullet and its item, are joined with a space, and
 those on different lines with a line. The room a bubble keeps for its
-hour is never selected. In the chat, QUOTE, at the end of what is highlighted,
+hour is never selected. In the chat, Quote, at the end of what is highlighted,
 puts the words in the field as `> ` lines with a line after them for the
-chief's own words. A press anywhere else, or another chat, lets the
+chief's own words. It stands over the window, so a selection never lays
+the message out again. A press anywhere else, or another chat, lets the
 selection go. A plain click on a link still follows it.
 
 ## Rewind
@@ -193,7 +273,8 @@ That message and everything after it leave the active conversation, and
 its words go back in the field to be changed and sent again.
 
 **The record.** The server forks the conversation from the entry before
-that message and keeps its stable conversation number. The client sends
+that message and makes the fork the agent's conversation, with no
+session grants yet. The client sends
 `rewind` with the chat reference and the item's string ID. A `rewound`
 reply gives the words back; a reset followed by a transcript replaces the
 shown items. The server rejects a rewind while work is running or queued
@@ -225,7 +306,7 @@ line are another thing (see Images on a line below).
 address, and a fetch tells that server whatever the address carries. An
 agent that was fed bad instructions could put a secret in the address and
 have the chief's machine send it just by showing the chat. So the chip
-shows the words, the host and a button, SHOW PICTURE, and only the press
+shows the words, the host and a button, Show Picture, and only the press
 fetches. The fetch is bounded in time, size and redirects, takes only an
 answer that is an image, and keeps the picture in memory only.
 
@@ -258,12 +339,19 @@ reply puts its line before the words, so every `at` moves by the length of
 that line. Escape leaves the field with its words and chips kept. A line that cannot be sent yet, because an attachment is
 still going up, waits for a word or was refused, leaves the field as it is.
 
+Each chat keeps its own draft, words and chips, for the window's life
+(`Unsent` in `screens/chat/field.rs`). An attachment belongs to its draft
+and keeps going up while another chat is shown.
+
 ## Images on a line
 
 A chief attaches PNG, JPEG, WebP and GIF images to a line (C33), animated
 ones too. Drop files on the window, paste with Cmd+V on macOS or Ctrl+V
-elsewhere in the field, or press the picture button beside the field and
-choose them. A paste takes image files copied in a file manager, or a picture
+elsewhere in the field, or press the picture button in the composer's
+toolbar and choose them. The toolbar fits any width (`hub/thread.rs`,
+`crowd`): the model's name is cut first, then the icon buttons fold into
+one "More" menu, then the hamlet's mode shows its shield alone. A paste
+takes image files copied in a file manager, or a picture
 such as a screenshot; words on the clipboard are pasted as words. Each image
 is uploaded at once, shown as a chip in the field, and sent with the line,
 which may hold only images. A line waits for every image to be kept; the chip
@@ -304,15 +392,22 @@ The number of images a line takes is the model's limit. A chief says that a
 model of a custom endpoint takes images, and within what limits, in the model
 catalogue in Settings, or with `hamlet models images`.
 
-A sent line shows each image as a chip in its words, at its place, with a small
-copy the server makes (S29) fetched by its id when the row is built and kept as
-a picture like the rest (see Pictures above), and each file or folder as a chip
-with its name and size. The words of a line with a place are drawn plain, so a
-link or a quote in them is drawn as in any line, with the chips among the words;
-the attachments of a line with no place follow its words in a row of chips. A
-click on an image's chip fetches the image itself and opens it with the
-program the system keeps for it. The window only reads the bytes of what is
-attached; the server checks, resizes and keeps them. A rewind puts the images of the line back in the field with its words.
+A sent line shows its images over its words as a wrapping row of square
+tiles of the small copy the server makes (S29), fetched by id and kept as a
+picture like the rest. A tile keeps its size while its copy comes. Each
+image and file is also a chip in the words at its place; the attachments
+of a line with no place follow its words. The window only reads the bytes
+of what is attached; the server checks, resizes and keeps them. A rewind
+puts the images back in the field.
+
+A chip is as high as a line of the words around it and shares their
+baseline.
+
+**The viewer.** A click on an image's chip or tile, or its zoom button,
+shows the image over the window on a veil (`screens/viewer.rs`): the small
+copy first, then the image itself once read off the frame, fitted in the
+window and never drawn past one screen pixel to each of its own. Escape, a
+click on the veil or the close button closes it.
 
 The system reports no pointer with a drop, so the hand holds each dropped
 file until the pointer is seen on something. Over the chat, a file is
@@ -320,9 +415,10 @@ attached. A file that is seen on nothing within a moment is let lie.
 
 ## Questions to the chief
 
-An agent asks the chief with `ask_chief`, and its turn waits for the
-answer. One call holds every question the agent has, so a skill that
-grills the chief asks them all at once:
+An agent puts questions to the chief with `request_chief`, and its turn
+waits for the answer. It asks from any turn of its conversation; a worker
+or an errand asks only in the turn of a chief's own line. One call holds
+every question the agent has:
 
 ```json
 {"message": "Before I plan the shelf.",
@@ -349,8 +445,8 @@ between them at its head. The options are a list of rows, each with its
 letter, its title and its description, and the one picked is highlighted. A
 line under them, Other, takes words. Each question takes one option or
 words, not both, and picking an option moves on to the next question.
-SUBMIT, on the last question, sends the answers when each question has
-one, and otherwise shows the first without one. DISMISS tells the agent
+Submit, on the last question, sends the answers when each question has
+one, and otherwise shows the first without one. Dismiss tells the agent
 to go on with its best judgement.
 
 **The answer is the chief's reply.** The agent is given it as words, each
@@ -366,7 +462,7 @@ A line typed to the agent in the chat or the terminal still answers the
 whole card at once, as `The chief answers: ...`. The tool's description
 tells the agent not to write the questions in its reply too, and to take
 them as answered. In the chat the answer is a bubble of the chief's own,
-`Entry::Answered`, made from the `ask_chief` result both as it comes and
+`Entry::Answered`, made from the `request_chief` result both as it comes and
 when the log is read back. It has no mark to rewind to, since it is a
 tool's answer and not a message of the log. A card dismissed shows
 nothing.
@@ -377,7 +473,8 @@ the questions in them.
 ## What it costs
 
 The chat is put in order again only when a conversation's shape changes:
-an entry added, a tool ended, the selection or a fold changed. A word
+an entry added, a tool ended, the agent beginning or ending its answer,
+the selection or a fold changed. A word
 added to a reply changes no shape.
 
 The chat is a virtual list, fynix's `virtual_list`. Only the rows within
@@ -394,13 +491,12 @@ When the rows change, `fold_lines` compares them with the rows before by
 their keys and tells the list which span changed. Rows added or removed
 above the view do not move what is being read. The view stays at the end
 as rows are added or grow, until it is scrolled up, and again once it is
-back at the end. Sending, opening another conversation and the button at
-the chat's lower corner take it to the end. The button shows whenever the
-view does not follow the end.
+back at the end. Sending and the button at the chat's lower corner take it
+to the end. The button shows whenever the view does not follow the end.
 
-A past conversation read from History is not a virtual list. It builds
-its last 40 rows, and "Earlier" builds 40 more; once every row it holds
-is built, "Earlier" also asks the server for the page before them.
+Each chat is shown again where the chief left it, for the window's life,
+by `Place`: at its end, or with the row first in view. A chat not shown
+before opens at its end.
 
 A reply that grows is read again from its last settled block, and the blocks
 before it are shared, not parsed or compared again.

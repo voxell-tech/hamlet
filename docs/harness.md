@@ -24,10 +24,11 @@ store (ADR 0012).
 - A runtime's versions never change. A runtime that reports other
   versions than it began with is refused.
 - A conversation has a kind, which the server tells the runtime when it
-  creates it: `chat`, `letters`, `questions`, `worker`, `errand` or `dream`.
-  A one-off conversation, such as the librarian's answer or a parent's review,
-  is an errand: a conversation like any other, bound to a runtime. The agent
-  it is for is named by its id.
+  creates it: `chat`, `worker`, `errand` or `dream`. A `chat` is the one
+  conversation of the Hand or an agent of a hamlet, which every input for
+  it goes into. A one-off conversation, such as the librarian's answer or
+  a parent's review, is an errand: a conversation like any other, bound to
+  a runtime. The agent it is for is named by its id.
 
 ## The runtime protocol
 
@@ -89,6 +90,20 @@ admits nothing new and answers as the first time did. The server marks an
 input admitted only when the runtime says it kept it, and submits it
 again after a restart or a lost reply (S23).
 
+The server submits a conversation's next input only once its turn before
+has ended, a chief's lines and retries first, and none while a chief holds
+it stopped. What is not a turn is sent at once:
+
+- `write` is an entry written without a turn, admitted once by its
+  request ID: a notice only people see, or with `content`, words the model
+  is given from the next boundary on.
+- `compact` summarizes the earlier conversation now, keeping
+  `instructions`; `admitted` answers once it is under way.
+
+pi also compacts when the context fills (C28): `runtime.ts` keeps 20% of
+the model's window for an answer and starts a summary 10% before that. A
+compaction is shown as a `summary` item.
+
 An input may carry images (C33), as may a tool result (C34). The server sends
 their bytes, fitted to the conversation's model, with the submission or the
 result, and keeps only their ids; pi hands them to the model as image
@@ -107,8 +122,9 @@ counts the model as taking them.
 | Attempt identity | The runtime ID with a key local to the runtime | The realm |
 
 A request ID begins with its kind, such as `chief:`, `retry:`, `reflection:`,
-`notice:`, `reply:`, `errand:`, `worker:` or `dream:`. Those of letters and
-questions come from the server's record of them. pi's task IDs are numbers
+`notice:`, `response:`, `errand:`, `worker:`, `dream:`, `compaction:` or
+`merged:`. Those of notifications and requests come from the server's
+record of them. pi's task IDs are numbers
 local to its store, so an operation identity is the runtime ID and the task
 ID together. A provider's tool-call ID is never treated as unique. A model
 attempt names the input it answers with `submission`, the runtime's own ID

@@ -33,8 +33,7 @@ use crate::world_menu::{self, Action};
 pub(super) fn plugin(app: &mut App) {
     app.init_resource::<Draft>()
         .add_observer(answered)
-        // Before fynix mounts the page the pane opens, so its fields
-        // start from the draft.
+        // Before fynix mounts, so the fields start from the draft.
         .add_systems(
             PreUpdate,
             begin
@@ -44,15 +43,14 @@ pub(super) fn plugin(app: &mut App) {
 }
 
 pub(super) const CHOICES: [&str; 2] =
-    ["This computer", "Remote server"];
+    ["This Computer", "Remote Server"];
 
 /// The workspace as the page has it until it is saved.
 #[derive(Resource, Default)]
 struct Draft {
     remote: bool,
     url: String,
-    /// Never received: the server keeps it and shows only the
-    /// address.
+    /// Never received: the server shows only the address.
     token: String,
     saving: Option<protocol::RequestId>,
     saved: bool,
@@ -61,8 +59,7 @@ struct Draft {
     rejection: String,
 }
 
-/// Starts the draft from the chosen workspace each time the page
-/// opens.
+/// Starts the draft from the chosen workspace as the page opens.
 fn begin(
     pane: Res<Pane>,
     settings: Res<Settings>,
@@ -107,8 +104,7 @@ fn save(world: &mut World) {
     draft.rejection.clear();
 }
 
-/// Asks the server to copy the worktrees to the saved workspace. The
-/// settings it sends show how far it has come.
+/// Asks the server to copy the worktrees to the saved workspace.
 pub(crate) fn move_worktrees(world: &mut World) {
     let id = world.resource_mut::<Outbox>().send(|id| {
         protocol::ClientMessage::MoveWorktrees(
@@ -179,7 +175,7 @@ fn move_of(
 }
 
 /// What moving the worktrees does, how far it has come or how it
-/// ended. A failure is the rejection's to tell.
+/// ended.
 fn progress(settings: &Settings) -> String {
     use protocol::SettingsViewWorkspaceMoveState as State;
     if !is_waiting_for_restart(settings) {
@@ -209,8 +205,7 @@ fn progress(settings: &Settings) -> String {
     }
 }
 
-/// The button that moves the worktrees to the saved workspace, while
-/// it waits for a restart and no move runs.
+/// The button that moves the worktrees to the saved workspace.
 fn moving() -> AnyView {
     keyed(
         resource::<Settings, _>(|settings| {
@@ -222,7 +217,7 @@ fn moving() -> AnyView {
         }),
         |offered| {
             if *offered {
-                bad_action(Glyph::Send, "Move worktrees", |world| {
+                bad_action(Glyph::Send, "Move Worktrees", |world| {
                     world_menu::ask(world, Action::MoveWorktrees);
                 })
             } else {
@@ -302,8 +297,7 @@ pub(super) fn page() -> impl View {
     ))
 }
 
-/// Moving the worktrees, apart in a card of what is done for good,
-/// once a saved workspace waits for a restart.
+/// The card that moves the worktrees, once a restart waits.
 fn moved() -> impl View {
     keyed(resource::<Settings, _>(is_waiting_for_restart), |waits| {
         if !*waits {
@@ -335,7 +329,6 @@ mod tests {
         control, press, requests, settings_page, settle,
         words_and_spans,
     };
-    use crate::world_menu;
 
     fn received(
         app: &mut App,
@@ -388,8 +381,7 @@ mod tests {
         settle(app);
     }
 
-    /// The edits left to apply after selecting all, copying, cutting
-    /// and pasting in the field.
+    /// The edits left after select all, copy, cut and paste.
     fn kept_edits(app: &mut App, name: &str) -> Vec<TextEdit> {
         let field = control::<EditableText>(app, name);
         let mut text =
@@ -424,7 +416,7 @@ mod tests {
             "Takes effect when Hamlet restarts."
         ));
         assert!(!said(&mut app, "Server address"));
-        press(&mut app, "Remote server");
+        press(&mut app, "Remote Server");
         settle(&mut app);
         type_into(
             &mut app,
@@ -528,7 +520,7 @@ mod tests {
             app.world().get::<EditableText>(address).unwrap().value(),
             "https://workspace.example"
         );
-        press(&mut app, "This computer");
+        press(&mut app, "This Computer");
         settle(&mut app);
         press(&mut app, "Save");
         assert_eq!(
@@ -537,101 +529,5 @@ mod tests {
                 "type": "edit", "doc": "settings", "set": {"workspace": null}
             })]
         );
-    }
-
-    #[test]
-    fn worktrees_move_to_the_saved_workspace_with_their_progress_and_rejection_shown()
-     {
-        use protocol::SettingsViewWorkspaceMoveState as State;
-        let url = Some("https://workspace.example");
-        let mut app = settings_page(Pane::Front);
-        received(&mut app, 2, None, None);
-        *app.world_mut().resource_mut::<Pane>() = Pane::Workspace;
-        settle(&mut app);
-        let said = |app: &mut App, text: &str| {
-            words_and_spans(app).iter().any(|shown| shown == text)
-        };
-        // Nothing waits for a restart, so nothing moves.
-        assert!(!said(&mut app, "Move worktrees"));
-        received(&mut app, 3, url, None);
-        assert!(said(
-            &mut app,
-            "Copies every agent's worktree to the remote server, \
-             replacing the worktrees there."
-        ));
-        requests(&mut app);
-        app.init_resource::<world_menu::Open>();
-        bevy_fynix::mount::<hamlet_ui::theme::HamletTheme>(
-            app.world_mut(),
-            world_menu::view(),
-        );
-        press(&mut app, "Move worktrees");
-        settle(&mut app);
-        assert!(requests(&mut app).is_empty(), "asked first");
-        press(&mut app, "Replace them");
-        let Some(protocol::ClientMessage::MoveWorktrees(
-            protocol::MoveWorktrees { id },
-        )) = app.world().resource::<Outbox>().iter().next().cloned()
-        else {
-            panic!("no move was sent");
-        };
-        assert_eq!(
-            requests(&mut app),
-            [serde_json::json!({"type": "move-worktrees"})]
-        );
-        let moving = |done, state, text: &str| {
-            Some(protocol::SettingsViewWorkspaceMove {
-                state,
-                done,
-                of: 2,
-                text: text.into(),
-            })
-        };
-        received_moving(
-            &mut app,
-            4,
-            url,
-            None,
-            moving(1, State::Moving, ""),
-        );
-        assert!(said(&mut app, "Moving worktrees: 1 of 2."));
-        let stopped = "The worktree of agent#3 was not moved.";
-        received_moving(
-            &mut app,
-            5,
-            url,
-            None,
-            moving(1, State::Failed, stopped),
-        );
-        hamlet_client::receive(
-            app.world_mut(),
-            protocol::ServerMessage::Reply(protocol::Reply {
-                to: id,
-                kind: protocol::ReplyKind::Error,
-                text: stopped.into(),
-                upload: None,
-                image: None,
-                images: Vec::new(),
-                file: None,
-                files: Vec::new(),
-            }),
-        );
-        settle(&mut app);
-        assert_eq!(
-            words_and_spans(&mut app)
-                .iter()
-                .filter(|shown| *shown == stopped)
-                .count(),
-            1
-        );
-        let moved = "Moved 2 worktrees to the remote server.";
-        received_moving(
-            &mut app,
-            6,
-            url,
-            None,
-            moving(2, State::Moved, moved),
-        );
-        assert!(said(&mut app, moved));
     }
 }

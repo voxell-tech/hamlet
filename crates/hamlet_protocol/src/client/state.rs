@@ -227,7 +227,6 @@ pub struct Agent {
     pub allowance: Option<f64>,
     pub busy: bool,
     pub consulting: bool,
-    pub conversations: Vec<ConversationView>,
     /// How hard it thinks when chosen for it; none while it follows
     /// the realm's `effort` setting.
     #[serde(deserialize_with = "Option::deserialize")]
@@ -241,6 +240,10 @@ pub struct Agent {
     pub id: AgentId,
     pub kind: AgentKind,
     pub lead: bool,
+    /// Whether an agent's branch holds learning no dream has brought
+    /// home yet.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub learned: bool,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[serde(deserialize_with = "crate::client::present")]
     #[schemars(with = "Left")]
@@ -494,29 +497,6 @@ pub enum Doing {
     Custom,
     #[serde(rename = "await")]
     Await,
-}
-
-#[derive(
-    Clone, Debug, PartialEq, Serialize, Deserialize, JsonSchema,
-)]
-#[serde(deny_unknown_fields)]
-pub struct ConversationView {
-    pub count: i64,
-    pub kind: ConversationViewKind,
-    #[serde(deserialize_with = "Option::deserialize")]
-    pub last: Option<i64>,
-    /// The agent the conversation is from.
-    pub with: AgentId,
-}
-
-#[derive(
-    Clone, Debug, PartialEq, Serialize, Deserialize, JsonSchema,
-)]
-pub enum ConversationViewKind {
-    #[serde(rename = "letters")]
-    Letters,
-    #[serde(rename = "questions")]
-    Questions,
 }
 
 #[derive(

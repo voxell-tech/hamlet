@@ -1,14 +1,5 @@
-//! Terminals: the chief's own shells on pseudo-terminals, and the
-//! commands of each agent's shell tool, kept for the windows that
-//! watch them and across restarts.
-//!
-//! A shell is the chief's own, with the server account's reach and
-//! no sandbox; agents have none. An agent's commands terminal shows
-//! what its shell tool ran, and takes no input.
-//!
-//! What a terminal prints is queued, and the first print into an
-//! empty queue wakes the runner, so one input takes in a burst of
-//! output.
+//! Terminals: the chief's own unsandboxed shells, and the commands of
+//! each agent's shell tool.
 
 pub(crate) mod chief;
 pub(crate) mod persistence;
@@ -53,9 +44,7 @@ const ROOM: usize = 64;
 /// it is drawn again.
 const CATCH_UP: Duration = Duration::from_millis(100);
 
-/// What the terminals print, taken in as inputs; a watcher that fell
-/// behind drawn again on a timer; the chief's requests; and every
-/// terminal kept as the server stops.
+/// The terminals' output, watchers and requests.
 pub(crate) fn plugin(app: &mut App) {
     app.add_message::<TerminalsPrinted>()
         .add_handler::<TerminalsPrinted, _>(take_in_printed)
@@ -128,12 +117,13 @@ pub(crate) struct Feed {
 }
 
 impl Feed {
-    pub(crate) fn print(&self, bytes: &[u8]) {
+    /// Prints `bytes`. Returns the answers to their queries.
+    pub(crate) fn print(&self, bytes: &[u8]) -> Vec<u8> {
         if bytes.is_empty() {
-            return;
+            return Vec::new();
         }
         let mut screen = lock(&self.screen);
-        screen.take(bytes);
+        let answers = screen.take(bytes);
         // Queued under the lock, so a watch taken under it sees each
         // output either in its redraw or after it, never both.
         self.report(Printed::Output {
@@ -141,6 +131,7 @@ impl Feed {
             seq: screen.seq,
             bytes: bytes.to_vec(),
         });
+        answers
     }
 
     /// Queues `printed`; the first into an empty queue wakes the
@@ -399,7 +390,7 @@ impl Terminals {
                 continue;
             };
             let screen = lock(&terminal.screen);
-            if let Some(title) = &screen.parser.callbacks().0
+            if let Some(title) = &screen.parser.callbacks().title
                 && *title != terminal.view.title
             {
                 terminal.view.title = title.clone();
@@ -498,8 +489,7 @@ impl Terminals {
 }
 
 /// Sends what the terminals printed to the connections that watch
-/// them, and publishes a change of a title, a last command or an
-/// end.
+/// them.
 fn take_in_printed(
     mut woken: ResMut<Messages<TerminalsPrinted>>,
     mut terminals: ResMut<Terminals>,

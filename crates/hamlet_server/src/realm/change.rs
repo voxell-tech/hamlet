@@ -1,10 +1,11 @@
-//! A change to the realm in progress: its transaction, its time, who
-//! makes it, and what it touched for the clients to see again.
+//! A change to the realm in progress.
 
 use std::collections::BTreeSet;
 
 use hamlet_store::Db;
-use hamlet_store::ids::{Actor, AgentId, HamletId, ProfileId};
+use hamlet_store::ids::{
+    Actor, AgentId, ConversationId, HamletId, ProfileId,
+};
 
 use crate::society::rejection::Rejection;
 
@@ -20,13 +21,21 @@ macro_rules! reject {
 }
 pub(crate) use reject;
 
-/// Unwraps a change's result, or ends the change with its rejection.
-macro_rules! done {
+/// Unwraps a check's result, or ends the change with its rejection.
+macro_rules! checked {
     ($result:expr) => {
-        match $result? {
+        match $result {
             Ok(value) => value,
             Err(rejection) => return Ok(Err(rejection)),
         }
+    };
+}
+pub(crate) use checked;
+
+/// Unwraps a change's result, or ends the change with its rejection.
+macro_rules! done {
+    ($result:expr) => {
+        $crate::realm::change::checked!($result?)
     };
 }
 pub(crate) use done;
@@ -37,6 +46,8 @@ pub(crate) struct Touched {
     pub agents: BTreeSet<AgentId>,
     pub profiles: BTreeSet<ProfileId>,
     pub hamlets: BTreeSet<HamletId>,
+    /// The conversations whose queued inputs or hold changed.
+    pub queues: BTreeSet<ConversationId>,
     /// Jobs were kept that the runner has not seen.
     pub jobs: bool,
 }
@@ -71,8 +82,8 @@ impl From<diesel::result::Error> for Stop {
     }
 }
 
-/// Makes the change `make` by `actor` at `at` in a savepoint of the
-/// open transaction. A rejection leaves nothing of it.
+/// Makes the change `make` by `actor` at `at` in a savepoint, rolled
+/// back on a rejection.
 pub(crate) fn run<T>(
     db: &mut Db,
     at: i64,

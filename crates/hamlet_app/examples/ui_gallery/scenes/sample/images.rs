@@ -30,6 +30,7 @@ pub(super) fn conversation() -> Transcript {
         Item {
             id: "entry-0:0".into(),
             at: 1_791_374_400_000,
+            queued: false,
             entry: Entry::Chief {
                 name: "chief".into(),
                 text: "Is this the pear tree, or this one? Notes:"
@@ -56,6 +57,7 @@ pub(super) fn conversation() -> Transcript {
         Item {
             id: "entry-1:0".into(),
             at: 1_791_374_460_000,
+            queued: false,
             entry: Entry::Assistant(
                 "The one on the left has pears on it.".into(),
             ),

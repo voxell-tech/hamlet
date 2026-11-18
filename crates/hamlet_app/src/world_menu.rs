@@ -1,13 +1,11 @@
-//! The menu of a thing in the world, asked for with the right button,
-//! and the question before anything that ends an agent or closes a
-//! hamlet.
+//! The right-click menu of a thing in the world, and its questions.
 
 mod action;
 mod add_agent;
 mod channel;
 mod founding;
 mod items;
-mod model;
+pub(crate) mod model;
 mod new_profile;
 
 use bevy::app::{App, Update};
@@ -33,12 +31,13 @@ use bevy_fynix::shortcut::{
 use bevy_fynix::tokens::Tone;
 use bevy_fynix::views::{
     self, BehaviorExt, FrameProps, POPUP, button, column, frame,
-    label, menu_item, overlay, popup, row,
+    label, overlay, popup, row,
 };
 use bevy_fynix::{
     ScopedExt, ViewExt, derived, every_frame, keyed, resource,
 };
 use hamlet_client::messages::Veto;
+use hamlet_client::outbox::RequestId;
 use hamlet_client::realm::{self as agents, Actions};
 use hamlet_realm::orders;
 use hamlet_realm::pick::{Asked, AskedGround, Thing};
@@ -48,13 +47,12 @@ use hamlet_ui::{AnyView, Cx, View, with_cx};
 
 pub(crate) use self::action::{Action, question};
 pub(crate) use self::founding::Founding;
+pub(crate) use self::model::{ChipName, Hook, chip};
 pub use self::model::{
     Favorites, LastSide, open as open_model, search as search_models,
 };
-pub(crate) use self::model::{Hook, chip};
 
-/// The command that sends the form open in a popup, or answers yes to
-/// its question, from the keys.
+/// The command that sends a popup's form or answers its question.
 const SUBMIT: CommandId = CommandId("popup.submit");
 
 pub fn plugin(app: &mut App) {
@@ -84,18 +82,16 @@ pub fn plugin(app: &mut App) {
         );
 }
 
-/// The keys that send a form: the primary key and Enter, and Control
-/// and Enter on macOS too, where Control is not the primary key.
+/// The keys that send a form: primary and Enter, and Control and
+/// Enter.
 pub(crate) const SUBMIT_KEYS: [Chord; 2] =
     [SEND_KEYS.chord(), Keys::new(KeyCode::Enter).ctrl().chord()];
 
-/// The keys a form's sending button shows: the first of
-/// [`SUBMIT_KEYS`].
+/// The keys a form's sending button shows.
 pub(crate) const SEND_KEYS: Keys =
     Keys::new(KeyCode::Enter).primary();
 
-/// The keys that send a form, at the far end of the row of its
-/// buttons, so the chief learns it can be sent from the keyboard.
+/// The keys that send a form, at the end of its buttons.
 pub(crate) fn send_keys() -> AnyView {
     row((SEND_KEYS.view(),))
         .grow(1.0)
@@ -139,8 +135,7 @@ impl Open {
     }
 }
 
-/// Sends the form that is open, or does the action its question asks
-/// about, as its first button does.
+/// Does what the open popup's first button does.
 fn submit(world: &mut World) {
     match world.resource::<Open>().clone() {
         Open::Question(action, _) => action::answer(world, &action),
@@ -151,8 +146,7 @@ fn submit(world: &mut World) {
     }
 }
 
-/// On a field of a form: it takes the focus when it is shown, so the
-/// form is typed in at once.
+/// On a form's field that takes the focus when shown.
 #[derive(Component)]
 pub(crate) struct TakesFocus;
 
@@ -172,9 +166,7 @@ fn focus_new_fields(
     }
 }
 
-/// The parts of a form that may be left out, folded under a line that
-/// opens them, and folded until it is pressed: `open` reads whether
-/// they are shown from the form's resource and `flip` turns it.
+/// A form's optional parts, folded under a line that opens them.
 pub(crate) fn optional<R: Resource<Mutability = Mutable>>(
     open: fn(&R) -> bool,
     flip: fn(&mut R),
@@ -189,7 +181,7 @@ pub(crate) fn optional<R: Resource<Mutability = Mutable>>(
                     .rotation(resource::<R, _>(move |r| {
                         if open(r) { 180.0 } else { 90.0 }
                     })),
-                label("More options").tone(Tone::Dim).wrap(false),
+                label("More Options").tone(Tone::Dim).wrap(false),
             ))
             .gap(6.0)
             .align(AlignItems::Center),
@@ -209,8 +201,7 @@ pub(crate) fn optional<R: Resource<Mutability = Mutable>>(
     })
 }
 
-/// On a row of a panel: the thing it stands for, whose menu the
-/// right button opens there as it does in the world.
+/// On a panel's row: the thing whose menu a right click opens.
 #[derive(Component)]
 pub struct Asks(pub Thing);
 
@@ -233,8 +224,7 @@ pub(crate) fn ask_of_row(
     asked.0 = Some((row.0, at));
 }
 
-/// Opens the menu of a thing that was asked about, or of the
-/// ground.
+/// Opens the menu of the thing asked about, or of the ground.
 pub(crate) fn answer_ask(
     mut asked: ResMut<Asked>,
     mut ground: ResMut<AskedGround>,
@@ -251,9 +241,7 @@ pub(crate) fn answer_ask(
     let Some(at) = ground else {
         return;
     };
-    // The click that asked about a thing reaches the world's own
-    // surface too, a moment later and at the same place. It is not
-    // a second question about the ground under the thing.
+    // The same click also reaches the ground a moment later.
     let same = match &*open {
         Open::Menu(_, was) => was.distance(at) < 2.0,
         Open::Question(_, was) => was.min.distance(at) < 2.0,
@@ -268,8 +256,7 @@ fn close(world: &mut World) {
     *world.resource_mut::<Open>() = Open::Nothing;
 }
 
-/// One line of a popup's form: the question `what` over a field of
-/// the text in resource `R` that `read` and `write` reach.
+/// One line of a popup's form: `what` over its field.
 fn asks<R: Resource<Mutability = Mutable>>(
     what: &'static str,
     read: fn(&R) -> &String,
@@ -281,8 +268,7 @@ fn asks<R: Resource<Mutability = Mutable>>(
     ))
 }
 
-/// The first line of a popup's form, as [`asks`], whose field takes
-/// the focus when the form opens.
+/// [`asks`] whose field takes the focus when the form opens.
 fn asks_first<R: Resource<Mutability = Mutable>>(
     what: &'static str,
     read: fn(&R) -> &String,
@@ -308,10 +294,15 @@ fn field<R: Resource<Mutability = Mutable>>(
     .rules(hamlet_ui::styles::text_input)
 }
 
-/// Stops what `agent` is doing now.
-pub(super) fn stop(world: &mut World, agent: Entity) {
-    world.trigger(Veto { agent: Some(agent) });
+/// Stops what `agent` is doing now, and gives the id of the request.
+pub(super) fn stop(world: &mut World, agent: Entity) -> RequestId {
+    let request = RequestId::new();
+    world.trigger(Veto {
+        request: request.clone(),
+        agent: Some(agent),
+    });
     world.flush();
+    request
 }
 
 /// The place of the pointer, in the panels' pixels.
@@ -324,8 +315,7 @@ fn pointer(world: &mut World) -> Vec2 {
     at / world.get_resource::<UiScale>().map_or(1.0, |scale| scale.0)
 }
 
-/// Opens the menu of `thing` at the pointer, as a right click on
-/// it does.
+/// Opens the menu of `thing` at the pointer.
 pub(crate) fn open_for(world: &mut World, thing: Thing) {
     let at = pointer(world);
     *world.resource_mut::<Open>() = Open::Menu(thing, at);
@@ -356,8 +346,7 @@ pub(crate) fn ask_found(world: &mut World) {
     *world.resource_mut::<Open>() = Open::Founding(at);
 }
 
-/// Opens the form a profile is made in the city with, at the
-/// pointer.
+/// Opens the new profile form at the pointer.
 pub(crate) fn ask_new_profile(world: &mut World) {
     if !Actions::is_allowed(world, "profile") {
         return;
@@ -366,8 +355,7 @@ pub(crate) fn ask_new_profile(world: &mut World) {
     *world.resource_mut::<Open>() = Open::NewProfile(at);
 }
 
-/// Opens the form an agent is added under `parent` with, at the
-/// pointer.
+/// Opens the form that adds an agent under `parent`, at the pointer.
 pub(crate) fn ask_add_agent(world: &mut World, parent: Entity) {
     if !Actions::is_allowed(world, "add-agent") {
         return;
@@ -464,14 +452,15 @@ fn menus() -> AnyView {
                 if !Actions::is_allowed(cx.world, "create-hamlet") {
                     return cx.build(frame());
                 }
-                let found = menu_item(
-                    label("Create a Hamlet...").wrap(false),
-                )
-                .on_activate(move |world| {
-                    *world.resource_mut::<Open>() =
-                        Open::Founding(at);
-                })
-                .boxed();
+                let found = items::item(
+                    Glyph::Hamlet,
+                    Tone::Success,
+                    "Create a Hamlet",
+                    move |world| {
+                        *world.resource_mut::<Open>() =
+                            Open::Founding(at);
+                    },
+                );
                 cx.build(menu(at, vec![found]))
             }),
             Open::Founding(at) => founding::founding(at).boxed(),
@@ -489,151 +478,4 @@ fn menus() -> AnyView {
     )
     .within(overlay(()))
     .boxed()
-}
-
-#[cfg(test)]
-mod tests {
-    use hamlet_client::outbox::Outbox;
-    use hamlet_client::realm::HamletId;
-    use hamlet_protocol::client as protocol;
-    use hamlet_realm::pick::{Also, Selected};
-    use hamlet_testing::realm;
-
-    use super::*;
-    use crate::testing::{panel_app, press, words};
-
-    fn app(state: protocol::State) -> App {
-        let mut app = panel_app();
-        hamlet_client::receive(
-            app.world_mut(),
-            protocol::ServerMessage::State(state),
-        );
-        app.add_plugins((crate::chat::plugin, plugin))
-            .init_resource::<Asked>()
-            .init_resource::<AskedGround>()
-            .init_resource::<Selected>()
-            .init_resource::<Also>();
-        bevy_fynix::mount::<hamlet_ui::theme::HamletTheme>(
-            app.world_mut(),
-            view(),
-        );
-        app.update();
-        app.world_mut()
-            .resource_mut::<Outbox>()
-            .drain()
-            .for_each(drop);
-        app
-    }
-
-    fn open(app: &mut App, open: Open) {
-        *app.world_mut().resource_mut::<Open>() = open;
-        app.update();
-    }
-
-    fn sent(app: &mut App) -> Vec<protocol::ClientMessage> {
-        app.world_mut().resource_mut::<Outbox>().drain().collect()
-    }
-
-    #[test]
-    fn ground_and_town_offer_only_received_actions() {
-        let mut state = realm::state();
-        state.actions = realm::actions(&["new", "stop"]);
-        let mut app = app(state.clone());
-        app.world_mut().resource_mut::<AskedGround>().0 =
-            Some(Vec2::ZERO);
-        app.update();
-        assert!(
-            !words(&mut app)
-                .iter()
-                .any(|text| text == "Create a Hamlet...")
-        );
-        let world = app.world_mut();
-        let home = world
-            .query_filtered::<Entity, With<HamletId>>()
-            .single(world)
-            .unwrap();
-        open(&mut app, Open::Menu(Thing::Common(home), Vec2::ZERO));
-        assert!(
-            !words(&mut app)
-                .iter()
-                .any(|text| text == "Close Down home...")
-        );
-
-        state.actions =
-            realm::actions(&["create-hamlet", "remove-hamlet"]);
-        hamlet_client::receive(
-            app.world_mut(),
-            protocol::ServerMessage::State(state),
-        );
-        open(&mut app, Open::Ground(Vec2::ZERO));
-        assert!(
-            words(&mut app)
-                .iter()
-                .any(|text| text == "Create a Hamlet...")
-        );
-        open(&mut app, Open::Menu(Thing::Common(home), Vec2::ZERO));
-        assert!(
-            words(&mut app)
-                .iter()
-                .any(|text| text == "Close Down home...")
-        );
-    }
-
-    #[test]
-    fn channels_are_offered_only_when_supported_and_sent_to_the_lead()
-    {
-        let mut state = realm::state();
-        state.agents.extend([
-            realm::agent(3, "home", false),
-            realm::agent(4, "home", false),
-        ]);
-        let mut app = app(state.clone());
-        let a = agents::named(app.world_mut(), "agent#3").unwrap();
-        let b = agents::named(app.world_mut(), "agent#4").unwrap();
-        app.world_mut().resource_mut::<Selected>().0 =
-            Some(Thing::Agent(a));
-        app.world_mut().resource_mut::<Also>().0 =
-            Some(Thing::Agent(b));
-        open(&mut app, Open::Menu(Thing::Agent(a), Vec2::ZERO));
-        let shown = words(&mut app);
-        for absent in [
-            "End agent#3...",
-            "Make agent#3 Lead...",
-            "Merge agent#3 into agent#4...",
-        ] {
-            assert!(
-                !shown.iter().any(|text| text == absent),
-                "unsupported: {absent}"
-            );
-        }
-        state.actions = realm::actions(&["channel"]);
-        hamlet_client::receive(
-            app.world_mut(),
-            protocol::ServerMessage::State(state),
-        );
-        open(&mut app, Open::Nothing);
-        open(&mut app, Open::Channel(a, Vec2::ZERO));
-        press(&mut app, "agent#4");
-        let messages = sent(&mut app);
-        let [protocol::ClientMessage::Say(say)] = &messages[..]
-        else {
-            panic!("one channel: {messages:?}");
-        };
-        assert_eq!(say.to, protocol::AgentId(2));
-        assert_eq!(say.text, "/channel agent#3 agent#4");
-    }
-
-    #[test]
-    fn the_first_leads_menu_stops_it() {
-        let mut app = app(realm::state());
-
-        open(&mut app, Open::Menu(Thing::Keeper, Vec2::ZERO));
-        press(&mut app, "Stop the Lead");
-        let messages = sent(&mut app);
-        let [protocol::ClientMessage::Stop(stop)] = &messages[..]
-        else {
-            panic!("one stop: {messages:?}");
-        };
-        assert_eq!(stop.agent, Some(protocol::AgentId(2)));
-    }
 }

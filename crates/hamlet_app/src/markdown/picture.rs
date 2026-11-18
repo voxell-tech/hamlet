@@ -1,6 +1,4 @@
-//! A picture in a reply drawn (docs/chat.md): the picture in its
-//! frame, the plate that holds its place while it is read, and the
-//! chip of one that is on the web or cannot be shown.
+//! A picture in a reply (docs/chat.md).
 
 use bevy::ecs::hierarchy::ChildOf;
 use bevy::ecs::world::World;
@@ -35,8 +33,7 @@ fn plain(text: &str) -> Span {
     }
 }
 
-/// The picture `drawn`, no larger than `most`, over its caption. A
-/// click leads where `source` is.
+/// The picture `drawn`, no larger than `most`, over its caption.
 fn shown(
     drawn: &Drawn,
     source: &Source,
@@ -48,15 +45,13 @@ fn shown(
     let picture = AnyView::new(move |cx: &mut Cx| {
         let edge = 1.0;
         let outer = size + 2.0 * edge;
-        // The picture's width, or the room there is, set on a node
-        // apart from the picture's own: with both on one, its height
-        // is laid out at the width it would have had uncapped.
+        // On a node of its own, or the height follows the uncapped
+        // width.
         let within = cx.build(
             bare().width(px(outer.x)).max_width(percent(100.0)),
         );
         let theme = cx.theme();
-        // A node of its own, whose image no paint of a view tints
-        // and whose height follows the width it ends up with.
+        // A node of its own, so no view's paint tints the image.
         let node = cx
             .world
             .spawn((
@@ -99,8 +94,7 @@ const SMALL: Ink = Ink {
     face: Face::Body,
 };
 
-/// The chip of the picture at `address`, on the web, which is fetched
-/// when its button is pressed.
+/// The chip of a web picture, fetched when pressed.
 fn web_chip(
     cx: &Cx,
     address: &str,
@@ -135,7 +129,7 @@ fn web_chip(
         State::Loading => note("Fetching...").boxed(),
         _ => {
             let address = address.to_string();
-            action(Glyph::Eye, "Show picture", move |world| {
+            action(Glyph::Eye, "Show Picture", move |world| {
                 fetch(world, &address);
             })
         }
@@ -147,19 +141,18 @@ fn web_chip(
     )
 }
 
-/// `content` on an inset the window draws in a reply, set apart from
-/// what the agent wrote around it without a second frame in the
-/// bubble's.
+/// `content` on an inset in a reply.
 fn chip(content: impl View) -> impl View {
     inset((content,)).max_width(percent(100.0))
 }
 
-/// The chip of a picture that cannot be shown: its caption, the name
-/// it was written by and `why`.
+/// The chip of a picture that cannot be shown, and `why`.
 fn missing(caption: &str, target: &Target, why: &str) -> impl View {
     let written = match target {
         Target::Web(address) => address,
-        Target::Path(path) => path,
+        Target::Path(path)
+        | Target::Agent(path)
+        | Target::AgentWords(path) => path,
     };
     let mut said = Vec::new();
     if !caption.is_empty() && caption != written {
@@ -180,9 +173,7 @@ fn missing(caption: &str, target: &Target, why: &str) -> impl View {
     )
 }
 
-/// The picture written as `target` with the words `caption`: the
-/// picture itself once it is read, and a card that says so if it is
-/// none that can be drawn.
+/// The picture written as `target`, or a card if it cannot be drawn.
 pub(crate) fn picture_view(
     caption: &str,
     target: &Target,
@@ -205,7 +196,9 @@ pub(crate) fn picture_view(
                         {
                             "is no picture"
                         }
-                        Target::Path(_) => "not found",
+                        Target::Path(_)
+                        | Target::Agent(_)
+                        | Target::AgentWords(_) => "not found",
                         Target::Web(_) => "is no web address",
                     };
                     let card = missing(&caption, &target, why);
@@ -246,7 +239,9 @@ pub(crate) fn picture_view(
                             })
                         }
                         (
-                            Source::File(_) | Source::Image(_),
+                            Source::File(_)
+                            | Source::Image(_)
+                            | Source::Original(_),
                             State::Failed,
                         ) => {
                             let (caption, target) =
@@ -260,7 +255,12 @@ pub(crate) fn picture_view(
                                 cx.build(card)
                             })
                         }
-                        (Source::File(_) | Source::Image(_), _) => {
+                        (
+                            Source::File(_)
+                            | Source::Image(_)
+                            | Source::Original(_),
+                            _,
+                        ) => {
                             let (wide, tall) =
                                 (most.x, settings.picture_wait);
                             AnyView::new(move |cx: &mut Cx| {

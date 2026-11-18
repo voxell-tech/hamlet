@@ -1,7 +1,5 @@
 //! The conversations' state each ready runtime is owed, sent in
-//! order: made or forked, cancelled, told its tools, then each kept
-//! input. The images of an input are fitted to its model on a thread
-//! of their own before it is sent.
+//! order.
 
 use std::path::Path;
 
@@ -56,8 +54,7 @@ pub(crate) struct FittedImages {
     pub pictures: Vec<Picture>,
 }
 
-/// An input whose images are being fitted, or were and are not sent
-/// yet: an entity until they are.
+/// An input whose images are fitted to its model, until it is sent.
 #[derive(Component)]
 pub(crate) struct FittingImages {
     conversation: ConversationId,
@@ -224,7 +221,13 @@ pub(crate) fn flush(
             }
             continue;
         }
-        for input in inputs::owed(db, owed.id, resend)? {
+        let sent = |request: &str| {
+            runtimes.is_in_flight(
+                to,
+                &Pending::Submit(owed.id, request.to_owned()),
+            )
+        };
+        for input in inputs::owed(db, owed.id, resend, sent)? {
             let pending =
                 Pending::Submit(owed.id, input.request.clone());
             if runtimes.is_in_flight(to, &pending) {
@@ -232,6 +235,18 @@ pub(crate) fn flush(
             }
             let mark = input.mark()?.wire();
             let conversation = handle.clone();
+            if input.kind == inputs::InputKind::Compaction {
+                runtimes.request(to, pending, |v, id| {
+                    ServerMessage::Compact(runtime::Compact {
+                        conversation,
+                        id,
+                        instructions: input.content,
+                        request: input.request,
+                        v,
+                    })
+                });
+                continue;
+            }
             let write = input.is_write();
             let pictures = if write {
                 Vec::new()
@@ -249,6 +264,8 @@ pub(crate) fn flush(
                 if write {
                     ServerMessage::Write(runtime::Write {
                         boundary: input.boundary.then_some(true),
+                        content: (!input.content.is_empty())
+                            .then_some(input.content),
                         conversation,
                         id,
                         mark,

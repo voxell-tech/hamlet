@@ -1,5 +1,4 @@
-//! The questions an agent puts to the chief with `ask_chief`: read
-//! from the call and checked, set out as words, and answered.
+//! The questions an agent puts to the chief with `request_chief`.
 
 use hamlet_protocol::client::{Offer, Pick, Question, Questions};
 use serde::Deserialize;
@@ -11,25 +10,25 @@ pub(crate) const MOST_QUESTIONS: usize = 10;
 /// The most options one question may offer.
 pub(crate) const MOST_OPTIONS: usize = 6;
 
-/// The head of every answer the chief gives to `ask_chief`.
+/// The head of every answer the chief gives to `request_chief`.
 pub(crate) const ANSWERS: &str = "The chief answers:";
 
-/// The arguments of `ask_chief`, as the tool's schema has them.
+/// The arguments of `request_chief`, as the tool's schema has them.
 #[derive(Deserialize)]
-struct AskChief {
+struct RequestChief {
     #[serde(default)]
     message: String,
-    questions: Vec<AskChiefQuestion>,
+    questions: Vec<RequestChiefQuestion>,
 }
 
 /// One question as the agent puts it.
 #[derive(Deserialize)]
-struct AskChiefQuestion {
+struct RequestChiefQuestion {
     question: String,
     #[serde(default)]
     description: String,
     #[serde(default)]
-    options: Vec<AskChiefOption>,
+    options: Vec<RequestChiefOption>,
     /// Whether the chief may answer in words; pi's default is yes.
     text_input: Option<bool>,
 }
@@ -41,7 +40,7 @@ struct AskChiefQuestion {
     expecting = "an option is a title, or an object with a `title` \
                  and a `description`"
 )]
-enum AskChiefOption {
+enum RequestChiefOption {
     Title(String),
     Described {
         title: String,
@@ -50,7 +49,7 @@ enum AskChiefOption {
     },
 }
 
-/// The fault in an `ask_chief` call's arguments, for the agent to
+/// The fault in a `request_chief` call's arguments, for the agent to
 /// put right.
 #[derive(Debug, thiserror::Error)]
 pub(crate) enum InvalidQuestions {
@@ -88,13 +87,13 @@ pub(crate) enum Unanswered {
     NoWords(usize),
 }
 
-/// The questions in the arguments of an `ask_chief` call.
+/// The questions in the arguments of a `request_chief` call.
 pub(crate) fn read(
     args: &str,
 ) -> Result<Questions, InvalidQuestions> {
     let args = serde_json::from_str::<Value>(args)
         .map_err(|_| InvalidQuestions::NotJson)?;
-    let args = serde_json::from_value::<AskChief>(args)
+    let args = serde_json::from_value::<RequestChief>(args)
         .map_err(InvalidQuestions::Invalid)?;
     if args.questions.is_empty() {
         return Err(InvalidQuestions::NoQuestions);
@@ -117,7 +116,7 @@ pub(crate) fn read(
 /// The question `n`, counted from one.
 fn question(
     n: usize,
-    raw: AskChiefQuestion,
+    raw: RequestChiefQuestion,
 ) -> Result<Question, InvalidQuestions> {
     let question = raw.question.trim().to_string();
     if question.is_empty() {
@@ -129,8 +128,10 @@ fn question(
     let mut options = Vec::<Offer>::new();
     for offer in raw.options {
         let (title, description) = match offer {
-            AskChiefOption::Title(title) => (title, String::new()),
-            AskChiefOption::Described { title, description } => {
+            RequestChiefOption::Title(title) => {
+                (title, String::new())
+            }
+            RequestChiefOption::Described { title, description } => {
                 (title, description)
             }
         };
@@ -160,8 +161,7 @@ fn question(
     })
 }
 
-/// The questions as words, for a chief who reads them as text. One
-/// plain question is its own words.
+/// The questions as words, for a chief who reads them as text.
 pub(crate) fn about(put: &Questions) -> String {
     if let [only] = put.questions.as_slice()
         && put.message.is_empty()
@@ -201,8 +201,7 @@ pub(crate) fn about(put: &Questions) -> String {
 }
 
 /// The answer the agent is given for `picks`, one for each question
-/// of `put` in order: the chief's reply, each question quoted over
-/// its answer.
+/// of `put`.
 pub(crate) fn answer(
     put: &Questions,
     picks: &[Pick],
@@ -243,8 +242,7 @@ pub(crate) fn answer(
     Ok(format!("{ANSWERS}\n{}", body.join("\n\n")))
 }
 
-/// The chief's own words in a result of `ask_chief`. `None` when the
-/// chief did not answer.
+/// The chief's own words in a result of `request_chief`.
 pub(crate) fn said(result: &str) -> Option<&str> {
     result
         .strip_prefix(ANSWERS)

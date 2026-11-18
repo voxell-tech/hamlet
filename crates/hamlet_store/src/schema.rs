@@ -65,6 +65,15 @@ diesel::table! {
 }
 
 diesel::table! {
+    asked_dream (id) {
+        id -> BigInt,
+        profile -> Nullable<BigInt>,
+        agent -> Nullable<BigInt>,
+        at -> BigInt,
+    }
+}
+
+diesel::table! {
     attempt (runtime, key) {
         runtime -> Text,
         key -> Text,
@@ -120,21 +129,10 @@ diesel::table! {
 }
 
 diesel::table! {
-    chat (agent, chief) {
+    chat (agent) {
         agent -> BigInt,
-        chief -> BigInt,
-        current -> BigInt,
-        reflections -> BigInt,
-    }
-}
-
-diesel::table! {
-    chat_session (agent, chief, session) {
-        agent -> BigInt,
-        chief -> BigInt,
-        session -> BigInt,
         conversation -> BigInt,
-        began -> BigInt,
+        reflections -> BigInt,
     }
 }
 
@@ -151,9 +149,6 @@ diesel::table! {
         id -> BigInt,
         agent -> BigInt,
         kind -> Text,
-        chief -> Nullable<BigInt>,
-        session -> Nullable<BigInt>,
-        peer -> Nullable<BigInt>,
         errand -> Nullable<Text>,
         owner -> Nullable<Text>,
         instructions -> Nullable<Text>,
@@ -169,6 +164,8 @@ diesel::table! {
         tools_told -> Nullable<Text>,
         cancelling -> Bool,
         stopped -> Bool,
+        held -> Bool,
+        runs_first -> Nullable<Text>,
         last -> Nullable<Text>,
         unreflected -> BigInt,
         retiring -> Bool,
@@ -256,6 +253,7 @@ diesel::table! {
         allowance -> Nullable<BigInt>,
         allowance_by -> Nullable<Text>,
         merged_into -> Nullable<BigInt>,
+        ending_dream -> Bool,
     }
 }
 
@@ -374,11 +372,9 @@ diesel::table! {
         text -> Text,
         at -> BigInt,
         input -> Nullable<Text>,
-        answer -> Nullable<Text>,
+        response -> Nullable<Text>,
         failure -> Nullable<Text>,
         carried -> Bool,
-        replied -> Bool,
-        refused -> Bool,
     }
 }
 
@@ -471,10 +467,9 @@ diesel::table! {
 }
 
 diesel::table! {
-    session_grant (agent, chief, session) {
-        agent -> BigInt,
+    session_grant (conversation, chief) {
+        conversation -> BigInt,
         chief -> BigInt,
-        session -> BigInt,
         edit -> Bool,
         command -> Bool,
     }
@@ -566,6 +561,7 @@ diesel::table! {
         change -> Nullable<Text>,
         answers -> Text,
         questions -> Nullable<Text>,
+        setup -> Nullable<Text>,
         since -> BigInt,
         asked -> BigInt,
         open -> Bool,
@@ -598,6 +594,8 @@ diesel::joinable!(agreement -> channel (channel));
 diesel::joinable!(agreement -> hamlet (hamlet));
 diesel::joinable!(agreement -> task (task));
 diesel::joinable!(answer_fault -> conversation (conversation));
+diesel::joinable!(asked_dream -> hamlet_agent (agent));
+diesel::joinable!(asked_dream -> profile (profile));
 diesel::joinable!(attempt -> agent (agent));
 diesel::joinable!(attempt -> conversation (conversation));
 diesel::joinable!(attempt -> hamlet (payer));
@@ -610,10 +608,8 @@ diesel::joinable!(channel_charge -> channel (channel));
 diesel::joinable!(channel_charge -> hamlet (hamlet));
 diesel::joinable!(channel_charge -> task (task));
 diesel::joinable!(chat -> agent (agent));
-diesel::joinable!(chat -> chief (chief));
-diesel::joinable!(chat_session -> conversation (conversation));
+diesel::joinable!(chat -> conversation (conversation));
 diesel::joinable!(conversation -> agent (agent));
-diesel::joinable!(conversation -> chief (chief));
 diesel::joinable!(conversation -> runtime (runtime));
 diesel::joinable!(decision -> hamlet (hamlet));
 diesel::joinable!(decision -> profile (profile));
@@ -651,8 +647,8 @@ diesel::joinable!(reflection -> task (task));
 diesel::joinable!(review -> agent (parent));
 diesel::joinable!(review -> conversation (conversation));
 diesel::joinable!(review -> task (task));
-diesel::joinable!(session_grant -> agent (agent));
 diesel::joinable!(session_grant -> chief (chief));
+diesel::joinable!(session_grant -> conversation (conversation));
 diesel::joinable!(skill_offer -> agent (agent));
 diesel::joinable!(skill_offer -> task (task));
 diesel::joinable!(task -> agent (agent));
@@ -676,12 +672,12 @@ diesel::allow_tables_to_appear_in_same_query!(
     agent_tool_off,
     agreement,
     answer_fault,
+    asked_dream,
     attempt,
     budget_reset,
     channel,
     channel_charge,
     chat,
-    chat_session,
     chief,
     conversation,
     decision,

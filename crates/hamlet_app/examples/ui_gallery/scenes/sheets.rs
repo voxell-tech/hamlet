@@ -1,5 +1,4 @@
-//! The sheet of controls held in each of their states, and the sheet
-//! of icons.
+//! The sheets of controls in each state, and of icons.
 
 use bevy::ecs::component::Component;
 use bevy::ecs::entity::Entity;
@@ -220,15 +219,11 @@ pub(super) fn controls() -> Ui {
     column((
         part(
             "A plain button",
-            states(
-                Glyph::NewSession,
-                "New session",
-                Variant::Default,
-            ),
+            states(Glyph::Notes, "Compact Now", Variant::Default),
         ),
         part(
             "The one primary action",
-            states(Glyph::Check, "Allow once", Variant::Primary),
+            states(Glyph::Check, "Allow Once", Variant::Primary),
         ),
         part(
             "What refuses or stops",
@@ -236,7 +231,7 @@ pub(super) fn controls() -> Ui {
         ),
         part(
             "A way back",
-            states(Glyph::Back, "All hamlets", Variant::Text),
+            states(Glyph::Back, "All Hamlets", Variant::Text),
         ),
         part("A text field", fields()),
         part(
@@ -254,7 +249,7 @@ pub(super) fn controls() -> Ui {
                 cell(
                     "Three, under the pointer",
                     styles::segmented_words(
-                        ["A day", "A week", "A month"],
+                        ["A Day", "A Week", "A Month"],
                         2,
                         |_, _| {},
                     )
@@ -290,8 +285,7 @@ pub(super) fn controls() -> Ui {
     .boxed()
 }
 
-/// The status hues as marks, pills, bars and chips, and the solid
-/// buttons that complete a state.
+/// The status hues as marks, pills, bars, chips and solid buttons.
 pub(super) fn status_sheet() -> Ui {
     let theme = HamletTheme::designed();
     let part = |name: &'static str, view: Ui| {
@@ -380,8 +374,7 @@ pub(super) fn status_sheet() -> Ui {
     .boxed()
 }
 
-/// Every icon at each size, in the tones it is tinted with, and
-/// large.
+/// Every icon at each size and tone.
 pub(super) fn icon_sheet() -> Ui {
     let theme = HamletTheme::designed();
     let cells = Glyph::ALL
@@ -434,8 +427,7 @@ pub(super) fn hold_message(
     }
 }
 
-/// Asks before a rewind to the last of the chief's messages, as its
-/// mark does, once the chat has settled.
+/// Asks before a rewind to the chief's last message, once settled.
 pub(super) fn ask_rewind(world: &mut World, mut updates: Local<u32>) {
     *updates += 1;
     if *updates != SETTLED {
@@ -444,12 +436,12 @@ pub(super) fn ask_rewind(world: &mut World, mut updates: Local<u32>) {
     let mut rows = world.query::<&chat::Rewinds>();
     let last = rows.iter(world).max_by_key(|row| row.at).cloned();
     if let Some(row) = last {
-        chat::ask_rewind(world, row.session, &row.entry);
+        chat::ask_rewind(world, row.chat, &row.entry);
     }
 }
 
-/// Keeps every held control in its state, and presses the ones shown
-/// as done when the [`Strike`] comes.
+/// Holds each control in its state, pressing the done ones on
+/// [`Strike`].
 pub(super) fn hold(
     mut commands: Commands,
     scene: Res<Scene>,

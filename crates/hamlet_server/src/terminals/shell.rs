@@ -26,8 +26,7 @@ pub(super) struct Launch {
     cwd: String,
 }
 
-/// Starts `launch` on a terminal of `size`, printing to `feed`: one
-/// task reads and waits for the shell, another types into it.
+/// Starts `launch` on a terminal of `size`, printing to `feed`.
 pub(super) fn start(
     launch: Launch,
     size: Size,
@@ -52,12 +51,18 @@ pub(super) fn start(
             return (keys, Vec::new());
         }
     };
+    let answering = keys.clone();
     let reader = tokio::spawn(async move {
         let mut buffer = vec![0; 64 * 1024];
         loop {
             match output.read(&mut buffer).await {
                 Ok(0) | Err(_) => break,
-                Ok(n) => feed.print(&buffer[..n]),
+                Ok(n) => {
+                    let answers = feed.print(&buffer[..n]);
+                    if !answers.is_empty() {
+                        let _ = answering.send(Key::Bytes(answers));
+                    }
+                }
             }
         }
         let code = match session.ended().await {
@@ -164,9 +169,7 @@ pub(super) fn open(core: &mut Core<'_, '_>, size: Size) -> String {
     )
 }
 
-/// How a kept terminal of `view` starts again, or None when it
-/// cannot: one an agent or a hamlet held belongs to the days agents
-/// had shells.
+/// How a kept terminal of `view` starts again, if it can.
 pub(super) fn relaunch(view: &TerminalView) -> Option<Launch> {
     (view.agent.is_none() && view.hamlet.is_none()).then(unbounded)
 }

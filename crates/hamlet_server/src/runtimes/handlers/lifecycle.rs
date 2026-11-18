@@ -1,6 +1,4 @@
-//! The messages of a runtime's and its conversations' lifecycle: a
-//! runtime's hello, a conversation made, configured or cancelled, an
-//! input admitted and settled, and what a turn kept and is doing.
+//! The messages of a runtime's and its conversations' lifecycle.
 
 use std::collections::BTreeMap;
 
@@ -151,6 +149,7 @@ fn admitted(
                 admitted.reason.as_deref(),
                 detail.as_deref(),
             )?;
+            core.changed.queues.insert(conversation);
             if ended {
                 core.input_ended(conversation, &request);
             }
@@ -189,6 +188,7 @@ fn settled(
                 settled.reason.as_deref(),
                 detail.as_deref(),
             )? {
+                core.changed.queues.insert(conversation.id);
                 core.input_ended(conversation.id, &settled.request);
             }
             Ok(())

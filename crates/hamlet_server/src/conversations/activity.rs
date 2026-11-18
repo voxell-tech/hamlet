@@ -1,5 +1,4 @@
-//! The doing and saying of one conversation's agent, folded from
-//! what its runtime tells as it happens.
+//! What one conversation's agent is doing now.
 
 use std::collections::{BTreeMap, HashSet};
 
@@ -262,8 +261,6 @@ fn doing_of(
                 "https://",
                 "web-search",
                 "read-webpage",
-                "weather",
-                "call-api",
             ]
             .iter()
             .any(|word| text.contains(word))
@@ -275,8 +272,10 @@ fn doing_of(
                 Doing::Run
             }
         }
-        _ => Society::named(name)
-            .and_then(|tool| tool.facts().doing.clone())
-            .unwrap_or(Doing::Custom),
+        // A society tool with no doing of its own is the agent's
+        // thinking at work, not a tool added by hand.
+        _ => Society::named(name).map_or(Doing::Custom, |tool| {
+            tool.facts().doing.clone().unwrap_or(Doing::Think)
+        }),
     }
 }

@@ -67,12 +67,9 @@ pub enum Earlier {
 )]
 #[serde(rename_all = "lowercase")]
 pub enum ConversationKind {
-    /// A chief's chat with the agent.
+    /// The agent's one conversation, with the chiefs and the agents
+    /// that write to it.
     Chat,
-    /// Another agent's letters to it.
-    Letters,
-    /// Another agent's questions to it.
-    Questions,
     /// A worker's one task.
     Worker,
     /// A one-off call with its own instructions.
@@ -126,8 +123,9 @@ pub struct Submit {
     pub window: Option<u64>,
 }
 
-/// An entry only people see, written at once even while a turn runs;
-/// admitted once by its request id.
+/// An entry written without a turn, admitted once by its request id:
+/// one only people see, or with `content`, words for the model's
+/// context.
 #[derive(
     Clone, Debug, PartialEq, Serialize, Deserialize, JsonSchema,
 )]
@@ -139,11 +137,34 @@ pub struct Write {
     #[serde(deserialize_with = "crate::runtime::present")]
     #[schemars(with = "bool")]
     pub boundary: Option<bool>,
+    /// Words the model is given as a user message from now on.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[serde(deserialize_with = "crate::runtime::present")]
+    #[schemars(with = "String")]
+    pub content: Option<String>,
     #[schemars(length(min = 1))]
     pub conversation: String,
     #[schemars(length(min = 1))]
     pub id: String,
     pub mark: Mark,
+    #[schemars(length(min = 1))]
+    pub request: String,
+    pub v: Version,
+}
+
+/// Summarizes the earlier part of a conversation now, placing the
+/// summary when idle or at its next boundary. Answered by `admitted`.
+#[derive(
+    Clone, Debug, PartialEq, Serialize, Deserialize, JsonSchema,
+)]
+#[serde(deny_unknown_fields)]
+pub struct Compact {
+    #[schemars(length(min = 1))]
+    pub conversation: String,
+    #[schemars(length(min = 1))]
+    pub id: String,
+    /// What the summary must keep, beside the harness's own wants.
+    pub instructions: String,
     #[schemars(length(min = 1))]
     pub request: String,
     pub v: Version,

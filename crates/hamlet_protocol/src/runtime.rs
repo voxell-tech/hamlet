@@ -53,6 +53,8 @@ pub enum ServerMessage {
     Submit(Submit),
     #[serde(rename = "write")]
     Write(Write),
+    #[serde(rename = "compact")]
+    Compact(Compact),
     #[serde(rename = "configure")]
     Configure(Configure),
     #[serde(rename = "fork")]
