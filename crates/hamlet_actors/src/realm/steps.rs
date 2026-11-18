@@ -240,7 +240,7 @@ const LAST_RETRY: Duration = Duration::from_secs(60);
 /// as a failure of its kind.
 async fn drive(realm: Arc<Realm>, ctx: Ctx<Realm>, row: StepId) {
     let (realm, ctx) = (&realm, &ctx);
-    let walked = retried(ctx, None, move || async move {
+    let refused = retried(ctx, None, move || async move {
         let walked = walk_row(realm, ctx, row).await;
         if let Err(error) = &walked {
             tracing::warn!(?row, "a step failed: {error:#}");
@@ -248,9 +248,7 @@ async fn drive(realm: Arc<Realm>, ctx: Ctx<Realm>, row: StepId) {
         walked
     })
     .await;
-    if walked.is_some()
-        && let Err(error) = end_failed(realm, ctx, row).await
-    {
+    if refused && let Err(error) = end_failed(realm, ctx, row).await {
         tracing::warn!(?row, "ending a failed row: {error:#}");
     }
 }
@@ -258,12 +256,12 @@ async fn drive(realm: Arc<Realm>, ctx: Ctx<Realm>, row: StepId) {
 /// Runs `attempt`, after `wait` when one is given, and again after
 /// each failure in passing, waiting [`FIRST_RETRY`] doubled after
 /// each up to [`LAST_RETRY`], until it is done or the realm stops.
-/// Returns the failure that is the callee's own, which ends it.
+/// Returns whether the callee refused it, which ends it.
 pub(super) async fn retried<F>(
     ctx: &Ctx<Realm>,
     mut wait: Option<Duration>,
     mut attempt: impl FnMut() -> F,
-) -> Option<anyhow::Error>
+) -> bool
 where
     F: Future<Output = Result<()>>,
 {
@@ -271,15 +269,15 @@ where
     loop {
         if let Some(wait) = wait {
             tokio::select! {
-                () = stopping.cancelled() => return None,
+                () = stopping.cancelled() => return false,
                 () = tokio::time::sleep(wait) => {}
             }
         }
         let Err(error) = attempt().await else {
-            return None;
+            return false;
         };
         if peer::refused(&error) {
-            return Some(error);
+            return true;
         }
         wait =
             Some(wait.map_or(FIRST_RETRY, |wait| {

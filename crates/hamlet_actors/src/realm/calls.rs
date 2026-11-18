@@ -155,13 +155,14 @@ async fn deliver(
     Queued { delivery, mut turn }: Queued,
     when: When,
 ) -> Result<()> {
+    let owed = delivery
+        .owed()
+        .then(|| (delivery.clone(), ctx.keep_awake_region()));
     turn.come().await;
-    let owed = delivery.owed().then(|| delivery.clone());
     let delivered = make(realm, ctx, delivery, when).await;
-    if let (Err(error), Some(owed)) = (&delivered, owed)
+    if let (Err(error), Some((owed, awake))) = (&delivered, owed)
         && !peer::refused(error)
     {
-        let awake = ctx.keep_awake_region();
         ctx.register_task(again(
             realm.clone(),
             ctx.clone(),
