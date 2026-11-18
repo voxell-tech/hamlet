@@ -15,7 +15,7 @@ use std::io::SeekFrom;
 use std::path::PathBuf;
 use std::sync::Arc;
 
-use anyhow::{Context as _, Result, bail, ensure};
+use anyhow::{Context as _, Result, bail};
 use hamlet_actor::{BindParam, Ctx, Handler};
 use hamlet_host::HostRef;
 use hamlet_messages::address::{self, Agent, Party as _, Workspace};
@@ -767,13 +767,7 @@ async fn deliver(cx: &Cx<'_>, sent: &Sent) -> Result<()> {
     } else {
         Calls::none()
     };
-    let made = cx.commit_delivering(tx, changes, deliveries).await?;
-    ensure!(
-        made.all_taken(),
-        "the letter of parcel {} was not delivered",
-        sent.parcel.0
-    );
-    Ok(())
+    cx.commit_delivering(tx, changes, deliveries).await?.taken()
 }
 
 impl Handler<FetchPart> for Realm {

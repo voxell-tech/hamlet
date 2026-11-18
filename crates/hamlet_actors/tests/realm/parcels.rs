@@ -961,3 +961,25 @@ async fn a_parcel_whose_measure_is_refused_is_refused_and_driven_no_further()
     assert_eq!(parcel_rows_closed(&realm).await, [true]);
     assert!(letters_to_three(&realm).is_empty());
 }
+
+#[tokio::test(flavor = "multi_thread")]
+async fn a_parcel_whose_receiver_refuses_its_letter_is_driven_no_further()
+ {
+    // 3 refuses every input, as a callee's own error: the parcel's
+    // row closes once its letter is refused, and a restart drives it
+    // no further.
+    let (realm, files) =
+        sending(Files::with(&[("/project/a", b"a")])).await;
+    realm.seen.fail_for_good(Callee::Submit, THREE);
+
+    sends(&realm, "t1", "Here.", &["/project/a"]).await;
+    let begun = std::time::Instant::now();
+    while parcel_rows_closed(&realm).await != [true] {
+        assert!(begun.elapsed() < DEADLINE, "never: the row closes");
+        tokio::time::sleep(Duration::from_millis(100)).await;
+    }
+    let realm = restart(realm, &files).await;
+
+    assert_eq!(parcel_rows_closed(&realm).await, [true]);
+    assert!(letters_to_three(&realm).is_empty());
+}

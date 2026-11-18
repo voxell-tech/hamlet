@@ -83,6 +83,12 @@ impl Made {
     pub fn all_taken(&self) -> bool {
         self.failed.is_empty()
     }
+
+    /// The first delivery's failure, as its callee answered it, when
+    /// one was not taken.
+    pub fn taken(self) -> Result<()> {
+        self.failed.into_iter().next().map_or(Ok(()), Err)
+    }
 }
 
 /// State a commit moved, to carry to the actor that keeps a copy.
