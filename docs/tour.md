@@ -401,7 +401,8 @@ one file of them per actor in `src/scenario/`, which `all()` in
 the commands after each restart, and what each restart must show.
 `workspace-command` kills the host while a command answered `Running`
 still runs, and checks after each restart that the command did not go
-on, that its row reads cut off and that the agent was told nothing. A
+on, that its row reads cut off and that the agent was told the cut-off
+end once (`agent.finished` is 1). A
 row's `Demo::Linked` starts `demo --link`; `link-kill-node` has an agent
 kill its own Node host (`Kill::NodeHost`), and `link-kill-rust` and
 `ts-schedule` kill the Rust host with the Node host running.
