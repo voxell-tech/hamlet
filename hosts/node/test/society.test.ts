@@ -304,9 +304,9 @@ test("tell carries t<task id>, the turn's task and its conversation, and a refus
 });
 
 /**
- * How long the first `tell` waits for the second to reach the realm. The
- * second starts within milliseconds of the first; this is ten times what a
- * busy machine takes.
+ * How long the first `tell` waits for the second to reach the realm before
+ * the test reads them as run in turn. A passing run waits on the second
+ * itself, about 70 ms.
  */
 const OVERLAP_MS = 5_000;
 
@@ -376,10 +376,14 @@ test("two society tools in one answer run at once, each answered under its own c
             },
     );
     assert.deepEqual(
-        tells.map(({ task, act }) => ({ task, to: act.to })),
+        tells
+            .map(({ task, act }) => ({ task, to: act.to }))
+            .sort((a, b) =>
+                JSON.stringify(a.to).localeCompare(JSON.stringify(b.to)),
+            ),
         [
-            { task: "task-1", to: { type: "mayor" } },
             { task: "task-1", to: { type: "agent", agent: 12 } },
+            { task: "task-1", to: { type: "mayor" } },
         ],
     );
     const [first, other] = tells;
