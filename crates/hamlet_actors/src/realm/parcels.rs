@@ -192,9 +192,13 @@ pub(super) async fn apply(
                 .await?;
         }
         Change::Refused { parcel } => {
-            let open =
-                [State::Measuring, State::Waiting, State::Copying];
-            moved(writer, parcel, &open, State::Refused).await?;
+            let unrefused = [
+                State::Measuring,
+                State::Waiting,
+                State::Copying,
+                State::Ready,
+            ];
+            moved(writer, parcel, &unrefused, State::Refused).await?;
         }
         Change::Released { task } => {
             writer
@@ -378,29 +382,36 @@ impl Sent {
         cx: &Cx<'_>,
         why: &ParcelRefusal,
     ) -> Result<Vec<change::Change>> {
-        let notice = Delivery::Line {
-            to: self.sender,
-            submit: Submit {
-                id: InputId(format!("parcel/{}", self.parcel.0)),
-                task: self.task.map(TaskId::on_the_wire),
-                input: Input::Notice {
-                    text: told(why),
-                    conversation: self.conversation.clone(),
-                },
-            },
-        };
         let refused = Change::Refused {
             parcel: self.parcel,
         };
         cx.commit_delivering(
             change::Transaction::begin(cx.ctx).await?,
             vec![refused.into()],
-            Calls::after_answer(notice),
+            self.notice(told(why)),
         )
         .await?;
         Ok(Vec::new())
     }
+
+    /// The notice that tells the sender `text`.
+    fn notice(&self, text: String) -> Calls {
+        Calls::after_answer(Delivery::ParcelRefused {
+            to: self.sender,
+            submit: Submit {
+                id: InputId(format!("parcel/{}", self.parcel.0)),
+                task: self.task.map(TaskId::on_the_wire),
+                input: Input::Notice {
+                    text,
+                    conversation: self.conversation.clone(),
+                },
+            },
+        })
+    }
 }
+
+/// The words the sender reads when its parcel fails for good.
+const UNSENT: &str = "The files could not be sent.";
 
 /// The words the sender reads for `why`, as today's tools gave them:
 /// a file that cannot be read, or a workspace that cannot be opened,
@@ -510,13 +521,16 @@ pub(super) async fn run(
 }
 
 /// The changes that refuse the parcel of row `n`, whose step failed
-/// for good.
-pub(super) fn failed(n: u64) -> Result<Vec<change::Change>> {
-    Ok(vec![
-        Change::Refused {
-            parcel: parcel_of(n)?,
-        }
-        .into(),
+/// for good, and the notice that tells its sender, unless it was
+/// refused already or its sender or receiver has left.
+pub(super) async fn failed(
+    rows: &Rows<'_>,
+    n: u64,
+) -> Result<(Vec<change::Change>, Calls)> {
+    let parcel = parcel_of(n)?;
+    let sent = Sent::read(rows, parcel).await?;
+    let changes = vec![
+        Change::Refused { parcel }.into(),
         steps::Change::Close {
             row: StepId {
                 kind: steps::Kind::Parcel,
@@ -524,7 +538,15 @@ pub(super) fn failed(n: u64) -> Result<Vec<change::Change>> {
             },
         }
         .into(),
-    ])
+    ];
+    let told = sent.state != State::Refused
+        && !either_left(rows, sent.sender, sent.receiver).await?;
+    let calls = if told {
+        sent.notice(UNSENT.to_owned())
+    } else {
+        Calls::none()
+    };
+    Ok((changes, calls))
 }
 
 fn parcel_of(n: u64) -> Result<ParcelId> {

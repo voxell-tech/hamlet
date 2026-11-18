@@ -582,6 +582,26 @@ async fn a_parcel_outside_the_reach_is_told_to_the_sender() {
     assert!(submits_to(&realm, THREE).is_empty());
 }
 
+/// The first notice to the mayor fails as an agent not ready; the
+/// realm tells it again 1 s later, and the test waits up to 20 s for
+/// it, twenty times that.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_refusal_whose_notice_fails_once_is_told_after_the_retry() {
+    let (realm, _) =
+        sending(Files::with(&[("/project/a", b"a")])).await;
+    realm.seen.fail_once(Callee::Submit, MAYOR);
+
+    sends(&realm, "t1", "Here.", &["/outside/secret"]).await;
+    let told = notice_to_mayor(&realm).await;
+
+    assert!(realm.seen.has_failed(Callee::Submit, MAYOR));
+    assert_eq!(
+        told,
+        "`/outside/secret` cannot be read: /outside/secret is out \
+         of this agent's reach to read"
+    );
+}
+
 #[tokio::test(flavor = "multi_thread")]
 async fn the_sweep_keeps_open_parcels() {
     let slow = bytes_of(PARCEL_PART + 10, 1);
@@ -954,9 +974,11 @@ async fn a_parcel_whose_measure_is_refused_is_refused_and_driven_no_further()
         assert!(begun.elapsed() < DEADLINE, "never: the row closes");
         tokio::time::sleep(Duration::from_millis(100)).await;
     }
+    let told = notice_to_mayor(&realm).await;
     let realm = restart(realm, &files).await;
     let states = parcel_states(&realm).await;
 
+    assert_eq!(told, "The files could not be sent.");
     assert_eq!(states, [("refused".to_owned(), true)]);
     assert_eq!(parcel_rows_closed(&realm).await, [true]);
     assert!(letters_to_three(&realm).is_empty());
@@ -982,4 +1004,25 @@ async fn a_parcel_whose_receiver_refuses_its_letter_is_driven_no_further()
 
     assert_eq!(parcel_rows_closed(&realm).await, [true]);
     assert!(letters_to_three(&realm).is_empty());
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn a_parcel_whose_letter_is_refused_for_good_is_refused_and_told_to_its_sender()
+ {
+    let (realm, _) =
+        sending(Files::with(&[("/project/a", b"a")])).await;
+    realm.seen.fail_for_good(Callee::Submit, THREE);
+
+    sends(&realm, "t1", "Here.", &["/project/a"]).await;
+    let told = notice_to_mayor(&realm).await;
+    let states = parcel_states(&realm).await;
+
+    assert_eq!(told, "The files could not be sent.");
+    assert_eq!(
+        states
+            .into_iter()
+            .map(|(state, _)| state)
+            .collect::<Vec<_>>(),
+        ["refused"]
+    );
 }

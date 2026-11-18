@@ -251,10 +251,10 @@ pub(super) async fn admit(
 }
 
 /// Refuses `agent`'s call of `action` as a wrong caller.
-pub(super) fn refuse(
+pub(super) fn refuse<T>(
     action: &'static str,
     agent: Agent,
-) -> Result<()> {
+) -> Result<T> {
     Err(wrong_caller(action, Some(Caller::Actor(agent.address()?))))
 }
 

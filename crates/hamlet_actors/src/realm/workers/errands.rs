@@ -2,7 +2,7 @@
 //! `2^31`: the `errand` table and `ErrandDone`.
 
 use anyhow::{Context as _, Result, bail};
-use hamlet_actor::BindParam;
+use hamlet_actor::{Action as _, BindParam};
 use hamlet_messages::address::Agent;
 use hamlet_messages::agent::{
     AgentInput, AgentKind, Brief, Place, PlaceVersion,
@@ -21,7 +21,7 @@ use super::super::change::{
 };
 use super::super::steps::{self, Cx, Kind, StepId, Steps};
 use super::super::tasks::TaskId;
-use super::super::{documents, reviews};
+use super::super::{callers, documents, reviews};
 
 const ANSWERED: &str = "answered";
 
@@ -407,7 +407,7 @@ impl Act<Agent> for ErrandDone {
         rows: &Rows<'_>,
     ) -> Result<Self::Loaded> {
         let Numbered::Errand(n) = by.0.numbered() else {
-            bail!("agent {} is no errand", by.0.0);
+            return callers::refuse(ErrandDone::NAME, *by);
         };
         let errand = errand_of(rows, n).await?;
         Ok(errand.ended.is_none().then_some((n, errand.purpose)))

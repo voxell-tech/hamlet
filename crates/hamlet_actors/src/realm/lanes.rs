@@ -101,12 +101,13 @@ fn take(
 
 /// The agents `delivery` reaches. A chief's answer goes to the
 /// workspace and keeps no lane.
-async fn receivers(
+pub(super) async fn receivers(
     rows: &Rows<'_>,
     delivery: &Delivery,
 ) -> Result<Vec<AgentNumber>> {
     let (sql, key) = match delivery {
-        Delivery::Line { to, .. } => return Ok(vec![*to]),
+        Delivery::Line { to, .. }
+        | Delivery::ParcelRefused { to, .. } => return Ok(vec![*to]),
         Delivery::ChiefAnswer(_) => return Ok(Vec::new()),
         Delivery::Letter(letter) => (
             "SELECT receiver FROM letter WHERE id = ?1",

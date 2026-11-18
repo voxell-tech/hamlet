@@ -754,3 +754,24 @@ async fn a_review_whose_errand_cannot_be_made_fails_and_gives_the_line()
     assert_eq!(lines(&realm, THREE).len(), 1);
     realm.host.shutdown().await.unwrap();
 }
+
+/// The first give of the kept line fails as a hire not ready; the
+/// realm gives it again 1 s later, and the test waits up to 20 s for
+/// it, twenty times that.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_kept_line_whose_give_fails_once_is_given_after_the_retry()
+{
+    let (realm, _) =
+        hamlet(Duration::from_secs(600), Review::Always).await;
+    let said = tells_three(&realm, "Plain line.").await;
+    briefed(&realm, 0).await;
+    realm.seen.fail_once(Callee::Submit, THREE);
+
+    ends(&realm, 0, answered("PASS")).await;
+    let given = lines_until(&realm, THREE, 1).await;
+
+    assert!(matches!(said, SayAnswer::Taken { .. }), "{said:?}");
+    assert!(realm.seen.has_failed(Callee::Submit, THREE));
+    assert_eq!(given, [("Plain line.".to_owned(), None)]);
+    realm.host.shutdown().await.unwrap();
+}
