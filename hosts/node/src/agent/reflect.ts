@@ -95,8 +95,8 @@ export async function reflectOnLeaving(
 
 /**
  * Asks `conversation` to reflect by the task `hamlet.reflect`, whose memo
- * keeps a repeat after a kill from asking the realm twice. `already` when
- * one is owed or running.
+ * keeps the request a repeat after a kill asks the realm under. `already`
+ * when one is owed or running.
  */
 export function reflectIn(
     c: AgentCall,
@@ -281,10 +281,13 @@ function admission(
  * The realm's task of its own for a reflection (H12). Without one, the
  * reflection is still asked, and the standing task pays.
  */
-async function opened(peers: Peers): Promise<RealmTask | undefined> {
+async function opened(
+    peers: Peers,
+    request: string,
+): Promise<RealmTask | undefined> {
     try {
         const answer = await peers.reach.open_task({
-            request: randomUUID(),
+            request,
             turn: "reflection",
         });
         if (answer.type === "opened") return answer.task;
@@ -295,7 +298,7 @@ async function opened(peers: Peers): Promise<RealmTask | undefined> {
     return undefined;
 }
 
-const ASKED = "asked";
+const REQUEST = "request";
 
 const TASK = "hamlet.reflect";
 
@@ -308,14 +311,17 @@ function reflectTask(peers: Peers) {
         initial: () => ({ phase: "admit" }),
         phases: {
             admit: async (_task, runtime, context) => {
-                // `open_task` carries no request id, so a call a kill cut
-                // off may have opened a task, and its rerun asks no more.
-                const cut =
-                    (await runtime.memo<boolean>(ASKED, context)) === true;
-                if (!cut) await runtime.memo(ASKED, true, context);
-                const realmTask = cut
-                    ? undefined
-                    : await cutOff(runtime.signal, opened(peers));
+                // A rerun after a kill asks under the same request, so the
+                // realm answers the task it opened.
+                let request = await runtime.memo<string>(REQUEST, context);
+                if (request === undefined) {
+                    request = randomUUID();
+                    await runtime.memo(REQUEST, request, context);
+                }
+                const realmTask = await cutOff(
+                    runtime.signal,
+                    opened(peers, request),
+                );
                 await runtime.commit(
                     () => ({
                         status: "running",

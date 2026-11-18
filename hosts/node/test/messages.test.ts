@@ -627,17 +627,6 @@ const WRITTEN: readonly Written[] = [
         constant: { why: "stopped" },
     },
     {
-        fixture: "realm/lapse.ended",
-        drive: async (t, calls) => {
-            const agent = await chief(t, calls, ["One."]);
-            await say(agent, "Go.");
-            assert.deepEqual(await newSession(agent), { number: 2 });
-            return agent;
-        },
-        answers: COMMANDED,
-        own: ["conversation"],
-    },
-    {
         fixture: "realm/lapse.resumed",
         drive: async (t, calls) => {
             const agent = await chief(t, calls, ["One."]);
@@ -1147,7 +1136,7 @@ test("realm/credential.refused.not_signed_in.answer fails the turn with its word
     );
 });
 
-test("realm/open_task.refused.you_left.answer refuses a retry with its words, and a reflection is asked on the standing task", async (t) => {
+test("realm/open_task.refused.you_left.answer refuses a retry in its words, and a reflection is asked on the standing task", async (t) => {
     const given = answer("realm/open_task.refused.you_left") as Extract<
         TaskOpened,
         { type: "refused" }
@@ -1156,7 +1145,14 @@ test("realm/open_task.refused.you_left.answer refuses a retry with its words, an
         realm: { open_task: () => given, lapse: () => answer("realm/lapse") },
     });
     const agent = await failed(t, calls, "task-2", FAILED_WORDS);
-    await assert.rejects(retry(agent), new Error(given.words));
+    await assert.rejects(
+        retry(agent),
+        (error: unknown) =>
+            error instanceof ActorError &&
+            error.code === "refused" &&
+            error.public &&
+            error.message === given.words,
+    );
     assert.equal(await agent.actions.reflect(agent.by(from.client)), "asked");
     await agent.idle();
     const reported = [...agent.reported];
@@ -1469,6 +1465,10 @@ const NOT_THE_AGENTS: readonly (readonly [RegExp, string])[] = [
     [
         /^stored\/(library\.offer\.kept|library\.offer\.more|library\.offer\.refused\.already_shelved|library\.offer\.refused\.being_judged|library\.offer\.refused\.no_front_matter|library\.offer\.refused\.not_a_path|library\.offer\.refused\.not_a_skill_name|library\.offer\.refused\.part_too_large|library\.offer\.refused\.skill_too_large|library\.unshelve\.done|library\.unshelve\.refused\.no_such_skill|library\.verdict\.done|library\.verdict\.refused\.judged|library\.verdict\.refused\.no_such_offer)$/,
         "a row the library keeps in its own file",
+    ],
+    [
+        /^realm\/lapse\.ended\.args$/,
+        "a /new, which leaves the waits of the session it left, as today's does",
     ],
     [
         /^realm\/(agree_road|ask_chief|object|start_worker|read_budget|read_record|set_allowance|set_model|set_nickname|fetch_part)\./,

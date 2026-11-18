@@ -803,11 +803,7 @@ export type ResumeAnswer =
 
 export type RetryAnswer =
     | { readonly type: "done" }
-    | Refused<
-          | { readonly type: "running" }
-          | { readonly type: "answered" }
-          | { readonly type: "no_turn" }
-      >;
+    | Refused<{ readonly type: "running" } | { readonly type: "answered" }>;
 
 export type RewindAnswer =
     | {

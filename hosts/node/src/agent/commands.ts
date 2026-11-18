@@ -2,7 +2,6 @@
  * The chief's commands to an agent: what each changes and how it is
  * refused.
  */
-import { randomUUID } from "node:crypto";
 import type { Context } from "@earendil-works/chord/context";
 import type { AssistantMessage } from "@earendil-works/pi-ai";
 import {
@@ -39,7 +38,7 @@ import {
     nowSeconds,
     session,
 } from "./sessions.ts";
-import { textOf } from "./transcript.ts";
+import { refused, textOf } from "./transcript.ts";
 import { callOf, conversationsOf, draftOf, isBusy, refOf } from "./turn.ts";
 import { endsLater } from "./workspace-tools.ts";
 
@@ -87,12 +86,10 @@ export async function newSession(
         );
         return begun;
     });
-    // A repeat ends the session left again: a kill or a failure may have
-    // cut the first off after the session began.
-    if (left !== undefined) {
-        await lapsed(c, left, "ended");
-        await reflectOnLeaving(c, left);
-    }
+    // As today, the session left keeps what it waits for. A repeat asks its
+    // reflection again: a kill may have cut the first off after the session
+    // began.
+    if (left !== undefined) await reflectOnLeaving(c, left);
     return { number };
 }
 
@@ -202,11 +199,12 @@ export async function retry(
         if (why === "admitted") return { type: "done" };
         if (why !== undefined) return retryRefused(why);
         const begun = generation.stopsBegun;
+        // The client's request, so a repeat after a kill opens no second task.
         const opened = await peers.reach.open_task({
-            request: randomUUID(),
+            request: message.id,
             turn: "retry",
         });
-        if (opened.type === "refused") throw new Error(opened.words);
+        if (opened.type === "refused") throw refused(opened.words);
         if (generation.stopsBegun !== begun) return { type: "done" };
         await submittedTo(
             c,

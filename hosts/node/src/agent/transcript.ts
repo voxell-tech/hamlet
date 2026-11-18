@@ -455,7 +455,8 @@ export async function readChat(c: AgentCall, message: Open): Promise<ChatPage> {
     };
 }
 
-function refused(words: string): UserError {
+/** A refusal a client reads in `words`. */
+export function refused(words: string): UserError {
     return new UserError(words, { code: "refused" });
 }
 

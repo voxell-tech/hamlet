@@ -76,6 +76,15 @@ function send(agent: Woken, id: string, text: string): void {
 
 const words = (text: string) => fauxAssistantMessage(text);
 
+/** The call a kill cut off and its rerun ask under one request. */
+function assertOneRequest(sent: readonly Sent[]): void {
+    const requests = named(sent, "open_task").map(
+        (call) => (call.message as { request: string }).request,
+    );
+    assert.equal(requests.length, 2);
+    assert.equal(requests[0], requests[1]);
+}
+
 function held(text: string): {
     step: FauxResponseStep;
     asked: Promise<void>;
@@ -190,7 +199,7 @@ test("a /new repeated after its reflection was asked reflects once", async (t) =
     assert.equal(named(sent, "open_task").length, 1);
 });
 
-test("a reflection's repeat after a kill is admitted once", async (t) => {
+test("a reflection's repeat after a kill is admitted once, on the task its request opened", async (t) => {
     let hangs = true;
     const { agent, sent } = await wake(
         t,
@@ -210,10 +219,10 @@ test("a reflection's repeat after a kill is admitted once", async (t) => {
     t.after(() => back.stop());
     await back.idle();
     assert.deepEqual(await said(back), ["a", "One.", REFLECT, "Kept it."]);
-    // The call the kill cut off may have opened a task, so it is not
-    // asked again: the reflection is charged to the standing task.
-    assert.deepEqual(await reflections(back), [{ text: REFLECT, data: {} }]);
-    assert.equal(named(sent, "open_task").length, 1);
+    assert.deepEqual(await reflections(back), [
+        { text: REFLECT, data: { task: "reflection-task-2" } },
+    ]);
+    assertOneRequest(sent);
 });
 
 test("/reflect answers already while one is owed", async (t) => {
@@ -335,7 +344,7 @@ test("a /new mid-turn at zero reflects once, after the answer", async (t) => {
     assert.equal((await reflections(agent)).length, 1);
 });
 
-test("a /new repeated after a kill cut off its reflection's task asks the realm once", async (t) => {
+test("a /new repeated after a kill cut off its reflection's task asks the realm again under the same request", async (t) => {
     let hangs = true;
     const { agent, sent: calls } = await wake(
         t,
@@ -362,8 +371,10 @@ test("a /new repeated after a kill cut off its reflection's task asks the realm 
     assert.deepEqual(await begin(back), { number: 2 });
     await back.idle();
     assert.deepEqual(await said(back), ["a", "One.", REFLECT, "Kept."]);
-    assert.deepEqual(await reflections(back), [{ text: REFLECT, data: {} }]);
-    assert.equal(named(calls, "open_task").length, 1);
+    assert.deepEqual(await reflections(back), [
+        { text: REFLECT, data: { task: "reflection-task-2" } },
+    ]);
+    assertOneRequest(calls);
 });
 
 test("HAMLET_REFLECT_EVERY reads a leading plus, as Rust's parse does", async (t) => {

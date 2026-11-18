@@ -501,6 +501,51 @@ test("a stop that arrives while a retry opens its task wins: the retry admits no
     assert.ok(!(await said(agent, await now(agent))).includes("Carried on."));
 });
 
+test("a retry cut off by a kill opens its task again under the client's request", async (t) => {
+    let hangs = true;
+    const { calls, sent } = fakes({
+        realm: {
+            open_task: () =>
+                hangs
+                    ? new Promise<never>(() => {})
+                    : { type: "opened", task: "task-retry" },
+        },
+    });
+    const agent = await wakeAgent(t, {
+        calls,
+        responses: [
+            failure("The model failed."),
+            fauxAssistantMessage("Carried on."),
+        ],
+        settings: NO_RETRIES,
+    });
+    await told(agent, "Go");
+    const id = "6f1c2a3e-8b4d-4c5e-9f60-718293a4b5c6";
+    const retry = (woken: Woken) =>
+        woken.actions.retry(woken.by(from.client), { id, to: 7 });
+    void retry(agent).catch(() => {});
+    await until(() => named(sent, "open_task").length === 1);
+    await agent.stop();
+    hangs = false;
+
+    const back = await agent.again();
+    t.after(() => back.stop());
+    assert.deepEqual(await retry(back), { type: "done" });
+    await back.idle();
+
+    assert.deepEqual(
+        named(sent, "open_task").map((call) => call.message),
+        [
+            { request: id, turn: "retry" },
+            { request: id, turn: "retry" },
+        ],
+    );
+    assert.deepEqual((await said(back, await now(back))).slice(-2), [
+        "Carry on from where you stopped.",
+        "Carried on.",
+    ]);
+});
+
 test("a failed turn rewound away is not carried on", async (t) => {
     const agent = await wake(
         t,
