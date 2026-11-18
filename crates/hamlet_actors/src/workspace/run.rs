@@ -69,13 +69,10 @@ pub(super) async fn status(
         .transpose()
 }
 
-/// The state of a running command whose end its agent hears as an
-/// input: its call answered `Running`, or no call waited for it.
 pub(super) const RUNNING_LATER: &str = "running_later";
 
 /// Marks every command still running as cut off: the host they ran
-/// under stopped. One whose agent hears its end is `cut_off_later`
-/// until the agent is told.
+/// under stopped.
 pub(super) const CUT_OFF: &str =
     "UPDATE calls SET state = 'cut_off' WHERE state = 'running'; \
      UPDATE calls SET state = 'cut_off_later' WHERE state = \
@@ -152,8 +149,6 @@ pub(super) async fn end(
     Ok(())
 }
 
-/// Records that the agent hears the end of `command`, which runs,
-/// in `tx`.
 pub(super) async fn hears_later(
     tx: &SqliteTransaction,
     command: CommandId,
@@ -167,18 +162,15 @@ pub(super) async fn hears_later(
     Ok(())
 }
 
-/// A command a stop cut off whose agent has not been told.
-pub(super) struct Untold {
+pub(super) struct UntoldCutOff {
     pub agent: AgentNumber,
     pub call: CallId,
     pub command: CommandId,
 }
 
-/// The commands a stop cut off whose agents have not been told, in
-/// `tx`.
-pub(super) async fn untold(
+pub(super) async fn untold_cut_offs(
     tx: &SqliteTransaction,
-) -> Result<Vec<Untold>> {
+) -> Result<Vec<UntoldCutOff>> {
     let read = tx
         .execute(
             "SELECT agent, call, id FROM calls WHERE state = \
@@ -193,7 +185,7 @@ pub(super) async fn untold(
                 ColumnValue::Integer(agent),
                 ColumnValue::Text(call),
                 ColumnValue::Integer(id),
-            ] => Ok(Untold {
+            ] => Ok(UntoldCutOff {
                 agent: AgentNumber(u32::try_from(*agent)?),
                 call: CallId(call.clone()),
                 command: command_id(*id)?,
@@ -205,8 +197,6 @@ pub(super) async fn untold(
         .collect()
 }
 
-/// Records that the agent of `command`, which a stop cut off, was
-/// told, in `tx`.
 pub(super) async fn told(
     tx: &SqliteTransaction,
     command: CommandId,
@@ -220,8 +210,6 @@ pub(super) async fn told(
     Ok(())
 }
 
-/// Leaves untold the commands a stop cut off of `agent`, whose reach
-/// ended, in `tx`.
 pub(super) async fn never_tell(
     tx: &SqliteTransaction,
     agent: AgentNumber,
@@ -235,8 +223,6 @@ pub(super) async fn never_tell(
     Ok(())
 }
 
-/// When a command that starts now with the time limit `limit` ends at
-/// the latest, in ms since the Unix epoch.
 pub(super) fn ends_by(limit: Duration) -> Result<i64> {
     Ok(calls::now_ms()? + i64::try_from(limit.as_millis())?)
 }
@@ -268,7 +254,6 @@ pub(super) struct Running {
     pub call: CallId,
     pub conversation: ConversationId,
     pub waiters: Arc<Waiters>,
-    /// When it ends at the latest, in ms since the Unix epoch.
     pub ends_by: i64,
     /// Fired to end it as cancelled.
     pub cancel: CancellationToken,
@@ -278,8 +263,7 @@ pub(super) struct Running {
 
 impl Running {
     /// `agent`'s command `command`, started by its call `call` in
-    /// `conversation`, which ends by `ends_by` and whose end
-    /// `waiters` hear.
+    /// `conversation`, whose end `waiters` hear.
     pub(super) fn new(
         command: CommandId,
         agent: AgentNumber,

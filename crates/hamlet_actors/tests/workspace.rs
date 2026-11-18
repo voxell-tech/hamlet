@@ -78,8 +78,6 @@ struct Peers {
     saved_output: Option<u64>,
     secrets_delay: Duration,
     fetched: AtomicUsize,
-    /// How many more `Finished` the agents refuse before they take
-    /// one.
     refused_tells: AtomicUsize,
     told: Mutex<Vec<(String, Finished)>>,
     asked: Mutex<Vec<NeedsChief>>,
@@ -258,7 +256,6 @@ async fn host_with(dir: &Path, peers: Arc<Peers>) -> Host {
     host
 }
 
-/// The options of a host whose peers share `peers`.
 fn options(peers: Arc<Peers>) -> HostOptions {
     let default = workspace::Options::default();
     HostOptions::default()
@@ -767,8 +764,8 @@ async fn a_command_that_ends_in_time_answers_done() {
 }
 
 /// A command that runs past the wait answers `Running` with its id,
-/// and the agent is called with its end once, when it ends, and not
-/// again after a restart. Its status then answers that end.
+/// and the agent is called with its end once, when it ends. Its
+/// status then answers that end.
 #[cfg(unix)]
 #[tokio::test(flavor = "multi_thread")]
 async fn a_long_command_answers_running_then_finished() {
@@ -933,7 +930,6 @@ async fn the_agent_is_the_stamped_caller() {
     );
 }
 
-/// The end of `command` that a stop of its host cut off.
 fn cut_off(command: CommandId) -> CommandEnd {
     CommandEnd {
         command,
@@ -945,7 +941,6 @@ fn cut_off(command: CommandId) -> CommandEnd {
     }
 }
 
-/// The ends the agents were told, as their calls and ends.
 fn told_ends(peers: &Peers) -> Vec<(String, CommandEnd)> {
     told(peers)
         .iter()
@@ -955,9 +950,6 @@ fn told_ends(peers: &Peers) -> Vec<(String, CommandEnd)> {
         .collect()
 }
 
-/// A command the workspace's host stopped under after it answered
-/// `Running` is gone. At the next start its row reads cut off and
-/// the agent is told so once; a second restart tells nothing more.
 #[cfg(unix)]
 #[tokio::test(flavor = "multi_thread")]
 async fn a_command_a_stop_cut_off_is_told_once_at_the_next_start() {
@@ -991,9 +983,6 @@ async fn a_command_a_stop_cut_off_is_told_once_at_the_next_start() {
     assert_eq!(told(&peers)[0].0, agent(AGENT).to_string());
 }
 
-/// A stop while the call still waits for its command fails the call,
-/// so the agent hears it from its own call: the next start tells it
-/// nothing.
 #[cfg(unix)]
 #[tokio::test(flavor = "multi_thread")]
 async fn a_command_cut_off_inside_its_call_is_told_nothing() {
@@ -1030,8 +1019,6 @@ async fn a_command_cut_off_inside_its_call_is_told_nothing() {
     assert_eq!(told(&peers), []);
 }
 
-/// A cut-off end the agent did not take is told again at the next
-/// start, and then no more.
 #[cfg(unix)]
 #[tokio::test(flavor = "multi_thread")]
 async fn a_cut_off_end_not_taken_is_told_at_the_next_start() {
@@ -1063,9 +1050,6 @@ async fn a_cut_off_end_not_taken_is_told_at_the_next_start() {
     );
 }
 
-/// After a clean stop, the host's boot alone starts the workspace at
-/// the cut-off command's time limit, and the agent is told: nothing
-/// calls the workspace.
 #[cfg(unix)]
 #[tokio::test(flavor = "multi_thread")]
 async fn a_start_of_the_host_tells_a_cut_off_end_unasked() {

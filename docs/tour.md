@@ -487,7 +487,7 @@ host stopped or was killed keeps its row running, and the next start
 of the workspace marks it cut off (`run::CUT_OFF`). A `running_later`
 one becomes `cut_off_later`, and the start calls its agent with
 `Finished` and `Exit::CutOff`, again while the link to the agent's host
-is down, for up to a minute (`LINK_WITHIN`). Once the agent answers, the
+is down, for up to a minute (`RETELL_WHILE_LINK_DOWN`). Once the agent answers, the
 row is `cut_off`; a failed call is logged, and the next start calls
 again. An ended reach leaves its agent's rows untold.
 `CommandStatus` answers by command id, for the agent's own commands. A

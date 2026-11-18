@@ -553,11 +553,11 @@ export function thrown(code: string, message: string): ToolExecutionResult {
 }
 
 /** Today's words for a call that may have run (`crates/hamlet_server/src/calls.rs`). */
+export const MAY_HAVE_RUN =
+    "interrupted by a restart and may have partially run";
+
 export function interrupted(tool: string): ToolExecutionResult {
-    return thrown(
-        "tool_interrupted",
-        `Tool ${tool} was interrupted by a restart and may have partially run`,
-    );
+    return thrown("tool_interrupted", `Tool ${tool} was ${MAY_HAVE_RUN}`);
 }
 
 export function reasonOf(error: unknown): string {

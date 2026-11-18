@@ -24,8 +24,6 @@ const TOLD: Probe = Probe {
     read: Read::Sql("SELECT COUNT(*) FROM finished"),
 };
 
-/// The command is gone, its row reads cut off, a status by its id
-/// answers so, and the agent was told so once.
 const COMMAND_CUT_OFF: &[Expect] = &[
     Expect {
         value: "status/1/cut_off",

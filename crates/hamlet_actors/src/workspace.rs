@@ -54,9 +54,7 @@ const MOST_BYTES: usize = 50 * 1024;
 
 const CALL_WITHIN: Duration = Duration::from_secs(10);
 
-/// How long a start calls an agent again while the link to its host
-/// is not up, as before the Node host has started.
-const LINK_WITHIN: Duration = Duration::from_secs(60);
+const RETELL_WHILE_LINK_DOWN: Duration = Duration::from_secs(60);
 
 /// The workspace's settings, given by its host as a value of
 /// [`hamlet_host::HostOptions`]. Without one, it takes the default.
@@ -108,9 +106,6 @@ struct Workspace {
     running: run::RunningCommands,
     /// The paths a change is at work on.
     paths: files::Paths,
-    /// The latest time, in ms since the Unix epoch, by which a
-    /// command whose agent hears its end ends: the host starts the
-    /// workspace then, so a stop that cut it off is told.
     wake_by: AtomicI64,
 }
 
@@ -148,7 +143,6 @@ impl Actor for Workspace {
         let sandbox = *host
             .value::<Sandbox>()
             .context("the host gave the workspace no sandbox")?;
-        // The commands of a host that stopped died with it.
         ctx.sql()
             .exec(format!(
                 "{};{};{};{}",
@@ -176,8 +170,10 @@ impl Actor for Workspace {
     }
 
     async fn on_start(self: Arc<Self>, ctx: Ctx<Self>) -> Result<()> {
-        let untold =
-            read_only(&ctx, async |tx| run::untold(tx).await).await?;
+        let untold = read_only(&ctx, async |tx| {
+            run::untold_cut_offs(tx).await
+        })
+        .await?;
         if untold.is_empty() {
             return Ok(());
         }
@@ -375,7 +371,7 @@ impl Handler<Run> for Workspace {
             Decision::Open(opened) => opened,
             Decision::Answer(answer) => return Ok(answer),
             Decision::Wait(running) => {
-                return self.answer(ctx, &running).await;
+                return self.answer_or_owe(ctx, &running).await;
             }
             Decision::AskChief(notice) => {
                 let needs = notice.needs.clone();
@@ -392,14 +388,12 @@ impl Handler<Run> for Workspace {
             leftovers,
         );
         self.clone().start(ctx, &running, spec);
-        self.answer(ctx, &running).await
+        self.answer_or_owe(ctx, &running).await
     }
 }
 
 impl Workspace {
-    /// Waits for the end of `running` as its call does. Before it
-    /// answers `Running`, it records that the agent hears the end.
-    async fn answer(
+    async fn answer_or_owe(
         &self,
         ctx: &Ctx<Self>,
         running: &run::Running,
@@ -415,24 +409,19 @@ impl Workspace {
         Ok(answer)
     }
 
-    /// Has the host start the workspace by `ends_by`, when a command
-    /// whose agent hears its end ends then at the latest, so that a
-    /// stop that cuts it off is told. A failure is logged: a call
-    /// starts the workspace all the same.
     async fn wake_by(&self, ctx: &Ctx<Self>, ends_by: i64) {
-        if self.wake_by.fetch_max(ends_by, Ordering::SeqCst)
-            >= ends_by
-        {
+        if self.wake_by.load(Ordering::SeqCst) >= ends_by {
             return;
         }
-        if let Err(error) =
-            ctx.inner().set_run_wake_at(Some(ends_by)).await
-        {
-            tracing::warn!(
+        match ctx.inner().set_run_wake_at(Some(ends_by)).await {
+            Ok(()) => {
+                self.wake_by.fetch_max(ends_by, Ordering::SeqCst);
+            }
+            Err(error) => tracing::warn!(
                 ?error,
                 ends_by,
                 "set the workspace's wake"
-            );
+            ),
         }
     }
 
@@ -799,12 +788,11 @@ async fn tell(
     }
 }
 
-/// Tells the agent of `untold` that a stop cut its command off, and
-/// records it told once the agent answers. A call the link was not up
-/// for is made again within [`LINK_WITHIN`]; another failed call is
-/// logged and made again at the next start.
-async fn tell_cut_off(ctx: &Ctx<Workspace>, untold: run::Untold) {
-    let run::Untold {
+async fn tell_cut_off(
+    ctx: &Ctx<Workspace>,
+    untold: run::UntoldCutOff,
+) {
+    let run::UntoldCutOff {
         agent,
         call,
         command,
@@ -820,7 +808,7 @@ async fn tell_cut_off(ctx: &Ctx<Workspace>, untold: run::Untold) {
             Ok(()) => break,
             Err(error)
                 if is_link_down(&error)
-                    && since.elapsed() < LINK_WITHIN =>
+                    && since.elapsed() < RETELL_WHILE_LINK_DOWN =>
             {
                 tokio::select! {
                     () = tokio::time::sleep(Duration::from_millis(500)) => {}
@@ -865,8 +853,6 @@ fn dropped(error: &anyhow::Error, agent: AgentNumber, call: &str) {
     );
 }
 
-/// Whether `error` is of a call the link to the other host was not up
-/// for, so nothing was sent.
 fn is_link_down(error: &anyhow::Error) -> bool {
     let error = ActorError::extract(error);
     error.group() == "link" && error.code() == "down"

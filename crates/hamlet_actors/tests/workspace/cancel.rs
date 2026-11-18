@@ -254,8 +254,7 @@ async fn a_cancel_of_nothing_does_nothing() {
 }
 
 /// The commands of a host that stopped died with it, so a cancel
-/// after the restart finds nothing, the command reads cut off, and
-/// the agent is told it was cut off, not cancelled.
+/// after the restart finds nothing, and the command reads cut off.
 #[cfg(unix)]
 #[tokio::test(flavor = "multi_thread")]
 async fn a_cancel_after_a_restart_finds_nothing() {
