@@ -158,13 +158,16 @@ async fn stop_ends_a_running_turn() {
     let hand = s.hand();
     let now = chat(hand);
     s.chief.open(&now).await;
-    s.chief.tell(hand, "Take your time").await;
+    let line = s.chief.tell(hand, "Take your time").await;
     s.chief.until("work", |c| c.is_working(&now)).await;
     assert_eq!(
         s.chief.command(hand, "/stop").await,
         "Stopped 1 running turns."
     );
     s.chief.until("rest", |c| !c.is_working(&now)).await;
+    // `/stop` counts inputs with no end yet. The line's reply comes
+    // at its input's end, which can follow the rest.
+    s.chief.reply(&line).await;
     assert!(!s.chief.texts(&now).contains(&"Slow.".into()));
     assert_eq!(
         s.chief.command(hand, "/stop all").await,

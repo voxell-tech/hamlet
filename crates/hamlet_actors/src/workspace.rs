@@ -14,14 +14,16 @@ mod workers;
 use std::convert::Infallible;
 use std::io;
 use std::path::PathBuf;
+use std::sync::atomic::{AtomicI64, Ordering};
 use std::sync::{Arc, Mutex, PoisonError};
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use anyhow::{Context, Result, bail};
 use hamlet_actor::{Action, Actor, Ctx, Handler, Registry};
 use hamlet_actor_core::{
     ActorConfig, ActorFactory, SqliteTransaction,
 };
+use hamlet_actor_error::ActorError;
 use hamlet_host::{Caller, HostRef};
 use hamlet_messages::address::{self, Party};
 use hamlet_messages::agent::{Finished, Outcome};
@@ -51,6 +53,8 @@ const MOST_LINES: usize = 2000;
 const MOST_BYTES: usize = 50 * 1024;
 
 const CALL_WITHIN: Duration = Duration::from_secs(10);
+
+const RETELL_WHILE_LINK_DOWN: Duration = Duration::from_secs(60);
 
 /// The workspace's settings, given by its host as a value of
 /// [`hamlet_host::HostOptions`]. Without one, it takes the default.
@@ -102,6 +106,7 @@ struct Workspace {
     running: run::RunningCommands,
     /// The paths a change is at work on.
     paths: files::Paths,
+    wake_by: AtomicI64,
 }
 
 /// A list of the realm's secrets and its version.
@@ -138,8 +143,6 @@ impl Actor for Workspace {
         let sandbox = *host
             .value::<Sandbox>()
             .context("the host gave the workspace no sandbox")?;
-        // The commands of a host that stopped died with it, and no
-        // one is told.
         ctx.sql()
             .exec(format!(
                 "{};{};{};{}",
@@ -162,7 +165,27 @@ impl Actor for Workspace {
             saved_output: options.saved_output,
             running: Arc::default(),
             paths: files::Paths::default(),
+            wake_by: AtomicI64::new(0),
         })
+    }
+
+    async fn on_start(self: Arc<Self>, ctx: Ctx<Self>) -> Result<()> {
+        let untold = read_only(&ctx, async |tx| {
+            run::untold_cut_offs(tx).await
+        })
+        .await?;
+        if untold.is_empty() {
+            return Ok(());
+        }
+        let awake = ctx.keep_awake_region();
+        let task_ctx = ctx.clone();
+        ctx.register_task(async move {
+            let _awake = awake;
+            for untold in untold {
+                tell_cut_off(&task_ctx, untold).await;
+            }
+        });
+        Ok(())
     }
 }
 
@@ -347,8 +370,8 @@ impl Handler<Run> for Workspace {
         let opened = match decision {
             Decision::Open(opened) => opened,
             Decision::Answer(answer) => return Ok(answer),
-            Decision::Wait(command, waiters) => {
-                return Ok(waiters.answer(command).await);
+            Decision::Wait(running) => {
+                return self.answer_or_owe(ctx, &running).await;
             }
             Decision::AskChief(notice) => {
                 let needs = notice.needs.clone();
@@ -365,11 +388,43 @@ impl Handler<Run> for Workspace {
             leftovers,
         );
         self.clone().start(ctx, &running, spec);
-        Ok(running.waiters.answer(running.command).await)
+        self.answer_or_owe(ctx, &running).await
     }
 }
 
 impl Workspace {
+    async fn answer_or_owe(
+        &self,
+        ctx: &Ctx<Self>,
+        running: &run::Running,
+    ) -> Result<RunAnswer> {
+        let answer = running.waiters.answer(running.command).await;
+        if let RunAnswer::Running { command } = answer {
+            transact(ctx, async |tx| {
+                run::hears_later(tx, command).await
+            })
+            .await?;
+            self.wake_by(ctx, running.ends_by).await;
+        }
+        Ok(answer)
+    }
+
+    async fn wake_by(&self, ctx: &Ctx<Self>, ends_by: i64) {
+        if self.wake_by.load(Ordering::SeqCst) >= ends_by {
+            return;
+        }
+        match ctx.inner().set_run_wake_at(Some(ends_by)).await {
+            Ok(()) => {
+                self.wake_by.fetch_max(ends_by, Ordering::SeqCst);
+            }
+            Err(error) => tracing::warn!(
+                ?error,
+                ends_by,
+                "set the workspace's wake"
+            ),
+        }
+    }
+
     /// The command `running`, which starts `exec` within its time
     /// limit, as its thread runs it.
     fn spec(
@@ -436,11 +491,18 @@ impl Workspace {
         };
         let placement =
             self.program_placement(agent, &reach, &ready, network)?;
+        let exec = ready.exec();
+        let ends_by = run::ends_by(exec.1)?;
         let tx = ctx.sql().begin_transaction(None).await?;
-        let settled =
-            pending::settle(&tx, wait, "running", None, None)
-                .await
-                .and_then(|id| id.map(run::command_id).transpose());
+        let settled = pending::settle(
+            &tx,
+            wait,
+            run::RUNNING_LATER,
+            None,
+            None,
+        )
+        .await
+        .and_then(|id| id.map(run::command_id).transpose());
         let command = match settled {
             Ok(Some(command)) => command,
             Ok(None) => {
@@ -458,6 +520,7 @@ impl Workspace {
             agent,
             run.call.clone(),
             run.conversation.clone(),
+            ends_by,
             run::Waiters::given_up(),
         );
         self.running
@@ -468,14 +531,10 @@ impl Workspace {
             self.ran(command);
             return Err(error);
         }
-        let spec = self.spec(
-            &running,
-            ready.exec(),
-            placement,
-            secrets,
-            leftovers,
-        );
+        let spec =
+            self.spec(&running, exec, placement, secrets, leftovers);
         self.clone().start(ctx, &running, spec);
+        self.wake_by(ctx, ends_by).await;
         Ok(AnswerTaken::Taken)
     }
 }
@@ -497,7 +556,7 @@ impl Handler<CommandStatus> for Workspace {
                     command: asked.command,
                 },
             },
-            Some(row) if self.waiters(row.command).is_some() => {
+            Some(row) if self.running_of(row.command).is_some() => {
                 RunAnswer::Running {
                     command: row.command,
                 }
@@ -557,10 +616,10 @@ impl Workspace {
                     "record a command's end"
                 );
             }
-            let Some(waiters) = self.waiters(command) else {
+            let Some(running) = self.running_of(command) else {
                 return;
             };
-            let unheard = waiters.ended(end);
+            let unheard = running.waiters.ended(end);
             // Stopped before the agent is told, so a cancel need not
             // wait for that call.
             self.ran(command);
@@ -571,15 +630,12 @@ impl Workspace {
         });
     }
 
-    fn waiters(
-        &self,
-        command: CommandId,
-    ) -> Option<Arc<run::Waiters>> {
+    fn running_of(&self, command: CommandId) -> Option<run::Running> {
         self.running
             .lock()
             .unwrap_or_else(PoisonError::into_inner)
             .get(&command)
-            .map(|running| running.waiters.clone())
+            .cloned()
     }
 
     /// Forgets `command`, whose end is recorded or never will be,
@@ -727,23 +783,79 @@ async fn tell(
     outcome: Outcome,
 ) {
     let shown = id.0.clone();
-    let told = async {
-        call(
-            &HostRef::of(ctx.inner())?,
-            &address::Agent(agent),
-            &Finished { call: id, outcome },
-            CALL_WITHIN,
-        )
-        .await
-    };
-    if let Err(error) = told.await {
+    if let Err(error) = finished(ctx, agent, id, outcome).await {
+        dropped(&error, agent, &shown);
+    }
+}
+
+async fn tell_cut_off(
+    ctx: &Ctx<Workspace>,
+    untold: run::UntoldCutOff,
+) {
+    let run::UntoldCutOff {
+        agent,
+        call,
+        command,
+    } = untold;
+    let end = run::without_output(command, Exit::CutOff);
+    let since = Instant::now();
+    let abort = ctx.abort_signal();
+    loop {
+        let outcome = Outcome::Run {
+            end: RunEnd::Ran(end.clone()),
+        };
+        match finished(ctx, agent, call.clone(), outcome).await {
+            Ok(()) => break,
+            Err(error)
+                if is_link_down(&error)
+                    && since.elapsed() < RETELL_WHILE_LINK_DOWN =>
+            {
+                tokio::select! {
+                    () = tokio::time::sleep(Duration::from_millis(500)) => {}
+                    () = abort.cancelled() => return,
+                }
+            }
+            Err(error) => return dropped(&error, agent, &call.0),
+        }
+    }
+    if let Err(error) =
+        transact(ctx, async |tx| run::told(tx, command).await).await
+    {
         tracing::warn!(
             ?error,
-            agent = agent.0,
-            call = shown,
-            "dropped the end of a call the agent was not told"
+            command = command.0,
+            "record a cut-off command told"
         );
     }
+}
+
+async fn finished(
+    ctx: &Ctx<Workspace>,
+    agent: AgentNumber,
+    id: CallId,
+    outcome: Outcome,
+) -> Result<()> {
+    call(
+        &HostRef::of(ctx.inner())?,
+        &address::Agent(agent),
+        &Finished { call: id, outcome },
+        CALL_WITHIN,
+    )
+    .await
+}
+
+fn dropped(error: &anyhow::Error, agent: AgentNumber, call: &str) {
+    tracing::warn!(
+        ?error,
+        agent = agent.0,
+        call,
+        "dropped the end of a call the agent was not told"
+    );
+}
+
+fn is_link_down(error: &anyhow::Error) -> bool {
+    let error = ActorError::extract(error);
+    error.group() == "link" && error.code() == "down"
 }
 
 enum Decision {
@@ -751,7 +863,7 @@ enum Decision {
     Answer(RunAnswer),
     /// A repeat of a call whose command runs: it hears what the first
     /// call hears.
-    Wait(CommandId, Arc<run::Waiters>),
+    Wait(run::Running),
     /// The call waits for a chief: commit, then tell the realm.
     AskChief(NeedsChief),
 }
@@ -771,11 +883,8 @@ impl Workspace {
                 return Err(id_reused(Run::NAME, &run.call));
             }
             let row = run::row_of(call)?;
-            if let Some(waiters) = self.waiters(row.command) {
-                return Ok(Weighing::Done(Decision::Wait(
-                    row.command,
-                    waiters,
-                )));
+            if let Some(running) = self.running_of(row.command) {
+                return Ok(Weighing::Done(Decision::Wait(running)));
             }
             return Ok(Weighing::Done(Decision::Answer(answer_of(
                 row,
@@ -851,6 +960,7 @@ impl Workspace {
         let command =
             run::open(tx, agent, &run.call, request_hash.to_vec())
                 .await?;
+        let exec = ready.exec();
         // Before the commit, so a repeat that finds the row finds who
         // waits for it, and a reach that ends after the commit finds
         // the command to cancel.
@@ -859,6 +969,7 @@ impl Workspace {
             agent,
             run.call.clone(),
             run.conversation.clone(),
+            run::ends_by(exec.1)?,
             run::Waiters::new(self.answer_within),
         );
         self.running
@@ -868,7 +979,7 @@ impl Workspace {
         Ok(Weighing::Done(Decision::Open(Opened {
             running,
             placement,
-            exec: ready.exec(),
+            exec,
             secrets,
         })))
     }
@@ -941,6 +1052,7 @@ impl Handler<SetReach> for Workspace {
             // ended.
             let now = reach::read(tx, set.agent).await?;
             let closed = if now == Some(Reach::Ended) {
+                run::never_tell(tx, set.agent).await?;
                 pending::close(tx, set.agent, &LAPSED).await?
             } else {
                 Vec::new()

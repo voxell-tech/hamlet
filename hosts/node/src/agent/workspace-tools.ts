@@ -31,6 +31,7 @@ import {
     failed,
     interrupted,
     listTools,
+    MAY_HAVE_RUN,
     type Peers,
     thrown,
     words,
@@ -256,7 +257,9 @@ function ran(end: RunEnd): ToolExecutionResult {
             ? `exit code ${end.exit.code}`
             : end.exit.type === "failed"
               ? `failed: ${end.exit.words}`
-              : end.exit.type.replace("_", " ");
+              : end.exit.type === "cut_off"
+                ? MAY_HAVE_RUN
+                : end.exit.type.replace("_", " ");
     const result = words(
         `${end.output}${cut}\n[Command ${end.command}: ${exit}]`,
     );

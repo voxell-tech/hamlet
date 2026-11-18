@@ -9,7 +9,7 @@ use std::sync::{Arc, Mutex, PoisonError};
 use std::time::{Duration, Instant};
 
 use anyhow::{Context, Result, bail};
-use hamlet_actor_core::{BindParam, SqliteTransaction};
+use hamlet_actor_core::{BindParam, ColumnValue, SqliteTransaction};
 use hamlet_messages::workspace::reach::Need;
 use hamlet_messages::workspace::refusal::RunNotRun;
 use hamlet_messages::workspace::{
@@ -69,17 +69,21 @@ pub(super) async fn status(
         .transpose()
 }
 
+pub(super) const RUNNING_LATER: &str = "running_later";
+
 /// Marks every command still running as cut off: the host they ran
 /// under stopped.
 pub(super) const CUT_OFF: &str =
-    "UPDATE calls SET state = 'cut_off' WHERE state = 'running'";
+    "UPDATE calls SET state = 'cut_off' WHERE state = 'running'; \
+     UPDATE calls SET state = 'cut_off_later' WHERE state = \
+     'running_later'";
 
 /// A command's row, from its call's.
 pub(super) fn row_of(call: Call) -> Result<Row> {
     let command = command_id(call.id)?;
     let state = match (call.state.as_str(), call.answer) {
-        ("running", _) => State::Running,
-        ("cut_off", _) => State::CutOff,
+        ("running" | "running_later", _) => State::Running,
+        ("cut_off" | "cut_off_later", _) => State::CutOff,
         ("waiting", Some(needs)) => State::Waiting(
             ciborium::from_reader(needs.as_slice())
                 .context("decode what a command waits for")?,
@@ -134,7 +138,7 @@ pub(super) async fn end(
     let answer = crate::cbor(end)?;
     tx.execute(
         "UPDATE calls SET state = 'ended', answer = ?1, ended_at = \
-         ?2 WHERE id = ?3 AND state = 'running'",
+         ?2 WHERE id = ?3 AND state IN ('running', 'running_later')",
         Some(vec![
             BindParam::Blob(answer),
             BindParam::Integer(calls::now_ms()?),
@@ -143,6 +147,84 @@ pub(super) async fn end(
     )
     .await?;
     Ok(())
+}
+
+pub(super) async fn hears_later(
+    tx: &SqliteTransaction,
+    command: CommandId,
+) -> Result<()> {
+    tx.execute(
+        "UPDATE calls SET state = 'running_later' WHERE id = ?1 AND \
+         state = 'running'",
+        Some(vec![BindParam::Integer(i64::from(command.0))]),
+    )
+    .await?;
+    Ok(())
+}
+
+pub(super) struct UntoldCutOff {
+    pub agent: AgentNumber,
+    pub call: CallId,
+    pub command: CommandId,
+}
+
+pub(super) async fn untold_cut_offs(
+    tx: &SqliteTransaction,
+) -> Result<Vec<UntoldCutOff>> {
+    let read = tx
+        .execute(
+            "SELECT agent, call, id FROM calls WHERE state = \
+             'cut_off_later' ORDER BY id",
+            None,
+        )
+        .await?;
+    read.rows
+        .iter()
+        .map(|row| match row.as_slice() {
+            [
+                ColumnValue::Integer(agent),
+                ColumnValue::Text(call),
+                ColumnValue::Integer(id),
+            ] => Ok(UntoldCutOff {
+                agent: AgentNumber(u32::try_from(*agent)?),
+                call: CallId(call.clone()),
+                command: command_id(*id)?,
+            }),
+            row => bail!(
+                "a cut-off command's row has another shape: {row:?}"
+            ),
+        })
+        .collect()
+}
+
+pub(super) async fn told(
+    tx: &SqliteTransaction,
+    command: CommandId,
+) -> Result<()> {
+    tx.execute(
+        "UPDATE calls SET state = 'cut_off' WHERE id = ?1 AND state \
+         = 'cut_off_later'",
+        Some(vec![BindParam::Integer(i64::from(command.0))]),
+    )
+    .await?;
+    Ok(())
+}
+
+pub(super) async fn never_tell(
+    tx: &SqliteTransaction,
+    agent: AgentNumber,
+) -> Result<()> {
+    tx.execute(
+        "UPDATE calls SET state = 'cut_off' WHERE agent = ?1 AND \
+         state = 'cut_off_later'",
+        Some(vec![BindParam::Integer(i64::from(agent.0))]),
+    )
+    .await?;
+    Ok(())
+}
+
+pub(super) fn ends_by(limit: Duration) -> Result<i64> {
+    Ok(calls::now_ms()? + i64::try_from(limit.as_millis())?)
 }
 
 /// The end of a command that printed nothing: one that was cut off,
@@ -172,6 +254,7 @@ pub(super) struct Running {
     pub call: CallId,
     pub conversation: ConversationId,
     pub waiters: Arc<Waiters>,
+    pub ends_by: i64,
     /// Fired to end it as cancelled.
     pub cancel: CancellationToken,
     /// Fired once its end is recorded, or the host stops.
@@ -186,6 +269,7 @@ impl Running {
         agent: AgentNumber,
         call: CallId,
         conversation: ConversationId,
+        ends_by: i64,
         waiters: Arc<Waiters>,
     ) -> Self {
         Self {
@@ -194,6 +278,7 @@ impl Running {
             call,
             conversation,
             waiters,
+            ends_by,
             cancel: CancellationToken::new(),
             stopped: CancellationToken::new(),
         }

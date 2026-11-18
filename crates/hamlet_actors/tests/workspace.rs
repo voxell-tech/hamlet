@@ -78,6 +78,7 @@ struct Peers {
     saved_output: Option<u64>,
     secrets_delay: Duration,
     fetched: AtomicUsize,
+    refused_tells: AtomicUsize,
     told: Mutex<Vec<(String, Finished)>>,
     asked: Mutex<Vec<NeedsChief>>,
 }
@@ -158,6 +159,16 @@ impl Handler<Finished> for Peer {
         _: Ctx<Self>,
         finished: Finished,
     ) -> anyhow::Result<()> {
+        if self
+            .peers
+            .refused_tells
+            .try_update(Ordering::SeqCst, Ordering::SeqCst, |left| {
+                left.checked_sub(1)
+            })
+            .is_ok()
+        {
+            anyhow::bail!("the agent refused the end");
+        }
         self.peers
             .told
             .lock()
@@ -240,8 +251,14 @@ async fn host(dir: &Path) -> Host {
 /// A host on `dir` with the workspace made, whose peers share
 /// `peers`.
 async fn host_with(dir: &Path, peers: Arc<Peers>) -> Host {
+    let host = open(dir, options(peers)).unwrap();
+    host.get_or_start(&workspace_address()).await.unwrap();
+    host
+}
+
+fn options(peers: Arc<Peers>) -> HostOptions {
     let default = workspace::Options::default();
-    let options = HostOptions::default()
+    HostOptions::default()
         .with_value(Arc::new(Sandbox::testing()))
         .with_value(peers.clone())
         .with_value(Arc::new(workspace::Options {
@@ -251,10 +268,7 @@ async fn host_with(dir: &Path, peers: Arc<Peers>) -> Host {
             saved_output: peers
                 .saved_output
                 .unwrap_or(default.saved_output),
-        }));
-    let host = open(dir, options).unwrap();
-    host.get_or_start(&workspace_address()).await.unwrap();
-    host
+        }))
 }
 
 fn reach(project: Option<&str>) -> Reach {
@@ -772,6 +786,9 @@ async fn a_long_command_answers_running_then_finished() {
     let agent_id = agent(AgentNumber(7));
     host.get_or_start(&agent_id).await.unwrap();
     host.shutdown().await.unwrap();
+    let again = host_with(&dir, peers.clone()).await;
+    tokio::time::sleep(Duration::from_millis(300)).await;
+    again.shutdown().await.unwrap();
 
     assert!(answered_in < Duration::from_secs(1), "{answered_in:?}");
     assert_eq!(while_running, RunAnswer::Running { command });
@@ -913,11 +930,29 @@ async fn the_agent_is_the_stamped_caller() {
     );
 }
 
-/// A command the workspace's host stopped under is gone, and at the
-/// next start its row reads cut off; the workspace calls no one.
+fn cut_off(command: CommandId) -> CommandEnd {
+    CommandEnd {
+        command,
+        exit: Exit::CutOff,
+        output: String::new(),
+        cut: None,
+        policy: String::new(),
+        took_ms: 0,
+    }
+}
+
+fn told_ends(peers: &Peers) -> Vec<(String, CommandEnd)> {
+    told(peers)
+        .iter()
+        .map(|(_, finished)| {
+            (finished.call.0.clone(), ran(finished).clone())
+        })
+        .collect()
+}
+
 #[cfg(unix)]
 #[tokio::test(flavor = "multi_thread")]
-async fn a_running_row_is_cut_off_at_the_next_start() {
+async fn a_command_a_stop_cut_off_is_told_once_at_the_next_start() {
     let dir = Scratch::new("workspace-cut-off");
     let fs = filesystem(&dir);
     let peers = answering_within(200);
@@ -931,21 +966,118 @@ async fn a_running_row_is_cut_off_at_the_next_start() {
     let status = status_as(&again, AGENT, command).await;
     let repeat =
         agent_runs(&again, &run("c1", "sleep 1; touch late")).await;
+    told_within(&peers, 1, Duration::from_secs(5)).await;
     tokio::time::sleep(Duration::from_millis(1500)).await;
     again.shutdown().await.unwrap();
+    let third = host_with(&dir, peers.clone()).await;
+    tokio::time::sleep(Duration::from_millis(500)).await;
+    third.shutdown().await.unwrap();
 
-    let cut_off = CommandEnd {
-        command,
-        exit: Exit::CutOff,
-        output: String::new(),
-        cut: None,
-        policy: String::new(),
-        took_ms: 0,
-    };
-    assert_eq!(done(status), cut_off);
-    assert_eq!(done(repeat), cut_off);
+    assert_eq!(done(status), cut_off(command));
+    assert_eq!(done(repeat), cut_off(command));
     assert!(!fs.join("late").exists(), "the command ran on");
+    assert_eq!(
+        told_ends(&peers),
+        [("c1".to_owned(), cut_off(command))]
+    );
+    assert_eq!(told(&peers)[0].0, agent(AGENT).to_string());
+}
+
+#[cfg(unix)]
+#[tokio::test(flavor = "multi_thread")]
+async fn a_command_cut_off_inside_its_call_is_told_nothing() {
+    let dir = Scratch::new("workspace-cut-off-in-call");
+    filesystem(&dir);
+    let peers = answering_within(4000);
+    let host = host_with(&dir, peers.clone()).await;
+    realm_sets(&host, 1, reach(None)).await;
+    let call = {
+        let host = host.clone();
+        tokio::spawn(async move {
+            call_as(
+                &host,
+                &agent(AGENT),
+                Run::NAME,
+                hamlet_actor::action::encode_positional(&run(
+                    "c1", "sleep 30",
+                ))
+                .unwrap(),
+            )
+            .await
+        })
+    };
+    tokio::time::sleep(Duration::from_millis(500)).await;
+    host.shutdown().await.unwrap();
+    let answered = call.await.unwrap();
+    let again = host_with(&dir, peers.clone()).await;
+    let repeat = agent_runs(&again, &run("c1", "sleep 30")).await;
+    tokio::time::sleep(Duration::from_millis(500)).await;
+    again.shutdown().await.unwrap();
+
+    assert!(answered.is_err(), "{answered:?}");
+    assert_eq!(done(repeat).exit, Exit::CutOff);
     assert_eq!(told(&peers), []);
+}
+
+#[cfg(unix)]
+#[tokio::test(flavor = "multi_thread")]
+async fn a_cut_off_end_not_taken_is_told_at_the_next_start() {
+    let dir = Scratch::new("workspace-cut-off-again");
+    filesystem(&dir);
+    let peers = answering_within(200);
+    let host = host_with(&dir, peers.clone()).await;
+    realm_sets(&host, 1, reach(None)).await;
+    let command =
+        running(&agent_runs(&host, &run("c1", "sleep 30")).await);
+    host.shutdown().await.unwrap();
+    peers.refused_tells.store(1, Ordering::SeqCst);
+    let refused = host_with(&dir, peers.clone()).await;
+    tokio::time::sleep(Duration::from_millis(1000)).await;
+    refused.shutdown().await.unwrap();
+    let told_while_refused = told(&peers);
+    let again = host_with(&dir, peers.clone()).await;
+    told_within(&peers, 1, Duration::from_secs(5)).await;
+    again.shutdown().await.unwrap();
+    let last = host_with(&dir, peers.clone()).await;
+    tokio::time::sleep(Duration::from_millis(500)).await;
+    last.shutdown().await.unwrap();
+
+    assert_eq!(told_while_refused, []);
+    assert_eq!(peers.refused_tells.load(Ordering::SeqCst), 0);
+    assert_eq!(
+        told_ends(&peers),
+        [("c1".to_owned(), cut_off(command))]
+    );
+}
+
+#[cfg(unix)]
+#[tokio::test(flavor = "multi_thread")]
+async fn a_start_of_the_host_tells_a_cut_off_end_unasked() {
+    let dir = Scratch::new("workspace-cut-off-boot");
+    filesystem(&dir);
+    let peers = answering_within(200);
+    let host = host_with(&dir, peers.clone()).await;
+    realm_sets(&host, 1, reach(None)).await;
+    let limited = Run {
+        program: Program::Script {
+            script: "sleep 30".to_owned(),
+            network: false,
+            timeout_ms: Some(2000),
+        },
+        ..run("c1", "")
+    };
+    let command = running(&agent_runs(&host, &limited).await);
+    host.shutdown().await.unwrap();
+    let again = open(&dir, options(peers.clone())).unwrap();
+    let began = again.boot().await.unwrap();
+    told_within(&peers, 1, Duration::from_secs(10)).await;
+    again.shutdown().await.unwrap();
+
+    assert_eq!(began, [], "the boot started the workspace at once");
+    assert_eq!(
+        told_ends(&peers),
+        [("c1".to_owned(), cut_off(command))]
+    );
 }
 
 /// A call does not make its target: `Finished` to an agent that was

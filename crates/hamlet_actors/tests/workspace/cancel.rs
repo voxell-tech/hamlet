@@ -18,8 +18,9 @@ use super::files::{ask, project};
 use super::waits::{chief, waits};
 use super::{
     AGENT, Leave, WRONG_CALLER, agent, agent_runs, answering_within,
-    error_of, filesystem, host_with, ran, reach, realm, realm_sets,
-    run, running, runs_as, status_as, told, told_within,
+    cut_off, error_of, filesystem, host_with, ran, reach, realm,
+    realm_sets, run, running, runs_as, status_as, told, told_ends,
+    told_within,
 };
 
 fn cancel_agent(which: Which) -> CancelAgent {
@@ -268,6 +269,7 @@ async fn a_cancel_after_a_restart_finds_nothing() {
     let again = host_with(&dir, peers.clone()).await;
     let answer = realm_cancels(&again, Which::All).await;
     let status = status_as(&again, AGENT, command).await;
+    told_within(&peers, 1, Duration::from_secs(5)).await;
     again.shutdown().await.unwrap();
 
     assert_eq!(
@@ -280,7 +282,10 @@ async fn a_cancel_after_a_restart_finds_nothing() {
         matches!(&status, RunAnswer::Ended { end: RunEnd::Ran(end) } if end.exit == Exit::CutOff),
         "{status:?}"
     );
-    assert_eq!(told(&peers), []);
+    assert_eq!(
+        told_ends(&peers),
+        [("c1".to_owned(), cut_off(command))]
+    );
 }
 
 /// An agent's cancel ends only its own commands, and only the realm

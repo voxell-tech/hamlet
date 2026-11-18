@@ -24,8 +24,6 @@ const TOLD: Probe = Probe {
     read: Read::Sql("SELECT COUNT(*) FROM finished"),
 };
 
-/// The command is gone, its row reads cut off, a status by its id
-/// answers so, and no one was told.
 const COMMAND_CUT_OFF: &[Expect] = &[
     Expect {
         value: "status/1/cut_off",
@@ -41,7 +39,7 @@ const COMMAND_CUT_OFF: &[Expect] = &[
     },
     Expect {
         value: "agent.finished",
-        is: Is::Exactly(0),
+        is: Is::Exactly(1),
     },
 ];
 
@@ -51,7 +49,7 @@ pub const SCENARIOS: &[Scenario] = &[Scenario {
             after it answered Running; the command's process is \
             gone under bubblewrap, and after each restart its row \
             reads cut off, a status by its id answers cut off, and \
-            the agent was told nothing",
+            the agent was told it was cut off once",
     demo: Demo::Local,
     setup: &["realm reach 1 1"],
     trigger: "agent 1 run c1 sleep 8; touch late",
