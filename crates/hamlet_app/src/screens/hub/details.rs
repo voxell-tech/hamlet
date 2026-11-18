@@ -1,5 +1,5 @@
 //! The details sheet beside a thread: what only it shows of the
-//! agent. Its kind, scholar, parent and hires are in the path and the
+//! agent. Its kind, profile, parent and hires are in the path and the
 //! rail, its model in the composer and its sessions and side chats in
 //! the session menu, so they are not repeated here.
 
@@ -15,7 +15,7 @@ use bevy_fynix::{
     Bevy, ScopedExt, ViewExt, ViewSeq, derived, every_frame, keyed,
 };
 use hamlet_client::realm::{
-    Account, Allowance, Bylaws, Deeds, Kind, LivesIn, Road, Scholar,
+    Account, Allowance, Bylaws, Deeds, Kind, LivesIn, Profile, Road,
     ToolsOff, id_of, name_of, roads_of, shown_of,
 };
 use hamlet_protocol::client as protocol;
@@ -48,9 +48,9 @@ struct Facts {
     hand: bool,
     worker: bool,
     purpose: String,
-    /// The version it is pinned to, none for its scholar's `main`.
+    /// The version it is pinned to, none for its profile's `main`.
     pin: Option<String>,
-    /// Its scholar's named versions, when the chief may pin it to
+    /// Its profile's named versions, when the chief may pin it to
     /// one.
     versions: Option<Vec<String>>,
     /// Its address, and what it is called in the world.
@@ -111,15 +111,15 @@ fn facts(world: &World, agent: Entity) -> Facts {
     }
 }
 
-/// The named versions of the scholar `agent` is a hire of.
+/// The named versions of the profile `agent` is a hire of.
 fn versions_of(world: &World, agent: Entity) -> Option<Vec<String>> {
     let id = id_of(world, agent)?;
-    let mut scholars = world.try_query::<&Scholar>()?;
-    scholars
+    let mut profiles = world.try_query::<&Profile>()?;
+    profiles
         .iter(world)
-        .find(|scholar| scholar.0.hires.contains(&id))
-        .map(|scholar| {
-            scholar
+        .find(|profile| profile.0.hires.contains(&id))
+        .map(|profile| {
+            profile
                 .0
                 .versions
                 .iter()
@@ -210,8 +210,8 @@ fn allowance_field(facts: &Facts) -> AnyView {
     .boxed()
 }
 
-/// The version of its scholar it works from, chosen from the
-/// scholar's versions where it may be pinned.
+/// The version of its profile it works from, chosen from the
+/// profile's versions where it may be pinned.
 fn version(facts: &Facts) -> AnyView {
     let now = facts.pin.clone().unwrap_or_else(|| "main".into());
     let Some(versions) = &facts.versions else {
@@ -252,7 +252,7 @@ fn version(facts: &Facts) -> AnyView {
     .boxed()
 }
 
-/// A version as the chief reads it: `main` is what its scholar knows
+/// A version as the chief reads it: `main` is what its profile knows
 /// now.
 fn shown_version(name: &str) -> String {
     match name {
@@ -329,7 +329,7 @@ fn about(facts: &Facts) -> Option<AnyView> {
         ));
         parts.push(setting(
             "Version",
-            "The version of its scholar it works from",
+            "The version of its profile it works from",
             version(facts),
         ));
         parts.push(setting(

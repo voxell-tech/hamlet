@@ -242,7 +242,7 @@ impl Chosen {
             Thing::ChiefPlace(_) => Chosen::Hearth,
             Thing::Library
             | Thing::Hand
-            | Thing::Scholar(_)
+            | Thing::Profile(_)
             | Thing::Clockwork(_)
             | Thing::Workbench(_) => {
                 return None;

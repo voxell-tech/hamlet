@@ -1,5 +1,5 @@
 //! Addresses: how chiefs and agents name the Hand, leads, hires,
-//! workers and scholars, by ids and never by a scholar's name (C30,
+//! workers and profiles, by ids and never by a profile's name (C30,
 //! H14).
 
 use std::fmt;
@@ -7,8 +7,8 @@ use std::fmt;
 use anyhow::Result;
 use diesel::prelude::*;
 use hamlet_store::Db;
-use hamlet_store::ids::{Actor, AgentId, HamletId, ScholarId};
-use hamlet_store::schema::{agent, hire, scholar, worker};
+use hamlet_store::ids::{Actor, AgentId, HamletId, ProfileId};
+use hamlet_store::schema::{agent, hire, profile, worker};
 
 use super::agents::{self, AgentKind};
 use super::names::hamlet_id;
@@ -77,22 +77,22 @@ pub(crate) fn parse(text: &str) -> Result<Address, Refusal> {
     }
 }
 
-/// Reads a scholar's address, `scholar#<id>`.
-pub(crate) fn parse_scholar(
+/// Reads a profile's address, `profile#<id>`.
+pub(crate) fn parse_profile(
     text: &str,
-) -> Result<ScholarId, Refusal> {
+) -> Result<ProfileId, Refusal> {
     let text = text.trim();
-    text.strip_prefix("scholar#")
+    text.strip_prefix("profile#")
         .and_then(|id| id.parse::<i64>().ok())
-        .map(ScholarId)
+        .map(ProfileId)
         .ok_or_else(|| Refusal::BadAddress {
             address: text.into(),
         })
 }
 
-/// The address of the scholar `id`.
-pub(crate) fn scholar_address(id: ScholarId) -> String {
-    format!("scholar#{id}")
+/// The address of the profile `id`.
+pub(crate) fn profile_address(id: ProfileId) -> String {
+    format!("profile#{id}")
 }
 
 /// The agent `address` names, said in `here`, the speaker's hamlet.
@@ -130,7 +130,7 @@ pub(crate) fn resolve(
         Address::Hire(id) => {
             let mut query = hire::table
                 .inner_join(agent::table)
-                .inner_join(scholar::table)
+                .inner_join(profile::table)
                 .filter(hire::agent.eq(id))
                 .filter(agent::erased.eq(false))
                 .select(hire::agent)
@@ -138,7 +138,7 @@ pub(crate) fn resolve(
             if reach == Reach::Living {
                 query = query
                     .filter(agent::ended_at.is_null())
-                    .filter(scholar::left_at.is_null());
+                    .filter(profile::left_at.is_null());
             }
             match query.first::<AgentId>(db).optional()? {
                 Some(found) => Ok(Ok(found)),
@@ -185,7 +185,7 @@ pub(crate) fn address_of(db: &mut Db, id: AgentId) -> Result<String> {
 }
 
 /// How `id` is shown to chiefs and agents: its address, and beside it
-/// the nickname of a hire, or else its scholar's name, as in
+/// the nickname of a hire, or else its profile's name, as in
 /// `hire#3 (Mira)`, or a worker's nickname. An erased hire shows its
 /// address only.
 pub(crate) fn name_of(db: &mut Db, id: AgentId) -> Result<String> {
@@ -203,22 +203,22 @@ pub(crate) fn name_of(db: &mut Db, id: AgentId) -> Result<String> {
         return Ok(address);
     }
     let (nickname, name) = hire::table
-        .inner_join(scholar::table)
+        .inner_join(profile::table)
         .filter(hire::agent.eq(id))
-        .select((hire::nickname, scholar::name))
+        .select((hire::nickname, profile::name))
         .first::<(Option<String>, String)>(db)?;
     Ok(format!("{address} ({})", nickname.unwrap_or(name)))
 }
 
-/// How the scholar `id` is shown to chiefs and agents, as in
-/// `scholar#2 (Mira)`.
-pub(crate) fn scholar_name_of(
+/// How the profile `id` is shown to chiefs and agents, as in
+/// `profile#2 (Mira)`.
+pub(crate) fn profile_name_of(
     db: &mut Db,
-    id: ScholarId,
+    id: ProfileId,
 ) -> Result<String> {
-    let name = scholar::table
+    let name = profile::table
         .find(id)
-        .select(scholar::name)
+        .select(profile::name)
         .first::<String>(db)?;
-    Ok(format!("{} ({name})", scholar_address(id)))
+    Ok(format!("{} ({name})", profile_address(id)))
 }

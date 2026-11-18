@@ -24,7 +24,7 @@ use bevy_fynix::{
 };
 use hamlet_client::messages::Veto;
 use hamlet_client::realm::{
-    Busy, Closed, Deeds, HamletId, Identity, Left, Scholar, Treasury,
+    Busy, Closed, Deeds, HamletId, Identity, Left, Profile, Treasury,
 };
 use hamlet_client::waits::Waiting;
 use hamlet_protocol::client as protocol;
@@ -157,11 +157,11 @@ pub fn overview() -> impl View {
                     .tooltip(|| note("Cross to the other island"))
                     .boxed(),
                 action(
-                    Glyph::Scholar,
-                    "New scholar",
-                    world_menu::ask_new_scholar,
+                    Glyph::Profile,
+                    "New profile",
+                    world_menu::ask_new_profile,
                 )
-                .tooltip(|| note(words::SCHOLAR))
+                .tooltip(|| note(words::PROFILE))
                 .boxed(),
             ]),
             scroll_area((column((needs(), hamlets(), closed()))
@@ -286,7 +286,7 @@ struct Today {
     needs: usize,
     working: usize,
     resting: usize,
-    scholars: usize,
+    profiles: usize,
     harbor: usize,
 }
 
@@ -307,14 +307,14 @@ fn today_of(world: &World) -> Today {
             }
         }
     }
-    let (mut scholars, mut harbor) = (0, 0);
-    if let Some(mut query) = world.try_query::<&Scholar>() {
-        for scholar in query.iter(world).map(|scholar| &scholar.0) {
-            if scholar.left.is_some() {
+    let (mut profiles, mut harbor) = (0, 0);
+    if let Some(mut query) = world.try_query::<&Profile>() {
+        for profile in query.iter(world).map(|profile| &profile.0) {
+            if profile.left.is_some() {
                 continue;
             }
-            match scholar.arrival {
-                protocol::Arrival::Housed => scholars += 1,
+            match profile.arrival {
+                protocol::Arrival::Housed => profiles += 1,
                 _ => harbor += 1,
             }
         }
@@ -323,7 +323,7 @@ fn today_of(world: &World) -> Today {
         needs,
         working,
         resting,
-        scholars,
+        profiles,
         harbor,
     }
 }
@@ -365,7 +365,7 @@ fn figure(
 }
 
 /// The day's figures: what waits, what works and rests, and the
-/// scholars in the city and the newcomers at its harbor.
+/// profiles in the city and the newcomers at its harbor.
 fn today() -> AnyView {
     keyed(
         derived(today_of).when(bevy_fynix::every_frame()),
@@ -395,14 +395,14 @@ fn today() -> AnyView {
                     "Agents resting until there is work",
                 ),
                 figure(
-                    today.scholars,
-                    Glyph::Scholar,
-                    match today.scholars {
-                        1 => "scholar",
-                        _ => "scholars",
+                    today.profiles,
+                    Glyph::Profile,
+                    match today.profiles {
+                        1 => "profile",
+                        _ => "profiles",
                     },
                     Tone::Body,
-                    words::SCHOLAR,
+                    words::PROFILE,
                 ),
                 figure(
                     today.harbor,

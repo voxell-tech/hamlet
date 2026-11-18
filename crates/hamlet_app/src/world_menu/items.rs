@@ -61,7 +61,7 @@ fn asking(text: Label, deed: Deed, at: Vec2) -> AnyView {
         .boxed()
 }
 
-/// Hires a scholar under `parent`, while it is a living hire.
+/// Hires a profile under `parent`, while it is a living hire.
 fn hire_under(world: &World, parent: Entity) -> Option<AnyView> {
     let hire = world.get::<Kind>(parent).map(|kind| kind.0)
         == Some(protocol::AgentKind::Hire);
@@ -325,17 +325,17 @@ pub(super) fn items(
             Some(hand) => Vec::from_iter(stop_hand(world, hand)),
             None => Vec::new(),
         },
-        // A scholar's house, or the scholar waiting on the pier.
+        // A profile's house, or the profile waiting on the pier.
         // Selecting it already opens its page, where it is renamed,
         // and it is in view.
-        Thing::Scholar(scholar) => {
+        Thing::Profile(profile) => {
             let mut items = Vec::new();
             let housed = world
-                .get::<hamlet_client::realm::Scholar>(scholar)
+                .get::<hamlet_client::realm::Profile>(profile)
                 .is_some_and(|s| s.0.house.is_some());
             if housed && Deeds::is_allowed(world, "move-house") {
                 items.push(item("Move House".into(), move |w| {
-                    orders::carry_house(w, scholar);
+                    orders::carry_house(w, profile);
                 }));
             }
             items

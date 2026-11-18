@@ -445,7 +445,7 @@ fn parents() -> impl View {
         heading(Glyph::Lead, "Waits for you"),
         fine("What the parents may not do without asking you first."),
         line(
-            "Hire a scholar",
+            "Hire a profile",
             switch("reserved", "hire", |l| l.reserved.hire).boxed(),
         ),
         line(

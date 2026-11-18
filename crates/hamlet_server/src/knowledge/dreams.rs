@@ -1,6 +1,6 @@
-//! The repositories' side of a dream: a checkout of the scholar's
+//! The repositories' side of a dream: a checkout of the profile's
 //! `main` the dream writes beside the hire's lodge, and at its end
-//! the scholar's side committed to `main`, the hire's to its branch,
+//! the profile's side committed to `main`, the hire's to its branch,
 //! and the new `main` taken in.
 
 use std::path::PathBuf;
@@ -18,7 +18,7 @@ use crate::realm::layout::Layout;
 use crate::society::dreams::{self, DreamKind, Outcome};
 use crate::society::{addresses, hires};
 
-/// The checkout of the scholar's `main` that dream `id` writes.
+/// The checkout of the profile's `main` that dream `id` writes.
 pub(crate) fn checkout(layout: &Layout, id: DreamId) -> PathBuf {
     layout
         .root()
@@ -36,8 +36,8 @@ pub(crate) fn prepare(
     at: i64,
 ) -> Result<bool> {
     let dream = dreams::get(db, id)?;
-    let repo = Repository::open(&layout.repository(dream.scholar))?;
-    let main = repo.tip(MAIN)?.context("the scholar has no main")?;
+    let repo = Repository::open(&layout.repository(dream.profile))?;
+    let main = repo.tip(MAIN)?.context("the profile has no main")?;
     if let Some(hire) = dream.hire {
         commit(db, layout, hire, at)?;
         let Some(tip) = repo.tip(&branch(hire))? else {
@@ -78,9 +78,9 @@ pub(super) fn end(
         remove_folder(&path)?;
         return dreams::end(db, id, last, None, None, at);
     }
-    let repo = Repository::open(&layout.repository(dream.scholar))?;
+    let repo = Repository::open(&layout.repository(dream.profile))?;
     let before =
-        repo.tip(MAIN)?.context("the scholar has no main")?;
+        repo.tip(MAIN)?.context("the profile has no main")?;
     let folder = Folder::open(&path)?;
     let listing = folder.list(&outside_git)?;
     for entry in &listing {
@@ -114,7 +114,7 @@ pub(super) fn end(
         branch_tip = repo.tip(&branch(hire))?;
     }
     if main.is_some() {
-        for other in hires::living_of(db, dream.scholar)? {
+        for other in hires::living_of(db, dream.profile)? {
             if Some(other.agent) != dream.hire {
                 let job = Job::TakeIn { hire: other.agent };
                 hamlet_store::job::add(

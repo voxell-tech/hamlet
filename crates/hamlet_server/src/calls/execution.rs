@@ -321,7 +321,7 @@ impl Core<'_, '_> {
         let agent = call.conversation.agent;
         let remote = match call.conversation.kind {
             // A dream works on this machine's checkout of its
-            // scholar.
+            // profile.
             Kind::Dream => None,
             _ => self.remote.session(
                 self.realm.store().connection(),
@@ -383,7 +383,7 @@ impl Core<'_, '_> {
 }
 
 /// The refusal of a write or edit of `CHARACTER.md` at the lodge's
-/// root, which is the scholar's own.
+/// root, which is the profile's own.
 fn character_refusal(
     place: &crate::tools::builtin::Place,
     call: &Call<'_>,
@@ -400,7 +400,7 @@ fn character_refusal(
     };
     (full == place.lodge.join(CHARACTER)).then(|| {
         format!(
-            "{CHARACTER} is your scholar's character, which only a \
+            "{CHARACTER} is your profile's character, which only a \
              chief changes. Keep what you learn in memory/ instead."
         )
     })

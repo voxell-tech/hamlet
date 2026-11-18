@@ -2,7 +2,7 @@
 //! founding and moving a town.
 
 use bevy::prelude::*;
-use hamlet_protocol::client::{HouseAt, ScholarId};
+use hamlet_protocol::client::{HouseAt, ProfileId};
 
 use super::{Society, Town, TownId};
 use crate::generator::land::{IslandId, Land, Unfit};
@@ -17,8 +17,8 @@ pub enum Ground {
     Chief,
     /// The library, which is nobody's and everyone's.
     Library,
-    /// The house of a scholar of the city.
-    House(ScholarId),
+    /// The house of a profile of the city.
+    House(ProfileId),
     /// The Hand's tower, at the middle of the city. It stays where
     /// it stands.
     Tower,

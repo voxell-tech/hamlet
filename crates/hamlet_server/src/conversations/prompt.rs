@@ -1,6 +1,6 @@
 //! The prompt, built before every model call (C11): the charter, the
 //! machine, the project, the character, the memory, the skills, the
-//! agent's place, the realm and the scholars it may hire. Nothing in
+//! agent's place, the realm and the profiles it may hire. Nothing in
 //! it changes with spending, so it stays the same from one input to
 //! the next; an agent reads its budget with `read_budget`.
 //! An errand's and a dream's are their own instructions; a worker's
@@ -98,8 +98,8 @@ pub(crate) fn sections(
     if let Some(text) = place::realm(db, agent.id)? {
         sections.push(section("realm", text));
     }
-    if let Some(text) = place::scholars(db, agent.id)? {
-        sections.push(section("scholars", text));
+    if let Some(text) = place::profiles(db, agent.id)? {
+        sections.push(section("profiles", text));
     }
     sections.retain(|section| !section.text.trim().is_empty());
     Ok(sections)
@@ -174,7 +174,7 @@ fn machine(
         "# Environment\nSandbox: {sandbox}. Network for tools: \
          {net}.{model}{failed}\n{SYSTEM}\nYour lodge: {}. It is \
          yours: your memory/ and skills/ live there, and what you \
-         write there is kept for your scholar.",
+         write there is kept for your profile.",
         lodge.display()
     ))
 }
@@ -242,7 +242,7 @@ fn project(folder: &str, manual: bool, lodge: &Path) -> String {
     format!("# The project\n{}", lines.join("\n"))
 }
 
-/// The character at the tip of the agent's branch, else its scholar's
+/// The character at the tip of the agent's branch, else its profile's
 /// `main`.
 fn character(
     db: &mut Db,
@@ -251,7 +251,7 @@ fn character(
 ) -> Result<Option<String>> {
     let lodging = knowledge::lodging(db, layout, agent)?;
     let Ok(repository) =
-        Repository::open(&layout.repository(lodging.scholar))
+        Repository::open(&layout.repository(lodging.profile))
     else {
         return Ok(None);
     };

@@ -53,7 +53,7 @@ An icon means one thing across the app, so the eye can trust it. Those
 that name a part of Hamlet:
 
 - `Tree` the Hub, `Globe` the world and the realm, `Hamlet` a hamlet,
-  `Scholar` a scholar and the city, `Anchor` the harbor, `Signpost`
+  `Profile` a profile and the city, `Anchor` the harbor, `Signpost`
   roads, `Hearth` the chief's hearth.
 - `Tower` the Hand, `Lead` a lead and the parents, `Hire` a hire,
   `Worker` a worker, `Robot` agents in general, `Face` an agent's

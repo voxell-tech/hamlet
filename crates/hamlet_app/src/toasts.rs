@@ -32,12 +32,12 @@ use bevy_fynix::{
 use hamlet_client::messages::{Answer, Response, ServerFault};
 use hamlet_client::outbox::{Outbox, RequestId};
 use hamlet_client::realm::{
-    Departure, Faulted, Kind, Left, LivesIn, Scholar, Seen, Shown,
+    Departure, Faulted, Kind, Left, LivesIn, Profile, Seen, Shown,
     name_of,
 };
 use hamlet_client::waits::{RaisedBy, Waiting};
 use hamlet_protocol::client::{
-    AgentKind, Arrival, ClientMessage, LeftHow, ReplyKind, ScholarId,
+    AgentKind, Arrival, ClientMessage, LeftHow, ProfileId, ReplyKind,
     ServerMessage, WaitDetail,
 };
 use hamlet_ui::styles::{
@@ -172,10 +172,10 @@ enum What {
         head: String,
         line: String,
     },
-    /// The Hand let a scholar in or turned it away, which a chief
+    /// The Hand let a profile in or turned it away, which a chief
     /// can undo.
     Verdict {
-        scholar: ScholarId,
+        profile: ProfileId,
         name: String,
         housed: bool,
     },
@@ -325,37 +325,37 @@ fn raise(
     }
 }
 
-/// Raises a toast when the Hand lets a scholar in or turns it away:
-/// a scholar that went from waiting to housed or turned, by the Hand.
+/// Raises a toast when the Hand lets a profile in or turns it away:
+/// a profile that went from waiting to housed or turned, by the Hand.
 /// What was there at the first state is not new.
 fn judged(
     time: Res<Time>,
     seen: Option<Res<Seen>>,
-    scholars: Query<&Scholar>,
+    profiles: Query<&Profile>,
     mut toasts: ResMut<Toasts>,
-    mut before: Local<HashMap<ScholarId, Arrival>>,
+    mut before: Local<HashMap<ProfileId, Arrival>>,
     mut primed: Local<bool>,
 ) {
     if seen.is_none() {
         return;
     }
     let now = time.elapsed_secs();
-    for scholar in &scholars {
-        let scholar = &scholar.0;
-        let was = before.insert(scholar.id, scholar.arrival);
-        let by_hand = scholar.arrival_by.as_deref() == Some(HAND);
+    for profile in &profiles {
+        let profile = &profile.0;
+        let was = before.insert(profile.id, profile.arrival);
+        let by_hand = profile.arrival_by.as_deref() == Some(HAND);
         if !*primed || !by_hand || was != Some(Arrival::Waiting) {
             continue;
         }
-        let housed = match scholar.arrival {
+        let housed = match profile.arrival {
             Arrival::Housed => true,
             Arrival::Turned => false,
             Arrival::Waiting | Arrival::Apart => continue,
         };
         toasts.push(
             What::Verdict {
-                scholar: scholar.id,
-                name: scholar.name.clone(),
+                profile: profile.id,
+                name: profile.name.clone(),
                 housed,
             },
             now,
@@ -364,9 +364,9 @@ fn judged(
     *primed = true;
 }
 
-/// The command that takes back the Hand's verdict on `scholar`.
-fn undo_of(scholar: ScholarId, housed: bool) -> String {
-    let address = hamlet_client::realm::scholar_address(scholar);
+/// The command that takes back the Hand's verdict on `profile`.
+fn undo_of(profile: ProfileId, housed: bool) -> String {
+    let address = hamlet_client::realm::profile_address(profile);
     match housed {
         true => format!("/turn-away {address}"),
         false => format!("/welcome {address}"),
@@ -678,20 +678,20 @@ fn card(toast: &Toast) -> AnyView {
                 column(()).boxed(),
             ),
             What::Verdict {
-                scholar,
+                profile,
                 name,
                 housed,
             } => {
-                let undo = undo_of(*scholar, *housed);
+                let undo = undo_of(*profile, *housed);
                 let (head, line, kind) = if *housed {
                     (
-                        "The Hand let a scholar in",
+                        "The Hand let a profile in",
                         format!("{name} has a house in the city."),
                         StatusKind::Success,
                     )
                 } else {
                     (
-                        "The Hand turned a scholar away",
+                        "The Hand turned a profile away",
                         format!("{name} waits at the harbor."),
                         StatusKind::Warning,
                     )
@@ -1008,17 +1008,17 @@ mod tests {
         app.add_plugins(plugin);
         let mut state = hamlet_testing::realm::state();
         state.settings.newcomers = protocol::Newcomers::Hand;
-        let mut moss = hamlet_testing::realm::scholar(3, "moss", &[]);
+        let mut moss = hamlet_testing::realm::profile(3, "moss", &[]);
         moss.arrival = Arrival::Waiting;
         moss.house = None;
-        state.scholars.push(moss);
+        state.profiles.push(moss);
         hamlet_client::receive(
             app.world_mut(),
             ServerMessage::State(state.clone()),
         );
         app.update();
         state.revision += 1;
-        let moss = state.scholars.last_mut().unwrap();
+        let moss = state.profiles.last_mut().unwrap();
         moss.arrival = Arrival::Housed;
         moss.arrival_by = Some(HAND.into());
         hamlet_client::receive(
@@ -1032,14 +1032,14 @@ mod tests {
         assert!(
             shown
                 .iter()
-                .any(|text| text == "The Hand let a scholar in"),
+                .any(|text| text == "The Hand let a profile in"),
             "{shown:?}"
         );
         press(&mut app, "Undo");
         let undone =
             app.world().resource::<Outbox>().iter().any(|message| {
                 matches!(message, ClientMessage::Say(say)
-                    if say.text == "/turn-away scholar#3")
+                    if say.text == "/turn-away profile#3")
             });
         assert!(undone);
     }

@@ -68,7 +68,7 @@ async fn the_realm_comes_back_as_it_was_after_a_stop() {
         words("Hello."),
         call(
             "found_hamlet",
-            json!({"name": "bog", "scholar": "scholar#2", "purpose": "drain"}),
+            json!({"name": "bog", "profile": "profile#2", "purpose": "drain"}),
         ),
         words("Founded."),
     ]))
@@ -78,7 +78,7 @@ async fn the_realm_comes_back_as_it_was_after_a_stop() {
     s.chief.open(&now).await;
     s.chief.tell(hand, "Hi.").await;
     s.chief.shows(&now, "Hello.").await;
-    s.chief.command(hand, "/scholar new bo: A digger.").await;
+    s.chief.command(hand, "/profile new bo: A digger.").await;
     let ada = s.found("docs", "ada", "keep the docs").await;
     s.hire(ada, "cy", "dig").await;
     s.chief.command(ada, "/tier 100").await;
@@ -95,7 +95,7 @@ async fn the_realm_comes_back_as_it_was_after_a_stop() {
     let mut chief = Client::join(&server).await;
     let after = chief.realm();
     assert_eq!(names(&after), names(&before));
-    assert_eq!(after.scholars, before.scholars);
+    assert_eq!(after.profiles, before.profiles);
     assert_eq!(after.hand, before.hand);
     assert_eq!(after.limits, before.limits);
     assert_eq!(
@@ -115,9 +115,9 @@ async fn the_realm_comes_back_as_it_was_after_a_stop() {
     assert_eq!(page.items, items);
     // Ids go on from where they were: nothing is made twice.
     let newest =
-        before.scholars.iter().map(|s| s.id.0).max().unwrap();
-    chief.command(chief.hand(), "/scholar new dee").await;
-    chief.until("dee", |c| c.scholar("dee").is_some()).await;
-    assert!(chief.scholar("dee").unwrap().id.0 > newest);
+        before.profiles.iter().map(|s| s.id.0).max().unwrap();
+    chief.command(chief.hand(), "/profile new dee").await;
+    chief.until("dee", |c| c.profile("dee").is_some()).await;
+    assert!(chief.profile("dee").unwrap().id.0 > newest);
     assert_eq!(chief.history(hand).await.len(), 1);
 }

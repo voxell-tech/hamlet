@@ -20,7 +20,7 @@ pub(crate) enum Society {
     ReadBudget,
     Object,
     RequestRoad,
-    CreateScholar,
+    CreateProfile,
     Hire,
     EndHire,
     MergeHires,
@@ -35,8 +35,8 @@ pub(crate) enum Society {
     SetLead,
     RemoveHamlet,
     ReadRecord,
-    ReadScholar,
-    EditScholar,
+    ReadProfile,
+    EditProfile,
     Tag,
     Revert,
 }
@@ -102,7 +102,7 @@ pub(crate) struct Facts {
     pub doing: Option<Doing>,
     /// True when a call cut off by a crash may run again when called
     /// again: its change is kept with its answer, or what it began
-    /// is found by its call. A write of a scholar's repository is
+    /// is found by its call. A write of a profile's repository is
     /// kept by no transaction, so it is answered as cut off instead.
     pub replays: bool,
 }
@@ -128,7 +128,7 @@ impl Facts {
         self
     }
 
-    /// It writes a scholar's repository, which no transaction keeps.
+    /// It writes a profile's repository, which no transaction keeps.
     const fn once(mut self) -> Self {
         self.replays = false;
         self
@@ -157,7 +157,7 @@ pub(crate) const FACTS: [Facts; 28] = {
         facts(S::Object, "object", Chats),
         facts(S::RequestRoad, "request_road", Hires)
             .doing(Doing::Await),
-        facts(S::CreateScholar, "create_scholar", Parents)
+        facts(S::CreateProfile, "create_profile", Parents)
             .doing(Doing::Think),
         facts(S::Hire, "hire", Parents)
             .reserved(Reserve::Limit(Limit::Hire))
@@ -180,8 +180,8 @@ pub(crate) const FACTS: [Facts; 28] = {
         facts(S::RemoveHamlet, "remove_hamlet", Hand)
             .reserved(Reserve::Hand),
         facts(S::ReadRecord, "read_record", Hand),
-        facts(S::ReadScholar, "read_scholar", Hand),
-        facts(S::EditScholar, "edit_scholar", Hand)
+        facts(S::ReadProfile, "read_profile", Hand),
+        facts(S::EditProfile, "edit_profile", Hand)
             .reserved(Reserve::Hand)
             .once(),
         facts(S::Tag, "tag", Hand).reserved(Reserve::Hand).once(),

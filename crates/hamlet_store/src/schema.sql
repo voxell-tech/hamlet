@@ -1,6 +1,6 @@
 -- The realm's database. Times are milliseconds since the epoch. An
 -- actor column holds `chief:<id>`, `agent:<id>` or `realm`. Rows of
--- scholars, agents, conversations, tasks and waits are never deleted,
+-- profiles, agents, conversations, tasks and waits are never deleted,
 -- so their ids are never given twice.
 
 -- The realm
@@ -32,11 +32,11 @@ CREATE TABLE document (
 
 -- The city
 
--- A scholar, or the Hand's own knowledge. Its repository is
--- scholars/<id>.git. Its name is a label that may repeat.
-CREATE TABLE scholar (
+-- A profile, or the Hand's own knowledge. Its repository is
+-- profiles/<id>.git. Its name is a label that may repeat.
+CREATE TABLE profile (
     id INTEGER PRIMARY KEY,
-    kind TEXT NOT NULL CHECK (kind IN ('scholar', 'hand')),
+    kind TEXT NOT NULL CHECK (kind IN ('profile', 'hand')),
     name TEXT NOT NULL,
     chief INTEGER REFERENCES chief(id),
     since INTEGER NOT NULL,
@@ -54,7 +54,7 @@ CREATE TABLE scholar (
     house_x REAL,
     house_z REAL,
     house_turn REAL,
-    fork_of INTEGER REFERENCES scholar(id),
+    fork_of INTEGER REFERENCES profile(id),
     fork_at TEXT,
     left_at INTEGER,
     left_by TEXT,
@@ -63,7 +63,7 @@ CREATE TABLE scholar (
     CHECK ((kind = 'hand') = (chief IS NULL)),
     CHECK (erased = 0 OR left_at IS NOT NULL)
 ) STRICT;
-CREATE INDEX scholar_chief ON scholar(chief);
+CREATE INDEX profile_chief ON profile(chief);
 
 -- Hamlets
 
@@ -122,7 +122,7 @@ CREATE TABLE agent (
     ended_at INTEGER,
     ended_by TEXT,
     ended_how TEXT CHECK (ended_how IS NULL OR ended_how IN
-        ('ended', 'merged', 'scholar', 'hamlet', 'answered', 'failed',
+        ('ended', 'merged', 'profile', 'hamlet', 'answered', 'failed',
          'stopped')),
     ended_reason TEXT,
     erased INTEGER NOT NULL DEFAULT 0 CHECK (erased IN (0, 1)),
@@ -133,19 +133,19 @@ CREATE UNIQUE INDEX agent_hand ON agent(kind) WHERE kind = 'hand';
 
 CREATE TABLE hand (
     agent INTEGER PRIMARY KEY REFERENCES agent(id),
-    scholar INTEGER NOT NULL UNIQUE REFERENCES scholar(id),
+    profile INTEGER NOT NULL UNIQUE REFERENCES profile(id),
     -- The model chosen for it; the realm's default while none.
     model TEXT
 ) STRICT;
 
--- A scholar working in a hamlet. Its branch is hires/<agent> in its
--- scholar's repository and its lodge hamlets/<hamlet>/<agent>/. A
+-- A profile working in a hamlet. Its branch is hires/<agent> in its
+-- profile's repository and its lodge hamlets/<hamlet>/<agent>/. A
 -- hire with no parent is under the Hand. `base` is the commit of
 -- `main`, or of its pin, its branch last took in.
 CREATE TABLE hire (
     agent INTEGER PRIMARY KEY REFERENCES agent(id),
     hamlet TEXT NOT NULL REFERENCES hamlet(id),
-    scholar INTEGER NOT NULL REFERENCES scholar(id),
+    profile INTEGER NOT NULL REFERENCES profile(id),
     parent INTEGER REFERENCES hire(agent),
     purpose TEXT NOT NULL,
     -- What the chief or an agent above it calls it in the world.
@@ -160,7 +160,7 @@ CREATE TABLE hire (
     merged_into INTEGER REFERENCES hire(agent),
     CHECK (parent IS NULL OR parent <> agent)
 ) STRICT;
-CREATE INDEX hire_scholar ON hire(scholar);
+CREATE INDEX hire_profile ON hire(profile);
 CREATE INDEX hire_parent ON hire(parent);
 
 -- A built-in or society tool a parent turned off for a hire.
@@ -254,14 +254,14 @@ CREATE TABLE decision (
     kind TEXT NOT NULL,
     subject INTEGER REFERENCES agent(id),
     other INTEGER REFERENCES agent(id),
-    scholar INTEGER REFERENCES scholar(id),
+    profile INTEGER REFERENCES profile(id),
     reason TEXT NOT NULL,
     task INTEGER REFERENCES task(id),
     detail TEXT CHECK (detail IS NULL OR json_valid(detail))
 ) STRICT;
 CREATE INDEX decision_hamlet ON decision(hamlet, at);
 CREATE INDEX decision_subject ON decision(subject);
-CREATE INDEX decision_scholar ON decision(scholar);
+CREATE INDEX decision_profile ON decision(profile);
 
 -- Two hires merged: the commit that brought the absorbed hire's files
 -- into the kept hire's branch, and the one that took them out again.
@@ -580,12 +580,12 @@ CREATE TABLE library_event (
 ) STRICT;
 
 -- A dream: a hire's, which brings what it learned home, or a
--- scholar's, which tidies its `main`. `ending` marks the last dream of
+-- profile's, which tidies its `main`. `ending` marks the last dream of
 -- a hire that ends.
 CREATE TABLE dream (
     id INTEGER PRIMARY KEY,
-    kind TEXT NOT NULL CHECK (kind IN ('hire', 'scholar')),
-    scholar INTEGER NOT NULL REFERENCES scholar(id),
+    kind TEXT NOT NULL CHECK (kind IN ('hire', 'profile')),
+    profile INTEGER NOT NULL REFERENCES profile(id),
     hire INTEGER REFERENCES hire(agent),
     ending INTEGER NOT NULL DEFAULT 0 CHECK (ending IN (0, 1)),
     conversation INTEGER REFERENCES conversation(id),
@@ -598,7 +598,7 @@ CREATE TABLE dream (
     branch_commit TEXT,
     CHECK ((kind = 'hire') = (hire IS NOT NULL))
 ) STRICT;
-CREATE INDEX dream_scholar ON dream(scholar, began);
+CREATE INDEX dream_profile ON dream(profile, began);
 
 -- Oversight
 
@@ -613,7 +613,7 @@ CREATE TABLE wait (
          'send')),
     agent INTEGER REFERENCES agent(id),
     -- The newcomer a `newcomer` wait asks about.
-    scholar INTEGER REFERENCES scholar(id),
+    profile INTEGER REFERENCES profile(id),
     conversation INTEGER REFERENCES conversation(id),
     task INTEGER REFERENCES task(id),
     about TEXT NOT NULL,

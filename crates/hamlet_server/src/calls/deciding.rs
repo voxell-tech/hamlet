@@ -325,7 +325,7 @@ impl Core<'_, '_> {
                             kind: WaitKind::Approval,
                             danger: Some(danger),
                             agent,
-                            scholar: None,
+                            profile: None,
                             conversation: Some(conversation),
                             task,
                             about,

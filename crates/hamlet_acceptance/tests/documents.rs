@@ -36,7 +36,7 @@ async fn edits_the_charter_character_and_memory_and_the_prompt_follows()
  {
     let mut s = Session::start(Faux::new()).await;
     let ada = s.found("docs", "ada", "keep the docs").await;
-    let scholar = s.chief.scholar("ada").unwrap().id;
+    let profile = s.chief.profile("ada").unwrap().id;
     let reply = edit(&mut s.chief, |id| Edit::Charter {
         id,
         text: Some("Be brief.".into()),
@@ -45,7 +45,7 @@ async fn edits_the_charter_character_and_memory_and_the_prompt_follows()
     assert_eq!(reply.kind, ReplyKind::Notice, "{}", reply.text);
     let reply = edit(&mut s.chief, |id| Edit::Character {
         id,
-        scholar,
+        profile,
         text: "Calm.".into(),
     })
     .await;
@@ -53,7 +53,7 @@ async fn edits_the_charter_character_and_memory_and_the_prompt_follows()
     let tea = memory("Tea", "Earl grey.");
     let reply = edit(&mut s.chief, |id| Edit::Memory {
         id,
-        of: Keeper::Scholar(scholar),
+        of: Keeper::Profile(profile),
         path: "tea.md".into(),
         text: tea.clone(),
     })
@@ -69,7 +69,7 @@ async fn edits_the_charter_character_and_memory_and_the_prompt_follows()
     })
     .await;
 
-    let papers = s.chief.papers(Keeper::Scholar(scholar)).await;
+    let papers = s.chief.papers(Keeper::Profile(profile)).await;
     assert_eq!(papers.character, "Calm.");
     assert_eq!(papers.memory.len(), 1);
     assert_eq!(papers.memory[0].path, "tea.md");
@@ -113,21 +113,21 @@ async fn edits_the_charter_character_and_memory_and_the_prompt_follows()
     // refused.
     edit(&mut s.chief, |id| Edit::Memory {
         id,
-        of: Keeper::Scholar(scholar),
+        of: Keeper::Profile(profile),
         path: "tea.md".into(),
         text: String::new(),
     })
     .await;
     assert!(
         s.chief
-            .papers(Keeper::Scholar(scholar))
+            .papers(Keeper::Profile(profile))
             .await
             .memory
             .is_empty()
     );
     let reply = edit(&mut s.chief, |id| Edit::Memory {
         id,
-        of: Keeper::Scholar(scholar),
+        of: Keeper::Profile(profile),
         path: "../CHARACTER.md".into(),
         text: "x".into(),
     })

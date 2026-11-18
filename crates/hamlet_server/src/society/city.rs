@@ -1,4 +1,4 @@
-//! The city: every scholar of the realm, with its house. A scholar a
+//! The city: every profile of the realm, with its house. A profile a
 //! chief or the Hand makes moves in at once; one another agent makes
 //! waits at the harbor until it is let in, as the realm's settings
 //! say (H45).
@@ -12,13 +12,13 @@ use diesel::prelude::*;
 use diesel::sql_types::Text;
 use hamlet_protocol::client::{Choice, HouseAt, Newcomers};
 use hamlet_store::Db;
-use hamlet_store::ids::{Actor, AgentId, ChiefId, ScholarId};
-use hamlet_store::schema::{agent, hamlet, hire, scholar, wait};
+use hamlet_store::ids::{Actor, AgentId, ChiefId, ProfileId};
+use hamlet_store::schema::{agent, hamlet, hire, profile, wait};
 use serde::{Deserialize, Serialize};
 use serde_json::json;
 use strum::{Display, EnumString, IntoStaticStr};
 
-use super::addresses::scholar_address;
+use super::addresses::profile_address;
 use super::agents::EndHow;
 use super::names::check_name;
 use super::oversight::{self, Raise, Ruling, WaitKind};
@@ -55,14 +55,14 @@ pub(crate) const APART: f64 = HouseAt::APART;
 #[serde(rename_all = "kebab-case")]
 #[strum(serialize_all = "kebab-case")]
 #[diesel(sql_type = Text)]
-pub(crate) enum ScholarKind {
-    Scholar,
+pub(crate) enum ProfileKind {
+    Profile,
     /// The Hand's own knowledge, never hired or listed.
     Hand,
 }
-hamlet_store::named_text!(ScholarKind);
+hamlet_store::named_text!(ProfileKind);
 
-/// Where a scholar stands with the city.
+/// Where a profile stands with the city.
 #[derive(
     Clone,
     Copy,
@@ -95,10 +95,10 @@ pub(crate) enum Arrival {
 hamlet_store::named_text!(Arrival);
 
 #[derive(Clone, Debug, PartialEq, Queryable, Selectable)]
-#[diesel(table_name = scholar)]
-pub(crate) struct Scholar {
-    pub id: ScholarId,
-    pub kind: ScholarKind,
+#[diesel(table_name = profile)]
+pub(crate) struct Profile {
+    pub id: ProfileId,
+    pub kind: ProfileKind,
     pub name: String,
     pub chief: Option<ChiefId>,
     pub since: i64,
@@ -109,7 +109,7 @@ pub(crate) struct Scholar {
     pub house_x: Option<f64>,
     pub house_z: Option<f64>,
     pub house_turn: Option<f64>,
-    pub fork_of: Option<ScholarId>,
+    pub fork_of: Option<ProfileId>,
     pub fork_at: Option<String>,
     pub left_at: Option<i64>,
     pub left_by: Option<Actor>,
@@ -117,33 +117,33 @@ pub(crate) struct Scholar {
     pub erased: bool,
 }
 
-impl Scholar {
+impl Profile {
     pub fn is_living(&self) -> bool {
         self.left_at.is_none()
     }
 
-    /// The scholar's address with its name beside it.
+    /// The profile's address with its name beside it.
     pub fn label(&self) -> String {
-        format!("{} ({})", scholar_address(self.id), self.name)
+        format!("{} ({})", profile_address(self.id), self.name)
     }
 
-    /// The refusal of a call that names this scholar when it has left
+    /// The refusal of a call that names this profile when it has left
     /// the city or is the Hand's.
     pub fn gone(&self) -> Option<Refusal> {
-        (!self.is_living() || self.kind != ScholarKind::Scholar)
-            .then(|| Refusal::ScholarGone { name: self.label() })
+        (!self.is_living() || self.kind != ProfileKind::Profile)
+            .then(|| Refusal::ProfileGone { name: self.label() })
     }
 
     /// The refusal of a call that would hire, house or send to the
-    /// harbor a blank hire's scholar, which is never of the city.
+    /// harbor a blank hire's profile, which is never of the city.
     pub fn apart(&self) -> Option<Refusal> {
         (self.arrival == Arrival::Apart)
             .then(|| Refusal::Apart { name: self.label() })
     }
 }
 
-/// Makes a scholar named `name` for `chief`, starting from
-/// `character`, or from a commit of another scholar when it is a
+/// Makes a profile named `name` for `chief`, starting from
+/// `character`, or from a commit of another profile when it is a
 /// fork.
 pub(crate) fn make(
     cx: &mut Change<'_>,
@@ -151,14 +151,14 @@ pub(crate) fn make(
     chief: ChiefId,
     character: &str,
     fork: Option<Fork>,
-) -> Done<ScholarId> {
+) -> Done<ProfileId> {
     let id = done!(insert(cx, name, chief, character, fork));
     match newcomer(cx)? {
         Some((maker, policy)) => {
-            diesel::update(scholar::table.find(id))
+            diesel::update(profile::table.find(id))
                 .set((
-                    scholar::arrival.eq(Arrival::Waiting),
-                    scholar::arrival_by.eq(cx.actor),
+                    profile::arrival.eq(Arrival::Waiting),
+                    profile::arrival_by.eq(cx.actor),
                 ))
                 .execute(cx.db)?;
             // Under the Hand, its errand is begun where the settings
@@ -170,12 +170,12 @@ pub(crate) fn make(
                         kind: WaitKind::Newcomer,
                         danger: None,
                         agent: maker,
-                        scholar: Some(id),
+                        profile: Some(id),
                         conversation: None,
                         task: None,
                         about: format!(
                             "{} ({name})",
-                            scholar_address(id)
+                            profile_address(id)
                         ),
                         change: None,
                         answers: vec![
@@ -189,31 +189,31 @@ pub(crate) fn make(
         }
         None => house(cx, id)?,
     }
-    cx.touched.scholars.insert(id);
+    cx.touched.profiles.insert(id);
     Ok(Ok(id))
 }
 
-/// Makes the scholar of a blank hire, named `name`, for `chief`: one
+/// Makes the profile of a blank hire, named `name`, for `chief`: one
 /// apart from the city, with no house, that never waits at the
-/// harbor and is not listed with the city's scholars.
+/// harbor and is not listed with the city's profiles.
 pub(crate) fn make_apart(
     cx: &mut Change<'_>,
     name: &str,
     chief: ChiefId,
     character: &str,
-) -> Done<ScholarId> {
+) -> Done<ProfileId> {
     let id = done!(insert(cx, name, chief, character, None));
-    diesel::update(scholar::table.find(id))
+    diesel::update(profile::table.find(id))
         .set((
-            scholar::arrival.eq(Arrival::Apart),
-            scholar::arrival_by.eq(cx.actor),
+            profile::arrival.eq(Arrival::Apart),
+            profile::arrival_by.eq(cx.actor),
         ))
         .execute(cx.db)?;
-    cx.touched.scholars.insert(id);
+    cx.touched.profiles.insert(id);
     Ok(Ok(id))
 }
 
-/// Keeps a new scholar named `name` and the job that plants its
+/// Keeps a new profile named `name` and the job that plants its
 /// repository, as [`make`] says.
 fn insert(
     cx: &mut Change<'_>,
@@ -221,7 +221,7 @@ fn insert(
     chief: ChiefId,
     character: &str,
     fork: Option<Fork>,
-) -> Done<ScholarId> {
+) -> Done<ProfileId> {
     let name = match check_name(name) {
         Ok(name) => name,
         Err(refusal) => refuse!(refusal),
@@ -229,37 +229,37 @@ fn insert(
     if character.chars().count() > CHARACTER_MOST {
         refuse!(Refusal::LongCharacter);
     }
-    let id = diesel::insert_into(scholar::table)
+    let id = diesel::insert_into(profile::table)
         .values((
-            scholar::kind.eq(ScholarKind::Scholar),
-            scholar::name.eq(name),
-            scholar::chief.eq(chief),
-            scholar::since.eq(cx.at),
-            scholar::made_by.eq(cx.actor),
-            scholar::fork_of.eq(fork.as_ref().map(|f| f.from)),
-            scholar::fork_at
+            profile::kind.eq(ProfileKind::Profile),
+            profile::name.eq(name),
+            profile::chief.eq(chief),
+            profile::since.eq(cx.at),
+            profile::made_by.eq(cx.actor),
+            profile::fork_of.eq(fork.as_ref().map(|f| f.from)),
+            profile::fork_at
                 .eq(fork.as_ref().map(|f| f.commit.clone())),
         ))
-        .returning(scholar::id)
-        .get_result::<ScholarId>(cx.db)?;
+        .returning(profile::id)
+        .get_result::<ProfileId>(cx.db)?;
     let kind = if fork.is_some() {
         DecisionKind::Forked
     } else {
-        DecisionKind::ScholarMade
+        DecisionKind::ProfileMade
     };
     jobs::add(
         cx,
         &Job::Plant {
-            scholar: id,
+            profile: id,
             character: character.to_owned(),
             fork,
         },
     )?;
-    record::keep(cx, Decision::new(kind, "").scholar(id))?;
+    record::keep(cx, Decision::new(kind, "").profile(id))?;
     Ok(Ok(id))
 }
 
-/// The agent making a scholar now and who lets it in, when it waits
+/// The agent making a profile now and who lets it in, when it waits
 /// at the harbor: when an agent other than the Hand makes it in a
 /// realm that is not open.
 fn newcomer(
@@ -278,27 +278,27 @@ fn newcomer(
 /// Whether the Hand is to judge the newcomer `id`.
 pub(crate) fn awaits_hand(
     db: &mut Db,
-    id: ScholarId,
+    id: ProfileId,
 ) -> Result<bool> {
     Ok(get(db, id)?.arrival == Arrival::Waiting
         && crate::realm::settings::stored(db)?.newcomers
             == Newcomers::Hand)
 }
 
-/// Gives the scholar `id` the next free spot in the city, its door
+/// Gives the profile `id` the next free spot in the city, its door
 /// toward the middle, and lets it in.
-fn house(cx: &mut Change<'_>, id: ScholarId) -> Result<()> {
+fn house(cx: &mut Change<'_>, id: ProfileId) -> Result<()> {
     let (x, z) = free_spot(cx.db)?;
-    diesel::update(scholar::table.find(id))
+    diesel::update(profile::table.find(id))
         .set((
-            scholar::arrival.eq(Arrival::Housed),
-            scholar::arrival_by.eq(cx.actor),
-            scholar::house_x.eq(x),
-            scholar::house_z.eq(z),
-            scholar::house_turn.eq(facing_middle(x, z)),
+            profile::arrival.eq(Arrival::Housed),
+            profile::arrival_by.eq(cx.actor),
+            profile::house_x.eq(x),
+            profile::house_z.eq(z),
+            profile::house_turn.eq(facing_middle(x, z)),
         ))
         .execute(cx.db)?;
-    cx.touched.scholars.insert(id);
+    cx.touched.profiles.insert(id);
     Ok(())
 }
 
@@ -308,17 +308,17 @@ fn facing_middle(x: f64, z: f64) -> f64 {
     (-x).atan2(-z)
 }
 
-/// The spots of every house that stands in the city, a scholar's that
+/// The spots of every house that stands in the city, a profile's that
 /// left included, but `but`'s own.
 fn houses(
     db: &mut Db,
-    but: Option<ScholarId>,
+    but: Option<ProfileId>,
 ) -> Result<Vec<(f64, f64)>> {
-    let kept = scholar::table
-        .filter(scholar::erased.eq(false))
-        .filter(scholar::arrival.eq(Arrival::Housed))
-        .select((scholar::id, scholar::house_x, scholar::house_z))
-        .load::<(ScholarId, Option<f64>, Option<f64>)>(db)?;
+    let kept = profile::table
+        .filter(profile::erased.eq(false))
+        .filter(profile::arrival.eq(Arrival::Housed))
+        .select((profile::id, profile::house_x, profile::house_z))
+        .load::<(ProfileId, Option<f64>, Option<f64>)>(db)?;
     Ok(kept
         .into_iter()
         .filter(|(id, ..)| Some(*id) != but)
@@ -358,73 +358,73 @@ pub(crate) fn free_spot(db: &mut Db) -> Result<(f64, f64)> {
 /// Lets the newcomer `id` into the city at the next free spot.
 pub(crate) fn welcome(
     cx: &mut Change<'_>,
-    id: ScholarId,
+    id: ProfileId,
     reason: &str,
 ) -> Done<()> {
-    let scholar = get(cx.db, id)?;
-    if let Some(refusal) = scholar.gone().or_else(|| scholar.apart())
+    let profile = get(cx.db, id)?;
+    if let Some(refusal) = profile.gone().or_else(|| profile.apart())
     {
         refuse!(refusal);
     }
-    if scholar.arrival == Arrival::Housed {
+    if profile.arrival == Arrival::Housed {
         refuse!(Refusal::Housed {
-            name: scholar.label()
+            name: profile.label()
         });
     }
     house(cx, id)?;
     settle_newcomer(cx, id, Ruling::Welcome)?;
     record::keep(
         cx,
-        Decision::new(DecisionKind::Welcomed, reason).scholar(id),
+        Decision::new(DecisionKind::Welcomed, reason).profile(id),
     )?;
     Ok(Ok(()))
 }
 
-/// Keeps the scholar `id` at the harbor: a newcomer turned away, or
+/// Keeps the profile `id` at the harbor: a newcomer turned away, or
 /// one sent back out of its house.
 pub(crate) fn turn_away(
     cx: &mut Change<'_>,
-    id: ScholarId,
+    id: ProfileId,
     reason: &str,
 ) -> Done<()> {
-    let scholar = get(cx.db, id)?;
-    if let Some(refusal) = scholar.gone().or_else(|| scholar.apart())
+    let profile = get(cx.db, id)?;
+    if let Some(refusal) = profile.gone().or_else(|| profile.apart())
     {
         refuse!(refusal);
     }
-    if scholar.arrival == Arrival::Turned {
+    if profile.arrival == Arrival::Turned {
         refuse!(Refusal::TurnedAway {
-            name: scholar.label()
+            name: profile.label()
         });
     }
-    diesel::update(scholar::table.find(id))
+    diesel::update(profile::table.find(id))
         .set((
-            scholar::arrival.eq(Arrival::Turned),
-            scholar::arrival_by.eq(cx.actor),
-            scholar::house_x.eq(None::<f64>),
-            scholar::house_z.eq(None::<f64>),
-            scholar::house_turn.eq(None::<f64>),
+            profile::arrival.eq(Arrival::Turned),
+            profile::arrival_by.eq(cx.actor),
+            profile::house_x.eq(None::<f64>),
+            profile::house_z.eq(None::<f64>),
+            profile::house_turn.eq(None::<f64>),
         ))
         .execute(cx.db)?;
     settle_newcomer(cx, id, Ruling::Dismiss)?;
     record::keep(
         cx,
-        Decision::new(DecisionKind::TurnedAway, reason).scholar(id),
+        Decision::new(DecisionKind::TurnedAway, reason).profile(id),
     )?;
-    cx.touched.scholars.insert(id);
+    cx.touched.profiles.insert(id);
     Ok(Ok(()))
 }
 
 /// Ends the open petition about the newcomer `id`, as `ruling`.
 fn settle_newcomer(
     cx: &mut Change<'_>,
-    id: ScholarId,
+    id: ProfileId,
     ruling: Ruling,
 ) -> Result<()> {
     let open = wait::table
         .filter(wait::open.eq(true))
         .filter(wait::kind.eq(WaitKind::Newcomer))
-        .filter(wait::scholar.eq(id))
+        .filter(wait::profile.eq(id))
         .select(wait::id)
         .load(cx.db)?;
     let chief = match cx.actor {
@@ -441,90 +441,90 @@ fn settle_newcomer(
 pub(crate) fn make_hand(
     cx: &mut Change<'_>,
     character: &str,
-) -> Result<ScholarId> {
-    let id = diesel::insert_into(scholar::table)
+) -> Result<ProfileId> {
+    let id = diesel::insert_into(profile::table)
         .values((
-            scholar::kind.eq(ScholarKind::Hand),
-            scholar::name.eq("hand"),
-            scholar::since.eq(cx.at),
-            scholar::made_by.eq(cx.actor),
+            profile::kind.eq(ProfileKind::Hand),
+            profile::name.eq("hand"),
+            profile::since.eq(cx.at),
+            profile::made_by.eq(cx.actor),
         ))
-        .returning(scholar::id)
-        .get_result::<ScholarId>(cx.db)?;
+        .returning(profile::id)
+        .get_result::<ProfileId>(cx.db)?;
     jobs::add(
         cx,
         &Job::Plant {
-            scholar: id,
+            profile: id,
             character: character.to_owned(),
             fork: None,
         },
     )?;
-    cx.touched.scholars.insert(id);
+    cx.touched.profiles.insert(id);
     Ok(id)
 }
 
 pub(crate) fn find(
     db: &mut Db,
-    id: ScholarId,
-) -> Result<Option<Scholar>> {
-    Ok(scholar::table
+    id: ProfileId,
+) -> Result<Option<Profile>> {
+    Ok(profile::table
         .find(id)
-        .select(Scholar::as_select())
+        .select(Profile::as_select())
         .first(db)
         .optional()?)
 }
 
-pub(crate) fn get(db: &mut Db, id: ScholarId) -> Result<Scholar> {
-    find(db, id)?.with_context(|| format!("no scholar {id}"))
+pub(crate) fn get(db: &mut Db, id: ProfileId) -> Result<Profile> {
+    find(db, id)?.with_context(|| format!("no profile {id}"))
 }
 
-/// The living scholar `id`, if it is one and not the Hand's.
+/// The living profile `id`, if it is one and not the Hand's.
 pub(crate) fn living(
     db: &mut Db,
-    id: ScholarId,
-) -> Result<Option<Scholar>> {
+    id: ProfileId,
+) -> Result<Option<Profile>> {
     Ok(find(db, id)?.filter(|found| {
-        found.is_living() && found.kind == ScholarKind::Scholar
+        found.is_living() && found.kind == ProfileKind::Profile
     }))
 }
 
-/// Gives the living scholar `id` a new name (C10).
+/// Gives the living profile `id` a new name (C10).
 pub(crate) fn rename(
     cx: &mut Change<'_>,
-    id: ScholarId,
+    id: ProfileId,
     name: &str,
 ) -> Done<()> {
-    let scholar = get(cx.db, id)?;
-    if let Some(refusal) = scholar.gone() {
+    let profile = get(cx.db, id)?;
+    if let Some(refusal) = profile.gone() {
         refuse!(refusal);
     }
     let name = match check_name(name) {
         Ok(name) => name,
         Err(refusal) => refuse!(refusal),
     };
-    diesel::update(scholar::table.find(id))
-        .set(scholar::name.eq(name))
+    diesel::update(profile::table.find(id))
+        .set(profile::name.eq(name))
         .execute(cx.db)?;
     record::keep(
         cx,
-        Decision::new(DecisionKind::ScholarNamed, "")
-            .scholar(id)
+        Decision::new(DecisionKind::ProfileNamed, "")
+            .profile(id)
             .detail(json!({ "name": name })),
     )?;
-    cx.touched.scholars.insert(id);
+    cx.touched.profiles.insert(id);
     for hire in hires::living_of(cx.db, id)? {
         cx.touched.agents.insert(hire.agent);
     }
     Ok(Ok(()))
 }
 
-/// Every scholar of the city, living and archived, but none erased.
-pub(crate) fn all(db: &mut Db) -> Result<Vec<Scholar>> {
-    Ok(scholar::table
-        .filter(scholar::kind.eq(ScholarKind::Scholar))
-        .filter(scholar::erased.eq(false))
-        .order(scholar::id)
-        .select(Scholar::as_select())
+/// Every profile of the city, living and archived, but none erased.
+pub(crate) fn all(db: &mut Db) -> Result<Vec<Profile>> {
+    Ok(profile::table
+        .filter(profile::kind.eq(ProfileKind::Profile))
+        .filter(profile::erased.eq(false))
+        .order(profile::id)
+        .select(Profile::as_select())
         .load(db)?)
 }
 
@@ -532,19 +532,19 @@ pub(crate) fn all(db: &mut Db) -> Result<Vec<Scholar>> {
 /// door faces: toward the middle unless `turn` says.
 pub(crate) fn place(
     cx: &mut Change<'_>,
-    id: ScholarId,
+    id: ProfileId,
     x: f64,
     z: f64,
     turn: Option<f64>,
 ) -> Done<()> {
-    let scholar = get(cx.db, id)?;
-    if let Some(refusal) = scholar.gone().or_else(|| scholar.apart())
+    let profile = get(cx.db, id)?;
+    if let Some(refusal) = profile.gone().or_else(|| profile.apart())
     {
         refuse!(refusal);
     }
-    if scholar.arrival != Arrival::Housed {
+    if profile.arrival != Arrival::Housed {
         refuse!(Refusal::AtHarbor {
-            name: scholar.label()
+            name: profile.label()
         });
     }
     if !(x.is_finite()
@@ -558,85 +558,85 @@ pub(crate) fn place(
     let taken = houses(cx.db, Some(id))?;
     if !is_clear(&taken, x, z) {
         refuse!(Refusal::Crowded {
-            name: scholar.label()
+            name: profile.label()
         });
     }
-    diesel::update(scholar::table.find(id))
+    diesel::update(profile::table.find(id))
         .set((
-            scholar::house_x.eq(x),
-            scholar::house_z.eq(z),
-            scholar::house_turn
+            profile::house_x.eq(x),
+            profile::house_z.eq(z),
+            profile::house_turn
                 .eq(turn.unwrap_or_else(|| facing_middle(x, z))),
         ))
         .execute(cx.db)?;
     record::keep(
         cx,
-        Decision::new(DecisionKind::HouseMoved, "").scholar(id),
+        Decision::new(DecisionKind::HouseMoved, "").profile(id),
     )?;
-    cx.touched.scholars.insert(id);
+    cx.touched.profiles.insert(id);
     Ok(Ok(()))
 }
 
-/// Archives the scholar `id`, ending its living hires first. Refused
+/// Archives the profile `id`, ending its living hires first. Refused
 /// while one of its hires holds a hamlet's office.
 pub(crate) fn archive(
     cx: &mut Change<'_>,
-    id: ScholarId,
+    id: ProfileId,
     reason: &str,
 ) -> Done<()> {
-    let scholar = get(cx.db, id)?;
-    if let Some(refusal) = scholar.gone() {
+    let profile = get(cx.db, id)?;
+    if let Some(refusal) = profile.gone() {
         refuse!(refusal);
     }
     for hire in hires::living_of(cx.db, id)? {
-        done!(hires::end(cx, hire.agent, EndHow::Scholar, reason));
+        done!(hires::end(cx, hire.agent, EndHow::Profile, reason));
     }
-    diesel::update(scholar::table.find(id))
+    diesel::update(profile::table.find(id))
         .set((
-            scholar::left_at.eq(cx.at),
-            scholar::left_by.eq(cx.actor),
-            scholar::left_reason.eq(reason),
+            profile::left_at.eq(cx.at),
+            profile::left_by.eq(cx.actor),
+            profile::left_reason.eq(reason),
         ))
         .execute(cx.db)?;
     record::keep(
         cx,
-        Decision::new(DecisionKind::ScholarArchived, reason)
-            .scholar(id),
+        Decision::new(DecisionKind::ProfileArchived, reason)
+            .profile(id),
     )?;
-    cx.touched.scholars.insert(id);
+    cx.touched.profiles.insert(id);
     Ok(Ok(()))
 }
 
-/// Brings back the archived scholar `id`, with the hires its
+/// Brings back the archived profile `id`, with the hires its
 /// archiving ended in hamlets that still live.
 pub(crate) fn restore(
     cx: &mut Change<'_>,
-    id: ScholarId,
+    id: ProfileId,
     reason: &str,
 ) -> Done<()> {
-    let scholar = get(cx.db, id)?;
-    if scholar.erased {
-        refuse!(Refusal::ScholarErased {
-            name: scholar.label()
+    let profile = get(cx.db, id)?;
+    if profile.erased {
+        refuse!(Refusal::ProfileErased {
+            name: profile.label()
         });
     }
-    if scholar.is_living() {
-        refuse!(Refusal::ScholarLiving {
-            name: scholar.label()
+    if profile.is_living() {
+        refuse!(Refusal::ProfileLiving {
+            name: profile.label()
         });
     }
-    diesel::update(scholar::table.find(id))
+    diesel::update(profile::table.find(id))
         .set((
-            scholar::left_at.eq(None::<i64>),
-            scholar::left_by.eq(None::<Actor>),
-            scholar::left_reason.eq(None::<String>),
+            profile::left_at.eq(None::<i64>),
+            profile::left_by.eq(None::<Actor>),
+            profile::left_reason.eq(None::<String>),
         ))
         .execute(cx.db)?;
     let ended_with = hire::table
         .inner_join(agent::table)
         .inner_join(hamlet::table)
-        .filter(hire::scholar.eq(id))
-        .filter(agent::ended_how.eq(EndHow::Scholar))
+        .filter(hire::profile.eq(id))
+        .filter(agent::ended_how.eq(EndHow::Profile))
         .filter(agent::erased.eq(false))
         .filter(hamlet::removed_at.is_null())
         .order(hire::agent)
@@ -647,51 +647,51 @@ pub(crate) fn restore(
     }
     record::keep(
         cx,
-        Decision::new(DecisionKind::ScholarRestored, reason)
-            .scholar(id),
+        Decision::new(DecisionKind::ProfileRestored, reason)
+            .profile(id),
     )?;
-    cx.touched.scholars.insert(id);
+    cx.touched.profiles.insert(id);
     Ok(Ok(()))
 }
 
-/// Erases the archived scholar `id` for good, with every hire of it.
-pub(crate) fn erase(cx: &mut Change<'_>, id: ScholarId) -> Done<()> {
-    let scholar = get(cx.db, id)?;
-    if scholar.erased {
-        refuse!(Refusal::ScholarErased {
-            name: scholar.label()
+/// Erases the archived profile `id` for good, with every hire of it.
+pub(crate) fn erase(cx: &mut Change<'_>, id: ProfileId) -> Done<()> {
+    let profile = get(cx.db, id)?;
+    if profile.erased {
+        refuse!(Refusal::ProfileErased {
+            name: profile.label()
         });
     }
-    if scholar.is_living() {
-        refuse!(Refusal::ScholarLiving {
-            name: scholar.label()
+    if profile.is_living() {
+        refuse!(Refusal::ProfileLiving {
+            name: profile.label()
         });
     }
     let kept = hire::table
         .inner_join(agent::table)
-        .filter(hire::scholar.eq(id))
+        .filter(hire::profile.eq(id))
         .filter(agent::erased.eq(false))
         .select(hire::agent)
         .load(cx.db)?;
     for hire in kept {
         done!(hires::erase(cx, hire));
     }
-    diesel::update(scholar::table.find(id))
-        .set(scholar::erased.eq(true))
+    diesel::update(profile::table.find(id))
+        .set(profile::erased.eq(true))
         .execute(cx.db)?;
-    jobs::add(cx, &Job::EraseScholar { scholar: id })?;
+    jobs::add(cx, &Job::EraseProfile { profile: id })?;
     record::keep(
         cx,
-        Decision::new(DecisionKind::ScholarErased, "").scholar(id),
+        Decision::new(DecisionKind::ProfileErased, "").profile(id),
     )?;
-    cx.touched.scholars.insert(id);
+    cx.touched.profiles.insert(id);
     Ok(Ok(()))
 }
 
 /// Marks the repository of `id` made.
-pub(crate) fn planted(db: &mut Db, id: ScholarId) -> Result<()> {
-    diesel::update(scholar::table.find(id))
-        .set(scholar::planted.eq(true))
+pub(crate) fn planted(db: &mut Db, id: ProfileId) -> Result<()> {
+    diesel::update(profile::table.find(id))
+        .set(profile::planted.eq(true))
         .execute(db)?;
     Ok(())
 }

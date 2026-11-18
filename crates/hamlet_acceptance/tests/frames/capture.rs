@@ -148,10 +148,10 @@ impl Capture {
         assert_eq!(reply["kind"], "notice", "{reply}");
     }
 
-    /// The id of the scholar named `name`, once the state has it.
-    pub fn scholar(&self, name: &str) -> u64 {
+    /// The id of the profile named `name`, once the state has it.
+    pub fn profile(&self, name: &str) -> u64 {
         self.state()
-            .scholars
+            .profiles
             .iter()
             .find(|s| s.name == name)
             .unwrap()
@@ -159,45 +159,45 @@ impl Capture {
             .0
     }
 
-    /// Makes the scholar `name` in the city and waits for it.
+    /// Makes the profile `name` in the city and waits for it.
     pub async fn make(&mut self, name: &str) -> u64 {
-        self.say(HAND, &format!("/scholar new {name}")).await;
+        self.say(HAND, &format!("/profile new {name}")).await;
         self.until(|c| {
-            c.state().scholars.iter().any(|s| s.name == name)
+            c.state().profiles.iter().any(|s| s.name == name)
         })
         .await;
-        self.scholar(name)
+        self.profile(name)
     }
 
-    /// Founds a hamlet named `hamlet` under a new scholar `name`.
+    /// Founds a hamlet named `hamlet` under a new profile `name`.
     pub async fn found(
         &mut self,
         hamlet: &str,
         name: &str,
         purpose: &str,
     ) {
-        let scholar = self.make(name).await;
+        let profile = self.make(name).await;
         self.say(
             HAND,
             &format!(
-                "/create-hamlet scholar#{scholar} {hamlet}: \
+                "/create-hamlet profile#{profile} {hamlet}: \
                  {purpose}"
             ),
         )
         .await;
     }
 
-    /// Has the agent `parent` hire a new scholar `name`.
+    /// Has the agent `parent` hire a new profile `name`.
     pub async fn hire(
         &mut self,
         parent: u64,
         name: &str,
         purpose: &str,
     ) {
-        let scholar = self.make(name).await;
+        let profile = self.make(name).await;
         self.say(
             parent,
-            &format!("/hire scholar#{scholar} {purpose}"),
+            &format!("/hire profile#{profile} {purpose}"),
         )
         .await;
     }

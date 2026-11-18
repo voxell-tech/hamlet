@@ -25,7 +25,7 @@ fn found(
     (hired.hamlet, hired.agent)
 }
 
-/// Hires the scholar `name`, new or existing, under `parent` in
+/// Hires the profile `name`, new or existing, under `parent` in
 /// `hamlet`.
 fn hire(
     realm: &mut Realm,
@@ -56,14 +56,14 @@ fn new(name: &str) -> Hiring {
     }
 }
 
-/// The hiring of a new scholar of the city named `name`, which,
+/// The hiring of a new profile of the city named `name`, which,
 /// unlike a blank agent's, can be hired again.
 fn of_city(realm: &mut Realm, name: &str) -> Hiring {
     let chief = realm.chief;
-    let scholar = realm
+    let profile = realm
         .chief(|cx| city::make(cx, name, chief, "", None))
         .unwrap();
-    Hiring::Existing { scholar, pin: None }
+    Hiring::Existing { profile, pin: None }
 }
 
 fn name(realm: &mut Realm, id: AgentId) -> String {
@@ -95,12 +95,12 @@ fn a_hire_is_addressed_by_its_id_never_by_name() {
         &docs,
         lead.agent,
         Hiring::Existing {
-            scholar: scout.scholar,
+            profile: scout.profile,
             pin: None,
         },
     )
     .unwrap();
-    assert_eq!(scout.scholar, again.scholar);
+    assert_eq!(scout.profile, again.profile);
     assert_eq!(
         name(&mut realm, lead.agent),
         format!("hire#{} (ada)", lead.agent)
@@ -136,33 +136,33 @@ fn a_hire_is_addressed_by_its_id_never_by_name() {
         Err(Refusal::BadAddress { .. })
     ));
     assert_eq!(find(&mut realm, "hand", None), Ok(realm.hand));
-    // A name is a label: it may repeat, and a scholar's is its id.
+    // A name is a label: it may repeat, and a profile's is its id.
     let twin =
         hire(&mut realm, &docs, lead.agent, new("scout")).unwrap();
-    assert_ne!(twin.scholar, scout.scholar);
+    assert_ne!(twin.profile, scout.profile);
     assert_eq!(
-        addresses::parse_scholar(&format!(
-            "scholar#{}",
-            twin.scholar
+        addresses::parse_profile(&format!(
+            "profile#{}",
+            twin.profile
         )),
-        Ok(twin.scholar)
+        Ok(twin.profile)
     );
-    assert!(addresses::parse_scholar("scout").is_err());
+    assert!(addresses::parse_profile("scout").is_err());
 }
 
 #[test]
-fn a_scholar_is_renamed_without_changing_its_address() {
+fn a_profile_is_renamed_without_changing_its_address() {
     let mut realm = Realm::new();
     let lead = realm.found("docs", "ada");
     realm
-        .chief(|cx| city::rename(cx, lead.scholar, "Ada Lovelace"))
+        .chief(|cx| city::rename(cx, lead.profile, "Ada Lovelace"))
         .unwrap();
     assert_eq!(
         name(&mut realm, lead.agent),
         format!("hire#{} (Ada Lovelace)", lead.agent)
     );
     assert!(matches!(
-        realm.chief(|cx| city::rename(cx, lead.scholar, "a: b")),
+        realm.chief(|cx| city::rename(cx, lead.profile, "a: b")),
         Err(Refusal::BadName { .. })
     ));
 }
@@ -214,7 +214,7 @@ fn a_new_lead_takes_the_root_and_the_old_one_stays_under_it() {
 }
 
 #[test]
-fn a_removed_hamlet_comes_back_whole_only_while_its_scholars_live() {
+fn a_removed_hamlet_comes_back_whole_only_while_its_profiles_live() {
     let mut realm = Realm::new();
     let lead = realm.found("docs", "ada");
     let docs = lead.hamlet.clone();
@@ -232,14 +232,14 @@ fn a_removed_hamlet_comes_back_whole_only_while_its_scholars_live() {
         Err(Refusal::NoOne { .. })
     ));
     realm
-        .chief(|cx| city::archive(cx, scout.scholar, "retired"))
+        .chief(|cx| city::archive(cx, scout.profile, "retired"))
         .unwrap();
     assert!(matches!(
         realm.chief(|cx| hamlets::restore(cx, &docs, "again")),
-        Err(Refusal::ScholarGone { .. })
+        Err(Refusal::ProfileGone { .. })
     ));
     realm
-        .chief(|cx| city::restore(cx, scout.scholar, "back"))
+        .chief(|cx| city::restore(cx, scout.profile, "back"))
         .unwrap();
     realm
         .chief(|cx| hamlets::restore(cx, &docs, "again"))
@@ -307,7 +307,7 @@ fn a_hamlet_must_have_a_name() {
 }
 
 #[test]
-fn a_scholar_leaves_with_its_hires_and_comes_back_with_them() {
+fn a_profile_leaves_with_its_hires_and_comes_back_with_them() {
     let mut realm = Realm::new();
     let (docs, lead) = found(&mut realm, "docs", "ada");
     let site = realm.found("site", "bea").hamlet;
@@ -319,25 +319,25 @@ fn a_scholar_leaves_with_its_hires_and_comes_back_with_them() {
         &site,
         site_lead,
         Hiring::Existing {
-            scholar: scout.scholar,
+            profile: scout.profile,
             pin: None,
         },
     )
     .unwrap();
-    let ada = hires::get(realm.db(), lead).unwrap().scholar;
+    let ada = hires::get(realm.db(), lead).unwrap().profile;
     assert_eq!(
         realm.chief(|cx| city::archive(cx, ada, "retired")),
         Err(Refusal::EndingLead),
-        "a lead's scholar stays while it holds the office"
+        "a lead's profile stays while it holds the office"
     );
     realm
-        .chief(|cx| city::archive(cx, scout.scholar, "retired"))
+        .chief(|cx| city::archive(cx, scout.profile, "retired"))
         .unwrap();
     assert!(
         !agents::get(realm.db(), there.agent).unwrap().is_living()
     );
     realm
-        .chief(|cx| city::restore(cx, scout.scholar, "back"))
+        .chief(|cx| city::restore(cx, scout.profile, "back"))
         .unwrap();
     assert!(
         agents::get(realm.db(), scout.agent).unwrap().is_living()
@@ -461,12 +461,12 @@ fn houses_keep_apart_and_clear_of_the_middle() {
 }
 
 #[test]
-fn a_scholar_a_hire_makes_waits_at_the_harbor_until_let_in() {
+fn a_profile_a_hire_makes_waits_at_the_harbor_until_let_in() {
     use crate::society::oversight::{self, WaitKind};
     let mut realm = Realm::new();
     let (_, lead) = found(&mut realm, "docs", "ada");
     let chief = realm.chief;
-    // The Hand makes scholars for the chiefs: they move in at once.
+    // The Hand makes profiles for the chiefs: they move in at once.
     let hand = realm.hand;
     let kept = realm
         .by(Actor::Agent(hand), |cx| {
@@ -492,7 +492,7 @@ fn a_scholar_a_hire_makes_waits_at_the_harbor_until_let_in() {
     );
     let waits = |realm: &mut Realm| {
         oversight::open(realm.db()).unwrap().iter().any(|w| {
-            w.kind == WaitKind::Newcomer && w.scholar == Some(sam)
+            w.kind == WaitKind::Newcomer && w.profile == Some(sam)
         })
     };
     assert!(waits(&mut realm));

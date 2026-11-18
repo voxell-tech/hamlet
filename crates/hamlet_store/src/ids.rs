@@ -54,8 +54,8 @@ integer_id!(
     ChiefId
 );
 integer_id!(
-    /// A row of `scholar`.
-    ScholarId
+    /// A row of `profile`.
+    ProfileId
 );
 integer_id!(
     /// A row of `agent`: the Hand, a hire or a worker.

@@ -32,26 +32,26 @@ pub(crate) enum Refusal {
     HamletFull { id: String, most: i64 },
     #[error("a hamlet's tier is 50, 100, 200 or 500 hires")]
     BadTier,
-    #[error("no scholar has the address `{address}`")]
-    NoScholar { address: String },
-    #[error("`{name}` is another chief's scholar")]
-    ScholarNotOwn { name: String },
-    #[error("the scholar `{name}` no longer lives in the city")]
-    ScholarGone { name: String },
-    #[error("the scholar `{name}` is still living; remove it first")]
-    ScholarLiving { name: String },
-    #[error("the scholar `{name}` was erased")]
-    ScholarErased { name: String },
+    #[error("no profile has the address `{address}`")]
+    NoProfile { address: String },
+    #[error("`{name}` is another chief's profile")]
+    ProfileNotOwn { name: String },
+    #[error("the profile `{name}` no longer lives in the city")]
+    ProfileGone { name: String },
+    #[error("the profile `{name}` is still living; remove it first")]
+    ProfileLiving { name: String },
+    #[error("the profile `{name}` was erased")]
+    ProfileErased { name: String },
     #[error(
-        "`{name}` is a blank hire's own, not a scholar of the city"
+        "`{name}` is a blank hire's own, not a profile of the city"
     )]
     Apart { name: String },
-    #[error("the scholar `{name}` lives in the city already")]
+    #[error("the profile `{name}` lives in the city already")]
     Housed { name: String },
-    #[error("the scholar `{name}` was turned away already")]
+    #[error("the profile `{name}` was turned away already")]
     TurnedAway { name: String },
     #[error(
-        "the scholar `{name}` waits at the harbor; welcome it into \
+        "the profile `{name}` waits at the harbor; welcome it into \
          the city first"
     )]
     AtHarbor { name: String },
@@ -61,7 +61,7 @@ pub(crate) enum Refusal {
     )]
     Crowded { name: String },
     #[error("`{name}` still has hires that may come back: {hires}")]
-    ScholarHasHires { name: String, hires: String },
+    ProfileHasHires { name: String, hires: String },
     #[error("`{name}` has no version `{version}`")]
     NoVersion { name: String, version: String },
     #[error(
@@ -241,7 +241,7 @@ pub(crate) enum Refusal {
     NoFilesInPaths,
     #[error("{error}")]
     WorkspaceNotOpened { error: String },
-    #[error("Use /dream <scholar#id|address>")]
+    #[error("Use /dream <profile#id|address>")]
     DreamUsage,
     #[error("A dream is running; one dreams at a time.")]
     DreamRunning,
@@ -305,13 +305,13 @@ pub(crate) enum Refusal {
     #[error("Say which hamlet to hire into.")]
     NoHamletToHireInto,
     #[error(
-        "Give `scholar` to hire one of the city, or `name` for a \
+        "Give `profile` to hire one of the city, or `name` for a \
          blank agent, not both."
     )]
     HireBoth,
     #[error("Reflect after zero or more turns.")]
     BadReflectEvery,
-    #[error("A blank scholar needs a character to start from.")]
+    #[error("A blank profile needs a character to start from.")]
     NoCharacter,
     #[error("{why}")]
     BadEndpoint { why: String },

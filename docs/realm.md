@@ -16,7 +16,7 @@ and `realm/layout.rs` defines `Layout`. The server's chief is named by
 | `models.json` | Server-owned fetched model listings; the chief's catalogue overrides live in the database |
 | `server.json` | Running server's URL, PID, start time and confinement, never its token |
 | `server.log` | Detached server's output, written by the CLI's process launch |
-| `scholars/<id>.git/` | Each scholar's repository, the Hand's included |
+| `profiles/<id>.git/` | Each profile's repository, the Hand's included |
 | `hand/` | The Hand's lodge |
 | `hamlets/<hamlet id>/<hire id>/` | A hire's lodge: `memory/`, `skills/` and `inbox/`, a checkout of its branch |
 | `workers/<id>/` | A worker's scratch folder while it runs |
@@ -24,7 +24,7 @@ and `realm/layout.rs` defines `Layout`. The server's chief is named by
 | `tools/` | Hand-added tool manifests and scripts, loaded again whenever they change |
 | `terminals/<id>.json` | Each terminal's view and its last output, kept across restarts, outside agents' reach |
 | `images/`, `files/` | The images chiefs sent and agents read, and the files chiefs sent, each kept once under the hash of its bytes, out of agents' reach |
-| `dreams/` | The checkout of a scholar's `main` a dream writes, out of agents' reach |
+| `dreams/` | The checkout of a profile's `main` a dream writes, out of agents' reach |
 
 A new realm is made with its first chief and its Hand. It has no hamlet: a
 chief creates the first with `/create-hamlet`, or asks the Hand to. The library is
@@ -47,7 +47,7 @@ refuses an existing one whose SQLite application ID is not its own or whose
 The schema has one version and no upgrades. `Realm::open` checks the
 `realm.id` and database identity pair. A missing or mismatched part is an
 error, not a reason to make a fresh database. Restore a complete matching
-backup: the database, `realm.id` and `scholars/` belong together.
+backup: the database, `realm.id` and `profiles/` belong together.
 
 Every change is one transaction, taken with the write lock from its start;
 the connection runs with WAL, full sync and foreign keys. A tool call is
@@ -55,7 +55,7 @@ identified by its runtime and key, a client request by its chief and id; its
 marker is committed with the change and its charge, so a call asked for again
 gets the first result. A society call is safe to ask again for that reason:
 its answer is kept in its change's transaction, or what it began (a letter, a
-worker, an errand) is found again by its call. A write of a scholar's
+worker, an errand) is found again by its call. A write of a profile's
 repository, a shell command or an edit is marked begun before it runs and,
 cut off by a crash, is answered as interrupted, never run twice. The files
 and repositories a change needs are made afterwards by jobs, kept in the
@@ -72,12 +72,12 @@ leaves its transaction rolled back and is answered with the failure: a
 `fault` to the client, an `error` to the runtime, which ends that turn with
 the server's words. The server goes on.
 
-## Scholars and lodges
+## Profiles and lodges
 
-A scholar's repository holds `CHARACTER.md`, `memory/` and `skills/`; `main`
-is what the scholar knows, `hires/<agent id>` is a hire's branch, and a tag is
+A profile's repository holds `CHARACTER.md`, `memory/` and `skills/`; `main`
+is what the profile knows, `hires/<agent id>` is a hire's branch, and a tag is
 a version
-([ADR 0011](adr/0011-scholars-are-git-repositories-hires-are-branches-lodges-are-checkouts.md)).
+([ADR 0011](adr/0011-profiles-are-git-repositories-hires-are-branches-lodges-are-checkouts.md)).
 The server alone writes a repository, through `hamlet_git`. A lodge is the
 checkout of a hire's branch without `CHARACTER.md`, plus `inbox/`, which is
 never committed. After a turn that changed a lodge a `commit` job commits it
@@ -85,7 +85,7 @@ to the branch, and when the hire is idle and `main` has moved a `take-in` job
 merges `main` into the branch and writes the merged files into the lodge, so
 a turn never sees `main` change under it. `knowledge.rs` names the branch and
 finds a lodge; `knowledge/run.rs` runs the jobs. The character is read from the
-branch's tip for the prompt, and edited on a scholar's `main` through the
+branch's tip for the prompt, and edited on a profile's `main` through the
 protocol.
 
 ## Credentials and documents
@@ -108,7 +108,7 @@ transient sign-in answers remain in memory for scrubbing, not on disk.
 The database holds the chief's documents as rows of the `document` table: the
 charter, the settings, the model catalogue's overrides, the librarian's
 instructions and the realm's own limits. A hamlet's limits are a column of its
-row, so a limits edit is one change. A character is a file of its scholar's
+row, so a limits edit is one change. A character is a file of its profile's
 `main`, and memory is files of a lodge or of `main`; the server opens them
 through directories it holds open, without following links.
 `HAMLET_MODEL`, `HAMLET_BASE_URL`, `HAMLET_REFLECT_EVERY` and `HAMLET_NET`

@@ -128,7 +128,7 @@ home what the remote copy changed since, after a tool may have written it.
 Neither undoes the other's changes. A lodge not in step since the server
 started is pushed whole before its first remote call, so the server's copy
 stands. Moving every lodge to the workspace happens at a chief's word. A
-dream works on the server's checkout of its scholar, never remotely. Remote
+dream works on the server's checkout of its profile, never remotely. Remote
 execution never falls back to the host's files or commands.
 
 The worker's configuration and deployment notes are in

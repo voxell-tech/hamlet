@@ -9,7 +9,7 @@ use hamlet_protocol::client::{
     self as protocol, Edit, EditLimits, EditSettingsSet, Keeper,
     Read, ReadResult, RequestId, ServerMessage,
 };
-use hamlet_store::ids::{Actor, AgentId, ScholarId};
+use hamlet_store::ids::{Actor, AgentId, ProfileId};
 use hamlet_store::schema::document;
 
 use super::check::reply;
@@ -58,9 +58,9 @@ impl Core<'_, '_> {
     fn edited(&mut self, edit: Edit) -> Done<String> {
         match edit {
             Edit::Charter { text, .. } => self.edit_charter(text),
-            Edit::Character { scholar, text, .. } => {
-                let scholar = ScholarId(i64::try_from(scholar.0)?);
-                self.edit_character(scholar, text)
+            Edit::Character { profile, text, .. } => {
+                let profile = ProfileId(i64::try_from(profile.0)?);
+                self.edit_character(profile, text)
             }
             Edit::Memory { of, path, text, .. } => {
                 let path = match memory_path(&path) {
@@ -68,10 +68,10 @@ impl Core<'_, '_> {
                     Err(refusal) => refuse!(refusal),
                 };
                 match of {
-                    Keeper::Scholar(scholar) => {
-                        let scholar =
-                            ScholarId(i64::try_from(scholar.0)?);
-                        self.edit_scholar_memory(scholar, path, text)
+                    Keeper::Profile(profile) => {
+                        let profile =
+                            ProfileId(i64::try_from(profile.0)?);
+                        self.edit_profile_memory(profile, path, text)
                     }
                     Keeper::Agent(agent) => {
                         let agent = AgentId(i64::try_from(agent.0)?);
@@ -144,20 +144,20 @@ impl Core<'_, '_> {
         Ok(Ok("The charter is saved.".into()))
     }
 
-    /// Commits `text` as the character of `scholar`.
+    /// Commits `text` as the character of `profile`.
     fn edit_character(
         &mut self,
-        scholar: ScholarId,
+        profile: ProfileId,
         text: String,
     ) -> Done<String> {
         if text.chars().count() > CHARACTER_MOST {
             refuse!(Refusal::LongCharacter);
         }
-        done!(self.keeps(scholar));
+        done!(self.keeps(profile));
         let by = Actor::Chief(self.realm.chief());
         self.commit_main(
             by,
-            scholar,
+            profile,
             &[GitChange::Write {
                 path: CHARACTER.into(),
                 bytes: text.into_bytes(),
@@ -167,14 +167,14 @@ impl Core<'_, '_> {
         Ok(Ok("The character is saved.".into()))
     }
 
-    /// Commits a memory file of `scholar`'s `main`; empty removes it.
-    fn edit_scholar_memory(
+    /// Commits a memory file of `profile`'s `main`; empty removes it.
+    fn edit_profile_memory(
         &mut self,
-        scholar: ScholarId,
+        profile: ProfileId,
         path: String,
         text: String,
     ) -> Done<String> {
-        done!(self.keeps(scholar));
+        done!(self.keeps(profile));
         let change = if text.is_empty() {
             GitChange::Remove { path }
         } else {
@@ -186,7 +186,7 @@ impl Core<'_, '_> {
         let by = Actor::Chief(self.realm.chief());
         self.commit_main(
             by,
-            scholar,
+            profile,
             &[change],
             "Edited the memory",
         )?;
@@ -395,16 +395,16 @@ impl Core<'_, '_> {
         }
     }
 
-    /// Commits `changes` to the `main` of `scholar` as `by`'s, and
+    /// Commits `changes` to the `main` of `profile` as `by`'s, and
     /// has its idle hires take them in.
     pub(crate) fn commit_main(
         &mut self,
         by: Actor,
-        scholar: ScholarId,
+        profile: ProfileId,
         changes: &[GitChange],
         message: &str,
     ) -> Result<()> {
-        let path = self.realm.layout().repository(scholar);
+        let path = self.realm.layout().repository(profile);
         let author = by.to_string();
         let writing = self.writing.clone();
         let held = writing.hold();
@@ -419,45 +419,45 @@ impl Core<'_, '_> {
             },
         )?;
         drop(held);
-        self.main_moved(by, scholar)
+        self.main_moved(by, profile)
     }
 
-    /// Has the idle hires of `scholar` take in its `main`, which `by`
+    /// Has the idle hires of `profile` take in its `main`, which `by`
     /// moved.
     pub(crate) fn main_moved(
         &mut self,
         by: Actor,
-        scholar: ScholarId,
+        profile: ProfileId,
     ) -> Result<()> {
         self.change(by, |cx, _| {
-            for hire in hires::living_of(cx.db, scholar)? {
+            for hire in hires::living_of(cx.db, profile)? {
                 if !crate::conversations::inputs::is_agent_busy(
                     cx.db, hire.agent,
                 )? {
                     jobs::add(cx, &Job::TakeIn { hire: hire.agent })?;
                 }
             }
-            cx.touched.scholars.insert(scholar);
+            cx.touched.profiles.insert(profile);
             Ok(())
         })?;
         Ok(())
     }
 
-    /// Refuses unless this server's chief keeps `scholar`.
-    fn keeps(&mut self, scholar: ScholarId) -> Done<()> {
+    /// Refuses unless this server's chief keeps `profile`.
+    fn keeps(&mut self, profile: ProfileId) -> Done<()> {
         let chief = self.realm.chief();
         let db = self.realm.store().connection();
-        let Some(found) = city::find(db, scholar)? else {
-            return Ok(Err(Refusal::NoScholar {
-                address: format!("scholar#{scholar}"),
+        let Some(found) = city::find(db, profile)? else {
+            return Ok(Err(Refusal::NoProfile {
+                address: format!("profile#{profile}"),
             }));
         };
         if !found.is_living() {
-            return Ok(Err(Refusal::ScholarGone {
+            return Ok(Err(Refusal::ProfileGone {
                 name: found.label(),
             }));
         }
-        if !authority::may_keep(db, Actor::Chief(chief), scholar)? {
+        if !authority::may_keep(db, Actor::Chief(chief), profile)? {
             return Ok(Err(Refusal::NotOwner {
                 owner: found.label(),
             }));
@@ -549,13 +549,13 @@ impl Core<'_, '_> {
         self.answer(client, message)
     }
 
-    /// The papers of `of`: a scholar's `main`, or an agent's lodge.
+    /// The papers of `of`: a profile's `main`, or an agent's lodge.
     fn papers(&mut self, of: Keeper) -> Done<protocol::Papers> {
         let layout = self.realm.layout().clone();
         let db = self.realm.store().connection();
-        let (scholar, lodge) = match of {
-            Keeper::Scholar(scholar) => {
-                (ScholarId(i64::try_from(scholar.0)?), None)
+        let (profile, lodge) = match of {
+            Keeper::Profile(profile) => {
+                (ProfileId(i64::try_from(profile.0)?), None)
             }
             Keeper::Agent(agent) => {
                 let agent = AgentId(i64::try_from(agent.0)?);
@@ -566,10 +566,10 @@ impl Core<'_, '_> {
                         address: agent.to_string(),
                     }));
                 };
-                (lodging.scholar, Some(lodging.path))
+                (lodging.profile, Some(lodging.path))
             }
         };
-        let repo = Repository::open(&layout.repository(scholar))?;
+        let repo = Repository::open(&layout.repository(profile))?;
         let main = repo.tip(MAIN)?;
         let character = match main {
             Some(tip) => repo

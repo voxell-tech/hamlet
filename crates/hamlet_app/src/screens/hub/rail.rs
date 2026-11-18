@@ -1,6 +1,6 @@
 //! The Hub's rail: the realm as its chain of command. The realm and
 //! the Hand first, then what waits for the chief, then each hamlet as
-//! the tree of its hires under its lead, then the city's scholars,
+//! the tree of its hires under its lead, then the city's profiles,
 //! the library and those that left. A row keeps its place as its
 //! agent works and rests; only its mark changes.
 
@@ -35,7 +35,7 @@ use bevy_fynix::{
 use hamlet_client::chats::{Entry, Transcript};
 use hamlet_client::realm::{
     Activity, Busy, HamletId, Identity, Kind, Lead, Left, Lived,
-    LivesIn, MergedInto, Parent, Purpose, Scholar, Shown, Skills,
+    LivesIn, MergedInto, Parent, Profile, Purpose, Shown, Skills,
     name_of, shown_of,
 };
 use hamlet_client::waits::Waiting;
@@ -161,7 +161,7 @@ pub enum Tab {
     /// that left.
     #[default]
     Hamlets,
-    /// The scholars, those at the harbor and those that left.
+    /// The profiles, those at the harbor and those that left.
     City,
 }
 
@@ -340,7 +340,7 @@ pub(super) enum Target {
     Hand,
     Agent(Entity),
     Hamlet(Entity),
-    Scholar(Entity),
+    Profile(Entity),
     Library,
     Gone(Entity),
     /// The group it is folded or opened.
@@ -355,7 +355,7 @@ impl Target {
             Target::Hand => Some(Thing::Hand),
             Target::Agent(agent) => Some(Thing::Agent(agent)),
             Target::Hamlet(hamlet) => Some(Thing::Common(hamlet)),
-            Target::Scholar(scholar) => Some(Thing::Scholar(scholar)),
+            Target::Profile(profile) => Some(Thing::Profile(profile)),
             Target::Library => Some(Thing::Library),
             Target::Gone(agent) => Some(Thing::Ruin(agent)),
             Target::Realm | Target::Fold(_) => None,
@@ -420,7 +420,7 @@ struct Agent {
     lead: bool,
     mark: Option<Standing>,
     /// Its address, and what it goes by: its nickname, or its
-    /// scholar's name.
+    /// profile's name.
     address: String,
     called: String,
     title: String,
@@ -740,7 +740,7 @@ fn is_current(world: &World, target: Target) -> bool {
                     == Some(protocol::AgentKind::Hand)
             }),
         },
-        (Target::Scholar(a), Some(Showing::Scholar(b)))
+        (Target::Profile(a), Some(Showing::Profile(b)))
         | (Target::Gone(a), Some(Showing::Gone(b)))
         | (Target::Hamlet(a), Some(Showing::Hamlet(b))) => a == b,
         (Target::Library, Some(Showing::Library))
@@ -881,20 +881,20 @@ fn needs(world: &World, all: &[Agent]) -> (Vec<Line>, usize) {
     let mut lines = Vec::<Line>::new();
     let mut counts = Vec::<usize>::new();
     for wait in waits {
-        // A newcomer is about the scholar at the harbor, not about
+        // A newcomer is about the profile at the harbor, not about
         // whoever made it, and leads to its page.
-        if let protocol::WaitDetail::Newcomer { scholar } =
+        if let protocol::WaitDetail::Newcomer { profile } =
             &wait.detail
             && let Some(entity) =
-                hamlet_client::realm::scholar(world, *scholar)
+                hamlet_client::realm::profile(world, *profile)
         {
             let name = world
-                .get::<Scholar>(entity)
+                .get::<Profile>(entity)
                 .map(|s| s.0.name.clone())
                 .unwrap_or_default();
             lines.push(Line {
-                target: Target::Scholar(entity),
-                glyph: Glyph::Scholar,
+                target: Target::Profile(entity),
+                glyph: Glyph::Profile,
                 name: format!("{name} · harbor"),
                 title: "Wants to move into the city".into(),
                 since: wait.since,
@@ -973,7 +973,7 @@ fn capitalised(text: &str) -> String {
     })
 }
 
-/// The city's scholars, the harbor, the library and those that left.
+/// The city's profiles, the harbor, the library and those that left.
 fn society(world: &World, sections: &mut Vec<Section>) {
     let mut city = Vec::new();
     let mut harbor = Vec::new();
@@ -983,16 +983,16 @@ fn society(world: &World, sections: &mut Vec<Section>) {
     let chief_holds_door = world
         .get_resource::<hamlet_client::realm::Settings>()
         .is_some_and(|s| s.0.newcomers == protocol::Newcomers::Chief);
-    if let Some(mut query) = world.try_query::<(Entity, &Scholar)>() {
+    if let Some(mut query) = world.try_query::<(Entity, &Profile)>() {
         let mut found =
-            query.iter(world).collect::<Vec<(Entity, &Scholar)>>();
-        found.sort_by_key(|(_, scholar)| {
-            scholar.0.name.to_lowercase()
+            query.iter(world).collect::<Vec<(Entity, &Profile)>>();
+        found.sort_by_key(|(_, profile)| {
+            profile.0.name.to_lowercase()
         });
-        for (entity, scholar) in found {
-            let scholar = &scholar.0;
+        for (entity, profile) in found {
+            let profile = &profile.0;
             // Where it is hired, by hamlet.
-            let mut hamlets = scholar
+            let mut hamlets = profile
                 .hires
                 .iter()
                 .filter_map(|hire| {
@@ -1004,7 +1004,7 @@ fn society(world: &World, sections: &mut Vec<Section>) {
                 .collect::<Vec<_>>();
             hamlets.sort();
             hamlets.dedup();
-            let (title, mark) = match (&scholar.left, scholar.arrival)
+            let (title, mark) = match (&profile.left, profile.arrival)
             {
                 (Some(_), _) => {
                     ("Left the city".into(), Some(Standing::Gone))
@@ -1034,13 +1034,13 @@ fn society(world: &World, sections: &mut Vec<Section>) {
             };
             let line = page_line(
                 world,
-                Target::Scholar(entity),
-                Glyph::Scholar,
-                &scholar.name,
+                Target::Profile(entity),
+                Glyph::Profile,
+                &profile.name,
                 title,
                 mark,
             );
-            match (&scholar.left, scholar.arrival) {
+            match (&profile.left, profile.arrival) {
                 (Some(_), protocol::Arrival::Apart) => {}
                 (Some(_), _) => gone.push(line),
                 (None, protocol::Arrival::Housed) => city.push(line),
@@ -1281,10 +1281,10 @@ pub(super) fn sections(world: &World) -> Vec<Section> {
             section.lines.retain(|line| matches(line, &search));
         }
         // Of those that left, the tab's own: hires on the hamlets',
-        // scholars on the city's.
+        // profiles on the city's.
         if section.group == Group::Left {
             section.lines.retain(|line| {
-                matches!(line.target, Target::Scholar(_))
+                matches!(line.target, Target::Profile(_))
                     == (tab == Tab::City)
             });
             section.count = section.lines.len();
@@ -1327,7 +1327,7 @@ fn hamlet_names(world: &World) -> Vec<(Entity, String)> {
 /// The tabs between the hamlets and the city.
 const TABS: [(Tab, Glyph, &str); 2] = [
     (Tab::Hamlets, Glyph::Hamlet, "Hamlets"),
-    (Tab::City, Glyph::Scholar, "City"),
+    (Tab::City, Glyph::Profile, "City"),
 ];
 
 /// An icon button of the search row.
@@ -1387,8 +1387,8 @@ fn search_row() -> impl View {
             Tab::City,
             tool(
                 Glyph::Plus,
-                "Make a scholar",
-                crate::world_menu::ask_new_scholar,
+                "Make a profile",
+                crate::world_menu::ask_new_profile,
             ),
         ),
     ))
@@ -1487,12 +1487,12 @@ fn go(world: &mut World, target: Target) {
             show(world, Showing::Hamlet(hamlet));
             look_at(world, Thing::Common(hamlet));
         }
-        // A scholar's house, or its place on the pier, and the
+        // A profile's house, or its place on the pier, and the
         // library are selected and brought into view in the world
         // too.
-        Target::Scholar(scholar) => {
-            show(world, Showing::Scholar(scholar));
-            look_at(world, Thing::Scholar(scholar));
+        Target::Profile(profile) => {
+            show(world, Showing::Profile(profile));
+            look_at(world, Thing::Profile(profile));
         }
         Target::Library => {
             show(world, Showing::Library);
@@ -1864,7 +1864,7 @@ fn tip_of(line: &Line, address: String) -> Option<String> {
             _ => Some(words::HIRE),
         },
         Target::Fold(Group::Workers(_)) => Some(words::WORKER),
-        Target::Scholar(_) => Some(words::SCHOLAR),
+        Target::Profile(_) => Some(words::PROFILE),
         Target::Hamlet(_) | Target::Fold(_) => None,
     };
     let address = (!address.is_empty()

@@ -315,7 +315,7 @@ impl Core<'_, '_> {
                     kind: WaitKind::Question,
                     danger: None,
                     agent,
-                    scholar: None,
+                    profile: None,
                     conversation: Some(conversation),
                     task,
                     about: questions::about(&questions),

@@ -8,13 +8,13 @@ This replaces [ADR 0005](0005-the-home-is-the-servers-store-the-harnesses-stores
 
 A realm keeps its structure in one SQLite database, `realm.sqlite`, of
 `STRICT` tables with keys, foreign keys and checks: one table for each thing
-(scholars, hamlets, agents, hires, workers, roads, decisions, tasks,
+(profiles, hamlets, agents, hires, workers, roads, decisions, tasks,
 attempts and usage, conversations, inputs, waits, grants, markers, jobs, and
 the rest in `schema.sql`). A JSON column holds only an opaque payload: a
 marker's outcome, a transcript item, a decision's detail, a chief's
-settings. What a scholar knows is in git (ADR 0011), and each harness runtime
+settings. What a profile knows is in git (ADR 0011), and each harness runtime
 keeps its conversations in a store of its own that only it opens. The rows of
-scholars, agents, conversations, tasks and waits are never deleted, so their
+profiles, agents, conversations, tasks and waits are never deleted, so their
 ids are never given twice.
 
 **Every change is one transaction.** A change names its actor (a chief, an
@@ -31,10 +31,10 @@ it is refused (S19). Markers are kept for good. A model attempt is admitted
 once and its usage charged once (S20) by its key in the same way.
 
 **Jobs are an outbox.** What must happen to files or repositories after a
-commit is a row written in the same transaction: making a scholar's
+commit is a row written in the same transaction: making a profile's
 repository (`plant`), checking out a lodge (`lodge`), committing it
 (`commit`), taking in `main` (`take-in`), erasing (`erase-hire`,
-`erase-scholar`, `erase-hamlet`), merging and splitting hires (`merge`,
+`erase-profile`, `erase-hamlet`), merging and splitting hires (`merge`,
 `split`), shelving a skill (`shelve`) and ending a dream (`dream-end`). A
 thread of its own, on a connection of its own, runs the jobs after each
 commit and every job not done at start. Each job is safe to run twice, and a

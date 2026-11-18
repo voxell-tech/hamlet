@@ -25,17 +25,17 @@ and open-source forever.
 - **The Hand**: You are the chief and talk to the Hand, your own agent
   above every hamlet. It founds hamlets, hires into them and starts
   workers for small jobs.
-- **Scholars that learn**: Every agent but the Hand and its workers is a
-  hire of a scholar, a git repository of a character, memory and skills.
+- **Profiles that learn**: Every agent but the Hand and its workers is a
+  hire of a profile, a git repository of a character, memory and skills.
   A hire works on a branch of its own, and what it learns is merged into
-  its scholar's `main`. Tag versions, pin a hire to one, revert or fork a
-  scholar.
+  its profile's `main`. Tag versions, pin a hire to one, revert or fork a
+  profile.
 - **Hamlets that run themselves**: A hamlet's lead hires, directs and lays
   the roads its agents' letters and questions travel along. Parents review
   their hires' work.
 - **Agents that grow**: An agent starts with a sandboxed shell, a file
   editor and its memory, and writes its own skills. A librarian shelves
-  the useful ones in a library every agent shares, and an idle scholar
+  the useful ones in a library every agent shares, and an idle profile
   dreams to tidy what it knows.
 - **Point a hamlet at your code**: Give a hamlet a folder and its agents
   work in it, as a coding agent does.
@@ -55,10 +55,10 @@ Hamlet's words in one minute:
 | Word | Meaning |
 | --- | --- |
 | **Chief** | You, the human who leads. |
-| **Realm** | Everything one server keeps: its chiefs, the Hand, the scholars and the hamlets. |
+| **Realm** | Everything one server keeps: its chiefs, the Hand, the profiles and the hamlets. |
 | **Hand** | Your own agent, always there, above every hamlet. |
-| **Scholar** | Who an agent is: a git repository of its character, memory and skills. |
-| **Hamlet** | Hires of scholars with a budget and, optionally, a folder to work in. |
+| **Profile** | Who an agent is: a git repository of its character, memory and skills. |
+| **Hamlet** | Hires of profiles with a budget and, optionally, a folder to work in. |
 | **Lead** | The hire that leads a hamlet. |
 | **Road** | A path between two agents that their letters travel along. |
 
@@ -79,7 +79,7 @@ your real files alone.
 
 Early and moving fast.
 
-- **`hamlet_server`** (Rust) owns the realm: the agents, scholars'
+- **`hamlet_server`** (Rust) owns the realm: the agents, profiles'
   repositories, roads, letters, library, approvals and budgets.
 - **pi harness** (Node processes) owns conversations and model calls.
 - **The window** is a protocol client. Closing it stops no agent.

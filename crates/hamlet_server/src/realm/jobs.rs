@@ -3,7 +3,7 @@
 use anyhow::Result;
 use hamlet_store::Db;
 use hamlet_store::ids::{
-    AgentId, DreamId, HamletId, JobId, MergeId, OfferId, ScholarId,
+    AgentId, DreamId, HamletId, JobId, MergeId, OfferId, ProfileId,
 };
 use serde::{Deserialize, Serialize};
 
@@ -41,10 +41,10 @@ macro_rules! jobs {
 }
 
 jobs! {
-    /// Makes a scholar's repository: from its character, or from a
-    /// commit of another scholar's.
+    /// Makes a profile's repository: from its character, or from a
+    /// commit of another profile's.
     Plant("plant") {
-        scholar: ScholarId,
+        profile: ProfileId,
         character: String,
         fork: Option<Fork>,
     },
@@ -58,8 +58,8 @@ jobs! {
     TakeIn("take-in") { hire: AgentId },
     /// Deletes an erased hire's lodge and branch.
     EraseHire("erase-hire") { hire: AgentId },
-    /// Deletes an erased scholar's repository.
-    EraseScholar("erase-scholar") { scholar: ScholarId },
+    /// Deletes an erased profile's repository.
+    EraseProfile("erase-profile") { profile: ProfileId },
     /// Deletes the folder of an erased hamlet's lodges.
     EraseHamlet("erase-hamlet") { hamlet: HamletId },
     /// Brings what a merged hire learned into the kept hire's branch
@@ -79,10 +79,10 @@ jobs! {
     },
 }
 
-/// The commit of another scholar a fork starts from.
+/// The commit of another profile a fork starts from.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub(crate) struct Fork {
-    pub from: ScholarId,
+    pub from: ProfileId,
     pub commit: String,
 }
 
@@ -90,8 +90,8 @@ impl Job {
     /// The key two waiting jobs may not share.
     pub fn key(&self) -> String {
         let of = match self {
-            Self::Plant { scholar, .. }
-            | Self::EraseScholar { scholar } => scholar.to_string(),
+            Self::Plant { profile, .. }
+            | Self::EraseProfile { profile } => profile.to_string(),
             Self::Lodge { hire }
             | Self::Commit { hire }
             | Self::TakeIn { hire }
@@ -135,7 +135,7 @@ impl Job {
             Self::Commit { .. }
             | Self::Plant { .. }
             | Self::EraseHire { .. }
-            | Self::EraseScholar { .. }
+            | Self::EraseProfile { .. }
             | Self::EraseHamlet { .. } => Vec::new(),
         }
     }

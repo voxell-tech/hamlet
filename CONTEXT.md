@@ -20,40 +20,40 @@ _Avoid_: citizen, resident, bot
 
 **Hand**:
 The chiefs' own agent. It is always there, sits above every lead, and
-founds hamlets and looks after scholars when a chief asks. Its reserved
+founds hamlets and looks after profiles when a chief asks. Its reserved
 acts wait for a chief.
 _Avoid_: assistant, root agent, admin agent
 
-**Scholar**:
+**Profile**:
 Who an agent is when it is not at work: a git repository holding a
 character, memory and skills. Its `main` is what it knows. Many hires can
-be of one scholar. A scholar is its id, `scholar#<id>`; its name is a label
+be of one profile. A profile is its id, `profile#<id>`; its name is a label
 that a chief changes and that may repeat.
-_Avoid_: persona, profile, template, house
+_Avoid_: scholar, persona, template, house
 
 **Hire**:
-A scholar working in a hamlet, on a branch of its own and in a lodge, for a
+A profile working in a hamlet, on a branch of its own and in a lodge, for a
 purpose a chief may leave out. Hires form a tree under the lead.
 _Avoid_: member, employee, citizen
 
 **Blank agent**:
-A hire, the lead included, that is not of a scholar of the city: its
-scholar is made for it alone, has no house, never waits at the harbor and
-is not listed with the city's scholars.
-_Avoid_: blank scholar, temp hire
+A hire, the lead included, that is not of a profile of the city: its
+profile is made for it alone, has no house, never waits at the harbor and
+is not listed with the city's profiles.
+_Avoid_: blank profile, temp hire
 
 **Address**:
-How a chief or an agent names an agent or a scholar, by ids and never by a
+How a chief or an agent names an agent or a profile, by ids and never by a
 name: `hand`, `lead@<hamlet>` (by the hamlet's id), `hire#<id>`,
-`worker#<id>`, `scholar#<id>`. Wherever an agent is shown, its address comes
+`worker#<id>`, `profile#<id>`. Wherever an agent is shown, its address comes
 first and its name beside it.
 _Avoid_: handle, username
 
 **Name**:
-The words a scholar, a hamlet, a hire or a worker is shown by: a scholar's
+The words a profile, a hamlet, a hire or a worker is shown by: a profile's
 name, a hamlet's name, a hire's or a worker's nickname. Metadata a chief
 changes and that may repeat; it never finds anything. Everyone but the Hand
-has one a chief can change. A scholar and a hamlet always have one; a
+has one a chief can change. A profile and a hamlet always have one; a
 hamlet's id is a UUID no one reads.
 
 **Nickname**:
@@ -84,23 +84,23 @@ A one-off conversation that is not an agent's: the librarian's answer or a
 parent's review.
 _Avoid_: job (a job is the server's outbox)
 
-### Scholars and their memory
+### Profiles and their memory
 
 **Character**:
-`CHARACTER.md` in a scholar's repository: who it is. Edited by a chief or
-given when a parent makes the scholar.
+`CHARACTER.md` in a profile's repository: who it is. Edited by a chief or
+given when a parent makes the profile.
 
 **Memory**:
-The files under a scholar's `memory/`. Files at its root are in every
+The files under a profile's `memory/`. Files at its root are in every
 prompt; each folder is described by its `MEMORY.md`.
 _Avoid_: notes, `NOTES.md`
 
 **Version**:
-A tag on a scholar's `main`. A hire can be hired at one or pinned to one.
-_Avoid_: release (for a scholar)
+A tag on a profile's `main`. A hire can be hired at one or pinned to one.
+_Avoid_: release (for a profile)
 
 **Pin**:
-Holding a hire at one version of its scholar, so it does not take in `main`.
+Holding a hire at one version of its profile, so it does not take in `main`.
 
 **Lodge**:
 The checkout of a hire's branch where its tools work, without
@@ -109,8 +109,8 @@ The checkout of a hire's branch where its tools work, without
 _Avoid_: house, workspace, home
 
 **Dream**:
-A task in which a hire brings what it learned home to its scholar's `main`,
-or a scholar tidies `main`. Off by default; the settings give its hours, cost
+A task in which a hire brings what it learned home to its profile's `main`,
+or a profile tidies `main`. Off by default; the settings give its hours, cost
 cap and rests.
 _Avoid_: sleep, sync
 
@@ -130,7 +130,7 @@ the database and the credentials, in one folder (`HAMLET_HOME`).
 _Avoid_: home, world, server
 
 **City**:
-Where the scholars live, apart from any hamlet, each in a house the server
+Where the profiles live, apart from any hamlet, each in a house the server
 sets down. In the world it is the **city island**, with the Hand's tower,
 the Library and the chief's Hearth.
 _Avoid_: town (for anything), guild
@@ -147,7 +147,7 @@ The pier on each island, with a boat between them. A newcomer waits at the
 city's until it is let into the city.
 
 **Newcomer**:
-A scholar a parent made, waiting at the harbor until a chief or the Hand lets
+A profile a parent made, waiting at the harbor until a chief or the Hand lets
 it into the city, as the realm's `newcomers` setting says.
 _Avoid_: applicant, guest
 
@@ -313,7 +313,7 @@ _Avoid_: flavor
 
 **Hub**:
 The panel of the realm's agents: a rail of them by what they are doing,
-and beside it a thread, a scholar, a hamlet, the library or the page of
+and beside it a thread, a profile, a hamlet, the library or the page of
 every hamlet and the Hand.
 _Avoid_: inspector, sidebar
 

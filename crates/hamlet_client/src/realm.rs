@@ -110,20 +110,20 @@ pub struct Hire;
 #[derive(Component, Clone, Copy, Debug, PartialEq, Eq)]
 pub struct Parent(pub protocol::AgentId);
 
-/// The scholar a hire is of.
+/// The profile a hire is of.
 #[derive(Component, Clone, Copy, Debug, PartialEq, Eq)]
-pub struct OfScholar(pub protocol::ScholarId);
+pub struct OfProfile(pub protocol::ProfileId);
 
 /// What a hire is called in the world.
 #[derive(Component, Clone, Debug, PartialEq, Eq)]
 pub struct Nickname(pub String);
 
-/// What an agent is shown by: a hire's nickname, else its scholar's
+/// What an agent is shown by: a hire's nickname, else its profile's
 /// name, else its address.
 #[derive(Component, Clone, Debug, PartialEq, Eq)]
 pub struct Shown(pub String);
 
-/// The version of its scholar a hire is pinned to.
+/// The version of its profile a hire is pinned to.
 #[derive(Component, Clone, Debug, PartialEq, Eq)]
 pub struct Pin(pub String);
 
@@ -143,14 +143,14 @@ pub struct OwnEffort(pub hamlet_protocol::Effort);
 #[derive(Component, Clone, Copy, Debug)]
 pub struct Fast;
 
-/// A scholar of the city, with its `Name`.
+/// A profile of the city, with its `Name`.
 #[derive(Component, Clone, Debug, PartialEq)]
 #[component(
     immutable,
-    on_insert = index::file_scholar,
-    on_discard = index::unfile_scholar
+    on_insert = index::file_profile,
+    on_discard = index::unfile_profile
 )]
-pub struct Scholar(pub protocol::Scholar);
+pub struct Profile(pub protocol::Profile);
 
 /// The agent's purpose as sent by the server.
 #[derive(Component, Clone, Debug, PartialEq, Eq)]
@@ -381,7 +381,7 @@ pub fn register(world: &mut World) {
     world.register_component::<Kind>();
     world.register_component::<Hire>();
     world.register_component::<Parent>();
-    world.register_component::<OfScholar>();
+    world.register_component::<OfProfile>();
     world.register_component::<Pin>();
     world.register_component::<Allowance>();
     world.register_component::<Nickname>();
@@ -389,7 +389,7 @@ pub fn register(world: &mut World) {
     world.register_component::<OwnModel>();
     world.register_component::<OwnEffort>();
     world.register_component::<Fast>();
-    world.register_component::<Scholar>();
+    world.register_component::<Profile>();
     world.register_component::<Purpose>();
     world.register_component::<Lived>();
     world.register_component::<LivesIn>();
@@ -428,9 +428,9 @@ pub fn shown_of(world: &World, entity: Entity) -> String {
     )
 }
 
-/// The address commands name a scholar by: `scholar#<id>`.
-pub fn scholar_address(id: protocol::ScholarId) -> String {
-    format!("scholar#{}", id.0)
+/// The address commands name a profile by: `profile#<id>`.
+pub fn profile_address(id: protocol::ProfileId) -> String {
+    format!("profile#{}", id.0)
 }
 
 /// Lookups of living agents and leads for systems.
@@ -527,12 +527,12 @@ pub fn agent(world: &World, id: protocol::AgentId) -> Option<Entity> {
     world.get_resource::<Index>()?.agent(id)
 }
 
-/// A scholar by its id.
-pub fn scholar(
+/// A profile by its id.
+pub fn profile(
     world: &World,
-    id: protocol::ScholarId,
+    id: protocol::ProfileId,
 ) -> Option<Entity> {
-    world.get_resource::<Index>()?.scholar(id)
+    world.get_resource::<Index>()?.profile(id)
 }
 
 /// An agent that has left its hamlet.
@@ -613,10 +613,10 @@ pub(crate) fn state(world: &mut World, state: protocol::State) {
         .cloned()
         .map(|hamlet| upsert_hamlet(world, hamlet))
         .collect::<Vec<_>>();
-    let scholars = state
-        .scholars
+    let profiles = state
+        .profiles
         .into_iter()
-        .map(|scholar| upsert_scholar(world, scholar))
+        .map(|profile| upsert_profile(world, profile))
         .collect::<Vec<_>>();
     let agents = state
         .agents
@@ -641,8 +641,8 @@ pub(crate) fn state(world: &mut World, state: protocol::State) {
         )
         .chain(
             index
-                .scholars()
-                .filter(|entity| !scholars.contains(entity)),
+                .profiles()
+                .filter(|entity| !profiles.contains(entity)),
         )
         .chain(
             index
@@ -685,19 +685,19 @@ fn upsert_hamlet(
     entity
 }
 
-fn upsert_scholar(
+fn upsert_profile(
     world: &mut World,
-    value: protocol::Scholar,
+    value: protocol::Profile,
 ) -> Entity {
-    let entity = scholar(world, value.id)
+    let entity = profile(world, value.id)
         .unwrap_or_else(|| world.spawn_empty().id());
     let id = value.id;
     let mut entity_mut = world.entity_mut(entity);
     put(&mut entity_mut, Name::new(value.name.clone()));
-    put(&mut entity_mut, Scholar(value));
+    put(&mut entity_mut, Profile(value));
     // A rename changes what its hires are shown by.
     let hires = world
-        .query::<(Entity, &OfScholar)>()
+        .query::<(Entity, &OfProfile)>()
         .iter(world)
         .filter(|(_, of)| of.0 == id)
         .map(|(hire, _)| hire)
@@ -708,7 +708,7 @@ fn upsert_scholar(
     entity
 }
 
-/// Sets what the agent is shown by from its nickname, its scholar's
+/// Sets what the agent is shown by from its nickname, its profile's
 /// name and its address.
 fn refresh_shown(world: &mut World, agent: Entity) {
     let Some(address) = world.get::<Name>(agent) else {
@@ -718,10 +718,10 @@ fn refresh_shown(world: &mut World, agent: Entity) {
         .get::<Nickname>(agent)
         .map(|nickname| nickname.0.clone())
         .or_else(|| {
-            let of = world.get::<OfScholar>(agent)?;
-            let scholar =
-                world.get::<Scholar>(scholar(world, of.0)?)?;
-            Some(scholar.0.name.clone())
+            let of = world.get::<OfProfile>(agent)?;
+            let profile =
+                world.get::<Profile>(profile(world, of.0)?)?;
+            Some(profile.0.name.clone())
         })
         .unwrap_or_else(|| address.as_str().to_owned());
     put(&mut world.entity_mut(agent), Shown(shown));
@@ -747,7 +747,7 @@ fn upsert_agent(
     put(&mut agent, Name::new(value.name));
     flag(&mut agent, value.kind == protocol::AgentKind::Hire, Hire);
     optional(&mut agent, value.parent.map(Parent));
-    optional(&mut agent, value.scholar.map(OfScholar));
+    optional(&mut agent, value.profile.map(OfProfile));
     optional(&mut agent, value.pin.clone().map(Pin));
     optional(&mut agent, value.allowance.map(Allowance));
     optional(&mut agent, value.nickname.clone().map(Nickname));
@@ -888,11 +888,11 @@ pub(crate) fn changes(world: &mut World, changes: protocol::Changes) {
                     world.despawn(entity);
                 }
             }
-            protocol::Update::Scholar { scholar } => {
-                upsert_scholar(world, scholar);
+            protocol::Update::Profile { profile } => {
+                upsert_profile(world, profile);
             }
-            protocol::Update::ScholarGone { id } => {
-                if let Some(entity) = scholar(world, id) {
+            protocol::Update::ProfileGone { id } => {
+                if let Some(entity) = profile(world, id) {
                     world.despawn(entity);
                 }
             }
@@ -1136,7 +1136,7 @@ mod tests {
     use crate::{ClientPlugin, receive};
 
     #[test]
-    fn a_hire_is_shown_by_its_nickname_else_its_scholars_name() {
+    fn a_hire_is_shown_by_its_nickname_else_its_profiles_name() {
         let mut app = App::new();
         app.add_plugins(ClientPlugin { server: None });
         let mut realm = state();
@@ -1145,7 +1145,7 @@ mod tests {
         let ada = named(world, "hire#2").unwrap();
         assert_eq!(shown_of(world, ada), "ada");
         realm.revision = 1;
-        realm.scholars[0].name = "Ada Lovelace".into();
+        realm.profiles[0].name = "Ada Lovelace".into();
         receive(world, protocol::ServerMessage::State(realm.clone()));
         assert_eq!(shown_of(world, ada), "Ada Lovelace");
         realm.revision = 2;

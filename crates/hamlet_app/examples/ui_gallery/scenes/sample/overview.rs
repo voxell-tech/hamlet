@@ -17,7 +17,7 @@ pub(super) fn setup(world: &mut World, scene: Scene) {
             | Scene::Bylaws
             | Scene::Hub
             | Scene::HubMenu
-            | Scene::Scholar
+            | Scene::Profile
             | Scene::Realm
             | Scene::Desk
             | Scene::Toasts
@@ -42,9 +42,9 @@ pub(super) fn setup(world: &mut World, scene: Scene) {
         "fork",
         "purge",
         "dream",
-        "remove-scholar",
-        "name-scholar",
-        "restore-scholar",
+        "remove-profile",
+        "name-profile",
+        "restore-profile",
         "welcome",
         "turn-away",
     ]);
@@ -68,8 +68,8 @@ pub(super) fn setup(world: &mut World, scene: Scene) {
             .into(),
     }];
     let mut next = 10;
-    // The scholar of each hire has the hire's id.
-    let mut scholars = vec![(2, "ada")];
+    // The profile of each hire has the hire's id.
+    let mut profiles = vec![(2, "ada")];
     for (id, title, lead, others) in [
         (
             "home",
@@ -106,7 +106,7 @@ pub(super) fn setup(world: &mut World, scene: Scene) {
             state
                 .agents
                 .push(hamlet_testing::realm::agent(first, id, true));
-            scholars.push((first, lead));
+            profiles.push((first, lead));
             next += 1;
         }
         // In the hollow scout is a parent, with pip and wren under
@@ -115,7 +115,7 @@ pub(super) fn setup(world: &mut World, scene: Scene) {
         for (number, name) in (1..).zip(others) {
             let mut agent =
                 hamlet_testing::realm::agent(next, id, false);
-            scholars.push((next, name));
+            profiles.push((next, name));
             agent.parent = Some(protocol::AgentId(
                 if id == "home" && number > 1 {
                     parent
@@ -148,26 +148,26 @@ pub(super) fn setup(world: &mut World, scene: Scene) {
         Scene::Merged => merge_away(&mut state),
         _ => {}
     }
-    state.scholars = scholars
+    state.profiles = profiles
         .into_iter()
         .map(|(id, name)| {
-            hamlet_testing::realm::scholar(id, name, &[id])
+            hamlet_testing::realm::profile(id, name, &[id])
         })
         .collect();
-    let mut moss = hamlet_testing::realm::scholar(90, "moss", &[]);
+    let mut moss = hamlet_testing::realm::profile(90, "moss", &[]);
     moss.arrival = protocol::Arrival::Waiting;
     moss.house = None;
-    let mut burr = hamlet_testing::realm::scholar(91, "burr", &[]);
+    let mut burr = hamlet_testing::realm::profile(91, "burr", &[]);
     burr.arrival = protocol::Arrival::Turned;
     burr.house = None;
-    state.scholars.extend([moss, burr]);
+    state.profiles.extend([moss, burr]);
     if scene != Scene::Toasts {
         // The chief holds the door, so moss waits on a petition
         // raised by scout, who made it.
         let mut wait = hamlet_testing::realm::wait("moss");
         wait.agent = Some(protocol::AgentId(10));
         wait.by = "hire#10".into();
-        wait.about = "scholar#90 (moss)".into();
+        wait.about = "profile#90 (moss)".into();
         wait.subject = wait.about.clone();
         wait.chat = None;
         // It came in a few minutes ago.
@@ -177,7 +177,7 @@ pub(super) fn setup(world: &mut World, scene: Scene) {
             .as_millis() as u64
             - 5 * 60_000;
         wait.detail = protocol::WaitDetail::Newcomer {
-            scholar: protocol::ScholarId(90),
+            profile: protocol::ProfileId(90),
         };
         wait.answers = vec![
             protocol::Choice::Welcome,
@@ -191,10 +191,10 @@ pub(super) fn setup(world: &mut World, scene: Scene) {
         state.settings.newcomers = protocol::Newcomers::Hand;
         let mut next = state.clone();
         next.revision += 1;
-        for scholar in &mut next.scholars {
-            if scholar.name == "moss" {
-                scholar.arrival = protocol::Arrival::Housed;
-                scholar.house = Some(protocol::HouseAt {
+        for profile in &mut next.profiles {
+            if profile.name == "moss" {
+                profile.arrival = protocol::Arrival::Housed;
+                profile.house = Some(protocol::HouseAt {
                     turn: 0.0,
                     x: 40.0,
                     z: 12.0,
@@ -225,7 +225,7 @@ pub(super) fn setup(world: &mut World, scene: Scene) {
         world.insert_resource(Later(next, 0));
     }
     if let Some(ada) =
-        state.scholars.iter_mut().find(|s| s.name == "ada")
+        state.profiles.iter_mut().find(|s| s.name == "ada")
     {
         ada.versions = vec![
             protocol::VersionView {
@@ -340,7 +340,7 @@ fn busy_realm(state: &mut protocol::State) {
     let mut worker = hamlet_testing::realm::agent(40, "home", false);
     worker.kind = protocol::AgentKind::Worker;
     worker.name = "worker#40".into();
-    worker.scholar = None;
+    worker.profile = None;
     worker.parent = Some(parent);
     worker.busy = true;
     worker.purpose = "Count the pears in row four.".into();

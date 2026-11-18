@@ -20,7 +20,7 @@ pub(crate) enum Standing {
     Gone,
     /// Gone into another agent.
     Merged,
-    /// A scholar the Hand turned away.
+    /// A profile the Hand turned away.
     Turned,
 }
 
@@ -108,7 +108,7 @@ pub(crate) fn need_you(count: usize) -> &'static str {
 }
 
 /// How many waits `agent` has raised. A newcomer's wait is about the
-/// scholar, not the agent that made it.
+/// profile, not the agent that made it.
 pub(crate) fn waits(world: &World, agent: Entity) -> usize {
     let address = name_of(world, agent);
     world.try_query::<&Waiting>().map_or(0, |mut waiting| {

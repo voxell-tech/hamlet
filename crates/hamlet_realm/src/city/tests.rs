@@ -1,6 +1,6 @@
 use bevy::transform::TransformPlugin;
 use hamlet_client::ClientPlugin;
-use hamlet_client::realm::{Identity, Scholar};
+use hamlet_client::realm::{Identity, Profile};
 use hamlet_protocol::client as protocol;
 
 use super::figures::Figure;
@@ -17,13 +17,13 @@ use crate::sky::Quality;
 /// The way every house's door faces.
 const TURN: f64 = 1.0;
 
-fn scholar(
+fn profile(
     id: u64,
     house: Option<(f64, f64)>,
     hires: Vec<u64>,
     left: bool,
-) -> Scholar {
-    Scholar(protocol::Scholar {
+) -> Profile {
+    Profile(protocol::Profile {
         arrival: if house.is_some() {
             protocol::Arrival::Housed
         } else {
@@ -37,13 +37,13 @@ fn scholar(
             x,
             z,
         }),
-        id: protocol::ScholarId(id),
-        left: left.then(|| protocol::ScholarLeft {
+        id: protocol::ProfileId(id),
+        left: left.then(|| protocol::ProfileLeft {
             at: 0,
             by: String::new(),
             reason: String::new(),
         }),
-        name: format!("scholar {id}"),
+        name: format!("profile {id}"),
         since: 0,
         skills: Vec::new(),
         versions: Vec::new(),
@@ -66,21 +66,21 @@ fn city() -> App {
 }
 
 #[test]
-fn the_city_has_a_tower_and_a_house_for_each_scholar_with_a_spot() {
+fn the_city_has_a_tower_and_a_house_for_each_profile_with_a_spot() {
     let mut app = city();
     let world = app.world_mut();
     // One of its two hires lives.
     world.spawn(Identity(protocol::AgentId(11)));
     world.spawn((
         Name::new("a"),
-        scholar(1, Some((60.0, 20.0)), vec![11, 12], false),
+        profile(1, Some((60.0, 20.0)), vec![11, 12], false),
     ));
     // Without a spot it has no house, and one that left has its
     // windows shuttered whoever it hired.
-    world.spawn((Name::new("b"), scholar(2, None, vec![], false)));
+    world.spawn((Name::new("b"), profile(2, None, vec![], false)));
     world.spawn((
         Name::new("c"),
-        scholar(3, Some((-60.0, 20.0)), vec![11], true),
+        profile(3, Some((-60.0, 20.0)), vec![11], true),
     ));
     app.update();
     app.update();
@@ -94,7 +94,7 @@ fn the_city_has_a_tower_and_a_house_for_each_scholar_with_a_spot() {
         .collect::<Vec<_>>();
     homes.sort();
     assert_eq!(homes, [(0, true), (1, false)]);
-    // Each is turned as its scholar's house says.
+    // Each is turned as its profile's house says.
     let turns = world
         .query_filtered::<&Transform, With<Home>>()
         .iter(world)
@@ -104,7 +104,7 @@ fn the_city_has_a_tower_and_a_house_for_each_scholar_with_a_spot() {
     for turn in turns {
         assert!((turn - TURN as f32).abs() < 1e-4, "{turn}");
     }
-    // Only the scholar that stayed has a figure, which can be picked
+    // Only the profile that stayed has a figure, which can be picked
     // and lifted.
     let figures = world
         .query_filtered::<&Robot, With<Figure>>()
@@ -119,11 +119,11 @@ fn the_city_has_a_tower_and_a_house_for_each_scholar_with_a_spot() {
 }
 
 #[test]
-fn a_waiting_scholar_stands_on_the_pier_until_it_has_a_house() {
+fn a_waiting_profile_stands_on_the_pier_until_it_has_a_house() {
     let mut app = city();
     let waiting = app
         .world_mut()
-        .spawn((Name::new("a"), scholar(1, None, vec![], false)))
+        .spawn((Name::new("a"), profile(1, None, vec![], false)))
         .id();
     app.update();
     app.update();
@@ -149,7 +149,7 @@ fn a_waiting_scholar_stands_on_the_pier_until_it_has_a_house() {
     assert_eq!(homes(&mut app), 0);
 
     // Let in, it leaves the pier for its house.
-    app.world_mut().entity_mut(waiting).insert(scholar(
+    app.world_mut().entity_mut(waiting).insert(profile(
         1,
         Some((60.0, 20.0)),
         vec![],

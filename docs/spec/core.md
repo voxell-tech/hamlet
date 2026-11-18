@@ -12,19 +12,19 @@ An agent is the Hand, a hire or a worker (H37, H40, H42).
 holding its memory (`memory/`), its skills (`skills/`, one folder each, with
 a `SKILL.md`) and an inbox (`inbox/`) for what a chief hands it. They are
 writable files. A lodge holds no character: the character is a file of the
-agent's scholar, and the conversations are kept in the harness's storage,
+agent's profile, and the conversations are kept in the harness's storage,
 all out of reach of file tools. A worker has no lodge, only a scratch folder
 that ends with it (H42).
 
 **C9.** An agent is identified by an id that is the same everywhere in the
 realm and is never given twice; a hire is addressed by it as `hire#<id>`. No
-address, lookup or command finds an agent, a scholar or a hamlet by a name.
+address, lookup or command finds an agent, a profile or a hamlet by a name.
 Ending, merging, restoring and setting a lead keep the id.
-A later hire of the same scholar inherits nothing of the earlier one.
+A later hire of the same profile inherits nothing of the earlier one.
 
-**C10.** A scholar is its id, addressed as `scholar#<id>`. Its name is a
+**C10.** A profile is its id, addressed as `profile#<id>`. Its name is a
 label of one line, 1 to 40 characters with no colon, which may repeat and
-which a chief changes (`/name-scholar`), a decision recorded like a hamlet's
+which a chief changes (`/name-profile`), a decision recorded like a hamlet's
 naming.
 
 ## What an agent is told
@@ -65,8 +65,8 @@ it, and putting the default back removes the chief's.
 
 **C13.** An agent cannot write its own character, by any tool. A lodge is
 checked out without `CHARACTER.md`, and a file by that name written there is
-never committed. A chief writes a character on the scholar's `main`; a
-parent gives one only when it makes a scholar (H38) and has no tool that changes
+never committed. A chief writes a character on the profile's `main`; a
+parent gives one only when it makes a profile (H38) and has no tool that changes
 one after.
 
 **C14.** A chief can read an agent's whole prompt as it would be sent now.
@@ -154,7 +154,7 @@ runs as.
 A chief talks to, instructs, watches, stops, gives to and answers for only
 the agents of living hamlets it is chief of, and the Hand, which answers to
 every chief. Reading and editing a hire's papers or a hamlet's limits needs
-the same authority; a scholar's belongs to the chief it belongs to (H38). A
+the same authority; a profile's belongs to the chief it belongs to (H38). A
 removed hamlet's agents are out of reach until it is restored; a refused
 request says why it was removed and to restore it first. Requests naming a
 missing hamlet or a hamlet the human is not chief of are refused.
@@ -281,7 +281,7 @@ at once.
 The agent is asked to keep in its memory what is worth remembering about
 the chiefs and its lessons, and to save or improve a skill for anything
 likely to come up again. It writes its lodge, and the lodge reaches its
-scholar by a dream (H43).
+profile by a dream (H43).
 
 ## What is recorded and shown
 

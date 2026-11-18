@@ -68,8 +68,8 @@ pub(crate) enum EndHow {
     Ended,
     /// The hire was merged into another.
     Merged,
-    /// Its scholar left the city.
-    Scholar,
+    /// Its profile left the city.
+    Profile,
     /// Its hamlet was removed.
     Hamlet,
     /// The worker answered its task.
@@ -170,7 +170,7 @@ impl EndHow {
         match self {
             Self::Ended => "it was ended",
             Self::Merged => "it was merged into another hire",
-            Self::Scholar => "its scholar left the city",
+            Self::Profile => "its profile left the city",
             Self::Hamlet => "its hamlet was removed",
             Self::Answered => "it answered its task",
             Self::Failed => "its task failed",

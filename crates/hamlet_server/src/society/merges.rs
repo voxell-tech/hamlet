@@ -123,7 +123,7 @@ pub(crate) fn merge(
             .hamlet(&one.hamlet)
             .subject(absorbed)
             .other(kept)
-            .scholar(other.scholar)
+            .profile(other.profile)
             .detail(json!({ "merge": id.0 })),
     )?;
     jobs::add(cx, &Job::Merge { merge: id })?;

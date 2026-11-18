@@ -1,11 +1,11 @@
-//! Hires: scholars working in a hamlet, each with a branch, a lodge
+//! Hires: profiles working in a hamlet, each with a branch, a lodge
 //! and a place in the hamlet's tree.
 
 use anyhow::{Context, Result};
 use diesel::prelude::*;
 use hamlet_store::Db;
 use hamlet_store::ids::{
-    Actor, AgentId, ChiefId, HamletId, ScholarId,
+    Actor, AgentId, ChiefId, HamletId, ProfileId,
 };
 use hamlet_store::schema::{agent, hamlet, hire, hire_tool_off};
 use serde_json::json;
@@ -23,7 +23,7 @@ use crate::realm::jobs::{self, Job};
 pub(crate) struct Hire {
     pub agent: AgentId,
     pub hamlet: HamletId,
-    pub scholar: ScholarId,
+    pub profile: ProfileId,
     pub parent: Option<AgentId>,
     pub purpose: String,
     pub nickname: Option<String>,
@@ -37,17 +37,17 @@ pub(crate) struct Hire {
     pub merged_into: Option<AgentId>,
 }
 
-/// The scholar a hire is of.
+/// The profile a hire is of.
 #[derive(Clone, Debug, PartialEq)]
 pub(crate) enum Hiring {
-    /// A blank agent: a scholar made for this hire alone, apart from
+    /// A blank agent: a profile made for this hire alone, apart from
     /// the city, so it has no house and never waits at the harbor.
     /// With no name it is named for its place: Lead, or Hire and
     /// its number.
     Blank { name: String, character: String },
-    /// A living scholar, at its `main` or pinned to a version.
+    /// A living profile, at its `main` or pinned to a version.
     Existing {
-        scholar: ScholarId,
+        profile: ProfileId,
         pin: Option<String>,
     },
 }
@@ -61,7 +61,7 @@ pub(crate) struct Spec {
     pub hiring: Hiring,
     pub purpose: String,
     pub reason: String,
-    /// The chief a new scholar belongs to.
+    /// The chief a new profile belongs to.
     pub owner: ChiefId,
 }
 
@@ -69,11 +69,11 @@ pub(crate) struct Spec {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) struct Hired {
     pub agent: AgentId,
-    pub scholar: ScholarId,
+    pub profile: ProfileId,
     pub hamlet: HamletId,
 }
 
-/// Hires a scholar into a hamlet under a parent. With no parent, the
+/// Hires a profile into a hamlet under a parent. With no parent, the
 /// hire is the lead of a hamlet being founded.
 pub(crate) fn hire(cx: &mut Change<'_>, spec: Spec) -> Done<Hired> {
     let place = hamlets::get(cx.db, &spec.hamlet)?;
@@ -97,7 +97,7 @@ pub(crate) fn hire(cx: &mut Change<'_>, spec: Spec) -> Done<Hired> {
         }
         done!(require_living(cx.db, parent));
     }
-    let (scholar, pin, new) = match spec.hiring {
+    let (profile, pin, new) = match spec.hiring {
         Hiring::Blank { name, character } => {
             let name = match name.trim() {
                 "" if spec.parent.is_none() => "Lead".to_owned(),
@@ -117,14 +117,14 @@ pub(crate) fn hire(cx: &mut Change<'_>, spec: Spec) -> Done<Hired> {
             ));
             (made, None, true)
         }
-        Hiring::Existing { scholar, pin } => {
-            let found = city::get(cx.db, scholar)?;
+        Hiring::Existing { profile, pin } => {
+            let found = city::get(cx.db, profile)?;
             if let Some(refusal) =
                 found.gone().or_else(|| found.apart())
             {
                 refuse!(refusal);
             }
-            (scholar, pin, false)
+            (profile, pin, false)
         }
     };
     let agent = agents::make(cx, AgentKind::Hire)?;
@@ -132,7 +132,7 @@ pub(crate) fn hire(cx: &mut Change<'_>, spec: Spec) -> Done<Hired> {
         .values((
             hire::agent.eq(agent),
             hire::hamlet.eq(&spec.hamlet),
-            hire::scholar.eq(scholar),
+            hire::profile.eq(profile),
             hire::parent.eq(spec.parent),
             hire::purpose.eq(spec.purpose.trim()),
             hire::pin.eq(&pin),
@@ -144,7 +144,7 @@ pub(crate) fn hire(cx: &mut Change<'_>, spec: Spec) -> Done<Hired> {
         Decision::new(DecisionKind::Hired, &spec.reason)
             .hamlet(&spec.hamlet)
             .subject(agent)
-            .scholar(scholar)
+            .profile(profile)
             .detail(json!({
                 "new": new,
                 "pin": pin,
@@ -152,10 +152,10 @@ pub(crate) fn hire(cx: &mut Change<'_>, spec: Spec) -> Done<Hired> {
             })),
     )?;
     cx.touched.hamlets.insert(spec.hamlet.clone());
-    cx.touched.scholars.insert(scholar);
+    cx.touched.profiles.insert(profile);
     Ok(Ok(Hired {
         agent,
-        scholar,
+        profile,
         hamlet: spec.hamlet,
     }))
 }
@@ -216,14 +216,14 @@ pub(crate) fn living_in(
         .load(db)?)
 }
 
-/// The living hires of the scholar `scholar`.
+/// The living hires of the profile `profile`.
 pub(crate) fn living_of(
     db: &mut Db,
-    scholar: ScholarId,
+    profile: ProfileId,
 ) -> Result<Vec<Hire>> {
     Ok(hire::table
         .inner_join(agent::table)
-        .filter(hire::scholar.eq(scholar))
+        .filter(hire::profile.eq(profile))
         .filter(agent::ended_at.is_null())
         .order(hire::agent)
         .select(Hire::as_select())
@@ -297,14 +297,14 @@ pub(crate) fn end(
             Decision::new(DecisionKind::Ended, reason)
                 .hamlet(&hire.hamlet)
                 .subject(id)
-                .scholar(hire.scholar)
+                .profile(hire.profile)
                 .detail(json!({ "how": how })),
         )?;
     }
     agents::end(cx, id, how, reason)?;
     jobs::add(cx, &Job::Commit { hire: id })?;
     cx.touched.hamlets.insert(hire.hamlet);
-    cx.touched.scholars.insert(hire.scholar);
+    cx.touched.profiles.insert(hire.profile);
     Ok(Ok(()))
 }
 
@@ -347,8 +347,8 @@ pub(crate) fn come_back(
             id: hire.hamlet.to_string()
         });
     }
-    let scholar = city::get(cx.db, hire.scholar)?;
-    if let Some(refusal) = scholar.gone() {
+    let profile = city::get(cx.db, hire.profile)?;
+    if let Some(refusal) = profile.gone() {
         refuse!(refusal);
     }
     if count_living(cx.db, &hire.hamlet)? >= place.tier {
@@ -380,10 +380,10 @@ pub(crate) fn come_back(
         Decision::new(DecisionKind::Restored, reason)
             .hamlet(&hire.hamlet)
             .subject(id)
-            .scholar(hire.scholar),
+            .profile(hire.profile),
     )?;
     cx.touched.hamlets.insert(hire.hamlet);
-    cx.touched.scholars.insert(hire.scholar);
+    cx.touched.profiles.insert(hire.profile);
     Ok(Ok(()))
 }
 
@@ -401,7 +401,7 @@ pub(crate) fn erase(cx: &mut Change<'_>, id: AgentId) -> Done<()> {
         Decision::new(DecisionKind::Erased, "")
             .hamlet(&hire.hamlet)
             .subject(id)
-            .scholar(hire.scholar),
+            .profile(hire.profile),
     )?;
     cx.touched.hamlets.insert(hire.hamlet);
     Ok(Ok(()))
@@ -587,7 +587,7 @@ pub(crate) fn set_pin(
         Decision::new(DecisionKind::Pinned, reason)
             .hamlet(&hire.hamlet)
             .subject(id)
-            .scholar(hire.scholar)
+            .profile(hire.profile)
             .detail(json!({ "version": version })),
     )?;
     jobs::add(cx, &Job::TakeIn { hire: id })?;

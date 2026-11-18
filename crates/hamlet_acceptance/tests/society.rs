@@ -28,30 +28,30 @@ fn lane(from: AgentId, kind: ChatRefKind, with: AgentId) -> ChatRef {
 }
 
 #[tokio::test]
-async fn the_hand_makes_a_scholar_founds_a_hamlet_and_hires_into_it()
+async fn the_hand_makes_a_profile_founds_a_hamlet_and_hires_into_it()
 {
     let mut s = Session::start(Faux::new().agent(
         1,
         [
             calls([
                 (
-                    "create_scholar",
+                    "create_profile",
                     json!({"name": "bo", "character": "Careful."}),
                 ),
                 (
                     "found_hamlet",
-                    json!({"name": "bog", "scholar": "scholar#2", "purpose": "drain"}),
+                    json!({"name": "bog", "profile": "profile#2", "purpose": "drain"}),
                 ),
             ]),
             words("Founded."),
             calls([
                 (
-                    "create_scholar",
+                    "create_profile",
                     json!({"name": "cy", "character": "Digs."}),
                 ),
                 (
                     "hire",
-                    json!({"scholar": "scholar#3", "purpose": "dig", "hamlet": "{{bog}}"}),
+                    json!({"profile": "profile#3", "purpose": "dig", "hamlet": "{{bog}}"}),
                 ),
             ])
             .filled_from(NAMES),
@@ -72,9 +72,9 @@ async fn the_hand_makes_a_scholar_founds_a_hamlet_and_hires_into_it()
     let bo = s.named("bog").await;
     assert_eq!(bo, AgentId(2));
     assert_eq!(s.chief.agent("hire#2").unwrap().parent, Some(hand));
-    let scholar = s.chief.scholar("bo").unwrap();
-    assert_eq!(scholar.chief, "chief");
-    let papers = s.chief.papers(Keeper::Scholar(scholar.id)).await;
+    let profile = s.chief.profile("bo").unwrap();
+    assert_eq!(profile.chief, "chief");
+    let papers = s.chief.papers(Keeper::Profile(profile.id)).await;
     assert_eq!(papers.character, "Careful.");
 
     s.chief.tell(hand, "Hire cy.").await;
@@ -98,17 +98,17 @@ async fn a_parent_runs_the_hires_under_it_and_nothing_beyond_them() {
         [
             calls([
                 (
-                    "create_scholar",
+                    "create_profile",
                     json!({"name": "cy", "character": "Digs."}),
                 ),
                 (
-                    "create_scholar",
+                    "create_profile",
                     json!({"name": "dee", "character": "Hauls."}),
                 ),
             ]),
             calls([
-                ("hire", json!({"scholar": "scholar#3", "purpose": "dig"})),
-                ("hire", json!({"scholar": "scholar#4", "purpose": "haul"})),
+                ("hire", json!({"profile": "profile#3", "purpose": "dig"})),
+                ("hire", json!({"profile": "profile#4", "purpose": "haul"})),
             ]),
             calls([
                 (
@@ -372,8 +372,8 @@ async fn what_the_hand_reserves_for_a_chief_waits_for_one() {
         1,
         [
             call(
-                "edit_scholar",
-                json!({"scholar": "scholar#2", "path": "memory/farm.md",
+                "edit_profile",
+                json!({"profile": "profile#2", "path": "memory/farm.md",
                        "content": "---\ndescription: The farm\n---\nWheat.\n",
                        "message": "Remember the farm."}),
             ),
@@ -407,17 +407,17 @@ async fn what_the_hand_reserves_for_a_chief_waits_for_one() {
         panic!("an approval: {edit:?}");
     };
     assert_eq!(danger, &WaitDanger::Reserved);
-    let scholar = s.chief.scholar("ada").unwrap();
+    let profile = s.chief.profile("ada").unwrap();
     assert!(
         s.chief
-            .papers(Keeper::Scholar(scholar.id))
+            .papers(Keeper::Profile(profile.id))
             .await
             .memory
             .is_empty()
     );
     s.chief.command(hand, "/allow").await;
     s.chief.shows(&now, "Edited.").await;
-    let papers = s.chief.papers(Keeper::Scholar(scholar.id)).await;
+    let papers = s.chief.papers(Keeper::Profile(profile.id)).await;
     assert_eq!(papers.memory.len(), 1);
     assert_eq!(papers.memory[0].path, "farm.md");
     assert_eq!(papers.memory[0].description, "The farm");
@@ -507,7 +507,7 @@ async fn a_leads_blank_hire_stays_out_of_the_city_and_the_harbor() {
     s.chief.tell(ada, "Hire a reader.").await;
     s.chief.shows(&chat(ada), "Hired sam.").await;
     assert!(s.chief.agent("hire#3").is_some());
-    let sam = s.chief.scholar("sam").unwrap();
+    let sam = s.chief.profile("sam").unwrap();
     assert_eq!((sam.arrival, sam.house), (Arrival::Apart, None));
     assert!(s.chief.waits().is_empty(), "{:?}", s.chief.waits());
 }

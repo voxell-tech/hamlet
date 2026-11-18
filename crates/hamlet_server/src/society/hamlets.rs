@@ -8,7 +8,7 @@ use diesel::prelude::*;
 use diesel::sql_types::Text;
 use hamlet_store::Db;
 use hamlet_store::ids::{
-    Actor, AgentId, ChiefId, HamletId, ScholarId,
+    Actor, AgentId, ChiefId, HamletId, ProfileId,
 };
 use hamlet_store::schema::{
     agent, hamlet, hamlet_chief, hamlet_folder, hire,
@@ -382,7 +382,7 @@ pub(crate) fn remove(
 }
 
 /// Brings back the removed hamlet `id` with the hires its removal
-/// ended, refused while any of their scholars has left the city
+/// ended, refused while any of their profiles has left the city
 /// (H20).
 pub(crate) fn restore(
     cx: &mut Change<'_>,
@@ -403,11 +403,11 @@ pub(crate) fn restore(
         .filter(hire::hamlet.eq(id))
         .filter(agent::ended_how.eq(EndHow::Hamlet))
         .filter(agent::erased.eq(false))
-        .select((hire::agent, hire::scholar))
-        .load::<(AgentId, ScholarId)>(cx.db)?;
-    for (_, scholar) in &ended {
-        let scholar = city::get(cx.db, *scholar)?;
-        if let Some(refusal) = scholar.gone() {
+        .select((hire::agent, hire::profile))
+        .load::<(AgentId, ProfileId)>(cx.db)?;
+    for (_, profile) in &ended {
+        let profile = city::get(cx.db, *profile)?;
+        if let Some(refusal) = profile.gone() {
             refuse!(refusal);
         }
     }

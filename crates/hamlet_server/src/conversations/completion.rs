@@ -1,7 +1,7 @@
 //! What follows an input's end, once: its conversation's last turn,
 //! its chief's instruction answered, a question's answer and a
 //! worker's carried back, and once its agent is idle, the agent's
-//! lodge committed and its scholar's learning taken in.
+//! lodge committed and its profile's learning taken in.
 
 use anyhow::Result;
 use diesel::prelude::*;
@@ -383,7 +383,7 @@ fn reviewed(
             kind: WaitKind::Objection,
             danger: None,
             agent: found.agent,
-            scholar: None,
+            profile: None,
             conversation: Some(conversation),
             task: Some(task),
             about,
@@ -442,7 +442,7 @@ fn fault(
             kind: WaitKind::Fault,
             danger: None,
             agent: kept.agent,
-            scholar: None,
+            profile: None,
             conversation: Some(kept.id),
             task: input.task,
             about,

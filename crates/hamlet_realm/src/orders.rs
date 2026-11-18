@@ -4,7 +4,7 @@
 use bevy::prelude::*;
 use hamlet_client::ViewFolder;
 use hamlet_client::realm::{
-    self as agents, Deeds, HamletId, Scholar,
+    self as agents, Deeds, HamletId, Profile,
 };
 
 use crate::chief::{Kept, Player, Stands};
@@ -89,14 +89,14 @@ pub fn carry(world: &mut World, hamlet: Entity) {
     }
 }
 
-/// Takes the house of `scholar` in hand, to be set down with a click
+/// Takes the house of `profile` in hand, to be set down with a click
 /// on the ground.
-pub fn carry_house(world: &mut World, scholar: Entity) {
+pub fn carry_house(world: &mut World, profile: Entity) {
     if !Deeds::is_allowed(world, "move-house") {
         return;
     }
-    if let Some(scholar) = world.get::<Scholar>(scholar) {
-        let id = scholar.0.id;
+    if let Some(profile) = world.get::<Profile>(profile) {
+        let id = profile.0.id;
         moving::pick_up(world, Ground::House(id));
     }
 }
@@ -150,16 +150,16 @@ fn set_down(world: &mut World, set: SetDown) {
                 return;
             }
             let turn = world
-                .query::<&Scholar>()
+                .query::<&Profile>()
                 .iter(world)
-                .find(|scholar| scholar.0.id == id)
-                .and_then(|scholar| {
-                    Some(scholar.0.house.as_ref()?.turn)
+                .find(|profile| profile.0.id == id)
+                .and_then(|profile| {
+                    Some(profile.0.house.as_ref()?.turn)
                 });
             let Some(turn) = turn else {
                 return;
             };
-            let name = hamlet_client::realm::scholar_address(id);
+            let name = hamlet_client::realm::profile_address(id);
             let city = world
                 .resource::<Land>()
                 .island(IslandId::City)

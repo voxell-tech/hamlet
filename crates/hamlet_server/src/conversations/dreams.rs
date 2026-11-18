@@ -1,12 +1,12 @@
 //! The dreams of agents: one dream at a time, while dreams are on and
 //! in the chief's hours, or when a chief calls for one with `/dream`.
-//! A hire dreams once it learned something its scholar lacks, an
-//! ended hire once more, and a scholar at most once a day to tidy its
+//! A hire dreams once it learned something its profile lacks, an
+//! ended hire once more, and a profile at most once a day to tidy its
 //! `main`.
 
 use anyhow::Result;
 use hamlet_git::{MAIN, Repository};
-use hamlet_store::ids::{Actor, AgentId, DreamId, ScholarId};
+use hamlet_store::ids::{Actor, AgentId, DreamId, ProfileId};
 
 use crate::app::timers::AddTimer;
 use crate::conversations::inputs::{self, InputKind, Keep};
@@ -22,8 +22,8 @@ use crate::{knowledge, runtimes};
 
 /// The least time between two dreams of one hire.
 const HIRE_REST: i64 = 6 * 3_600_000;
-/// The least time between two dreams of one scholar.
-const SCHOLAR_REST: i64 = 24 * 3_600_000;
+/// The least time between two dreams of one profile.
+const PROFILE_REST: i64 = 24 * 3_600_000;
 /// The time after its end a hire may still dream once more.
 const ENDING_WINDOW: i64 = 24 * 3_600_000;
 /// The time between the server's looks for a due dream.
@@ -38,11 +38,11 @@ fn dream_tick(mut core: Core) -> Result<()> {
     core.dream_tick()
 }
 
-/// A hire or a scholar that dreams.
+/// A hire or a profile that dreams.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub(crate) enum Dreamer {
     Hire { hire: AgentId, ending: bool },
-    Scholar(ScholarId),
+    Profile(ProfileId),
 }
 
 impl Core<'_, '_> {
@@ -104,7 +104,7 @@ impl Core<'_, '_> {
             }
             let hire = hires::get(db, agent)?;
             let Ok(repository) =
-                Repository::open(&layout.repository(hire.scholar))
+                Repository::open(&layout.repository(hire.profile))
             else {
                 continue;
             };
@@ -125,22 +125,22 @@ impl Core<'_, '_> {
                 }));
             }
         }
-        for scholar in city::all(db)? {
-            if !scholar.is_living() || !scholar.planted {
+        for profile in city::all(db)? {
+            if !profile.is_living() || !profile.planted {
                 continue;
             }
-            let rested = dreams::last_of_scholar(db, scholar.id)?
-                .is_none_or(|d| now - d.began >= SCHOLAR_REST);
+            let rested = dreams::last_of_profile(db, profile.id)?
+                .is_none_or(|d| now - d.began >= PROFILE_REST);
             let has_hires =
-                !hires::living_of(db, scholar.id)?.is_empty();
+                !hires::living_of(db, profile.id)?.is_empty();
             if rested && has_hires {
-                return Ok(Some(Dreamer::Scholar(scholar.id)));
+                return Ok(Some(Dreamer::Profile(profile.id)));
             }
         }
         Ok(None)
     }
 
-    /// `/dream <scholar#id|address>`: dreams now, outside the hours.
+    /// `/dream <profile#id|address>`: dreams now, outside the hours.
     pub(crate) fn dream_command(
         &mut self,
         here: Option<&hamlet_store::ids::HamletId>,
@@ -153,15 +153,15 @@ impl Core<'_, '_> {
         if dreams::running(db)?.is_some() {
             return Ok(Err(Refusal::DreamRunning));
         }
-        let dreamer = if target.starts_with("scholar#") {
-            let found = match addresses::parse_scholar(target) {
+        let dreamer = if target.starts_with("profile#") {
+            let found = match addresses::parse_profile(target) {
                 Ok(id) => city::living(db, id)?,
                 Err(refusal) => return Ok(Err(refusal)),
             };
             match found {
-                Some(found) => Dreamer::Scholar(found.id),
+                Some(found) => Dreamer::Profile(found.id),
                 None => {
-                    return Ok(Err(Refusal::NoScholar {
+                    return Ok(Err(Refusal::NoProfile {
                         address: (*target).into(),
                     }));
                 }
@@ -204,27 +204,27 @@ impl Core<'_, '_> {
     ) -> Result<Option<DreamId>> {
         let layout = self.realm.layout().clone();
         let db = self.realm.store().connection();
-        let (kind, scholar, hire, ending, agent) = match dreamer {
+        let (kind, profile, hire, ending, agent) = match dreamer {
             Dreamer::Hire { hire, ending } => {
                 let found = hires::get(db, hire)?;
                 (
                     DreamKind::Hire,
-                    found.scholar,
+                    found.profile,
                     Some(hire),
                     ending,
                     hire,
                 )
             }
-            Dreamer::Scholar(scholar) => (
-                DreamKind::Scholar,
-                scholar,
+            Dreamer::Profile(profile) => (
+                DreamKind::Profile,
+                profile,
                 None,
                 false,
                 hand::id(db)?,
             ),
         };
         let id = self.change(Actor::Realm, |cx, _| {
-            dreams::begin(cx, kind, scholar, hire, ending)
+            dreams::begin(cx, kind, profile, hire, ending)
         })?;
         let writing = self.writing.clone();
         let held = writing.hold();
@@ -249,7 +249,7 @@ impl Core<'_, '_> {
             return Ok(None);
         }
         let checkout = knowledge::dreams::checkout(&layout, id);
-        let label = city::get(db, scholar)?.label();
+        let label = city::get(db, profile)?.label();
         let instructions = match hire {
             Some(hire) => {
                 let lodge =
@@ -257,7 +257,7 @@ impl Core<'_, '_> {
                 let who = addresses::name_of(db, hire)?;
                 format!(
                     "You are dreaming, between your work as \
-                     `{who}`, a hire of the scholar `{label}`. Your \
+                     `{who}`, a hire of the profile `{label}`. Your \
                      lodge at {} holds what you learned as this \
                      hire: your memory/ and skills/. `{label}`'s \
                      shared knowledge, its main, is checked out at \
@@ -278,7 +278,7 @@ impl Core<'_, '_> {
                 )
             }
             None => format!(
-                "You are tidying the knowledge of the scholar \
+                "You are tidying the knowledge of the profile \
                  `{label}`, checked out at {}: its memory/ and \
                  skills/. Merge what is said twice, correct or \
                  remove what is stale, keep the root memory files \

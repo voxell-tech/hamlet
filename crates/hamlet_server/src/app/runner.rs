@@ -368,7 +368,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn a_scholars_dream_writes_its_main_through_its_tools() {
+    async fn a_profiles_dream_writes_its_main_through_its_tools() {
         let dir = Scratch::new("server-core-dream");
         let script = r#"{
             "responses": ["Hello."],
@@ -388,13 +388,13 @@ mod tests {
             })
             .unwrap()
             .unwrap();
-        until(&mut server, "the scholar planted", |core| {
+        until(&mut server, "the profile planted", |core| {
             let db = core.realm.store().connection();
             Ok(crate::society::city::get(db, ada)?.planted)
         })
         .await
         .unwrap();
-        let address = format!("scholar#{}", ada.0);
+        let address = format!("profile#{}", ada.0);
         let began = server
             .core()
             .unwrap()
@@ -403,7 +403,7 @@ mod tests {
         assert!(began.is_ok(), "{began:?}");
         until(&mut server, "the dream's end", |core| {
             let db = core.realm.store().connection();
-            Ok(crate::society::dreams::last_of_scholar(db, ada)?
+            Ok(crate::society::dreams::last_of_profile(db, ada)?
                 .is_some_and(|dream| dream.ended.is_some()))
         })
         .await

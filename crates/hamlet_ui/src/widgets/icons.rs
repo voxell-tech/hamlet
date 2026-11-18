@@ -145,7 +145,7 @@ pub enum Glyph {
     Signpost,
     /// A robot's head: a worker, and an agent in general.
     Robot,
-    /// A head over shoulders: a hire, a scholar at work in a hamlet.
+    /// A head over shoulders: a hire, a profile at work in a hamlet.
     Hire,
     /// Two sliders: the settings.
     Sliders,
@@ -206,8 +206,8 @@ pub enum Glyph {
     Face,
     /// A tower: the Hand, from its tower in the city.
     Tower,
-    /// A mortarboard: a scholar, and the city they live in.
-    Scholar,
+    /// A mortarboard: a profile, and the city they live in.
+    Profile,
     /// A key: a provider's API key.
     Key,
     /// A speaker: sound.
@@ -323,7 +323,7 @@ impl Glyph {
         Glyph::Tree,
         Glyph::Face,
         Glyph::Tower,
-        Glyph::Scholar,
+        Glyph::Profile,
         Glyph::Key,
         Glyph::Speaker,
         Glyph::Anchor,
@@ -756,7 +756,7 @@ impl Glyph {
                 Arc(8.0, 10.5, 1.25, 180.0, 360.0),
                 Path(&[[9.25, 10.5], [9.25, 13.75]]),
             ],
-            Glyph::Scholar => &[
+            Glyph::Profile => &[
                 Loop(&[
                     [2.0, 6.0],
                     [8.0, 3.25],

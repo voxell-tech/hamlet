@@ -45,12 +45,12 @@ pub(super) fn merge(
         addresses::address_of(db, found.absorbed)?,
         found.reason
     );
-    let repo = Repository::open(&layout.repository(kept.scholar))?;
+    let repo = Repository::open(&layout.repository(kept.profile))?;
     let kept_branch = branch(found.kept);
     let ours = repo
         .tip(&kept_branch)?
         .context("the kept hire has no branch")?;
-    let (mark, tip, clashes) = if kept.scholar == absorbed.scholar {
+    let (mark, tip, clashes) = if kept.profile == absorbed.profile {
         match repo.tip(&branch(found.absorbed))? {
             Some(theirs) => {
                 let merged = repo.merge(
@@ -71,7 +71,7 @@ pub(super) fn merge(
         }
     } else {
         let theirs =
-            Repository::open(&layout.repository(absorbed.scholar))?;
+            Repository::open(&layout.repository(absorbed.profile))?;
         let (changes, clashes) = learned(
             &repo,
             ours,
@@ -89,7 +89,7 @@ pub(super) fn merge(
 }
 
 /// The changes that bring what the hire on `theirs_branch` of
-/// `theirs` learned since it last took in its scholar's `main` onto
+/// `theirs` learned since it last took in its profile's `main` onto
 /// the kept tip `ours` of `repo`, and the paths that clashed. A file
 /// both changed is put aside as `<name>.from-<from>`, a skill as
 /// `<skill>-from-<from>`.
@@ -203,7 +203,7 @@ pub(super) fn split(
         return Ok(());
     };
     commit(db, layout, found.kept, at)?;
-    let repo = Repository::open(&layout.repository(kept.scholar))?;
+    let repo = Repository::open(&layout.repository(kept.profile))?;
     let kept_branch = branch(found.kept);
     let name = Actor::Realm.to_string();
     let author = Author { name: &name, at };

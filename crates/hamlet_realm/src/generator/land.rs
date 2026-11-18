@@ -113,7 +113,7 @@ type Cell = (i32, i32);
 /// One of the two islands.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub enum IslandId {
-    /// Where the scholars live, centred on the origin.
+    /// Where the profiles live, centred on the origin.
     City,
     /// Where the hamlets stand, across the channel.
     Hamlet,

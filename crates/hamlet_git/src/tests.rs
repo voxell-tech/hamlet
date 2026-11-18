@@ -27,7 +27,7 @@ fn text(
 }
 
 fn repository(dir: &Scratch) -> Repository {
-    Repository::create(&dir.join("scholar.git")).unwrap()
+    Repository::create(&dir.join("profile.git")).unwrap()
 }
 
 #[test]
@@ -324,7 +324,7 @@ fn a_folder_is_checked_out_and_committed_by_its_listing() {
 }
 
 #[test]
-fn a_fork_starts_from_a_version_of_another_scholar() {
+fn a_fork_starts_from_a_version_of_another_profile() {
     let dir = Scratch::new("git-fork");
     let from = repository(&dir);
     let at = from
@@ -348,7 +348,7 @@ fn a_fork_starts_from_a_version_of_another_scholar() {
 #[test]
 fn a_purge_leaves_nothing_of_the_path() {
     let dir = Scratch::new("git-purge");
-    let path = dir.join("scholar.git");
+    let path = dir.join("profile.git");
     let repo = Repository::create(&path).unwrap();
     let first = repo
         .commit(

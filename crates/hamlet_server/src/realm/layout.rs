@@ -2,7 +2,7 @@
 
 use std::path::{Path, PathBuf};
 
-use hamlet_store::ids::{AgentId, HamletId, ScholarId};
+use hamlet_store::ids::{AgentId, HamletId, ProfileId};
 
 /// The paths of a realm's folder.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -44,13 +44,13 @@ impl Layout {
         self.root.join("harnesses")
     }
 
-    pub fn scholars(&self) -> PathBuf {
-        self.root.join("scholars")
+    pub fn profiles(&self) -> PathBuf {
+        self.root.join("profiles")
     }
 
-    /// A scholar's repository, the Hand's included.
-    pub fn repository(&self, scholar: ScholarId) -> PathBuf {
-        self.scholars().join(format!("{scholar}.git"))
+    /// A profile's repository, the Hand's included.
+    pub fn repository(&self, profile: ProfileId) -> PathBuf {
+        self.profiles().join(format!("{profile}.git"))
     }
 
     /// The terminals kept across restarts, outside agents' reach.

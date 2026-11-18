@@ -1,6 +1,6 @@
 # The hamlet: the society of agents
 
-Chiefs, the Hand, the city of scholars, hamlets with their hires, the roads
+Chiefs, the Hand, the city of profiles, hamlets with their hires, the roads
 and letters between them, the tasks and budgets that bound their work, the
 library, dreams, and what waits for a chief. One agent on its own is in
 [`core.md`](core.md).
@@ -36,12 +36,12 @@ chief is talking to.
 | `/stop [address\|all]` | Stop an agent's work, or all agents' (H23) |
 | `/queue`, `/allow`, `/always`, `/deny`, `/go`, `/withdraw`, `/reply`, `/dismiss` | Answer what waits (H11, H10) |
 | `/grants`, `/revoke <address> <network\|unconfined>` | The lasting permissions, and taking one back |
-| `/hamlets`, `/create-hamlet [scholar#id\|blank] <name>[: purpose]` | List hamlets with their ids, or create one named `<name>` with a scholar as its lead, a blank agent named Lead by default (H6, H36) |
+| `/hamlets`, `/create-hamlet [profile#id\|blank] <name>[: purpose]` | List hamlets with their ids, or create one named `<name>` with a profile as its lead, a blank agent named Lead by default (H6, H36) |
 | `/name-hamlet <hamlet> <name>`, `/move-hamlet <hamlet> <x> <z>` | Give a hamlet another name to be shown by, or set it down elsewhere on the hamlet island (H32) |
 | `/remove-hamlet <hamlet> [reason]`, `/restore-hamlet <hamlet> [reason]`, `/erase-hamlet <hamlet>` | Remove, restore or permanently erase a hamlet (H19, H20) |
 | `/tier <50\|100\|200\|500>` | Set how many hires the hamlet holds (H40) |
 | `/lead <address> [reason]` | Give the hamlet's office to another hire (H18) |
-| `/hire <scholar#id>[@<version>]\|blank [in <hamlet>] [under <address>] [purpose]` | Hire a scholar into the hamlet, or a blank agent (H40) |
+| `/hire <profile#id>[@<version>]\|blank [in <hamlet>] [under <address>] [purpose]` | Hire a profile into the hamlet, or a blank agent (H40) |
 | `/end <address> [reason]`, `/merge <address> into <address> [reason]` | End a hire, or make one of two (H5) |
 | `/restore <address> [reason]`, `/erase <address>` | Bring an ended hire back, or split a merged one out again, or erase it for good (H20) |
 | `/model <address> <model\|none> [reason]`, `/tools <address> -<tool> +<tool>`, `/allowance <address> <dollars\|none>` | An agent's model, a hire's tools and allowance (H29, H41, H44) |
@@ -52,12 +52,12 @@ chief is talking to.
 | `/folder <folder\|none>`, `/mode <manual\|auto>` | The hamlet's folder and its mode (C20, C21) |
 | `/budget`, `/reset-budget` | The hamlet's spend, and starting its period again (H8) |
 | `/history` | The record: who was hired, ended, merged and restored, and the other decisions (H17) |
-| `/scholars`, `/scholar new <name>[: <character>]`, `/name-scholar <scholar#id> <name>` | List the city's scholars, make one, or give one a new name (H38) |
-| `/welcome <scholar#id> [reason]`, `/turn-away <scholar#id> [reason]` | Let a scholar at the harbor into the city, or send one back there (H45) |
-| `/remove-scholar <scholar#id> <reason>`, `/restore-scholar <scholar#id> [reason]`, `/erase-scholar <scholar#id>` | Archive a scholar and end its hires, bring it back, or erase it for good (H38) |
-| `/move-house <scholar#id> <x> <z> [degrees]` | Set a scholar's house down elsewhere in the city |
-| `/tag`, `/versions`, `/pin`, `/revert`, `/fork`, `/purge` | A scholar's versions and history (H39) |
-| `/dream <scholar#id\|address>` | Have a hire bring its learning home, or a scholar tidy, now (H43) |
+| `/profiles`, `/profile new <name>[: <character>]`, `/name-profile <profile#id> <name>` | List the city's profiles, make one, or give one a new name (H38) |
+| `/welcome <profile#id> [reason]`, `/turn-away <profile#id> [reason]` | Let a profile at the harbor into the city, or send one back there (H45) |
+| `/remove-profile <profile#id> <reason>`, `/restore-profile <profile#id> [reason]`, `/erase-profile <profile#id>` | Archive a profile and end its hires, bring it back, or erase it for good (H38) |
+| `/move-house <profile#id> <x> <z> [degrees]` | Set a profile's house down elsewhere in the city |
+| `/tag`, `/versions`, `/pin`, `/revert`, `/fork`, `/purge` | A profile's versions and history (H39) |
+| `/dream <profile#id\|address>` | Have a hire bring its learning home, or a profile tidy, now (H43) |
 | `/unshelve <skill> [reason]` | Take a skill out of the library (H33) |
 
 The server advertises its supported command names. The window offers only
@@ -69,15 +69,15 @@ the deeds it advertises.
 is always there: it cannot be ended or removed. A new realm has the Hand, an
 empty city and no hamlet.
 
-- The Hand has a scholar of its own, never hired or listed in the city,
+- The Hand has a profile of its own, never hired or listed in the city,
   whose character starts from the app's default for it, and a lodge. A chief
-  edits its character as any scholar's.
+  edits its character as any profile's.
 - Every chief talks to the Hand first. It has a road to each lead and to no
   other hire.
 - It can do in any hamlet what a parent can (H41), and found hamlets (H6), give
   a hamlet's office to another hire (H18), remove a hamlet (H19), read a
-  hamlet's record, and read and change scholars (H38, H39).
-- Its changes to a scholar's `main` and its removal of a hamlet are reserved:
+  hamlet's record, and read and change profiles (H38, H39).
+- Its changes to a profile's `main` and its removal of a hamlet are reserved:
   they wait for a chief (H11). It asks for a chief's word before it touches
   what a chief owns.
 - Its spend and that of the workers it starts are charged to the realm's
@@ -85,8 +85,8 @@ empty city and no hamlet.
 
 ## The city
 
-**H38.** The city holds the realm's scholars. A scholar is a git repository
-that the server alone writes, holding what the scholar knows with its whole
+**H38.** The city holds the realm's profiles. A profile is a git repository
+that the server alone writes, holding what the profile knows with its whole
 history:
 
 ```text
@@ -98,27 +98,27 @@ skills/<name>/SKILL.md    one folder per skill, with its files
 
 - Every memory file and `MEMORY.md` opens with a front matter `description:`
   line, which the prompt shows for folders.
-- `main` is what the scholar knows. A hire's branch is `hires/<agent id>`. A
+- `main` is what the profile knows. A hire's branch is `hires/<agent id>`. A
   version is a tag. A commit names who made it: a chief, a hire, the Hand,
   a dream or the realm.
-- A scholar belongs to the chief who made it. One a hire or the Hand makes
+- A profile belongs to the chief who made it. One a hire or the Hand makes
   belongs to the chief whose task the turn works on, else the chief who
   founded that hamlet, else the realm's first chief. Only its chief edits it,
   tags, reverts, forks, purges, archives, restores, erases or hires it.
-- A scholar is its id, addressed as `scholar#<id>`; its name is a label of
+- A profile is its id, addressed as `profile#<id>`; its name is a label of
   one line, 1 to 40 characters with no colon, that may repeat and that a
-  chief changes with `/name-scholar`, which the record keeps.
-- A chief makes one (`/scholar new <name>[: <character>]`), or the Hand or a
-  parent does (`create_scholar`). It starts with one commit holding its
+  chief changes with `/name-profile`, which the record keeps.
+- A chief makes one (`/profile new <name>[: <character>]`), or the Hand or a
+  parent does (`create_profile`). It starts with one commit holding its
   character and an empty `memory/`. One a chief or the Hand makes has a
   house in the city at once; one a parent makes may wait at the harbor
   (H45).
-- A blank agent is a hire that is not of a scholar of the city: `/hire
-  blank`, `hire` with no scholar, or a hamlet founded with no scholar named.
-  It is a scholar of its own all the same, made for that hire alone, from
+- A blank agent is a hire that is not of a profile of the city: `/hire
+  blank`, `hire` with no profile, or a hamlet founded with no profile named.
+  It is a profile of its own all the same, made for that hire alone, from
   the realm's default character for one an agent makes, and named Lead, or
   Hire and its number, unless a name is given. It has no house,
-  never waits at the harbor, is not listed with the city's scholars and is
+  never waits at the harbor, is not listed with the city's profiles and is
   not hired again.
 - The server sets a new house down at the first free spot on a spiral out
   from the city's middle, clear of the middle and of every other house, its
@@ -126,43 +126,43 @@ skills/<name>/SKILL.md    one folder per skill, with its files
   (`/move-house`), on a spot just as clear.
 - `main` changes by a chief's edit of the character or a memory file, a dream
   (H43), or a revert (H39). Never by a hire's tool.
-- Archiving a scholar ends its living hires first, each with a final commit
+- Archiving a profile ends its living hires first, each with a final commit
   of its lodge; it is refused while one of its hires
   holds a hamlet's office. Restoring brings back the
   hires its archiving ended in hamlets that still live. Erasing deletes its
   repository, its archived hires and their lodges, and cannot be undone.
 
-**H45.** A scholar a parent makes is a newcomer, which the realm's
+**H45.** A profile a parent makes is a newcomer, which the realm's
 `newcomers` setting lets into the city:
 
 - `open`: it moves in at once.
 - `chief` [the default]: it waits at the city's harbor, and a petition asks
   a chief to welcome it, or to leave it there for later.
 - `hand`: the Hand judges it in one call with no tools, given the city's
-  scholars and the newcomer's character, and lets it in or turns it away
+  profiles and the newcomer's character, and lets it in or turns it away
   with a reason the record keeps.
 
 A newcomer's hires work in their hamlet all the same. A chief can let any
-scholar at the harbor in (`/welcome`), and send one back to it
+profile at the harbor in (`/welcome`), and send one back to it
 (`/turn-away`), which undoes either verdict of the Hand.
 
 **H39.** A chief can name, hold to, undo, copy and cut out parts of a
-scholar's history:
+profile's history:
 
-- **Tag.** `/tag <scholar#id>[@<commit>] <version> [note]` names `main`, or a
+- **Tag.** `/tag <profile#id>[@<commit>] <version> [note]` names `main`, or a
   commit, as a version.
-- **Pin.** Hiring `scholar#id@version` starts the hire's branch at that version and
+- **Pin.** Hiring `profile#id@version` starts the hire's branch at that version and
   records the pin; a pinned hire takes in no later learning. `/pin <address>
   <version|main>` changes the pin, merging the new target into the hire's
   branch and keeping the hire's side where both changed.
-- **Revert.** `/revert <scholar#id> <commit|version>` makes a commit on `main`
+- **Revert.** `/revert <profile#id> <commit|version>` makes a commit on `main`
   that undoes that one. A path changed again since keeps its newer lines and
   is named as a clash.
-- **History.** A chief can read a scholar's commits and the diff between any
+- **History.** A chief can read a profile's commits and the diff between any
   two.
-- **Fork.** `/fork <scholar#id>[@<version>] <new name>` makes a new scholar
+- **Fork.** `/fork <profile#id>[@<version>] <new name>` makes a new profile
   whose first commit is that version's files.
-- **Purge.** `/purge <scholar#id> <path>` rewrites every commit of every branch
+- **Purge.** `/purge <profile#id> <path>` rewrites every commit of every branch
   without that path and replaces the repository, so nothing of the path
   remains.
 
@@ -170,7 +170,7 @@ scholar's history:
 
 **H6.** A chief, or the Hand, can found a hamlet. A hamlet has a lead, a
 hire made when it is founded, who answers to the Hand: the chief names an
-existing scholar of its own, one at a version, or none for a blank agent
+existing profile of its own, one at a version, or none for a blank agent
 (H38). A hamlet
 answers to the chief who founded it, or, when the Hand founds it, to the
 chief whose task the Hand works on (C7). A hamlet has a tier, its most hires:
@@ -184,18 +184,18 @@ and records belong only to it.
 
 **H27.** The lead is the hire at the root of a hamlet's tree, and the address
 `lead` reaches whoever holds the office. The lead is the parent of the whole
-hamlet (H41). It cannot be ended, merged away or archived with its scholar
+hamlet (H41). It cannot be ended, merged away or archived with its profile
 until the office is given to another hire.
 
 **H18.** A chief, or the Hand, can give the lead's office to another hire of
 the hamlet. The new lead takes the root; the old lead, and the old lead's
 hires, go under it.
 
-**H40.** A hire is a scholar working in a hamlet, for a purpose, with a
-branch of its scholar's repository and a lodge of its own (C8).
+**H40.** A hire is a profile working in a hamlet, for a purpose, with a
+branch of its profile's repository and a lodge of its own (C8).
 
-- **Hiring.** A chief hires its own scholar into a hamlet it is chief of. The
-  Hand hires any chief's scholar, and a parent any scholar of its hamlet's
+- **Hiring.** A chief hires its own profile into a hamlet it is chief of. The
+  Hand hires any chief's profile, and a parent any profile of its hamlet's
   chiefs. A parent says what the hire is for; a chief may leave the purpose
   out, and the hire takes the first line of the first message it is given
   as its purpose. A hamlet holds at most its tier of living hires, the
@@ -214,7 +214,7 @@ branch of its scholar's repository and a lodge of its own (C8).
   grants (H28), makes a final commit of its lodge and archives it. Its lodge
   and branch stay until erased. Its hires go to its parent.
 - **Restoring** it brings it back under the same id and number, when its
-  scholar lives, its hamlet lives and holds fewer than its tier. Its parent is
+  profile lives, its hamlet lives and holds fewer than its tier. Its parent is
   its old parent when that lives, else the lead.
 - **Erasing** an ended hire deletes its lodge and branch; the record keeps its
   number.
@@ -223,7 +223,7 @@ branch of its scholar's repository and a lodge of its own (C8).
 parents make it. A hire with hires under it is a parent.
 
 - A parent has the lead's powers over the hires under it, and only those: to
-  hire under itself or under a hire of its tree, make scholars, end hires,
+  hire under itself or under a hire of its tree, make profiles, end hires,
   merge them, choose their models, turn their tools off, give them
   allowances, and lay and take up roads among them. Every hire has these
   tools (H35), so any hire can become a parent.
@@ -265,8 +265,8 @@ other decision.
 
 In a merge the kept hire takes the absorbed hire's laid roads, its hires and
 its inbox, and takes in what the absorbed hire learned: when both are of one
-scholar, the absorbed branch is merged into the kept one, keeping the kept
-side where both changed; when they are of different scholars, what the
+profile, the absorbed branch is merged into the kept one, keeping the kept
+side where both changed; when they are of different profiles, what the
 absorbed hire learned since its branch took in `main` is committed to the kept
 branch, a clashing file kept aside as `<name>.from-<absorbed>` and a clashing
 skill as `<skill>-from-<absorbed>`. The absorbed hire is archived as merged.
@@ -277,12 +277,12 @@ until it has answered, nor for [0] minutes after.
 
 **H20.** A chief can bring back what left: an ended hire, a merged hire split
 out of the hire that absorbed it, a removed hamlet (H19) or an archived
-scholar (H38). A split brings the absorbed hire back and undoes the merge's
+profile (H38). A split brings the absorbed hire back and undoes the merge's
 commit on the kept branch; what the kept hire learned since stays. Archived
 lodges stay in place until erasure; a chief can delete what is archived of a
-hire, a hamlet or a scholar for good, after which it cannot come back.
+hire, a hamlet or a profile for good, after which it cannot come back.
 
-A removed hamlet comes back as it was only while the scholars of its hires
+A removed hamlet comes back as it was only while the profiles of its hires
 live. Otherwise it is refused, naming them.
 
 **H28.** A message to an agent that has left is refused, with how it left
@@ -385,10 +385,10 @@ starter.
 
 **H46.** A chief of its hamlet, the Hand or a parent above it can give a hire
 a nickname of at most 24 letters, kept in the record. The world shows a hire
-by its nickname, else by its scholar's name; the window keeps its
+by its nickname, else by its profile's name; the window keeps its
 address. A chief can nickname a worker too, which is shown by its address
-without one. Everyone but the Hand can be renamed: a scholar with
-`/name-scholar`, a hamlet with `/name-hamlet`. In the window, a double
+without one. Everyone but the Hand can be renamed: a profile with
+`/name-profile`, a hamlet with `/name-hamlet`. In the window, a double
 click on the name at the top of its page in the Hub renames it.
 
 **H16.** An agent that does nothing costs nothing.
@@ -404,11 +404,11 @@ costing at most a cap [$0.20].
 - **A hire's dream** runs when the hire is idle and its branch holds
   something `main` lacks, at most every [6] hours. It is given the hire's
   lodge and a checkout of `main`, both writable, and decides what goes to the
-  scholar and what stays with the hire. The server commits the scholar's side
+  profile and what stays with the hire. The server commits the profile's side
   to `main`, the hire's side to its branch, and takes the new `main` into the
   branch.
-- **A scholar's dream** tidies `main` itself, as one commit, at most once a
-  day, for a scholar with living hires.
+- **A profile's dream** tidies `main` itself, as one commit, at most once a
+  day, for a profile with living hires.
 - Ending a hire runs one more dream for it within a day, when dreams are on.
 - A chief can have any dream run now (`/dream`).
 
@@ -419,10 +419,10 @@ costing at most a cap [$0.20].
 - There is a road between each two leads from the start.
 - Hires of different hamlets have a road once both leads agree to it
   (`agree_road`), and only while the realm allows such roads [yes].
-- A scholar's name is a label and need not be unique (C10). An agent is
+- A profile's name is a label and need not be unique (C10). An agent is
   reached by an address: `hand`; `lead`, which is the local office, and
-  `lead@<hamlet id>`; `hire#<id>`; and `worker#<id>`. A scholar is
-  `scholar#<id>`. No name finds an agent or a scholar. Wherever an agent is
+  `lead@<hamlet id>`; `hire#<id>`; and `worker#<id>`. A profile is
+  `profile#<id>`. No name finds an agent or a profile. Wherever an agent is
   shown, its address comes first and its name beside it, as
   `hire#3 (Mira)`.
 - A message between hamlets is paid for by the sender's hamlet.
@@ -439,7 +439,7 @@ hires' branches. No hamlet is special: any can be removed.
 
 **H32.** A chief can give a hamlet another name to be shown by, while its ID
 stays for commands, and set the hamlet down elsewhere on the hamlet island.
-It can also set a scholar's house down elsewhere in the city.
+It can also set a profile's house down elsewhere in the city.
 
 ## The library
 
@@ -503,9 +503,9 @@ the tools in its own row:
 |---|---|
 | Every agent but a worker | `tell`, `ask` (H30), `start_worker` (H42), `submit_skill`, `ask_librarian` (H33), `ask_chief` (H10), `read_budget` (H8) |
 | Every hire | `request_road` |
-| A parent, and the Hand | `create_scholar`, `hire`, `end_hire`, `merge_hires`, `set_model`, `set_tools`, `set_allowance`, `nickname`, `lay_road`, `take_up_road` |
+| A parent, and the Hand | `create_profile`, `hire`, `end_hire`, `merge_hires`, `set_model`, `set_tools`, `set_allowance`, `nickname`, `lay_road`, `take_up_road` |
 | A lead, when other hamlets live | `agree_road` |
-| The Hand | `found_hamlet`, `set_lead`, `remove_hamlet`, `read_record`, `read_scholar`, `edit_scholar`, `tag`, `revert` |
+| The Hand | `found_hamlet`, `set_lead`, `remove_hamlet`, `read_record`, `read_profile`, `edit_profile`, `tag`, `revert` |
 | Every agent but a worker, in a chief conversation | `object` (H10) |
 | A worker | None of the society's |
 | A dream | None of the society's |

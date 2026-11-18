@@ -497,8 +497,8 @@ pub fn hamlet(hamlet: Entity) -> impl View {
             // menu.
             let lead_of = facts.id.clone();
             actions.push(action(
-                Glyph::Scholar,
-                "Hire a scholar",
+                Glyph::Profile,
+                "Hire a profile",
                 move |world| {
                     if let Some(lead) =
                         hamlet_client::realm::lead_of(world, &lead_of)

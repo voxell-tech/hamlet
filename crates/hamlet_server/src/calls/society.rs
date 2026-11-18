@@ -6,16 +6,16 @@
 pub(super) mod args;
 mod letters;
 pub(crate) mod library;
-mod scholars;
+mod profiles;
 pub(crate) mod welcome;
 
 use anyhow::Result;
 use hamlet_store::ids::{
-    Actor, AgentId, ChiefId, HamletId, ScholarId, TaskId,
+    Actor, AgentId, ChiefId, HamletId, ProfileId, TaskId,
 };
 
 use self::args::{
-    AgreeRoad, Called, CreateScholar, EndHire, FoundHamlet, Hire,
+    AgreeRoad, Called, CreateProfile, EndHire, FoundHamlet, Hire,
     MergeHires, Nickname, ReadRecord, RemoveHamlet, SetAllowance,
     SetLead, SetModel, SetTools,
 };
@@ -93,15 +93,15 @@ impl Core<'_, '_> {
         let here = self.hamlet_of(agent)?;
         let here = here.as_ref();
         match called {
-            Called::ReadScholar(args) => {
-                self.read_scholar(call, args)
+            Called::ReadProfile(args) => {
+                self.read_profile(call, args)
             }
-            Called::EditScholar(args) => {
-                self.edit_scholar(call, args)
+            Called::EditProfile(args) => {
+                self.edit_profile(call, args)
             }
-            Called::Tag(args) => self.tag_scholar(call, args),
-            Called::Revert(args) => self.revert_scholar(call, args),
-            Called::CreateScholar(CreateScholar {
+            Called::Tag(args) => self.tag_profile(call, args),
+            Called::Revert(args) => self.revert_profile(call, args),
+            Called::CreateProfile(CreateProfile {
                 name,
                 character,
             }) => {
@@ -267,7 +267,7 @@ impl Core<'_, '_> {
             }
             Called::FoundHamlet(FoundHamlet {
                 name,
-                scholar,
+                profile,
                 purpose,
             }) => {
                 let task = self.task_of(call)?;
@@ -279,7 +279,7 @@ impl Core<'_, '_> {
                     None,
                     overseer,
                 )?;
-                let lead = if scholar.is_empty() {
+                let lead = if profile.is_empty() {
                     Hiring::Blank {
                         name: String::new(),
                         character: self
@@ -289,7 +289,7 @@ impl Core<'_, '_> {
                             .clone(),
                     }
                 } else {
-                    done!(self.scholar_hiring(&scholar))
+                    done!(self.profile_hiring(&profile))
                 };
                 self.carry(call, |cx, _| {
                     let founding = Founding {
@@ -470,11 +470,11 @@ impl Core<'_, '_> {
         Ok(Ok(hire))
     }
 
-    /// The scholar `text` addresses, as a hire takes it: at `main`,
+    /// The profile `text` addresses, as a hire takes it: at `main`,
     /// or pinned to `@<version>`.
-    fn scholar_hiring(&mut self, text: &str) -> Done<Hiring> {
-        let (scholar, version) = done!(self.scholar_pinned(text));
-        self.existing(scholar, version)
+    fn profile_hiring(&mut self, text: &str) -> Done<Hiring> {
+        let (profile, version) = done!(self.profile_pinned(text));
+        self.existing(profile, version)
     }
 
     fn hire_tool(
@@ -484,7 +484,7 @@ impl Core<'_, '_> {
         args: Hire,
     ) -> Done<String> {
         let Hire {
-            scholar: named,
+            profile: named,
             name: blank,
             purpose,
             under,
@@ -523,9 +523,9 @@ impl Core<'_, '_> {
             }
             found
         };
-        // A scholar of the city, or a blank agent when none fits.
+        // A profile of the city, or a blank agent when none fits.
         let hiring = match (named.is_empty(), blank.is_empty()) {
-            (false, true) => done!(self.scholar_hiring(&named)),
+            (false, true) => done!(self.profile_hiring(&named)),
             (true, _) => Hiring::Blank {
                 name: blank,
                 character: self.env.settings.character.clone(),
@@ -534,16 +534,16 @@ impl Core<'_, '_> {
         };
         let task = self.task_of(call)?;
         let db = self.realm.store().connection();
-        if let Hiring::Existing { scholar, .. } = &hiring
+        if let Hiring::Existing { profile, .. } = &hiring
             && !authority::may_hire(
                 db,
                 Actor::Agent(agent),
-                *scholar,
+                *profile,
                 &hamlet,
             )?
         {
-            let name = city::get(db, *scholar)?.label();
-            refuse!(Refusal::ScholarNotOwn { name });
+            let name = city::get(db, *profile)?.label();
+            refuse!(Refusal::ProfileNotOwn { name });
         }
         let overseer = task_chief(db, task)?;
         let owner = authority::owner_for(
@@ -610,27 +610,27 @@ impl Core<'_, '_> {
     }
 }
 
-/// The words for the agent that made a scholar: it lives in the
+/// The words for the agent that made a profile: it lives in the
 /// city, or waits at the harbor, with the Hand called on to judge it
 /// when the realm leaves newcomers to the Hand.
 fn arrived(
     cx: &mut Change<'_>,
     env: &EffectiveSettings,
-    id: ScholarId,
+    id: ProfileId,
     character: &str,
 ) -> Result<String> {
     let made = city::get(cx.db, id)?;
     let name = made.label();
     if made.arrival == city::Arrival::Housed {
         return Ok(format!(
-            "The scholar {name} lives in the city; hire it next."
+            "The profile {name} lives in the city; hire it next."
         ));
     }
     if city::awaits_hand(cx.db, id)? {
         welcome::judge(cx, env, id, character)?;
     }
     Ok(format!(
-        "The scholar {name} is made and waits at the harbor until \
+        "The profile {name} is made and waits at the harbor until \
          it is let into the city; you can hire it now."
     ))
 }

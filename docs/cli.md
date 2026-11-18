@@ -51,8 +51,8 @@ starts only the window.
 | `hamlet import [--file <export>] [--all] [--sessions]` | Lists the projects other programs worked on in the last 30 days, or ever with `--all`, the suggested ones marked `*`, and with `--sessions` each one's conversations by id, newest first: Claude Code's conversations under `CLAUDE_CONFIG_DIR` or `~/.claude`, Codex's under `CODEX_HOME` or `~/.codex`, pi's under `PI_CODING_AGENT_SESSION_DIR`, `PI_CODING_AGENT_DIR` or `~/.pi/agent`. With `--file`, those of a ChatGPT or Claude export, its zip or its `conversations.json` |
 | `hamlet import [--file <export>] [--all] --suggested \| <project or conversation id>...` | Brings in the suggested projects, or those named by name or folder, each as a hamlet working on its folder with a hire for each of its newest 20 conversations; a conversation named by its id, or the start of it, is brought in alone into its project's hamlet (C35) |
 | `hamlet edit <charter\|limits\|settings> [--hamlet <id>]` | Opens the chief's document in `$EDITOR` and saves through the server; limits and settings are JSON, and `--hamlet` selects a hamlet's limits in place of the realm's |
-| `hamlet edit character <scholar#id>` | Opens a scholar's character; a hire's address works too, for its scholar's |
-| `hamlet edit memory <scholar#id\|hire#<id>> [path]` | Opens a memory file of a scholar's `main` or a hire's lodge, `notes.md` under `memory/` unless a path is given |
+| `hamlet edit character <profile#id>` | Opens a profile's character; a hire's address works too, for its profile's |
+| `hamlet edit memory <profile#id\|hire#<id>> [path]` | Opens a memory file of a profile's `main` or a hire's lodge, `notes.md` under `memory/` unless a path is given |
 | `hamlet login <provider> [--key]` | Gives a key or follows an offered sign-in; `hamlet login claude` prints the link of Claude's own sign-in, to open in a browser on the server's machine |
 | `hamlet models [try [model]\|refresh]` | Lists models with whether each takes images, tries a one-word hello, or refreshes the list |
 | `hamlet models images <model> [off\|[--width <px>] [--height <px>] [--mb <n>] [--per-line <n>]]` | Says a model takes images, as one of a custom endpoint needs, within the limits given and the defaults for the rest; `off` clears it back to what the endpoint lists |
@@ -80,7 +80,7 @@ runs in then ends pi and every command with it.
 
 The server advertises its supported deeds in the state it sends, and
 `clients/commands.rs` carries them out: hamlets and hires, the tree and its roads,
-versions of a scholar, the library, the record, the budget and what waits.
+versions of a profile, the library, the record, the budget and what waits.
 The server parses commands; the terminal handles only `/hand`, `/hamlet` and
 `/agent` as address changes, and `/attach`. `/hand` talks to the Hand,
 `/hamlet <hamlet>` to that hamlet's lead, and `/agent` finds an agent

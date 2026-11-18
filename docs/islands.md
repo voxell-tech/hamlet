@@ -2,7 +2,7 @@
 
 The world is two islands with open water between them. The **city island**
 holds the Hand's tower, the Library, the Hearth and a house for each
-scholar. The **hamlet island** holds the hamlets, each drawn as a group of
+profile. The **hamlet island** holds the hamlets, each drawn as a group of
 its hires' houses joined by roads. A pier on each island faces the other,
 with a boat moored at it and a dashed sea route between the two. The code is
 `hamlet_realm/src/generator/`, `hamlet_realm/src/city/` and
@@ -86,11 +86,11 @@ road.
 
 ## The city
 
-A scholar's house stands at a free spot on a golden-angle spiral out from
-the city's middle, chosen by the server when the scholar is let in, its
+A profile's house stands at a free spot on a golden-angle spiral out from
+the city's middle, chosen by the server when the profile is let in, its
 door toward the middle. A chief sets it elsewhere with `/move-house`.
 
-A scholar an agent makes may first wait on the city pier as a newcomer,
+A profile an agent makes may first wait on the city pier as a newcomer,
 by the realm's `newcomers` setting (`docs/society.md`). It stands there
 until a chief, or the Hand, lets it in, and then walks to its house.
 
@@ -99,7 +99,7 @@ until a chief, or the Hand, lets it in, and then walks to its house.
 Each pier stands where its island's coast faces the other island
 (`Land::coast_toward_other`). The boats ride the swell on the processor
 (`harbor::bob`), so whoever stands in one rides with it. A new hire walks
-from its scholar's house to the city pier, crosses by boat and walks to
+from its profile's house to the city pier, crosses by boat and walks to
 its house in its hamlet. The HARBOR control glides the camera to the other
 pier.
 
@@ -144,7 +144,7 @@ and the hamlet stays.
 
 Moving is built on `Ground`, which names a place that holds a round of
 ground and can be picked up and set down. A hamlet (`Ground::Town`) is one
-kind; a scholar's house, the Hearth (`Ground::Chief`) and the Library are
+kind; a profile's house, the Hearth (`Ground::Chief`) and the Library are
 others. A kind of place needs four things:
 
 1. **A claim on its ground** (an entry of `society.claims`), which keeps

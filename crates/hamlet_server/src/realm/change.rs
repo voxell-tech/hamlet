@@ -4,7 +4,7 @@
 use std::collections::BTreeSet;
 
 use hamlet_store::Db;
-use hamlet_store::ids::{Actor, AgentId, HamletId, ScholarId};
+use hamlet_store::ids::{Actor, AgentId, HamletId, ProfileId};
 
 use crate::society::refusal::Refusal;
 
@@ -35,7 +35,7 @@ pub(crate) use done;
 #[derive(Debug, Default, PartialEq)]
 pub(crate) struct Touched {
     pub agents: BTreeSet<AgentId>,
-    pub scholars: BTreeSet<ScholarId>,
+    pub profiles: BTreeSet<ProfileId>,
     pub hamlets: BTreeSet<HamletId>,
     /// Jobs were kept that the runner has not seen.
     pub jobs: bool,

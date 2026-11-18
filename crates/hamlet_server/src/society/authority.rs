@@ -4,7 +4,7 @@ use anyhow::{Context, Result};
 use diesel::prelude::*;
 use hamlet_store::Db;
 use hamlet_store::ids::{
-    Actor, AgentId, ChiefId, HamletId, ScholarId,
+    Actor, AgentId, ChiefId, HamletId, ProfileId,
 };
 use hamlet_store::schema::hamlet_chief;
 
@@ -83,29 +83,29 @@ pub(crate) fn may_steer(
     })
 }
 
-/// Whether `actor` may keep the scholar `id`: change it, tag, revert,
+/// Whether `actor` may keep the profile `id`: change it, tag, revert,
 /// fork or purge it, archive, restore or erase it. Its chief may, and
 /// the Hand, whose acts wait for a chief.
 pub(crate) fn may_keep(
     db: &mut Db,
     actor: Actor,
-    id: ScholarId,
+    id: ProfileId,
 ) -> Result<bool> {
-    let scholar = city::get(db, id)?;
+    let profile = city::get(db, id)?;
     Ok(match actor {
-        Actor::Chief(chief) => scholar.chief == Some(chief),
+        Actor::Chief(chief) => profile.chief == Some(chief),
         Actor::Agent(_) => is_hand(db, actor)?,
         Actor::Realm => true,
     })
 }
 
-/// Whether `actor` may hire the scholar `id` into `hamlet`: a chief
-/// its own scholar into its own hamlet, the Hand any, and a parent
-/// any scholar of its hamlet's chiefs.
+/// Whether `actor` may hire the profile `id` into `hamlet`: a chief
+/// its own profile into its own hamlet, the Hand any, and a parent
+/// any profile of its hamlet's chiefs.
 pub(crate) fn may_hire(
     db: &mut Db,
     actor: Actor,
-    id: ScholarId,
+    id: ProfileId,
     hamlet: &HamletId,
 ) -> Result<bool> {
     let owner = city::get(db, id)?.chief;
@@ -124,7 +124,7 @@ pub(crate) fn may_hire(
     })
 }
 
-/// The chief a scholar belongs to when `actor` makes it: a chief owns
+/// The chief a profile belongs to when `actor` makes it: a chief owns
 /// what it makes; an agent's belongs to the chief whose task it works
 /// on, else to the chief who founded its hamlet, else to the realm's
 /// first chief.

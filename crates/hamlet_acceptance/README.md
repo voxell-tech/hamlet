@@ -70,7 +70,7 @@ endpoint, which bills a fixed price per answer.
 | File | Covers |
 |---|---|
 | `connection` | Token, version, hello order, malformed and oversized messages, shared changes, shutdown, one server per realm. |
-| `city` | The empty realm, founding hamlets, the hire tree, removing, restoring and erasing scholars and hamlets, hamlet administration. |
+| `city` | The empty realm, founding hamlets, the hire tree, removing, restoring and erasing profiles and hamlets, hamlet administration. |
 | `chats` | Answers, sessions, `/new`, `/resume`, `/retry`, `/stop`, `Rewind`, history, reflection. |
 | `oversight` | Network approvals and grants, manual and auto modes, `ask_chief`, objections. |
 | `society` | The Hand's and a parent's tools, tell and ask, workers, reserved acts, roads. |
@@ -86,7 +86,7 @@ endpoint, which bills a fixed price per answer.
 | `merges` | `/merge` and the split by `/restore`. |
 | `library` | `submit_skill` judged by the librarian, `ask_librarian` and `/unshelve`. |
 | `review` | A parent's review of a chief's line to a hire, and a chief's `/worker`. |
-| `dreams` | `/dream` of a hire and of a scholar. |
+| `dreams` | `/dream` of a hire and of a profile. |
 | `cli` | `hamlet chat`, `hamlet edit`, switching agents, approvals across a crash, and the bare, dev and insecure commands. |
 
 ## Recording protocol frames

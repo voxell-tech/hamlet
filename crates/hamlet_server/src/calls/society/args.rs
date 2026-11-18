@@ -25,7 +25,7 @@ const PATHS: &str =
      hamlet's folder. They are copied into the receiver's inbox, \
      and the message says where. Links are not followed. A chief \
      approves a send of more than 32 MiB or 1000 files.";
-const SCHOLAR: &str = "The scholar's address, `scholar#<id>`.";
+const PROFILE: &str = "The profile's address, `profile#<id>`.";
 const HAMLET: &str = "The hamlet's id.";
 
 /// Send a letter to an agent you have a road to. It is queued for
@@ -115,30 +115,30 @@ pub(crate) struct RequestRoad {
     pub reason: String,
 }
 
-/// Make a new scholar of the city, to hire next. Without a character
-/// it starts from the realm's own. A scholar you make may wait at the
+/// Make a new profile of the city, to hire next. Without a character
+/// it starts from the realm's own. A profile you make may wait at the
 /// harbor until it is let into the city; its hires work all the same.
 #[derive(Deserialize, JsonSchema)]
-pub(crate) struct CreateScholar {
+pub(crate) struct CreateProfile {
     /// A short name, one line with no colon. It is a label and may
     /// repeat.
     pub name: String,
-    /// Who the scholar is and how it works.
+    /// Who the profile is and how it works.
     #[serde(default)]
     pub character: String,
 }
 
-/// Hire a scholar into your hamlet under you, or under a hire of your
-/// tree. Leave out `scholar` to hire a blank agent instead, which
+/// Hire a profile into your hamlet under you, or under a hire of your
+/// tree. Leave out `profile` to hire a blank agent instead, which
 /// starts from the realm's character and the library's skills and is
-/// not a scholar of the city.
+/// not a profile of the city.
 #[derive(Deserialize, JsonSchema)]
 pub(crate) struct Hire {
-    /// The scholar's address, `scholar#<id>`, with `@<version>` to
+    /// The profile's address, `profile#<id>`, with `@<version>` to
     /// pin a version.
     #[serde(default)]
-    pub scholar: String,
-    /// A blank agent's name, in place of `scholar`.
+    pub profile: String,
+    /// A blank agent's name, in place of `profile`.
     #[serde(default)]
     pub name: String,
     /// What the hire is for.
@@ -151,7 +151,7 @@ pub(crate) struct Hire {
     pub hamlet: String,
 }
 
-/// End a hire under you. Its work stays in its scholar.
+/// End a hire under you. Its work stays in its profile.
 #[derive(Deserialize, JsonSchema)]
 pub(crate) struct EndHire {
     #[schemars(description = ADDRESS)]
@@ -267,17 +267,17 @@ pub(crate) struct AgreeRoad {
     pub reason: String,
 }
 
-/// Found a hamlet with a scholar as its lead, or a blank agent when
-/// `scholar` is left out.
+/// Found a hamlet with a profile as its lead, or a blank agent when
+/// `profile` is left out.
 #[derive(Deserialize, JsonSchema)]
 pub(crate) struct FoundHamlet {
     /// The name it is shown by: one line, up to 40 characters, no
     /// colon. Its id is made for it.
     pub name: String,
-    /// The address, `scholar#<id>`, of the scholar its lead is a
+    /// The address, `profile#<id>`, of the profile its lead is a
     /// hire of.
     #[serde(default)]
-    pub scholar: String,
+    pub profile: String,
     /// What the hamlet is for.
     pub purpose: String,
 }
@@ -309,11 +309,11 @@ pub(crate) struct ReadRecord {
     pub hamlet: String,
 }
 
-/// List a scholar's files, or read one, at its `main` or a version.
+/// List a profile's files, or read one, at its `main` or a version.
 #[derive(Deserialize, JsonSchema)]
-pub(crate) struct ReadScholar {
-    #[schemars(description = SCHOLAR)]
-    pub scholar: String,
+pub(crate) struct ReadProfile {
+    #[schemars(description = PROFILE)]
+    pub profile: String,
     /// A file to read.
     #[serde(default)]
     pub path: String,
@@ -322,11 +322,11 @@ pub(crate) struct ReadScholar {
     pub version: String,
 }
 
-/// Write a file of a scholar's `main`; a chief approves it first.
+/// Write a file of a profile's `main`; a chief approves it first.
 #[derive(Deserialize, JsonSchema)]
-pub(crate) struct EditScholar {
-    #[schemars(description = SCHOLAR)]
-    pub scholar: String,
+pub(crate) struct EditProfile {
+    #[schemars(description = PROFILE)]
+    pub profile: String,
     /// The file.
     pub path: String,
     /// Its new text; empty removes it.
@@ -335,11 +335,11 @@ pub(crate) struct EditScholar {
     pub message: String,
 }
 
-/// Name the scholar's `main` as a version; a chief approves it first.
+/// Name the profile's `main` as a version; a chief approves it first.
 #[derive(Deserialize, JsonSchema)]
 pub(crate) struct Tag {
-    #[schemars(description = SCHOLAR)]
-    pub scholar: String,
+    #[schemars(description = PROFILE)]
+    pub profile: String,
     /// The version's name.
     pub tag: String,
     /// What it holds.
@@ -347,11 +347,11 @@ pub(crate) struct Tag {
     pub note: String,
 }
 
-/// Undo a commit of a scholar's `main`; a chief approves it first.
+/// Undo a commit of a profile's `main`; a chief approves it first.
 #[derive(Deserialize, JsonSchema)]
 pub(crate) struct Revert {
-    #[schemars(description = SCHOLAR)]
-    pub scholar: String,
+    #[schemars(description = PROFILE)]
+    pub profile: String,
     /// The commit or version to undo.
     pub commit: String,
     #[serde(default)]
@@ -412,7 +412,7 @@ called!(
     ReadBudget,
     Object,
     RequestRoad,
-    CreateScholar,
+    CreateProfile,
     Hire,
     EndHire,
     MergeHires,
@@ -427,8 +427,8 @@ called!(
     SetLead,
     RemoveHamlet,
     ReadRecord,
-    ReadScholar,
-    EditScholar,
+    ReadProfile,
+    EditProfile,
     Tag,
     Revert,
 );

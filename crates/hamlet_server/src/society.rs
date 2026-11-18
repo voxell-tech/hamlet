@@ -1,4 +1,4 @@
-//! The society: chiefs, the Hand, the city's scholars, hamlets with
+//! The society: chiefs, the Hand, the city's profiles, hamlets with
 //! their trees of hires, workers, roads, and the record of decisions.
 //! It also holds what the realm spends (H8) and the oversight of
 //! agents by chiefs: what waits for a chief, and the gate that

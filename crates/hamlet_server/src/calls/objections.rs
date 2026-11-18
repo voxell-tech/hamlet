@@ -190,7 +190,7 @@ impl Core<'_, '_> {
                     kind: WaitKind::Objection,
                     danger: None,
                     agent,
-                    scholar: None,
+                    profile: None,
                     conversation: Some(conversation),
                     task: Some(task),
                     about,

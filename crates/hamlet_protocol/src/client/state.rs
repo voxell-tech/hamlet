@@ -33,8 +33,8 @@ pub struct State {
     /// links.
     pub realm: String,
     pub revision: i64,
-    /// The city's scholars, living and archived.
-    pub scholars: Vec<Scholar>,
+    /// The city's profiles, living and archived.
+    pub profiles: Vec<Profile>,
     pub settings: SettingsView,
     pub terminals: Vec<TerminalView>,
     pub waits: Vec<Wait>,
@@ -57,7 +57,7 @@ pub struct State {
 #[serde(transparent)]
 pub struct AgentId(pub u64);
 
-/// A scholar of the city.
+/// A profile of the city.
 #[derive(
     Clone,
     Copy,
@@ -72,7 +72,7 @@ pub struct AgentId(pub u64);
     JsonSchema,
 )]
 #[serde(transparent)]
-pub struct ScholarId(pub u64);
+pub struct ProfileId(pub u64);
 
 /// What keeps the agents' commands from the rest of the machine.
 #[derive(
@@ -102,9 +102,9 @@ impl Confinement {
 impl State {
     /// Applies one change, as a client does between whole states.
     ///
-    /// A hamlet, an agent, a scholar, a wait or a terminal replaces
+    /// A hamlet, an agent, a profile, a wait or a terminal replaces
     /// the one with its id in its place, or is added at the end when
-    /// it is new. `AgentGone`, `ScholarGone`, `WaitClosed` and
+    /// it is new. `AgentGone`, `ProfileGone`, `WaitClosed` and
     /// `TerminalGone` remove theirs. Grants, settings and providers
     /// replace the whole value. The epoch and the revision are the
     /// caller's to keep.
@@ -119,13 +119,13 @@ impl State {
             Update::AgentGone { id } => {
                 self.agents.retain(|a| a.id != *id);
             }
-            Update::Scholar { scholar } => {
-                put(&mut self.scholars, scholar, |s| {
-                    s.id == scholar.id
+            Update::Profile { profile } => {
+                put(&mut self.profiles, profile, |s| {
+                    s.id == profile.id
                 });
             }
-            Update::ScholarGone { id } => {
-                self.scholars.retain(|s| s.id != *id);
+            Update::ProfileGone { id } => {
+                self.profiles.retain(|s| s.id != *id);
             }
             Update::Wait { wait } => {
                 put(&mut self.waits, wait, |w| w.id == wait.id);
@@ -189,11 +189,11 @@ pub enum Update {
     /// An agent erased for good.
     #[serde(rename = "agent-gone")]
     AgentGone { id: AgentId },
-    #[serde(rename = "scholar")]
-    Scholar { scholar: Scholar },
-    /// A scholar erased for good.
-    #[serde(rename = "scholar-gone")]
-    ScholarGone { id: ScholarId },
+    #[serde(rename = "profile")]
+    Profile { profile: Profile },
+    /// A profile erased for good.
+    #[serde(rename = "profile-gone")]
+    ProfileGone { id: ProfileId },
     #[serde(rename = "wait")]
     Wait { wait: Wait },
     #[serde(rename = "wait-closed")]
@@ -248,7 +248,7 @@ pub struct Agent {
     pub name: String,
     /// What a hire or a worker is called in the world, given by a
     /// chief or an agent above it; none while a hire goes by its
-    /// scholar's name and a worker by its address.
+    /// profile's name and a worker by its address.
     #[serde(deserialize_with = "Option::deserialize")]
     pub nickname: Option<String>,
     /// The model chosen for it; none while it follows its hamlet's,
@@ -261,15 +261,15 @@ pub struct Agent {
     /// worker.
     #[serde(deserialize_with = "Option::deserialize")]
     pub parent: Option<AgentId>,
-    /// The version of its scholar a hire is pinned to; none while it
+    /// The version of its profile a hire is pinned to; none while it
     /// follows `main`.
     #[serde(deserialize_with = "Option::deserialize")]
     pub pin: Option<String>,
     pub purpose: String,
     pub saying: AgentSaying,
-    /// The scholar a hire is of, or the Hand's own knowledge.
+    /// The profile a hire is of, or the Hand's own knowledge.
     #[serde(deserialize_with = "Option::deserialize")]
-    pub scholar: Option<ScholarId>,
+    pub profile: Option<ProfileId>,
     pub since: u64,
     pub skills: Vec<String>,
     pub spent: AgentSpent,
@@ -301,13 +301,13 @@ pub enum AgentKind {
     Worker,
 }
 
-/// A scholar of the city: a repository of its character, memory and
+/// A profile of the city: a repository of its character, memory and
 /// skills.
 #[derive(
     Clone, Debug, PartialEq, Serialize, Deserialize, JsonSchema,
 )]
 #[serde(deny_unknown_fields)]
-pub struct Scholar {
+pub struct Profile {
     /// Whether it lives in the city or waits at its harbor.
     pub arrival: Arrival,
     /// Who last let it in, kept it waiting or turned it away: a
@@ -323,20 +323,20 @@ pub struct Scholar {
     /// none while it is not let in.
     #[serde(deserialize_with = "Option::deserialize")]
     pub house: Option<HouseAt>,
-    pub id: ScholarId,
+    pub id: ProfileId,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[serde(deserialize_with = "crate::client::present")]
-    #[schemars(with = "ScholarLeft")]
-    pub left: Option<ScholarLeft>,
-    /// A label that may change and repeat; the scholar's address is
-    /// `scholar#<id>`.
+    #[schemars(with = "ProfileLeft")]
+    pub left: Option<ProfileLeft>,
+    /// A label that may change and repeat; the profile's address is
+    /// `profile#<id>`.
     pub name: String,
     pub since: u64,
     pub skills: Vec<String>,
     pub versions: Vec<VersionView>,
 }
 
-/// Where a scholar stands with the city.
+/// Where a profile stands with the city.
 #[derive(
     Clone,
     Copy,
@@ -400,7 +400,7 @@ impl HouseAt {
     }
 }
 
-/// A tag of a scholar's history.
+/// A tag of a profile's history.
 #[derive(
     Clone, Debug, PartialEq, Serialize, Deserialize, JsonSchema,
 )]
@@ -411,12 +411,12 @@ pub struct VersionView {
     pub note: String,
 }
 
-/// How a scholar left the city.
+/// How a profile left the city.
 #[derive(
     Clone, Debug, PartialEq, Serialize, Deserialize, JsonSchema,
 )]
 #[serde(deny_unknown_fields)]
-pub struct ScholarLeft {
+pub struct ProfileLeft {
     pub at: u64,
     pub by: String,
     pub reason: String,
@@ -548,9 +548,9 @@ pub enum LeftHow {
     Ended,
     #[serde(rename = "merged")]
     Merged,
-    /// Its scholar left the city.
-    #[serde(rename = "scholar")]
-    Scholar,
+    /// Its profile left the city.
+    #[serde(rename = "profile")]
+    Profile,
     /// Its hamlet was removed.
     #[serde(rename = "hamlet")]
     Hamlet,

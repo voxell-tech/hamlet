@@ -20,15 +20,15 @@ pub(crate) const HIRE: &str =
 pub(crate) const WORKER: &str =
     "A helper started for one task. It ends with its answer.";
 
-pub(crate) const SCHOLAR: &str = "A saved agent with its own memory \
+pub(crate) const PROFILE: &str = "A saved agent with its own memory \
                                   and skills, which hamlets can \
                                   hire.";
 
 pub(crate) const CITY: &str =
-    "Where the scholars live while they are not hired.";
+    "Where the profiles live while they are not hired.";
 
 pub(crate) const HARBOR: &str =
-    "New scholars wait here until you let them into the city.";
+    "New profiles wait here until you let them into the city.";
 
 pub(crate) const LIBRARY: &str = "Skills every agent can use.";
 
@@ -38,7 +38,7 @@ pub(crate) const NEEDS: &str =
     "Questions and approvals waiting for your answer.";
 
 pub(crate) const LEFT: &str =
-    "Agents and scholars that left. They can be brought back.";
+    "Agents and profiles that left. They can be brought back.";
 
 pub(crate) const LIMITS: &str = "What the hamlet may spend, and \
                                  what its parents must ask you \
@@ -46,13 +46,13 @@ pub(crate) const LIMITS: &str = "What the hamlet may spend, and \
 
 pub(crate) const AGENTS: &str = "Everyone working in the hamlet.";
 
-/// A hire or lead that is no scholar of the city.
+/// A hire or lead that is no profile of the city.
 pub(crate) const BLANK: &str = "A fresh agent made for this job \
                                 alone. What it learns stays with \
                                 the job.";
 
-/// A scholar as a hire or a lead.
-pub(crate) const HIRED_SCHOLAR: &str = "Brings its memory and \
+/// A profile as a hire or a lead.
+pub(crate) const HIRED_PROFILE: &str = "Brings its memory and \
                                         skills to the job, and can \
                                         take home what it learns.";
 

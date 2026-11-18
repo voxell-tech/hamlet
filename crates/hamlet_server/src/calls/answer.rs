@@ -122,9 +122,9 @@ fn rule_wait(
     // A newcomer gone or let in since stays as it is.
     if wait.kind == WaitKind::Newcomer
         && ruling == Ruling::Welcome
-        && let Some(scholar) = wait.scholar
+        && let Some(profile) = wait.profile
     {
-        let _ = crate::society::city::welcome(cx, scholar, text)?;
+        let _ = crate::society::city::welcome(cx, profile, text)?;
     }
     if wait.kind == WaitKind::Objection {
         super::objections::rule(cx.db, wait.id, ruling, cx.at)?;

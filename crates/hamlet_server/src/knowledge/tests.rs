@@ -7,7 +7,7 @@ use crate::society::hires;
 use crate::testing::Realm;
 
 #[test]
-fn a_hire_learns_in_its_lodge_and_takes_in_its_scholar() {
+fn a_hire_learns_in_its_lodge_and_takes_in_its_profile() {
     let mut realm = Realm::new();
     let layout = realm.layout();
     let lead = realm.found("docs", "ada");
@@ -30,7 +30,7 @@ fn a_hire_learns_in_its_lodge_and_takes_in_its_scholar() {
         .unwrap()
         .expect("the lodge changed");
     let repo =
-        Repository::open(&layout.repository(lead.scholar)).unwrap();
+        Repository::open(&layout.repository(lead.profile)).unwrap();
     assert_eq!(
         repo.read(learned, CHARACTER).unwrap().as_deref(),
         Some(&b"Careful."[..]),
@@ -104,7 +104,7 @@ fn a_hire_learns_in_its_lodge_and_takes_in_its_scholar() {
     realm.work();
     assert!(!layout.lodge(&other.hamlet, other.agent).exists());
     let theirs =
-        Repository::open(&layout.repository(other.scholar)).unwrap();
+        Repository::open(&layout.repository(other.profile)).unwrap();
     assert_eq!(theirs.tip(&branch(other.agent)).unwrap(), None);
 }
 

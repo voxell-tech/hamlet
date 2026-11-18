@@ -1,4 +1,4 @@
-//! The forms of names, scholars' (C10) and hamlets' (H36), of
+//! The forms of names, profiles' (C10) and hamlets' (H36), of
 //! hamlets' ids, and of versions.
 
 use hamlet_store::ids::HamletId;

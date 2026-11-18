@@ -28,7 +28,7 @@ on one machine as across a network. A server refuses a connection without
 the token.
 
 **S5.** A window shows what the server sends and holds no rules of its own:
-the state of the realm (the Hand, hamlets, scholars, living and ended
+the state of the realm (the Hand, hamlets, profiles, living and ended
 agents, roads, budgets, the shared library, removed hamlets and what waits)
 and its changes, the live events of turns (C30), and conversations on
 request, including read-only letters and questions between agents (C22). A
@@ -102,7 +102,7 @@ mode (ADR 0008).
 ## The realm's records and effects
 
 **S26.** Everything the server keeps about who exists, who answers to whom,
-roads, conversations, waits and spend is in one database, and a scholar's
+roads, conversations, waits and spend is in one database, and a profile's
 knowledge is in git (ADR 0011). Every change to the database is one
 transaction and is checked in one place before it is made; a change that is
 refused leaves nothing. What the clients see again after a change is what that
@@ -185,7 +185,7 @@ server, and opens a window. Closing the window or terminal stops no agent.
 | `chat [--to <hand\|hire#id\|lead@hamlet>]` | Chats with the Hand or the named agent and answers what waits, with no window; end of input waits for that client's submissions and leaves the server running |
 | `dev [--port <n>] [--faux <script.json>] [--home <dir>] [--hot]` | Builds the checkout's server and window unless `HAMLET_SERVER_BIN` and `HAMLET_APP` select them respectively, serves a scratch realm and opens its window; closing the window leaves the server running, and stopping the command closes both in order; `--hot` builds a window that reloads saved shaders and tuning files |
 | `window` | Opens a window connected to a running server |
-| `edit <charter\|limits\|settings>` (`limits --hamlet <id>` for a hamlet's), `edit character <scholar#id>`, `edit memory <scholar#id\|hire#id> [path]` | Opens the chief's document in `$EDITOR` and saves it through the server |
+| `edit <charter\|limits\|settings>` (`limits --hamlet <id>` for a hamlet's), `edit character <profile#id>`, `edit memory <profile#id\|hire#id> [path]` | Opens the chief's document in `$EDITOR` and saves it through the server |
 | `login <provider> [--key]` | Gives a key, or follows an offered sign-in |
 | `models [try [model]\|refresh]` | Lists models, tries a one-word hello, or refreshes the list |
 | `models images <model> [off \| [--width <px>] [--height <px>] [--mb <n>] [--per-line <n>]]` | Says that a model takes images and sets its limits, or clears them (S30) |
@@ -200,5 +200,5 @@ credentials the chief's machine has, which their commands can read.
 Reaching a git host needs the network like any other command (C19, H11).
 Agents may write hooks and config, including in nested repositories; the
 chief accepts that these may run under the chief's own git later (C18,
-ADR 0007). Scholars' repositories are another matter: the server alone
+ADR 0007). Profiles' repositories are another matter: the server alone
 writes them, and no git program is run on them (ADR 0011).

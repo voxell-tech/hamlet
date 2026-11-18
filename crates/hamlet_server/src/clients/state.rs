@@ -8,7 +8,7 @@ use diesel::prelude::*;
 use hamlet_git::{MAIN, Repository};
 use hamlet_protocol::client as protocol;
 use hamlet_store::Db;
-use hamlet_store::ids::{AgentId, HamletId, ScholarId};
+use hamlet_store::ids::{AgentId, HamletId, ProfileId};
 use hamlet_store::schema::{agent, message, permission_grant};
 
 use crate::conversations::activity::{self, Activity};
@@ -17,7 +17,7 @@ use crate::knowledge;
 use crate::realm::layout::Layout;
 use crate::realm::settings::EffectiveSettings;
 use crate::society::agents::{Agent, AgentKind, Effort, EndHow};
-use crate::society::city::{self, Arrival, Scholar};
+use crate::society::city::{self, Arrival, Profile};
 use crate::society::hamlets::{self, Hamlet, Mode};
 use crate::society::limits::{
     self, Limits, Period, RealmLimits, Review,
@@ -77,12 +77,12 @@ pub(crate) fn compose(
             });
         }
     }
-    let mut scholars_shown = Vec::new();
-    for scholar in city::all(db)? {
-        scholars_shown.push(scholar_view(
+    let mut profiles_shown = Vec::new();
+    for profile in city::all(db)? {
+        profiles_shown.push(profile_view(
             db,
             sources.layout,
-            &scholar,
+            &profile,
         )?);
     }
     Ok(protocol::State {
@@ -100,7 +100,7 @@ pub(crate) fn compose(
         providers: sources.providers.clone(),
         realm: hamlet_os::fs::path::text(sources.layout.root()),
         revision,
-        scholars: scholars_shown,
+        profiles: profiles_shown,
         settings: sources.settings_view.clone(),
         terminals: sources.terminals.clone(),
         waits: sources.waits.clone(),
@@ -111,8 +111,8 @@ pub(crate) fn wire_agent(id: AgentId) -> protocol::AgentId {
     protocol::AgentId(u64::try_from(id.0).unwrap_or_default())
 }
 
-pub(crate) fn wire_scholar(id: ScholarId) -> protocol::ScholarId {
-    protocol::ScholarId(u64::try_from(id.0).unwrap_or_default())
+pub(crate) fn wire_profile(id: ProfileId) -> protocol::ProfileId {
+    protocol::ProfileId(u64::try_from(id.0).unwrap_or_default())
 }
 
 fn wire_time(at: i64) -> u64 {
@@ -127,10 +127,10 @@ fn agent_view(
 ) -> Result<protocol::Agent> {
     let id = found.id;
     let name = addresses::address_of(db, id)?;
-    let (hamlet, scholar, parent, purpose, lead) = match found.kind {
+    let (hamlet, profile, parent, purpose, lead) = match found.kind {
         AgentKind::Hand => {
-            let scholar = hand::scholar(db)?;
-            (None, Some(scholar), None, String::new(), false)
+            let profile = hand::profile(db)?;
+            (None, Some(profile), None, String::new(), false)
         }
         AgentKind::Hire => {
             let hire = hires::get(db, id)?;
@@ -141,7 +141,7 @@ fn agent_view(
             };
             (
                 Some(hire.hamlet.to_string()),
-                Some(hire.scholar),
+                Some(hire.profile),
                 parent,
                 hire.purpose,
                 lead && found.is_living(),
@@ -185,7 +185,7 @@ fn agent_view(
             how: match how {
                 EndHow::Ended => protocol::LeftHow::Ended,
                 EndHow::Merged => protocol::LeftHow::Merged,
-                EndHow::Scholar => protocol::LeftHow::Scholar,
+                EndHow::Profile => protocol::LeftHow::Profile,
                 EndHow::Hamlet => protocol::LeftHow::Hamlet,
                 EndHow::Answered => protocol::LeftHow::Answered,
                 EndHow::Failed => protocol::LeftHow::Failed,
@@ -268,7 +268,7 @@ fn agent_view(
             text: shown.map(|a| a.saying.clone()).unwrap_or_default(),
             thought: shown.is_some_and(|a| a.thought),
         },
-        scholar: scholar.map(wire_scholar),
+        profile: profile.map(wire_profile),
         since: wire_time(found.since),
         skills,
         spent: protocol::AgentSpent {
@@ -457,17 +457,17 @@ fn road_level(
     }
 }
 
-fn scholar_view(
+fn profile_view(
     db: &mut Db,
     layout: &Layout,
-    scholar: &Scholar,
-) -> Result<protocol::Scholar> {
+    profile: &Profile,
+) -> Result<protocol::Profile> {
     let mut hires_shown = Vec::new();
-    for hire in hires_of(db, scholar)? {
+    for hire in hires_of(db, profile)? {
         hires_shown.push(wire_agent(hire));
     }
     let (skills, versions) =
-        match Repository::open(&layout.repository(scholar.id)) {
+        match Repository::open(&layout.repository(profile.id)) {
             Ok(repo) => {
                 let skills = match repo.tip(MAIN)? {
                     Some(tip) => {
@@ -502,59 +502,59 @@ fn scholar_view(
             }
             Err(_) => (Vec::new(), Vec::new()),
         };
-    let chief = match scholar.chief {
+    let chief = match profile.chief {
         Some(chief) => chiefs::find(db, chief)?
             .map(|c| c.name)
             .unwrap_or_default(),
         None => String::new(),
     };
-    Ok(protocol::Scholar {
-        arrival: match scholar.arrival {
+    Ok(protocol::Profile {
+        arrival: match profile.arrival {
             Arrival::Housed => protocol::Arrival::Housed,
             Arrival::Waiting => protocol::Arrival::Waiting,
             Arrival::Turned => protocol::Arrival::Turned,
             Arrival::Apart => protocol::Arrival::Apart,
         },
-        arrival_by: match scholar.arrival_by {
+        arrival_by: match profile.arrival_by {
             Some(by) => Some(addresses::actor_address(db, Some(by))?),
             None => None,
         },
         chief,
         hires: hires_shown,
-        house: match (scholar.house_x, scholar.house_z) {
+        house: match (profile.house_x, profile.house_z) {
             (Some(x), Some(z)) => Some(protocol::HouseAt {
-                turn: scholar.house_turn.unwrap_or_default(),
+                turn: profile.house_turn.unwrap_or_default(),
                 x,
                 z,
             }),
             _ => None,
         },
-        id: wire_scholar(scholar.id),
-        left: match scholar.left_at {
-            Some(left) => Some(protocol::ScholarLeft {
+        id: wire_profile(profile.id),
+        left: match profile.left_at {
+            Some(left) => Some(protocol::ProfileLeft {
                 at: wire_time(left),
-                by: addresses::actor_address(db, scholar.left_by)?,
-                reason: scholar
+                by: addresses::actor_address(db, profile.left_by)?,
+                reason: profile
                     .left_reason
                     .clone()
                     .unwrap_or_default(),
             }),
             None => None,
         },
-        name: scholar.name.clone(),
-        since: wire_time(scholar.since),
+        name: profile.name.clone(),
+        since: wire_time(profile.since),
         skills,
         versions,
     })
 }
 
-/// The hires of `scholar` not erased, living ones and ended ones that
+/// The hires of `profile` not erased, living ones and ended ones that
 /// may come back.
-fn hires_of(db: &mut Db, scholar: &Scholar) -> Result<Vec<AgentId>> {
+fn hires_of(db: &mut Db, profile: &Profile) -> Result<Vec<AgentId>> {
     use hamlet_store::schema::hire;
     Ok(hire::table
         .inner_join(agent::table)
-        .filter(hire::scholar.eq(scholar.id))
+        .filter(hire::profile.eq(profile.id))
         .filter(agent::erased.eq(false))
         .order(hire::agent)
         .select(hire::agent)

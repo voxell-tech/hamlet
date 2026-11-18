@@ -27,8 +27,8 @@ const MESSAGES: &str =
 /// A parent's part: what it may do over the hires under it.
 const PARENT: &str =
     "You are the parent of the hires under you. `hire` brings a \
-     scholar of the city in under you or under a hire of your tree, \
-     and `create_scholar` makes a new scholar to hire. Hire when a \
+     profile of the city in under you or under a hire of your tree, \
+     and `create_profile` makes a new profile to hire. Hire when a \
      kind of work will come back and deserves its own memory; do \
      small one-off things yourself, or with `start_worker`. Check \
      the hires below for one that fits before hiring. `lay_road` \
@@ -55,8 +55,8 @@ const TOLD: &str = "A chief can instruct the hires under you \
 /// The most decisions and instructions a place tells.
 const MOST_TOLD: usize = 12;
 
-/// The most scholars the prompt lists.
-const MOST_SCHOLARS: usize = 60;
+/// The most profiles the prompt lists.
+const MOST_PROFILES: usize = 60;
 
 /// The place of `conversation`'s agent.
 pub(super) fn place(
@@ -69,12 +69,12 @@ pub(super) fn place(
         AgentKind::Hand => lines.push(
             "You are the Hand of this realm: the chiefs' own agent. \
              You found hamlets (`found_hamlet`) and set their leads \
-             (`set_lead`), make scholars (`create_scholar`) and \
+             (`set_lead`), make profiles (`create_profile`) and \
              hire them into any hamlet, and are the parent of every \
              hire. You read any hamlet's record (`read_record`) and \
-             any scholar (`read_scholar`). What you do to what a \
+             any profile (`read_profile`). What you do to what a \
              chief owns, removing a hamlet or changing, tagging or \
-             reverting a scholar, waits for a chief first. Each \
+             reverting a profile, waits for a chief first. Each \
              lead answers to you."
                 .into(),
         ),
@@ -138,13 +138,13 @@ fn hire(
     let purpose = found.purpose.trim().trim_end_matches('.');
     lines.push(if purpose.is_empty() {
         format!(
-            "You are `{name}`, a scholar of the city, hired into \
+            "You are `{name}`, a profile of the city, hired into \
              `{}`.",
             found.hamlet
         )
     } else {
         format!(
-            "You are `{name}`, a scholar of the city, hired into \
+            "You are `{name}`, a profile of the city, hired into \
              `{}` to {purpose}",
             found.hamlet
         )
@@ -266,9 +266,9 @@ pub(super) fn realm(
     Ok(Some(format!("{head}\n{}", lines.join("\n"))))
 }
 
-/// The scholars of the city that `id` may hire, for the Hand and for
-/// hires that are parents: what `hire` takes as `scholar`.
-pub(super) fn scholars(
+/// The profiles of the city that `id` may hire, for the Hand and for
+/// hires that are parents: what `hire` takes as `profile`.
+pub(super) fn profiles(
     db: &mut Db,
     id: AgentId,
 ) -> Result<Option<String>> {
@@ -279,9 +279,9 @@ pub(super) fn scholars(
         AgentKind::Worker => return Ok(None),
     };
     let mut lines = Vec::new();
-    for scholar in city::all(db)? {
-        if !scholar.is_living()
-            || scholar.arrival != city::Arrival::Housed
+    for profile in city::all(db)? {
+        if !profile.is_living()
+            || profile.arrival != city::Arrival::Housed
         {
             continue;
         }
@@ -289,27 +289,27 @@ pub(super) fn scholars(
             Some(hamlet) => authority::may_hire(
                 db,
                 Actor::Agent(id),
-                scholar.id,
+                profile.id,
                 hamlet,
             )?,
             None => true,
         };
         if may {
-            lines.push(format!("- {}", scholar.label()));
+            lines.push(format!("- {}", profile.label()));
         }
     }
     if lines.is_empty() {
         return Ok(None);
     }
-    let more = lines.len().saturating_sub(MOST_SCHOLARS);
-    lines.truncate(MOST_SCHOLARS);
+    let more = lines.len().saturating_sub(MOST_PROFILES);
+    lines.truncate(MOST_PROFILES);
     if more > 0 {
         lines.push(format!("- and {more} more"));
     }
     Ok(Some(format!(
-        "# The city's scholars\nWhat `hire` takes as `scholar`; a \
+        "# The city's profiles\nWhat `hire` takes as `profile`; a \
          name is a label that may repeat, the address is the \
-         scholar:\n{}",
+         profile:\n{}",
         lines.join("\n")
     )))
 }
