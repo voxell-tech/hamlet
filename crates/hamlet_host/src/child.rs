@@ -31,6 +31,36 @@ pub(crate) const HOME: &str = "HAMLET_HOME";
 const ENVIRONMENT: &[(&str, Value)] = &[
     (HOME, Value::Home),
     ("PATH", Value::Inherited),
+    ("HAMLET_REFLECT_EVERY", Value::Inherited),
+    ("HAMLET_CLAUDE_EXECUTABLE", Value::Inherited),
+    ("HAMLET_ACTOR_", Value::InheritedPrefix),
+    ("CLAUDE_CONFIG_DIR", Value::Inherited),
+    ("HOME", Value::Inherited),
+    ("TMPDIR", Value::Inherited),
+    ("HTTP_PROXY", Value::Inherited),
+    ("HTTPS_PROXY", Value::Inherited),
+    ("NO_PROXY", Value::Inherited),
+    #[cfg(not(windows))]
+    ("http_proxy", Value::Inherited),
+    #[cfg(not(windows))]
+    ("https_proxy", Value::Inherited),
+    #[cfg(not(windows))]
+    ("no_proxy", Value::Inherited),
+    ("NODE_EXTRA_CA_CERTS", Value::Inherited),
+    ("SSL_CERT_FILE", Value::Inherited),
+    ("SSL_CERT_DIR", Value::Inherited),
+    #[cfg(windows)]
+    ("USERPROFILE", Value::Inherited),
+    #[cfg(windows)]
+    ("APPDATA", Value::Inherited),
+    #[cfg(windows)]
+    ("LOCALAPPDATA", Value::Inherited),
+    #[cfg(windows)]
+    ("SystemRoot", Value::Inherited),
+    #[cfg(windows)]
+    ("TEMP", Value::Inherited),
+    #[cfg(windows)]
+    ("TMP", Value::Inherited),
     #[cfg(feature = "faults")]
     ("HAMLET_FAULT_DIR", Value::Inherited),
 ];
@@ -65,6 +95,9 @@ enum Value {
     Home,
     /// The Rust host's own environment.
     Inherited,
+    /// Each variable of the Rust host's own environment whose name
+    /// starts with the given one.
+    InheritedPrefix,
 }
 
 /// The Node child of a host.
@@ -292,16 +325,33 @@ fn spawn(supervised: &Supervised) -> io::Result<Running> {
 
 /// A child's whole environment, from [`ENVIRONMENT`].
 fn environment(home: &str) -> BTreeMap<String, String> {
-    ENVIRONMENT
-        .iter()
-        .filter_map(|(name, value)| {
-            let value = match value {
-                Value::Home => home.to_owned(),
-                Value::Inherited => std::env::var(name).ok()?,
-            };
-            Some(((*name).to_owned(), value))
-        })
-        .collect()
+    let mut environment = BTreeMap::new();
+    for (name, value) in ENVIRONMENT {
+        match value {
+            Value::Home => {
+                environment
+                    .insert((*name).to_owned(), home.to_owned());
+            }
+            Value::Inherited => {
+                if let Ok(value) = std::env::var(name) {
+                    environment.insert((*name).to_owned(), value);
+                }
+            }
+            Value::InheritedPrefix => {
+                environment.extend(std::env::vars_os().filter_map(
+                    |(inherited, value)| {
+                        let inherited =
+                            inherited.into_string().ok()?;
+                        inherited.starts_with(name).then_some((
+                            inherited,
+                            value.into_string().ok()?,
+                        ))
+                    },
+                ));
+            }
+        }
+    }
+    environment
 }
 
 /// Sends what each read of a child's `output` gives: each frame, then
