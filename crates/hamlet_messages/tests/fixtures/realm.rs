@@ -1351,9 +1351,9 @@ fn the_calls_to_agents_and_profiles(fixtures: &mut Fixtures) {
         tools_off: Vec::new(),
         folder: None,
     };
-    for (name, kind, place) in [
-        ("hand", AgentKind::Hand, hands_place()),
-        ("hire", AgentKind::Hire, place()),
+    for (name, kind, place, copies) in [
+        ("hand", AgentKind::Hand, hands_place(), Default::default()),
+        ("hire", AgentKind::Hire, place(), super::chat::copies()),
     ] {
         fixtures.input(
             &format!("agent/{name}"),
@@ -1362,7 +1362,7 @@ fn the_calls_to_agents_and_profiles(fixtures: &mut Fixtures) {
                 task: standing_task(),
                 place,
                 brief: None,
-                copies: Default::default(),
+                copies,
             },
         );
     }

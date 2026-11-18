@@ -269,17 +269,13 @@ test("a client's call made by the realm, and an input the agent does not take, a
         const host = await startWithAgent(dir, kinds);
         const r = host.at("realm", "local");
         const takes = ["submit", "finished", "place", "fill", "copies"];
-        // A client's calls the agent does not take yet.
-        const later = ["read_models", "check"];
         const actions = [
             ...new Set(
                 readdirSync(AGENT_FIXTURES)
                     .filter((file) => file.endsWith(".args.cbor"))
                     .map((file) => file.split(".")[0] ?? ""),
             ),
-        ].filter(
-            (action) => !takes.includes(action) && !later.includes(action),
-        );
+        ].filter((action) => !takes.includes(action));
         const refused: Record<string, unknown> = {};
         for (const action of actions) {
             refused[action] = await host.call(

@@ -493,42 +493,44 @@ fn event() -> ChatEvent {
     }
 }
 
+/// Every part filled, at its version.
+pub(super) fn copies() -> Copies {
+    Copies {
+        charter: Some(Versioned {
+            version: CopyVersion(3),
+            value: "Be brief.".into(),
+        }),
+        character: Some(Versioned {
+            version: CopyVersion(2),
+            value: "Calm.".into(),
+        }),
+        model: Some(Versioned {
+            version: CopyVersion(5),
+            value: ModelChoice {
+                model: "anthropic::claude-opus".into(),
+                effort: Some(Effort::High),
+                fast: true,
+                price: Some(Price {
+                    input: 15.0,
+                    output: 75.0,
+                    cache_read: 1.5,
+                    cache_write: 18.75,
+                }),
+            },
+        }),
+        settings: Some(Versioned {
+            version: CopyVersion(1),
+            value: AgentSettings {
+                reflect_every: 20,
+                allow_net: false,
+            },
+        }),
+    }
+}
+
 fn the_copies(fixtures: &mut Fixtures) {
-    use Effort::{High, Low, Max, Medium, Minimal, Off, XHigh};
-    fixtures.args(
-        "agent/copies",
-        &Copies {
-            charter: Some(Versioned {
-                version: CopyVersion(3),
-                value: "Be brief.".into(),
-            }),
-            character: Some(Versioned {
-                version: CopyVersion(2),
-                value: "Calm.".into(),
-            }),
-            model: Some(Versioned {
-                version: CopyVersion(5),
-                value: ModelChoice {
-                    model: "anthropic::claude-opus".into(),
-                    effort: Some(High),
-                    fast: true,
-                    price: Some(Price {
-                        input: 15.0,
-                        output: 75.0,
-                        cache_read: 1.5,
-                        cache_write: 18.75,
-                    }),
-                },
-            }),
-            settings: Some(Versioned {
-                version: CopyVersion(1),
-                value: AgentSettings {
-                    reflect_every: 20,
-                    allow_net: false,
-                },
-            }),
-        },
-    );
+    use Effort::{Low, Max, Medium, Minimal, Off, XHigh};
+    fixtures.args("agent/copies", &copies());
     for effort in [Off, Minimal, Low, Medium, XHigh, Max] {
         let name = serde_json::to_value(effort).unwrap();
         fixtures.args(
