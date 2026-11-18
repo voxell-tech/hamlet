@@ -910,8 +910,21 @@ test("requests at once ask the realm for a key once", async () => {
     gate = Promise.withResolvers<void>();
     const granted = both();
     gate.resolve();
-    assert.deepEqual(await Promise.all(granted), [KEY, KEY]);
+    assert.deepEqual(await Promise.all(granted), [
+        { apiKey: KEY },
+        { apiKey: KEY },
+    ]);
     assert.equal(asked, 2, "a refusal is asked again");
+});
+
+test("a key of settings alone serves a request with its settings and no key", async () => {
+    const env = { AWS_PROFILE: "work" };
+    const keys = keysOf(
+        { credential: async () => ({ type: "key", key: "", env }) },
+        () => {},
+    );
+
+    assert.deepStrictEqual(await keys.of("loopback"), { env });
 });
 
 async function currentSession(agent: Woken) {

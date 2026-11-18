@@ -16,6 +16,7 @@ import {
     type ModelsSimpleStreamOptions,
     type OAuthAuth,
     type OAuthCredential,
+    type ProviderEnv,
 } from "@earendil-works/pi-ai";
 import { raceWithAbortSignal } from "@earendil-works/pi-ai/utils/abort";
 import { AssistantMessageEventStream } from "@earendil-works/pi-ai/utils/event-stream";
@@ -155,11 +156,17 @@ export function withheld(text: string): string {
 /** The credential the realm gave this wake, per provider. */
 export interface Keys {
     /**
-     * The key a request to `provider` carries, `undefined` for the faux
-     * models and for `claude`. Without one it throws, so no key from the
-     * host's environment is used.
+     * The key and the settings a request to `provider` carries, neither for
+     * the faux models and for `claude`. Without either it throws, so no key
+     * from the host's environment is used.
      */
-    of(provider: string): Promise<string | undefined>;
+    of(provider: string): Promise<Given>;
+}
+
+/** What a request carries from its credential, as pi-ai's request options. */
+export interface Given {
+    readonly apiKey?: string;
+    readonly env?: ProviderEnv;
 }
 
 /**
@@ -197,8 +204,17 @@ export function keysOf(
         rememberKept(answer);
         return answer;
     };
-    const keyOf = async (provider: string, kept: Kept): Promise<string> => {
-        if (kept.type === "key" && kept.key !== "") return kept.key;
+    const givenOf = async (provider: string, kept: Kept): Promise<Given> => {
+        if (
+            kept.type === "key" &&
+            (kept.key !== "" || kept.env !== undefined)
+        ) {
+            // An empty key would stand over the one pi-ai resolves from the settings.
+            return {
+                ...(kept.key === "" ? {} : { apiKey: kept.key }),
+                ...(kept.env === undefined ? {} : { env: kept.env }),
+            };
+        }
         const oauth = subscriptions?.listed.getProvider(provider)?.auth.oauth;
         if (
             kept.type === "oauth" &&
@@ -214,7 +230,7 @@ export function keysOf(
                 asked.set(provider, Promise.resolve({ type: "oauth", login }));
             }
             const { apiKey } = await oauth.toAuth(credentialOf(login));
-            if (apiKey !== undefined) return apiKey;
+            if (apiKey !== undefined) return { apiKey };
         }
         throw new Error(
             `The sign-in for ${provider} gives no key, and only a key is used yet.`,
@@ -222,7 +238,7 @@ export function keysOf(
     };
     return {
         of: async (provider) => {
-            if (provider === FAUX) return undefined;
+            if (provider === FAUX) return {};
             let asking = asked.get(provider);
             if (asking === undefined) {
                 asking = ask(provider);
@@ -232,8 +248,8 @@ export function keysOf(
             }
             const kept = await asking;
             // The Claude program signs in itself; the realm's credential only marks that it did.
-            if (provider === CLAUDE) return undefined;
-            return keyOf(provider, kept);
+            if (provider === CLAUDE) return {};
+            return givenOf(provider, kept);
         },
     };
 }
@@ -288,7 +304,12 @@ function rotated(
 /** pi-ai's credential as the realm keeps it: an OAuth expiry in whole seconds. */
 export function keptOf(credential: Credential): Kept {
     if (credential.type === "api_key") {
-        return { type: "key", key: credential.key ?? "" };
+        const { key = "", env = {} } = credential;
+        return {
+            type: "key",
+            key,
+            ...(Object.keys(env).length === 0 ? {} : { env }),
+        };
     }
     return { type: "oauth", login: loginOf(credential) };
 }
@@ -341,10 +362,7 @@ export function agentModels(
             stoppable(secretsLoaded(peers.reach)),
         ]);
         const chosen = choice !== undefined && nameOf(model) === choice.model;
-        const made: ModelsSimpleStreamOptions = {
-            ...options,
-            ...(given === undefined ? {} : { apiKey: given }),
-        };
+        const made: ModelsSimpleStreamOptions = { ...options, ...given };
         return [
             {
                 ...model,
@@ -637,7 +655,7 @@ export async function checkModel(
         return { type: "refused", words: `no model is named \`${name}\`` };
     }
     try {
-        const key = await keys.of(provider);
+        const given = await keys.of(provider);
         const answer = await takingKeys(listed, provider).completeSimple(
             model,
             {
@@ -652,7 +670,7 @@ export async function checkModel(
             {
                 signal: AbortSignal.timeout(90_000),
                 maxRetries: 0,
-                ...(key === undefined ? {} : { apiKey: key }),
+                ...given,
             },
         );
         const text = answer.content

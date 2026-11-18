@@ -12,7 +12,7 @@ use hamlet_messages::address::Agent;
 use hamlet_messages::realm::documents::RemoteWorkspace;
 use hamlet_messages::realm::models::{
     Credential, CredentialAnswer, CredentialRefusal, KeepCredential,
-    Kept, OauthLogin,
+    Kept, OauthLogin, Settings,
 };
 use hamlet_messages::realm::{SecretList, Secrets};
 use hamlet_messages::sender::{Hand, Scrubber, sender};
@@ -267,7 +267,14 @@ fn unchanged_expiry(before: &Value, mut kept: Value) -> Value {
 fn given(value: &Value) -> Option<CredentialAnswer> {
     match value["type"].as_str()? {
         "api_key" => Some(CredentialAnswer::Key {
-            key: value["key"].as_str()?.to_owned(),
+            // A key of settings alone has none, as pi-ai keeps it.
+            key: value["key"].as_str().unwrap_or_default().to_owned(),
+            env: match value.get("env") {
+                Some(env) => {
+                    serde_json::from_value(env.clone()).ok()?
+                }
+                None => Settings::new(),
+            },
         }),
         "oauth" => {
             let mut extra = value.as_object()?.clone();
@@ -295,7 +302,12 @@ fn given(value: &Value) -> Option<CredentialAnswer> {
 /// beside the others, its expiry in milliseconds.
 fn saved(kept: &Kept) -> Result<Value> {
     Ok(match kept {
-        Kept::Key { key } => json!({ "type": "api_key", "key": key }),
+        Kept::Key { key, env } if env.is_empty() => {
+            json!({ "type": "api_key", "key": key })
+        }
+        Kept::Key { key, env } => {
+            json!({ "type": "api_key", "key": key, "env": env })
+        }
         Kept::Oauth { login } => {
             let mut fields = match &login.extra {
                 Some(extra) => match serde_json::from_str(extra)? {
@@ -453,6 +465,7 @@ mod tests {
                 provider: "anthropic".to_owned(),
                 value: Kept::Key {
                     key: "sk-made-up".to_owned(),
+                    env: Settings::new(),
                 },
             },
             Agent(Hand::NUMBER),
@@ -489,6 +502,7 @@ mod tests {
         held.keep(
             &keep(Kept::Key {
                 key: "sk-made-up".to_owned(),
+                env: Settings::new(),
             }),
             hand,
         )
@@ -527,6 +541,7 @@ mod tests {
                 provider: "p".to_owned(),
                 value: Kept::Key {
                     key: format!("k{n}"),
+                    env: Settings::new(),
                 },
             };
             started
