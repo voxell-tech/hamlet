@@ -6,12 +6,14 @@
 //! them a path and an address are plain text and a picture is its
 //! caption.
 
+mod chips;
 mod draw;
 mod links;
 mod parse;
 
 use std::path::PathBuf;
 
+use bevy::app::App;
 use bevy::ecs::component::Component;
 use bevy::ecs::resource::Resource;
 use bevy::ecs::world::World;
@@ -24,6 +26,11 @@ pub use self::draw::{
 pub use self::links::agent_addresses;
 pub use self::parse::{Reading, hashed, parse};
 use crate::AnyView;
+
+/// Puts the chips in a line where it holds their places.
+pub fn plugin(app: &mut App) {
+    app.add_plugins(chips::plugin);
+}
 
 /// The style of a run of text.
 #[derive(Clone, Copy, PartialEq, Eq, Debug, Default)]

@@ -28,6 +28,7 @@ use bevy_fynix::{
     resource,
 };
 
+use super::chips::seed;
 use super::parse::{parse, plain};
 use super::{
     AgentLinks, Align, Anchor, Area, Block, IsAddress, Kind, Marker,
@@ -388,11 +389,13 @@ fn chipped(cx: &mut Cx, pieces: Vec<Piece>, ink: Ink) -> Entity {
     let mut runs = Vec::new();
     // Whether each run is code, and the place it leads.
     let mut marks = Vec::<(bool, Option<Anchor>)>::new();
+    let mut chips = Vec::new();
     for piece in pieces {
         let (span, anchor, address) = match piece {
             Piece::Words(span, anchor) => (span, anchor, false),
             Piece::Address(span) => (span, None, true),
             Piece::Chip(atom) => {
+                chips.push(atom.text().to_string());
                 runs.push(Run::atom(atom));
                 marks.push((false, None));
                 continue;
@@ -443,6 +446,7 @@ fn chipped(cx: &mut Cx, pieces: Vec<Piece>, ink: Ink) -> Entity {
             .direction(FlexDirection::Column)
             .max_width(percent(100.0)),
     );
+    seed(cx.world, body, chips);
     for (kid, (code, anchor)) in
         runs_of(cx.world, body).into_iter().zip(marks)
     {
@@ -882,6 +886,9 @@ pub fn typed_with(
                     .direction(FlexDirection::Column)
                     .max_width(percent(100.0)),
             );
+            let chips =
+                copies.0.iter().map(|(_, words)| words.clone());
+            seed(cx.world, body, chips.collect());
             if let Some(text) = cx
                 .world
                 .get::<Children>(body)

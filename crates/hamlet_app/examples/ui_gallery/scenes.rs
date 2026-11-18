@@ -118,6 +118,7 @@ impl Plugin for GalleryPlugin {
                 hamlet_app::desk_still,
                 welcome::key_plugin,
                 hamlet_ui::widgets::plugin,
+                hamlet_ui::markdown::plugin,
                 hamlet_app::screens::plugin,
                 asking::plugin,
                 select::plugin,
