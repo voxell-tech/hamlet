@@ -6,7 +6,7 @@ use std::io::Write as _;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
 
-use anyhow::{Context as _, Result, bail};
+use anyhow::{Result, anyhow, bail};
 use hamlet_actor::{Action as _, Ctx, Handler};
 use hamlet_messages::address::Agent;
 use hamlet_messages::realm::documents::RemoteWorkspace;
@@ -101,8 +101,16 @@ impl Held {
     ) -> Result<Self> {
         let stored = match std::fs::read(folder.join(FILE)) {
             Ok(bytes) => {
-                let stored = serde_json::from_slice(&bytes)
-                    .with_context(|| format!("reading {FILE}"))?;
+                // serde's words can quote a value of the file.
+                let stored = serde_json::from_slice(&bytes).map_err(
+                    |error| {
+                        anyhow!(
+                            "reading {FILE}: line {}, column {}",
+                            error.line(),
+                            error.column()
+                        )
+                    },
+                )?;
                 write_whole(folder, &stored)?;
                 stored
             }

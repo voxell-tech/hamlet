@@ -39,6 +39,7 @@ use std::time::Duration;
 use anyhow::Result;
 use hamlet_actor::{Actor, Ctx, Registry};
 use hamlet_actor_core::{ActorConfig, ActorFactory};
+use hamlet_actor_error::ActorError;
 use hamlet_host::{Caller, HostRef};
 use hamlet_messages::address::{self, Party};
 use hamlet_messages::realm::budget::{
@@ -67,6 +68,7 @@ use hamlet_messages::realm::{
     Reply, RequestRoad, Seat, Secrets, SetLimits, SetTier, SetTools,
     TakeUpRoad, Tell, Tool,
 };
+use serde::Serialize;
 
 use self::callers::{Bare, ByHand, Living, Looks};
 
@@ -118,6 +120,25 @@ pub fn factory() -> ActorFactory {
         .into_factories()
         .remove(address::Realm::KIND)
         .expect("the registry holds the kind it registered")
+}
+
+/// The error of a realm that did not start, with why.
+#[derive(Debug, ActorError, Serialize)]
+#[error(
+    "realm",
+    "not_started",
+    "The realm did not start.",
+    "The realm did not start: {why}"
+)]
+struct NotStarted {
+    why: String,
+}
+
+fn not_started(error: anyhow::Error) -> anyhow::Error {
+    NotStarted {
+        why: format!("{error:#}"),
+    }
+    .build()
 }
 
 struct Realm {
@@ -199,33 +220,43 @@ impl Actor for Realm {
     type Action = ();
 
     async fn create(ctx: &Ctx<Self>) -> Result<Self> {
-        let host = HostRef::of(ctx.inner())?;
-        ctx.sql().exec(SCHEMA).await?;
-        Ok(Self {
-            hiring_wait: host
-                .value::<Options>()
-                .map_or(HIRING_WAIT, |options| options.hiring_wait),
-            secrets: secrets::Held::load(
-                host.folder(),
-                std::env::var("HAMLET_WORKSPACE_TOKEN")
-                    .ok()
-                    .filter(|token| !token.is_empty()),
-            )?,
-            peers: peer::Peers::new(host),
-            world: world::Held::load(ctx).await?,
-            drives: steps::Drives::default(),
-            lanes: lanes::Lanes::default(),
-        })
+        async {
+            let host = HostRef::of(ctx.inner())?;
+            ctx.sql().exec(SCHEMA).await?;
+            Ok(Self {
+                hiring_wait: host
+                    .value::<Options>()
+                    .map_or(HIRING_WAIT, |options| {
+                        options.hiring_wait
+                    }),
+                secrets: secrets::Held::load(
+                    host.folder(),
+                    std::env::var("HAMLET_WORKSPACE_TOKEN")
+                        .ok()
+                        .filter(|token| !token.is_empty()),
+                )?,
+                peers: peer::Peers::new(host),
+                world: world::Held::load(ctx).await?,
+                drives: steps::Drives::default(),
+                lanes: lanes::Lanes::default(),
+            })
+        }
+        .await
+        .map_err(not_started)
     }
 
     async fn on_create(
         self: Arc<Self>,
         ctx: Ctx<Self>,
     ) -> Result<()> {
-        let rows = change::Rows::outside(&ctx)?;
-        let changes = chiefs::first_start(&rows).await?;
-        change::commit(&self, &ctx, changes).await?;
-        Ok(())
+        async {
+            let rows = change::Rows::outside(&ctx)?;
+            let changes = chiefs::first_start(&rows).await?;
+            change::commit(&self, &ctx, changes).await?;
+            Ok(())
+        }
+        .await
+        .map_err(not_started)
     }
 
     async fn on_start(self: Arc<Self>, ctx: Ctx<Self>) -> Result<()> {
