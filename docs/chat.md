@@ -149,6 +149,13 @@ changed files +13 -5", opens to the tree of the files the turn's edits
 changed, and each file to its lines (`edits.rs`). Queued lines stand
 under the turn that runs.
 
+Only the rows near the view are built, each placed from the height it
+was laid out at the frame before. After layout, each row is shown whole
+in the frame it grows or is built, and the view with it: at the end of
+the chat while it follows the end, else with the first row that shows
+where it was (`anchor.rs`). The view moves only when the chief scrolls,
+sends a line or asks for the end.
+
 When a transcript has an earlier page, scrolling to the top, or a chat
 that fits without scrolling, sends `open` with `before` set to the first
 item's ID. Only one page request is outstanding, and the returned items go

@@ -8,6 +8,7 @@
 //! summary, a merge or a worker its `card`. A message can `reply` to
 //! another, and `quote` lines as chat apps do.
 
+mod anchor;
 pub(crate) mod attach;
 pub(crate) mod bubble;
 mod card;
@@ -116,6 +117,7 @@ pub fn plugin(app: &mut App) {
         // about.
         .init_resource::<crate::world_menu::Open>()
         .add_plugins((
+            anchor::plugin,
             attach::plugin,
             rewind::plugin,
             lines::plugin,
