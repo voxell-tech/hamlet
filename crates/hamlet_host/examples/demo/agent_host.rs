@@ -550,6 +550,8 @@ pub struct Input {
     pub task: Option<RealmTask>,
     /// The letter a question asks in.
     pub question: Option<u32>,
+    /// What the model reads of it, as its entry keeps it.
+    pub text: String,
 }
 
 #[derive(Serialize, Deserialize)]

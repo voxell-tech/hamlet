@@ -336,8 +336,9 @@ const demoActions = {
             kind: string;
             task: string | null;
             question: number | null;
+            text: string;
         }>(
-            "SELECT id AS taken, substr(record ->> '$.kind', 8) AS kind, record ->> '$.data.task' AS task, record ->> '$.data.question' AS question FROM pi_entries WHERE record ->> '$.kind' LIKE 'hamlet.%' ORDER BY id",
+            "SELECT id AS taken, substr(record ->> '$.kind', 8) AS kind, record ->> '$.data.task' AS task, record ->> '$.data.question' AS question, coalesce(record ->> '$.model', '') AS text FROM pi_entries WHERE record ->> '$.kind' LIKE 'hamlet.%' ORDER BY id",
         );
         return { standing: standing?.task ?? null, inputs };
     },

@@ -217,7 +217,7 @@ async fn demo() -> Result<()> {
         Some("boot") => {
             async {
                 let ms = number(args.get(1))?;
-                let began = demo.host.boot().await?;
+                let began = demo.started().await?;
                 tokio::time::sleep(Duration::from_millis(ms)).await;
                 print_began(&demo, began).await
             }
@@ -225,22 +225,21 @@ async fn demo() -> Result<()> {
         }
         Some("profile") => {
             async {
-                demo.host.boot().await?;
+                demo.started().await?;
                 profile::run(&demo.host, &args[1..]).await
             }
             .await
         }
         Some("library") => {
             async {
-                demo.host.boot().await?;
+                demo.started().await?;
                 library::run(&demo.host, &args[1..]).await
             }
             .await
         }
         Some(_) => {
             async {
-                demo.ready(std::future::pending()).await?;
-                demo.start().await?;
+                demo.started().await?;
                 run_line(&demo, args).await
             }
             .await
@@ -302,6 +301,12 @@ impl Demo {
             );
         }
         self.host.boot().await
+    }
+
+    /// Waits for the Node host, then boots as [`Self::start`] does.
+    async fn started(&self) -> Result<Vec<Address>> {
+        self.ready(std::future::pending()).await?;
+        self.start().await
     }
 
     async fn shutdown(self) -> Result<()> {

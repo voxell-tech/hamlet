@@ -35,13 +35,20 @@ async function chatHolds(
 }
 
 /**
- * Asserts that agent 3 holds agent 2's tell once: a later letter from agent 2
- * reaches it after any copy of the first, as one agent's letters arrive in
- * the order they were sent.
+ * Asserts that agent 3 holds agent 2's letter `first` once: a later letter
+ * from agent 2 reaches it after any copy of the first, as one agent's
+ * letters arrive in the order the realm committed them.
  */
-async function heldOnce(demo: Demo): Promise<void> {
+async function heldOnce(demo: Demo, first: string): Promise<void> {
     assert.equal(await demo.ask("agent 2 tell t2 hire#3 later"), "sent/t2 1");
-    assert.equal(await demo.ask("agent 3 await letter 2"), "took/3/letter 2");
+    assert.equal(
+        await demo.ask("agent 3 await letter 1 later"),
+        "took/3/letter 1",
+    );
+    assert.equal(
+        await demo.ask(`agent 3 await letter 1 ${first}`),
+        "took/3/letter 1",
+    );
 }
 
 /** Founds `h1`, whose mayor is agent 2, and hires agents 3 to `last` under it, each live. */
@@ -91,7 +98,7 @@ test(
                 /^taken\/s1 /,
             );
             await chatHolds(demo, 2, (item) => item.text === "Done: Sent.");
-            await heldOnce(demo);
+            await heldOnce(demo, "hello");
             assert.equal(await demo.stop(), 0);
         });
     },
@@ -164,7 +171,7 @@ test(
             );
             await chatHolds(demo, 2, (item) => item.text === "Done: Sent.");
             assert.notEqual(await demo.ask("pi pid"), before);
-            await heldOnce(demo);
+            await heldOnce(demo, "once");
             assert.equal(await demo.stop(), 0);
         });
     },

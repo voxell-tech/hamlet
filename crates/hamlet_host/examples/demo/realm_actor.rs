@@ -81,9 +81,10 @@
 //! demo agent <n> keep-credential <provider> <key>
 //! demo agent <n> inputs
 //!                    list the inputs in agent <n>'s transcript
-//! demo agent <n> await <kind> <count>
+//! demo agent <n> await <kind> <count> [<text>]
 //!                    wait until agent <n>'s transcript holds <count>
-//!                    inputs of <kind>
+//!                    inputs of <kind>, only those whose text holds
+//!                    <text> when given, and print how many it holds
 //! demo agent <first>..<last> ...
 //!                    run the command as each agent at once
 //! demo ... &         run the command in the background
@@ -820,22 +821,29 @@ async fn as_agent(
                 Agreed::Refused { why } => refused(call, &why)?,
             }
         }
-        [verb, kind, count] if verb == "await" => {
+        [verb, kind, count, text @ ..] if verb == "await" => {
             let count = usize::try_from(number(Some(count))?)?;
-            let took = move || async move {
+            let text = text.join(" ");
+            let took = || async {
                 let holding = taken(host, AgentNumber(me)).await?;
                 anyhow::Ok(
                     holding
                         .inputs
                         .iter()
-                        .filter(|input| input.kind == *kind)
+                        .filter(|input| {
+                            input.kind == *kind
+                                && input.text.contains(&text)
+                        })
                         .count(),
                 )
             };
-            until(move || async move {
+            until(|| async {
                 Ok((took().await? >= count).then_some(()))
             })
-            .await?;
+            .await?
+            .with_context(|| {
+                format!("agent {me} took fewer than {count} {kind}")
+            })?;
             writeln!(out, "took/{me}/{kind} {}", took().await?)?;
         }
         [verb, call, to, text @ ..] if verb == "ask" => {
