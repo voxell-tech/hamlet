@@ -45,8 +45,8 @@ use hamlet_client::waits::Waiting;
 use hamlet_protocol::client as protocol;
 use hamlet_realm::pick::{Selected, Thing, bring_into_view, select};
 use hamlet_ui::styles::{
-    ICON, STATUS_PAD, note, note_rules, scroll_area, status_icon_at,
-    text_input, transparent,
+    ICON, STATUS_PAD, note, scroll_area, status_icon_at, text_input,
+    transparent,
 };
 use hamlet_ui::theme::HamletTheme;
 use hamlet_ui::widgets::effects::{Edge, Variant, Wash};
@@ -88,6 +88,9 @@ const ROW: f32 = 28.0;
 /// The height of a worker's row and the side of its icon.
 const WORKER_ROW: f32 = 24.0;
 const WORKER_ICON: f32 = 12.0;
+
+/// The size of the time since a row last moved, at its end.
+const AGE_TEXT: f32 = 12.0;
 
 /// How opaque the icon of one that left is.
 const DIMMED: f32 = 0.6;
@@ -1852,7 +1855,8 @@ fn expanded(line: &Line, dimmed: bool) -> AnyView {
     words.push(
         label(resource::<Minute, _>(move |_| age(now_ms(), since)))
             .wrap(false)
-            .rules(note_rules)
+            .size(AGE_TEXT)
+            .tone(Tone::Dim)
             .boxed(),
     );
     words.push(mark_icon(line.mark));
