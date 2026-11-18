@@ -157,6 +157,8 @@ struct Listing {
     steering: bool,
     /// The number of the next chip, which keys it.
     next: u64,
+    /// How many times the Hub's folder was read when it was listed.
+    reads: u64,
 }
 
 impl Listing {
@@ -195,13 +197,18 @@ fn follow_in(world: &mut World, hub: Entity) {
     let Some(listing) = world.get::<Listing>(hub) else {
         return;
     };
-    let same = match (&word, &listing.word) {
-        (Some((sign, range, rest)), Some((was, range_was))) => {
-            sign == was && range == range_was && *rest == listing.rest
-        }
-        (None, None) => true,
-        _ => false,
-    };
+    // A folder read anew lists its files again, at the same word too.
+    let reads = files::reads(world, hub);
+    let same = listing.reads == reads
+        && match (&word, &listing.word) {
+            (Some((sign, range, rest)), Some((was, range_was))) => {
+                sign == was
+                    && range == range_was
+                    && *rest == listing.rest
+            }
+            (None, None) => true,
+            _ => false,
+        };
     if !same {
         let entries = word
             .as_ref()
@@ -225,6 +232,7 @@ fn follow_in(world: &mut World, hub: Entity) {
         }
         listing.chosen = 0;
         listing.entries = entries;
+        listing.reads = reads;
         (listing.word, listing.rest) = match word {
             Some((sign, range, rest)) => (Some((sign, range)), rest),
             None => (None, String::new()),

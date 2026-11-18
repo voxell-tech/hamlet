@@ -82,6 +82,15 @@ struct Index {
     paths: Vec<PathBuf>,
     /// The start of the word it was read for.
     word: Option<usize>,
+    /// How many times it was read, which a list shown from it is
+    /// made again for.
+    reads: u64,
+}
+
+/// How many times `hub`'s folder was read, so a list of its files is
+/// made again once it is read anew.
+pub(super) fn reads(world: &World, hub: Entity) -> u64 {
+    world.get::<Index>(hub).map_or(0, |index| index.reads)
 }
 
 /// Reads the hamlet's folder again for a Hub each time a word of `#`
@@ -119,6 +128,7 @@ fn index_in(world: &mut World, hub: Entity) {
         was.word = word;
         return;
     }
+    let reads = was.reads + 1;
     let folder = named.clone().filter(|folder| folder.is_dir());
     let paths = folder.as_deref().map(read).unwrap_or_default();
     world.entity_mut(hub).insert(Index {
@@ -126,6 +136,7 @@ fn index_in(world: &mut World, hub: Entity) {
         folder,
         paths,
         word,
+        reads,
     });
 }
 
