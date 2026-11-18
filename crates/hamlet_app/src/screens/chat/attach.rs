@@ -510,6 +510,12 @@ impl Attached {
     }
 }
 
+/// Whether `atom` is the chip of an attachment, which is keyed by its
+/// number.
+pub(super) fn is_attachment(atom: &Atom) -> bool {
+    atom.key().parse::<u64>().is_ok()
+}
+
 /// Keeps what is attached in step with the chips among `pieces`.
 pub(super) fn reconcile(world: &mut World, pieces: &[Piece]) {
     let seen = pieces

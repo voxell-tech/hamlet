@@ -90,7 +90,7 @@ async fn attaches_a_file_and_a_folder_to_the_first_line() {
             b.to_str().unwrap(),
         ],
         &format!(
-            "Read @\"{}\" these, @nobody.\n/attach /nowhere\n",
+            "Read #\"{}\" these, #nobody.\n/attach /nowhere\n",
             c.display()
         ),
         &[],
@@ -101,7 +101,7 @@ async fn attaches_a_file_and_a_folder_to_the_first_line() {
     // A token that names a path is attached where it stood.
     let now = hamlet_acceptance::chat(s.hand());
     let items = s.chief.open(&now).await.items;
-    assert_eq!(items[0].text, "Read these, @nobody.");
+    assert_eq!(items[0].text, "Read these, #nobody.");
     let placed = items[0]
         .files
         .iter()

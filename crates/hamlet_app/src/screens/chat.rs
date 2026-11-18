@@ -5,7 +5,6 @@ pub(crate) mod attach;
 pub(crate) mod bubble;
 mod card;
 mod change;
-mod commands;
 mod edits;
 mod entry;
 mod field;
@@ -14,6 +13,7 @@ mod lines;
 mod quote;
 pub(crate) mod reply;
 mod rewind;
+mod suggestions;
 mod timeline;
 
 use std::collections::HashMap;
@@ -109,6 +109,7 @@ pub fn plugin(app: &mut App) {
         .add_plugins((
             anchor::plugin,
             attach::plugin,
+            suggestions::plugin,
             rewind::plugin,
             lines::plugin,
             reply::plugin,
@@ -376,19 +377,31 @@ fn told(tell: On<Tell>, mut commands: Commands) {
     });
 }
 
+/// What a typed command the list does not offer is told.
+const UNLISTED: &str = "Only the commands listed as you type / run \
+                        here. The rest are in the menus, or \
+                        right-click an agent or a hamlet.";
+
 /// Sends what is typed in the field, as Enter does.
 pub(crate) fn send_typed(world: &mut World) {
     let Some(plain) = field::typed(world) else {
         return;
     };
-    world.resource_mut::<Draft>().focus = true;
+    // Only the commands the list offers run here: the rest each have
+    // a button or a menu.
     if plain.text.trim_start().starts_with('/') {
-        world.resource_mut::<Draft>().notice =
-            "Commands are not typed here. Use the menus, or \
-             right-click an agent or a hamlet."
-                .into();
+        let line = plain.text.trim().to_owned();
+        if suggestions::commands::run(world, &line) {
+            // What ran may take the focus, as a popup does.
+            world.resource_mut::<Draft>().notice.clear();
+            field::with_field(world, |mut field| field.clear());
+        } else {
+            world.resource_mut::<Draft>().focus = true;
+            world.resource_mut::<Draft>().notice = UNLISTED.into();
+        }
         return;
     }
+    world.resource_mut::<Draft>().focus = true;
     if without_model(world) {
         // Kept in the field, to send once a model is set up.
         world.resource_mut::<Draft>().notice =
@@ -522,11 +535,13 @@ fn message_bar_in(
         if without_model(world) {
             return "Set up a model to start".to_string();
         }
-        match world.get_resource::<Convo>().map(|c| &c.with) {
-            Some(Some(name)) => format!("Message {name}"),
-            Some(None) => "Message the Hand".to_string(),
-            None => "Message".to_string(),
-        }
+        let message =
+            match world.get_resource::<Convo>().map(|c| &c.with) {
+                Some(Some(name)) => format!("Message {name}"),
+                Some(None) => "Message the Hand".to_string(),
+                None => "Message".to_string(),
+            };
+        format!("{message}. {}", suggestions::hint(world))
     })
     .when(every_frame());
     let field = row((hinted(
@@ -555,7 +570,7 @@ fn message_bar_in(
     .min_width(px(FIELD_LEAST))
     .overflow(Overflow::clip());
     let card = column((
-        commands::list(),
+        suggestions::list(),
         reply::preview(),
         attach::indicator(),
         attach::holds(),
@@ -856,7 +871,7 @@ mod tests {
             .world_mut()
             .spawn((Window::default(), PrimaryWindow))
             .id();
-        for command in ["/compact", "/agent ada", "/hamlet home"] {
+        for command in ["/hand", "/agent ada", "/hamlet home"] {
             type_in(&mut app, command);
             app.update();
             app.world_mut().write_message(KeyboardInput {
@@ -868,11 +883,11 @@ mod tests {
                 window,
             });
             app.update();
-            assert!(crate::testing::words(&mut app).iter().any(
-                |text| text
-                    == "Commands are not typed here. Use the menus, \
-                        or right-click an agent or a hamlet."
-            ));
+            assert!(
+                crate::testing::words(&mut app)
+                    .iter()
+                    .any(|text| text == UNLISTED)
+            );
         }
         let places = attach::Places::new();
         send(app.world_mut(), "/agent ada".into(), &places);

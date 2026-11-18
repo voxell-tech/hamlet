@@ -295,7 +295,7 @@ fn field<R: Resource<Mutability = Mutable>>(
 }
 
 /// Stops what `agent` is doing now, and gives the id of the request.
-pub(super) fn stop(world: &mut World, agent: Entity) -> RequestId {
+pub(crate) fn stop(world: &mut World, agent: Entity) -> RequestId {
     let request = RequestId::new();
     world.trigger(Veto {
         request: request.clone(),

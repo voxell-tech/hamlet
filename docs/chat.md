@@ -118,6 +118,22 @@ above the rows already there, which stay where they are on screen.
 Sending a line triggers `ChiefMessage`, which the client sends as `say` to
 the selected address. Typed slash lines are refused locally with directions
 to use the window's controls; those controls send commands to the server.
+
+**What the field lists.** While the word at the caret starts with a sign of
+`hamlet_protocol::signs`, a list over the field offers what it may name:
+
+| Sign | Lists | Picked |
+|---|---|---|
+| `@` | the other living agents, by name or address, those the chat's agent has a channel to and the Hand first | its chip, sent as `agent#3 (Mira)` |
+| `/` | `/compact`, `/retry`, `/stop`, `/reflect` and `/model`, at the start of the line | puts it in the field; sent, it runs as its control does |
+| `$` | the library's skills and the agent's own | a chip, sent as `$name` |
+| `#` | the files and folders of the hamlet's folder | attached where the word stood (C33) |
+
+`$5` is money and `#3` a wait, so neither opens the list. Up and Down choose,
+Enter or Tab picks and Escape closes the list for that word; the field leaves
+those keys to the list only while it is open. Each kind is a `Source` in
+`crates/hamlet_app/src/screens/chat/suggestions/`, added with `add_source`.
+
 Unaddressed server faults and error replies to the chat's own requests show
 under the field and play the Error sound. Fault waits stay on the realm's page
 in the Hub. Faults with a `setup` cause, no model or refused credentials,
@@ -380,7 +396,7 @@ in its words, a byte offset on a character boundary (`at` in
 [the protocol](protocol.md)). The server puts each one's caption in the words at
 its place, for the model, and the transcript keeps the words alone with each
 place beside them. The window sends the place of each chip; the terminal chat
-places the ones its `@path` tokens name.
+places the ones its `#path` tokens name.
 
 A model that takes no images has the button greyed out, and a drag over
 the window says it cannot be dropped; a paste or drop is refused the same way.

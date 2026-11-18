@@ -11,10 +11,12 @@ use bevy::ecs::resource::Resource;
 use bevy::ecs::system::{Commands, Query, Res, ResMut};
 use bevy::ecs::world::World;
 use bevy::input_focus::{FocusCause, InputFocus};
-use bevy_fynix::views::{Caret, Piece, Plain, PlainAtom, RichField};
+use bevy_fynix::views::{
+    Atom, Caret, Piece, Plain, PlainAtom, RichField,
+};
 use hamlet_ui::markdown::{agent_addresses, is_address_in};
 
-use super::attach::Attached;
+use super::attach::{self, Attached};
 use super::{ChatField, Draft};
 use crate::convo::Convo;
 use crate::reference::chip_of;
@@ -99,26 +101,89 @@ pub(super) fn with_field<R>(
     fields.iter_mut(world).next().map(edit)
 }
 
-/// The field's text, agent chips as words, and attachment places.
+/// The field's text, other chips as their words, and attachment
+/// places.
 pub(super) fn typed(world: &mut World) -> Option<Plain> {
     with_field(world, |field| {
         let mut plain = Plain::default();
         for piece in field.pieces() {
             match piece {
                 Piece::Text(text) => plain.text.push_str(&text),
-                Piece::Atom(atom)
-                    if atom.key().starts_with(REFERENCE) =>
-                {
-                    plain.text.push_str(atom.text());
+                Piece::Atom(atom) if attach::is_attachment(&atom) => {
+                    plain.atoms.push(PlainAtom {
+                        key: atom.key().into(),
+                        at: plain.text.len(),
+                    });
                 }
-                Piece::Atom(atom) => plain.atoms.push(PlainAtom {
-                    key: atom.key().into(),
-                    at: plain.text.len(),
-                }),
+                Piece::Atom(atom) => plain.text.push_str(atom.text()),
             }
         }
         plain
     })
+}
+
+/// The chip of what `address` names, which is sent as `words`.
+pub(super) fn reference(
+    world: &mut World,
+    address: &str,
+    words: &str,
+) -> Option<Atom> {
+    let key = {
+        let mut typed = world.resource_mut::<Typed>();
+        typed.chips += 1;
+        format!("{REFERENCE}{}", typed.chips)
+    };
+    chip_of(world, address, words, key)
+}
+
+/// Puts `with` in place of the bytes `range` of the field's text,
+/// with the caret after it.
+pub(super) fn replace(
+    world: &mut World,
+    range: Range<usize>,
+    with: Vec<Piece>,
+) {
+    with_field(world, |mut field| {
+        let after = with
+            .iter()
+            .map(|piece| match piece {
+                Piece::Text(text) => text.len(),
+                Piece::Atom(_) => 0,
+            })
+            .sum::<usize>();
+        let mut pieces = Vec::new();
+        let mut with = Some(with);
+        let mut at = 0;
+        for piece in field.pieces() {
+            match piece {
+                Piece::Atom(atom) => {
+                    if at > range.start {
+                        pieces.extend(
+                            with.take().into_iter().flatten(),
+                        );
+                    }
+                    pieces.push(Piece::Atom(atom));
+                }
+                Piece::Text(text) => {
+                    let end = at + text.len();
+                    let cut = range.start.clamp(at, end) - at
+                        ..range.end.clamp(at, end) - at;
+                    pieces
+                        .push(Piece::Text(text[..cut.start].into()));
+                    if end > range.start {
+                        pieces.extend(
+                            with.take().into_iter().flatten(),
+                        );
+                    }
+                    pieces.push(Piece::Text(text[cut.end..].into()));
+                    at = end;
+                }
+            }
+        }
+        pieces.extend(with.into_iter().flatten());
+        field.set_content(pieces);
+        field.set_caret(Caret::Offset(range.start + after));
+    });
 }
 
 /// Puts `pieces` in the field and gives it the focus.

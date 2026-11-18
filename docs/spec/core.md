@@ -223,9 +223,10 @@ the message again.
 agent, by dropping them on the window, pasting them (files copied in a file
 manager, or a picture such as a screenshot) or choosing them in a dialog; the
 terminal chat takes `--attach <path>` and `/attach <path>`, which attach at the
-end of the line, and `@path` or `@"path with spaces"` in the words, which
+end of the line, and `#path` or `#"path with spaces"` in the words, which
 attaches what the path names, if it exists, where the token stood and takes the
-token out. An attachment may sit anywhere in the line's words, at a byte offset
+token out. In the window, `#` lists the files and folders of the hamlet's
+folder, and the one picked is attached where the word stood. An attachment may sit anywhere in the line's words, at a byte offset
 on a character boundary, and one that does not is refused; one without a place
 goes after the words. A folder is attached with everything under it, links left
 out. An image (PNG, JPEG, WebP
