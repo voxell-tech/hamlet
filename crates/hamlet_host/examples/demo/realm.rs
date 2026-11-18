@@ -531,9 +531,12 @@ impl Handler<Secrets> for Realm {
     async fn handle(
         self: Arc<Self>,
         ctx: Ctx<Self>,
-        asked: Secrets,
+        _asked: Secrets,
     ) -> Result<SecretList> {
-        sender(&ctx, &asked)?;
+        let caller = caller(&ctx)?;
+        if address::Workspace::of(caller.as_ref()).is_none() {
+            return Err(wrong_caller(Secrets::NAME, caller));
+        }
         Ok(SecretList {
             version: SecretsVersion(1),
             values: vec!["demo-secret-value".to_owned()],
