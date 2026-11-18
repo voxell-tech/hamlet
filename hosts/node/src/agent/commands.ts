@@ -192,16 +192,18 @@ export async function retry(
     message: Retry,
 ): Promise<RetryAnswer> {
     const generation = generationOf(c);
-    return generation.inTurn(() => {
-        const admitted = retried(c, message);
-        generation.retrying = admitted.then(
-            () => undefined,
-            () => undefined,
-        );
-        return admitted.finally(() => {
-            generation.retrying = undefined;
-        });
+    const answered = generation.inTurn(() => retried(c, message));
+    // Set while the retry is still queued, so a stop sent after it waits
+    // for it and for every retry queued before it.
+    const settled = answered.then(
+        () => undefined,
+        () => undefined,
+    );
+    generation.retrying = settled;
+    void settled.then(() => {
+        if (generation.retrying === settled) generation.retrying = undefined;
     });
+    return answered;
 }
 
 async function retried(c: AgentCall, message: Retry): Promise<RetryAnswer> {

@@ -414,8 +414,8 @@ export interface Generation {
      */
     readonly inTurn: <T>(work: () => Promise<T>) => Promise<T>;
     /**
-     * Settles once the retry under way is admitted or has failed. A stop
-     * waits for it, so it stops the retry's turn too.
+     * Settles once the last retry sent, queued or under way, is admitted
+     * or has failed. A stop waits for it, so it stops the retry's turn too.
      */
     retrying: Promise<void> | undefined;
     /** Absent for an errand, which is offered no tool. */

@@ -374,7 +374,7 @@ export function agentModels(
     const streamSimple: Models["streamSimple"] = (model, transcript, options) =>
         new Scrubbed(
             served(model, options).then(([made, asked]) =>
-                takingKeys(listed, made.provider).streamSimple(
+                takingKeys(listed, made.provider, asked).streamSimple(
                     made,
                     transcript,
                     asked,
@@ -389,7 +389,7 @@ export function agentModels(
         try {
             const [made, asked] = await served(model, options);
             return scrub(
-                await takingKeys(listed, made.provider).completeSimple(
+                await takingKeys(listed, made.provider, asked).completeSimple(
                     made,
                     transcript,
                     asked,
@@ -410,17 +410,35 @@ export function agentModels(
 }
 
 /**
- * pi-ai takes a request's key only for a provider with key auth
- * (`auth/resolve.js`). One that signs in only by OAuth is served by a
- * listing of its own, where the login's access token is that key.
+ * The listing a request to `provider` goes to. pi-ai takes a request's key
+ * only for a provider with key auth (`auth/resolve.js`): one that signs in
+ * only by OAuth is served by a listing of its own, where the login's access
+ * token is that key. A key of settings alone is served by a listing of its
+ * own too, which reads nothing of the host's environment or files, as
+ * today's harness serves a request, so only the realm's settings sign it in.
  */
-function takingKeys(listed: Models, provider: string): Models {
+function takingKeys(
+    listed: Models,
+    provider: string,
+    given: Given | undefined,
+): Models {
     const served = listed.getProvider(provider);
-    if (served === undefined || served.auth.apiKey !== undefined) return listed;
-    const models = createModels();
-    models.setProvider({ ...served, auth: { apiKey: GIVEN_KEY } });
+    if (served === undefined) return listed;
+    const signsInByOauth = served.auth.apiKey === undefined;
+    const settingsAlone =
+        given?.apiKey === undefined && given?.env !== undefined;
+    if (!signsInByOauth && !settingsAlone) return listed;
+    const models = createModels({ authContext: NOTHING_OF_THE_HOST });
+    models.setProvider(
+        signsInByOauth ? { ...served, auth: { apiKey: GIVEN_KEY } } : served,
+    );
     return models;
 }
+
+const NOTHING_OF_THE_HOST = {
+    env: async () => undefined,
+    fileExists: async () => false,
+};
 
 const GIVEN_KEY: ApiKeyAuth = {
     name: "the realm's sign-in",
@@ -656,7 +674,7 @@ export async function checkModel(
     }
     try {
         const given = await keys.of(provider);
-        const answer = await takingKeys(listed, provider).completeSimple(
+        const answer = await takingKeys(listed, provider, given).completeSimple(
             model,
             {
                 messages: [
