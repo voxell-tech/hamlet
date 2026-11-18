@@ -34,7 +34,8 @@ use bevy_fynix::views::{
     label, overlay, popup, row,
 };
 use bevy_fynix::{
-    ScopedExt, ViewExt, derived, every_frame, keyed, resource,
+    ScopedExt, Signal, ViewExt, component, derived, every_frame,
+    keyed, resource,
 };
 use hamlet_client::messages::Veto;
 use hamlet_client::outbox::RequestId;
@@ -172,30 +173,69 @@ pub(crate) fn optional<R: Resource<Mutability = Mutable>>(
     flip: fn(&mut R),
     body: impl Fn() -> AnyView + Send + Sync + 'static,
 ) -> impl View {
+    folded(
+        resource::<R, _>(move |r| turn(open(r))),
+        resource::<R, _>(open),
+        move |world| flip(&mut world.resource_mut::<R>()),
+        body,
+    )
+}
+
+/// A form's optional parts, folded as `entity`'s `C` says.
+pub(crate) fn optional_in<C: Component<Mutability = Mutable>>(
+    entity: Entity,
+    open: fn(&C) -> bool,
+    flip: fn(&mut C),
+    body: impl Fn() -> AnyView + Send + Sync + 'static,
+) -> impl View {
+    folded(
+        component::<C, _>(entity, move |c| turn(c.is_some_and(open))),
+        component::<C, _>(entity, move |c| c.is_some_and(open)),
+        move |world| {
+            if let Some(mut c) = world.get_mut::<C>(entity) {
+                flip(&mut c);
+            }
+        },
+        body,
+    )
+}
+
+/// The turn of a fold's chevron, open or shut.
+fn turn(open: bool) -> f32 {
+    if open { 180.0 } else { 90.0 }
+}
+
+/// `body` under a line that `flip`s it open or shut, its chevron
+/// turned by `turned` and the body shown while `open`.
+fn folded(
+    turned: Signal<f32>,
+    open: Signal<bool>,
+    flip: impl Fn(&mut World) + Send + Sync + 'static,
+    body: impl Fn() -> AnyView + Send + Sync + 'static,
+) -> impl View {
     // The line is built once and only its chevron turns.
-    let line =
-        row((button(
-            row((
-                glyph(Glyph::Chevron, 10.0)
-                    .tone(Tone::Faint)
-                    .rotation(resource::<R, _>(move |r| {
-                        if open(r) { 180.0 } else { 90.0 }
-                    })),
-                label("More Options").tone(Tone::Dim).wrap(false),
-            ))
-            .gap(6.0)
-            .align(AlignItems::Center),
+    let line = row((button(
+        row((
+            glyph(Glyph::Chevron, 10.0)
+                .tone(Tone::Faint)
+                .rotation(turned),
+            label("More Options").tone(Tone::Dim).wrap(false),
+        ))
+        .gap(6.0)
+        .align(AlignItems::Center),
+    )
+    .padding(UiRect::all(px(0.0)))
+    .justify(JustifyContent::FlexStart)
+    .rules(views::tint)
+    .on_activate(flip),));
+    let body =
+        keyed(
+            open,
+            move |open| {
+                if *open { body() } else { frame().boxed() }
+            },
         )
-        .padding(UiRect::all(px(0.0)))
-        .justify(JustifyContent::FlexStart)
-        .rules(views::tint)
-        .on_activate(move |world| {
-            flip(&mut world.resource_mut::<R>());
-        }),));
-    let body = keyed(resource::<R, _>(open), move |open| {
-        if *open { body() } else { frame().boxed() }
-    })
-    .within(column(()));
+        .within(column(()));
     with_cx(move |cx| {
         column((line, body)).gap(cx.theme().space.section)
     })

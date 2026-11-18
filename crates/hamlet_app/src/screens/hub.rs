@@ -19,12 +19,17 @@ use bevy::app::{App, Update};
 use bevy::ecs::change_detection::{DetectChanges, DetectChangesMut};
 use bevy::ecs::component::Component;
 use bevy::ecs::entity::Entity;
+use bevy::ecs::hierarchy::ChildOf;
+use bevy::ecs::observer::On;
 use bevy::ecs::query::With;
 use bevy::ecs::resource::Resource;
-use bevy::ecs::schedule::IntoScheduleConfigs;
-use bevy::ecs::schedule::common_conditions::resource_changed;
-use bevy::ecs::system::Local;
+use bevy::ecs::schedule::common_conditions::{
+    resource_changed, resource_exists_and_changed,
+};
+use bevy::ecs::schedule::{IntoScheduleConfigs, SystemCondition};
+use bevy::ecs::system::{Local, Query, ResMut};
 use bevy::ecs::world::World;
+use bevy::picking::events::PointerPress;
 use bevy::ui::{percent, px};
 use bevy_fynix::dock::{DockTree, DockWindowKind};
 use bevy_fynix::shortcut::Scope;
@@ -62,12 +67,10 @@ pub fn plugin(app: &mut App) {
             erasure::plugin,
         ))
         .init_resource::<CollapsedRails>()
+        .init_resource::<Active>()
+        .add_observer(pressed)
         .init_resource::<crate::forms::OpenForm>()
-        .init_resource::<profile::Form>()
         .add_systems(Update, tabs::mark_on::<Sheet>)
-        .init_resource::<Papers>()
-        .init_resource::<Briefing>()
-        .init_resource::<Opened>()
         .init_resource::<papers::Requests>()
         .add_observer(papers::response)
         .add_observer(papers::edited)
@@ -76,7 +79,9 @@ pub fn plugin(app: &mut App) {
             Update,
             (
                 keep_hubs
-                    .run_if(resource_changed::<DockTree>)
+                    .run_if(resource_changed::<DockTree>.or_else(
+                        resource_exists_and_changed::<Desks>,
+                    ))
                     .after(crate::desk::capture),
                 note_collapsed,
                 thread::leave_prompt,
@@ -154,6 +159,59 @@ pub(crate) fn is_following(world: &World, hub: Entity) -> bool {
     world.get::<Following>(hub).is_some()
 }
 
+/// The Hub the chief last pressed or typed in, which what comes from
+/// outside any Hub goes to: a dropped file, a paste, a fault.
+#[derive(Resource, Default)]
+pub(crate) struct Active(Option<Entity>);
+
+/// The Hub the chief last pressed or typed in, else the following
+/// one.
+pub(crate) fn active(world: &World) -> Option<Entity> {
+    world
+        .get_resource::<Active>()
+        .and_then(|active| active.0)
+        .filter(|hub| world.get::<Hub>(*hub).is_some())
+        .or_else(|| following(world))
+}
+
+/// Makes `hub` the one the chief works in.
+pub(crate) fn activate(world: &mut World, hub: Entity) {
+    if let Some(mut active) = world.get_resource_mut::<Active>()
+        && active.0 != Some(hub)
+    {
+        active.0 = Some(hub);
+    }
+}
+
+/// A press inside a Hub makes it the one the chief works in.
+fn pressed(
+    press: On<PointerPress>,
+    frames: Query<&rail::Frame>,
+    parents: Query<&ChildOf>,
+    mut active: ResMut<Active>,
+) {
+    let hub = std::iter::once(press.entity)
+        .chain(parents.iter_ancestors(press.entity))
+        .find_map(|node| frames.get(node).ok().map(|frame| frame.0));
+    if let Some(hub) = hub
+        && active.0 != Some(hub)
+    {
+        active.0 = Some(hub);
+    }
+}
+
+/// The Hub that `node` is drawn in.
+pub(crate) fn holding(world: &World, node: Entity) -> Option<Entity> {
+    let mut at = Some(node);
+    while let Some(node) = at {
+        if let Some(frame) = world.get::<rail::Frame>(node) {
+            return Some(frame.0);
+        }
+        at = world.get::<ChildOf>(node).map(ChildOf::parent);
+    }
+    None
+}
+
 /// The Hub under the mouse's pointer.
 pub(crate) fn under_pointer(world: &World) -> Option<Entity> {
     let node = crate::trail::under_pointer(world, |node| {
@@ -200,7 +258,8 @@ pub(crate) fn follow(world: &mut World, hub: Entity) {
 }
 
 /// Keeps a Hub for each Hub panel the dock holds, the one the shown
-/// desk chose following, else its first.
+/// desk chose following, else its first. A Hub another desk holds is
+/// kept while that desk is hidden, as it was left.
 fn keep_hubs(world: &mut World) {
     let Some(tree) = world.get_resource::<DockTree>() else {
         return;
@@ -219,10 +278,18 @@ fn keep_hubs(world: &mut World) {
         .iter(world)
         .map(|(entity, hub)| (entity, hub.0.clone()))
         .collect::<Vec<_>>();
-    for (entity, id) in &had {
-        if !docked.contains(id) {
-            world.despawn(*entity);
-        }
+    let desks = world.get_resource::<Desks>();
+    let gone = had
+        .iter()
+        .filter(|(_, id)| {
+            !docked.contains(id)
+                && !desks.is_some_and(|d| d.holds(id))
+        })
+        .map(|(entity, _)| *entity)
+        .collect::<Vec<_>>();
+    for hub in gone {
+        crate::chat::close_merged(world, hub);
+        world.despawn(hub);
     }
     let collapsed = world
         .get_resource::<CollapsedRails>()
@@ -248,6 +315,9 @@ fn keep_hubs(world: &mut World) {
         chosen.or(first).and_then(|id| hub_of(world, &id))
     {
         follow(world, hub);
+    } else if let Some(was) = following(world) {
+        // A hidden desk's Hub does not follow on a desk without one.
+        world.entity_mut(was).remove::<Following>();
     }
 }
 
@@ -270,9 +340,18 @@ pub(crate) fn spawn(
             Showing::default(),
             Sheet::default(),
             visits::Visits::default(),
+            Convo::default(),
+            profile::Form::default(),
+            overview::Page::default(),
         ))
         .id();
     rail::equip(world, hub, rail);
+    papers::equip(world, hub);
+    crate::chat::equip(world, hub);
+    // On the Hand, once the realm names it.
+    if let Some(hand) = hamlet_client::realm::hand(world) {
+        seat(world, hub, hand);
+    }
     hub
 }
 
@@ -322,13 +401,6 @@ pub(crate) fn show(world: &mut World, hub: Entity, showing: Showing) {
     rail::turn(world, hub, tab);
 }
 
-/// Turns the following Hub to `showing` and brings it forward.
-pub(crate) fn show_following(world: &mut World, showing: Showing) {
-    if let Some(hub) = bring_following(world) {
-        show(world, hub, showing);
-    }
-}
-
 /// Selects `thing` in the world and brings it into view, when `hub`
 /// is the one following the selection.
 pub(crate) fn look_at(world: &mut World, hub: Entity, thing: Thing) {
@@ -345,7 +417,8 @@ pub(crate) fn look_at(world: &mut World, hub: Entity, thing: Thing) {
 pub(crate) fn talk_in(world: &mut World, hub: Entity, agent: Entity) {
     if is_following(world, hub) {
         crate::convo::talk_to(world, agent);
-    } else if seat(world, agent) == crate::convo::Seating::Seated {
+    } else if seat(world, hub, agent) == crate::convo::Seating::Seated
+    {
         show(world, hub, Showing::Thread);
     }
 }
@@ -450,11 +523,11 @@ pub(crate) fn follow_selection(world: &mut World) {
             else {
                 return;
             };
-            seat_if_new(world, lead);
+            seat(world, hub, lead);
             Showing::Thread
         }
         Some(Thing::Agent(agent) | Thing::House(agent)) => {
-            seat_if_new(world, agent);
+            seat(world, hub, agent);
             Showing::Thread
         }
         // The Hand's tower is the Hand's.
@@ -462,7 +535,7 @@ pub(crate) fn follow_selection(world: &mut World) {
             let Some(hand) = hamlet_client::realm::hand(world) else {
                 return;
             };
-            seat_if_new(world, hand);
+            seat(world, hub, hand);
             Showing::Thread
         }
         Some(Thing::Common(hamlet))
@@ -518,14 +591,8 @@ pub(crate) fn open_first(
             hamlets.iter(world).next().is_some()
         });
     if !any {
-        seat_if_new(world, hand);
+        seat(world, hub, hand);
         show(world, hub, Showing::Thread);
-    }
-}
-
-fn seat_if_new(world: &mut World, agent: Entity) {
-    if world.resource::<Convo>().agent != agent {
-        seat(world, agent);
     }
 }
 
@@ -541,7 +608,7 @@ pub(crate) fn tell_page(
         return;
     };
     let agent = (page == Showing::Thread)
-        .then(|| world.resource::<Convo>().agent);
+        .then(|| crate::convo::agent_of(world, hub));
     let now = (hub, page, agent);
     // A Hub's first page, or another Hub following, is not a change.
     if seen

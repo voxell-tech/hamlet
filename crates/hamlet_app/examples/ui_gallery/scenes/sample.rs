@@ -157,20 +157,22 @@ pub(super) fn setup(world: &mut World) {
             Usage(usage),
         ))
         .id();
+    let first = hamlet_app::hub::first(world);
     if scene == Scene::Chat {
         // The first turn's steps open, with one call opened in them.
         world.insert_resource(hamlet_app::chat::Unfolded(vec![(
+            first,
             chat,
             "turn-0-tool-0".into(),
         )]));
         world.insert_resource(hamlet_app::chat::OpenTools(vec![(
+            first,
             chat,
             "turn-0-tool-1".into(),
         )]));
     }
-    world.insert_resource(Convo {
+    world.entity_mut(first).insert(Convo {
         chat,
-        name: "chief".into(),
         agent,
         with: Some("agent#2".into()),
     });

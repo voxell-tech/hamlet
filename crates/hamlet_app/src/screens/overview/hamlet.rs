@@ -5,11 +5,7 @@ use std::f32::consts::TAU;
 use bevy::color::Color;
 use bevy::ecs::component::Component;
 use bevy::ecs::entity::Entity;
-use bevy::ecs::hierarchy::Children;
-use bevy::ecs::query::With;
-use bevy::ecs::resource::Resource;
 use bevy::ecs::world::World;
-use bevy::text::EditableText;
 use bevy::ui::{
     AlignItems, AngularColorStop, BorderGradient, ConicGradient,
     JustifyContent, PositionType, UiPosition, UiRect, Val, px,
@@ -20,7 +16,7 @@ use bevy_fynix::views::{
     dropdown, frame, label, row,
 };
 use bevy_fynix::{
-    ScopedExt, ViewExt, derived, every_frame, keyed, resource, style,
+    ScopedExt, ViewExt, component, derived, every_frame, keyed, style,
 };
 use hamlet_client::realm::{Actions, Works};
 use hamlet_realm::orders::Decree;
@@ -46,20 +42,6 @@ use crate::forms::{self, Asking};
 use crate::hub::Showing;
 use crate::roll::{either, moved};
 use crate::{profile_tag, words, world_menu};
-
-/// The words typed in the field under a root marked `M`.
-pub(crate) fn typed<M: Component>(world: &mut World) -> String {
-    let roots = world
-        .query_filtered::<&Children, With<M>>()
-        .iter(world)
-        .flat_map(|children| children.iter().copied())
-        .collect::<Vec<_>>();
-    roots
-        .into_iter()
-        .find_map(|child| world.get::<EditableText>(child))
-        .map(|text| text.value().to_string())
-        .unwrap_or_default()
-}
 
 /// Gives the chief's command `text` to the hamlet `id`.
 fn decree(world: &mut World, id: &str, text: String) {
@@ -129,7 +111,7 @@ fn worker_form(hamlet: Entity, id: String) -> AnyView {
 }
 
 /// The page of a hamlet that is shown.
-#[derive(Resource, Default, Clone, Copy, PartialEq, Eq)]
+#[derive(Component, Default, Clone, Copy, PartialEq, Eq)]
 pub enum Page {
     #[default]
     Agents,
@@ -137,11 +119,23 @@ pub enum Page {
     History,
 }
 
-const PAGES: [(Page, Glyph, &str); 3] = [
-    (Page::Agents, Glyph::Robot, "Agents"),
-    (Page::Limits, Glyph::Book, "Limits"),
-    (Page::History, Glyph::History, "History"),
-];
+/// The tabs of `hub`'s hamlet pages.
+fn pages_of(
+    hub: Entity,
+) -> [((Entity, Page), Glyph, &'static str); 3] {
+    [
+        ((hub, Page::Agents), Glyph::Robot, "Agents"),
+        ((hub, Page::Limits), Glyph::Book, "Limits"),
+        ((hub, Page::History), Glyph::History, "History"),
+    ]
+}
+
+/// Turns `hub`'s hamlet page to `page`.
+fn turn_to(world: &mut World, hub: Entity, page: Page) {
+    if let Some(mut now) = world.get_mut::<Page>(hub) {
+        *now = page;
+    }
+}
 
 /// Everyone in `hamlet` as a tree, each pressed to talk to in `hub`.
 fn list_of(hub: Entity, hamlet: Entity) -> impl View {
@@ -560,8 +554,8 @@ pub fn hamlet(hub: Entity, hamlet: Entity) -> impl View {
                 .justify(JustifyContent::FlexStart)
                 .rules(views::tint)
                 .tooltip(|| note("Change the budget"))
-                .on_activate(|world| {
-                    *world.resource_mut::<Page>() = Page::Limits;
+                .on_activate(move |world| {
+                    turn_to(world, hub, Page::Limits);
                     *world.resource_mut::<crate::limits::Part>() =
                         crate::limits::Part::Budget;
                 });
@@ -583,22 +577,22 @@ pub fn hamlet(hub: Entity, hamlet: Entity) -> impl View {
     })
     .within(bare());
     let pages = tabs::tipped_strip(
-        &PAGES,
+        &pages_of(hub),
         &[words::AGENTS, words::LIMITS, words::HISTORY],
         Spread::Shared,
-        |world, page| {
-            *world.resource_mut::<Page>() = page;
-        },
+        |world, (hub, page)| turn_to(world, hub, page),
     );
-    let page =
-        keyed(resource::<Page, _>(|page| *page), move |page| {
-            match page {
-                Page::Agents => list_of(hub, hamlet).boxed(),
-                Page::Limits => crate::limits::panel(hamlet),
-                Page::History => record_of(hamlet).boxed(),
-            }
-        })
-        .within(bare());
+    let page = keyed(
+        component::<Page, _>(hub, |page| {
+            page.copied().unwrap_or_default()
+        }),
+        move |page| match page {
+            Page::Agents => list_of(hub, hamlet).boxed(),
+            Page::Limits => crate::limits::panel(hamlet),
+            Page::History => record_of(hamlet).boxed(),
+        },
+    )
+    .within(bare());
     with_cx(move |cx| {
         column((head, pages, scroll_area((page,))))
             .fills_height()

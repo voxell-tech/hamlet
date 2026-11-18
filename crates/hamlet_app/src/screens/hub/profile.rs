@@ -2,8 +2,9 @@
 
 use bevy::ecs::component::Component;
 use bevy::ecs::entity::Entity;
-use bevy::ecs::resource::Resource;
+use bevy::ecs::hierarchy::Children;
 use bevy::ecs::world::World;
+use bevy::text::EditableText;
 use bevy::ui::{AlignItems, UiRect, px};
 use bevy_fynix::tokens::Tone;
 use bevy_fynix::views::{
@@ -11,7 +12,7 @@ use bevy_fynix::views::{
     frame, label, menu_button, row, text_field,
 };
 use bevy_fynix::{
-    ScopedExt, ViewExt, derived, every_frame, keyed, resource,
+    ScopedExt, ViewExt, component, derived, every_frame, keyed,
 };
 use hamlet_client::realm::{
     Actions, Learned, LivesIn, Pin, Profile, name_of, profile_address,
@@ -30,7 +31,6 @@ use super::details::{section, section_line};
 use super::thread::dim;
 use super::{Showing, memory, open_hamlet, rail, show};
 use crate::convo::talk_to;
-use crate::overview::typed;
 use crate::profile_tag::{learned_mark, learned_words};
 use crate::standing::Standing;
 use crate::{chat, world_menu};
@@ -52,12 +52,21 @@ const ACTIONS: [&str; 13] = [
     "erase-profile",
 ];
 
-/// What a profile's page is asking for words to do.
-#[derive(Resource, Default, Clone, PartialEq, Eq)]
+/// What a Hub's profile page is asking for words to do.
+#[derive(Component, Default, Clone, PartialEq, Eq)]
 pub struct Form {
     act: Option<Act>,
+    /// The profile it was asked about.
+    of: Option<Entity>,
     /// Whether the reason it may take is shown.
     more: bool,
+}
+
+impl Form {
+    /// What it asks for words to do to `profile`.
+    fn act_on(&self, profile: Entity) -> Option<&Act> {
+        self.act.as_ref().filter(|_| self.of == Some(profile))
+    }
 }
 
 #[derive(Clone, PartialEq, Eq, Debug)]
@@ -74,12 +83,12 @@ enum Act {
     Revert(String),
 }
 
-/// The first and second field of the form.
-#[derive(Component)]
-struct First;
-
-#[derive(Component)]
-struct Second;
+/// The first or the second field of a Hub's form.
+#[derive(Component, Clone, Copy, PartialEq, Eq)]
+struct Field {
+    hub: Entity,
+    second: bool,
+}
 
 /// Where `agent` stands: lead of its hamlet, or in it under its
 /// parent.
@@ -173,11 +182,37 @@ fn tell_hand(world: &mut World, text: String) {
     chat::command(world, text);
 }
 
-fn ask(world: &mut World, act: Act) {
-    *world.resource_mut::<Form>() = Form {
-        act: Some(act),
-        more: false,
+/// Asks in `hub` for the words to do `act` to the profile it shows.
+fn ask(world: &mut World, hub: Entity, act: Act) {
+    let Some(Showing::Profile(profile)) = super::showing(world, hub)
+    else {
+        return;
     };
+    world.entity_mut(hub).insert(Form {
+        act: Some(act),
+        of: Some(profile),
+        more: false,
+    });
+}
+
+/// Lets go of what `hub`'s form asks.
+fn drop_form(world: &mut World, hub: Entity) {
+    world.entity_mut(hub).insert(Form::default());
+}
+
+/// The words typed in `field`.
+fn typed(world: &mut World, field: Field) -> String {
+    let roots = world
+        .query::<(&Field, &Children)>()
+        .iter(world)
+        .filter(|(of, _)| **of == field)
+        .flat_map(|(_, children)| children.iter().copied())
+        .collect::<Vec<_>>();
+    roots
+        .into_iter()
+        .find_map(|child| world.get::<EditableText>(child))
+        .map(|text| text.value().to_string())
+        .unwrap_or_default()
 }
 
 /// The command `act` makes of the profile and the words typed.
@@ -217,9 +252,15 @@ fn command(
     })
 }
 
-fn run(world: &mut World, address: &str, name: &str, act: &Act) {
-    let first = typed::<First>(world);
-    let second = typed::<Second>(world);
+fn run(
+    world: &mut World,
+    hub: Entity,
+    address: &str,
+    name: &str,
+    act: &Act,
+) {
+    let first = typed(world, Field { hub, second: false });
+    let second = typed(world, Field { hub, second: true });
     if let Some(text) = command(address, name, act, &first, &second) {
         if *act == Act::Erase
             && let Some(profile) = profile_at(world, address)
@@ -231,7 +272,7 @@ fn run(world: &mut World, address: &str, name: &str, act: &Act) {
             );
         }
         tell_hand(world, text);
-        world.resource_mut::<Form>().act = None;
+        drop_form(world, hub);
     }
 }
 
@@ -244,16 +285,21 @@ fn profile_at(world: &World, address: &str) -> Option<Entity> {
         .map(|(entity, _)| entity)
 }
 
-fn field<M: Component>(marker: M) -> impl View {
+fn field(field: Field) -> impl View {
     text_field(String::new(), |_, _| {})
         .grow(1.0)
         .min_width(px(0.0))
         .rules(text_input)
-        .tagged(marker)
+        .tagged(field)
 }
 
-/// The fields and buttons of the action being asked for.
-fn form(address: String, name: String, act: Act) -> AnyView {
+/// The fields and buttons of the action being asked for in `hub`.
+fn form(
+    hub: Entity,
+    address: String,
+    name: String,
+    act: Act,
+) -> AnyView {
     let (words, first, second) = match &act {
         Act::Tag => (
             "Name this version of its main, with a note.".to_string(),
@@ -301,7 +347,9 @@ fn form(address: String, name: String, act: Act) -> AnyView {
     let remove = is_careful(&act);
     let go = {
         let act = act.clone();
-        move |world: &mut World| run(world, &address, &name, &act)
+        move |world: &mut World| {
+            run(world, hub, &address, &name, &act);
+        }
     };
     let ready = if remove {
         bad_action(Glyph::Check, "Do It", go)
@@ -315,14 +363,16 @@ fn form(address: String, name: String, act: Act) -> AnyView {
             let line = move || {
                 row((
                     label(first).tone(Tone::Faint).wrap(false),
-                    field(First).tagged(world_menu::TakesFocus),
+                    field(Field { hub, second: false })
+                        .tagged(world_menu::TakesFocus),
                 ))
                 .gap(gap)
                 .align(AlignItems::Center)
                 .boxed()
             };
             parts.push(if optional {
-                world_menu::optional::<Form>(
+                world_menu::optional_in::<Form>(
+                    hub,
                     |form| form.more,
                     |form| form.more = !form.more,
                     line,
@@ -336,7 +386,7 @@ fn form(address: String, name: String, act: Act) -> AnyView {
             parts.push(
                 row((
                     label(second).tone(Tone::Faint).wrap(false),
-                    field(Second),
+                    field(Field { hub, second: true }),
                 ))
                 .gap(gap)
                 .align(AlignItems::Center)
@@ -346,8 +396,8 @@ fn form(address: String, name: String, act: Act) -> AnyView {
         parts.push(
             buttons(vec![
                 ready,
-                action(Glyph::Cross, "Cancel", |world| {
-                    world.resource_mut::<Form>().act = None;
+                action(Glyph::Cross, "Cancel", move |world| {
+                    drop_form(world, hub);
                 }),
                 world_menu::send_keys(),
             ])
@@ -358,20 +408,26 @@ fn form(address: String, name: String, act: Act) -> AnyView {
     .boxed()
 }
 
-/// The form of the action asked for, where `here` places it.
+/// The form of the action asked for in `hub` about `profile`, where
+/// `here` places it.
 fn form_view(
+    hub: Entity,
+    profile: Entity,
     address: String,
     name: String,
     here: fn(&Act) -> bool,
 ) -> impl View {
-    keyed(resource::<Form, _>(|form| form.act.clone()), move |act| {
-        match act {
+    keyed(
+        component::<Form, _>(hub, move |form| {
+            form.and_then(|form| form.act_on(profile)).cloned()
+        }),
+        move |act| match act {
             Some(act) if here(act) => {
-                form(address.clone(), name.clone(), act.clone())
+                form(hub, address.clone(), name.clone(), act.clone())
             }
             _ => column(()).boxed(),
-        }
-    })
+        },
+    )
     .within(bare())
 }
 
@@ -420,7 +476,7 @@ fn standing(profile: &protocol::Profile) -> (&'static str, Tone) {
 }
 
 /// The actions under its name that change where it stands.
-fn arrival(shown: &Shown) -> AnyView {
+fn arrival(hub: Entity, shown: &Shown) -> AnyView {
     let address = profile_address(shown.profile.id);
     let can = |name| shown.allowed.contains(&name);
     let mut buttons_row = Vec::new();
@@ -429,8 +485,8 @@ fn arrival(shown: &Shown) -> AnyView {
             action(
                 Glyph::Profile,
                 "New Profile from This One",
-                |world| {
-                    ask(world, Act::Fork(None));
+                move |world| {
+                    ask(world, hub, Act::Fork(None));
                 },
             )
             .tooltip(|| {
@@ -499,7 +555,7 @@ fn arrival(shown: &Shown) -> AnyView {
 }
 
 /// The versions in their section, each with its menu.
-fn versions(shown: &Shown) -> AnyView {
+fn versions(hub: Entity, shown: &Shown) -> AnyView {
     let can = |name| shown.allowed.contains(&name);
     let address = profile_address(shown.profile.id);
     let profile = shown.profile.name.clone();
@@ -548,6 +604,7 @@ fn versions(shown: &Shown) -> AnyView {
         }
         if !actions.is_empty() {
             line.push(action_menu(
+                hub,
                 "What can be done from this version",
                 actions,
             ));
@@ -559,20 +616,30 @@ fn versions(shown: &Shown) -> AnyView {
     let mut acts = Vec::new();
     if can("tag") {
         acts.push(
-            action(Glyph::Plus, "Save as a Version", |world| {
-                ask(world, Act::Tag);
+            action(Glyph::Plus, "Save as a Version", move |world| {
+                ask(world, hub, Act::Tag);
             })
             .tooltip(|| note("Name what the profile knows now"))
             .boxed(),
         );
     }
     parts.push(buttons(acts).boxed());
-    parts.push(form_view(address, profile, is_of_versions).boxed());
+    parts.push(
+        form_view(
+            hub,
+            shown.entity,
+            address,
+            profile,
+            is_of_versions,
+        )
+        .boxed(),
+    );
     section(Glyph::History, "Versions", None, column(parts).gap(4.0))
 }
 
 /// The "..." button that opens `actions`.
 fn action_menu(
+    hub: Entity,
     tip: &'static str,
     actions: Vec<(String, Act)>,
 ) -> AnyView {
@@ -582,7 +649,7 @@ fn action_menu(
         let acts = acts.clone();
         menu_button("", words.clone(), move |world, at| {
             if let Some(act) = acts.get(at) {
-                ask(world, act.clone());
+                ask(world, hub, act.clone());
             }
         })
         .icon(Glyph::More.image(ICON))
@@ -739,16 +806,18 @@ fn agents(shown: &Shown) -> AnyView {
 }
 
 /// Its character, memory and skills, each in its section.
-fn knowledge(shown: &Shown) -> [AnyView; 3] {
+fn knowledge(hub: Entity, shown: &Shown) -> [AnyView; 3] {
     [
-        memory::character_section(),
+        memory::character_section(hub),
         section(
             Glyph::Notes,
             "Memory",
             None,
             column((
-                memory::view(dream(shown), file_menu(shown)),
+                memory::view(hub, dream(shown), file_menu(shown)),
                 form_view(
+                    hub,
+                    shown.entity,
                     profile_address(shown.profile.id),
                     shown.profile.name.clone(),
                     is_of_memory,
@@ -756,7 +825,7 @@ fn knowledge(shown: &Shown) -> [AnyView; 3] {
             ))
             .gap(8.0),
         ),
-        memory::skills_section(),
+        memory::skills_section(hub),
     ]
 }
 
@@ -795,9 +864,11 @@ fn file_menu(shown: &Shown) -> memory::FileMenu {
     may.then_some(erase_menu)
 }
 
-/// The menu that purges `path` from the profile's history.
-fn erase_menu(path: &str) -> AnyView {
+/// The menu that purges `path` from the history of the profile `hub`
+/// shows.
+fn erase_menu(hub: Entity, path: &str) -> AnyView {
     action_menu(
+        hub,
         "What can be done to this file",
         vec![(
             "Erase from Every Version".to_string(),
@@ -808,7 +879,7 @@ fn erase_menu(path: &str) -> AnyView {
 }
 
 /// What changes the profile for good, at the foot of its page.
-fn careful(shown: &Shown) -> AnyView {
+fn careful(hub: Entity, shown: &Shown) -> AnyView {
     let name = shown.profile.name.clone();
     let address = profile_address(shown.profile.id);
     let can = |name| shown.allowed.contains(&name);
@@ -837,28 +908,29 @@ fn careful(shown: &Shown) -> AnyView {
         );
     }
     if living && can("remove-profile") {
-        acts.push(bad_action(Glyph::Gone, "Remove", |world| {
-            ask(world, Act::Remove);
+        acts.push(bad_action(Glyph::Gone, "Remove", move |world| {
+            ask(world, hub, Act::Remove);
         }));
     }
     if !living && can("erase-profile") {
         acts.push(bad_action(
             Glyph::Delete,
             "Erase for Good",
-            |world| {
-                ask(world, Act::Erase);
+            move |world| {
+                ask(world, hub, Act::Erase);
             },
         ));
     }
     if acts.is_empty() {
         return frame().boxed();
     }
+    let form =
+        form_view(hub, shown.entity, address, name, is_of_foot);
     section(
         Glyph::Stop,
         "Careful",
         None,
-        column((buttons(acts), form_view(address, name, is_of_foot)))
-            .gap(4.0),
+        column((buttons(acts), form)).gap(4.0),
     )
 }
 
@@ -870,11 +942,11 @@ fn body(hub: Entity, shown: &Shown) -> AnyView {
     let (stands, tone) = standing(&shown.profile);
     let standing = label(stands).tone(tone);
     let parts = (
-        arrival(shown),
+        arrival(hub, shown),
         agents(shown),
-        knowledge(shown),
-        versions(shown),
-        careful(shown),
+        knowledge(hub, shown),
+        versions(hub, shown),
+        careful(hub, shown),
     );
     with_cx(move |cx| {
         let (
@@ -908,7 +980,13 @@ fn body(hub: Entity, shown: &Shown) -> AnyView {
             )),
             scroll_area((column((
                 head,
-                form_view(address, name.clone(), is_of_header),
+                form_view(
+                    hub,
+                    profile,
+                    address,
+                    name.clone(),
+                    is_of_header,
+                ),
                 column((
                     agents_part,
                     character_part,
@@ -933,23 +1011,29 @@ pub(super) fn submit(world: &mut World, hub: Entity) {
     else {
         return;
     };
-    let Some(act) = world.resource::<Form>().act.clone() else {
+    let Some(act) = world
+        .get::<Form>(hub)
+        .and_then(|form| form.act_on(profile))
+        .cloned()
+    else {
         return;
     };
     let Some(shown) = shown(world, profile) else {
         return;
     };
     let address = profile_address(shown.profile.id);
-    run(world, &address, &shown.profile.name, &act);
+    run(world, hub, &address, &shown.profile.name, &act);
 }
 
 /// Whether an action of the profile `hub` shows waits for its words.
 pub(super) fn asking(world: &World, hub: Entity) -> bool {
-    world.resource::<Form>().act.is_some()
-        && matches!(
-            super::showing(world, hub),
-            Some(Showing::Profile(_))
-        )
+    let Some(Showing::Profile(profile)) = super::showing(world, hub)
+    else {
+        return false;
+    };
+    world
+        .get::<Form>(hub)
+        .is_some_and(|form| form.act_on(profile).is_some())
 }
 
 /// The page of `profile` in `hub`.

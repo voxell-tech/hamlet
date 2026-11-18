@@ -30,7 +30,6 @@ use hamlet_vfx::wind::WindChoice;
 use serde::{Deserialize, Serialize};
 
 use crate::appearance::{Appearance, Pick, Zoom};
-use crate::convo::Convo;
 use crate::desk::{self, Desks, Part};
 use crate::roll::Roll;
 use crate::screens::terminal;
@@ -279,7 +278,7 @@ impl Chosen {
                 hamlet_client::realm::hamlet(world, name)?,
             ),
             Chosen::Chief | Chosen::Hearth => {
-                let name = world.resource::<Convo>().name.clone();
+                let name = crate::convo::chief_name(world);
                 let chief = chief::named(world, &name)?;
                 match self {
                     Chosen::Chief => Thing::Chief(chief),

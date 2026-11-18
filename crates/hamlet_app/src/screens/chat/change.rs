@@ -26,7 +26,7 @@ use hamlet_ui::widgets::platform::MonoText;
 use hamlet_ui::{AnyView, Cx, View, with_cx};
 
 use super::bubble::inked;
-use super::entry::{Underway, status};
+use super::entry::{Fold, Underway, status};
 use super::lines::INSET;
 
 /// The tuning of the chat.
@@ -49,11 +49,11 @@ pub struct ChatSettings {
     pub reply_chars: usize,
 }
 
-/// The changes a chief shut, and those asked for whole.
+/// The changes a chief shut, and those asked for whole, in each Hub.
 #[derive(Resource, Default)]
 pub struct Changes {
-    shut: Vec<(Entity, String)>,
-    whole: Vec<(Entity, String)>,
+    shut: Vec<Fold>,
+    whole: Vec<Fold>,
 }
 
 /// The part of a change that is drawn.
@@ -66,13 +66,13 @@ enum Extent {
 }
 
 impl Changes {
-    /// Forgets the changes of `chat`.
-    pub(super) fn forget(&mut self, chat: Entity) {
-        self.shut.retain(|(of, _)| *of != chat);
-        self.whole.retain(|(of, _)| *of != chat);
+    /// Forgets the changes that are `gone`.
+    pub(super) fn forget(&mut self, gone: impl Fn(&Fold) -> bool) {
+        self.shut.retain(|fold| !gone(fold));
+        self.whole.retain(|fold| !gone(fold));
     }
 
-    fn extent(&self, change: &(Entity, String)) -> Extent {
+    fn extent(&self, change: &Fold) -> Extent {
         if self.shut.contains(change) {
             Extent::Shut
         } else if self.whole.contains(change) {
@@ -84,7 +84,7 @@ impl Changes {
 }
 
 /// Adds `one` to `all`, or takes it out if it is there.
-fn flip(all: &mut Vec<(Entity, String)>, one: (Entity, String)) {
+fn flip(all: &mut Vec<Fold>, one: Fold) {
     match all.iter().position(|kept| *kept == one) {
         Some(at) => {
             all.remove(at);
@@ -248,14 +248,15 @@ fn ended(entry: Option<&Entry>) -> (Option<i64>, Option<String>) {
     }
 }
 
-/// The change of the edit at entry `id` of `chat`.
+/// The change of the edit at entry `id` of `chat`, in `hub`.
 pub(crate) fn change_view(
+    hub: Entity,
     chat: Entity,
     id: String,
     change: Change,
     underway: Underway,
 ) -> AnyView {
-    let key = (chat, id.clone());
+    let key = (hub, chat, id.clone());
     let verb = if change.created { "Create" } else { "Edit" };
     let fold_key = key.clone();
     let toggle_key = key.clone();
@@ -292,7 +293,7 @@ pub(crate) fn change_view(
         component::<Transcript, _>(chat, |t| {
             t.is_some_and(Transcript::is_answering)
         }),
-        move |_| path_line(path.clone()),
+        move |_| path_line(chat, path.clone()),
     )
     .within(
         bare()
@@ -312,7 +313,7 @@ pub(crate) fn change_view(
         .align(AlignItems::Center)
         .width(percent(100.0))
         .min_width(px(0.0));
-    let body = diff(chat, id, change);
+    let body = diff(hub, chat, id, change);
     with_cx(move |cx| {
         let gap = cx.theme().space.gap;
         column((head.gap(gap), body))
@@ -322,13 +323,15 @@ pub(crate) fn change_view(
     .boxed()
 }
 
-/// The lines the edit at `id` changed, or why it was not applied.
+/// The lines the edit at `id` changed, or why it was not applied, in
+/// `hub`.
 pub(super) fn diff(
+    hub: Entity,
     chat: Entity,
     id: String,
     change: Change,
 ) -> AnyView {
-    let key = (chat, id.clone());
+    let key = (hub, chat, id.clone());
     let entry_id = id;
     let entry =
         move |world: &World| {
@@ -385,14 +388,14 @@ pub(super) fn diff(
     .boxed()
 }
 
-/// `path` on one line, cut in its middle, which opens its file.
-fn path_line(path: String) -> AnyView {
+/// `path` on one line, cut in its middle, which opens its file in
+/// `chat`'s work folder, wherever the change is shown.
+fn path_line(chat: Entity, path: String) -> AnyView {
     AnyView::new(move |cx: &mut Cx| {
-        let found = cx
-            .world
-            .get_resource::<PathLinks>()
-            .copied()
-            .and_then(|links| (links.resolve)(cx.world, &path));
+        let found =
+            cx.world.get_resource::<PathLinks>().copied().and_then(
+                |links| (links.resolve)(cx.world, Some(chat), &path),
+            );
         let tone = if found.is_some() {
             Tone::Accent
         } else {
@@ -416,11 +419,7 @@ fn path_line(path: String) -> AnyView {
 }
 
 /// The lines of `change` up to `extent`, and the button for the rest.
-fn lines_view(
-    key: (Entity, String),
-    change: &Change,
-    extent: Extent,
-) -> AnyView {
+fn lines_view(key: Fold, change: &Change, extent: Extent) -> AnyView {
     let change = change.clone();
     AnyView::new(move |cx: &mut Cx| {
         let most = cx.world.resource::<ChatSettings>().change_lines;

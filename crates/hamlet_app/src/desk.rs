@@ -274,6 +274,18 @@ impl Desks {
         })
     }
 
+    /// Whether a desk lays out the panel `id`, as it was last shown.
+    pub(crate) fn holds(&self, id: &str) -> bool {
+        self.list.iter().any(|desk| {
+            desk.dock.iter().any(|part| match part {
+                Part::Tabs { tabs, .. } => {
+                    tabs.iter().any(|t| t == id)
+                }
+                Part::Split { .. } => false,
+            })
+        })
+    }
+
     /// These, with at least one desk, one of them shown, and every
     /// one named. A desk that names a panel the window no longer has
     /// starts again from the dock the window starts with.

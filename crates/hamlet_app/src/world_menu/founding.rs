@@ -32,7 +32,7 @@ use hamlet_ui::widgets::icons::Glyph;
 use hamlet_ui::{View, built};
 
 use super::{asks, asks_first, close, optional};
-use crate::hub::{Showing, show_following};
+use crate::hub::{Showing, bring_following, show};
 use crate::{chat, words};
 
 /// Seconds a founding is waited for before it is let go.
@@ -242,8 +242,10 @@ pub(crate) fn open_founded(world: &mut World) {
             format!("/folder {}", folder.display()),
         );
     }
-    crate::convo::seat(world, lead);
-    show_following(world, Showing::Thread);
+    if let Some(hub) = bring_following(world) {
+        crate::convo::seat(world, hub, lead);
+        show(world, hub, Showing::Thread);
+    }
 }
 
 /// The folder the hamlet is to work on, and the way to choose it.

@@ -1,6 +1,7 @@
 //! The memory, skills and character of an agent or a profile.
 
-use bevy::ecs::resource::Resource;
+use bevy::ecs::component::Component;
+use bevy::ecs::entity::Entity;
 use bevy::ecs::world::World;
 use bevy::ui::{AlignItems, UiRect, px};
 use bevy_fynix::tokens::Tone;
@@ -8,7 +9,7 @@ use bevy_fynix::views::{
     BehaviorExt, FrameProps, TooltipExt, column, frame, label, row,
     text_field,
 };
-use bevy_fynix::{ScopedExt, ViewExt, keyed, resource};
+use bevy_fynix::{ScopedExt, Signal, ViewExt, component, keyed};
 use hamlet_protocol::client as protocol;
 use hamlet_ui::styles::{
     ICON, Looks, action, bad_action, bare, buttons, good_action,
@@ -24,8 +25,8 @@ use super::details::{section, section_line};
 use super::papers::{self, Papers};
 use super::thread::dim;
 
-/// The memory file open, and the name typed for a new one.
-#[derive(Resource, Default, PartialEq)]
+/// The memory file open in a Hub, and the name typed for a new one.
+#[derive(Component, Default, PartialEq)]
 pub struct Opened {
     pub path: Option<String>,
     pub name: String,
@@ -95,13 +96,46 @@ pub(super) fn folders(
     folders
 }
 
-/// Opens the file `path`, or shuts it when it is open.
-fn toggle(world: &mut World, path: String) {
-    let mut opened = world.resource_mut::<Opened>();
+/// Opens the file `path` in `hub`, or shuts it when it is open.
+fn toggle(world: &mut World, hub: Entity, path: String) {
+    let Some(mut opened) = world.get_mut::<Opened>(hub) else {
+        return;
+    };
     opened.path = match opened.path.as_deref() {
         Some(now) if now == path => None,
         _ => Some(path),
     };
+}
+
+/// Changes what `hub` has open with `change`.
+fn opened(
+    world: &mut World,
+    hub: Entity,
+    change: impl FnOnce(&mut Opened),
+) {
+    if let Some(mut opened) = world.get_mut::<Opened>(hub) {
+        change(&mut opened);
+    }
+}
+
+/// What `read` gives of what `hub` has open.
+fn opened_in<T: Default + Send + Sync + 'static>(
+    hub: Entity,
+    read: impl Fn(&Opened) -> T + Send + Sync + 'static,
+) -> Signal<T> {
+    component::<Opened, _>(hub, move |o| {
+        o.map(&read).unwrap_or_default()
+    })
+}
+
+/// What `read` gives of the papers `hub` shows.
+fn papers_in<T: Default + Send + Sync + 'static>(
+    hub: Entity,
+    read: impl Fn(&Papers) -> T + Send + Sync + 'static,
+) -> Signal<T> {
+    component::<Papers, _>(hub, move |p| {
+        p.map(&read).unwrap_or_default()
+    })
 }
 
 /// How big `text` is, in the words a file browser uses.
@@ -113,11 +147,17 @@ fn size(text: &str) -> String {
     }
 }
 
-/// What makes the menu at the end of a file's row, from its path.
-pub(super) type FileMenu = Option<fn(&str) -> AnyView>;
+/// What makes the menu at the end of a file's row, from its Hub and
+/// path.
+pub(super) type FileMenu = Option<fn(Entity, &str) -> AnyView>;
 
-/// A file's row, and its text while it is open.
-fn file(entry: &Entry, open: bool, menu: FileMenu) -> AnyView {
+/// A file's row in `hub`, and its text while it is open.
+fn file(
+    hub: Entity,
+    entry: &Entry,
+    open: bool,
+    menu: FileMenu,
+) -> AnyView {
     let path = entry.path.clone();
     let name =
         entry.path.rsplit('/').next().unwrap_or("").to_string();
@@ -127,7 +167,7 @@ fn file(entry: &Entry, open: bool, menu: FileMenu) -> AnyView {
         .variant(Variant::Text)
         .on_activate({
             let path = path.clone();
-            move |world| toggle(world, path.clone())
+            move |world| toggle(world, hub, path.clone())
         });
     let mut head = vec![
         glyph(Glyph::Notes, ICON).tone(Tone::Faint).boxed(),
@@ -136,10 +176,10 @@ fn file(entry: &Entry, open: bool, menu: FileMenu) -> AnyView {
         frame().grow(1.0).boxed(),
         action(Glyph::Into, if open { "Close" } else { "Open" }, {
             let path = path.clone();
-            move |world| toggle(world, path.clone())
+            move |world| toggle(world, hub, path.clone())
         }),
     ];
-    head.extend(menu.map(|menu| menu(&path)));
+    head.extend(menu.map(|menu| menu(hub, &path)));
     let head = row(head).gap(8.0).align(AlignItems::Center);
     let mut parts = vec![head.boxed()];
     if !entry.description.is_empty() {
@@ -161,10 +201,10 @@ fn file(entry: &Entry, open: bool, menu: FileMenu) -> AnyView {
         parts.push(
             row((
                 action(Glyph::Rename, "Edit", move |world| {
-                    papers::edit_memory(world, edit.clone());
+                    papers::edit_memory(world, hub, edit.clone());
                 }),
                 bad_action(Glyph::Delete, "Remove", move |world| {
-                    papers::remove_memory(world, remove.clone());
+                    papers::remove_memory(world, hub, remove.clone());
                 }),
             ))
             .gap(8.0)
@@ -219,6 +259,7 @@ fn gist(text: &str) -> String {
 }
 
 fn folder(
+    hub: Entity,
     folder: &Folder,
     open: Option<&str>,
     menu: FileMenu,
@@ -237,6 +278,7 @@ fn folder(
     }
     for entry in &folder.files {
         parts.push(file(
+            hub,
             entry,
             open == Some(entry.path.as_str()),
             menu,
@@ -245,44 +287,56 @@ fn folder(
     column(parts).gap(6.0).boxed()
 }
 
-/// The button that adds a file, or the field its name is typed in.
+/// The button that adds a file in `hub`, or the field its name is
+/// typed in.
 fn add(
+    hub: Entity,
     learn: impl Fn() -> Option<AnyView> + Send + Sync + 'static,
 ) -> impl View {
-    keyed(resource::<Opened, _>(|o| o.adding), move |adding| {
+    keyed(opened_in(hub, |o| o.adding), move |adding| {
         if !*adding {
             let mut parts =
-                vec![action(Glyph::Plus, "Add File", |world| {
-                    world.resource_mut::<Opened>().adding = true;
+                vec![action(Glyph::Plus, "Add File", move |world| {
+                    opened(world, hub, |o| o.adding = true);
                 })];
             parts.extend(learn());
             return buttons(parts).boxed();
         }
-        with_cx(|cx| {
+        with_cx(move |cx| {
             let gap = cx.theme().space.gap;
+            // The name typed before the sheet was built again.
+            let typed = cx
+                .world
+                .get::<Opened>(hub)
+                .map(|o| o.name.clone())
+                .unwrap_or_default();
             row((
                 hinted(
-                    text_field(String::new(), |world, text| {
-                        world.resource_mut::<Opened>().name = text;
+                    text_field(typed, move |world, text| {
+                        opened(world, hub, |o| o.name = text);
                     })
                     .grow(1.0)
                     .min_width(px(0.0))
                     .rules(text_input),
                     "people.md, or orchard/rows.md",
                 ),
-                good_action(Glyph::Plus, "Add", |world| {
-                    let mut opened = world.resource_mut::<Opened>();
-                    if opened.name.trim().is_empty() {
-                        return;
+                good_action(Glyph::Plus, "Add", move |world| {
+                    let mut name = String::new();
+                    opened(world, hub, |o| {
+                        if !o.name.trim().is_empty() {
+                            name = std::mem::take(&mut o.name);
+                            o.adding = false;
+                        }
+                    });
+                    if !name.is_empty() {
+                        papers::add_memory(world, hub, &name);
                     }
-                    let name = std::mem::take(&mut opened.name);
-                    opened.adding = false;
-                    papers::add_memory(world, &name);
                 }),
-                action(Glyph::Cross, "Cancel", |world| {
-                    let mut opened = world.resource_mut::<Opened>();
-                    opened.adding = false;
-                    opened.name.clear();
+                action(Glyph::Cross, "Cancel", move |world| {
+                    opened(world, hub, |o| {
+                        o.adding = false;
+                        o.name.clear();
+                    });
                 }),
             ))
             .gap(gap)
@@ -293,9 +347,9 @@ fn add(
     .within(bare())
 }
 
-/// The skills of an agent or a profile.
-pub(super) fn skills_section() -> AnyView {
-    keyed(resource::<Papers, _>(|p| p.skills.clone()), |skills| {
+/// The skills of the agent or the profile `hub` shows.
+pub(super) fn skills_section(hub: Entity) -> AnyView {
+    keyed(papers_in(hub, |p| p.skills.clone()), |skills| {
         if skills.is_empty() {
             return section_line(
                 Glyph::Book,
@@ -319,28 +373,31 @@ pub(super) fn skills_section() -> AnyView {
     .boxed()
 }
 
-/// The character of an agent or a profile, with the way to edit it.
-pub(super) fn character_section() -> AnyView {
+/// The character of the agent or the profile `hub` shows, with the
+/// way to edit it.
+pub(super) fn character_section(hub: Entity) -> AnyView {
     section(
         Glyph::Face,
         "Character",
         Some(
-            action(Glyph::Rename, "Edit", papers::edit_character)
-                .tooltip(|| {
-                    note(
-                        "Opens it in your text editor. It is saved \
-                         here when you save it there.",
-                    )
-                })
-                .boxed(),
+            action(Glyph::Rename, "Edit", move |world| {
+                papers::edit_character(world, hub);
+            })
+            .tooltip(|| {
+                note(
+                    "Opens it in your text editor. It is saved here \
+                     when you save it there.",
+                )
+            })
+            .boxed(),
         ),
-        character(),
+        character(hub),
     )
 }
 
-/// The character of an agent or a profile.
-fn character() -> impl View {
-    keyed(resource::<Papers, _>(|p| p.character.clone()), |text| {
+/// The character of the agent or the profile `hub` shows.
+fn character(hub: Entity) -> impl View {
+    keyed(papers_in(hub, |p| p.character.clone()), |text| {
         if text.is_empty() {
             dim("Not written yet").boxed()
         } else {
@@ -350,52 +407,49 @@ fn character() -> impl View {
     .within(bare())
 }
 
-/// The memory's files, the way to add one, and the last save's
-/// failure.
+/// The files of the memory `hub` shows, the way to add one, and the
+/// last save's failure.
 pub(super) fn view(
+    hub: Entity,
     learn: impl Fn() -> Option<AnyView> + Send + Sync + 'static,
     menu: FileMenu,
 ) -> impl View {
     let shown = keyed(
-        resource::<Papers, _>(|p| {
-            (p.memory.clone(), p.learned.clone())
-        }),
+        papers_in(hub, |p| (p.memory.clone(), p.learned.clone())),
         move |(memory, learned)| {
             if memory.is_empty() {
                 return note("No memory files yet.").boxed();
             }
             let folders = folders(memory, learned);
-            keyed(
-                resource::<Opened, _>(|o| o.path.clone()),
-                move |open| {
-                    column(
-                        folders
-                            .iter()
-                            .filter(|f| {
-                                !f.files.is_empty()
-                                    || !f.name.is_empty()
-                            })
-                            .map(|f| folder(f, open.as_deref(), menu))
-                            .collect::<Vec<_>>(),
-                    )
-                    .gap(8.0)
-                    .boxed()
-                },
-            )
+            keyed(opened_in(hub, |o| o.path.clone()), move |open| {
+                column(
+                    folders
+                        .iter()
+                        .filter(|f| {
+                            !f.files.is_empty() || !f.name.is_empty()
+                        })
+                        .map(|f| {
+                            folder(hub, f, open.as_deref(), menu)
+                        })
+                        .collect::<Vec<_>>(),
+                )
+                .gap(8.0)
+                .boxed()
+            })
             .within(bare())
             .boxed()
         },
     )
     .within(bare());
-    let failed = keyed(
-        resource::<Papers, _>(|p| p.failed.clone()),
-        |failed| match failed {
-            Some(why) => {
-                label(why.clone()).tone(Tone::Critical).boxed()
+    let failed =
+        keyed(papers_in(hub, |p| p.failed.clone()), |failed| {
+            match failed {
+                Some(why) => {
+                    label(why.clone()).tone(Tone::Critical).boxed()
+                }
+                None => column(()).boxed(),
             }
-            None => column(()).boxed(),
-        },
-    )
-    .within(bare());
-    column((shown, add(learn), failed)).gap(8.0)
+        })
+        .within(bare());
+    column((shown, add(hub, learn), failed)).gap(8.0)
 }

@@ -17,7 +17,7 @@ use hamlet_ui::widgets::icons::{Glyph, glyph};
 use hamlet_ui::{AnyView, Cx, View, with_cx};
 
 use super::change::{counted, diff};
-use super::entry::{OpenTools, toggle};
+use super::entry::{Fold, OpenTools, toggle};
 
 /// One file a turn changed, with each edit of it.
 struct File {
@@ -115,7 +115,7 @@ fn total(files: &[File]) -> Change {
 }
 
 /// A chevron that points down while the block `key` is open.
-fn chevron(key: (Entity, String)) -> impl View {
+fn chevron(key: Fold) -> impl View {
     glyph(Glyph::Chevron, 10.0).rotation(resource::<OpenTools, _>(
         move |open| {
             if open.0.contains(&key) { 180.0 } else { 90.0 }
@@ -123,8 +123,10 @@ fn chevron(key: (Entity, String)) -> impl View {
     ))
 }
 
-/// "2 changed files +13 -5", which opens to the tree of the files.
+/// "2 changed files +13 -5", which opens to the tree of the files, in
+/// `hub`.
 pub(super) fn view(
+    hub: Entity,
     chat: Entity,
     first: String,
     edits: Vec<String>,
@@ -135,7 +137,7 @@ pub(super) fn view(
             return cx.build(frame());
         };
         let files = files(transcript, &edits);
-        let key = (chat, format!("{first} files"));
+        let key = (hub, chat, format!("{first} files"));
         let pressed = key.clone();
         let count = match files.len() {
             1 => "1 changed file".to_string(),
@@ -163,7 +165,7 @@ pub(super) fn view(
                 open.0.contains(&key)
             }),
             move |open| match open {
-                true => folders(chat, tree.clone()).boxed(),
+                true => folders(hub, chat, tree.clone()).boxed(),
                 false => frame().boxed(),
             },
         )
@@ -178,6 +180,7 @@ pub(super) fn view(
 
 /// Each folder of `tree` by its files.
 fn folders(
+    hub: Entity,
     chat: Entity,
     tree: std::sync::Arc<Vec<(File, String)>>,
 ) -> impl View {
@@ -210,15 +213,20 @@ fn folders(
                     );
                 }
             }
-            rows.push(file_row(chat, first, file).boxed());
+            rows.push(file_row(hub, chat, first, file).boxed());
         }
         column(rows).width(percent(100.0)).min_width(px(0.0))
     })
 }
 
 /// A file of the tree, which opens to the lines its edits changed.
-fn file_row(chat: Entity, first: &str, file: &File) -> impl View {
-    let key = (chat, format!("{first} {}", file.path));
+fn file_row(
+    hub: Entity,
+    chat: Entity,
+    first: &str,
+    file: &File,
+) -> impl View {
+    let key = (hub, chat, format!("{first} {}", file.path));
     let pressed = key.clone();
     let whole = file.path.clone();
     let summed = Change {
@@ -254,7 +262,7 @@ fn file_row(chat: Entity, first: &str, file: &File) -> impl View {
                 edits
                     .iter()
                     .map(|(id, change)| {
-                        diff(chat, id.clone(), change.clone())
+                        diff(hub, chat, id.clone(), change.clone())
                     })
                     .collect::<Vec<_>>(),
             )

@@ -35,9 +35,8 @@ use super::reply::{self, Replies};
 use super::rewind::{self, Rewinds};
 use super::timeline::{Kind, Line, Who};
 use super::{attach, card, edits, quote};
-use crate::convo::Convo;
-use crate::markdown;
 use crate::select::Quotable;
+use crate::{convo, markdown};
 
 /// The room at the left a speaker's picture stands in, and its width.
 const GUTTER: f32 = 30.0;
@@ -160,9 +159,18 @@ enum Words {
 }
 
 /// One message: the chief's on the right, others' by their picture.
-fn said<B: Board>(line: Line, chat: Entity, id: String) -> AnyView {
+fn said<B: Board>(
+    hub: Entity,
+    line: Line,
+    chat: Entity,
+    id: String,
+) -> AnyView {
     AnyView::new(move |cx: &mut Cx| {
-        let cast = cx.world.resource::<B>().lines().cast();
+        let cast = cx
+            .world
+            .get::<B>(hub)
+            .map(|board| board.lines().cast())
+            .unwrap_or_default();
         let who = cast.get(line.by).cloned().unwrap_or_default();
         // Past two speakers, a picture alone does not say who speaks.
         let group = cast.len() > 2;
@@ -197,7 +205,7 @@ fn said<B: Board>(line: Line, chat: Entity, id: String) -> AnyView {
             None => (None, None, typed.to_string()),
         };
         // A merged conversation is only read.
-        let own = chat == cx.world.resource::<Convo>().chat;
+        let own = chat == convo::chat_of(cx.world, hub);
         let replies =
             own && !queued && entry.is_some_and(reply::can_reply_to);
         let mine = who.kind == Kind::Me;
@@ -386,6 +394,7 @@ fn said<B: Board>(line: Line, chat: Entity, id: String) -> AnyView {
             .fill(fill(palette))
             .border(border)
             .border_color(rewind::ringed(
+                hub,
                 chat,
                 id.clone(),
                 palette.gold_6,
@@ -410,68 +419,68 @@ fn said<B: Board>(line: Line, chat: Entity, id: String) -> AnyView {
         let above = px(if line.lead { gap } else { 0.0 });
         let (replying, reply_room) = match replies {
             true => (
-                reply::mark(chat, id.clone(), who.name.clone())
+                reply::mark(hub, chat, id.clone(), who.name.clone())
                     .boxed(),
                 reply::ROOM,
             ),
             false => (frame().boxed(), 0.0),
         };
-        let view = if mine {
-            let (mark, room) = match (back, withdraws) {
-                (true, _) => (
-                    rewind::mark(chat, id.clone()).boxed(),
-                    reply::ROOM,
-                ),
-                (_, true) => (
-                    rewind::withdraw(chat, id.clone()).boxed(),
-                    reply::ROOM,
-                ),
-                _ => (frame().boxed(), 0.0),
-            };
-            let marks = row((replying, mark))
-                .rules(rewind::hiding(chat, id.clone()));
-            let said = row((marks, bubble))
+        let view =
+            if mine {
+                let (mark, room) = match (back, withdraws) {
+                    (true, _) => (
+                        rewind::mark(hub, chat, id.clone()).boxed(),
+                        reply::ROOM,
+                    ),
+                    (_, true) => (
+                        rewind::withdraw(chat, id.clone()).boxed(),
+                        reply::ROOM,
+                    ),
+                    _ => (frame().boxed(), 0.0),
+                };
+                let marks = row((replying, mark))
+                    .rules(rewind::hiding(hub, chat, id.clone()));
+                let said = row((marks, bubble))
+                    .gap(0.0)
+                    .justify(JustifyContent::FlexEnd)
+                    .padding(UiRect::new(
+                        px(GUTTER + FAR - room - reply_room),
+                        px(0.0),
+                        above,
+                        px(0.0),
+                    ));
+                match queued {
+                    true => column((
+                        said,
+                        row((note("Queued"),))
+                            .justify(JustifyContent::FlexEnd),
+                    ))
+                    .boxed(),
+                    false => said.boxed(),
+                }
+            } else {
+                let picture = match line.named {
+                    true => with_cx(move |cx| face(cx, &who, FACE))
+                        .boxed(),
+                    false => frame().boxed(),
+                };
+                row((
+                    column((picture,))
+                        .width(px(GUTTER))
+                        .shrink(0.0)
+                        .justify(JustifyContent::FlexStart),
+                    bubble,
+                    replying,
+                ))
                 .gap(0.0)
-                .justify(JustifyContent::FlexEnd)
                 .padding(UiRect::new(
-                    px(GUTTER + FAR - room - reply_room),
                     px(0.0),
+                    px(FAR - reply_room),
                     above,
                     px(0.0),
-                ));
-            match queued {
-                true => column((
-                    said,
-                    row((note("Queued"),))
-                        .justify(JustifyContent::FlexEnd),
                 ))
-                .boxed(),
-                false => said.boxed(),
-            }
-        } else {
-            let picture = match line.named {
-                true => {
-                    with_cx(move |cx| face(cx, &who, FACE)).boxed()
-                }
-                false => frame().boxed(),
+                .boxed()
             };
-            row((
-                column((picture,))
-                    .width(px(GUTTER))
-                    .shrink(0.0)
-                    .justify(JustifyContent::FlexStart),
-                bubble,
-                replying,
-            ))
-            .gap(0.0)
-            .padding(UiRect::new(
-                px(0.0),
-                px(FAR - reply_room),
-                above,
-                px(0.0),
-            ))
-            .boxed()
-        };
         let node = cx.build(view);
         let mut built = cx.world.entity_mut(node);
         if back || replies {
@@ -479,20 +488,33 @@ fn said<B: Board>(line: Line, chat: Entity, id: String) -> AnyView {
         }
         if back {
             built.insert(Rewinds {
+                hub,
                 chat,
                 entry: id.clone(),
                 at: line.at,
             });
         }
         if replies {
-            built.insert((Replies, Quotable { chat, entry: id }));
+            built.insert((
+                Replies,
+                Quotable {
+                    hub,
+                    chat,
+                    entry: id,
+                },
+            ));
         }
         node
     })
 }
 
 /// The agent's own words across the chat with no bubble.
-fn written(chat: Entity, id: String, name: String) -> AnyView {
+fn written(
+    hub: Entity,
+    chat: Entity,
+    id: String,
+    name: String,
+) -> AnyView {
     AnyView::new(move |cx: &mut Cx| {
         let entry = cx
             .world
@@ -500,7 +522,7 @@ fn written(chat: Entity, id: String, name: String) -> AnyView {
             .and_then(|t| t.item(&id))
             .map(|item| item.entry.clone());
         // A merged conversation is only read.
-        let own = chat == cx.world.resource::<Convo>().chat;
+        let own = chat == convo::chat_of(cx.world, hub);
         let reply = matches!(entry, Some(Entry::Assistant(_)));
         let replies = own
             && reply
@@ -511,7 +533,7 @@ fn written(chat: Entity, id: String, name: String) -> AnyView {
                 Tone::Body,
             )
             .boxed(),
-            false => entry_view(chat, id.clone()),
+            false => entry_view(hub, chat, id.clone()),
         };
         let words = column((words,))
             .grow(1.0)
@@ -522,7 +544,7 @@ fn written(chat: Entity, id: String, name: String) -> AnyView {
             false => words.boxed(),
         };
         let replying = match replies {
-            true => reply::mark(chat, id.clone(), name).boxed(),
+            true => reply::mark(hub, chat, id.clone(), name).boxed(),
             false => frame().boxed(),
         };
         let node = cx.build(
@@ -534,7 +556,11 @@ fn written(chat: Entity, id: String, name: String) -> AnyView {
             cx.world.entity_mut(node).insert((
                 Hovered::default(),
                 Replies,
-                Quotable { chat, entry: id },
+                Quotable {
+                    hub,
+                    chat,
+                    entry: id,
+                },
             ));
         }
         node
@@ -556,7 +582,7 @@ fn first_line(text: &str) -> String {
 }
 
 /// A message from another agent, as a card a press opens.
-fn message(chat: Entity, id: String) -> AnyView {
+fn message(hub: Entity, chat: Entity, id: String) -> AnyView {
     AnyView::new(move |cx: &mut Cx| {
         let item = cx
             .world
@@ -573,7 +599,7 @@ fn message(chat: Entity, id: String) -> AnyView {
             return cx.build(frame());
         };
         let queued = item.as_ref().is_some_and(|item| item.queued);
-        let own = chat == cx.world.resource::<Convo>().chat;
+        let own = chat == convo::chat_of(cx.world, hub);
         let replies = own
             && !queued
             && item
@@ -594,7 +620,7 @@ fn message(chat: Entity, id: String) -> AnyView {
             hamlet_ui::markdown::is_address_in(cx.world),
         )
         .unwrap_or_else(|| label(heading).bold(true).boxed());
-        let key = (chat, id.clone());
+        let key = (hub, chat, id.clone());
         let is_open = {
             let key = key.clone();
             move |open: &OpenTools| open.0.contains(&key)
@@ -673,9 +699,8 @@ fn message(chat: Entity, id: String) -> AnyView {
             false => card.boxed(),
         };
         let replying = match replies {
-            true => {
-                reply::mark(chat, id.clone(), name.clone()).boxed()
-            }
+            true => reply::mark(hub, chat, id.clone(), name.clone())
+                .boxed(),
             false => frame().boxed(),
         };
         let node = cx.build(
@@ -690,7 +715,11 @@ fn message(chat: Entity, id: String) -> AnyView {
             cx.world.entity_mut(node).insert((
                 Hovered::default(),
                 Replies,
-                Quotable { chat, entry: id },
+                Quotable {
+                    hub,
+                    chat,
+                    entry: id,
+                },
             ));
         }
         node
@@ -704,8 +733,11 @@ fn reply_room(replies: bool) -> f32 {
 /// How opaque a row that waits its turn is.
 const WAITING: f32 = 0.55;
 
-/// A row of the chat, as board `B` holds it.
-pub(super) fn line_view<B: Board>(line: &Line) -> AnyView {
+/// A row of `hub`'s chat, as its board `B` holds it.
+pub(super) fn line_view<B: Board>(
+    hub: Entity,
+    line: &Line,
+) -> AnyView {
     let line = line.clone();
     AnyView::new(move |cx: &mut Cx| {
         let run = cx.theme().space.gap;
@@ -738,18 +770,25 @@ pub(super) fn line_view<B: Board>(line: &Line) -> AnyView {
                 let sent = matches!(entry, Some(Entry::Agent { .. }));
                 let name = cx
                     .world
-                    .resource::<B>()
-                    .lines()
-                    .cast()
-                    .get(line.by)
+                    .get::<B>(hub)
+                    .and_then(|board| {
+                        board.lines().cast().get(line.by)
+                    })
                     .map(|who| who.name.clone())
                     .unwrap_or_default();
                 let view = match (own, sent) {
                     (true, _) => {
-                        aside(written(*chat, id.clone(), name))
+                        aside(written(hub, *chat, id.clone(), name))
                     }
-                    (_, true) => aside(message(*chat, id.clone())),
-                    _ => said::<B>(line.clone(), *chat, id.clone()),
+                    (_, true) => {
+                        aside(message(hub, *chat, id.clone()))
+                    }
+                    _ => said::<B>(
+                        hub,
+                        line.clone(),
+                        *chat,
+                        id.clone(),
+                    ),
                 };
                 (view, *chat, id.as_str())
             }
@@ -757,6 +796,7 @@ pub(super) fn line_view<B: Board>(line: &Line) -> AnyView {
                 chat, first, edits, ..
             } => (
                 aside(edits::view(
+                    hub,
                     *chat,
                     first.clone(),
                     edits.clone(),
@@ -765,14 +805,19 @@ pub(super) fn line_view<B: Board>(line: &Line) -> AnyView {
                 first.as_str(),
             ),
             Row::Card { chat, id } => (
-                aside(card::view(*chat, id.clone()).boxed()),
+                aside(card::view(hub, *chat, id.clone()).boxed()),
                 *chat,
                 id.as_str(),
             ),
             Row::Fold { chat, first, .. } => (
                 aside(
-                    fold_view::<B>(line.key(), *chat, first.clone())
-                        .boxed(),
+                    fold_view::<B>(
+                        hub,
+                        line.key(),
+                        *chat,
+                        first.clone(),
+                    )
+                    .boxed(),
                 ),
                 *chat,
                 first.as_str(),
@@ -792,7 +837,7 @@ pub(super) fn line_view<B: Board>(line: &Line) -> AnyView {
                 })
                 .boxed(),
             false => {
-                view.rules(rewind::fading(chat, line.at)).boxed()
+                view.rules(rewind::fading(hub, chat, line.at)).boxed()
             }
         };
         cx.build(view)

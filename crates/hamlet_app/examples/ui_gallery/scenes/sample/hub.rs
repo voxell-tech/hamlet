@@ -1,5 +1,6 @@
 //! The memory, character and prompt gallery scenes.
 
+use bevy::ecs::entity::Entity;
 use bevy::ecs::world::World;
 use hamlet_app::Convo;
 use hamlet_app::hub::{self, Showing};
@@ -19,7 +20,7 @@ pub(super) fn setup(world: &mut World, scene: Scene) {
         world
             .entity_mut(first)
             .insert((Showing::Thread, hub::Sheet::Details));
-        let agent = world.resource::<Convo>().agent;
+        let agent = agent(world);
         world.entity_mut(agent).insert((
             hamlet_client::realm::Allowance(5.0),
             hamlet_client::realm::ToolsOff(vec!["bash".into()]),
@@ -48,7 +49,7 @@ pub(super) fn setup(world: &mut World, scene: Scene) {
         show(world, Showing::Thread);
     }
     if scene == Scene::HubMenu {
-        let agent = world.resource::<Convo>().agent;
+        let agent = agent(world);
         hamlet_app::world_menu::open_agent(
             world,
             agent,
@@ -75,13 +76,14 @@ pub(super) fn setup(world: &mut World, scene: Scene) {
         keep_notes(world);
     }
     if scene == Scene::Prompt {
-        let agent = world.resource::<Convo>().agent;
+        let agent = agent(world);
         let section =
             |name: &str, text: &str| protocol::PromptSection {
                 name: name.into(),
                 text: text.into(),
             };
-        world.insert_resource(hub::Briefing {
+        let first = hub::first(world);
+        world.entity_mut(first).insert(hub::Briefing {
             agent: Some(agent),
             prompt: vec![
                 section(
@@ -113,6 +115,14 @@ pub(super) fn setup(world: &mut World, scene: Scene) {
         });
         show(world, Showing::Prompt);
     }
+}
+
+/// The agent the first Hub's chat is with.
+pub(super) fn agent(world: &mut World) -> Entity {
+    let first = hub::first(world);
+    world
+        .get::<Convo>(first)
+        .map_or(Entity::PLACEHOLDER, |convo| convo.agent)
 }
 
 /// Turns the first Hub to `showing`.
@@ -215,7 +225,7 @@ pub(super) fn catalogue() -> Vec<protocol::Listed> {
 fn offer_models(world: &mut World) {
     world.resource_mut::<hamlet_app::models::Shelf>().models =
         catalogue();
-    let agent = world.resource::<Convo>().agent;
+    let agent = agent(world);
     if let Some(mut account) =
         world.get_mut::<hamlet_client::realm::Account>(agent)
     {

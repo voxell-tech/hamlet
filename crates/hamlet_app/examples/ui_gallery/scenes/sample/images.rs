@@ -100,7 +100,7 @@ fn answer(request: On<Download>, mut commands: Commands) {
 pub(super) fn setup(world: &mut World, scene: Scene, chat: Entity) {
     world.add_observer(answer);
     if scene == Scene::NoImages {
-        let agent = world.resource::<hamlet_app::Convo>().agent;
+        let agent = super::hub::agent(world);
         let model = world
             .get::<Account>(agent)
             .map(|account| account.model.clone())
@@ -121,6 +121,7 @@ pub(super) fn setup(world: &mut World, scene: Scene, chat: Entity) {
     } else {
         world.trigger(Rewound {
             chat,
+            request: hamlet_protocol::client::RequestId::new(),
             text: String::new(),
             images: vec![
                 AttachedImage::last(id(3)),

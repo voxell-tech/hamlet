@@ -152,9 +152,13 @@ enum Piece {
     Address(Span),
 }
 
-/// `spans` with the place each link leads. A link that leads nowhere
-/// joins the words beside it.
-fn anchored(world: &mut World, spans: Vec<Span>) -> Vec<Piece> {
+/// `spans`, drawn under `under`, with the place each link leads. A
+/// link that leads nowhere joins the words beside it.
+fn anchored(
+    world: &mut World,
+    under: Option<Entity>,
+    spans: Vec<Span>,
+) -> Vec<Piece> {
     let paths =
         world.get_resource::<PathLinks>().map(|links| links.resolve);
     let agents = world
@@ -165,7 +169,7 @@ fn anchored(world: &mut World, spans: Vec<Span>) -> Vec<Piece> {
         let anchor = match span.link.take() {
             Some(Target::Web(address)) => Some(Anchor::Web(address)),
             Some(Target::Path(path)) => paths
-                .and_then(|resolve| resolve(world, &path))
+                .and_then(|resolve| resolve(world, under, &path))
                 .map(Anchor::File),
             Some(Target::Agent(address)) => {
                 let chip = |world: &mut World, words: &str| {
@@ -266,7 +270,8 @@ fn set_rich(spans: &[Span], ink: Ink, setting: Setting) -> AnyView {
     relinked(move || {
         let spans = spans.clone();
         AnyView::new(move |cx: &mut Cx| {
-            let pieces = anchored(cx.world, spans);
+            let under = cx.parent();
+            let pieces = anchored(cx.world, under, spans);
             if pieces
                 .iter()
                 .any(|piece| matches!(piece, Piece::Chip(_)))
@@ -824,7 +829,8 @@ pub fn typed_with(
             // The place each run leads to, in the order of the runs.
             let mut leads = Vec::new();
             let (mut at_byte, mut copies) = (0, AtomWords::default());
-            for piece in anchored(cx.world, spans) {
+            let under = cx.parent();
+            for piece in anchored(cx.world, under, spans) {
                 let (span, anchor) = match piece {
                     Piece::Words(span, anchor) => (span, anchor),
                     // A chief's line is whole, so this is never one.

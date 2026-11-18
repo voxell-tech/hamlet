@@ -436,7 +436,7 @@ pub(super) fn ask_rewind(world: &mut World, mut updates: Local<u32>) {
     let mut rows = world.query::<&chat::Rewinds>();
     let last = rows.iter(world).max_by_key(|row| row.at).cloned();
     if let Some(row) = last {
-        chat::ask_rewind(world, row.chat, &row.entry);
+        chat::ask_rewind(world, row.hub, row.chat, &row.entry);
     }
 }
 

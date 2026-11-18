@@ -1072,7 +1072,10 @@ pub fn choice(
 }
 
 /// A standard button that runs `act`.
-pub fn command(text: &'static str, act: fn(&mut World)) -> impl View {
+pub fn command(
+    text: &'static str,
+    act: impl Fn(&mut World) + Send + Sync + 'static,
+) -> impl View {
     lettered(text).variant(Variant::Default).on_activate(act)
 }
 

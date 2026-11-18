@@ -285,7 +285,10 @@ pub(super) fn setup(world: &mut World, scene: Scene) {
         super::hub::show(world, hamlet_app::hub::Showing::Gone(gone));
     }
     if scene == Scene::Bylaws {
-        world.insert_resource(hamlet_app::overview::Page::Limits);
+        let first = hamlet_app::hub::first(world);
+        world
+            .entity_mut(first)
+            .insert(hamlet_app::overview::Page::Limits);
     }
 }
 

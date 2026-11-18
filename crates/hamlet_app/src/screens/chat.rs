@@ -25,10 +25,9 @@ use bevy::ecs::entity::Entity;
 use bevy::ecs::event::Event;
 use bevy::ecs::lifecycle::Remove;
 use bevy::ecs::observer::On;
-use bevy::ecs::query::With;
 use bevy::ecs::resource::Resource;
 use bevy::ecs::schedule::IntoScheduleConfigs;
-use bevy::ecs::system::{Commands, Query, Res, ResMut};
+use bevy::ecs::system::{Commands, Query, ResMut};
 use bevy::ecs::world::World;
 use bevy::ui::{ComputedNode, Overflow, ScrollPosition, UiRect, px};
 use bevy_fynix::scroll::ScrollGoal;
@@ -37,7 +36,7 @@ use bevy_fynix::views::{
     button, column, rich_field, row,
 };
 use bevy_fynix::{
-    ScopedExt, ViewExt, derived, every_frame, resource, style,
+    ScopedExt, ViewExt, component, derived, every_frame, style,
 };
 use hamlet_client::chats::Chat;
 use hamlet_client::messages::{
@@ -60,15 +59,14 @@ pub use self::change::{Changes, ChatSettings};
 pub use self::entry::OpenTools;
 pub(crate) use self::entry::Underway;
 pub use self::field::refocus;
-pub(crate) use self::lines::close_merged;
 pub use self::lines::{
     Lines, MergedLines, Unfolded, ask_earlier, break_long_words,
     fold_lines, fold_merged, transcript,
 };
+pub(crate) use self::lines::{close_merged, keep_merged};
 use self::lines::{remember_place, restore_place};
-pub use self::rewind::{Rewinds, ask as ask_rewind};
-use crate::PanelSystems;
-use crate::convo::{self, Convo};
+pub use self::rewind::{Rewinds, ask as ask_rewind, rewind_to};
+use crate::{PanelSystems, convo};
 
 /// The room at the sides of the field, as the theme gives a field.
 const FIELD_SIDE: f32 = 8.0;
@@ -83,15 +81,10 @@ const FIELD_LEAST: f32 = 150.0;
 const MOST_LINES: usize = 8;
 
 pub fn plugin(app: &mut App) {
-    app.init_resource::<Draft>()
-        .init_resource::<Requests>()
+    app.init_resource::<Requests>()
         .init_resource::<ChatSettings>()
         .init_resource::<Changes>()
         .init_resource::<Unfolded>()
-        .init_resource::<Lines>()
-        .init_resource::<ToEnd>()
-        .init_resource::<field::Typed>()
-        .init_resource::<AwayFromEnd>()
         .init_resource::<hamlet_ui::fields::Resized>()
         .add_observer(decreed)
         .add_observer(told)
@@ -103,6 +96,7 @@ pub fn plugin(app: &mut App) {
         .add_observer(remember_resume)
         .add_observer(response)
         .add_observer(forget_chat)
+        .add_observer(forget_hub)
         .init_resource::<OpenTools>()
         // Read by the rewind's fading.
         .init_resource::<crate::world_menu::Open>()
@@ -135,19 +129,54 @@ pub fn plugin(app: &mut App) {
         .add_systems(Last, field::chip_early);
 }
 
-/// The field a chief types in.
-#[derive(Component)]
-pub struct ChatField;
+/// Gives `hub` its chat's view: its rows, its place and its draft.
+pub(crate) fn equip(world: &mut World, hub: Entity) {
+    world.entity_mut(hub).insert((
+        Draft::default(),
+        Lines::default(),
+        MergedLines::default(),
+        lines::Reading::default(),
+        ToEnd::default(),
+        AwayFromEnd::default(),
+        field::Typed::default(),
+        field::Unsent::default(),
+        lines::ChatPlaces::default(),
+        reply::Replying::default(),
+        crate::screens::wait::ChatWaits::default(),
+    ));
+}
 
-/// The scrolling node of the chat.
+/// The field a chief types in, in a Hub.
 #[derive(Component)]
-pub struct ChatScroll;
+pub struct ChatField(pub Entity);
 
-/// Whether the field is to get the focus, and the notice under it.
-#[derive(Resource, Default)]
+/// The scrolling node of a Hub's chat.
+#[derive(Component)]
+pub struct ChatScroll(pub Entity);
+
+/// Whether a Hub's field is to get the focus, and the notice under
+/// it.
+#[derive(Component, Default)]
 pub struct Draft {
     pub(crate) focus: bool,
     notice: String,
+}
+
+/// Asks for the focus to go to `hub`'s field.
+pub(crate) fn focus(world: &mut World, hub: Entity) {
+    if let Some(mut draft) = world.get_mut::<Draft>(hub) {
+        draft.focus = true;
+    }
+}
+
+/// Says `text` under `hub`'s field.
+fn tell(world: &mut World, hub: Option<Entity>, text: &str) {
+    if let Some(mut draft) =
+        hub.and_then(|hub| world.get_mut::<Draft>(hub))
+        && draft.notice != text
+    {
+        draft.notice = text.to_string();
+    }
 }
 
 /// Forgets what was opened in a chat that is gone.
@@ -156,34 +185,81 @@ fn forget_chat(
     mut unfolded: ResMut<Unfolded>,
     mut tools: ResMut<OpenTools>,
     mut changes: ResMut<Changes>,
-    merged: Res<MergedLines>,
+    mut hubs: Query<(&mut field::Unsent, &mut lines::ChatPlaces)>,
+    merged: Query<(Entity, &MergedLines)>,
     mut commands: Commands,
 ) {
     let chat = gone.entity;
-    unfolded.0.retain(|(of, _)| *of != chat);
-    tools.0.retain(|(of, _)| *of != chat);
-    changes.forget(chat);
-    if merged.is_in(chat) {
-        commands.queue(close_merged);
+    unfolded.0.retain(|(_, of, _)| *of != chat);
+    tools.0.retain(|(_, of, _)| *of != chat);
+    changes.forget(|(_, of, _)| *of == chat);
+    for (mut unsent, mut places) in &mut hubs {
+        unsent.forget(chat);
+        places.0.remove(&chat);
     }
+    for (hub, merged) in &merged {
+        if merged.is_in(chat) {
+            commands.queue(move |world: &mut World| {
+                close_merged(world, hub);
+            });
+        }
+    }
+}
+
+/// Forgets the folds a closed Hub had open; a Hub on a hidden desk
+/// is kept, and keeps them.
+fn forget_hub(
+    gone: On<Remove<crate::hub::Hub>>,
+    mut unfolded: ResMut<Unfolded>,
+    mut tools: ResMut<OpenTools>,
+    mut changes: ResMut<Changes>,
+) {
+    let hub = gone.entity;
+    unfolded.0.retain(|(of, ..)| *of != hub);
+    tools.0.retain(|(of, ..)| *of != hub);
+    changes.forget(|(of, ..)| *of == hub);
 }
 
 /// A failure displayed under the chat field.
 #[derive(Event)]
 pub(crate) struct ChatError;
 
-fn fault(
-    fault: On<ServerFault>,
-    mut draft: ResMut<Draft>,
-    mut commands: Commands,
-) {
-    draft.notice.clone_from(&fault.text);
+fn fault(fault: On<ServerFault>, mut commands: Commands) {
+    let text = fault.text.clone();
+    commands.queue(move |world: &mut World| {
+        let hub = crate::hub::active(world);
+        tell(world, hub, &text);
+    });
     commands.trigger(ChatError);
 }
 
-/// Requests whose replies show under the field.
+/// Requests whose replies show under a field, with the Hub each was
+/// made in, if known.
 #[derive(Resource, Default)]
-struct Requests(HashMap<protocol::RequestId, Said>);
+struct Requests(HashMap<protocol::RequestId, (Said, Option<Entity>)>);
+
+impl Requests {
+    /// Keeps what of `id`'s reply shows, under the field of the Hub
+    /// the chief works in when it comes, unless [`asked_in`] names
+    /// the Hub it was made in.
+    fn note(&mut self, id: &protocol::RequestId, said: Said) {
+        self.0.insert(id.clone(), (said, None));
+    }
+}
+
+/// Says the reply to the request `id` under `hub`'s field, not that
+/// of the Hub the chief has gone to since.
+pub(super) fn asked_in(
+    world: &mut World,
+    id: protocol::RequestId,
+    hub: Entity,
+) {
+    if let Some((_, from)) =
+        world.resource_mut::<Requests>().0.get_mut(&id)
+    {
+        *from = Some(hub);
+    }
+}
 
 /// What of a request's reply shows.
 #[derive(Clone, Copy, PartialEq)]
@@ -192,58 +268,68 @@ enum Said {
     Reply,
 }
 
-/// Says the rejection of the request `id` under the field.
-pub(super) fn rejected(world: &mut World, id: protocol::RequestId) {
+/// Says the rejection of the request `id` under `hub`'s field.
+pub(super) fn rejected(
+    world: &mut World,
+    hub: Entity,
+    id: protocol::RequestId,
+) {
     world
         .resource_mut::<Requests>()
         .0
-        .insert(id, Said::Rejection);
+        .insert(id, (Said::Rejection, Some(hub)));
 }
 
-/// Says the reply to the request `id` under the field.
-pub(super) fn replied(world: &mut World, id: protocol::RequestId) {
-    world.resource_mut::<Requests>().0.insert(id, Said::Reply);
+/// Says the reply to the request `id` under `hub`'s field.
+pub(super) fn replied(
+    world: &mut World,
+    hub: Entity,
+    id: protocol::RequestId,
+) {
+    world
+        .resource_mut::<Requests>()
+        .0
+        .insert(id, (Said::Reply, Some(hub)));
 }
 
 fn remember_said(
     message: On<ChiefMessage>,
     mut requests: ResMut<Requests>,
 ) {
-    requests.0.insert(message.request.clone(), Said::Rejection);
+    requests.note(&message.request, Said::Rejection);
 }
 
 fn remember_rewind(
     rewind: On<Rewind>,
     mut requests: ResMut<Requests>,
 ) {
-    requests.0.insert(rewind.request.clone(), Said::Rejection);
+    requests.note(&rewind.request, Said::Rejection);
 }
 
 fn remember_compact(
     compact: On<Compact>,
     mut requests: ResMut<Requests>,
 ) {
-    requests.0.insert(compact.request.clone(), Said::Rejection);
+    requests.note(&compact.request, Said::Rejection);
 }
 
 fn remember_withdraw(
     withdraw: On<Withdraw>,
     mut requests: ResMut<Requests>,
 ) {
-    requests.0.insert(withdraw.request.clone(), Said::Rejection);
+    requests.note(&withdraw.request, Said::Rejection);
 }
 
 fn remember_resume(
     resume: On<Resume>,
     mut requests: ResMut<Requests>,
 ) {
-    requests.0.insert(resume.request.clone(), Said::Reply);
+    requests.note(&resume.request, Said::Reply);
 }
 
 fn response(
     response: On<Response>,
     mut requests: ResMut<Requests>,
-    mut draft: ResMut<Draft>,
     mut commands: Commands,
 ) {
     let (text, rejected) = match &response.message {
@@ -257,24 +343,35 @@ fn response(
         }
         _ => return,
     };
-    let Some(said) = requests.0.remove(&response.to) else {
+    let Some((said, from)) = requests.0.remove(&response.to) else {
         return;
     };
+    if rejected || said == Said::Reply {
+        let text = text.clone();
+        commands.queue(move |world: &mut World| {
+            let hub = from
+                .filter(|hub| world.get::<Draft>(*hub).is_some())
+                .or_else(|| crate::hub::active(world));
+            tell(world, hub, &text);
+        });
+    }
     if rejected {
-        draft.notice.clone_from(text);
         commands.trigger(ChatError);
-    } else if said == Said::Reply {
-        draft.notice.clone_from(text);
     }
 }
 
-/// Puts `words` in the field as quoted lines, after what is typed.
-pub(crate) fn quote_in_field(world: &mut World, words: &str) {
+/// Puts `words` in `hub`'s field as quoted lines, after what is
+/// typed.
+pub(crate) fn quote_in_field(
+    world: &mut World,
+    hub: Entity,
+    words: &str,
+) {
     if words.trim().is_empty() {
         return;
     }
     let quoted = format!("{}\n", quote::quoting(words));
-    field::with_field(world, |mut field| {
+    field::with_field(world, hub, |mut field| {
         let mut pieces = field.pieces();
         let lead = match pieces.last() {
             None => "",
@@ -284,26 +381,30 @@ pub(crate) fn quote_in_field(world: &mut World, words: &str) {
         pieces.push(Piece::Text(format!("{lead}{quoted}")));
         field.set_content(pieces);
     });
-    world.resource_mut::<Draft>().focus = true;
+    focus(world, hub);
 }
 
-/// Sends `text` and its attachments to the open chat, if it can.
+/// Sends `text` and its attachments to `hub`'s chat, if it can.
 pub(crate) fn send(
     world: &mut World,
+    hub: Entity,
     text: String,
     places: &attach::Places,
 ) -> bool {
     let text = text.trim().to_string();
+    let owner = attach::Owner::of(world, hub);
     let ready = world
         .get_resource::<attach::Attached>()
         .map_or(Some((Vec::new(), Vec::new())), |attached| {
-            attached.ready(places)
+            attached.ready(owner, places)
         });
     let Some((images, files)) = ready else {
-        world.resource_mut::<Draft>().notice =
+        tell(
+            world,
+            Some(hub),
             "Something attached is still being sent, waits to be \
-             sent, or was not kept."
-                .into();
+             sent, or was not kept.",
+        );
         return false;
     };
     if text.is_empty() && images.is_empty() && files.is_empty() {
@@ -315,22 +416,26 @@ pub(crate) fn send(
     ) {
         return false;
     }
-    let convo = world.resource::<Convo>();
-    let Some(to) = convo.to(world) else {
+    let Some((to, agent)) = convo::of(world, hub)
+        .and_then(|c| Some((c.to(world)?, c.agent)))
+    else {
         return false;
     };
-    to_end(world);
+    to_end(world, hub);
+    crate::chief::spoke(world, hub, agent);
+    let request = protocol::RequestId::new();
     world.trigger(ChiefMessage {
-        request: protocol::RequestId::new(),
+        request: request.clone(),
         to,
         text,
         images,
         files,
     });
+    asked_in(world, request, hub);
     if let Some(mut attached) =
         world.get_resource_mut::<attach::Attached>()
     {
-        attached.clear();
+        attached.clear(owner);
     }
     true
 }
@@ -378,30 +483,35 @@ fn told(tell: On<Tell>, mut commands: Commands) {
     });
 }
 
-/// Sends what is typed in the field, as Enter does.
-pub(crate) fn send_typed(world: &mut World) {
-    let Some(plain) = field::typed(world) else {
+/// Sends what is typed in `hub`'s field, as Enter does.
+pub(crate) fn send_typed(world: &mut World, hub: Entity) {
+    let Some(plain) = field::typed(world, hub) else {
         return;
     };
-    world.resource_mut::<Draft>().focus = true;
+    focus(world, hub);
     if plain.text.trim_start().starts_with('/') {
-        world.resource_mut::<Draft>().notice =
+        tell(
+            world,
+            Some(hub),
             "Commands are not typed here. Use the menus, or \
-             right-click an agent or a hamlet."
-                .into();
+             right-click an agent or a hamlet.",
+        );
         return;
     }
-    if without_model(world) {
+    if without_model(world, hub) {
         // Kept in the field, to send once a model is set up.
-        world.resource_mut::<Draft>().notice =
-            "No model is set up yet. Set one up to start.".into();
+        tell(
+            world,
+            Some(hub),
+            "No model is set up yet. Set one up to start.",
+        );
         return;
     }
-    world.resource_mut::<Draft>().notice.clear();
+    tell(world, Some(hub), "");
     // Places move with the trimmed words and the reply's line.
     let lead = plain.text.len() - plain.text.trim_start().len();
     let words = plain.text.trim().to_string();
-    let (text, shift) = reply::attach(world, words.clone());
+    let (text, shift) = reply::attach(world, hub, words.clone());
     let places = plain
         .atoms
         .iter()
@@ -412,22 +522,26 @@ pub(crate) fn send_typed(world: &mut World) {
         })
         .collect::<attach::Places>();
     let empty = text.is_empty() && places.is_empty();
-    let sent = send(world, text, &places);
+    let sent = send(world, hub, text, &places);
     if sent && shift > 0 {
-        world.resource_mut::<reply::Replying>().0 = None;
+        reply::reply_in(world, hub, None);
     }
     if sent || empty {
-        field::with_field(world, |mut field| field.clear());
+        field::with_field(world, hub, |mut field| field.clear());
     }
 }
 
-/// Whether the agent the chat is with has no model set up.
-pub(crate) fn without_model(world: &World) -> bool {
-    world.get_resource::<Convo>().is_some_and(|convo| {
-        world
-            .get::<agents::Account>(convo.agent)
-            .is_some_and(|account| account.model.is_empty())
-    })
+/// Whether the agent `hub`'s chat is with has no model set up.
+pub(crate) fn without_model(world: &World, hub: Entity) -> bool {
+    convo::of(world, hub)
+        .is_some_and(|convo| has_no_model(world, convo.agent))
+}
+
+/// Whether `agent` has no model set up.
+pub(crate) fn has_no_model(world: &World, agent: Entity) -> bool {
+    world
+        .get::<agents::Account>(agent)
+        .is_some_and(|account| account.model.is_empty())
 }
 
 /// The furthest the chat can be scrolled, in pixels.
@@ -437,39 +551,40 @@ pub(crate) fn furthest(node: &ComputedNode) -> f32 {
         .max(0.0)
 }
 
-/// Whether the chat is shown away from its end.
-#[derive(Resource, Default)]
+/// Whether a Hub's chat is shown away from its end.
+#[derive(Component, Default)]
 pub struct AwayFromEnd(pub bool);
 
-/// Whether the chat is to be taken to its end.
-#[derive(Resource, Default)]
+/// Whether a Hub's chat is to be taken to its end.
+#[derive(Component, Default)]
 pub struct ToEnd(bool);
 
-fn to_end(world: &mut World) {
-    if let Some(mut to_end) = world.get_resource_mut::<ToEnd>() {
+fn to_end(world: &mut World, hub: Entity) {
+    if let Some(mut to_end) = world.get_mut::<ToEnd>(hub) {
         to_end.0 = true;
     }
 }
 
-/// Takes the chat to its end when asked.
+/// Takes each Hub's chat to its end when asked.
 pub fn keep_end(
-    mut to_end: ResMut<ToEnd>,
-    mut away: ResMut<AwayFromEnd>,
-    mut lists: Query<
-        (
-            &VirtualList,
-            &ComputedNode,
-            &mut ScrollPosition,
-            &mut ScrollGoal,
-        ),
-        With<ChatScroll>,
-    >,
+    mut hubs: Query<(&mut ToEnd, &mut AwayFromEnd)>,
+    mut lists: Query<(
+        &ChatScroll,
+        &VirtualList,
+        &ComputedNode,
+        &mut ScrollPosition,
+        &mut ScrollGoal,
+    )>,
 ) {
-    let jump = to_end.0;
-    if jump {
-        to_end.0 = false;
-    }
-    for (list, node, mut at, mut goal) in &mut lists {
+    for (scroll, list, node, mut at, mut goal) in &mut lists {
+        let Ok((mut to_end, mut away)) = hubs.get_mut(scroll.0)
+        else {
+            continue;
+        };
+        let jump = to_end.0;
+        if jump {
+            to_end.0 = false;
+        }
         if jump {
             // The wheel's goal elsewhere means nothing at the end.
             *goal = ScrollGoal::default();
@@ -505,26 +620,30 @@ pub(crate) fn tool_button(
     .boxed()
 }
 
-/// The field and `tools` under it in one rounded card.
-pub fn message_bar(tools: impl View + 'static) -> impl View {
+/// `hub`'s field and `tools` under it in one rounded card.
+pub fn message_bar(
+    hub: Entity,
+    tools: impl View + 'static,
+) -> impl View {
     with_cx(move |cx| {
         let space = &cx.theme().space;
         // Keeps the corners of the card and its controls concentric.
         let inset = space.soft - space.round;
-        message_bar_in(space.gap, inset, tools)
+        message_bar_in(hub, space.gap, inset, tools)
     })
 }
 
 fn message_bar_in(
+    hub: Entity,
     gap: f32,
     inset: f32,
     tools: impl View + 'static,
 ) -> impl View {
-    let hint = derived(|world: &World| {
-        if without_model(world) {
+    let hint = derived(move |world: &World| {
+        if without_model(world, hub) {
             return "Set up a model to start".to_string();
         }
-        match world.get_resource::<Convo>().map(|c| &c.with) {
+        match convo::of(world, hub).map(|c| &c.with) {
             Some(Some(name)) => format!("Message {name}"),
             Some(None) => "Message the Hand".to_string(),
             None => "Message".to_string(),
@@ -534,11 +653,12 @@ fn message_bar_in(
     let field = row((hinted(
         rich_field()
             .enter(Enter::Submit)
-            .on_submit(|world, _| send_typed(world))
-            .on_change(|world, pieces| {
-                attach::reconcile(world, &pieces);
-                field::chip_references(world, &pieces);
-                field::keep_draft(world, &pieces);
+            .on_submit(move |world, _| send_typed(world, hub))
+            .on_change(move |world, pieces| {
+                crate::hub::activate(world, hub);
+                attach::reconcile(world, hub, &pieces);
+                field::chip_references(world, hub, &pieces);
+                field::keep_draft(world, hub, &pieces);
             })
             .max_lines(MOST_LINES)
             .grow(1.0)
@@ -550,17 +670,17 @@ fn message_bar_in(
             .rules(in_card)
             // The card shows the focus.
             .tagged(Variant::Subtle)
-            .tagged(ChatField),
+            .tagged(ChatField(hub)),
         hint,
     ),))
     .grow(1.0)
     .min_width(px(FIELD_LEAST))
     .overflow(Overflow::clip());
     let card = column((
-        commands::list(),
-        reply::preview(),
-        attach::indicator(),
-        attach::holds(),
+        commands::list(hub),
+        reply::preview(hub),
+        attach::indicator(hub),
+        attach::holds(hub),
         field,
         tools,
     ))
@@ -569,11 +689,13 @@ fn message_bar_in(
     .rules(card_look)
     .tagged(crate::world_menu::Hook::Composer);
     column((
-        held::line(),
+        held::line(hub),
         card,
         // One line kept, so a notice does not lift the field.
-        column((note(resource::<Draft, _>(|draft| {
-            draft.notice.clone()
+        column((note(component::<Draft, _>(hub, |draft| {
+            draft
+                .map(|draft| draft.notice.clone())
+                .unwrap_or_default()
         })),))
         .min_height(px(15.0)),
     ))
@@ -604,6 +726,7 @@ fn in_card(cx: &mut Cx) {
 #[cfg(test)]
 mod tests {
     use bevy::ecs::hierarchy::ChildOf;
+    use bevy::ecs::query::With;
     use bevy::input::keyboard::Key;
     use bevy::input_focus::{FocusCause, InputFocus};
     use bevy_fynix::views::RichField;
@@ -611,6 +734,12 @@ mod tests {
     use hamlet_realm::sound::Cue;
 
     use super::*;
+    use crate::testing::convo;
+
+    /// The first Hub, which the chat tests type and read in.
+    fn hub(app: &App) -> Entity {
+        crate::hub::following(app.world()).unwrap()
+    }
 
     fn sounding_chat() -> App {
         let mut app = crate::testing::panel_app();
@@ -621,9 +750,10 @@ mod tests {
             .init_resource::<crate::hover::Card>()
             .insert_resource(crate::reference::links())
             .add_plugins((plugin, crate::sounds::plugin));
+        let hub = hub(&app);
         bevy_fynix::mount::<HamletTheme>(
             app.world_mut(),
-            message_bar(bevy_fynix::views::frame()),
+            message_bar(hub, bevy_fynix::views::frame()),
         );
         app.update();
         app
@@ -658,10 +788,13 @@ mod tests {
         let image = ImageId::try_from("a".repeat(64)).unwrap();
         // A chip after "  Which", in words typed with white space
         // around them, and a reply that puts a line before them.
+        let hub = hub(&app);
+        let owner = attach::Owner::of(app.world(), hub);
         let pieces = app
             .world_mut()
             .resource_mut::<attach::Attached>()
             .give_back(
+                owner,
                 &[AttachedImage {
                     at: Some(7),
                     id: image.clone(),
@@ -670,16 +803,14 @@ mod tests {
                 "  Which one is it  ",
                 0,
             );
-        field::set(app.world_mut(), pieces);
-        let chat = app.world().resource::<Convo>().chat;
-        app.world_mut().resource_mut::<reply::Replying>().0 = Some((
-            chat,
-            reply::Answers {
-                by: "Ada".into(),
-                text: "Pear or plum?".into(),
-            },
-        ));
-        send_typed(app.world_mut());
+        field::set(app.world_mut(), hub, pieces);
+        let chat = convo(&app).chat;
+        let answers = reply::Answers {
+            by: "Ada".into(),
+            text: "Pear or plum?".into(),
+        };
+        reply::reply_in(app.world_mut(), hub, Some((chat, answers)));
+        send_typed(app.world_mut(), hub);
         let say = app
             .world()
             .resource::<Outbox>()
@@ -705,7 +836,7 @@ mod tests {
         assert!(field.is_empty());
         let attached = world.resource::<attach::Attached>();
         assert_eq!(
-            attached.ready(&attach::Places::new()),
+            attached.ready(owner, &attach::Places::new()),
             Some((Vec::new(), Vec::new()))
         );
     }
@@ -732,7 +863,7 @@ mod tests {
             .world_mut()
             .spawn((Window::default(), PrimaryWindow))
             .id();
-        let chat = app.world().resource::<Convo>().chat;
+        let (hub, chat) = (hub(&app), convo(&app).chat);
         app.world_mut().entity_mut(chat).insert(
             Transcript::from_items(vec![Item {
                 id: "message/é:7".into(),
@@ -745,8 +876,8 @@ mod tests {
         bevy_fynix::mount::<HamletTheme>(
             app.world_mut(),
             column((
-                transcript(),
-                message_bar(bevy_fynix::views::frame()),
+                transcript(hub),
+                message_bar(hub, bevy_fynix::views::frame()),
             )),
         );
         app.update();
@@ -795,6 +926,7 @@ mod tests {
         app.update();
         app.world_mut().trigger(hamlet_client::messages::Rewound {
             chat,
+            request: protocol::RequestId::new(),
             text,
             images: Vec::new(),
             files: Vec::new(),
@@ -818,12 +950,13 @@ mod tests {
             .init_resource::<crate::hover::Card>()
             .add_plugins((plugin, crate::sounds::plugin));
         app.update();
-        app.world_mut().resource_mut::<Draft>().focus = true;
+        let hub = hub(&app);
+        focus(app.world_mut(), hub);
         app.update();
-        assert!(app.world().resource::<Draft>().focus);
+        assert!(app.world().get::<Draft>(hub).unwrap().focus);
         bevy_fynix::mount::<HamletTheme>(
             app.world_mut(),
-            message_bar(bevy_fynix::views::frame()),
+            message_bar(hub, bevy_fynix::views::frame()),
         );
         app.update();
         app.update();
@@ -836,7 +969,7 @@ mod tests {
             app.world().resource::<InputFocus>().get(),
             Some(input)
         );
-        assert!(!app.world().resource::<Draft>().focus);
+        assert!(!app.world().get::<Draft>(hub).unwrap().focus);
     }
 
     #[test]
@@ -875,8 +1008,9 @@ mod tests {
             ));
         }
         let places = attach::Places::new();
-        send(app.world_mut(), "/agent ada".into(), &places);
-        send(app.world_mut(), "/hamlet home".into(), &places);
+        let hub = hub(&app);
+        send(app.world_mut(), hub, "/agent ada".into(), &places);
+        send(app.world_mut(), hub, "/hamlet home".into(), &places);
         assert!(!app.world().resource::<Outbox>().iter().any(
             |message| matches!(
                 message,
@@ -938,10 +1072,8 @@ mod tests {
             app.world_mut(),
             protocol::ServerMessage::Transcript(pages[0].clone()),
         );
-        bevy_fynix::mount::<HamletTheme>(
-            app.world_mut(),
-            transcript(),
-        );
+        let shown = transcript(hub(&app));
+        bevy_fynix::mount::<HamletTheme>(app.world_mut(), shown);
         app.update();
         let world = app.world_mut();
         let scroll = world
@@ -1003,10 +1135,8 @@ mod tests {
             app.world_mut(),
             protocol::ServerMessage::Transcript(pages[0].clone()),
         );
-        bevy_fynix::mount::<HamletTheme>(
-            app.world_mut(),
-            transcript(),
-        );
+        let shown = transcript(hub(&app));
+        bevy_fynix::mount::<HamletTheme>(app.world_mut(), shown);
         app.update();
         let world = app.world_mut();
         let scroll = world
@@ -1133,15 +1263,13 @@ mod tests {
         app.add_plugins(plugin);
         for seat in [seat_ada, seat_hand] {
             seat(&mut app);
-            let chat = app.world().resource::<Convo>().chat;
+            let chat = convo(&app).chat;
             app.world_mut().entity_mut(chat).insert(said(40));
         }
         app.update();
         // Kept from chat to chat, as the hub keeps it.
-        bevy_fynix::mount::<HamletTheme>(
-            app.world_mut(),
-            transcript(),
-        );
+        let shown = transcript(hub(&app));
+        bevy_fynix::mount::<HamletTheme>(app.world_mut(), shown);
         // Nothing is laid out here; the list is sized as it is built.
         let settle = |app: &mut App| {
             for _ in 0..6 {
@@ -1176,7 +1304,7 @@ mod tests {
 
         let (_, following, _) = settle(&mut app);
         assert!(following, "a chat opens at its end");
-        let chat = app.world().resource::<Convo>().chat;
+        let chat = convo(&app).chat;
         app.world_mut().entity_mut(chat).insert(said(41));
         let (list, following, _) = settle(&mut app);
         assert!(following, "a row that comes keeps it at its end");
@@ -1212,7 +1340,7 @@ mod tests {
 
         let mut app = crate::testing::panel_app();
         app.add_plugins(plugin);
-        let chat = app.world().resource::<Convo>().chat;
+        let chat = convo(&app).chat;
         let reference =
             app.world().get::<Chat>(chat).unwrap().0.clone();
         let item = |id: &str, kind, text: &str| protocol::Item {
@@ -1312,10 +1440,8 @@ mod tests {
                 ),
             ],
         );
-        bevy_fynix::mount::<HamletTheme>(
-            app.world_mut(),
-            transcript(),
-        );
+        let shown = transcript(hub(&app));
+        bevy_fynix::mount::<HamletTheme>(app.world_mut(), shown);
         app.update();
         let mut queued =
             item("queued:1", protocol::ItemKind::User, "More");

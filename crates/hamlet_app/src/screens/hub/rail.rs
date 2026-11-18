@@ -129,6 +129,7 @@ const STRIP: f32 = 32.0;
 
 pub(super) fn plugin(app: &mut App) {
     app.init_resource::<Minute>()
+        .init_resource::<Stale>()
         .add_observer(grab)
         .add_observer(drag)
         .add_observer(drop)
@@ -138,8 +139,8 @@ pub(super) fn plugin(app: &mut App) {
         )
         .add_systems(
             Update,
-            gather
-                .run_if(is_stale)
+            (note_stale, gather.run_if(Stale::is_any))
+                .chain()
                 .after(read_search)
                 .before(FynixSystems::Mount),
         )
@@ -1012,7 +1013,7 @@ fn kind_glyph(agent: &Agent) -> Glyph {
 /// Whether `target` is what `hub` shows.
 fn is_current(world: &World, hub: Entity, target: Target) -> bool {
     let showing = super::showing(world, hub);
-    let seated = world.get_resource::<Convo>().map(|c| c.agent);
+    let seated = crate::convo::of(world, hub).map(|c| c.agent);
     match (target, showing) {
         (
             Target::Hand | Target::Agent(_),
@@ -1652,12 +1653,20 @@ fn tool(
 /// The search over `hub`'s rail's rows, with the tab's tools at its
 /// end.
 fn search_row(hub: Entity) -> impl View {
-    let field = search(
-        text_field(String::new(), |_, _| {})
-            .rules(text_input)
-            .tagged(Search(hub)),
-        "Search",
-    );
+    // Built again when the rail expands, with the search it had.
+    let field = AnyView::new(move |cx: &mut Cx| {
+        let now = cx
+            .world
+            .get::<Rail>(hub)
+            .map(|rail| rail.search.clone())
+            .unwrap_or_default();
+        cx.build(search(
+            text_field(now, |_, _| {})
+                .rules(text_input)
+                .tagged(Search(hub)),
+            "Search",
+        ))
+    });
     // Built once, shown only on their tab.
     let on = |shown: Tab, view: AnyView| {
         column((view,)).display(component::<Tab, _>(
@@ -1785,19 +1794,19 @@ fn go(world: &mut World, hub: Entity, target: Target) {
         Target::Realm => show(world, hub, Showing::Realm),
         Target::Hand if follows => {
             talk_to_hand(world);
-            type_in_thread(world);
+            crate::chat::focus(world, hub);
         }
         Target::Hand => {
             if let Some(hand) = hamlet_client::realm::hand(world) {
-                seat(world, hand);
+                seat(world, hub, hand);
                 show(world, hub, Showing::Thread);
-                type_in_thread(world);
+                crate::chat::focus(world, hub);
             }
         }
         // Its thread, and its house brought into view.
         Target::Agent(agent) => {
             super::talk_in(world, hub, agent);
-            type_in_thread(world);
+            crate::chat::focus(world, hub);
             if follows && world.contains_resource::<Selected>() {
                 let home = crate::convo::home_of(world, agent);
                 bring_into_view(world, home);
@@ -1822,15 +1831,6 @@ fn go(world: &mut World, hub: Entity, target: Target) {
                 rail.toggle(group);
             }
         }
-    }
-}
-
-/// Asks for the focus to go to the chat's field.
-fn type_in_thread(world: &mut World) {
-    if let Some(mut draft) =
-        world.get_resource_mut::<crate::screens::chat::Draft>()
-    {
-        draft.focus = true;
     }
 }
 
@@ -2239,39 +2239,65 @@ struct Parts {
 /// Which of [`Parts`]' places a part of the rail is in.
 type Place = fn(&Parts) -> &[Section];
 
-/// Whether anything [`sections`] reads changed since this last ran.
-fn is_stale(
+/// The rails whose [`sections`] may have changed: every one, or those
+/// of these Hubs.
+#[derive(Resource, Default)]
+struct Stale {
+    all: bool,
+    hubs: Vec<Entity>,
+}
+
+impl Stale {
+    fn is_any(stale: Res<Stale>) -> bool {
+        stale.all || !stale.hubs.is_empty()
+    }
+}
+
+/// Notes what [`sections`] reads that changed since this last ran:
+/// the realm's for every rail, a Hub's own for its rail alone.
+fn note_stale(
     seen: Option<Res<Seen>>,
     hubs: Query<
-        (),
+        Entity,
         (
             With<super::Hub>,
-            Or<(Changed<Rail>, Changed<Tab>, Changed<Showing>)>,
+            Or<(
+                Changed<Rail>,
+                Changed<Tab>,
+                Changed<Showing>,
+                Changed<Convo>,
+            )>,
         ),
     >,
-    convo: Option<Res<Convo>>,
     transcripts: Query<(), Changed<Transcript>>,
     mut unwatched: RemovedComponents<Transcript>,
-) -> bool {
+    mut stale: ResMut<Stale>,
+) {
     // Read through each time, so that a removal is seen only once.
     let unwatched = unwatched.read().count() > 0;
     let changed = |is: Option<bool>| is.unwrap_or(false);
-    unwatched
+    if unwatched
         || !transcripts.is_empty()
         || changed(seen.map(|seen| seen.is_changed()))
-        || !hubs.is_empty()
-        || changed(convo.map(|convo| convo.is_changed()))
+    {
+        stale.all = true;
+    }
+    stale.hubs.extend(hubs.iter());
 }
 
-/// Keeps each Hub's [`Parts`] up to date, changed only when a section
-/// is.
+/// Keeps the [`Parts`] of each Hub whose rail is stale up to date,
+/// changed only when a section is.
 fn gather(world: &World, mut commands: Commands) {
     let Some(mut hubs) =
         world.try_query_filtered::<Entity, With<super::Hub>>()
     else {
         return;
     };
+    let stale = world.resource::<Stale>();
     for hub in hubs.iter(world) {
+        if !stale.all && !stale.hubs.contains(&hub) {
+            continue;
+        }
         // The realm's page lists what waits in full.
         let on_realm =
             super::showing(world, hub) == Some(Showing::Realm);
@@ -2289,6 +2315,9 @@ fn gather(world: &World, mut commands: Commands) {
             commands.entity(hub).try_insert(parts);
         }
     }
+    commands.queue(|world: &mut World| {
+        *world.resource_mut::<Stale>() = Stale::default();
+    });
 }
 
 /// `hub`'s [`Parts`], read through `read`.
@@ -2433,6 +2462,50 @@ fn full(hub: Entity) -> impl View {
     })
 }
 
+/// The row a hamlet's header stands as in the collapsed rail, which
+/// opens its page.
+fn header_line(section: &Section) -> Option<Line> {
+    let target @ Target::Hamlet(_) = section.opens? else {
+        return None;
+    };
+    Some(Line {
+        target,
+        glyph: Glyph::Hamlet,
+        name: section.title.clone(),
+        tag: None,
+        detail: String::new(),
+        since: 0,
+        mark: section.mark,
+        address: String::new(),
+        depth: 0,
+        level: 0,
+        last: true,
+        rails: Vec::new(),
+        current: section.current,
+        fold: None,
+        worker: false,
+    })
+}
+
+/// The rows of `section` in the collapsed rail: its header's, then
+/// those not folded away. A folded group stays while one in it waits.
+fn strip_lines(section: &Section) -> Vec<Line> {
+    let mut lines = Vec::from_iter(header_line(section));
+    if !section.folded {
+        lines.extend(
+            section
+                .lines
+                .iter()
+                .filter(|line| {
+                    !matches!(line.target, Target::Fold(_))
+                        || line.mark == Some(Standing::Waits)
+                })
+                .cloned(),
+        );
+    }
+    lines
+}
+
 /// The collapsed rail: its tools over an icon for each row.
 fn strip(hub: Entity) -> impl View {
     let rows = each(
@@ -2441,14 +2514,9 @@ fn strip(hub: Entity) -> impl View {
                 .over
                 .iter()
                 .chain(&parts.under)
-                .filter(|section| {
-                    section.group != Group::Needs && !section.folded
-                })
-                .flat_map(|section| section.lines.iter())
-                .filter(|line| {
-                    !matches!(line.target, Target::Fold(_))
-                })
-                .cloned()
+                .chain(&parts.left)
+                .filter(|section| section.group != Group::Needs)
+                .flat_map(strip_lines)
                 .collect::<Vec<_>>()
         }),
         Line::clone,

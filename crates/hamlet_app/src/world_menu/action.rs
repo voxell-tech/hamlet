@@ -15,8 +15,6 @@ use bevy_fynix::views::{
     row,
 };
 use bevy_fynix::{ScopedExt, ViewExt};
-use hamlet_client::messages::Rewind;
-use hamlet_client::outbox::RequestId;
 use hamlet_client::realm::{
     self as agents, Actions, Busy, HamletAgent, HamletId, Left,
     LivesIn,
@@ -29,7 +27,6 @@ use hamlet_ui::{View, built};
 
 use super::close;
 use crate::chat;
-use crate::convo::Convo;
 
 /// An action asked about before it is done.
 #[derive(Clone, PartialEq)]
@@ -49,8 +46,10 @@ pub(crate) enum Action {
     Unshelve(String),
     /// Makes this agent the lead of its hamlet.
     Lead(Entity),
-    /// Rewinds the open conversation to before message `entry`.
+    /// Rewinds the open conversation to before message `entry`, its
+    /// words going back to the field of the Hub it was asked in.
     Rewind {
+        hub: Entity,
         chat: Entity,
         entry: String,
         /// The time of the message, in milliseconds since 1970.
@@ -132,13 +131,10 @@ impl Action {
             Action::MoveWorktrees => {
                 crate::settings::workspace::move_worktrees(world);
             }
-            Action::Rewind { chat, entry, .. } => {
-                world.trigger(Rewind {
-                    chat: *chat,
-                    request: RequestId::new(),
-                    item: entry.clone(),
-                });
-                world.flush();
+            Action::Rewind {
+                hub, chat, entry, ..
+            } => {
+                chat::rewind_to(world, *hub, *chat, entry);
             }
         }
     }
@@ -244,12 +240,16 @@ impl Action {
                  becomes one of its agents.",
                 name(agent)
             ),
-            Action::Rewind { .. } => format!(
+            Action::Rewind { chat, .. } => format!(
                 "{} forgets this message and everything after it, \
                  and the message goes back in the message box. \
                  Changed files, commands that ran, letters and \
                  spending are not undone.",
-                name(&world.resource::<Convo>().agent)
+                name(
+                    &world
+                        .get::<hamlet_client::chats::TalksTo>(*chat)
+                        .map_or(Entity::PLACEHOLDER, |to| to.0)
+                )
             ),
             Action::DefaultCharter => "Your own charter is deleted \
                                        from disk. This cannot be \

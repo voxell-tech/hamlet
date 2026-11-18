@@ -1,13 +1,12 @@
-//! The agent the chat is with, and the ways to point it at another.
+//! The agent each Hub's chat is with, and the ways to point it at
+//! another.
 
-use bevy::app::{App, PreUpdate};
+use bevy::ecs::component::Component;
 use bevy::ecs::entity::Entity;
 use bevy::ecs::lifecycle::RemovedComponents;
 use bevy::ecs::name::Name;
 use bevy::ecs::query::{Added, Changed, Or, With};
-use bevy::ecs::resource::Resource;
-use bevy::ecs::schedule::IntoScheduleConfigs;
-use bevy::ecs::system::{Query, Res, ResMut};
+use bevy::ecs::system::Query;
 use bevy::ecs::world::World;
 use hamlet_client::chats::{Chat, Status, Transcript};
 use hamlet_client::realm::{
@@ -16,48 +15,25 @@ use hamlet_client::realm::{
 use hamlet_protocol::client as protocol;
 use hamlet_realm::pick::{Selected, Thing, bring_into_view, select};
 
-use crate::PanelSystems;
 use crate::hub::{self, Showing};
 
-/// Opens the chat with the Hand as soon as the realm names it.
-pub(crate) fn plugin(app: &mut App) {
-    let name = app
-        .world()
-        .get_resource::<Chief>()
-        .map(|chief| chief.0.clone())
-        .unwrap_or_default();
-    app.insert_resource(Convo {
-        chat: Entity::PLACEHOLDER,
-        name,
-        agent: Entity::PLACEHOLDER,
-        with: None,
-    })
-    .add_systems(PreUpdate, chief_name.in_set(PanelSystems::Follow));
-    if let Some(hand) = agents::hand(app.world()) {
-        seat(app.world_mut(), hand);
-    }
-}
-
-pub(crate) fn chief_name(
-    chief: Option<Res<Chief>>,
-    mut convo: ResMut<Convo>,
-) {
-    if let Some(chief) = chief
-        && convo.name != chief.0
-    {
-        convo.name.clone_from(&chief.0);
-    }
-}
-
-/// The chat this window shows and sends to.
-#[derive(Resource)]
+/// The chat a Hub shows and sends to.
+#[derive(Component, Clone, PartialEq, Debug)]
 pub struct Convo {
     pub chat: Entity,
-    /// The name the chief signs in with.
-    pub name: String,
     pub agent: Entity,
     /// The agent's name, `None` for the Hand.
     pub with: Option<String>,
+}
+
+impl Default for Convo {
+    fn default() -> Self {
+        Convo {
+            chat: Entity::PLACEHOLDER,
+            agent: Entity::PLACEHOLDER,
+            with: None,
+        }
+    }
 }
 
 impl Convo {
@@ -68,6 +44,29 @@ impl Convo {
     ) -> Option<protocol::AgentId> {
         Some(world.get::<Identity>(self.agent)?.0)
     }
+}
+
+/// `hub`'s chat.
+pub(crate) fn of(world: &World, hub: Entity) -> Option<&Convo> {
+    world.get::<Convo>(hub)
+}
+
+/// The chat `hub` shows, else none.
+pub(crate) fn chat_of(world: &World, hub: Entity) -> Entity {
+    of(world, hub).map_or(Entity::PLACEHOLDER, |convo| convo.chat)
+}
+
+/// The agent `hub`'s chat is with, else none.
+pub(crate) fn agent_of(world: &World, hub: Entity) -> Entity {
+    of(world, hub).map_or(Entity::PLACEHOLDER, |convo| convo.agent)
+}
+
+/// The name the chief signs in with.
+pub(crate) fn chief_name(world: &World) -> String {
+    world
+        .get_resource::<Chief>()
+        .map(|chief| chief.0.clone())
+        .unwrap_or_default()
 }
 
 /// A living agent's id and shown name, `None` for the Hand.
@@ -86,6 +85,10 @@ pub(crate) fn id_and_shown(
 fn watch(world: &mut World, to: protocol::AgentId) -> Entity {
     let reference = protocol::ChatRef { with: to };
     let kept = hamlet_client::chats::find(world, &reference);
+    // Kept from now on, though a merged conversation brought it.
+    if let Some(kept) = kept {
+        crate::chat::keep_merged(world, kept);
+    }
     kept.unwrap_or_else(|| {
         world
             .spawn((
@@ -105,31 +108,30 @@ pub(crate) enum Seating {
     Unaddressed,
 }
 
-/// Points the chat at `agent`.
-pub(crate) fn seat(world: &mut World, agent: Entity) -> Seating {
+/// Points `hub`'s chat at `agent`.
+pub(crate) fn seat(
+    world: &mut World,
+    hub: Entity,
+    agent: Entity,
+) -> Seating {
     let Some((to, with)) = id_and_shown(world, agent) else {
         return Seating::Unaddressed;
     };
-    seat_as(world, agent, to, with);
-    Seating::Seated
-}
-
-fn seat_as(
-    world: &mut World,
-    agent: Entity,
-    to: protocol::AgentId,
-    with: Option<String>,
-) {
     let chat = watch(world, to);
-    if world.resource::<Convo>().chat != chat
-        && world.contains_resource::<crate::chat::MergedLines>()
-    {
-        crate::chat::close_merged(world);
+    let now = Convo { chat, agent, with };
+    match world.get::<Convo>(hub) {
+        Some(was) if *was == now => {}
+        Some(was) => {
+            if was.chat != chat {
+                crate::chat::close_merged(world, hub);
+            }
+            world.entity_mut(hub).insert(now);
+        }
+        None => {
+            world.entity_mut(hub).insert(now);
+        }
     }
-    let mut convo = world.resource_mut::<Convo>();
-    convo.chat = chat;
-    convo.agent = agent;
-    convo.with = with;
+    Seating::Seated
 }
 
 /// `agent`'s house: the hall for the first lead.
@@ -141,9 +143,17 @@ pub(crate) fn home_of(world: &World, agent: Entity) -> Thing {
     }
 }
 
-/// Points the chat at `agent` and selects it in the world.
+/// Points the following Hub's chat at `agent` and selects it in the
+/// world.
 pub(crate) fn talk_to(world: &mut World, agent: Entity) {
-    if seat(world, agent) == Seating::Unaddressed {
+    // The tab in front stays for an agent with no address.
+    if id_and_shown(world, agent).is_none() {
+        return;
+    }
+    let Some(hub) = hub::bring_following(world) else {
+        return;
+    };
+    if seat(world, hub, agent) == Seating::Unaddressed {
         return;
     }
     let hall = agents::first_lead(world) == Some(agent);
@@ -162,23 +172,27 @@ pub(crate) fn talk_to(world: &mut World, agent: Entity) {
     if !same {
         select(world, Some(home_of(world, agent)));
     }
-    hub::show_following(world, Showing::Thread);
+    hub::show(world, hub, Showing::Thread);
 }
 
-/// Points the chat back at the Hand and brings its tower into view.
+/// Points the following Hub's chat back at the Hand and brings its
+/// tower into view.
 pub(crate) fn talk_to_hand(world: &mut World) {
     let Some(hand) = agents::hand(world) else {
         return;
     };
-    seat(world, hand);
+    let Some(hub) = hub::bring_following(world) else {
+        return;
+    };
+    seat(world, hub, hand);
     if world.contains_resource::<Selected>() {
         select(world, Some(Thing::Hand));
     }
-    hub::show_following(world, Showing::Thread);
+    hub::show(world, hub, Showing::Thread);
     bring_into_view(world, Thing::Hand);
 }
 
-/// Points the chat at the agent `to`.
+/// Points the following Hub's chat at the agent `to`.
 pub(crate) fn talk_at(world: &mut World, to: protocol::AgentId) {
     if let Some(agent) = agents::agent(world, to) {
         talk_to(world, agent);
@@ -196,18 +210,27 @@ pub(crate) fn roster_moved(
     gone.read().count() > 0 || !named.is_empty()
 }
 
-/// Keeps [`Convo`] on its agent, or on the Hand once it is gone.
+/// Keeps each Hub's [`Convo`] on its agent, or on the Hand once it is
+/// gone.
 pub(crate) fn reseat(world: &mut World) {
-    let agent = world.resource::<Convo>().agent;
-    match id_and_shown(world, agent) {
-        Some((_, with)) => {
-            if world.resource::<Convo>().with != with {
-                world.resource_mut::<Convo>().with = with;
+    let hubs = world
+        .query_filtered::<Entity, With<hub::Hub>>()
+        .iter(world)
+        .collect::<Vec<_>>();
+    for hub in hubs {
+        let agent = agent_of(world, hub);
+        match id_and_shown(world, agent) {
+            Some((_, with)) => {
+                if let Some(mut convo) = world.get_mut::<Convo>(hub)
+                    && convo.with != with
+                {
+                    convo.with = with;
+                }
             }
-        }
-        None => {
-            if let Some(hand) = agents::hand(world) {
-                seat(world, hand);
+            None => {
+                if let Some(hand) = agents::hand(world) {
+                    seat(world, hub, hand);
+                }
             }
         }
     }
@@ -226,26 +249,33 @@ pub(crate) fn reseat(world: &mut World) {
 }
 
 #[cfg(test)]
-impl Convo {
-    pub(crate) fn of(
-        chat: Entity,
-        agent: Entity,
-        name: &str,
-        with: Option<&str>,
-    ) -> Convo {
-        Convo {
-            chat,
-            name: name.into(),
-            agent,
-            with: with.map(str::to_string),
-        }
-    }
-}
-
-#[cfg(test)]
 mod tests {
+    use bevy::app::PreUpdate;
+    use bevy::ecs::schedule::IntoScheduleConfigs;
+
     use super::*;
-    use crate::testing::panel_app;
+    use crate::PanelSystems;
+    use crate::testing::{convo, panel_app};
+
+    #[test]
+    fn each_hub_keeps_the_agent_its_chat_is_with() {
+        let mut app = panel_app();
+        let first = crate::testing::hub(&mut app);
+        let second = hub::spawn(
+            app.world_mut(),
+            "hub-2".into(),
+            hub::RailState::Expanded,
+        );
+        let ada = agents::named(app.world_mut(), "agent#2").unwrap();
+        talk_to(app.world_mut(), ada);
+        let hand = agents::hand(app.world()).unwrap();
+        assert_eq!(agent_of(app.world(), first), ada);
+        assert_eq!(agent_of(app.world(), second), hand);
+        seat(app.world_mut(), second, ada);
+        seat(app.world_mut(), first, hand);
+        assert_eq!(agent_of(app.world(), first), hand);
+        assert_eq!(agent_of(app.world(), second), ada);
+    }
 
     #[test]
     fn the_chat_returns_to_the_hand_when_its_agent_goes() {
@@ -268,10 +298,7 @@ mod tests {
         let scout =
             agents::named(app.world_mut(), "agent#3").unwrap();
         talk_to(app.world_mut(), scout);
-        assert_eq!(
-            app.world().resource::<Convo>().with.as_deref(),
-            Some("agent#3")
-        );
+        assert_eq!(convo(&app).with.as_deref(), Some("agent#3"));
         let revision = app.world().resource::<Seen>().revision + 1;
         receive(
             app.world_mut(),
@@ -284,9 +311,9 @@ mod tests {
             }),
         );
         app.update();
-        let convo = app.world().resource::<Convo>();
-        assert_eq!(Some(convo.agent), agents::hand(app.world()));
-        assert_eq!(convo.with, None);
+        let now = convo(&app);
+        assert_eq!(Some(now.agent), agents::hand(app.world()));
+        assert_eq!(now.with, None);
     }
 
     #[test]

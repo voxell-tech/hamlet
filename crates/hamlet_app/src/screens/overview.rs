@@ -4,12 +4,14 @@ mod hamlet;
 mod record;
 mod rows;
 
+use std::collections::HashMap;
+
 use bevy::app::{App, Update};
 use bevy::ecs::component::Component;
 use bevy::ecs::entity::Entity;
 use bevy::ecs::query::{Has, With, Without};
 use bevy::ecs::resource::Resource;
-use bevy::ecs::system::ResMut;
+use bevy::ecs::system::{Query, ResMut};
 use bevy::ecs::world::World;
 use bevy::ui::{
     AlignItems, Display, InteractionDisabled, percent, px,
@@ -46,7 +48,6 @@ use hamlet_ui::widgets::tabs;
 use hamlet_ui::{AnyView, Cx, View, kinds, rules, with_cx};
 
 use self::hamlet::budget;
-pub(crate) use self::hamlet::typed;
 pub use self::hamlet::{Page, hamlet};
 pub use self::record::Annals;
 pub(crate) use self::rows::standing;
@@ -63,8 +64,7 @@ pub fn plugin(app: &mut App) {
         .add_observer(disarm)
         .add_systems(Update, reconcile_erasing)
         .init_resource::<crate::forms::OpenForm>()
-        .init_resource::<Page>()
-        .add_systems(Update, tabs::mark::<Page>);
+        .add_systems(Update, tabs::mark_on::<Page>);
 }
 
 /// A heading over a part of the panel, behind its icon.
@@ -161,8 +161,12 @@ pub fn overview(hub: Entity) -> impl View {
                 .tooltip(|| note(words::PROFILE))
                 .boxed(),
             ]),
-            scroll_area((column((needs(), hamlets(hub), closed()))
-                .gap(cx.theme().space.section),)),
+            scroll_area((column((
+                needs(),
+                hamlets(hub),
+                closed(hub),
+            ))
+            .gap(cx.theme().space.section),)),
         ))
         .fills_height()
         .gap(cx.theme().space.section)
@@ -206,7 +210,7 @@ fn get_started(hub: Entity) -> AnyView {
 /// Opens the Hand's chat in `hub`.
 fn talk_to_hand(world: &mut World, hub: Entity) {
     if let Some(hand) = hamlet_client::realm::hand(world) {
-        crate::convo::seat(world, hand);
+        crate::convo::seat(world, hub, hand);
         crate::hub::show(world, hub, crate::hub::Showing::Thread);
     }
 }
@@ -540,35 +544,63 @@ fn hamlets(hub: Entity) -> AnyView {
     .boxed()
 }
 
+/// The closed hamlet each Hub asks before deleting for good, by its
+/// id and the time it closed.
 #[derive(Resource, Default)]
-struct Erasing(Option<(String, i64)>);
+struct Erasing(HashMap<Entity, (String, i64)>);
 
+impl Erasing {
+    fn asked(world: &World, hub: Entity) -> Option<(String, i64)> {
+        world.resource::<Erasing>().0.get(&hub).cloned()
+    }
+
+    fn ask(
+        world: &mut World,
+        hub: Entity,
+        asked: Option<(String, i64)>,
+    ) {
+        let mut erasing = world.resource_mut::<Erasing>();
+        match asked {
+            Some(asked) => erasing.0.insert(hub, asked),
+            None => erasing.0.remove(&hub),
+        };
+    }
+}
+
+/// The closed hamlets of a Hub's realm page.
 #[derive(Component)]
-struct ClosedPanel;
+struct ClosedPanel(Entity);
 
 fn disarm(
-    _: bevy::ecs::observer::On<
+    gone: bevy::ecs::observer::On<
         bevy::ecs::lifecycle::Remove<ClosedPanel>,
     >,
+    panels: Query<&ClosedPanel>,
     mut erasing: ResMut<Erasing>,
 ) {
-    erasing.0 = None;
+    if let Ok(ClosedPanel(hub)) = panels.get(gone.entity) {
+        erasing.0.remove(hub);
+    }
 }
 
 fn reconcile_erasing(
     closed: bevy::ecs::system::Res<Closed>,
     mut erasing: ResMut<Erasing>,
 ) {
-    if erasing.0.as_ref().is_some_and(|(id, at)| {
+    let stale = erasing.0.values().any(|(id, at)| {
         !closed.0.iter().any(|h| &h.id == id && h.at == *at)
-    }) {
-        erasing.0 = None;
+    });
+    if stale {
+        erasing.0.retain(|_, (id, at)| {
+            closed.0.iter().any(|h| &h.id == id && h.at == *at)
+        });
     }
 }
 
-fn closed() -> AnyView {
+/// The closed hamlets on `hub`'s realm page.
+fn closed(hub: Entity) -> AnyView {
     keyed(
-        derived(|world: &World| {
+        derived(move |world: &World| {
             (
                 world.resource::<Closed>().0.clone(),
                 world
@@ -577,11 +609,11 @@ fn closed() -> AnyView {
                 world
                     .resource::<Actions>()
                     .is_supported("erase-hamlet"),
-                world.resource::<Erasing>().0.clone(),
+                Erasing::asked(world, hub),
             )
         })
         .when(bevy_fynix::every_frame()),
-        |(closed, restore, erase, asking)| {
+        move |(closed, restore, erase, asking)| {
             if closed.is_empty() {
                 return column(()).boxed();
             }
@@ -599,8 +631,7 @@ fn closed() -> AnyView {
                                 .resource::<Actions>()
                                 .is_supported("restore-hamlet")
                             {
-                                world.resource_mut::<Erasing>().0 =
-                                    None;
+                                Erasing::ask(world, hub, None);
                                 chat::command(
                                     world,
                                     format!("/restore-hamlet {id}"),
@@ -620,8 +651,8 @@ fn closed() -> AnyView {
                         Glyph::Gone,
                         "Delete",
                         move |world| {
-                            world.resource_mut::<Erasing>().0 =
-                                Some((id.clone(), at));
+                            let asked = Some((id.clone(), at));
+                            Erasing::ask(world, hub, asked);
                         },
                     ));
                 }
@@ -650,9 +681,7 @@ fn closed() -> AnyView {
                                     Glyph::Gone,
                                     "Delete",
                                     move |world| {
-                                        world
-                                            .resource_mut::<Erasing>()
-                                            .0 = None;
+                                        Erasing::ask(world, hub, None);
                                         if world
                                             .resource::<Actions>()
                                             .is_supported(
@@ -685,10 +714,8 @@ fn closed() -> AnyView {
                                 action(
                                     Glyph::Back,
                                     "Cancel",
-                                    |world| {
-                                        world
-                                            .resource_mut::<Erasing>()
-                                            .0 = None;
+                                    move |world| {
+                                        Erasing::ask(world, hub, None);
                                     },
                                 ),
                             ]),
@@ -701,7 +728,7 @@ fn closed() -> AnyView {
             group(parts).boxed()
         },
     )
-    .within(bare().tagged(ClosedPanel))
+    .within(bare().tagged(ClosedPanel(hub)))
     .boxed()
 }
 
@@ -794,9 +821,10 @@ mod tests {
             app.world_mut(),
             protocol::ServerMessage::State(state.clone()),
         );
+        let hub = crate::testing::hub(&mut app);
         let root = bevy_fynix::mount::<hamlet_ui::theme::HamletTheme>(
             app.world_mut(),
-            closed(),
+            closed(hub),
         );
         app.update();
         press(&mut app, "Delete");
@@ -813,7 +841,7 @@ mod tests {
         app.update();
         bevy_fynix::mount::<hamlet_ui::theme::HamletTheme>(
             app.world_mut(),
-            closed(),
+            closed(hub),
         );
         app.update();
         assert!(

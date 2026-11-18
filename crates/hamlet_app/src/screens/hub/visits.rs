@@ -14,7 +14,7 @@ use hamlet_realm::pick::{Selected, Thing, select};
 use hamlet_ui::widgets::keys::Keys;
 
 use super::{Sheet, Showing, show};
-use crate::convo::{Convo, seat};
+use crate::convo::seat;
 use crate::trail::{Trail, Way, mouse_pressed, mouse_way};
 
 /// The Hub's keys, in force while the pointer is over it.
@@ -88,7 +88,7 @@ pub(crate) struct Visits(Trail<Visit>);
 fn here(world: &World, hub: Entity) -> Option<Visit> {
     let showing = *world.get::<Showing>(hub)?;
     let agent = matches!(showing, Showing::Thread | Showing::Prompt)
-        .then(|| world.get_resource::<Convo>().map(|c| c.agent))
+        .then(|| crate::convo::of(world, hub).map(|c| c.agent))
         .flatten();
     let sheet = world.get::<Sheet>(hub).copied()?;
     Some(Visit {
@@ -114,7 +114,8 @@ fn record(world: &mut World) {
     }
 }
 
-/// Whether a page there still has what it shows.
+/// Whether a page there still has what it shows, its chat's agent
+/// one that can still be talked to.
 fn stands(world: &World, visit: &Visit) -> bool {
     let alive = |entity: Entity| world.get_entity(entity).is_ok();
     let shown = match visit.showing {
@@ -124,7 +125,10 @@ fn stands(world: &World, visit: &Visit) -> bool {
         | Showing::Chief(e) => alive(e),
         _ => true,
     };
-    shown && visit.agent.is_none_or(alive)
+    shown
+        && visit.agent.is_none_or(|agent| {
+            crate::convo::id_and_shown(world, agent).is_some()
+        })
 }
 
 /// What is selected in the world while `visit` is shown.
@@ -166,15 +170,17 @@ fn travel(world: &mut World, hub: Entity, way: Way) {
     {
         select(world, thing);
     }
-    if let Some(agent) = next.agent
-        && world.resource::<Convo>().agent != agent
-    {
-        seat(world, agent);
+    if let Some(agent) = next.agent {
+        seat(world, hub, agent);
     }
     if let Some(mut sheet) = world.get_mut::<Sheet>(hub)
         && *sheet != next.sheet
     {
         *sheet = next.sheet;
+    }
+    // The prompt read last may be another agent's.
+    if next.showing == Showing::Prompt {
+        super::thread::brief(world, hub);
     }
     show(world, hub, next.showing);
 }
@@ -230,6 +236,6 @@ mod tests {
         travel(app.world_mut(), hub, Way::Forward);
         app.update();
         assert_eq!(sheet(&app), Sheet::Details);
-        assert_eq!(app.world().resource::<Convo>().agent, ada);
+        assert_eq!(crate::testing::convo(&app).agent, ada);
     }
 }

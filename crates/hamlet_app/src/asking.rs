@@ -454,14 +454,14 @@ mod tests {
     use serde_json::json;
 
     use super::*;
-    use crate::convo::Convo;
     use crate::testing::{panel_app, press, words};
 
     #[test]
     fn the_chat_shows_its_oldest_request_and_sends_its_response() {
         let mut app = panel_app();
         app.add_plugins(crate::wait::plugin);
-        let shown = app.world().resource::<Convo>().chat;
+        let hub = crate::testing::hub(&mut app);
+        let shown = crate::testing::convo(&app).chat;
         let chat = app.world().get::<Chat>(shown).unwrap().0.clone();
         let question = |id: &str, since, chat: &protocol::ChatRef| {
             serde_json::from_value::<protocol::Wait>(json!({
@@ -494,7 +494,7 @@ mod tests {
         app.update();
         bevy_fynix::mount::<HamletTheme>(
             app.world_mut(),
-            crate::wait::in_chat(),
+            crate::wait::in_chat(hub),
         );
         app.update();
         let shown = words(&mut app);

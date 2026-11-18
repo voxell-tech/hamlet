@@ -509,10 +509,11 @@ fn prompt(hub: Entity) -> AnyView {
     )
 }
 
-/// A reflection asked now, which writes to its memory.
-fn reflect() -> AnyView {
-    action(Glyph::Rename, "Note What It Learned", |world| {
-        if let Some(to) = super::papers::selected(world) {
+/// A reflection asked now of `hub`'s chat agent, which writes to its
+/// memory.
+fn reflect(hub: Entity) -> AnyView {
+    action(Glyph::Rename, "Note What It Learned", move |world| {
+        if let Some(to) = super::papers::selected(world, hub) {
             world.trigger(
                 hamlet_client::messages::ChiefMessage::words(
                     to,
@@ -531,14 +532,14 @@ fn reflect() -> AnyView {
 pub(super) fn sheet(hub: Entity, agent: Entity) -> impl View {
     column((scroll_area((column((
         facts_sections(agent, head),
-        memory::character_section(),
+        memory::character_section(hub),
         section(
             Glyph::Notes,
             "Memory",
             None,
-            memory::view(|| Some(reflect()), None),
+            memory::view(hub, move || Some(reflect(hub)), None),
         ),
-        memory::skills_section(),
+        memory::skills_section(hub),
         prompt(hub),
         facts_sections(agent, powers),
     ))

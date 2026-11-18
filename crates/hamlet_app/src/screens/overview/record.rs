@@ -1,5 +1,7 @@
 //! A hamlet's civic record and budget.
 
+use std::collections::HashMap;
+
 use bevy::app::{App, Update};
 use bevy::ecs::prelude::*;
 use bevy_fynix::views::BehaviorExt;
@@ -28,23 +30,32 @@ pub(super) fn plugin(app: &mut App) {
         .add_systems(Update, refresh);
 }
 
-/// The civic record received for the displayed hamlet.
+/// The civic records received, each for its hamlet, so Hubs showing
+/// different hamlets each read their own.
 #[derive(Resource, Default)]
 pub struct Annals {
-    hamlet: Option<Entity>,
+    records: HashMap<Entity, Record>,
+    available: bool,
+    reconnect: bool,
+}
+
+/// A hamlet's civic record, and the request for it under way.
+#[derive(Default)]
+struct Record {
     pending: Option<protocol::RequestId>,
     revision: Option<Seen>,
     text: String,
-    available: bool,
-    reconnect: bool,
 }
 
 impl Annals {
     /// A received civic record for a hamlet.
     pub fn received(hamlet: Entity, text: String) -> Self {
-        Self {
-            hamlet: Some(hamlet),
+        let record = Record {
             text,
+            ..Record::default()
+        };
+        Self {
+            records: HashMap::from([(hamlet, record)]),
             ..Self::default()
         }
     }
@@ -65,8 +76,10 @@ fn request(world: &mut World, hamlet: Entity, opening: bool) {
     let revision = world.get_resource::<Seen>().copied();
     let annals = world.resource::<Annals>();
     if !opening
-        && annals.hamlet == Some(hamlet)
-        && annals.revision == revision
+        && annals
+            .records
+            .get(&hamlet)
+            .is_some_and(|record| record.revision == revision)
     {
         return;
     }
@@ -85,26 +98,27 @@ fn request(world: &mut World, hamlet: Entity, opening: bool) {
         })
     });
     let mut annals = world.resource_mut::<Annals>();
-    if annals.hamlet != Some(hamlet) {
-        annals.text.clear();
-    }
-    annals.hamlet = Some(hamlet);
-    annals.pending = Some(id);
     annals.available = true;
-    annals.revision = revision;
+    let record = annals.records.entry(hamlet).or_default();
+    record.pending = Some(id);
+    record.revision = revision;
 }
 
 fn answered(response: On<Response>, mut annals: ResMut<Annals>) {
-    if annals.pending.as_ref() != Some(&response.to) {
-        return;
-    }
     let text = match &response.message {
         protocol::ServerMessage::Reply(reply) => &reply.text,
         protocol::ServerMessage::Fault(fault) => &fault.text,
         _ => return,
     };
-    annals.text.clone_from(text);
-    annals.pending = None;
+    let Some(record) = annals
+        .records
+        .values_mut()
+        .find(|record| record.pending.as_ref() == Some(&response.to))
+    else {
+        return;
+    };
+    record.text.clone_from(text);
+    record.pending = None;
 }
 
 fn refresh(world: &mut World) {
@@ -160,11 +174,11 @@ pub(super) fn record_of(hamlet: Entity) -> AnyView {
                 .get::<Treasury>(hamlet)
                 .map(|t| t.0.lines.clone())
                 .unwrap_or_default(),
-            if annals.hamlet == Some(hamlet) {
-                annals.text.clone()
-            } else {
-                String::new()
-            },
+            annals
+                .records
+                .get(&hamlet)
+                .map(|record| record.text.clone())
+                .unwrap_or_default(),
             world.resource::<Actions>().is_supported("history"),
         )
     })

@@ -3,6 +3,7 @@
 use std::hash::{DefaultHasher, Hash, Hasher};
 
 use bevy::color::{Color, ColorToPacked};
+use bevy::ecs::change_detection::DetectChanges;
 use bevy::ecs::entity::Entity;
 use bevy::ecs::name::Name;
 use bevy::ecs::query::{Added, Changed, Has, Or, With};
@@ -21,7 +22,6 @@ use hamlet_realm::palette::Palette;
 use hamlet_ui::theme::Themed;
 
 use super::lines::{Row, rows};
-use crate::convo::Convo;
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug, Default)]
 pub(super) enum Kind {
@@ -107,6 +107,7 @@ pub struct People<'w, 's> {
     >,
     roster: Roster<'w, 's>,
     chiefs: Query<'w, 's, (&'static Chief, &'static Look)>,
+    me: Option<Res<'w, hamlet_client::realm::Chief>>,
     palette: Option<Res<'w, Palette>>,
     theme: Themed<'w>,
     changed: Query<
@@ -128,9 +129,16 @@ pub struct People<'w, 's> {
 }
 
 impl People<'_, '_> {
-    /// An agent's name, look or place may have changed.
+    /// An agent's name, look or place, or the name this window's
+    /// chief signs in with, may have changed.
     pub(super) fn has_moved(&self) -> bool {
         !self.changed.is_empty()
+            || self.me.as_ref().is_some_and(DetectChanges::is_changed)
+    }
+
+    /// The name this window's chief signs in with.
+    pub(super) fn me(&self) -> String {
+        self.me.as_ref().map(|me| me.0.clone()).unwrap_or_default()
     }
 
     fn shown(colour: Vec3) -> Color {
@@ -185,7 +193,7 @@ impl People<'_, '_> {
         })
     }
 
-    fn chief(&self, name: &str, convo: &Convo) -> Who {
+    fn chief(&self, name: &str, me: &str) -> Who {
         let cloak = self
             .chiefs
             .iter()
@@ -197,11 +205,7 @@ impl People<'_, '_> {
         Who {
             name: titled(name),
             tag: String::new(),
-            kind: if name == convo.name {
-                Kind::Me
-            } else {
-                Kind::Chief
-            },
+            kind: if name == me { Kind::Me } else { Kind::Chief },
             paint: cloak
                 .map_or(self.theme.palette.gold_5, Self::shown),
         }
@@ -218,7 +222,8 @@ enum Id {
 /// Everyone who speaks in a chat, the agent it is with first.
 struct Cast<'a, 'w, 's> {
     people: &'a People<'w, 's>,
-    convo: &'a Convo,
+    /// The name this window's chief signs in with.
+    me: &'a str,
     ids: Vec<Id>,
     all: Vec<Who>,
 }
@@ -275,9 +280,9 @@ impl Cast<'_, '_, '_> {
     }
 
     fn chief(&mut self, name: &str) -> usize {
-        let (people, convo) = (self.people, self.convo);
+        let (people, me) = (self.people, self.me);
         self.place(Id::Chief(name.to_string()), || {
-            people.chief(name, convo)
+            people.chief(name, me)
         })
     }
 }
@@ -303,7 +308,7 @@ pub(super) struct Line {
 
 /// Agent `of`'s conversation `chat` in order, with its speakers.
 pub(super) fn timeline(
-    convo: &Convo,
+    me: &str,
     of: (Entity, Option<&str>),
     chat: Entity,
     transcript: &Transcript,
@@ -312,12 +317,12 @@ pub(super) fn timeline(
 ) -> (Vec<Line>, Vec<Who>) {
     let mut cast = Cast {
         people,
-        convo,
+        me,
         ids: Vec::new(),
         all: Vec::new(),
     };
     let agent = cast.agent(of.0, of.1);
-    let chief = cast.chief(&convo.name);
+    let chief = cast.chief(me);
     let mut lines = rows(chat, transcript, open)
         .into_iter()
         .map(|row| {

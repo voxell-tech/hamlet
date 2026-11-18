@@ -51,14 +51,11 @@ pub(crate) fn panel_app() -> App {
         app.world_mut(),
         protocol::ServerMessage::State(hamlet_testing::realm::state()),
     );
-    app.add_plugins((
-        crate::convo::plugin,
-        crate::roll::plugin,
-        crate::asking::plugin,
-    ));
+    app.add_plugins((crate::roll::plugin, crate::asking::plugin));
     app.init_resource::<DockTree>()
         .init_resource::<crate::select::Selecting>()
         .add_message::<ThemeChanged>();
+    hub(&mut app);
     app
 }
 
@@ -76,17 +73,25 @@ pub(crate) fn hub(app: &mut App) -> Entity {
     crate::hub::first(world)
 }
 
+/// The chat of the first Hub.
+pub(crate) fn convo(app: &App) -> &crate::convo::Convo {
+    let hub = crate::hub::following(app.world()).unwrap();
+    app.world().get::<crate::convo::Convo>(hub).unwrap()
+}
+
 pub(crate) fn seat_hand(app: &mut App) -> Entity {
     let hand =
         hamlet_client::realm::named(app.world_mut(), "hand").unwrap();
-    crate::convo::seat(app.world_mut(), hand);
+    let hub = hub(app);
+    crate::convo::seat(app.world_mut(), hub, hand);
     hand
 }
 
 pub(crate) fn seat_ada(app: &mut App) -> Entity {
     let ada = hamlet_client::realm::named(app.world_mut(), "agent#2")
         .unwrap();
-    crate::convo::seat(app.world_mut(), ada);
+    let hub = hub(app);
+    crate::convo::seat(app.world_mut(), hub, ada);
     ada
 }
 

@@ -188,11 +188,15 @@ pub(crate) fn picture_view(
         move |_| {
             let (caption, target) = (caption.clone(), target.clone());
             AnyView::new(move |cx: &mut Cx| {
-                let Some(source) = find(cx.world, &target) else {
+                let under = cx.parent();
+                let Some(source) = find(cx.world, under, &target)
+                else {
                     let why = match &target {
                         Target::Path(path)
-                            if crate::links::seek(cx.world, path)
-                                .is_some() =>
+                            if crate::links::seek(
+                                cx.world, under, path,
+                            )
+                            .is_some() =>
                         {
                             "is no picture"
                         }

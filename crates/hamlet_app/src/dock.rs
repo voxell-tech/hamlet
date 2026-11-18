@@ -186,6 +186,18 @@ fn prune_numbered(world: &mut World) {
         .iter()
         .map(|(first, _)| first.clone())
         .collect::<Vec<_>>();
+    // A spare copy of each numbered panel that is docked, for the
+    // add menu to open.
+    let spares = firsts
+        .iter()
+        .filter(|first| {
+            world
+                .resource::<DockTree>()
+                .find_leaf_with_window(first)
+                .is_some()
+        })
+        .map(|first| free_copy(world, first))
+        .collect::<Vec<_>>();
     let gone = {
         let tree = world.resource::<DockTree>();
         world
@@ -196,6 +208,7 @@ fn prune_numbered(world: &mut World) {
                 firsts.iter().any(|first| number(first, id).is_some())
             })
             .filter(|id| tree.find_leaf_with_window(id).is_none())
+            .filter(|id| !spares.iter().any(|spare| spare == id))
             .map(str::to_owned)
             .collect::<Vec<_>>()
     };
@@ -204,13 +217,12 @@ fn prune_numbered(world: &mut World) {
     for id in gone {
         registry.unregister(&id);
     }
-    for first in firsts {
-        let docked = world
-            .resource::<DockTree>()
-            .find_leaf_with_window(&first)
-            .is_some();
-        if docked {
-            let spare = free_copy(world, &first);
+    for spare in spares {
+        let known = world
+            .resource::<DockRegistry<HamletTheme>>()
+            .iter()
+            .any(|(id, _)| id == spare);
+        if !known {
             register(world, &spare);
         }
     }
@@ -423,6 +435,18 @@ pub(crate) fn is_stale(
     tabs: impl IntoIterator<Item = String>,
 ) -> bool {
     tabs.into_iter().any(|tab| GONE.contains(&tab.as_str()))
+}
+
+/// Whether the panel `id`'s tab is in front in the desk shown.
+pub(crate) fn is_in_front(tree: &DockTree, id: &str) -> bool {
+    let Some(leaf) = tree.find_leaf_with_window(id) else {
+        return false;
+    };
+    let front = tree.active(leaf);
+    tree.leaf(leaf).is_some_and(|l| {
+        l.tabs()
+            .any(|(window, tab)| window == id && Some(tab) == front)
+    })
 }
 
 /// Brings a panel's tab to the front, or opens it in the first area

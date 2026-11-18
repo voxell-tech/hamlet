@@ -1,20 +1,19 @@
 //! The field a message is typed in, with chips for attachments and
 //! agents.
 
+use std::collections::HashMap;
 use std::ops::Range;
 
 use bevy::ecs::change_detection::Mut;
 use bevy::ecs::component::Component;
 use bevy::ecs::entity::Entity;
-use bevy::ecs::query::{Changed, With};
-use bevy::ecs::resource::Resource;
-use bevy::ecs::system::{Commands, Query, Res, ResMut};
+use bevy::ecs::query::Changed;
+use bevy::ecs::system::{Commands, Query, ResMut};
 use bevy::ecs::world::World;
 use bevy::input_focus::{FocusCause, InputFocus};
 use bevy_fynix::views::{Caret, Piece, Plain, PlainAtom, RichField};
 use hamlet_ui::markdown::{agent_addresses, is_address_in};
 
-use super::attach::Attached;
 use super::{ChatField, Draft};
 use crate::convo::Convo;
 use crate::reference::chip_of;
@@ -25,83 +24,147 @@ const REFERENCE: &str = "reference:";
 /// What stands for an atom in [`flat`] text.
 const ATOM: &str = "\u{FFFC}";
 
-/// The field's content as last seen, in [`flat`] text, and its agent
-/// chips.
-#[derive(Resource, Default)]
+/// A Hub's field's content as last seen, in [`flat`] text, and its
+/// agent chips.
+#[derive(Component, Default)]
 pub(super) struct Typed {
     flat: String,
     chips: u64,
 }
 
-/// The unsent line of a chat, kept while another chat is shown.
-#[derive(Component)]
-pub(super) struct Unsent(Vec<Piece>);
+/// A Hub's unsent line of each chat, kept while another is shown.
+#[derive(Component, Default)]
+pub(super) struct Unsent(HashMap<Entity, Vec<Piece>>);
+
+impl Unsent {
+    /// Forgets the draft of `chat`, which is gone.
+    pub(super) fn forget(&mut self, chat: Entity) {
+        self.0.remove(&chat);
+    }
+}
 
 /// The chat whose draft a field holds.
 #[derive(Component)]
 pub(super) struct Holds(Entity);
 
-/// Puts the shown chat's draft in the field.
+/// Puts each Hub's chat's draft in its field.
 pub(super) fn swap_drafts(
-    convo: Res<Convo>,
+    convos: Query<&Convo>,
     drafts: Query<&Unsent>,
-    mut typed: ResMut<Typed>,
-    mut attached: ResMut<Attached>,
-    mut fields: Query<
-        (Entity, &mut RichField, Option<&Holds>),
-        With<ChatField>,
-    >,
+    mut typed: Query<&mut Typed>,
+    mut fields: Query<(
+        Entity,
+        &ChatField,
+        &mut RichField,
+        Option<&Holds>,
+    )>,
     mut commands: Commands,
 ) {
-    for (node, mut field, holds) in &mut fields {
+    for (node, of, mut field, holds) in &mut fields {
+        let Ok(convo) = convos.get(of.0) else {
+            continue;
+        };
         if holds.is_some_and(|holds| holds.0 == convo.chat) {
             continue;
         }
         let draft = drafts
-            .get(convo.chat)
-            .map(|unsent| unsent.0.clone())
+            .get(of.0)
+            .ok()
+            .and_then(|unsent| unsent.0.get(&convo.chat).cloned())
             .unwrap_or_default();
         // Not an edit to read addresses in.
-        typed.flat = flat(&draft);
+        if let Ok(mut typed) = typed.get_mut(of.0) {
+            typed.flat = flat(&draft);
+        }
         if !draft.is_empty() || !field.is_empty() {
             field.set_content(draft);
         }
-        attached.show(convo.chat);
         commands.entity(node).insert(Holds(convo.chat));
     }
 }
 
-/// Keeps `pieces` as the draft of the field's chat.
-pub(super) fn keep_draft(world: &mut World, pieces: &[Piece]) {
-    let mut fields =
-        world.query_filtered::<&Holds, With<ChatField>>();
-    let Some(held) = fields.iter(world).next().map(|holds| holds.0)
+/// Keeps `pieces` as `hub`'s draft of the chat in its field.
+pub(super) fn keep_draft(
+    world: &mut World,
+    hub: Entity,
+    pieces: &[Piece],
+) {
+    let mut fields = world.query::<(&ChatField, &Holds)>();
+    let Some(held) = fields
+        .iter(world)
+        .find(|(field, _)| field.0 == hub)
+        .map(|(_, holds)| holds.0)
     else {
         return;
     };
-    let Ok(mut chat) = world.get_entity_mut(held) else {
+    put_draft(world, hub, held, pieces.to_vec());
+}
+
+/// Makes `pieces` `hub`'s draft of `chat`.
+fn put_draft(
+    world: &mut World,
+    hub: Entity,
+    chat: Entity,
+    pieces: Vec<Piece>,
+) {
+    let Some(mut unsent) = world.get_mut::<Unsent>(hub) else {
         return;
     };
     if pieces.is_empty() {
-        chat.remove::<Unsent>();
+        unsent.0.remove(&chat);
     } else {
-        chat.insert(Unsent(pieces.to_vec()));
+        unsent.0.insert(chat, pieces);
     }
 }
 
-/// Runs `edit` on the field of the chat.
-pub(super) fn with_field<R>(
+/// Makes `pieces` `hub`'s draft of `chat` and has its field show it
+/// once it shows that chat, mounted or not. The field takes the keys
+/// only while it shows that chat and no other Hub has them.
+pub(super) fn give_draft(
     world: &mut World,
-    edit: impl FnOnce(Mut<RichField>) -> R,
-) -> Option<R> {
-    let mut fields =
-        world.query_filtered::<&mut RichField, With<ChatField>>();
-    fields.iter_mut(world).next().map(edit)
+    hub: Entity,
+    chat: Entity,
+    pieces: Vec<Piece>,
+) {
+    put_draft(world, hub, chat, pieces);
+    let mut fields = world.query::<(Entity, &ChatField)>();
+    let fields = fields
+        .iter(world)
+        .filter(|(_, field)| field.0 == hub)
+        .map(|(node, _)| node)
+        .collect::<Vec<_>>();
+    for node in fields {
+        world.entity_mut(node).remove::<Holds>();
+    }
+    let shows = crate::convo::chat_of(world, hub) == chat;
+    let elsewhere = world
+        .get_resource::<InputFocus>()
+        .and_then(InputFocus::get)
+        .is_some_and(|node| {
+            crate::hub::holding(world, node) != Some(hub)
+        });
+    if shows && !elsewhere {
+        super::focus(world, hub);
+    }
 }
 
-/// The field's text, agent chips as words, and attachment places.
-pub(super) fn typed(world: &mut World) -> Option<Plain> {
-    with_field(world, |field| {
+/// Runs `edit` on `hub`'s field.
+pub(super) fn with_field<R>(
+    world: &mut World,
+    hub: Entity,
+    edit: impl FnOnce(Mut<RichField>) -> R,
+) -> Option<R> {
+    let mut fields = world.query::<(&ChatField, &mut RichField)>();
+    fields
+        .iter_mut(world)
+        .find(|(field, _)| field.0 == hub)
+        .map(|(_, field)| edit(field))
+}
+
+/// The text of `hub`'s field, agent chips as words, and attachment
+/// places.
+pub(super) fn typed(world: &mut World, hub: Entity) -> Option<Plain> {
+    with_field(world, hub, |field| {
         let mut plain = Plain::default();
         for piece in field.pieces() {
             match piece {
@@ -121,24 +184,30 @@ pub(super) fn typed(world: &mut World) -> Option<Plain> {
     })
 }
 
-/// Puts `pieces` in the field and gives it the focus.
-pub(super) fn set(world: &mut World, pieces: Vec<Piece>) {
-    with_field(world, |mut field| field.set_content(pieces));
-    world.resource_mut::<Draft>().focus = true;
+/// Puts `pieces` in `hub`'s field and gives it the focus.
+pub(super) fn set(
+    world: &mut World,
+    hub: Entity,
+    pieces: Vec<Piece>,
+) {
+    with_field(world, hub, |mut field| field.set_content(pieces));
+    super::focus(world, hub);
 }
 
-/// Gives the field the focus when asked, once it is mounted.
+/// Gives a Hub's field the focus when asked, once it is mounted.
 pub fn refocus(
-    mut draft: ResMut<Draft>,
-    fields: Query<Entity, With<ChatField>>,
+    mut drafts: Query<&mut Draft>,
+    fields: Query<(Entity, &ChatField)>,
     mut focus: ResMut<InputFocus>,
 ) {
-    if !draft.focus {
-        return;
-    }
-    if let Some(field) = fields.iter().next() {
-        draft.focus = false;
-        focus.set(field, FocusCause::Pressed);
+    for (node, field) in &fields {
+        let Ok(mut draft) = drafts.get_mut(field.0) else {
+            continue;
+        };
+        if draft.focus {
+            draft.focus = false;
+            focus.set(node, FocusCause::Pressed);
+        }
     }
 }
 
@@ -189,24 +258,29 @@ fn is_whole(
 /// took it in, so it is never drawn as its words first: the field's
 /// change handler runs only after its next frame's text is laid out.
 pub(super) fn chip_early(
-    fields: Query<&RichField, (With<ChatField>, Changed<RichField>)>,
+    fields: Query<(&ChatField, &RichField), Changed<RichField>>,
     mut commands: Commands,
 ) {
-    for field in &fields {
-        let pieces = field.pieces();
+    for (of, field) in &fields {
+        let (hub, pieces) = (of.0, field.pieces());
         commands.queue(move |world: &mut World| {
-            chip_references(world, &pieces);
+            chip_references(world, hub, &pieces);
         });
     }
 }
 
-/// Turns each address the last edit wrote whole into its chip.
-pub(super) fn chip_references(world: &mut World, pieces: &[Piece]) {
+/// Turns each address the last edit of `hub`'s field wrote whole
+/// into its chip.
+pub(super) fn chip_references(
+    world: &mut World,
+    hub: Entity,
+    pieces: &[Piece],
+) {
     let now = flat(pieces);
-    let was = std::mem::replace(
-        &mut world.resource_mut::<Typed>().flat,
-        now.clone(),
-    );
+    let Some(mut typed) = world.get_mut::<Typed>(hub) else {
+        return;
+    };
+    let was = std::mem::replace(&mut typed.flat, now.clone());
     let edit = edited(&was, &now);
     if edit.is_empty() {
         return;
@@ -249,7 +323,10 @@ pub(super) fn chip_references(world: &mut World, pieces: &[Piece]) {
                 continue;
             }
             let key = {
-                let mut typed = world.resource_mut::<Typed>();
+                let Some(mut typed) = world.get_mut::<Typed>(hub)
+                else {
+                    return;
+                };
                 typed.chips += 1;
                 format!("{REFERENCE}{}", typed.chips)
             };
@@ -298,8 +375,10 @@ pub(super) fn chip_references(world: &mut World, pieces: &[Piece]) {
         }
         Part::Text(_) | Part::Atom(_) => None,
     });
-    world.resource_mut::<Typed>().flat = flat(&out);
-    with_field(world, |mut field| {
+    if let Some(mut typed) = world.get_mut::<Typed>(hub) {
+        typed.flat = flat(&out);
+    }
+    with_field(world, hub, |mut field| {
         field.set_content(out);
         if let Some(place) = place {
             field.set_caret(place);

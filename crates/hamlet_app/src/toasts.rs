@@ -20,6 +20,7 @@ use bevy::ui::{
     AlignItems, ComputedNode, Display, JustifyContent, Overflow,
     PositionType, UiRect, Val, px,
 };
+use bevy_fynix::dock::DockTree;
 use bevy_fynix::tokens::Tone;
 use bevy_fynix::views::{
     BehaviorExt, FrameProps, button, column, row,
@@ -47,7 +48,7 @@ use hamlet_ui::theme::{HamletTheme, StatusKind};
 use hamlet_ui::widgets::icons::Glyph;
 use hamlet_ui::{AnyView, Cx, View, kinds, rules, with_cx};
 
-use crate::hub::Showing;
+use crate::hub::{Hub, Sheet, Showing};
 use crate::models::{Shelf, model_title};
 use crate::screens::wait::{self, ChatWaits, Need, answers};
 use crate::standing::Standing;
@@ -490,8 +491,8 @@ fn keep(
     time: Res<Time>,
     pile: Query<&Hovered, With<Pile>>,
     waiting: Query<(), With<Waiting>>,
-    showing: Query<&Showing>,
-    chat_waits: Option<Res<ChatWaits>>,
+    hubs: Query<(&Hub, &Showing, Option<&Sheet>, &ChatWaits)>,
+    tree: Option<Res<DockTree>>,
     mut toasts: ResMut<Toasts>,
 ) {
     let open = pile.iter().any(Hovered::get);
@@ -502,7 +503,18 @@ fn keep(
         return;
     }
     let now = time.elapsed_secs();
-    let chatting = showing.iter().any(|s| *s == Showing::Thread);
+    // A Hub's chat, open in a tab in front, shows the waits it holds
+    // in full; its Details sheet hides them.
+    let in_full = |wait: Entity| {
+        hubs.iter().any(|(hub, showing, sheet, waits)| {
+            *showing == Showing::Thread
+                && sheet != Some(&Sheet::Details)
+                && waits.holds(wait)
+                && tree.as_ref().is_none_or(|tree| {
+                    crate::dock::is_in_front(tree, &hub.0)
+                })
+        })
+    };
     let mut next = toasts.shown.clone();
     for toast in &mut next {
         if open {
@@ -519,11 +531,7 @@ fn keep(
             && match &toast.what {
                 // Its chat, open, shows it in full.
                 What::Wait(wait) => {
-                    waiting.contains(*wait)
-                        && !(chatting
-                            && chat_waits
-                                .as_ref()
-                                .is_some_and(|w| w.holds(*wait)))
+                    waiting.contains(*wait) && !in_full(*wait)
                 }
                 What::Setup { waits, .. } => !waits.is_empty(),
                 What::Notice { .. }
@@ -682,7 +690,7 @@ fn card(toast: &Toast) -> AnyView {
                     _ => Standing::Waits.kind(),
                 };
                 let from = origin(cx.world, &need, &waiting.by);
-                let answers = answers(&need);
+                let answers = answers(None, &need);
                 (
                     // The bell of NEEDS YOU.
                     Standing::Waits.glyph(),
