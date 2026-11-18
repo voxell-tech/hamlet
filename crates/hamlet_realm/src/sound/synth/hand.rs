@@ -4,8 +4,8 @@
 use std::f32::consts::TAU;
 
 use super::{
-    Band, DT, Hiss, Low, air, bar, burst, empty, finish, glass,
-    glide, hit, knock, pitch, rustle, strike, tine,
+    DT, Hiss, Low, air, bar, burst, empty, finish, glass, glide, hit,
+    knock, pitch, rustle, strike, tine,
 };
 use crate::sound::Sound;
 
@@ -171,30 +171,22 @@ fn introduce() -> Vec<f32> {
     finish(out, 0.28, false)
 }
 
-/// A Wickstep going out: a breath drawn in, and glass that falls a
-/// fourth as the flame goes.
+/// A Wickstep going out: a soft breath, as over a flame, and one
+/// low note.
 fn wick_out() -> Vec<f32> {
-    let mut out = empty(0.6);
+    let mut out = empty(0.5);
     let mut hiss = Hiss(263);
-    air(&mut out, &mut hiss, 0.0, 0.32, (700.0, 2600.0), 0.25);
-    glass(&mut out, 0.04, 86.0, 0.5, 0.1);
-    glass(&mut out, 0.2, 81.0, 0.35, 0.12);
-    finish(out, 0.2, false)
+    air(&mut out, &mut hiss, 0.0, 0.22, (1400.0, 600.0), 0.3);
+    tine(&mut out, 0.06, 74.0, 0.5);
+    finish(out, 0.14, false)
 }
 
-/// A Wickstep coming in: a wick that catches, and glass that rises
-/// to the keynote and its third.
+/// A Wickstep coming in: two soft notes rising to the keynote.
 fn wick_in() -> Vec<f32> {
-    let mut out = empty(0.9);
-    let mut hiss = Hiss(269);
-    let mut band = Band::new(2.0);
-    burst(&mut out, &mut hiss, 0.0, 0.3, (0.002, 0.03), |x, _| {
-        band.run(x, 2400.0)
-    });
-    tine(&mut out, 0.02, 81.0, 0.7);
-    glass(&mut out, 0.1, 86.0, 0.6, 0.22);
-    glass(&mut out, 0.18, 90.0, 0.35, 0.25);
-    finish(out, 0.22, false)
+    let mut out = empty(0.7);
+    tine(&mut out, 0.0, 78.0, 0.5);
+    tine(&mut out, 0.09, 86.0, 0.6);
+    finish(out, 0.15, false)
 }
 
 /// Clockwork switched: its pawl over three teeth, then the train
