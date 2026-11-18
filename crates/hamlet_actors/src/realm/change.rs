@@ -11,7 +11,7 @@ use hamlet_messages::workspace::AgentNumber;
 use serde::Serialize;
 use serde::de::DeserializeOwned;
 
-use super::calls::{Calls, Push};
+use super::calls::{self, Calls, Delivery, Push};
 use super::chiefs::hamlet;
 use super::lanes::Lined;
 use super::oversight::asking;
@@ -94,6 +94,8 @@ pub(super) struct Affected {
     pub copies: BTreeSet<documents::Copied>,
     /// The parts of the world a client reads that it changed.
     pub seen: BTreeSet<world::Part>,
+    /// The deliveries it decided, lined up after its act's own.
+    pub deliveries: Vec<Delivery>,
 }
 
 impl Affected {
@@ -112,6 +114,7 @@ impl Affected {
         self.begun.extend(other.begun);
         self.copies.extend(other.copies);
         self.seen.extend(other.seen);
+        self.deliveries.extend(other.deliveries);
     }
 }
 
@@ -463,23 +466,33 @@ impl Transaction {
         Abandoned(())
     }
 
+    /// Commits `write`. The deliveries its changes decided are made
+    /// on a task of the realm's.
     pub async fn commit<D: Serialize>(
         self,
         realm: &Arc<Realm>,
         write: Write<'_, D>,
     ) -> Result<Vec<Push>> {
-        let (pushes, _) =
+        let ctx = self.ctx.clone();
+        let (pushes, lined) =
             self.commit_lined(realm, write, Calls::none()).await?;
+        if !lined.after_answer.is_empty() {
+            ctx.register_task(calls::deliver_later(
+                realm.clone(),
+                ctx.clone(),
+                lined.after_answer,
+            ));
+        }
         Ok(pushes)
     }
 
-    /// Commits `write` and lines up `calls` in the lanes of the
-    /// agents they reach.
+    /// Commits `write` and lines up `calls`, then the deliveries its
+    /// changes decided, in the lanes of the agents they reach.
     pub async fn commit_lined<D: Serialize>(
         self,
         realm: &Arc<Realm>,
         write: Write<'_, D>,
-        calls: Calls,
+        mut calls: Calls,
     ) -> Result<(Vec<Push>, Lined)> {
         let writer = Writer {
             statements: &self.statements,
@@ -568,7 +581,8 @@ impl Transaction {
             anyhow::Ok((affected, revision, pushes))
         }
         .await;
-        let (affected, revision, mut pushes) = written?;
+        let (mut affected, revision, mut pushes) = written?;
+        calls.after_answer.append(&mut affected.deliveries);
         let lined = realm.lanes.line(&self.rows(), calls).await?;
         let reserved = realm.drives.reserve(&affected.begun, &self);
         let Self {

@@ -1,3 +1,6 @@
+use hamlet_messages::realm::budget::{
+    OpenTask, TaskOpened, TaskTurn,
+};
 use hamlet_messages::realm::client::SayAnswer;
 use hamlet_messages::realm::{Asked, Found, FoundAnswer};
 use hamlet_messages::sender::Hand;
@@ -5,7 +8,10 @@ use hamlet_messages::workspace::AgentNumber;
 use hamlet_protocol::client::RequestId;
 use rusqlite::OptionalExtension;
 
-use super::{MAYOR, Realm, error_code, found, purpose_of, say, tool};
+use super::{
+    MAYOR, Realm, error_code, found, paid, purpose_of, say, standing,
+    tool,
+};
 
 fn count(
     db: &rusqlite::Connection,
@@ -101,6 +107,49 @@ async fn a_repeated_found_founds_once() {
         })
         .await;
     assert_eq!((hamlets, agents), (1, 2));
+    realm.host.shutdown().await.unwrap();
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn a_hands_found_repeated_from_another_turn_is_a_reused_id() {
+    // the Hand founds under one call id in a turn on its own task,
+    // then again on a retry's: the second is refused, and one hamlet
+    // is founded.
+    let realm = Realm::start().await;
+    realm.live(Hand::NUMBER).await;
+    let own = standing(&realm, Hand::NUMBER);
+    let opened = realm
+        .tool(
+            Hand::NUMBER,
+            &OpenTask {
+                request: RequestId::new(),
+                turn: TaskTurn::Retry,
+            },
+        )
+        .await
+        .unwrap();
+    let TaskOpened::Opened { task: retry } = opened else {
+        panic!("the Hand opens a retry's task: {opened:?}");
+    };
+    let mill = Found {
+        purpose: Some("Grind the grain".to_owned()),
+        ..found("Mill")
+    };
+
+    let first = realm
+        .tool(Hand::NUMBER, &paid("f1", &own, mill.clone()))
+        .await;
+    let other =
+        realm.tool(Hand::NUMBER, &paid("f1", &retry, mill)).await;
+
+    let first = first.unwrap();
+    assert!(
+        matches!(first, FoundAnswer::Founded { .. }),
+        "{first:?}"
+    );
+    assert_eq!(error_code(other), "message.id_reused");
+    let hamlets = realm.stopped_rows(|db| count(db, "hamlet")).await;
+    assert_eq!(hamlets, 1);
     realm.host.shutdown().await.unwrap();
 }
 

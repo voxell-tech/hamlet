@@ -27,6 +27,9 @@ const ANSWERED: &str = "answered";
 
 const FAILED: &str = "failed";
 
+/// Today's words for an errand that ended with no answer.
+const NO_ANSWER: &str = "the errand gave no answer";
+
 /// What an errand is for, which decides what its end does.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(in crate::realm) enum Purpose {
@@ -182,14 +185,45 @@ pub(in crate::realm) async fn next(
         .context("every errand number is taken")
 }
 
-/// The changes an errand's end makes, by its purpose.
-pub(in crate::realm) fn finished(
+/// The changes that end errand `n` as `ended`, with what its end
+/// makes by its purpose.
+fn ending(
+    n: ErrandNumber,
     purpose: Purpose,
-    ended: &Ended,
+    ended: Ended,
 ) -> Vec<change::Change> {
-    match purpose {
-        Purpose::Review { task } => reviews::ended(task, ended),
+    let made = match purpose {
+        Purpose::Review { task } => reviews::ended(task, &ended),
+    };
+    [
+        Change::End { n, ended }.into(),
+        steps::Change::Close { row: row(n) }.into(),
+    ]
+    .into_iter()
+    .chain(made)
+    .collect()
+}
+
+/// The changes that end errand `n`, whose step failed for good, as
+/// an errand that gave no answer. None for an errand that ended.
+pub(in crate::realm) async fn failed(
+    rows: &Rows<'_>,
+    n: u64,
+) -> Result<Vec<change::Change>> {
+    let n = number_of(n)?;
+    let errand = errand_of(rows, n).await?;
+    if errand.ended.is_some() {
+        return Ok(Vec::new());
     }
+    let ended = Ended::Failed {
+        why: NO_ANSWER.to_owned(),
+    };
+    Ok(ending(n, errand.purpose, ended))
+}
+
+fn number_of(n: u64) -> Result<ErrandNumber> {
+    ErrandNumber::new(u32::try_from(n)?)
+        .context("a step past the last errand")
 }
 
 /// The refusal of a caller that is no agent of the tree.
@@ -329,8 +363,7 @@ pub(in crate::realm) async fn run(
     n: u64,
     step: Step,
 ) -> Result<Vec<change::Change>> {
-    let n = ErrandNumber::new(u32::try_from(n)?)
-        .context("a step past the last errand")?;
+    let n = number_of(n)?;
     match step {
         Step::Create => {
             let rows = cx.rows()?;
@@ -388,13 +421,8 @@ impl Act<Agent> for ErrandDone {
         let Some((n, purpose)) = loaded else {
             return Decision::Again(());
         };
-        let mut decided = Decided::new(())
-            .change(Change::End {
-                n,
-                ended: self.ended.clone(),
-            })
-            .change(steps::Change::Close { row: row(n) });
-        decided.changes.extend(finished(purpose, &self.ended));
+        let mut decided = Decided::new(());
+        decided.changes = ending(n, purpose, self.ended.clone());
         Decision::Change(decided)
     }
 

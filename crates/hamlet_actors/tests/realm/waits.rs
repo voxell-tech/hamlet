@@ -582,8 +582,10 @@ async fn a_lapse_closes_the_conversations_waits() {
             (4, false, closed),
         ]
     );
+    let mut answers = chief_answers(&realm);
+    answers.sort_by(|a, b| a.call.0.cmp(&b.call.0));
     assert_eq!(
-        chief_answers(&realm),
+        answers,
         [
             lapsed("c1", workspace::Lapse::Stopped),
             lapsed("c2", workspace::Lapse::Stopped),

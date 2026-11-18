@@ -12,9 +12,9 @@ use hamlet_messages::workspace::AgentNumber;
 use serde::{Deserialize, Serialize};
 use tokio::sync::watch;
 
-use super::calls::{Calls, Delivery};
+use super::calls::{Calls, Delivery, Made};
 use super::change::{self, Affected, Rows, Writer};
-use super::peer::{self, Peers};
+use super::peer::{self, Peers, When};
 use super::workers::errands;
 use super::{Realm, calls, hire, parcels, reviews, tree, workers};
 
@@ -189,6 +189,31 @@ impl Cx<'_> {
         &self.realm.peers
     }
 
+    /// Commits `changes` in `tx`, then makes `deliveries` and those
+    /// the changes decided, each in its turn.
+    pub async fn commit_delivering(
+        &self,
+        tx: change::Transaction,
+        changes: Vec<change::Change>,
+        deliveries: Calls,
+    ) -> Result<Made> {
+        let write = change::Write::<()> {
+            changes,
+            entries: Vec::new(),
+            marker: None,
+        };
+        let (pushes, lined) =
+            tx.commit_lined(self.realm, write, deliveries).await?;
+        calls::push_all(self.realm, self.ctx, pushes).await;
+        Ok(calls::deliver_all(
+            self.realm,
+            self.ctx,
+            lined.after_answer,
+            When::AfterAnswer,
+        )
+        .await)
+    }
+
     pub async fn commit(
         &self,
         changes: Vec<change::Change>,
@@ -211,8 +236,8 @@ const FIRST_RETRY: Duration = Duration::from_secs(1);
 const LAST_RETRY: Duration = Duration::from_secs(60);
 
 /// Drives `row` until it is done. A step that fails in passing runs
-/// again while the realm runs; one that fails for good ends its
-/// hire or worker.
+/// again while the realm runs; one that fails for good ends its row
+/// as a failure of its kind.
 async fn drive(realm: Arc<Realm>, ctx: Ctx<Realm>, row: StepId) {
     let mut retry = FIRST_RETRY;
     loop {
@@ -238,41 +263,37 @@ async fn drive(realm: Arc<Realm>, ctx: Ctx<Realm>, row: StepId) {
     }
 }
 
-/// Ends the hire or the worker whose row failed for good.
+/// Ends the row that failed for good: its hire or worker ends as
+/// failed, its errand as one that gave no answer, its review as
+/// failed and its parcel as refused.
 async fn end_failed(
     realm: &Arc<Realm>,
     ctx: &Ctx<Realm>,
     row: StepId,
 ) -> Result<()> {
-    let agent = AgentNumber(u32::try_from(row.n)?);
+    let agent = u32::try_from(row.n).map(AgentNumber);
     let tx = change::Transaction::begin(ctx).await?;
+    let rows = tx.rows();
     let (changes, calls) = match row.kind {
         Kind::Hire => {
-            (tree::failed(&tx.rows(), agent).await?, Calls::none())
+            (tree::failed(&rows, agent?).await?, Calls::none())
         }
         Kind::Worker => (
-            workers::failed(&tx.rows(), agent).await?,
-            Calls::after_answer(Delivery::WorkerAnswer(agent)),
+            workers::failed(&rows, agent?).await?,
+            Calls::after_answer(Delivery::WorkerAnswer(agent?)),
         ),
-        Kind::Errand | Kind::Review | Kind::Parcel => return Ok(()),
+        Kind::Errand => {
+            (errands::failed(&rows, row.n).await?, Calls::none())
+        }
+        Kind::Review => (reviews::failed(row.n)?, Calls::none()),
+        Kind::Parcel => (parcels::failed(row.n)?, Calls::none()),
     };
     if changes.is_empty() {
         return Ok(());
     }
-    let write = change::Write::<()> {
-        changes,
-        entries: Vec::new(),
-        marker: None,
-    };
-    let (pushes, lined) =
-        tx.commit_lined(realm, write, calls).await?;
-    calls::after_answer(
-        realm.clone(),
-        ctx.clone(),
-        lined.after_answer,
-        pushes,
-    )
-    .await;
+    Cx { realm, ctx }
+        .commit_delivering(tx, changes, calls)
+        .await?;
     Ok(())
 }
 

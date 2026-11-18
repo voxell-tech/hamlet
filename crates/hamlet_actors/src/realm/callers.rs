@@ -70,37 +70,21 @@ pub(super) enum Stood {
     Gate(Gate),
 }
 
-/// A sender that is an agent of the tree.
-pub(super) trait Member: Witness {
-    fn agent(&self) -> AgentNumber;
-
-    fn standing(
-        &self,
-        rows: &Rows<'_>,
-    ) -> impl Future<Output = Result<Option<Stood>>> + Send;
-}
-
-impl Member for Agent {
-    fn agent(&self) -> AgentNumber {
-        self.0
+/// Why `agent` may not act: an errand's standing, or how it left the
+/// tree.
+pub(super) async fn standing(
+    rows: &Rows<'_>,
+    agent: AgentNumber,
+) -> Result<Option<Stood>> {
+    if let Some(standing) = errands::standing(rows, agent).await? {
+        return Ok(Some(Stood::Standing(standing)));
     }
-
-    async fn standing(
-        &self,
-        rows: &Rows<'_>,
-    ) -> Result<Option<Stood>> {
-        if let Some(standing) =
-            errands::standing(rows, self.0).await?
-        {
-            return Ok(Some(Stood::Standing(standing)));
-        }
-        Ok(tree::left(rows, self.0).await?.map(|left| {
-            Stood::Standing(Standing::YouLeft {
-                how: left.how,
-                why: left.why,
-            })
-        }))
-    }
+    Ok(tree::left(rows, agent).await?.map(|left| {
+        Stood::Standing(Standing::YouLeft {
+            how: left.how,
+            why: left.why,
+        })
+    }))
 }
 
 /// A sender whose decisions the record names (H17).
@@ -389,8 +373,10 @@ where
         let name = <Tool<T> as Action>::NAME;
         let by = sender(&ctx, &hand)?;
         let ByHand(tool) = hand;
-        let id = marker::Id::Call(tool.call);
-        act::run(&self, &ctx, by, Some(id), name, tool.act).await
+        let id = marker::Id::Call(tool.call.clone());
+        let key = marker::Key::of(&by, id, name, &tool)?;
+        act::run_keyed(&self, &ctx, by, Some(key), name, tool.act)
+            .await
     }
 }
 

@@ -11,7 +11,7 @@ use hamlet_messages::workspace::RealmTask;
 use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
 
-use super::callers::{Member, Stood, Witness};
+use super::callers::{self, Stood, Witness};
 use super::calls::{self, Calls, Made, Push};
 use super::change::{self, Change, Rows};
 use super::lanes::Lined;
@@ -121,6 +121,23 @@ where
     let key = id
         .map(|id| marker::Key::of(&by, id, name, &act))
         .transpose()?;
+    run_keyed(realm, ctx, by, key, name, act).await
+}
+
+/// Runs `act` recorded under `key`, whose digest covers the whole
+/// call that carried it.
+pub(super) async fn run_keyed<By, A>(
+    realm: &Arc<Realm>,
+    ctx: &Ctx<Realm>,
+    by: By,
+    key: Option<marker::Key>,
+    name: &'static str,
+    act: A,
+) -> Result<A::Output>
+where
+    By: Witness,
+    A: Act<By> + Serialize,
+{
     let stood = exec(
         realm,
         ctx,
@@ -166,13 +183,14 @@ pub(super) async fn run_tool<T: ToolAct>(
         name,
         act,
         async move |by: &Agent, rows: &Rows<'_>, act: &T::Run| {
-            if let Some(stood) = by.standing(rows).await? {
+            if let Some(stood) = callers::standing(rows, by.0).await?
+            {
                 return Ok(Some(Barred::Stood(stood)));
             }
             let kept = reserved::reserve(
                 rows,
                 T::TOOL,
-                by.agent(),
+                by.0,
                 task.as_ref(),
                 conversation.as_ref(),
                 act,

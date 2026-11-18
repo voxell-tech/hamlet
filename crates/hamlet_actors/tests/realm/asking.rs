@@ -118,7 +118,7 @@ fn held(task: &RealmTask) -> Done<SpendRefusal> {
 }
 
 /// The open waits of `agent`: id, kind and subject.
-async fn open_waits(
+pub(super) async fn open_waits(
     realm: &Realm,
     agent: AgentNumber,
 ) -> Vec<(i64, String, String)> {
@@ -137,7 +137,7 @@ async fn open_waits(
 }
 
 /// What `agent` was given after its first `skip` inputs, in words.
-fn given(
+pub(super) fn given(
     realm: &Realm,
     agent: AgentNumber,
     skip: usize,
