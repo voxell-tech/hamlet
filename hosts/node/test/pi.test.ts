@@ -87,6 +87,18 @@ const AGENT_MODULES_WITHOUT_NATIVE = [
     "agent/claude.ts",
 ];
 
+test("each part of the coding agent loaded by its file is the package's own export", async () => {
+    const parts = await import("../src/pi/coding-agent.ts");
+    const root = await import("@earendil-works/pi-coding-agent");
+    for (const name of [
+        "ModelRuntime",
+        "generateDiffString",
+        "generateUnifiedPatch",
+    ] as const) {
+        assert.equal(parts[name], root[name], name);
+    }
+});
+
 test("the agent's host loads none of the coding agent's interactive mode or terminal UI", () => {
     const loads = (file: string) => import.meta.resolve(`../src/${file}`);
     const script = `

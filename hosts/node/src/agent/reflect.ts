@@ -24,7 +24,7 @@ import {
 } from "@earendil-works/pi-durable";
 import { withHarness } from "../pi/runtime.ts";
 import { type AgentCall, generationOf } from "./actor.ts";
-import { hasWordsOrCall, isShortCutOff } from "./compaction.ts";
+import { isShortCutOff, stands } from "./compaction.ts";
 import type { ReadCopies } from "./copies.ts";
 import type { RealmTask } from "./messages.ts";
 import { cutOff, draftOf, type Peers, type WithHarness } from "./turn.ts";
@@ -189,17 +189,6 @@ function owedOf(withHarness: WithHarness): Owed {
                 ));
             return { answered, running, ...last };
         });
-}
-
-/**
- * As `crates/hamlet_server/src/talk/verdicts.rs:55-60` rules: an answer
- * with neither words nor a call fails its turn.
- */
-function stands(answer: AssistantMessage): boolean {
-    return (
-        (answer.stopReason === "stop" || answer.stopReason === "length") &&
-        hasWordsOrCall(answer)
-    );
 }
 
 /**

@@ -14,7 +14,7 @@ import {
 } from "@earendil-works/pi-durable";
 import { withHarness } from "../pi/runtime.ts";
 import { type AgentCall, generationOf } from "./actor.ts";
-import { hasWordsOrCall } from "./compaction.ts";
+import { stands } from "./compaction.ts";
 import {
     type ClientActions,
     type LapseReason,
@@ -257,10 +257,7 @@ async function refusedRetry(
         if (answer !== undefined) {
             const message = answer.model?.[0] as AssistantMessage | undefined;
             // An answer with nothing in it failed its turn (C29).
-            return message !== undefined &&
-                (message.stopReason === "stop" ||
-                    message.stopReason === "length") &&
-                hasWordsOrCall(message)
+            return message !== undefined && stands(message)
                 ? "answered"
                 : undefined;
         }
