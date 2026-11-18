@@ -714,7 +714,27 @@ fn rail() -> impl View {
         derived(|world: &World| {
             let picking = world.resource::<Picking>();
             let searching = !picking.search.trim().is_empty();
-            (providers(world), picking.side.clone(), searching)
+            let plans = world.get_resource::<crate::plans::Plans>();
+            // A plan that refuses or runs short says so beside its
+            // provider.
+            let providers = providers(world)
+                .into_iter()
+                .map(|(id, name)| {
+                    let warns = plans
+                        .and_then(|plans| plans.of(&id))
+                        .and_then(|plan| {
+                            crate::plans::status_of(plan.reading.mood)
+                                .map(|kind| {
+                                    (
+                                        kind,
+                                        plan.reading.sentence.clone(),
+                                    )
+                                })
+                        });
+                    (id, name, warns)
+                })
+                .collect::<Vec<_>>();
+            (providers, picking.side.clone(), searching)
         })
         .when(every_frame()),
         |(providers, on, searching)| {
@@ -755,10 +775,24 @@ fn rail() -> impl View {
                 with_cx(|cx| hairline(cx.theme().palette.gold_6))
                     .boxed(),
             );
-            for (id, name) in providers {
+            for (id, name, warns) in providers {
+                let face = match warns {
+                    Some((kind, words)) => row((
+                        mark(id, ICON),
+                        hamlet_ui::styles::status_icon(
+                            Glyph::Meter,
+                            words.clone(),
+                            *kind,
+                        ),
+                    ))
+                    .gap(4.0)
+                    .align(AlignItems::Center)
+                    .boxed(),
+                    None => mark(id, ICON),
+                };
                 tabs.push(tab(
                     Side::Provider(id.clone()),
-                    mark(id, ICON),
+                    face,
                     name.clone(),
                 ));
             }

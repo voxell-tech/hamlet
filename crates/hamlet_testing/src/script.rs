@@ -30,6 +30,8 @@ pub struct Answer {
     hold_until: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     fill: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    limits: Option<Value>,
 }
 
 #[derive(Clone, Debug, Serialize)]
@@ -92,6 +94,13 @@ impl Step {
     /// is stopped.
     pub fn stalled(self, ms: u64) -> Step {
         self.with(|answer| answer.stall_ms = Some(ms))
+    }
+
+    /// The same answer, the turn learning `limits` of the faux
+    /// provider as it answers: `{state, windows, plan?}`, as a
+    /// runtime protocol `Limits` without its `checked`.
+    pub fn learning(self, limits: Value) -> Step {
+        self.with(|answer| answer.limits = Some(limits))
     }
 
     /// The same answer, thinking `thought` first.

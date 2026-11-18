@@ -64,6 +64,16 @@ const PACKAGES = [
     "cc-session-io",
 ];
 
+/** The Claude program and its folders, by the provider made with them. */
+const programs = new WeakMap<Provider, { at: Folders; program: string }>();
+
+/** The Claude program `provider` runs, when it is the provider `claude`. */
+export function programOf(
+    provider: Provider,
+): { at: Folders; program: string } | undefined {
+    return programs.get(provider);
+}
+
 /**
  * The provider, with its folders in `home`; none when this computer has no Claude program. Where pi was installed
  * without the program's packages, as a release is, they are downloaded into `home` when Claude is first signed in to
@@ -122,7 +132,7 @@ export function claudeProvider(home: string): Provider | undefined {
             );
         return out;
     };
-    return createProvider({
+    const made = createProvider({
         id: PROVIDER,
         name: "Claude",
         auth: {
@@ -155,6 +165,8 @@ export function claudeProvider(home: string): Provider | undefined {
             .map((m) => ({ ...m, provider: PROVIDER })),
         api: { stream: streamed, streamSimple: streamed },
     });
+    programs.set(made, { at, program });
+    return made;
 }
 
 /** Whether `name` resolves from pi. */
@@ -295,6 +307,44 @@ async function signIn(
         signal.removeEventListener("abort", stop);
         child.kill();
         rmSync(link, { force: true });
+    }
+}
+
+/** Runs `claude auth logout`, so the Claude program forgets the login it keeps. */
+export async function signOut(
+    { at, program }: { at: Folders; program: string },
+    signal: AbortSignal,
+): Promise<void> {
+    const script = /\.(mjs|cjs|js)$/.test(program);
+    const args = ["auth", "logout"];
+    const child = spawn(
+        script ? process.execPath : program,
+        script ? [program, ...args] : args,
+        {
+            cwd: at.work,
+            env: environment(at),
+            stdio: ["ignore", "pipe", "pipe"],
+            windowsHide: true,
+        },
+    );
+    let said = "";
+    child.stdout.on("data", (chunk) => {
+        said += String(chunk);
+    });
+    child.stderr.on("data", (chunk) => {
+        said += String(chunk);
+    });
+    const stop = () => child.kill();
+    signal.addEventListener("abort", stop, { once: true });
+    try {
+        const code = await new Promise<number | null>((resolve) =>
+            child.once("close", resolve),
+        );
+        if (signal.aborted) throw new Error("Claude's sign-out took too long.");
+        if (code !== 0)
+            throw new Error(`Claude's sign-out failed. ${lastLine(said)}`);
+    } finally {
+        signal.removeEventListener("abort", stop);
     }
 }
 

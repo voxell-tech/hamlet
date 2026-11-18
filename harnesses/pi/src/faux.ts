@@ -20,8 +20,38 @@ import {
 } from "@earendil-works/pi-ai/providers/faux";
 import { type Static, Type } from "typebox";
 import { Compile } from "typebox/compile";
+import { seen } from "./limits.ts";
+import type { Limits } from "./protocol.ts";
 
 type ToolArguments = Parameters<typeof fauxToolCall>[1];
+
+/** A provider's limits as a script gives them: what a read answers, or what a turn learns. */
+const ScriptLimits = Type.Object(
+    {
+        plan: Type.Optional(Type.String()),
+        state: Type.Union([
+            Type.Literal("ok"),
+            Type.Literal("warning"),
+            Type.Literal("refused"),
+            Type.Literal("unknown"),
+        ]),
+        windows: Type.Array(
+            Type.Object(
+                {
+                    id: Type.String({ minLength: 1 }),
+                    name: Type.String({ minLength: 1 }),
+                    length: Type.Optional(Type.Number()),
+                    used: Type.Optional(
+                        Type.Number({ minimum: 0, maximum: 100 }),
+                    ),
+                    resets: Type.Optional(Type.Number()),
+                },
+                { additionalProperties: false },
+            ),
+        ),
+    },
+    { additionalProperties: false },
+);
 
 /** The provider and model a faux script answers as. */
 export const FAUX = { provider: "faux", id: "faux-1" } as const;
@@ -58,6 +88,8 @@ const Step = Type.Union([
              * runs, such as a hamlet's id.
              */
             fill: Type.Optional(Type.String({ minLength: 1 })),
+            /** What the turn learns of the faux provider's limits as it answers. */
+            limits: Type.Optional(ScriptLimits),
         },
         { additionalProperties: false },
     ),
@@ -94,6 +126,8 @@ export const Script = Type.Object(
                 { additionalProperties: false },
             ),
         ),
+        /** What a read of the faux provider's limits answers; it tells nothing of them when absent. */
+        limits: Type.Optional(ScriptLimits),
         /** Tokens a second an answer streams at; at once when absent. */
         tokensPerSecond: Type.Optional(Type.Number({ exclusiveMinimum: 0 })),
     },
@@ -240,7 +274,7 @@ export function scriptedProvider(
         });
         return out;
     };
-    return createProvider({
+    const made = createProvider({
         id: faux.provider,
         auth: {
             apiKey: { name: "Faux", resolve: async () => ({ auth: {} }) },
@@ -248,6 +282,19 @@ export function scriptedProvider(
         models: faux.models,
         api: { stream, streamSimple: stream },
     });
+    if (script.limits !== undefined) told.set(made, script.limits);
+    return made;
+}
+
+/** The limits each faux provider's script gives a read. */
+const told = new WeakMap<Provider, Static<typeof ScriptLimits>>();
+
+/** What a read of `provider`'s limits answers, when it is a faux provider whose script gives them. */
+export function fauxLimits(provider: Provider): Limits | undefined {
+    const limits = told.get(provider);
+    return limits === undefined
+        ? undefined
+        : { checked: Date.now(), ...limits };
 }
 
 /** Prices each answer from its model's rates, as a real provider does. */
@@ -282,6 +329,8 @@ function answer(step: Static<typeof Step>): FauxResponseFactory {
         if (step.holdUntil !== undefined)
             await held(step.holdUntil, options?.signal);
         const words = step.fill === undefined ? {} : await names(step.fill);
+        if (step.limits !== undefined)
+            seen(FAUX.provider, { checked: Date.now(), ...step.limits });
         const content: FauxContentBlock[] = [
             ...(step.thinking === undefined
                 ? []

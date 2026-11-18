@@ -12,7 +12,10 @@ import { join } from "node:path";
 import type { AssistantMessage, Message, Tool } from "@earendil-works/pi-ai";
 import { normalizeContext } from "@earendil-works/pi-ai/utils/transcript";
 import { afterEach, beforeEach, expect, test, vi } from "vitest";
-import { claudeProvider } from "../src/claude.ts";
+import { claudeProvider, programOf, signOut } from "../src/claude.ts";
+import { limits } from "../src/claude-query.ts";
+import { onSeen } from "../src/limits.ts";
+import type { Limits } from "../src/protocol.ts";
 
 const FAKE = join(import.meta.dirname, "fixtures", "claude.mjs");
 const TOOLS: Tool[] = [
@@ -42,10 +45,10 @@ afterEach(() => {
     rmSync(home, { recursive: true, force: true });
 });
 
-/** The provider, on the fake Claude program running `runs`, one list of steps per process. */
-function provider(runs: unknown[][]) {
+/** The provider, on the fake Claude program running `runs`, one list of steps per process, and answering `usage`. */
+function provider(runs: unknown[][], usage?: unknown) {
     const script = join(home, "script.json");
-    writeFileSync(script, JSON.stringify({ runs, log }));
+    writeFileSync(script, JSON.stringify({ runs, log, usage }));
     vi.stubEnv("FAKE_CLAUDE_SCRIPT", script);
     const made = claudeProvider(home);
     if (made === undefined) throw new Error("no Claude program");
@@ -65,7 +68,7 @@ function provider(runs: unknown[][]) {
                 { sessionId, apiKey: "marker" },
             )
             .result();
-    return { call };
+    return { call, made };
 }
 
 function noted(): Record<string, unknown>[] {
@@ -265,6 +268,108 @@ test("a turn Claude bills beyond the plan fails", async () => {
     const answer = await call([user("Hello")]);
     expect(answer.stopReason).toBe("error");
     expect(answer.errorMessage).toMatch(/beyond your plan/);
+});
+
+test("a turn tells what Claude says of the plan's limits as it runs", async () => {
+    const told: [string, Limits][] = [];
+    const stop = onSeen((provider, limits) => told.push([provider, limits]));
+    const { call } = provider([
+        [
+            say({
+                type: "rate_limit_event",
+                rate_limit_info: {
+                    status: "allowed_warning",
+                    rateLimitType: "five_hour",
+                    utilization: 0.91,
+                    resetsAt: 1_900_000_000,
+                },
+            }),
+            ...whole("Close."),
+        ],
+    ]);
+    try {
+        await call([user("Hello")]);
+    } finally {
+        stop();
+    }
+    expect(told).toEqual([
+        [
+            "claude",
+            {
+                checked: expect.any(Number),
+                state: "warning",
+                windows: [
+                    {
+                        id: "five_hour",
+                        name: "Session",
+                        length: 300,
+                        used: 91,
+                        resets: 1_900_000_000_000,
+                    },
+                ],
+            },
+        ],
+    ]);
+});
+
+test("the plan's limits are asked of the Claude program, without a turn", async () => {
+    const { made } = provider([], {
+        subscription_type: "max",
+        rate_limits_available: true,
+        rate_limits: {
+            five_hour: { utilization: 46, resets_at: "2100-01-01T16:40:00Z" },
+            seven_day: { utilization: 34, resets_at: "2100-01-05T09:10:00Z" },
+            model_scoped: [
+                {
+                    display_name: "Fable",
+                    utilization: 0,
+                    resets_at: "2100-01-05T09:10:00Z",
+                },
+            ],
+        },
+        behaviors: null,
+    });
+    const program = programOf(made);
+    if (program === undefined) throw new Error("no Claude program");
+    const read = await limits(program, AbortSignal.timeout(10_000));
+    expect(read).toEqual({
+        checked: expect.any(Number),
+        plan: "Max",
+        state: "ok",
+        windows: [
+            {
+                id: "five_hour",
+                name: "Session",
+                length: 300,
+                used: 46,
+                resets: Date.parse("2100-01-01T16:40:00Z"),
+            },
+            {
+                id: "seven_day",
+                name: "Weekly",
+                length: 10_080,
+                used: 34,
+                resets: Date.parse("2100-01-05T09:10:00Z"),
+            },
+            {
+                id: "model:Fable",
+                name: "Weekly · Fable",
+                length: 10_080,
+                used: 0,
+                resets: Date.parse("2100-01-05T09:10:00Z"),
+            },
+        ],
+    });
+    // No turn ran, so no prompt reached the program.
+    expect(existsSync(log)).toBe(false);
+});
+
+test("signing out runs the Claude program's own sign-out in its folder", async () => {
+    const { made } = provider([]);
+    const program = programOf(made);
+    if (program === undefined) throw new Error("no Claude program");
+    await signOut(program, AbortSignal.timeout(10_000));
+    expect(noted()).toEqual([{ logout: join(home, "claude") }]);
 });
 
 function text(message: AssistantMessage): string {

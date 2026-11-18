@@ -57,6 +57,13 @@ pub enum ProviderRequestAction {
     Hello,
     #[serde(rename = "login")]
     Login,
+    /// Reads how much of the provider's plan or key is used.
+    #[serde(rename = "limits")]
+    Limits,
+    /// Signs out of the provider where its runtime keeps a login of
+    /// its own, as Claude's program does.
+    #[serde(rename = "logout")]
+    Logout,
 }
 
 #[derive(
@@ -124,6 +131,10 @@ pub struct ProviderResult {
     pub error: Option<String>,
     #[schemars(length(min = 1))]
     pub id: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[serde(deserialize_with = "crate::runtime::present")]
+    #[schemars(with = "Limits")]
+    pub limits: Option<Limits>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[serde(deserialize_with = "crate::runtime::present")]
     #[schemars(with = "Vec<BTreeMap<String, Value>>")]
@@ -241,5 +252,112 @@ pub struct CredentialResult {
     pub lease: Option<String>,
     #[schemars(length(min = 1))]
     pub re: String,
+    pub v: Version,
+}
+
+/// How much of a provider's plan or key is used, as the provider
+/// tells it.
+#[derive(
+    Clone, Debug, PartialEq, Serialize, Deserialize, JsonSchema,
+)]
+#[serde(deny_unknown_fields)]
+pub struct Limits {
+    /// When the provider told it, in milliseconds since the epoch.
+    pub checked: f64,
+    /// The plan's name, where the provider tells it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[serde(deserialize_with = "crate::runtime::present")]
+    #[schemars(with = "String")]
+    pub plan: Option<String>,
+    pub state: LimitsState,
+    /// The windows the provider keeps. In a `limits` message, only
+    /// those the turn learnt about.
+    pub windows: Vec<LimitWindow>,
+}
+
+/// Whether the provider lets the plan or key be used.
+#[derive(
+    Clone,
+    Copy,
+    Debug,
+    PartialEq,
+    Eq,
+    Serialize,
+    Deserialize,
+    JsonSchema,
+)]
+pub enum LimitsState {
+    /// It answers.
+    #[serde(rename = "ok")]
+    Ok,
+    /// It answers and says a limit is near.
+    #[serde(rename = "warning")]
+    Warning,
+    /// It refused, for a limit.
+    #[serde(rename = "refused")]
+    Refused,
+    /// It tells nothing of its limits.
+    #[serde(rename = "unknown")]
+    Unknown,
+}
+
+/// One limit a provider keeps over a span of time, or over money.
+#[derive(
+    Clone, Debug, PartialEq, Serialize, Deserialize, JsonSchema,
+)]
+#[serde(deny_unknown_fields)]
+pub struct LimitWindow {
+    /// The same window across reads, such as `five_hour`.
+    #[schemars(length(min = 1))]
+    pub id: String,
+    /// How long the window lasts, in minutes, where it is a span of
+    /// time.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[serde(deserialize_with = "crate::runtime::present")]
+    #[schemars(with = "f64")]
+    pub length: Option<f64>,
+    /// What is left and what the cap is, in US dollars, where it is
+    /// money.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[serde(deserialize_with = "crate::runtime::present")]
+    #[schemars(with = "LimitMoney")]
+    pub money: Option<LimitMoney>,
+    /// Its name for a chief, such as "Session" or "Weekly · Fable".
+    #[schemars(length(min = 1))]
+    pub name: String,
+    /// When it resets, in milliseconds since the epoch.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[serde(deserialize_with = "crate::runtime::present")]
+    #[schemars(with = "f64")]
+    pub resets: Option<f64>,
+    /// How much of it is used, from 0 to 100.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[serde(deserialize_with = "crate::runtime::present")]
+    #[schemars(with = "f64", range(min = 0.0, max = 100.0))]
+    pub used: Option<f64>,
+}
+
+/// Money left under a cap, in US dollars.
+#[derive(
+    Clone, Debug, PartialEq, Serialize, Deserialize, JsonSchema,
+)]
+#[serde(deny_unknown_fields)]
+pub struct LimitMoney {
+    pub cap: f64,
+    pub left: f64,
+}
+
+/// What a turn learnt about a provider's limits, sent as it learns
+/// it.
+#[derive(
+    Clone, Debug, PartialEq, Serialize, Deserialize, JsonSchema,
+)]
+#[serde(deny_unknown_fields)]
+pub struct LimitsSeen {
+    #[schemars(length(min = 1))]
+    pub id: String,
+    pub limits: Limits,
+    #[schemars(length(min = 1))]
+    pub provider: String,
     pub v: Version,
 }

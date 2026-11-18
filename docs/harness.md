@@ -60,6 +60,26 @@ makes the conversation, answers `created`, then sends `kept` for each,
 so the server keeps them in order. Asking again sends them again, and
 the server keeps each once.
 
+### Provider limits
+
+A `provider_request` with the action `limits` asks how much of a
+provider's plan or key is used; its `provider_result` carries `limits`.
+pi asks Claude's own program, through the Agent SDK's usage call, and
+OpenRouter's documented `GET /key`; OpenAI tells nothing of a Sign in
+with ChatGPT plan, so its limits are `unknown`. As a turn runs, pi sends
+`limits` with what it learnt: a Claude `rate_limit_event`'s window and
+state, a ChatGPT refusal for the plan's limit, and the next answer after
+one. The server lays them over what it last read, and a new refusal reads
+the provider again where it tells its limits.
+
+### Signing out
+
+The server keeps every provider's credential, so removing a provider is
+the server forgetting it. Claude's login lives in Claude's own program,
+not with the server, so for `claude` the server also sends a
+`provider_request` with the action `logout`, and pi runs
+`claude auth logout` in that program's folder.
+
 ### Admitting inputs
 
 The server keeps every input it owes a conversation, in order, before

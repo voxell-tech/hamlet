@@ -59,6 +59,8 @@ use crate::{chat, words, world_menu};
 pub fn plugin(app: &mut App) {
     app.add_plugins((record::plugin, crate::naming::plugin))
         .init_resource::<Erasing>()
+        // Its plans part reads them, filled by `plans::plugin`.
+        .init_resource::<crate::plans::Plans>()
         // The realm's page lists what waits.
         .init_resource::<Queue>()
         .add_observer(disarm)
@@ -127,8 +129,8 @@ fn counted(text: &str, count: usize) -> AnyView {
 /// The size of a figure of the day.
 const FIGURE: f32 = 24.0;
 
-/// The realm's page in `hub`: its figures, what waits, and the
-/// hamlets.
+/// The realm's page in `hub`: its figures, the plans' limits, what
+/// waits, and the hamlets.
 pub fn overview(hub: Entity) -> impl View {
     with_cx(move |cx| {
         column((
@@ -162,6 +164,7 @@ pub fn overview(hub: Entity) -> impl View {
                 .boxed(),
             ]),
             scroll_area((column((
+                crate::plans::part(),
                 needs(),
                 hamlets(hub),
                 closed(hub),

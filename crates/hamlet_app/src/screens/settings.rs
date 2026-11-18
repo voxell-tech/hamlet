@@ -59,6 +59,8 @@ pub fn plugin(app: &mut App) {
             .icon(Glyph::Sliders.image(ICON)),
     )
     .add_plugins((sight::plugin, workspace::plugin, visits::plugin))
+    // Each provider's limits are under it, filled by `plans::plugin`.
+    .init_resource::<crate::plans::Plans>()
     .init_resource::<Pane>()
     .init_resource::<Charter>()
     .init_resource::<CharterRequests>()

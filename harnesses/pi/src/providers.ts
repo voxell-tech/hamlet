@@ -10,6 +10,9 @@ import {
     createProvider,
     type Provider,
 } from "@earendil-works/pi-ai/models";
+import { programOf, signOut } from "./claude.ts";
+import { fauxLimits } from "./faux.ts";
+import { openrouterLimits, unknown } from "./limits.ts";
 import { compatibleModel } from "./models.ts";
 import type { ProviderRequest, ProviderResult } from "./protocol.ts";
 import {
@@ -97,6 +100,13 @@ export async function providerWork(
             );
             return {};
         }
+        if (request.action === "logout") {
+            const program = programOf(provider);
+            if (program !== undefined) await signOut(program, signal(15_000));
+            return {};
+        }
+        if (request.action === "limits")
+            return { limits: await limitsOf(provider, models, signal(15_000)) };
         if (request.action === "refresh") {
             const refreshed = await models.refresh({
                 providers: [provider.id],
@@ -145,6 +155,27 @@ export async function providerWork(
             if (secret) text = text.split(secret).join("[REDACTED]");
         return { error: text };
     }
+}
+
+/** What `provider` tells of its limits; nothing for a provider that tells none. */
+async function limitsOf(
+    provider: Provider,
+    models: ReturnType<typeof createModels>,
+    signal: AbortSignal,
+) {
+    const faux = fauxLimits(provider);
+    if (faux !== undefined) return faux;
+    const claude = programOf(provider);
+    if (claude !== undefined)
+        return (await import("./claude-query.ts")).limits(claude, signal);
+    if (provider.id === "openrouter") {
+        const [model] = provider.getModels();
+        const auth = await models.getAuth(provider.id);
+        const key = auth?.auth.apiKey;
+        if (model === undefined || key === undefined) return unknown();
+        return openrouterLimits(key, model.baseUrl, signal);
+    }
+    return unknown();
 }
 
 /** The OpenAI-compatible endpoint adapter, including its list and key sign-in. */
