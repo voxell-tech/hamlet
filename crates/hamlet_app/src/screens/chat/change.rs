@@ -13,7 +13,7 @@ use bevy_fynix::views::{
     label, row,
 };
 use bevy_fynix::{ScopedExt, ViewExt, component, keyed, resource};
-use hamlet_client::chats::{Entry, Transcript};
+use hamlet_client::chats::{Entry, TalksTo, Transcript};
 use hamlet_protocol::client::{
     Change, ChangeLines as Line, ChangeLinesMark as Mark,
 };
@@ -392,10 +392,16 @@ pub(super) fn diff(
 /// `chat`'s work folder, wherever the change is shown.
 fn path_line(chat: Entity, path: String) -> AnyView {
     AnyView::new(move |cx: &mut Cx| {
-        let found =
-            cx.world.get_resource::<PathLinks>().copied().and_then(
-                |links| (links.resolve)(cx.world, Some(chat), &path),
-            );
+        // Without a chat, no folder is known to be the change's.
+        let known = cx.world.get::<TalksTo>(chat).is_some();
+        let found = cx
+            .world
+            .get_resource::<PathLinks>()
+            .copied()
+            .filter(|_| known)
+            .and_then(|links| {
+                (links.resolve)(cx.world, Some(chat), &path)
+            });
         let tone = if found.is_some() {
             Tone::Accent
         } else {

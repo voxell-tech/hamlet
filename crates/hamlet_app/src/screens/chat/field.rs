@@ -119,6 +119,19 @@ fn put_draft(
     }
 }
 
+/// What `hub` has typed for `chat` and not sent.
+pub(super) fn draft_of(
+    world: &World,
+    hub: Entity,
+    chat: Entity,
+) -> Vec<Piece> {
+    world
+        .get::<Unsent>(hub)
+        .and_then(|unsent| unsent.0.get(&chat))
+        .cloned()
+        .unwrap_or_default()
+}
+
 /// Makes `pieces` `hub`'s draft of `chat` and has its field show it
 /// once it shows that chat, mounted or not. The field takes the keys
 /// only while it shows that chat and no other Hub has them.

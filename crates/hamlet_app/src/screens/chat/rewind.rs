@@ -20,7 +20,9 @@ use bevy::picking::hover::Hovered;
 use bevy::ui::{
     ComputedNode, JustifyContent, UiGlobalTransform, UiRect, px,
 };
-use bevy_fynix::views::{BehaviorExt, FrameProps, button, column};
+use bevy_fynix::views::{
+    BehaviorExt, FrameProps, Piece, button, column,
+};
 use bevy_fynix::{Signal, Visual, resource};
 use hamlet_client::chats::Status;
 use hamlet_client::messages::{Response, Rewind, Rewound, Withdraw};
@@ -32,8 +34,10 @@ use hamlet_ui::{Cx, View, built};
 
 use super::attach::{Attached, Owner};
 use super::bubble::Bubble;
-use super::field::give_draft;
-use super::reply::{AROUND, reply_in, show_marks, unreplied};
+use super::field::{draft_of, give_draft};
+use super::reply::{
+    AROUND, replies_in, reply_in, show_marks, unreplied,
+};
 use crate::convo::Convo;
 use crate::world_menu::{self, Action, Open};
 
@@ -293,19 +297,24 @@ fn retype(
         let chat = rewound.chat;
         let asked =
             asked.filter(|hub| world.get::<Convo>(*hub).is_some());
-        let Some(hub) = asked.or_else(|| showing(world, chat)) else {
+        // With the asking Hub closed, a Hub showing the chat takes
+        // the words, else the one the chief works in, as the chat's
+        // draft there.
+        let Some(hub) = asked
+            .or_else(|| showing(world, chat))
+            .or_else(|| crate::hub::active(world))
+        else {
             return;
         };
         let text = &rewound.text;
         let (answers, words) = match unreplied(text) {
-            Some((answers, words)) => (Some((chat, answers)), words),
+            Some((answers, words)) => (Some(answers), words),
             None => (None, text.as_str()),
         };
-        // A reply goes with the field it shows over; a Hub that has
-        // gone to another chat keeps only the words, as it would
-        // have of a reply typed there.
-        if crate::convo::chat_of(world, hub) == chat {
-            reply_in(world, hub, answers);
+        // Kept with the chat's draft, shown once the Hub is back on
+        // it. A Hub that did not ask keeps a reply of its own.
+        if asked.is_some() || !replies_in(world, hub, chat) {
+            reply_in(world, hub, chat, answers);
         }
         let pieces = world.resource_mut::<Attached>().give_back(
             Owner { hub, chat },
@@ -314,6 +323,19 @@ fn retype(
             words,
             text.len() - words.len(),
         );
+        // A Hub that did not ask keeps what it has typed, with the
+        // returned words after it.
+        let pieces = match asked {
+            Some(_) => pieces,
+            None => {
+                let mut kept = draft_of(world, hub, chat);
+                if !kept.is_empty() && !pieces.is_empty() {
+                    kept.push(Piece::Text("\n".into()));
+                }
+                kept.extend(pieces);
+                kept
+            }
+        };
         give_draft(world, hub, chat, pieces);
     });
 }

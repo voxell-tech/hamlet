@@ -917,55 +917,35 @@ fn rejected(
     }
 }
 
-/// Where a Hub asks for files: the dialog or the clipboard, which
-/// each answer on their own.
-#[derive(Clone, Copy)]
-enum Channel {
-    Dialog,
-    Clipboard,
-}
-
-/// The chat a Hub asked the dialog for files in, and the one it
-/// asked the clipboard in, so neither's answer lands in the other's.
-#[derive(Component, Default)]
+/// One request of a Hub to the dialog or the clipboard, for the chat
+/// it showed, which answers it alone. It is the request's asker, and
+/// goes with its Hub.
+#[derive(Component)]
 struct Asking {
-    dialog: Option<Entity>,
-    clipboard: Option<Entity>,
+    hub: Entity,
+    chat: Entity,
 }
 
-impl Asking {
-    fn of(&mut self, channel: Channel) -> &mut Option<Entity> {
-        match channel {
-            Channel::Dialog => &mut self.dialog,
-            Channel::Clipboard => &mut self.clipboard,
-        }
-    }
-}
-
-/// Notes that `hub` asks `channel` for files for the chat it shows.
-fn ask(world: &mut World, hub: Entity, channel: Channel) {
+/// A request of `hub` for files, for the chat it shows: the asker to
+/// send.
+fn ask(world: &mut World, hub: Entity) -> Entity {
     let chat = convo::chat_of(world, hub);
-    let mut hub = world.entity_mut(hub);
-    let mut asking = hub.entry::<Asking>().or_default().into_mut();
-    *asking.of(channel) = Some(chat);
+    world.spawn((Asking { hub, chat }, ChildOf(hub))).id()
 }
 
-/// The Hub `asker` when it still shows the chat it asked `channel`
-/// in, which the answer is taken for.
-fn asking(
-    world: &mut World,
-    asker: Entity,
-    channel: Channel,
-) -> Option<Entity> {
-    let chat = world.get_mut::<Asking>(asker)?.of(channel).take()?;
-    (convo::chat_of(world, asker) == chat).then_some(asker)
+/// The Hub the request `asker` was made in, when it still shows the
+/// chat it was made for. The request is answered either way.
+fn asking(world: &mut World, asker: Entity) -> Option<Entity> {
+    let &Asking { hub, chat } = world.get::<Asking>(asker)?;
+    world.despawn(asker);
+    (convo::chat_of(world, hub) == chat).then_some(hub)
 }
 
 /// Attaches the files and folders the dialog gave the chat.
 fn chosen(chosen: On<Chosen>, mut commands: Commands) {
     let (asker, paths) = (chosen.asker, chosen.paths.clone());
     commands.queue(move |world: &mut World| {
-        if let Some(hub) = asking(world, asker, Channel::Dialog) {
+        if let Some(hub) = asking(world, asker) {
             let incoming = paths.into_iter().map(Incoming::File);
             attach(world, hub, incoming.collect());
         }
@@ -993,8 +973,8 @@ fn paste(
         return;
     };
     commands.queue(move |world: &mut World| {
-        ask(world, hub, Channel::Clipboard);
-        world.trigger(Paste { asker: hub });
+        let asker = ask(world, hub);
+        world.trigger(Paste { asker });
     });
 }
 
@@ -1006,7 +986,7 @@ fn pasted(pasted: On<Pasted>, mut commands: Commands) {
     let incoming = files.chain(pictures).collect::<Vec<_>>();
     let asker = pasted.asker;
     commands.queue(move |world: &mut World| {
-        if let Some(hub) = asking(world, asker, Channel::Clipboard) {
+        if let Some(hub) = asking(world, asker) {
             attach(world, hub, incoming);
         }
     });
@@ -1534,8 +1514,8 @@ pub(super) fn holds(hub: Entity) -> impl View {
 /// Opens the dialog `what` is chosen in, for `hub`'s chat.
 pub(crate) fn choose(world: &mut World, hub: Entity, what: What) {
     crate::hub::activate(world, hub);
-    ask(world, hub, Channel::Dialog);
-    world.trigger(Choose { asker: hub, what });
+    let asker = ask(world, hub);
+    world.trigger(Choose { asker, what });
 }
 
 pub(crate) fn sees_images(world: &World, hub: Entity) -> bool {

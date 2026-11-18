@@ -186,7 +186,11 @@ fn forget_chat(
     mut unfolded: ResMut<Unfolded>,
     mut tools: ResMut<OpenTools>,
     mut changes: ResMut<Changes>,
-    mut hubs: Query<(&mut field::Unsent, &mut lines::ChatPlaces)>,
+    mut hubs: Query<(
+        &mut field::Unsent,
+        &mut lines::ChatPlaces,
+        &mut reply::Replying,
+    )>,
     merged: Query<(Entity, &MergedLines)>,
     mut commands: Commands,
 ) {
@@ -194,9 +198,10 @@ fn forget_chat(
     unfolded.0.retain(|(_, of, _)| *of != chat);
     tools.0.retain(|(_, of, _)| *of != chat);
     changes.forget(|(_, of, _)| *of == chat);
-    for (mut unsent, mut places) in &mut hubs {
+    for (mut unsent, mut places, mut replying) in &mut hubs {
         unsent.forget(chat);
         places.0.remove(&chat);
+        replying.forget(chat);
     }
     for (hub, merged) in &merged {
         if merged.is_in(chat) {
@@ -535,7 +540,8 @@ pub(crate) fn send_typed(world: &mut World, hub: Entity) {
     let empty = text.is_empty() && places.is_empty();
     let sent = send(world, hub, text, &places);
     if sent && shift > 0 {
-        reply::reply_in(world, hub, None);
+        let chat = convo::chat_of(world, hub);
+        reply::reply_in(world, hub, chat, None);
     }
     if sent || empty {
         field::with_field(world, hub, |mut field| field.clear());
@@ -821,7 +827,7 @@ mod tests {
             by: "Ada".into(),
             text: "Pear or plum?".into(),
         };
-        reply::reply_in(app.world_mut(), hub, Some((chat, answers)));
+        reply::reply_in(app.world_mut(), hub, chat, Some(answers));
         send_typed(app.world_mut(), hub);
         let say = app
             .world()

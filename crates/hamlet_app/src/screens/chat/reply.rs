@@ -1,6 +1,8 @@
 //! A message that answers another, and the mark that starts one.
 
-use bevy::app::{App, Update};
+use std::collections::HashMap;
+
+use bevy::app::App;
 use bevy::camera::visibility::Visibility;
 use bevy::ecs::component::Component;
 use bevy::ecs::entity::Entity;
@@ -28,7 +30,7 @@ use hamlet_ui::widgets::icons::{Glyph, glyph};
 use hamlet_ui::{AnyView, Cx, View, built, with_cx};
 
 use super::ChatSettings;
-use crate::convo::{self, Convo};
+use crate::convo;
 
 /// The room of a mark about its picture.
 pub(super) const AROUND: f32 = 4.0;
@@ -43,7 +45,7 @@ const SHOWN: usize = 160;
 const HEAD: &str = "(Replying to ";
 
 pub(super) fn plugin(app: &mut App) {
-    app.add_observer(reveal).add_systems(Update, forget);
+    app.add_observer(reveal);
 }
 
 /// The message a reply answers: its speaker and its words.
@@ -70,33 +72,50 @@ impl Answers {
     }
 }
 
-/// The chat whose next line in a Hub answers a message, and that
-/// message.
+/// The message the next line in each chat of a Hub answers, kept
+/// with the chat's draft while another chat is shown.
 #[derive(Component, Default)]
-pub struct Replying(pub Option<(Entity, Answers)>);
+pub struct Replying(HashMap<Entity, Answers>);
+
+impl Replying {
+    /// Forgets the reply begun in `chat`, which is gone.
+    pub(super) fn forget(&mut self, chat: Entity) {
+        self.0.remove(&chat);
+    }
+}
 
 /// Makes the next line `hub` sends in `chat` answer `answers`, or
 /// none.
 pub(super) fn reply_in(
     world: &mut World,
     hub: Entity,
-    reply: Option<(Entity, Answers)>,
+    chat: Entity,
+    answers: Option<Answers>,
 ) {
-    if let Some(mut replying) = world.get_mut::<Replying>(hub) {
-        replying.0 = reply;
-    }
+    let Some(mut replying) = world.get_mut::<Replying>(hub) else {
+        return;
+    };
+    match answers {
+        Some(answers) => replying.0.insert(chat, answers),
+        None => replying.0.remove(&chat),
+    };
 }
 
-/// The message the next line in `hub` answers, if it is still in
-/// the chat `hub` shows.
+/// Whether the next line `hub` sends in `chat` answers a message.
+pub(super) fn replies_in(
+    world: &World,
+    hub: Entity,
+    chat: Entity,
+) -> bool {
+    world
+        .get::<Replying>(hub)
+        .is_some_and(|replying| replying.0.contains_key(&chat))
+}
+
+/// The message the next line in the chat `hub` shows answers.
 fn answers_in(world: &World, hub: Entity) -> Option<&Answers> {
     let open = convo::chat_of(world, hub);
-    world
-        .get::<Replying>(hub)?
-        .0
-        .as_ref()
-        .filter(|(chat, _)| *chat == open)
-        .map(|(_, answers)| answers)
+    world.get::<Replying>(hub)?.0.get(&open)
 }
 
 /// `words` sent as a reply to `answers`, under a line quoting it.
@@ -197,7 +216,7 @@ fn take(
     let Some(answers) = answers else {
         return;
     };
-    reply_in(world, hub, Some((chat, answers)));
+    reply_in(world, hub, chat, Some(answers));
     super::focus(world, hub);
 }
 
@@ -219,19 +238,6 @@ pub(super) fn attach(
             (said, shift)
         }
         None => (text, 0),
-    }
-}
-
-/// Drops a reply begun in a chat its Hub shows no more.
-fn forget(mut hubs: Query<(&Convo, &mut Replying)>) {
-    for (convo, mut replying) in &mut hubs {
-        if replying
-            .0
-            .as_ref()
-            .is_some_and(|(at, _)| *at != convo.chat)
-        {
-            replying.0 = None;
-        }
     }
 }
 
@@ -364,8 +370,11 @@ pub(super) fn preview(hub: Entity) -> impl View {
 }
 
 fn shown(cx: &Cx, hub: Entity, answers: &Answers) -> AnyView {
-    let drop = close_button(move |world| reply_in(world, hub, None))
-        .tip("Do not reply");
+    let drop = close_button(move |world| {
+        let chat = convo::chat_of(world, hub);
+        reply_in(world, hub, chat, None);
+    })
+    .tip("Do not reply");
     row((
         frame()
             .width(px(3.0))
