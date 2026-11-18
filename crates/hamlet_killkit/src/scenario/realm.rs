@@ -2,15 +2,10 @@
 //! real agent on a faux model.
 
 use super::agent::{TELL_RESULTS, TELLS_CUT_OFF};
-use super::{Demo, Expect, Is, Kill, Probe, Read, Scenario, exactly};
-
-const fn realm(name: &'static str, sql: &'static str) -> Probe {
-    Probe {
-        name,
-        file: "actors/realm/local.sqlite",
-        read: Read::Sql(sql),
-    }
-}
+use super::{
+    Demo, Expect, Is, Kill, Probe, Read, Scenario, exactly, mayor,
+    realm,
+};
 
 /// The model requests the realm charged the Hand.
 pub(super) const HAND_CHARGES: Probe = realm(
@@ -25,14 +20,11 @@ pub(super) const MAYOR_LINE_TASKS: Probe = realm(
 );
 
 /// The lines the mayor took.
-const MAYOR_LINES: Probe = Probe {
-    name: "agent.lines/2",
-    file: "actors/agent/2.sqlite",
-    read: Read::Sql(
-        "SELECT COUNT(*) FROM pi_entries WHERE record ->> '$.kind' \
-         = 'hamlet.line'",
-    ),
-};
+const MAYOR_LINES: Probe = mayor(
+    "agent.lines/2",
+    "SELECT COUNT(*) FROM pi_entries WHERE record ->> '$.kind' = \
+     'hamlet.line'",
+);
 
 const LETTERS_TO_MAYOR: Probe = realm(
     "realm.letters/1/2",
@@ -168,7 +160,6 @@ pub const SCENARIOS: &[Scenario] = &[
         due: None,
         restart: [
             &[
-                "pi pid",
                 "pi pid",
                 "until 1 1 assistant: Done:",
                 "agent 2 await letter 1",

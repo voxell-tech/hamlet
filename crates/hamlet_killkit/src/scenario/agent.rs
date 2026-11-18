@@ -1,18 +1,7 @@
 //! The real agent on a faux model, the Hand, against the realm actor.
 
 use super::realm::HAND_CHARGES;
-use super::{Demo, Expect, Kill, Probe, Read, Scenario, exactly};
-
-pub(super) const fn hand(
-    name: &'static str,
-    sql: &'static str,
-) -> Probe {
-    Probe {
-        name,
-        file: "actors/agent/1.sqlite",
-        read: Read::Sql(sql),
-    }
-}
+use super::{Demo, Expect, Kill, Probe, Scenario, exactly, hand};
 
 pub(super) const TELL_RESULTS: Probe = hand(
     "agent.tell_results",
@@ -108,7 +97,6 @@ pub const SCENARIOS: &[Scenario] = &[
         due: None,
         restart: [
             &[
-                "pi pid",
                 "pi pid",
                 "until 1 2 assistant: Done:",
                 "realm say 1 r1 read own:memory/notes.md",

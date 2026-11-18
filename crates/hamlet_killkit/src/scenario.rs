@@ -92,10 +92,7 @@ pub enum Kill {
     /// The trigger's own action kills the Node host it runs in, at a
     /// step the action names. The kit kills nothing: it waits for
     /// that Node host to end. The demo host stays up, and its
-    /// supervisor starts the next Node host. The first restart's
-    /// lines begin with `pi pid` twice: the first can answer as soon
-    /// as the next Node host has started, before its link is up, and
-    /// the second waits for the link.
+    /// supervisor starts the next Node host.
     NodeHost,
 }
 
@@ -123,6 +120,33 @@ pub enum Read {
 pub struct Expect {
     pub value: &'static str,
     pub is: Is,
+}
+
+/// The SQL count `sql` read as `name` from the realm's file.
+pub const fn realm(name: &'static str, sql: &'static str) -> Probe {
+    Probe {
+        name,
+        file: "actors/realm/local.sqlite",
+        read: Read::Sql(sql),
+    }
+}
+
+/// The SQL count `sql` read as `name` from the Hand's file.
+pub const fn hand(name: &'static str, sql: &'static str) -> Probe {
+    Probe {
+        name,
+        file: "actors/agent/1.sqlite",
+        read: Read::Sql(sql),
+    }
+}
+
+/// The SQL count `sql` read as `name` from the mayor's file.
+pub const fn mayor(name: &'static str, sql: &'static str) -> Probe {
+    Probe {
+        name,
+        file: "actors/agent/2.sqlite",
+        read: Read::Sql(sql),
+    }
 }
 
 /// A value a restart must show as `n`.

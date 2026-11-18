@@ -1,9 +1,12 @@
 //! The agent's chat features across a kill: a compaction, `/new` and
 //! `/retry`, on the real agent against the realm actor.
 
-use super::agent::{TELL_RESULTS, TELLS_CUT_OFF, hand};
+use super::agent::{TELL_RESULTS, TELLS_CUT_OFF};
 use super::realm::{HAND_CHARGES, MAYOR_LINE_TASKS};
-use super::{Demo, Expect, Is, Kill, Probe, Read, Scenario, exactly};
+use super::{
+    Demo, Expect, Is, Kill, Probe, Scenario, exactly, hand, mayor,
+    realm,
+};
 
 /// `chat-compact`'s faux script. Its model's window makes the third
 /// long line's turn compact. Its answers are short, so the summary is
@@ -87,14 +90,6 @@ const REFLECTIONS: Probe = hand(
      'hamlet.reflection'",
 );
 
-const fn mayor(name: &'static str, sql: &'static str) -> Probe {
-    Probe {
-        name,
-        file: "actors/agent/2.sqlite",
-        read: Read::Sql(sql),
-    }
-}
-
 const RETRIES: Probe = mayor(
     "agent.retries",
     "SELECT COUNT(*) FROM pi_entries WHERE record ->> '$.kind' = \
@@ -108,20 +103,16 @@ const RETRIES_ANSWERED: Probe = mayor(
      'Heard: Carry on from where you stopped.'",
 );
 
-const MAYOR_CHARGES: Probe = Probe {
-    name: "realm.charges/2",
-    file: "actors/realm/local.sqlite",
-    read: Read::Sql("SELECT COUNT(*) FROM charge WHERE agent = 2"),
-};
+const MAYOR_CHARGES: Probe = realm(
+    "realm.charges/2",
+    "SELECT COUNT(*) FROM charge WHERE agent = 2",
+);
 
 /// The tasks the realm opened for a retry.
-const RETRY_TASKS: Probe = Probe {
-    name: "realm.retry_tasks",
-    file: "actors/realm/local.sqlite",
-    read: Read::Sql(
-        "SELECT COUNT(*) FROM task WHERE origin = 'retry'",
-    ),
-};
+const RETRY_TASKS: Probe = realm(
+    "realm.retry_tasks",
+    "SELECT COUNT(*) FROM task WHERE origin = 'retry'",
+);
 
 /// Charged: 3 long lines, the summary, the post-tell request, a line
 /// per restart. Answered: all but the summary, 2 before it.
@@ -236,7 +227,6 @@ pub const SCENARIOS: &[Scenario] = &[
         restart: [
             &[
                 "pi pid",
-                "pi pid",
                 // The next Node host's answer after the tell's
                 // result, and the mayor's to the letter.
                 "until 1 3 assistant: Noted.",
@@ -342,7 +332,7 @@ pub const SCENARIOS: &[Scenario] = &[
                 "until 2 1 assistant: Heard: Carry on",
                 "pi pid",
             ],
-            &["pi pid", "pi pid"],
+            &["pi pid"],
         ],
         probes: &[
             RETRIES,

@@ -1126,8 +1126,7 @@ mod tests {
     }
 
     #[test]
-    fn a_scenario_that_kills_the_node_host_has_one_and_waits_for_the_next()
-     {
+    fn a_scenario_that_kills_the_node_host_has_one() {
         for scenario in scenario::all() {
             if let Kill::NodeHost = scenario.kill {
                 assert!(
@@ -1135,14 +1134,6 @@ mod tests {
                     "{}",
                     scenario.name
                 );
-                if let Demo::RealmActor { .. } = scenario.demo {
-                    assert!(
-                        scenario.restart[0]
-                            .starts_with(&["pi pid"; 2]),
-                        "{}",
-                        scenario.name
-                    );
-                }
             }
         }
     }

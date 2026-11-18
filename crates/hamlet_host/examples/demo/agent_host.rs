@@ -210,8 +210,8 @@ pub async fn run(demo: &Demo, words: &[String]) -> Result<()> {
             conversation(host, number_of(n)?).await
         }
         ["pid"] => {
-            node.ready().await?;
             let pid = live_pid(&demo.home, link::READY_WAIT).await?;
+            node.ready().await?;
             print(&format!("node/pid {pid}"))
         }
         ["file", n, path, from] => {
