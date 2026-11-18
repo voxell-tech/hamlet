@@ -10,15 +10,34 @@ export type { CreateModelRuntimeOptions } from "@earendil-works/pi-coding-agent"
 
 const root = import.meta.resolve("@earendil-works/pi-coding-agent");
 
-async function part<T>(file: string): Promise<T> {
-    return (await import(new URL(file, root).href)) as T;
+/**
+ * The `names` the file exports, under the root's types. A release that
+ * moves one fails here, at load.
+ */
+async function part<N extends keyof typeof CodingAgent & string>(
+    file: string,
+    ...names: N[]
+): Promise<Pick<typeof CodingAgent, N>> {
+    const loaded: Record<string, unknown> = await import(
+        new URL(file, root).href
+    );
+    const missing = names.filter((name) => loaded[name] === undefined);
+    if (missing.length > 0) {
+        throw new Error(
+            `@earendil-works/pi-coding-agent's ${file} exports no ${missing.join(", ")}`,
+        );
+    }
+    return loaded as Pick<typeof CodingAgent, N>;
 }
 
-export const { ModelRuntime } = await part<
-    Pick<typeof CodingAgent, "ModelRuntime">
->("./core/model-runtime.js");
+export const { ModelRuntime } = await part(
+    "./core/model-runtime.js",
+    "ModelRuntime",
+);
 export type ModelRuntime = CodingAgent.ModelRuntime;
 
-export const { generateDiffString, generateUnifiedPatch } = await part<
-    Pick<typeof CodingAgent, "generateDiffString" | "generateUnifiedPatch">
->("./core/tools/edit-diff.js");
+export const { generateDiffString, generateUnifiedPatch } = await part(
+    "./core/tools/edit-diff.js",
+    "generateDiffString",
+    "generateUnifiedPatch",
+);

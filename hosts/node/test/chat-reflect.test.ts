@@ -47,10 +47,7 @@ async function wake(
         if (before === undefined) delete process.env.HAMLET_REFLECT_EVERY;
         else process.env.HAMLET_REFLECT_EVERY = before;
     });
-    const { calls, sent } = fakeCalls({
-        workspace: { cancel: () => ({ commands: [] }) },
-        realm: { open_task: openTask },
-    });
+    const { calls, sent } = fakeCalls({ realm: { open_task: openTask } });
     const agent = await wakeAgent(t, { calls, responses });
     t.after(() => agent.stop());
     return { agent, sent };
@@ -75,6 +72,15 @@ function send(agent: Woken, id: string, text: string): void {
 }
 
 const words = (text: string) => fauxAssistantMessage(text);
+
+/** The call a kill cut off and its rerun ask under one request. */
+function assertOneRequest(sent: readonly Sent[]): void {
+    const requests = named(sent, "open_task").map(
+        (call) => (call.message as { request: string }).request,
+    );
+    assert.equal(requests.length, 2);
+    assert.equal(requests[0], requests[1]);
+}
 
 function held(text: string): {
     step: FauxResponseStep;
@@ -190,7 +196,7 @@ test("a /new repeated after its reflection was asked reflects once", async (t) =
     assert.equal(named(sent, "open_task").length, 1);
 });
 
-test("a reflection's repeat after a kill is admitted once", async (t) => {
+test("a reflection's repeat after a kill is admitted once, on the task its request opened", async (t) => {
     let hangs = true;
     const { agent, sent } = await wake(
         t,
@@ -210,10 +216,10 @@ test("a reflection's repeat after a kill is admitted once", async (t) => {
     t.after(() => back.stop());
     await back.idle();
     assert.deepEqual(await said(back), ["a", "One.", REFLECT, "Kept it."]);
-    // The call the kill cut off may have opened a task, so it is not
-    // asked again: the reflection is charged to the standing task.
-    assert.deepEqual(await reflections(back), [{ text: REFLECT, data: {} }]);
-    assert.equal(named(sent, "open_task").length, 1);
+    assert.deepEqual(await reflections(back), [
+        { text: REFLECT, data: { task: "reflection-task-2" } },
+    ]);
+    assertOneRequest(sent);
 });
 
 test("/reflect answers already while one is owed", async (t) => {
@@ -284,6 +290,50 @@ test("a short cut-off's second try answers its turn, and the reflection follows 
     assert.equal((await reflections(agent)).length, 1);
 });
 
+test("a /reflect while a cut-off waits for its summary is asked after the turn carries on", async (t) => {
+    const long = (n: number) => `Line ${n}. ${"word ".repeat(7_000)}`;
+    const summary = held("Summary.");
+    const { agent } = await wake(t, "0", [
+        words("One."),
+        words("Two."),
+        words("Three."),
+        () => fauxAssistantMessage([], { stopReason: "length" }),
+        summary.step,
+        words("Four."),
+        words("Kept."),
+    ]);
+    const line = say(agent);
+    for (const n of [1, 2, 3]) await line(long(n));
+    send(agent, "line-4", "Line 4. Answer now.");
+    await summary.asked;
+
+    assert.equal(await agent.actions.reflect(agent.by(from.client)), "asked");
+    summary.release();
+    await until(async () => (await said(agent)).at(-1) === "Kept.");
+
+    assert.deepEqual((await said(agent)).slice(-4), [
+        CARRY_ON,
+        "Four.",
+        REFLECT,
+        "Kept.",
+    ]);
+});
+
+test("a /reflect as the turn that owes a reflection ends asks one reflection on one task", async (t) => {
+    const busy = held("One.");
+    const { agent, sent } = await wake(t, "1", [busy.step, words("Kept.")]);
+    send(agent, "line-1", "a");
+    await busy.asked;
+
+    busy.release();
+    const asked = await agent.actions.reflect(agent.by(from.client));
+    await agent.idle();
+
+    assert.ok(asked === "asked" || asked === "already");
+    assert.deepEqual(await said(agent), ["a", "One.", REFLECT, "Kept."]);
+    assert.equal(named(sent, "open_task").length, 1);
+});
+
 test("an empty answer fails its turn, which is not counted", async (t) => {
     const { agent } = await wake(t, "1", [
         () => fauxAssistantMessage([]),
@@ -335,7 +385,23 @@ test("a /new mid-turn at zero reflects once, after the answer", async (t) => {
     assert.equal((await reflections(agent)).length, 1);
 });
 
-test("a /new repeated after a kill cut off its reflection's task asks the realm once", async (t) => {
+test("a /new during a turn that then fails asks no reflection", async (t) => {
+    const busy = held("");
+    const { agent, sent } = await wake(t, "0", [busy.step, words("Kept.")]);
+    send(agent, "line-1", "a");
+    await busy.asked;
+    await agent.actions.new_session(agent.by(from.client), {
+        id: "new-1",
+        to: 7,
+    });
+    busy.release();
+    await agent.idle();
+
+    assert.deepEqual(await reflections(agent), []);
+    assert.deepEqual(named(sent, "open_task"), []);
+});
+
+test("a /new repeated after a kill cut off its reflection's task asks the realm again under the same request", async (t) => {
     let hangs = true;
     const { agent, sent: calls } = await wake(
         t,
@@ -362,8 +428,10 @@ test("a /new repeated after a kill cut off its reflection's task asks the realm 
     assert.deepEqual(await begin(back), { number: 2 });
     await back.idle();
     assert.deepEqual(await said(back), ["a", "One.", REFLECT, "Kept."]);
-    assert.deepEqual(await reflections(back), [{ text: REFLECT, data: {} }]);
-    assert.equal(named(calls, "open_task").length, 1);
+    assert.deepEqual(await reflections(back), [
+        { text: REFLECT, data: { task: "reflection-task-2" } },
+    ]);
+    assertOneRequest(calls);
 });
 
 test("HAMLET_REFLECT_EVERY reads a leading plus, as Rust's parse does", async (t) => {

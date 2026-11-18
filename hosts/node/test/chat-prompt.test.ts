@@ -89,7 +89,7 @@ const HIRE: AgentInput = {
         lead: 1,
         hires: [3],
         roads: [5],
-        tools_off: [{ name: "end_hire" }],
+        tools_off: [{ name: "end" }, { name: "bash" }],
         folder: "/work",
     },
     copies: {},
@@ -280,6 +280,13 @@ test("read_prompt answers what the next request sends", async (t) => {
         ),
     );
     assert.ok(text.includes("# Your place\n"));
+    // As `crates/hamlet_server/src/talk/prompt/place.rs:181-186` words it,
+    // with a society tool under the name the model calls it by.
+    assert.ok(
+        text.includes(
+            "Your lead turned these tools off for you: end_hire, bash.",
+        ),
+    );
     await agent.stop();
 });
 

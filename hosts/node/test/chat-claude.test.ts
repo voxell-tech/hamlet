@@ -21,6 +21,7 @@ import { signIns } from "../src/agent/login.ts";
 import type { ChatPage, Kept, Login } from "../src/agent/messages.ts";
 import {
     credentialsFile,
+    dumped,
     FAKE_ROOT,
     fakeFiles,
     from,
@@ -155,23 +156,6 @@ function sessions(folder: string): string[] {
               readdirSync(join(projects, project)),
           )
         : [];
-}
-
-async function dumped(agent: Woken): Promise<string> {
-    const tables = await agent.c.db.all<{ name: string }>(
-        "SELECT name FROM sqlite_master WHERE type = 'table'",
-    );
-    const decoder = new TextDecoder();
-    let text = "";
-    for (const { name } of tables) {
-        const rows = await agent.c.db.all<Record<string, unknown>>(
-            `SELECT * FROM "${name}"`,
-        );
-        text += JSON.stringify(rows, (_key, value: unknown) =>
-            value instanceof Uint8Array ? decoder.decode(value) : value,
-        );
-    }
-    return text;
 }
 
 async function claudeAgent(

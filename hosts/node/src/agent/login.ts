@@ -22,7 +22,7 @@ import { keptOf, remember, rememberKept, scrub } from "./models.ts";
 import type { BareRealm } from "./turn.ts";
 
 /** How long a call waits for its step, as the front door allows it (root point 1). */
-const STEP_WAIT_MS = 25_000;
+export const STEP_WAIT_MS = 25_000;
 
 /**
  * The providers a chief signs in to with a subscription (ADR 0006), as

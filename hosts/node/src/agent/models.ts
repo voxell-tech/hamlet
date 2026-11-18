@@ -59,8 +59,9 @@ const FAST_APIS: readonly Api[] = [
 ];
 
 /**
- * Every key, token and typed sign-in answer this host was given, retired
- * ones included, as today's server keeps them for its scrub
+ * Every key, token and typed sign-in answer this host was given, and every
+ * value of the realm's secret list, retired ones included, as today's server
+ * keeps them for its scrub
  * (`crates/hamlet_server/src/credentials.rs`, `remember`). They live only
  * here, for the host's life.
  */
@@ -68,6 +69,36 @@ const SECRETS = new Set<string>();
 
 export function remember(...secrets: readonly string[]): void {
     for (const secret of secrets) if (secret !== "") SECRETS.add(secret);
+}
+
+/** The host's first load of the realm's secret list. */
+let listLoaded: Promise<void> | undefined;
+
+/**
+ * The realm's whole secret list taken into the scrub, once in the host's
+ * life; every read a client or a model makes waits for it. A load that
+ * fails is tried again by the next read, so nothing leaves unscrubbed.
+ */
+export function secretsLoaded(
+    realm: Pick<BareRealm, "secrets">,
+): Promise<void> {
+    listLoaded ??= realm.secrets().then(
+        ({ values }) => remember(...values),
+        (error: unknown) => {
+            listLoaded = undefined;
+            throw error;
+        },
+    );
+    return listLoaded;
+}
+
+/** Takes the realm's secret list again after its first load. */
+export async function secretsRefreshed(
+    realm: Pick<BareRealm, "secrets">,
+): Promise<void> {
+    const first = listLoaded;
+    await secretsLoaded(realm);
+    if (first !== undefined) remember(...(await realm.secrets()).values);
 }
 
 /** Remembers the secrets of `kept`, as today's `remember_model` does. */
@@ -307,6 +338,7 @@ export function agentModels(
             options?.signal === undefined
                 ? key
                 : raceWithAbortSignal(key, options.signal),
+            secretsLoaded(peers.reach),
         ]);
         const chosen = choice !== undefined && nameOf(model) === choice.model;
         const made: ModelsSimpleStreamOptions = {
@@ -664,27 +696,11 @@ function plainly(error: string): string {
     return `That model did not answer a hello. Pick another one. (${detail})`;
 }
 
-function agentKeys(listed: Models, peers: Peers): Keys {
+export function agentKeys(listed: Models, peers: Peers): Keys {
     return keysOf(peers.reach, peers.report, {
         listed,
         keep: peers.reach.keep_credential,
     });
-}
-
-/**
- * Asks the realm for the credential of the copy's model, as a model call
- * does, so its secrets are scrubbed from what a client reads after a wake
- * that made no call yet.
- */
-export async function askCopiedKey(
-    listed: Models,
-    copies: ReadCopies,
-    peers: Peers,
-): Promise<void> {
-    const wanted = await copiedAgent(copies);
-    if (wanted !== undefined) {
-        await agentKeys(listed, peers).of(wanted.model.provider);
-    }
 }
 
 /**

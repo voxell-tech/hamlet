@@ -334,7 +334,7 @@ test("a worker cut off with no words ends with the notice's words", async (t) =>
     assert.deepEqual(named(sent, "turn_failed"), []);
 });
 
-test("a worker's turn waits for the copies the realm holds", async (t) => {
+test("a worker's turn runs on the charter its create input holds, while the realm has not answered its read", async (t) => {
     const seen: Context[] = [];
     const copies = Promise.withResolvers<Copies>();
     const { calls, sent } = fakeCalls({
@@ -345,12 +345,18 @@ test("a worker's turn waits for the copies the realm holds", async (t) => {
     });
     const agent = await wakeAgent(t, {
         calls,
-        input: WORKER,
+        input: {
+            ...WORKER,
+            copies: {
+                charter: { version: 1, value: "Keep the docs whole." },
+            },
+        },
         responses: [asked(seen, "Done.")],
     });
-    t.after(() => agent.stop());
-    await until(() => named(sent, "read_copies").length === 1);
-    copies.resolve({ charter: { version: 1, value: "Keep the docs whole." } });
+    t.after(() => {
+        copies.resolve({});
+        return agent.stop();
+    });
     await until(() => named(sent, "worker_done").length === 1);
 
     const [request] = seen;

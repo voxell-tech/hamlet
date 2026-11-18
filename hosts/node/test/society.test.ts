@@ -10,6 +10,7 @@ import {
     timedOut,
     toolCall,
     toolResults,
+    until,
     type Woken,
     wakeAgent,
 } from "./agent-testing.ts";
@@ -234,7 +235,7 @@ const DROPPED: Record<string, readonly string[]> = {
     set_tools: ["reason"],
 };
 
-test("tell carries t<task id> and the turn's task, and a refusal's words are the tool's result", async (t) => {
+test("tell carries t<task id>, the turn's task and its conversation, and a refusal's words are the tool's result", async (t) => {
     const { calls, sent } = fakeCalls({
         realm: {
             tell: (message) =>
@@ -267,14 +268,19 @@ test("tell carries t<task id> and the turn's task, and a refusal's words are the
     assert.equal(tells.length, 2);
     const [first] = tells;
     assert.ok(first);
-    const call = (first.message as { call: string }).call;
+    const { call, conversation } = first.message as {
+        call: string;
+        conversation: string;
+    };
     assert.match(call, /^t[1-9][0-9]*$/);
+    assert.match(conversation, /^[1-9][0-9]*$/);
     assert.deepEqual(first, {
         to: "realm/local",
         name: "tell",
         message: {
             call,
             task: "task-1",
+            conversation,
             act: { to: { type: "mayor" }, text: "The tests pass" },
         },
         deadlineMs: 10_000,
@@ -334,7 +340,7 @@ test("ask carries its conversation and no task when its input named none, and th
     await agent.stop();
 });
 
-test("each society tool is offered under today's name, and set_tools reads today's names as acts", async (t) => {
+test("each society tool is offered under today's name, and set_tools sends a society tool by its act and any other name as given", async (t) => {
     const { calls, sent } = fakeCalls({
         realm: {
             found: () => ({ type: "founded", hamlet: "h1", mayor: 21 }),
@@ -347,7 +353,7 @@ test("each society tool is offered under today's name, and set_tools reads today
             toolCall("found_hamlet", { name: "Mill", purpose: "Grind" }, "c1"),
             toolCall(
                 "set_tools",
-                { hire: "hire#21", off: ["found_hamlet", "tell"] },
+                { hire: "hire#21", off: ["found_hamlet", "tell", "bash"] },
                 "c2",
             ),
             toolCall("set_tools", { hire: "hire#21", on: ["shell"] }, "c3"),
@@ -381,49 +387,74 @@ test("each society tool is offered under today's name, and set_tools reads today
     assert.deepEqual(acts(sent, "found"), [
         { name: "Mill", tier: "fifty", purpose: "Grind" },
     ]);
+    // As today (`society/hires.rs`, `set_tools`), no name is refused.
     assert.deepEqual(acts(sent, "set_tools"), [
         {
             hire: { type: "agent", agent: 21 },
-            off: [{ name: "found" }, { name: "tell" }],
+            off: [{ name: "found" }, { name: "tell" }, { name: "bash" }],
         },
+        { hire: { type: "agent", agent: 21 }, on: [{ name: "shell" }] },
     ]);
-    const results = (await agent.entries()).filter(
-        (entry) => entry.kind === "pi.tool-result",
-    );
-    assert.equal(results.at(-1)?.text, "`shell` is not a society tool.");
     await agent.stop();
 });
 
-test("a place turns tools off for the next request, an older one changes nothing, and a new wake keeps it", async (t) => {
-    const { calls } = fakeCalls({});
-    const first = await wakeAgent(t, { calls });
+test("a hire's place turns its built-in and hand tools off and back on, never a society tool, and an older one changes nothing", async (t) => {
+    const { calls } = fakeCalls({
+        workspace: {
+            list_tools: () => ({
+                tools: [
+                    {
+                        name: "deploy",
+                        description: "Runs deploy.",
+                        parameters: JSON.stringify({
+                            type: "object",
+                            properties: {},
+                        }),
+                    },
+                ],
+                faults: [],
+            }),
+        },
+    });
     const place = (version: number, off: string[]) => ({
         version,
+        lead: 1,
         hires: [],
         roads: [],
         tools_off: off.map((name) => ({ name })),
     });
+    const first = await wakeAgent(t, {
+        calls,
+        input: {
+            kind: "hire",
+            task: "standing-7",
+            place: place(1, []),
+            copies: {},
+        },
+    });
+    await until(async () => (await offered(first)).includes("deploy"));
     const all = await offered(first);
-    const without = all.filter(
-        (name) => name !== "tell" && name !== "found_hamlet",
-    );
+    const without = all.filter((name) => name !== "bash" && name !== "deploy");
 
     assert.equal(
         await first.actions.place(
             first.by(from.realm),
-            place(3, ["tell", "found", "a_newer_tool"]) as never,
+            place(3, ["bash", "deploy", "tell", "found", "a_newer_tool"]),
         ),
         null,
     );
     assert.deepEqual(await offered(first), without);
 
-    await first.actions.place(first.by(from.realm), place(2, []) as never);
-    await first.actions.place(first.by(from.realm), place(3, []) as never);
+    await first.actions.place(first.by(from.realm), place(2, []));
     assert.deepEqual(await offered(first), without);
     await first.stop();
 
     const second = await first.again();
+    await until(async () => (await schemas(second)).length > 0);
     assert.deepEqual(await offered(second), without);
+    await second.actions.place(second.by(from.realm), place(4, []));
+    await until(async () => (await offered(second)).includes("deploy"));
+    assert.deepEqual((await offered(second)).sort(), [...all].sort());
     await second.stop();
 });
 

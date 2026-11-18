@@ -6,6 +6,7 @@ import {
 import type { Api, Model, Models } from "@earendil-works/pi-ai";
 import {
     type Conversation,
+    type ConversationId,
     type Cursor,
     createRegistry,
     type EntryId,
@@ -70,7 +71,7 @@ import {
     type Submit,
     type ToolName,
 } from "./messages.ts";
-import { agentModels, askCopiedKey, configured } from "./models.ts";
+import { agentModels, configured, secretsRefreshed } from "./models.ts";
 import { ownFiles } from "./own-files.ts";
 import { type PromptSources, promptPart, promptSources } from "./prompt.ts";
 import { reflectEvery, reflection } from "./reflect.ts";
@@ -138,7 +139,8 @@ export type AgentDefinition = ActorDefinition<
 >;
 
 interface Offer {
-    readonly builtIn: (extension: Extension) => Extension;
+    /** Whether the built-in or hand tool `name` is offered. */
+    readonly builtIn: (name: string) => boolean;
     /** Whether the society's tools, the timers and reflection are offered. */
     readonly society: boolean;
 }
@@ -147,7 +149,8 @@ interface Offer {
  * What an agent of its kind is offered, as today decides it
  * (`crates/hamlet_server/src/calls/place.rs:176-242`): an errand no tool
  * (`undefined`), a worker the built-in tools its brief names, or all of them
- * when it names none, and a Hand or a hire every tool.
+ * when it names none, and a Hand or a hire every tool but the built-in and
+ * hand tools its lead turned off.
  */
 function offerOf(row: Row): Offer | undefined {
     switch (row.kind) {
@@ -156,37 +159,51 @@ function offerOf(row: Row): Offer | undefined {
         case "worker": {
             const given = new Set(row.brief?.tools?.map(({ name }) => name));
             return {
-                builtIn: (extension) =>
-                    given.size === 0
-                        ? extension
-                        : {
-                              ...extension,
-                              tools: (extension.tools ?? []).filter((tool) =>
-                                  given.has(tool.name),
-                              ),
-                          },
+                builtIn: (name) => given.size === 0 || given.has(name),
                 society: false,
             };
         }
         case "hand":
-        case "hire":
-            return { builtIn: (extension) => extension, society: true };
+        case "hire": {
+            const off = new Set(row.toolsOff.map(({ name }) => name));
+            return { builtIn: (name) => !off.has(name), society: true };
+        }
     }
+}
+
+/**
+ * The built-in and hand tools as listed, each installed with only the tools
+ * `offer` offers. A place that changes `offer` installs them again.
+ */
+interface BuiltIns {
+    readonly listed: Extension[];
+    offer: Offer;
+}
+
+function offered(extension: Extension, offer: Offer): Extension {
+    return {
+        ...extension,
+        tools: (extension.tools ?? []).filter((tool) =>
+            offer.builtIn(tool.name),
+        ),
+    };
 }
 
 /** Their order decides only the order the tools are offered in. */
 function parts(
-    row: Row,
+    builtIns: BuiltIns | undefined,
     peers: Peers,
     prompt: PromptSources,
     withHarness: WithHarness,
     tell: TellFailed,
     failed: FailedTurns,
+    chief: () => Promise<ConversationId | undefined>,
 ): Extension[] {
-    const offer = offerOf(row);
-    if (offer === undefined) return [promptPart(prompt)];
-    const builtIn = [offer.builtIn(workspaceTools(peers)), ownFiles(peers)];
-    if (!offer.society) {
+    if (builtIns === undefined) return [promptPart(prompt)];
+    const builtIn = builtIns.listed.map((extension) =>
+        offered(extension, builtIns.offer),
+    );
+    if (!builtIns.offer.society) {
         return [
             promptPart(prompt),
             cutOffRule(tell),
@@ -196,11 +213,11 @@ function parts(
     }
     return [
         promptPart(prompt),
-        reflection(peers, prompt.copies, withHarness, reflectEvery()),
+        reflection(peers, prompt.copies, withHarness, reflectEvery(), chief),
         cutOffRule(tell),
         failed.extension,
         ...builtIn,
-        society(peers, row.toolsOff),
+        society(peers),
         timers(),
     ];
 }
@@ -368,13 +385,16 @@ async function create(
     config: AgentConfig,
     input: AgentInput,
 ): Promise<void> {
-    await c.db.run(
-        "INSERT OR IGNORE INTO agent (id, kind, task, place_version, tools_off, place, brief) VALUES (1, ?, ?, ?, ?, ?, ?)",
-        input.kind,
-        input.task,
-        ...rowOf(input.place),
-        input.brief === undefined ? null : JSON.stringify(input.brief),
-    );
+    await c.db.transaction(async (db) => {
+        await db.run(
+            "INSERT OR IGNORE INTO agent (id, kind, task, place_version, tools_off, place, brief) VALUES (1, ?, ?, ?, ?, ?, ?)",
+            input.kind,
+            input.task,
+            ...rowOf(input.place),
+            input.brief === undefined ? null : JSON.stringify(input.brief),
+        );
+        await keep({ db }, input.copies);
+    });
     config.files(numberOf(c));
 }
 
@@ -394,6 +414,8 @@ export interface Generation {
      */
     readonly inTurn: <T>(work: () => Promise<T>) => Promise<T>;
     stopsBegun: number;
+    /** Absent for an errand, which is offered no tool. */
+    readonly builtIns?: BuiltIns;
 }
 
 const AGENT: unique symbol = Symbol.for("@hamlet/agent");
@@ -424,9 +446,23 @@ async function wake(c: AgentContext, config: AgentConfig): Promise<void> {
         ...promptSources(c, copies, peers),
         ...(errand === undefined ? {} : { errand }),
     };
-    const tell = tellingFailed(peers, row.standingTask, () => current(c.db));
+    const chief = () => current(c.db);
+    const tell = tellingFailed(peers, row.standingTask, chief);
     const failed = failedTurns(peers, withHarness, tell);
-    for (const part of parts(row, peers, prompt, withHarness, tell, failed)) {
+    const offer = offerOf(row);
+    const builtIns: BuiltIns | undefined =
+        offer === undefined
+            ? undefined
+            : { listed: [workspaceTools(peers), ownFiles(peers)], offer };
+    for (const part of parts(
+        builtIns,
+        peers,
+        prompt,
+        withHarness,
+        tell,
+        failed,
+        chief,
+    )) {
         registry.install(part);
     }
     const options: PiOptions = {
@@ -457,16 +493,19 @@ async function wake(c: AgentContext, config: AgentConfig): Promise<void> {
         following: follow,
         inTurn: oneAfterAnother(),
         stopsBegun: 0,
+        ...(builtIns === undefined ? {} : { builtIns }),
     };
     watching(c, follow);
     // Not awaited, so a slow workspace does not hold `submit` past the
     // realm's deadline. Begun
     // before the open, since an action that reopens a harness the open
     // left closed builds it from the same registry.
-    const offer = offerOf(row);
-    if (offer !== undefined) {
+    if (builtIns !== undefined) {
         void handTools(peers).then(
-            (extension) => registry.install(offer.builtIn(extension)),
+            (extension) => {
+                builtIns.listed.push(extension);
+                registry.install(offered(extension, builtIns.offer));
+            },
             (error: unknown) =>
                 peers.report("the hand tools were not listed", error),
         );
@@ -483,38 +522,32 @@ async function wake(c: AgentContext, config: AgentConfig): Promise<void> {
     }
     failed.follow(harness);
     harness.resume();
-    const read = refreshed(c, peers).catch((error: unknown) =>
-        peers.report("the copies were not read from the realm", error),
-    );
-    void read
-        .then(() => askCopiedKey(config.models, copies, peers))
-        .catch((error: unknown) =>
-            peers.report("the copy's model's key was not read", error),
-        );
-    // Configured at every wake, even when the realm was not reached, so a
-    // configure a kill cut off is done again.
-    const copied = read
-        .then(() => configured(c, copies))
-        .catch((error: unknown) =>
+    const configuring = () =>
+        configured(c, copies).catch((error: unknown) =>
             peers.report("the model was not configured", error),
         );
+    // Done at every wake, so a configure a kill cut off is done again, and
+    // before any action, so a first turn runs on the copies the create
+    // input held.
+    await configuring();
+    void refreshed(c, peers).then(configuring, (error: unknown) =>
+        peers.report("the copies were not read from the realm", error),
+    );
+    void secretsRefreshed(peers.reach).catch((error: unknown) =>
+        peers.report("the realm's secret list was not read", error),
+    );
     if (
         (row.kind === "worker" || row.kind === "errand") &&
         row.brief !== undefined
     ) {
         const { kind, brief } = row;
-        // A new worker or errand holds no copies yet, so its turn waits for
-        // the realm's answer, whatever it is.
-        void copied
-            .then(() =>
-                briefTurn(c, options, peers, kind, brief, row.standingTask),
-            )
-            .catch((error: unknown) =>
+        void briefTurn(c, options, peers, kind, brief, row.standingTask).catch(
+            (error: unknown) =>
                 peers.report(
                     "the realm was not told how the brief's turn ended",
                     error,
                 ),
-            );
+        );
     }
 }
 
@@ -721,11 +754,16 @@ async function place(c: AgentCall, message: Place): Promise<void> {
         rest,
         version,
     );
-    if (kept.changes === 0 || offerOf(await rowAt(c))?.society !== true) return;
-    const { registry, peers } = generationOf(c);
-    // Installing it again replaces it, so the tools turned off leave the next
-    // request.
-    registry.install(society(peers, message.tools_off));
+    const { registry, builtIns } = generationOf(c);
+    if (kept.changes === 0 || builtIns === undefined) return;
+    const offer = offerOf(await rowAt(c));
+    if (offer === undefined) return;
+    builtIns.offer = offer;
+    // Installing one again replaces it, so the next request offers what the
+    // place says.
+    for (const extension of builtIns.listed) {
+        registry.install(offered(extension, offer));
+    }
 }
 
 async function fill(

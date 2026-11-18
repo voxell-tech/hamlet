@@ -20,6 +20,7 @@ import type {
 import { checkModel, keysOf } from "../src/agent/models.ts";
 import {
     credentialsFile,
+    dumped,
     from,
     named,
     until,
@@ -148,23 +149,6 @@ async function page(agent: Woken): Promise<ChatPage> {
     });
 }
 
-async function dumped(agent: Woken): Promise<string> {
-    const tables = await agent.c.db.all<{ name: string }>(
-        "SELECT name FROM sqlite_master WHERE type = 'table'",
-    );
-    const decoder = new TextDecoder();
-    let text = "";
-    for (const { name } of tables) {
-        const rows = await agent.c.db.all<Record<string, unknown>>(
-            `SELECT * FROM "${name}"`,
-        );
-        text += JSON.stringify(rows, (_key, value: unknown) =>
-            value instanceof Uint8Array ? decoder.decode(value) : value,
-        );
-    }
-    return text;
-}
-
 test("a key sign-in leaves the key only in credentials.json", async (t) => {
     const key = secret(t, "key");
     const { file, calls, sent } = credentialsFile();
@@ -219,7 +203,7 @@ test("a key sign-in leaves the key only in credentials.json", async (t) => {
     await agent.stop();
 });
 
-test("a hire signs no one in: sign-in is the Hand's alone", async (t) => {
+test("a hire signs no one in: sign-in is the Hand's alone, on a host with sign-ins or without", async (t) => {
     const { calls, sent } = credentialsFile();
     const agent = await wakeAgent(t, {
         calls,
@@ -233,11 +217,20 @@ test("a hire signs no one in: sign-in is the Hand's alone", async (t) => {
         models: loopback(() => fauxAssistantMessage("Hello.")),
     });
     t.after(() => agent.stop());
-    const hire = client(agent, signIns(agent.config.models));
+    const message: Login = {
+        id: "00000000-0000-4000-8000-0000000000dd",
+        start: { provider: "loopback", method: "key" },
+    };
 
-    await assert.rejects(hire.start("loopback", "key"), {
-        message: "only the Hand signs in",
-    });
+    for (const config of [
+        { ...agent.config, signIns: signIns(agent.config.models) },
+        agent.config,
+    ]) {
+        assert.deepEqual(
+            await chatActions(config).login(agent.by(from.client), message),
+            { type: "not_the_hand" },
+        );
+    }
     assert.deepEqual(named(sent, "keep_credential"), []);
 });
 
@@ -955,7 +948,7 @@ test("a sign-in with no first step in time fails with today's words", async (t) 
     await agent.stop();
 });
 
-test("after a wake, the copied model's key is scrubbed from what a client reads", async (t) => {
+test("after a wake, a stored key is scrubbed from what a client reads, and no key is asked for", async (t) => {
     const key = secret(t, "earlier-life-key");
     const { file, calls, sent } = credentialsFile();
     file.set("loopback", { type: "key", key });
@@ -963,8 +956,7 @@ test("after a wake, the copied model's key is scrubbed from what a client reads"
         calls,
         models: loopback(() => fauxAssistantMessage("Hello.")),
     });
-    // Said to the faux model, so no life of this host asks for the key
-    // before the wake does.
+    // Said to the faux model, so no model call asks for the key.
     await say(agent, `My key is ${key}.`);
     await agent.actions.copies(agent.by(from.realm), {
         model: { version: 1, value: { model: "loopback::large", fast: false } },
@@ -974,7 +966,8 @@ test("after a wake, the copied model's key is scrubbed from what a client reads"
     const woken = await agent.again();
     const line = async () =>
         (await page(woken)).items.find((item) => item.kind === "user")?.text;
-    // The wake does not wait for the realm's answer, so neither can a read.
+    // The host loaded the list before this test, so a read waits for no
+    // later wake's refresh.
     await until(async () => (await line()) === "My key is [REDACTED].").catch(
         () => {},
     );
@@ -984,9 +977,7 @@ test("after a wake, the copied model's key is scrubbed from what a client reads"
         "chat page": await page(woken),
         history: await woken.actions.read_history(woken.by(from.client)),
     });
-    assert.deepEqual(
-        named(sent, "credential").map((call) => call.message),
-        [{ provider: "loopback" }],
-    );
+    assert.deepEqual(named(sent, "credential"), []);
+    assert.deepEqual(woken.reported, []);
     await woken.stop();
 });

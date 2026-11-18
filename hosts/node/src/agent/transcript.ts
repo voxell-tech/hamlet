@@ -41,7 +41,7 @@ import {
     type Usage,
     u32,
 } from "./messages.ts";
-import { scrub, withheld } from "./models.ts";
+import { scrub, secretsLoaded, withheld } from "./models.ts";
 import { conversationOfChat, current } from "./sessions.ts";
 import { type Kept, NOTE_BREAK } from "./turn.ts";
 
@@ -81,7 +81,7 @@ interface Watch {
     current: ConversationId | undefined;
     /** One at a time, so the events go out in the order of the commits. */
     queue: Promise<void>;
-    /** Conversations with changes folded while they had no chat. */
+    /** Conversations with changes folded and not sent, which their readers read again. */
     readonly unnamed: Set<ConversationId>;
 }
 
@@ -90,6 +90,8 @@ interface Attached {
     readonly harness: Harness;
     readonly made: Set<ConversationId>;
     readonly folds: Map<ConversationId, Promise<Fold>>;
+    /** Past sessions whose readers were told to read again, and none has. */
+    readonly told: Set<ConversationId>;
 }
 
 const WATCHES = new WeakMap<Following, Watch>();
@@ -143,6 +145,7 @@ async function attach(
         harness,
         made: new Set(),
         folds: new Map(),
+        told: new Set(),
     };
     harness.observeCommits({
         advance: (publication) => {
@@ -211,6 +214,8 @@ function changed(
             const row = await rowOf(c, conversation);
             if (row === undefined) return;
             if (row.kind === "chief" && row.current === 0) {
+                if (at.told.has(conversation)) return;
+                at.told.add(conversation);
                 follow.send(refOfRow(agentOf(c), row), [{ type: "reset" }]);
                 return;
             }
@@ -257,7 +262,21 @@ function foldOf(
         const fold = new Fold();
         const take = (view: ConversationView) => {
             watch.queue = watch.queue
-                .then(() => sent(c, follow, watch, id, fold.view(view)))
+                .then(async () => {
+                    const loaded = await secretsLoaded(
+                        generationOf(c).peers.reach,
+                    ).then(
+                        () => true,
+                        (error: unknown) => {
+                            warn(c)(error);
+                            return false;
+                        },
+                    );
+                    const ops = fold.view(view);
+                    // Its readers read it again, which waits for the list.
+                    if (!loaded) watch.unnamed.add(id);
+                    await sent(c, follow, watch, id, loaded ? ops : []);
+                })
                 .catch(warn(c));
         };
         let early: ConversationView[] | undefined = [];
@@ -441,7 +460,8 @@ export async function readChat(c: AgentCall, message: Open): Promise<ChatPage> {
     };
 }
 
-function refused(words: string): UserError {
+/** A refusal a client reads in `words`. */
+export function refused(words: string): UserError {
     return new UserError(words, { code: "refused" });
 }
 

@@ -16,6 +16,7 @@ import {
     type SimpleStreamOptions,
     type StreamFunction,
 } from "@earendil-works/pi-ai";
+import { getCurrentSystemPrompt } from "@earendil-works/pi-ai/utils/transcript";
 import { type Copies, type ModelChoice, u32 } from "../src/agent/messages.ts";
 import {
     agentModels,
@@ -26,6 +27,7 @@ import {
 import { conversationOfChat } from "../src/agent/sessions.ts";
 import type { BareRealm, Peers } from "../src/agent/turn.ts";
 import {
+    dumped,
     fakeCalls,
     from,
     itemOfLine,
@@ -224,8 +226,7 @@ test("a configure cut off by a kill is done at the next wake", async (t) => {
     await failed;
     await agent.stop();
     const next = await agent.again();
-    // The wake configures without being awaited.
-    await until(async () => (await rootModel(next))?.provider === "loopback");
+    assert.equal((await rootModel(next))?.provider, "loopback");
     second.core.setResponses([ran(names, fauxAssistantMessage("Hello."))]);
     await say(next, "Hello again.");
 
@@ -343,6 +344,35 @@ function listing(): { listed: Models; second: ReturnType<typeof loopback> } {
     const second = loopback([partlyPriced()]);
     return { listed: second.add(createModels()), second };
 }
+
+test("a client reads the listing's models and checks one with the realm's key", async (t) => {
+    const { calls, sent } = signedIn();
+    const second = loopback();
+    const keysSeen: (string | undefined)[] = [];
+    second.core.setResponses([
+        (_transcript, options) => {
+            keysSeen.push(options?.apiKey);
+            return fauxAssistantMessage(" Hello! ");
+        },
+    ]);
+    const agent = await wakeAgent(t, { calls, models: second.add });
+    const client = agent.by(from.client);
+
+    const { models } = await agent.actions.read_models(client);
+    const checked = await agent.actions.check(client, {
+        model: "loopback::large",
+    });
+
+    assert.deepEqual(models, modelList(agent.config.models));
+    assert.ok(models.some((model) => model.name === "loopback::large"));
+    assert.deepEqual(checked, { type: "answered", words: "Hello!" });
+    assert.deepEqual(keysSeen, [KEY]);
+    assert.deepEqual(
+        named(sent, "credential").map((call) => call.message),
+        [{ provider: "loopback" }],
+    );
+    await agent.stop();
+});
 
 test("a check is not charged", async () => {
     const { listed, second } = listing();
@@ -534,23 +564,6 @@ test("a new conversation takes the copy's model", async (t) => {
     assert.deepEqual(names, ["loopback::large", "loopback::large"]);
     await agent.stop();
 });
-
-async function dumped(agent: Woken): Promise<string> {
-    const tables = await agent.c.db.all<{ name: string }>(
-        "SELECT name FROM sqlite_master WHERE type = 'table'",
-    );
-    const decoder = new TextDecoder();
-    let text = "";
-    for (const { name } of tables) {
-        const rows = await agent.c.db.all<Record<string, unknown>>(
-            `SELECT * FROM "${name}"`,
-        );
-        text += JSON.stringify(rows, (_key, value: unknown) =>
-            value instanceof Uint8Array ? decoder.decode(value) : value,
-        );
-    }
-    return text;
-}
 
 function splitting(
     chunks: readonly string[],
@@ -1000,5 +1013,45 @@ test("a rewind's conversation runs on the copy's model", async (t) => {
     }
 
     assert.deepEqual(names, Array(4).fill("loopback::large"));
+    await agent.stop();
+});
+
+test("a hire's first line runs on the model and charter its create input holds, while the realm has not answered its read", async (t) => {
+    const read = Promise.withResolvers<Copies>();
+    const { calls, sent } = fakeCalls({
+        realm: {
+            credential: () => ({ type: "key", key: KEY }),
+            read_copies: () => read.promise,
+        },
+    });
+    const second = loopback();
+    const names: string[] = [];
+    const prompts: string[] = [];
+    const agent = await wakeAgent(t, {
+        calls,
+        models: second.add,
+        input: {
+            kind: "hire",
+            task: "standing-7",
+            place: { version: 1, hires: [], roads: [], tools_off: [] },
+            copies: {
+                charter: { version: 1, value: "Keep the docs whole." },
+                ...choosing(1, { model: "loopback::large" }),
+            },
+        },
+    });
+    second.core.setResponses([
+        ran(names, (transcript) => {
+            prompts.push(getCurrentSystemPrompt(transcript.messages) ?? "");
+            return fauxAssistantMessage("Hello.");
+        }),
+    ]);
+    await until(() => named(sent, "read_copies").length === 1);
+
+    await say(agent, "Hello.");
+
+    assert.deepEqual(names, ["loopback::large"]);
+    assert.match(prompts[0] ?? "", /^Keep the docs whole\./);
+    read.resolve({});
     await agent.stop();
 });

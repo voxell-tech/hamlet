@@ -26,6 +26,7 @@ import {
     type OauthLogin,
     REALM,
     readClient,
+    type SecretList,
     type Submit,
     type TaskOpened,
     U32_MAX,
@@ -191,8 +192,31 @@ const STOPPING: Answers = {
     realm: { lapse: () => answer("realm/lapse") },
 };
 
+const REWINDING: Answers = { ...STOPPING, ...COMMANDED };
+
 function uuid(n: number): string {
     return `00000000-0000-4000-8000-${String(n).padStart(12, "0")}`;
+}
+
+/** A chief's line, then its rewind. */
+async function rewound(t: TestContext, calls: Calls): Promise<Woken> {
+    const agent = await chief(t, calls, ["One."]);
+    await say(agent, "Go.");
+    const page = await agent.actions.read_chat(agent.by(from.client), {
+        id: uuid(4),
+        chat: CHIEF,
+    });
+    const line = page.items.find((item) => item.kind === "user");
+    assert.ok(line);
+    assert.deepEqual(
+        await agent.actions.rewind(agent.by(from.client), {
+            id: uuid(5),
+            chat: CHIEF,
+            item: line.id,
+        }),
+        { type: "rewound", text: "Go." },
+    );
+    return agent;
 }
 
 async function say(agent: Woken, text: string): Promise<void> {
@@ -474,20 +498,20 @@ const WRITTEN: readonly Written[] = [
         task: "task-1",
         tool: ["tell", { to: "mayor", text: "The tests pass" }],
         answers: { realm: { tell: () => answer("realm/tell.done") } },
-        own: ["call"],
+        own: ["call", "conversation"],
     },
     {
         fixture: "realm/tell.no_task",
         tool: ["tell", { to: "hand", text: "The tests pass" }],
         answers: { realm: { tell: () => answer("realm/tell.done") } },
-        own: ["call"],
+        own: ["call", "conversation"],
     },
     {
         fixture: "realm/ask",
         task: "task-1",
         tool: ["ask", { to: "hire#12", question: "Which tests fail?" }],
         answers: { realm: { ask: () => answer("realm/ask.done") } },
-        own: ["call", "act.conversation"],
+        own: ["call", "conversation", "act.conversation"],
     },
     {
         fixture: "realm/request_road",
@@ -499,7 +523,7 @@ const WRITTEN: readonly Written[] = [
         answers: {
             realm: { request_road: () => answer("realm/request_road.done") },
         },
-        own: ["call"],
+        own: ["call", "conversation"],
     },
     {
         fixture: "realm/request_road.no_why",
@@ -507,13 +531,13 @@ const WRITTEN: readonly Written[] = [
         answers: {
             realm: { request_road: () => answer("realm/request_road.done") },
         },
-        own: ["call"],
+        own: ["call", "conversation"],
     },
     {
         fixture: "realm/found",
         tool: ["found_hamlet", { name: "Harbor", purpose: "Run the release" }],
         answers: { realm: { found: () => answer("realm/found.founded") } },
-        own: ["call"],
+        own: ["call", "conversation"],
         // The tool has no tier to choose: a hamlet an agent founds has
         // today's default, 50. The fixture's 500 is a chief's choice.
         constant: { "act.tier": "fifty" },
@@ -522,25 +546,32 @@ const WRITTEN: readonly Written[] = [
         fixture: "realm/hire",
         tool: ["hire", { purpose: "Check the links", under: "hire#12" }],
         answers: { realm: { hire: () => answer("realm/hire.hired") } },
-        own: ["call"],
+        own: ["call", "conversation"],
+    },
+    {
+        fixture: "realm/hire.in_a_turn",
+        task: "standing-12",
+        tool: ["hire", { purpose: "Check the links" }],
+        answers: { realm: { hire: () => answer("realm/hire.hired") } },
+        own: ["call", "conversation"],
     },
     {
         fixture: "realm/end",
         tool: ["end_hire", { hire: "hire#12" }],
         answers: { realm: { end: () => answer("realm/end.done") } },
-        own: ["call"],
+        own: ["call", "conversation"],
     },
     {
         fixture: "realm/seat",
         tool: ["seat_mayor", { hire: "hire#13" }],
         answers: { realm: { seat: () => answer("realm/seat.done") } },
-        own: ["call"],
+        own: ["call", "conversation"],
     },
     {
         fixture: "realm/lay_road",
         tool: ["lay_road", { a: "hire#12", b: "hire#13" }],
         answers: { realm: { lay_road: () => answer("realm/lay_road.done") } },
-        own: ["call"],
+        own: ["call", "conversation"],
     },
     {
         fixture: "realm/take_up_road",
@@ -548,7 +579,7 @@ const WRITTEN: readonly Written[] = [
         answers: {
             realm: { take_up_road: () => answer("realm/take_up_road.done") },
         },
-        own: ["call"],
+        own: ["call", "conversation"],
     },
     {
         fixture: "realm/set_tools",
@@ -556,10 +587,14 @@ const WRITTEN: readonly Written[] = [
         answers: {
             realm: { set_tools: () => answer("realm/set_tools.done") },
         },
-        own: ["call"],
+        own: ["call", "conversation"],
     },
     // Sent at the first wake, which holds no copy yet.
     { fixture: "realm/read_copies.none" },
+    {
+        fixture: "realm/secrets",
+        answers: { realm: { secrets: () => answer("realm/secrets") } },
+    },
     {
         fixture: "realm/read_copies",
         drive: async (t, calls, sent) => {
@@ -615,17 +650,6 @@ const WRITTEN: readonly Written[] = [
         constant: { why: "stopped" },
     },
     {
-        fixture: "realm/lapse.ended",
-        drive: async (t, calls) => {
-            const agent = await chief(t, calls, ["One."]);
-            await say(agent, "Go.");
-            assert.deepEqual(await newSession(agent), { number: 2 });
-            return agent;
-        },
-        answers: COMMANDED,
-        own: ["conversation"],
-    },
-    {
         fixture: "realm/lapse.resumed",
         drive: async (t, calls) => {
             const agent = await chief(t, calls, ["One."]);
@@ -645,27 +669,15 @@ const WRITTEN: readonly Written[] = [
         own: ["conversation"],
     },
     {
+        fixture: "workspace/cancel.conversation",
+        drive: rewound,
+        answers: REWINDING,
+        own: ["which.conversation"],
+    },
+    {
         fixture: "realm/lapse.rewound",
-        drive: async (t, calls) => {
-            const agent = await chief(t, calls, ["One."]);
-            await say(agent, "Go.");
-            const page = await agent.actions.read_chat(agent.by(from.client), {
-                id: uuid(4),
-                chat: CHIEF,
-            });
-            const line = page.items.find((item) => item.kind === "user");
-            assert.ok(line);
-            assert.deepEqual(
-                await agent.actions.rewind(agent.by(from.client), {
-                    id: uuid(5),
-                    chat: CHIEF,
-                    item: line.id,
-                }),
-                { type: "rewound", text: "Go." },
-            );
-            return agent;
-        },
-        answers: COMMANDED,
+        drive: rewound,
+        answers: REWINDING,
         own: ["conversation"],
     },
     {
@@ -813,7 +825,8 @@ for (const row of WRITTEN) {
         const call = of().at(-1);
         assert.ok(call, `the agent sent no ${action}`);
         const expected = fixture(`${row.fixture}.args`) as unknown[];
-        // Each action takes one message, but `list_tools` takes none.
+        // Each action takes one message, but `list_tools` and `secrets` take
+        // none.
         const args =
             call.message === undefined ? [] : [structuredClone(call.message)];
         for (const path of row.own ?? []) {
@@ -824,7 +837,12 @@ for (const row of WRITTEN) {
                 `${path} has the agent's form: ${String(value)}`,
             );
             const theirs = field(expected[0], path);
-            mine.holder[mine.key] = theirs.holder[theirs.key];
+            // A fixture that leaves the field out shows a call without it.
+            if (theirs.key in theirs.holder) {
+                mine.holder[mine.key] = theirs.holder[theirs.key];
+            } else {
+                delete mine.holder[mine.key];
+            }
         }
         for (const [path, value] of Object.entries(row.constant ?? {})) {
             const mine = field(args[0], path);
@@ -950,7 +968,7 @@ for (const input of CREATED) {
     });
 }
 
-test("agent/place.args keeps every tool's name and the folder, and turns off only the society tools named", async (t) => {
+test("agent/place.args keeps every tool's name and the folder, and turns off only the built-in tools named", async (t) => {
     const { calls } = fakeCalls({});
     const agent = await wakeAgent(t, { calls, input: HAND });
     const [place] = fixture("agent/place.args") as unknown[];
@@ -959,10 +977,7 @@ test("agent/place.args keeps every tool's name and the folder, and turns off onl
         "SELECT tools_off, place FROM agent",
     );
     const root = await (await agent.harness()).root(context);
-    const offered = async () =>
-        (await root.agent(context)).tools.map((tool) => tool.name);
-    await until(async () => (await offered()).includes("bash"));
-    const names = await offered();
+    const names = (await root.agent(context)).tools.map((tool) => tool.name);
     await agent.stop();
 
     assert.deepEqual(JSON.parse(row?.tools_off ?? ""), [
@@ -973,8 +988,11 @@ test("agent/place.args keeps every tool's name and the folder, and turns off onl
         (JSON.parse(row?.place ?? "") as { folder?: unknown }).folder,
         "/work/orchard",
     );
-    assert.ok(!names.includes("found_hamlet"), names.join());
-    assert.ok(names.includes("hire") && names.includes("bash"), names.join());
+    assert.ok(!names.includes("bash"), names.join());
+    assert.ok(
+        names.includes("found_hamlet") && names.includes("read"),
+        names.join(),
+    );
 });
 
 const ANSWERED_BY_TOOLS = [
@@ -1129,7 +1147,7 @@ test("realm/credential.refused.not_signed_in.answer fails the turn with its word
     );
 });
 
-test("realm/open_task.refused.you_left.answer refuses a retry with its words, and a reflection is asked on the standing task", async (t) => {
+test("realm/open_task.refused.you_left.answer refuses a retry in its words, and a reflection is asked on the standing task", async (t) => {
     const given = answer("realm/open_task.refused.you_left") as Extract<
         TaskOpened,
         { type: "refused" }
@@ -1138,7 +1156,14 @@ test("realm/open_task.refused.you_left.answer refuses a retry with its words, an
         realm: { open_task: () => given, lapse: () => answer("realm/lapse") },
     });
     const agent = await failed(t, calls, "task-2", FAILED_WORDS);
-    await assert.rejects(retry(agent), new Error(given.words));
+    await assert.rejects(
+        retry(agent),
+        (error: unknown) =>
+            error instanceof ActorError &&
+            error.code === "refused" &&
+            error.public &&
+            error.message === given.words,
+    );
     assert.equal(await agent.actions.reflect(agent.by(from.client)), "asked");
     await agent.idle();
     const reported = [...agent.reported];
@@ -1163,6 +1188,33 @@ test("realm/read_copies.answer is read by the wake, and its charter reaches the 
         (await prompt()).includes(given.charter?.value ?? "no charter"),
     );
     assert.deepEqual(agent.reported, []);
+    await agent.stop();
+});
+
+test("realm/secrets.answer's values are taken out of what a client reads", async (t) => {
+    const given = answer("realm/secrets") as SecretList;
+    const [value] = given.values;
+    assert.ok(value !== undefined);
+    const { calls } = fakeCalls({ realm: { secrets: () => given } });
+    const agent = await wakeAgent(t, {
+        calls,
+        input: HAND,
+        responses: [fauxAssistantMessage(`It is ${value}.`)],
+    });
+    await agent.actions.submit(agent.by(from.realm), {
+        id: "line-secret",
+        input: { type: "line", text: "What is it?" },
+    });
+    await agent.idle();
+    const read = async () =>
+        JSON.stringify(
+            await agent.actions.read_chat(agent.by(from.client), {
+                id: "00000000-0000-4000-8000-0000000000cc",
+                chat: { with: 7 },
+            }),
+        );
+    await until(async () => (await read()).includes("It is [REDACTED]."));
+    assert.ok(!(await read()).includes(value));
     await agent.stop();
 });
 
@@ -1350,14 +1402,14 @@ const NOT_THE_AGENTS: readonly (readonly [RegExp, string])[] = [
         /^realm\/lapse\.stopped\.args$/,
         "a stop's lapse of one conversation: as today, `/stop` lapses every wait the agent raised",
     ],
-    [/^realm\/(needs_chief|secrets)\./, "the workspace's call of the realm"],
+    [/^realm\/needs_chief\./, "the workspace's call of the realm"],
     [
         /^workspace\/(set_reach|cancel_agent|chief_answer)\./,
         "the realm's call of the workspace",
     ],
     [
-        /^workspace\/cancel\.(conversation|one)\.args$/,
-        "a cancel of one conversation or one call: `/stop` cancels every command the agent has out",
+        /^workspace\/cancel\.one\.args$/,
+        "a cancel of one call: `/stop` cancels every command the agent has out, and a rewind those of the session it leaves",
     ],
     [
         /^workspace\/command_status\./,
@@ -1426,16 +1478,12 @@ const NOT_THE_AGENTS: readonly (readonly [RegExp, string])[] = [
         "a row the library keeps in its own file",
     ],
     [
-        /^agent\/(read_models|check)(\..+)?\.(args|answer)$/,
-        "a client's call the agent does not take yet",
+        /^realm\/lapse\.ended\.args$/,
+        "a /new, which leaves the waits of the session it left, as today's does",
     ],
     [
         /^realm\/(agree_road|ask_chief|object|start_worker|read_budget|read_record|set_allowance|set_model|set_nickname|fetch_part)\./,
         "an agent's call of the realm, which this agent does not make",
-    ],
-    [
-        /^realm\/hire\.in_a_turn\.args$/,
-        "a hire with the task and conversation of the turn that asks, which this agent does not write: it sends the call and the act only",
     ],
     [
         /^agent\/submit\.(letter|question)\.files\.args$/,
@@ -1469,6 +1517,7 @@ test("every fixture is one the agent writes or takes, or is listed with its reas
             "realm/lapse",
             "realm/open_task",
             "realm/read_copies",
+            "realm/secrets",
             "realm/turn_failed",
             "realm/worker_done",
             "realm/errand_done",
