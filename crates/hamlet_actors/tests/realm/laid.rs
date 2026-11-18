@@ -374,7 +374,7 @@ async fn a_road_request_to_a_lead_still_hiring_waits_for_its_steps() {
     // hiring wait and is refused `StillHiring`, and 3 is given
     // nothing.
     let (realm, hamlet) = hamlet_with(0).await;
-    realm.seen.hold_next(Callee::Create);
+    realm.seen.hold_next(Callee::Create, THREE);
     chief_hires(&realm, &hamlet, hire(Some(to(MAYOR)))).await;
     chief_hires(&realm, &hamlet, hire(Some(to(THREE)))).await;
     realm.live(FOUR).await;

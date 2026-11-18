@@ -44,7 +44,9 @@ impl Peers {
         message: &M,
         when: When,
     ) -> Result<M::Output> {
-        crate::call(&self.host, to, message, when.deadline()).await
+        crate::call(&self.host, to, message, when.deadline())
+            .await
+            .map_err(marked)
     }
 
     pub async fn create<P: Party>(
@@ -54,7 +56,7 @@ impl Peers {
     ) -> Result<()> {
         match self.host.create(&at.address()?, cbor(input)?).await {
             Err(error) if is_duplicate_key(&error) => Ok(()),
-            other => other,
+            other => other.map_err(marked),
         }
     }
 
@@ -63,7 +65,67 @@ impl Peers {
     }
 }
 
+/// The mark of a callee's own error in answer to a call of the
+/// realm's.
+#[derive(Debug)]
+struct Refused;
+
+impl std::fmt::Display for Refused {
+    fn fmt(
+        &self,
+        f: &mut std::fmt::Formatter<'_>,
+    ) -> std::fmt::Result {
+        f.write_str("the callee refused the call")
+    }
+}
+
+/// Marks `error` as the callee's own unless it says the callee was
+/// not reached: an actor starting or stopping, a call past its
+/// deadline, a link that is down or a database that is closed.
+fn marked(error: anyhow::Error) -> anyhow::Error {
+    let answer = error
+        .chain()
+        .find_map(|cause| cause.downcast_ref::<ActorError>());
+    match answer {
+        Some(answer)
+            if !matches!(
+                answer.group(),
+                "actor" | "link" | "sqlite"
+            ) =>
+        {
+            error.context(Refused)
+        }
+        _ => error,
+    }
+}
+
+/// Whether `error` is a callee's own answer to a call of the
+/// realm's.
+pub(super) fn refused(error: &anyhow::Error) -> bool {
+    error.downcast_ref::<Refused>().is_some()
+}
+
 fn is_duplicate_key(error: &anyhow::Error) -> bool {
     let error = ActorError::extract(error);
     error.group() == "actor" && error.code() == "duplicate_key"
+}
+
+#[cfg(test)]
+mod tests {
+    use hamlet_actor_core::ActorLifecycle;
+    use hamlet_messages::sender::wrong_caller;
+
+    use super::*;
+
+    #[test]
+    fn only_a_callees_own_error_is_marked_refused() {
+        let own = marked(wrong_caller("submit", None));
+        let starting = marked(ActorLifecycle::NotReady.build());
+        let realms =
+            marked(anyhow::anyhow!("a query of the realm's"));
+
+        assert!(refused(&own));
+        assert!(!refused(&starting));
+        assert!(!refused(&realms));
+    }
 }

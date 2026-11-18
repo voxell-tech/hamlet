@@ -145,9 +145,9 @@ struct Seen {
     held: watch::Sender<HashSet<Callee>>,
     /// The calls that wait while the test holds their callee.
     waiting: Mutex<HashSet<(Callee, AgentNumber)>>,
-    /// The callees held for their next call alone, and whether that
-    /// call came.
-    alone: Mutex<HashMap<Callee, bool>>,
+    /// The callees held for one agent's next call alone, with that
+    /// agent and whether its call came.
+    alone: Mutex<HashMap<Callee, (AgentNumber, bool)>>,
 }
 
 impl Seen {
@@ -161,7 +161,11 @@ impl Seen {
         let mut held = self.held.subscribe();
         let passes = match self.alone.lock().unwrap().get_mut(&callee)
         {
-            Some(came) => std::mem::replace(came, true),
+            Some((held, came)) if *held == agent && !*came => {
+                *came = true;
+                false
+            }
+            Some(_) => true,
             None => false,
         };
         if !passes {
@@ -205,10 +209,10 @@ impl Seen {
         });
     }
 
-    /// Holds the next call of `callee` until `release`; the calls
-    /// after it pass.
-    fn hold_next(&self, callee: Callee) {
-        self.alone.lock().unwrap().insert(callee, false);
+    /// Holds `agent`'s next call of `callee` until `release`; every
+    /// other call of `callee` passes.
+    fn hold_next(&self, callee: Callee, agent: AgentNumber) {
+        self.alone.lock().unwrap().insert(callee, (agent, false));
         self.hold(callee);
     }
 

@@ -8,14 +8,13 @@ use std::time::Duration;
 
 use anyhow::{Context as _, Result, bail};
 use hamlet_actor::{BindParam, Ctx};
-use hamlet_actor_error::ActorError;
 use hamlet_messages::workspace::AgentNumber;
 use serde::{Deserialize, Serialize};
 use tokio::sync::watch;
 
 use super::calls::{Calls, Delivery};
 use super::change::{self, Affected, Rows, Writer};
-use super::peer::Peers;
+use super::peer::{self, Peers};
 use super::workers::errands;
 use super::{Realm, calls, hire, parcels, reviews, tree, workers};
 
@@ -221,7 +220,7 @@ async fn drive(realm: Arc<Realm>, ctx: Ctx<Realm>, row: StepId) {
             return;
         };
         tracing::warn!(?row, "a step failed: {error:#}");
-        if for_good(&error) {
+        if peer::refused(&error) {
             if let Err(error) = end_failed(&realm, &ctx, row).await {
                 tracing::warn!(
                     ?row,
@@ -237,17 +236,6 @@ async fn drive(realm: Arc<Realm>, ctx: Ctx<Realm>, row: StepId) {
         }
         retry = (retry * 2).min(LAST_RETRY);
     }
-}
-
-/// Whether `error` is a callee's own answer. An actor still starting,
-/// a link that is down and a fault of the realm's own pass.
-fn for_good(error: &anyhow::Error) -> bool {
-    error
-        .chain()
-        .find_map(|cause| cause.downcast_ref::<ActorError>())
-        .is_some_and(|answer| {
-            !matches!(answer.group(), "actor" | "link")
-        })
 }
 
 /// Ends the hire or the worker whose row failed for good.

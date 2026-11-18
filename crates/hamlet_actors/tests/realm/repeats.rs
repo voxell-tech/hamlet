@@ -9,7 +9,7 @@ use hamlet_messages::realm::choices::{
 };
 use hamlet_messages::realm::documents::EditCharter;
 use hamlet_messages::realm::hamlets::{MoveHamlet, NameHamlet};
-use hamlet_messages::realm::oversight::Object;
+use hamlet_messages::realm::oversight::{AskChief, Object, Question};
 use hamlet_messages::realm::workers::SetAllowance;
 use hamlet_messages::realm::{
     Ask, Asked, LayRoad, Seat, SetLimits, SetTier, SetTools,
@@ -94,6 +94,7 @@ async fn each_act_repeated_with_its_id_answers_as_at_first_and_changes_nothing()
  {
     let (realm, hamlet) = hamlet_with(2).await;
     let chiefs = chief_task(&realm, THREE).await;
+    let fours = chief_task(&realm, FOUR).await;
     let id = RequestId::new;
 
     let (tier, name, moved, limits, reset) =
@@ -298,6 +299,28 @@ async fn each_act_repeated_with_its_id_answers_as_at_first_and_changes_nothing()
                         conversation: ConversationId("c".to_owned()),
                         reason: "The well is someone else's."
                             .to_owned(),
+                    },
+                ),
+            )
+            .await
+    })
+    .await;
+    repeats(&realm, "ask_chief", async || {
+        realm
+            .tool(
+                FOUR,
+                &tool(
+                    "c1",
+                    AskChief {
+                        task: fours.clone(),
+                        conversation: ConversationId("c".to_owned()),
+                        message: None,
+                        questions: vec![Question {
+                            question: "Which well?".to_owned(),
+                            description: None,
+                            options: Vec::new(),
+                            text_input: true,
+                        }],
                     },
                 ),
             )

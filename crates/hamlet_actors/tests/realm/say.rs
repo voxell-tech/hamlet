@@ -150,7 +150,7 @@ async fn a_chiefs_two_lines_to_one_agent_reach_it_in_the_order_said()
 {
     let (realm, _) = hamlet_with(1).await;
     let (first, second) = (RequestId::new(), RequestId::new());
-    realm.seen.hold_next(Callee::Submit);
+    realm.seen.hold_next(Callee::Submit, THREE);
 
     let (dig, rest) = (
         say(&first, THREE, "dig the well"),
@@ -200,7 +200,7 @@ async fn a_chiefs_two_lines_to_one_agent_reach_it_in_the_order_said()
 #[tokio::test(flavor = "multi_thread")]
 async fn a_line_held_at_one_agent_does_not_hold_a_line_to_another() {
     let (realm, _) = hamlet_with(2).await;
-    realm.seen.hold_next(Callee::Submit);
+    realm.seen.hold_next(Callee::Submit, THREE);
     let held = say(&RequestId::new(), THREE, "dig the well");
     let other = say(&RequestId::new(), FOUR, "fetch water");
 
