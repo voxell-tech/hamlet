@@ -16,7 +16,7 @@ use tokio::task::JoinSet;
 
 use super::{
     Forward, MAYOR, Realm, call, charge, chief_hires, decoded,
-    hamlet_with, hire, limit, may_spend, standing,
+    error_code, hamlet_with, hire, limit, may_spend, standing,
 };
 
 async fn reset(realm: &Realm, payer: Payer) -> Done<HamletRefusal> {
@@ -143,9 +143,9 @@ async fn spending_past_the_budget_is_refused() {
 }
 
 #[tokio::test(flavor = "multi_thread")]
-async fn an_ended_agent_may_not_spend() {
+async fn an_ended_agent_may_not_spend_or_charge() {
     // end a hire; MaySpend as it: Standing(YouLeft). A charge it
-    // makes after its end still counts toward its hamlet.
+    // makes after its end is refused and counts nothing.
     let (realm, hamlet) = hamlet_with(0).await;
     let three = AgentNumber(3);
     let hired = chief_hires(&realm, &hamlet, hire(None)).await;
@@ -171,7 +171,7 @@ async fn an_ended_agent_may_not_spend() {
     assert_eq!(ended, Done::Done);
 
     let refused = may_spend(&realm, three, &task).await;
-    realm.tool(three, &charge("c1", &task, 4, 1)).await.unwrap();
+    let charged = realm.tool(three, &charge("c1", &task, 4, 1)).await;
     let mayor =
         may_spend(&realm, MAYOR, &standing(&realm, MAYOR)).await;
 
@@ -184,41 +184,57 @@ async fn an_ended_agent_may_not_spend() {
             }),
         }
     );
-    assert_eq!(mayor, over_cost(&pays(&hamlet), 4, 1));
+    assert_eq!(error_code(charged), "message.wrong_caller");
+    assert_eq!(mayor, Done::Done);
     realm.host.shutdown().await.unwrap();
 }
 
 #[tokio::test(flavor = "multi_thread")]
-async fn a_task_the_realm_does_not_hold_charges_the_realm() {
-    // a charge under a task the realm never opened is the realm's;
-    // MaySpend under it is refused NoSuchTask.
-    let (realm, _) = hamlet_with(0).await;
+async fn a_task_the_caller_may_not_name_charges_its_own_payer() {
+    // the mayor charges under a task the realm never opened and
+    // under the Hand's: both go to the mayor's hamlet, not the
+    // realm; MaySpend under either is refused NoSuchTask.
+    let (realm, hamlet) = hamlet_with(0).await;
     let unknown = RealmTask("999".to_owned());
     let hand_task = standing(&realm, Hand::NUMBER);
     limit(&realm, None, vec![BudgetLimit::Cost { micros: 1 }]).await;
 
+    limit(
+        &realm,
+        Some(&hamlet),
+        vec![BudgetLimit::Cost { micros: 1 }],
+    )
+    .await;
     realm
         .tool(MAYOR, &charge("c1", &unknown, 3, 1))
         .await
         .unwrap();
+    realm
+        .tool(MAYOR, &charge("c2", &hand_task, 2, 1))
+        .await
+        .unwrap();
     let hand = may_spend(&realm, Hand::NUMBER, &hand_task).await;
-    let no_task = may_spend(&realm, MAYOR, &unknown).await;
+    let own =
+        may_spend(&realm, MAYOR, &standing(&realm, MAYOR)).await;
+    let refused = [
+        may_spend(&realm, MAYOR, &unknown).await,
+        may_spend(&realm, MAYOR, &hand_task).await,
+    ];
 
-    assert_eq!(hand, over_cost(&Payer::Realm, 3, 1));
-    assert_eq!(
-        no_task,
-        Done::Refused {
-            why: SpendRefusal::Budget(Budget::NoSuchTask)
-        }
-    );
+    assert_eq!(hand, Done::Done);
+    assert_eq!(own, over_cost(&pays(&hamlet), 5, 1));
+    let no_task = Done::Refused {
+        why: SpendRefusal::Budget(Budget::NoSuchTask),
+    };
+    assert_eq!(refused, [no_task.clone(), no_task]);
     realm.host.shutdown().await.unwrap();
 }
 
 #[tokio::test(flavor = "multi_thread")]
 async fn ten_charges_at_once_each_count() {
-    // ten agents charge one small budget at once: each charge
-    // counts, and the spend is their sum.
-    let (realm, hamlet) = hamlet_with(0).await;
+    // ten hires charge one small budget at once: each charge counts,
+    // and the spend is their sum.
+    let (realm, hamlet) = hamlet_with(10).await;
     let task = standing(&realm, MAYOR);
     limit(
         &realm,
@@ -230,16 +246,18 @@ async fn ten_charges_at_once_each_count() {
     let mut charges = JoinSet::new();
     for n in 0..10 {
         let host = realm.host.clone();
-        let forward =
-            Forward {
-                name: Charge::NAME.to_owned(),
-                args: hamlet_actor::action::encode_positional(
-                    &charge(&format!("c{n}"), &task, 7, 1),
-                )
-                .unwrap(),
-            };
+        let forward = Forward {
+            name: Charge::NAME.to_owned(),
+            args: hamlet_actor::action::encode_positional(&charge(
+                &format!("c{n}"),
+                &standing(&realm, AgentNumber(3 + n)),
+                7,
+                1,
+            ))
+            .unwrap(),
+        };
         charges.spawn(async move {
-            let agent = address::Agent(AgentNumber(10 + n));
+            let agent = address::Agent(AgentNumber(3 + n));
             decoded::<()>(&call(&host, &agent, &forward).await?)
         });
     }

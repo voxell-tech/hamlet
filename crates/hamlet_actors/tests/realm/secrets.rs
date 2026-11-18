@@ -217,8 +217,8 @@ async fn a_credential_is_given_only_to_an_agent() {
         provider: "anthropic".to_owned(),
     };
 
-    let given = credential(&realm, AgentNumber(7), "anthropic").await;
-    let unknown = credential(&realm, AgentNumber(7), "openai").await;
+    let given = credential(&realm, Hand::NUMBER, "anthropic").await;
+    let unknown = credential(&realm, Hand::NUMBER, "openai").await;
 
     assert_eq!(
         given,

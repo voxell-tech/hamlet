@@ -289,7 +289,8 @@ impl Act<Agent> for MaySpend {
             Spending::Open { task, cap } => Some((task, cap)),
             Spending::Refused(refusal) => return Ok(Some(refusal)),
         };
-        let Some(payer) = tasks::payer_of(rows, &self.task).await?
+        let Some(payer) =
+            tasks::payer_of(rows, by.0, &self.task).await?
         else {
             return Ok(Some(SpendRefusal::Budget(
                 Budget::NoSuchTask,
@@ -339,15 +340,19 @@ impl Act<Agent> for MaySpend {
 
 impl Act<Agent> for Charge {
     type Output = ();
+    /// The payer of the task, else the caller's own.
     type Loaded = Option<Payer>;
     type Done = ();
 
     async fn load(
         &self,
-        _by: &Agent,
+        by: &Agent,
         rows: &Rows<'_>,
     ) -> Result<Option<Payer>> {
-        tasks::payer_of(rows, &self.task).await
+        match tasks::payer_of(rows, by.0, &self.task).await? {
+            Some(payer) => Ok(Some(payer)),
+            None => tasks::own_payer(rows, by.0).await,
+        }
     }
 
     fn decide(

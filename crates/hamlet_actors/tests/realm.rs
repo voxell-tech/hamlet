@@ -68,6 +68,8 @@ mod laid;
 mod lead;
 #[path = "realm/letters.rs"]
 mod letters;
+#[path = "realm/living.rs"]
+mod living;
 #[path = "realm/oversight.rs"]
 mod oversight;
 #[path = "realm/parcels.rs"]

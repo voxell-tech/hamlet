@@ -393,14 +393,13 @@ impl Act<Agent> for StartWorker {
         if starter.agent.kind == AgentKind::Worker {
             return Ok(ByAgent::AWorker);
         }
-        let named = self.task.as_ref().and_then(TaskId::of);
+        let named = match &self.task {
+            Some(task) => tasks::named(rows, by.0, task).await?,
+            None => None,
+        };
         let task = match named {
-            Some(task)
-                if tasks::payer(rows, task).await?.is_some() =>
-            {
-                task
-            }
-            _ => tasks::standing(rows, by.0).await?,
+            Some(task) => task,
+            None => tasks::standing(rows, by.0).await?,
         };
         Ok(ByAgent::Starter {
             worker: tree::fresh(rows).await?,

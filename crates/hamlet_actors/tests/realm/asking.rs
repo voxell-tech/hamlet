@@ -657,6 +657,10 @@ async fn a_withdrawn_task_spends_nothing_and_its_letters_are_dropped()
     let (realm, _) = hamlet_with(1).await;
     let task = chief_task(&realm, THREE).await;
     realm
+        .tool(THREE, &paid("t0", &task, tell(to(MAYOR), "on it")))
+        .await
+        .unwrap();
+    realm
         .tool(THREE, &tool("o1", objection(&task, "no")))
         .await
         .unwrap();

@@ -67,7 +67,7 @@ use hamlet_messages::realm::{
     TakeUpRoad, Tell, Tool,
 };
 
-use self::callers::{Bare, ByHand, Looks};
+use self::callers::{Bare, ByHand, Living, Looks};
 
 const SCHEMA: &str = include_str!("realm/schema.sql");
 
@@ -144,11 +144,11 @@ impl Actor for Realm {
         Tool<Ask>,
         Bare<Reply>,
         Bare<MaySpend>,
-        Bare<Charge>,
+        Living<Bare<Charge>>,
         Asked<ResetBudget>,
         Bare<NeedsChief>,
         Answer,
-        Looks<Secrets>,
+        Secrets,
         Looks<ReadWorld>,
         Asked<LayRoad>,
         Tool<LayRoad>,
@@ -160,7 +160,7 @@ impl Actor for Realm {
         Asked<SetTier>,
         Asked<SetLimits>,
         Asked<Revoke>,
-        Bare<TurnFailed>,
+        Living<Bare<TurnFailed>>,
         Bare<Lapse>,
         Tool<AskChief>,
         Tool<Object>,
@@ -186,9 +186,9 @@ impl Actor for Realm {
         Asked<EditSettings>,
         Asked<EditCatalogue>,
         Bare<ReadCharter>,
-        Bare<ReadCopies>,
+        Living<Bare<ReadCopies>>,
         Tool<AgreeRoad>,
-        Looks<Credential>,
+        Living<Looks<Credential>>,
         KeepCredential,
         FetchPart,
     );
@@ -203,7 +203,12 @@ impl Actor for Realm {
             hiring_wait: host
                 .value::<Options>()
                 .map_or(HIRING_WAIT, |options| options.hiring_wait),
-            secrets: secrets::Held::load(host.folder())?,
+            secrets: secrets::Held::load(
+                host.folder(),
+                std::env::var("HAMLET_WORKSPACE_TOKEN")
+                    .ok()
+                    .filter(|token| !token.is_empty()),
+            )?,
             peers: peer::Peers::new(host),
             world: world::Held::load(ctx).await?,
             drives: steps::Drives::default(),

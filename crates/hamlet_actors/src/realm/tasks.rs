@@ -8,12 +8,14 @@ use hamlet_messages::realm::budget::{
     OpenTask, Payer, TaskOpened, TaskTurn,
 };
 use hamlet_messages::realm::{HamletId, Left, Standing};
-use hamlet_messages::workspace::{AgentNumber, RealmTask};
+use hamlet_messages::workspace::{AgentNumber, Numbered, RealmTask};
 use serde::{Deserialize, Serialize};
 
 use super::act::{Act, Decided, Decision};
 use super::calls::Made;
-use super::change::{self, Affected, Column, Rows, Writer, number};
+use super::change::{
+    self, Affected, Column, Rows, Writer, integer, number,
+};
 use super::tree;
 
 #[derive(
@@ -34,7 +36,7 @@ impl TaskId {
     }
 
     pub fn column(self) -> Result<BindParam> {
-        change::integer(self.0)
+        integer(self.0)
     }
 }
 
@@ -172,12 +174,41 @@ pub(super) async fn payer(
     .transpose()
 }
 
-/// `None` for a task the realm does not hold.
+/// The task `task` names when `agent` may name it: a task the realm
+/// holds that is the agent's own, that the agent works or runs an
+/// errand on, or that a letter to the agent carries.
+pub(super) async fn named(
+    rows: &Rows<'_>,
+    agent: AgentNumber,
+    task: &RealmTask,
+) -> Result<Option<TaskId>> {
+    let Some(task) = TaskId::of(task) else {
+        return Ok(None);
+    };
+    let errand = match agent.numbered() {
+        Numbered::Errand(n) => integer(n.get())?,
+        Numbered::Tree(_) => BindParam::Null,
+    };
+    let named = rows
+        .value::<i64>(
+            "SELECT 1 FROM task WHERE id = ?1 AND (agent = ?2 OR id \
+             IN (SELECT task FROM worker WHERE agent = ?2) OR id IN \
+             (SELECT task FROM letter WHERE receiver = ?2) OR id IN \
+             (SELECT task FROM errand WHERE n = ?3))",
+            vec![task.column()?, number(agent), errand],
+        )
+        .await?;
+    Ok(named.map(|_| task))
+}
+
+/// The payer of [`named`]'s task; `None` for a task `agent` may not
+/// name.
 pub(super) async fn payer_of(
     rows: &Rows<'_>,
+    agent: AgentNumber,
     task: &RealmTask,
 ) -> Result<Option<Payer>> {
-    match TaskId::of(task) {
+    match named(rows, agent, task).await? {
         Some(task) => payer(rows, task).await,
         None => Ok(None),
     }

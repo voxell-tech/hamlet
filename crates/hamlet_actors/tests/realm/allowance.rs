@@ -447,10 +447,13 @@ async fn setting_an_allowance_is_recorded() {
 
 #[tokio::test(flavor = "multi_thread")]
 async fn an_allowance_counts_the_period_of_the_tasks_payer() {
-    let (realm, hamlet) = hamlet_with(1).await;
+    // the realm counts by the month and hire 3's hamlet by the day: a
+    // charge of two days ago is outside the allowance of hire 3's
+    // own task, which its hamlet pays.
+    let (realm, _) = hamlet_with(1).await;
     limit(
         &realm,
-        Some(&hamlet),
+        None,
         vec![BudgetLimit::Period {
             period: Period::Month,
         }],
@@ -470,11 +473,11 @@ async fn an_allowance_counts_the_period_of_the_tasks_payer() {
             THREE.0
         ))
         .await;
-    let hands = standing(&realm, Hand::NUMBER);
+    let own = standing(&realm, THREE);
 
-    let may = may_spend(&realm, THREE, &hands).await;
+    let may = may_spend(&realm, THREE, &own).await;
     let read = realm
-        .tool(THREE, &tool("r1", ReadBudget { task: Some(hands) }))
+        .tool(THREE, &tool("r1", ReadBudget { task: Some(own) }))
         .await
         .unwrap();
 

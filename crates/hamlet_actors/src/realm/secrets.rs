@@ -7,7 +7,7 @@ use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
 
 use anyhow::{Context as _, Result, bail};
-use hamlet_actor::{Ctx, Handler};
+use hamlet_actor::{Action as _, Ctx, Handler};
 use hamlet_messages::address::Agent;
 use hamlet_messages::realm::documents::RemoteWorkspace;
 use hamlet_messages::realm::models::{
@@ -15,14 +15,15 @@ use hamlet_messages::realm::models::{
     Kept, OauthLogin,
 };
 use hamlet_messages::realm::{SecretList, Secrets};
-use hamlet_messages::sender::{Scrubber, sender};
+use hamlet_messages::sender::{Hand, Scrubber, sender};
 use hamlet_messages::workspace::reach::SecretsVersion;
 use hamlet_os::fs::{Directory, LastLink, Mode, Name, Open, Replace};
 use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value, json};
 
 use super::act::Look;
-use super::{Realm, calls, change, documents, versions};
+use super::tree::Life;
+use super::{Realm, callers, calls, change, documents, versions};
 
 /// The version of a file that holds no counter, and of no file.
 pub(super) const VERSION: SecretsVersion = SecretsVersion(1);
@@ -78,6 +79,9 @@ fn secrets(credential: &Value) -> impl Iterator<Item = &str> {
 /// The file, held in memory from the realm's start.
 pub(super) struct Held {
     folder: PathBuf,
+    /// The token the workspace on this machine was started with,
+    /// which no file keeps.
+    workspace_token: Option<String>,
     held: Mutex<InMemory>,
 }
 
@@ -91,7 +95,10 @@ struct InMemory {
 impl Held {
     /// Reads the file, and writes it back at mode 0600 where there is
     /// one.
-    pub fn load(folder: &Path) -> Result<Self> {
+    pub fn load(
+        folder: &Path,
+        workspace_token: Option<String>,
+    ) -> Result<Self> {
         let stored = match std::fs::read(folder.join(FILE)) {
             Ok(bytes) => {
                 let stored = serde_json::from_slice(&bytes)
@@ -113,6 +120,7 @@ impl Held {
         };
         Ok(Self {
             folder: folder.to_owned(),
+            workspace_token,
             held: Mutex::new(InMemory {
                 stored,
                 retired: Vec::new(),
@@ -146,6 +154,37 @@ impl Held {
                     .collect()
             })
         })
+    }
+
+    /// Every secret the realm holds, longest first.
+    fn list(&self) -> SecretList {
+        let held = self.held();
+        let mut values = held
+            .stored
+            .secrets()
+            .chain(self.workspace_token.as_deref())
+            .chain(held.retired.iter().map(String::as_str))
+            .filter(|value| !value.is_empty())
+            .map(str::to_owned)
+            .collect::<Vec<_>>();
+        values.sort_by(|a, b| b.len().cmp(&a.len()).then(a.cmp(b)));
+        values.dedup();
+        SecretList {
+            version: held.stored.version,
+            values,
+        }
+    }
+
+    /// Whether `keep` is an OAuth login in place of the stored login
+    /// of its provider.
+    fn refreshes(&self, keep: &KeepCredential) -> bool {
+        matches!(keep.value, Kept::Oauth { .. })
+            && self
+                .held()
+                .stored
+                .models
+                .get(&keep.provider)
+                .is_some_and(|stored| stored["type"] == "oauth")
     }
 
     /// Keeps `workspace` as the chosen one; `None` takes it away.
@@ -306,20 +345,7 @@ impl Look<Scrubber> for Secrets {
     type Output = SecretList;
 
     fn look(&self, _by: &Scrubber, realm: &Realm) -> SecretList {
-        let held = realm.secrets.held();
-        let mut values = held
-            .stored
-            .secrets()
-            .chain(held.retired.iter().map(String::as_str))
-            .filter(|value| !value.is_empty())
-            .map(str::to_owned)
-            .collect::<Vec<_>>();
-        values.sort_by(|a, b| b.len().cmp(&a.len()).then(a.cmp(b)));
-        values.dedup();
-        SecretList {
-            version: held.stored.version,
-            values,
-        }
+        realm.secrets.list()
     }
 }
 
@@ -348,7 +374,17 @@ impl Handler<KeepCredential> for Realm {
         ctx: Ctx<Self>,
         keep: KeepCredential,
     ) -> Result<()> {
-        let Agent(_) = sender(&ctx, &keep)?;
+        let by = sender(&ctx, &keep)?;
+        callers::admit(
+            &ctx,
+            KeepCredential::NAME,
+            by,
+            &[Life::Living],
+        )
+        .await?;
+        if by.0 != Hand::NUMBER && !self.secrets.refreshes(&keep) {
+            return callers::refuse(KeepCredential::NAME, by);
+        }
         let tx = change::Transaction::begin(&ctx).await?;
         let raises = raises(&tx.rows()).await?;
         self.secrets.keep(&keep)?;
@@ -401,6 +437,27 @@ mod tests {
     use super::*;
 
     const HIRE: AgentNumber = AgentNumber(2);
+
+    #[test]
+    fn the_workspace_token_is_a_secret_the_file_does_not_keep() {
+        let folder = hamlet_testing::Scratch::new("secrets-token");
+        let token = "ws-made-up-token";
+
+        let held =
+            Held::load(&folder, Some(token.to_owned())).unwrap();
+        held.keep(&KeepCredential {
+            provider: "anthropic".to_owned(),
+            value: Kept::Key {
+                key: "sk-made-up".to_owned(),
+            },
+        })
+        .unwrap();
+        let file =
+            std::fs::read_to_string(folder.join(FILE)).unwrap();
+
+        assert!(held.list().values.contains(&token.to_owned()));
+        assert!(!file.contains(token));
+    }
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
     async fn a_reach_asks_for_the_secrets_of_its_version() {

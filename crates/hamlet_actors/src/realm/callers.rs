@@ -2,23 +2,24 @@ use std::sync::Arc;
 
 use anyhow::Result;
 use hamlet_actor::{Action, Ctx, Handler};
+use hamlet_host::Caller;
 use hamlet_messages::Message;
-use hamlet_messages::address::{Agent, Workspace};
+use hamlet_messages::address::{Agent, Party, Workspace};
 use hamlet_messages::realm::budget::{OpenTask, TaskOpened};
 use hamlet_messages::realm::client::{Answer, Say};
 use hamlet_messages::realm::{
     Asked, ChiefRequest, Gate, LeadRefusal, Rank, Refusable,
-    Standing, Tool, ToolCall,
+    SecretList, Secrets, Standing, Tool, ToolCall,
 };
 use hamlet_messages::sender::{
-    Client, Hand, Scrubber, Sender, sender,
+    Client, Hand, Scrubber, Sender, sender, wrong_caller,
 };
 use hamlet_messages::workspace::AgentNumber;
 use serde::{Deserialize, Serialize};
 
 use super::act::{self, Act, Look, ToolAct};
 use super::change::Rows;
-use super::tree::{self, Lineage};
+use super::tree::{self, Life, Lineage};
 use super::workers::errands;
 use super::{Realm, marker, record};
 
@@ -233,6 +234,75 @@ impl<M: Message> Action for Looks<M> {
 impl<M: Message> Message for Looks<M> {
     type To = M::To;
     type From = M::From;
+}
+
+/// The message `M`, answered only to a caller that is living.
+#[derive(Serialize, Deserialize)]
+#[serde(transparent)]
+pub(super) struct Living<M>(pub M);
+
+impl<M: Message> Action for Living<M> {
+    type Output = M::Output;
+    const NAME: &'static str = M::NAME;
+}
+
+impl<M: Message> Message for Living<M> {
+    type To = M::To;
+    type From = M::From;
+}
+
+/// Refuses `agent`'s call of `action` unless its row is one of
+/// `admitted`.
+pub(super) async fn admit(
+    ctx: &Ctx<Realm>,
+    action: &'static str,
+    agent: Agent,
+    admitted: &[Life],
+) -> Result<()> {
+    let life = tree::life(&Rows::outside(ctx)?, agent.0).await?;
+    if admitted.contains(&life) {
+        return Ok(());
+    }
+    refuse(action, agent)
+}
+
+/// Refuses `agent`'s call of `action` as a wrong caller.
+pub(super) fn refuse(
+    action: &'static str,
+    agent: Agent,
+) -> Result<()> {
+    Err(wrong_caller(action, Some(Caller::Actor(agent.address()?))))
+}
+
+impl<M> Handler<Living<M>> for Realm
+where
+    M: Message<From = Agent>,
+    Realm: Handler<M>,
+{
+    async fn handle(
+        self: Arc<Self>,
+        ctx: Ctx<Self>,
+        living: Living<M>,
+    ) -> Result<<M as Action>::Output> {
+        let by = sender(&ctx, &living)?;
+        admit(&ctx, M::NAME, by, &[Life::Living]).await?;
+        <Self as Handler<M>>::handle(self, ctx, living.0).await
+    }
+}
+
+impl Handler<Secrets> for Realm {
+    async fn handle(
+        self: Arc<Self>,
+        ctx: Ctx<Self>,
+        secrets: Secrets,
+    ) -> Result<SecretList> {
+        let by = sender(&ctx, &secrets)?;
+        if let Scrubber::Agent(agent) = by {
+            let rowed = [Life::Living, Life::Ended];
+            admit(&ctx, Secrets::NAME, agent, &rowed).await?;
+        }
+        Ok(act::look(&self, &by, &secrets))
+    }
 }
 
 impl Handler<Say> for Realm {
