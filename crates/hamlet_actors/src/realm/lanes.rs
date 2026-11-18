@@ -124,6 +124,10 @@ async fn receivers(
              starter IS NOT NULL",
             number(*worker),
         ),
+        Delivery::Kept(task) => (
+            "SELECT hire FROM review WHERE task = ?1",
+            task.column()?,
+        ),
         Delivery::Held(task) => (
             "SELECT hire FROM review WHERE task = ?1 UNION SELECT \
              CASE held.what WHEN 'answer' THEN letter.sender ELSE \

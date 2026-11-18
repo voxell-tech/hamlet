@@ -672,3 +672,44 @@ async fn a_failed_line_on_go_still_gives_the_held_letters() {
     assert_eq!(letters, ["Wait for the chief."]);
     realm.host.shutdown().await.unwrap();
 }
+
+/// The kept line's give is held at 3 while the chief says a second
+/// line, which no review keeps. The test looks for the second line
+/// at 3 for 500 ms, over a hundred times what a delivery that is not
+/// held takes here; the order it asserts holds however long that
+/// look lasts.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_kept_line_and_the_next_line_reach_the_hire_in_the_order_said()
+ {
+    let (realm, hamlet) =
+        hamlet(Duration::from_secs(600), Review::Always).await;
+    tells_three(&realm, "Kept line.").await;
+    briefed(&realm, 0).await;
+    reviews(&realm, &hamlet, Review::Never).await;
+    realm.seen.hold_next(Callee::Submit, THREE);
+
+    ends(&realm, 0, answered("PASS")).await;
+    until("the kept line waits at 3", || {
+        realm.seen.is_waiting(Callee::Submit, THREE)
+    })
+    .await;
+    let (next, ()) =
+        tokio::join!(tells_three(&realm, "Next line."), async {
+            let _ = tokio::time::timeout(
+                Duration::from_millis(500),
+                until("the next line reaches 3", || {
+                    !lines(&realm, THREE).is_empty()
+                }),
+            )
+            .await;
+            realm.seen.release(Callee::Submit);
+        });
+    let given = lines_until(&realm, THREE, 2).await;
+
+    assert!(matches!(next, SayAnswer::Taken { .. }), "{next:?}");
+    assert_eq!(
+        given.into_iter().map(|(text, _)| text).collect::<Vec<_>>(),
+        ["Kept line.", "Next line."]
+    );
+    realm.host.shutdown().await.unwrap();
+}

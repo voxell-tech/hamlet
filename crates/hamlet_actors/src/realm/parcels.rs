@@ -15,7 +15,7 @@ use std::io::SeekFrom;
 use std::path::PathBuf;
 use std::sync::Arc;
 
-use anyhow::{Context as _, Result, bail};
+use anyhow::{Context as _, Result, bail, ensure};
 use hamlet_actor::{BindParam, Ctx, Handler};
 use hamlet_host::HostRef;
 use hamlet_messages::address::{self, Agent, Party as _, Workspace};
@@ -40,9 +40,9 @@ use tokio::io::{
     AsyncReadExt as _, AsyncSeekExt as _, AsyncWriteExt as _,
 };
 
-use super::calls::{self, Delivery};
+use super::calls::{self, Calls, Delivery};
 use super::change::{self, Affected, Rows, Writer};
-use super::letters::{self, Kind};
+use super::letters::Kind;
 use super::oversight::asking;
 use super::peer::When;
 use super::steps::{self, Cx, StepId, Steps};
@@ -372,30 +372,33 @@ impl Sent {
         waits(&self.files) == after_allow
     }
 
-    /// Calls the sender with a notice that says why its parcel was
-    /// not sent.
+    /// Refuses the parcel, and tells the sender why in its turn.
     async fn refused(
         &self,
         cx: &Cx<'_>,
         why: &ParcelRefusal,
     ) -> Result<Vec<change::Change>> {
-        let submit = Submit {
-            id: InputId(format!("parcel/{}", self.parcel.0)),
-            task: self.task.map(TaskId::on_the_wire),
-            input: Input::Notice {
-                text: told(why),
-                conversation: self.conversation.clone(),
+        let notice = Delivery::Line {
+            to: self.sender,
+            submit: Submit {
+                id: InputId(format!("parcel/{}", self.parcel.0)),
+                task: self.task.map(TaskId::on_the_wire),
+                input: Input::Notice {
+                    text: told(why),
+                    conversation: self.conversation.clone(),
+                },
             },
         };
-        cx.peers()
-            .call(&Agent(self.sender), &submit, When::AfterAnswer)
-            .await?;
-        Ok(vec![
-            Change::Refused {
-                parcel: self.parcel,
-            }
-            .into(),
-        ])
+        let refused = Change::Refused {
+            parcel: self.parcel,
+        };
+        cx.commit_delivering(
+            change::Transaction::begin(cx.ctx).await?,
+            vec![refused.into()],
+            Calls::after_answer(notice),
+        )
+        .await?;
+        Ok(Vec::new())
     }
 }
 
@@ -737,20 +740,17 @@ async fn deliver(cx: &Cx<'_>, sent: &Sent) -> Result<()> {
     if let Some(asking::Holding::Held(held)) = holding {
         changes.push(held.into());
     }
-    let pushes = tx
-        .commit(
-            cx.realm,
-            change::Write::<()> {
-                changes,
-                entries: Vec::new(),
-                marker: None,
-            },
-        )
-        .await?;
-    calls::push_all(cx.realm, cx.ctx, pushes).await;
-    if delivers {
-        letters::deliver(cx.realm, cx.ctx, letter()).await?;
-    }
+    let deliveries = if delivers {
+        Calls::after_answer(letter())
+    } else {
+        Calls::none()
+    };
+    let made = cx.commit_delivering(tx, changes, deliveries).await?;
+    ensure!(
+        made.all_taken(),
+        "the letter of parcel {} was not delivered",
+        sent.parcel.0
+    );
     Ok(())
 }
 

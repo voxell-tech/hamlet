@@ -3,6 +3,7 @@
 use std::sync::Arc;
 
 use anyhow::Result;
+use futures::future::BoxFuture;
 use hamlet_actor::Ctx;
 use hamlet_messages::address::Agent;
 use hamlet_messages::agent::Submit;
@@ -17,7 +18,8 @@ use super::oversight::asking;
 use super::peer::When;
 use super::tasks::TaskId;
 use super::{
-    Realm, documents, letters, place, reach, steps, waits, workers,
+    Realm, documents, letters, place, reach, reviews, steps, waits,
+    workers,
 };
 
 /// A call that carries an act's content.
@@ -42,6 +44,8 @@ pub(super) enum Delivery {
     /// The letters and answers held on the task `0`, to their
     /// receivers.
     Held(TaskId),
+    /// The line a review kept on the task `0`, to its hire.
+    Kept(TaskId),
 }
 
 #[derive(Debug, Default, PartialEq)]
@@ -128,6 +132,19 @@ pub(super) async fn deliver_all(
     }
 }
 
+/// [`deliver_all`] after an answer, as a task's future. Its type is
+/// named, so a commit that sets it off may be made by a delivery.
+pub(super) fn deliver_later(
+    realm: Arc<Realm>,
+    ctx: Ctx<Realm>,
+    deliveries: Vec<Queued>,
+) -> BoxFuture<'static, ()> {
+    Box::pin(async move {
+        deliver_all(&realm, &ctx, deliveries, When::AfterAnswer)
+            .await;
+    })
+}
+
 async fn deliver(
     realm: &Arc<Realm>,
     ctx: &Ctx<Realm>,
@@ -155,6 +172,7 @@ async fn deliver(
         Delivery::Held(task) => {
             asking::deliver_held(realm, ctx, task).await
         }
+        Delivery::Kept(task) => reviews::give(realm, ctx, task).await,
     };
     if let Err(error) = &delivered {
         tracing::warn!(

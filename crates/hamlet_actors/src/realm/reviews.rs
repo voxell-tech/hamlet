@@ -14,6 +14,7 @@ use hamlet_messages::realm::workers::Ended;
 use hamlet_messages::realm::world::{ObjectionSource, WaitKind};
 use hamlet_messages::workspace::{AgentNumber, RealmTask};
 
+use super::calls::Delivery;
 use super::change::{self, Affected, Rows, Writer, number};
 use super::oversight::asking;
 use super::peer::When;
@@ -102,8 +103,8 @@ pub(super) async fn apply(
 
 /// Closes the review of `task` as `verdict` when it is open: a note
 /// goes on the kept line, and an objection waits for a chief. Any
-/// other end begins the row that gives the line, so whichever end
-/// comes first gives it, once.
+/// other end lines up the kept line's delivery to its hire, so
+/// whichever end comes first gives it, once.
 async fn end(
     writer: &Writer<'_>,
     task: TaskId,
@@ -149,7 +150,7 @@ async fn end(
                     ],
                 )
                 .await?;
-            give_later(writer, task).await
+            Ok(gives(task))
         }
         Verdict::Objected(reason) => {
             let wait = waits::next(&rows).await?;
@@ -186,23 +187,15 @@ async fn end(
             .await?;
             Ok(affected)
         }
-        Verdict::Passed(None) | Verdict::Failed => {
-            give_later(writer, task).await
-        }
+        Verdict::Passed(None) | Verdict::Failed => Ok(gives(task)),
     }
 }
 
-async fn give_later(
-    writer: &Writer<'_>,
-    task: TaskId,
-) -> Result<Affected> {
-    steps::apply(
-        writer,
-        steps::Change::Begin {
-            row: row(task, Step::Give)?,
-        },
-    )
-    .await
+fn gives(task: TaskId) -> Affected {
+    Affected {
+        deliveries: vec![Delivery::Kept(task)],
+        ..Affected::default()
+    }
 }
 
 /// A line kept for its review.
@@ -320,10 +313,7 @@ pub(super) async fn intercept(
         }
         .into(),
         errands::start(Purpose::Review { task }, input, n).into(),
-        steps::Change::Begin {
-            row: row(task, Step::Deadline)?,
-        }
-        .into(),
+        steps::Change::Begin { row: row(task)? }.into(),
     ]))
 }
 
@@ -441,91 +431,70 @@ fn verdict(ended: &Ended) -> Verdict {
     }
 }
 
-/// The bit of a step row's number that marks the row giving the
-/// line: a review's deadline is row `task`, and the row its end
-/// begins `task | GIVES`.
-const GIVES: u64 = 1 << 62;
-
-fn row(task: TaskId, step: Step) -> Result<StepId> {
-    let n = task.on_the_wire().0.parse::<u64>()?;
-    let mark = match step {
-        Step::Deadline => 0,
-        Step::Give => GIVES,
-    };
+/// The row of the review of `task`, which fails the review still
+/// open when its deadline passes.
+fn row(task: TaskId) -> Result<StepId> {
     Ok(StepId {
         kind: Kind::Review,
-        n: n | mark,
+        n: task.on_the_wire().0.parse()?,
     })
 }
 
-/// A review's two rows, each of one of these steps: the deadline's
-/// row fails the review still open when its deadline passes, and the
-/// row its end begins gives the line.
+/// A review's one step.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(super) enum Step {
     Deadline,
-    Give,
 }
 
 impl Steps for Step {
-    const ALL: &'static [Self] = &[Self::Deadline, Self::Give];
+    const ALL: &'static [Self] = &[Self::Deadline];
 
     fn name(self) -> &'static str {
         match self {
             Self::Deadline => "deadline",
-            Self::Give => "give",
         }
     }
 }
 
-/// Does `step` of the review row `n`, and returns the changes
-/// committed with its progress. Each row does its own step and
-/// passes over the other.
+/// Does the deadline of the review row `n`, and returns the changes
+/// committed with its progress.
 pub(super) async fn run(
     cx: &Cx<'_>,
     n: u64,
-    step: Step,
+    Step::Deadline: Step,
 ) -> Result<Vec<change::Change>> {
-    let task = TaskId::of(&RealmTask((n & !GIVES).to_string()))
+    let task = TaskId::of(&RealmTask(n.to_string()))
         .with_context(|| format!("no task {n} to review"))?;
     let rows = cx.rows()?;
     let kept = held(&rows, task)
         .await?
         .with_context(|| format!("no review of task {n}"))?;
-    match (step, n & GIVES != 0) {
-        (Step::Deadline, false) if kept.outcome.is_none() => {
-            let deadline = HostRef::of(cx.ctx.inner())?
-                .value::<Options>()
-                .map_or(REVIEW_DEADLINE, |options| {
-                    options.review_deadline
-                });
-            let due = kept.at + i64::try_from(deadline.as_millis())?;
-            let left = u64::try_from(due - rows.at().0).unwrap_or(0);
-            let abort = cx.ctx.abort_signal();
-            tokio::select! {
-                () = tokio::time::sleep(Duration::from_millis(left)) => {}
-                () = abort.cancelled() => {
-                    let open = held(&cx.rows()?, task)
-                        .await?
-                        .is_some_and(|kept| kept.outcome.is_none());
-                    ensure!(!open, "the realm stopped before review {n}'s deadline");
-                    return Ok(Vec::new());
-                }
-            }
-            Ok(vec![
-                Change::End {
-                    task,
-                    verdict: Verdict::Failed,
-                }
-                .into(),
-            ])
-        }
-        (Step::Give, true) => {
-            give(cx.realm, &kept).await?;
-            Ok(Vec::new())
-        }
-        _ => Ok(Vec::new()),
+    if kept.outcome.is_some() {
+        return Ok(Vec::new());
     }
+    let deadline = HostRef::of(cx.ctx.inner())?
+        .value::<Options>()
+        .map_or(REVIEW_DEADLINE, |options| options.review_deadline);
+    let due = kept.at + i64::try_from(deadline.as_millis())?;
+    let left = u64::try_from(due - rows.at().0).unwrap_or(0);
+    let abort = cx.ctx.abort_signal();
+    tokio::select! {
+        () = tokio::time::sleep(Duration::from_millis(left)) => {}
+        () = abort.cancelled() => {
+            let open = held(&cx.rows()?, task)
+                .await?
+                .is_some_and(|kept| kept.outcome.is_none());
+            ensure!(!open, "the realm stopped before review {n}'s deadline");
+            return Ok(Vec::new());
+        }
+    }
+    Ok(vec![
+        Change::End {
+            task,
+            verdict: Verdict::Failed,
+        }
+        .into(),
+    ])
 }
 
 /// Gives the hire its line, once the chief lets an objected line go
@@ -539,14 +508,25 @@ pub(super) async fn deliver(
         return Ok(());
     };
     if kept.objected() {
-        give(realm, &kept).await?;
+        give_held(realm, &kept).await?;
     }
     Ok(())
 }
 
-/// A second line with the same id is the first one, so a drive
-/// started again may give it again.
-async fn give(realm: &Arc<Realm>, kept: &Held) -> Result<()> {
+/// Gives the hire the line kept on `task`, as its review's end left
+/// it.
+pub(super) async fn give(
+    realm: &Arc<Realm>,
+    ctx: &Ctx<Realm>,
+    task: TaskId,
+) -> Result<()> {
+    let kept = held(&Rows::outside(ctx)?, task)
+        .await?
+        .with_context(|| format!("no review of task {task:?}"))?;
+    give_held(realm, &kept).await
+}
+
+async fn give_held(realm: &Arc<Realm>, kept: &Held) -> Result<()> {
     realm
         .peers
         .call(&Agent(kept.hire), &kept.line, When::AfterAnswer)

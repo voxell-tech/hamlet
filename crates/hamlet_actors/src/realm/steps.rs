@@ -12,9 +12,9 @@ use hamlet_messages::workspace::AgentNumber;
 use serde::{Deserialize, Serialize};
 use tokio::sync::watch;
 
-use super::calls::{Calls, Delivery};
+use super::calls::{Calls, Delivery, Made};
 use super::change::{self, Affected, Rows, Writer};
-use super::peer::{self, Peers};
+use super::peer::{self, Peers, When};
 use super::workers::errands;
 use super::{Realm, calls, hire, parcels, reviews, tree, workers};
 
@@ -189,6 +189,31 @@ impl Cx<'_> {
         &self.realm.peers
     }
 
+    /// Commits `changes` in `tx`, then makes `deliveries` and those
+    /// the changes decided, each in its turn.
+    pub async fn commit_delivering(
+        &self,
+        tx: change::Transaction,
+        changes: Vec<change::Change>,
+        deliveries: Calls,
+    ) -> Result<Made> {
+        let write = change::Write::<()> {
+            changes,
+            entries: Vec::new(),
+            marker: None,
+        };
+        let (pushes, lined) =
+            tx.commit_lined(self.realm, write, deliveries).await?;
+        calls::push_all(self.realm, self.ctx, pushes).await;
+        Ok(calls::deliver_all(
+            self.realm,
+            self.ctx,
+            lined.after_answer,
+            When::AfterAnswer,
+        )
+        .await)
+    }
+
     pub async fn commit(
         &self,
         changes: Vec<change::Change>,
@@ -259,20 +284,9 @@ async fn end_failed(
     if changes.is_empty() {
         return Ok(());
     }
-    let write = change::Write::<()> {
-        changes,
-        entries: Vec::new(),
-        marker: None,
-    };
-    let (pushes, lined) =
-        tx.commit_lined(realm, write, calls).await?;
-    calls::after_answer(
-        realm.clone(),
-        ctx.clone(),
-        lined.after_answer,
-        pushes,
-    )
-    .await;
+    Cx { realm, ctx }
+        .commit_delivering(tx, changes, calls)
+        .await?;
     Ok(())
 }
 
