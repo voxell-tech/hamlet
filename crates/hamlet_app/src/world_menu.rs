@@ -31,7 +31,7 @@ use bevy_fynix::shortcut::{
 use bevy_fynix::tokens::Tone;
 use bevy_fynix::views::{
     self, BehaviorExt, FrameProps, POPUP, button, column, frame,
-    label, menu_item, overlay, popup, row,
+    label, overlay, popup, row,
 };
 use bevy_fynix::{
     ScopedExt, ViewExt, derived, every_frame, keyed, resource,
@@ -452,13 +452,15 @@ fn menus() -> AnyView {
                 if !Actions::is_allowed(cx.world, "create-hamlet") {
                     return cx.build(frame());
                 }
-                let found =
-                    menu_item(label("Create a Hamlet").wrap(false))
-                        .on_activate(move |world| {
-                            *world.resource_mut::<Open>() =
-                                Open::Founding(at);
-                        })
-                        .boxed();
+                let found = items::item(
+                    Glyph::Hamlet,
+                    Tone::Success,
+                    "Create a Hamlet",
+                    move |world| {
+                        *world.resource_mut::<Open>() =
+                            Open::Founding(at);
+                    },
+                );
                 cx.build(menu(at, vec![found]))
             }),
             Open::Founding(at) => founding::founding(at).boxed(),

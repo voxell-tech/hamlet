@@ -1,5 +1,5 @@
 //! The form a channel is opened with: a search over the agents of the
-//! realm that the agent has no channel to yet, one pressed to open
+//! agent's hamlet that it has no channel to yet, one pressed to open
 //! it.
 
 use bevy::ecs::entity::Entity;
@@ -12,7 +12,7 @@ use bevy_fynix::views::{
 };
 use bevy_fynix::{ScopedExt, ViewExt, derived, every_frame, keyed};
 use hamlet_client::realm::{
-    self as agents, Actions, Kind, Left, channel_between,
+    self as agents, Actions, Kind, Left, LivesIn, channel_between,
 };
 use hamlet_protocol::client as protocol;
 use hamlet_realm::orders;
@@ -32,24 +32,30 @@ pub(crate) struct Channeling {
     search: String,
 }
 
-/// The agents of hamlets `agent` could have a channel to whose shown
-/// names hold `search`, by name.
-fn choices(
+/// The agents `agent` could have a channel to whose shown names hold
+/// `search`, by name: the living agents of its own hamlet it has no
+/// channel to yet, as a chief opens no channel between hamlets.
+pub(super) fn choices(
     world: &World,
     agent: Entity,
     search: &str,
 ) -> Vec<(Entity, String)> {
+    let Some(home) = world.get::<LivesIn>(agent).map(|home| home.0)
+    else {
+        return Vec::new();
+    };
     let Some(mut agents_found) =
-        world.try_query::<(Entity, &Kind, Option<&Left>)>()
+        world.try_query::<(Entity, &Kind, &LivesIn, Option<&Left>)>()
     else {
         return Vec::new();
     };
     let search = search.trim().to_lowercase();
     let mut found = agents_found
         .iter(world)
-        .filter(|(other, kind, left)| {
+        .filter(|(other, kind, lives, left)| {
             *other != agent
                 && kind.0 == protocol::AgentKind::Hamlet
+                && lives.0 == home
                 && left.is_none()
         })
         .map(|(other, ..)| other)

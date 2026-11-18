@@ -31,7 +31,7 @@ use hamlet_ui::markdown::AgentLinks;
 use hamlet_ui::styles::note;
 use hamlet_ui::theme::HamletTheme;
 use hamlet_ui::widgets::icons::{Glyph, glyph};
-use hamlet_ui::{AnyView, Cx};
+use hamlet_ui::{AnyView, Cx, View};
 
 use crate::convo::{talk_to, talk_to_hand};
 use crate::{PanelSystems, hub, sounds};
@@ -136,18 +136,7 @@ pub(crate) fn chip_of(
     let named = named(world, address)?;
     let (mark, name) = match named {
         Named::Agent(agent) => {
-            let kind = world.get::<Kind>(agent)?.0;
-            let mark = match kind {
-                protocol::AgentKind::Hand => Glyph::Tower,
-                protocol::AgentKind::Hamlet
-                    if world.get::<Lead>(agent).is_some() =>
-                {
-                    Glyph::Lead
-                }
-                protocol::AgentKind::Hamlet => Glyph::HamletAgent,
-                protocol::AgentKind::Worker => Glyph::Worker,
-            };
-            (mark, agents::shown_of(world, agent))
+            (mark_of(world, agent)?, agents::shown_of(world, agent))
         }
         Named::Profile(profile) => {
             let name = world.get::<Profile>(profile)?.0.name.clone();
@@ -171,6 +160,48 @@ pub(crate) fn chip_of(
     }))
 }
 
+/// The mark of `agent` on its chip, by what kind of agent it is.
+fn mark_of(world: &World, agent: Entity) -> Option<Glyph> {
+    Some(match world.get::<Kind>(agent)?.0 {
+        protocol::AgentKind::Hand => Glyph::Tower,
+        protocol::AgentKind::Hamlet
+            if world.get::<Lead>(agent).is_some() =>
+        {
+            Glyph::Lead
+        }
+        protocol::AgentKind::Hamlet => Glyph::HamletAgent,
+        protocol::AgentKind::Worker => Glyph::Worker,
+    })
+}
+
+/// The face of a chip: its mark and name on the reference fill.
+fn face(cx: &mut Cx, mark: Glyph, name: String) -> impl View + use<> {
+    let theme = cx.theme();
+    row((
+        glyph(mark, CHIP_TEXT).tone(Tone::Reference),
+        label(name)
+            .size(CHIP_TEXT)
+            .wrap(false)
+            .tone(Tone::Reference),
+    ))
+    .gap(4.0)
+    .align(AlignItems::Center)
+    .padding(UiRect::axes(px(6.0), px(1.0)))
+    .fill(theme.palette.status.info.fill)
+    .radius(theme.space.round)
+}
+
+/// The chip of `agent` as the chat draws it, to be read only: a press
+/// on it is left to what holds it.
+pub(crate) fn agent_chip(world: &World, agent: Entity) -> AnyView {
+    let mark = mark_of(world, agent).unwrap_or(Glyph::HamletAgent);
+    let name = agents::shown_of(world, agent);
+    AnyView::new(move |cx: &mut Cx| {
+        let face = face(cx, mark, name.clone());
+        cx.build(face)
+    })
+}
+
 /// A chip in a line of the chat, its address in its tooltip.
 fn chip(
     named: Named,
@@ -179,19 +210,7 @@ fn chip(
     address: String,
 ) -> AnyView {
     AnyView::new(move |cx: &mut Cx| {
-        let theme = cx.theme();
-        let chip = row((
-            glyph(mark, CHIP_TEXT).tone(Tone::Reference),
-            label(name.clone())
-                .size(CHIP_TEXT)
-                .wrap(false)
-                .tone(Tone::Reference),
-        ))
-        .gap(4.0)
-        .align(AlignItems::Center)
-        .padding(UiRect::axes(px(6.0), px(1.0)))
-        .fill(theme.palette.status.info.fill)
-        .radius(theme.space.round);
+        let chip = face(cx, mark, name.clone());
         let address = address.clone();
         let node =
             cx.build(chip.tooltip(move || note(address.clone())));

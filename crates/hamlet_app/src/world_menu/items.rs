@@ -3,9 +3,12 @@
 use bevy::ecs::entity::Entity;
 use bevy::ecs::world::World;
 use bevy::math::{Rect, Vec2};
+use bevy::ui::AlignItems;
 use bevy_fynix::ViewExt;
 use bevy_fynix::tokens::Tone;
-use bevy_fynix::views::{BehaviorExt, Label, label, menu_item};
+use bevy_fynix::views::{
+    BehaviorExt, FrameProps, label, menu_item, row,
+};
 use hamlet_client::realm::{
     self as agents, Actions, Busy, HamletId, Identity, Kind, Lead,
     Left,
@@ -14,18 +17,18 @@ use hamlet_protocol::client as protocol;
 use hamlet_realm::generator::society::Ground;
 use hamlet_realm::pick::{Also, Selected, Thing, focus_on, select};
 use hamlet_realm::{moving, orders};
-use hamlet_ui::AnyView;
+use hamlet_ui::styles::ICON;
+use hamlet_ui::widgets::icons::{Glyph, glyph};
+use hamlet_ui::{AnyView, View, with_cx};
 
 use super::action::Action;
 use super::{close, restore, stop};
 use crate::profile_tag::ProfileTag;
+use crate::reference::agent_chip;
 use crate::screens::terminal::{Pins, pin};
 
-/// A living agent of a hamlet that is not its lead, with its name.
-fn plain_agent(
-    world: &World,
-    thing: Thing,
-) -> Option<(Entity, String)> {
+/// A living agent of a hamlet that is not its lead.
+fn plain_agent(world: &World, thing: Thing) -> Option<Entity> {
     let (Thing::Agent(agent) | Thing::House(agent)) = thing else {
         return None;
     };
@@ -33,15 +36,26 @@ fn plain_agent(
         == Some(protocol::AgentKind::Hamlet)
         && world.get::<Lead>(agent).is_none()
         && world.get::<Left>(agent).is_none();
-    let name = agents::shown_of(world, agent);
-    plain.then_some((agent, name))
+    plain.then_some(agent)
 }
 
+/// What an item shows: its icon in `tone`, then `words`.
+fn line(which: Glyph, tone: Tone, words: impl View) -> impl View {
+    with_cx(move |cx| {
+        row((glyph(which, ICON).tone(tone), words))
+            .gap(cx.theme().space.menu_gap)
+            .align(AlignItems::Center)
+    })
+}
+
+/// An item of `text` under the icon `which` in `tone`.
 pub(super) fn item(
-    text: String,
+    which: Glyph,
+    tone: Tone,
+    text: &str,
     act: impl Fn(&mut World) + Send + Sync + 'static,
 ) -> AnyView {
-    menu_item(label(text).wrap(false))
+    menu_item(line(which, tone, label(text).wrap(false)))
         .on_activate(move |world| {
             close(world);
             act(world);
@@ -50,8 +64,14 @@ pub(super) fn item(
 }
 
 /// An item that asks before it does `action`.
-fn asking(text: Label, action: Action, at: Vec2) -> AnyView {
-    menu_item(text.wrap(false))
+fn asking(
+    which: Glyph,
+    tone: Tone,
+    words: impl View,
+    action: Action,
+    at: Vec2,
+) -> AnyView {
+    menu_item(line(which, tone, words))
         .on_activate(move |world| {
             super::ask_against(
                 world,
@@ -71,9 +91,14 @@ fn add_under(world: &World, parent: Entity) -> Option<AnyView> {
         && world.get::<Left>(parent).is_none()
         && Actions::is_allowed(world, "add-agent"))
     .then(|| {
-        item("Add Agent Under".into(), move |world| {
-            super::ask_add_agent(world, parent);
-        })
+        item(
+            Glyph::Plus,
+            Tone::Success,
+            "Add Agent Under",
+            move |world| {
+                super::ask_add_agent(world, parent);
+            },
+        )
     })
 }
 
@@ -83,18 +108,28 @@ fn of_profile(world: &World, agent: Entity) -> Vec<AnyView> {
         return Vec::new();
     };
     let profile = tag.profile;
-    let mut items =
-        vec![item("Go to Profile".into(), move |world| {
-            crate::hub::open_profile(world, profile);
-        })];
+    let mut items = vec![item(
+        Glyph::Book,
+        Tone::Info,
+        "Go to Profile",
+        move |world| crate::hub::open_profile(world, profile),
+    )];
     if tag.learned
         && world.get::<Left>(agent).is_none()
         && Actions::is_allowed(world, "dream")
     {
         let address = agents::name_of(world, agent);
-        items.push(item("Dream".into(), move |world| {
-            crate::chat::command(world, format!("/dream {address}"));
-        }));
+        items.push(item(
+            Glyph::Moon,
+            Tone::Merged,
+            "Dream",
+            move |world| {
+                crate::chat::command(
+                    world,
+                    format!("/dream {address}"),
+                );
+            },
+        ));
     }
     items
 }
@@ -105,32 +140,45 @@ fn make_profile(world: &World, agent: Entity) -> Option<AnyView> {
         == Some(protocol::AgentKind::Hamlet);
     let allowed = Actions::is_allowed(world, "make-profile");
     (of_hamlet && allowed).then(|| {
-        item("Make Profile".into(), move |world| {
-            let text = format!(
-                "/make-profile {}",
-                agents::name_of(world, agent)
-            );
-            orders::decree(world, agent, text);
-        })
+        item(
+            Glyph::Profile,
+            Tone::Info,
+            "Make Profile",
+            move |world| {
+                let text = format!(
+                    "/make-profile {}",
+                    agents::name_of(world, agent)
+                );
+                orders::decree(world, agent, text);
+            },
+        )
     })
 }
 
 fn focus(thing: Thing) -> AnyView {
-    item("Focus".into(), move |w| focus_on(w, thing, false))
+    item(Glyph::Aim, Tone::Dim, "Focus", move |w| {
+        focus_on(w, thing, false);
+    })
 }
 
-/// Opens a channel from `agent`, an agent of a hamlet, while it may
-/// have one.
+/// Opens a channel from `agent`, an agent of a hamlet, while there is
+/// one it may have.
 fn channel(world: &World, agent: Entity) -> Option<AnyView> {
     let of_hamlet = world.get::<Kind>(agent).map(|kind| kind.0)
         == Some(protocol::AgentKind::Hamlet);
     (of_hamlet
         && world.get::<Left>(agent).is_none()
-        && Actions::is_allowed(world, "channel"))
+        && Actions::is_allowed(world, "channel")
+        && !super::channel::choices(world, agent, "").is_empty())
     .then(|| {
-        item("Open a Channel".into(), move |world| {
-            super::ask_channel(world, agent);
-        })
+        item(
+            Glyph::Signpost,
+            Tone::Reference,
+            "Open a Channel",
+            move |world| {
+                super::ask_channel(world, agent);
+            },
+        )
     })
 }
 
@@ -147,29 +195,34 @@ fn pin_bash(world: &World, agent: Entity) -> Option<AnyView> {
     let key = format!("agent#{}", id.0);
     let pinned = world.get_resource::<Pins>()?.0.contains(&key);
     logged.then(|| {
-        item(
-            if pinned {
-                "Unpin Agent Bash"
-            } else {
-                "Pin Agent Bash"
-            }
-            .into(),
-            move |world| pin(world, &key),
-        )
+        let (which, text) = match pinned {
+            true => (Glyph::Pinned, "Unpin Bash"),
+            false => (Glyph::Pin, "Pin Bash"),
+        };
+        item(which, Tone::Info, text, move |world| pin(world, &key))
+    })
+}
+
+/// Stops `agent`, telling the chief so in a toast headed `head`.
+fn stop_item(agent: Entity, head: String) -> AnyView {
+    item(Glyph::Stop, Tone::Warning, "Stop", move |w| {
+        let request = stop(w, agent);
+        crate::toasts::announce(w, request, head.clone());
     })
 }
 
 fn for_lead(world: &World) -> Vec<AnyView> {
-    let mut items = vec![item("Stop the Lead".into(), |world| {
-        if let Some(lead) = agents::first_lead(world) {
-            let request = stop(world, lead);
-            crate::toasts::announce(
-                world,
-                request,
-                "Stopped the Lead",
-            );
-        }
-    })];
+    let mut items =
+        vec![item(Glyph::Stop, Tone::Warning, "Stop", |w| {
+            if let Some(lead) = agents::first_lead(w) {
+                let request = stop(w, lead);
+                crate::toasts::announce(
+                    w,
+                    request,
+                    "Stopped the Lead",
+                );
+            }
+        })];
     if let Some(lead) = agents::first_lead(world) {
         if let Some(add) = add_under(world, lead) {
             items.insert(0, add);
@@ -183,7 +236,9 @@ fn for_ruin(world: &World, agent: Entity) -> Vec<AnyView> {
     let mut items = Vec::new();
     if Actions::is_allowed(world, "restore") {
         items.push(item(
-            format!("Restore {}", agents::shown_of(world, agent)),
+            Glyph::Restore,
+            Tone::Success,
+            "Restore",
             move |world| restore(world, agent),
         ));
     }
@@ -198,26 +253,27 @@ fn for_agent(
     agent: Entity,
     at: Vec2,
 ) -> Vec<AnyView> {
-    let name = |agent: Entity| agents::shown_of(world, agent);
     let mut items = Vec::from_iter(add_under(world, agent));
     items.extend(channel(world, agent));
     items.extend(pin_bash(world, agent));
     if world.get::<Busy>(agent).is_some() {
-        let shown = name(agent);
-        let head = format!("Stopped {shown}");
-        items.push(item(format!("Stop {shown}"), move |w| {
-            let request = stop(w, agent);
-            crate::toasts::announce(w, request, head.clone());
-        }));
+        let head =
+            format!("Stopped {}", agents::shown_of(world, agent));
+        items.push(stop_item(agent, head));
     }
     items.extend(of_profile(world, agent));
     items.extend(make_profile(world, agent));
-    items.push(item("Copy Agent ID".into(), move |world| {
-        crate::reference::copy_agent(world, agent);
-    }));
-    let Some((_, me)) = plain_agent(world, thing) else {
+    items.push(item(
+        Glyph::Notes,
+        Tone::Dim,
+        "Copy Agent ID",
+        move |w| {
+            crate::reference::copy_agent(w, agent);
+        },
+    ));
+    if plain_agent(world, thing).is_none() {
         return items;
-    };
+    }
     // The other of the two that are chosen, if there are two.
     let chosen =
         [world.resource::<Selected>().0, world.resource::<Also>().0];
@@ -225,9 +281,9 @@ fn for_agent(
         .into_iter()
         .flatten()
         .filter_map(|thing| plain_agent(world, thing))
-        .find(|(other, _)| *other != agent);
+        .find(|other| *other != agent);
     // Its channels are opened and closed in its details.
-    if let Some((them, other)) =
+    if let Some(them) =
         other.filter(|_| Actions::is_allowed(world, "merge"))
     {
         let into_me = Action::Merge {
@@ -238,27 +294,46 @@ fn for_agent(
             absorbed: agent,
             kept: them,
         };
+        // The other is named by its chip, as in the chat; this one
+        // is what the menu is of.
+        let words = |before: &str, after: &str| {
+            row((
+                label(before.to_owned()).wrap(false),
+                agent_chip(world, them),
+                label(after.to_owned()).wrap(false),
+            ))
+            .gap(5.0)
+            .align(AlignItems::Center)
+        };
         items.push(asking(
-            label(format!("Merge {other} into {me}")),
+            Glyph::Merge,
+            Tone::Merged,
+            words("Merge", "Into This"),
             into_me,
             at,
         ));
         items.push(asking(
-            label(format!("Merge {me} into {other}")),
+            Glyph::Merge,
+            Tone::Merged,
+            words("Merge Into", ""),
             into_other,
             at,
         ));
     }
     if Actions::is_allowed(world, "lead") {
         items.push(asking(
-            label(format!("Make {me} Lead")),
+            Glyph::Lead,
+            Tone::Attention,
+            label("Make Lead").wrap(false),
             Action::Lead(agent),
             at,
         ));
     }
     if Actions::is_allowed(world, "end") {
         items.push(asking(
-            label(format!("End {me}")),
+            Glyph::Delete,
+            Tone::Critical,
+            label("End").wrap(false).tone(Tone::Critical),
             Action::End(agent),
             at,
         ));
@@ -272,7 +347,6 @@ fn for_common(
     hamlet: Entity,
     at: Vec2,
 ) -> Vec<AnyView> {
-    let name = agents::shown_of(world, hamlet);
     // It is closed by the name commands know it by.
     let id = world
         .get::<HamletId>(hamlet)
@@ -283,20 +357,32 @@ fn for_common(
     let mut items = agents::lead_of(world, &id)
         .and_then(|lead| {
             add_under(world, lead).map(|_| {
-                item("Add Agent".into(), move |world| {
-                    super::ask_add_agent(world, lead);
-                })
+                item(
+                    Glyph::Plus,
+                    Tone::Success,
+                    "Add Agent",
+                    move |w| {
+                        super::ask_add_agent(w, lead);
+                    },
+                )
             })
         })
         .into_iter()
         .collect::<Vec<_>>();
-    items.push(item("Copy Hamlet ID".into(), move |world| {
-        crate::reference::copy_hamlet(world, hamlet);
-    }));
+    items.push(item(
+        Glyph::Notes,
+        Tone::Dim,
+        "Copy Hamlet ID",
+        move |w| {
+            crate::reference::copy_hamlet(w, hamlet);
+        },
+    ));
     // Last, and red, as nothing done to it is harder to undo.
     if !id.is_empty() && Actions::is_allowed(world, "remove-hamlet") {
         items.push(asking(
-            label(format!("Close Down {name}")).tone(Tone::Critical),
+            Glyph::Delete,
+            Tone::Critical,
+            label("Close Down").wrap(false).tone(Tone::Critical),
             Action::Close(id),
             at,
         ));
@@ -307,21 +393,36 @@ fn for_common(
 fn for_chief(thing: Thing, chief: Entity) -> Vec<AnyView> {
     let home = Thing::ChiefPlace(chief);
     vec![
-        item("Change Your Look".into(), move |world| {
-            select(world, Some(home));
-        }),
+        item(
+            Glyph::Face,
+            Tone::Accent,
+            "Change Your Look",
+            move |w| {
+                select(w, Some(home));
+            },
+        ),
         focus(thing),
-        item("Go to the Hearth".into(), move |w| {
-            focus_on(w, home, false);
-        }),
-        item("Move the Hearth".into(), crate::chief::carry_home),
+        item(
+            Glyph::Hearth,
+            Tone::Warning,
+            "Go to the Hearth",
+            move |w| {
+                focus_on(w, home, false);
+            },
+        ),
+        item(
+            Glyph::Move,
+            Tone::Dim,
+            "Move the Hearth",
+            crate::chief::carry_home,
+        ),
     ]
 }
 
 fn for_library(thing: Thing) -> Vec<AnyView> {
     vec![
         focus(thing),
-        item("Move the Library".into(), |w| {
+        item(Glyph::Move, Tone::Dim, "Move", |w| {
             moving::pick_up(w, Ground::Library);
         }),
     ]
@@ -340,12 +441,10 @@ pub(super) fn has_items(world: &World, thing: Thing) -> bool {
 
 /// Stops the Hand, while it works.
 fn stop_hand(world: &World, hand: Entity) -> Option<AnyView> {
-    world.get::<Busy>(hand).is_some().then(|| {
-        item("Stop the Hand".into(), move |w| {
-            let request = stop(w, hand);
-            crate::toasts::announce(w, request, "Stopped the Hand");
-        })
-    })
+    world
+        .get::<Busy>(hand)
+        .is_some()
+        .then(|| stop_item(hand, "Stopped the Hand".into()))
 }
 
 /// The menu of `thing`, whether or not it is chosen.
@@ -379,9 +478,14 @@ pub(super) fn items(
                 .get::<hamlet_client::realm::Profile>(profile)
                 .is_some_and(|s| s.0.house.is_some());
             if housed && Actions::is_allowed(world, "move-house") {
-                items.push(item("Move House".into(), move |w| {
-                    orders::carry_house(w, profile);
-                }));
+                items.push(item(
+                    Glyph::Move,
+                    Tone::Dim,
+                    "Move",
+                    move |w| {
+                        orders::carry_house(w, profile);
+                    },
+                ));
             }
             items
         }
