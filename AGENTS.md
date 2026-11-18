@@ -121,10 +121,11 @@ file, so open a file with `sqlite3 -readonly` only after the host stops.
 started with `HAMLET_NODE` or `node` from `PATH`; it needs the Node host
 installed and its native module built, as `cargo xtask node` does.
 
-`cargo xtask killkit <scenario> --runs <n>` installs the Node host's
-packages, builds the native module and the demo, kills the demo
-with SIGKILL at a scenario's step, restarts it twice and prints one line
-per run; `--list` names the scenarios. Each kit process makes a new
+`cargo xtask killkit [<scenario>] --runs <n>` installs the Node host's
+packages, builds the native module and the demo, kills the demo with
+SIGKILL at a scenario's step or at a random time, or lets the Node host
+kill itself at a step, restarts it twice and prints one line per run;
+with no scenario named it runs every one, and `--list` names them. Each kit process makes a new
 folder of its own under the system's temporary folder, with a folder per
 run inside it, and removes a run's folder when the run passes.
 The kit stops the host at a step through `HAMLET_FAULT`, which works only

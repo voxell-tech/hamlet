@@ -340,8 +340,8 @@ the host from the command line, under a host name and with the kinds of
 its options (`examples/demo/kinds.rs`: a host registers only those, or
 by default the counter, the workspace, the profile, the library and
 both stand-ins, or with `--link` the stand-in realm alone; whatever the
-kinds, it also registers the workspace and the library with
-`--realm-actor`, and the profile and the library for `demo profile`
+kinds, `examples/demo.rs` also registers the workspace and the library
+with `--realm-actor`, and the profile and the library for `demo profile`
 and `demo library`), each counter
 line run by `examples/demo/command.rs`, with the
 counter actor in `examples/demo/counter.rs`; a counter calls another as
@@ -409,7 +409,8 @@ its commit. `demo profile` and `demo library`, in
 [profile and the library](#the-profile-and-library-actors) through
 stand-ins for the realm and the agents, which call as themselves and
 print what they are told. `tests/demo.rs` starts the demo as its
-lanes do, and `hosts/node/test/link/` drives the linked demo.
+lanes do, and `hosts/node/test/link/` drives the linked demo and
+`demo --realm-actor`.
 `tests/local.rs` tests the host,
 `tests/create.rs` tests `create`, and `tests/access.rs` tests what an
 actor reaches of its host, its calls to other actors included.
@@ -444,7 +445,7 @@ end once (`agent.finished` is 1).
 Each row names the demo it starts, so `cargo xtask killkit --runs 12`
 runs every row twelve times in one invocation. A row named on the
 command line runs alone. `Demo::Local` starts `demo serve`. `Demo::Linked`
-starts `demo --link`. Under it, `link-kill-node` has an agent kill its own Node
+starts `demo --link serve`. Under it, `link-kill-node` has an agent kill its own Node
 host (`Kill::NodeHost`), and `link-kill-rust` and `ts-schedule` kill
 the Rust host with the Node host running. `Demo::RealmActor` starts
 `demo --realm-actor serve`, the real realm and the real agent, with a
@@ -857,8 +858,8 @@ changes it, and `versions.rs` numbers those commits in the file.
 `tests/realm.rs` runs the realm on a host with stand-ins for the
 workspace, the agents and the profiles. They keep what they were sent,
 and a test can hold a call, fail it once or fail it every time for one
-agent. A test calls the realm as the program or as a client, and as
-an agent or the workspace through that stand-in's `forward`. The files in
+agent. A test calls the realm as a client, and as an agent or the
+workspace through that stand-in's `forward`. The files in
 `tests/realm/` group its tests by subject.
 
 ## The profile and library actors
