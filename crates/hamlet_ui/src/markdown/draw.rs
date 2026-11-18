@@ -13,9 +13,9 @@ use bevy::text::{
     TextSpan, Underline,
 };
 use bevy::ui::{
-    AlignItems, Display, JustifyContent, MaxTrackSizingFunction,
-    MinTrackSizingFunction, Node, RepeatedGridTrack, UiRect, percent,
-    px,
+    AlignItems, Display, FlexDirection, JustifyContent,
+    MaxTrackSizingFunction, MinTrackSizingFunction, Node,
+    RepeatedGridTrack, UiRect, percent, px,
 };
 use bevy::window::SystemCursorIcon;
 use bevy_fynix::tokens::{TextTokens, Tone};
@@ -437,6 +437,10 @@ fn chipped(cx: &mut Cx, pieces: Vec<Piece>, ink: Ink) -> Entity {
             .size(size)
             .tone(ink.tone)
             .atoms()
+            // In a row the text is as wide as its one line wherever
+            // its words size it, as in a table's cell, and never
+            // wraps.
+            .direction(FlexDirection::Column)
             .max_width(percent(100.0)),
     );
     for (kid, (code, anchor)) in
@@ -496,15 +500,39 @@ fn code_view(cx: &Cx, lang: &str, text: &str) -> impl View {
     inset(parts)
 }
 
-/// Columns that share the width between them and may shrink to
-/// nothing, so that the words in a cell wrap and the table never
-/// grows wider than the chat.
-fn shared(columns: u16) -> Vec<RepeatedGridTrack> {
-    RepeatedGridTrack::minmax::<Vec<_>>(
-        columns,
-        MinTrackSizingFunction::Px(0.0),
-        MaxTrackSizingFunction::Fraction(1.0),
-    )
+/// Columns as wide as the least their cells take, a word or a chip,
+/// with the rest of the width shared in proportion to `widths`, so
+/// that the words in a cell wrap and the table never grows wider
+/// than the chat.
+fn shared(widths: &[usize]) -> Vec<RepeatedGridTrack> {
+    widths
+        .iter()
+        .map(|&width| {
+            RepeatedGridTrack::minmax(
+                1,
+                MinTrackSizingFunction::MinContent,
+                MaxTrackSizingFunction::Fraction(width.max(1) as f32),
+            )
+        })
+        .collect()
+}
+
+/// How wide each of `columns` is on one line, in letters: its widest
+/// cell's.
+fn column_widths(rows: &[Row], columns: usize) -> Vec<usize> {
+    (0..columns)
+        .map(|at| {
+            rows.iter()
+                .filter_map(|row| row.get(at))
+                .map(|cell| {
+                    cell.iter()
+                        .map(|span| span.text.chars().count())
+                        .sum::<usize>()
+                })
+                .max()
+                .unwrap_or(0)
+        })
+        .collect()
 }
 
 /// A grid whose lines are the fill showing between its cells.
@@ -517,6 +545,7 @@ fn table_view(
     let palette = &cx.theme().palette;
     let widest = rows.iter().map(Vec::len).max().unwrap_or(0);
     let columns = align.len().max(widest).clamp(1, 64);
+    let widths = column_widths(rows, columns);
     let mut cells = Vec::<AnyView>::new();
     for (at, cell_row) in rows.iter().enumerate() {
         for column_at in 0..columns {
@@ -559,7 +588,7 @@ fn table_view(
         );
         if let Some(mut ui) = cx.world.get_mut::<Node>(node) {
             ui.display = Display::Grid;
-            ui.grid_template_columns = shared(columns as u16);
+            ui.grid_template_columns = shared(&widths);
         }
         node
     })
@@ -850,6 +879,7 @@ pub fn typed_with(
                 bevy_fynix::views::rich(runs)
                     .tone(tone)
                     .atoms()
+                    .direction(FlexDirection::Column)
                     .max_width(percent(100.0)),
             );
             if let Some(text) = cx
@@ -936,4 +966,152 @@ fn drawn(
             .collect::<Vec<_>>();
         cx.build(column(views).gap(0.0).tagged(Area))
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use bevy::app::App;
+    use bevy::asset::{AssetApp, AssetPlugin};
+    use bevy::camera::{
+        Camera, Camera2d, ComputedCameraValues, RenderTargetInfo,
+    };
+    use bevy::image::{Image, TextureAtlasLayout};
+    use bevy::math::UVec2;
+    use bevy::text::{TextLayoutInfo, TextPlugin};
+    use bevy::ui::{ComputedNode, UiGlobalTransform, UiPlugin};
+    use bevy_fynix::{FynixPlugin, mount};
+
+    use super::*;
+    use crate::theme::{self, HamletTheme};
+    use crate::widgets::platform::install_fonts;
+
+    /// A chip of the address alone, so that the words in brackets
+    /// after it stay words.
+    fn chip(
+        _: &mut World,
+        address: &str,
+        words: &str,
+        key: String,
+    ) -> Option<Atom> {
+        if words != address {
+            return None;
+        }
+        Some(Atom::new::<HamletTheme>(key, words, || {
+            row((label("Usability").size(12.0).wrap(false),))
+                .padding(UiRect::axes(px(6.0), px(1.0)))
+                .boxed()
+        }))
+    }
+
+    #[test]
+    fn the_words_in_a_tables_cells_wrap_inside_them() {
+        let mut app = App::new();
+        app.add_plugins((
+            AssetPlugin::default(),
+            bevy::time::TimePlugin,
+            bevy::transform::TransformPlugin,
+            bevy::input::InputPlugin,
+            bevy::picking::PickingPlugin,
+            bevy::picking::InteractionPlugin,
+            TextPlugin,
+            UiPlugin,
+            FynixPlugin::<HamletTheme>::default(),
+        ))
+        .init_asset::<Image>()
+        .init_asset::<TextureAtlasLayout>()
+        .insert_resource(AgentLinks {
+            is_address: |word| word == "hire#2",
+            resolve: chip,
+            generation: 0,
+        });
+        install_fonts(app.world_mut());
+        theme::show(app.world_mut(), HamletTheme::designed());
+        app.world_mut().spawn((
+            Camera2d,
+            Camera {
+                computed: ComputedCameraValues {
+                    target_info: Some(RenderTargetInfo {
+                        physical_size: UVec2::splat(1000),
+                        scale_factor: 1.0,
+                    }),
+                    ..Default::default()
+                },
+                ..Default::default()
+            },
+        ));
+        let text = "| Hire | Role |\n|---|---|\n| hire#2 (Hamlet \
+                    Reorg Design) | Design for reorganizing \
+                    hamlets, with words enough to wrap over two \
+                    lines or more |\n| hire#2 (Stop and Errors) | \
+                    Stop |";
+        let table = mount::<HamletTheme>(
+            app.world_mut(),
+            fixed(text, Tone::Body),
+        );
+        let room = app
+            .world_mut()
+            .spawn(Node {
+                width: px(320.0),
+                ..Node::default()
+            })
+            .id();
+        app.world_mut().entity_mut(table).insert(ChildOf(room));
+        for _ in 0..4 {
+            app.update();
+        }
+
+        let world = app.world_mut();
+        let grid = world
+            .query::<(Entity, &Node)>()
+            .iter(world)
+            .find(|(_, node)| node.display == Display::Grid)
+            .map(|(grid, _)| grid)
+            .unwrap();
+        // The left of a node and the right of its content.
+        let edges = |world: &World, node: Entity| {
+            let size = world.get::<ComputedNode>(node).unwrap();
+            let at = world.get::<UiGlobalTransform>(node).unwrap();
+            let left = at.translation.x - size.size().x / 2.0;
+            (left, left + size.size().x - size.padding.max_inset.x)
+        };
+        let texts = world
+            .query::<(Entity, &TextLayoutInfo)>()
+            .iter(world)
+            .map(|(text, laid)| {
+                let ends = laid.glyphs.iter().map(|glyph| {
+                    glyph.position.x
+                        + glyph.atlas_info.rect.width() / 2.0
+                });
+                (text, ends.fold(0.0, f32::max))
+            })
+            .collect::<Vec<_>>();
+        let mut checked = 0;
+        for (text, inked) in texts {
+            let mut cell = text;
+            while let Some(up) = world.get::<ChildOf>(cell)
+                && up.parent() != grid
+            {
+                cell = up.parent();
+            }
+            if world.get::<ChildOf>(cell).is_none() {
+                continue;
+            }
+            let (left, _) = edges(world, text);
+            let (_, end) = edges(world, cell);
+            assert!(
+                left + inked <= end + 1.0,
+                "words past their cell"
+            );
+            checked += 1;
+        }
+        assert!(checked >= 6);
+        let wide = world.get::<ComputedNode>(grid).unwrap().size().x;
+        assert!(wide <= 320.0, "a table {wide} wide");
+        // The column of names wraps, so the wordier one has the room.
+        let cells = world.get::<Children>(grid).unwrap();
+        let width = |at: usize| {
+            world.get::<ComputedNode>(cells[at]).unwrap().size().x
+        };
+        assert!(width(0) < width(1), "{} and {}", width(0), width(1));
+    }
 }
