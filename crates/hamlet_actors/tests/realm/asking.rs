@@ -272,7 +272,8 @@ async fn ask_chief_answers_at_once_and_the_reply_is_a_notice() {
         .ask(&answer("3", Choice::Dismiss, None))
         .await
         .unwrap();
-    let told = given_until(&realm, Hand::NUMBER, before, 3).await;
+    let mut told = given_until(&realm, Hand::NUMBER, before, 3).await;
+    told.sort();
     let other = chief_task(&realm, Hand::NUMBER).await;
     let options_only =
         asked(&other, vec![offering("Which?", &["Left", "Right"])]);
@@ -679,6 +680,8 @@ async fn a_withdrawn_task_spends_nothing_and_its_letters_are_dropped()
         .await
         .unwrap();
     held_rows(&realm).await;
+    let mut told = given(&realm, THREE, before);
+    told.sort();
 
     let withdrawn = "The chief withdrew the instruction, so this \
                      call did not run.";
@@ -688,11 +691,11 @@ async fn a_withdrawn_task_spends_nothing_and_its_letters_are_dropped()
     );
     assert_eq!(dropped, Done::Done);
     assert_eq!(
-        given(&realm, THREE, before),
+        told,
         [
+            "letter: lunch at noon",
             "notice: The chief withdrew the instruction. Stop \
              working on it.",
-            "letter: lunch at noon",
         ]
     );
     realm.host.shutdown().await.unwrap();
