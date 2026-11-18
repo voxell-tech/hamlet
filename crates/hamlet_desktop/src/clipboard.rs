@@ -122,16 +122,15 @@ fn ask(
     });
 }
 
-/// Tells of what a read found.
+/// Tells of what each read found, nothing too, so every asker hears
+/// back.
 fn take(mut reader: ResMut<Reader>, mut commands: Commands) {
     while let Ok((asker, files, pictures)) = reader.rx.try_recv() {
-        if !files.is_empty() || !pictures.is_empty() {
-            commands.trigger(Pasted {
-                asker,
-                files,
-                pictures,
-            });
-        }
+        commands.trigger(Pasted {
+            asker,
+            files,
+            pictures,
+        });
     }
 }
 

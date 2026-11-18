@@ -948,6 +948,11 @@ fn asking(world: &mut World, asker: Entity) -> Option<Entity> {
     (convo::chat_of(world, hub) == chat).then_some(hub)
 }
 
+/// A request to the dialog, which says nothing when it is closed
+/// with nothing chosen, or refused while another is open.
+#[derive(Component)]
+struct ToDialog;
+
 /// Attaches the files and folders the dialog gave the chat.
 fn chosen(chosen: On<Chosen>, mut commands: Commands) {
     let (asker, paths) = (chosen.asker, chosen.paths.clone());
@@ -955,6 +960,14 @@ fn chosen(chosen: On<Chosen>, mut commands: Commands) {
         if let Some(hub) = asking(world, asker) {
             let incoming = paths.into_iter().map(Incoming::File);
             attach(world, hub, incoming.collect());
+        }
+        // One dialog is open at a time: any other request to it was
+        // closed or refused, and is never answered.
+        let mut unanswered =
+            world.query_filtered::<Entity, With<ToDialog>>();
+        let unanswered = unanswered.iter(world).collect::<Vec<_>>();
+        for request in unanswered {
+            world.despawn(request);
         }
     });
 }
@@ -985,7 +998,8 @@ fn paste(
     });
 }
 
-/// Attaches what the clipboard held.
+/// Attaches what the clipboard held, and ends the request, held
+/// nothing or not.
 fn pasted(pasted: On<Pasted>, mut commands: Commands) {
     let files = pasted.files.iter().cloned().map(Incoming::File);
     let pictures =
@@ -993,7 +1007,9 @@ fn pasted(pasted: On<Pasted>, mut commands: Commands) {
     let incoming = files.chain(pictures).collect::<Vec<_>>();
     let asker = pasted.asker;
     commands.queue(move |world: &mut World| {
-        if let Some(hub) = asking(world, asker) {
+        if let Some(hub) = asking(world, asker)
+            && !incoming.is_empty()
+        {
             attach(world, hub, incoming);
         }
     });
@@ -1522,6 +1538,7 @@ pub(super) fn holds(hub: Entity) -> impl View {
 pub(crate) fn choose(world: &mut World, hub: Entity, what: What) {
     crate::hub::activate(world, hub);
     let asker = ask(world, hub);
+    world.entity_mut(asker).insert(ToDialog);
     world.trigger(Choose { asker, what });
 }
 
