@@ -48,7 +48,8 @@ Usage: cargo xtask <task> [args]
      docker build
   killkit          build the demo actor host and the Node host's \
      native module, and kill the demo at a scenario's step: \
-     <scenario> --runs <n>, or --list
+     [<scenario>] --runs <n>, every scenario when none is named, \
+     or --list
   idle             a command tree's memory, in MB of 1,000,000 \
      bytes, and wakeups per second while idle: [--settle <s>] \
      [--window <s>] [--send <line>]... <command> [args], 30 and 60 \
