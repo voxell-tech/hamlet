@@ -143,11 +143,17 @@ pub(crate) fn home_of(world: &World, agent: Entity) -> Thing {
     }
 }
 
-/// Points the following Hub's chat at `agent` and selects it in the
-/// world.
+/// Points the chat of the Hub just pressed in at `agent`, else the
+/// following Hub's, which also selects it in the world.
 pub(crate) fn talk_to(world: &mut World, agent: Entity) {
     // The tab in front stays for an agent with no address.
     if id_and_shown(world, agent).is_none() {
+        return;
+    }
+    if let Some(hub) = hub::opening_in(world) {
+        if seat(world, hub, agent) == Seating::Seated {
+            hub::show(world, hub, Showing::Thread);
+        }
         return;
     }
     let Some(hub) = hub::bring_following(world) else {
@@ -175,12 +181,17 @@ pub(crate) fn talk_to(world: &mut World, agent: Entity) {
     hub::show(world, hub, Showing::Thread);
 }
 
-/// Points the following Hub's chat back at the Hand and brings its
-/// tower into view.
+/// Points the chat of the Hub just pressed in back at the Hand, else
+/// the following Hub's, which also brings its tower into view.
 pub(crate) fn talk_to_hand(world: &mut World) {
     let Some(hand) = agents::hand(world) else {
         return;
     };
+    if let Some(hub) = hub::opening_in(world) {
+        seat(world, hub, hand);
+        hub::show(world, hub, Showing::Thread);
+        return;
+    }
     let Some(hub) = hub::bring_following(world) else {
         return;
     };

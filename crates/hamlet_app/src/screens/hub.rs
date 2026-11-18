@@ -68,6 +68,7 @@ pub fn plugin(app: &mut App) {
         ))
         .init_resource::<CollapsedRails>()
         .init_resource::<Active>()
+        .init_resource::<PressedIn>()
         .add_observer(pressed)
         .init_resource::<crate::forms::OpenForm>()
         .add_systems(Update, tabs::mark_on::<Sheet>)
@@ -183,16 +184,39 @@ pub(crate) fn activate(world: &mut World, hub: Entity) {
     }
 }
 
+/// The Hub the chief's last press landed in, none for a press in the
+/// world, a toast or anywhere else outside every Hub.
+#[derive(Resource, Default)]
+struct PressedIn(Option<Entity>);
+
+/// The Hub that what the chief just pressed opens in, when that is
+/// not the following one: a chip, a name or a link in a Hub turns
+/// that Hub. Anything pressed outside every Hub goes to the
+/// following Hub, which keeps step with the world.
+pub(crate) fn opening_in(world: &World) -> Option<Entity> {
+    world
+        .get_resource::<PressedIn>()
+        .and_then(|pressed| pressed.0)
+        .filter(|hub| {
+            world.get::<Hub>(*hub).is_some()
+                && !is_following(world, *hub)
+        })
+}
+
 /// A press inside a Hub makes it the one the chief works in.
 fn pressed(
     press: On<PointerPress>,
     frames: Query<&rail::Frame>,
     parents: Query<&ChildOf>,
     mut active: ResMut<Active>,
+    mut pressed_in: ResMut<PressedIn>,
 ) {
     let hub = std::iter::once(press.entity)
         .chain(parents.iter_ancestors(press.entity))
         .find_map(|node| frames.get(node).ok().map(|frame| frame.0));
+    if pressed_in.0 != hub {
+        pressed_in.0 = hub;
+    }
     if let Some(hub) = hub
         && active.0 != Some(hub)
     {
@@ -423,19 +447,25 @@ pub(crate) fn talk_in(world: &mut World, hub: Entity, agent: Entity) {
     }
 }
 
-/// Turns the following Hub to `profile`'s page, its house chosen in
-/// the world.
+/// Turns the Hub just pressed in, else the following Hub, to
+/// `profile`'s page; the following Hub chooses its house in the
+/// world.
 pub(crate) fn open_profile(world: &mut World, profile: Entity) {
     open(world, Showing::Profile(profile), Thing::Profile(profile));
 }
 
-/// Turns the following Hub to `hamlet`'s page, its common chosen in
-/// the world.
+/// Turns the Hub just pressed in, else the following Hub, to
+/// `hamlet`'s page; the following Hub chooses its common in the
+/// world.
 pub(crate) fn open_hamlet(world: &mut World, hamlet: Entity) {
     open(world, Showing::Hamlet(hamlet), Thing::Common(hamlet));
 }
 
 fn open(world: &mut World, showing: Showing, thing: Thing) {
+    if let Some(hub) = opening_in(world) {
+        show(world, hub, showing);
+        return;
+    }
     let Some(hub) = bring_following(world) else {
         return;
     };
