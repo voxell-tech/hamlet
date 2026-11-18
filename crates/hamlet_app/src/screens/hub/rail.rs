@@ -189,9 +189,8 @@ pub(super) fn follow(world: &mut World, thing: Thing) {
         .into_iter()
         .find(|section| section.folded && holds(section))
         .map(|section| section.group);
-    let mut rail = world.resource_mut::<Rail>();
     if let Some(group) = shut {
-        rail.folded.retain(|folded| *folded != group);
+        world.resource_mut::<Rail>().open(group);
     }
     world.resource_mut::<Reveal>().0 = Some((target, REVEAL_FRAMES));
 }
@@ -236,17 +235,10 @@ fn open_over(world: &mut World, agent: Entity) {
     }
     let mut rail = world.resource_mut::<Rail>();
     for (parent, worker) in over {
-        match worker {
-            true => {
-                let group = Group::Workers(parent);
-                if !rail.opened.contains(&group) {
-                    rail.opened.push(group);
-                }
-            }
-            false => {
-                rail.folded.retain(|g| *g != Group::Parent(parent));
-            }
-        }
+        rail.open(match worker {
+            true => Group::Workers(parent),
+            false => Group::Parent(parent),
+        });
     }
 }
 
@@ -332,18 +324,33 @@ pub enum Tab {
     City,
 }
 
+/// Whether `group` starts folded, kept in `opened` once opened.
+fn starts_folded(group: Group) -> bool {
+    matches!(group, Group::Workers(_) | Group::Left)
+}
+
 impl Rail {
     fn toggle(&mut self, group: Group) {
-        // Workers start folded.
-        let kept = match group {
-            Group::Workers(_) => &mut self.opened,
-            _ => &mut self.folded,
+        let kept = match starts_folded(group) {
+            true => &mut self.opened,
+            false => &mut self.folded,
         };
         match kept.iter().position(|g| *g == group) {
             Some(at) => {
                 kept.remove(at);
             }
             None => kept.push(group),
+        }
+    }
+
+    /// Opens `group` if it is folded.
+    fn open(&mut self, group: Group) {
+        if starts_folded(group) {
+            if !self.opened.contains(&group) {
+                self.opened.push(group);
+            }
+        } else {
+            self.folded.retain(|folded| *folded != group);
         }
     }
 }
@@ -1464,7 +1471,11 @@ pub(super) fn sections(world: &World) -> Vec<Section> {
             section.group,
             Group::City | Group::Harbor | Group::Left
         ) {
-            section.folded = folded.contains(&section.group)
+            let shut = match starts_folded(section.group) {
+                true => !opened.contains(&section.group),
+                false => folded.contains(&section.group),
+            };
+            section.folded = shut
                 && !section
                     .lines
                     .iter()
