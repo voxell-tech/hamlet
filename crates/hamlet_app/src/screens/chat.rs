@@ -18,7 +18,7 @@ mod timeline;
 
 use std::collections::HashMap;
 
-use bevy::app::{App, PostUpdate, PreUpdate, Update};
+use bevy::app::{App, Last, PostUpdate, PreUpdate, Update};
 use bevy::color::Color;
 use bevy::ecs::component::Component;
 use bevy::ecs::entity::Entity;
@@ -130,7 +130,9 @@ pub fn plugin(app: &mut App) {
                 .in_set(PanelSystems::Bind),
         )
         .add_systems(Update, break_long_words)
-        .add_systems(PostUpdate, refocus);
+        .add_systems(PostUpdate, refocus)
+        // After the field takes in an edit, late in PostUpdate.
+        .add_systems(Last, field::chip_early);
 }
 
 /// The field a chief types in.

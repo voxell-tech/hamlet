@@ -6,7 +6,7 @@ use std::ops::Range;
 use bevy::ecs::change_detection::Mut;
 use bevy::ecs::component::Component;
 use bevy::ecs::entity::Entity;
-use bevy::ecs::query::With;
+use bevy::ecs::query::{Changed, With};
 use bevy::ecs::resource::Resource;
 use bevy::ecs::system::{Commands, Query, Res, ResMut};
 use bevy::ecs::world::World;
@@ -183,6 +183,21 @@ fn is_whole(
             c.is_whitespace() || c.is_ascii_punctuation()
         });
     ended || (edit.start <= part.start && part.end <= edit.end)
+}
+
+/// Chips what was typed or pasted at the end of the frame the field
+/// took it in, so it is never drawn as its words first: the field's
+/// change handler runs only after its next frame's text is laid out.
+pub(super) fn chip_early(
+    fields: Query<&RichField, (With<ChatField>, Changed<RichField>)>,
+    mut commands: Commands,
+) {
+    for field in &fields {
+        let pieces = field.pieces();
+        commands.queue(move |world: &mut World| {
+            chip_references(world, &pieces);
+        });
+    }
 }
 
 /// Turns each address the last edit wrote whole into its chip.
