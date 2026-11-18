@@ -38,7 +38,7 @@ async fn a_wait_and_its_held_call_survive_a_crash() {
     chief.tell(ada, "Fetch it.").await;
     let wait = chief.wait_for("the approval", |_| true).await;
     let before = chief.realm();
-    let lodge = format!("hamlets/{}/2", before.hamlets[0].id);
+    let worktree = format!("hamlets/{}/2", before.hamlets[0].id);
     server.kill();
 
     let server = home
@@ -50,13 +50,15 @@ async fn a_wait_and_its_held_call_survive_a_crash() {
     assert_eq!(after.waits, std::slice::from_ref(&wait));
     chief.open(&now).await;
     assert!(chief.texts(&now).contains(&"Fetch it.".to_string()));
-    assert!(!home.file(&format!("{lodge}/out")).exists());
+    assert!(!home.file(&format!("{worktree}/out")).exists());
     chief.choose(&wait.id, Choice::Allow, None).await;
     chief.shows(&now, "Finished.").await;
     // The command ran once, after the answer.
     assert_eq!(
-        std::fs::read_to_string(home.file(&format!("{lodge}/out")))
-            .unwrap(),
+        std::fs::read_to_string(
+            home.file(&format!("{worktree}/out"))
+        )
+        .unwrap(),
         "curl x\n"
     );
     assert!(chief.waits().is_empty());

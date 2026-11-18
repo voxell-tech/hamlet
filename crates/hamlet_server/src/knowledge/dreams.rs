@@ -1,7 +1,7 @@
 //! The repositories' side of a dream: a checkout of the profile's
-//! `main` the dream writes beside the agent's lodge, and at its end
-//! the profile's side committed to `main`, the agent's to its branch,
-//! and the new `main` taken in.
+//! `main` the dream writes beside the agent's worktree, and at its
+//! end the profile's side committed to `main`, the agent's to its
+//! branch, and the new `main` taken in.
 
 use std::path::PathBuf;
 
@@ -27,7 +27,7 @@ pub(crate) fn checkout(layout: &Layout, id: DreamId) -> PathBuf {
         .join("main")
 }
 
-/// Readies dream `id`: the agent's lodge committed, and `main`
+/// Readies dream `id`: the agent's worktree committed, and `main`
 /// checked out. `false` when an agent's branch holds nothing `main`
 /// lacks.
 pub(crate) fn prepare(
@@ -52,7 +52,7 @@ pub(crate) fn prepare(
     remove_folder(&path)?;
     check_out(&repo, main, &Folder::make(&path)?)?;
     // Git keeps no empty folder. With these, a relative `memory/` or
-    // `skills/` is the checkout's, never the lodge's beside it.
+    // `skills/` is the checkout's, never the worktree's beside it.
     for part in ["memory", "skills"] {
         Folder::make(&path.join(part))?;
     }
@@ -60,7 +60,7 @@ pub(crate) fn prepare(
 }
 
 /// Ends dream `id`, once: what it left in its checkout becomes a
-/// commit on `main` and an agent's lodge a commit on its branch,
+/// commit on `main` and an agent's worktree a commit on its branch,
 /// which takes the new `main` in. `last` is how its turn ended.
 pub(super) fn end(
     db: &mut Db,

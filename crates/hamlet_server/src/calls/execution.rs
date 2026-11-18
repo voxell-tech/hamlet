@@ -23,7 +23,7 @@ use crate::attachments::images::Limits;
 use crate::conversations::{Kind, models};
 use crate::core::Core;
 use crate::knowledge::CHARACTER;
-use crate::realm::workspace::serving::Lodging;
+use crate::realm::workspace::serving::RemoteWorktree;
 use crate::tools::builtin::shell::Dialect;
 use crate::tools::builtin::{Network, Outcome, Sight, ToolSession};
 use crate::tools::catalogue::Society;
@@ -245,7 +245,7 @@ impl Core<'_, '_> {
                 .and_then(|change| {
                     serde_json::from_str::<Value>(&change).ok()
                 });
-        let (session, lodging) =
+        let (session, worktree) =
             self.tools_of(call, at.place, net)?;
         let session = session.seeing(self.sight_of(agent)?);
         let secrets = self.credentials.secrets();
@@ -259,18 +259,18 @@ impl Core<'_, '_> {
             reply,
             request,
             async move {
-                // A remote lodge is in step before the call runs
+                // A remote worktree is in step before the call runs
                 // there, and comes home after one that may write it,
                 // before the agent's next call reads it.
-                if let Some(lodging) = &lodging
-                    && let Err(error) = lodging.in_step().await
+                if let Some(worktree) = &worktree
+                    && let Err(error) = worktree.in_step().await
                 {
                     return refused(
                         hamlet_sandbox::scrub::scrub_text(
                             &secrets,
                             &format!(
                                 "The remote workspace could not \
-                                 take the lodge in: {error:#}"
+                                 take the worktree in: {error:#}"
                             ),
                         ),
                     );
@@ -287,14 +287,14 @@ impl Core<'_, '_> {
                     shown.ended_run(code);
                 }
                 if once
-                    && let Some(lodging) = &lodging
-                    && let Err(error) = lodging.pull().await
+                    && let Some(worktree) = &worktree
+                    && let Err(error) = worktree.pull().await
                 {
                     let words = hamlet_sandbox::scrub::scrub_text(
                         &secrets,
                         &format!("{error:#}"),
                     );
-                    warn!("could not bring a lodge home: {words}");
+                    warn!("could not bring a worktree home: {words}");
                 }
                 if let Some(change) = change {
                     outcome
@@ -310,14 +310,14 @@ impl Core<'_, '_> {
     }
 
     /// The session the tools of `call`'s agent run in: the remote
-    /// workspace the realm works in, with the lodge's remote copy
+    /// workspace the realm works in, with the worktree's remote copy
     /// kept in step, else this machine.
     pub(super) fn tools_of(
         &mut self,
         call: &Call<'_>,
         place: crate::tools::builtin::Place,
         network: Network,
-    ) -> Result<(ToolSession, Option<Lodging>)> {
+    ) -> Result<(ToolSession, Option<RemoteWorktree>)> {
         let agent = call.conversation.agent;
         let remote = match call.conversation.kind {
             // A dream works on this machine's checkout of its
@@ -332,7 +332,7 @@ impl Core<'_, '_> {
         Ok(match remote {
             Some(session) => (
                 ToolSession::remote(place, session),
-                self.remote.lodging(
+                self.remote.worktree(
                     &mut self.realm,
                     &self.writing,
                     agent,
@@ -382,7 +382,7 @@ impl Core<'_, '_> {
     }
 }
 
-/// The refusal of a write or edit of `CHARACTER.md` at the lodge's
+/// The refusal of a write or edit of `CHARACTER.md` at the worktree's
 /// root, which is the profile's own.
 fn character_refusal(
     place: &crate::tools::builtin::Place,
@@ -396,9 +396,13 @@ fn character_refusal(
     let full = if path.is_absolute() {
         path.to_owned()
     } else {
-        place.folder.as_deref().unwrap_or(&place.lodge).join(path)
+        place
+            .folder
+            .as_deref()
+            .unwrap_or(&place.worktree)
+            .join(path)
     };
-    (full == place.lodge.join(CHARACTER)).then(|| {
+    (full == place.worktree.join(CHARACTER)).then(|| {
         format!(
             "{CHARACTER} is your profile's character, which only a \
              chief changes. Keep what you learn in memory/ instead."

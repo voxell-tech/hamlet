@@ -13,7 +13,7 @@ fn command(text: &str) -> Step {
 }
 
 #[tokio::test]
-async fn confines_reads_writes_and_the_lodge_with_and_without_a_folder()
+async fn confines_reads_writes_and_the_worktree_with_and_without_a_folder()
  {
     for open in [false, true] {
         let home = Home::new();
@@ -21,9 +21,9 @@ async fn confines_reads_writes_and_the_lodge_with_and_without_a_folder()
         let secret = home.side().join("secret");
         fs::create_dir(&work).unwrap();
         fs::write(&secret, "outside-canary").unwrap();
-        // The lead's lodge, in a hamlet whose id is made once it
+        // The lead's worktree, in a hamlet whose id is made once it
         // is founded.
-        let lodge = home.file("hamlets/{{docs}}/2");
+        let worktree = home.file("hamlets/{{docs}}/2");
         let attempts = [
             (format!("cat '{}'", secret.display()), open),
             (
@@ -35,7 +35,10 @@ async fn confines_reads_writes_and_the_lodge_with_and_without_a_folder()
             ),
             (format!("echo damaged > '{}'", secret.display()), false),
             ("echo damaged > escape".into(), false),
-            (format!("echo own > '{}/own'", lodge.display()), true),
+            (
+                format!("echo own > '{}/own'", worktree.display()),
+                true,
+            ),
             (
                 "echo temporary > \"$TMPDIR/note\"; test -s \
                  \"$TMPDIR/note\""
@@ -67,11 +70,11 @@ async fn confines_reads_writes_and_the_lodge_with_and_without_a_folder()
         )
         .await;
         let ada = s.found("docs", "ada", "keep the docs").await;
-        let lodge = s.home.file(&format!(
+        let worktree = s.home.file(&format!(
             "hamlets/{}/2",
             s.chief.hamlet_id("docs")
         ));
-        let root = if open { &work } else { &lodge };
+        let root = if open { &work } else { &worktree };
         std::os::unix::fs::symlink(&secret, root.join("escape"))
             .unwrap();
         if open {
@@ -109,7 +112,7 @@ async fn confines_reads_writes_and_the_lodge_with_and_without_a_folder()
 }
 
 #[tokio::test]
-async fn the_file_tools_keep_to_the_lodge_and_never_write_a_character()
+async fn the_file_tools_keep_to_the_worktree_and_never_write_a_character()
  {
     let home = Home::new();
     let outside = home.side().join("outside");
@@ -139,16 +142,16 @@ async fn the_file_tools_keep_to_the_lodge_and_never_write_a_character()
     )
     .await;
     let ada = s.found("docs", "ada", "keep the docs").await;
-    let lodge = s
+    let worktree = s
         .home
         .file(&format!("hamlets/{}/2", s.chief.hamlet_id("docs")));
     let now = chat(ada);
     s.chief.open(&now).await;
     s.chief.tell(ada, "Write files.").await;
     s.chief.shows(&now, "Tried.").await;
-    assert!(!lodge.join("CHARACTER.md").exists());
+    assert!(!worktree.join("CHARACTER.md").exists());
     assert!(!outside.exists());
-    assert!(lodge.join("memory/mine.md").is_file());
+    assert!(worktree.join("memory/mine.md").is_file());
     let failed = s
         .chief
         .items(&now)
@@ -187,16 +190,16 @@ async fn reaches_a_listener_only_for_the_approved_network_call() {
     )
     .await;
     let ada = s.found("docs", "ada", "keep the docs").await;
-    let lodge = s
+    let worktree = s
         .home
         .file(&format!("hamlets/{}/2", s.chief.hamlet_id("docs")));
     let now = chat(ada);
     s.chief.open(&now).await;
-    while !lodge.is_dir() {
+    while !worktree.is_dir() {
         tokio::time::sleep(std::time::Duration::from_millis(20))
             .await;
     }
-    fs::write(lodge.join("fetch.sh"), fetch).unwrap();
+    fs::write(worktree.join("fetch.sh"), fetch).unwrap();
 
     // Without leave the sandbox keeps the command off the network.
     s.chief.tell(ada, "Try without leave.").await;
@@ -208,7 +211,7 @@ async fn reaches_a_listener_only_for_the_approved_network_call() {
         .find_map(|i| i.tool)
         .unwrap();
     assert_ne!(first.exit, Some(0));
-    assert_eq!(fs::read(lodge.join("fetched")).unwrap(), b"");
+    assert_eq!(fs::read(worktree.join("fetched")).unwrap(), b"");
 
     // With the chief's leave it reaches the listener.
     s.chief.tell(ada, "Ask for leave.").await;
@@ -227,7 +230,7 @@ async fn reaches_a_listener_only_for_the_approved_network_call() {
     s.chief.choose(&wait.id, Choice::Allow, None).await;
     s.chief.shows(&now, "Fetched.").await;
     assert!(
-        fs::read_to_string(lodge.join("fetched"))
+        fs::read_to_string(worktree.join("fetched"))
             .unwrap()
             .contains("org/large")
     );
@@ -236,5 +239,5 @@ async fn reaches_a_listener_only_for_the_approved_network_call() {
     // The leave was for that call alone.
     s.chief.tell(ada, "Try without leave again.").await;
     s.chief.shows(&now, "Done.").await;
-    assert_eq!(fs::read(lodge.join("fetched")).unwrap(), b"");
+    assert_eq!(fs::read(worktree.join("fetched")).unwrap(), b"");
 }

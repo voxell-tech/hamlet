@@ -16,13 +16,13 @@ whether the skill gets used.
    a chief would use. Not "helper for X".
 4. **Script**: put the working commands in `scripts/`. Take inputs as arguments.
    Prefer python3 with only the standard library, or plain shell.
-5. **Front matter**: add `usage: <the command that runs it>`, from your lodge's
-   root, with example arguments. It is shown beside the description every turn.
+5. **Front matter**: add `usage: <the command that runs it>`, from your
+   worktree's root, with example arguments. It is shown beside the description every turn.
 6. **Body of SKILL.md**: the exact command to run with example arguments, what it
    prints, and what it needs (network access, an API key, a program).
-7. **Test it** by running the exact command from SKILL.md, from your lodge's
+7. **Test it** by running the exact command from SKILL.md, from your worktree's
    root. Do not save a skill you have not run successfully.
-8. **Paths**: always relative to your lodge (`skills/<name>/scripts/<file>`).
+8. **Paths**: always relative to your worktree (`skills/<name>/scripts/<file>`).
 9. **Share it** with `submit_skill` when other agents would use it too; the
    librarian judges it for the library.
 

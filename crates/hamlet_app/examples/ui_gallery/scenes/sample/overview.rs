@@ -64,7 +64,7 @@ pub(super) fn setup(world: &mut World, scene: Scene) {
         name: "The Old Press".into(),
         at: 1000,
         by: "chief".into(),
-        reason: "The harvest is finished. Its lodges are kept."
+        reason: "The harvest is finished. Its worktrees are kept."
             .into(),
     }];
     let mut next = 10;

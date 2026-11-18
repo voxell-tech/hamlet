@@ -14,7 +14,7 @@ neither opens the server's database nor runs an agent.
 Window / terminal -- client protocol --> hamlet_server -- runtime protocol --> pi
                                                |                               |
                                   realm.sqlite, profiles/*.git           harness store
-                                  lodges, sandbox                        conversations
+                                  worktrees, sandbox                     conversations
 ```
 
 The server is a Bevy app with no frame
@@ -59,7 +59,7 @@ it, and it is not edited here.
 | `hamlet_cli` | `hamlet`: process lifecycle, terminal chat, editors and login, without Bevy; and `hamlet_launch`, what an installed app opens (`src/launch.rs`) |
 | `hamlet_server` | `hamlet_server`: the realm's society, its conversations, the gate, budgets, tools, clients, credentials and harness supervision |
 | `hamlet_store` | The realm's database: `schema.sql` with Diesel's tables generated from it, opening and checking it, transactions, markers and jobs, and the typed ids |
-| `hamlet_git` | Profiles' and the library's repositories through gix, with no git program: refs, commits from files, reads, diffs, merges, reverts, versions, history, purging, and the writes that check a lodge out |
+| `hamlet_git` | Profiles' and the library's repositories through gix, with no git program: refs, commits from files, reads, diffs, merges, reverts, versions, history, purging, and the writes that check a worktree out |
 | `hamlet_sandbox` | What confines a command: the bubblewrap and Seatbelt policies, launching, a command's leftovers, and the secrets taken out of what it gives back |
 | `hamlet_os` | The system calls whose form differs by OS, with no C code below them: `fs`, directories held open and what is reached from them one name at a time, never through a link at that name, and the tools' walk, path text and error words; `process`, a command's process tree, started inside its limits and killed whole, and `process::pty`, a command on a pseudo-terminal |
 | `hamlet_app` | `hamlet_app`, the window: its panels, menus, chat and pointer, and the eight examples that draw the world and the panels |
@@ -146,13 +146,13 @@ request under its identity and refuses a changed request under a used one;
 `ids` holds the typed ids and the `Actor` that makes a change.
 
 `hamlet_git` is the only crate that touches a profile's repository
-([ADR 0011](adr/0011-profiles-are-git-repositories-agents-are-branches-lodges-are-checkouts.md)).
+([ADR 0011](adr/0011-profiles-are-git-repositories-agents-are-branches-worktrees-are-checkouts.md)).
 `Repository` creates and opens a bare repository, reads refs and files, commits
 changes or a whole listing of files, merges, reverts, tags, diffs, reads
 history and starts a branch or a repository from another's commit. `purge.rs`
-rewrites a repository without a path. It reads and writes no folder of a lodge
-itself: the server lists a lodge's files with their blob ids and `plan` says
-which writes make the lodge hold a commit.
+rewrites a repository without a path. It reads and writes no folder of a worktree
+itself: the server lists a worktree's files with their blob ids and `plan` says
+which writes make the worktree hold a commit.
 
 ## The server
 
@@ -170,11 +170,11 @@ double of the remote workspace worker.
 | Module | Responsibility and interface |
 |---|---|
 | `lib.rs` | The way in: `create_app`, which makes the app `main` runs from the `Options` (`app/options.rs`) read from the command line, inserts them as a resource and adds `bevy_log`'s `LogPlugin`, the order of the `FollowUpSystems` in `PostUpdate` and the `SendSystems` in `Last`, every area's plugin and the runner. The crate's first comment says in which order to read the rest |
-| `realm.rs`, `realm/` | The realm on disk. `Realm::open` claims a folder, opens its `Store`, checks the `realm.id` pair, and makes a new realm with its first chief and its Hand. `claim.rs` is the claim that keeps other servers out of the folder; `layout.rs`, `Layout`, names every path of the realm's folder; `change.rs`, `Change`, a change in progress: its transaction, its time, its actor and what it touched; `jobs.rs`, `Job`, names each effect a change keeps for after its commit; `settings.rs` the realm's settings with the process's overrides; `credentials.rs` the atomic credentials file and secret removal; `workspace.rs` and `workspace/` the remote workspace: each agent's session there (`serving.rs`) and a lodge's copy kept in step with the server's (`lodges.rs`) |
+| `realm.rs`, `realm/` | The realm on disk. `Realm::open` claims a folder, opens its `Store`, checks the `realm.id` pair, and makes a new realm with its first chief and its Hand. `claim.rs` is the claim that keeps other servers out of the folder; `layout.rs`, `Layout`, names every path of the realm's folder; `change.rs`, `Change`, a change in progress: its transaction, its time, its actor and what it touched; `jobs.rs`, `Job`, names each effect a change keeps for after its commit; `settings.rs` the realm's settings with the process's overrides; `credentials.rs` the atomic credentials file and secret removal; `workspace.rs` and `workspace/` the remote workspace: each agent's session there (`serving.rs`) and a worktree's copy kept in step with the server's (`worktrees.rs`) |
 | `app.rs`, `app/` | The server's app shell; `app::plugin` adds its plugins. `input.rs`: everything that wakes the server (a runtime's line, a client's message or connection, a tool run that ended, a task that finished, the jobs runner's pass, a change to the tools added by hand) sends its message through the one `InputSender`; a connection holds at most a few of its messages waiting, so a client that floods slows only itself. `add_handler` adds an area's system for one kind of input message, run only when one came, which drains every one of them from its `Messages`; `InputOrigin` names who is told when an input fails. `runner.rs`: the app's runner updates the app a first time, then `Server` takes each `Input`, or a timer that came due, writes its message and updates the app once, in one transaction, until the app exits; a signal is an input that asks it to stop. `failure.rs`: it logs what failed, and only a `Fatal` error stops it. `shutdown.rs` is how it stops: the `Serving` state goes from `Open` to `Closing` (no new client, every connection closed, every sign-in ended, a credential rotation begun given 15 s) to `Stopping` (tool runs ended, runtimes stopped), and then the app exits. `startup.rs` is the first update: `PreStartup` opens the sandbox, the realm, the credentials, the providers, the jobs runner, the harness, the watch on the tools added by hand, the clients and the listener, each a resource; `Startup` starts them; and `server.json` is published once the update is over; `follow_up.rs` those of `PostUpdate` and `Last`: the input kept or rolled back and its sender told, then followed, with the observers that follow an input that ended, and what it queued sent; `tasks.rs` runs what awaits on tasks; `timers.rs` the timers each area adds; `options.rs` what the server is started with; `clock.rs` the clock; `fault.rs` the fault points |
 | `core.rs` | Each area's plugin inserts the resources it keeps. `Core` is the realm's live state as handlers reach it, a `SystemParam` of the world's resources and queries, some grouped as params of their own (`ModelTools`, `RemoteWorkspace`, `Uploads`) that narrower systems take alone, with `change` and `attempt` (the second rolling back a refusal, its result a `Done`) |
 | `society.rs`, `society/` | The society's domain functions, each taking a `Change`: `agents` (what every agent has), `chiefs`, `hand`, `city` (profiles), `hamlets`, `hamlet_agents`, `tree`, `workers`, `roads`, `merges`, `dreams`, `library`, `record` (decisions), `limits`, `addresses`, `names` and `authority`, the one place that says who may do what. `oversight.rs` and `oversight/gate.rs` are waits, their rulings and lapses, and the gate: reach, reserved acts, manual mode, trust and grants; `spend.rs` is budgets and allowances: attempts admitted against them, usage charged once, budget resets and reports. A refusal is a `Refusal`, in words for a chief or an agent |
-| `knowledge.rs`, `knowledge/` | What agents know, on disk: `run.rs` and `worker.rs` run the jobs on a thread of their own with a connection of their own (plant, lodge, commit, take-in, erase); `folder.rs` is a folder held open and reached without following links; `merges.rs`, `dreams.rs` and `library.rs` are the repositories' side of merging agents, dreams and the library |
+| `knowledge.rs`, `knowledge/` | What agents know, on disk: `run.rs` and `worker.rs` run the jobs on a thread of their own with a connection of their own (plant, worktree, commit, take-in, erase); `folder.rs` is a folder held open and reached without following links; `merges.rs`, `dreams.rs` and `library.rs` are the repositories' side of merging agents, dreams and the library |
 | `runtimes.rs`, `runtimes/` | The harness runtime processes, their lines, and what each is sent. `runtimes.rs` starts the pi runtime, an entity whose lines are entities related to it until written or answered, takes it on or refuses it at its hello, and starts it again after a failure; `process.rs` is its process and its lines on standard input and output; `handlers.rs` runs the system for each runtime message, those of the lifecycle of runtimes and conversations in `handlers/lifecycle.rs`, of a running turn in `handlers/turns.rs`, and of credentials and providers in `handlers/providers.rs`; `reconciliation.rs` sends each ready runtime what its conversations are owed; `leases.rs` holds credential leases |
 | `conversations.rs`, `conversations/` | Conversations, their inputs and turns, prompts, and what follows an input's end. `conversations.rs` keeps the conversations; `inputs.rs` the inputs they are given and `items.rs` the entries their runtime kept; `turns.rs` answers what a runtime requests during a turn; `completion.rs` runs once after an input ends; `imports.rs` brings in another program's project as a hamlet with an agent for each conversation, and holds each conversation until its runtime makes it; `dreams.rs` is when agents dream: the hours, who is due, and `/dream`; `chats.rs`, `reflections.rs`, `letters.rs`, `errands.rs`, `briefs.rs`, `questions.rs`, `verdicts.rs` and `tasks.rs` are chats, reflection, letters and questions, one-off errands, a worker's brief, `ask_chief`, the check of a final answer, and tasks; `marks.rs` is what an input is, as its runtime keeps it; `models.rs` picks each agent's model; `activity.rs` folds what an agent is doing |
 | `conversations/prompt.rs`, `conversations/prompt/place.rs` | `sections` builds the prompt from the charter, machine, project, character, memory, skills, place, realm and profiles |
@@ -191,7 +191,7 @@ conversations, inputs, waits, charges, markers and jobs. It does not hold
 pi's authoritative transcript. Each runtime opens only its own store under
 `harnesses/<instance>/`; the server consumes committed updates through the
 runtime protocol. A profile's knowledge, the Hand's included, is in
-`profiles/<id>.git`, and a lodge is a folder of the realm. See
+`profiles/<id>.git`, and a worktree is a folder of the realm. See
 [`realm.md`](realm.md).
 
 ## The pi harness

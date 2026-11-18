@@ -223,8 +223,8 @@ fn agent_view(
     };
     let skills = match found.kind {
         AgentKind::Worker => Vec::new(),
-        _ => knowledge::lodging(db, sources.layout, id)
-            .map(|lodging| lodge_skills(&lodging.path))
+        _ => knowledge::worktree(db, sources.layout, id)
+            .map(|worktree| worktree_skills(&worktree.path))
             .unwrap_or_default(),
     };
     Ok(protocol::Agent {
@@ -282,9 +282,10 @@ fn agent_view(
     })
 }
 
-/// The names of the skills in a lodge's `skills/`.
-fn lodge_skills(lodge: &std::path::Path) -> Vec<String> {
-    let Ok(entries) = std::fs::read_dir(lodge.join("skills")) else {
+/// The names of the skills in a worktree's `skills/`.
+fn worktree_skills(worktree: &std::path::Path) -> Vec<String> {
+    let Ok(entries) = std::fs::read_dir(worktree.join("skills"))
+    else {
         return Vec::new();
     };
     let mut names = entries
@@ -421,8 +422,8 @@ fn hamlet_view(
             Mode::Auto => protocol::HamletMode::Auto,
         },
         mode_words: match (place.mode, place.folder.is_some()) {
-            (_, false) => "Agents work in their lodges; no folder \
-                           is chosen."
+            (_, false) => "Agents work in their worktrees; no \
+                           folder is chosen."
                 .into(),
             (Mode::Manual, true) => "Agents wait for your approval \
                                      before each edit and command \

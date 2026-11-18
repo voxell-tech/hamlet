@@ -227,7 +227,7 @@ pub enum Check {
     Clone, Debug, PartialEq, Serialize, Deserialize, JsonSchema,
 )]
 #[serde(deny_unknown_fields)]
-pub struct MoveLodges {
+pub struct MoveWorktrees {
     pub id: RequestId,
 }
 

@@ -13,9 +13,9 @@ kernel/host policy that allows its namespaces; installing the executable
 alone is not sufficient.
 
 `tools/builtin.rs` builds the policy from the server-owned `Place`: the agent's
-lodge (or a worker's scratch folder), the folder its hamlet works on, the
+worktree (or a worker's scratch folder), the folder its hamlet works on, the
 realm's folder (never read) and what is only read, the library, the tools
-added by hand. The images saved with a line are in the agent's own lodge, under
+added by hand. The images saved with a line are in the agent's own worktree, under
 `inbox/images/`, and the files under `inbox/`, so an agent reads only what was
 given to it; what another agent sends with `tell` or `ask` lands under
 `inbox/from-<sender>/`, read from the sender's own reach without following
@@ -24,9 +24,9 @@ harness has no host-tool implementation; it submits operations to the
 server (see [the harness](harness.md)). `society/oversight/gate.rs` decides admission and `calls/execution.rs` checks permissions at execution, including
 after approval or replay.
 
-Without a folder, commands write in their own lodge and a private temporary
+Without a folder, commands write in their own worktree and a private temporary
 space. They run the system's programs and Homebrew's (`/opt/homebrew` on
-macOS, `/home/linuxbrew/.linuxbrew` on Linux). Other lodges, credentials and
+macOS, `/home/linuxbrew/.linuxbrew` on Linux). Other worktrees, credentials and
 the database are not readable. Network
 use is separately gated by the settings and permissions. A shell request that
 needs the network while it is off can wait for the chief's grant. An approval
@@ -48,15 +48,15 @@ Windows has none yet either.
 ## A folder a hamlet works on
 
 The chief chooses a local folder for a hamlet. Its agents then work there,
-with their own memory, skills and inbox still in their lodges. Relative
-paths go to the folder, except those whose first part is in the lodge
-(`memory/`, `skills/`, `inbox/`), which go to the lodge even while the current
+with their own memory, skills and inbox still in their worktrees. Relative
+paths go to the folder, except those whose first part is in the worktree
+(`memory/`, `skills/`, `inbox/`), which go to the worktree even while the current
 directory is the folder.
 
-Manual mode asks before edits to the folder and commands; reading and lodge
+Manual mode asks before edits to the folder and commands; reading and worktree
 edits remain available. Auto mode allows work without those waits but does
 not remove the sandbox. With a folder, commands can read the machine's
-ordinary files and write the folder and the lodge; the realm's folder is
+ordinary files and write the folder and the worktree; the realm's folder is
 hidden.
 
 Agents use the chief's own git and machine credentials in that folder.
@@ -97,7 +97,7 @@ name the flag. Linux and macOS refuse the flag before the server opens its
 realm. The server prints a warning banner before it serves.
 
 In insecure mode, commands run with the server account's full reach, in the
-lodge as their working folder. The built-in file tools keep their reach,
+worktree as their working folder. The built-in file tools keep their reach,
 because they walk the policy themselves. Nothing enforces the network switch:
 it decides only which commands wait for a chief. The prompt says commands are
 not confined, and the policy hash names `insecure`. Each command runs in a Job
@@ -117,17 +117,18 @@ the server offers only `powershell`. On Linux and macOS it offers `bash`.
 
 Settings can name a workspace URL and token (kept in `credentials.json`). The
 server then runs the agents' tools on that machine: `realm/workspace.rs`
-and `realm/workspace/` in `hamlet_server` send authenticated requests to the worker, which gives each agent a `/lodge`,
+and `realm/workspace/` in `hamlet_server` send authenticated requests to the worker, which gives each agent a `/worktree`,
 its hamlet's `/project` and the library at `/library`. The requests and their
 replies are typed once in `hamlet_workspace_wire`, and `hamlet_workspace`
-supplies the Linux worker. The server's lodge holds what git keeps; the remote
-`/lodge` is where the tools write during a turn, so the two are kept in step
-(`realm/workspace/lodges.rs`) against the files they last held alike: a push sends
+supplies the Linux worker. The worktree is the agent's folder; the workspace is
+the machine it is copied to. The server's worktree holds what git keeps; the
+remote `/worktree` is where the tools write during a turn, so the two are kept in
+step (`realm/workspace/worktrees.rs`) against the files they last held alike: a push sends
 what the server changed since, after the server changed it, and a pull brings
 home what the remote copy changed since, after a tool may have written it.
-Neither undoes the other's changes. A lodge not in step since the server
+Neither undoes the other's changes. A worktree not in step since the server
 started is pushed whole before its first remote call, so the server's copy
-stands. Moving every lodge to the workspace happens at a chief's word. A
+stands. Moving every worktree to the workspace happens at a chief's word. A
 dream works on the server's checkout of its profile, never remotely. Remote
 execution never falls back to the host's files or commands.
 

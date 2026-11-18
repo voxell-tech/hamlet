@@ -1,5 +1,5 @@
 //! Agents of hamlets: profiles working in a hamlet, each with a
-//! branch, a lodge and a place in the hamlet's tree.
+//! branch, a worktree and a place in the hamlet's tree.
 
 use anyhow::{Context, Result};
 use diesel::prelude::*;
@@ -140,7 +140,7 @@ pub(crate) fn add(cx: &mut Change<'_>, spec: Spec) -> Done<NewAgent> {
             hamlet_agent::pin.eq(&pin),
         ))
         .execute(cx.db)?;
-    jobs::add(cx, &Job::Lodge { agent })?;
+    jobs::add(cx, &Job::Worktree { agent })?;
     record::keep(
         cx,
         Decision::new(DecisionKind::Added, &spec.reason)
@@ -382,7 +382,7 @@ pub(crate) fn come_back(
         ))
         .execute(cx.db)?;
     agents::come_back(cx, id)?;
-    jobs::add(cx, &Job::Lodge { agent: id })?;
+    jobs::add(cx, &Job::Worktree { agent: id })?;
     record::keep(
         cx,
         Decision::new(DecisionKind::Restored, reason)
@@ -395,7 +395,7 @@ pub(crate) fn come_back(
     Ok(Ok(()))
 }
 
-/// Erases the ended agent `id` for good: its lodge and branch go.
+/// Erases the ended agent `id` for good: its worktree and branch go.
 pub(crate) fn erase(cx: &mut Change<'_>, id: AgentId) -> Done<()> {
     let agent = get(cx.db, id)?;
     let ended = agents::get(cx.db, id)?;

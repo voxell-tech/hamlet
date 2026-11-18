@@ -251,14 +251,14 @@ impl Core<'_, '_> {
         let label = city::get(db, profile)?.label();
         let instructions = match hamlet_agent {
             Some(hamlet_agent) => {
-                let lodge =
-                    knowledge::lodging(db, &layout, hamlet_agent)?
+                let worktree =
+                    knowledge::worktree(db, &layout, hamlet_agent)?
                         .path;
                 let who = addresses::name_of(db, hamlet_agent)?;
                 format!(
                     "You are dreaming, between your work as \
                      `{who}`, an agent of the profile `{label}`. \
-                     Your lodge at {} holds what you learned as \
+                     Your worktree at {} holds what you learned as \
                      this agent: your memory/ and skills/. \
                      `{label}`'s shared knowledge, its main, is \
                      checked out at {}; every agent of `{label}` \
@@ -266,14 +266,14 @@ impl Core<'_, '_> {
                      what any agent of `{label}` would want to \
                      know: move or merge it into the checkout's \
                      memory/ and skills/, written for a reader who \
-                     was not there. Keep in your lodge what only \
+                     was not there. Keep in your worktree what only \
                      this agent needs. Tidy as you go: one fact in \
                      one place, nothing stale, the root memory \
                      files short, and a true `description:` on \
                      every memory file. Do not change CHARACTER.md. \
                      When done, answer in one line what you brought \
                      home, or `Nothing to bring home.`",
-                    lodge.display(),
+                    worktree.display(),
                     checkout.display()
                 )
             }

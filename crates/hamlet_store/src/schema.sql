@@ -139,7 +139,7 @@ CREATE TABLE hand (
 ) STRICT;
 
 -- A profile working in a hamlet. Its branch is agents/<agent> in its
--- profile's repository and its lodge hamlets/<hamlet>/<agent>/. An
+-- profile's repository and its worktree hamlets/<hamlet>/<agent>/. An
 -- agent with no parent is under the Hand. `base` is the commit of
 -- `main`, or of its pin, its branch last took in.
 CREATE TABLE hamlet_agent (

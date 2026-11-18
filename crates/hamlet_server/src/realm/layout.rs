@@ -58,7 +58,7 @@ impl Layout {
         self.root.join("terminals")
     }
 
-    /// The Hand's lodge.
+    /// The Hand's worktree.
     pub fn hand(&self) -> PathBuf {
         self.root.join("hand")
     }
@@ -67,13 +67,13 @@ impl Layout {
         self.root.join("hamlets")
     }
 
-    /// The folder of a hamlet's lodges.
+    /// The folder of a hamlet's worktrees.
     pub fn hamlet(&self, hamlet: &HamletId) -> PathBuf {
         self.hamlets().join(hamlet.as_str())
     }
 
-    /// An agent's lodge, in its hamlet's folder under its id.
-    pub fn lodge(
+    /// An agent's worktree, in its hamlet's folder under its id.
+    pub fn worktree(
         &self,
         hamlet: &HamletId,
         agent: AgentId,

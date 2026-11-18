@@ -126,7 +126,7 @@ async fn names_pins_reverts_and_forks_versions() {
 }
 
 #[tokio::test]
-async fn purges_a_file_from_every_commit_and_lodge() {
+async fn purges_a_file_from_every_commit_and_worktree() {
     let mut s = Session::start(Faux::new()).await;
     let hand = s.hand();
     let docs = s.found("docs", "ada", "keep the docs").await;

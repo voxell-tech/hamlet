@@ -1,4 +1,4 @@
-//! What agents know: profiles' repositories, the lodges the agents
+//! What agents know: profiles' repositories, the worktrees the agents
 //! of hamlets and the Hand work in, and the jobs that keep them.
 
 pub(crate) mod dreams;
@@ -25,20 +25,21 @@ pub(crate) fn plugin(app: &mut bevy_app::App) {
 /// The character's file in a profile's repository.
 pub(crate) const CHARACTER: &str = "CHARACTER.md";
 
-/// Whether a lodge keeps `path` out of git: the character, which no
-/// agent writes (C13), and the inbox, whose files are not knowledge.
+/// Whether a worktree keeps `path` out of git: the character, which
+/// no agent writes (C13), and the inbox, whose files are not
+/// knowledge.
 pub(crate) fn outside_git(path: &str) -> bool {
     path == CHARACTER || path == "inbox" || path.starts_with("inbox/")
 }
 
-/// The branch of an agent's lodge.
+/// The branch of an agent's worktree.
 pub(crate) fn branch(agent: AgentId) -> String {
     format!("agents/{agent}")
 }
 
-/// Whose a lodge is, of which profile, and where it is.
+/// Whose a worktree is, of which profile, and where it is.
 #[derive(Clone, Debug, PartialEq)]
-pub(crate) struct Lodging {
+pub(crate) struct Worktree {
     pub agent: AgentId,
     pub profile: ProfileId,
     pub path: PathBuf,
@@ -46,15 +47,15 @@ pub(crate) struct Lodging {
     pub living: bool,
 }
 
-/// The lodge of the Hand or the agent `agent` of a hamlet.
-pub(crate) fn lodging(
+/// The worktree of the Hand or the agent `agent` of a hamlet.
+pub(crate) fn worktree(
     db: &mut Db,
     layout: &Layout,
     agent: AgentId,
-) -> Result<Lodging> {
+) -> Result<Worktree> {
     let found = agents::get(db, agent)?;
     match found.kind {
-        AgentKind::Hand => Ok(Lodging {
+        AgentKind::Hand => Ok(Worktree {
             agent,
             profile: hand::profile(db)?,
             path: layout.hand(),
@@ -63,15 +64,17 @@ pub(crate) fn lodging(
         }),
         AgentKind::Hamlet => {
             let placed = hamlet_agents::get(db, agent)?;
-            Ok(Lodging {
+            Ok(Worktree {
                 agent,
                 profile: placed.profile,
-                path: layout.lodge(&placed.hamlet, placed.agent),
+                path: layout.worktree(&placed.hamlet, placed.agent),
                 pin: placed.pin,
                 living: found.is_living(),
             })
         }
-        AgentKind::Worker => anyhow::bail!("a worker has no lodge"),
+        AgentKind::Worker => {
+            anyhow::bail!("a worker has no worktree")
+        }
     }
 }
 

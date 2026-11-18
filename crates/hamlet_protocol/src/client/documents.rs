@@ -26,7 +26,7 @@ pub enum Edit {
         profile: ProfileId,
         text: String,
     },
-    /// A memory file of a profile's `main` or an agent's lodge, by
+    /// A memory file of a profile's `main` or an agent's worktree, by
     /// its path under `memory/`; empty text removes it.
     #[serde(rename = "memory")]
     Memory {
@@ -254,7 +254,7 @@ pub struct Charter {
 }
 
 /// Whose knowledge an edit or a read is of: a profile's `main`, or an
-/// agent's lodge laid over its profile.
+/// agent's worktree laid over its profile.
 #[derive(
     Clone,
     Copy,
@@ -271,14 +271,15 @@ pub enum Keeper {
     Agent(AgentId),
 }
 
-/// A profile's knowledge, or what an agent sees of it in its lodge.
+/// A profile's knowledge, or what an agent sees of it in its
+/// worktree.
 #[derive(
     Clone, Debug, PartialEq, Serialize, Deserialize, JsonSchema,
 )]
 #[serde(deny_unknown_fields)]
 pub struct Papers {
     pub character: String,
-    /// The paths of the files the agent's lodge changed, added or
+    /// The paths of the files the agent's worktree changed, added or
     /// removed against its profile; empty for a profile.
     pub learned: Vec<String>,
     pub memory: Vec<MemoryFile>,

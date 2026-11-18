@@ -17,7 +17,7 @@ use hamlet_workspace_wire::{
 use super::truncate::{MAX_BYTES, MAX_LINES};
 use super::walk::{SKIPPED, VISITED};
 use crate::realm::workspace::Session;
-use crate::realm::workspace::lodges::LODGE;
+use crate::realm::workspace::worktrees::WORKTREE;
 
 /// Said where a call lost the environment it works in.
 const LOST: &str = "The tool's environment was lost. Tell the chief.";
@@ -26,7 +26,7 @@ const LOST: &str = "The tool's environment was lost. Tell the chief.";
 pub(super) trait Reach {
     /// The folder commands run in.
     fn cwd(&self) -> &str;
-    fn lodge(&self) -> &str;
+    fn worktree(&self) -> &str;
     /// The folder the hamlet works on.
     fn folder(&self) -> Option<&str>;
 
@@ -97,17 +97,17 @@ pub(super) trait Reach {
         &mut self,
         path: &str,
     ) -> Result<String, FileError> {
-        let lodge = self.lodge().to_owned();
+        let worktree = self.worktree().to_owned();
         let folder = self.folder().map(str::to_owned);
-        let own = match super::firsts(path, &lodge, folder.as_deref())
-        {
-            Some([folder, lodge]) => {
-                !self.exists(&folder).await?
-                    && self.exists(&lodge).await?
-            }
-            None => false,
-        };
-        Ok(super::footing(path, &lodge, folder.as_deref(), own))
+        let own =
+            match super::firsts(path, &worktree, folder.as_deref()) {
+                Some([folder, worktree]) => {
+                    !self.exists(&folder).await?
+                        && self.exists(&worktree).await?
+                }
+                None => false,
+            };
+        Ok(super::footing(path, &worktree, folder.as_deref(), own))
     }
 }
 
@@ -128,7 +128,7 @@ pub(super) struct Local {
     policy: String,
     degraded: serde_json::Value,
     cwd: String,
-    lodge: String,
+    worktree: String,
     folder: Option<String>,
 }
 
@@ -153,7 +153,7 @@ impl Local {
             cwd: env.cwd().to_owned(),
             env: Some(env),
             leftovers,
-            lodge: path::text(&place.lodge),
+            worktree: path::text(&place.worktree),
             folder: place.folder.as_deref().map(path::text),
         })
     }
@@ -184,8 +184,8 @@ impl Reach for Local {
         &self.cwd
     }
 
-    fn lodge(&self) -> &str {
-        &self.lodge
+    fn worktree(&self) -> &str {
+        &self.worktree
     }
 
     fn folder(&self) -> Option<&str> {
@@ -328,7 +328,7 @@ impl Reach for Local {
 /// Where a remote workspace's agent finds its hamlet's project.
 pub(crate) const PROJECT: &str = "/project";
 
-/// A remote workspace's `/lodge` and `/project`.
+/// A remote workspace's `/worktree` and `/project`.
 pub(super) struct Remote {
     session: Session,
 }
@@ -394,12 +394,12 @@ impl Reach for Remote {
         if self.session.policy().project {
             PROJECT
         } else {
-            LODGE
+            WORKTREE
         }
     }
 
-    fn lodge(&self) -> &str {
-        LODGE
+    fn worktree(&self) -> &str {
+        WORKTREE
     }
 
     fn folder(&self) -> Option<&str> {
@@ -508,7 +508,7 @@ impl Reach for Remote {
     }
 
     /// The workspace gives the output whole, so it reaches `output`
-    /// once, and what is spilled is written to the lodge.
+    /// once, and what is spilled is written to the worktree.
     async fn exec(
         &mut self,
         argv: &[String],
@@ -542,7 +542,7 @@ impl Reach for Remote {
             || text.lines().count() > MAX_LINES
         {
             let path = format!(
-                "{LODGE}/.tmp/bash-{}/output.txt",
+                "{WORKTREE}/.tmp/bash-{}/output.txt",
                 uuid::Uuid::new_v4()
             );
             self.write_file(&path, &text).await.map_err(|error| {
@@ -573,7 +573,11 @@ impl Reach for Remote {
         let policy = self.session.policy();
         format!(
             "workspace:{}:{}:{}",
-            if policy.project { "project" } else { "lodge" },
+            if policy.project {
+                "project"
+            } else {
+                "worktree"
+            },
             if policy.network {
                 "public-http-proxy"
             } else {

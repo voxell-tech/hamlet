@@ -215,13 +215,13 @@ impl Core<'_, '_> {
         let from =
             addresses::address_of(db, call.conversation.agent)?
                 .replace('#', "-");
-        let (session, lodging) =
+        let (session, worktree) =
             self.tools_of(call, at.place, Network::Closed)?;
         let inbox = self
             .open_inbox(receiver, &format!("{INBOX}/from-{from}"))?;
         Ok(Look::Copy {
             session,
-            lodging,
+            worktree,
             paths: paths.to_vec(),
             inbox: Box::new(inbox),
             images: layout.images(),

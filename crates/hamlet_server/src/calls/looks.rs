@@ -16,7 +16,7 @@ use hamlet_store::ids::AgentId;
 
 use super::CallId;
 use crate::attachments::inbox::Inbox;
-use crate::realm::workspace::serving::Lodging;
+use crate::realm::workspace::serving::RemoteWorktree;
 use crate::society::refusal::Refusal;
 use crate::tools::builtin::ToolSession;
 use crate::tools::builtin::parcel::To;
@@ -102,7 +102,7 @@ impl LookFindings<'_, '_> {
     }
 
     /// Keeps what a look of `call` found, once the input's commands
-    /// apply. Gives the agent whose lodge it wrote into, when it
+    /// apply. Gives the agent whose worktree it wrote into, when it
     /// copied files.
     pub fn found(
         &mut self,
@@ -143,19 +143,19 @@ pub(crate) enum Look {
     /// The files under `paths` a parcel would send.
     Measure {
         session: ToolSession,
-        lodging: Option<Lodging>,
+        worktree: Option<RemoteWorktree>,
         paths: Vec<String>,
     },
     /// The file at `path`, as it is now.
     Preview {
         session: ToolSession,
-        lodging: Option<Lodging>,
+        worktree: Option<RemoteWorktree>,
         path: String,
     },
     /// The files under `paths`, copied into `receiver`'s `inbox`.
     Copy {
         session: ToolSession,
-        lodging: Option<Lodging>,
+        worktree: Option<RemoteWorktree>,
         paths: Vec<String>,
         inbox: Box<Inbox>,
         /// The folder of kept images.
@@ -176,7 +176,7 @@ pub(crate) enum Found {
 
 impl Look {
     /// Looks, with `secrets` taken out of what it says. A remote
-    /// workspace has the lodge in step first.
+    /// workspace has the worktree in step first.
     pub async fn run(self, secrets: Vec<String>) -> Found {
         let scrubbed = |error: anyhow::Error| Refusal::LookFailed {
             error: hamlet_sandbox::scrub::scrub_text(
@@ -184,17 +184,17 @@ impl Look {
                 &format!("{error:#}"),
             ),
         };
-        let lodging = match &self {
-            Self::Measure { lodging, .. }
-            | Self::Preview { lodging, .. }
-            | Self::Copy { lodging, .. } => lodging.clone(),
+        let worktree = match &self {
+            Self::Measure { worktree, .. }
+            | Self::Preview { worktree, .. }
+            | Self::Copy { worktree, .. } => worktree.clone(),
         };
-        let unready = match lodging {
-            Some(lodging) => {
-                lodging.in_step().await.err().map(|error| {
+        let unready = match worktree {
+            Some(worktree) => {
+                worktree.in_step().await.err().map(|error| {
                     scrubbed(error.context(
                         "The remote workspace could not take the \
-                         lodge in",
+                         worktree in",
                     ))
                 })
             }

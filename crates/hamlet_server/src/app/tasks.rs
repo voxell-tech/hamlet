@@ -22,7 +22,7 @@ use hamlet_protocol::runtime::RuntimeMessage;
 use super::input::InputSender;
 use crate::calls::CallId;
 use crate::calls::looks::Found;
-use crate::core::{Core, UnpushedLodge};
+use crate::core::{Core, UnpushedWorktree};
 use crate::runtimes::handlers;
 
 /// Where tasks send their results, as inputs, and the system that
@@ -68,7 +68,7 @@ fn take_in_finished(
                     {
                         core.remote
                             .unpushed
-                            .write(UnpushedLodge(receiver));
+                            .write(UnpushedWorktree(receiver));
                     }
                     // A runtime that started again since sends it
                     // again.
@@ -91,8 +91,8 @@ fn take_in_finished(
 pub(crate) enum BackgroundResult {
     /// A message for a client, such as an image it requested to read.
     Reply { client: u64, message: ServerMessage },
-    /// The progress of moving the lodges, and the answer once it is
-    /// over.
+    /// The progress of moving the worktrees, and the answer once it
+    /// is over.
     Moving {
         progress: SettingsViewWorkspaceMove,
         answer: Option<(u64, ServerMessage)>,

@@ -63,7 +63,7 @@ includes uploads never sent with a line.
 A file a chief attaches (C33) is kept the same way in the realm's `files/`
 folder, of any kind and at most 256 MiB, and a client names it by its id and
 the name the agent finds it under. The server copies each file named by a line
-into the `inbox/` of the agent's lodge, and into its remote workspace when
+into the `inbox/` of the agent's worktree, and into its remote workspace when
 there is one; the realm's folder of files is never in any agent's reach. A
 file named by no kept input, transcript item or tool result, last touched a day
 ago, is removed.
@@ -109,11 +109,11 @@ refused leaves nothing. What the clients see again after a change is what that
 transaction touched.
 
 **S27.** A change that needs an effect after it commits, such as making a
-repository, checking out or committing a lodge, merging or erasing, keeps the
-effect as a job in the same transaction. Jobs run after the commit, on a
+repository, checking out or committing a worktree, merging or erasing, keeps
+the effect as a job in the same transaction. Jobs run after the commit, on a
 thread of their own, and again after a crash until they are done, and each is
-safe to run twice (ADR 0012). A repository or a lodge is changed only by the
-server.
+safe to run twice (ADR 0012). A repository or a worktree is changed only by
+the server.
 
 **S28.** The client protocol, the runtime protocol, the workspace protocol and
 the realm's database each carry a version in semver, and all stay at 0.1.0
@@ -129,7 +129,7 @@ keeps the rules (ADR 0001).
 **S17.** An agent has a harness for its new conversations. A conversation
 stays with the harness, and the version of it, it began in, for as long as
 it is kept. Changing an agent's harness changes only its later
-conversations, and keeps its identity, lodge, roads and permissions.
+conversations, and keeps its identity, worktree, roads and permissions.
 
 **S18.** The server allows every tool call and every change to the record
 when it is carried out, under the permissions, waits, limits and budget as

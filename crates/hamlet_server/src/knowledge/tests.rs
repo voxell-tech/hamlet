@@ -7,34 +7,36 @@ use crate::society::hamlet_agents;
 use crate::testing::Realm;
 
 #[test]
-fn an_agent_learns_in_its_lodge_and_takes_in_its_profile() {
+fn an_agent_learns_in_its_worktree_and_takes_in_its_profile() {
     let mut realm = Realm::new();
     let layout = realm.layout();
     let lead = realm.found("docs", "ada");
     realm.work();
-    let lodge = layout.lodge(&lead.hamlet, lead.agent);
-    assert!(lodge.is_dir());
+    let worktree = layout.worktree(&lead.hamlet, lead.agent);
+    assert!(worktree.is_dir());
     assert!(layout.hand().is_dir());
     assert!(
-        !lodge.join(CHARACTER).exists(),
+        !worktree.join(CHARACTER).exists(),
         "the character stays out"
     );
 
-    std::fs::create_dir_all(lodge.join("memory")).unwrap();
-    std::fs::write(lodge.join("memory/notes.md"), "learned").unwrap();
-    std::fs::write(lodge.join(CHARACTER), "I am free now.").unwrap();
-    std::fs::create_dir_all(lodge.join("inbox")).unwrap();
-    std::fs::write(lodge.join("inbox/file.bin"), "big").unwrap();
+    std::fs::create_dir_all(worktree.join("memory")).unwrap();
+    std::fs::write(worktree.join("memory/notes.md"), "learned")
+        .unwrap();
+    std::fs::write(worktree.join(CHARACTER), "I am free now.")
+        .unwrap();
+    std::fs::create_dir_all(worktree.join("inbox")).unwrap();
+    std::fs::write(worktree.join("inbox/file.bin"), "big").unwrap();
     let at = realm.at;
     let learned = run::commit(realm.db(), &layout, lead.agent, at)
         .unwrap()
-        .expect("the lodge changed");
+        .expect("the worktree changed");
     let repo =
         Repository::open(&layout.repository(lead.profile)).unwrap();
     assert_eq!(
         repo.read(learned, CHARACTER).unwrap().as_deref(),
         Some(&b"Careful."[..]),
-        "a lodge never changes its character"
+        "a worktree never changes its character"
     );
     assert_eq!(repo.read(learned, "inbox/file.bin").unwrap(), None);
 
@@ -59,12 +61,12 @@ fn an_agent_learns_in_its_lodge_and_takes_in_its_profile() {
     )
     .unwrap();
     assert_eq!(
-        std::fs::read_to_string(lodge.join("skills/git/SKILL.md"))
+        std::fs::read_to_string(worktree.join("skills/git/SKILL.md"))
             .unwrap(),
         "Small commits."
     );
     assert_eq!(
-        std::fs::read_to_string(lodge.join("memory/notes.md"))
+        std::fs::read_to_string(worktree.join("memory/notes.md"))
             .unwrap(),
         "learned"
     );
@@ -104,7 +106,7 @@ fn an_agent_learns_in_its_lodge_and_takes_in_its_profile() {
         .chief(|cx| hamlet_agents::erase(cx, other.agent))
         .unwrap();
     realm.work();
-    assert!(!layout.lodge(&other.hamlet, other.agent).exists());
+    assert!(!layout.worktree(&other.hamlet, other.agent).exists());
     let theirs =
         Repository::open(&layout.repository(other.profile)).unwrap();
     assert_eq!(theirs.tip(&branch(other.agent)).unwrap(), None);
@@ -136,8 +138,8 @@ fn a_merge_keeps_both_sides_learning_and_a_split_takes_it_out() {
         })
         .unwrap();
     realm.work();
-    let kept = layout.lodge(&docs, lead.agent);
-    let absorbed = layout.lodge(&docs, scout.agent);
+    let kept = layout.worktree(&docs, lead.agent);
+    let absorbed = layout.worktree(&docs, scout.agent);
     let write = |at: &std::path::Path, path: &str, text: &str| {
         let path = at.join(path);
         std::fs::create_dir_all(path.parent().unwrap()).unwrap();

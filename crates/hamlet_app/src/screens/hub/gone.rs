@@ -63,8 +63,8 @@ pub(super) fn ruin(agent: Entity) -> impl View {
             column((
                 head,
                 super::thread::said(purpose),
-                dim("Its lodge is kept in the archive. Deleting it \
-                     frees the space on disk."),
+                dim("Its worktree is kept in the archive. Deleting \
+                     it frees the space on disk."),
                 buttons(vec![
                     tinted_action(
                         StatusKind::Success,

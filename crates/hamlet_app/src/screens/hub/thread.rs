@@ -1300,8 +1300,8 @@ mod tests {
                 .iter()
                 .any(|text| text == "Character refused")
         );
-        // A memory file of the agent's lodge is edited the same way,
-        // and removed by sending no text.
+        // A memory file of the agent's worktree is edited the same
+        // way, and removed by sending no text.
         super::super::papers::edit_memory(
             app.world_mut(),
             "farm/pears.md".into(),

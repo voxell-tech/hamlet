@@ -12,7 +12,7 @@ use hamlet_store::ids::{Actor, MergeId};
 
 use super::folder::Folder;
 use super::run::{check_out, commit};
-use super::{CHARACTER, branch, lodging};
+use super::{CHARACTER, branch, worktree};
 use crate::realm::layout::Layout;
 use crate::society::{addresses, merges};
 
@@ -21,7 +21,7 @@ use crate::society::{addresses, merges};
 const MOVED: &str = "moved:";
 
 /// Brings what the absorbed agent of merge `id` learned into the kept
-/// agent's branch and lodge, once.
+/// agent's branch and worktree, once.
 pub(super) fn merge(
     db: &mut Db,
     layout: &Layout,
@@ -34,8 +34,8 @@ pub(super) fn merge(
     }
     commit(db, layout, found.absorbed, at)?;
     commit(db, layout, found.kept, at)?;
-    let kept = lodging(db, layout, found.kept)?;
-    let absorbed = lodging(db, layout, found.absorbed)?;
+    let kept = worktree(db, layout, found.kept)?;
+    let absorbed = worktree(db, layout, found.absorbed)?;
     // What it took in is put aside under a name a path can hold.
     let from = format!("agent-{}", found.absorbed);
     let name = Actor::Realm.to_string();
@@ -157,8 +157,8 @@ fn aside(path: &str, from: &str) -> String {
     format!("{path}.from-{from}")
 }
 
-/// Moves what waits in the absorbed lodge's `inbox/` into the kept
-/// lodge's, under `from-<from>/`.
+/// Moves what waits in the absorbed worktree's `inbox/` into the kept
+/// worktree's, under `from-<from>/`.
 fn move_inbox(
     absorbed: &std::path::Path,
     kept: &std::path::Path,
@@ -197,7 +197,7 @@ pub(super) fn split(
     if found.split_commit.is_some() {
         return Ok(());
     }
-    let kept = lodging(db, layout, found.kept)?;
+    let kept = worktree(db, layout, found.kept)?;
     let Some(mark) = found.merge_commit else {
         merges::unmerged(db, id, "")?;
         return Ok(());

@@ -92,10 +92,10 @@ path must exist there. A relative path is looked for under the selected
 hamlet's received work folder, and becomes a link only if its canonical
 path stays under that folder. `..` and symlinks are followed before that
 check. The received realm folder is excluded after resolving links, for
-absolute and relative paths alike. No file under an agent's lodge becomes a
+absolute and relative paths alike. No file under an agent's worktree becomes a
 link or a local picture. The work folder is a path on the server's machine;
 with `hamlet dev` it is local too. Nothing downloads a server file.
-Lodge-relative paths such as an agent's `memory/` or `skills/` stay plain
+Worktree-relative paths such as an agent's `memory/` or `skills/` stay plain
 text unless they name a file in the local work folder.
 
 **When the disk is asked.** Once for each distinct path when a paragraph

@@ -21,7 +21,7 @@ const ADDRESS: &str = "An agent's address: `hand`, `lead`, \
 const REASON: &str =
     "Why, in a sentence, if it helps; the record keeps it.";
 const PATHS: &str =
-    "Files or folders to send with it, in your lodge or your \
+    "Files or folders to send with it, in your worktree or your \
      hamlet's folder. They are copied into the receiver's inbox, \
      and the message says where. Links are not followed. A chief \
      approves a send of more than 32 MiB or 1000 files.";

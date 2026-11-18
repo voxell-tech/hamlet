@@ -1,5 +1,5 @@
 //! Authenticated operations of each realm's agents, confined to one
-//! lodge and its optional shared project.
+//! worktree and its optional shared project.
 
 #[cfg(test)]
 mod tests;
@@ -321,11 +321,11 @@ async fn execute(
     mut cancelled: watch::Receiver<bool>,
 ) -> Result<Reply> {
     let workspace = realm.join(&request.workspace);
-    let lodge =
-        workspace.join("lodges").join(request.agent.to_string());
-    fs::create_dir_all(&lodge)?;
-    if fs::symlink_metadata(&lodge)?.is_symlink() {
-        bail!("Lodge root is a symlink");
+    let worktree =
+        workspace.join("worktrees").join(request.agent.to_string());
+    fs::create_dir_all(&worktree)?;
+    if fs::symlink_metadata(&worktree)?.is_symlink() {
+        bail!("Worktree root is a symlink");
     }
     let library = match library(realm, &request) {
         Ok(library) => library,
@@ -366,8 +366,8 @@ async fn execute(
         } else {
             "--bind"
         })
-        .arg(&lodge)
-        .arg("/lodge")
+        .arg(&worktree)
+        .arg("/worktree")
         .arg("--ro-bind")
         .arg(executable)
         .arg("/runner");
@@ -401,7 +401,7 @@ async fn execute(
     command
         .args([
             "--chdir",
-            "/lodge",
+            "/worktree",
             "--remount-ro",
             "/",
             "/runner",

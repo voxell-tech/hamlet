@@ -52,7 +52,7 @@ starts only the window.
 | `hamlet import [--file <export>] [--all] --suggested \| <project or conversation id>...` | Brings in the suggested projects, or those named by name or folder, each as a hamlet working on its folder with an agent for each of its newest 20 conversations; a conversation named by its id, or the start of it, is brought in alone into its project's hamlet (C35) |
 | `hamlet edit <charter\|limits\|settings> [--hamlet <id>]` | Opens the chief's document in `$EDITOR` and saves through the server; limits and settings are JSON, and `--hamlet` selects a hamlet's limits in place of the realm's |
 | `hamlet edit character <profile#id>` | Opens a profile's character; an agent's address works too, for its profile's |
-| `hamlet edit memory <profile#id\|agent#<id>> [path]` | Opens a memory file of a profile's `main` or an agent's lodge, `notes.md` under `memory/` unless a path is given |
+| `hamlet edit memory <profile#id\|agent#<id>> [path]` | Opens a memory file of a profile's `main` or an agent's worktree, `notes.md` under `memory/` unless a path is given |
 | `hamlet login <provider> [--key]` | Gives a key or follows an offered sign-in; `hamlet login claude` prints the link of Claude's own sign-in, to open in a browser on the server's machine |
 | `hamlet models [try [model]\|refresh]` | Lists models with whether each takes images, tries a one-word hello, or refreshes the list |
 | `hamlet models images <model> [off\|[--width <px>] [--height <px>] [--mb <n>] [--per-line <n>]]` | Says a model takes images, as one of a custom endpoint needs, within the limits given and the defaults for the rest; `off` clears it back to what the endpoint lists |

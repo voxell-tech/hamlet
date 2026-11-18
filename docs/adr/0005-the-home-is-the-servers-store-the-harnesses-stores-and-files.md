@@ -1,5 +1,5 @@
 ---
-status: superseded by [0012](0012-the-realm-is-a-database-of-tables-changed-in-transactions-with-a-jobs-outbox.md) and [0011](0011-profiles-are-git-repositories-agents-are-branches-lodges-are-checkouts.md)
+status: superseded by [0012](0012-the-realm-is-a-database-of-tables-changed-in-transactions-with-a-jobs-outbox.md) and [0011](0011-profiles-are-git-repositories-agents-are-branches-worktrees-are-checkouts.md)
 ---
 
 # The home is the server's store, the harnesses' stores and files

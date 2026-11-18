@@ -177,7 +177,7 @@ saved there before the harness continues.
 
 - Local tools need Seatbelt on macOS or working bubblewrap on Linux.
 - Settings can select a remote workspace for the agents' tools and
-  lodges. It takes effect on restart and never falls back to local
+  worktrees. It takes effect on restart and never falls back to local
   execution.
 - Windows has no sandbox. A Windows server starts only in insecure
   mode, with `hamlet --insecure`, and agents' commands then reach whatever

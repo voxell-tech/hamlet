@@ -49,26 +49,26 @@ jobs! {
         fork: Option<Fork>,
     },
     /// Starts an agent's branch when it has none, and checks out its
-    /// lodge.
-    Lodge("lodge") { agent: AgentId },
-    /// Commits an agent's lodge to its branch.
+    /// worktree.
+    Worktree("worktree") { agent: AgentId },
+    /// Commits an agent's worktree to its branch.
     Commit("commit") { agent: AgentId },
     /// Takes `main`, or the agent's pin, into an idle agent's branch
-    /// and its lodge.
+    /// and its worktree.
     TakeIn("take-in") { agent: AgentId },
-    /// Deletes an erased agent's lodge and branch.
+    /// Deletes an erased agent's worktree and branch.
     EraseAgent("erase-agent") { agent: AgentId },
     /// Deletes an erased profile's repository.
     EraseProfile("erase-profile") { profile: ProfileId },
-    /// Deletes the folder of an erased hamlet's lodges.
+    /// Deletes the folder of an erased hamlet's worktrees.
     EraseHamlet("erase-hamlet") { hamlet: HamletId },
     /// Brings what a merged agent learned into the kept agent's
-    /// branch and lodge, with its inbox.
+    /// branch and worktree, with its inbox.
     Merge("merge") { merge: MergeId },
     /// Undoes a merge's commit on the kept agent's branch.
     Split("split") { merge: MergeId },
     /// Puts a skill the librarian took on the shelves, and takes it
-    /// out of the lodge it was offered from.
+    /// out of the worktree it was offered from.
     Shelve("shelve") { offer: OfferId },
     /// Ends a dream whose turn ended as `last`: commits what it left
     /// and takes the new `main` in.
@@ -92,7 +92,7 @@ impl Job {
         let of = match self {
             Self::Plant { profile, .. }
             | Self::EraseProfile { profile } => profile.to_string(),
-            Self::Lodge { agent }
+            Self::Worktree { agent }
             | Self::Commit { agent }
             | Self::TakeIn { agent }
             | Self::EraseAgent { agent } => agent.to_string(),
@@ -106,11 +106,11 @@ impl Job {
         format!("{}:{of}", self.kind())
     }
 
-    /// The lodges the job, once done, changed, which a remote copy of
-    /// each must be sent.
-    pub fn lodges(&self, db: &mut Db) -> Vec<AgentId> {
+    /// The worktrees the job, once done, changed, which a remote copy
+    /// of each must be sent.
+    pub fn worktrees(&self, db: &mut Db) -> Vec<AgentId> {
         match self {
-            Self::Lodge { agent } | Self::TakeIn { agent } => {
+            Self::Worktree { agent } | Self::TakeIn { agent } => {
                 vec![*agent]
             }
             Self::Merge { merge } | Self::Split { merge } => {
@@ -130,8 +130,8 @@ impl Job {
                     .map(|found| vec![found.agent])
                     .unwrap_or_default()
             }
-            // A commit keeps what the lodge holds already; the rest
-            // change no living lodge.
+            // A commit keeps what the worktree holds already; the
+            // rest change no living worktree.
             Self::Commit { .. }
             | Self::Plant { .. }
             | Self::EraseAgent { .. }

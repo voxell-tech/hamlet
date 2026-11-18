@@ -144,8 +144,8 @@ impl Core<'_, '_> {
             return Ok(Step::of(Err(Refusal::SkillBeingJudged)));
         }
         let agent = call.conversation.agent;
-        let lodge = knowledge::lodging(db, &layout, agent)?.path;
-        let files = match skill_files(&lodge, &name)? {
+        let worktree = knowledge::worktree(db, &layout, agent)?.path;
+        let files = match skill_files(&worktree, &name)? {
             Ok(files) => files,
             Err(refusal) => return Ok(Step::of(Err(refusal))),
         };
@@ -222,13 +222,13 @@ impl Core<'_, '_> {
     }
 }
 
-/// The files of the skill `name` in the lodge at `lodge`, within the
-/// library's cap.
+/// The files of the skill `name` in the worktree at `worktree`,
+/// within the library's cap.
 fn skill_files(
-    lodge: &std::path::Path,
+    worktree: &std::path::Path,
     name: &str,
 ) -> Done<Vec<(String, Vec<u8>)>> {
-    let Ok(folder) = Folder::open(lodge) else {
+    let Ok(folder) = Folder::open(worktree) else {
         return Ok(Err(Refusal::NoSkill { name: name.into() }));
     };
     let prefix = format!("skills/{name}/");

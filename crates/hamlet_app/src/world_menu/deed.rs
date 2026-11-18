@@ -59,9 +59,9 @@ pub(crate) enum Deed {
     },
     /// Ends the realm's own charter, so the built-in one stands.
     DefaultCharter,
-    /// Copies every lodge to the saved workspace, over the lodges
-    /// there.
-    MoveLodges,
+    /// Copies every worktree to the saved workspace, over the
+    /// worktrees there.
+    MoveWorktrees,
 }
 
 /// The reason typed under a question, which may be left out, and
@@ -129,8 +129,8 @@ impl Deed {
             Deed::DefaultCharter => {
                 crate::settings::default_charter(world);
             }
-            Deed::MoveLodges => {
-                crate::settings::workspace::move_lodges(world);
+            Deed::MoveWorktrees => {
+                crate::settings::workspace::move_worktrees(world);
             }
             Deed::Rewind { session, entry, .. } => {
                 world.trigger(Rewind {
@@ -164,7 +164,7 @@ impl Deed {
             Self::Lead(_) => "lead",
             Self::NewSession
             | Self::DefaultCharter
-            | Self::MoveLodges
+            | Self::MoveWorktrees
             | Self::Rewind { .. } => return true,
         };
         Deeds::is_allowed(world, command)
@@ -196,7 +196,7 @@ impl Deed {
             Deed::DefaultCharter => {
                 "Go back to the default charter?".to_string()
             }
-            Deed::MoveLodges => "Move every lodge?".to_string(),
+            Deed::MoveWorktrees => "Move every worktree?".to_string(),
         }
     }
 
@@ -210,21 +210,21 @@ impl Deed {
             ),
             Deed::Merge { absorbed, kept } => format!(
                 "{} takes the memory, skills, files and roads of \
-                 {}, whose lodge is archived. It can be split out \
-                 again.",
+                 {}, whose worktree is archived. It can be split \
+                 out again.",
                 name(kept),
                 name(absorbed)
             ),
             Deed::Close(hamlet) => format!(
-                "Everyone in {hamlet} stops and every lodge is \
+                "Everyone in {hamlet} stops and every worktree is \
                  archived. You can restore it from the list of \
                  hamlets."
             ),
             Deed::Erase(agent) => {
                 let name = name(agent);
                 format!(
-                    "The archived lodge of {name} is deleted from \
-                     disk. This cannot be undone."
+                    "The archived worktree of {name} is deleted \
+                     from disk. This cannot be undone."
                 )
             }
             Deed::NewSession => "This conversation goes to \
@@ -252,10 +252,10 @@ impl Deed {
                                      from disk. This cannot be \
                                      undone."
                 .to_string(),
-            Deed::MoveLodges => "Each agent's lodge is copied to \
-                                 the saved workspace, and the \
-                                 lodges already there are replaced. \
-                                 This cannot be undone."
+            Deed::MoveWorktrees => "Each agent's worktree is copied \
+                                    to the saved workspace, and the \
+                                    worktrees already there are \
+                                    replaced. This cannot be undone."
                 .to_string(),
         }
     }
@@ -271,7 +271,7 @@ impl Deed {
             Deed::Lead(_) => "Make lead",
             Deed::Rewind { .. } => "Rewind",
             Deed::DefaultCharter => "Use the default",
-            Deed::MoveLodges => "Replace them",
+            Deed::MoveWorktrees => "Replace them",
         }
     }
 
@@ -295,7 +295,7 @@ impl Deed {
             | Deed::Lead(_)
             | Deed::Rewind { .. }
             | Deed::DefaultCharter
-            | Deed::MoveLodges => Vec::new(),
+            | Deed::MoveWorktrees => Vec::new(),
             Deed::Close(hamlet) => {
                 let mut living =
                     world.query_filtered::<(Entity, &LivesIn), (

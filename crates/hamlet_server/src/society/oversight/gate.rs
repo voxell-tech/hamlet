@@ -199,9 +199,9 @@ pub(crate) enum Caller {
 /// The permissions and mode in force at a call.
 #[derive(Clone, Debug, Default)]
 pub(crate) struct Standing {
-    /// The edit stays in the agent's own lodge, which is always free
-    /// (C21).
-    pub lodge_edit: bool,
+    /// The edit stays in the agent's own worktree, which is always
+    /// free (C21).
+    pub worktree_edit: bool,
     pub net: bool,
     pub holds_edits: bool,
     pub holds_commands: bool,
@@ -297,7 +297,7 @@ fn reach(call: &Call, standing: &Standing) -> Verdict {
             }
         }
         Call::Edit { .. } => {
-            if standing.holds_edits && !standing.lodge_edit {
+            if standing.holds_edits && !standing.worktree_edit {
                 Verdict::Hold(Danger::Edit)
             } else {
                 Verdict::Run { net: false }

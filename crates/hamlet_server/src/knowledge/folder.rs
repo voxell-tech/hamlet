@@ -1,6 +1,6 @@
 //! A folder on this machine the server keeps for an agent, reached
-//! only through its open directory and never through a link: a lodge
-//! or a worker's scratch folder.
+//! only through its open directory and never through a link: a
+//! worktree or a worker's scratch folder.
 
 use std::io::{Read, Write};
 use std::path::Path;
@@ -12,8 +12,8 @@ use hamlet_os::fs::{
     Replace, TreePath,
 };
 
-/// The largest file a lodge commits. Larger ones stay in the lodge
-/// alone.
+/// The largest file a worktree commits. Larger ones stay in the
+/// worktree alone.
 pub(crate) const MOST_BYTES: u64 = 4 << 20;
 
 pub(crate) struct Folder(Directory);
@@ -246,17 +246,17 @@ mod tests {
         let outside = dir.join("outside");
         std::fs::create_dir_all(&outside).unwrap();
         std::fs::write(outside.join("secret.md"), "s").unwrap();
-        let lodge = Folder::make(&dir.join("lodge")).unwrap();
-        lodge.write("memory/notes.md", b"n", false).unwrap();
-        lodge.write("skills/a/run.sh", b"#!", true).unwrap();
-        lodge.write("inbox/file.bin", b"g", false).unwrap();
+        let worktree = Folder::make(&dir.join("worktree")).unwrap();
+        worktree.write("memory/notes.md", b"n", false).unwrap();
+        worktree.write("skills/a/run.sh", b"#!", true).unwrap();
+        worktree.write("inbox/file.bin", b"g", false).unwrap();
         hamlet_testing::links::symlink(
             &outside,
-            dir.join("lodge/out"),
+            dir.join("worktree/out"),
         )
         .unwrap();
         let listed =
-            lodge.list(&|path| path.starts_with("inbox")).unwrap();
+            worktree.list(&|path| path.starts_with("inbox")).unwrap();
         assert_eq!(
             listed
                 .iter()
@@ -269,11 +269,11 @@ mod tests {
             assert!(listed[1].executable);
         }
         assert_eq!(listed[0].blob, blob_id(b"n"));
-        lodge.remove("skills/a/run.sh").unwrap();
-        assert!(!dir.join("lodge/skills").exists());
-        assert_eq!(lodge.read("memory/notes.md").unwrap(), b"n");
-        remove_folder(&dir.join("lodge")).unwrap();
-        assert!(!dir.join("lodge").exists());
+        worktree.remove("skills/a/run.sh").unwrap();
+        assert!(!dir.join("worktree/skills").exists());
+        assert_eq!(worktree.read("memory/notes.md").unwrap(), b"n");
+        remove_folder(&dir.join("worktree")).unwrap();
+        assert!(!dir.join("worktree").exists());
         assert!(outside.join("secret.md").exists());
     }
 }

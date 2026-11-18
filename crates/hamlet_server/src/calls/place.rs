@@ -1,6 +1,6 @@
 //! An agent's workplace and the tools it is offered (H35): the Hand
-//! in its lodge, an agent in its lodge and its hamlet's folder, a
-//! worker in its scratch folder and where its starter works.
+//! in its worktree, an agent in its worktree and its hamlet's folder,
+//! a worker in its scratch folder and where its starter works.
 
 use std::path::PathBuf;
 
@@ -43,7 +43,7 @@ pub(crate) fn of(
         AgentKind::Hand => Workplace {
             caller: Caller::Hand,
             place: Place {
-                lodge: layout.hand(),
+                worktree: layout.hand(),
                 folder: None,
                 realm: layout.root().to_owned(),
                 shared,
@@ -57,7 +57,7 @@ pub(crate) fn of(
             Workplace {
                 caller: Caller::Hamlet,
                 place: Place {
-                    lodge: layout.lodge(
+                    worktree: layout.worktree(
                         &hamlet_agent.hamlet,
                         hamlet_agent.agent,
                     ),
@@ -78,12 +78,10 @@ pub(crate) fn of(
                     AgentKind::Hamlet => {
                         let starter =
                             hamlet_agents::get(db, starter)?;
-                        shared.push(
-                            layout.lodge(
-                                &starter.hamlet,
-                                starter.agent,
-                            ),
-                        );
+                        shared.push(layout.worktree(
+                            &starter.hamlet,
+                            starter.agent,
+                        ));
                         hamlet = hamlet.or(Some(starter.hamlet));
                     }
                     AgentKind::Hand => shared.push(layout.hand()),
@@ -97,7 +95,7 @@ pub(crate) fn of(
             Workplace {
                 caller: Caller::Worker,
                 place: Place {
-                    lodge: layout.worker(agent),
+                    worktree: layout.worker(agent),
                     folder,
                     realm: layout.root().to_owned(),
                     shared,

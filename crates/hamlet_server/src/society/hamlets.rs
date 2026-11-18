@@ -425,7 +425,7 @@ pub(crate) fn restore(
         .execute(cx.db)?;
     for (agent, _) in ended {
         agents::come_back(cx, agent)?;
-        jobs::add(cx, &Job::Lodge { agent })?;
+        jobs::add(cx, &Job::Worktree { agent })?;
     }
     record::keep(
         cx,
@@ -435,8 +435,8 @@ pub(crate) fn restore(
     Ok(Ok(()))
 }
 
-/// Erases the removed hamlet `id` for good, with its agents' lodges
-/// and branches.
+/// Erases the removed hamlet `id` for good, with its agents'
+/// worktrees and branches.
 pub(crate) fn erase(cx: &mut Change<'_>, id: &HamletId) -> Done<()> {
     let Some(found) = find(cx.db, id)? else {
         refuse!(Refusal::NoHamlet { id: id.to_string() });

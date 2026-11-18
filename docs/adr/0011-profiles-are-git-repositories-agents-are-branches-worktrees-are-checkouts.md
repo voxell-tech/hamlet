@@ -2,7 +2,7 @@
 status: accepted
 ---
 
-# Profiles are git repositories, agents are branches, lodges are checkouts
+# Profiles are git repositories, agents are branches, worktrees are checkouts
 
 What a profile knows is a git repository, `profiles/<id>.git`, bare and
 written only by the server through gix, never by a git program and never
@@ -14,10 +14,10 @@ too (`library.git`), and the Hand has a profile of its own.
 
 An agent of a hamlet is a profile working in it, and it gets a branch of its
 profile's repository, `agents/<agent id>`, starting at `main` or at its pin.
-Its lodge, `hamlets/<hamlet>/<number>/` (the Hand's is `hand/`), is a
+Its worktree, `hamlets/<hamlet>/<number>/` (the Hand's is `hand/`), is a
 checkout of that branch, without `CHARACTER.md`, plus an `inbox/` that is
-never committed. Its tools write there. After a turn that changed the lodge
-the server commits it to the branch. What an agent learns stays on its branch
+never committed. Its tools write there. After a turn that changed the
+worktree the server commits it to the branch. What an agent learns stays on its branch
 until a dream brings it home to `main`; when `main` moves, an idle unpinned
 agent has it merged into its branch, never while a turn of it runs.
 
@@ -52,7 +52,7 @@ database keeps structure.
 - Every change to what a profile knows is a commit with its author: a chief,
   an agent, the Hand, a dream or the realm. A chief can tag, pin, revert, fork
   and purge, and read the difference between an agent's branch and `main`.
-- A lodge has no character file, so C13 holds by construction: an agent
+- A worktree has no character file, so C13 holds by construction: an agent
   cannot write its own character, and a file by that name is never committed.
 - Merging two agents, splitting them and taking in `main` are git merges and
   reverts; the clashing path is kept on the side that was there and named.
@@ -65,4 +65,4 @@ database keeps structure.
 - A realm is its database and its repositories together, and a backup must
   hold both.
 - Erasing a profile, an agent or a hamlet deletes repositories, branches and
-  lodges, and cannot be undone.
+  worktrees, and cannot be undone.

@@ -27,7 +27,7 @@ Then read the page for the part you are about to touch.
 
 | Page | What it explains |
 |---|---|
-| [`realm.md`](realm.md) | The realm on disk: its folder, database, profiles and lodges, credentials and claim |
+| [`realm.md`](realm.md) | The realm on disk: its folder, database, profiles and worktrees, credentials and claim |
 | [`cli.md`](cli.md) | The `hamlet` command: serving, stopping, chatting, editing, signing in, and finding the server and the window |
 | [`sandbox.md`](sandbox.md) | What an agent's tools can reach: the sandbox, the network, a folder a hamlet works on, manual and auto |
 | [`prompt.md`](prompt.md) | What an agent is told every turn: the charter, its character, its memory and skills, and how the chief reads and edits them |

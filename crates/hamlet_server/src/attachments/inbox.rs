@@ -1,6 +1,6 @@
-//! The `inbox/` of an agent's lodge, where files sent to it are
+//! The `inbox/` of an agent's worktree, where files sent to it are
 //! saved (C33, H30). An agent that works in a remote workspace finds
-//! them there once its lodge is next pushed, before its next call.
+//! them there once its worktree is next pushed, before its next call.
 
 use std::collections::{HashMap, HashSet};
 use std::path::PathBuf;
@@ -11,12 +11,12 @@ use hamlet_protocol::client::AttachedFile;
 use hamlet_store::ids::AgentId;
 
 use super::captions::Caption;
-use crate::core::{Core, UnpushedLodge};
+use crate::core::{Core, UnpushedWorktree};
 use crate::knowledge::folder::Folder;
-use crate::realm::workspace::lodges::LODGE;
+use crate::realm::workspace::worktrees::WORKTREE;
 use crate::society::refusal::Refusal;
 
-/// The folder of a lodge that holds what was sent to its agent.
+/// The folder of a worktree that holds what was sent to its agent.
 pub(crate) const INBOX: &str = "inbox";
 
 /// A file or folder saved, as the agent finds it.
@@ -31,11 +31,11 @@ struct Saved {
     folder: bool,
 }
 
-/// Files being saved in `dir`, a folder of a lodge, for one send.
+/// Files being saved in `dir`, a folder of a worktree, for one send.
 pub(crate) struct Inbox {
-    lodge: PathBuf,
-    /// The agent works in a remote workspace, where its lodge is at
-    /// `/lodge`.
+    worktree: PathBuf,
+    /// The agent works in a remote workspace, where its worktree is
+    /// at `/worktree`.
     remote: bool,
     dir: String,
     /// The name each top-level name was saved under, which differs
@@ -46,7 +46,7 @@ pub(crate) struct Inbox {
 }
 
 impl Core<'_, '_> {
-    /// The folder `dir` of `agent`'s lodge, where files are to be
+    /// The folder `dir` of `agent`'s worktree, where files are to be
     /// saved: under `inbox/`. Its remote copy is owed a push.
     pub(crate) fn open_inbox(
         &mut self,
@@ -54,19 +54,19 @@ impl Core<'_, '_> {
         dir: &str,
     ) -> Result<Inbox> {
         let layout = self.realm.layout().clone();
-        let lodge = crate::calls::place::of(
+        let worktree = crate::calls::place::of(
             self.realm.store().connection(),
             &layout,
             agent,
         )?
         .place
-        .lodge;
+        .worktree;
         let remote = self.remote.workspace.is_some();
         if remote {
-            self.remote.unpushed.write(UnpushedLodge(agent));
+            self.remote.unpushed.write(UnpushedWorktree(agent));
         }
         Ok(Inbox {
-            lodge,
+            worktree,
             remote,
             dir: dir.to_owned(),
             chosen: HashMap::new(),
@@ -107,7 +107,7 @@ impl Inbox {
                 name: name.into(),
             }));
         }
-        let lodge = Folder::make(&self.lodge)?;
+        let worktree = Folder::make(&self.worktree)?;
         let (top, rest) = match name.split_once('/') {
             Some((top, rest)) => (top, Some(rest)),
             None => (name, None),
@@ -117,7 +117,7 @@ impl Inbox {
             None => {
                 let mut candidate = top.to_owned();
                 let mut n = 2;
-                while lodge
+                while worktree
                     .exists(&format!("{}/{candidate}", self.dir))
                     || self
                         .chosen
@@ -162,7 +162,7 @@ impl Inbox {
             n += 1;
         }
         let local = format!("{}/{path}", self.dir);
-        lodge.write(&local, bytes, false)?;
+        worktree.write(&local, bytes, false)?;
         if let Some(saved) =
             self.saved.iter_mut().find(|saved| saved.name == top_name)
         {
@@ -191,9 +191,9 @@ impl Inbox {
             .enumerate()
             .map(|(index, saved)| {
                 let at = if self.remote {
-                    format!("{LODGE}/{}/{}", self.dir, saved.name)
+                    format!("{WORKTREE}/{}/{}", self.dir, saved.name)
                 } else {
-                    self.lodge
+                    self.worktree
                         .join(&self.dir)
                         .join(&saved.name)
                         .display()

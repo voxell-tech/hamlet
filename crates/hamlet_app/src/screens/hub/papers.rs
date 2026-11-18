@@ -25,7 +25,7 @@ const NEW_FILE: &str = "---\ndescription: \n---\n\n";
 #[derive(Resource, Default, PartialEq)]
 pub struct Papers {
     pub(super) memory: Vec<protocol::MemoryFile>,
-    /// The paths its lodge changed against its profile.
+    /// The paths its worktree changed against its profile.
     pub(super) learned: Vec<String>,
     pub(super) character: String,
     pub(super) skills: Vec<(String, String)>,

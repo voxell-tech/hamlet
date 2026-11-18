@@ -5,7 +5,7 @@ edition.workspace = true
 license.workspace = true
 rust-version.workspace = true
 publish.workspace = true
-description = "Profiles' repositories through gix: commits, reads, diffs, merges, reverts, versions, purges and lodges"
+description = "Profiles' repositories through gix: commits, reads, diffs, merges, reverts, versions, purges and worktrees"
 
 [lints]
 workspace = true

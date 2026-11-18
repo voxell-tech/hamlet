@@ -337,7 +337,7 @@ pub(crate) enum Refusal {
     NotYourLine,
     #[error("Choose a remote workspace in the settings first.")]
     NoWorkspaceChosen,
-    #[error("Moving the lodges failed: {error}")]
+    #[error("Moving the worktrees failed: {error}")]
     MoveFailed { error: String },
     #[error("Every conversation of it was brought in before.")]
     BroughtInBefore,

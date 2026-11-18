@@ -90,7 +90,7 @@ async fn an_agent_dreams_what_it_learned_onto_its_profiles_main() {
         papers.memory[0].description,
         "What every agent knows."
     );
-    // What only the agent needs stays in its lodge.
+    // What only the agent needs stays in its worktree.
     assert!(
         papers.memory.iter().all(|m| m.path != "own.md"),
         "{papers:?}"

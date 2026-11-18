@@ -60,7 +60,7 @@ are in
 |---|---|
 | `AgentId` | An integer naming one agent of the realm (the Hand, an agent of a hamlet or a worker), stable for as long as the agent exists. The server resolves typed addresses (`hand`, `lead@<hamlet>`, `agent#<id>`, `worker#<id>`) in chief commands; messages carry ids. |
 | `ProfileId` | An integer naming one profile of the city. Commands address a profile as `profile#<id>`; its name is a label that may change and repeat. |
-| `Keeper` | `{profile: ProfileId}` or `{agent: AgentId}`: whose knowledge a document is of, a profile's `main` or an agent's lodge. |
+| `Keeper` | `{profile: ProfileId}` or `{agent: AgentId}`: whose knowledge a document is of, a profile's `main` or an agent's worktree. |
 | `ChatRef` | `{with: AgentId, past?: integer, from?: AgentId, kind?: "letters" \| "questions"}`. |
 | `RequestId` | A UUID in its 36-character hyphenated form, in either case, such as `0f8fad5b-d9cb-469f-a165-70867728950e`. The braced, URN and 32-digit forms are refused. |
 | `ImageId` | The SHA-256 of an image's bytes as 64 lowercase hexadecimal digits. The same bytes have the same id however often they are sent. |
@@ -116,7 +116,7 @@ and watch failures can answer with `fault` (see [Errors](#errors)).
 | Type (schema) | Fields | Action and answer |
 |---|---|---|
 | `hello` (`Hello`) | `v: Version`, `token: string`; no `id` | Authenticate; full `state`. |
-| `say` (`Say`) | `to: AgentId`, `text: string`, `images?: AttachedImage[]`, `files?: AttachedFile[]` | Send a chief line or typed command. A command gets `reply`; an admitted agent line gets its receipt when that submission settles. Live work arrives through watches and realm changes. `images` are images sent before with `put-image`, at most 20 and at most what the agent's model takes; a line with images is refused when that model takes none. `files` are files sent before with `put-file`, of any kind, each named for where the agent finds it; the server copies them into the agent's lodge under `inbox/` and the line's caption says where each was saved. They are not given to the model as content. Each caption is put in the text at its attachment's `at`, those at one `at` in the order sent, images first, and the model is given the images in the order of their captions; the captions of attachments without `at` follow the text. `text` in the transcript is the words alone, and the transcript item carries each `at`. At most 10,000 files, 256 MiB each and 1 GiB together; the client asks its chief before sending more than 32 MiB or 1000 files. A command takes neither. |
+| `say` (`Say`) | `to: AgentId`, `text: string`, `images?: AttachedImage[]`, `files?: AttachedFile[]` | Send a chief line or typed command. A command gets `reply`; an admitted agent line gets its receipt when that submission settles. Live work arrives through watches and realm changes. `images` are images sent before with `put-image`, at most 20 and at most what the agent's model takes; a line with images is refused when that model takes none. `files` are files sent before with `put-file`, of any kind, each named for where the agent finds it; the server copies them into the agent's worktree under `inbox/` and the line's caption says where each was saved. They are not given to the model as content. Each caption is put in the text at its attachment's `at`, those at one `at` in the order sent, images first, and the model is given the images in the order of their captions; the captions of attachments without `at` follow the text. `text` in the transcript is the words alone, and the transcript item carries each `at`. At most 10,000 files, 256 MiB each and 1 GiB together; the client asks its chief before sending more than 32 MiB or 1000 files. A command takes neither. |
 | `put-image` (`PutImage`) | `size: integer` | Begin sending one image of that many bytes, at most 20 MiB, a PNG, JPEG, WebP or GIF; `reply.upload` identifies the upload for its parts. |
 | `put-image-part` (`PutImagePart`) | `upload: string`, `offset: integer`, `data: string` | Send base64 bytes at a byte offset. `reply` acknowledges the part; the one that completes the image is answered with `reply.image`, the image's id. |
 | `put-file` (`PutFile`) | `size: integer` | Begin sending one file of that many bytes, at most 256 MiB; `reply.upload` identifies the upload for its parts, or an empty file is answered at once with `reply.file`. |
@@ -135,7 +135,7 @@ and watch failures can answer with `fault` (see [Errors](#errors)).
 | `check` (`Check`) | `what: "model"`, `model?: string` | Check that model, or the selected model; `reply`. |
 | `check` (`Check`) | `what: "connection"` | Check the configured model connection; `reply`. Connection state also changes through `change`. |
 | `read` (`Read`) | `what` and fields below | Fetch one document or list; `read` with `to`, or failure `reply`. |
-| `move-lodges` (`MoveLodges`) | none | Copy every agent's lodge from the workspace the server works in to the one chosen in Settings, replacing the lodges there; `reply` once done. Progress also changes through `change`. |
+| `move-worktrees` (`MoveWorktrees`) | none | Copy every agent's worktree from the workspace the server works in to the one chosen in Settings, replacing the worktrees there; `reply` once done. Progress also changes through `change`. |
 
 | `terminal` (`Terminal`) | `op` and fields below | Open, type into, resize, watch, rename or close a terminal. |
 
@@ -187,7 +187,7 @@ Each row is an `Edit` form with `type: "edit"` and `id`.
 |---|---|---|
 | `charter` | `text: string \| null` | Replace the charter; `null` restores the built-in charter. |
 | `character` | `profile: ProfileId`, `text: string` | Replace the profile's character, as a commit on its `main`. |
-| `memory` | `of: Keeper`, `path: string`, `text: string` | Replace a memory file of a profile's `main` or an agent's lodge, by its path under `memory/`; empty text removes it. |
+| `memory` | `of: Keeper`, `path: string`, `text: string` | Replace a memory file of a profile's `main` or an agent's worktree, by its path under `memory/`; empty text removes it. |
 | `limits` | `hamlet?: string`, `reason?: string`, `set: {section: string, key: string, value: unknown}` | Change one limit. The server checks the value. |
 | `limits` | `hamlet?: string`, `reason?: string`, `whole: object` | Replace the limits document, with defaults for omitted entries. |
 | `settings` | `set: {model?: string, reflectEvery?: integer, allowNet?: boolean, effort?: "off" \| "minimal" \| "low" \| "medium" \| "high" \| "xhigh" \| "max" \| null, newcomers?: "open" \| "chief" \| "hand", character?: string, endpoints?: Endpoint[], workspace?: {url: string, token: string} \| null}` | Change only the supplied settings. `effort` is how hard models think by default, the model's own for `null`; an agent's own effort, set with `/effort`, overrides it. `newcomers` says who lets a profile an agent made into the city: nobody needs to (`open`), a chief (`chief`, the default) or the Hand (`hand`). `character` is what a blank agent an agent adds starts from, at most 4000 characters. `workspace` chooses a remote workspace, or the local one for `null`; the server keeps it with its credentials and works in it from its next start. |
@@ -203,7 +203,7 @@ Each row is a `Read` form with `type: "read"` and `id`.
 | `history` | `agent: AgentId` | `history: Past[]`: numbered chief conversations, with current flag, title, author, times, message and token counts. |
 | `models` | `refresh?: boolean` | `models: Listed[]`: name, `title` (what its provider calls it; empty when it gives no name), price, price source, context size, note, `efforts` (the efforts the model can be asked for, weakest first), `defaultEffort` (`null` while unknown), `fast` (whether its provider has a fast tier) and `images?` (what it takes of images: `maxWidth?`, `maxHeight?`, `maxBytes?` and `perLine?`; absent when it takes none). `refresh` refreshes discovery. |
 | `image` | `image: ImageId`, `size?: "original" \| "thumbnail"` | `image: {mime: string, data: string}`: the image's bytes in base64, as they were sent for `original` (the default), or a small copy for `thumbnail`. A refusal replies when the realm keeps no such image. |
-| `papers` | `of: Keeper`, `full?: boolean` | `papers: Papers`: character, memory files (`path`, `description`, `text`), the paths an agent's lodge `learned` against its profile, and skill names/descriptions. By default, character and memory texts are trimmed and cut to 6000 Unicode code points each; `full: true` returns them uncut. |
+| `papers` | `of: Keeper`, `full?: boolean` | `papers: Papers`: character, memory files (`path`, `description`, `text`), the paths an agent's worktree `learned` against its profile, and skill names/descriptions. By default, character and memory texts are trimmed and cut to 6000 Unicode code points each; `full: true` returns them uncut. |
 | `charter` | None | `charter: {text: string, own: boolean}`: text and whether the chief supplied it. |
 
 ### Login steps
@@ -259,9 +259,9 @@ transcript. `Hamlet`, `Wait`, `Grant`, `SettingsView` and `ProviderView`
 are the complete views defined in `hamlet_protocol`. `SettingsView.workspace`
 is `{url, running, move?}`: the remote workspace chosen and the
 one the server works in until it restarts, each `null` for the local one. It
-never holds the token. `move` is the latest move of the lodges to the chosen
-workspace since the server started: `state` (`moving`, `moved` or `failed`),
-lodges `done` of `of`, and its outcome as `text`.
+never holds the token. `move` is the latest move of the worktrees to the
+chosen workspace since the server started: `state` (`moving`, `moved` or
+`failed`), worktrees `done` of `of`, and its outcome as `text`.
 
 `Item` has `id: string`, `at: integer`, `kind`, `text: string`, and optional
 `chief`, `author`, `rewindable`, `tool`, `images` (the `AttachedImage`s a chief's

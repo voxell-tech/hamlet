@@ -9,11 +9,11 @@ sections; the pi harness asks for them before each request.
 | Part | Where it comes from | Who changes it |
 |---|---|---|
 | The charter | The realm's stored charter, else `crates/hamlet_server/assets/charter.md` | A chief |
-| The machine | The sandbox, network, model, lodge and any tools that failed to load | The settings |
+| The machine | The sandbox, network, model, worktree and any tools that failed to load | The settings |
 | The project | The hamlet's work folder, with its `AGENTS.md` or `CLAUDE.md`, and whether each edit and command waits for a chief (manual mode) | A chief |
 | The character | `CHARACTER.md` at the tip of the agent's branch (the Hand's, at its profile's), at most 4000 characters | A chief |
-| The memory | The files at the root of the lodge's `memory/`, at most 8000 characters in all, then each folder's `description:` from its `MEMORY.md` | The agent |
-| The skills | The lodge's skills, then the library's, with descriptions and how to run them | The agent; the librarian |
+| The memory | The files at the root of the worktree's `memory/`, at most 8000 characters in all, then each folder's `description:` from its `MEMORY.md` | The agent |
+| The skills | The worktree's skills, then the library's, with descriptions and how to run them | The agent; the librarian |
 | The place | Who the agent is, whom it answers to, the agents under it, the roads it can write along, the tools its parent turned off, and how its hamlet was run lately | The record |
 | The realm | For the Hand and leads, the other hamlets, their leads and agents; a realm with none says so and that a chief or the Hand can found one | The realm's record |
 | The profiles | For the Hand and a parent, the living profiles it may add agents of, each as `profile#<id> (<name>)`, since no name finds one | The city |
@@ -38,7 +38,7 @@ unedited charter uses the shipped default, so it follows later defaults. BACK
 TO THE DEFAULT clears the chief's replacement after asking first.
 
 A character is a file, `CHARACTER.md`, in the profile's repository. An
-agent's lodge is checked out without it, so no tool can write it, and a file by that
+agent's worktree is checked out without it, so no tool can write it, and a file by that
 name written there is never committed. A chief edits it on the profile's
 `main`; a parent gives one only when it makes a profile with `create_profile`. An
 agent's prompt reads it at the tip of its own branch, which began at `main` or
@@ -58,7 +58,7 @@ applying a kept copy again. Closing stops no agent.
 
 ## Memory
 
-An agent keeps its memory in its lodge, as files. Files at the root of
+An agent keeps its memory in its worktree, as files. Files at the root of
 `memory/` go into every prompt; a folder shows only the `description:` line at
 the top of its `MEMORY.md` until the agent reads it. Every memory file opens
 with such a front matter. A chief can read and edit an agent's memory or its
@@ -70,4 +70,4 @@ to the profile's `main` (see [`society.md`](society.md)).
 
 Prompt in an agent's details sends `read prompt`. The server uses the
 same prompt sections as a model request, and the Hub displays the returned
-text. The window reads no lodge or realm files to build it.
+text. The window reads no worktree or realm files to build it.

@@ -18,8 +18,8 @@ use crate::app::timers::AddTimer;
 
 /// The most bytes of an image the realm keeps.
 pub(crate) const MOST_BYTES: usize = 20 << 20;
-/// The folder of a lodge, or of a worker's scratch folder, that holds
-/// the images given to its agent (S29).
+/// The folder of a worktree, or of a worker's scratch folder, that
+/// holds the images given to its agent (S29).
 pub(crate) const SEEN: &str = "inbox/images";
 /// The time between the realm's sweeps for images nothing uses.
 const SWEEP_EVERY: Duration = Duration::from_secs(60 * 60);

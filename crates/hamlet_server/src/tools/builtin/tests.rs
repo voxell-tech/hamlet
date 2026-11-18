@@ -1,4 +1,4 @@
-//! The tools under the platform sandbox, on scratch lodges.
+//! The tools under the platform sandbox, on scratch worktrees.
 
 use std::fs;
 use std::time::{Duration, Instant};
@@ -11,12 +11,12 @@ use serde_json::{Value, json};
 
 use super::{Network, Outcome, Place, Shells, ToolSession};
 
-/// A lodge of its own in `scratch`, with no folder.
-fn lodge(scratch: &Scratch) -> Place {
-    let lodge = scratch.join("lodges/home/0");
-    fs::create_dir_all(&lodge).unwrap();
+/// A worktree of its own in `scratch`, with no folder.
+fn worktree(scratch: &Scratch) -> Place {
+    let worktree = scratch.join("worktrees/home/0");
+    fs::create_dir_all(&worktree).unwrap();
     Place {
-        lodge,
+        worktree,
         folder: None,
         realm: scratch.to_path_buf(),
         shared: Vec::new(),
@@ -51,7 +51,7 @@ async fn call(
 async fn hand_tools_keep_declared_limits_environment_and_private_scratch()
  {
     let scratch = Scratch::new("hand-policy");
-    let place = lodge(&scratch);
+    let place = worktree(&scratch);
     let dir = scratch.join("tools/check");
     fs::create_dir_all(&dir).unwrap();
     fs::write(dir.join("data"), "declared\n").unwrap();
@@ -100,7 +100,7 @@ async fn hand_tools_keep_declared_limits_environment_and_private_scratch()
 async fn a_hand_tool_gets_its_argv_as_written_and_its_arguments_on_stdin()
  {
     let scratch = Scratch::new("hand-argv");
-    let place = lodge(&scratch);
+    let place = worktree(&scratch);
     let dir = scratch.join("tools/echo");
     fs::create_dir_all(&dir).unwrap();
     fs::write(
@@ -130,7 +130,7 @@ async fn a_hand_tool_gets_its_argv_as_written_and_its_arguments_on_stdin()
 async fn a_command_writes_only_in_its_house_and_reaches_the_network_only_with_leave()
  {
     let scratch = Scratch::new("tools-confined");
-    let place = lodge(&scratch);
+    let place = worktree(&scratch);
     let elsewhere = scratch.join("elsewhere");
     fs::create_dir_all(&elsewhere).unwrap();
 
@@ -157,10 +157,10 @@ async fn a_command_writes_only_in_its_house_and_reaches_the_network_only_with_le
     )
     .await;
 
-    assert_eq!(own.text, format!("{}\n", place.lodge.display()));
+    assert_eq!(own.text, format!("{}\n", place.worktree.display()));
     assert!(!own.error);
     assert_eq!(
-        fs::read_to_string(place.lodge.join("note.txt")).unwrap(),
+        fs::read_to_string(place.worktree.join("note.txt")).unwrap(),
         "kept\n"
     );
     assert!(refused.error);
@@ -197,7 +197,7 @@ async fn a_command_writes_only_in_its_house_and_reaches_the_network_only_with_le
 #[tokio::test]
 async fn a_command_runs_with_a_shared_folder_not_made_yet() {
     let scratch = Scratch::new("tools-unmade-shared");
-    let mut place = lodge(&scratch);
+    let mut place = worktree(&scratch);
     place.shared.push(scratch.join("tools"));
     let ran = call(
         &place,
@@ -220,7 +220,7 @@ const TICKING: &str = "(while true; do echo x >> tick.txt; sleep \
 #[tokio::test]
 async fn a_timeout_stops_the_command_and_all_it_started() {
     let scratch = Scratch::new("tools-timeout");
-    let place = lodge(&scratch);
+    let place = worktree(&scratch);
     let started = Instant::now();
 
     let stopped = call(
@@ -235,7 +235,7 @@ async fn a_timeout_stops_the_command_and_all_it_started() {
     assert_eq!(stopped.text, "started\n\n[timed out after 1s]");
     assert!(stopped.error);
     assert_eq!(stopped.details.unwrap()["exitCode"], json!(-1));
-    let tick = place.lodge.join("tick.txt");
+    let tick = place.worktree.join("tick.txt");
     let before = size(&tick);
     tokio::time::sleep(Duration::from_millis(500)).await;
     assert_eq!(size(&tick), before);
@@ -244,7 +244,7 @@ async fn a_timeout_stops_the_command_and_all_it_started() {
 #[tokio::test]
 async fn a_dropped_call_stops_the_command_and_all_it_started() {
     let scratch = Scratch::new("tools-dropped");
-    let place = lodge(&scratch);
+    let place = worktree(&scratch);
     let running = tokio::spawn({
         let place = place.clone();
         async move {
@@ -257,7 +257,7 @@ async fn a_dropped_call_stops_the_command_and_all_it_started() {
             .await
         }
     });
-    let tick = place.lodge.join("tick.txt");
+    let tick = place.worktree.join("tick.txt");
     if tokio::time::timeout(Duration::from_secs(10), async {
         while size(&tick) == 0 {
             tokio::time::sleep(Duration::from_millis(50)).await;
@@ -286,7 +286,7 @@ async fn a_dropped_call_stops_the_command_and_all_it_started() {
 async fn keeps_a_credential_out_of_kept_and_spilled_output_even_split_across_chunks()
  {
     let scratch = Scratch::new("tools-spill");
-    let place = lodge(&scratch);
+    let place = worktree(&scratch);
     let command = "seq 1 3000; printf 'key sk-test-'; sleep 0.2; \
                    printf 'secret-42\\n'";
 
@@ -322,9 +322,9 @@ async fn keeps_a_credential_out_of_kept_and_spilled_output_even_split_across_chu
 #[tokio::test]
 async fn reads_a_long_file_in_parts_saying_where_to_go_on() {
     let scratch = Scratch::new("tools-read");
-    let place = lodge(&scratch);
+    let place = worktree(&scratch);
     let lines = (1..=2500).map(|n| n.to_string()).collect::<Vec<_>>();
-    fs::write(place.lodge.join("long.txt"), lines.join("\n"))
+    fs::write(place.worktree.join("long.txt"), lines.join("\n"))
         .unwrap();
     let read =
         |args: Value| call(&place, Network::Closed, "read", args);
@@ -356,11 +356,11 @@ async fn reads_a_long_file_in_parts_saying_where_to_go_on() {
 #[tokio::test]
 async fn writes_and_edits_nothing_out_of_reach() {
     let scratch = Scratch::new("tools-reach");
-    let place = lodge(&scratch);
+    let place = worktree(&scratch);
     let elsewhere = scratch.join("elsewhere");
     fs::create_dir_all(&elsewhere).unwrap();
-    fs::create_dir_all(scratch.join("lodges/home/1")).unwrap();
-    symlink(&elsewhere, place.lodge.join("out")).unwrap();
+    fs::create_dir_all(scratch.join("worktrees/home/1")).unwrap();
+    symlink(&elsewhere, place.worktree.join("out")).unwrap();
     let write = |path: String| {
         call(
             &place,
@@ -384,11 +384,11 @@ async fn writes_and_edits_nothing_out_of_reach() {
             text(&elsewhere)
         )
     );
-    assert!(!scratch.join("lodges/home/1/NOTES.md").exists());
+    assert!(!scratch.join("worktrees/home/1/NOTES.md").exists());
     assert!(!elsewhere.join("x").exists());
     assert!(!elsewhere.join("sub").exists());
 
-    let notes = place.lodge.join("NOTES.md");
+    let notes = place.worktree.join("NOTES.md");
     fs::write(&notes, "# Notes\n").unwrap();
     let edit =
         |args: Value| call(&place, Network::Closed, "edit", args);
@@ -397,7 +397,7 @@ async fn writes_and_edits_nothing_out_of_reach() {
         "edits": [{"oldText": "# Notes", "newText": "# Notes\nTea."}],
     }))
     .await;
-    fs::write(place.lodge.join("raw.txt"), [0x61, 0xff, 0x0a])
+    fs::write(place.worktree.join("raw.txt"), [0x61, 0xff, 0x0a])
         .unwrap();
     let raw = edit(json!({
         "path": "raw.txt",
@@ -420,11 +420,11 @@ async fn writes_and_edits_nothing_out_of_reach() {
         raw.diagnostics[0].message,
         format!(
             "Could not edit file: {}. Error code: invalid.",
-            text(&place.lodge.join("raw.txt"))
+            text(&place.worktree.join("raw.txt"))
         )
     );
     assert_eq!(
-        fs::read(place.lodge.join("raw.txt")).unwrap(),
+        fs::read(place.worktree.join("raw.txt")).unwrap(),
         [0x61, 0xff, 0x0a]
     );
 }

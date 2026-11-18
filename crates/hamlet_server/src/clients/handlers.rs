@@ -60,8 +60,8 @@ pub(crate) fn plugin(app: &mut App) {
         .add_handler::<FromClient<protocol::Say>, _>(say)
         .add_handler::<FromClient<ReadModels>, _>(read_models)
         .add_handler::<FromClient<protocol::Read>, _>(read)
-        .add_handler::<FromClient<protocol::MoveLodges>, _>(
-            move_lodges,
+        .add_handler::<FromClient<protocol::MoveWorktrees>, _>(
+            move_worktrees,
         )
         .add_handler::<FromClient<protocol::Login>, _>(login)
         .add_handler::<FromClient<protocol::Check>, _>(check);
@@ -183,7 +183,7 @@ fn write(
             to(commands, client, ReadModels { id, refresh });
         }
         ClientMessage::Read(m) => to(commands, client, m),
-        ClientMessage::MoveLodges(m) => to(commands, client, m),
+        ClientMessage::MoveWorktrees(m) => to(commands, client, m),
         ClientMessage::Terminal(m) => to(commands, client, m),
         ClientMessage::Login(m) => to(commands, client, m),
         ClientMessage::Check(m) => to(commands, client, m),
@@ -257,14 +257,16 @@ fn read(
         })
 }
 
-fn move_lodges(
-    mut received: ResMut<Messages<FromClient<protocol::MoveLodges>>>,
+fn move_worktrees(
+    mut received: ResMut<
+        Messages<FromClient<protocol::MoveWorktrees>>,
+    >,
     mut core: Core,
 ) -> Result {
     received
         .drain()
         .try_for_each(|FromClient { client, request }| {
-            core.move_lodges(client, &request.id)?;
+            core.move_worktrees(client, &request.id)?;
             Ok(())
         })
 }

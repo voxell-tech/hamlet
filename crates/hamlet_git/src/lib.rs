@@ -2,7 +2,7 @@
 //! program: a profile's character, memory and skills with their whole
 //! history, its agents' branches and its versions.
 //!
-//! Files are read and written by the caller, so a lodge on this
+//! Files are read and written by the caller, so a worktree on this
 //! machine or on a remote workspace is kept the same way: the caller
 //! lists its files with their blob ids, and this crate plans the
 //! writes that check a commit out, or commits what is listed.

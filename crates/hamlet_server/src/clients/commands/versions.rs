@@ -7,7 +7,7 @@ use hamlet_store::ids::{Actor, HamletId, ProfileId};
 
 use super::Command;
 use super::targets::ProfileReach;
-use crate::core::{Core, UnpushedLodge};
+use crate::core::{Core, UnpushedWorktree};
 use crate::knowledge::folder::Folder;
 use crate::realm::change::Done;
 use crate::realm::jobs::Fork;
@@ -322,7 +322,7 @@ impl Core<'_, '_> {
     }
 
     /// Takes the path out of every commit, every branch and every
-    /// lodge of the profile's agents.
+    /// worktree of the profile's agents.
     pub(super) fn purge(&mut self, words: &[&str]) -> Done<String> {
         let [profile, path] = words else {
             return Ok(Err(self.deeds.usage("purge")));
@@ -342,8 +342,9 @@ impl Core<'_, '_> {
         let held = writing.hold();
         let db = self.realm.store().connection();
         for agent in hamlet_agents::living_of(db, id)? {
-            let lodge = layout.lodge(&agent.hamlet, agent.agent);
-            let Ok(folder) = Folder::open(&lodge) else {
+            let worktree =
+                layout.worktree(&agent.hamlet, agent.agent);
+            let Ok(folder) = Folder::open(&worktree) else {
                 continue;
             };
             // The path is a file, or a folder of them.
@@ -357,7 +358,7 @@ impl Core<'_, '_> {
         drop(held);
         let db = self.realm.store().connection();
         for agent in hamlet_agents::living_of(db, id)? {
-            self.remote.unpushed.write(UnpushedLodge(agent.agent));
+            self.remote.unpushed.write(UnpushedWorktree(agent.agent));
         }
         let by = Actor::Chief(self.realm.chief());
         self.main_moved(by, id)?;

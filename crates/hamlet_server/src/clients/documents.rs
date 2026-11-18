@@ -14,7 +14,7 @@ use hamlet_store::schema::document;
 
 use super::check::reply;
 use crate::conversations::{chats, items, prompt};
-use crate::core::{Core, UnpushedLodge};
+use crate::core::{Core, UnpushedWorktree};
 use crate::knowledge::folder::Folder;
 use crate::knowledge::library::field;
 use crate::knowledge::{self, CHARACTER, outside_git};
@@ -75,7 +75,7 @@ impl Core<'_, '_> {
                     }
                     Keeper::Agent(agent) => {
                         let agent = AgentId(i64::try_from(agent.0)?);
-                        self.edit_lodge_memory(agent, &path, &text)
+                        self.edit_worktree_memory(agent, &path, &text)
                     }
                 }
             }
@@ -193,9 +193,9 @@ impl Core<'_, '_> {
         Ok(Ok("The memory is saved.".into()))
     }
 
-    /// Writes a memory file of `agent`'s lodge, empty removing it,
-    /// and has the lodge committed.
-    fn edit_lodge_memory(
+    /// Writes a memory file of `agent`'s worktree, empty removing it,
+    /// and has the worktree committed.
+    fn edit_worktree_memory(
         &mut self,
         agent: AgentId,
         path: &str,
@@ -203,7 +203,7 @@ impl Core<'_, '_> {
     ) -> Done<String> {
         done!(self.reaches(agent));
         let layout = self.realm.layout().clone();
-        let lodging = knowledge::lodging(
+        let worktree = knowledge::worktree(
             self.realm.store().connection(),
             &layout,
             agent,
@@ -211,14 +211,14 @@ impl Core<'_, '_> {
         {
             let writing = self.writing.clone();
             let _held = writing.hold();
-            let folder = Folder::make(&lodging.path)?;
+            let folder = Folder::make(&worktree.path)?;
             if text.is_empty() {
                 folder.remove(path)?;
             } else {
                 folder.write(path, text.as_bytes(), false)?;
             }
         }
-        self.remote.unpushed.write(UnpushedLodge(agent));
+        self.remote.unpushed.write(UnpushedWorktree(agent));
         let by = Actor::Chief(self.realm.chief());
         self.change(by, |cx, _| {
             jobs::add(cx, &Job::Commit { agent })?;
@@ -553,24 +553,25 @@ impl Core<'_, '_> {
         self.answer(client, message)
     }
 
-    /// The papers of `of`: a profile's `main`, or an agent's lodge.
+    /// The papers of `of`: a profile's `main`, or an agent's
+    /// worktree.
     fn papers(&mut self, of: Keeper) -> Done<protocol::Papers> {
         let layout = self.realm.layout().clone();
         let db = self.realm.store().connection();
-        let (profile, lodge) = match of {
+        let (profile, worktree) = match of {
             Keeper::Profile(profile) => {
                 (ProfileId(i64::try_from(profile.0)?), None)
             }
             Keeper::Agent(agent) => {
                 let agent = AgentId(i64::try_from(agent.0)?);
-                let Ok(lodging) =
-                    knowledge::lodging(db, &layout, agent)
+                let Ok(worktree) =
+                    knowledge::worktree(db, &layout, agent)
                 else {
                     return Ok(Err(Refusal::NoOne {
                         address: agent.to_string(),
                     }));
                 };
-                (lodging.profile, Some(lodging.path))
+                (worktree.profile, Some(worktree.path))
             }
         };
         let repo = Repository::open(&layout.repository(profile))?;
@@ -586,7 +587,7 @@ impl Core<'_, '_> {
         };
         let mut files = Vec::<(String, Vec<u8>)>::new();
         let mut learned = Vec::new();
-        match &lodge {
+        match &worktree {
             Some(path) => {
                 let Ok(folder) = Folder::open(path) else {
                     return Ok(Ok(protocol::Papers {

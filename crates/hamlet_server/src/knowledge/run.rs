@@ -1,5 +1,5 @@
-//! Running the jobs that keep repositories and lodges, each safe to
-//! run again after a crash.
+//! Running the jobs that keep repositories and worktrees, each safe
+//! to run again after a crash.
 
 use anyhow::{Context, Result, bail};
 use hamlet_git::{Author, Change, CommitId, MAIN, Repository, Step};
@@ -8,7 +8,7 @@ use hamlet_store::ids::{Actor, AgentId, OfferId, ProfileId};
 
 use super::folder::{Folder, remove_folder};
 use super::worker::RepositoryWriteLock;
-use super::{CHARACTER, branch, lodging, outside_git};
+use super::{CHARACTER, branch, outside_git, worktree};
 use crate::realm::jobs::{Fork, Job};
 use crate::realm::layout::Layout;
 use crate::society::{city, hamlet_agents, library as shelf};
@@ -86,13 +86,13 @@ pub(crate) fn run(
         } => {
             plant(db, layout, *profile, character, fork.as_ref(), at)
         }
-        Job::Lodge { agent } => lodge(db, layout, *agent),
+        Job::Worktree { agent } => make_worktree(db, layout, *agent),
         Job::Commit { agent } => {
             commit(db, layout, *agent, at).map(drop)
         }
         Job::TakeIn { agent } => take_in(db, layout, *agent, at),
         Job::EraseAgent { agent } => {
-            let found = lodging(db, layout, *agent)?;
+            let found = worktree(db, layout, *agent)?;
             remove_folder(&found.path)?;
             if let Ok(repo) =
                 Repository::open(&layout.repository(found.profile))
@@ -125,7 +125,7 @@ pub(crate) fn run(
 }
 
 /// Shelves the skill of `offer`, which the librarian took, once, and
-/// takes it out of the offerer's lodge while it is as offered.
+/// takes it out of the offerer's worktree while it is as offered.
 fn shelve(
     db: &mut Db,
     layout: &Layout,
@@ -159,8 +159,8 @@ fn shelve(
             },
         )?;
     }
-    let lodge = lodging(db, layout, found.agent)?.path;
-    let Ok(folder) = Folder::open(&lodge) else {
+    let worktree = worktree(db, layout, found.agent)?.path;
+    let Ok(folder) = Folder::open(&worktree) else {
         return Ok(());
     };
     let prefix = format!("skills/{}/", found.skill);
@@ -232,9 +232,13 @@ fn plant(
 }
 
 /// Starts the branch of `agent` when it has none, and checks out its
-/// lodge.
-fn lodge(db: &mut Db, layout: &Layout, agent: AgentId) -> Result<()> {
-    let found = lodging(db, layout, agent)?;
+/// worktree.
+fn make_worktree(
+    db: &mut Db,
+    layout: &Layout,
+    agent: AgentId,
+) -> Result<()> {
+    let found = worktree(db, layout, agent)?;
     if !city::get(db, found.profile)?.planted {
         bail!("its profile's repository is not made yet");
     }
@@ -303,15 +307,15 @@ pub(super) fn write_tree(
     Ok(())
 }
 
-/// Commits the lodge of `agent` to its branch, returning the new tip
-/// when it changed.
+/// Commits the worktree of `agent` to its branch, returning the new
+/// tip when it changed.
 pub(crate) fn commit(
     db: &mut Db,
     layout: &Layout,
     agent: AgentId,
     at: i64,
 ) -> Result<Option<CommitId>> {
-    let found = lodging(db, layout, agent)?;
+    let found = worktree(db, layout, agent)?;
     let Ok(folder) = Folder::open(&found.path) else {
         return Ok(None);
     };
@@ -338,14 +342,14 @@ pub(crate) fn commit(
 }
 
 /// Takes `main`, or the pin, into the branch of the idle `agent` and
-/// writes what changed into its lodge.
+/// writes what changed into its worktree.
 fn take_in(
     db: &mut Db,
     layout: &Layout,
     agent: AgentId,
     at: i64,
 ) -> Result<()> {
-    let found = lodging(db, layout, agent)?;
+    let found = worktree(db, layout, agent)?;
     if !found.living {
         return Ok(());
     }

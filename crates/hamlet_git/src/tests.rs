@@ -215,7 +215,7 @@ fn versions_name_commits_and_resolve() {
 
 #[test]
 fn a_folder_is_checked_out_and_committed_by_its_listing() {
-    let dir = Scratch::new("git-lodge");
+    let dir = Scratch::new("git-worktree");
     let repo = repository(&dir);
     let first = repo
         .commit(
@@ -230,12 +230,12 @@ fn a_folder_is_checked_out_and_committed_by_its_listing() {
         )
         .unwrap();
     repo.branch("agents/7", first).unwrap();
-    let lodge = |path: &str| {
+    let worktree = |path: &str| {
         path == "CHARACTER.md" || path.starts_with("inbox/")
     };
 
     // An empty folder gets every file but the character.
-    let steps = repo.plan(first, &[], &lodge).unwrap();
+    let steps = repo.plan(first, &[], &worktree).unwrap();
     assert_eq!(
         steps
             .iter()
@@ -279,7 +279,7 @@ fn a_folder_is_checked_out_and_committed_by_its_listing() {
         .commit_listing(
             "agents/7",
             &listing,
-            &lodge,
+            &worktree,
             &[],
             "turn",
             by(2),
@@ -306,7 +306,7 @@ fn a_folder_is_checked_out_and_committed_by_its_listing() {
         repo.commit_listing(
             "agents/7",
             &listing,
-            &lodge,
+            &worktree,
             &[],
             "same",
             by(3)
@@ -320,7 +320,9 @@ fn a_folder_is_checked_out_and_committed_by_its_listing() {
         changes.iter().map(FileChange::path).collect::<Vec<_>>(),
         ["memory/notes.md", "skills/a/SKILL.md", "skills/b/run.sh"]
     );
-    assert!(repo.plan(commit, &listing, &lodge).unwrap().is_empty());
+    assert!(
+        repo.plan(commit, &listing, &worktree).unwrap().is_empty()
+    );
 }
 
 #[test]

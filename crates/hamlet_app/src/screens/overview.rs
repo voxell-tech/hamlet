@@ -644,8 +644,8 @@ fn closed() -> AnyView {
                                 hamlet.name
                             )),
                             note(
-                                "Every archived lodge is deleted. \
-                                 This cannot be undone.",
+                                "Every archived worktree is \
+                                 deleted. This cannot be undone.",
                             ),
                             buttons(vec![
                                 bad_action(

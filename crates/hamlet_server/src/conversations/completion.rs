@@ -1,7 +1,7 @@
 //! What follows an input's end, once: its conversation's last turn,
 //! its chief's instruction answered, a question's answer and a
 //! worker's carried back, and once its agent is idle, the agent's
-//! lodge committed and its profile's learning taken in.
+//! worktree committed and its profile's learning taken in.
 
 use anyhow::Result;
 use diesel::prelude::*;
@@ -270,7 +270,7 @@ fn errand_ended(
                     Verdict::Refused,
                     format!(
                         "The librarian did not take `{name}`: \
-                         {answer} It stays in your lodge."
+                         {answer} It stays in your worktree."
                     ),
                 )
             }

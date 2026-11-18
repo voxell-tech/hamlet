@@ -471,7 +471,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn the_hand_writes_its_lodge_and_reads_it_back_with_a_command()
+    async fn the_hand_writes_its_worktree_and_reads_it_back_with_a_command()
      {
         let dir = Scratch::new("server-core-tools");
         let script = r#"{"responses": [
@@ -481,9 +481,9 @@ mod tests {
         ]}"#;
         let (mut server, said) = told(&dir, script, "Note it").await;
         let mut core = server.core().unwrap();
-        let lodge = core.realm.layout().hand();
+        let worktree = core.realm.layout().hand();
         assert_eq!(
-            std::fs::read_to_string(lodge.join("notes/seen.md"))
+            std::fs::read_to_string(worktree.join("notes/seen.md"))
                 .unwrap(),
             "seen it"
         );

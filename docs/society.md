@@ -9,7 +9,7 @@ client protocol; it reads no records from the realm's disk. The glossary is
 ## The Hand and the city
 
 A realm is made with the Hand, an agent of its own that is always there
-and sits above every lead. It has a lodge, `hand/`, and a profile that no
+and sits above every lead. It has a worktree, `hand/`, and a profile that no
 chief adds agents of; its character starts from `crates/hamlet_server/assets/hand.md`. It is the agent
 `hamlet chat` talks to unless told otherwise, and a new realm has no hamlet,
 so a chief asks the Hand, or types `/create-hamlet`, to make the first. Its changes to
@@ -77,7 +77,7 @@ profile's name.
 The Hand and parents see the profiles they may add agents of in their
 prompts, as `profile#<id> (<name>)`, since a name finds nothing.
 
-An agent's branch and lodge are its own. Its tools write the lodge, a turn
+An agent's branch and worktree are its own. Its tools write the worktree, a turn
 that changed it is committed to the branch, and the diff against `main` is
 what it learned, which the Hub shows under an agent's memory. The agents of a
 hamlet form a tree under the lead, as deep as its parents make it. An agent
@@ -121,7 +121,7 @@ chief. See [`chat.md`](chat.md) for paging and watches.
 ## Ending, merging and restoring
 
 `/end` ends an agent: its turns stop, its waits lapse, its grants are taken
-back, its lodge is committed one last time and archived, and its agents go to
+back, its worktree is committed one last time and archived, and its agents go to
 its parent. The lead cannot be ended; give the office away first. A parent,
 the Hand included, may not end or merge an agent on a chief's task (H7): while
 an input of that task is still to end in its conversations, or until the
@@ -134,21 +134,21 @@ profiles bring what the absorbed agent learned into the kept branch, a
 clashing file kept as `<name>.from-<absorbed>` and a clashing skill as
 `<skill>-from-<absorbed>`, with the absorbed agent as `agent-<id>`.
 `/restore` brings an ended agent back under the same id, or splits a
-merged one out again by undoing the merge's commit. `/erase` deletes an ended agent's lodge and branch for good. A
+merged one out again by undoing the merge's commit. `/erase` deletes an ended agent's worktree and branch for good. A
 letter to an agent that has left is refused with how it left.
 
-`/remove-hamlet` ends every agent of a hamlet and keeps its tree and lodges;
+`/remove-hamlet` ends every agent of a hamlet and keeps its tree and worktrees;
 `/restore-hamlet` brings them back while their profiles live, and
-`/erase-hamlet` deletes the lodges and branches. Removed hamlets appear
+`/erase-hamlet` deletes the worktrees and branches. Removed hamlets appear
 apart from the living ones in the overview.
 
 ## Memory, reflection and dreams
 
 An agent reflects every few answered turns of a chief chat, when a chief asks
 (`/reflect`) or when a conversation is put away, and keeps what it learned in
-its lodge's `memory/` and `skills/`. That stays on its branch. When dreams are
+its worktree's `memory/` and `skills/`. That stays on its branch. When dreams are
 turned on in the settings, an agent that is idle and has learned something its
-profile lacks dreams, within the chief's hours: it is given its lodge and a
+profile lacks dreams, within the chief's hours: it is given its worktree and a
 checkout of `main`, and decides what goes to the profile and what stays. A
 profile with living agents dreams once a day to tidy `main`. `/dream` runs one
 now. A dream is a task with a cost cap, and its commits are named after it.
@@ -179,9 +179,9 @@ Another hamlet's agent is reached by its `agent#<id>` like any other,
 `/hamlet <hamlet>` switches the terminal to it. `/agent <address>` finds any agent of the realm.
 A lead sees the other hamlets in its prompt.
 
-Removed hamlets retain their lodges and records and appear under CLOSED DOWN
+Removed hamlets retain their worktrees and records and appear under CLOSED DOWN
 in the overview. RESTORE brings one back. DELETE FOR GOOD asks first and
-permanently erases its lodges; that question is discarded on restore or
+permanently erases its worktrees; that question is discarded on restore or
 leaving the page.
 
 The server sends whole replacement states when the library shelf or the

@@ -12,8 +12,8 @@ use crate::attachments::captions::{Attached, Caption, is_place};
 use crate::attachments::files::Files;
 use crate::attachments::inbox::INBOX;
 use crate::conversations::models;
-use crate::core::{Core, UnpushedLodge};
-use crate::realm::workspace::lodges::LODGE;
+use crate::core::{Core, UnpushedWorktree};
+use crate::realm::workspace::worktrees::WORKTREE;
 use crate::society::refusal::Refusal;
 
 impl Core<'_, '_> {
@@ -106,16 +106,16 @@ impl Core<'_, '_> {
             }));
         }
         let layout = self.realm.layout().clone();
-        let lodge = crate::calls::place::of(
+        let worktree = crate::calls::place::of(
             self.realm.store().connection(),
             &layout,
             agent,
         )?
         .place
-        .lodge;
+        .worktree;
         let remote = self.remote.workspace.is_some();
         if remote {
-            self.remote.unpushed.write(UnpushedLodge(agent));
+            self.remote.unpushed.write(UnpushedWorktree(agent));
         }
         let kept = Images::new(layout.images());
         let mut attached = Attached::default();
@@ -125,11 +125,12 @@ impl Core<'_, '_> {
                     image: image.id.to_string(),
                 }));
             };
-            let name = kept.hand_over(&lodge, &image.id, &stored)?;
+            let name =
+                kept.hand_over(&worktree, &image.id, &stored)?;
             let saved = if remote {
-                format!("{LODGE}/{SEEN}/{name}")
+                format!("{WORKTREE}/{SEEN}/{name}")
             } else {
-                lodge.join(SEEN).join(&name).display().to_string()
+                worktree.join(SEEN).join(&name).display().to_string()
             };
             attached.captions.push(Caption {
                 at: image.at,

@@ -16,7 +16,7 @@ _Avoid_: user, owner, admin
 
 **Agent**:
 An AI the server runs. Most are a profile working in a hamlet, on a branch
-of its own and in a lodge, for a purpose a chief may leave out; a hamlet's
+of its own and in a worktree, for a purpose a chief may leave out; a hamlet's
 agents form a tree under its lead. The Hand and workers are agents too.
 _Avoid_: hire, citizen, resident, bot, member, employee
 
@@ -100,11 +100,12 @@ _Avoid_: release (for a profile)
 **Pin**:
 Holding an agent at one version of its profile, so it does not take in `main`.
 
-**Lodge**:
+**Worktree**:
 The checkout of an agent's branch where its tools work, without
 `CHARACTER.md`, plus an `inbox/` that is never committed. The Hand's is
-`hand/`.
-_Avoid_: house, workspace, home
+`hand/`. A folder of the realm, not the **Workspace** its tools run on,
+which may hold a copy of it.
+_Avoid_: lodge, house, home
 
 **Dream**:
 A task in which an agent brings what it learned home to its profile's `main`,
@@ -157,8 +158,8 @@ _Avoid_: team, project, town
 
 **Workspace**:
 Where agents' tools run: this machine, or a remote one the chief chooses in
-Settings.
-_Avoid_: sandbox, lodge
+Settings. Not an agent's **Worktree**, the folder its tools work in.
+_Avoid_: sandbox, worktree
 
 **Sandbox**:
 What holds an agent's commands to the reach the spec gives them, on the

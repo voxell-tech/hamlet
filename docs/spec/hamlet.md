@@ -71,7 +71,7 @@ empty city and no hamlet.
 
 - The Hand has a profile of its own, never added to a hamlet or listed in
   the city,
-  whose character starts from the app's default for it, and a lodge. A chief
+  whose character starts from the app's default for it, and a worktree. A chief
   edits its character as any profile's.
 - Every chief talks to the Hand first. It has a road to each lead and to no
   other agent.
@@ -129,10 +129,10 @@ skills/<name>/SKILL.md    one folder per skill, with its files
 - `main` changes by a chief's edit of the character or a memory file, a dream
   (H43), or a revert (H39). Never by an agent's tool.
 - Archiving a profile ends its living agents first, each with a final commit
-  of its lodge; it is refused while one of its agents
+  of its worktree; it is refused while one of its agents
   holds a hamlet's office. Restoring brings back the
   agents its archiving ended in hamlets that still live. Erasing deletes its
-  repository, its archived agents and their lodges, and cannot be undone.
+  repository, its archived agents and their worktrees, and cannot be undone.
 
 **H45.** A profile a parent makes is a newcomer, which the realm's
 `newcomers` setting lets into the city:
@@ -195,7 +195,7 @@ the hamlet. The new lead takes the root; the old lead, and the agents under
 the old lead, go under it.
 
 **H40.** An agent of a hamlet is a profile working in it, for a purpose, with
-a branch of its profile's repository and a lodge of its own (C8).
+a branch of its profile's repository and a worktree of its own (C8).
 
 - **Adding.** A chief adds an agent of its own profile to a hamlet it is
   chief of. The Hand adds one of any chief's profile, and a parent of any
@@ -204,22 +204,23 @@ a branch of its profile's repository and a lodge of its own (C8).
   first message it is given as its purpose. A hamlet holds at most its tier
   of living agents, the whole tree counted, workers not.
 - **Its branch** `agents/<agent id>` starts at `main`, or at its pin.
-- **Its lodge** is a checkout of its branch, without `CHARACTER.md`, plus an
-  `inbox/` that is never committed. Its tools write there.
-- **After each turn** that changed the lodge, the server commits it to the
+- **Its worktree** is a checkout of its branch, without `CHARACTER.md`, plus
+  an `inbox/` that is never committed. Its tools write there. It is a folder
+  of the realm, not the workspace the tools run on.
+- **After each turn** that changed the worktree, the server commits it to the
   branch. What the agent learned is the difference between its branch and
   `main`; a chief can read it.
 - **Taking in `main`.** When an unpinned agent is idle and `main` has moved
   since its branch last took it in, the server merges `main` into the branch,
   keeping the agent's side where both changed, and writes the merged files into
-  the lodge. A turn never sees `main` change under it.
+  the worktree. A turn never sees `main` change under it.
 - **Ending** an agent stops its turns, lets its waits lapse, takes back its
-  grants (H28), makes a final commit of its lodge and archives it. Its lodge
-  and branch stay until erased. The agents under it go to its parent.
+  grants (H28), makes a final commit of its worktree and archives it. Its
+  worktree and branch stay until erased. The agents under it go to its parent.
 - **Restoring** it brings it back under the same id and number, when its
   profile lives, its hamlet lives and holds fewer than its tier. Its parent is
   its old parent when that lives, else the lead.
-- **Erasing** an ended agent deletes its lodge and branch; the record keeps its
+- **Erasing** an ended agent deletes its worktree and branch; the record keeps its
   number.
 
 **H41.** The agents of a hamlet form a tree under its lead, as deep as its
@@ -248,10 +249,10 @@ it, which ends when the task is answered.
 - It has the built-in tools its starter gave it and no society tools, so it
   starts no workers and sends no letters.
 - It works in the hamlet's folder as its starter does, reads its starter's
-  lodge and the library, and writes a scratch folder that is removed when it
-  ends.
+  worktree and the library, and writes a scratch folder that is removed when
+  it ends.
 - Its spend is charged to its starter's task, hamlet and allowance.
-- It is not counted among a hamlet's agents, and has no branch, lodge,
+- It is not counted among a hamlet's agents, and has no branch, worktree,
   memory or roads.
 
 **H17.** Every decision of a chief, the Hand or a parent is kept in the hamlet's
@@ -282,7 +283,7 @@ until it has answered, nor for [0] minutes after.
 split out of the agent that absorbed it, a removed hamlet (H19) or an archived
 profile (H38). A split brings the absorbed agent back and undoes the merge's
 commit on the kept branch; what the kept agent learned since stays. Archived
-lodges stay in place until erasure; a chief can delete what is archived of an
+worktrees stay in place until erasure; a chief can delete what is archived of an
 agent, a hamlet or a profile for good, after which it cannot come back.
 
 A removed hamlet comes back as it was only while the profiles of its agents
@@ -330,7 +331,7 @@ that absorbed it, and are not charged again.
   in its own conversation with the sender, and the reply comes back later as a
   new message.
 - **A question** (`ask`): the sender waits while the other agent's turn runs
-  in its own lodge, and gets the reply as the tool's answer. That turn's tool
+  in its own worktree, and gets the reply as the tool's answer. That turn's tool
   calls pass the same gate as the sender's.
 
 Each letter, question and reply names its sender (C11, C30). A question
@@ -338,9 +339,9 @@ that would leave a conversation waiting on its own answer, directly or
 through other questions, is refused.
 
 A letter or a question can name `paths`: files or folders in the sender's
-lodge or its hamlet's folder, which the server copies into the receiver's lodge
-under `inbox/from-<sender>/`, links not followed, as far as the sender's
-sandbox lets it read. The message says where each landed. An image among them
+worktree or its hamlet's folder, which the server copies into the receiver's
+worktree under `inbox/from-<sender>/`, links not followed, as far as the
+sender's sandbox lets it read. The message says where each landed. An image among them
 is also given to the receiver's model when that model takes images. One send
 holds at most [32 MiB and 1000 files], images among them; a larger one waits for
 a chief, who is told what is sent and how large, and who allows it or refuses
@@ -406,7 +407,7 @@ costing at most a cap [$0.20].
 
 - **An agent's dream** runs when the agent is idle and its branch holds
   something `main` lacks, at most every [6] hours. It is given the agent's
-  lodge and a checkout of `main`, both writable, and decides what goes to the
+  worktree and a checkout of `main`, both writable, and decides what goes to the
   profile and what stays with the agent. The server commits the profile's
   side to `main`, the agent's side to its branch, and takes the new `main`
   into the branch.
@@ -435,9 +436,9 @@ lead, when a hamlet is founded or removed, its lead changes, or a road
 between hamlets is agreed.
 
 **H19.** A chief, or the Hand on a chief's order, can remove a hamlet. Its
-agents end, each with a final commit of its lodge, and their lodges and
+agents end, each with a final commit of its worktree, and their worktrees and
 branches stay, archived with its record, with its tree kept so that restoring
-the hamlet (H20) brings them back. Erasing it deletes the lodges and the
+the hamlet (H20) brings them back. Erasing it deletes the worktrees and the
 agents' branches. No hamlet is special: any can be removed.
 
 **H32.** A chief can give a hamlet another name to be shown by, while its ID
@@ -452,8 +453,8 @@ starter skills. An agent offers one of its own skills with a reason
 (`submit_skill`). The librarian judges it in one model call, with no tools.
 `ACCEPT` as the first word, without regard to case, shelves the skill;
 anything else refuses it. An accepted skill is committed to the library whole.
-Its unchanged lodge copy is removed when possible. Later changes stay in the
-lodge. An agent can ask the librarian which skill does what it needs
+Its unchanged worktree copy is removed when possible. Later changes stay in
+the worktree. An agent can ask the librarian which skill does what it needs
 (`ask_librarian`), also in one call without tools. Each call is kept and
 charged to the asking agent and its task. The library keeps a record of what
 was shelved, refused and taken out, and a chief can take a skill out
@@ -469,7 +470,7 @@ was shelved, refused and taken out, and a chief can take a skill out
 - it is something the chief's limits reserve (H22), or one of the Hand's
   acts on what chiefs own (H37);
 - its hamlet is in manual mode and it is an edit of the folder or a
-  command, not an edit of the agent's own lodge (C21).
+  command, not an edit of the agent's own worktree (C21).
 
 A chief answers: allow it once; allow edits or commands for the rest of the
 agent's conversation; allow it always, which for the network or running

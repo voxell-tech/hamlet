@@ -32,7 +32,7 @@ once and its usage charged once (S20) by its key in the same way.
 
 **Jobs are an outbox.** What must happen to files or repositories after a
 commit is a row written in the same transaction: making a profile's
-repository (`plant`), checking out a lodge (`lodge`), committing it
+repository (`plant`), checking out a worktree (`worktree`), committing it
 (`commit`), taking in `main` (`take-in`), erasing (`erase-agent`,
 `erase-profile`, `erase-hamlet`), merging and splitting agents (`merge`,
 `split`), shelving a skill (`shelve`) and ending a dream (`dream-end`). A

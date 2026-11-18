@@ -59,7 +59,7 @@ async fn edits_the_charter_character_and_memory_and_the_prompt_follows()
     })
     .await;
     assert_eq!(reply.kind, ReplyKind::Notice, "{}", reply.text);
-    // An agent's own memory is its lodge's, which it alone has
+    // An agent's own memory is its worktree's, which it alone has
     // learned.
     let own = memory("Own", "An agent's note.");
     edit(&mut s.chief, |id| Edit::Memory {

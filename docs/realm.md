@@ -17,8 +17,8 @@ and `realm/layout.rs` defines `Layout`. The server's chief is named by
 | `server.json` | Running server's URL, PID, start time and confinement, never its token |
 | `server.log` | Detached server's output, written by the CLI's process launch |
 | `profiles/<id>.git/` | Each profile's repository, the Hand's included |
-| `hand/` | The Hand's lodge |
-| `hamlets/<hamlet id>/<agent id>/` | An agent's lodge: `memory/`, `skills/` and `inbox/`, a checkout of its branch |
+| `hand/` | The Hand's worktree |
+| `hamlets/<hamlet id>/<agent id>/` | An agent's worktree: `memory/`, `skills/` and `inbox/`, a checkout of its branch |
 | `workers/<id>/` | A worker's scratch folder while it runs |
 | `library.git/`, `library/` | The library's repository, and its `main` checked out, read-only to agent tools |
 | `tools/` | Hand-added tool manifests and scripts, loaded again whenever they change |
@@ -72,19 +72,19 @@ leaves its transaction rolled back and is answered with the failure: a
 `fault` to the client, an `error` to the runtime, which ends that turn with
 the server's words. The server goes on.
 
-## Profiles and lodges
+## Profiles and worktrees
 
 A profile's repository holds `CHARACTER.md`, `memory/` and `skills/`; `main`
 is what the profile knows, `agents/<agent id>` is an agent's branch, and a tag
 is a version
-([ADR 0011](adr/0011-profiles-are-git-repositories-agents-are-branches-lodges-are-checkouts.md)).
-The server alone writes a repository, through `hamlet_git`. A lodge is the
+([ADR 0011](adr/0011-profiles-are-git-repositories-agents-are-branches-worktrees-are-checkouts.md)).
+The server alone writes a repository, through `hamlet_git`. A worktree is the
 checkout of an agent's branch without `CHARACTER.md`, plus `inbox/`, which is
-never committed. After a turn that changed a lodge a `commit` job commits it
-to the branch, and when the agent is idle and `main` has moved a `take-in` job
-merges `main` into the branch and writes the merged files into the lodge, so
-a turn never sees `main` change under it. `knowledge.rs` names the branch and
-finds a lodge; `knowledge/run.rs` runs the jobs. The character is read from the
+never committed. After a turn that changed a worktree a `commit` job commits
+it to the branch, and when the agent is idle and `main` has moved a `take-in`
+job merges `main` into the branch and writes the merged files into the
+worktree, so a turn never sees `main` change under it. `knowledge.rs` names
+the branch and finds a worktree; `knowledge/run.rs` runs the jobs. The character is read from the
 branch's tip for the prompt, and edited on a profile's `main` through the
 protocol.
 
@@ -109,7 +109,7 @@ The database holds the chief's documents as rows of the `document` table: the
 charter, the settings, the model catalogue's overrides, the librarian's
 instructions and the realm's own limits. A hamlet's limits are a column of its
 row, so a limits edit is one change. A character is a file of its profile's
-`main`, and memory is files of a lodge or of `main`; the server opens them
+`main`, and memory is files of a worktree or of `main`; the server opens them
 through directories it holds open, without following links.
 `HAMLET_MODEL`, `HAMLET_BASE_URL`, `HAMLET_REFLECT_EVERY` and `HAMLET_NET`
 override stored settings for this process. `HAMLET_MODEL` is the settings'
