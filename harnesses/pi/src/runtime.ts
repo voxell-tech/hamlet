@@ -141,7 +141,7 @@ export async function run(
     const exists = existsSync(options.store);
     if (!exists && !options.fresh) {
         const reply = await hello(channel, null, "missing");
-        refusedExit(reply);
+        rejectedExit(reply);
         return;
     }
     mkdirSync(dirname(options.store), { recursive: true });
@@ -172,7 +172,7 @@ export async function run(
     const reply = await hello(channel, recorded, exists ? "opened" : "created");
     if (reply.type !== "welcome") {
         await harness.close(context);
-        refusedExit(reply);
+        rejectedExit(reply);
         return;
     }
     const runtime = new Runtime(harness, registry, models, channel, available);
@@ -195,9 +195,9 @@ async function hello(
     });
 }
 
-function refusedExit(reply: ServerReply): void {
+function rejectedExit(reply: ServerReply): void {
     const words =
-        reply.type === "refused"
+        reply.type === "rejected"
             ? reply.words
             : `The server answered the hello with ${reply.type}.`;
     process.stderr.write(`hamlet-pi: ${words}\n`);

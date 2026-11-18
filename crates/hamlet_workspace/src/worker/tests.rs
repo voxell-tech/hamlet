@@ -48,7 +48,7 @@ fn execute(id: &str) -> Value {
         "version": "0.1.0", "id": id, "workspace": "fixture", "agent": 1,
         "project": false, "network": false, "read_only": false,
         "operation": {"kind": "exec", "argv": ["/bin/true"],
-                      "cwd": "/lodge", "timeout_ms": 10000},
+                      "cwd": "/worktree", "timeout_ms": 10000},
     }})
 }
 

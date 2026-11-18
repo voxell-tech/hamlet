@@ -32,11 +32,11 @@ in two places:
   `KState`.
 - Use CONTEXT.md's words, never those on its avoid lists.
 
-## A defect is an `anyhow` error, an expected outcome a typed refusal
+## A defect is an `anyhow` error, an expected outcome a typed rejection
 
 Errors come in two layers. A defect, which should never happen, is an
 `anyhow::Result` and carries its context up. An expected outcome, such
-as a name already taken, is a typed refusal the caller can match on.
+as a name already taken, is a typed rejection the caller can match on.
 
 An error type derives `Error` and `Display` with `thiserror`. No
 `Result<_, String>`: the words a person reads are built from the typed

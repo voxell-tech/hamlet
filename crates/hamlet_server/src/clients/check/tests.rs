@@ -35,7 +35,7 @@ fn malformed_fields_are_correlated_only_to_a_valid_id() {
     let id = "00000000-0000-4000-8000-000000000001";
     for (fields, words) in [
         (
-            r#""doc":"character","scholar":1,"text":7"#,
+            r#""doc":"character","profile":1,"text":7"#,
             "`text` must be string",
         ),
         (

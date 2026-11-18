@@ -17,13 +17,13 @@ use super::specs::{is_offered, unavailable};
 use super::tool_runs::tool_run;
 use super::{
     Answer, CONFLICT, Call, CallOutcome, Decision, Reply, held,
-    place, refused, society,
+    place, rejected, society,
 };
 use crate::attachments::images::Limits;
 use crate::conversations::{Kind, models};
 use crate::core::Core;
 use crate::knowledge::CHARACTER;
-use crate::realm::workspace::serving::Lodging;
+use crate::realm::workspace::serving::RemoteWorktree;
 use crate::tools::builtin::shell::Dialect;
 use crate::tools::builtin::{Network, Outcome, Sight, ToolSession};
 use crate::tools::catalogue::Society;
@@ -117,7 +117,7 @@ impl Core<'_, '_> {
                     Some(Answer::Result(outcome))
                 }
                 Marked::Conflict => {
-                    Some(Answer::Refusal(CONFLICT.into()))
+                    Some(Answer::Rejection(CONFLICT.into()))
                 }
                 Marked::Unmarked => None,
             },
@@ -152,7 +152,7 @@ impl Core<'_, '_> {
             });
         }
         if self.is_withdrawn(call)? {
-            return Ok(CallOutcome::Done(refused(held::WITHDRAWN)));
+            return Ok(CallOutcome::Done(rejected(held::WITHDRAWN)));
         }
         if self.is_objecting(call)? {
             return Ok(CallOutcome::Answer(Answer::Waiting(
@@ -165,7 +165,7 @@ impl Core<'_, '_> {
                 CallOutcome::Later
             }
             Decision::Block(words) => {
-                CallOutcome::Answer(Answer::Refusal(words))
+                CallOutcome::Answer(Answer::Rejection(words))
             }
             Decision::Wait(words) => {
                 CallOutcome::Answer(Answer::Waiting(words.into()))
@@ -201,7 +201,7 @@ impl Core<'_, '_> {
 
     /// Runs the built-in or added tool of `call` with the network
     /// `net`, after marking it begun when it may not run again. Gives
-    /// the outcome of a call refused before it runs.
+    /// the outcome of a call rejected before it runs.
     fn run_tool(
         &mut self,
         call: &Call<'_>,
@@ -215,8 +215,9 @@ impl Core<'_, '_> {
         let agent = call.conversation.agent;
         let at =
             place::of_conversation(db, &layout, &call.conversation)?;
-        if let Some(refusal) = character_refusal(&at.place, call) {
-            return Ok(Some(refused(refusal)));
+        if let Some(rejection) = character_rejection(&at.place, call)
+        {
+            return Ok(Some(rejected(rejection)));
         }
         if once {
             marker::begin(
@@ -245,7 +246,7 @@ impl Core<'_, '_> {
                 .and_then(|change| {
                     serde_json::from_str::<Value>(&change).ok()
                 });
-        let (session, lodging) =
+        let (session, worktree) =
             self.tools_of(call, at.place, net)?;
         let session = session.seeing(self.sight_of(agent)?);
         let secrets = self.credentials.secrets();
@@ -259,18 +260,18 @@ impl Core<'_, '_> {
             reply,
             request,
             async move {
-                // A remote lodge is in step before the call runs
+                // A remote worktree is in step before the call runs
                 // there, and comes home after one that may write it,
                 // before the agent's next call reads it.
-                if let Some(lodging) = &lodging
-                    && let Err(error) = lodging.in_step().await
+                if let Some(worktree) = &worktree
+                    && let Err(error) = worktree.in_step().await
                 {
-                    return refused(
+                    return rejected(
                         hamlet_sandbox::scrub::scrub_text(
                             &secrets,
                             &format!(
                                 "The remote workspace could not \
-                                 take the lodge in: {error:#}"
+                                 take the worktree in: {error:#}"
                             ),
                         ),
                     );
@@ -287,14 +288,14 @@ impl Core<'_, '_> {
                     shown.ended_run(code);
                 }
                 if once
-                    && let Some(lodging) = &lodging
-                    && let Err(error) = lodging.pull().await
+                    && let Some(worktree) = &worktree
+                    && let Err(error) = worktree.pull().await
                 {
                     let words = hamlet_sandbox::scrub::scrub_text(
                         &secrets,
                         &format!("{error:#}"),
                     );
-                    warn!("could not bring a lodge home: {words}");
+                    warn!("could not bring a worktree home: {words}");
                 }
                 if let Some(change) = change {
                     outcome
@@ -310,18 +311,18 @@ impl Core<'_, '_> {
     }
 
     /// The session the tools of `call`'s agent run in: the remote
-    /// workspace the realm works in, with the lodge's remote copy
+    /// workspace the realm works in, with the worktree's remote copy
     /// kept in step, else this machine.
     pub(super) fn tools_of(
         &mut self,
         call: &Call<'_>,
         place: crate::tools::builtin::Place,
         network: Network,
-    ) -> Result<(ToolSession, Option<Lodging>)> {
+    ) -> Result<(ToolSession, Option<RemoteWorktree>)> {
         let agent = call.conversation.agent;
         let remote = match call.conversation.kind {
             // A dream works on this machine's checkout of its
-            // scholar.
+            // profile.
             Kind::Dream => None,
             _ => self.remote.session(
                 self.realm.store().connection(),
@@ -332,7 +333,7 @@ impl Core<'_, '_> {
         Ok(match remote {
             Some(session) => (
                 ToolSession::remote(place, session),
-                self.remote.lodging(
+                self.remote.worktree(
                     &mut self.realm,
                     &self.writing,
                     agent,
@@ -382,9 +383,9 @@ impl Core<'_, '_> {
     }
 }
 
-/// The refusal of a write or edit of `CHARACTER.md` at the lodge's
-/// root, which is the scholar's own.
-fn character_refusal(
+/// The rejection of a write or edit of `CHARACTER.md` at the
+/// worktree's root, which is the profile's own.
+fn character_rejection(
     place: &crate::tools::builtin::Place,
     call: &Call<'_>,
 ) -> Option<String> {
@@ -396,11 +397,15 @@ fn character_refusal(
     let full = if path.is_absolute() {
         path.to_owned()
     } else {
-        place.folder.as_deref().unwrap_or(&place.lodge).join(path)
+        place
+            .folder
+            .as_deref()
+            .unwrap_or(&place.worktree)
+            .join(path)
     };
-    (full == place.lodge.join(CHARACTER)).then(|| {
+    (full == place.worktree.join(CHARACTER)).then(|| {
         format!(
-            "{CHARACTER} is your scholar's character, which only a \
+            "{CHARACTER} is your profile's character, which only a \
              chief changes. Keep what you learn in memory/ instead."
         )
     })

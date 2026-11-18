@@ -150,7 +150,7 @@ impl Core<'_, '_> {
         tool: Society,
         args: serde_json::Value,
     ) -> Classified {
-        // Arguments that do not fit are refused once the call runs.
+        // Arguments that do not fit are rejected once the call runs.
         let paths = match Called::read(tool, call.arguments) {
             Ok(
                 Called::Tell(Tell { paths, .. })
@@ -163,7 +163,7 @@ impl Core<'_, '_> {
         }
         let Some(measured) = self.looks.measured(&call.call).cloned()
         else {
-            let (session, lodging) = self.tools_of(
+            let (session, worktree) = self.tools_of(
                 call,
                 at.place.clone(),
                 Network::Closed,
@@ -171,7 +171,7 @@ impl Core<'_, '_> {
             return Ok(Err(Decision::Look(Box::new(
                 Look::Measure {
                     session,
-                    lodging,
+                    worktree,
                     paths,
                 },
             ))));
@@ -183,8 +183,8 @@ impl Core<'_, '_> {
                 files,
                 bytes,
             }),
-            Err(refusal) => {
-                Err(self.block(call, refusal.to_string())?)
+            Err(rejection) => {
+                Err(self.block(call, rejection.to_string())?)
             }
         })
     }
@@ -203,7 +203,7 @@ impl Core<'_, '_> {
         let Some(previewed) =
             self.looks.previewed(&call.call).cloned()
         else {
-            let (session, lodging) = self.tools_of(
+            let (session, worktree) = self.tools_of(
                 call,
                 at.place.clone(),
                 Network::Closed,
@@ -211,7 +211,7 @@ impl Core<'_, '_> {
             return Ok(Err(Decision::Look(Box::new(
                 Look::Preview {
                     session,
-                    lodging,
+                    worktree,
                     path,
                 },
             ))));
@@ -244,7 +244,7 @@ impl Core<'_, '_> {
         let agent = call.conversation.agent;
         let (session, _) =
             self.tools_of(call, at.place.clone(), Network::Closed)?;
-        let (change, lodge_edit) = match &classified {
+        let (change, worktree_edit) = match &classified {
             gate::Call::Edit {
                 write,
                 path,
@@ -262,7 +262,7 @@ impl Core<'_, '_> {
                 self.credentials.scrub(&mut change);
                 (
                     Some(change.to_string()),
-                    session.is_lodge_edit(path),
+                    session.is_worktree_edit(path),
                 )
             }
             _ => (None, false),
@@ -275,11 +275,11 @@ impl Core<'_, '_> {
         let db = self.realm.store().connection();
         let limits = society::limits_of(db, at.hamlet.as_ref())?;
         let (edit, command) = match chat_session(&call.conversation) {
-            Some(session) => gate::trusted(db, session)?,
+            Some(session) => gate::session_granted(db, session)?,
             None => (false, false),
         };
         let standing = Standing {
-            lodge_edit,
+            worktree_edit,
             net: allow_net
                 || gate::has_grant(
                     db,
@@ -325,7 +325,7 @@ impl Core<'_, '_> {
                             kind: WaitKind::Approval,
                             danger: Some(danger),
                             agent,
-                            scholar: None,
+                            profile: None,
                             conversation: Some(conversation),
                             task,
                             about,

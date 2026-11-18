@@ -40,8 +40,10 @@ fn recorded_hello_fills_the_realm_and_the_servers_words() {
     assert_eq!(world.resource::<Confinement>().0, confinement);
     assert_eq!(world.resource::<Settings>().0.model, model);
     assert!(world.resource::<Grants>().0.is_empty());
-    assert!(world.resource::<Deeds>().is_supported("stop"));
-    assert!(world.resource::<Deeds>().is_supported("create-hamlet"));
+    assert!(world.resource::<Actions>().is_supported("stop"));
+    assert!(
+        world.resource::<Actions>().is_supported("create-hamlet")
+    );
     assert_eq!(
         id_of(world, hand),
         Some(world.resource::<HandId>().0)
@@ -94,7 +96,7 @@ fn recorded_approvals_join_the_founders_needs_until_closed() {
         "../../hamlet_protocol/frames/approval.jsonl"
     )) {
         receive(world, message);
-        let Some(founder) = named(world, "hire#2") else {
+        let Some(founder) = named(world, "agent#2") else {
             continue;
         };
         let open = world
@@ -174,8 +176,8 @@ fn snapshots_reconcile_by_identity_across_epochs_and_changes_only_advance_the_se
     first.agents.push(agent(3, "other", true));
     first.waits = vec![wait("kept"), wait("gone")];
     receive(world, protocol::ServerMessage::State(first.clone()));
-    let founder = named(world, "hire#2").unwrap();
-    let scout = named(world, "hire#3").unwrap();
+    let founder = named(world, "agent#2").unwrap();
+    let scout = named(world, "agent#3").unwrap();
     let home = world.get::<LivesIn>(founder).unwrap().0;
     let other = world.get::<LivesIn>(scout).unwrap().0;
     let wait_ids = world
@@ -187,7 +189,7 @@ fn snapshots_reconcile_by_identity_across_epochs_and_changes_only_advance_the_se
     first.revision = 8;
     first.hamlets.truncate(1);
     first.agents.truncate(2);
-    first.agents[1].name = "renamed".into();
+    first.agents[1].address = "renamed".into();
     first.waits.truncate(1);
     first.waits[0].about = "a new question".into();
     receive(world, protocol::ServerMessage::State(first.clone()));
@@ -283,7 +285,7 @@ fn streamed_words_only_change_saying_and_keep_relationship_order() {
         .agents
         .push(hamlet_testing::realm::agent(3, "home", false));
     receive(world, protocol::ServerMessage::State(state.clone()));
-    let founder = mayor_of(world, "home").unwrap();
+    let founder = lead_of(world, "home").unwrap();
     let home = world.get::<LivesIn>(founder).unwrap().0;
     let before = world
         .get::<Agents>(home)
@@ -326,7 +328,7 @@ fn streamed_words_only_change_saying_and_keep_relationship_order() {
                 Changed<Works>,
                 Changed<Bylaws>,
                 Changed<Treasury>,
-                Changed<Mayor>
+                Changed<Lead>
             )>>()
             .iter(world)
             .count(),

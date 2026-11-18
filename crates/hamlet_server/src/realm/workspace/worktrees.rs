@@ -1,7 +1,7 @@
-//! A lodge's copy in a remote workspace. The server's lodge holds
-//! what git keeps; the remote `/lodge` is where the agent's tools
-//! write during a turn. Both are kept against the files they last
-//! held alike: a push sends what the server changed since, after
+//! A worktree's copy in a remote workspace. The server's worktree
+//! holds what git keeps; the remote `/worktree` is where the agent's
+//! tools write during a turn. Both are kept against the files they
+//! last held alike: a push sends what the server changed since, after
 //! the server's changed; a pull brings home what the remote changed
 //! since, after a tool may have written it. Neither undoes the
 //! other's changes, and a first push, with nothing held alike yet,
@@ -12,7 +12,7 @@ use std::path::Path;
 
 use anyhow::Result;
 use hamlet_workspace_wire::{
-    InitLodge, MAX_FILE, Read, Remove, SetMode, TREE_BYTES,
+    InitWorktree, MAX_FILE, Read, Remove, SetMode, TREE_BYTES,
     TREE_ENTRIES, TreeKind, TreeList, TreeWrite, Write,
 };
 use sha2::{Digest, Sha256};
@@ -20,8 +20,8 @@ use sha2::{Digest, Sha256};
 use super::Session;
 use crate::knowledge::folder::Folder;
 
-/// The path of an agent's lodge in its workspace.
-pub(crate) const LODGE: &str = "/lodge";
+/// The path of an agent's worktree in its workspace.
+pub(crate) const WORKTREE: &str = "/worktree";
 
 /// A regular file as one side has it.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -30,19 +30,19 @@ pub(crate) struct File {
     executable: bool,
 }
 
-/// A lodge's files as both copies last held them, by path.
+/// A worktree's files as both copies last held them, by path.
 pub(crate) type Synced = BTreeMap<String, File>;
 
 fn sha256(bytes: &[u8]) -> String {
     format!("{:x}", Sha256::digest(bytes))
 }
 
-/// The remote lodge's regular files, by path.
+/// The remote worktree's regular files, by path.
 async fn remote(session: &Session) -> Result<BTreeMap<String, File>> {
-    session.call(InitLodge {}).await?;
+    session.call(InitWorktree {}).await?;
     let listed = session
         .call(TreeList {
-            path: LODGE.into(),
+            path: WORKTREE.into(),
             entries: TREE_ENTRIES,
             bytes: TREE_BYTES,
         })
@@ -62,7 +62,7 @@ async fn remote(session: &Session) -> Result<BTreeMap<String, File>> {
         .collect())
 }
 
-/// The server lodge's regular files with their bytes, by path.
+/// The server worktree's regular files with their bytes, by path.
 fn local(
     folder: &Folder,
 ) -> Result<BTreeMap<String, (Vec<u8>, bool)>> {
@@ -104,16 +104,16 @@ async fn write_pieces(
     Ok(())
 }
 
-/// Sends the remote copy what the server's lodge at `lodge` changed
-/// since `base`, or all of it, replacing what is there, with no
-/// `base`; gives what both hold alike after. A file past what one
+/// Sends the remote copy what the server's worktree at `worktree`
+/// changed since `base`, or all of it, replacing what is there, with
+/// no `base`; gives what both hold alike after. A file past what one
 /// request carries goes in pieces.
 pub(crate) async fn push(
     session: &Session,
-    lodge: &Path,
+    worktree: &Path,
     base: Option<&Synced>,
 ) -> Result<Synced> {
-    let folder = Folder::make(lodge)?;
+    let folder = Folder::make(worktree)?;
     let theirs = remote(session).await?;
     let ours = local(&folder)?;
     let mut synced = base.cloned().unwrap_or_default();
@@ -126,7 +126,7 @@ pub(crate) async fn push(
         if base.is_some_and(|base| base.get(path) == Some(&file)) {
             continue;
         }
-        let at = format!("{LODGE}/{path}");
+        let at = format!("{WORKTREE}/{path}");
         let mode = if *executable { 0o755 } else { 0o644 };
         match theirs.get(path) {
             Some(held) if held.sha256 == file.sha256 => {
@@ -168,7 +168,7 @@ pub(crate) async fn push(
     for path in gone {
         session
             .call(Remove {
-                path: format!("{LODGE}/{path}"),
+                path: format!("{WORKTREE}/{path}"),
                 recursive: false,
                 force: true,
                 no_follow: true,
@@ -184,9 +184,9 @@ pub(crate) async fn push(
 pub(crate) struct Pulled(Vec<(String, Option<(Vec<u8>, bool)>)>);
 
 impl Pulled {
-    /// Writes what was pulled into the lodge at `lodge`.
-    pub fn apply(self, lodge: &Path) -> Result<()> {
-        let folder = Folder::make(lodge)?;
+    /// Writes what was pulled into the worktree at `worktree`.
+    pub fn apply(self, worktree: &Path) -> Result<()> {
+        let folder = Folder::make(worktree)?;
         for (path, file) in self.0 {
             match file {
                 Some((bytes, executable)) => {
@@ -200,7 +200,7 @@ impl Pulled {
 }
 
 /// The changes of the remote copy since `base`, which the server's
-/// lodge takes in, and what both hold alike after.
+/// worktree takes in, and what both hold alike after.
 pub(crate) async fn pull(
     session: &Session,
     base: &Synced,
@@ -214,7 +214,7 @@ pub(crate) async fn pull(
         }
         let read = session
             .call(Read {
-                path: format!("{LODGE}/{path}"),
+                path: format!("{WORKTREE}/{path}"),
                 no_follow: true,
             })
             .await?;

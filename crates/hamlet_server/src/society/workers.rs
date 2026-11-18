@@ -8,9 +8,9 @@ use hamlet_store::ids::{AgentId, ChiefId, HamletId};
 use hamlet_store::schema::{agent, worker};
 
 use super::agents::{self, AgentKind, EndHow};
-use super::hires;
-use super::refusal::Refusal;
-use crate::realm::change::{Change, Done, done, refuse};
+use super::hamlet_agents;
+use super::rejection::Rejection;
+use crate::realm::change::{Change, Done, done, reject};
 
 /// Who starts a worker.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -33,7 +33,7 @@ pub(crate) struct Worker {
     pub call_runtime: Option<String>,
     pub call_key: Option<String>,
     pub answer: Option<String>,
-    pub nickname: Option<String>,
+    pub name: Option<String>,
 }
 
 impl Worker {
@@ -64,19 +64,19 @@ pub(crate) fn start(
     start: Start,
 ) -> Done<AgentId> {
     if start.brief.trim().is_empty() {
-        refuse!(Refusal::NoBrief);
+        reject!(Rejection::NoBrief);
     }
     let hamlet = match start.starter {
         Starter::Agent(starter) => {
             let found = agents::get(cx.db, starter)?;
             if !found.is_living() {
-                refuse!(hires::left(cx.db, starter)?);
+                reject!(hamlet_agents::left(cx.db, starter)?);
             }
             match found.kind {
-                AgentKind::Worker => refuse!(Refusal::Worker),
+                AgentKind::Worker => reject!(Rejection::Worker),
                 AgentKind::Hand => None,
-                AgentKind::Hire => {
-                    Some(hires::get(cx.db, starter)?.hamlet)
+                AgentKind::Hamlet => {
+                    Some(hamlet_agents::get(cx.db, starter)?.hamlet)
                 }
             }
         }
@@ -123,21 +123,21 @@ pub(crate) fn get(db: &mut Db, id: AgentId) -> Result<Worker> {
     find(db, id)?.with_context(|| format!("no worker {id}"))
 }
 
-/// Calls the living worker `id` `nickname` in the world, or by its
+/// Calls the living worker `id` `name` in the world, or by its
 /// address again when none.
-pub(crate) fn set_nickname(
+pub(crate) fn set_name(
     cx: &mut Change<'_>,
     id: AgentId,
-    nickname: Option<&str>,
+    name: Option<&str>,
 ) -> Done<()> {
     get(cx.db, id)?;
-    done!(hires::require_living(cx.db, id));
-    let nickname = match hires::check_nickname(nickname) {
-        Ok(nickname) => nickname,
-        Err(refusal) => refuse!(refusal),
+    done!(hamlet_agents::require_living(cx.db, id));
+    let name = match hamlet_agents::check_name(name) {
+        Ok(name) => name,
+        Err(rejection) => reject!(rejection),
     };
     diesel::update(worker::table.find(id))
-        .set(worker::nickname.eq(nickname))
+        .set(worker::name.eq(name))
         .execute(cx.db)?;
     cx.touched.agents.insert(id);
     Ok(Ok(()))

@@ -1,4 +1,4 @@
-//! The record: every decision of a chief, the Hand or a lead, with
+//! The record: every decision of a chief, the Hand or a parent, with
 //! its reason (H17).
 
 use anyhow::Result;
@@ -8,7 +8,7 @@ use diesel::prelude::*;
 use diesel::sql_types::Text;
 use hamlet_store::Db;
 use hamlet_store::ids::{
-    Actor, AgentId, HamletId, ScholarId, TaskId,
+    Actor, AgentId, HamletId, ProfileId, TaskId,
 };
 use hamlet_store::schema::decision;
 use serde::{Deserialize, Serialize};
@@ -46,22 +46,22 @@ pub(crate) enum DecisionKind {
     Folder,
     Mode,
     Limits,
-    ScholarMade,
+    ProfileMade,
     /// A newcomer let into the city.
     Welcomed,
-    /// A newcomer, or a scholar sent back, kept at the harbor.
+    /// A newcomer, or a profile sent back, kept at the harbor.
     TurnedAway,
     HouseMoved,
-    ScholarArchived,
-    ScholarRestored,
-    ScholarErased,
-    ScholarEdited,
-    ScholarNamed,
+    ProfileArchived,
+    ProfileRestored,
+    ProfileErased,
+    ProfileEdited,
+    ProfileNamed,
     Tagged,
     Reverted,
     Forked,
     Purged,
-    Hired,
+    Added,
     Ended,
     Merged,
     Split,
@@ -72,11 +72,11 @@ pub(crate) enum DecisionKind {
     Tools,
     Allowance,
     Pinned,
-    Nicknamed,
-    Road,
-    Unroad,
-    RoadAgreed,
-    RoadRefused,
+    AgentNamed,
+    Channel,
+    Unchannel,
+    ChannelAgreed,
+    ChannelRefused,
 }
 hamlet_store::named_text!(DecisionKind);
 
@@ -87,7 +87,7 @@ pub(crate) struct Decision {
     pub kind: Option<DecisionKind>,
     pub subject: Option<AgentId>,
     pub other: Option<AgentId>,
-    pub scholar: Option<ScholarId>,
+    pub profile: Option<ProfileId>,
     pub reason: String,
     pub task: Option<TaskId>,
     pub detail: Option<Value>,
@@ -117,8 +117,8 @@ impl Decision {
         self
     }
 
-    pub fn scholar(mut self, scholar: ScholarId) -> Self {
-        self.scholar = Some(scholar);
+    pub fn profile(mut self, profile: ProfileId) -> Self {
+        self.profile = Some(profile);
         self
     }
 
@@ -139,7 +139,7 @@ pub(crate) struct Kept {
     pub kind: DecisionKind,
     pub subject: Option<AgentId>,
     pub other: Option<AgentId>,
-    pub scholar: Option<ScholarId>,
+    pub profile: Option<ProfileId>,
     pub reason: String,
     pub task: Option<TaskId>,
     pub detail: Option<String>,
@@ -159,7 +159,7 @@ pub(crate) fn keep(
             decision::kind.eq(kind),
             decision::subject.eq(decision.subject),
             decision::other.eq(decision.other),
-            decision::scholar.eq(decision.scholar),
+            decision::profile.eq(decision.profile),
             decision::reason.eq(&decision.reason),
             decision::task.eq(decision.task),
             decision::detail
@@ -221,7 +221,7 @@ impl DecisionKind {
     pub fn done(self) -> &'static str {
         match self {
             Self::Founded => "founded the hamlet under",
-            Self::Hired => "hired",
+            Self::Added => "added",
             Self::Ended => "ended",
             Self::Merged => "merged",
             Self::Split => "split",
@@ -231,13 +231,12 @@ impl DecisionKind {
             Self::Model => "chose the model of",
             Self::Tools => "changed the tools of",
             Self::Allowance => "set the allowance of",
-            Self::Road => "laid a road from",
-            Self::Unroad => "took up a road from",
-            Self::RoadAgreed => "agreed a road from",
-            Self::RoadRefused => "refused a road for",
+            Self::Channel => "opened a channel from",
+            Self::Unchannel => "closed a channel from",
+            Self::ChannelAgreed => "agreed a channel from",
+            Self::ChannelRefused => "refused a channel for",
             Self::Pinned => "pinned",
-            Self::Nicknamed => "nicknamed",
-            Self::ScholarNamed => "renamed",
+            Self::AgentNamed | Self::ProfileNamed => "renamed",
             _ => "changed",
         }
     }

@@ -18,7 +18,7 @@ use bevy::ecs::system::{Local, Query, Res, ResMut};
 use bevy::ecs::world::World;
 use bevy::time::{Real, Time};
 use hamlet_client::ViewFolder;
-use hamlet_client::realm::{HamletId, Hire, Left};
+use hamlet_client::realm::{HamletAgent, HamletId, Left};
 use hamlet_desktop::awake::KeepAwake;
 use hamlet_realm::pick::{Selected, Thing, select};
 use hamlet_realm::sky::{
@@ -187,8 +187,8 @@ impl Remembered {
 #[derive(Serialize, Deserialize, Clone, PartialEq, Debug)]
 #[serde(tag = "what", content = "of", rename_all = "lowercase")]
 pub enum Chosen {
-    /// The first hamlet's mayor, and its hall.
-    Mayor,
+    /// The first hamlet's lead, and its hall.
+    Lead,
     Hall,
     /// An agent and its house, by the agent's address.
     Agent(String),
@@ -230,7 +230,7 @@ impl Chosen {
             names.get(of).ok().map(|name| name.as_str().to_string())
         };
         Some(match thing {
-            Thing::Keeper => Chosen::Mayor,
+            Thing::Keeper => Chosen::Lead,
             Thing::Cottage => Chosen::Hall,
             Thing::Agent(agent) => Chosen::Agent(name(agent)?),
             Thing::House(agent) => Chosen::House(name(agent)?),
@@ -242,7 +242,7 @@ impl Chosen {
             Thing::ChiefPlace(_) => Chosen::Hearth,
             Thing::Library
             | Thing::Hand
-            | Thing::Scholar(_)
+            | Thing::Profile(_)
             | Thing::Clockwork(_)
             | Thing::Workbench(_) => {
                 return None;
@@ -255,7 +255,7 @@ impl Chosen {
         // An agent by its address, living or gone as asked.
         let agent = |world: &mut World, name: &str, gone: bool| {
             world
-                .query_filtered::<(Entity, &Name, Has<Left>), With<Hire>>()
+                .query_filtered::<(Entity, &Name, Has<Left>), With<HamletAgent>>()
                 .iter(world)
                 .find(|(_, called, left)| {
                     called.as_str() == name && *left == gone
@@ -263,7 +263,7 @@ impl Chosen {
                 .map(|(agent, ..)| agent)
         };
         Some(match self {
-            Chosen::Mayor => Thing::Keeper,
+            Chosen::Lead => Thing::Keeper,
             Chosen::Hall => Thing::Cottage,
             Chosen::Agent(name) => {
                 Thing::Agent(agent(world, name, false)?)
@@ -651,7 +651,8 @@ mod tests {
         // Its agent is not in the world yet: nothing is selected.
         reselect(&mut world);
         assert_eq!(world.resource::<Selected>().0, None);
-        let scout = world.spawn((Name::new("scout"), Hire)).id();
+        let scout =
+            world.spawn((Name::new("scout"), HamletAgent)).id();
         reselect(&mut world);
         let house = Thing::House(scout);
         assert_eq!(world.resource::<Selected>().0, Some(house));

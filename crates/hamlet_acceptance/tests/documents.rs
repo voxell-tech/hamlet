@@ -36,7 +36,7 @@ async fn edits_the_charter_character_and_memory_and_the_prompt_follows()
  {
     let mut s = Session::start(Faux::new()).await;
     let ada = s.found("docs", "ada", "keep the docs").await;
-    let scholar = s.chief.scholar("ada").unwrap().id;
+    let profile = s.chief.profile("ada").unwrap().id;
     let reply = edit(&mut s.chief, |id| Edit::Charter {
         id,
         text: Some("Be brief.".into()),
@@ -45,7 +45,7 @@ async fn edits_the_charter_character_and_memory_and_the_prompt_follows()
     assert_eq!(reply.kind, ReplyKind::Notice, "{}", reply.text);
     let reply = edit(&mut s.chief, |id| Edit::Character {
         id,
-        scholar,
+        profile,
         text: "Calm.".into(),
     })
     .await;
@@ -53,14 +53,15 @@ async fn edits_the_charter_character_and_memory_and_the_prompt_follows()
     let tea = memory("Tea", "Earl grey.");
     let reply = edit(&mut s.chief, |id| Edit::Memory {
         id,
-        of: Keeper::Scholar(scholar),
+        of: Keeper::Profile(profile),
         path: "tea.md".into(),
         text: tea.clone(),
     })
     .await;
     assert_eq!(reply.kind, ReplyKind::Notice, "{}", reply.text);
-    // A hire's own memory is its lodge's, which it alone has learned.
-    let own = memory("Own", "A hire's note.");
+    // An agent's own memory is its worktree's, which it alone has
+    // learned.
+    let own = memory("Own", "An agent's note.");
     edit(&mut s.chief, |id| Edit::Memory {
         id,
         of: Keeper::Agent(ada),
@@ -69,7 +70,7 @@ async fn edits_the_charter_character_and_memory_and_the_prompt_follows()
     })
     .await;
 
-    let papers = s.chief.papers(Keeper::Scholar(scholar)).await;
+    let papers = s.chief.papers(Keeper::Profile(profile)).await;
     assert_eq!(papers.character, "Calm.");
     assert_eq!(papers.memory.len(), 1);
     assert_eq!(papers.memory[0].path, "tea.md");
@@ -88,7 +89,7 @@ async fn edits_the_charter_character_and_memory_and_the_prompt_follows()
     let prompt = s.chief.prompt(ada).await;
     assert!(prompt.starts_with("Be brief."), "{prompt}");
     assert!(prompt.contains("# Your character\nCalm."), "{prompt}");
-    assert!(prompt.contains("You are `hire#2 (ada)`"), "{prompt}");
+    assert!(prompt.contains("You are `agent#2 (ada)`"), "{prompt}");
 
     let ServerMessage::Read(ReadResult::Charter { charter, .. }) =
         s.chief.read(|id| Read::Charter { id }).await
@@ -110,24 +111,24 @@ async fn edits_the_charter_character_and_memory_and_the_prompt_follows()
     assert!(charter.text.contains("`bash`"), "{}", charter.text);
 
     // An empty text removes a memory file; a path outside memory/ is
-    // refused.
+    // rejected.
     edit(&mut s.chief, |id| Edit::Memory {
         id,
-        of: Keeper::Scholar(scholar),
+        of: Keeper::Profile(profile),
         path: "tea.md".into(),
         text: String::new(),
     })
     .await;
     assert!(
         s.chief
-            .papers(Keeper::Scholar(scholar))
+            .papers(Keeper::Profile(profile))
             .await
             .memory
             .is_empty()
     );
     let reply = edit(&mut s.chief, |id| Edit::Memory {
         id,
-        of: Keeper::Scholar(scholar),
+        of: Keeper::Profile(profile),
         path: "../CHARACTER.md".into(),
         text: "x".into(),
     })
@@ -136,7 +137,7 @@ async fn edits_the_charter_character_and_memory_and_the_prompt_follows()
 }
 
 #[tokio::test]
-async fn edits_limits_one_key_or_whole_and_refuses_misshapen_ones() {
+async fn edits_limits_one_key_or_whole_and_rejects_misshapen_ones() {
     let mut s = Session::start(Faux::new()).await;
     s.found("docs", "ada", "keep the docs").await;
     let docs = s.chief.hamlet_id("docs");
@@ -194,7 +195,7 @@ async fn edits_limits_one_key_or_whole_and_refuses_misshapen_ones() {
     assert_eq!(reply.kind, ReplyKind::Error, "{}", reply.text);
     let reply = s
         .chief
-        .limit(Some("docs"), "road", "most", json!("many"))
+        .limit(Some("docs"), "channel", "most", json!("many"))
         .await;
     assert_eq!(reply.kind, ReplyKind::Error, "{}", reply.text);
     let reply = s
@@ -206,7 +207,7 @@ async fn edits_limits_one_key_or_whole_and_refuses_misshapen_ones() {
         !s.chief.messages()[before..]
             .iter()
             .any(|m| matches!(m, ServerMessage::Change(_))),
-        "a refused edit changes nothing"
+        "a rejected edit changes nothing"
     );
 
     let before = s.chief.messages().len();
@@ -216,14 +217,16 @@ async fn edits_limits_one_key_or_whole_and_refuses_misshapen_ones() {
         .await;
     assert_eq!(reply.kind, ReplyKind::Error, "{}", reply.text);
     assert_eq!(reply.text, "a budget cannot be less than zero");
-    let reply =
-        s.chief.limit(Some("docs"), "road", "most", json!(-1)).await;
+    let reply = s
+        .chief
+        .limit(Some("docs"), "channel", "most", json!(-1))
+        .await;
     assert_eq!(reply.kind, ReplyKind::Error, "{}", reply.text);
     assert!(
         !s.chief.messages()[before..]
             .iter()
             .any(|m| matches!(m, ServerMessage::Change(_))),
-        "a refused limit changes nothing"
+        "a rejected limit changes nothing"
     );
 
     // The realm has limits of its own.
@@ -246,7 +249,7 @@ async fn edits_limits_one_key_or_whole_and_refuses_misshapen_ones() {
 }
 
 #[tokio::test]
-async fn edits_settings_and_refuses_bad_ones() {
+async fn edits_settings_and_rejects_bad_ones() {
     let mut s = Session::start(Faux::new()).await;
     let reply = edit(&mut s.chief, |id| Edit::Settings {
         id,

@@ -242,7 +242,7 @@ mod tests {
     use crate::testing::{panel_app, press, words};
 
     #[test]
-    fn the_server_folder_history_and_mode_send_commands_to_its_mayor()
+    fn the_server_folder_history_and_mode_send_commands_to_its_lead()
     {
         let mut app = panel_app();
         app.add_plugins((

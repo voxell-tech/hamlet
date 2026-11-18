@@ -95,7 +95,7 @@ enum CallOutcome {
 pub(crate) enum Answer {
     Allowed,
     Waiting(String),
-    Refusal(String),
+    Rejection(String),
     Result(Outcome),
 }
 
@@ -111,7 +111,7 @@ pub(crate) fn said(text: impl Into<String>) -> Outcome {
 }
 
 /// An error in words.
-pub(crate) fn refused(text: impl Into<String>) -> Outcome {
+pub(crate) fn rejected(text: impl Into<String>) -> Outcome {
     Outcome {
         error: true,
         ..said(text)
@@ -185,8 +185,8 @@ impl Core<'_, '_> {
                     words,
                 })
             }
-            Answer::Refusal(words) => {
-                ServerMessage::Refusal(runtime::Refusal {
+            Answer::Rejection(words) => {
+                ServerMessage::Rejection(runtime::Rejection {
                     id,
                     re: request,
                     v,
@@ -240,14 +240,14 @@ impl Core<'_, '_> {
         call: &Call<'_>,
     ) -> Result<std::result::Result<Outcome, Answer>> {
         if call.conversation.cancelling {
-            return Ok(Err(Answer::Refusal(STOPPED.into())));
+            return Ok(Err(Answer::Rejection(STOPPED.into())));
         }
         let db = self.realm.store().connection();
         match held::kept(db, &call.call.runtime, &call.call.key)?
             .map(|kept| kept.state)
         {
             Some(State::Blocked(words)) => {
-                return Ok(Err(Answer::Refusal(words)));
+                return Ok(Err(Answer::Rejection(words)));
             }
             Some(State::Ruled {
                 ruling: Ruling::Reply,
@@ -276,7 +276,7 @@ impl Core<'_, '_> {
         )?) {
             Ok(questions) => questions,
             Err(invalid) => {
-                return Ok(Ok(refused(invalid.to_string())));
+                return Ok(Ok(rejected(invalid.to_string())));
             }
         };
         let mut questions = serde_json::to_value(questions)?;
@@ -315,7 +315,7 @@ impl Core<'_, '_> {
                     kind: WaitKind::Question,
                     danger: None,
                     agent,
-                    scholar: None,
+                    profile: None,
                     conversation: Some(conversation),
                     task,
                     about: questions::about(&questions),
@@ -358,7 +358,7 @@ impl Core<'_, '_> {
 }
 
 /// The chat session of `conversation`, whose edits and commands a
-/// chief may trust.
+/// chief may grant for its length.
 pub(crate) fn chat_session(
     conversation: &Conversation,
 ) -> Option<Session> {

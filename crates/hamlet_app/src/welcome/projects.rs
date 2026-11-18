@@ -1,5 +1,5 @@
 //! The projects of other programs brought in (C35): each a hamlet
-//! working on its folder, with a hire for each conversation picked.
+//! working on its folder, with an agent for each conversation picked.
 //! Offered once, when first-run setup ends on a realm with no hamlet,
 //! and from Settings.
 
@@ -474,8 +474,8 @@ fn page() -> AnyView {
         description(
             "Each project Claude Code, Codex or pi worked on \
              becomes a hamlet working on its folder, and each \
-             conversation picked a hire that carries it on. Open a \
-             project to pick its conversations.",
+             conversation picked an agent that carries it on. Open \
+             a project to pick its conversations.",
         ),
     ))
     .gap(4.0);

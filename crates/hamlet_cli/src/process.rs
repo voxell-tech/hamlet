@@ -32,7 +32,7 @@ use crate::client::{self, ServerAddress};
 /// What `hamlet`, `hamlet stop` and `hamlet status` do with the
 /// local server.
 #[derive(Clone, Copy, PartialEq, Eq)]
-pub enum Action {
+pub enum ServiceAction {
     /// Starts the server, unless one runs, and opens a window on it.
     Start(Isolation),
     Stop,
@@ -707,7 +707,7 @@ pub fn window_for(address: &ServerAddress) -> Result<Command> {
     ))
 }
 
-pub async fn service(action: Action) -> Result<i32> {
+pub async fn service(action: ServiceAction) -> Result<i32> {
     let address = match discovery::choose(nonempty)? {
         Chosen::Home(home) => {
             return local_service(action, &home).await;
@@ -715,11 +715,11 @@ pub async fn service(action: Action) -> Result<i32> {
         Chosen::At(address) => address,
     };
     anyhow::ensure!(
-        action != Action::Stop,
+        action != ServiceAction::Stop,
         "Cannot stop HAMLET_SERVER here. A server elsewhere is \
          stopped on its own machine."
     );
-    if action == Action::Status {
+    if action == ServiceAction::Status {
         let live = is_answering(&address).await;
         println!(
             "hamlet: {} at {}",
@@ -732,31 +732,35 @@ pub async fn service(action: Action) -> Result<i32> {
     Ok(0)
 }
 
-async fn local_service(action: Action, home: &Path) -> Result<i32> {
+async fn local_service(
+    action: ServiceAction,
+    home: &Path,
+) -> Result<i32> {
     let found = inspect(home).await?;
-    if let (Action::Start(_), Some((record, _))) = (action, &found)
+    if let (ServiceAction::Start(_), Some((record, _))) =
+        (action, &found)
         && record.confinement == Some(Confinement::Insecure)
     {
         println!("Attached to a server in insecure mode.");
     }
     let found = match (action, found) {
-        (Action::Start(isolation), None) => {
+        (ServiceAction::Start(isolation), None) => {
             Some(start(home, isolation).await?)
         }
         (_, found) => found,
     };
     let Some((record, address)) = found else {
         let stale = running(home)?.is_some();
-        if stale && action == Action::Stop {
+        if stale && action == ServiceAction::Stop {
             fs::remove_file(home.join("server.json"))?;
         }
         println!(
             "hamlet: {}not running",
             if stale { "stale server.json; " } else { "" }
         );
-        return Ok(i32::from(action != Action::Stop));
+        return Ok(i32::from(action != ServiceAction::Stop));
     };
-    if action == Action::Stop {
+    if action == ServiceAction::Stop {
         stop(record.pid, home).await?;
         println!("hamlet: stopped");
     } else {
@@ -767,7 +771,7 @@ async fn local_service(action: Action, home: &Path) -> Result<i32> {
             record.started,
             home.join("server.log").display()
         );
-        if let Action::Start(_) = action {
+        if let ServiceAction::Start(_) = action {
             open_detached(&address)?;
         }
     }

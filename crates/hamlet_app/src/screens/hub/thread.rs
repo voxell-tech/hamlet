@@ -46,7 +46,7 @@ use crate::convo::Convo;
 use crate::history::History;
 use crate::overview::tell;
 use crate::roll::rolled;
-use crate::screens::petition::{self, Need};
+use crate::screens::wait::{self, Need};
 use crate::standing::Standing;
 use crate::{chat, words, world_menu};
 
@@ -291,7 +291,7 @@ impl Under {
     }
 }
 
-/// What `agent` is called in the path: its nickname, else its address
+/// What `agent` is called in the path: its name, else its address
 /// without its hamlet, and the Hand as itself.
 fn called(world: &World, agent: Entity) -> String {
     if world.get::<Kind>(agent).map(|kind| kind.0)
@@ -303,7 +303,7 @@ fn called(world: &World, agent: Entity) -> String {
 }
 
 /// The steps above `agent` in the chain of command, `Realm / hamlet /
-/// mayor / lead /`, each leading to its page or its thread.
+/// lead / parent /`, each leading to its page or its thread.
 fn above(world: &World, agent: Entity) -> Vec<AnyView> {
     let hamlet = world.get::<LivesIn>(agent).map(|l| l.0);
     let mut parts = vec![
@@ -320,8 +320,8 @@ fn above(world: &World, agent: Entity) -> Vec<AnyView> {
         );
         parts.push(crumb_slash().boxed());
     }
-    // The leads above it in its hamlet, the mayor first.
-    let mut leads = Vec::new();
+    // The parents above it in its hamlet, the lead first.
+    let mut parents = Vec::new();
     let mut at = agent;
     while let Some(parent) =
         world.get::<Parent>(at).and_then(|parent| {
@@ -329,19 +329,19 @@ fn above(world: &World, agent: Entity) -> Vec<AnyView> {
         })
     {
         let same = world.get::<LivesIn>(parent).map(|l| l.0);
-        if leads.contains(&parent)
+        if parents.contains(&parent)
             || hamlet.is_none()
             || same != hamlet
         {
             break;
         }
-        leads.insert(0, parent);
+        parents.insert(0, parent);
         at = parent;
     }
-    for lead in leads {
+    for ancestor in parents {
         parts.push(
-            crumb(called(world, lead), move |world| {
-                crate::convo::talk_to(world, lead);
+            crumb(called(world, ancestor), move |world| {
+                crate::convo::talk_to(world, ancestor);
             })
             .boxed(),
         );
@@ -410,7 +410,7 @@ fn waits(agent: Entity) -> impl View {
                         match cx.world.get::<Waiting>(wait) {
                             Some(waiting) => {
                                 let need = Need::of(wait, waiting);
-                                cx.build(petition::strip(&need))
+                                cx.build(wait::strip(&need))
                             }
                             None => cx.build(frame()),
                         }
@@ -460,7 +460,7 @@ fn state(agent: Entity) -> impl View {
 }
 
 /// What is done to `agent` most, each a button of its own beside the
-/// tabs: a new session, a hire under it, a new name. The rest is in
+/// tabs: a new session, an agent under it, a new name. The rest is in
 /// the menu of the "..." after them.
 fn quick(world: &World, agent: Entity) -> Vec<AnyView> {
     let kind = world.get::<Kind>(agent).map(|kind| kind.0);
@@ -470,17 +470,20 @@ fn quick(world: &World, agent: Entity) -> Vec<AnyView> {
         "Start a new session",
         move |world| {
             crate::convo::talk_to(world, agent);
-            world_menu::ask(world, world_menu::Deed::NewSession);
+            world_menu::ask(world, world_menu::Action::NewSession);
         },
     )];
     if living
-        && kind == Some(protocol::AgentKind::Hire)
-        && hamlet_client::realm::Deeds::is_allowed(world, "hire")
+        && kind == Some(protocol::AgentKind::Hamlet)
+        && hamlet_client::realm::Actions::is_allowed(
+            world,
+            "add-agent",
+        )
     {
         buttons.push(icon_button(
             Glyph::Plus,
-            "Hire under it",
-            move |world| world_menu::ask_hire(world, agent),
+            "Add Agent Under It",
+            move |world| world_menu::ask_add_agent(world, agent),
         ));
     }
     buttons
@@ -507,7 +510,7 @@ fn header(agent: Entity) -> impl View {
                     return frame().boxed();
                 }
                 more_button(
-                    "Hiring, roads, merging and ending it",
+                    "Adding agents, channels, merging and ending it",
                     move |world| {
                         world_menu::open_for(world, thing);
                     },
@@ -909,7 +912,7 @@ const SOURCES: [(&str, &str); 10] = [
     ("skills", "Skills"),
     ("place", "Its place"),
     ("realm", "The realm"),
-    ("scholars", "Scholars it may hire"),
+    ("profiles", "Profiles it may add agents of"),
     ("errand", "Errand"),
 ];
 
@@ -1109,7 +1112,7 @@ mod tests {
         );
     }
 
-    /// The Hub on `hire#2`, with her details open.
+    /// The Hub on `agent#2`, with her details open.
     fn ada_app() -> App {
         let mut app = hub_app();
         let ada = crate::testing::seat_ada(&mut app);
@@ -1289,19 +1292,19 @@ mod tests {
             .find(|m| m["type"] == "edit")
             .unwrap();
         assert_eq!(sent["doc"], "character");
-        assert_eq!(sent["scholar"], json!(2));
+        assert_eq!(sent["profile"], json!(2));
         assert_eq!(sent["text"], "Saved character");
         receive(
             &mut app,
-            json!({"type": "reply", "to": sent["id"], "kind": "error", "text": "Character refused"}),
+            json!({"type": "reply", "to": sent["id"], "kind": "error", "text": "Character rejected"}),
         );
         assert!(
             words(&mut app)
                 .iter()
-                .any(|text| text == "Character refused")
+                .any(|text| text == "Character rejected")
         );
-        // A memory file of the agent's lodge is edited the same way,
-        // and removed by sending no text.
+        // A memory file of the agent's worktree is edited the same
+        // way, and removed by sending no text.
         super::super::papers::edit_memory(
             app.world_mut(),
             "farm/pears.md".into(),
@@ -1356,7 +1359,7 @@ mod tests {
             protocol::ServerMessage::State(state),
         );
         let agent =
-            hamlet_client::realm::named(app.world_mut(), "hire#3")
+            hamlet_client::realm::named(app.world_mut(), "agent#3")
                 .unwrap();
         let to = protocol::AgentId(3);
         let session = app
@@ -1371,7 +1374,7 @@ mod tests {
         let mut convo = app.world_mut().resource_mut::<Convo>();
         convo.agent = agent;
         convo.session = session;
-        convo.with = Some("hire#3".into());
+        convo.with = Some("agent#3".into());
         app.update();
     }
 
@@ -1446,8 +1449,8 @@ mod tests {
             names,
             [
                 "Session",
-                "Letters with hire#3",
-                "Questions with hire#3"
+                "Letters with agent#3",
+                "Questions with agent#3"
             ]
         );
         assert_eq!(now, 0);
@@ -1466,7 +1469,7 @@ mod tests {
             receive(
                 &mut app,
                 json!({"type":"transcript","chat":chat,"items":[
-                    {"id":"1:0","at":1,"kind":"user","text":"Question","author":"hire#3"},
+                    {"id":"1:0","at":1,"kind":"user","text":"Question","author":"agent#3"},
                     {"id":"2:0","at":2,"kind":"assistant","text":"Answer"}
                 ], "earlier":"1:0","last":null,"working":true,"pending":0,"usage":{
                     "input":0,"output":0,"cached":0,"calls":0,"lastInput":0,"reasoning":0,"unreported":0,"summary":"","micros":0,"ms":0

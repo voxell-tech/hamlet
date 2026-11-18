@@ -1,7 +1,7 @@
 //! A realm working in a remote workspace, served by a loopback
 //! double of the worker that keeps its files in a scratch folder: the
-//! agents' tools write their remote lodge, the server brings it home,
-//! and a path outside the workspace is refused there.
+//! agents' tools write their remote worktree, the server brings it
+//! home, and a path outside the workspace is refused there.
 
 use std::io::{Read as _, Write as _};
 use std::net::{TcpListener, TcpStream};
@@ -14,7 +14,7 @@ use std::{fs, thread};
 use hamlet_acceptance::{Client, Faux, call, chat, words};
 use hamlet_protocol::client::{
     ClientMessage, Edit, EditSettingsSet, EditSettingsSetWorkspace,
-    Keeper, MoveLodges, ReplyKind,
+    Keeper, MoveWorktrees, ReplyKind,
 };
 use hamlet_testing::{Scratch, Server};
 use hamlet_workspace_wire::{self as wire, Operation};
@@ -156,8 +156,8 @@ fn performed(root: &Path, request: &Value) -> Value {
     serde_json::to_value(reply).unwrap()
 }
 
-/// Where `path` is in the worker's files: in the agent's lodge, its
-/// workspace's project or the library, and nowhere else.
+/// Where `path` is in the worker's files: in the agent's worktree,
+/// its workspace's project or the library, and nowhere else.
 fn located(
     root: &Path,
     request: &wire::Request,
@@ -169,8 +169,8 @@ fn located(
     let workspace = root.join(&request.workspace);
     for (prefix, dir) in [
         (
-            "/lodge",
-            workspace.join(format!("lodges/{}", request.agent)),
+            "/worktree",
+            workspace.join(format!("worktrees/{}", request.agent)),
         ),
         ("/project", workspace.join("project")),
         ("/library", workspace.join("library")),
@@ -281,14 +281,15 @@ fn perform(
     root: &Path,
     request: &wire::Request,
 ) -> Result<Value, wire::Code> {
-    let lodge = located(root, request, "/lodge")?;
-    fs::create_dir_all(&lodge).map_err(code)?;
+    let worktree = located(root, request, "/worktree")?;
+    fs::create_dir_all(&worktree).map_err(code)?;
     library(root, request)?;
     let at = |path: &str| located(root, request, path);
     match request.operation.clone() {
-        Operation::InitLodge(_) => {
+        Operation::InitWorktree(_) => {
             for name in ["memory", "skills", "inbox"] {
-                fs::create_dir_all(lodge.join(name)).map_err(code)?;
+                fs::create_dir_all(worktree.join(name))
+                    .map_err(code)?;
             }
             ok(())
         }
@@ -412,7 +413,7 @@ fn perform(
     }
 }
 
-/// A realm whose chief chose `worker` and moved the lodges there,
+/// A realm whose chief chose `worker` and moved the worktrees there,
 /// served again so that it works there.
 async fn moved_to(
     worker: &Worker,
@@ -457,7 +458,9 @@ async fn moved_to(
         .await;
     assert_eq!(reply.kind, ReplyKind::Notice, "{}", reply.text);
     let reply = chief
-        .request(|id| ClientMessage::MoveLodges(MoveLodges { id }))
+        .request(|id| {
+            ClientMessage::MoveWorktrees(MoveWorktrees { id })
+        })
         .await;
     assert_eq!(reply.kind, ReplyKind::Notice, "{}", reply.text);
     drop((server, chief));
@@ -466,7 +469,7 @@ async fn moved_to(
 }
 
 #[tokio::test]
-async fn the_hands_tools_write_its_remote_lodge_and_the_server_brings_it_home()
+async fn the_hands_tools_write_its_remote_worktree_and_the_server_brings_it_home()
  {
     let worker = Worker::start();
     let write = call(
@@ -481,9 +484,9 @@ async fn the_hands_tools_write_its_remote_lodge_and_the_server_brings_it_home()
     .await;
     let tea = worker
         .files
-        .join("realm/lodges")
+        .join("realm/worktrees")
         .join(format!("{}/memory/tea.md", chief.hand().0));
-    assert!(tea.exists(), "the lodges were moved");
+    assert!(tea.exists(), "the worktrees were moved");
 
     let hand = chief.hand();
     let hand_chat = chat(hand);

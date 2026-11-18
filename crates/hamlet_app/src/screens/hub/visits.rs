@@ -54,11 +54,11 @@ pub(super) fn plugin(app: &mut App) {
         )
         .add_command(
             CommandSpec {
-                enabled: super::scholar::asking,
+                enabled: super::profile::asking,
                 ..command(
                     "hub.submit",
-                    "Do what the scholar's form asks",
-                    |world, _| super::scholar::submit(world),
+                    "Do what the profile's form asks",
+                    |world, _| super::profile::submit(world),
                 )
             },
             &crate::world_menu::SUBMIT_KEYS,
@@ -109,7 +109,7 @@ fn record(world: &mut World) {
 fn stands(world: &World, visit: &Visit) -> bool {
     let alive = |entity: Entity| world.get_entity(entity).is_ok();
     let shown = match visit.showing {
-        Showing::Scholar(e)
+        Showing::Profile(e)
         | Showing::Hamlet(e)
         | Showing::Gone(e)
         | Showing::Chief(e) => alive(e),
@@ -126,7 +126,7 @@ fn thing_of(world: &World, visit: &Visit) -> Option<Option<Thing>> {
         Showing::Thread => {
             Some(crate::convo::home_of(world, visit.agent?))
         }
-        Showing::Scholar(scholar) => Some(Thing::Scholar(scholar)),
+        Showing::Profile(profile) => Some(Thing::Profile(profile)),
         Showing::Hamlet(hamlet) => Some(Thing::Common(hamlet)),
         Showing::Gone(agent) => Some(Thing::Ruin(agent)),
         Showing::Chief(chief) => Some(Thing::Chief(chief)),
@@ -187,7 +187,7 @@ mod tests {
     fn back_and_forward_walk_the_pages_gone_through() {
         let mut app = panel_app();
         app.add_plugins(plugin);
-        let ada = realm::named(app.world_mut(), "hire#2").unwrap();
+        let ada = realm::named(app.world_mut(), "agent#2").unwrap();
         app.insert_resource(Showing::Realm)
             .init_resource::<Sheet>()
             .init_resource::<Selected>()

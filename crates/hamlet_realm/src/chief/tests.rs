@@ -14,7 +14,7 @@ use crate::keeper::Act;
 use crate::play::{Play, Played};
 use crate::sky::Quality;
 
-/// The deeds the world was told of.
+/// The actions the world was told of.
 #[derive(Resource, Default)]
 struct Log(Vec<Play>);
 

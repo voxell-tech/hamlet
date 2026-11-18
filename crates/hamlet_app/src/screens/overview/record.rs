@@ -7,8 +7,8 @@ use bevy_fynix::{ViewExt, derived, every_frame, keyed};
 use hamlet_client::messages::{Reconnected, Response};
 use hamlet_client::outbox::Outbox;
 use hamlet_client::realm::{
-    self as agents, Agents, Bylaws, Deeds, HamletId, Identity, Lived,
-    LivesIn, Mayor, Seen, Treasury, Works,
+    self as agents, Actions, Agents, Bylaws, HamletId, Identity,
+    Lead, Lived, LivesIn, Seen, Treasury, Works,
 };
 use hamlet_protocol::client as protocol;
 use hamlet_ui::AnyView;
@@ -54,7 +54,7 @@ impl Annals {
 struct RecordPanel(Entity);
 
 fn request(world: &mut World, hamlet: Entity, opening: bool) {
-    if !world.resource::<Deeds>().is_supported("history") {
+    if !world.resource::<Actions>().is_supported("history") {
         return;
     }
     let Some(name) =
@@ -70,8 +70,8 @@ fn request(world: &mut World, hamlet: Entity, opening: bool) {
     {
         return;
     }
-    let Some(to) = agents::mayor_of(world, &name)
-        .and_then(|mayor| agents::id_of(world, mayor))
+    let Some(to) = agents::lead_of(world, &name)
+        .and_then(|lead| agents::id_of(world, lead))
     else {
         return;
     };
@@ -108,7 +108,8 @@ fn answered(response: On<Response>, mut annals: ResMut<Annals>) {
 }
 
 fn refresh(world: &mut World) {
-    let available = world.resource::<Deeds>().is_supported("history");
+    let available =
+        world.resource::<Actions>().is_supported("history");
     let mut annals = world.resource_mut::<Annals>();
     let force = annals.reconnect || (available && !annals.available);
     annals.available = available;
@@ -135,7 +136,7 @@ fn refresh(world: &mut World) {
     let agents = world
         .query_filtered::<&LivesIn, (
             With<Identity>,
-            Or<(Changed<Name>, Changed<Lived>, Changed<Mayor>)>,
+            Or<(Changed<Name>, Changed<Lived>, Changed<Lead>)>,
         )>()
         .iter(world)
         .map(|l| l.0)
@@ -164,7 +165,7 @@ pub(super) fn record_of(hamlet: Entity) -> AnyView {
             } else {
                 String::new()
             },
-            world.resource::<Deeds>().is_supported("history"),
+            world.resource::<Actions>().is_supported("history"),
         )
     })
     .when(every_frame());
@@ -203,12 +204,12 @@ mod tests {
     use crate::testing::{panel_app, words};
 
     #[test]
-    fn the_record_reply_comes_from_the_server_and_commands_reach_its_mayor()
+    fn the_record_reply_comes_from_the_server_and_commands_reach_its_lead()
      {
         let mut app = panel_app();
         app.add_plugins(crate::overview::plugin);
         let mut state = hamlet_testing::realm::state();
-        state.deeds = hamlet_testing::realm::deeds(&["history"]);
+        state.actions = hamlet_testing::realm::actions(&["history"]);
         state
             .agents
             .push(hamlet_testing::realm::agent(3, "home", false));
@@ -217,7 +218,7 @@ mod tests {
             protocol::ServerMessage::State(state.clone()),
         );
         let hamlet =
-            hamlet_client::realm::first_mayor(app.world()).unwrap();
+            hamlet_client::realm::first_lead(app.world()).unwrap();
         let hamlet = app.world().get::<LivesIn>(hamlet).unwrap().0;
         bevy_fynix::mount::<hamlet_ui::theme::HamletTheme>(
             app.world_mut(),
@@ -270,8 +271,8 @@ mod tests {
         );
         app.update();
         assert_eq!(app.world().resource::<Outbox>().iter().filter(|m| matches!(m, protocol::ClientMessage::Say(s) if s.text == "/history")).count(), 2);
-        state.agents[1].mayor = false;
-        state.agents[2].mayor = true;
+        state.agents[1].lead = false;
+        state.agents[2].lead = true;
         hamlet_client::receive(
             app.world_mut(),
             protocol::ServerMessage::Change(protocol::Changes {
@@ -293,13 +294,13 @@ mod tests {
         let mut app = panel_app();
         app.add_plugins(crate::overview::plugin);
         let mut state = hamlet_testing::realm::state();
-        state.deeds = hamlet_testing::realm::deeds(&["history"]);
+        state.actions = hamlet_testing::realm::actions(&["history"]);
         hamlet_client::receive(
             app.world_mut(),
             protocol::ServerMessage::State(state.clone()),
         );
         let agent =
-            hamlet_client::realm::first_mayor(app.world()).unwrap();
+            hamlet_client::realm::first_lead(app.world()).unwrap();
         let hamlet = app.world().get::<LivesIn>(agent).unwrap().0;
         bevy_fynix::mount::<hamlet_ui::theme::HamletTheme>(
             app.world_mut(),
@@ -357,7 +358,7 @@ mod tests {
         assert!(
             words(&mut app).contains(&"The record recovered".into())
         );
-        state.deeds = hamlet_testing::realm::deeds(&[]);
+        state.actions = hamlet_testing::realm::actions(&[]);
         hamlet_client::receive(
             app.world_mut(),
             protocol::ServerMessage::State(state.clone()),
@@ -367,7 +368,7 @@ mod tests {
             .resource_mut::<Outbox>()
             .drain()
             .for_each(drop);
-        state.deeds = hamlet_testing::realm::deeds(&["history"]);
+        state.actions = hamlet_testing::realm::actions(&["history"]);
         hamlet_client::receive(
             app.world_mut(),
             protocol::ServerMessage::State(state),

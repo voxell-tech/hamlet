@@ -1,6 +1,6 @@
 -- The realm's database. Times are milliseconds since the epoch. An
 -- actor column holds `chief:<id>`, `agent:<id>` or `realm`. Rows of
--- scholars, agents, conversations, tasks and waits are never deleted,
+-- profiles, agents, conversations, tasks and waits are never deleted,
 -- so their ids are never given twice.
 
 -- The realm
@@ -32,18 +32,18 @@ CREATE TABLE document (
 
 -- The city
 
--- A scholar, or the Hand's own knowledge. Its repository is
--- scholars/<id>.git. Its name is a label that may repeat.
-CREATE TABLE scholar (
+-- A profile, or the Hand's own knowledge. Its repository is
+-- profiles/<id>.git. Its name is a label that may repeat.
+CREATE TABLE profile (
     id INTEGER PRIMARY KEY,
-    kind TEXT NOT NULL CHECK (kind IN ('scholar', 'hand')),
+    kind TEXT NOT NULL CHECK (kind IN ('profile', 'hand')),
     name TEXT NOT NULL,
     chief INTEGER REFERENCES chief(id),
     since INTEGER NOT NULL,
     made_by TEXT NOT NULL,
     planted INTEGER NOT NULL DEFAULT 0 CHECK (planted IN (0, 1)),
     -- Whether it lives in the city or waits at its harbor, or is a
-    -- blank hire's own and never of the city.
+    -- blank agent's own and never of the city.
     arrival TEXT NOT NULL DEFAULT 'housed'
         CHECK (arrival IN ('housed', 'waiting', 'turned', 'apart')),
     -- Who last let it in, kept it waiting or turned it away; none
@@ -54,7 +54,7 @@ CREATE TABLE scholar (
     house_x REAL,
     house_z REAL,
     house_turn REAL,
-    fork_of INTEGER REFERENCES scholar(id),
+    fork_of INTEGER REFERENCES profile(id),
     fork_at TEXT,
     left_at INTEGER,
     left_by TEXT,
@@ -63,20 +63,20 @@ CREATE TABLE scholar (
     CHECK ((kind = 'hand') = (chief IS NULL)),
     CHECK (erased = 0 OR left_at IS NOT NULL)
 ) STRICT;
-CREATE INDEX scholar_chief ON scholar(chief);
+CREATE INDEX profile_chief ON profile(chief);
 
 -- Hamlets
 
 -- A hamlet: a UUID made when it is founded, and the name it is shown
--- by. Its mayor is the root of its tree of hires. Its limits are the
+-- by. Its lead is the root of its tree of agents. Its limits are the
 -- chief's document for it.
 CREATE TABLE hamlet (
     id TEXT PRIMARY KEY,
     name TEXT NOT NULL CHECK (length(trim(name)) > 0),
     founded_at INTEGER NOT NULL,
     founded_by TEXT NOT NULL,
-    mayor INTEGER NOT NULL
-        REFERENCES hire(agent) DEFERRABLE INITIALLY DEFERRED,
+    lead INTEGER NOT NULL
+        REFERENCES hamlet_agent(agent) DEFERRABLE INITIALLY DEFERRED,
     folder TEXT,
     mode TEXT NOT NULL DEFAULT 'manual' CHECK (mode IN ('manual', 'auto')),
     tier INTEGER NOT NULL DEFAULT 50 CHECK (tier IN (50, 100, 200, 500)),
@@ -107,13 +107,13 @@ CREATE TABLE hamlet_folder (
 
 -- Agents
 
--- Anything that talks: the Hand, a hire or a worker. `harness` is the
--- one its new conversations run in. `effort` is how hard its model
--- thinks when chosen for it, and `fast` asks the provider for its fast
--- tier.
+-- Anything that talks: the Hand, an agent of a hamlet or a worker.
+-- `harness` is the one its new conversations run in. `effort` is how
+-- hard its model thinks when chosen for it, and `fast` asks the
+-- provider for its fast tier.
 CREATE TABLE agent (
     id INTEGER PRIMARY KEY,
-    kind TEXT NOT NULL CHECK (kind IN ('hand', 'hire', 'worker')),
+    kind TEXT NOT NULL CHECK (kind IN ('hand', 'hamlet', 'worker')),
     since INTEGER NOT NULL,
     harness TEXT NOT NULL,
     effort TEXT CHECK (effort IS NULL OR effort IN
@@ -122,7 +122,7 @@ CREATE TABLE agent (
     ended_at INTEGER,
     ended_by TEXT,
     ended_how TEXT CHECK (ended_how IS NULL OR ended_how IN
-        ('ended', 'merged', 'scholar', 'hamlet', 'answered', 'failed',
+        ('ended', 'merged', 'profile', 'hamlet', 'answered', 'failed',
          'stopped')),
     ended_reason TEXT,
     erased INTEGER NOT NULL DEFAULT 0 CHECK (erased IN (0, 1)),
@@ -133,23 +133,24 @@ CREATE UNIQUE INDEX agent_hand ON agent(kind) WHERE kind = 'hand';
 
 CREATE TABLE hand (
     agent INTEGER PRIMARY KEY REFERENCES agent(id),
-    scholar INTEGER NOT NULL UNIQUE REFERENCES scholar(id),
+    profile INTEGER NOT NULL UNIQUE REFERENCES profile(id),
     -- The model chosen for it; the realm's default while none.
     model TEXT
 ) STRICT;
 
--- A scholar working in a hamlet. Its branch is hires/<agent> in its
--- scholar's repository and its lodge hamlets/<hamlet>/<agent>/. A
--- hire with no parent is under the Hand. `base` is the commit of
+-- A profile working in a hamlet. Its branch is agents/<agent> in its
+-- profile's repository and its worktree hamlets/<hamlet>/<agent>/. An
+-- agent with no parent is under the Hand. `base` is the commit of
 -- `main`, or of its pin, its branch last took in.
-CREATE TABLE hire (
+CREATE TABLE hamlet_agent (
     agent INTEGER PRIMARY KEY REFERENCES agent(id),
     hamlet TEXT NOT NULL REFERENCES hamlet(id),
-    scholar INTEGER NOT NULL REFERENCES scholar(id),
-    parent INTEGER REFERENCES hire(agent),
+    profile INTEGER NOT NULL REFERENCES profile(id),
+    parent INTEGER REFERENCES hamlet_agent(agent),
     purpose TEXT NOT NULL,
-    -- What the chief or an agent above it calls it in the world.
-    nickname TEXT CHECK (nickname IS NULL OR length(nickname) > 0),
+    -- What the chief or an agent above it calls it in the world; none
+    -- while it goes by its profile's name.
+    name TEXT CHECK (name IS NULL OR length(name) > 0),
     pin TEXT,
     base TEXT,
     model TEXT,
@@ -157,19 +158,19 @@ CREATE TABLE hire (
     model_reason TEXT,
     allowance INTEGER CHECK (allowance IS NULL OR allowance >= 0),
     allowance_by TEXT,
-    merged_into INTEGER REFERENCES hire(agent),
+    merged_into INTEGER REFERENCES hamlet_agent(agent),
     CHECK (parent IS NULL OR parent <> agent)
 ) STRICT;
-CREATE INDEX hire_scholar ON hire(scholar);
-CREATE INDEX hire_parent ON hire(parent);
+CREATE INDEX hamlet_agent_profile ON hamlet_agent(profile);
+CREATE INDEX hamlet_agent_parent ON hamlet_agent(parent);
 
--- A built-in or society tool a lead turned off for a hire.
-CREATE TABLE hire_tool_off (
-    hire INTEGER NOT NULL REFERENCES hire(agent),
+-- A built-in or society tool a parent turned off for an agent.
+CREATE TABLE agent_tool_off (
+    agent INTEGER NOT NULL REFERENCES hamlet_agent(agent),
     tool TEXT NOT NULL,
     at INTEGER NOT NULL,
     by TEXT NOT NULL,
-    PRIMARY KEY (hire, tool)
+    PRIMARY KEY (agent, tool)
 ) STRICT, WITHOUT ROWID;
 
 -- A worker, started by an agent or by a chief for one task described
@@ -186,65 +187,66 @@ CREATE TABLE worker (
     call_runtime TEXT,
     call_key TEXT,
     answer TEXT,
-    -- What the chief calls it in the world.
-    nickname TEXT CHECK (nickname IS NULL OR length(nickname) > 0),
+    -- What the chief calls it in the world; none while it goes by its
+    -- address.
+    name TEXT CHECK (name IS NULL OR length(name) > 0),
     CHECK ((starter IS NULL) <> (chief IS NULL))
 ) STRICT;
 CREATE INDEX worker_starter ON worker(starter);
 
--- Roads
+-- Channels
 
--- A road laid between two hires of a hamlet, or agreed between hires
--- of two hamlets. Roads along the tree are not kept.
-CREATE TABLE road (
+-- A channel opened between two agents of a hamlet, or agreed between
+-- agents of two hamlets. Channels along the tree are not kept.
+CREATE TABLE channel (
     id INTEGER PRIMARY KEY,
-    a INTEGER NOT NULL REFERENCES hire(agent),
-    b INTEGER NOT NULL REFERENCES hire(agent),
-    kind TEXT NOT NULL CHECK (kind IN ('laid', 'agreed')),
-    laid_at INTEGER NOT NULL,
-    laid_by TEXT NOT NULL,
+    a INTEGER NOT NULL REFERENCES hamlet_agent(agent),
+    b INTEGER NOT NULL REFERENCES hamlet_agent(agent),
+    kind TEXT NOT NULL CHECK (kind IN ('opened', 'agreed')),
+    opened_at INTEGER NOT NULL,
+    opened_by TEXT NOT NULL,
     reason TEXT NOT NULL,
     task INTEGER REFERENCES task(id),
-    inherited_from INTEGER REFERENCES road(id),
-    up_at INTEGER,
-    up_by TEXT,
-    up_reason TEXT,
+    inherited_from INTEGER REFERENCES channel(id),
+    closed_at INTEGER,
+    closed_by TEXT,
+    closed_reason TEXT,
     CHECK (a < b)
 ) STRICT;
-CREATE UNIQUE INDEX road_open ON road(a, b) WHERE up_at IS NULL;
-CREATE INDEX road_b ON road(b);
+CREATE UNIQUE INDEX channel_open ON channel(a, b) WHERE closed_at IS NULL;
+CREATE INDEX channel_b ON channel(b);
 
--- One mayor's agreement to a road between hamlets. The road is laid
--- when both mayors agree.
+-- One lead's agreement to a channel between hamlets. The channel is
+-- opened when both leads agree.
 CREATE TABLE agreement (
     id INTEGER PRIMARY KEY,
-    a INTEGER NOT NULL REFERENCES hire(agent),
-    b INTEGER NOT NULL REFERENCES hire(agent),
+    a INTEGER NOT NULL REFERENCES hamlet_agent(agent),
+    b INTEGER NOT NULL REFERENCES hamlet_agent(agent),
     hamlet TEXT NOT NULL REFERENCES hamlet(id),
-    mayor INTEGER NOT NULL REFERENCES hire(agent),
+    lead INTEGER NOT NULL REFERENCES hamlet_agent(agent),
     at INTEGER NOT NULL,
     reason TEXT NOT NULL,
     task INTEGER REFERENCES task(id),
-    road INTEGER REFERENCES road(id),
+    channel INTEGER REFERENCES channel(id),
     CHECK (a < b)
 ) STRICT;
 CREATE UNIQUE INDEX agreement_open ON agreement(a, b, hamlet)
-    WHERE road IS NULL;
+    WHERE channel IS NULL;
 
-CREATE TABLE road_charge (
+CREATE TABLE channel_charge (
     id INTEGER PRIMARY KEY,
-    road INTEGER NOT NULL REFERENCES road(id),
+    channel INTEGER NOT NULL REFERENCES channel(id),
     hamlet TEXT NOT NULL REFERENCES hamlet(id),
     agent INTEGER REFERENCES agent(id),
     task INTEGER REFERENCES task(id),
     at INTEGER NOT NULL,
     micros INTEGER NOT NULL CHECK (micros >= 0)
 ) STRICT;
-CREATE INDEX road_charge_hamlet ON road_charge(hamlet, at);
+CREATE INDEX channel_charge_hamlet ON channel_charge(hamlet, at);
 
 -- The record
 
--- A decision of a chief, the Hand or a lead, kept with its reason
+-- A decision of a chief, the Hand or a parent, kept with its reason
 -- (H17).
 CREATE TABLE decision (
     id INTEGER PRIMARY KEY,
@@ -254,21 +256,22 @@ CREATE TABLE decision (
     kind TEXT NOT NULL,
     subject INTEGER REFERENCES agent(id),
     other INTEGER REFERENCES agent(id),
-    scholar INTEGER REFERENCES scholar(id),
+    profile INTEGER REFERENCES profile(id),
     reason TEXT NOT NULL,
     task INTEGER REFERENCES task(id),
     detail TEXT CHECK (detail IS NULL OR json_valid(detail))
 ) STRICT;
 CREATE INDEX decision_hamlet ON decision(hamlet, at);
 CREATE INDEX decision_subject ON decision(subject);
-CREATE INDEX decision_scholar ON decision(scholar);
+CREATE INDEX decision_profile ON decision(profile);
 
--- Two hires merged: the commit that brought the absorbed hire's files
--- into the kept hire's branch, and the one that took them out again.
-CREATE TABLE hire_merge (
+-- Two agents merged: the commit that brought the absorbed agent's
+-- files into the kept agent's branch, and the one that took them out
+-- again.
+CREATE TABLE agent_merge (
     id INTEGER PRIMARY KEY,
-    kept INTEGER NOT NULL REFERENCES hire(agent),
-    absorbed INTEGER NOT NULL REFERENCES hire(agent),
+    kept INTEGER NOT NULL REFERENCES hamlet_agent(agent),
+    absorbed INTEGER NOT NULL REFERENCES hamlet_agent(agent),
     at INTEGER NOT NULL,
     by TEXT NOT NULL,
     reason TEXT NOT NULL,
@@ -278,8 +281,8 @@ CREATE TABLE hire_merge (
     split_by TEXT,
     split_commit TEXT
 ) STRICT;
-CREATE INDEX hire_merge_kept ON hire_merge(kept);
-CREATE UNIQUE INDEX hire_merge_absorbed ON hire_merge(absorbed)
+CREATE INDEX agent_merge_kept ON agent_merge(kept);
+CREATE UNIQUE INDEX agent_merge_absorbed ON agent_merge(absorbed)
     WHERE split_at IS NULL;
 
 -- Tasks and spend
@@ -338,7 +341,7 @@ CREATE TABLE usage (
 ) STRICT, WITHOUT ROWID;
 
 -- A chief starting a budget's period again: a hamlet's, or the
--- realm's when empty. Spend after the last usage and road charge it
+-- realm's when empty. Spend after the last usage and channel charge it
 -- names counts.
 CREATE TABLE budget_reset (
     id INTEGER PRIMARY KEY,
@@ -346,7 +349,7 @@ CREATE TABLE budget_reset (
     at INTEGER NOT NULL,
     chief INTEGER NOT NULL REFERENCES chief(id),
     usage INTEGER NOT NULL,
-    road_charge INTEGER NOT NULL
+    channel_charge INTEGER NOT NULL
 ) STRICT;
 
 -- Conversations
@@ -427,7 +430,7 @@ CREATE TABLE chat_session (
 ) STRICT, WITHOUT ROWID;
 
 -- A conversation of another program brought in as a session of a
--- hire's chat (C35), once per chief. `earlier` holds the entries it
+-- agent's chat (C35), once per chief. `earlier` holds the entries it
 -- begins with, as JSON, until its runtime has made it with them.
 CREATE TABLE import (
     conversation INTEGER PRIMARY KEY REFERENCES conversation(id),
@@ -499,7 +502,7 @@ CREATE TABLE answer_fault (
 
 -- The society
 
--- A letter or question one agent sent another along a road (H30),
+-- A letter or question one agent sent another along a channel (H30),
 -- once per tool call.
 CREATE TABLE message (
     id INTEGER PRIMARY KEY,
@@ -526,7 +529,7 @@ CREATE INDEX message_pair ON message(sender, receiver, at);
 CREATE INDEX message_receiver ON message(receiver, at);
 
 -- An objection to a chief's instruction (H10), one per task: by the
--- instructed agent, or by its lead's review.
+-- instructed agent, or by its parent's review.
 CREATE TABLE objection (
     task INTEGER PRIMARY KEY REFERENCES task(id),
     agent INTEGER NOT NULL REFERENCES agent(id),
@@ -538,10 +541,10 @@ CREATE TABLE objection (
     ruled_at INTEGER
 ) STRICT;
 
--- A lead's review of a chief's instruction to a hire under it.
+-- A parent's review of a chief's instruction to an agent under it.
 CREATE TABLE review (
     task INTEGER PRIMARY KEY REFERENCES task(id),
-    lead INTEGER NOT NULL REFERENCES agent(id),
+    parent INTEGER NOT NULL REFERENCES agent(id),
     conversation INTEGER REFERENCES conversation(id),
     outcome TEXT CHECK (outcome IS NULL OR outcome IN
         ('pass', 'object', 'skipped', 'failed')),
@@ -579,14 +582,14 @@ CREATE TABLE library_event (
     commit_id TEXT
 ) STRICT;
 
--- A dream: a hire's, which brings what it learned home, or a
--- scholar's, which tidies its `main`. `ending` marks the last dream of
--- a hire that ends.
+-- A dream: an agent's, which brings what it learned home, or a
+-- profile's, which tidies its `main`. `ending` marks the last dream of
+-- an agent that ends.
 CREATE TABLE dream (
     id INTEGER PRIMARY KEY,
-    kind TEXT NOT NULL CHECK (kind IN ('hire', 'scholar')),
-    scholar INTEGER NOT NULL REFERENCES scholar(id),
-    hire INTEGER REFERENCES hire(agent),
+    kind TEXT NOT NULL CHECK (kind IN ('agent', 'profile')),
+    profile INTEGER NOT NULL REFERENCES profile(id),
+    agent INTEGER REFERENCES hamlet_agent(agent),
     ending INTEGER NOT NULL DEFAULT 0 CHECK (ending IN (0, 1)),
     conversation INTEGER REFERENCES conversation(id),
     task INTEGER REFERENCES task(id),
@@ -596,9 +599,9 @@ CREATE TABLE dream (
         ('done', 'nothing', 'failed', 'stopped')),
     main_commit TEXT,
     branch_commit TEXT,
-    CHECK ((kind = 'hire') = (hire IS NOT NULL))
+    CHECK ((kind = 'agent') = (agent IS NOT NULL))
 ) STRICT;
-CREATE INDEX dream_scholar ON dream(scholar, began);
+CREATE INDEX dream_profile ON dream(profile, began);
 
 -- Oversight
 
@@ -613,7 +616,7 @@ CREATE TABLE wait (
          'send')),
     agent INTEGER REFERENCES agent(id),
     -- The newcomer a `newcomer` wait asks about.
-    scholar INTEGER REFERENCES scholar(id),
+    profile INTEGER REFERENCES profile(id),
     conversation INTEGER REFERENCES conversation(id),
     task INTEGER REFERENCES task(id),
     about TEXT NOT NULL,
@@ -658,7 +661,7 @@ CREATE TABLE turn_gate (
 ) STRICT;
 
 -- Edits and commands a chief allowed for the rest of a chat session.
-CREATE TABLE trust (
+CREATE TABLE session_grant (
     agent INTEGER NOT NULL REFERENCES agent(id),
     chief INTEGER NOT NULL REFERENCES chief(id),
     session INTEGER NOT NULL CHECK (session >= 1),

@@ -17,16 +17,41 @@ diesel::table! {
 }
 
 diesel::table! {
+    agent_merge (id) {
+        id -> BigInt,
+        kept -> BigInt,
+        absorbed -> BigInt,
+        at -> BigInt,
+        by -> Text,
+        reason -> Text,
+        merge_commit -> Nullable<Text>,
+        clashes -> Nullable<Text>,
+        split_at -> Nullable<BigInt>,
+        split_by -> Nullable<Text>,
+        split_commit -> Nullable<Text>,
+    }
+}
+
+diesel::table! {
+    agent_tool_off (agent, tool) {
+        agent -> BigInt,
+        tool -> Text,
+        at -> BigInt,
+        by -> Text,
+    }
+}
+
+diesel::table! {
     agreement (id) {
         id -> BigInt,
         a -> BigInt,
         b -> BigInt,
         hamlet -> Text,
-        mayor -> BigInt,
+        lead -> BigInt,
         at -> BigInt,
         reason -> Text,
         task -> Nullable<BigInt>,
-        road -> Nullable<BigInt>,
+        channel -> Nullable<BigInt>,
     }
 }
 
@@ -61,7 +86,36 @@ diesel::table! {
         at -> BigInt,
         chief -> BigInt,
         usage -> BigInt,
-        road_charge -> BigInt,
+        channel_charge -> BigInt,
+    }
+}
+
+diesel::table! {
+    channel (id) {
+        id -> BigInt,
+        a -> BigInt,
+        b -> BigInt,
+        kind -> Text,
+        opened_at -> BigInt,
+        opened_by -> Text,
+        reason -> Text,
+        task -> Nullable<BigInt>,
+        inherited_from -> Nullable<BigInt>,
+        closed_at -> Nullable<BigInt>,
+        closed_by -> Nullable<Text>,
+        closed_reason -> Nullable<Text>,
+    }
+}
+
+diesel::table! {
+    channel_charge (id) {
+        id -> BigInt,
+        channel -> BigInt,
+        hamlet -> Text,
+        agent -> Nullable<BigInt>,
+        task -> Nullable<BigInt>,
+        at -> BigInt,
+        micros -> BigInt,
     }
 }
 
@@ -133,7 +187,7 @@ diesel::table! {
         kind -> Text,
         subject -> Nullable<BigInt>,
         other -> Nullable<BigInt>,
-        scholar -> Nullable<BigInt>,
+        profile -> Nullable<BigInt>,
         reason -> Text,
         task -> Nullable<BigInt>,
         detail -> Nullable<Text>,
@@ -153,8 +207,8 @@ diesel::table! {
     dream (id) {
         id -> BigInt,
         kind -> Text,
-        scholar -> BigInt,
-        hire -> Nullable<BigInt>,
+        profile -> BigInt,
+        agent -> Nullable<BigInt>,
         ending -> Bool,
         conversation -> Nullable<BigInt>,
         task -> Nullable<BigInt>,
@@ -172,7 +226,7 @@ diesel::table! {
         name -> Text,
         founded_at -> BigInt,
         founded_by -> Text,
-        mayor -> BigInt,
+        lead -> BigInt,
         folder -> Nullable<Text>,
         mode -> Text,
         tier -> BigInt,
@@ -183,6 +237,25 @@ diesel::table! {
         removed_by -> Nullable<Text>,
         removed_reason -> Nullable<Text>,
         erased -> Bool,
+    }
+}
+
+diesel::table! {
+    hamlet_agent (agent) {
+        agent -> BigInt,
+        hamlet -> Text,
+        profile -> BigInt,
+        parent -> Nullable<BigInt>,
+        purpose -> Text,
+        name -> Nullable<Text>,
+        pin -> Nullable<Text>,
+        base -> Nullable<Text>,
+        model -> Nullable<Text>,
+        model_by -> Nullable<Text>,
+        model_reason -> Nullable<Text>,
+        allowance -> Nullable<BigInt>,
+        allowance_by -> Nullable<Text>,
+        merged_into -> Nullable<BigInt>,
     }
 }
 
@@ -204,52 +277,8 @@ diesel::table! {
 diesel::table! {
     hand (agent) {
         agent -> BigInt,
-        scholar -> BigInt,
+        profile -> BigInt,
         model -> Nullable<Text>,
-    }
-}
-
-diesel::table! {
-    hire (agent) {
-        agent -> BigInt,
-        hamlet -> Text,
-        scholar -> BigInt,
-        parent -> Nullable<BigInt>,
-        purpose -> Text,
-        nickname -> Nullable<Text>,
-        pin -> Nullable<Text>,
-        base -> Nullable<Text>,
-        model -> Nullable<Text>,
-        model_by -> Nullable<Text>,
-        model_reason -> Nullable<Text>,
-        allowance -> Nullable<BigInt>,
-        allowance_by -> Nullable<Text>,
-        merged_into -> Nullable<BigInt>,
-    }
-}
-
-diesel::table! {
-    hire_merge (id) {
-        id -> BigInt,
-        kept -> BigInt,
-        absorbed -> BigInt,
-        at -> BigInt,
-        by -> Text,
-        reason -> Text,
-        merge_commit -> Nullable<Text>,
-        clashes -> Nullable<Text>,
-        split_at -> Nullable<BigInt>,
-        split_by -> Nullable<Text>,
-        split_commit -> Nullable<Text>,
-    }
-}
-
-diesel::table! {
-    hire_tool_off (hire, tool) {
-        hire -> BigInt,
-        tool -> Text,
-        at -> BigInt,
-        by -> Text,
     }
 }
 
@@ -379,6 +408,29 @@ diesel::table! {
 }
 
 diesel::table! {
+    profile (id) {
+        id -> BigInt,
+        kind -> Text,
+        name -> Text,
+        chief -> Nullable<BigInt>,
+        since -> BigInt,
+        made_by -> Text,
+        planted -> Bool,
+        arrival -> Text,
+        arrival_by -> Nullable<Text>,
+        house_x -> Nullable<Double>,
+        house_z -> Nullable<Double>,
+        house_turn -> Nullable<Double>,
+        fork_of -> Nullable<BigInt>,
+        fork_at -> Nullable<Text>,
+        left_at -> Nullable<BigInt>,
+        left_by -> Nullable<Text>,
+        left_reason -> Nullable<Text>,
+        erased -> Bool,
+    }
+}
+
+diesel::table! {
     realm (id) {
         id -> BigInt,
         identity -> Text,
@@ -401,39 +453,10 @@ diesel::table! {
 diesel::table! {
     review (task) {
         task -> BigInt,
-        lead -> BigInt,
+        parent -> BigInt,
         conversation -> Nullable<BigInt>,
         outcome -> Nullable<Text>,
         at -> BigInt,
-    }
-}
-
-diesel::table! {
-    road (id) {
-        id -> BigInt,
-        a -> BigInt,
-        b -> BigInt,
-        kind -> Text,
-        laid_at -> BigInt,
-        laid_by -> Text,
-        reason -> Text,
-        task -> Nullable<BigInt>,
-        inherited_from -> Nullable<BigInt>,
-        up_at -> Nullable<BigInt>,
-        up_by -> Nullable<Text>,
-        up_reason -> Nullable<Text>,
-    }
-}
-
-diesel::table! {
-    road_charge (id) {
-        id -> BigInt,
-        road -> BigInt,
-        hamlet -> Text,
-        agent -> Nullable<BigInt>,
-        task -> Nullable<BigInt>,
-        at -> BigInt,
-        micros -> BigInt,
     }
 }
 
@@ -448,25 +471,12 @@ diesel::table! {
 }
 
 diesel::table! {
-    scholar (id) {
-        id -> BigInt,
-        kind -> Text,
-        name -> Text,
-        chief -> Nullable<BigInt>,
-        since -> BigInt,
-        made_by -> Text,
-        planted -> Bool,
-        arrival -> Text,
-        arrival_by -> Nullable<Text>,
-        house_x -> Nullable<Double>,
-        house_z -> Nullable<Double>,
-        house_turn -> Nullable<Double>,
-        fork_of -> Nullable<BigInt>,
-        fork_at -> Nullable<Text>,
-        left_at -> Nullable<BigInt>,
-        left_by -> Nullable<Text>,
-        left_reason -> Nullable<Text>,
-        erased -> Bool,
+    session_grant (agent, chief, session) {
+        agent -> BigInt,
+        chief -> BigInt,
+        session -> BigInt,
+        edit -> Bool,
+        command -> Bool,
     }
 }
 
@@ -517,16 +527,6 @@ diesel::table! {
 }
 
 diesel::table! {
-    trust (agent, chief, session) {
-        agent -> BigInt,
-        chief -> BigInt,
-        session -> BigInt,
-        edit -> Bool,
-        command -> Bool,
-    }
-}
-
-diesel::table! {
     turn_gate (conversation) {
         conversation -> BigInt,
         input -> Nullable<Text>,
@@ -559,7 +559,7 @@ diesel::table! {
         kind -> Text,
         danger -> Nullable<Text>,
         agent -> Nullable<BigInt>,
-        scholar -> Nullable<BigInt>,
+        profile -> Nullable<BigInt>,
         conversation -> Nullable<BigInt>,
         task -> Nullable<BigInt>,
         about -> Text,
@@ -589,12 +589,13 @@ diesel::table! {
         call_runtime -> Nullable<Text>,
         call_key -> Nullable<Text>,
         answer -> Nullable<Text>,
-        nickname -> Nullable<Text>,
+        name -> Nullable<Text>,
     }
 }
 
+diesel::joinable!(agent_tool_off -> hamlet_agent (agent));
+diesel::joinable!(agreement -> channel (channel));
 diesel::joinable!(agreement -> hamlet (hamlet));
-diesel::joinable!(agreement -> road (road));
 diesel::joinable!(agreement -> task (task));
 diesel::joinable!(answer_fault -> conversation (conversation));
 diesel::joinable!(attempt -> agent (agent));
@@ -603,6 +604,11 @@ diesel::joinable!(attempt -> hamlet (payer));
 diesel::joinable!(attempt -> task (task));
 diesel::joinable!(budget_reset -> chief (chief));
 diesel::joinable!(budget_reset -> hamlet (hamlet));
+diesel::joinable!(channel -> task (task));
+diesel::joinable!(channel_charge -> agent (agent));
+diesel::joinable!(channel_charge -> channel (channel));
+diesel::joinable!(channel_charge -> hamlet (hamlet));
+diesel::joinable!(channel_charge -> task (task));
 diesel::joinable!(chat -> agent (agent));
 diesel::joinable!(chat -> chief (chief));
 diesel::joinable!(chat_session -> conversation (conversation));
@@ -610,22 +616,21 @@ diesel::joinable!(conversation -> agent (agent));
 diesel::joinable!(conversation -> chief (chief));
 diesel::joinable!(conversation -> runtime (runtime));
 diesel::joinable!(decision -> hamlet (hamlet));
-diesel::joinable!(decision -> scholar (scholar));
+diesel::joinable!(decision -> profile (profile));
 diesel::joinable!(decision -> task (task));
 diesel::joinable!(document -> chief (chief));
 diesel::joinable!(dream -> conversation (conversation));
-diesel::joinable!(dream -> hire (hire));
-diesel::joinable!(dream -> scholar (scholar));
+diesel::joinable!(dream -> hamlet_agent (agent));
+diesel::joinable!(dream -> profile (profile));
 diesel::joinable!(dream -> task (task));
+diesel::joinable!(hamlet_agent -> agent (agent));
+diesel::joinable!(hamlet_agent -> hamlet (hamlet));
+diesel::joinable!(hamlet_agent -> profile (profile));
 diesel::joinable!(hamlet_chief -> chief (chief));
 diesel::joinable!(hamlet_chief -> hamlet (hamlet));
 diesel::joinable!(hamlet_folder -> hamlet (hamlet));
 diesel::joinable!(hand -> agent (agent));
-diesel::joinable!(hand -> scholar (scholar));
-diesel::joinable!(hire -> agent (agent));
-diesel::joinable!(hire -> hamlet (hamlet));
-diesel::joinable!(hire -> scholar (scholar));
-diesel::joinable!(hire_tool_off -> hire (hire));
+diesel::joinable!(hand -> profile (profile));
 diesel::joinable!(import -> agent (agent));
 diesel::joinable!(import -> chief (chief));
 diesel::joinable!(import -> conversation (conversation));
@@ -640,17 +645,14 @@ diesel::joinable!(objection -> task (task));
 diesel::joinable!(objection -> wait (wait));
 diesel::joinable!(permission_grant -> agent (agent));
 diesel::joinable!(permission_grant -> chief (chief));
+diesel::joinable!(profile -> chief (chief));
 diesel::joinable!(reflection -> conversation (conversation));
 diesel::joinable!(reflection -> task (task));
-diesel::joinable!(review -> agent (lead));
+diesel::joinable!(review -> agent (parent));
 diesel::joinable!(review -> conversation (conversation));
 diesel::joinable!(review -> task (task));
-diesel::joinable!(road -> task (task));
-diesel::joinable!(road_charge -> agent (agent));
-diesel::joinable!(road_charge -> hamlet (hamlet));
-diesel::joinable!(road_charge -> road (road));
-diesel::joinable!(road_charge -> task (task));
-diesel::joinable!(scholar -> chief (chief));
+diesel::joinable!(session_grant -> agent (agent));
+diesel::joinable!(session_grant -> chief (chief));
 diesel::joinable!(skill_offer -> agent (agent));
 diesel::joinable!(skill_offer -> task (task));
 diesel::joinable!(task -> agent (agent));
@@ -658,13 +660,11 @@ diesel::joinable!(task -> chief (chief));
 diesel::joinable!(task -> hamlet (payer));
 diesel::joinable!(tool_call -> conversation (conversation));
 diesel::joinable!(tool_call -> wait (wait));
-diesel::joinable!(trust -> agent (agent));
-diesel::joinable!(trust -> chief (chief));
 diesel::joinable!(turn_gate -> conversation (conversation));
 diesel::joinable!(wait -> agent (agent));
 diesel::joinable!(wait -> chief (chief));
 diesel::joinable!(wait -> conversation (conversation));
-diesel::joinable!(wait -> scholar (scholar));
+diesel::joinable!(wait -> profile (profile));
 diesel::joinable!(wait -> task (task));
 diesel::joinable!(worker -> agent (agent));
 diesel::joinable!(worker -> chief (chief));
@@ -672,10 +672,14 @@ diesel::joinable!(worker -> hamlet (hamlet));
 
 diesel::allow_tables_to_appear_in_same_query!(
     agent,
+    agent_merge,
+    agent_tool_off,
     agreement,
     answer_fault,
     attempt,
     budget_reset,
+    channel,
+    channel_charge,
     chat,
     chat_session,
     chief,
@@ -684,12 +688,10 @@ diesel::allow_tables_to_appear_in_same_query!(
     document,
     dream,
     hamlet,
+    hamlet_agent,
     hamlet_chief,
     hamlet_folder,
     hand,
-    hire,
-    hire_merge,
-    hire_tool_off,
     import,
     input,
     item,
@@ -699,17 +701,15 @@ diesel::allow_tables_to_appear_in_same_query!(
     message,
     objection,
     permission_grant,
+    profile,
     realm,
     reflection,
     review,
-    road,
-    road_charge,
     runtime,
-    scholar,
+    session_grant,
     skill_offer,
     task,
     tool_call,
-    trust,
     turn_gate,
     usage,
     wait,

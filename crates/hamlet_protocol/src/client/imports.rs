@@ -1,5 +1,5 @@
 //! A project of another program brought in as a hamlet, each of its
-//! conversations a hire (C35).
+//! conversations an agent (C35).
 
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
@@ -8,8 +8,9 @@ use crate::client::{FileId, RequestId};
 
 /// Brings in a project: a hamlet named `name` that works on
 /// `folder`, founded unless one of the chief's works on it already,
-/// with a hire for each conversation sent as a file, an [`Imported`]
-/// as JSON. A conversation brought in before is left out.
+/// with an agent for each conversation sent as a file, an
+/// [`Imported`] as JSON. A conversation brought in before is left
+/// out.
 #[derive(
     Clone, Debug, PartialEq, Serialize, Deserialize, JsonSchema,
 )]

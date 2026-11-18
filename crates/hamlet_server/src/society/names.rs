@@ -1,18 +1,18 @@
-//! The forms of names, scholars' (C10) and hamlets' (H36), of
+//! The forms of names, profiles' (C10) and hamlets' (H36), of
 //! hamlets' ids, and of versions.
 
 use hamlet_store::ids::HamletId;
 use uuid::Uuid;
 
-use super::refusal::Refusal;
+use super::rejection::Rejection;
 
 /// The most characters a name has.
 pub(crate) const NAME_LENGTH: usize = 40;
 
-/// Trims `name`, and refuses it unless it is one line of one to
+/// Trims `name`, and rejects it unless it is one line of one to
 /// `NAME_LENGTH` characters with no colon. A name is a label: it may
 /// repeat and need not be a word.
-pub(crate) fn check_name(name: &str) -> Result<&str, Refusal> {
+pub(crate) fn check_name(name: &str) -> Result<&str, Rejection> {
     let name = name.trim();
     let shaped = (1..=NAME_LENGTH).contains(&name.chars().count())
         && !name.contains(char::is_control)
@@ -20,7 +20,7 @@ pub(crate) fn check_name(name: &str) -> Result<&str, Refusal> {
     if shaped {
         Ok(name)
     } else {
-        Err(Refusal::BadName { name: name.into() })
+        Err(Rejection::BadName { name: name.into() })
     }
 }
 
@@ -36,8 +36,8 @@ pub(crate) fn hamlet_id(text: &str) -> Option<HamletId> {
         .map(|id| HamletId(id.hyphenated().to_string()))
 }
 
-/// Refuses `version` unless it is a version's name.
-pub(crate) fn check_version(version: &str) -> Result<(), Refusal> {
+/// Rejects `version` unless it is a version's name.
+pub(crate) fn check_version(version: &str) -> Result<(), Rejection> {
     let shaped = (1..=32).contains(&version.len())
         && version.bytes().all(|b| {
             b.is_ascii_alphanumeric() || b == b'.' || b == b'-'
@@ -48,7 +48,7 @@ pub(crate) fn check_version(version: &str) -> Result<(), Refusal> {
     if shaped {
         Ok(())
     } else {
-        Err(Refusal::BadVersion {
+        Err(Rejection::BadVersion {
             version: version.into(),
         })
     }

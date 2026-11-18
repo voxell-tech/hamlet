@@ -190,24 +190,24 @@ pub(crate) fn tag_opened(
     commands.queue(move |world: &mut World| open(world, wait));
 }
 
-/// Turns the Hub to where `wait` is answered: a newcomer's scholar,
+/// Turns the Hub to where `wait` is answered: a newcomer's profile,
 /// the thread of the agent that asks, else the realm's page, which
 /// has every wait.
 pub(crate) fn open(world: &mut World, wait: Entity) {
     let Some(waiting) = world.get::<Waiting>(wait) else {
         return;
     };
-    let scholar = match &waiting.detail {
-        WaitDetail::Newcomer { scholar } => {
-            hamlet_client::realm::scholar(world, *scholar)
+    let profile = match &waiting.detail {
+        WaitDetail::Newcomer { profile } => {
+            hamlet_client::realm::profile(world, *profile)
         }
         _ => None,
     };
     let asker = hamlet_client::realm::named(world, &waiting.by);
     show_tab(world, HUB);
-    match (scholar, asker) {
-        (Some(scholar), _) => {
-            crate::hub::show(world, Showing::Scholar(scholar));
+    match (profile, asker) {
+        (Some(profile), _) => {
+            crate::hub::show(world, Showing::Profile(profile));
         }
         (None, Some(agent)) => crate::convo::talk_to(world, agent),
         (None, None) => crate::hub::show(world, Showing::Realm),
@@ -356,9 +356,9 @@ fn held(
 }
 
 /// The line over the card of `need`: what waits, in its tone, and
-/// how long it has waited. A newcomer's is about `scholar`, the one
+/// how long it has waited. A newcomer's is about `profile`, the one
 /// at the harbor.
-fn head(need: &Need, scholar: &str) -> impl View + use<> {
+fn head(need: &Need, profile: &str) -> impl View + use<> {
     let what = match &need.detail {
         WaitDetail::Approval { says, .. } => {
             format!("{} {says}", need.shown)
@@ -376,7 +376,7 @@ fn head(need: &Need, scholar: &str) -> impl View + use<> {
             format!("{} ran into a problem", need.shown)
         }
         WaitDetail::Newcomer { .. } => {
-            format!("{scholar} wants to move into the city")
+            format!("{profile} wants to move into the city")
         }
     };
     let when = match need.asked {
@@ -478,22 +478,22 @@ pub(crate) fn strip(need: &Need) -> AnyView {
             Some(_) => frame().boxed(),
             None => answers(&need),
         };
-        let scholar = match &need.detail {
-            WaitDetail::Newcomer { scholar } => {
-                hamlet_client::realm::scholar(cx.world, *scholar)
-                    .and_then(|scholar| {
-                        cx.world.get::<hamlet_client::realm::Scholar>(
-                            scholar,
+        let profile = match &need.detail {
+            WaitDetail::Newcomer { profile } => {
+                hamlet_client::realm::profile(cx.world, *profile)
+                    .and_then(|profile| {
+                        cx.world.get::<hamlet_client::realm::Profile>(
+                            profile,
                         )
                     })
                     .map_or_else(
-                        || "A new scholar".to_string(),
-                        |scholar| scholar.0.name.clone(),
+                        || "A new profile".to_string(),
+                        |profile| profile.0.name.clone(),
                     )
             }
             _ => String::new(),
         };
-        let head = head(&need, &scholar);
+        let head = head(&need, &profile);
         // A form says its questions itself, and an approval's
         // subject is its head and, in full, its body.
         let line = match &need.detail {

@@ -44,7 +44,7 @@ use crate::realm::settings::EffectiveSettings;
 use crate::runtimes::Runtimes;
 use crate::runtimes::reconciliation::{self, ImageFitting};
 use crate::society::agents;
-use crate::society::refusal::Refusal;
+use crate::society::rejection::Rejection;
 use crate::{FollowUpSystems, SendSystems, conversations};
 
 pub(crate) fn plugin(app: &mut App) {
@@ -93,7 +93,8 @@ pub(crate) fn plugin(app: &mut App) {
                     .in_set(SendSystems::SendClientMessages),
                 write_runtime_lines
                     .in_set(SendSystems::WriteRuntimeLines),
-                push_owed_lodges.in_set(SendSystems::PushOwedLodges),
+                push_owed_worktrees
+                    .in_set(SendSystems::PushOwedWorktrees),
                 reset_for_next_input.in_set(SendSystems::ForgetInput),
             ),
         );
@@ -245,7 +246,7 @@ pub(crate) struct InputEffects {
     /// A runtime answered a request, so what waited on it may go.
     pub runtime_answered: bool,
     /// The clients' view changed with no change kept, such as the
-    /// progress of moving the lodges.
+    /// progress of moving the worktrees.
     pub state_changed_outside_change: bool,
     /// The fault point a crash test stops at once the input is kept,
     /// such as a society call's change kept with its answer.
@@ -308,7 +309,7 @@ fn send_owed_replies(
         connections.settle(ended.conversation, &ended.request)
     {
         let answer =
-            check::reply(&id, Ok::<_, Refusal>(String::new()));
+            check::reply(&id, Ok::<_, Rejection>(String::new()));
         connections.send(client, answer);
     }
 }
@@ -444,8 +445,8 @@ fn write_runtime_lines(mut runtimes: Runtimes) {
     runtimes.deliver();
 }
 
-/// Starts pushing the lodges the input owes the remote workspace.
-fn push_owed_lodges(
+/// Starts pushing the worktrees the input owes the remote workspace.
+fn push_owed_worktrees(
     mut realm: ResMut<Realm>,
     writing: Res<RepositoryWriteLock>,
     credentials: Res<Credentials>,

@@ -1,4 +1,4 @@
-//! The form a scholar is made in the city with: its name, and folded
+//! The form a profile is made in the city with: its name, and folded
 //! under it who it is, which may be left out.
 
 use bevy::ecs::resource::Resource;
@@ -9,7 +9,7 @@ use bevy_fynix::views::{
     BehaviorExt, FrameProps, column, frame, label, popup, row,
 };
 use bevy_fynix::{ScopedExt, ViewExt};
-use hamlet_client::realm::Deeds;
+use hamlet_client::realm::Actions;
 use hamlet_ui::styles::{Looks, button, description, lettered};
 use hamlet_ui::widgets::effects::Variant;
 use hamlet_ui::{AnyView, View, built};
@@ -17,7 +17,7 @@ use hamlet_ui::{AnyView, View, built};
 use super::{asks, asks_first, close, optional};
 use crate::chat;
 
-/// The name of a scholar being made, and the character it starts
+/// The name of a profile being made, and the character it starts
 /// from.
 #[derive(Resource, Default, Clone, PartialEq)]
 pub(crate) struct Making {
@@ -35,15 +35,15 @@ impl Making {
         let name = self.name.trim();
         let character = self.character.trim();
         (!name.is_empty()).then(|| match character.is_empty() {
-            true => format!("/scholar new {name}"),
-            false => format!("/scholar new {name}: {character}"),
+            true => format!("/profile new {name}"),
+            false => format!("/profile new {name}: {character}"),
         })
     }
 }
 
-/// Makes the scholar the form holds, once it is named.
+/// Makes the profile the form holds, once it is named.
 pub(super) fn submit(world: &mut World) {
-    if !Deeds::is_allowed(world, "scholar") {
+    if !Actions::is_allowed(world, "profile") {
         return;
     }
     let Some(command) = world.resource::<Making>().command() else {
@@ -54,10 +54,10 @@ pub(super) fn submit(world: &mut World) {
     chat::command(world, command);
 }
 
-/// The form a scholar is made with.
-pub(super) fn new_scholar(at: Vec2) -> impl View {
+/// The form a profile is made with.
+pub(super) fn new_profile(at: Vec2) -> impl View {
     built(move |cx| {
-        if !Deeds::is_allowed(cx.world, "scholar") {
+        if !Actions::is_allowed(cx.world, "profile") {
             return cx.build(frame());
         }
         let (gap, between, padding, heading) = {
@@ -70,7 +70,7 @@ pub(super) fn new_scholar(at: Vec2) -> impl View {
             )
         };
         let body = column((
-            label("New scholar").size(heading).bold(true),
+            label("New profile").size(heading).bold(true),
             description("It gets a house in the city at once."),
             asks_first::<Making>(
                 "Its name",

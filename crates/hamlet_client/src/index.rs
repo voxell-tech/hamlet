@@ -1,4 +1,4 @@
-//! The hamlets, agents, scholars, waits, chats and terminals by the
+//! The hamlets, agents, profiles, waits, chats and terminals by the
 //! ids the server names them with, kept by their components' hooks.
 
 use std::collections::HashMap;
@@ -12,7 +12,7 @@ use hamlet_protocol::client as protocol;
 
 use crate::chats::Chat;
 use crate::realm::{
-    HamletId, Identity, Left, LivesIn, Mayor, Scholar,
+    HamletId, Identity, Lead, Left, LivesIn, Profile,
 };
 use crate::terminals::TerminalId;
 use crate::waits::Waiting;
@@ -37,18 +37,18 @@ pub(crate) fn plugin(app: &mut App) {
         );
 }
 
-/// The entities of the server's hamlets, agents, scholars, waits,
+/// The entities of the server's hamlets, agents, profiles, waits,
 /// chats and terminals by their protocol ids.
 #[derive(Resource, Default)]
 pub(crate) struct Index {
     hamlets: HashMap<String, Entity>,
     agents: HashMap<Entity, Filed>,
     ids: HashMap<protocol::AgentId, Vec<Entity>>,
-    scholars: HashMap<protocol::ScholarId, Entity>,
+    profiles: HashMap<protocol::ProfileId, Entity>,
     /// Agents that have not left, by address.
     names: HashMap<String, Vec<Entity>>,
     /// Agents in office that have not left, by hamlet.
-    mayors: HashMap<Entity, Vec<Entity>>,
+    leads: HashMap<Entity, Vec<Entity>>,
     waits: HashMap<String, Entity>,
     // `ChatRef` has no `Hash`, and a window watches few chats.
     chats: Vec<(Entity, protocol::ChatRef)>,
@@ -62,7 +62,7 @@ struct Filed {
     /// The Hand lives in no hamlet.
     hamlet: Option<Entity>,
     name: Option<String>,
-    mayor: bool,
+    lead: bool,
     left: bool,
 }
 
@@ -94,12 +94,12 @@ impl Index {
         (!self.agents.get(&agent)?.left).then_some(agent)
     }
 
-    /// A scholar by its id.
-    pub(crate) fn scholar(
+    /// A profile by its id.
+    pub(crate) fn profile(
         &self,
-        id: protocol::ScholarId,
+        id: protocol::ProfileId,
     ) -> Option<Entity> {
-        self.scholars.get(&id).copied()
+        self.profiles.get(&id).copied()
     }
 
     /// A living agent by its address.
@@ -107,9 +107,9 @@ impl Index {
         first(&self.names, name)
     }
 
-    /// The current mayor of a hamlet by its protocol id.
-    pub(crate) fn mayor_of(&self, id: &str) -> Option<Entity> {
-        first(&self.mayors, &self.hamlet(id)?)
+    /// The current lead of a hamlet by its protocol id.
+    pub(crate) fn lead_of(&self, id: &str) -> Option<Entity> {
+        first(&self.leads, &self.hamlet(id)?)
     }
 
     /// A wait by its server id.
@@ -148,10 +148,10 @@ impl Index {
         self.agents.keys().copied()
     }
 
-    pub(crate) fn scholars(
+    pub(crate) fn profiles(
         &self,
     ) -> impl Iterator<Item = Entity> + '_ {
-        self.scholars.values().copied()
+        self.profiles.values().copied()
     }
 
     pub(crate) fn waits(&self) -> impl Iterator<Item = Entity> + '_ {
@@ -181,7 +181,7 @@ impl Index {
             filed.name.clone().filter(|_| !filed.left)
         };
         let seat = |filed: &Filed| {
-            filed.hamlet.filter(|_| filed.mayor && !filed.left)
+            filed.hamlet.filter(|_| filed.lead && !filed.left)
         };
         moved(&mut self.ids, agent, was.map(id), now.map(id));
         moved(
@@ -191,7 +191,7 @@ impl Index {
             now.and_then(name),
         );
         moved(
-            &mut self.mayors,
+            &mut self.leads,
             agent,
             was.and_then(seat),
             now.and_then(seat),
@@ -242,7 +242,7 @@ fn read(world: &World, agent: Entity) -> Option<Filed> {
         name: entity
             .get::<Name>()
             .map(|name| name.as_str().to_owned()),
-        mayor: entity.contains::<Mayor>(),
+        lead: entity.contains::<Lead>(),
         left: entity.contains::<Left>(),
     })
 }
@@ -304,7 +304,7 @@ pub(crate) fn unlive(world: DeferredWorld, context: HookContext) {
 
 pub(crate) fn unseat(world: DeferredWorld, context: HookContext) {
     edit(world, context.entity, |filed| Filed {
-        mayor: false,
+        lead: false,
         ..filed
     });
 }
@@ -350,33 +350,33 @@ pub(crate) fn unfile_hamlet(
     }
 }
 
-pub(crate) fn file_scholar(
+pub(crate) fn file_profile(
     mut world: DeferredWorld,
     context: HookContext,
 ) {
     let Some(id) =
-        world.get::<Scholar>(context.entity).map(|s| s.0.id)
+        world.get::<Profile>(context.entity).map(|s| s.0.id)
     else {
         return;
     };
     if let Some(mut index) = world.get_resource_mut::<Index>() {
-        index.scholars.insert(id, context.entity);
+        index.profiles.insert(id, context.entity);
     }
 }
 
-pub(crate) fn unfile_scholar(
+pub(crate) fn unfile_profile(
     mut world: DeferredWorld,
     context: HookContext,
 ) {
     let Some(id) =
-        world.get::<Scholar>(context.entity).map(|s| s.0.id)
+        world.get::<Profile>(context.entity).map(|s| s.0.id)
     else {
         return;
     };
     if let Some(mut index) = world.get_resource_mut::<Index>()
-        && index.scholars.get(&id) == Some(&context.entity)
+        && index.profiles.get(&id) == Some(&context.entity)
     {
-        index.scholars.remove(&id);
+        index.profiles.remove(&id);
     }
 }
 
@@ -490,26 +490,26 @@ mod tests {
     #[test]
     fn a_renamed_agent_is_found_by_its_new_name_only() {
         let mut app = app(state());
-        let ada = realm::named(app.world(), "hire#2").unwrap();
+        let ada = realm::named(app.world(), "agent#2").unwrap();
         app.world_mut().entity_mut(ada).insert(Name::new("keeper"));
-        assert_eq!(realm::named(app.world(), "hire#2"), None);
+        assert_eq!(realm::named(app.world(), "agent#2"), None);
         assert_eq!(realm::named(app.world(), "keeper"), Some(ada));
     }
 
     #[test]
     fn an_agent_that_left_is_found_again_when_it_comes_back() {
         let mut app = app(state());
-        let ada = realm::mayor_of(app.world(), "home").unwrap();
+        let ada = realm::lead_of(app.world(), "home").unwrap();
         app.world_mut().entity_mut(ada).insert(Left);
-        assert_eq!(realm::named(app.world(), "hire#2"), None);
-        assert_eq!(realm::mayor_of(app.world(), "home"), None);
+        assert_eq!(realm::named(app.world(), "agent#2"), None);
+        assert_eq!(realm::lead_of(app.world(), "home"), None);
         assert_eq!(
             realm::agent(app.world(), protocol::AgentId(2)),
             Some(ada)
         );
         app.world_mut().entity_mut(ada).remove::<Left>();
-        assert_eq!(realm::named(app.world(), "hire#2"), Some(ada));
-        assert_eq!(realm::mayor_of(app.world(), "home"), Some(ada));
+        assert_eq!(realm::named(app.world(), "agent#2"), Some(ada));
+        assert_eq!(realm::lead_of(app.world(), "home"), Some(ada));
     }
 
     #[test]
@@ -536,7 +536,7 @@ mod tests {
         realm.hamlets.push(hamlet("mill", 3));
         realm.agents.push(agent(3, "mill", true));
         let mut app = app(realm.clone());
-        assert!(realm::mayor_of(app.world(), "mill").is_some());
+        assert!(realm::lead_of(app.world(), "mill").is_some());
         realm.hamlets.pop();
         realm.agents.pop();
         realm.revision += 1;
@@ -545,13 +545,13 @@ mod tests {
             protocol::ServerMessage::State(realm),
         );
         assert_eq!(realm::hamlet(app.world(), "mill"), None);
-        assert_eq!(realm::mayor_of(app.world(), "mill"), None);
-        assert_eq!(realm::named(app.world(), "hire#3"), None);
+        assert_eq!(realm::lead_of(app.world(), "mill"), None);
+        assert_eq!(realm::named(app.world(), "agent#3"), None);
         assert_eq!(
             realm::agent(app.world(), protocol::AgentId(3)),
             None
         );
-        assert!(realm::mayor_of(app.world(), "home").is_some());
+        assert!(realm::lead_of(app.world(), "home").is_some());
     }
 
     #[test]
@@ -567,14 +567,14 @@ mod tests {
     }
 
     #[test]
-    fn hires_of_two_hamlets_are_told_apart_by_address() {
+    fn agents_of_two_hamlets_are_told_apart_by_address() {
         let mut realm = state();
         realm.hamlets.push(hamlet("mill", 4));
         realm.agents.push(agent(3, "home", false));
         realm.agents.push(agent(4, "mill", true));
         let mut app = app(realm);
-        let home = realm::named(app.world(), "hire#3");
-        let mill = realm::named(app.world(), "hire#4");
+        let home = realm::named(app.world(), "agent#3");
+        let mill = realm::named(app.world(), "agent#4");
         assert!(home.is_some() && mill.is_some());
         assert_ne!(home, mill);
         assert_eq!(
@@ -582,7 +582,7 @@ mod tests {
             mill
         );
         app.world_mut().entity_mut(home.unwrap()).insert(Left);
-        assert_eq!(realm::named(app.world(), "hire#3"), None);
-        assert_eq!(realm::named(app.world(), "hire#4"), mill);
+        assert_eq!(realm::named(app.world(), "agent#3"), None);
+        assert_eq!(realm::named(app.world(), "agent#4"), mill);
     }
 }

@@ -142,16 +142,16 @@ impl Images {
     }
 
     /// Copies `stored`, the image kept under `id`, into the folder
-    /// of images in `lodge`, and gives the name it has there.
+    /// of images in `worktree`, and gives the name it has there.
     pub fn hand_over(
         &self,
-        lodge: &Path,
+        worktree: &Path,
         id: &ImageId,
         stored: &Stored,
     ) -> Result<String> {
         self.touch(id, stored)?;
         let name = Self::name(id, stored.format);
-        Folder::make(lodge)?.write(
+        Folder::make(worktree)?.write(
             &format!("{SEEN}/{name}"),
             &stored.bytes,
             false,

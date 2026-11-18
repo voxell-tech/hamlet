@@ -65,9 +65,9 @@ pub(crate) struct Settings {
     /// otherwise (H29a).
     pub effort: Option<Effort>,
     pub dreams: Dreams,
-    /// Who lets a scholar an agent made into the city.
+    /// Who lets a profile an agent made into the city.
     pub newcomers: Newcomers,
-    /// The character a scholar made blank starts from.
+    /// The character a profile made blank starts from.
     pub character: String,
     /// How the last check of the model's provider went.
     #[serde(default = "untested")]
@@ -102,10 +102,10 @@ impl Default for Settings {
     }
 }
 
-/// The character a scholar made blank starts from, until a chief
+/// The character a profile made blank starts from, until a chief
 /// gives the realm its own.
 pub(crate) const CHARACTER: &str =
-    "You are a scholar new to this realm. You know nothing of your \
+    "You are a profile new to this realm. You know nothing of your \
      own yet: use the library's skills, learn from the work you are \
      given, and keep what is worth keeping in your memory so that \
      it lasts.";

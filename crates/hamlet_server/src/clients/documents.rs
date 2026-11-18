@@ -9,27 +9,27 @@ use hamlet_protocol::client::{
     self as protocol, Edit, EditLimits, EditSettingsSet, Keeper,
     Read, ReadResult, RequestId, ServerMessage,
 };
-use hamlet_store::ids::{Actor, AgentId, ScholarId};
+use hamlet_store::ids::{Actor, AgentId, ProfileId};
 use hamlet_store::schema::document;
 
 use super::check::reply;
 use crate::conversations::{chats, items, prompt};
-use crate::core::{Core, UnpushedLodge};
+use crate::core::{Core, UnpushedWorktree};
 use crate::knowledge::folder::Folder;
 use crate::knowledge::library::field;
 use crate::knowledge::{self, CHARACTER, outside_git};
-use crate::realm::change::{Done, done, refuse};
+use crate::realm::change::{Done, done, reject};
 use crate::realm::jobs::{self, Job};
 use crate::society::agents::Effort;
 use crate::society::city::{self, CHARACTER_MOST};
 use crate::society::limits::{self, Limits, RealmLimits};
-use crate::society::refusal::Refusal;
+use crate::society::rejection::Rejection;
 use crate::society::spend::micros;
-use crate::society::{authority, hamlets, hires};
+use crate::society::{authority, hamlet_agents, hamlets};
 
-/// Refuses a memory path that is not a plain relative path under
+/// Rejects a memory path that is not a plain relative path under
 /// `memory/`.
-fn memory_path(path: &str) -> Result<String, Refusal> {
+fn memory_path(path: &str) -> Result<String, Rejection> {
     let path = path.trim().trim_start_matches("memory/");
     let plain = !path.is_empty()
         && !path.starts_with('/')
@@ -39,7 +39,7 @@ fn memory_path(path: &str) -> Result<String, Refusal> {
     if plain {
         Ok(format!("memory/{path}"))
     } else {
-        Err(Refusal::NoFile { path: path.into() })
+        Err(Rejection::NoFile { path: path.into() })
     }
 }
 
@@ -58,24 +58,24 @@ impl Core<'_, '_> {
     fn edited(&mut self, edit: Edit) -> Done<String> {
         match edit {
             Edit::Charter { text, .. } => self.edit_charter(text),
-            Edit::Character { scholar, text, .. } => {
-                let scholar = ScholarId(i64::try_from(scholar.0)?);
-                self.edit_character(scholar, text)
+            Edit::Character { profile, text, .. } => {
+                let profile = ProfileId(i64::try_from(profile.0)?);
+                self.edit_character(profile, text)
             }
             Edit::Memory { of, path, text, .. } => {
                 let path = match memory_path(&path) {
                     Ok(path) => path,
-                    Err(refusal) => refuse!(refusal),
+                    Err(rejection) => reject!(rejection),
                 };
                 match of {
-                    Keeper::Scholar(scholar) => {
-                        let scholar =
-                            ScholarId(i64::try_from(scholar.0)?);
-                        self.edit_scholar_memory(scholar, path, text)
+                    Keeper::Profile(profile) => {
+                        let profile =
+                            ProfileId(i64::try_from(profile.0)?);
+                        self.edit_profile_memory(profile, path, text)
                     }
                     Keeper::Agent(agent) => {
                         let agent = AgentId(i64::try_from(agent.0)?);
-                        self.edit_lodge_memory(agent, &path, &text)
+                        self.edit_worktree_memory(agent, &path, &text)
                     }
                 }
             }
@@ -144,20 +144,20 @@ impl Core<'_, '_> {
         Ok(Ok("The charter is saved.".into()))
     }
 
-    /// Commits `text` as the character of `scholar`.
+    /// Commits `text` as the character of `profile`.
     fn edit_character(
         &mut self,
-        scholar: ScholarId,
+        profile: ProfileId,
         text: String,
     ) -> Done<String> {
         if text.chars().count() > CHARACTER_MOST {
-            refuse!(Refusal::LongCharacter);
+            reject!(Rejection::LongCharacter);
         }
-        done!(self.keeps(scholar));
+        done!(self.keeps(profile));
         let by = Actor::Chief(self.realm.chief());
         self.commit_main(
             by,
-            scholar,
+            profile,
             &[GitChange::Write {
                 path: CHARACTER.into(),
                 bytes: text.into_bytes(),
@@ -167,14 +167,14 @@ impl Core<'_, '_> {
         Ok(Ok("The character is saved.".into()))
     }
 
-    /// Commits a memory file of `scholar`'s `main`; empty removes it.
-    fn edit_scholar_memory(
+    /// Commits a memory file of `profile`'s `main`; empty removes it.
+    fn edit_profile_memory(
         &mut self,
-        scholar: ScholarId,
+        profile: ProfileId,
         path: String,
         text: String,
     ) -> Done<String> {
-        done!(self.keeps(scholar));
+        done!(self.keeps(profile));
         let change = if text.is_empty() {
             GitChange::Remove { path }
         } else {
@@ -186,16 +186,16 @@ impl Core<'_, '_> {
         let by = Actor::Chief(self.realm.chief());
         self.commit_main(
             by,
-            scholar,
+            profile,
             &[change],
             "Edited the memory",
         )?;
         Ok(Ok("The memory is saved.".into()))
     }
 
-    /// Writes a memory file of `agent`'s lodge, empty removing it,
-    /// and has the lodge committed.
-    fn edit_lodge_memory(
+    /// Writes a memory file of `agent`'s worktree, empty removing it,
+    /// and has the worktree committed.
+    fn edit_worktree_memory(
         &mut self,
         agent: AgentId,
         path: &str,
@@ -203,7 +203,7 @@ impl Core<'_, '_> {
     ) -> Done<String> {
         done!(self.reaches(agent));
         let layout = self.realm.layout().clone();
-        let lodging = knowledge::lodging(
+        let worktree = knowledge::worktree(
             self.realm.store().connection(),
             &layout,
             agent,
@@ -211,17 +211,17 @@ impl Core<'_, '_> {
         {
             let writing = self.writing.clone();
             let _held = writing.hold();
-            let folder = Folder::make(&lodging.path)?;
+            let folder = Folder::make(&worktree.path)?;
             if text.is_empty() {
                 folder.remove(path)?;
             } else {
                 folder.write(path, text.as_bytes(), false)?;
             }
         }
-        self.remote.unpushed.write(UnpushedLodge(agent));
+        self.remote.unpushed.write(UnpushedWorktree(agent));
         let by = Actor::Chief(self.realm.chief());
         self.change(by, |cx, _| {
-            jobs::add(cx, &Job::Commit { hire: agent })?;
+            jobs::add(cx, &Job::Commit { agent })?;
             Ok(())
         })?;
         Ok(Ok("The memory is saved.".into()))
@@ -241,7 +241,7 @@ impl Core<'_, '_> {
         }
         if let Some(every) = set.reflect_every {
             let Ok(every) = u64::try_from(every) else {
-                refuse!(Refusal::BadReflectEvery);
+                reject!(Rejection::BadReflectEvery);
             };
             settings.reflect_every = every;
         }
@@ -256,10 +256,10 @@ impl Core<'_, '_> {
         }
         if let Some(character) = set.character {
             if character.trim().is_empty() {
-                refuse!(Refusal::NoCharacter);
+                reject!(Rejection::NoCharacter);
             }
             if character.chars().count() > CHARACTER_MOST {
-                refuse!(Refusal::LongCharacter);
+                reject!(Rejection::LongCharacter);
             }
             settings.character = character;
         }
@@ -273,7 +273,7 @@ impl Core<'_, '_> {
                 })
                 .collect::<Vec<_>>();
             if let Some(why) = endpoint_fault(&endpoints) {
-                refuse!(Refusal::BadEndpoint { why });
+                reject!(Rejection::BadEndpoint { why });
             }
             removed = settings
                 .endpoints
@@ -296,7 +296,7 @@ impl Core<'_, '_> {
                 if let Some(why) =
                     endpoint_fault(std::slice::from_ref(&address))
                 {
-                    refuse!(Refusal::BadEndpoint { why });
+                    reject!(Rejection::BadEndpoint { why });
                 }
                 Some(Some(
                     crate::realm::credentials::WorkspaceAddress {
@@ -338,10 +338,12 @@ impl Core<'_, '_> {
             LimitsOwner::Hamlet(hamlet) => {
                 let id = super::state::hamlet_id(&hamlet);
                 if hamlets::find(db, &id)?.is_none() {
-                    return Ok(Err(Refusal::NoHamlet { id: hamlet }));
+                    return Ok(Err(Rejection::NoHamlet {
+                        id: hamlet,
+                    }));
                 }
                 if !authority::is_chief_of(db, chief, &id)? {
-                    return Ok(Err(Refusal::NotChief { hamlet }));
+                    return Ok(Err(Rejection::NotChief { hamlet }));
                 }
                 let current = super::state::hamlet_limits(
                     &limits::of(db, &id)?,
@@ -350,11 +352,11 @@ impl Core<'_, '_> {
                 let Ok(edited) = serde_json::from_value::<
                     protocol::Limits,
                 >(edited) else {
-                    return Ok(Err(Refusal::LimitsUnfit));
+                    return Ok(Err(Rejection::LimitsUnfit));
                 };
                 let own = limits_of(&edited);
                 if let Some(why) = own.fault() {
-                    return Ok(Err(Refusal::BadLimits { why }));
+                    return Ok(Err(Rejection::BadLimits { why }));
                 }
                 let done = self
                     .attempt(Actor::Chief(chief), |cx, _| {
@@ -371,14 +373,14 @@ impl Core<'_, '_> {
                 let Ok(edited) = serde_json::from_value::<
                     protocol::RealmLimits,
                 >(edited) else {
-                    return Ok(Err(Refusal::LimitsUnfit));
+                    return Ok(Err(Rejection::LimitsUnfit));
                 };
                 let own = RealmLimits {
-                    roads_between: edited.roads_between,
+                    channels_between: edited.channels_between,
                     budget: budget_of(&edited.budget),
                 };
                 if let Some(why) = own.budget.fault() {
-                    return Ok(Err(Refusal::BadLimits { why }));
+                    return Ok(Err(Rejection::BadLimits { why }));
                 }
                 diesel::replace_into(document::table)
                     .values((
@@ -395,16 +397,16 @@ impl Core<'_, '_> {
         }
     }
 
-    /// Commits `changes` to the `main` of `scholar` as `by`'s, and
-    /// has its idle hires take them in.
+    /// Commits `changes` to the `main` of `profile` as `by`'s, and
+    /// has its idle agents take them in.
     pub(crate) fn commit_main(
         &mut self,
         by: Actor,
-        scholar: ScholarId,
+        profile: ProfileId,
         changes: &[GitChange],
         message: &str,
     ) -> Result<()> {
-        let path = self.realm.layout().repository(scholar);
+        let path = self.realm.layout().repository(profile);
         let author = by.to_string();
         let writing = self.writing.clone();
         let held = writing.hold();
@@ -419,46 +421,50 @@ impl Core<'_, '_> {
             },
         )?;
         drop(held);
-        self.main_moved(by, scholar)
+        self.main_moved(by, profile)
     }
 
-    /// Has the idle hires of `scholar` take in its `main`, which `by`
-    /// moved.
+    /// Has the idle agents of `profile` take in its `main`, which
+    /// `by` moved.
     pub(crate) fn main_moved(
         &mut self,
         by: Actor,
-        scholar: ScholarId,
+        profile: ProfileId,
     ) -> Result<()> {
         self.change(by, |cx, _| {
-            for hire in hires::living_of(cx.db, scholar)? {
+            for agent in hamlet_agents::living_of(cx.db, profile)? {
                 if !crate::conversations::inputs::is_agent_busy(
-                    cx.db, hire.agent,
+                    cx.db,
+                    agent.agent,
                 )? {
-                    jobs::add(cx, &Job::TakeIn { hire: hire.agent })?;
+                    jobs::add(
+                        cx,
+                        &Job::TakeIn { agent: agent.agent },
+                    )?;
                 }
             }
-            cx.touched.scholars.insert(scholar);
+            cx.touched.profiles.insert(profile);
             Ok(())
         })?;
         Ok(())
     }
 
-    /// Refuses unless this server's chief keeps `scholar`.
-    fn keeps(&mut self, scholar: ScholarId) -> Done<()> {
+    /// Rejects unless this server's chief keeps `profile`.
+    fn keeps(&mut self, profile: ProfileId) -> Done<()> {
         let chief = self.realm.chief();
         let db = self.realm.store().connection();
-        let Some(found) = city::find(db, scholar)? else {
-            return Ok(Err(Refusal::NoScholar {
-                address: format!("scholar#{scholar}"),
+        let Some(found) = city::find(db, profile)? else {
+            return Ok(Err(Rejection::NoProfile {
+                address: format!("profile#{profile}"),
             }));
         };
         if !found.is_living() {
-            return Ok(Err(Refusal::ScholarGone {
+            return Ok(Err(Rejection::ProfileGone {
                 name: found.label(),
             }));
         }
-        if !authority::may_keep(db, Actor::Chief(chief), scholar)? {
-            return Ok(Err(Refusal::NotOwner {
+        if !authority::may_keep(db, Actor::Chief(chief), profile)? {
+            return Ok(Err(Rejection::NotOwner {
                 owner: found.label(),
             }));
         }
@@ -499,9 +505,9 @@ impl Core<'_, '_> {
             }
             Read::Prompt { agent, id } => {
                 let agent = AgentId(i64::try_from(agent.0)?);
-                if let Err(refusal) = self.reaches(agent)? {
+                if let Err(rejection) = self.reaches(agent)? {
                     return self
-                        .answer(client, reply(&id, Err(refusal)));
+                        .answer(client, reply(&id, Err(rejection)));
                 }
                 let conversation = self
                     .change(Actor::Chief(chief), |cx, env| {
@@ -525,9 +531,9 @@ impl Core<'_, '_> {
             }
             Read::History { agent, id } => {
                 let agent = AgentId(i64::try_from(agent.0)?);
-                if let Err(refusal) = self.reaches(agent)? {
+                if let Err(rejection) = self.reaches(agent)? {
                     return self
-                        .answer(client, reply(&id, Err(refusal)));
+                        .answer(client, reply(&id, Err(rejection)));
                 }
                 let history = self.pasts(agent)?;
                 ServerMessage::Read(ReadResult::History {
@@ -543,33 +549,34 @@ impl Core<'_, '_> {
                         to: id,
                     })
                 }
-                Err(refusal) => reply(&id, Err(refusal)),
+                Err(rejection) => reply(&id, Err(rejection)),
             },
         };
         self.answer(client, message)
     }
 
-    /// The papers of `of`: a scholar's `main`, or an agent's lodge.
+    /// The papers of `of`: a profile's `main`, or an agent's
+    /// worktree.
     fn papers(&mut self, of: Keeper) -> Done<protocol::Papers> {
         let layout = self.realm.layout().clone();
         let db = self.realm.store().connection();
-        let (scholar, lodge) = match of {
-            Keeper::Scholar(scholar) => {
-                (ScholarId(i64::try_from(scholar.0)?), None)
+        let (profile, worktree) = match of {
+            Keeper::Profile(profile) => {
+                (ProfileId(i64::try_from(profile.0)?), None)
             }
             Keeper::Agent(agent) => {
                 let agent = AgentId(i64::try_from(agent.0)?);
-                let Ok(lodging) =
-                    knowledge::lodging(db, &layout, agent)
+                let Ok(worktree) =
+                    knowledge::worktree(db, &layout, agent)
                 else {
-                    return Ok(Err(Refusal::NoOne {
+                    return Ok(Err(Rejection::NoOne {
                         address: agent.to_string(),
                     }));
                 };
-                (lodging.scholar, Some(lodging.path))
+                (worktree.profile, Some(worktree.path))
             }
         };
-        let repo = Repository::open(&layout.repository(scholar))?;
+        let repo = Repository::open(&layout.repository(profile))?;
         let main = repo.tip(MAIN)?;
         let character = match main {
             Some(tip) => repo
@@ -582,7 +589,7 @@ impl Core<'_, '_> {
         };
         let mut files = Vec::<(String, Vec<u8>)>::new();
         let mut learned = Vec::new();
-        match &lodge {
+        match &worktree {
             Some(path) => {
                 let Ok(folder) = Folder::open(path) else {
                     return Ok(Ok(protocol::Papers {
@@ -815,14 +822,14 @@ fn budget_of(budget: &protocol::LimitsBudget) -> limits::Budget {
 fn limits_of(shown: &protocol::Limits) -> Limits {
     Limits {
         budget: budget_of(&shown.budget),
-        road: limits::RoadRules {
-            price: micros(shown.road.price),
-            most: shown.road.most,
-            grows_over_days: shown.road.grows_over_days,
+        channel: limits::ChannelRules {
+            price: micros(shown.channel.price),
+            most: shown.channel.most,
+            grows_over_days: shown.channel.grows_over_days,
         },
         reserved: limits::Reserved {
-            hire: shown.reserved.hire,
-            roads: shown.reserved.roads,
+            add: shown.reserved.add,
+            channels: shown.reserved.channels,
             end: shown.reserved.end,
             merge: shown.reserved.merge,
         },

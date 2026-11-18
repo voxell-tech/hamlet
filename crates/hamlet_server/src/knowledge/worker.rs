@@ -36,7 +36,7 @@ pub(crate) fn plugin(app: &mut bevy_app::App) {
 #[derive(Message)]
 pub(crate) struct JobsDone(pub Vec<Job>);
 
-/// The lodges the runner's jobs changed are owed a push, and the
+/// The worktrees the runner's jobs changed are owed a push, and the
 /// clients see what they did.
 fn take_in_jobs_done(
     mut done: ResMut<Messages<JobsDone>>,
@@ -63,8 +63,8 @@ pub(crate) struct Runner {
 const BUSY: Duration = Duration::from_millis(250);
 
 /// Held while a job runs, so that the loop and the runner never write
-/// the realm's repositories and lodges at once. The runner holds it
-/// for one job at a time.
+/// the realm's repositories and worktrees at once. The runner holds
+/// it for one job at a time.
 #[derive(Resource, Clone, Default)]
 pub(crate) struct RepositoryWriteLock(Arc<Mutex<()>>);
 

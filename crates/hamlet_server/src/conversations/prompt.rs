@@ -1,8 +1,8 @@
 //! The prompt, built before every model call (C11): the charter, the
 //! machine, the project, the character, the memory, the skills, the
-//! agent's place, the realm and the scholars it may hire. Nothing in
-//! it changes with spending, so it stays the same from one input to
-//! the next; an agent reads its budget with `read_budget`.
+//! agent's place, the realm and the profiles it may add agents of.
+//! Nothing in it changes with spending, so it stays the same from one
+//! input to the next; an agent reads its budget with `read_budget`.
 //! An errand's and a dream's are their own instructions; a worker's
 //! are the charter, the machine, the project and its place.
 
@@ -71,35 +71,37 @@ pub(crate) fn sections(
         return Ok(vec![section("errand", instructions.clone())]);
     }
     let agent = agents::get(db, conversation.agent)?;
-    let lodge = match agent.kind {
+    let worktree = match agent.kind {
         AgentKind::Worker => cx.layout.worker(agent.id),
-        _ => knowledge::lodging(db, cx.layout, agent.id)?.path,
+        _ => knowledge::worktree(db, cx.layout, agent.id)?.path,
     };
     let folder = folder_of(db, agent.id)?;
     let mut sections = vec![
         section("charter", charter(db)?),
-        section("machine", machine(cx, conversation, &lodge)?),
+        section("machine", machine(cx, conversation, &worktree)?),
     ];
     if let Some((path, manual)) = &folder {
-        sections
-            .push(section("project", project(path, *manual, &lodge)));
+        sections.push(section(
+            "project",
+            project(path, *manual, &worktree),
+        ));
     }
     if agent.kind != AgentKind::Worker {
         if let Some(text) = character(db, cx.layout, agent.id)? {
             sections.push(section("character", text));
         }
-        sections.push(section("memory", memory(&lodge)));
+        sections.push(section("memory", memory(&worktree)));
         sections.push(section(
             "skills",
-            skills(&lodge, &cx.layout.library()),
+            skills(&worktree, &cx.layout.library()),
         ));
     }
     sections.push(section("place", place::place(db, conversation)?));
     if let Some(text) = place::realm(db, agent.id)? {
         sections.push(section("realm", text));
     }
-    if let Some(text) = place::scholars(db, agent.id)? {
-        sections.push(section("scholars", text));
+    if let Some(text) = place::profiles(db, agent.id)? {
+        sections.push(section("profiles", text));
     }
     sections.retain(|section| !section.text.trim().is_empty());
     Ok(sections)
@@ -140,7 +142,7 @@ fn folder_of(
 fn machine(
     cx: &Context<'_>,
     conversation: &Conversation,
-    lodge: &Path,
+    worktree: &Path,
 ) -> Result<String> {
     let sandbox = match cx.confinement {
         Confinement::Insecure => {
@@ -172,14 +174,14 @@ fn machine(
     };
     Ok(format!(
         "# Environment\nSandbox: {sandbox}. Network for tools: \
-         {net}.{model}{failed}\n{SYSTEM}\nYour lodge: {}. It is \
+         {net}.{model}{failed}\n{SYSTEM}\nYour worktree: {}. It is \
          yours: your memory/ and skills/ live there, and what you \
-         write there is kept for your scholar.",
-        lodge.display()
+         write there is kept for your profile.",
+        worktree.display()
     ))
 }
 
-fn project(folder: &str, manual: bool, lodge: &Path) -> String {
+fn project(folder: &str, manual: bool, worktree: &Path) -> String {
     let mut lines = vec![
         format!(
             "Your hamlet works on the folder {folder}. The work a \
@@ -187,9 +189,10 @@ fn project(folder: &str, manual: bool, lodge: &Path) -> String {
         ),
         format!(
             "- A command runs with {folder} as its working \
-             directory. It may write there and in your lodge, and \
-             nowhere else. It can read the rest of the machine, so \
-             the project's own tools run as they do for the chief."
+             directory. It may write there and in your worktree, \
+             and nowhere else. It can read the rest of the machine, \
+             so the project's own tools run as they do for the \
+             chief."
         ),
         "- `read`, `write` and `edit` take a path relative to the \
          project, or a full path. `read`, `search` and `find` look \
@@ -197,17 +200,17 @@ fn project(folder: &str, manual: bool, lodge: &Path) -> String {
          cat, grep and find."
             .into(),
         format!(
-            "- Your lodge is {}. Keep your memory and skills there, \
-             never in the project, and give `write` and `edit` \
-             their full path.",
-            lodge.display()
+            "- Your worktree is {}. Keep your memory and skills \
+             there, never in the project, and give `write` and \
+             `edit` their full path.",
+            worktree.display()
         ),
     ];
     if Path::new(folder).join(".git").exists() {
         lines.push(
             "- The project is a git repository. When two agents \
-             must work apart, one may use a git worktree inside the \
-             project folder, such as under \
+             must work apart, one may make a git worktree of the \
+             project inside the project folder, such as under \
              `.hamlet/worktrees/<name>`."
                 .into(),
         );
@@ -242,16 +245,16 @@ fn project(folder: &str, manual: bool, lodge: &Path) -> String {
     format!("# The project\n{}", lines.join("\n"))
 }
 
-/// The character at the tip of the agent's branch, else its scholar's
+/// The character at the tip of the agent's branch, else its profile's
 /// `main`.
 fn character(
     db: &mut Db,
     layout: &Layout,
     agent: hamlet_store::ids::AgentId,
 ) -> Result<Option<String>> {
-    let lodging = knowledge::lodging(db, layout, agent)?;
+    let worktree = knowledge::worktree(db, layout, agent)?;
     let Ok(repository) =
-        Repository::open(&layout.repository(lodging.scholar))
+        Repository::open(&layout.repository(worktree.profile))
     else {
         return Ok(None);
     };
@@ -279,10 +282,10 @@ fn character(
     }))
 }
 
-/// The memory at the lodge's `memory/`: its root files, then each
+/// The memory at the worktree's `memory/`: its root files, then each
 /// folder's description, which reading its `MEMORY.md` gives whole.
-fn memory(lodge: &Path) -> String {
-    let Ok(folder) = Folder::open(lodge) else {
+fn memory(worktree: &Path) -> String {
+    let Ok(folder) = Folder::open(worktree) else {
         return String::new();
     };
     let Ok(listing) = folder.list_under("memory") else {
@@ -408,14 +411,14 @@ fn shelf(path: &Path, under: &str) -> Vec<Skill> {
     skills
 }
 
-fn skills(lodge: &Path, library: &Path) -> String {
-    let own = shelf(lodge, "skills");
+fn skills(worktree: &Path, library: &Path) -> String {
+    let own = shelf(worktree, "skills");
     let mut text = String::from("# Your skills\n");
     if own.is_empty() {
         text.push_str("(none yet)");
     } else {
         let quoted =
-            lodge.display().to_string().replace('\'', "'\\''");
+            worktree.display().to_string().replace('\'', "'\\''");
         for skill in &own {
             let run = skill
                 .usage
@@ -435,7 +438,7 @@ fn skills(lodge: &Path, library: &Path) -> String {
         text.push_str(&format!(
             "\n# The library\nSkills every agent shares, kept in \
              {}. Read one and run it from there; do not copy it \
-             into your lodge. You cannot write there. To share a \
+             into your worktree. You cannot write there. To share a \
              skill of your own, use `submit_skill`.\n",
             library.display()
         ));

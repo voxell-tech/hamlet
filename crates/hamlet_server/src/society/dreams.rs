@@ -1,6 +1,6 @@
 //! Dreams as rows: what dreamt, what it cost, and the commits it
-//! made. A hire's dream brings what it learned home to its scholar; a
-//! scholar's dream tidies its `main`.
+//! made. An agent's dream brings what it learned home to its profile;
+//! a profile's dream tidies its `main`.
 
 use anyhow::{Context, Result};
 use diesel::deserialize::FromSqlRow;
@@ -9,7 +9,7 @@ use diesel::prelude::*;
 use diesel::sql_types::Text;
 use hamlet_store::Db;
 use hamlet_store::ids::{
-    AgentId, ConversationId, DreamId, ScholarId, TaskId,
+    AgentId, ConversationId, DreamId, ProfileId, TaskId,
 };
 use hamlet_store::schema::dream;
 use serde::{Deserialize, Serialize};
@@ -36,8 +36,8 @@ use crate::realm::change::Change;
 #[strum(serialize_all = "kebab-case")]
 #[diesel(sql_type = Text)]
 pub(crate) enum DreamKind {
-    Hire,
-    Scholar,
+    Agent,
+    Profile,
 }
 hamlet_store::named_text!(DreamKind);
 
@@ -73,8 +73,8 @@ hamlet_store::named_text!(Outcome);
 pub(crate) struct Dream {
     pub id: DreamId,
     pub kind: DreamKind,
-    pub scholar: ScholarId,
-    pub hire: Option<AgentId>,
+    pub profile: ProfileId,
+    pub agent: Option<AgentId>,
     pub ending: bool,
     pub conversation: Option<ConversationId>,
     pub task: Option<TaskId>,
@@ -103,27 +103,27 @@ pub(crate) fn running(db: &mut Db) -> Result<Option<Dream>> {
         .optional()?)
 }
 
-/// The latest dream of `hire`.
-pub(crate) fn last_of_hire(
+/// The latest dream of `agent`.
+pub(crate) fn last_of_agent(
     db: &mut Db,
-    hire: AgentId,
+    agent: AgentId,
 ) -> Result<Option<Dream>> {
     Ok(dream::table
-        .filter(dream::hire.eq(hire))
+        .filter(dream::agent.eq(agent))
         .order(dream::id.desc())
         .select(Dream::as_select())
         .first(db)
         .optional()?)
 }
 
-/// The latest dream of `scholar` itself.
-pub(crate) fn last_of_scholar(
+/// The latest dream of `profile` itself.
+pub(crate) fn last_of_profile(
     db: &mut Db,
-    scholar: ScholarId,
+    profile: ProfileId,
 ) -> Result<Option<Dream>> {
     Ok(dream::table
-        .filter(dream::scholar.eq(scholar))
-        .filter(dream::kind.eq(DreamKind::Scholar))
+        .filter(dream::profile.eq(profile))
+        .filter(dream::kind.eq(DreamKind::Profile))
         .order(dream::id.desc())
         .select(Dream::as_select())
         .first(db)
@@ -146,15 +146,15 @@ pub(crate) fn of_conversation(
 pub(crate) fn begin(
     cx: &mut Change<'_>,
     kind: DreamKind,
-    scholar: ScholarId,
-    hire: Option<AgentId>,
+    profile: ProfileId,
+    agent: Option<AgentId>,
     ending: bool,
 ) -> Result<DreamId> {
     Ok(diesel::insert_into(dream::table)
         .values((
             dream::kind.eq(kind),
-            dream::scholar.eq(scholar),
-            dream::hire.eq(hire),
+            dream::profile.eq(profile),
+            dream::agent.eq(agent),
             dream::ending.eq(ending),
             dream::began.eq(cx.at),
         ))

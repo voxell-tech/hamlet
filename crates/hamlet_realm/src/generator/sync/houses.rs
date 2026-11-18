@@ -33,7 +33,7 @@ impl Pass<'_, '_, '_> {
                 plot: agent.plot,
                 archived: agent.archived,
                 cleared: agent.cleared,
-                mayor: town.mayor == agent.id,
+                lead: town.lead == agent.id,
                 wings: agent.wings,
             };
             let spot = plot(land, town.site, agent.plot);
@@ -144,7 +144,7 @@ impl Pass<'_, '_, '_> {
                 agent: agent.id,
                 site: town.site,
                 hall,
-                mayor: signature.mayor,
+                lead: signature.lead,
                 remains: agent.remains(&land.set.house),
                 wings: agent.wings,
                 yard,
@@ -265,8 +265,8 @@ impl Pass<'_, '_, '_> {
             }
             (false, None, Some(engine)) => {
                 let lot = Lot::new(self.land, spot, yard);
-                let who = if town.mayor == agent.id {
-                    keeper::Who::mayor()
+                let who = if town.lead == agent.id {
+                    keeper::Who::lead()
                 } else {
                     keeper::Who::agent(agent.id.0 * 7 + 3)
                 };

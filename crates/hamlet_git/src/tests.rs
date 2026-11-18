@@ -27,11 +27,11 @@ fn text(
 }
 
 fn repository(dir: &Scratch) -> Repository {
-    Repository::create(&dir.join("scholar.git")).unwrap()
+    Repository::create(&dir.join("profile.git")).unwrap()
 }
 
 #[test]
-fn a_hire_branch_learns_apart_and_takes_in_main() {
+fn an_agent_branch_learns_apart_and_takes_in_main() {
     let dir = Scratch::new("git-learn");
     let repo = repository(&dir);
     let first = repo
@@ -46,9 +46,9 @@ fn a_hire_branch_learns_apart_and_takes_in_main() {
             by(1),
         )
         .unwrap();
-    repo.branch("hires/4", first).unwrap();
+    repo.branch("agents/4", first).unwrap();
     repo.commit(
-        "hires/4",
+        "agents/4",
         &[write("memory/notes.md", "ONE\ntwo\nthree\n")],
         "turn",
         by(2),
@@ -67,7 +67,7 @@ fn a_hire_branch_learns_apart_and_takes_in_main() {
         .unwrap();
 
     let merged =
-        repo.merge("hires/4", main, "took in main", by(4)).unwrap();
+        repo.merge("agents/4", main, "took in main", by(4)).unwrap();
     assert_eq!(merged.joined, Joined::Committed);
     assert!(merged.clashes.is_empty());
     assert_eq!(
@@ -85,31 +85,31 @@ fn a_hire_branch_learns_apart_and_takes_in_main() {
         )
         .as_deref(),
         Some("one\ntwo\nTHREE\n"),
-        "main never sees what the hire learned"
+        "main never sees what the agent learned"
     );
-    let again = repo.merge("hires/4", main, "again", by(5)).unwrap();
+    let again = repo.merge("agents/4", main, "again", by(5)).unwrap();
     assert_eq!(again.joined, Joined::UpToDate);
     assert_eq!(again.commit, merged.commit);
 }
 
 #[test]
-fn a_hire_that_learned_nothing_moves_forward_to_main() {
+fn an_agent_that_learned_nothing_moves_forward_to_main() {
     let dir = Scratch::new("git-forward");
     let repo = repository(&dir);
     let first = repo
         .commit(MAIN, &[write("CHARACTER.md", "a")], "made", by(1))
         .unwrap();
-    repo.branch("hires/1", first).unwrap();
+    repo.branch("agents/1", first).unwrap();
     let main = repo
         .commit(MAIN, &[write("memory/a.md", "x")], "e", by(2))
         .unwrap();
-    let merged = repo.merge("hires/1", main, "m", by(3)).unwrap();
+    let merged = repo.merge("agents/1", main, "m", by(3)).unwrap();
     assert_eq!(merged.joined, Joined::FastForward);
-    assert_eq!(repo.tip("hires/1").unwrap(), Some(main));
+    assert_eq!(repo.tip("agents/1").unwrap(), Some(main));
 }
 
 #[test]
-fn a_clash_keeps_the_hires_lines() {
+fn a_clash_keeps_the_agents_lines() {
     let dir = Scratch::new("git-clash");
     let repo = repository(&dir);
     let first = repo
@@ -120,10 +120,10 @@ fn a_clash_keeps_the_hires_lines() {
             by(1),
         )
         .unwrap();
-    repo.branch("hires/4", first).unwrap();
+    repo.branch("agents/4", first).unwrap();
     repo.commit(
-        "hires/4",
-        &[write("memory/notes.md", "hire\n")],
+        "agents/4",
+        &[write("memory/notes.md", "agent\n")],
         "t",
         by(2),
     )
@@ -136,11 +136,11 @@ fn a_clash_keeps_the_hires_lines() {
             by(3),
         )
         .unwrap();
-    let merged = repo.merge("hires/4", main, "m", by(4)).unwrap();
+    let merged = repo.merge("agents/4", main, "m", by(4)).unwrap();
     assert_eq!(merged.clashes, ["memory/notes.md"]);
     assert_eq!(
         text(&repo, merged.commit, "memory/notes.md").as_deref(),
-        Some("hire\n")
+        Some("agent\n")
     );
 }
 
@@ -215,7 +215,7 @@ fn versions_name_commits_and_resolve() {
 
 #[test]
 fn a_folder_is_checked_out_and_committed_by_its_listing() {
-    let dir = Scratch::new("git-lodge");
+    let dir = Scratch::new("git-worktree");
     let repo = repository(&dir);
     let first = repo
         .commit(
@@ -229,13 +229,13 @@ fn a_folder_is_checked_out_and_committed_by_its_listing() {
             by(1),
         )
         .unwrap();
-    repo.branch("hires/7", first).unwrap();
-    let lodge = |path: &str| {
+    repo.branch("agents/7", first).unwrap();
+    let worktree = |path: &str| {
         path == "CHARACTER.md" || path.starts_with("inbox/")
     };
 
     // An empty folder gets every file but the character.
-    let steps = repo.plan(first, &[], &lodge).unwrap();
+    let steps = repo.plan(first, &[], &worktree).unwrap();
     assert_eq!(
         steps
             .iter()
@@ -248,7 +248,7 @@ fn a_folder_is_checked_out_and_committed_by_its_listing() {
         ["memory/notes.md", "skills/a/SKILL.md"]
     );
 
-    // The hire changes its notes, adds a skill, drops one, and has a
+    // The agent changes its notes, adds a skill, drops one, and has a
     // file in its inbox and a stray character file.
     let notes = repo.write_blob(b"n2").unwrap();
     let skill = repo.write_blob(b"b").unwrap();
@@ -277,9 +277,9 @@ fn a_folder_is_checked_out_and_committed_by_its_listing() {
     assert_eq!(blob_id(b"n2"), notes);
     let commit = repo
         .commit_listing(
-            "hires/7",
+            "agents/7",
             &listing,
-            &lodge,
+            &worktree,
             &[],
             "turn",
             by(2),
@@ -304,9 +304,9 @@ fn a_folder_is_checked_out_and_committed_by_its_listing() {
     );
     assert_eq!(
         repo.commit_listing(
-            "hires/7",
+            "agents/7",
             &listing,
-            &lodge,
+            &worktree,
             &[],
             "same",
             by(3)
@@ -320,11 +320,13 @@ fn a_folder_is_checked_out_and_committed_by_its_listing() {
         changes.iter().map(FileChange::path).collect::<Vec<_>>(),
         ["memory/notes.md", "skills/a/SKILL.md", "skills/b/run.sh"]
     );
-    assert!(repo.plan(commit, &listing, &lodge).unwrap().is_empty());
+    assert!(
+        repo.plan(commit, &listing, &worktree).unwrap().is_empty()
+    );
 }
 
 #[test]
-fn a_fork_starts_from_a_version_of_another_scholar() {
+fn a_fork_starts_from_a_version_of_another_profile() {
     let dir = Scratch::new("git-fork");
     let from = repository(&dir);
     let at = from
@@ -348,7 +350,7 @@ fn a_fork_starts_from_a_version_of_another_scholar() {
 #[test]
 fn a_purge_leaves_nothing_of_the_path() {
     let dir = Scratch::new("git-purge");
-    let path = dir.join("scholar.git");
+    let path = dir.join("profile.git");
     let repo = Repository::create(&path).unwrap();
     let first = repo
         .commit(
@@ -362,9 +364,9 @@ fn a_purge_leaves_nothing_of_the_path() {
         )
         .unwrap();
     repo.tag("v1", first, "first", by(2)).unwrap();
-    repo.branch("hires/3", first).unwrap();
+    repo.branch("agents/3", first).unwrap();
     repo.commit(
-        "hires/3",
+        "agents/3",
         &[write("memory/h.md", "h")],
         "turn",
         by(3),
@@ -399,7 +401,7 @@ fn a_purge_leaves_nothing_of_the_path() {
     assert_eq!(
         text(
             &repo,
-            repo.tip("hires/3").unwrap().unwrap(),
+            repo.tip("agents/3").unwrap().unwrap(),
             "memory/h.md"
         )
         .as_deref(),

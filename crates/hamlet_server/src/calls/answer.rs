@@ -17,7 +17,7 @@ use crate::society::oversight::gate::{self, TurnGate};
 use crate::society::oversight::{
     self, Danger, Ruling, Wait, WaitKind,
 };
-use crate::society::refusal::Refusal;
+use crate::society::rejection::Rejection;
 
 /// The fault in a chief's choice that cannot answer a wait so.
 #[derive(Debug, thiserror::Error)]
@@ -122,9 +122,9 @@ fn rule_wait(
     // A newcomer gone or let in since stays as it is.
     if wait.kind == WaitKind::Newcomer
         && ruling == Ruling::Welcome
-        && let Some(scholar) = wait.scholar
+        && let Some(profile) = wait.profile
     {
-        let _ = crate::society::city::welcome(cx, scholar, text)?;
+        let _ = crate::society::city::welcome(cx, profile, text)?;
     }
     if wait.kind == WaitKind::Objection {
         super::objections::rule(cx.db, wait.id, ruling, cx.at)?;
@@ -163,7 +163,7 @@ fn grant_always(
 }
 
 /// The effect of `ruling` on each call `wait` held: its network kept
-/// when it may run, its session trusted after an `/always`, and its
+/// when it may run, its session granted after an `/always`, and its
 /// turn told once of a denial.
 fn rule_calls(
     cx: &mut Change<'_>,
@@ -187,7 +187,7 @@ fn rule_calls(
                 wait.danger
             && let Some(session) = chat_session(conversation)
         {
-            gate::trust(cx.db, session, danger)?;
+            gate::grant_session(cx.db, session, danger)?;
         }
         if ruling == Ruling::Deny
             && let Some(danger) = wait.danger
@@ -220,28 +220,28 @@ impl Core<'_, '_> {
         choice: &Choice,
         text: Option<&str>,
         picks: Option<&[Pick]>,
-    ) -> Result<std::result::Result<String, Refusal>> {
+    ) -> Result<std::result::Result<String, Rejection>> {
         let chief = self.realm.chief();
         let Ok(number) = id.trim_start_matches('#').parse::<i64>()
         else {
-            return Ok(Err(Refusal::NoWait));
+            return Ok(Err(Rejection::NoWait));
         };
         let db = self.realm.store().connection();
         let Some(wait) = oversight::find(db, WaitId(number))?
             .filter(|wait| wait.open)
         else {
-            return Ok(Err(Refusal::NoWait));
+            return Ok(Err(Rejection::NoWait));
         };
         if let Some(agent) = wait.agent
-            && let Err(refusal) = self.reaches(agent)?
+            && let Err(rejection) = self.reaches(agent)?
         {
-            return Ok(Err(refusal));
+            return Ok(Err(rejection));
         }
         let text =
             match words(&wait, choice, text.unwrap_or(""), picks)? {
                 Ok(text) => text,
                 Err(why) => {
-                    return Ok(Err(Refusal::WaitUnanswerable {
+                    return Ok(Err(Rejection::WaitUnanswerable {
                         why: why.to_string(),
                     }));
                 }
@@ -271,7 +271,7 @@ impl Core<'_, '_> {
             Ok(true)
         })?;
         if !settled {
-            return Ok(Err(Refusal::NoWait));
+            return Ok(Err(Rejection::NoWait));
         }
         for ruled in ruled {
             self.wake_call(&ruled.call.runtime, &ruled.call.key);

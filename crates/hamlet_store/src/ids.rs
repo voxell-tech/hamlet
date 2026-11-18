@@ -54,11 +54,11 @@ integer_id!(
     ChiefId
 );
 integer_id!(
-    /// A row of `scholar`.
-    ScholarId
+    /// A row of `profile`.
+    ProfileId
 );
 integer_id!(
-    /// A row of `agent`: the Hand, a hire or a worker.
+    /// A row of `agent`: the Hand, an agent of a hamlet or a worker.
     AgentId
 );
 integer_id!(
@@ -74,15 +74,15 @@ integer_id!(
     WaitId
 );
 integer_id!(
-    /// A row of `road`.
-    RoadId
+    /// A row of `channel`.
+    ChannelId
 );
 integer_id!(
     /// A row of `job`.
     JobId
 );
 integer_id!(
-    /// A row of `hire_merge`.
+    /// A row of `agent_merge`.
     MergeId
 );
 integer_id!(

@@ -1,5 +1,5 @@
 //! The Hub: a rail of the realm's agents and the page beside it,
-//! which is a thread, a scholar, a hamlet, the library or the realm.
+//! which is a thread, a profile, a hamlet, the library or the realm.
 
 mod conversations;
 mod details;
@@ -9,7 +9,7 @@ mod papers;
 mod rail;
 
 pub(crate) use self::rail::guides;
-mod scholar;
+mod profile;
 mod thread;
 mod visits;
 
@@ -61,7 +61,7 @@ pub fn plugin(app: &mut App) {
     .add_plugins((rail::plugin, visits::plugin, thread::plugin))
     .init_resource::<Showing>()
     .init_resource::<crate::forms::OpenForm>()
-    .init_resource::<scholar::Form>()
+    .init_resource::<profile::Form>()
     .init_resource::<Sheet>()
     .add_systems(Update, hamlet_ui::widgets::tabs::mark::<Sheet>)
     .init_resource::<Papers>()
@@ -95,7 +95,7 @@ pub enum Showing {
     Sessions,
     /// The whole of that agent's prompt.
     Prompt,
-    Scholar(Entity),
+    Profile(Entity),
     Hamlet(Entity),
     /// An agent that is gone.
     Gone(Entity),
@@ -119,7 +119,7 @@ pub(crate) fn show(world: &mut World, showing: Showing) {
     }
     let tab = match showing {
         Showing::Hamlet(_) => rail::Tab::Hamlets,
-        Showing::Scholar(_) => rail::Tab::City,
+        Showing::Profile(_) => rail::Tab::City,
         _ => return,
     };
     if let Some(mut now) = world.get_resource_mut::<rail::Tab>()
@@ -134,8 +134,8 @@ fn page() -> impl View {
     keyed(resource::<Showing, _>(|showing| *showing), |showing| {
         match showing {
             Showing::Realm => overview::overview().boxed(),
-            Showing::Scholar(scholar) => {
-                scholar::page(*scholar).boxed()
+            Showing::Profile(profile) => {
+                profile::page(*profile).boxed()
             }
             Showing::Thread => thread::living().boxed(),
             Showing::Sessions => thread::sessions().boxed(),
@@ -178,12 +178,11 @@ pub(crate) fn follow_selection(world: &mut World) {
     }
     let showing = match selected.0 {
         Some(Thing::Keeper | Thing::Cottage) => {
-            let Some(mayor) =
-                hamlet_client::realm::first_mayor(world)
+            let Some(lead) = hamlet_client::realm::first_lead(world)
             else {
                 return;
             };
-            seat_if_new(world, mayor);
+            seat_if_new(world, lead);
             Showing::Thread
         }
         Some(Thing::Agent(agent) | Thing::House(agent)) => {
@@ -215,10 +214,10 @@ pub(crate) fn follow_selection(world: &mut World) {
             Showing::Chief(chief)
         }
         Some(Thing::Library) => Showing::Library,
-        Some(Thing::Scholar(scholar))
-            if world.get_entity(scholar).is_ok() =>
+        Some(Thing::Profile(profile))
+            if world.get_entity(profile).is_ok() =>
         {
-            Showing::Scholar(scholar)
+            Showing::Profile(profile)
         }
         // Nothing, or what has no page of its own.
         _ => return,

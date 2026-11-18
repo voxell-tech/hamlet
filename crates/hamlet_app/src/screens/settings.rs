@@ -49,7 +49,7 @@ use crate::appearance::Appearance;
 use crate::dock::{PanelAppExt, panel};
 use crate::roll::{either, moved};
 use crate::root::Lasting;
-use crate::world_menu::{self, Deed};
+use crate::world_menu::{self, Action};
 
 pub fn plugin(app: &mut App) {
     app.add_panel(
@@ -260,7 +260,7 @@ fn not_enforced() -> AnyView {
 const EFFORTS: [(Option<Effort>, &str); 8] =
     crate::models::efforts("Model's own");
 
-/// Who can let a scholar into the city, as the pick shows them.
+/// Who can let a profile into the city, as the pick shows them.
 const NEWCOMERS: [(protocol::Newcomers, &str); 3] = [
     (protocol::Newcomers::Open, "Anyone"),
     (protocol::Newcomers::Chief, "A chief"),
@@ -380,15 +380,15 @@ fn agents() -> impl View {
                 description(resource::<Settings, _>(|s| {
                     match s.0.newcomers {
                         protocol::Newcomers::Open => {
-                            "A scholar an agent makes moves in at \
+                            "A profile an agent makes moves in at \
                              once."
                         }
                         protocol::Newcomers::Chief => {
-                            "A scholar an agent makes waits at the \
+                            "A profile an agent makes waits at the \
                              harbor until a chief welcomes it."
                         }
                         protocol::Newcomers::Hand => {
-                            "The Hand lets a scholar in or turns it \
+                            "The Hand lets a profile in or turns it \
                              away. You can undo what it decides."
                         }
                     }
@@ -405,10 +405,10 @@ fn agents() -> impl View {
                     }),
                 note(resource::<Settings, _>(|s| {
                     if s.0.character.is_empty() {
-                        "A scholar made blank starts empty.".into()
+                        "A profile made blank starts empty.".into()
                     } else {
                         format!(
-                            "A scholar made blank starts from: {}",
+                            "A profile made blank starts from: {}",
                             cut(&s.0.character, CHARACTER_SHOWN)
                         )
                     }
@@ -445,7 +445,7 @@ fn agents() -> impl View {
     ))
 }
 
-/// The permissions agents were given for good from a petition, each
+/// The permissions agents were given for good from a wait, each
 /// to be taken back.
 fn permissions() -> AnyView {
     let held = derived(|world: &World| {
@@ -481,8 +481,7 @@ fn permissions() -> AnyView {
     keyed(held, |held| {
         if held.is_empty() {
             return description(
-                "None yet. Choosing Allow always on a petition adds \
-                 one.",
+                "None yet. Choosing Allow always on a wait adds one.",
             )
             .boxed();
         }
@@ -697,7 +696,9 @@ fn charter_page() -> impl View {
             actions.push(action(
                 Glyph::Restore,
                 "Back to the default",
-                |world| world_menu::ask(world, Deed::DefaultCharter),
+                |world| {
+                    world_menu::ask(world, Action::DefaultCharter);
+                },
             ));
         }
         buttons(actions).boxed()
@@ -1026,7 +1027,7 @@ mod tests {
         let mut app = settings_page(Pane::Agents);
         let grant = protocol::Grant {
             agent: Some(protocol::AgentId(2)),
-            name: "hire#2".into(),
+            name: "agent#2".into(),
             permission: protocol::Permission::Network,
             by: Some("chief".into()),
             source: protocol::GrantSource::Grant,
@@ -1050,7 +1051,7 @@ mod tests {
         assert_eq!(
             requests(&mut app),
             [serde_json::json!({
-                "type": "say", "to": 1, "text": "/revoke hire#2 network"
+                "type": "say", "to": 1, "text": "/revoke agent#2 network"
             })]
         );
     }
@@ -1067,7 +1068,7 @@ mod tests {
                 changes: vec![protocol::Update::Grants {
                     grants: vec![protocol::Grant {
                         agent: None,
-                        name: "hire#2".into(),
+                        name: "agent#2".into(),
                         permission: protocol::Permission::Network,
                         by: None,
                         source: protocol::GrantSource::Limits,
@@ -1141,7 +1142,7 @@ mod tests {
     struct Edits(Vec<Edit>);
 
     #[test]
-    fn charter_edit_saves_and_confirmed_reset_go_to_the_server_and_refusals_stay_by_the_buttons()
+    fn charter_edit_saves_and_confirmed_reset_go_to_the_server_and_rejections_stay_by_the_buttons()
      {
         use hamlet_desktop::editor::{Edit, Edited};
         let mut app = settings_page(Pane::Charter);
@@ -1216,7 +1217,7 @@ mod tests {
             protocol::ServerMessage::Reply(protocol::Reply {
                 to: id,
                 kind: protocol::ReplyKind::Error,
-                text: "The charter was refused.".into(),
+                text: "The charter was rejected.".into(),
                 upload: None,
                 image: None,
                 images: Vec::new(),
@@ -1228,7 +1229,7 @@ mod tests {
         assert!(
             words_and_spans(&mut app)
                 .iter()
-                .any(|text| text == "The charter was refused.")
+                .any(|text| text == "The charter was rejected.")
         );
 
         app.init_resource::<world_menu::Open>();
@@ -1308,11 +1309,11 @@ mod tests {
         assert!(
             !shown
                 .iter()
-                .any(|text| text == "The charter was refused.")
+                .any(|text| text == "The charter was rejected.")
         );
     }
     #[test]
-    fn reconnecting_reads_the_open_charter_again_and_shows_a_read_refusal()
+    fn reconnecting_reads_the_open_charter_again_and_shows_a_read_rejection()
      {
         let mut app = settings_page(Pane::Charter);
         requests(&mut app);

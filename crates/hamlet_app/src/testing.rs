@@ -64,7 +64,7 @@ pub(crate) fn panel_app() -> App {
     app
 }
 
-/// Points the chat at the fixture's mayor `hire#2`, who lives in
+/// Points the chat at the fixture's lead `agent#2`, who lives in
 /// the first hamlet, and returns it.
 /// Points the chat at the Hand and returns it.
 pub(crate) fn seat_hand(app: &mut App) -> Entity {
@@ -75,7 +75,7 @@ pub(crate) fn seat_hand(app: &mut App) -> Entity {
 }
 
 pub(crate) fn seat_ada(app: &mut App) -> Entity {
-    let ada = hamlet_client::realm::named(app.world_mut(), "hire#2")
+    let ada = hamlet_client::realm::named(app.world_mut(), "agent#2")
         .unwrap();
     crate::convo::seat(app.world_mut(), ada);
     ada

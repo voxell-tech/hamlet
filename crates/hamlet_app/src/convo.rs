@@ -153,10 +153,10 @@ fn seat_as(
     convo.with = with;
 }
 
-/// The house of `agent` in the world: the hall for the first mayor,
+/// The house of `agent` in the world: the hall for the first lead,
 /// else its own.
 pub(crate) fn home_of(world: &World, agent: Entity) -> Thing {
-    if agents::first_mayor(world) == Some(agent) {
+    if agents::first_lead(world) == Some(agent) {
         Thing::Cottage
     } else {
         Thing::House(agent)
@@ -169,7 +169,7 @@ pub(crate) fn talk_to(world: &mut World, agent: Entity) {
     if seat(world, agent) == Seating::Unaddressed {
         return;
     }
-    let hall = agents::first_mayor(world) == Some(agent);
+    let hall = agents::first_lead(world) == Some(agent);
     let selected =
         world.get_resource::<Selected>().map(|selected| selected.0);
     let same = match selected {
@@ -318,7 +318,7 @@ mod tests {
     #[test]
     fn talking_seats_the_agents_chat_and_the_hand_takes_it_back() {
         let mut app = panel_app();
-        let ada = agents::named(app.world_mut(), "hire#2").unwrap();
+        let ada = agents::named(app.world_mut(), "agent#2").unwrap();
         let hand = agents::hand(app.world()).unwrap();
         let first = app.world().resource::<Convo>().session;
         assert_eq!(app.world().resource::<Convo>().agent, hand);
@@ -344,7 +344,7 @@ mod tests {
 
         let mut app = panel_app();
         app.insert_resource(Showing::Realm);
-        let ada = agents::named(app.world_mut(), "hire#2").unwrap();
+        let ada = agents::named(app.world_mut(), "agent#2").unwrap();
         seat(app.world_mut(), ada);
         let mut tree = app.world_mut().resource_mut::<DockTree>();
         designed(&mut tree);
@@ -384,11 +384,12 @@ mod tests {
             protocol::ServerMessage::State(state.clone()),
         );
         app.update();
-        let scout = agents::named(app.world_mut(), "hire#3").unwrap();
+        let scout =
+            agents::named(app.world_mut(), "agent#3").unwrap();
         talk_to(app.world_mut(), scout);
         assert_eq!(
             app.world().resource::<Convo>().with.as_deref(),
-            Some("hire#3")
+            Some("agent#3")
         );
         let revision = app.world().resource::<Seen>().revision + 1;
         receive(
@@ -430,7 +431,7 @@ mod tests {
             .drain()
             .for_each(drop);
         let carder =
-            agents::named(app.world_mut(), "hire#5").unwrap();
+            agents::named(app.world_mut(), "agent#5").unwrap();
         talk_to(app.world_mut(), carder);
         app.update();
         let opens = app

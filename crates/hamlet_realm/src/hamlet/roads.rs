@@ -1,28 +1,28 @@
-//! The roads between agents, and who walks them.
+//! The channels between agents, drawn as roads, and who walks them.
 
 use bevy::prelude::*;
-use hamlet_client::realm::{Carried, Road, RoadUse, Traffic};
+use hamlet_client::realm::{Carried, Channel, ChannelUse, Traffic};
 
 use super::{Housed, Laid};
 use crate::generator::Trips;
 use crate::generator::society::{Pair, RoadLevel, Society};
 
-fn level(level: RoadUse) -> RoadLevel {
+fn level(level: ChannelUse) -> RoadLevel {
     match level {
-        RoadUse::Overgrown => RoadLevel::Overgrown,
-        RoadUse::Dirt => RoadLevel::Dirt,
-        RoadUse::Paved => RoadLevel::Paved,
-        RoadUse::Rail => RoadLevel::Rail,
+        ChannelUse::Overgrown => RoadLevel::Overgrown,
+        ChannelUse::Dirt => RoadLevel::Dirt,
+        ChannelUse::Paved => RoadLevel::Paved,
+        ChannelUse::Rail => RoadLevel::Rail,
     }
 }
 
-/// Lays every road the world has not met, and follows the use of
-/// those it has.
+/// Lays a road for every channel the world has not met, and follows
+/// the use of those it has.
 pub(super) fn lay(
     mut commands: Commands,
     mut society: ResMut<Society>,
     agents: Query<&Housed>,
-    new: Query<(Entity, &Road, &Traffic), Without<Laid>>,
+    new: Query<(Entity, &Channel, &Traffic), Without<Laid>>,
     used: Query<(&Laid, &Traffic), Changed<Traffic>>,
 ) {
     let set = |society: &mut ResMut<Society>,
@@ -32,9 +32,9 @@ pub(super) fn lay(
             society.set_level(pair, level);
         }
     };
-    for (entity, road, traffic) in &new {
+    for (entity, channel, traffic) in &new {
         let (Ok(a), Ok(b)) =
-            (agents.get(road.ends.0), agents.get(road.ends.1))
+            (agents.get(channel.ends.0), agents.get(channel.ends.1))
         else {
             continue;
         };
@@ -50,13 +50,14 @@ pub(super) fn lay(
     }
 }
 
-/// A road went, with an agent or when a merge was undone.
+/// A channel went, with an agent or when a merge was undone, and
+/// its road with it.
 pub(super) fn unlay(
     gone: On<Remove<Laid>>,
-    roads: Query<&Laid>,
+    channels: Query<&Laid>,
     mut society: ResMut<Society>,
 ) {
-    let Ok(laid) = roads.get(gone.entity) else {
+    let Ok(laid) = channels.get(gone.entity) else {
         return;
     };
     if society.road(laid.0).is_some() {
@@ -67,12 +68,12 @@ pub(super) fn unlay(
 /// The sender of a message walks it over.
 pub(super) fn walk(
     carried: On<Carried>,
-    roads: Query<&Laid>,
+    channels: Query<&Laid>,
     agents: Query<&Housed>,
     mut trips: ResMut<Trips>,
 ) {
     if let (Ok(laid), Ok(walker)) =
-        (roads.get(carried.road), agents.get(carried.from))
+        (channels.get(carried.channel), agents.get(carried.from))
     {
         trips.send(laid.0, walker.0);
     }

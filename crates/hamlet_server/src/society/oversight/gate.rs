@@ -1,6 +1,7 @@
 //! The gate every tool call passes before it runs (C7, H11): what it
-//! reaches, what the chief's mode, grants and trust allow, what the
-//! chief keeps for itself, and what the chief refused in the turn.
+//! reaches, what the chief's mode, grants and session grants allow,
+//! what the chief keeps for itself, and what the chief refused in the
+//! turn.
 
 use anyhow::Result;
 use diesel::prelude::*;
@@ -8,7 +9,9 @@ use diesel::upsert::excluded;
 use hamlet_protocol::client::{AttachedFile, Permission};
 use hamlet_store::Db;
 use hamlet_store::ids::{AgentId, ChiefId, ConversationId};
-use hamlet_store::schema::{permission_grant, trust, turn_gate};
+use hamlet_store::schema::{
+    permission_grant, session_grant, turn_gate,
+};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
@@ -191,16 +194,17 @@ fn cut(text: &str) -> String {
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum Caller {
     Hand,
-    Hire,
+    /// An agent of a hamlet.
+    Hamlet,
     Worker,
 }
 
 /// The permissions and mode in force at a call.
 #[derive(Clone, Debug, Default)]
 pub(crate) struct Standing {
-    /// The edit stays in the agent's own lodge, which is always free
-    /// (C21).
-    pub lodge_edit: bool,
+    /// The edit stays in the agent's own worktree, which is always
+    /// free (C21).
+    pub worktree_edit: bool,
     pub net: bool,
     pub holds_edits: bool,
     pub holds_commands: bool,
@@ -261,8 +265,9 @@ pub(crate) fn rule(
     }
 }
 
-/// A society act the chief keeps for itself (H22): a lead's acts its
-/// hamlet's limits reserve, and the Hand's acts on what chiefs own.
+/// A society act the chief keeps for itself (H22): a parent's acts
+/// its hamlet's limits reserve, and the Hand's acts on what chiefs
+/// own.
 fn is_reserved(
     call: &Call,
     caller: Caller,
@@ -273,7 +278,7 @@ fn is_reserved(
     };
     match (caller, tool.facts().reserve) {
         (Caller::Hand, Reserve::Hand) => true,
-        (Caller::Hire, Reserve::Limit(limit)) => {
+        (Caller::Hamlet, Reserve::Limit(limit)) => {
             limit.is_kept(reserved)
         }
         _ => false,
@@ -295,7 +300,7 @@ fn reach(call: &Call, standing: &Standing) -> Verdict {
             }
         }
         Call::Edit { .. } => {
-            if standing.holds_edits && !standing.lodge_edit {
+            if standing.holds_edits && !standing.worktree_edit {
                 Verdict::Hold(Danger::Edit)
             } else {
                 Verdict::Run { net: false }
@@ -480,7 +485,8 @@ fn refused(
     })
 }
 
-/// The chat session whose edits and commands a chief may trust.
+/// The chat session whose edits and commands a chief may grant for
+/// its length.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub(crate) struct Session {
     pub agent: AgentId,
@@ -488,52 +494,59 @@ pub(crate) struct Session {
     pub session: i64,
 }
 
-/// The chief's trust in the edits and in the commands of `session`.
-pub(crate) fn trusted(
+/// Whether the chief granted the edits and the commands of `session`
+/// for its length.
+pub(crate) fn session_granted(
     db: &mut Db,
     session: Session,
 ) -> Result<(bool, bool)> {
-    Ok(trust::table
+    Ok(session_grant::table
         .find((session.agent, session.chief, session.session))
-        .select((trust::edit, trust::command))
+        .select((session_grant::edit, session_grant::command))
         .first(db)
         .optional()?
         .unwrap_or((false, false)))
 }
 
-/// Trusts the edits or the commands of `session` from now on.
-pub(crate) fn trust(
+/// Grants the edits or the commands of `session` for the rest of it.
+pub(crate) fn grant_session(
     db: &mut Db,
     session: Session,
     danger: Danger,
 ) -> Result<()> {
     let (edit, command) =
         (danger == Danger::Edit, danger == Danger::Command);
-    diesel::insert_into(trust::table)
+    diesel::insert_into(session_grant::table)
         .values((
-            trust::agent.eq(session.agent),
-            trust::chief.eq(session.chief),
-            trust::session.eq(session.session),
-            trust::edit.eq(edit),
-            trust::command.eq(command),
+            session_grant::agent.eq(session.agent),
+            session_grant::chief.eq(session.chief),
+            session_grant::session.eq(session.session),
+            session_grant::edit.eq(edit),
+            session_grant::command.eq(command),
         ))
-        .on_conflict((trust::agent, trust::chief, trust::session))
+        .on_conflict((
+            session_grant::agent,
+            session_grant::chief,
+            session_grant::session,
+        ))
         .do_update()
         .set((
-            trust::edit.eq(trust::edit.or(excluded(trust::edit))),
-            trust::command
-                .eq(trust::command.or(excluded(trust::command))),
+            session_grant::edit
+                .eq(session_grant::edit
+                    .or(excluded(session_grant::edit))),
+            session_grant::command.eq(session_grant::command
+                .or(excluded(session_grant::command))),
         ))
         .execute(db)?;
     Ok(())
 }
 
-/// Takes back the trust of a session that is resumed (H11).
-pub(crate) fn reset_trust(
+/// Takes back the grant of a session that is resumed (H11).
+pub(crate) fn reset_session_grant(
     db: &mut Db,
     session: Session,
 ) -> Result<()> {
-    diesel::delete(trust::table.find((
+    diesel::delete(session_grant::table.find((
         session.agent,
         session.chief,
         session.session,

@@ -22,7 +22,7 @@ use crate::clients::check::reply;
 use crate::clients::connection::UploadOf;
 use crate::core::Core;
 use crate::realm::Realm;
-use crate::society::refusal::Refusal;
+use crate::society::rejection::Rejection;
 
 /// The time a file nothing uses is kept, and the time between the
 /// realm's sweeps for such files.
@@ -191,7 +191,7 @@ impl Core<'_, '_> {
     ) -> Result<ServerMessage> {
         let PutFile { id, size } = put;
         let Some(connection) = self.connections.entity(client) else {
-            return Ok(reply(&id, Err(Refusal::ConnectionClosing)));
+            return Ok(reply(&id, Err(Rejection::ConnectionClosing)));
         };
         let sending = self
             .uploads
@@ -199,15 +199,15 @@ impl Core<'_, '_> {
             .iter()
             .filter(|(_, of, _)| of.0 == connection)
             .count();
-        let refusal = if size > AttachedFile::MOST_FILE {
-            Some(Refusal::FileTooBig)
+        let rejection = if size > AttachedFile::MOST_FILE {
+            Some(Rejection::FileTooBig)
         } else if sending >= MOST_UPLOADS {
-            Some(Refusal::TooManyFilesSent)
+            Some(Rejection::TooManyFilesSent)
         } else {
             None
         };
-        if let Some(refusal) = refusal {
-            return Ok(reply(&id, Err(refusal)));
+        if let Some(rejection) = rejection {
+            return Ok(reply(&id, Err(rejection)));
         }
         let folder = self.realm.layout().files();
         std::fs::create_dir_all(&folder).with_context(|| {
@@ -227,8 +227,10 @@ impl Core<'_, '_> {
         };
         if size == 0 {
             let kept = self.finish_file(&mut sending)?;
-            let mut answer =
-                reply(&id, Ok::<_, Refusal>("Kept the file.".into()));
+            let mut answer = reply(
+                &id,
+                Ok::<_, Rejection>("Kept the file.".into()),
+            );
             if let ServerMessage::Reply(answer) = &mut answer {
                 answer.file = Some(kept);
             }
@@ -237,7 +239,7 @@ impl Core<'_, '_> {
         self.commands.spawn((sending, UploadOf(connection)));
         let mut answer = reply(
             &id,
-            Ok::<_, Refusal>("Ready for the file.".into()),
+            Ok::<_, Rejection>("Ready for the file.".into()),
         );
         if let ServerMessage::Reply(answer) = &mut answer {
             answer.upload = Some(upload);
@@ -251,7 +253,8 @@ impl Core<'_, '_> {
         client: u64,
         part: PutFilePart,
     ) -> Result<ServerMessage> {
-        let refuse = |refusal: Refusal| reply(&part.id, Err(refusal));
+        let reject =
+            |rejection: Rejection| reply(&part.id, Err(rejection));
         let connection = self.connections.entity(client);
         let Some((entity, _, mut sending)) =
             self.uploads.files.iter_mut().find(|(_, of, sending)| {
@@ -259,20 +262,20 @@ impl Core<'_, '_> {
                     && sending.upload == part.upload
             })
         else {
-            return Ok(refuse(Refusal::NoFileUpload));
+            return Ok(reject(Rejection::NoFileUpload));
         };
         let Ok(bytes) = base64::engine::general_purpose::STANDARD
             .decode(&part.data)
         else {
-            return Ok(refuse(Refusal::NotBase64));
+            return Ok(reject(Rejection::NotBase64));
         };
         if part.offset != sending.received {
-            return Ok(refuse(Refusal::FileContinuesAt {
+            return Ok(reject(Rejection::FileContinuesAt {
                 received: sending.received,
             }));
         }
         if sending.received + bytes.len() as u64 > sending.size {
-            return Ok(refuse(Refusal::FileLongerThanDeclared));
+            return Ok(reject(Rejection::FileLongerThanDeclared));
         }
         sending
             .file
@@ -284,7 +287,7 @@ impl Core<'_, '_> {
         if sending.received < sending.size {
             return Ok(reply(
                 &part.id,
-                Ok::<_, Refusal>("Received the file part.".into()),
+                Ok::<_, Rejection>("Received the file part.".into()),
             ));
         }
         let mut whole = FileUpload {
@@ -299,7 +302,7 @@ impl Core<'_, '_> {
         let kept = self.finish_file(&mut whole)?;
         let mut answer = reply(
             &part.id,
-            Ok::<_, Refusal>("Kept the file.".into()),
+            Ok::<_, Rejection>("Kept the file.".into()),
         );
         if let ServerMessage::Reply(answer) = &mut answer {
             answer.file = Some(kept);
@@ -337,27 +340,27 @@ impl Core<'_, '_> {
     pub(crate) fn check_files(
         &self,
         files: &[AttachedFile],
-    ) -> std::result::Result<(), Refusal> {
+    ) -> std::result::Result<(), Rejection> {
         if files.len() > AttachedFile::MOST_FILES {
-            return Err(Refusal::TooManyFilesInLine);
+            return Err(Rejection::TooManyFilesInLine);
         }
         let kept = Files::new(self.realm.layout().files());
         let mut total = 0_u64;
         for file in files {
             let Some(size) = kept.size(&file.id) else {
-                return Err(Refusal::FileNotSent {
+                return Err(Rejection::FileNotSent {
                     name: file.name.clone(),
                 });
             };
             if size != file.size {
-                return Err(Refusal::FileSizeDiffers {
+                return Err(Rejection::FileSizeDiffers {
                     name: file.name.clone(),
                 });
             }
             total += size;
         }
         if total > AttachedFile::MOST_BYTES {
-            return Err(Refusal::FilesTooBigInLine);
+            return Err(Rejection::FilesTooBigInLine);
         }
         Ok(())
     }

@@ -4,27 +4,28 @@ An agent, the place it works in, what it is told, the tools it works with,
 what they may reach, and the conversations it keeps. The society around it is
 in [`hamlet.md`](hamlet.md).
 
-## The agent and its lodge
+## The agent and its worktree
 
-An agent is the Hand, a hire or a worker (H37, H40, H42).
+An agent is the Hand, an agent of a hamlet or a worker (H37, H40, H42).
 
-**C8.** The Hand and every hire work in a lodge of their own: a folder
-holding its memory (`memory/`), its skills (`skills/`, one folder each, with
-a `SKILL.md`) and an inbox (`inbox/`) for what a chief hands it. They are
-writable files. A lodge holds no character: the character is a file of the
-agent's scholar, and the conversations are kept in the harness's storage,
-all out of reach of file tools. A worker has no lodge, only a scratch folder
-that ends with it (H42).
+**C8.** The Hand and every agent of a hamlet work in a worktree of their
+own: a folder holding its memory (`memory/`), its skills (`skills/`, one
+folder each, with a `SKILL.md`) and an inbox (`inbox/`) for what a chief
+hands it. They are writable files. A worktree holds no character: the
+character is a file of the agent's profile, and the conversations are kept
+in the harness's storage, all out of reach of file tools. A worker has no
+worktree, only a scratch folder that ends with it (H42).
 
 **C9.** An agent is identified by an id that is the same everywhere in the
-realm and is never given twice; a hire is addressed by it as `hire#<id>`. No
-address, lookup or command finds an agent, a scholar or a hamlet by a name.
-Ending, merging, restoring and seating a mayor keep the id.
-A later hire of the same scholar inherits nothing of the earlier one.
+realm and is never given twice; an agent of a hamlet is addressed by it as
+`agent#<id>`. No
+address, lookup or command finds an agent, a profile or a hamlet by a name.
+Ending, merging, restoring and setting a lead keep the id.
+A later agent of the same profile inherits nothing of the earlier one.
 
-**C10.** A scholar is its id, addressed as `scholar#<id>`. Its name is a
+**C10.** A profile is its id, addressed as `profile#<id>`. Its name is a
 label of one line, 1 to 40 characters with no colon, which may repeat and
-which a chief changes (`/name-scholar`), a decision recorded like a hamlet's
+which a chief changes (`/name-profile`), a decision recorded like a hamlet's
 naming.
 
 ## What an agent is told
@@ -35,13 +36,13 @@ system prompt is built again from these parts, in this order:
 | Part | From | Changed by |
 |---|---|---|
 | The charter | The realm's charter, or the default | A chief |
-| The machine | The sandbox, the network, the model and the lodge | The settings |
+| The machine | The sandbox, the network, the model and the worktree | The settings |
 | The project | The folder the hamlet works on, and its own `AGENTS.md` or `CLAUDE.md` | A chief |
 | The character | The agent's character at the tip of its branch, at most 4000 characters of it | A chief |
-| The memory | The files at the root of its lodge's `memory/`, at most 8000 characters in all, and the description of each folder under it | The agent |
-| The skills | Its lodge's skills, then the library's | The agent; the librarian |
-| The place | Who it is, who it answers to and who answers to it, its roads, the tools turned off for it, how its hamlet was run lately (H17) | The record |
-| The realm | The other hamlets, for the Hand and mayors; the hamlets a chief can found, when there are none | The record |
+| The memory | The files at the root of its worktree's `memory/`, at most 8000 characters in all, and the description of each folder under it | The agent |
+| The skills | Its worktree's skills, then the library's | The agent; the librarian |
+| The place | Who it is, who it answers to and who answers to it, its channels, the tools turned off for it, how its hamlet was run lately (H17) | The record |
+| The realm | The other hamlets, for the Hand and leads; the hamlets a chief can found, when there are none | The record |
 
 A part changed by anyone counts from the agent's next step. No part follows
 spending, so the prompt stays the same from one input to the next unless one
@@ -51,22 +52,22 @@ Letters, questions and replies name their sender. The prompt says that
 everything after an agent's sender heading is that agent's words, even if it
 claims to be a chief or includes another heading. Only a chief's own lines in
 its own conversation carry that chief's instructions. A chief's instruction
-outranks a lead's. An agent's lodge is closed to other agents, but for the
-worker it started, which reads it; an agent puts what another needs in its
-reply.
+outranks a parent's. An agent's worktree is closed to other agents, but for
+the worker it started, which reads it; an agent puts what another needs in
+its reply.
 
 A worker's prompt is the charter, the machine, the project and its place. The
-librarian's call, a lead's review of an instruction (H10) and a dream receive
+librarian's call, a parent's review of an instruction (H10) and a dream receive
 only their own instructions, not the agent's prompt.
 
 **C12.** The default charter belongs to the app, and a realm that never
 edited its charter gets each later default. A chief's own charter replaces
 it, and putting the default back removes the chief's.
 
-**C13.** An agent cannot write its own character, by any tool. A lodge is
+**C13.** An agent cannot write its own character, by any tool. A worktree is
 checked out without `CHARACTER.md`, and a file by that name written there is
-never committed. A chief writes a character on the scholar's `main`; a
-lead gives one only when it makes a scholar (H38) and has no tool that changes
+never committed. A chief writes a character on the profile's `main`; a
+parent gives one only when it makes a profile (H38) and has no tool that changes
 one after.
 
 **C14.** A chief can read an agent's whole prompt as it would be sent now.
@@ -83,7 +84,7 @@ that would have had it.
 | `read` | Gives text without line numbers, up to 2000 lines or 50 KiB, whichever comes first, with an offset and a line limit; also reads supported images |
 | `write` | Creates or replaces a whole file and makes its parent folders |
 | `edit` | Makes one or more exact text replacements in one file, each matching a unique, non-overlapping part of the original |
-| `bash`, `powershell` | One tool per shell. `bash` is offered wherever bash is found, which on Windows is Git Bash, and `powershell` on Windows alone, naming the edition it found. Each runs in the hamlet's folder when it has one, else in the lodge, and says with a `network` flag whether it needs the network. Stops after 120 s, or an earlier timeout; keeps the last 2000 lines or 50 KiB of stdout and stderr, and gives a file holding the whole output when it spills |
+| `bash`, `powershell` | One tool per shell. `bash` is offered wherever bash is found, which on Windows is Git Bash, and `powershell` on Windows alone, naming the edition it found. Each runs in the hamlet's folder when it has one, else in the worktree, and says with a `network` flag whether it needs the network. Stops after 120 s, or an earlier timeout; keeps the last 2000 lines or 50 KiB of stdout and stderr, and gives a file holding the whole output when it spills |
 | `search` | Finds a linear-time regular expression in files, with a name filter and optional case-insensitive matching, up to 100 hits; skips binary files, files that are not UTF-8, files over 1 MiB and build folders |
 | `find` | Lists a folder, or finds files by name under it, up to 100 matches |
 
@@ -92,7 +93,7 @@ the agent's commands terminal, which the chief can watch and nobody types into.
 A server an agent starts runs from `bash` with `&`, its output sent to a file the
 agent reads later; it is kept until the server stops.
 
-A lead can turn tools off for a hire under it (H41); the prompt names them. A
+A parent can turn tools off for an agent under it (H41); the prompt names them. A
 worker has only the built-in tools its starter gave it (H42). The society's
 tools, offered by role, are in [`hamlet.md`](hamlet.md).
 
@@ -103,11 +104,11 @@ every agent, and runs under the same sandbox and the same gate as the shells.
 ## What tools reach
 
 **C18.** Tools run in a sandbox. The built-in tools write only in the
-agent's lodge (a worker's scratch folder) and in the folder its hamlet works
-on. With a folder, a command can read the rest of the machine, so the
+agent's worktree (a worker's scratch folder) and in the folder its hamlet
+works on. With a folder, a command can read the rest of the machine, so the
 project's own tools run, but never the rest of the realm's folder. The
 library and the realm's tools folder are readable and never writable, and a
-worker also reads its starter's lodge.
+worker also reads its starter's worktree.
 
 In a folder of the chief's own, agents may write git's files, including
 hooks or config that the chief's git later runs, including in nested
@@ -134,13 +135,13 @@ enforces this, and the switch decides only what waits for a chief.
 **C20.** A hamlet works on at most one folder at a time, and the folders it
 worked on before are remembered. Every agent of the hamlet then runs its
 commands there and may edit its files, and nothing of Hamlet's is put in it.
-The agent's memory, skills and conversations stay in its lodge.
+The agent's memory, skills and conversations stay in its worktree.
 
 **C21.** A hamlet that works on a folder is in one of two modes:
 
 - **Manual**, the mode it starts in: each edit of the folder and each
-  command waits for a chief. Reading and edits of the agent's own lodge
-  are free.
+  command waits for a chief. Reading and edits of the agent's own
+  worktree are free.
 - **Auto**: agents edit and run without asking, and the sandbox is the
   guard. In insecure mode nothing is.
 
@@ -153,8 +154,8 @@ runs as.
 
 A chief talks to, instructs, watches, stops, gives to and answers for only
 the agents of living hamlets it is chief of, and the Hand, which answers to
-every chief. Reading and editing a hire's papers or a hamlet's limits needs
-the same authority; a scholar's belongs to the chief it belongs to (H38). A
+every chief. Reading and editing an agent's papers or a hamlet's limits needs
+the same authority; a profile's belongs to the chief it belongs to (H38). A
 removed hamlet's agents are out of reach until it is restored; a refused
 request says why it was removed and to restore it first. Requests naming a
 missing hamlet or a hamlet the human is not chief of are refused.
@@ -168,7 +169,7 @@ run, refuses it, or holds it for a chief (H11).
 conversation with each chief who talks to it, one with each agent that
 writes it letters, and one with each agent that asks it something and
 waits (H30). A worker has one, begun with its task (H42), and a dream, a
-librarian's call and a lead's review each have one of their own. A chief
+librarian's call and a parent's review each have one of their own. A chief
 can watch either kind of peer conversation read-only, with paging. The
 chief chooses the receiving agent, the sender, and letters or questions;
 letters are shown unless the chief chooses questions.
@@ -227,7 +228,7 @@ or GIF, animated or not) is also given to the agent's model beside the line, as
 many as the model takes in a message [20 at most]; a line with images is
 refused, and nothing is kept, when the model takes no images, and only images
 are held back for such a model. Every file, an image too, is saved in the
-`inbox/` of the agent's lodge, in its remote workspace when it works there,
+`inbox/` of the agent's worktree, in its remote workspace when it works there,
 and the line names where each file or folder is saved, a path the agent can
 open, in the words where the attachment sits, and after them for one with no
 place. The model is given the images in the order the line names them. A
@@ -245,10 +246,10 @@ images and files return to the chief's input together (C27).
 Code, Codex, pi) worked on, found on the chief's machine, or the
 conversations of a ChatGPT or Claude export as one project. A project is
 the root of the git repository a conversation worked in, else its
-folder; linked worktrees, Downloads and the home folder are none. Each
+folder; linked git worktrees, Downloads and the home folder are none. Each
 project becomes a hamlet named for it and working on its folder, or the
 chief's hamlet that works on it already, and each of its conversations
-brought in a hire under its mayor, as the hamlet's tier has room, whose
+brought in an agent under its lead, as the hamlet's tier has room, whose
 chat begins with that conversation. A conversation is brought in once
 per chief. The window offers the projects once, when first-run setup
 ends on a realm with no hamlet, and again from Settings, each with its
@@ -280,8 +281,8 @@ at once.
 
 The agent is asked to keep in its memory what is worth remembering about
 the chiefs and its lessons, and to save or improve a skill for anything
-likely to come up again. It writes its lodge, and the lodge reaches its
-scholar by a dream (H43).
+likely to come up again. It writes its worktree, and the worktree reaches
+its profile by a dream (H43).
 
 ## What is recorded and shown
 
@@ -290,7 +291,7 @@ call with its name, its arguments cut to 200 characters and, for an edit,
 the change, then the call's end with its exit code, its time and the first
 line of a failure, and the notices meant only for people. Letters,
 questions and replies show their writer by its address with its name beside
-it (`hire#3 (Mira)`), `hand`, or `worker#id`; once a hire is erased, as its
+it (`agent#3 (Mira)`), `hand`, or `worker#id`; once an agent is erased, as its
 address alone. They are shown as agents' words,
 never as a chief's words that can be taken back.
 

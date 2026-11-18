@@ -1,5 +1,5 @@
 //! Errands: one model call made for a society act, such as the
-//! librarian's answer or a lead's review, in a conversation of its
+//! librarian's answer or a parent's review, in a conversation of its
 //! own made once under its owner's key. Its prompt is its
 //! instructions alone, and it is paid for by the agent it is run for.
 

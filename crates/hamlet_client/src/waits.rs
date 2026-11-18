@@ -8,9 +8,9 @@ pub use protocol::Choice;
 #[derive(Component, Clone, Debug)]
 pub struct Asks(pub protocol::Questions);
 
-/// The server's refusal of the chief's latest answer to a need.
+/// The server's rejection of the chief's latest answer to a need.
 #[derive(Component, Clone, Debug, PartialEq)]
-pub struct Refused(pub String);
+pub struct Rejected(pub String);
 
 /// A received need and the answers offered by the server.
 #[derive(Component, Clone, Debug)]
@@ -99,7 +99,7 @@ impl Needs {
 
 /// Presentation for the protocol's answers.
 pub trait ChoiceExt {
-    /// The first offered answer matching agreement or refusal.
+    /// The first offered answer matching agreement or rejection.
     fn quick(answers: &[Choice], agree: bool) -> Option<Choice>;
 }
 

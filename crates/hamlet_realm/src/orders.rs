@@ -1,10 +1,10 @@
-//! The chief's deeds by hand, carried to the server as commands, and
-//! the moves of what the hand set down.
+//! The chief's actions by hand, carried to the server as commands,
+//! and the moves of what the hand set down.
 
 use bevy::prelude::*;
 use hamlet_client::ViewFolder;
 use hamlet_client::realm::{
-    self as agents, Deeds, HamletId, Scholar,
+    self as agents, Actions, HamletId, Profile,
 };
 
 use crate::chief::{Kept, Player, Stands};
@@ -40,7 +40,7 @@ fn name(world: &World, agent: Entity) -> Option<String> {
         .map(|name| name.as_str().to_string())
 }
 
-/// A chief's command sent to the mayor of `agent`'s hamlet, or to the
+/// A chief's command sent to the lead of `agent`'s hamlet, or to the
 /// Hand when it has none.
 pub fn decree(world: &mut World, agent: Entity, text: String) {
     let hamlet = agents::hamlet_of(world, agent).map(str::to_owned);
@@ -48,40 +48,40 @@ pub fn decree(world: &mut World, agent: Entity, text: String) {
     world.flush();
 }
 
-/// Builds a road between two agents at the chief's word.
-fn road(world: &mut World, a: Entity, b: Entity) {
-    if !Deeds::is_allowed(world, "road") {
+/// Opens a channel between two agents at the chief's word.
+fn channel(world: &mut World, a: Entity, b: Entity) {
+    if !Actions::is_allowed(world, "channel") {
         return;
     }
     if let (Some(a_name), Some(b_name)) =
         (name(world, a), name(world, b))
     {
-        decree(world, a, format!("/road {a_name} {b_name}"));
+        decree(world, a, format!("/channel {a_name} {b_name}"));
     }
 }
 
-/// Takes up the road between two agents at the chief's word.
+/// Closes the channel between two agents at the chief's word.
 pub fn part(world: &mut World, a: Entity, b: Entity) {
-    if !Deeds::is_allowed(world, "unroad") {
+    if !Actions::is_allowed(world, "unchannel") {
         return;
     }
     if let (Some(a_name), Some(b_name)) =
         (name(world, a), name(world, b))
     {
-        decree(world, a, format!("/unroad {a_name} {b_name}"));
+        decree(world, a, format!("/unchannel {a_name} {b_name}"));
     }
 }
 
-/// Has two agents greet each other and builds a road between them.
+/// Has two agents greet each other and opens a channel between them.
 pub fn introduce(world: &mut World, a: Entity, b: Entity) {
     hand::greet(world, a, b);
-    road(world, a, b);
+    channel(world, a, b);
 }
 
 /// Takes the town of `hamlet` in hand, to be set down with a click
 /// on the ground.
 pub fn carry(world: &mut World, hamlet: Entity) {
-    if !Deeds::is_allowed(world, "move-hamlet") {
+    if !Actions::is_allowed(world, "move-hamlet") {
         return;
     }
     if let Some(town) = town_of(world, hamlet) {
@@ -89,14 +89,14 @@ pub fn carry(world: &mut World, hamlet: Entity) {
     }
 }
 
-/// Takes the house of `scholar` in hand, to be set down with a click
+/// Takes the house of `profile` in hand, to be set down with a click
 /// on the ground.
-pub fn carry_house(world: &mut World, scholar: Entity) {
-    if !Deeds::is_allowed(world, "move-house") {
+pub fn carry_house(world: &mut World, profile: Entity) {
+    if !Actions::is_allowed(world, "move-house") {
         return;
     }
-    if let Some(scholar) = world.get::<Scholar>(scholar) {
-        let id = scholar.0.id;
+    if let Some(profile) = world.get::<Profile>(profile) {
+        let id = profile.0.id;
         moving::pick_up(world, Ground::House(id));
     }
 }
@@ -106,7 +106,7 @@ pub fn carry_house(world: &mut World, scholar: Entity) {
 fn set_down(world: &mut World, set: SetDown) {
     match set.place {
         Ground::Town(town) => {
-            if !Deeds::is_allowed(world, "move-hamlet") {
+            if !Actions::is_allowed(world, "move-hamlet") {
                 return;
             }
             let Some(hamlet) = hamlet_of(world, town) else {
@@ -146,20 +146,20 @@ fn set_down(world: &mut World, set: SetDown) {
             world.resource_mut::<Stood>().0 = Some(set.to);
         }
         Ground::House(id) => {
-            if !Deeds::is_allowed(world, "move-house") {
+            if !Actions::is_allowed(world, "move-house") {
                 return;
             }
             let turn = world
-                .query::<&Scholar>()
+                .query::<&Profile>()
                 .iter(world)
-                .find(|scholar| scholar.0.id == id)
-                .and_then(|scholar| {
-                    Some(scholar.0.house.as_ref()?.turn)
+                .find(|profile| profile.0.id == id)
+                .and_then(|profile| {
+                    Some(profile.0.house.as_ref()?.turn)
                 });
             let Some(turn) = turn else {
                 return;
             };
-            let name = hamlet_client::realm::scholar_address(id);
+            let name = hamlet_client::realm::profile_address(id);
             let city = world
                 .resource::<Land>()
                 .island(IslandId::City)
@@ -191,8 +191,8 @@ fn grant(
     }
     for wish in wishes.read().cloned() {
         match wish {
-            Wish::Road { a, b } => commands
-                .queue(move |world: &mut World| road(world, a, b)),
+            Wish::Channel { a, b } => commands
+                .queue(move |world: &mut World| channel(world, a, b)),
         }
     }
 }

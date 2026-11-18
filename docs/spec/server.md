@@ -28,8 +28,8 @@ on one machine as across a network. A server refuses a connection without
 the token.
 
 **S5.** A window shows what the server sends and holds no rules of its own:
-the state of the realm (the Hand, hamlets, scholars, living and ended
-agents, roads, budgets, the shared library, removed hamlets and what waits)
+the state of the realm (the Hand, hamlets, profiles, living and ended
+agents, channels, budgets, the shared library, removed hamlets and what waits)
 and its changes, the live events of turns (C30), and conversations on
 request, including read-only letters and questions between agents (C22). A
 window that joins late or connects again starts from the state as it is now.
@@ -63,7 +63,7 @@ includes uploads never sent with a line.
 A file a chief attaches (C33) is kept the same way in the realm's `files/`
 folder, of any kind and at most 256 MiB, and a client names it by its id and
 the name the agent finds it under. The server copies each file named by a line
-into the `inbox/` of the agent's lodge, and into its remote workspace when
+into the `inbox/` of the agent's worktree, and into its remote workspace when
 there is one; the realm's folder of files is never in any agent's reach. A
 file named by no kept input, transcript item or tool result, last touched a day
 ago, is removed.
@@ -102,18 +102,18 @@ mode (ADR 0008).
 ## The realm's records and effects
 
 **S26.** Everything the server keeps about who exists, who answers to whom,
-roads, conversations, waits and spend is in one database, and a scholar's
+channels, conversations, waits and spend is in one database, and a profile's
 knowledge is in git (ADR 0011). Every change to the database is one
 transaction and is checked in one place before it is made; a change that is
 refused leaves nothing. What the clients see again after a change is what that
 transaction touched.
 
 **S27.** A change that needs an effect after it commits, such as making a
-repository, checking out or committing a lodge, merging or erasing, keeps the
-effect as a job in the same transaction. Jobs run after the commit, on a
+repository, checking out or committing a worktree, merging or erasing, keeps
+the effect as a job in the same transaction. Jobs run after the commit, on a
 thread of their own, and again after a crash until they are done, and each is
-safe to run twice (ADR 0012). A repository or a lodge is changed only by the
-server.
+safe to run twice (ADR 0012). A repository or a worktree is changed only by
+the server.
 
 **S28.** The client protocol, the runtime protocol, the workspace protocol and
 the realm's database each carry a version in semver, and all stay at 0.1.0
@@ -129,7 +129,7 @@ keeps the rules (ADR 0001).
 **S17.** An agent has a harness for its new conversations. A conversation
 stays with the harness, and the version of it, it began in, for as long as
 it is kept. Changing an agent's harness changes only its later
-conversations, and keeps its identity, lodge, roads and permissions.
+conversations, and keeps its identity, worktree, channels and permissions.
 
 **S18.** The server allows every tool call and every change to the record
 when it is carried out, under the permissions, waits, limits and budget as
@@ -182,10 +182,10 @@ server, and opens a window. Closing the window or terminal stops no agent.
 | `stop` | Stops the realm's server and waits for it to close in order |
 | `status` | Reports whether the realm's server runs |
 | `server [--port <n>] [--faux <script.json>]` | Serves the realm; stopping it closes in order, and a second stop signal exits at once |
-| `chat [--to <hand\|hire#id\|mayor@hamlet>]` | Chats with the Hand or the named agent and answers what waits, with no window; end of input waits for that client's submissions and leaves the server running |
+| `chat [--to <hand\|agent#id\|lead@hamlet>]` | Chats with the Hand or the named agent and answers what waits, with no window; end of input waits for that client's submissions and leaves the server running |
 | `dev [--port <n>] [--faux <script.json>] [--home <dir>] [--hot]` | Builds the checkout's server and window unless `HAMLET_SERVER_BIN` and `HAMLET_APP` select them respectively, serves a scratch realm and opens its window; closing the window leaves the server running, and stopping the command closes both in order; `--hot` builds a window that reloads saved shaders and tuning files |
 | `window` | Opens a window connected to a running server |
-| `edit <charter\|limits\|settings>` (`limits --hamlet <id>` for a hamlet's), `edit character <scholar#id>`, `edit memory <scholar#id\|hire#id> [path]` | Opens the chief's document in `$EDITOR` and saves it through the server |
+| `edit <charter\|limits\|settings>` (`limits --hamlet <id>` for a hamlet's), `edit character <profile#id>`, `edit memory <profile#id\|agent#id> [path]` | Opens the chief's document in `$EDITOR` and saves it through the server |
 | `login <provider> [--key]` | Gives a key, or follows an offered sign-in |
 | `models [try [model]\|refresh]` | Lists models, tries a one-word hello, or refreshes the list |
 | `models images <model> [off \| [--width <px>] [--height <px>] [--mb <n>] [--per-line <n>]]` | Says that a model takes images and sets its limits, or clears them (S30) |
@@ -200,5 +200,5 @@ credentials the chief's machine has, which their commands can read.
 Reaching a git host needs the network like any other command (C19, H11).
 Agents may write hooks and config, including in nested repositories; the
 chief accepts that these may run under the chief's own git later (C18,
-ADR 0007). Scholars' repositories are another matter: the server alone
+ADR 0007). Profiles' repositories are another matter: the server alone
 writes them, and no git program is run on them (ADR 0011).

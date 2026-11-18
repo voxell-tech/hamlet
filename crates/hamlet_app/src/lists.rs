@@ -17,7 +17,7 @@ use hamlet_ui::widgets::icons::Glyph;
 use hamlet_ui::{AnyView, View, built, with_cx};
 
 use crate::dock::{HUB, show_tab};
-use crate::world_menu::{self, Deed};
+use crate::world_menu::{self, Action};
 
 #[derive(Clone, PartialEq)]
 pub(crate) struct SkillRow {
@@ -86,7 +86,7 @@ pub(crate) fn skills() -> impl View {
                     move |world| {
                         world_menu::ask(
                             world,
-                            Deed::Unshelve(gone.clone()),
+                            Action::Unshelve(gone.clone()),
                         );
                     },
                 );

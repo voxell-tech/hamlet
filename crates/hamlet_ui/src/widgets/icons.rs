@@ -98,7 +98,7 @@ pub enum Glyph {
     /// An arrow to the left: back to where this was reached from.
     Back,
     /// A crown.
-    Mayor,
+    Lead,
     /// A house.
     Hamlet,
     /// A flame.
@@ -141,12 +141,13 @@ pub enum Glyph {
     Coins,
     /// A dial with a needle: the budget.
     Meter,
-    /// A signpost: roads.
+    /// A signpost: channels.
     Signpost,
     /// A robot's head: a worker, and an agent in general.
     Robot,
-    /// A head over shoulders: a hire, a scholar at work in a hamlet.
-    Hire,
+    /// A head over shoulders: an agent of a hamlet, a profile at work
+    /// there.
+    HamletAgent,
     /// Two sliders: the settings.
     Sliders,
     /// An arrow down into a tray: out of sight, still running.
@@ -206,8 +207,8 @@ pub enum Glyph {
     Face,
     /// A tower: the Hand, from its tower in the city.
     Tower,
-    /// A mortarboard: a scholar, and the city they live in.
-    Scholar,
+    /// A mortarboard: a profile, and the city they live in.
+    Profile,
     /// A key: a provider's API key.
     Key,
     /// A speaker: sound.
@@ -266,7 +267,7 @@ impl Glyph {
         Glyph::Check,
         Glyph::CheckAll,
         Glyph::Back,
-        Glyph::Mayor,
+        Glyph::Lead,
         Glyph::Hamlet,
         Glyph::Hearth,
         Glyph::Talk,
@@ -289,7 +290,7 @@ impl Glyph {
         Glyph::Meter,
         Glyph::Signpost,
         Glyph::Robot,
-        Glyph::Hire,
+        Glyph::HamletAgent,
         Glyph::Sliders,
         Glyph::Lower,
         Glyph::ToEnd,
@@ -323,7 +324,7 @@ impl Glyph {
         Glyph::Tree,
         Glyph::Face,
         Glyph::Tower,
-        Glyph::Scholar,
+        Glyph::Profile,
         Glyph::Key,
         Glyph::Speaker,
         Glyph::Anchor,
@@ -374,7 +375,7 @@ impl Glyph {
                 Line(3.0, 8.0, 13.0, 8.0),
                 Path(&[[7.0, 4.0], [3.0, 8.0], [7.0, 12.0]]),
             ],
-            Glyph::Mayor => &[Loop(&[
+            Glyph::Lead => &[Loop(&[
                 [3.5, 12.5],
                 [2.5, 5.5],
                 [5.75, 8.5],
@@ -540,7 +541,7 @@ impl Glyph {
                 Dot(6.0, 9.5, 1.1),
                 Dot(10.0, 9.5, 1.1),
             ],
-            Glyph::Hire => &[
+            Glyph::HamletAgent => &[
                 Ring(8.0, 5.0, 2.75),
                 Arc(8.0, 14.0, 5.5, 180.0, 360.0),
                 Line(2.5, 14.0, 13.5, 14.0),
@@ -756,7 +757,7 @@ impl Glyph {
                 Arc(8.0, 10.5, 1.25, 180.0, 360.0),
                 Path(&[[9.25, 10.5], [9.25, 13.75]]),
             ],
-            Glyph::Scholar => &[
+            Glyph::Profile => &[
                 Loop(&[
                     [2.0, 6.0],
                     [8.0, 3.25],

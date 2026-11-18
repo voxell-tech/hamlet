@@ -25,7 +25,7 @@ pub enum Command {
         doc: String,
         /// The hamlet whose limits to edit; the realm's when absent.
         hamlet: Option<String>,
-        /// The scholar or agent whose character or memory to edit.
+        /// The profile or agent whose character or memory to edit.
         whom: Option<String>,
         /// The memory file, under `memory/`.
         path: Option<String>,
@@ -218,35 +218,35 @@ async fn models(
     Ok(())
 }
 
-/// The scholar or agent `whom` addresses, for its character or
-/// memory: `scholar#<id>` or an agent's address.
+/// The profile or agent `whom` addresses, for its character or
+/// memory: `profile#<id>` or an agent's address.
 fn keeper(state: &State, whom: &str) -> Result<Keeper> {
-    if let Some(id) = whom.strip_prefix("scholar#") {
-        let scholar = id
+    if let Some(id) = whom.strip_prefix("profile#") {
+        let profile = id
             .parse::<u64>()
             .ok()
             .and_then(|id| {
-                state.scholars.iter().find(|s| {
-                    s.id == ScholarId(id) && s.left.is_none()
+                state.profiles.iter().find(|s| {
+                    s.id == ProfileId(id) && s.left.is_none()
                 })
             })
-            .with_context(|| format!("no scholar at `{whom}`"))?;
-        return Ok(Keeper::Scholar(scholar.id));
+            .with_context(|| format!("no profile at `{whom}`"))?;
+        return Ok(Keeper::Profile(profile.id));
     }
     Ok(Keeper::Agent(crate::chat::resolve(state, whom)?))
 }
 
-/// The scholar whose character `whom` names: a scholar, or the
-/// scholar a hire works as.
-fn scholar(state: &State, whom: &str) -> Result<ScholarId> {
+/// The profile whose character `whom` names: a profile, or the
+/// profile an agent works as.
+fn profile(state: &State, whom: &str) -> Result<ProfileId> {
     match keeper(state, whom)? {
-        Keeper::Scholar(id) => Ok(id),
+        Keeper::Profile(id) => Ok(id),
         Keeper::Agent(id) => state
             .agents
             .iter()
             .find(|a| a.id == id)
-            .and_then(|a| a.scholar)
-            .with_context(|| format!("`{whom}` works as no scholar")),
+            .and_then(|a| a.profile)
+            .with_context(|| format!("`{whom}` works as no profile")),
     }
 }
 
@@ -260,14 +260,14 @@ async fn edit(
 ) -> Result<()> {
     let whom = || {
         whom.with_context(|| {
-            format!("edit {doc} needs a scholar or agent address")
+            format!("edit {doc} needs a profile or agent address")
         })
     };
     let path = path.unwrap_or("notes.md");
-    let (of, scholar) = match doc {
+    let (of, profile) = match doc {
         "character" => {
-            let scholar = scholar(state, whom()?)?;
-            (Keeper::Scholar(scholar), Some(scholar))
+            let profile = profile(state, whom()?)?;
+            (Keeper::Profile(profile), Some(profile))
         }
         "memory" => (keeper(state, whom()?)?, None),
         _ => (Keeper::Agent(state.hand), None),
@@ -357,14 +357,14 @@ async fn edit(
     };
     let text = in_editor(doc, &text).await?;
     let id = RequestId::new();
-    let message = match (doc, scholar) {
+    let message = match (doc, profile) {
         ("charter", _) => Edit::Charter {
             id: id.clone(),
             text: Some(text),
         },
-        ("character", Some(scholar)) => Edit::Character {
+        ("character", Some(profile)) => Edit::Character {
             id: id.clone(),
-            scholar,
+            profile,
             text,
         },
         ("memory", _) => Edit::Memory {

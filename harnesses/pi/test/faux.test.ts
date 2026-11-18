@@ -76,7 +76,7 @@ test("reads a script of shared responses and refuses malformed agent keys", asyn
         (streams) => streams,
     ).getModels();
     expect(models.map((model) => model.id)).toEqual(["faux-1", "faux-2"]);
-    writeFileSync(file, JSON.stringify({ agents: { "home:mayor": ["No"] } }));
+    writeFileSync(file, JSON.stringify({ agents: { "home:lead": ["No"] } }));
     await expect(readScript(file)).rejects.toThrow("not a faux script");
 });
 

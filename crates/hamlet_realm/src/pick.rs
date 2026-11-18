@@ -105,9 +105,9 @@ pub struct PickSettings {
 /// A thing in the world that can be pointed at.
 #[derive(Component, Clone, Copy, PartialEq, Eq, Debug)]
 pub enum Thing {
-    /// The mayor.
+    /// The lead.
     Keeper,
-    /// An agent besides the mayor: the entity that carries its
+    /// An agent besides the lead: the entity that carries its
     /// `Name`.
     Agent(Entity),
     /// The house of that agent.
@@ -115,7 +115,7 @@ pub enum Thing {
     /// The remains of the house of an agent that was removed or
     /// merged.
     Ruin(Entity),
-    /// The mayor's house.
+    /// The lead's house.
     Cottage,
     /// A hamlet's common: the entity that carries the hamlet's
     /// `Name`.
@@ -129,9 +129,9 @@ pub enum Thing {
     Library,
     /// The Hand's tower, at the middle of the city.
     Hand,
-    /// The house of a scholar: the entity that carries its
-    /// `Scholar` and `Name`.
-    Scholar(Entity),
+    /// The house of a profile: the entity that carries its
+    /// `Profile` and `Name`.
+    Profile(Entity),
     /// The clockwork on a hamlet's workbench, which sets its mode.
     Clockwork(Entity),
     /// The workbench on a hamlet's common, which stands for its
@@ -139,8 +139,8 @@ pub enum Thing {
     Workbench(Entity),
 }
 
-/// The names things go by in the world: an agent's `Shown` name, a
-/// hire's nickname or else its scholar's name, over its `Name`.
+/// The names things go by in the world: an agent's `Shown` name, its
+/// own name or else its profile's name, over its `Name`.
 pub type Names<'w, 's> =
     Query<'w, 's, (&'static Name, Option<&'static Shown>)>;
 
@@ -152,7 +152,7 @@ impl Thing {
             Err(_) => String::new(),
         };
         match self {
-            Thing::Keeper => "The Mayor".into(),
+            Thing::Keeper => "The Lead".into(),
             Thing::Agent(agent) => named(agent),
             Thing::House(agent) => {
                 format!("{}'s House", named(agent))
@@ -160,7 +160,7 @@ impl Thing {
             Thing::Ruin(agent) => {
                 format!("{}'s Ruin", named(agent))
             }
-            Thing::Cottage => "The Mayor's House".into(),
+            Thing::Cottage => "The Lead's House".into(),
             Thing::Common(hamlet) => {
                 format!("The Common of {}", named(hamlet))
             }
@@ -172,8 +172,8 @@ impl Thing {
             }
             Thing::Library => "The Library".into(),
             Thing::Hand => "The Hand's Tower".into(),
-            Thing::Scholar(scholar) => {
-                format!("{}'s House", named(scholar))
+            Thing::Profile(profile) => {
+                format!("{}'s House", named(profile))
             }
             Thing::Clockwork(hamlet) => {
                 format!("The Clockwork of {}", named(hamlet))
@@ -204,15 +204,15 @@ impl Thing {
     /// The few words shown over it all the time, when it is `Named`.
     fn sign(self, names: &Names) -> String {
         match self {
-            Thing::Cottage => "Mayor".into(),
+            Thing::Cottage => "Lead".into(),
             Thing::House(agent) | Thing::Ruin(agent) => {
                 Thing::Agent(agent).name(names)
             }
             // A hamlet is known by the name over its common.
             Thing::Common(hamlet) => Thing::Agent(hamlet).name(names),
-            // A scholar's house carries its scholar's name.
-            Thing::Scholar(scholar) => {
-                Thing::Agent(scholar).name(names)
+            // A profile's house carries its profile's name.
+            Thing::Profile(profile) => {
+                Thing::Agent(profile).name(names)
             }
             other => other.name(names),
         }

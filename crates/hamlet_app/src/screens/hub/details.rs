@@ -1,7 +1,7 @@
 //! The details sheet beside a thread: what only it shows of the
-//! agent. Its kind, scholar, lead and hires are in the path and the
-//! rail, its model in the composer and its sessions and side chats in
-//! the session menu, so they are not repeated here.
+//! agent. Its kind, profile, parent and agents are in the path and
+//! the rail, its model in the composer and its sessions and side
+//! chats in the session menu, so they are not repeated here.
 
 use bevy::ecs::entity::Entity;
 use bevy::ecs::world::World;
@@ -15,8 +15,8 @@ use bevy_fynix::{
     Bevy, ScopedExt, ViewExt, ViewSeq, derived, every_frame, keyed,
 };
 use hamlet_client::realm::{
-    Account, Allowance, Bylaws, Deeds, Kind, LivesIn, Road, Scholar,
-    ToolsOff, id_of, name_of, roads_of, shown_of,
+    Account, Actions, Allowance, Bylaws, Channel, Kind, LivesIn,
+    Profile, ToolsOff, channels_of, id_of, name_of, shown_of,
 };
 use hamlet_protocol::client as protocol;
 use hamlet_realm::orders;
@@ -48,15 +48,15 @@ struct Facts {
     hand: bool,
     worker: bool,
     purpose: String,
-    /// The version it is pinned to, none for its scholar's `main`.
+    /// The version it is pinned to, none for its profile's `main`.
     pin: Option<String>,
-    /// Its scholar's named versions, when the chief may pin it to
+    /// Its profile's named versions, when the chief may pin it to
     /// one.
     versions: Option<Vec<String>>,
     /// Its address, and what it is called in the world.
     address: String,
     called: String,
-    roads: Vec<(Entity, String)>,
+    channels: Vec<(Entity, String)>,
     spent: String,
     /// Its allowance in dollars, and the period of its hamlet's
     /// budget that it is for.
@@ -65,18 +65,18 @@ struct Facts {
 }
 
 fn facts(world: &World, agent: Entity) -> Facts {
-    let mut roads = roads_of(world, agent)
-        .filter_map(|road| world.get::<Road>(road))
-        .map(|road| {
-            if road.ends.0 == agent {
-                road.ends.1
+    let mut channels = channels_of(world, agent)
+        .filter_map(|channel| world.get::<Channel>(channel))
+        .map(|channel| {
+            if channel.ends.0 == agent {
+                channel.ends.1
             } else {
-                road.ends.0
+                channel.ends.0
             }
         })
         .map(|other| (other, shown_of(world, other)))
         .collect::<Vec<_>>();
-    roads.sort_by(|a, b| a.1.cmp(&b.1));
+    channels.sort_by(|a, b| a.1.cmp(&b.1));
     Facts {
         hand: world.get::<Kind>(agent).map(|kind| kind.0)
             == Some(protocol::AgentKind::Hand),
@@ -89,12 +89,12 @@ fn facts(world: &World, agent: Entity) -> Facts {
         pin: world
             .get::<hamlet_client::realm::Pin>(agent)
             .map(|pin| pin.0.clone()),
-        versions: Deeds::is_allowed(world, "pin")
+        versions: Actions::is_allowed(world, "pin")
             .then(|| versions_of(world, agent))
             .flatten(),
         address: name_of(world, agent),
         called: shown_of(world, agent),
-        roads,
+        channels,
         spent: world
             .get::<Account>(agent)
             .map(|account| account.cost.clone())
@@ -111,15 +111,15 @@ fn facts(world: &World, agent: Entity) -> Facts {
     }
 }
 
-/// The named versions of the scholar `agent` is a hire of.
+/// The named versions of the profile `agent` is an agent of.
 fn versions_of(world: &World, agent: Entity) -> Option<Vec<String>> {
     let id = id_of(world, agent)?;
-    let mut scholars = world.try_query::<&Scholar>()?;
-    scholars
+    let mut profiles = world.try_query::<&Profile>()?;
+    profiles
         .iter(world)
-        .find(|scholar| scholar.0.hires.contains(&id))
-        .map(|scholar| {
-            scholar
+        .find(|profile| profile.0.agents.contains(&id))
+        .map(|profile| {
+            profile
                 .0
                 .versions
                 .iter()
@@ -156,9 +156,9 @@ fn read_only(text: String) -> AnyView {
     .boxed()
 }
 
-/// What a hire is called in the world, typed over: Enter gives it the
-/// nickname, and a field left empty its own name again.
-fn nickname_field(facts: &Facts) -> AnyView {
+/// What an agent is called in the world, typed over: Enter gives it
+/// the name, and a field left empty its own again.
+fn name_field(facts: &Facts) -> AnyView {
     let address = facts.address.clone();
     let had = facts.called.clone();
     text_field(had.clone(), move |world, typed| {
@@ -166,7 +166,7 @@ fn nickname_field(facts: &Facts) -> AnyView {
         if typed != had {
             crate::chat::command(
                 world,
-                format!("/nickname {address} {typed}")
+                format!("/name-agent {address} {typed}")
                     .trim_end()
                     .into(),
             );
@@ -210,8 +210,8 @@ fn allowance_field(facts: &Facts) -> AnyView {
     .boxed()
 }
 
-/// The version of its scholar it works from, chosen from the
-/// scholar's versions where it may be pinned.
+/// The version of its profile it works from, chosen from the
+/// profile's versions where it may be pinned.
 fn version(facts: &Facts) -> AnyView {
     let now = facts.pin.clone().unwrap_or_else(|| "main".into());
     let Some(versions) = &facts.versions else {
@@ -252,7 +252,7 @@ fn version(facts: &Facts) -> AnyView {
     .boxed()
 }
 
-/// A version as the chief reads it: `main` is what its scholar knows
+/// A version as the chief reads it: `main` is what its profile knows
 /// now.
 fn shown_version(name: &str) -> String {
     match name {
@@ -261,7 +261,7 @@ fn shown_version(name: &str) -> String {
     }
 }
 
-/// The built-in tools a hire can be kept from, each with what it
+/// The built-in tools an agent can be kept from, each with what it
 /// does.
 const TOOLS: [(&str, &str); 6] = [
     ("read", "Reads files"),
@@ -325,11 +325,11 @@ fn about(facts: &Facts) -> Option<AnyView> {
         parts.push(setting(
             "Called",
             "What it is called in the world; empty for its own name",
-            nickname_field(facts),
+            name_field(facts),
         ));
         parts.push(setting(
             "Version",
-            "The version of its scholar it works from",
+            "The version of its profile it works from",
             version(facts),
         ));
         parts.push(setting(
@@ -362,15 +362,15 @@ fn about(facts: &Facts) -> Option<AnyView> {
     })
 }
 
-/// The agents it has a road to, each to take up, and a way to build
+/// The agents it has a channel to, each to close, and a way to open
 /// another.
-fn roads(agent: Entity, facts: &Facts) -> AnyView {
+fn channels(agent: Entity, facts: &Facts) -> AnyView {
     let mut parts = Vec::new();
-    for (other, name) in facts.roads.iter().cloned() {
+    for (other, name) in facts.channels.iter().cloned() {
         let cut = button(glyph(Glyph::Cross, ICON).tone(Tone::Faint))
             .padding(UiRect::all(px(2.0)))
             .rules(bevy_fynix::views::tint)
-            .tip("Take up the road")
+            .tip("Close the channel")
             .on_activate(move |world| {
                 orders::part(world, agent, other);
             });
@@ -382,12 +382,12 @@ fn roads(agent: Entity, facts: &Facts) -> AnyView {
         );
     }
     parts.push(
-        row((action(Glyph::Plus, "Build a road", move |world| {
-            crate::world_menu::ask_road(world, agent);
+        row((action(Glyph::Plus, "Open a channel", move |world| {
+            crate::world_menu::ask_channel(world, agent);
         }),))
         .boxed(),
     );
-    section(Glyph::Signpost, "Roads", None, column(parts).gap(6.0))
+    section(Glyph::Signpost, "Channels", None, column(parts).gap(6.0))
 }
 
 /// The sections of the agent's own facts that `build` makes, kept in
@@ -398,13 +398,13 @@ fn facts_sections(
 ) -> impl View {
     keyed(
         derived(move |world: &World| {
-            let roads = Deeds::is_allowed(world, "road")
-                || Deeds::is_allowed(world, "unroad");
-            (facts(world, agent), roads)
+            let channels = Actions::is_allowed(world, "channel")
+                || Actions::is_allowed(world, "unchannel");
+            (facts(world, agent), channels)
         })
         .when(every_frame()),
-        move |(facts, may_road)| {
-            column(build(agent, facts, *may_road)).gap(0.0).boxed()
+        move |(facts, may_channel)| {
+            column(build(agent, facts, *may_channel)).gap(0.0).boxed()
         },
     )
     .within(bare())
@@ -415,18 +415,18 @@ fn head(_: Entity, facts: &Facts, _: bool) -> Vec<AnyView> {
     about(facts).into_iter().collect()
 }
 
-/// What it may do: its tools and its roads.
+/// What it may do: its tools and its channels.
 fn powers(
     agent: Entity,
     facts: &Facts,
-    may_road: bool,
+    may_channel: bool,
 ) -> Vec<AnyView> {
     let mut parts = Vec::new();
     if !facts.hand && !facts.worker {
         parts.push(tools(agent, facts));
     }
-    if may_road && !facts.hand {
-        parts.push(roads(agent, facts));
+    if may_channel && !facts.hand {
+        parts.push(channels(agent, facts));
     }
     parts
 }

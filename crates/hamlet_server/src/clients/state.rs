@@ -8,7 +8,7 @@ use diesel::prelude::*;
 use hamlet_git::{MAIN, Repository};
 use hamlet_protocol::client as protocol;
 use hamlet_store::Db;
-use hamlet_store::ids::{AgentId, HamletId, ScholarId};
+use hamlet_store::ids::{AgentId, HamletId, ProfileId};
 use hamlet_store::schema::{agent, message, permission_grant};
 
 use crate::conversations::activity::{self, Activity};
@@ -17,14 +17,14 @@ use crate::knowledge;
 use crate::realm::layout::Layout;
 use crate::realm::settings::EffectiveSettings;
 use crate::society::agents::{Agent, AgentKind, Effort, EndHow};
-use crate::society::city::{self, Arrival, Scholar};
+use crate::society::channels::{self, ChannelKind, Way};
+use crate::society::city::{self, Arrival, Profile};
 use crate::society::hamlets::{self, Hamlet, Mode};
 use crate::society::limits::{
     self, Limits, Period, RealmLimits, Review,
 };
-use crate::society::roads::{self, RoadKind, Way};
 use crate::society::{
-    addresses, chiefs, hand, hires, spend, workers,
+    addresses, chiefs, hamlet_agents, hand, spend, workers,
 };
 
 /// What composing the state reads besides the database.
@@ -35,7 +35,7 @@ pub(crate) struct Sources<'a> {
     pub confinement: protocol::Confinement,
     pub activity: &'a BTreeMap<AgentId, Activity>,
     pub providers: Vec<protocol::ProviderView>,
-    pub deeds: Vec<protocol::Deed>,
+    pub actions: Vec<protocol::Action>,
     pub settings_view: protocol::SettingsView,
     pub waits: Vec<protocol::Wait>,
     pub library: Vec<protocol::LibrarySkill>,
@@ -77,12 +77,12 @@ pub(crate) fn compose(
             });
         }
     }
-    let mut scholars_shown = Vec::new();
-    for scholar in city::all(db)? {
-        scholars_shown.push(scholar_view(
+    let mut profiles_shown = Vec::new();
+    for profile in city::all(db)? {
+        profiles_shown.push(profile_view(
             db,
             sources.layout,
-            &scholar,
+            &profile,
         )?);
     }
     Ok(protocol::State {
@@ -90,7 +90,7 @@ pub(crate) fn compose(
         chief: sources.chief.clone(),
         closed,
         confinement: sources.confinement.clone(),
-        deeds: sources.deeds.clone(),
+        actions: sources.actions.clone(),
         epoch,
         grants: grants(db)?,
         hamlets: hamlets_shown,
@@ -100,7 +100,7 @@ pub(crate) fn compose(
         providers: sources.providers.clone(),
         realm: hamlet_os::fs::path::text(sources.layout.root()),
         revision,
-        scholars: scholars_shown,
+        profiles: profiles_shown,
         settings: sources.settings_view.clone(),
         terminals: sources.terminals.clone(),
         waits: sources.waits.clone(),
@@ -111,8 +111,8 @@ pub(crate) fn wire_agent(id: AgentId) -> protocol::AgentId {
     protocol::AgentId(u64::try_from(id.0).unwrap_or_default())
 }
 
-pub(crate) fn wire_scholar(id: ScholarId) -> protocol::ScholarId {
-    protocol::ScholarId(u64::try_from(id.0).unwrap_or_default())
+pub(crate) fn wire_profile(id: ProfileId) -> protocol::ProfileId {
+    protocol::ProfileId(u64::try_from(id.0).unwrap_or_default())
 }
 
 fn wire_time(at: i64) -> u64 {
@@ -126,25 +126,25 @@ fn agent_view(
     at: i64,
 ) -> Result<protocol::Agent> {
     let id = found.id;
-    let name = addresses::address_of(db, id)?;
-    let (hamlet, scholar, parent, purpose, mayor) = match found.kind {
+    let address = addresses::address_of(db, id)?;
+    let (hamlet, profile, parent, purpose, lead) = match found.kind {
         AgentKind::Hand => {
-            let scholar = hand::scholar(db)?;
-            (None, Some(scholar), None, String::new(), false)
+            let profile = hand::profile(db)?;
+            (None, Some(profile), None, String::new(), false)
         }
-        AgentKind::Hire => {
-            let hire = hires::get(db, id)?;
-            let mayor = hires::is_mayor(db, id)?;
-            let parent = match hire.parent {
+        AgentKind::Hamlet => {
+            let agent = hamlet_agents::get(db, id)?;
+            let lead = hamlet_agents::is_lead(db, id)?;
+            let parent = match agent.parent {
                 Some(parent) => Some(parent),
                 None => Some(hand::id(db)?),
             };
             (
-                Some(hire.hamlet.to_string()),
-                Some(hire.scholar),
+                Some(agent.hamlet.to_string()),
+                Some(agent.profile),
                 parent,
-                hire.purpose,
-                mayor && found.is_living(),
+                agent.purpose,
+                lead && found.is_living(),
             )
         }
         AgentKind::Worker => {
@@ -185,13 +185,13 @@ fn agent_view(
             how: match how {
                 EndHow::Ended => protocol::LeftHow::Ended,
                 EndHow::Merged => protocol::LeftHow::Merged,
-                EndHow::Scholar => protocol::LeftHow::Scholar,
+                EndHow::Profile => protocol::LeftHow::Profile,
                 EndHow::Hamlet => protocol::LeftHow::Hamlet,
                 EndHow::Answered => protocol::LeftHow::Answered,
                 EndHow::Failed => protocol::LeftHow::Failed,
                 EndHow::Stopped => protocol::LeftHow::Stopped,
             },
-            into: hires::find(db, id)?
+            into: hamlet_agents::find(db, id)?
                 .and_then(|h| h.merged_into)
                 .map(wire_agent),
             reason: found.ended_reason.clone().unwrap_or_default(),
@@ -201,29 +201,30 @@ fn agent_view(
     };
     let own_model = match found.kind {
         AgentKind::Hand => hand::model(db)?,
-        AgentKind::Hire => hires::get(db, id)?.model,
+        AgentKind::Hamlet => hamlet_agents::get(db, id)?.model,
         AgentKind::Worker => workers::get(db, id)?.model,
     };
-    let (pin, nickname, allowance, tools_off) = match found.kind {
-        AgentKind::Hire => {
-            let hire = hires::get(db, id)?;
+    let (pin, name, allowance, tools_off) = match found.kind {
+        AgentKind::Hamlet => {
+            let agent = hamlet_agents::get(db, id)?;
             (
-                hire.pin,
-                hire.nickname,
-                hire.allowance
+                agent.pin,
+                agent.name,
+                agent
+                    .allowance
                     .map(|micros| micros as f64 / 1_000_000.0),
-                hires::tools_off(db, id)?,
+                hamlet_agents::tools_off(db, id)?,
             )
         }
         AgentKind::Worker => {
-            (None, workers::get(db, id)?.nickname, None, Vec::new())
+            (None, workers::get(db, id)?.name, None, Vec::new())
         }
         AgentKind::Hand => (None, None, None, Vec::new()),
     };
     let skills = match found.kind {
         AgentKind::Worker => Vec::new(),
-        _ => knowledge::lodging(db, sources.layout, id)
-            .map(|lodging| lodge_skills(&lodging.path))
+        _ => knowledge::worktree(db, sources.layout, id)
+            .map(|worktree| worktree_skills(&worktree.path))
             .unwrap_or_default(),
     };
     Ok(protocol::Agent {
@@ -236,6 +237,7 @@ fn agent_view(
             step: shown
                 .map_or(0, |a| u64::try_from(a.step).unwrap_or(0)),
         },
+        address,
         allowance,
         busy: found.is_living() && inputs::is_agent_busy(db, id)?,
         consulting: found.is_living()
@@ -252,14 +254,13 @@ fn agent_view(
         id: wire_agent(id),
         kind: match found.kind {
             AgentKind::Hand => protocol::AgentKind::Hand,
-            AgentKind::Hire => protocol::AgentKind::Hire,
+            AgentKind::Hamlet => protocol::AgentKind::Hamlet,
             AgentKind::Worker => protocol::AgentKind::Worker,
         },
         left,
-        mayor,
+        lead,
         model,
         name,
-        nickname,
         own_model,
         parent: parent.map(wire_agent),
         pin,
@@ -268,7 +269,7 @@ fn agent_view(
             text: shown.map(|a| a.saying.clone()).unwrap_or_default(),
             thought: shown.is_some_and(|a| a.thought),
         },
-        scholar: scholar.map(wire_scholar),
+        profile: profile.map(wire_profile),
         since: wire_time(found.since),
         skills,
         spent: protocol::AgentSpent {
@@ -281,9 +282,10 @@ fn agent_view(
     })
 }
 
-/// The names of the skills in a lodge's `skills/`.
-fn lodge_skills(lodge: &std::path::Path) -> Vec<String> {
-    let Ok(entries) = std::fs::read_dir(lodge.join("skills")) else {
+/// The names of the skills in a worktree's `skills/`.
+fn worktree_skills(worktree: &std::path::Path) -> Vec<String> {
+    let Ok(entries) = std::fs::read_dir(worktree.join("skills"))
+    else {
         return Vec::new();
     };
     let mut names = entries
@@ -339,25 +341,27 @@ fn hamlet_view(
     at: i64,
 ) -> Result<protocol::Hamlet> {
     let own = limits::of(db, &place.id)?;
-    let mut roads_shown = Vec::new();
-    let living = hires::living_in(db, &place.id)?;
+    let mut channels_shown = Vec::new();
+    let living = hamlet_agents::living_in(db, &place.id)?;
     let mut seen = std::collections::BTreeSet::new();
-    for hire in &living {
-        for (other, way) in roads::ways(db, hire.agent)? {
-            let pair = (hire.agent.min(other), hire.agent.max(other));
+    for agent in &living {
+        for (other, way) in channels::ways(db, agent.agent)? {
+            let pair =
+                (agent.agent.min(other), agent.agent.max(other));
             if !seen.insert(pair) {
                 continue;
             }
             let kind = match way {
-                Way::Tree => protocol::RoadKind::Tree,
-                Way::Mayors => protocol::RoadKind::Mayors,
-                Way::Road(_) => {
-                    let found = roads::open(db, pair.0, pair.1)?;
+                Way::Tree => protocol::ChannelKind::Tree,
+                Way::Leads => protocol::ChannelKind::Leads,
+                Way::Channel(_) => {
+                    let found =
+                        channels::between(db, pair.0, pair.1)?;
                     match found.map(|r| r.kind) {
-                        Some(RoadKind::Agreed) => {
-                            protocol::RoadKind::Agreed
+                        Some(ChannelKind::Agreed) => {
+                            protocol::ChannelKind::Agreed
                         }
-                        _ => protocol::RoadKind::Laid,
+                        _ => protocol::ChannelKind::Opened,
                     }
                 }
             };
@@ -373,13 +377,13 @@ fn hamlet_view(
                 .order(message::at.desc())
                 .select((message::sender, message::at))
                 .load::<(AgentId, i64)>(db)?;
-            let level = road_level(
+            let level = channel_level(
                 used.len(),
                 used.first().map(|(_, at)| *at),
                 &own,
                 at,
             );
-            roads_shown.push(protocol::Road {
+            channels_shown.push(protocol::Channel {
                 a: wire_agent(pair.0),
                 b: wire_agent(pair.1),
                 kind,
@@ -413,61 +417,61 @@ fn hamlet_view(
         folder: place.folder.clone(),
         id: place.id.to_string(),
         limits: hamlet_limits(&own),
-        mayor: wire_agent(place.mayor),
+        lead: wire_agent(place.lead),
         mode: match place.mode {
             Mode::Manual => protocol::HamletMode::Manual,
             Mode::Auto => protocol::HamletMode::Auto,
         },
         mode_words: match (place.mode, place.folder.is_some()) {
-            (_, false) => "Hires work in their lodges; no folder is \
-                           chosen."
+            (_, false) => "Agents work in their worktrees; no \
+                           folder is chosen."
                 .into(),
-            (Mode::Manual, true) => "Hires wait for your approval \
+            (Mode::Manual, true) => "Agents wait for your approval \
                                      before each edit and command \
                                      in the folder."
                 .into(),
-            (Mode::Auto, true) => "Hires edit the folder and run \
+            (Mode::Auto, true) => "Agents edit the folder and run \
                                    commands without approval."
                 .into(),
         },
         name: place.name.clone(),
-        roads: roads_shown,
+        channels: channels_shown,
         tier: u64::try_from(place.tier).unwrap_or_default(),
     })
 }
 
-/// How worn a road is: by how much it carries, grown over once unused
-/// for its days (H3).
-fn road_level(
+/// How worn a channel is: by how much it carries, grown over once
+/// unused for its days (H3).
+fn channel_level(
     messages: usize,
     last: Option<i64>,
     limits: &Limits,
     at: i64,
-) -> protocol::RoadLevel {
+) -> protocol::ChannelLevel {
     let grown = last.is_none_or(|last| {
         at - last
-            > crate::app::clock::days(limits.road.grows_over_days)
+            > crate::app::clock::days(limits.channel.grows_over_days)
     });
     match messages {
-        _ if grown && messages == 0 => protocol::RoadLevel::Dirt,
-        _ if grown => protocol::RoadLevel::Overgrown,
-        0..=4 => protocol::RoadLevel::Dirt,
-        5..=24 => protocol::RoadLevel::Paved,
-        _ => protocol::RoadLevel::Rail,
+        _ if grown && messages == 0 => protocol::ChannelLevel::Dirt,
+        _ if grown => protocol::ChannelLevel::Overgrown,
+        0..=4 => protocol::ChannelLevel::Dirt,
+        5..=24 => protocol::ChannelLevel::Paved,
+        _ => protocol::ChannelLevel::Rail,
     }
 }
 
-fn scholar_view(
+fn profile_view(
     db: &mut Db,
     layout: &Layout,
-    scholar: &Scholar,
-) -> Result<protocol::Scholar> {
-    let mut hires_shown = Vec::new();
-    for hire in hires_of(db, scholar)? {
-        hires_shown.push(wire_agent(hire));
+    profile: &Profile,
+) -> Result<protocol::Profile> {
+    let mut agents_shown = Vec::new();
+    for agent in agents_of(db, profile)? {
+        agents_shown.push(wire_agent(agent));
     }
     let (skills, versions) =
-        match Repository::open(&layout.repository(scholar.id)) {
+        match Repository::open(&layout.repository(profile.id)) {
             Ok(repo) => {
                 let skills = match repo.tip(MAIN)? {
                     Some(tip) => {
@@ -502,62 +506,62 @@ fn scholar_view(
             }
             Err(_) => (Vec::new(), Vec::new()),
         };
-    let chief = match scholar.chief {
+    let chief = match profile.chief {
         Some(chief) => chiefs::find(db, chief)?
             .map(|c| c.name)
             .unwrap_or_default(),
         None => String::new(),
     };
-    Ok(protocol::Scholar {
-        arrival: match scholar.arrival {
+    Ok(protocol::Profile {
+        agents: agents_shown,
+        arrival: match profile.arrival {
             Arrival::Housed => protocol::Arrival::Housed,
             Arrival::Waiting => protocol::Arrival::Waiting,
             Arrival::Turned => protocol::Arrival::Turned,
             Arrival::Apart => protocol::Arrival::Apart,
         },
-        arrival_by: match scholar.arrival_by {
+        arrival_by: match profile.arrival_by {
             Some(by) => Some(addresses::actor_address(db, Some(by))?),
             None => None,
         },
         chief,
-        hires: hires_shown,
-        house: match (scholar.house_x, scholar.house_z) {
+        house: match (profile.house_x, profile.house_z) {
             (Some(x), Some(z)) => Some(protocol::HouseAt {
-                turn: scholar.house_turn.unwrap_or_default(),
+                turn: profile.house_turn.unwrap_or_default(),
                 x,
                 z,
             }),
             _ => None,
         },
-        id: wire_scholar(scholar.id),
-        left: match scholar.left_at {
-            Some(left) => Some(protocol::ScholarLeft {
+        id: wire_profile(profile.id),
+        left: match profile.left_at {
+            Some(left) => Some(protocol::ProfileLeft {
                 at: wire_time(left),
-                by: addresses::actor_address(db, scholar.left_by)?,
-                reason: scholar
+                by: addresses::actor_address(db, profile.left_by)?,
+                reason: profile
                     .left_reason
                     .clone()
                     .unwrap_or_default(),
             }),
             None => None,
         },
-        name: scholar.name.clone(),
-        since: wire_time(scholar.since),
+        name: profile.name.clone(),
+        since: wire_time(profile.since),
         skills,
         versions,
     })
 }
 
-/// The hires of `scholar` not erased, living ones and ended ones that
-/// may come back.
-fn hires_of(db: &mut Db, scholar: &Scholar) -> Result<Vec<AgentId>> {
-    use hamlet_store::schema::hire;
-    Ok(hire::table
+/// The agents of `profile` not erased, living ones and ended ones
+/// that may come back.
+fn agents_of(db: &mut Db, profile: &Profile) -> Result<Vec<AgentId>> {
+    use hamlet_store::schema::hamlet_agent;
+    Ok(hamlet_agent::table
         .inner_join(agent::table)
-        .filter(hire::scholar.eq(scholar.id))
+        .filter(hamlet_agent::profile.eq(profile.id))
         .filter(agent::erased.eq(false))
-        .order(hire::agent)
-        .select(hire::agent)
+        .order(hamlet_agent::agent)
+        .select(hamlet_agent::agent)
         .load(db)?)
 }
 
@@ -613,15 +617,15 @@ pub(crate) fn hamlet_limits(own: &Limits) -> protocol::Limits {
         model: own.model.clone(),
         protected_minutes: own.protected_minutes,
         reserved: protocol::LimitsReserved {
+            add: own.reserved.add,
             end: own.reserved.end,
-            hire: own.reserved.hire,
             merge: own.reserved.merge,
-            roads: own.reserved.roads,
+            channels: own.reserved.channels,
         },
-        road: protocol::LimitsRoad {
-            grows_over_days: own.road.grows_over_days,
-            most: own.road.most,
-            price: own.road.price as f64 / 1_000_000.0,
+        channel: protocol::LimitsChannel {
+            grows_over_days: own.channel.grows_over_days,
+            most: own.channel.most,
+            price: own.channel.price as f64 / 1_000_000.0,
         },
         told_days: own.told_days,
     }
@@ -632,7 +636,7 @@ pub(crate) fn realm_limits(
 ) -> protocol::RealmLimits {
     protocol::RealmLimits {
         budget: budget_view(&own.budget),
-        roads_between: own.roads_between,
+        channels_between: own.channels_between,
     }
 }
 

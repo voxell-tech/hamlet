@@ -12,16 +12,16 @@ use jsonschema::error::{TypeKind, ValidationErrorKind};
 use schemars::generate::SchemaSettings;
 use serde_json::Value;
 
-use crate::society::refusal::Refusal;
+use crate::society::rejection::Rejection;
 
 /// The answer to request `id`.
 pub(crate) fn reply(
     id: &RequestId,
-    result: Result<String, Refusal>,
+    result: Result<String, Rejection>,
 ) -> ServerMessage {
     let (kind, text) = match result {
         Ok(text) => (ReplyKind::Notice, text),
-        Err(refusal) => (ReplyKind::Error, refusal.to_string()),
+        Err(rejection) => (ReplyKind::Error, rejection.to_string()),
     };
     ServerMessage::Reply(Reply {
         file: None,

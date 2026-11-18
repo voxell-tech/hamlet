@@ -184,7 +184,7 @@ pub enum Scene {
     Field,
     /// A long chat with a turn's steps unfolded.
     Chat,
-    /// An agent's chat with the chief, the mayor and another agent
+    /// An agent's chat with the chief, the lead and another agent
     /// in it.
     Group,
     /// A chat with links of every kind in it, the pointer on one.
@@ -214,8 +214,8 @@ pub enum Scene {
     Prompt,
     /// The Hub with its rail open over a realm at work.
     Hub,
-    /// The Hub's page of a scholar.
-    Scholar,
+    /// The Hub's page of a profile.
+    Profile,
     /// The Hub's page of the realm, over a realm at work.
     Realm,
     /// The starting desk, narrow enough for the rail's icons.

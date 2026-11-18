@@ -39,6 +39,6 @@ a choice the chief makes each time, not a default anyone inherits.
   the server. Insecure mode is the one place they run with no
   confinement, and the window, the banner and the prompt say so.
 - A command in insecure mode can read the chief's credentials and the
-  other agents' lodges, since the account running the server can.
+  other agents' worktrees, since the account running the server can.
 - A Windows sandbox later is one more sandbox kind beside bubblewrap
   and Seatbelt. It changes none of this.

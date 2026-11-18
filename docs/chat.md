@@ -11,7 +11,7 @@ wire messages, watch rules and page boundaries; this page covers the window.
 
 A chat entity has `Chat(ChatRef)`, `Transcript`, `Status`, `Usage` and a
 `TalksTo(agent)` relationship. Its reference names the agent by its id
-(the Hand, a hire or a worker). Adding the chat sends `open`; removing it
+(the Hand, an agent of a hamlet or a worker). Adding the chat sends `open`; removing it
 sends `close`. Reconnecting opens every watched chat again.
 
 The server answers with a `transcript` page. Live `turn` operations add or
@@ -27,7 +27,7 @@ comes from `read history`, listed by the day each was last used; Read
 opens a numbered past conversation read-only, drawn as the chat is, and
 Resume sends `/resume <n>`. Every conversation is kept.
 
-A hire made for a conversation brought in from another program (C35)
+An agent made for a conversation brought in from another program (C35)
 has it as the first session of its chat. The card "Bring in your
 projects" (`hamlet_app/src/welcome/projects.rs`) lists the projects
 found on the window's machine, or in an export file chosen in the
@@ -35,7 +35,7 @@ system's dialog; it opens once when first-run setup ends on a realm with
 no hamlet, and from Settings. `hamlet_import` reads the conversations on
 the chief's machine, off the frame (`hamlet_client/src/imports.rs`), the
 client sends each as a file and the project as `import-project`, and the
-server (`conversations/imports.rs`) founds or finds the hamlet, makes the hires
+server (`conversations/imports.rs`) founds or finds the hamlet, makes the agents
 and holds each conversation's entries until the runtime makes it with
 them, which waits for a model to be set up. Until then its chat shows
 the entries held, and its watchers get its transcript anew once the
@@ -48,7 +48,7 @@ conversations with other agents and the workers it started. Choosing a
 sender's letters or questions opens a reference with `from` and `kind`;
 without a kind the server selects letters. These watches have paging and
 live updates, but no input field, stop control or rewind. The first entry
-returns to the chief's own conversation. The server also refuses edits of
+returns to the chief's own conversation. The server also rejects edits of
 peer conversations.
 
 A peer input carries `author`, its sender's address, rather than `chief`.
@@ -92,10 +92,10 @@ path must exist there. A relative path is looked for under the selected
 hamlet's received work folder, and becomes a link only if its canonical
 path stays under that folder. `..` and symlinks are followed before that
 check. The received realm folder is excluded after resolving links, for
-absolute and relative paths alike. No file under an agent's lodge becomes a
+absolute and relative paths alike. No file under an agent's worktree becomes a
 link or a local picture. The work folder is a path on the server's machine;
 with `hamlet dev` it is local too. Nothing downloads a server file.
-Lodge-relative paths such as an agent's `memory/` or `skills/` stay plain
+Worktree-relative paths such as an agent's `memory/` or `skills/` stay plain
 text unless they name a file in the local work folder.
 
 **When the disk is asked.** Once for each distinct path when a paragraph
@@ -137,7 +137,7 @@ line that names the message it answers, its words as a JSON string, and
 the words of the reply after a blank line:
 
 ```
-(Replying to Mayor: "Paper or ebook?\nBoth ship soon.")
+(Replying to Lead: "Paper or ebook?\nBoth ship soon.")
 
 Paper.
 ```
@@ -196,7 +196,7 @@ its words go back in the field to be changed and sent again.
 that message and keeps its stable conversation number. The client sends
 `rewind` with the chat reference and the item's string ID. A `rewound`
 reply gives the words back; a reset followed by a transcript replaces the
-shown items. The server refuses a rewind while work is running or queued
+shown items. The server rejects a rewind while work is running or queued
 and closes waits raised by the part taken back.
 
 **What is not undone.** Files changed, commands run, memory, skills, files
@@ -267,7 +267,7 @@ choose them. A paste takes image files copied in a file manager, or a picture
 such as a screenshot; words on the clipboard are pasted as words. Each image
 is uploaded at once, shown as a chip in the field, and sent with the line,
 which may hold only images. A line waits for every image to be kept; the chip
-of one the server refused is marked, and says why in its tooltip, until it is
+of one the server rejected is marked, and says why in its tooltip, until it is
 taken out. Files are read off the frame, and one over 20 MiB is refused
 unread.
 
@@ -297,9 +297,9 @@ places the ones its `@path` tokens name.
 A model that takes no images has the button greyed out, and a drag over
 the window says it cannot be dropped; a paste or drop is refused the same way.
 The chip of an image already in the field when the model is changed is greyed
-out with a tooltip that says so, and the server refuses the line (S30).
+out with a tooltip that says so, and the server rejects the line (S30).
 The catalogue entry of the agent's model tells which: a model the catalogue
-does not list is taken to see, and the server refuses what it cannot (S30).
+does not list is taken to see, and the server rejects what it cannot (S30).
 The number of images a line takes is the model's limit. A chief says that a
 model of a custom endpoint takes images, and within what limits, in the model
 catalogue in Settings, or with `hamlet models images`.

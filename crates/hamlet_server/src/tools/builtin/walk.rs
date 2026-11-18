@@ -1,5 +1,5 @@
 //! The walk under a folder that `search` and `find` make, and the
-//! words of their refusals.
+//! words of their rejections.
 
 use hamlet_os::fs::path;
 use hamlet_sandbox::{FileInfo, FileKind};
@@ -25,7 +25,7 @@ pub(super) const VISITED: usize = 20_000;
 /// The most hits or names a search gives.
 pub(super) const FOUND: usize = 100;
 
-/// A search or listing refused before it looked.
+/// A search or listing rejected before it looked.
 pub(super) enum Failure {
     PatternEmpty,
     PatternNotLinear,

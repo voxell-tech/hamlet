@@ -126,7 +126,7 @@ pub async fn upload_image(
             upload: Some(upload),
             ..
         }) => upload,
-        other => bail!("{}", refusal(&other)),
+        other => bail!("{}", rejection(&other)),
     };
     let mut image = None;
     let mut offset = 0;
@@ -150,7 +150,7 @@ pub async fn upload_image(
                 image: kept,
                 ..
             }) => image = kept.or(image),
-            other => bail!("{}", refusal(&other)),
+            other => bail!("{}", rejection(&other)),
         }
         offset += part.len() as u64;
     }
@@ -305,7 +305,7 @@ pub async fn put_file(
             upload: Some(upload),
             ..
         }) => upload,
-        other => bail!("{}", refusal(&other)),
+        other => bail!("{}", rejection(&other)),
     };
     let mut kept = None;
     let mut offset = 0;
@@ -329,16 +329,16 @@ pub async fn put_file(
                 file,
                 ..
             }) => kept = file.or(kept),
-            other => bail!("{}", refusal(&other)),
+            other => bail!("{}", rejection(&other)),
         }
         offset += part.len() as u64;
     }
     kept.context("The server kept no file.")
 }
 
-/// The words of a refusal or a fault, or of an answer that is
+/// The words of a rejection or a fault, or of an answer that is
 /// neither.
-fn refusal(message: &ServerMessage) -> String {
+fn rejection(message: &ServerMessage) -> String {
     match message {
         ServerMessage::Reply(reply) => reply.text.clone(),
         ServerMessage::Fault(fault) => fault.text.clone(),

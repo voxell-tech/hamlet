@@ -1,7 +1,7 @@
-//! A lead's review of a chief's instruction to a hire under it (H10):
-//! an errand run alongside the hire's work once, which may object for
-//! the chief to rule on; and the hold of the hire's next model call
-//! while a chief considers an objection.
+//! A parent's review of a chief's instruction to an agent under it
+//! (H10): an errand run alongside the agent's work once, which may
+//! object for the chief to rule on; and the hold of the agent's next
+//! model call while a chief considers an objection.
 
 use anyhow::Result;
 use diesel::prelude::*;
@@ -15,9 +15,9 @@ use crate::conversations::{Conversation, Kind, inputs, models};
 use crate::core::Core;
 use crate::providers::{FAUX, is_local};
 use crate::society::limits::{self, Review};
-use crate::society::{addresses, hires};
+use crate::society::{addresses, hamlet_agents};
 
-/// The errand a lead's review is.
+/// The errand a parent's review is.
 pub(crate) const REVIEW: &str = "review";
 
 /// The key a turn's model call waits under while its instruction is
@@ -28,7 +28,7 @@ pub(crate) fn hold_key(task: TaskId) -> String {
 
 impl Core<'_, '_> {
     /// Before a model call of `conversation` in the turn of
-    /// `submission`: the lead's review of a chief's instruction,
+    /// `submission`: the parent's review of a chief's instruction,
     /// begun once, and the hold while a chief considers an objection
     /// to it, as its key and words.
     pub(crate) fn before_prompt(
@@ -64,24 +64,26 @@ impl Core<'_, '_> {
         if conversation.kind != Kind::Chat {
             return Ok(None);
         }
-        let Some(hire) = hires::find(db, conversation.agent)? else {
+        let Some(agent) =
+            hamlet_agents::find(db, conversation.agent)?
+        else {
             return Ok(None);
         };
-        let Some(lead) = hire.parent else {
+        let Some(parent) = agent.parent else {
             return Ok(None);
         };
         let begun =
             review::table.find(task).count().get_result::<i64>(db)?
                 > 0;
-        if begun || !self.is_reviewing(lead, &hire.hamlet)? {
+        if begun || !self.is_reviewing(parent, &agent.hamlet)? {
             return Ok(None);
         }
         let db = self.realm.store().connection();
-        let name = addresses::name_of(db, hire.agent)?;
-        let lead_name = addresses::name_of(db, lead)?;
+        let name = addresses::name_of(db, agent.agent)?;
+        let parent_name = addresses::name_of(db, parent)?;
         let mut under = Vec::new();
-        for each in crate::society::tree::under(db, lead)? {
-            let found = hires::get(db, each)?;
+        for each in crate::society::tree::under(db, parent)? {
+            let found = hamlet_agents::get(db, each)?;
             under.push(format!(
                 "- {}: {}",
                 addresses::name_of(db, each)?,
@@ -89,26 +91,27 @@ impl Core<'_, '_> {
             ));
         }
         let instructions = format!(
-            "You are `{lead_name}`, and you lead `{name}`, hired to \
-             {}. A chief has just instructed `{name}` directly. The \
-             work has begun already, and the chief always decides. \
-             If the instruction is a mistake for the work you lead, \
-             answer `OBJECT: <reason>`. Otherwise answer `PASS`. \
-             Most instructions are fine.\n\n# The hires you lead\n{}",
-            hire.purpose.trim_end_matches('.'),
+            "You are `{parent_name}`, the parent of `{name}`, added \
+             to {}. A chief has just instructed `{name}` directly. \
+             The work has begun already, and the chief always \
+             decides. If the instruction is a mistake for the work \
+             under you, answer `OBJECT: <reason>`. Otherwise answer \
+             `PASS`. Most instructions are fine.\n\n# The agents \
+             under you\n{}",
+            agent.purpose.trim_end_matches('.'),
             under.join("\n")
         );
         let question = format!("{chief} told `{name}`: {text}");
         let owner = format!("review:{task}");
         let at = crate::app::clock::now();
-        self.change(Actor::Agent(lead), |cx, env| {
+        self.change(Actor::Agent(parent), |cx, env| {
             let id = errands::run(
                 cx,
                 env,
                 Errand {
                     kind: REVIEW,
                     owner: &owner,
-                    agent: lead,
+                    agent: parent,
                     instructions: &instructions,
                     question: &question,
                     task: Some(task),
@@ -117,7 +120,7 @@ impl Core<'_, '_> {
             diesel::insert_into(review::table)
                 .values((
                     review::task.eq(task),
-                    review::lead.eq(lead),
+                    review::parent.eq(parent),
                     review::conversation.eq(id),
                     review::at.eq(at),
                 ))
@@ -127,12 +130,12 @@ impl Core<'_, '_> {
         Ok(None)
     }
 
-    /// Tells whether `lead` reviews instructions to its hires in
+    /// Tells whether `parent` reviews instructions to its agents in
     /// `hamlet`: always, never, or when its model is served from
     /// another machine.
     fn is_reviewing(
         &mut self,
-        lead: AgentId,
+        parent: AgentId,
         hamlet: &hamlet_store::ids::HamletId,
     ) -> Result<bool> {
         let db = self.realm.store().connection();
@@ -144,7 +147,7 @@ impl Core<'_, '_> {
                     db,
                     &self.env.settings,
                     &self.env.overrides,
-                    lead,
+                    parent,
                 )?;
                 choice.model.provider != FAUX
                     && !is_local(choice.model.base_url.as_deref())

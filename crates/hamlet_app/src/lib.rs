@@ -65,8 +65,7 @@ pub use self::remember::Remembered;
 pub use self::roll::Roll;
 pub use self::root::layout;
 pub use self::screens::{
-    chat, hub, links, overview, petition, pictures, settings,
-    terminal,
+    chat, hub, links, overview, pictures, settings, terminal, wait,
 };
 pub use self::status::Bar;
 pub use self::window::window_plugin;
@@ -237,7 +236,7 @@ mod tests {
         use bevy_fynix::views::label;
         use hamlet_client::Tokio;
         use hamlet_client::connection::Wake;
-        use hamlet_client::realm::{first_mayor, hamlet, name_of};
+        use hamlet_client::realm::{first_lead, hamlet, name_of};
         use hamlet_protocol::client as protocol;
         use hamlet_protocol::client::discovery::ServerAddress;
 
@@ -270,7 +269,7 @@ mod tests {
         bevy_fynix::mount::<HamletTheme>(
             app.world_mut(),
             label(roll::rolled(|world| {
-                first_mayor(world)
+                first_lead(world)
                     .map(|agent| name_of(world, agent))
                     .unwrap_or_default()
             })),
@@ -288,7 +287,7 @@ mod tests {
         assert_ne!(*app.world().resource::<Roll>(), before);
         let shown = testing::words(&mut app);
         assert!(
-            shown.iter().any(|text| text == "hire#2"),
+            shown.iter().any(|text| text == "agent#2"),
             "{shown:?}"
         );
     }

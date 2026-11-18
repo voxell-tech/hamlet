@@ -88,8 +88,8 @@ changes.
   means something stays in the light.
 - **Emblem** on the chest plate is only readable close up.
 
-**The mayor** (`Who::mayor()`) is the one robot with the brass dome hat,
-a pennant, a cream mantle and a larger size. Cream is kept for the mayor.
+**The lead** (`Who::lead()`) is the one robot with the brass dome hat,
+a pennant, a cream mantle and a larger size. Cream is kept for the lead.
 
 ## Using it
 

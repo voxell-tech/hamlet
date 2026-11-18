@@ -6,7 +6,7 @@ use std::collections::HashMap;
 
 use bevy::ecs::system::SystemParam;
 use bevy::prelude::*;
-use hamlet_client::realm::{Identity, Left, Mayor};
+use hamlet_client::realm::{Identity, Lead, Left};
 
 use super::{Housed, Returning, Sited, housing};
 use crate::generator::house::Remains;
@@ -26,9 +26,9 @@ pub(super) fn plugin(app: &mut App) {
             retitle.run_if(
                 any_match_filter::<(
                     With<Housed>,
-                    Or<(Changed<Housed>, Added<Mayor>, Added<Left>)>,
+                    Or<(Changed<Housed>, Added<Lead>, Added<Left>)>,
                 )>
-                    .or_eager(any_component_removed::<Mayor>),
+                    .or_eager(any_component_removed::<Lead>),
             ),
             houses.run_if(any_match_filter::<Added<House>>),
             robots.run_if(any_match_filter::<Added<Robot>>),
@@ -52,7 +52,7 @@ struct Standing<'w, 's> {
             Entity,
             &'static Housed,
             &'static Identity,
-            Has<Mayor>,
+            Has<Lead>,
             Has<Left>,
             Has<Returning>,
         ),
@@ -64,9 +64,9 @@ struct Standing<'w, 's> {
 #[derive(Clone, Copy)]
 struct Stood {
     entity: Entity,
-    /// True when it is the first mayor, whose hall the window's own
+    /// True when it is the first lead, whose hall the window's own
     /// chat starts from.
-    mayor: bool,
+    lead: bool,
     left: bool,
     returning: bool,
 }
@@ -83,7 +83,7 @@ impl Standing<'_, '_> {
         let first = self
             .agents
             .iter()
-            .filter(|(.., mayor, left, _)| *mayor && !left)
+            .filter(|(.., lead, left, _)| *lead && !left)
             .map(|(_, _, identity, ..)| identity.0)
             .min();
         let agents = self
@@ -94,13 +94,13 @@ impl Standing<'_, '_> {
                     entity,
                     housed,
                     identity,
-                    mayor,
+                    lead,
                     left,
                     returning,
                 )| {
                     let stood = Stood {
                         entity,
-                        mayor: mayor && first == Some(identity.0),
+                        lead: lead && first == Some(identity.0),
                         left,
                         returning,
                     };
@@ -122,7 +122,7 @@ impl Known {
     /// otherwise not at all.
     fn thing(&self, agent: AgentId, house: bool) -> Option<Thing> {
         let stood = self.agents.get(&agent)?;
-        Some(match (stood.left, stood.mayor, house) {
+        Some(match (stood.left, stood.lead, house) {
             (true, _, true) if self.ruins => {
                 Thing::Ruin(stood.entity)
             }
@@ -146,8 +146,8 @@ fn retitle(
 ) {
     let known = standing.known();
     for (entity, parent, was) in &boxes {
-        // A scholar's figure is no hamlet's agent.
-        if matches!(was, Thing::Scholar(_)) {
+        // A profile's figure is no hamlet's agent.
+        if matches!(was, Thing::Profile(_)) {
             continue;
         }
         let now = match owners.get(parent.parent()) {

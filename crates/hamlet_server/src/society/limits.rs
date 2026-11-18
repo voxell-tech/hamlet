@@ -15,15 +15,15 @@ pub(crate) type Micros = i64;
 #[serde(default, rename_all = "camelCase")]
 pub(crate) struct Limits {
     pub budget: Budget,
-    pub road: RoadRules,
+    pub channel: ChannelRules,
     pub reserved: Reserved,
     /// The hamlet's own model, else the realm's.
     pub model: Option<String>,
-    /// How many days of decisions each hire is told (H17).
+    /// How many days of decisions each agent is told (H17).
     pub told_days: i64,
     pub asking: ChiefQuestions,
-    /// How long after a chief's task a hire may not be ended or
-    /// merged by a lead (H7).
+    /// How long after a chief's task an agent may not be ended or
+    /// merged by a parent (H7).
     pub protected_minutes: i64,
 }
 
@@ -31,7 +31,7 @@ impl Default for Limits {
     fn default() -> Self {
         Self {
             budget: Budget::default(),
-            road: RoadRules::default(),
+            channel: ChannelRules::default(),
             reserved: Reserved::default(),
             model: None,
             told_days: 7,
@@ -46,9 +46,12 @@ impl Limits {
     /// hold.
     pub fn fault(&self) -> Option<String> {
         let negative = [
-            ("a road's price", self.road.price),
-            ("the most roads", self.road.most),
-            ("the days a road stays", self.road.grows_over_days),
+            ("a channel's price", self.channel.price),
+            ("the most channels", self.channel.most),
+            (
+                "the days a channel stays",
+                self.channel.grows_over_days,
+            ),
             ("the days of decisions told", self.told_days),
             ("the questions a turn puts", self.asking.questions),
             ("the refusals a turn takes", self.asking.refusals),
@@ -106,16 +109,16 @@ pub(crate) enum Period {
     Month,
 }
 
-/// What roads cost and how many a hamlet holds (H3).
+/// What channels cost and how many a hamlet holds (H3).
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(default, rename_all = "camelCase")]
-pub(crate) struct RoadRules {
+pub(crate) struct ChannelRules {
     pub price: Micros,
     pub most: i64,
     pub grows_over_days: i64,
 }
 
-impl Default for RoadRules {
+impl Default for ChannelRules {
     fn default() -> Self {
         Self {
             price: 10_000,
@@ -125,15 +128,15 @@ impl Default for RoadRules {
     }
 }
 
-/// The leads' acts a chief keeps for itself, so they wait for a chief
-/// (H22).
+/// The parents' acts a chief keeps for itself, so they wait for a
+/// chief (H22).
 #[derive(
     Clone, Debug, Default, PartialEq, Serialize, Deserialize,
 )]
 #[serde(default, rename_all = "camelCase")]
 pub(crate) struct Reserved {
-    pub hire: bool,
-    pub roads: bool,
+    pub add: bool,
+    pub channels: bool,
     pub end: bool,
     pub merge: bool,
 }
@@ -158,7 +161,7 @@ impl Default for ChiefQuestions {
     }
 }
 
-/// When a lead reviews a chief's instruction to a hire under it
+/// When a parent reviews a chief's instruction to an agent under it
 /// (H10).
 #[derive(
     Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize,
@@ -166,7 +169,7 @@ impl Default for ChiefQuestions {
 #[serde(rename_all = "camelCase")]
 pub(crate) enum Review {
     Always,
-    /// When the lead's model is served from another machine.
+    /// When the parent's model is served from another machine.
     Remote,
     Never,
 }
@@ -175,8 +178,8 @@ pub(crate) enum Review {
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(default, rename_all = "camelCase")]
 pub(crate) struct RealmLimits {
-    /// Whether mayors may agree roads between their hamlets.
-    pub roads_between: bool,
+    /// Whether leads may agree channels between their hamlets.
+    pub channels_between: bool,
     /// The budget of the Hand and of the workers it and the chiefs
     /// start outside a hamlet.
     pub budget: Budget,
@@ -185,7 +188,7 @@ pub(crate) struct RealmLimits {
 impl Default for RealmLimits {
     fn default() -> Self {
         Self {
-            roads_between: true,
+            channels_between: true,
             budget: Budget::default(),
         }
     }

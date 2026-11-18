@@ -213,13 +213,13 @@ fn edits_choose_the_document_and_keep_limits_set_and_whole_distinct()
     client(
         ClientMessage::Edit(Edit::Character {
             id: id(),
-            scholar: ScholarId(1),
+            profile: ProfileId(1),
             text: "Careful".into(),
         }),
-        json!({"type": "edit", "id": ID, "doc": "character", "scholar": 1, "text": "Careful"}),
+        json!({"type": "edit", "id": ID, "doc": "character", "profile": 1, "text": "Careful"}),
     );
     for (of, wire) in [
-        (Keeper::Scholar(ScholarId(1)), json!({"scholar": 1})),
+        (Keeper::Profile(ProfileId(1)), json!({"profile": 1})),
         (Keeper::Agent(agent()), json!({"agent": 2})),
     ] {
         client(
@@ -449,10 +449,10 @@ fn checks_and_reads_select_what_the_chief_requested() {
     client(
         ClientMessage::Read(Read::Papers {
             id: id(),
-            of: Keeper::Scholar(ScholarId(1)),
+            of: Keeper::Profile(ProfileId(1)),
             full: None,
         }),
-        json!({"type": "read", "id": ID, "what": "papers", "of": {"scholar": 1}}),
+        json!({"type": "read", "id": ID, "what": "papers", "of": {"profile": 1}}),
     );
     client(
         ClientMessage::Read(Read::Charter { id: id() }),
@@ -471,8 +471,8 @@ fn server(wire: Value) -> ServerMessage {
 fn limits_wire() -> Value {
     json!({
         "budget": {"period": "day", "cost": 5.0, "minutes": null},
-        "road": {"price": 0.01, "most": 24, "growsOverDays": 7},
-        "reserved": {"hire": false, "roads": true, "end": false, "merge": true},
+        "channel": {"price": 0.01, "most": 24, "growsOverDays": 7},
+        "reserved": {"add": false, "channels": true, "end": false, "merge": true},
         "model": null, "toldDays": 7, "protectedMinutes": 0,
         "asking": {"review": "remote", "questions": 3, "refusals": 3}
     })
@@ -488,14 +488,14 @@ fn hamlet_wire() -> Value {
             "caps": {"micros": 5000000, "ms": null}, "summary": "$1.25 today", "lines": ["100 tokens"],
             "left": 0.75, "remains": "$3.75 left"
         },
-        "roads": [], "at": null, "mayor": 2, "tier": 50, "chiefs": ["chief"]
+        "channels": [], "at": null, "lead": 2, "tier": 50, "chiefs": ["chief"]
     })
 }
 
 fn hand_wire() -> Value {
     json!({
-        "id": 1, "kind": "hand", "name": "hand", "nickname": null, "hamlet": null, "scholar": null,
-        "parent": null, "pin": null, "purpose": "", "since": 0, "mayor": false, "model": "faux/test",
+        "id": 1, "kind": "hand", "address": "hand", "name": null, "hamlet": null, "profile": null,
+        "parent": null, "pin": null, "purpose": "", "since": 0, "lead": false, "model": "faux/test",
         "ownModel": null, "effort": null, "fast": false,
         "busy": false, "faulted": false,
         "activity": {"doing": "rest", "doingWords": "At rest", "step": 0, "failures": 0},
@@ -507,9 +507,9 @@ fn hand_wire() -> Value {
 
 fn agent_wire() -> Value {
     json!({
-        "id": 2, "kind": "hire", "name": "hire#2", "nickname": "Fen", "hamlet": "home", "scholar": 1,
+        "id": 2, "kind": "hamlet", "address": "agent#2", "name": "Fen", "hamlet": "home", "profile": 1,
         "parent": 1, "pin": "v1", "purpose": "Help the chief",
-        "since": 1700000000000_i64, "mayor": true, "model": "faux/test",
+        "since": 1700000000000_i64, "lead": true, "model": "faux/test",
         "ownModel": "faux/test", "effort": "xhigh", "fast": true,
         "busy": true, "faulted": false,
         "activity": {"doing": "read-file", "doingWords": "Reading a file", "step": 2, "failures": 0},
@@ -519,11 +519,11 @@ fn agent_wire() -> Value {
     })
 }
 
-fn scholar_wire() -> Value {
+fn profile_wire() -> Value {
     json!({
         "id": 1, "name": "founder", "chief": "chief", "since": 0,
         "arrival": "waiting", "arrivalBy": "chief", "house": null,
-        "skills": ["release"], "versions": [{"at": 5, "name": "v1", "note": "First"}], "hires": [2]
+        "skills": ["release"], "versions": [{"at": 5, "name": "v1", "note": "First"}], "agents": [2]
     })
 }
 
@@ -537,7 +537,7 @@ fn change_wire() -> Value {
 
 fn wait_wire() -> Value {
     json!({
-        "id": "wait-1", "by": "hire#2", "agent": 2,
+        "id": "wait-1", "by": "agent#2", "agent": 2,
         "about": "NOTES.md", "subject": "NOTES.md", "change": change_wire(),
         "answers": ["allow", "always", "deny", "go", "withdraw", "reply", "dismiss"],
         "since": 1700000000000_u64, "asked": 1, "chat": {"with": 2},
@@ -547,7 +547,7 @@ fn wait_wire() -> Value {
 
 fn grants_wire() -> Value {
     json!([
-        {"agent": 2, "name": "hire#2", "permission": "network", "by": "chief", "source": "grant"},
+        {"agent": 2, "name": "agent#2", "permission": "network", "by": "chief", "source": "grant"},
         {"agent": null, "name": "all", "permission": "unconfined", "by": null, "source": "limits"}
     ])
 }
@@ -571,8 +571,8 @@ fn state_wire() -> Value {
         "type": "state", "epoch": 1, "revision": 2, "chief": "chief", "confinement": {"kind": "sandbox", "name": "Seatbelt"},
         "hamlets": [hamlet_wire()], "agents": [hand_wire(), agent_wire()], "waits": [wait_wire()],
         "grants": grants_wire(), "settings": settings_wire(), "providers": providers_wire(),
-        "realm": "/home/chief/.hamlet", "hand": 1, "scholars": [scholar_wire()], "limits": {"roadsBetween": true, "budget": {"period": "day", "cost": 5.0, "minutes": null}}, "library": [], "closed": [],
-        "deeds": [{"name": "mode", "usage": "<manual|auto>", "description": "Whether agents ask before they change the folder"}],
+        "realm": "/home/chief/.hamlet", "hand": 1, "profiles": [profile_wire()], "limits": {"channelsBetween": true, "budget": {"period": "day", "cost": 5.0, "minutes": null}}, "library": [], "closed": [],
+        "actions": [{"name": "mode", "usage": "<manual|auto>", "description": "Whether agents ask before they change the folder"}],
         "terminals": [terminal_wire()]
     })
 }
@@ -600,10 +600,10 @@ fn state_and_every_update_keep_the_servers_ready_made_values() {
     };
     assert_eq!(state.hand, AgentId(1));
     assert_eq!(state.agents[0].kind, AgentKind::Hand);
-    assert_eq!(state.agents[1].name, "hire#2");
+    assert_eq!(state.agents[1].address, "agent#2");
     assert_eq!(state.agents[1].activity.doing, Doing::ReadFile);
-    assert_eq!(state.hamlets[0].mayor, AgentId(2));
-    assert_eq!(state.scholars[0].hires, [AgentId(2)]);
+    assert_eq!(state.hamlets[0].lead, AgentId(2));
+    assert_eq!(state.profiles[0].agents, [AgentId(2)]);
     assert_eq!(
         state.hamlets[0].budget.remains.as_deref(),
         Some("$3.75 left")
@@ -616,8 +616,8 @@ fn state_and_every_update_keep_the_servers_ready_made_values() {
         json!({"type": "hamlet", "hamlet": hamlet_wire()}),
         json!({"type": "agent", "agent": agent_wire()}),
         json!({"type": "agent-gone", "id": 2}),
-        json!({"type": "scholar", "scholar": scholar_wire()}),
-        json!({"type": "scholar-gone", "id": 1}),
+        json!({"type": "profile", "profile": profile_wire()}),
+        json!({"type": "profile-gone", "id": 1}),
         json!({"type": "wait", "wait": wait_wire()}),
         json!({"type": "wait-closed", "id": "wait-1", "how": "allowed"}),
         json!({"type": "grants", "grants": grants_wire()}),
@@ -778,18 +778,18 @@ fn unknown_and_missing_nullable_fields_are_refused_at_every_level() {
 }
 
 #[test]
-fn society_and_realm_fields_round_trip_without_losing_departures_or_scholars()
+fn society_and_realm_fields_round_trip_without_losing_departures_or_profiles()
  {
     let mut wire = state_wire();
     let (a, b) = (json!(2), json!(3));
-    wire["agents"][1]["left"] = json!({"how": "merged", "into": a, "at": 12, "by": "the mayor", "reason": "Shared work", "words": "scout merged into founder"});
+    wire["agents"][1]["left"] = json!({"how": "merged", "into": a, "at": 12, "by": "the lead", "reason": "Shared work", "words": "scout merged into founder"});
     wire["agents"][1]["consulting"] = json!(true);
     wire["agents"][1]["conversations"] = json!([{"with": b, "kind": "letters", "count": 2, "last": null}]);
-    wire["hamlets"][0]["roads"] = json!([{"a": a, "b": b, "kind": "agreed", "messages": 10, "level": "rail", "lastFrom": null}]);
-    wire["scholars"][0]["left"] =
+    wire["hamlets"][0]["channels"] = json!([{"a": a, "b": b, "kind": "agreed", "messages": 10, "level": "rail", "lastFrom": null}]);
+    wire["profiles"][0]["left"] =
         json!({"at": 14, "by": "the chief", "reason": "Retired"});
-    wire["scholars"][0]["arrival"] = json!("housed");
-    wire["scholars"][0]["house"] =
+    wire["profiles"][0]["arrival"] = json!("housed");
+    wire["profiles"][0]["house"] =
         json!({"x": 1.0, "z": 2.0, "turn": 0.5});
     wire["hamlets"][0]["at"] = json!({"x": 2.5, "z": -3.5});
     wire["library"] = json!([{"name": "maps", "description": "Draw maps", "by": "scout"}]);

@@ -1,6 +1,6 @@
 //! An agent's workplace and the tools it is offered (H35): the Hand
-//! in its lodge, a hire in its lodge and its hamlet's folder, a
-//! worker in its scratch folder and where its starter works.
+//! in its worktree, an agent in its worktree and its hamlet's folder,
+//! a worker in its scratch folder and where its starter works.
 
 use std::path::PathBuf;
 
@@ -14,7 +14,7 @@ use crate::realm::layout::Layout;
 use crate::society::agents::{self, AgentKind};
 use crate::society::hamlets::{self, Mode};
 use crate::society::oversight::gate::Caller;
-use crate::society::{hires, workers};
+use crate::society::{hamlet_agents, workers};
 use crate::tools::builtin::Place;
 use crate::tools::catalogue::{Offered, Society};
 
@@ -43,7 +43,7 @@ pub(crate) fn of(
         AgentKind::Hand => Workplace {
             caller: Caller::Hand,
             place: Place {
-                lodge: layout.hand(),
+                worktree: layout.hand(),
                 folder: None,
                 realm: layout.root().to_owned(),
                 shared,
@@ -51,18 +51,21 @@ pub(crate) fn of(
             hamlet: None,
             manual: false,
         },
-        AgentKind::Hire => {
-            let hire = hires::get(db, agent)?;
-            let (folder, manual) = folder(db, &hire.hamlet)?;
+        AgentKind::Hamlet => {
+            let hamlet_agent = hamlet_agents::get(db, agent)?;
+            let (folder, manual) = folder(db, &hamlet_agent.hamlet)?;
             Workplace {
-                caller: Caller::Hire,
+                caller: Caller::Hamlet,
                 place: Place {
-                    lodge: layout.lodge(&hire.hamlet, hire.agent),
+                    worktree: layout.worktree(
+                        &hamlet_agent.hamlet,
+                        hamlet_agent.agent,
+                    ),
                     folder,
                     realm: layout.root().to_owned(),
                     shared,
                 },
-                hamlet: Some(hire.hamlet),
+                hamlet: Some(hamlet_agent.hamlet),
                 manual,
             }
         }
@@ -72,12 +75,14 @@ pub(crate) fn of(
             let mut hamlet = worker.hamlet.clone();
             if let Some(starter) = worker.starter {
                 match agents::get(db, starter)?.kind {
-                    AgentKind::Hire => {
-                        let hire = hires::get(db, starter)?;
-                        shared.push(
-                            layout.lodge(&hire.hamlet, hire.agent),
-                        );
-                        hamlet = hamlet.or(Some(hire.hamlet));
+                    AgentKind::Hamlet => {
+                        let starter =
+                            hamlet_agents::get(db, starter)?;
+                        shared.push(layout.worktree(
+                            &starter.hamlet,
+                            starter.agent,
+                        ));
+                        hamlet = hamlet.or(Some(starter.hamlet));
                     }
                     AgentKind::Hand => shared.push(layout.hand()),
                     AgentKind::Worker => {}
@@ -90,7 +95,7 @@ pub(crate) fn of(
             Workplace {
                 caller: Caller::Worker,
                 place: Place {
-                    lodge: layout.worker(agent),
+                    worktree: layout.worker(agent),
                     folder,
                     realm: layout.root().to_owned(),
                     shared,
@@ -109,7 +114,7 @@ pub(crate) fn of_conversation(
     conversation: &crate::conversations::Conversation,
 ) -> Result<Workplace> {
     let mut at = of(db, layout, conversation.agent)?;
-    // A dream writes the checkout of its scholar's `main` in place of
+    // A dream writes the checkout of its profile's `main` in place of
     // a folder, and needs no chief's answer.
     if conversation.kind == Kind::Dream
         && let Some(dream) = crate::society::dreams::of_conversation(
@@ -164,27 +169,27 @@ pub(crate) fn tools(
         AgentKind::Hand => {
             let mut only = built_in;
             only.extend(Society::offered(Offered::Everyone));
-            only.extend(Society::offered(Offered::Leads));
+            only.extend(Society::offered(Offered::Parents));
             only.extend(Society::offered(Offered::Hand));
             only
         }
-        AgentKind::Hire => {
-            let hire = hires::get(db, agent)?;
-            let off = hires::tools_off(db, agent)?;
+        AgentKind::Hamlet => {
+            let own = hamlet_agents::get(db, agent)?.hamlet;
+            let off = hamlet_agents::tools_off(db, agent)?;
             let mut only = built_in
                 .into_iter()
                 .filter(|name| !off.contains(name))
                 .collect::<Vec<_>>();
             only.extend(Society::offered(Offered::Everyone));
-            only.extend(Society::offered(Offered::Hires));
-            // Any hire can come to lead: the tree has no floor.
-            only.extend(Society::offered(Offered::Leads));
-            if hires::is_mayor(db, agent)?
+            only.extend(Society::offered(Offered::HamletAgents));
+            // Any agent can become a parent: the tree has no floor.
+            only.extend(Society::offered(Offered::Parents));
+            if hamlet_agents::is_lead(db, agent)?
                 && hamlets::all(db)?
                     .iter()
-                    .any(|h| h.is_living() && h.id != hire.hamlet)
+                    .any(|h| h.is_living() && h.id != own)
             {
-                only.extend(Society::offered(Offered::Mayors));
+                only.extend(Society::offered(Offered::Leads));
             }
             only
         }

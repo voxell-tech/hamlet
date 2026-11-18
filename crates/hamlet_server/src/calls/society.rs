@@ -6,31 +6,31 @@
 pub(super) mod args;
 mod letters;
 pub(crate) mod library;
-mod scholars;
+mod profiles;
 pub(crate) mod welcome;
 
 use anyhow::Result;
 use hamlet_store::ids::{
-    Actor, AgentId, ChiefId, HamletId, ScholarId, TaskId,
+    Actor, AgentId, ChiefId, HamletId, ProfileId, TaskId,
 };
 
 use self::args::{
-    AgreeRoad, Called, CreateScholar, EndHire, FoundHamlet, Hire,
-    MergeHires, Nickname, ReadRecord, RemoveHamlet, SeatMayor,
-    SetAllowance, SetModel, SetTools,
+    AddAgent, AgreeChannel, Called, CreateProfile, EndAgent,
+    FoundHamlet, MergeAgents, ReadRecord, RemoveHamlet, RenameAgent,
+    SetAllowance, SetLead, SetModel, SetTools,
 };
 use super::looks::Look;
-use super::{Call, refused, said};
+use super::{Call, rejected, said};
 use crate::core::Core;
-use crate::realm::change::{Change, Done, done, refuse};
+use crate::realm::change::{Change, Done, done, reject};
 use crate::realm::settings::EffectiveSettings;
 use crate::society::addresses::{self, Reach};
 use crate::society::agents::{self, AgentKind, EndHow};
+use crate::society::hamlet_agents::{self, ProfileChoice, Spec};
 use crate::society::hamlets::{self, Founding};
-use crate::society::hires::{self, Hiring, Spec};
-use crate::society::refusal::Refusal;
+use crate::society::rejection::Rejection;
 use crate::society::spend::{self, micros, money};
-use crate::society::{authority, city, limits, record, roads};
+use crate::society::{authority, channels, city, limits, record};
 use crate::tools::builtin::Outcome;
 use crate::tools::catalogue::Society;
 
@@ -44,10 +44,12 @@ pub(super) enum Step {
 }
 
 impl Step {
-    fn of(result: Result<String, Refusal>) -> Self {
+    fn of(result: Result<String, Rejection>) -> Self {
         match result {
             Ok(words) => Self::Done(said(words)),
-            Err(refusal) => Self::Done(refused(refusal.to_string())),
+            Err(rejection) => {
+                Self::Done(rejected(rejection.to_string()))
+            }
         }
     }
 }
@@ -62,13 +64,13 @@ impl Core<'_, '_> {
     ) -> Result<Step> {
         let called = match Called::read(tool, call.arguments) {
             Ok(called) => called,
-            Err(refusal) => return Ok(Step::of(Err(refusal))),
+            Err(rejection) => return Ok(Step::of(Err(rejection))),
         };
         match called {
             Called::Tell(args) => self.tell(call, args),
             Called::Ask(args) => self.ask(call, args),
-            Called::RequestRoad(args) => {
-                self.request_road(call, args)
+            Called::RequestChannel(args) => {
+                self.request_channel(call, args)
             }
             Called::StartWorker(args) => {
                 self.start_worker(call, args)
@@ -93,15 +95,15 @@ impl Core<'_, '_> {
         let here = self.hamlet_of(agent)?;
         let here = here.as_ref();
         match called {
-            Called::ReadScholar(args) => {
-                self.read_scholar(call, args)
+            Called::ReadProfile(args) => {
+                self.read_profile(call, args)
             }
-            Called::EditScholar(args) => {
-                self.edit_scholar(call, args)
+            Called::EditProfile(args) => {
+                self.edit_profile(call, args)
             }
-            Called::Tag(args) => self.tag_scholar(call, args),
-            Called::Revert(args) => self.revert_scholar(call, args),
-            Called::CreateScholar(CreateScholar {
+            Called::Tag(args) => self.tag_profile(call, args),
+            Called::Revert(args) => self.revert_profile(call, args),
+            Called::CreateProfile(CreateProfile {
                 name,
                 character,
             }) => {
@@ -126,31 +128,43 @@ impl Core<'_, '_> {
                     Ok(Ok(arrived(cx, env, made, &character)?))
                 })
             }
-            Called::Hire(args) => self.hire_tool(call, here, args),
-            Called::EndHire(EndHire { hire, reason }) => {
-                let hire = done!(self.led(call, &hire, here));
-                let name = self.name(hire)?;
+            Called::AddAgent(args) => {
+                self.add_agent(call, here, args)
+            }
+            Called::EndAgent(EndAgent {
+                agent: address,
+                reason,
+            }) => {
+                let hamlet_agent =
+                    done!(self.child(call, &address, here));
+                let name = self.name(hamlet_agent)?;
                 self.carry(call, |cx, _| {
-                    Ok(hires::end(cx, hire, EndHow::Ended, &reason)?
-                        .map(|()| format!("Ended {name}.")))
+                    Ok(hamlet_agents::end(
+                        cx,
+                        hamlet_agent,
+                        EndHow::Ended,
+                        &reason,
+                    )?
+                    .map(|()| format!("Ended {name}.")))
                 })
             }
             Called::SetModel(SetModel {
-                hire,
+                agent: address,
                 model,
                 reason,
             }) => {
-                let hire = done!(self.led(call, &hire, here));
+                let hamlet_agent =
+                    done!(self.child(call, &address, here));
                 let model = (!model.is_empty()).then_some(model);
-                let name = self.name(hire)?;
+                let name = self.name(hamlet_agent)?;
                 let words = format!(
                     "{name} runs {} now.",
                     model.as_deref().unwrap_or("its hamlet's model")
                 );
                 self.carry(call, |cx, _| {
-                    Ok(hires::set_model(
+                    Ok(hamlet_agents::set_model(
                         cx,
-                        hire,
+                        hamlet_agent,
                         model.as_deref(),
                         &reason,
                     )?
@@ -158,16 +172,21 @@ impl Core<'_, '_> {
                 })
             }
             Called::SetTools(SetTools {
-                hire,
+                agent: address,
                 off,
                 on,
                 reason,
             }) => {
-                let hire = done!(self.led(call, &hire, here));
-                let name = self.name(hire)?;
+                let hamlet_agent =
+                    done!(self.child(call, &address, here));
+                let name = self.name(hamlet_agent)?;
                 self.carry(call, |cx, _| {
-                    Ok(hires::set_tools(
-                        cx, hire, &off, &on, &reason,
+                    Ok(hamlet_agents::set_tools(
+                        cx,
+                        hamlet_agent,
+                        &off,
+                        &on,
+                        &reason,
                     )?
                     .map(|()| {
                         format!("Changed the tools of {name}.")
@@ -175,83 +194,100 @@ impl Core<'_, '_> {
                 })
             }
             Called::SetAllowance(SetAllowance {
-                hire,
+                agent: address,
                 dollars,
                 reason,
             }) => {
-                let hire = done!(self.led(call, &hire, here));
+                let hamlet_agent =
+                    done!(self.child(call, &address, here));
                 let allowance = dollars.map(micros);
-                let name = self.name(hire)?;
+                let name = self.name(hamlet_agent)?;
                 self.carry(call, |cx, _| {
-                    Ok(hires::set_allowance(
-                        cx, hire, allowance, &reason,
+                    Ok(hamlet_agents::set_allowance(
+                        cx,
+                        hamlet_agent,
+                        allowance,
+                        &reason,
                     )?
                     .map(|()| {
                         format!("Set the allowance of {name}.")
                     }))
                 })
             }
-            Called::Nickname(Nickname {
-                hire,
-                nickname,
+            Called::RenameAgent(RenameAgent {
+                agent: address,
+                name: typed,
                 reason,
             }) => {
-                let hire = done!(self.led(call, &hire, here));
-                let given =
-                    (!nickname.is_empty()).then_some(nickname);
-                let name = self.name(hire)?;
+                let hamlet_agent =
+                    done!(self.child(call, &address, here));
+                let given = (!typed.is_empty()).then_some(typed);
+                let name = self.name(hamlet_agent)?;
                 let words = match &given {
-                    Some(nickname) => {
-                        format!("{name} is called {nickname} now.")
+                    Some(given) => {
+                        format!("{name} is called {given} now.")
                     }
-                    None => format!("{name} goes by its name again."),
+                    None => format!(
+                        "{name} goes by its profile's name again."
+                    ),
                 };
                 self.carry(call, |cx, _| {
-                    Ok(hires::set_nickname(
+                    Ok(hamlet_agents::set_name(
                         cx,
-                        hire,
+                        hamlet_agent,
                         given.as_deref(),
                         &reason,
                     )?
                     .map(|()| words))
                 })
             }
-            Called::LayRoad(args::LayRoad { a, b, reason }) => {
-                let a = done!(self.led(call, &a, here));
-                let b = done!(self.led(call, &b, here));
+            Called::OpenChannel(args::OpenChannel {
+                a,
+                b,
+                reason,
+            }) => {
+                let a = done!(self.child(call, &a, here));
+                let b = done!(self.child(call, &b, here));
                 let (one, other) = (self.name(a)?, self.name(b)?);
                 let task = self.task_of(call)?;
                 self.carry(call, |cx, _| {
-                    Ok(roads::lay(cx, a, b, &reason, task)?.map(
+                    Ok(channels::open(cx, a, b, &reason, task)?.map(
                         |_| {
                             format!(
-                                "Laid a road between {one} and \
+                                "Opened a channel between {one} and \
                                  {other}."
                             )
                         },
                     ))
                 })
             }
-            Called::TakeUpRoad(args::TakeUpRoad { a, b, reason }) => {
-                let a = done!(self.led(call, &a, here));
-                let b = done!(self.led(call, &b, here));
+            Called::CloseChannel(args::CloseChannel {
+                a,
+                b,
+                reason,
+            }) => {
+                let a = done!(self.child(call, &a, here));
+                let b = done!(self.child(call, &b, here));
                 let (one, other) = (self.name(a)?, self.name(b)?);
                 self.carry(call, |cx, _| {
-                    Ok(roads::take_up(cx, a, b, &reason)?.map(|()| {
-                        format!(
-                            "Took up the road between {one} and \
-                             {other}."
-                        )
-                    }))
+                    Ok(channels::close(cx, a, b, &reason)?.map(
+                        |()| {
+                            format!(
+                                "Closed the channel between {one} \
+                                 and {other}."
+                            )
+                        },
+                    ))
                 })
             }
-            Called::MergeHires(MergeHires {
+            Called::MergeAgents(MergeAgents {
                 absorbed,
                 into,
                 reason,
             }) => {
-                let absorbed = done!(self.led(call, &absorbed, here));
-                let kept = done!(self.led(call, &into, here));
+                let absorbed =
+                    done!(self.child(call, &absorbed, here));
+                let kept = done!(self.child(call, &into, here));
                 let (one, other) =
                     (self.name(absorbed)?, self.name(kept)?);
                 self.carry(call, |cx, _| {
@@ -261,12 +297,12 @@ impl Core<'_, '_> {
                     .map(|_| format!("Merged {one} into {other}.")))
                 })
             }
-            Called::AgreeRoad(args) => {
-                self.agree_road(call, here, args)
+            Called::AgreeChannel(args) => {
+                self.agree_channel(call, here, args)
             }
             Called::FoundHamlet(FoundHamlet {
                 name,
-                scholar,
+                profile,
                 purpose,
             }) => {
                 let task = self.task_of(call)?;
@@ -278,8 +314,8 @@ impl Core<'_, '_> {
                     None,
                     overseer,
                 )?;
-                let mayor = if scholar.is_empty() {
-                    Hiring::Blank {
+                let lead = if profile.is_empty() {
+                    ProfileChoice::Blank {
                         name: String::new(),
                         character: self
                             .env
@@ -288,40 +324,46 @@ impl Core<'_, '_> {
                             .clone(),
                     }
                 } else {
-                    done!(self.scholar_hiring(&scholar))
+                    done!(self.chosen_profile(&profile))
                 };
                 self.carry(call, |cx, _| {
                     let founding = Founding {
                         name: name.clone(),
                         chief,
-                        mayor,
+                        lead,
                         purpose,
                     };
-                    let hired = done!(hamlets::found(cx, founding));
+                    let added = done!(hamlets::found(cx, founding));
                     Ok(Ok(format!(
                         "Founded {name} (`{}`).",
-                        hired.hamlet
+                        added.hamlet
                     )))
                 })
             }
-            Called::SeatMayor(SeatMayor { hire, reason }) => {
-                let hire = done!(self.named(&hire, here));
+            Called::SetLead(SetLead {
+                agent: address,
+                reason,
+            }) => {
+                let hamlet_agent = done!(self.named(&address, here));
                 let db = self.realm.store().connection();
-                let Some(found) = hires::find(db, hire)? else {
-                    let name = addresses::name_of(db, hire)?;
-                    refuse!(Refusal::NotHire { name });
+                let Some(found) =
+                    hamlet_agents::find(db, hamlet_agent)?
+                else {
+                    let name = addresses::name_of(db, hamlet_agent)?;
+                    reject!(Rejection::NotHamletAgent { name });
                 };
                 let hamlet = found.hamlet;
-                let name = self.name(hire)?;
+                let name = self.name(hamlet_agent)?;
                 self.carry(call, |cx, _| {
-                    Ok(hires::seat(cx, &hamlet, hire, &reason)?.map(
-                        |()| {
-                            format!(
-                                "{name} is the mayor of {hamlet} \
-                                 now."
-                            )
-                        },
-                    ))
+                    Ok(hamlet_agents::set_lead(
+                        cx,
+                        &hamlet,
+                        hamlet_agent,
+                        &reason,
+                    )?
+                    .map(|()| {
+                        format!("{name} is the lead of {hamlet} now.")
+                    }))
                 })
             }
             Called::RemoveHamlet(RemoveHamlet { hamlet, reason }) => {
@@ -339,7 +381,9 @@ impl Core<'_, '_> {
                 let id = HamletId(hamlet);
                 let db = self.realm.store().connection();
                 if hamlets::find(db, &id)?.is_none() {
-                    refuse!(Refusal::NoHamlet { id: id.to_string() });
+                    reject!(Rejection::NoHamlet {
+                        id: id.to_string()
+                    });
                 }
                 Ok(Ok(record::lines(db, &id, 0)?))
             }
@@ -348,11 +392,11 @@ impl Core<'_, '_> {
             Called::Object(_)
             | Called::Tell(_)
             | Called::Ask(_)
-            | Called::RequestRoad(_)
+            | Called::RequestChannel(_)
             | Called::StartWorker(_)
             | Called::SubmitSkill(_)
             | Called::AskLibrarian(_) => {
-                Ok(Err(Refusal::Unsupported {
+                Ok(Err(Rejection::Unsupported {
                     what: format!("the tool {}", call.tool),
                 }))
             }
@@ -420,13 +464,13 @@ impl Core<'_, '_> {
         )
     }
 
-    /// The hamlet `agent` speaks in: a hire's own.
+    /// The hamlet `agent` speaks in, when it is an agent of one.
     pub(super) fn hamlet_of(
         &mut self,
         agent: AgentId,
     ) -> Result<Option<HamletId>> {
         let db = self.realm.store().connection();
-        Ok(hires::find(db, agent)?.map(|hire| hire.hamlet))
+        Ok(hamlet_agents::find(db, agent)?.map(|found| found.hamlet))
     }
 
     pub(super) fn name(&mut self, agent: AgentId) -> Result<String> {
@@ -442,50 +486,55 @@ impl Core<'_, '_> {
     ) -> Done<AgentId> {
         let address = match addresses::parse(address) {
             Ok(address) => address,
-            Err(refusal) => refuse!(refusal),
+            Err(rejection) => reject!(rejection),
         };
         let db = self.realm.store().connection();
         addresses::resolve(db, &address, here, Reach::Living)
     }
 
-    /// The hire at `address`, which `call`'s agent leads.
-    fn led(
+    /// The agent of a hamlet at `address`, which `call`'s agent is a
+    /// parent of.
+    fn child(
         &mut self,
         call: &Call<'_>,
         address: &str,
         here: Option<&HamletId>,
     ) -> Done<AgentId> {
-        let hire = done!(self.named(address, here));
+        let agent = done!(self.named(address, here));
         let caller = call.conversation.agent;
         let db = self.realm.store().connection();
-        if agents::get(db, hire)?.kind != AgentKind::Hire {
-            let name = addresses::name_of(db, hire)?;
-            refuse!(Refusal::NotHire { name });
+        if agents::get(db, agent)?.kind != AgentKind::Hamlet {
+            let name = addresses::name_of(db, agent)?;
+            reject!(Rejection::NotHamletAgent { name });
         }
-        if hire == caller
-            || !authority::may_lead(db, Actor::Agent(caller), hire)?
+        if agent == caller
+            || !authority::may_direct(
+                db,
+                Actor::Agent(caller),
+                agent,
+            )?
         {
-            let name = addresses::name_of(db, hire)?;
-            refuse!(Refusal::NotLead { name });
+            let name = addresses::name_of(db, agent)?;
+            reject!(Rejection::NotParent { name });
         }
-        Ok(Ok(hire))
+        Ok(Ok(agent))
     }
 
-    /// The scholar `text` addresses, as a hire takes it: at `main`,
+    /// The profile `text` addresses, as an agent takes it: at `main`,
     /// or pinned to `@<version>`.
-    fn scholar_hiring(&mut self, text: &str) -> Done<Hiring> {
-        let (scholar, version) = done!(self.scholar_pinned(text));
-        self.existing(scholar, version)
+    fn chosen_profile(&mut self, text: &str) -> Done<ProfileChoice> {
+        let (profile, version) = done!(self.profile_pinned(text));
+        self.existing(profile, version)
     }
 
-    fn hire_tool(
+    fn add_agent(
         &mut self,
         call: &Call<'_>,
         here: Option<&HamletId>,
-        args: Hire,
+        args: AddAgent,
     ) -> Done<String> {
-        let Hire {
-            scholar: named,
+        let AddAgent {
+            profile: named,
             name: blank,
             purpose,
             under,
@@ -495,17 +544,17 @@ impl Core<'_, '_> {
         let hamlet = match (here, named_hamlet.is_empty()) {
             (Some(here), _) => here.clone(),
             (None, false) => HamletId(named_hamlet),
-            (None, true) => refuse!(Refusal::NoHamletToHireInto),
+            (None, true) => reject!(Rejection::NoHamletToAddTo),
         };
         let parent = if under.is_empty() {
             let db = self.realm.store().connection();
             if agents::get(db, agent)?.kind == AgentKind::Hand {
                 if hamlets::find(db, &hamlet)?.is_none() {
-                    refuse!(Refusal::NoHamlet {
+                    reject!(Rejection::NoHamlet {
                         id: hamlet.to_string(),
                     });
                 }
-                crate::society::tree::mayor(db, &hamlet)?
+                crate::society::tree::lead(db, &hamlet)?
             } else {
                 agent
             }
@@ -513,38 +562,38 @@ impl Core<'_, '_> {
             let found = done!(self.named(&under, Some(&hamlet)));
             let db = self.realm.store().connection();
             if found != agent
-                && !authority::may_lead(
+                && !authority::may_direct(
                     db,
                     Actor::Agent(agent),
                     found,
                 )?
             {
                 let name = addresses::name_of(db, found)?;
-                refuse!(Refusal::NotLead { name });
+                reject!(Rejection::NotParent { name });
             }
             found
         };
-        // A scholar of the city, or a blank agent when none fits.
-        let hiring = match (named.is_empty(), blank.is_empty()) {
-            (false, true) => done!(self.scholar_hiring(&named)),
-            (true, _) => Hiring::Blank {
+        // A profile of the city, or a blank agent when none fits.
+        let choice = match (named.is_empty(), blank.is_empty()) {
+            (false, true) => done!(self.chosen_profile(&named)),
+            (true, _) => ProfileChoice::Blank {
                 name: blank,
                 character: self.env.settings.character.clone(),
             },
-            (false, false) => refuse!(Refusal::HireBoth),
+            (false, false) => reject!(Rejection::AddBoth),
         };
         let task = self.task_of(call)?;
         let db = self.realm.store().connection();
-        if let Hiring::Existing { scholar, .. } = &hiring
-            && !authority::may_hire(
+        if let ProfileChoice::Existing { profile, .. } = &choice
+            && !authority::may_add(
                 db,
                 Actor::Agent(agent),
-                *scholar,
+                *profile,
                 &hamlet,
             )?
         {
-            let name = city::get(db, *scholar)?.label();
-            refuse!(Refusal::ScholarNotOwn { name });
+            let name = city::get(db, *profile)?.label();
+            reject!(Rejection::ProfileNotOwn { name });
         }
         let overseer = task_chief(db, task)?;
         let owner = authority::owner_for(
@@ -553,86 +602,88 @@ impl Core<'_, '_> {
             Some(&hamlet),
             overseer,
         )?;
-        // An agent says what it hires for; only a chief may leave it
-        // to the hire's first message.
+        // An agent says what it adds an agent for; only a chief may
+        // leave it to the new agent's first message.
         if purpose.is_empty() {
-            refuse!(Refusal::NoPurpose);
+            reject!(Rejection::NoPurpose);
         }
         self.carry(call, |cx, _| {
-            let hired = done!(hires::hire(
+            let added = done!(hamlet_agents::add(
                 cx,
                 Spec {
                     hamlet,
                     parent: Some(parent),
-                    hiring,
+                    profile: choice,
                     purpose,
                     reason: String::new(),
                     owner,
                 },
             ));
-            let name = addresses::name_of(cx.db, hired.agent)?;
-            Ok(Ok(format!("Hired {name}.")))
+            let name = addresses::name_of(cx.db, added.agent)?;
+            Ok(Ok(format!("Added {name}.")))
         })
     }
 
-    fn agree_road(
+    fn agree_channel(
         &mut self,
         call: &Call<'_>,
         here: Option<&HamletId>,
-        args: AgreeRoad,
+        args: AgreeChannel,
     ) -> Done<String> {
-        let AgreeRoad {
+        let AgreeChannel {
             mine,
             theirs,
             reason,
         } = args;
         let agent = call.conversation.agent;
         let db = self.realm.store().connection();
-        if !hires::is_mayor(db, agent)? {
-            refuse!(Refusal::NotMayor);
+        if !hamlet_agents::is_lead(db, agent)? {
+            reject!(Rejection::NotLead);
         }
         let mine = done!(self.named(&mine, here));
         let theirs = done!(self.named(&theirs, None));
         let task = self.task_of(call)?;
         let (one, other) = (self.name(mine)?, self.name(theirs)?);
         self.carry(call, |cx, _| {
-            Ok(roads::agree(cx, agent, mine, theirs, &reason, task)?
-                .map(|agreed| match agreed {
-                    roads::Agreed::Laid(_) => format!(
-                        "The road between {one} and {other} is open."
-                    ),
-                    roads::Agreed::Waiting => format!(
-                        "You agree a road between {one} and \
-                         {other}; it opens once the other mayor \
-                         agrees."
-                    ),
-                }))
+            Ok(channels::agree(
+                cx, agent, mine, theirs, &reason, task,
+            )?
+            .map(|agreed| match agreed {
+                channels::Agreed::Opened(_) => format!(
+                    "The channel between {one} and {other} is open."
+                ),
+                channels::Agreed::Waiting => format!(
+                    "You agree a channel between {one} and {other}; \
+                     it opens once the other lead agrees."
+                ),
+            }))
         })
     }
 }
 
-/// The words for the agent that made a scholar: it lives in the
+/// The words for the agent that made a profile: it lives in the
 /// city, or waits at the harbor, with the Hand called on to judge it
 /// when the realm leaves newcomers to the Hand.
 fn arrived(
     cx: &mut Change<'_>,
     env: &EffectiveSettings,
-    id: ScholarId,
+    id: ProfileId,
     character: &str,
 ) -> Result<String> {
     let made = city::get(cx.db, id)?;
     let name = made.label();
     if made.arrival == city::Arrival::Housed {
         return Ok(format!(
-            "The scholar {name} lives in the city; hire it next."
+            "The profile {name} lives in the city; add an agent of \
+             it next."
         ));
     }
     if city::awaits_hand(cx.db, id)? {
         welcome::judge(cx, env, id, character)?;
     }
     Ok(format!(
-        "The scholar {name} is made and waits at the harbor until \
-         it is let into the city; you can hire it now."
+        "The profile {name} is made and waits at the harbor until \
+         it is let into the city; you can add an agent of it now."
     ))
 }
 
@@ -651,8 +702,8 @@ fn budget(
         "Your spend this period: {}.",
         money(spent.micros)
     ));
-    if let Some(allowance) =
-        hires::find(db, agent)?.and_then(|hire| hire.allowance)
+    if let Some(allowance) = hamlet_agents::find(db, agent)?
+        .and_then(|found| found.allowance)
     {
         lines.push(format!(
             "Your allowance, with what everything under you spends: \

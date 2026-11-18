@@ -1,4 +1,4 @@
-//! The Hand's reads and changes of a scholar's repository: its files
+//! The Hand's reads and changes of a profile's repository: its files
 //! at a version, a file of `main` written, a version named, a commit
 //! undone. A change waits for a chief before it gets here.
 
@@ -6,51 +6,51 @@ use anyhow::Result;
 use hamlet_git::{
     Author, Change as GitChange, CommitId, MAIN, Repository,
 };
-use hamlet_store::ids::{Actor, ScholarId};
+use hamlet_store::ids::{Actor, ProfileId};
 
 use super::Call;
-use super::args::{EditScholar, ReadScholar, Revert, Tag};
+use super::args::{EditProfile, ReadProfile, Revert, Tag};
 use crate::core::Core;
 use crate::knowledge::CHARACTER;
 use crate::realm::change::{Done, done};
 use crate::society::city::{self, CHARACTER_MOST};
-use crate::society::refusal::Refusal;
+use crate::society::rejection::Rejection;
 use crate::society::{addresses, authority, names};
 
-/// The most of a file `read_scholar` gives.
+/// The most of a file `read_profile` gives.
 const MOST_READ: usize = 50 * 1024;
 
 impl Core<'_, '_> {
-    /// The living scholar at `address`, which `call`'s agent may
+    /// The living profile at `address`, which `call`'s agent may
     /// keep.
-    fn kept_scholar(
+    fn kept_profile(
         &mut self,
         call: &Call<'_>,
         address: &str,
-    ) -> Done<ScholarId> {
+    ) -> Done<ProfileId> {
         let address = address.to_owned();
-        let id = match addresses::parse_scholar(&address) {
+        let id = match addresses::parse_profile(&address) {
             Ok(id) => id,
-            Err(refusal) => return Ok(Err(refusal)),
+            Err(rejection) => return Ok(Err(rejection)),
         };
         let db = self.realm.store().connection();
         let Some(found) = city::living(db, id)? else {
-            return Ok(Err(Refusal::NoScholar { address }));
+            return Ok(Err(Rejection::NoProfile { address }));
         };
         if !authority::may_keep(
             db,
             Actor::Agent(call.conversation.agent),
             found.id,
         )? {
-            return Ok(Err(Refusal::ScholarNotOwn {
+            return Ok(Err(Rejection::ProfileNotOwn {
                 name: found.label(),
             }));
         }
         Ok(Ok(found.id))
     }
 
-    fn repository(&self, scholar: ScholarId) -> Result<Repository> {
-        Repository::open(&self.realm.layout().repository(scholar))
+    fn repository(&self, profile: ProfileId) -> Result<Repository> {
+        Repository::open(&self.realm.layout().repository(profile))
     }
 
     /// The commit `version` names in `repo`: a version, a commit, or
@@ -63,25 +63,25 @@ impl Core<'_, '_> {
         let wanted = if version.is_empty() { MAIN } else { version };
         Ok(match repo.resolve(wanted)? {
             Some(commit) => Ok(commit),
-            None => Err(Refusal::NoVersion {
+            None => Err(Rejection::NoVersion {
                 name: name.into(),
                 version: wanted.into(),
             }),
         })
     }
 
-    pub(super) fn read_scholar(
+    pub(super) fn read_profile(
         &mut self,
         call: &Call<'_>,
-        args: ReadScholar,
+        args: ReadProfile,
     ) -> Done<String> {
-        let ReadScholar {
-            scholar: name,
+        let ReadProfile {
+            profile: name,
             path,
             version,
         } = args;
-        let scholar = done!(self.kept_scholar(call, &name));
-        let repo = self.repository(scholar)?;
+        let profile = done!(self.kept_profile(call, &name));
+        let repo = self.repository(profile)?;
         let at = done!(Self::version_of(&repo, &name, &version));
         if path.is_empty() {
             let files = repo
@@ -109,32 +109,32 @@ impl Core<'_, '_> {
                 }
                 Ok(words)
             }
-            None => Err(Refusal::NoFile { path }),
+            None => Err(Rejection::NoFile { path }),
         })
     }
 
-    pub(super) fn edit_scholar(
+    pub(super) fn edit_profile(
         &mut self,
         call: &Call<'_>,
-        args: EditScholar,
+        args: EditProfile,
     ) -> Done<String> {
-        let EditScholar {
-            scholar: name,
+        let EditProfile {
+            profile: name,
             path,
             content,
             message,
         } = args;
-        let scholar = done!(self.kept_scholar(call, &name));
+        let profile = done!(self.kept_profile(call, &name));
         if path.is_empty()
             || path.starts_with('/')
             || path.split('/').any(|part| part == "..")
         {
-            return Ok(Err(Refusal::NoFile { path }));
+            return Ok(Err(Rejection::NoFile { path }));
         }
         if path == CHARACTER
             && content.chars().count() > CHARACTER_MOST
         {
-            return Ok(Err(Refusal::LongCharacter));
+            return Ok(Err(Rejection::LongCharacter));
         }
         let change = if content.is_empty() {
             GitChange::Remove { path: path.clone() }
@@ -147,7 +147,7 @@ impl Core<'_, '_> {
         self.begin(call)?;
         self.commit_main(
             Actor::Agent(call.conversation.agent),
-            scholar,
+            profile,
             &[change],
             if message.is_empty() {
                 "Edited by the Hand"
@@ -158,26 +158,26 @@ impl Core<'_, '_> {
         Ok(Ok(format!("Wrote {path} of {name}.")))
     }
 
-    pub(super) fn tag_scholar(
+    pub(super) fn tag_profile(
         &mut self,
         call: &Call<'_>,
         args: Tag,
     ) -> Done<String> {
         let Tag {
-            scholar: name,
+            profile: name,
             tag,
             note,
         } = args;
-        let scholar = done!(self.kept_scholar(call, &name));
-        let repo = self.repository(scholar)?;
-        if let Err(refusal) = names::check_version(&tag) {
-            return Ok(Err(refusal));
+        let profile = done!(self.kept_profile(call, &name));
+        let repo = self.repository(profile)?;
+        if let Err(rejection) = names::check_version(&tag) {
+            return Ok(Err(rejection));
         }
         if tag == MAIN || repo.resolve(&tag)?.is_some() {
-            return Ok(Err(Refusal::VersionTaken { version: tag }));
+            return Ok(Err(Rejection::VersionTaken { version: tag }));
         }
         let Some(at) = repo.tip(MAIN)? else {
-            return Ok(Err(Refusal::NoVersion {
+            return Ok(Err(Rejection::NoVersion {
                 name,
                 version: MAIN.into(),
             }));
@@ -198,18 +198,18 @@ impl Core<'_, '_> {
         Ok(Ok(format!("Tagged {name}'s main as {tag}.")))
     }
 
-    pub(super) fn revert_scholar(
+    pub(super) fn revert_profile(
         &mut self,
         call: &Call<'_>,
         args: Revert,
     ) -> Done<String> {
         let Revert {
-            scholar: name,
+            profile: name,
             commit,
             reason,
         } = args;
-        let scholar = done!(self.kept_scholar(call, &name));
-        let repo = self.repository(scholar)?;
+        let profile = done!(self.kept_profile(call, &name));
+        let repo = self.repository(profile)?;
         let commit = done!(Self::version_of(&repo, &name, &commit));
         let by = Actor::Agent(call.conversation.agent);
         let author = by.to_string();
@@ -226,7 +226,7 @@ impl Core<'_, '_> {
             },
         )?;
         drop(held);
-        self.main_moved(by, scholar)?;
+        self.main_moved(by, profile)?;
         Ok(Ok(if merged.clashes.is_empty() {
             format!("Reverted the commit on {name}'s main.")
         } else {

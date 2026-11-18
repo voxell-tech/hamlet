@@ -194,7 +194,7 @@ pub(super) struct Lives {
 const COMING: f32 = 20.0;
 
 /// Sounds for what becomes of agents and hamlets: one removed, a
-/// hamlet founded, a mayor changed, and a road laid or raised
+/// hamlet founded, a lead changed, and a road laid or raised
 /// between two that were there already.
 pub(super) fn life_cues(
     clock: Res<Clock>,
@@ -243,10 +243,10 @@ pub(super) fn life_cues(
 
     lives.towns.retain(|id, _| society.town(*id).is_some());
     for town in &society.towns {
-        match lives.towns.insert(town.id, town.mayor) {
+        match lives.towns.insert(town.id, town.lead) {
             None => cue(Sound::Founded, Vec3::ZERO, town.id.0),
-            Some(was) if was != town.mayor => {
-                cue(Sound::Mayor, Vec3::ZERO, town.mayor.0);
+            Some(was) if was != town.lead => {
+                cue(Sound::Lead, Vec3::ZERO, town.lead.0);
             }
             Some(_) => {}
         }

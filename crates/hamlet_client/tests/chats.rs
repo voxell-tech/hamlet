@@ -241,7 +241,7 @@ fn earlier_requests_one_page_and_prepends_it_to_the_received_transcript()
 #[test]
 fn chats_follow_their_agent_as_it_leaves_and_comes_back() {
     use hamlet_client::chats::{Conversations, TalksTo};
-    use hamlet_client::realm::mayor_of;
+    use hamlet_client::realm::lead_of;
     use hamlet_testing::realm::state;
     let mut app = app();
     let chat = app.world_mut().spawn(Chat(chat_with(2))).id();
@@ -253,7 +253,7 @@ fn chats_follow_their_agent_as_it_leaves_and_comes_back() {
         protocol::ServerMessage::State(realm.clone()),
     );
     app.update();
-    let ada = mayor_of(app.world_mut(), "home").unwrap();
+    let ada = lead_of(app.world_mut(), "home").unwrap();
     assert_eq!(app.world().get::<TalksTo>(chat).unwrap().0, ada);
     assert_eq!(
         app.world()
@@ -561,7 +561,7 @@ fn new_and_resumed_conversations_keep_their_received_number() {
 }
 
 #[test]
-fn a_refused_page_can_be_requested_again() {
+fn a_rejected_page_can_be_requested_again() {
     use hamlet_client::chats::earlier;
     let mut app = app();
     let chat = app
@@ -882,7 +882,7 @@ fn peer_inputs_keep_their_author_and_never_become_chief_inputs() {
     app.update();
     let page = serde_json::json!({
         "type": "transcript", "chat": reference(), "items": [
-            {"id":"1:0", "at":1, "kind":"user", "text":"Check this", "author":"hire#4 (scout)"},
+            {"id":"1:0", "at":1, "kind":"user", "text":"Check this", "author":"agent#4 (scout)"},
             {"id":"2:0", "at":2, "kind":"user", "text":"My instruction", "chief":"chief"}
         ], "earlier": null, "last": null, "working":false, "pending":0,
         "usage":{"input":0,"output":0,"cached":0,"calls":0,"lastInput":0,"reasoning":0,"unreported":0,"summary":"", "micros":0,"ms":0}
@@ -892,7 +892,7 @@ fn peer_inputs_keep_their_author_and_never_become_chief_inputs() {
     assert_eq!(
         items[0].entry,
         Entry::Agent {
-            name: "hire#4 (scout)".into(),
+            name: "agent#4 (scout)".into(),
             text: "Check this".into()
         }
     );

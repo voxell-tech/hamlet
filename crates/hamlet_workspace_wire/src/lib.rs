@@ -169,9 +169,9 @@ macro_rules! operations {
 // `no_follow` refuses a link anywhere in the path. Tree and mode
 // operations never follow one.
 operations! {
-    /// Makes the lodge's `memory`, `skills` and `inbox` where they are
-    /// missing.
-    InitLodge {} -> ();
+    /// Makes the worktree's `memory`, `skills` and `inbox` where they
+    /// are missing.
+    InitWorktree {} -> ();
     /// Lists a tree with each regular file's SHA-256.
     TreeList { path: String, entries: u64, bytes: u64 } -> Vec<TreeEntry>;
     /// Writes a new file with `mode`, making its missing folders.

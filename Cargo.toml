@@ -67,7 +67,7 @@ arboard = { version = "3.7", default-features = false, features = ["image-data"]
 base64 = "0.22"
 diesel = { version = "2.3", default-features = false, features = ["sqlite", "returning_clauses_for_sqlite_3_35", "32-column-tables"] }
 futures = "0.3"
-# Each scholar's repository, kept by the server with no git program.
+# Each profile's repository, kept by the server with no git program.
 gix = { version = "0.90", default-features = false, features = ["sha1", "merge", "revision"] }
 image ={ version = "0.25", default-features = false, features = ["png", "jpeg", "webp", "gif", "bmp"] }
 vt100 = "0.18"

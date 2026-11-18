@@ -204,13 +204,13 @@ fn words(
 fn write_signs(
     names: Names,
     renamed: Query<(), Or<(Changed<Name>, Changed<Shown>)>>,
-    mut unnicknamed: RemovedComponents<Shown>,
+    mut unshown: RemovedComponents<Shown>,
     named: Query<(Ref<Thing>, &Signed, Option<Ref<Reads>>)>,
     signs: Query<&Children, With<Sign>>,
     mut texts: Query<&mut Text, With<SignText>>,
 ) {
     let every =
-        !renamed.is_empty() || unnicknamed.read().next().is_some();
+        !renamed.is_empty() || unshown.read().next().is_some();
     for (thing, signed, reads) in &named {
         let rewritten =
             reads.as_ref().is_some_and(DetectChanges::is_changed);

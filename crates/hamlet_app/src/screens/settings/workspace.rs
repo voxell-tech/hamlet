@@ -1,4 +1,4 @@
-//! The Workspace page: where agents' commands run and their lodges
+//! The Workspace page: where agents' commands run and their worktrees
 //! are kept.
 
 use bevy::app::{App, PreUpdate};
@@ -28,7 +28,7 @@ use super::{Pane, alone, field};
 use crate::PanelSystems;
 use crate::overview::heading;
 use crate::secret::secret_field;
-use crate::world_menu::{self, Deed};
+use crate::world_menu::{self, Action};
 
 pub(super) fn plugin(app: &mut App) {
     app.init_resource::<Draft>()
@@ -56,9 +56,9 @@ struct Draft {
     token: String,
     saving: Option<protocol::RequestId>,
     saved: bool,
-    /// The move of the lodges asked for and not yet answered.
+    /// The move of the worktrees asked for and not yet answered.
     moving: Option<protocol::RequestId>,
-    refusal: String,
+    rejection: String,
 }
 
 /// Starts the draft from the chosen workspace each time the page
@@ -104,20 +104,20 @@ fn save(world: &mut World) {
     let mut draft = world.resource_mut::<Draft>();
     draft.saving = Some(id);
     draft.saved = false;
-    draft.refusal.clear();
+    draft.rejection.clear();
 }
 
-/// Asks the server to copy the lodges to the saved workspace. The
+/// Asks the server to copy the worktrees to the saved workspace. The
 /// settings it sends show how far it has come.
-pub(crate) fn move_lodges(world: &mut World) {
+pub(crate) fn move_worktrees(world: &mut World) {
     let id = world.resource_mut::<Outbox>().send(|id| {
-        protocol::ClientMessage::MoveLodges(protocol::MoveLodges {
-            id,
-        })
+        protocol::ClientMessage::MoveWorktrees(
+            protocol::MoveWorktrees { id },
+        )
     });
     let mut draft = world.resource_mut::<Draft>();
     draft.moving = Some(id);
-    draft.refusal.clear();
+    draft.rejection.clear();
 }
 
 fn answered(response: On<Response>, mut draft: ResMut<Draft>) {
@@ -127,10 +127,10 @@ fn answered(response: On<Response>, mut draft: ResMut<Draft>) {
             protocol::ServerMessage::Reply(reply)
                 if reply.kind == protocol::ReplyKind::Error =>
             {
-                draft.refusal.clone_from(&reply.text);
+                draft.rejection.clone_from(&reply.text);
             }
             protocol::ServerMessage::Fault(fault) => {
-                draft.refusal.clone_from(&fault.text);
+                draft.rejection.clone_from(&fault.text);
             }
             _ => {}
         }
@@ -143,10 +143,10 @@ fn answered(response: On<Response>, mut draft: ResMut<Draft>) {
         protocol::ServerMessage::Reply(reply)
             if reply.kind == protocol::ReplyKind::Error =>
         {
-            draft.refusal.clone_from(&reply.text);
+            draft.rejection.clone_from(&reply.text);
         }
         protocol::ServerMessage::Fault(fault) => {
-            draft.refusal.clone_from(&fault.text);
+            draft.rejection.clone_from(&fault.text);
         }
         protocol::ServerMessage::Reply(_) => {
             draft.token.clear();
@@ -171,15 +171,15 @@ fn pending(settings: &Settings) -> String {
     }
 }
 
-/// The latest move of the lodges, as the server tells it.
+/// The latest move of the worktrees, as the server tells it.
 fn move_of(
     settings: &Settings,
 ) -> Option<&protocol::SettingsViewWorkspaceMove> {
     settings.0.workspace.moving.as_ref()
 }
 
-/// What moving the lodges does, how far it has come or how it ended.
-/// A failure is the refusal's to tell.
+/// What moving the worktrees does, how far it has come or how it
+/// ended. A failure is the rejection's to tell.
 fn progress(settings: &Settings) -> String {
     use protocol::SettingsViewWorkspaceMoveState as State;
     if !is_waiting_for_restart(settings) {
@@ -188,7 +188,7 @@ fn progress(settings: &Settings) -> String {
     match move_of(settings) {
         Some(latest) if latest.state == State::Moving => {
             format!(
-                "Moving lodges: {} of {}.",
+                "Moving worktrees: {} of {}.",
                 latest.done, latest.of
             )
         }
@@ -202,15 +202,15 @@ fn progress(settings: &Settings) -> String {
                 "this computer"
             };
             format!(
-                "Copies every agent's lodge to {to}, replacing the \
-                 lodges there."
+                "Copies every agent's worktree to {to}, replacing \
+                 the worktrees there."
             )
         }
     }
 }
 
-/// The button that moves the lodges to the saved workspace, while it
-/// waits for a restart and no move runs.
+/// The button that moves the worktrees to the saved workspace, while
+/// it waits for a restart and no move runs.
 fn moving() -> AnyView {
     keyed(
         resource::<Settings, _>(|settings| {
@@ -222,8 +222,8 @@ fn moving() -> AnyView {
         }),
         |offered| {
             if *offered {
-                bad_action(Glyph::Send, "Move lodges", |world| {
-                    world_menu::ask(world, Deed::MoveLodges);
+                bad_action(Glyph::Send, "Move worktrees", |world| {
+                    world_menu::ask(world, Action::MoveWorktrees);
                 })
             } else {
                 frame().boxed()
@@ -297,13 +297,13 @@ pub(super) fn page() -> impl View {
             note(resource::<Settings, _>(pending)),
         )),
         moved(),
-        label(resource::<Draft, _>(|draft| draft.refusal.clone()))
+        label(resource::<Draft, _>(|draft| draft.rejection.clone()))
             .tone(Tone::Critical),
     ))
 }
 
-/// Moving the lodges, apart in a card of what is done for good, once
-/// a saved workspace waits for a restart.
+/// Moving the worktrees, apart in a card of what is done for good,
+/// once a saved workspace waits for a restart.
 fn moved() -> impl View {
     keyed(resource::<Settings, _>(is_waiting_for_restart), |waits| {
         if !*waits {
@@ -540,7 +540,7 @@ mod tests {
     }
 
     #[test]
-    fn lodges_move_to_the_saved_workspace_with_their_progress_and_refusal_shown()
+    fn worktrees_move_to_the_saved_workspace_with_their_progress_and_rejection_shown()
      {
         use protocol::SettingsViewWorkspaceMoveState as State;
         let url = Some("https://workspace.example");
@@ -552,12 +552,12 @@ mod tests {
             words_and_spans(app).iter().any(|shown| shown == text)
         };
         // Nothing waits for a restart, so nothing moves.
-        assert!(!said(&mut app, "Move lodges"));
+        assert!(!said(&mut app, "Move worktrees"));
         received(&mut app, 3, url, None);
         assert!(said(
             &mut app,
-            "Copies every agent's lodge to the remote server, \
-             replacing the lodges there."
+            "Copies every agent's worktree to the remote server, \
+             replacing the worktrees there."
         ));
         requests(&mut app);
         app.init_resource::<world_menu::Open>();
@@ -565,19 +565,19 @@ mod tests {
             app.world_mut(),
             world_menu::view(),
         );
-        press(&mut app, "Move lodges");
+        press(&mut app, "Move worktrees");
         settle(&mut app);
         assert!(requests(&mut app).is_empty(), "asked first");
         press(&mut app, "Replace them");
-        let Some(protocol::ClientMessage::MoveLodges(
-            protocol::MoveLodges { id },
+        let Some(protocol::ClientMessage::MoveWorktrees(
+            protocol::MoveWorktrees { id },
         )) = app.world().resource::<Outbox>().iter().next().cloned()
         else {
             panic!("no move was sent");
         };
         assert_eq!(
             requests(&mut app),
-            [serde_json::json!({"type": "move-lodges"})]
+            [serde_json::json!({"type": "move-worktrees"})]
         );
         let moving = |done, state, text: &str| {
             Some(protocol::SettingsViewWorkspaceMove {
@@ -594,8 +594,8 @@ mod tests {
             None,
             moving(1, State::Moving, ""),
         );
-        assert!(said(&mut app, "Moving lodges: 1 of 2."));
-        let stopped = "The lodge of hire#3 was not moved.";
+        assert!(said(&mut app, "Moving worktrees: 1 of 2."));
+        let stopped = "The worktree of agent#3 was not moved.";
         received_moving(
             &mut app,
             5,
@@ -624,7 +624,7 @@ mod tests {
                 .count(),
             1
         );
-        let moved = "Moved 2 lodges to the remote server.";
+        let moved = "Moved 2 worktrees to the remote server.";
         received_moving(
             &mut app,
             6,

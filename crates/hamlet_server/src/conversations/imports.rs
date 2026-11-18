@@ -1,5 +1,5 @@
 //! Projects of other programs brought in (C35): a hamlet for each,
-//! working on its folder, and a hire for each of its conversations,
+//! working on its folder, and an agent for each of its conversations,
 //! whose chat begins with it. The server holds a conversation's
 //! entries until its runtime has made it with them, which then keeps
 //! them alone (ADR 0002).
@@ -20,10 +20,10 @@ use crate::attachments::files::Files;
 use crate::realm::change::{Change, Done, done};
 use crate::realm::settings::EffectiveSettings;
 use crate::society::chiefs;
+use crate::society::hamlet_agents::{self, ProfileChoice, Spec};
 use crate::society::hamlets::{self, Founding};
-use crate::society::hires::{self, Hiring, Spec};
 use crate::society::names::NAME_LENGTH;
-use crate::society::refusal::Refusal;
+use crate::society::rejection::Rejection;
 
 /// A project to bring in.
 pub(crate) struct Project<'a> {
@@ -38,8 +38,8 @@ pub(crate) struct Project<'a> {
 pub(crate) struct Brought {
     pub hamlet: HamletId,
     pub founded: bool,
-    /// The hires made, one for each conversation.
-    pub hired: usize,
+    /// The agents made, one for each conversation.
+    pub added: usize,
     /// The conversations brought in before, and those the hamlet had
     /// no room for.
     pub before: usize,
@@ -49,17 +49,17 @@ pub(crate) struct Brought {
 impl Brought {
     /// What it did, for the chief.
     pub fn words(&self) -> String {
-        let hires = match self.hired {
-            1 => "1 hire".to_owned(),
-            count => format!("{count} hires"),
+        let agents = match self.added {
+            1 => "1 agent".to_owned(),
+            count => format!("{count} agents"),
         };
         let mut words = match self.founded {
             true => format!(
-                "Founded hamlet `{}` with {hires}.",
+                "Founded hamlet `{}` with {agents}.",
                 self.hamlet
             ),
             false => {
-                format!("Added {hires} to hamlet `{}`.", self.hamlet)
+                format!("Added {agents} to hamlet `{}`.", self.hamlet)
             }
         };
         if self.before > 0 {
@@ -97,7 +97,7 @@ pub(crate) fn bring_in_project(
                 && hamlets::chiefs(cx.db, &hamlet.id)?
                     .contains(&chief)
             {
-                working = Some((hamlet.id, hamlet.mayor));
+                working = Some((hamlet.id, hamlet.lead));
                 break;
             }
         }
@@ -107,20 +107,20 @@ pub(crate) fn bring_in_project(
         fresh += usize::from(!is_brought_in(cx.db, chief, imported)?);
     }
     if fresh == 0 {
-        return Ok(Err(Refusal::BroughtInBefore));
+        return Ok(Err(Rejection::BroughtInBefore));
     }
     let founded = working.is_none();
-    let (hamlet, mayor) = match working {
+    let (hamlet, lead) = match working {
         Some(working) => working,
         None => {
             let name = label(project.name, "Project");
-            let hired = done!(hamlets::found(
+            let founded = done!(hamlets::found(
                 cx,
                 Founding {
-                    purpose: format!("Mayor of {name}."),
+                    purpose: format!("Lead of {name}."),
                     name,
                     chief,
-                    mayor: Hiring::Blank {
+                    lead: ProfileChoice::Blank {
                         name: String::new(),
                         character: String::new(),
                     },
@@ -129,18 +129,18 @@ pub(crate) fn bring_in_project(
             if let Some(folder) = folder {
                 done!(hamlets::set_folder(
                     cx,
-                    &hired.hamlet,
+                    &founded.hamlet,
                     Some(folder)
                 ));
             }
-            (hired.hamlet, hired.agent)
+            (founded.hamlet, founded.agent)
         }
     };
     let tier = hamlets::get(cx.db, &hamlet)?.tier;
     let mut brought = Brought {
         hamlet: hamlet.clone(),
         founded,
-        hired: 0,
+        added: 0,
         before: 0,
         full: 0,
     };
@@ -149,16 +149,16 @@ pub(crate) fn bring_in_project(
             brought.before += 1;
             continue;
         }
-        if hires::count_living(cx.db, &hamlet)? >= tier {
+        if hamlet_agents::count_living(cx.db, &hamlet)? >= tier {
             brought.full += 1;
             continue;
         }
-        let hired = done!(hires::hire(
+        let added = done!(hamlet_agents::add(
             cx,
             Spec {
                 hamlet: hamlet.clone(),
-                parent: Some(mayor),
-                hiring: Hiring::Blank {
+                parent: Some(lead),
+                profile: ProfileChoice::Blank {
                     name: label(&imported.title, ""),
                     character: String::new(),
                 },
@@ -172,8 +172,8 @@ pub(crate) fn bring_in_project(
                 owner: chief,
             }
         ));
-        begin(cx, env, hired.agent, chief, imported)?;
-        brought.hired += 1;
+        begin(cx, env, added.agent, chief, imported)?;
+        brought.added += 1;
     }
     Ok(Ok(brought))
 }
@@ -266,17 +266,17 @@ fn begin(
 pub(crate) fn read(
     files: &Files,
     id: &FileId,
-) -> Result<std::result::Result<Imported, Refusal>> {
+) -> Result<std::result::Result<Imported, Rejection>> {
     let Some(size) = files.size(id) else {
-        return Ok(Err(Refusal::ConversationNotSent));
+        return Ok(Err(Rejection::ConversationNotSent));
     };
     if size > Imported::MOST_BYTES {
-        return Ok(Err(Refusal::ConversationTooBig {
+        return Ok(Err(Rejection::ConversationTooBig {
             most: Imported::MOST_BYTES >> 20,
         }));
     }
     let bytes = files.read(id)?.context("a sent file went away")?;
-    let unfit = || Refusal::NotAConversation;
+    let unfit = || Rejection::NotAConversation;
     let Ok(value) = serde_json::from_slice::<Value>(&bytes) else {
         return Ok(Err(unfit()));
     };

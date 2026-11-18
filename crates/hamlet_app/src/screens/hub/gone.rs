@@ -17,7 +17,7 @@ use hamlet_ui::{View, built, with_cx};
 use super::thread::dim;
 use super::{Showing, show};
 use crate::lists;
-use crate::world_menu::{self, Deed};
+use crate::world_menu::{self, Action};
 
 /// The page of an agent that is gone, with the way back.
 pub(super) fn ruin(agent: Entity) -> impl View {
@@ -63,8 +63,8 @@ pub(super) fn ruin(agent: Entity) -> impl View {
             column((
                 head,
                 super::thread::said(purpose),
-                dim("Its lodge is kept in the archive. Deleting it \
-                     frees the space on disk."),
+                dim("Its worktree is kept in the archive. Deleting \
+                     it frees the space on disk."),
                 buttons(vec![
                     tinted_action(
                         StatusKind::Success,
@@ -80,7 +80,7 @@ pub(super) fn ruin(agent: Entity) -> impl View {
                         move |world| {
                             world_menu::ask(
                                 world,
-                                Deed::Erase(agent),
+                                Action::Erase(agent),
                             );
                         },
                     ),

@@ -35,7 +35,7 @@ pub(crate) fn plugin(app: &mut App) {
         );
 }
 
-/// A runtime started: taken on and sent what it is owed, or refused
+/// A runtime started: taken on and sent what it is owed, or rejected
 /// for good (S24).
 fn hello(
     mut heard: ResMut<Messages<FromRuntime<runtime::Hello>>>,
@@ -46,17 +46,17 @@ fn hello(
              runtime: from,
              message: hello,
          }| {
-            let refusal = core.runtimes.hello(
+            let rejection = core.runtimes.hello(
                 core.realm.store().connection(),
                 from,
                 &hello,
             )?;
             let re = hello.id;
-            match refusal {
+            match rejection {
                 Some(words) => {
                     warn!("{words}");
                     core.runtimes.send(from, |v, id| {
-                        ServerMessage::Refused(runtime::Refused {
+                        ServerMessage::Rejected(runtime::Rejected {
                             id,
                             re,
                             v,

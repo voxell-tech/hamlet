@@ -45,8 +45,8 @@ pub enum ServerMessage {
     Welcome(Welcome),
     #[serde(rename = "tools")]
     Tools(Tools),
-    #[serde(rename = "refused")]
-    Refused(Refused),
+    #[serde(rename = "rejected")]
+    Rejected(Rejected),
     #[serde(rename = "create")]
     Create(Create),
     #[serde(rename = "submit")]
@@ -71,8 +71,8 @@ pub enum ServerMessage {
     Allowed(Allowed),
     #[serde(rename = "waiting")]
     Waiting(Waiting),
-    #[serde(rename = "refusal")]
-    Refusal(Refusal),
+    #[serde(rename = "rejection")]
+    Rejection(Rejection),
     #[serde(rename = "result")]
     Result(Result),
     #[serde(rename = "allowance")]

@@ -156,7 +156,7 @@ pub(crate) fn of_hamlet(hamlet: Entity) -> impl View {
             super::problem(),
             close((section("Its default model"), default)),
             description(
-                "Used when neither you nor the mayor chose a model.",
+                "Used when neither you nor the lead chose a model.",
             ),
         )))
     })

@@ -1,5 +1,5 @@
 //! The loop's answers to client messages: the hello, a chief's lines
-//! and commands, watching conversations, and a chat's deeds.
+//! and commands, watching conversations, and a chat's actions.
 
 use std::collections::BTreeMap;
 
@@ -25,8 +25,8 @@ use crate::conversations::{
 use crate::core::{Core, Live};
 use crate::realm::change::Done;
 use crate::society::agents::{self, AgentKind, Effort};
-use crate::society::refusal::Refusal;
-use crate::society::{authority, hires, workers};
+use crate::society::rejection::Rejection;
+use crate::society::{authority, hamlet_agents, workers};
 
 /// The most transcript entries one page holds.
 const PAGE: usize = 100;
@@ -162,12 +162,12 @@ impl Core<'_, '_> {
         else {
             return Ok(());
         };
-        // A line no model can answer is refused, so the agent is not
+        // A line no model can answer is rejected, so the agent is not
         // left working on it for good.
         if !self.has_model(agent)? {
             return self.answer(
                 client,
-                reply(&say.id, Err(Refusal::NoModelSetUp)),
+                reply(&say.id, Err(Rejection::NoModelSetUp)),
             );
         }
         let attached = match self.attach(
@@ -177,9 +177,9 @@ impl Core<'_, '_> {
             &say.files,
         )? {
             Ok(attached) => attached,
-            Err(refusal) => {
+            Err(rejection) => {
                 return self
-                    .answer(client, reply(&say.id, Err(refusal)));
+                    .answer(client, reply(&say.id, Err(rejection)));
             }
         };
         let request = say.id.as_str().to_owned();
@@ -245,7 +245,7 @@ impl Core<'_, '_> {
             .filter_map(|file| files.size(file))
             .sum::<u64>();
         if together > ImportProject::MOST_BYTES {
-            return Ok(Err(Refusal::ProjectTooBig {
+            return Ok(Err(Rejection::ProjectTooBig {
                 most: ImportProject::MOST_BYTES >> 20,
             }));
         }
@@ -253,7 +253,7 @@ impl Core<'_, '_> {
         for file in &project.files {
             match imports::read(&files, file)? {
                 Ok(imported) => conversations.push(imported),
-                Err(refusal) => return Ok(Err(refusal)),
+                Err(rejection) => return Ok(Err(rejection)),
             }
         }
         let wanted = imports::Project {
@@ -308,7 +308,7 @@ impl Core<'_, '_> {
                 Vec<protocol::AttachedImage>,
                 Vec<protocol::AttachedFile>,
             ),
-            Refusal,
+            Rejection,
         >,
     > {
         let chief = self.realm.chief();
@@ -319,7 +319,7 @@ impl Core<'_, '_> {
         Ok(done)
     }
 
-    /// The agent `to` names, or `None` once request `id` was refused
+    /// The agent `to` names, or `None` once request `id` was rejected
     /// because this server's chief may not reach it.
     pub(crate) fn reached(
         &mut self,
@@ -330,8 +330,8 @@ impl Core<'_, '_> {
         let agent = AgentId(i64::try_from(to)?);
         match self.reaches(agent)? {
             Ok(()) => Ok(Some(agent)),
-            Err(refusal) => {
-                self.answer(client, reply(id, Err(refusal)))?;
+            Err(rejection) => {
+                self.answer(client, reply(id, Err(rejection)))?;
                 Ok(None)
             }
         }
@@ -352,22 +352,22 @@ impl Core<'_, '_> {
         )
     }
 
-    /// Refuses unless this server's chief may reach `agent` (C7): the
-    /// Hand, a hire of one of its hamlets, or a worker started by it
-    /// or in its hamlets.
+    /// Rejects unless this server's chief may reach `agent` (C7): the
+    /// Hand, an agent of one of its hamlets, or a worker started by
+    /// it or in its hamlets.
     pub(crate) fn reaches(&mut self, agent: AgentId) -> Done<()> {
         let chief = self.realm.chief();
         let db = self.realm.store().connection();
         let Some(found) = agents::find(db, agent)? else {
-            return Ok(Err(Refusal::NoOne {
+            return Ok(Err(Rejection::NoOne {
                 address: agent.to_string(),
             }));
         };
         let allowed = match found.kind {
             AgentKind::Hand => true,
-            AgentKind::Hire => {
-                let hire = hires::get(db, agent)?;
-                authority::is_chief_of(db, chief, &hire.hamlet)?
+            AgentKind::Hamlet => {
+                let hamlet = hamlet_agents::get(db, agent)?.hamlet;
+                authority::is_chief_of(db, chief, &hamlet)?
             }
             AgentKind::Worker => {
                 let worker = workers::get(db, agent)?;
@@ -382,7 +382,7 @@ impl Core<'_, '_> {
         };
         if !allowed {
             let name = crate::society::addresses::name_of(db, agent)?;
-            return Ok(Err(Refusal::NotYours { name }));
+            return Ok(Err(Rejection::NotYours { name }));
         }
         Ok(Ok(()))
     }
@@ -413,8 +413,8 @@ impl Core<'_, '_> {
     ) -> Done<ConversationId> {
         let chief = self.realm.chief();
         let agent = AgentId(i64::try_from(chat.with.0)?);
-        if let Err(refusal) = self.reaches(agent)? {
-            return Ok(Err(refusal));
+        if let Err(rejection) = self.reaches(agent)? {
+            return Ok(Err(rejection));
         }
         let db = self.realm.store().connection();
         match (&chat.from, &chat.kind) {
@@ -427,7 +427,7 @@ impl Core<'_, '_> {
                 match conversations::with_peer(db, agent, kind, peer)?
                 {
                     Some(conversation) => Ok(Ok(conversation)),
-                    None => Ok(Err(Refusal::NoOne {
+                    None => Ok(Err(Rejection::NoOne {
                         address: format!(
                             "{peer}'s {kind} to {agent}"
                         ),
@@ -439,7 +439,7 @@ impl Core<'_, '_> {
                     match chats::session(db, agent, chief, number)? {
                         Some(conversation) => Ok(Ok(conversation)),
                         None => {
-                            Ok(Err(Refusal::NoSession { number }))
+                            Ok(Err(Rejection::NoSession { number }))
                         }
                     }
                 }
@@ -678,7 +678,7 @@ impl Core<'_, '_> {
             confinement,
             activity: &activity,
             providers,
-            deeds: self.deeds.listed(),
+            actions: self.actions.listed(),
             settings_view,
             waits,
             library,

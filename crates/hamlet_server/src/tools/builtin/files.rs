@@ -1,5 +1,5 @@
-//! pi's `read`, `write` and `edit`, whose paths fall in the lodge or
-//! the folder as C20 says.
+//! pi's `read`, `write` and `edit`, whose paths fall in the worktree
+//! or the folder as C20 says.
 
 use hamlet_protocol::runtime::DiagnosticSeverity;
 use hamlet_sandbox::{FileError, FileKind};

@@ -15,63 +15,57 @@ _Avoid_: user, owner, admin
 ### Agents
 
 **Agent**:
-An AI worker the server runs: the Hand, a hire or a worker.
-_Avoid_: citizen, resident, bot
+An AI the server runs. Most are a profile working in a hamlet, on a branch
+of its own and in a worktree, for a purpose a chief may leave out; a hamlet's
+agents form a tree under its lead. The Hand and workers are agents too.
+_Avoid_: hire, citizen, resident, bot, member, employee
 
 **Hand**:
-The chiefs' own agent. It is always there, sits above every mayor, and
-founds hamlets and looks after scholars when a chief asks. Its reserved
+The chiefs' own agent. It is always there, sits above every lead, and
+founds hamlets and looks after profiles when a chief asks. Its reserved
 acts wait for a chief.
 _Avoid_: assistant, root agent, admin agent
 
-**Scholar**:
+**Profile**:
 Who an agent is when it is not at work: a git repository holding a
-character, memory and skills. Its `main` is what it knows. Many hires can
-be of one scholar. A scholar is its id, `scholar#<id>`; its name is a label
+character, memory and skills. Its `main` is what it knows. Many agents can
+be of one profile. A profile is its id, `profile#<id>`; its name is a label
 that a chief changes and that may repeat.
-_Avoid_: persona, profile, template, house
-
-**Hire**:
-A scholar working in a hamlet, on a branch of its own and in a lodge, for a
-purpose a chief may leave out. Hires form a tree under the mayor.
-_Avoid_: member, employee, citizen
+_Avoid_: scholar, persona, template, house
 
 **Blank agent**:
-A hire, the mayor included, that is not of a scholar of the city: its
-scholar is made for it alone, has no house, never waits at the harbor and
-is not listed with the city's scholars.
-_Avoid_: blank scholar, temp hire
+An agent of a hamlet, the lead included, that is not of a profile of the
+city: its profile is made for it alone, has no house, never waits at the
+harbor and is not listed with the city's profiles.
+_Avoid_: blank profile, temp agent
 
 **Address**:
-How a chief or an agent names an agent or a scholar, by ids and never by a
-name: `hand`, `mayor@<hamlet>` (by the hamlet's id), `hire#<id>`,
-`worker#<id>`, `scholar#<id>`. Wherever an agent is shown, its address comes
+How a chief or an agent names an agent or a profile, by ids and never by a
+name: `hand`, `lead@<hamlet>` (by the hamlet's id), `agent#<id>`,
+`worker#<id>`, `profile#<id>`. Wherever an agent is shown, its address comes
 first and its name beside it.
 _Avoid_: handle, username
 
 **Name**:
-The words a scholar, a hamlet, a hire or a worker is shown by: a scholar's
-name, a hamlet's name, a hire's or a worker's nickname. Metadata a chief
-changes and that may repeat; it never finds anything. Everyone but the Hand
-has one a chief can change. A scholar and a hamlet always have one; a
-hamlet's id is a UUID no one reads.
-
-**Nickname**:
-What a hire or a worker is called in the world, given by a chief, or for a
-hire by the Hand or a lead above it. Its address, `hire#<id>` or
-`worker#<id>`, stays the same.
-_Avoid_: alias
-
-**Mayor**:
-The hire at the top of a hamlet's tree: the one the chief talks to first.
-Given to another hire with `/mayor`.
-_Avoid_: orchestrator, main agent
+The words a profile, a hamlet, an agent or a worker is shown by. Metadata a
+chief changes and that may repeat; it never finds anything. Everyone but the
+Hand has one a chief can change. A profile and a hamlet always have one; a
+hamlet's id is a UUID no one reads. An agent or a worker has one only once
+it is given one, by a chief, or for an agent of a hamlet by the Hand or a
+parent above it; until then an agent goes by its profile's name and a worker
+by its address. Its address, `agent#<id>` or `worker#<id>`, stays the same.
+_Avoid_: nickname, alias
 
 **Lead**:
-A hire with hires under it, or the Hand. It has the mayor's powers over its
-subtree: hiring, ending, merging, choosing models and tools, setting
-allowances and laying roads.
-_Avoid_: manager, supervisor
+The agent at the top of a hamlet's tree: the one the chief talks to first.
+Given to another agent with `/lead`.
+_Avoid_: mayor, orchestrator, main agent
+
+**Parent**:
+An agent with agents under it, or the Hand. It has the lead's powers over
+its subtree: adding agents, ending, merging, choosing models and tools, setting
+allowances and opening channels.
+_Avoid_: lead (the top of a hamlet), manager, supervisor
 
 **Worker**:
 An agent started for one task by another agent or a chief. A child of its
@@ -81,45 +75,46 @@ _Avoid_: subagent, helper, runtime
 
 **Errand**:
 A one-off conversation that is not an agent's: the librarian's answer or a
-lead's review.
+parent's review.
 _Avoid_: job (a job is the server's outbox)
 
-### Scholars and their memory
+### Profiles and their memory
 
 **Character**:
-`CHARACTER.md` in a scholar's repository: who it is. Edited by a chief or
-given when a lead makes the scholar.
+`CHARACTER.md` in a profile's repository: who it is. Edited by a chief or
+given when a parent makes the profile.
 
 **Memory**:
-The files under a scholar's `memory/`. Files at its root are in every
+The files under a profile's `memory/`. Files at its root are in every
 prompt; each folder is described by its `MEMORY.md`.
 _Avoid_: notes, `NOTES.md`
 
 **Version**:
-A tag on a scholar's `main`. A hire can be hired at one or pinned to one.
-_Avoid_: release (for a scholar)
+A tag on a profile's `main`. An agent can be added at one or pinned to one.
+_Avoid_: release (for a profile)
 
 **Pin**:
-Holding a hire at one version of its scholar, so it does not take in `main`.
+Holding an agent at one version of its profile, so it does not take in `main`.
 
-**Lodge**:
-The checkout of a hire's branch where its tools work, without
+**Worktree**:
+The checkout of an agent's branch where its tools work, without
 `CHARACTER.md`, plus an `inbox/` that is never committed. The Hand's is
-`hand/`.
-_Avoid_: house, workspace, home
+`hand/`. A folder of the realm, not the **Workspace** its tools run on,
+which may hold a copy of it.
+_Avoid_: lodge, house, home
 
 **Dream**:
-A task in which a hire brings what it learned home to its scholar's `main`,
-or a scholar tidies `main`. Off by default; the settings give its hours, cost
+A task in which an agent brings what it learned home to its profile's `main`,
+or a profile tidies `main`. Off by default; the settings give its hours, cost
 cap and rests.
 _Avoid_: sleep, sync
 
 **Merge**:
-Making one hire of two, in one hamlet: the kept hire takes the absorbed
-one's roads, hires, inbox and what it learned.
+Making one agent of two, in one hamlet: the kept agent takes the absorbed
+one's channels, agents, inbox and what it learned.
 
 **Split**:
-Bringing a merged hire back out again, by undoing the merge's commit
+Bringing a merged agent back out again, by undoing the merge's commit
 (`/restore`).
 
 ### Places
@@ -130,7 +125,7 @@ the database and the credentials, in one folder (`HAMLET_HOME`).
 _Avoid_: home, world, server
 
 **City**:
-Where the scholars live, apart from any hamlet, each in a house the server
+Where the profiles live, apart from any hamlet, each in a house the server
 sets down. In the world it is the **city island**, with the Hand's tower,
 the Library and the chief's Hearth.
 _Avoid_: town (for anything), guild
@@ -147,20 +142,20 @@ The pier on each island, with a boat between them. A newcomer waits at the
 city's until it is let into the city.
 
 **Newcomer**:
-A scholar a lead made, waiting at the harbor until a chief or the Hand lets
+A profile a parent made, waiting at the harbor until a chief or the Hand lets
 it into the city, as the realm's `newcomers` setting says.
 _Avoid_: applicant, guest
 
 **Hamlet**:
-A group of hires under one mayor, with its own record, limits and the
+A group of agents under one lead, with its own record, limits and the
 folder it works on. A new realm has none. A chief creates one with
 `/create-hamlet`; the Hand founds one with its tool.
 _Avoid_: team, project, town
 
 **Workspace**:
 Where agents' tools run: this machine, or a remote one the chief chooses in
-Settings.
-_Avoid_: sandbox, lodge
+Settings. Not an agent's **Worktree**, the folder its tools work in.
+_Avoid_: sandbox, worktree
 
 **Sandbox**:
 What holds an agent's commands to the reach the spec gives them, on the
@@ -214,16 +209,18 @@ _Avoid_: task (a task is an agent's work)
 
 ### Between agents
 
-**Road**:
+**Channel**:
 A link between two agents along which they send letters. Its kind is tree
-(a hire and its lead, or the Hand and a mayor), mayors', laid (between two
-hires of a hamlet) or agreed (between hires of two hamlets).
+(an agent and its parent, or the Hand and a lead), leads', opened (between two
+agents of a hamlet) or agreed (between agents of two hamlets). The world draws
+a channel as a road.
+_Avoid_: road, link
 
 **Letter**:
-A message one agent sends another along a road.
+A message one agent sends another along a channel.
 _Avoid_: mail, DM
 
-### Work, waits and trust
+### Work, waits and grants
 
 **Task**:
 A chief's instruction and everything done for it, which carries what it
@@ -233,39 +230,38 @@ _Avoid_: job, ticket
 **Wait**:
 A question or act held until a chief answers: a question, an objection, a
 tool call that needs a grant, a newcomer to welcome. Waits survive a
-restart.
-_Avoid_: pending item, approval request
-
-**Petition**:
-A wait as the window shows it to a chief: in full, with the answers it
-takes, in the thread of the agent that asks and on a toast.
-_Avoid_: ticket, request
+restart. The window shows one in full, with the answers it takes, in the
+thread of the agent that asks and on a toast.
+_Avoid_: petition, pending item, approval request
 
 **Grant**:
-A chief's allowing of an act that waits: once, for the session (trust), or
-for good.
+A chief's allowing of an act that waits: once, for the session (a session
+grant), or for good.
 _Avoid_: permission, whitelist
 
-**Trust**:
+**Session grant**:
 A grant for the rest of a session.
+_Avoid_: trust
 
-### Deeds and answers
+### Actions and rejections
 
-**Deed**:
-An action a chief asks the realm to carry out, advertised by the server.
+**Action**:
+Something a chief asks the realm to carry out, advertised by the server.
+_Avoid_: deed, operation
 
-**Refusal**:
+**Rejection**:
 An answer saying why an action cannot be carried out.
+_Avoid_: refusal, denial
 
 ### Records and the library
 
 **Record**:
-A hamlet's account of its hires, departures, roads and mayor's office, and
+A hamlet's account of its agents, departures, channels and lead's office, and
 the decisions that changed them. `/history` and the window's History
 show it.
 
 **Decision**:
-A choice by a mayor or a chief, kept in the record with its reason.
+A choice by a lead or a chief, kept in the record with its reason.
 
 **Library**:
 The skills shared by every agent of the realm.
@@ -274,7 +270,7 @@ The skills shared by every agent of the realm.
 The judge of skills offered to the library, and the adviser on its shelves.
 
 **Archive**:
-What is kept of hires and hamlets that left, so a chief can restore them.
+What is kept of agents and hamlets that left, so a chief can restore them.
 _Avoid_: trash, deleted agents
 
 **Terminal**:
@@ -313,13 +309,13 @@ _Avoid_: flavor
 
 **Hub**:
 The panel of the realm's agents: a rail of them by what they are doing,
-and beside it a thread, a scholar, a hamlet, the library or the page of
+and beside it a thread, a profile, a hamlet, the library or the page of
 every hamlet and the Hand.
 _Avoid_: inspector, sidebar
 
 **Toast**:
 A card in a corner of the window that tells of something new, and
-answers a petition in place.
+answers a wait in place.
 _Avoid_: notification, popup
 
 **Town**:

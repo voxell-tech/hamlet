@@ -656,7 +656,7 @@ mod tests {
             app.world_mut(),
             protocol::ServerMessage::State(realm),
         );
-        let scout = realm::named(app.world(), "hire#3").unwrap();
+        let scout = realm::named(app.world(), "agent#3").unwrap();
         assert_eq!(
             app.world().get::<TalksTo>(chat),
             Some(&TalksTo(scout))

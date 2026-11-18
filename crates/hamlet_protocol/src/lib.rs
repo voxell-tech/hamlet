@@ -16,9 +16,9 @@ pub use version::{BadVersion, Version};
 
 /// The address of the Hand.
 pub const HAND: &str = "hand";
-/// The agent of an address that names a hamlet's mayor, whoever holds
+/// The agent of an address that names a hamlet's lead, whoever holds
 /// the office.
-pub const MAYOR: &str = "mayor";
+pub const LEAD: &str = "lead";
 
 /// How hard a model thinks before it answers, where its provider
 /// lets it be asked.

@@ -3,38 +3,40 @@ use hamlet_git::{Author, Change as GitChange, MAIN, Repository};
 use super::{CHARACTER, branch, run};
 use crate::realm::jobs::Job;
 use crate::society::agents::EndHow;
-use crate::society::hires;
+use crate::society::hamlet_agents;
 use crate::testing::Realm;
 
 #[test]
-fn a_hire_learns_in_its_lodge_and_takes_in_its_scholar() {
+fn an_agent_learns_in_its_worktree_and_takes_in_its_profile() {
     let mut realm = Realm::new();
     let layout = realm.layout();
-    let mayor = realm.found("docs", "ada");
+    let lead = realm.found("docs", "ada");
     realm.work();
-    let lodge = layout.lodge(&mayor.hamlet, mayor.agent);
-    assert!(lodge.is_dir());
+    let worktree = layout.worktree(&lead.hamlet, lead.agent);
+    assert!(worktree.is_dir());
     assert!(layout.hand().is_dir());
     assert!(
-        !lodge.join(CHARACTER).exists(),
+        !worktree.join(CHARACTER).exists(),
         "the character stays out"
     );
 
-    std::fs::create_dir_all(lodge.join("memory")).unwrap();
-    std::fs::write(lodge.join("memory/notes.md"), "learned").unwrap();
-    std::fs::write(lodge.join(CHARACTER), "I am free now.").unwrap();
-    std::fs::create_dir_all(lodge.join("inbox")).unwrap();
-    std::fs::write(lodge.join("inbox/file.bin"), "big").unwrap();
+    std::fs::create_dir_all(worktree.join("memory")).unwrap();
+    std::fs::write(worktree.join("memory/notes.md"), "learned")
+        .unwrap();
+    std::fs::write(worktree.join(CHARACTER), "I am free now.")
+        .unwrap();
+    std::fs::create_dir_all(worktree.join("inbox")).unwrap();
+    std::fs::write(worktree.join("inbox/file.bin"), "big").unwrap();
     let at = realm.at;
-    let learned = run::commit(realm.db(), &layout, mayor.agent, at)
+    let learned = run::commit(realm.db(), &layout, lead.agent, at)
         .unwrap()
-        .expect("the lodge changed");
+        .expect("the worktree changed");
     let repo =
-        Repository::open(&layout.repository(mayor.scholar)).unwrap();
+        Repository::open(&layout.repository(lead.profile)).unwrap();
     assert_eq!(
         repo.read(learned, CHARACTER).unwrap().as_deref(),
         Some(&b"Careful."[..]),
-        "a lodge never changes its character"
+        "a worktree never changes its character"
     );
     assert_eq!(repo.read(learned, "inbox/file.bin").unwrap(), None);
 
@@ -54,23 +56,23 @@ fn a_hire_learns_in_its_lodge_and_takes_in_its_scholar() {
     run::run(
         realm.db(),
         &layout,
-        &Job::TakeIn { hire: mayor.agent },
+        &Job::TakeIn { agent: lead.agent },
         at,
     )
     .unwrap();
     assert_eq!(
-        std::fs::read_to_string(lodge.join("skills/git/SKILL.md"))
+        std::fs::read_to_string(worktree.join("skills/git/SKILL.md"))
             .unwrap(),
         "Small commits."
     );
     assert_eq!(
-        std::fs::read_to_string(lodge.join("memory/notes.md"))
+        std::fs::read_to_string(worktree.join("memory/notes.md"))
             .unwrap(),
         "learned"
     );
     let main = repo.tip(MAIN).unwrap().unwrap();
     assert_eq!(
-        hires::get(realm.db(), mayor.agent).unwrap().base,
+        hamlet_agents::get(realm.db(), lead.agent).unwrap().base,
         Some(main.to_string())
     );
     assert!(repo.read(main, "memory/notes.md").unwrap().is_none());
@@ -78,12 +80,12 @@ fn a_hire_learns_in_its_lodge_and_takes_in_its_scholar() {
     let owner = realm.chief;
     let other = realm
         .chief(|cx| {
-            hires::hire(
+            hamlet_agents::add(
                 cx,
-                hires::Spec {
-                    hamlet: mayor.hamlet.clone(),
-                    parent: Some(mayor.agent),
-                    hiring: hires::Hiring::Blank {
+                hamlet_agents::Spec {
+                    hamlet: lead.hamlet.clone(),
+                    parent: Some(lead.agent),
+                    profile: hamlet_agents::ProfileChoice::Blank {
                         name: "scout".into(),
                         character: String::new(),
                     },
@@ -97,14 +99,16 @@ fn a_hire_learns_in_its_lodge_and_takes_in_its_scholar() {
     realm.work();
     realm
         .chief(|cx| {
-            hires::end(cx, other.agent, EndHow::Ended, "done")
+            hamlet_agents::end(cx, other.agent, EndHow::Ended, "done")
         })
         .unwrap();
-    realm.chief(|cx| hires::erase(cx, other.agent)).unwrap();
+    realm
+        .chief(|cx| hamlet_agents::erase(cx, other.agent))
+        .unwrap();
     realm.work();
-    assert!(!layout.lodge(&other.hamlet, other.agent).exists());
+    assert!(!layout.worktree(&other.hamlet, other.agent).exists());
     let theirs =
-        Repository::open(&layout.repository(other.scholar)).unwrap();
+        Repository::open(&layout.repository(other.profile)).unwrap();
     assert_eq!(theirs.tip(&branch(other.agent)).unwrap(), None);
 }
 
@@ -112,17 +116,17 @@ fn a_hire_learns_in_its_lodge_and_takes_in_its_scholar() {
 fn a_merge_keeps_both_sides_learning_and_a_split_takes_it_out() {
     let mut realm = Realm::new();
     let layout = realm.layout();
-    let mayor = realm.found("docs", "ada");
-    let docs = mayor.hamlet.clone();
+    let lead = realm.found("docs", "ada");
+    let docs = lead.hamlet.clone();
     let owner = realm.chief;
     let scout = realm
         .chief(|cx| {
-            hires::hire(
+            hamlet_agents::add(
                 cx,
-                hires::Spec {
+                hamlet_agents::Spec {
                     hamlet: docs.clone(),
-                    parent: Some(mayor.agent),
-                    hiring: hires::Hiring::Blank {
+                    parent: Some(lead.agent),
+                    profile: hamlet_agents::ProfileChoice::Blank {
                         name: "scout".into(),
                         character: String::new(),
                     },
@@ -134,8 +138,8 @@ fn a_merge_keeps_both_sides_learning_and_a_split_takes_it_out() {
         })
         .unwrap();
     realm.work();
-    let kept = layout.lodge(&docs, mayor.agent);
-    let absorbed = layout.lodge(&docs, scout.agent);
+    let kept = layout.worktree(&docs, lead.agent);
+    let absorbed = layout.worktree(&docs, scout.agent);
     let write = |at: &std::path::Path, path: &str, text: &str| {
         let path = at.join(path);
         std::fs::create_dir_all(path.parent().unwrap()).unwrap();
@@ -150,7 +154,7 @@ fn a_merge_keeps_both_sides_learning_and_a_split_takes_it_out() {
         .chief(|cx| {
             crate::society::merges::merge(
                 cx,
-                mayor.agent,
+                lead.agent,
                 scout.agent,
                 "one is enough",
             )
@@ -161,7 +165,7 @@ fn a_merge_keeps_both_sides_learning_and_a_split_takes_it_out() {
         |path: &str| std::fs::read_to_string(kept.join(path)).ok();
     assert_eq!(read("memory/notes.md").as_deref(), Some("ada's"));
     assert_eq!(
-        read(&format!("memory/notes.md.from-hire-{}", scout.agent))
+        read(&format!("memory/notes.md.from-agent-{}", scout.agent))
             .as_deref(),
         Some("scout's"),
         "a clash is kept aside"
@@ -171,7 +175,7 @@ fn a_merge_keeps_both_sides_learning_and_a_split_takes_it_out() {
         Some("Scan.")
     );
     assert_eq!(
-        read(&format!("inbox/from-hire-{}/map.txt", scout.agent))
+        read(&format!("inbox/from-agent-{}/map.txt", scout.agent))
             .as_deref(),
         Some("a map")
     );
@@ -192,7 +196,7 @@ fn a_merge_keeps_both_sides_learning_and_a_split_takes_it_out() {
     realm.work();
     assert_eq!(read("memory/notes.md").as_deref(), Some("ada's"));
     assert_eq!(
-        read(&format!("memory/notes.md.from-hire-{}", scout.agent)),
+        read(&format!("memory/notes.md.from-agent-{}", scout.agent)),
         None
     );
     assert_eq!(read("skills/scan/SKILL.md"), None);

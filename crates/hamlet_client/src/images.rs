@@ -48,7 +48,7 @@ pub struct ImageKept {
 /// The server took no image from the upload for `key`, or the
 /// connection was lost on the way.
 #[derive(Event, Clone, Debug)]
-pub struct ImageRefused {
+pub struct ImageRejected {
     pub key: u64,
     pub text: String,
 }
@@ -105,7 +105,7 @@ fn upload(
 ) {
     let Upload { key, bytes } = upload.event().clone();
     if bytes.is_empty() {
-        commands.trigger(ImageRefused {
+        commands.trigger(ImageRejected {
             key,
             text: "The image has no bytes.".into(),
         });
@@ -169,8 +169,8 @@ fn send_part(
     );
 }
 
-/// The words of a refusal or fault, none for what is no refusal.
-fn refusal(message: &protocol::ServerMessage) -> Option<String> {
+/// The words of a rejection or fault, none for what is no rejection.
+fn rejection(message: &protocol::ServerMessage) -> Option<String> {
     match message {
         protocol::ServerMessage::Fault(fault) => {
             Some(fault.text.clone())
@@ -190,10 +190,10 @@ fn answered(world: &mut World, response: Response) {
     else {
         return;
     };
-    let refused = refusal(&response.message);
+    let rejected = rejection(&response.message);
     match step {
         Step::Download(image, size) => {
-            let found = match (&response.message, refused) {
+            let found = match (&response.message, rejected) {
                 (
                     protocol::ServerMessage::Read(
                         protocol::ReadResult::Image {
@@ -221,7 +221,7 @@ fn answered(world: &mut World, response: Response) {
             }
         }
         Step::Begin { key, bytes } => {
-            let upload = match (&response.message, refused) {
+            let upload = match (&response.message, rejected) {
                 (_, Some(text)) => Err(text),
                 (
                     protocol::ServerMessage::Reply(protocol::Reply {
@@ -237,7 +237,7 @@ fn answered(world: &mut World, response: Response) {
             match upload {
                 Ok(upload) => send_part(world, key, upload, bytes, 0),
                 Err(text) => {
-                    world.trigger(ImageRefused { key, text });
+                    world.trigger(ImageRejected { key, text });
                 }
             }
         }
@@ -247,8 +247,8 @@ fn answered(world: &mut World, response: Response) {
             bytes,
             offset,
         } => {
-            if let Some(text) = refused {
-                world.trigger(ImageRefused { key, text });
+            if let Some(text) = rejected {
+                world.trigger(ImageRejected { key, text });
                 return;
             }
             let kept = match &response.message {
@@ -264,7 +264,7 @@ fn answered(world: &mut World, response: Response) {
                 None if offset < bytes.len() => {
                     send_part(world, key, upload, bytes, offset);
                 }
-                None => world.trigger(ImageRefused {
+                None => world.trigger(ImageRejected {
                     key,
                     text: "The server kept no image.".into(),
                 }),
@@ -282,7 +282,7 @@ fn lost(
     for (_, step) in steps.0.drain() {
         match step {
             Step::Begin { key, .. } | Step::Part { key, .. } => {
-                commands.trigger(ImageRefused {
+                commands.trigger(ImageRejected {
                     key,
                     text: "The connection was lost.".into(),
                 });

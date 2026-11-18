@@ -110,8 +110,8 @@ const SHOTS: [Shot; 53] = [
         scale: 1.0,
     },
     Shot {
-        name: "scholar",
-        scene: Scene::Scholar,
+        name: "profile",
+        scene: Scene::Profile,
         size: UVec2::new(1800, 1100),
         scale: 1.0,
     },

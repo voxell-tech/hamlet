@@ -219,7 +219,7 @@ pub enum CredentialRequestAction {
 }
 
 /// The latest credential under the host's provider lease, or a
-/// refusal.
+/// rejection.
 #[derive(
     Clone, Debug, PartialEq, Serialize, Deserialize, JsonSchema,
 )]

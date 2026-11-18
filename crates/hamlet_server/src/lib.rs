@@ -89,7 +89,7 @@ pub fn create_app(options: Options) -> App {
             SendSystems::PublishState,
             SendSystems::SendClientMessages,
             SendSystems::WriteRuntimeLines,
-            SendSystems::PushOwedLodges,
+            SendSystems::PushOwedWorktrees,
             SendSystems::ForgetInput,
         )
             .chain(),
@@ -176,8 +176,8 @@ pub enum SendSystems {
     SendClientMessages,
     /// The runtimes are sent what the input queued for them.
     WriteRuntimeLines,
-    /// The lodges the input owes the remote workspace are pushed.
-    PushOwedLodges,
+    /// The worktrees the input owes the remote workspace are pushed.
+    PushOwedWorktrees,
     /// What the input left is cleared for the next.
     ForgetInput,
 }

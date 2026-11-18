@@ -19,7 +19,7 @@ use std::time::{Duration, Instant};
 use bevy::audio::AudioPlugin;
 use bevy::prelude::*;
 use bevy::time::TimeUpdateStrategy;
-use hamlet_client::realm::{Busy, HandId, Identity, Scholar};
+use hamlet_client::realm::{Busy, HandId, Identity, Profile};
 use hamlet_protocol::client as protocol;
 use hamlet_realm::generator::land::{IslandId, Land};
 use hamlet_realm::generator::society::{Ground, Society, TownId};
@@ -51,14 +51,14 @@ enum Step {
         pitch: f32,
     },
     Night(bool),
-    /// Gives the city scholars, each with a spot for its house, the
-    /// hires that live and whether it has left, as the server
+    /// Gives the city profiles, each with a spot for its house, the
+    /// agents that live and whether it has left, as the server
     /// would send them.
-    Scholars(Vec<(Vec2, usize, bool)>),
-    /// Gives the city this many scholars waiting on its pier, some of
+    Profiles(Vec<(Vec2, usize, bool)>),
+    /// Gives the city this many profiles waiting on its pier, some of
     /// them turned away.
     Newcomers(usize),
-    /// Lets the first scholar waiting on the pier in, to a house at
+    /// Lets the first profile waiting on the pier in, to a house at
     /// this spot.
     LetIn(Vec2),
     /// Sets the Hand to work, or to rest.
@@ -149,7 +149,7 @@ fn stills() -> Vec<Step> {
             pitch: 55.0,
         },
         Shot("01-both-islands"),
-        Scholars(vec![
+        Profiles(vec![
             (Vec2::new(70.0, 45.0), 2, false),
             (Vec2::new(85.0, -25.0), 1, false),
             (Vec2::new(-75.0, 55.0), 0, false),
@@ -168,7 +168,7 @@ fn stills() -> Vec<Step> {
         },
         Shot("02b-the-hands-tower"),
         look(City(Vec2::new(60.0, 10.0)), 130.0),
-        Shot("02c-the-scholars-houses"),
+        Shot("02c-the-profiles-houses"),
         Look {
             at: Pier(IslandId::City),
             dist: 60.0,
@@ -484,7 +484,7 @@ fn run(
     mut reach: ResMut<Reach>,
     mut carrying: ResMut<Carrying>,
     camera: Single<&Transform, With<WorldCamera>>,
-    (entities, scholars): (Query<Entity>, Query<(Entity, &Scholar)>),
+    (entities, profiles): (Query<Entity>, Query<(Entity, &Profile)>),
     mut exit: MessageWriter<AppExit>,
 ) {
     run.settled = if loading.is_done() {
@@ -547,36 +547,36 @@ fn run(
             stage.night = night;
             hour.0 = Some(sky.held(night));
         }
-        Step::Scholars(scholars) => {
-            for (k, (at, hires, left)) in
-                scholars.into_iter().enumerate()
+        Step::Profiles(profiles) => {
+            for (k, (at, count, left)) in
+                profiles.into_iter().enumerate()
             {
                 let id = 100 + k as u64;
-                let hired = (0..hires as u64)
+                let agents = (0..count as u64)
                     .map(|n| protocol::AgentId(1000 + id * 10 + n))
                     .collect::<Vec<_>>();
-                for hire in &hired {
-                    commands.spawn(Identity(*hire));
+                for agent in &agents {
+                    commands.spawn(Identity(*agent));
                 }
                 commands.spawn((
-                    Name::new(format!("Scholar {k}")),
-                    Scholar(protocol::Scholar {
+                    Name::new(format!("Profile {k}")),
+                    Profile(protocol::Profile {
+                        agents,
                         arrival: protocol::Arrival::Housed,
                         arrival_by: None,
                         chief: String::new(),
-                        hires: hired,
                         house: Some(protocol::HouseAt {
                             turn: f64::from((-at.x).atan2(-at.y)),
                             x: f64::from(at.x),
                             z: f64::from(at.y),
                         }),
-                        id: protocol::ScholarId(id),
-                        left: left.then(|| protocol::ScholarLeft {
+                        id: protocol::ProfileId(id),
+                        left: left.then(|| protocol::ProfileLeft {
                             at: 0,
                             by: String::new(),
                             reason: String::new(),
                         }),
-                        name: format!("Scholar {k}"),
+                        name: format!("Profile {k}"),
                         since: 0,
                         skills: Vec::new(),
                         versions: Vec::new(),
@@ -589,7 +589,8 @@ fn run(
                 let id = 200 + k as u64;
                 commands.spawn((
                     Name::new(format!("Newcomer {k}")),
-                    Scholar(protocol::Scholar {
+                    Profile(protocol::Profile {
+                        agents: Vec::new(),
                         arrival: if k % 2 == 0 {
                             protocol::Arrival::Waiting
                         } else {
@@ -597,9 +598,8 @@ fn run(
                         },
                         arrival_by: None,
                         chief: String::new(),
-                        hires: Vec::new(),
                         house: None,
-                        id: protocol::ScholarId(id),
+                        id: protocol::ProfileId(id),
                         left: None,
                         name: format!("Newcomer {k}"),
                         since: 0,
@@ -610,19 +610,19 @@ fn run(
             }
         }
         Step::LetIn(at) => {
-            if let Some((entity, scholar)) =
-                scholars.iter().find(|(_, s)| {
+            if let Some((entity, profile)) =
+                profiles.iter().find(|(_, s)| {
                     s.0.arrival == protocol::Arrival::Waiting
                 })
             {
-                let mut let_in = scholar.0.clone();
+                let mut let_in = profile.0.clone();
                 let_in.arrival = protocol::Arrival::Housed;
                 let_in.house = Some(protocol::HouseAt {
                     turn: f64::from((-at.x).atan2(-at.y)),
                     x: f64::from(at.x),
                     z: f64::from(at.y),
                 });
-                commands.entity(entity).insert(Scholar(let_in));
+                commands.entity(entity).insert(Profile(let_in));
             }
         }
         Step::Hand(busy) => {

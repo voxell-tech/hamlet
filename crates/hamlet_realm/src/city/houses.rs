@@ -1,11 +1,11 @@
-//! The houses of the scholars in the city: one for each scholar that
+//! The houses of the profiles in the city: one for each profile that
 //! has a spot, with its name over it, a glowing window for each of
-//! its hires that lives, and its windows shuttered once the scholar
+//! its agents that lives, and its windows shuttered once the profile
 //! has left.
 
 use bevy::light::NotShadowCaster;
 use bevy::prelude::*;
-use hamlet_client::realm::{Identity, Left, Scholar};
+use hamlet_client::realm::{Identity, Left, Profile};
 use hamlet_protocol::client::HouseAt;
 
 use super::{Glass, Level};
@@ -26,12 +26,12 @@ pub(super) const DOOR_OUT: f32 = 4.0;
 /// far it reaches.
 const LANTERN: (f32, f32) = (30_000.0, 6.0);
 
-/// A scholar's house, and what it was built as: where it stands, the
+/// A profile's house, and what it was built as: where it stands, the
 /// way its door faces, how many of its windows glow and whether it
 /// is shuttered.
 #[derive(Component, Clone, Copy, PartialEq, Debug)]
 pub(super) struct Home {
-    pub(super) scholar: Entity,
+    pub(super) profile: Entity,
     pub(super) at: Vec2,
     pub(super) turn: f32,
     glowing: usize,
@@ -46,44 +46,47 @@ impl Home {
     }
 }
 
-/// The windows to glow for `hires`, those of them that live.
+/// The windows to glow for `agents`, those of them that live.
 fn glowing(
-    hires: &[hamlet_protocol::client::AgentId],
+    agents: &[hamlet_protocol::client::AgentId],
     living: &[u64],
 ) -> usize {
-    hires.iter().filter(|hire| living.contains(&hire.0)).count()
+    agents
+        .iter()
+        .filter(|agent| living.contains(&agent.0))
+        .count()
 }
 
-/// The house every scholar with a spot has now.
+/// The house every profile with a spot has now.
 pub(super) fn wanted(
     land: &Land,
-    scholars: &Query<(Entity, &Scholar)>,
+    profiles: &Query<(Entity, &Profile)>,
     living: &[u64],
 ) -> Vec<Home> {
     let city = land.island(IslandId::City).centre;
-    let mut out = scholars
+    let mut out = profiles
         .iter()
-        .filter_map(|(entity, scholar)| {
-            let at = scholar.0.house.as_ref()?;
-            let shut = scholar.0.left.is_some();
+        .filter_map(|(entity, profile)| {
+            let at = profile.0.house.as_ref()?;
+            let shut = profile.0.left.is_some();
             Some(Home {
-                scholar: entity,
+                profile: entity,
                 at: city + Vec2::new(at.x as f32, at.z as f32),
                 turn: at.turn as f32,
                 glowing: if shut {
                     0
                 } else {
-                    glowing(&scholar.0.hires, living)
+                    glowing(&profile.0.agents, living)
                 },
                 shut,
             })
         })
         .collect::<Vec<_>>();
-    out.sort_by_key(|home| home.scholar);
+    out.sort_by_key(|home| home.profile);
     out
 }
 
-/// The ground before the door of a scholar's house.
+/// The ground before the door of a profile's house.
 pub(crate) fn door(land: &Land, house: &HouseAt) -> Vec2 {
     let city = land.island(IslandId::City).centre;
     let turn = house.turn as f32;
@@ -91,13 +94,13 @@ pub(crate) fn door(land: &Land, house: &HouseAt) -> Vec2 {
         + Vec2::new(turn.sin(), turn.cos()) * DOOR_OUT
 }
 
-/// The places of the houses the scholars have, to grow the city
+/// The places of the houses the profiles have, to grow the city
 /// about.
 pub(super) fn spots(
     land: &Land,
-    scholars: &Query<(Entity, &Scholar)>,
+    profiles: &Query<(Entity, &Profile)>,
 ) -> Vec<Vec2> {
-    wanted(land, scholars, &[])
+    wanted(land, profiles, &[])
         .into_iter()
         .map(|home| home.at)
         .collect()
@@ -106,20 +109,20 @@ pub(super) fn spots(
 /// Half the distance the server keeps between two houses.
 const ROOM: f32 = (HouseAt::APART * 0.5) as f32;
 
-/// Gives the house of every scholar that has not left a claim on
+/// Gives the house of every profile that has not left a claim on
 /// its ground, and takes the claims of houses that are gone.
 pub(super) fn claim(
     land: Res<Land>,
-    scholars: Query<(Entity, &Scholar)>,
+    profiles: Query<(Entity, &Profile)>,
     mut society: ResMut<Society>,
 ) {
-    let wanted = wanted(&land, &scholars, &[])
+    let wanted = wanted(&land, &profiles, &[])
         .into_iter()
         .filter(|home| !home.shut)
         .filter_map(|home| {
-            let (_, scholar) = scholars.get(home.scholar).ok()?;
+            let (_, profile) = profiles.get(home.profile).ok()?;
             Some(Claim {
-                place: Ground::House(scholar.0.id),
+                place: Ground::House(profile.0.id),
                 at: home.at,
                 radius: ROOM,
             })
@@ -137,7 +140,7 @@ pub(super) fn claim(
     society.claims.extend(wanted);
 }
 
-/// Raises the house of every scholar that has none, takes down the
+/// Raises the house of every profile that has none, takes down the
 /// house of one that has gone, and builds a house again when its
 /// windows have changed.
 pub(super) fn tend(
@@ -146,13 +149,13 @@ pub(super) fn tend(
     glass: Res<Glass>,
     stock: Res<Stock>,
     pick: Res<PickSettings>,
-    scholars: Query<(Entity, &Scholar)>,
+    profiles: Query<(Entity, &Profile)>,
     agents: Query<&Identity, Without<Left>>,
     homes: Query<(Entity, &Home)>,
     mut meshes: ResMut<Assets<Mesh>>,
 ) {
     let living = agents.iter().map(|id| id.0.0).collect::<Vec<_>>();
-    let wanted = wanted(&land, &scholars, &living);
+    let wanted = wanted(&land, &profiles, &living);
     for (entity, home) in &homes {
         if !wanted.contains(home) {
             commands.entity(entity).despawn();
@@ -163,10 +166,10 @@ pub(super) fn tend(
         if homes.iter().any(|(_, home)| *home == want) {
             continue;
         }
-        let Ok((_, scholar)) = scholars.get(want.scholar) else {
+        let Ok((_, profile)) = profiles.get(want.profile) else {
             continue;
         };
-        let number = scholar.0.id.0;
+        let number = profile.0.id.0;
         let agent = AgentId(number as u32);
         let style = TownStyle::of(&land, number as usize);
         let yard = house::yard_of(&land, agent, false, 0.0, 0);
@@ -232,7 +235,7 @@ pub(super) fn tend(
         let boxed = commands
             .spawn((
                 hit_box(
-                    Thing::Scholar(want.scholar),
+                    Thing::Profile(want.profile),
                     Vec3::new(radius * 2.0, tall, radius * 2.0),
                     Vec3::Y * tall * 0.5,
                     &mut meshes,

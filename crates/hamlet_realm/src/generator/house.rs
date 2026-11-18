@@ -204,7 +204,7 @@ pub struct HouseMesh {
     pub panes: Meshing,
     /// The place the lantern by the door hangs at.
     pub lamp: Vec3,
-    /// The point the mayor's banner hangs from, and the colours of
+    /// The point the lead's banner hangs from, and the colours of
     /// its stripes in turn.
     pub banner: Option<(Vec3, [Vec3; 2])>,
 }
@@ -581,10 +581,10 @@ fn garden(
     }
 }
 
-/// Length and height of the mayor's banner.
+/// Length and height of the lead's banner.
 pub(crate) const BANNER: Vec2 = Vec2::new(0.95, 0.55);
 
-/// The mast that marks the mayor's house. Returns where its banner
+/// The mast that marks the lead's house. Returns where its banner
 /// hangs from. The cloth itself waves, and is `hamlet_vfx`'s.
 fn mast(meshing: &mut Meshing, foot: Vec3, pal: &Palette) -> Vec3 {
     let top = foot + Vec3::Y * 1.9;
@@ -593,7 +593,7 @@ fn mast(meshing: &mut Meshing, foot: Vec3, pal: &Palette) -> Vec3 {
     top - Vec3::Y * 0.08
 }
 
-/// Whether a house flies the mayor's banner.
+/// Whether a house flies the lead's banner.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Banner {
     Flown,

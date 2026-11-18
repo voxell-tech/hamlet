@@ -1,56 +1,56 @@
-//! A chief's commands on a scholar's history: versions named and
-//! listed, a hire pinned, a commit undone, a scholar forked, and a
+//! A chief's commands on a profile's history: versions named and
+//! listed, an agent pinned, a commit undone, a profile forked, and a
 //! path purged from all of it.
 
 use hamlet_git::{Author, CommitId, MAIN, Repository};
-use hamlet_store::ids::{Actor, HamletId, ScholarId};
+use hamlet_store::ids::{Actor, HamletId, ProfileId};
 
 use super::Command;
-use super::targets::ScholarReach;
-use crate::core::{Core, UnpushedLodge};
+use super::targets::ProfileReach;
+use crate::core::{Core, UnpushedWorktree};
 use crate::knowledge::folder::Folder;
 use crate::realm::change::Done;
 use crate::realm::jobs::Fork;
 use crate::society::addresses::{self, Reach};
-use crate::society::refusal::Refusal;
-use crate::society::{authority, city, hires, names};
+use crate::society::rejection::Rejection;
+use crate::society::{authority, city, hamlet_agents, names};
 
-/// The commands about a scholar's versions.
+/// The commands about a profile's versions.
 pub(super) const VERSIONS: &[Command] = &[
     Command {
         name: "tag",
-        usage: "/tag <scholar#id>[@<commit>] <version> [note]",
-        does: "Name a version of a scholar",
+        usage: "/tag <profile#id>[@<commit>] <version> [note]",
+        does: "Name a version of a profile",
         run: |core, line| core.tag(&line.words()),
     },
     Command {
         name: "versions",
-        usage: "/versions <scholar#id>",
-        does: "List a scholar's versions and latest commits",
+        usage: "/versions <profile#id>",
+        does: "List a profile's versions and latest commits",
         run: |core, line| core.list_versions(&line.words()),
     },
     Command {
         name: "pin",
         usage: "/pin <address> <version|main> [reason]",
-        does: "Hold a hire at a version, or let it follow main",
+        does: "Hold an agent at a version, or let it follow main",
         run: |core, line| core.pin(line.here.as_ref(), &line.words()),
     },
     Command {
         name: "revert",
-        usage: "/revert <scholar#id> <commit|version> [reason]",
-        does: "Undo a commit of a scholar's main",
+        usage: "/revert <profile#id> <commit|version> [reason]",
+        does: "Undo a commit of a profile's main",
         run: |core, line| core.revert(&line.words()),
     },
     Command {
         name: "fork",
-        usage: "/fork <scholar#id>[@<version>] <new name>",
-        does: "Make a new scholar from a version of another",
+        usage: "/fork <profile#id>[@<version>] <new name>",
+        does: "Make a new profile from a version of another",
         run: |core, line| core.fork(&line.words()),
     },
     Command {
         name: "purge",
-        usage: "/purge <scholar#id> <path>",
-        does: "Take a file out of a scholar's whole history",
+        usage: "/purge <profile#id> <path>",
+        does: "Take a file out of a profile's whole history",
         run: |core, line| core.purge(&line.words()),
     },
 ];
@@ -59,21 +59,21 @@ pub(super) const VERSIONS: &[Command] = &[
 const MOST_SHOWN: usize = 12;
 
 impl Core<'_, '_> {
-    /// The living scholar `text` addresses, which this chief keeps,
+    /// The living profile `text` addresses, which this chief keeps,
     /// with its repository.
-    fn chiefs_scholar(
+    fn chiefs_profile(
         &mut self,
         text: &str,
-    ) -> Done<(ScholarId, Repository)> {
+    ) -> Done<(ProfileId, Repository)> {
         let chief = self.realm.chief();
-        let id = match self.scholar_at(text, ScholarReach::Living)? {
+        let id = match self.profile_at(text, ProfileReach::Living)? {
             Ok(id) => id,
-            Err(refusal) => return Ok(Err(refusal)),
+            Err(rejection) => return Ok(Err(rejection)),
         };
         let db = self.realm.store().connection();
         if !authority::may_keep(db, Actor::Chief(chief), id)? {
-            return Ok(Err(Refusal::ScholarNotOwn {
-                name: addresses::scholar_name_of(db, id)?,
+            return Ok(Err(Rejection::ProfileNotOwn {
+                name: addresses::profile_name_of(db, id)?,
             }));
         }
         let repo =
@@ -86,28 +86,28 @@ impl Core<'_, '_> {
     }
 
     pub(super) fn tag(&mut self, words: &[&str]) -> Done<String> {
-        let [scholar, version, note @ ..] = words else {
-            return Ok(Err(self.deeds.usage("tag")));
+        let [profile, version, note @ ..] = words else {
+            return Ok(Err(self.actions.usage("tag")));
         };
-        let (scholar, at) = scholar
+        let (profile, at) = profile
             .split_once('@')
-            .map_or((*scholar, None), |(s, a)| (s, Some(a)));
-        if let Err(refusal) = names::check_version(version) {
-            return Ok(Err(refusal));
+            .map_or((*profile, None), |(s, a)| (s, Some(a)));
+        if let Err(rejection) = names::check_version(version) {
+            return Ok(Err(rejection));
         }
-        let (id, repo) = match self.chiefs_scholar(scholar)? {
+        let (id, repo) = match self.chiefs_profile(profile)? {
             Ok(found) => found,
-            Err(refusal) => return Ok(Err(refusal)),
+            Err(rejection) => return Ok(Err(rejection)),
         };
         if *version == MAIN || repo.resolve(version)?.is_some() {
-            return Ok(Err(Refusal::VersionTaken {
+            return Ok(Err(Rejection::VersionTaken {
                 version: (*version).into(),
             }));
         }
         let commit =
-            match commit_of(&repo, scholar, at.unwrap_or(MAIN))? {
+            match commit_of(&repo, profile, at.unwrap_or(MAIN))? {
                 Ok(commit) => commit,
-                Err(refusal) => return Ok(Err(refusal)),
+                Err(rejection) => return Ok(Err(rejection)),
             };
         let by = self.author();
         let writing = self.writing.clone();
@@ -121,25 +121,25 @@ impl Core<'_, '_> {
                 at: crate::app::clock::now(),
             },
         )?;
-        let label = addresses::scholar_name_of(
+        let label = addresses::profile_name_of(
             self.realm.store().connection(),
             id,
         )?;
         Ok(Ok(format!("Tagged {label} as {version}.")))
     }
 
-    /// Lists the versions of a scholar and the latest commits of its
+    /// Lists the versions of a profile and the latest commits of its
     /// `main`.
     pub(super) fn list_versions(
         &mut self,
         words: &[&str],
     ) -> Done<String> {
-        let [scholar] = words else {
-            return Ok(Err(self.deeds.usage("versions")));
+        let [profile] = words else {
+            return Ok(Err(self.actions.usage("versions")));
         };
-        let (_, repo) = match self.chiefs_scholar(scholar)? {
+        let (_, repo) = match self.chiefs_profile(profile)? {
             Ok(found) => found,
-            Err(refusal) => return Ok(Err(refusal)),
+            Err(rejection) => return Ok(Err(rejection)),
         };
         let mut lines = Vec::new();
         let versions = repo.versions()?;
@@ -182,44 +182,44 @@ impl Core<'_, '_> {
         words: &[&str],
     ) -> Done<String> {
         let [address, version, reason @ ..] = words else {
-            return Ok(Err(self.deeds.usage("pin")));
+            return Ok(Err(self.actions.usage("pin")));
         };
         let parsed = match addresses::parse(address) {
             Ok(parsed) => parsed,
-            Err(refusal) => return Ok(Err(refusal)),
+            Err(rejection) => return Ok(Err(rejection)),
         };
         let db = self.realm.store().connection();
-        let hire = match addresses::resolve(
+        let agent = match addresses::resolve(
             db,
             &parsed,
             here,
             Reach::Living,
         )? {
-            Ok(hire) => hire,
-            Err(refusal) => return Ok(Err(refusal)),
+            Ok(agent) => agent,
+            Err(rejection) => return Ok(Err(rejection)),
         };
-        if let Err(refusal) = self.leads(hire)? {
-            return Ok(Err(refusal));
+        if let Err(rejection) = self.directs(agent)? {
+            return Ok(Err(rejection));
         }
         let layout = self.realm.layout().clone();
         let db = self.realm.store().connection();
-        let found = hires::get(db, hire)?;
+        let found = hamlet_agents::get(db, agent)?;
         let repo =
-            Repository::open(&layout.repository(found.scholar))?;
+            Repository::open(&layout.repository(found.profile))?;
         let target = (*version != MAIN).then_some(*version);
         if let Some(version) = target
             && repo.resolve(version)?.is_none()
         {
-            return Ok(Err(Refusal::NoVersion {
-                name: addresses::scholar_name_of(db, found.scholar)?,
+            return Ok(Err(Rejection::NoVersion {
+                name: addresses::profile_name_of(db, found.profile)?,
                 version: version.into(),
             }));
         }
-        let name = addresses::name_of(db, hire)?;
+        let name = addresses::name_of(db, agent)?;
         let reason = reason.join(" ");
         let chief = self.realm.chief();
         let done = self.attempt(Actor::Chief(chief), |cx, _| {
-            hires::set_pin(cx, hire, target, &reason)
+            hamlet_agents::set_pin(cx, agent, target, &reason)
         })?;
         Ok(done.map(|()| match target {
             Some(version) => format!(
@@ -227,22 +227,22 @@ impl Core<'_, '_> {
                  learning."
             ),
             None => {
-                format!("{name} follows its scholar's main again.")
+                format!("{name} follows its profile's main again.")
             }
         }))
     }
 
     pub(super) fn revert(&mut self, words: &[&str]) -> Done<String> {
-        let [scholar, which, reason @ ..] = words else {
-            return Ok(Err(self.deeds.usage("revert")));
+        let [profile, which, reason @ ..] = words else {
+            return Ok(Err(self.actions.usage("revert")));
         };
-        let (id, repo) = match self.chiefs_scholar(scholar)? {
+        let (id, repo) = match self.chiefs_profile(profile)? {
             Ok(found) => found,
-            Err(refusal) => return Ok(Err(refusal)),
+            Err(rejection) => return Ok(Err(rejection)),
         };
-        let commit = match commit_of(&repo, scholar, which)? {
+        let commit = match commit_of(&repo, profile, which)? {
             Ok(commit) => commit,
-            Err(refusal) => return Ok(Err(refusal)),
+            Err(rejection) => return Ok(Err(rejection)),
         };
         let by = Actor::Chief(self.realm.chief());
         let author = by.to_string();
@@ -263,7 +263,7 @@ impl Core<'_, '_> {
         )?;
         drop(held);
         self.main_moved(by, id)?;
-        let label = addresses::scholar_name_of(
+        let label = addresses::profile_name_of(
             self.realm.store().connection(),
             id,
         )?;
@@ -281,18 +281,18 @@ impl Core<'_, '_> {
 
     pub(super) fn fork(&mut self, words: &[&str]) -> Done<String> {
         let [from, name @ ..] = words else {
-            return Ok(Err(self.deeds.usage("fork")));
+            return Ok(Err(self.actions.usage("fork")));
         };
-        let (scholar, at) = from
+        let (profile, at) = from
             .split_once('@')
             .map_or((*from, MAIN), |(s, a)| (s, a));
-        let (id, repo) = match self.chiefs_scholar(scholar)? {
+        let (id, repo) = match self.chiefs_profile(profile)? {
             Ok(found) => found,
-            Err(refusal) => return Ok(Err(refusal)),
+            Err(rejection) => return Ok(Err(rejection)),
         };
-        let commit = match commit_of(&repo, scholar, at)? {
+        let commit = match commit_of(&repo, profile, at)? {
             Ok(commit) => commit,
-            Err(refusal) => return Ok(Err(refusal)),
+            Err(rejection) => return Ok(Err(rejection)),
         };
         let chief = self.realm.chief();
         let name = name.join(" ");
@@ -308,7 +308,7 @@ impl Core<'_, '_> {
                 }),
             )
         })?;
-        let label = addresses::scholar_name_of(
+        let label = addresses::profile_name_of(
             self.realm.store().connection(),
             id,
         )?;
@@ -322,28 +322,29 @@ impl Core<'_, '_> {
     }
 
     /// Takes the path out of every commit, every branch and every
-    /// lodge of the scholar's hires.
+    /// worktree of the profile's agents.
     pub(super) fn purge(&mut self, words: &[&str]) -> Done<String> {
-        let [scholar, path] = words else {
-            return Ok(Err(self.deeds.usage("purge")));
+        let [profile, path] = words else {
+            return Ok(Err(self.actions.usage("purge")));
         };
         let path = path.trim_matches('/');
         if path.is_empty()
             || path.split('/').any(|part| part == ".." || part == ".")
         {
-            return Ok(Err(Refusal::NoFile { path: path.into() }));
+            return Ok(Err(Rejection::NoFile { path: path.into() }));
         }
-        let (id, _) = match self.chiefs_scholar(scholar)? {
+        let (id, _) = match self.chiefs_profile(profile)? {
             Ok(found) => found,
-            Err(refusal) => return Ok(Err(refusal)),
+            Err(rejection) => return Ok(Err(rejection)),
         };
         let layout = self.realm.layout().clone();
         let writing = self.writing.clone();
         let held = writing.hold();
         let db = self.realm.store().connection();
-        for hire in hires::living_of(db, id)? {
-            let lodge = layout.lodge(&hire.hamlet, hire.agent);
-            let Ok(folder) = Folder::open(&lodge) else {
+        for agent in hamlet_agents::living_of(db, id)? {
+            let worktree =
+                layout.worktree(&agent.hamlet, agent.agent);
+            let Ok(folder) = Folder::open(&worktree) else {
                 continue;
             };
             // The path is a file, or a folder of them.
@@ -356,12 +357,12 @@ impl Core<'_, '_> {
             hamlet_git::purge(&layout.repository(id), path)?;
         drop(held);
         let db = self.realm.store().connection();
-        for hire in hires::living_of(db, id)? {
-            self.remote.unpushed.write(UnpushedLodge(hire.agent));
+        for agent in hamlet_agents::living_of(db, id)? {
+            self.remote.unpushed.write(UnpushedWorktree(agent.agent));
         }
         let by = Actor::Chief(self.realm.chief());
         self.main_moved(by, id)?;
-        let label = addresses::scholar_name_of(
+        let label = addresses::profile_name_of(
             self.realm.store().connection(),
             id,
         )?;
@@ -376,13 +377,13 @@ impl Core<'_, '_> {
 /// `main`.
 fn commit_of(
     repo: &Repository,
-    scholar: &str,
+    profile: &str,
     which: &str,
 ) -> Done<CommitId> {
     Ok(match repo.resolve(which)? {
         Some(commit) => Ok(commit),
-        None => Err(Refusal::NoVersion {
-            name: scholar.into(),
+        None => Err(Rejection::NoVersion {
+            name: profile.into(),
             version: which.into(),
         }),
     })

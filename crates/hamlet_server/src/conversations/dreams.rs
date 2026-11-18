@@ -1,12 +1,12 @@
 //! The dreams of agents: one dream at a time, while dreams are on and
 //! in the chief's hours, or when a chief calls for one with `/dream`.
-//! A hire dreams once it learned something its scholar lacks, an
-//! ended hire once more, and a scholar at most once a day to tidy its
-//! `main`.
+//! An agent dreams once it learned something its profile lacks, an
+//! ended agent once more, and a profile at most once a day to tidy
+//! its `main`.
 
 use anyhow::Result;
 use hamlet_git::{MAIN, Repository};
-use hamlet_store::ids::{Actor, AgentId, DreamId, ScholarId};
+use hamlet_store::ids::{Actor, AgentId, DreamId, ProfileId};
 
 use crate::app::timers::AddTimer;
 use crate::conversations::inputs::{self, InputKind, Keep};
@@ -16,15 +16,15 @@ use crate::conversations::{self, Begin, Kind, models};
 use crate::core::Core;
 use crate::realm::change::Done;
 use crate::society::dreams::{self, DreamKind, Outcome};
-use crate::society::refusal::Refusal;
-use crate::society::{addresses, agents, city, hand, hires};
+use crate::society::rejection::Rejection;
+use crate::society::{addresses, agents, city, hamlet_agents, hand};
 use crate::{knowledge, runtimes};
 
-/// The least time between two dreams of one hire.
-const HIRE_REST: i64 = 6 * 3_600_000;
-/// The least time between two dreams of one scholar.
-const SCHOLAR_REST: i64 = 24 * 3_600_000;
-/// The time after its end a hire may still dream once more.
+/// The least time between two dreams of one agent.
+const AGENT_REST: i64 = 6 * 3_600_000;
+/// The least time between two dreams of one profile.
+const PROFILE_REST: i64 = 24 * 3_600_000;
+/// The time after its end an agent may still dream once more.
 const ENDING_WINDOW: i64 = 24 * 3_600_000;
 /// The time between the server's looks for a due dream.
 const DREAM_CHECK: std::time::Duration =
@@ -38,11 +38,15 @@ fn dream_tick(mut core: Core) -> Result<()> {
     core.dream_tick()
 }
 
-/// A hire or a scholar that dreams.
+/// An agent or a profile that dreams.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub(crate) enum Dreamer {
-    Hire { hire: AgentId, ending: bool },
-    Scholar(ScholarId),
+    /// An agent of a hamlet.
+    Agent {
+        agent: AgentId,
+        ending: bool,
+    },
+    Profile(ProfileId),
 }
 
 impl Core<'_, '_> {
@@ -81,7 +85,7 @@ impl Core<'_, '_> {
         let layout = self.realm.layout().clone();
         let now = crate::app::clock::now();
         let db = self.realm.store().connection();
-        for agent in agents::all_hires(db)? {
+        for agent in agents::all_hamlet_agents(db)? {
             let found = agents::get(db, agent)?;
             if found.erased || inputs::is_agent_busy(db, agent)? {
                 continue;
@@ -91,21 +95,21 @@ impl Core<'_, '_> {
                 Some(at) if now - at < ENDING_WINDOW => true,
                 Some(_) => continue,
             };
-            let last = dreams::last_of_hire(db, agent)?;
+            let last = dreams::last_of_agent(db, agent)?;
             if ending && last.as_ref().is_some_and(|d| d.ending) {
                 continue;
             }
             if !ending
                 && last
                     .as_ref()
-                    .is_some_and(|d| now - d.began < HIRE_REST)
+                    .is_some_and(|d| now - d.began < AGENT_REST)
             {
                 continue;
             }
-            let hire = hires::get(db, agent)?;
-            let Ok(repository) =
-                Repository::open(&layout.repository(hire.scholar))
-            else {
+            let hamlet_agent = hamlet_agents::get(db, agent)?;
+            let Ok(repository) = Repository::open(
+                &layout.repository(hamlet_agent.profile),
+            ) else {
                 continue;
             };
             let (Some(tip), Some(main)) = (
@@ -119,49 +123,46 @@ impl Core<'_, '_> {
             if !dreamt
                 && repository.merge_base(tip, main)? != Some(tip)
             {
-                return Ok(Some(Dreamer::Hire {
-                    hire: agent,
-                    ending,
-                }));
+                return Ok(Some(Dreamer::Agent { agent, ending }));
             }
         }
-        for scholar in city::all(db)? {
-            if !scholar.is_living() || !scholar.planted {
+        for profile in city::all(db)? {
+            if !profile.is_living() || !profile.planted {
                 continue;
             }
-            let rested = dreams::last_of_scholar(db, scholar.id)?
-                .is_none_or(|d| now - d.began >= SCHOLAR_REST);
-            let has_hires =
-                !hires::living_of(db, scholar.id)?.is_empty();
-            if rested && has_hires {
-                return Ok(Some(Dreamer::Scholar(scholar.id)));
+            let rested = dreams::last_of_profile(db, profile.id)?
+                .is_none_or(|d| now - d.began >= PROFILE_REST);
+            let has_agents =
+                !hamlet_agents::living_of(db, profile.id)?.is_empty();
+            if rested && has_agents {
+                return Ok(Some(Dreamer::Profile(profile.id)));
             }
         }
         Ok(None)
     }
 
-    /// `/dream <scholar#id|address>`: dreams now, outside the hours.
+    /// `/dream <profile#id|address>`: dreams now, outside the hours.
     pub(crate) fn dream_command(
         &mut self,
         here: Option<&hamlet_store::ids::HamletId>,
         words: &[&str],
     ) -> Done<String> {
         let [target] = words else {
-            return Ok(Err(Refusal::DreamUsage));
+            return Ok(Err(Rejection::DreamUsage));
         };
         let db = self.realm.store().connection();
         if dreams::running(db)?.is_some() {
-            return Ok(Err(Refusal::DreamRunning));
+            return Ok(Err(Rejection::DreamRunning));
         }
-        let dreamer = if target.starts_with("scholar#") {
-            let found = match addresses::parse_scholar(target) {
+        let dreamer = if target.starts_with("profile#") {
+            let found = match addresses::parse_profile(target) {
                 Ok(id) => city::living(db, id)?,
-                Err(refusal) => return Ok(Err(refusal)),
+                Err(rejection) => return Ok(Err(rejection)),
             };
             match found {
-                Some(found) => Dreamer::Scholar(found.id),
+                Some(found) => Dreamer::Profile(found.id),
                 None => {
-                    return Ok(Err(Refusal::NoScholar {
+                    return Ok(Err(Rejection::NoProfile {
                         address: (*target).into(),
                     }));
                 }
@@ -169,7 +170,7 @@ impl Core<'_, '_> {
         } else {
             let address = match addresses::parse(target) {
                 Ok(address) => address,
-                Err(refusal) => return Ok(Err(refusal)),
+                Err(rejection) => return Ok(Err(rejection)),
             };
             let agent = match addresses::resolve(
                 db,
@@ -178,17 +179,14 @@ impl Core<'_, '_> {
                 addresses::Reach::Kept,
             )? {
                 Ok(agent) => agent,
-                Err(refusal) => return Ok(Err(refusal)),
+                Err(rejection) => return Ok(Err(rejection)),
             };
-            if let Err(refusal) = self.leads(agent)? {
-                return Ok(Err(refusal));
+            if let Err(rejection) = self.directs(agent)? {
+                return Ok(Err(rejection));
             }
             let db = self.realm.store().connection();
             let ending = !agents::get(db, agent)?.is_living();
-            Dreamer::Hire {
-                hire: agent,
-                ending,
-            }
+            Dreamer::Agent { agent, ending }
         };
         Ok(Ok(match self.dream(dreamer)? {
             Some(_) => "The dream began.".into(),
@@ -204,27 +202,28 @@ impl Core<'_, '_> {
     ) -> Result<Option<DreamId>> {
         let layout = self.realm.layout().clone();
         let db = self.realm.store().connection();
-        let (kind, scholar, hire, ending, agent) = match dreamer {
-            Dreamer::Hire { hire, ending } => {
-                let found = hires::get(db, hire)?;
-                (
-                    DreamKind::Hire,
-                    found.scholar,
-                    Some(hire),
-                    ending,
-                    hire,
-                )
-            }
-            Dreamer::Scholar(scholar) => (
-                DreamKind::Scholar,
-                scholar,
-                None,
-                false,
-                hand::id(db)?,
-            ),
-        };
+        let (kind, profile, hamlet_agent, ending, agent) =
+            match dreamer {
+                Dreamer::Agent { agent, ending } => {
+                    let found = hamlet_agents::get(db, agent)?;
+                    (
+                        DreamKind::Agent,
+                        found.profile,
+                        Some(agent),
+                        ending,
+                        agent,
+                    )
+                }
+                Dreamer::Profile(profile) => (
+                    DreamKind::Profile,
+                    profile,
+                    None,
+                    false,
+                    hand::id(db)?,
+                ),
+            };
         let id = self.change(Actor::Realm, |cx, _| {
-            dreams::begin(cx, kind, scholar, hire, ending)
+            dreams::begin(cx, kind, profile, hamlet_agent, ending)
         })?;
         let writing = self.writing.clone();
         let held = writing.hold();
@@ -249,36 +248,37 @@ impl Core<'_, '_> {
             return Ok(None);
         }
         let checkout = knowledge::dreams::checkout(&layout, id);
-        let label = city::get(db, scholar)?.label();
-        let instructions = match hire {
-            Some(hire) => {
-                let lodge =
-                    knowledge::lodging(db, &layout, hire)?.path;
-                let who = addresses::name_of(db, hire)?;
+        let label = city::get(db, profile)?.label();
+        let instructions = match hamlet_agent {
+            Some(hamlet_agent) => {
+                let worktree =
+                    knowledge::worktree(db, &layout, hamlet_agent)?
+                        .path;
+                let who = addresses::name_of(db, hamlet_agent)?;
                 format!(
                     "You are dreaming, between your work as \
-                     `{who}`, a hire of the scholar `{label}`. Your \
-                     lodge at {} holds what you learned as this \
-                     hire: your memory/ and skills/. `{label}`'s \
-                     shared knowledge, its main, is checked out at \
-                     {}; every hire of `{label}` starts from it and \
-                     takes it in.\n\nBring home what any hire of \
-                     `{label}` would want to know: move or merge it \
-                     into the checkout's memory/ and skills/, \
-                     written for a reader who was not there. Keep \
-                     in your lodge what only this hire needs. Tidy \
-                     as you go: one fact in one place, nothing \
-                     stale, the root memory files short, and a true \
-                     `description:` on every memory file. Do not \
-                     change CHARACTER.md. When done, answer in one \
-                     line what you brought home, or `Nothing to \
-                     bring home.`",
-                    lodge.display(),
+                     `{who}`, an agent of the profile `{label}`. \
+                     Your worktree at {} holds what you learned as \
+                     this agent: your memory/ and skills/. \
+                     `{label}`'s shared knowledge, its main, is \
+                     checked out at {}; every agent of `{label}` \
+                     starts from it and takes it in.\n\nBring home \
+                     what any agent of `{label}` would want to \
+                     know: move or merge it into the checkout's \
+                     memory/ and skills/, written for a reader who \
+                     was not there. Keep in your worktree what only \
+                     this agent needs. Tidy as you go: one fact in \
+                     one place, nothing stale, the root memory \
+                     files short, and a true `description:` on \
+                     every memory file. Do not change CHARACTER.md. \
+                     When done, answer in one line what you brought \
+                     home, or `Nothing to bring home.`",
+                    worktree.display(),
                     checkout.display()
                 )
             }
             None => format!(
-                "You are tidying the knowledge of the scholar \
+                "You are tidying the knowledge of the profile \
                  `{label}`, checked out at {}: its memory/ and \
                  skills/. Merge what is said twice, correct or \
                  remove what is stale, keep the root memory files \

@@ -19,24 +19,24 @@ pub(crate) enum Society {
     AskChief,
     ReadBudget,
     Object,
-    RequestRoad,
-    CreateScholar,
-    Hire,
-    EndHire,
-    MergeHires,
+    RequestChannel,
+    CreateProfile,
+    AddAgent,
+    EndAgent,
+    MergeAgents,
     SetModel,
     SetTools,
     SetAllowance,
-    Nickname,
-    LayRoad,
-    TakeUpRoad,
-    AgreeRoad,
+    RenameAgent,
+    OpenChannel,
+    CloseChannel,
+    AgreeChannel,
     FoundHamlet,
-    SeatMayor,
+    SetLead,
     RemoveHamlet,
     ReadRecord,
-    ReadScholar,
-    EditScholar,
+    ReadProfile,
+    EditProfile,
     Tag,
     Revert,
 }
@@ -46,12 +46,12 @@ pub(crate) enum Society {
 pub(crate) enum Offered {
     /// Every agent but a worker.
     Everyone,
-    /// Every hire: those under a lead.
-    Hires,
-    /// Every lead over its own tree, and the Hand over all.
+    /// Every agent of a hamlet: those under a parent.
+    HamletAgents,
+    /// Every parent over its own tree, and the Hand over all.
+    Parents,
+    /// A hamlet's lead, while there is another hamlet.
     Leads,
-    /// A hamlet's mayor, while there is another hamlet.
-    Mayors,
     /// Every agent but a worker, in a chief's chat.
     Chats,
     /// The Hand alone.
@@ -65,15 +65,15 @@ pub(crate) enum Reserve {
     Free,
     /// The Hand's, on what chiefs own.
     Hand,
-    /// A lead's, when its hamlet's limits keep this.
+    /// A parent's, when its hamlet's limits keep this.
     Limit(Limit),
 }
 
 /// An act a hamlet's limits may keep for its chief.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum Limit {
-    Hire,
-    Roads,
+    Add,
+    Channels,
     End,
     Merge,
 }
@@ -82,8 +82,8 @@ impl Limit {
     /// True when `reserved` keeps it.
     pub fn is_kept(self, reserved: &Reserved) -> bool {
         match self {
-            Self::Hire => reserved.hire,
-            Self::Roads => reserved.roads,
+            Self::Add => reserved.add,
+            Self::Channels => reserved.channels,
             Self::End => reserved.end,
             Self::Merge => reserved.merge,
         }
@@ -102,7 +102,7 @@ pub(crate) struct Facts {
     pub doing: Option<Doing>,
     /// True when a call cut off by a crash may run again when called
     /// again: its change is kept with its answer, or what it began
-    /// is found by its call. A write of a scholar's repository is
+    /// is found by its call. A write of a profile's repository is
     /// kept by no transaction, so it is answered as cut off instead.
     pub replays: bool,
 }
@@ -128,7 +128,7 @@ impl Facts {
         self
     }
 
-    /// It writes a scholar's repository, which no transaction keeps.
+    /// It writes a profile's repository, which no transaction keeps.
     const fn once(mut self) -> Self {
         self.replays = false;
         self
@@ -142,7 +142,9 @@ impl Facts {
 
 /// Every society tool, once.
 pub(crate) const FACTS: [Facts; 28] = {
-    use Offered::{Chats, Everyone, Hand, Hires, Leads, Mayors};
+    use Offered::{
+        Chats, Everyone, HamletAgents, Hand, Leads, Parents,
+    };
     use Society as S;
     [
         facts(S::Tell, "tell", Everyone),
@@ -155,33 +157,34 @@ pub(crate) const FACTS: [Facts; 28] = {
         facts(S::AskChief, "ask_chief", Everyone),
         facts(S::ReadBudget, "read_budget", Everyone),
         facts(S::Object, "object", Chats),
-        facts(S::RequestRoad, "request_road", Hires)
+        facts(S::RequestChannel, "request_channel", HamletAgents)
             .doing(Doing::Await),
-        facts(S::CreateScholar, "create_scholar", Leads)
+        facts(S::CreateProfile, "create_profile", Parents)
             .doing(Doing::Think),
-        facts(S::Hire, "hire", Leads)
-            .reserved(Reserve::Limit(Limit::Hire))
+        facts(S::AddAgent, "add_agent", Parents)
+            .reserved(Reserve::Limit(Limit::Add))
             .doing(Doing::Think),
-        facts(S::EndHire, "end_hire", Leads)
+        facts(S::EndAgent, "end_agent", Parents)
             .reserved(Reserve::Limit(Limit::End)),
-        facts(S::MergeHires, "merge_hires", Leads)
+        facts(S::MergeAgents, "merge_agents", Parents)
             .reserved(Reserve::Limit(Limit::Merge)),
-        facts(S::SetModel, "set_model", Leads),
-        facts(S::SetTools, "set_tools", Leads),
-        facts(S::SetAllowance, "set_allowance", Leads),
-        facts(S::Nickname, "nickname", Leads),
-        facts(S::LayRoad, "lay_road", Leads)
-            .reserved(Reserve::Limit(Limit::Roads)),
-        facts(S::TakeUpRoad, "take_up_road", Leads)
-            .reserved(Reserve::Limit(Limit::Roads)),
-        facts(S::AgreeRoad, "agree_road", Mayors).doing(Doing::Await),
+        facts(S::SetModel, "set_model", Parents),
+        facts(S::SetTools, "set_tools", Parents),
+        facts(S::SetAllowance, "set_allowance", Parents),
+        facts(S::RenameAgent, "rename_agent", Parents),
+        facts(S::OpenChannel, "open_channel", Parents)
+            .reserved(Reserve::Limit(Limit::Channels)),
+        facts(S::CloseChannel, "close_channel", Parents)
+            .reserved(Reserve::Limit(Limit::Channels)),
+        facts(S::AgreeChannel, "agree_channel", Leads)
+            .doing(Doing::Await),
         facts(S::FoundHamlet, "found_hamlet", Hand),
-        facts(S::SeatMayor, "seat_mayor", Hand),
+        facts(S::SetLead, "set_lead", Hand),
         facts(S::RemoveHamlet, "remove_hamlet", Hand)
             .reserved(Reserve::Hand),
         facts(S::ReadRecord, "read_record", Hand),
-        facts(S::ReadScholar, "read_scholar", Hand),
-        facts(S::EditScholar, "edit_scholar", Hand)
+        facts(S::ReadProfile, "read_profile", Hand),
+        facts(S::EditProfile, "edit_profile", Hand)
             .reserved(Reserve::Hand)
             .once(),
         facts(S::Tag, "tag", Hand).reserved(Reserve::Hand).once(),

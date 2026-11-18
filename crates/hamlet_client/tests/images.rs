@@ -2,7 +2,7 @@ use std::sync::{Arc, Mutex};
 
 use bevy_app::App;
 use bevy_ecs::prelude::*;
-use hamlet_client::images::{ImageKept, ImageRefused, Upload};
+use hamlet_client::images::{ImageKept, ImageRejected, Upload};
 use hamlet_client::outbox::Outbox;
 use hamlet_client::{ClientPlugin, receive};
 use hamlet_protocol::client as protocol;
@@ -28,12 +28,12 @@ fn an_image_goes_up_in_parts_and_the_kept_id_comes_back() {
     let mut app = App::new();
     app.add_plugins(ClientPlugin { server: None });
     let kept = Arc::new(Mutex::new(Vec::new()));
-    let refused = Arc::new(Mutex::new(Vec::new()));
-    let (k, r) = (kept.clone(), refused.clone());
+    let rejected = Arc::new(Mutex::new(Vec::new()));
+    let (k, r) = (kept.clone(), rejected.clone());
     app.add_observer(move |e: On<ImageKept>| {
         k.lock().unwrap().push((e.key, e.image.clone()));
     });
-    app.add_observer(move |e: On<ImageRefused>| {
+    app.add_observer(move |e: On<ImageRejected>| {
         r.lock().unwrap().push((e.key, e.text.clone()));
     });
     // A little over one part of 512 KiB.
@@ -89,5 +89,5 @@ fn an_image_goes_up_in_parts_and_the_kept_id_comes_back() {
     receive(app.world_mut(), protocol::ServerMessage::Reply(done));
     app.update();
     assert_eq!(*kept.lock().unwrap(), [(9, id)]);
-    assert!(refused.lock().unwrap().is_empty());
+    assert!(rejected.lock().unwrap().is_empty());
 }

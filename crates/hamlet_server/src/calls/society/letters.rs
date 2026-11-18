@@ -1,13 +1,14 @@
-//! An agent's words to another along a road (H30, H31), its request
-//! for a road, and the workers it starts, each kept once per call.
+//! An agent's words to another along a channel (H30, H31), its
+//! request for a channel, and the workers it starts, each kept once
+//! per call.
 
 use anyhow::Result;
 use diesel::prelude::*;
 use hamlet_store::ids::{Actor, AgentId};
 use hamlet_store::schema::worker;
 
-use super::args::{Ask, RequestRoad, StartWorker, Tell};
-use super::{Call, Step, refused, said, task_chief};
+use super::args::{Ask, RequestChannel, StartWorker, Tell};
+use super::{Call, Step, rejected, said, task_chief};
 use crate::attachments::inbox::INBOX;
 use crate::calls::looks::Look;
 use crate::calls::place;
@@ -18,9 +19,9 @@ use crate::conversations::tasks::{self, Origin};
 use crate::conversations::{Kind, briefs};
 use crate::core::Core;
 use crate::society::agents::{self, EndHow};
-use crate::society::refusal::Refusal;
+use crate::society::rejection::Rejection;
 use crate::society::workers::{self, Start, Starter};
-use crate::society::{addresses, hires, roads};
+use crate::society::{addresses, channels, hamlet_agents};
 use crate::tools::builtin::Network;
 use crate::tools::catalogue::Society;
 
@@ -53,34 +54,35 @@ impl Core<'_, '_> {
         )
     }
 
-    /// Requests a road from the caller's lead, as a letter to it.
-    pub(in crate::calls) fn request_road(
+    /// Requests a channel from the caller's parent, as a letter to
+    /// it.
+    pub(in crate::calls) fn request_channel(
         &mut self,
         call: &Call<'_>,
-        args: RequestRoad,
+        args: RequestChannel,
     ) -> Result<Step> {
         let sender = call.conversation.agent;
         let here = self.hamlet_of(sender)?;
         let to = match self.named(&args.to, here.as_ref())? {
             Ok(to) => to,
-            Err(refusal) => return Ok(Step::of(Err(refusal))),
+            Err(rejection) => return Ok(Step::of(Err(rejection))),
         };
         let db = self.realm.store().connection();
-        let lead = match hires::find(db, sender)? {
-            Some(hire) => match hire.parent {
+        let parent = match hamlet_agents::find(db, sender)? {
+            Some(found) => match found.parent {
                 Some(parent) => parent,
                 None => crate::society::hand::id(db)?,
             },
-            None => return Ok(Step::of(Err(Refusal::RoadEnds))),
+            None => return Ok(Step::of(Err(Rejection::ChannelEnds))),
         };
         let name = self.name(to)?;
         let words =
-            format!("I request a road to {name}: {}", args.reason);
+            format!("I request a channel to {name}: {}", args.reason);
         self.deliver(
             call,
             MessageKind::Letter,
-            lead,
-            "lead",
+            parent,
+            "parent",
             &words,
             &[],
         )
@@ -106,7 +108,7 @@ impl Core<'_, '_> {
         let here = self.hamlet_of(sender)?;
         let receiver = match self.named(address, here.as_ref())? {
             Ok(receiver) => receiver,
-            Err(refusal) => return Ok(Step::of(Err(refusal))),
+            Err(rejection) => return Ok(Step::of(Err(rejection))),
         };
         self.deliver(call, kind, receiver, address, words, paths)
     }
@@ -122,20 +124,22 @@ impl Core<'_, '_> {
     ) -> Result<Step> {
         let sender = call.conversation.agent;
         if receiver == sender {
-            return Ok(Step::of(Err(Refusal::TellSelf)));
+            return Ok(Step::of(Err(Rejection::TellSelf)));
         }
         if words.is_empty() {
-            return Ok(Step::of(Err(Refusal::NothingToSend)));
+            return Ok(Step::of(Err(Rejection::NothingToSend)));
         }
         let other = self.name(receiver)?;
         let db = self.realm.store().connection();
-        if roads::way(db, sender, receiver)?.is_none() {
-            return Ok(Step::of(Err(Refusal::NoRoadTo { other })));
+        if channels::way(db, sender, receiver)?.is_none() {
+            return Ok(Step::of(Err(Rejection::NoChannelTo {
+                other,
+            })));
         }
         if kind == MessageKind::Question
             && letters::would_loop(db, sender, receiver)?
         {
-            return Ok(Step::of(Err(Refusal::AlreadyWaitingOn {
+            return Ok(Step::of(Err(Rejection::AlreadyWaitingOn {
                 other,
             })));
         }
@@ -155,8 +159,8 @@ impl Core<'_, '_> {
                     words.push_str(&captions);
                     images = kept;
                 }
-                Err(refusal) => {
-                    return Ok(Step::of(Err(refusal)));
+                Err(rejection) => {
+                    return Ok(Step::of(Err(rejection)));
                 }
             }
         }
@@ -195,7 +199,7 @@ impl Core<'_, '_> {
             })?;
         match sent {
             Ok(found) => self.sent(&found),
-            Err(refusal) => Ok(Step::of(Err(refusal))),
+            Err(rejection) => Ok(Step::of(Err(rejection))),
         }
     }
 
@@ -215,13 +219,13 @@ impl Core<'_, '_> {
         let from =
             addresses::address_of(db, call.conversation.agent)?
                 .replace('#', "-");
-        let (session, lodging) =
+        let (session, worktree) =
             self.tools_of(call, at.place, Network::Closed)?;
         let inbox = self
             .open_inbox(receiver, &format!("{INBOX}/from-{from}"))?;
         Ok(Look::Copy {
             session,
-            lodging,
+            worktree,
             paths: paths.to_vec(),
             inbox: Box::new(inbox),
             images: layout.images(),
@@ -241,7 +245,7 @@ impl Core<'_, '_> {
                 Step::Done(said(format!("{name} answers: {answer}")))
             }
             (MessageKind::Question, None, Some(failure)) => {
-                Step::Done(refused(format!(
+                Step::Done(rejected(format!(
                     "{name} could not answer: {failure}"
                 )))
             }
@@ -276,7 +280,7 @@ impl Core<'_, '_> {
             wait: waits,
         } = args;
         if tools.iter().any(|tool| Society::named(tool).is_some()) {
-            return Ok(Step::of(Err(Refusal::WorkerTools)));
+            return Ok(Step::of(Err(Rejection::WorkerTools)));
         }
         let names = self.tools.catalogue.names();
         let db = self.realm.store().connection();
@@ -290,7 +294,7 @@ impl Core<'_, '_> {
             tools.iter().find(|tool| !only.contains(tool))
         {
             let name = self.name(starter)?;
-            return Ok(Step::of(Err(Refusal::NoTool {
+            return Ok(Step::of(Err(Rejection::NoTool {
                 name,
                 tool: missing.clone(),
             })));
@@ -314,14 +318,14 @@ impl Core<'_, '_> {
                     },
                 )? {
                     Ok(id) => id,
-                    Err(refusal) => return Ok(Err(refusal)),
+                    Err(rejection) => return Ok(Err(rejection)),
                 };
                 briefs::give(cx, env, id, &brief, &author, chief)?;
                 Ok(Ok(id))
             })?;
         match done {
             Ok(id) => self.worked(id),
-            Err(refusal) => Ok(Step::of(Err(refusal))),
+            Err(rejection) => Ok(Step::of(Err(rejection))),
         }
     }
 
@@ -340,7 +344,7 @@ impl Core<'_, '_> {
             (Some(EndHow::Answered), Some(answer)) => {
                 Step::Done(said(format!("{name} answers: {answer}")))
             }
-            (Some(how), _) => Step::Done(refused(format!(
+            (Some(how), _) => Step::Done(rejected(format!(
                 "{name} ended: {}.",
                 how.words()
             ))),

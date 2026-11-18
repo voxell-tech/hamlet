@@ -1,4 +1,4 @@
-//! Hamlets: each with a mayor, a tree of hires, a folder it works on
+//! Hamlets: each with a lead, a tree of agents, a folder it works on
 //! and the chief's limits.
 
 use anyhow::{Context, Result};
@@ -8,10 +8,10 @@ use diesel::prelude::*;
 use diesel::sql_types::Text;
 use hamlet_store::Db;
 use hamlet_store::ids::{
-    Actor, AgentId, ChiefId, HamletId, ScholarId,
+    Actor, AgentId, ChiefId, HamletId, ProfileId,
 };
 use hamlet_store::schema::{
-    agent, hamlet, hamlet_chief, hamlet_folder, hire,
+    agent, hamlet, hamlet_agent, hamlet_chief, hamlet_folder,
 };
 use serde::{Deserialize, Serialize};
 use serde_json::json;
@@ -19,15 +19,15 @@ use strum::{Display, EnumString, IntoStaticStr};
 
 use super::agents::{self, EndHow};
 use super::city;
-use super::hires::{self, Hired, Hiring, Spec};
+use super::hamlet_agents::{self, NewAgent, ProfileChoice, Spec};
 use super::limits::Limits;
 use super::names::{check_name, new_hamlet_id};
 use super::record::{self, Decision, DecisionKind};
-use super::refusal::Refusal;
-use crate::realm::change::{Change, Done, done, refuse};
+use super::rejection::Rejection;
+use crate::realm::change::{Change, Done, done, reject};
 use crate::realm::jobs::{self, Job};
 
-/// The tiers a hamlet's cap of hires may take.
+/// The tiers a hamlet's cap of agents may take.
 pub(crate) const TIERS: [i64; 4] = [50, 100, 200, 500];
 
 /// How a hamlet's work on its folder is overseen (C21).
@@ -62,7 +62,7 @@ pub(crate) struct Hamlet {
     pub name: String,
     pub founded_at: i64,
     pub founded_by: Actor,
-    pub mayor: AgentId,
+    pub lead: AgentId,
     pub folder: Option<String>,
     pub mode: Mode,
     pub tier: i64,
@@ -88,24 +88,24 @@ pub(crate) struct Founding {
     pub name: String,
     /// The chief it answers to.
     pub chief: ChiefId,
-    pub mayor: Hiring,
+    pub lead: ProfileChoice,
     pub purpose: String,
 }
 
-/// Founds a hamlet with its mayor, who answers to the Hand (H6).
+/// Founds a hamlet with its lead, who answers to the Hand (H6).
 pub(crate) fn found(
     cx: &mut Change<'_>,
     founding: Founding,
-) -> Done<Hired> {
+) -> Done<NewAgent> {
     let name = match check_name(&founding.name) {
         Ok(name) => name.to_owned(),
-        Err(refusal) => refuse!(refusal),
+        Err(rejection) => reject!(rejection),
     };
     if founding.purpose.trim().is_empty() {
-        refuse!(Refusal::NoPurpose);
+        reject!(Rejection::NoPurpose);
     }
     let id = new_hamlet_id();
-    // The mayor is set once its hire is made; the key is checked at
+    // The lead is set once its agent is made; the key is checked at
     // the commit.
     diesel::insert_into(hamlet::table)
         .values((
@@ -113,7 +113,7 @@ pub(crate) fn found(
             hamlet::name.eq(&name),
             hamlet::founded_at.eq(cx.at),
             hamlet::founded_by.eq(cx.actor),
-            hamlet::mayor.eq(AgentId(0)),
+            hamlet::lead.eq(AgentId(0)),
             hamlet::limits
                 .eq(serde_json::to_string(&Limits::default())?),
         ))
@@ -124,28 +124,28 @@ pub(crate) fn found(
             hamlet_chief::chief.eq(founding.chief),
         ))
         .execute(cx.db)?;
-    let hired = done!(hires::hire(
+    let lead = done!(hamlet_agents::add(
         cx,
         Spec {
             hamlet: id.clone(),
             parent: None,
-            hiring: founding.mayor,
+            profile: founding.lead,
             purpose: founding.purpose.clone(),
             reason: String::new(),
             owner: founding.chief,
         }
     ));
     diesel::update(hamlet::table.find(&id))
-        .set(hamlet::mayor.eq(hired.agent))
+        .set(hamlet::lead.eq(lead.agent))
         .execute(cx.db)?;
     record::keep(
         cx,
         Decision::new(DecisionKind::Founded, &founding.purpose)
             .hamlet(&id)
-            .subject(hired.agent),
+            .subject(lead.agent),
     )?;
     cx.touched.hamlets.insert(id);
-    Ok(Ok(hired))
+    Ok(Ok(lead))
 }
 
 pub(crate) fn find(
@@ -163,16 +163,16 @@ pub(crate) fn get(db: &mut Db, id: &HamletId) -> Result<Hamlet> {
     find(db, id)?.with_context(|| format!("no hamlet {id}"))
 }
 
-/// The hamlet `id`, refused when it is missing, removed or erased.
+/// The hamlet `id`, rejected when it is missing, removed or erased.
 pub(crate) fn living(db: &mut Db, id: &HamletId) -> Done<Hamlet> {
     let Some(found) = find(db, id)? else {
-        refuse!(Refusal::NoHamlet { id: id.to_string() });
+        reject!(Rejection::NoHamlet { id: id.to_string() });
     };
     if found.erased {
-        refuse!(Refusal::HamletErased { id: id.to_string() });
+        reject!(Rejection::HamletErased { id: id.to_string() });
     }
     if !found.is_living() {
-        refuse!(Refusal::HamletRemoved { id: id.to_string() });
+        reject!(Rejection::HamletRemoved { id: id.to_string() });
     }
     Ok(Ok(found))
 }
@@ -207,7 +207,7 @@ pub(crate) fn rename(
     done!(living(cx.db, id));
     let name = match check_name(name) {
         Ok(name) => name,
-        Err(refusal) => refuse!(refusal),
+        Err(rejection) => reject!(rejection),
     };
     diesel::update(hamlet::table.find(id))
         .set(hamlet::name.eq(name))
@@ -230,7 +230,7 @@ pub(crate) fn place(
 ) -> Done<()> {
     done!(living(cx.db, id));
     if !(x.is_finite() && z.is_finite()) {
-        refuse!(Refusal::BadAddress {
+        reject!(Rejection::BadAddress {
             address: format!("{x}, {z}")
         });
     }
@@ -244,7 +244,7 @@ pub(crate) fn place(
     Ok(Ok(()))
 }
 
-/// Sets the tier of hires `id` may hold.
+/// Sets the tier of agents `id` may hold.
 pub(crate) fn set_tier(
     cx: &mut Change<'_>,
     id: &HamletId,
@@ -252,11 +252,11 @@ pub(crate) fn set_tier(
 ) -> Done<()> {
     done!(living(cx.db, id));
     if !TIERS.contains(&tier) {
-        refuse!(Refusal::BadTier);
+        reject!(Rejection::BadTier);
     }
-    let count = hires::count_living(cx.db, id)?;
+    let count = hamlet_agents::count_living(cx.db, id)?;
     if count > tier {
-        refuse!(Refusal::TierTooSmall {
+        reject!(Rejection::TierTooSmall {
             id: id.to_string(),
             count,
             tier,
@@ -356,7 +356,7 @@ pub(crate) fn set_limits(
     Ok(Ok(()))
 }
 
-/// Removes `id`: every hire of it ends, with the tree kept for when
+/// Removes `id`: every agent of it ends, with the tree kept for when
 /// it comes back (H19).
 pub(crate) fn remove(
     cx: &mut Change<'_>,
@@ -364,8 +364,13 @@ pub(crate) fn remove(
     reason: &str,
 ) -> Done<()> {
     done!(living(cx.db, id));
-    for hire in hires::living_in(cx.db, id)? {
-        done!(hires::end(cx, hire.agent, EndHow::Hamlet, reason));
+    for agent in hamlet_agents::living_in(cx.db, id)? {
+        done!(hamlet_agents::end(
+            cx,
+            agent.agent,
+            EndHow::Hamlet,
+            reason
+        ));
     }
     diesel::update(hamlet::table.find(id))
         .set((
@@ -381,8 +386,8 @@ pub(crate) fn remove(
     Ok(Ok(()))
 }
 
-/// Brings back the removed hamlet `id` with the hires its removal
-/// ended, refused while any of their scholars has left the city
+/// Brings back the removed hamlet `id` with the agents its removal
+/// ended, rejected while any of their profiles has left the city
 /// (H20).
 pub(crate) fn restore(
     cx: &mut Change<'_>,
@@ -390,25 +395,25 @@ pub(crate) fn restore(
     reason: &str,
 ) -> Done<()> {
     let Some(found) = find(cx.db, id)? else {
-        refuse!(Refusal::NoHamlet { id: id.to_string() });
+        reject!(Rejection::NoHamlet { id: id.to_string() });
     };
     if found.erased {
-        refuse!(Refusal::HamletErased { id: id.to_string() });
+        reject!(Rejection::HamletErased { id: id.to_string() });
     }
     if found.is_living() {
-        refuse!(Refusal::HamletLiving { id: id.to_string() });
+        reject!(Rejection::HamletLiving { id: id.to_string() });
     }
-    let ended = hire::table
+    let ended = hamlet_agent::table
         .inner_join(agent::table)
-        .filter(hire::hamlet.eq(id))
+        .filter(hamlet_agent::hamlet.eq(id))
         .filter(agent::ended_how.eq(EndHow::Hamlet))
         .filter(agent::erased.eq(false))
-        .select((hire::agent, hire::scholar))
-        .load::<(AgentId, ScholarId)>(cx.db)?;
-    for (_, scholar) in &ended {
-        let scholar = city::get(cx.db, *scholar)?;
-        if let Some(refusal) = scholar.gone() {
-            refuse!(refusal);
+        .select((hamlet_agent::agent, hamlet_agent::profile))
+        .load::<(AgentId, ProfileId)>(cx.db)?;
+    for (_, profile) in &ended {
+        let profile = city::get(cx.db, *profile)?;
+        if let Some(rejection) = profile.gone() {
+            reject!(rejection);
         }
     }
     diesel::update(hamlet::table.find(id))
@@ -420,7 +425,7 @@ pub(crate) fn restore(
         .execute(cx.db)?;
     for (agent, _) in ended {
         agents::come_back(cx, agent)?;
-        jobs::add(cx, &Job::Lodge { hire: agent })?;
+        jobs::add(cx, &Job::Worktree { agent })?;
     }
     record::keep(
         cx,
@@ -430,26 +435,26 @@ pub(crate) fn restore(
     Ok(Ok(()))
 }
 
-/// Erases the removed hamlet `id` for good, with its hires' lodges
-/// and branches.
+/// Erases the removed hamlet `id` for good, with its agents'
+/// worktrees and branches.
 pub(crate) fn erase(cx: &mut Change<'_>, id: &HamletId) -> Done<()> {
     let Some(found) = find(cx.db, id)? else {
-        refuse!(Refusal::NoHamlet { id: id.to_string() });
+        reject!(Rejection::NoHamlet { id: id.to_string() });
     };
     if found.erased {
-        refuse!(Refusal::HamletErased { id: id.to_string() });
+        reject!(Rejection::HamletErased { id: id.to_string() });
     }
     if found.is_living() {
-        refuse!(Refusal::HamletLiving { id: id.to_string() });
+        reject!(Rejection::HamletLiving { id: id.to_string() });
     }
-    let kept = hire::table
+    let kept = hamlet_agent::table
         .inner_join(agent::table)
-        .filter(hire::hamlet.eq(id))
+        .filter(hamlet_agent::hamlet.eq(id))
         .filter(agent::erased.eq(false))
-        .select(hire::agent)
+        .select(hamlet_agent::agent)
         .load::<AgentId>(cx.db)?;
-    for hire in kept {
-        done!(hires::erase(cx, hire));
+    for agent in kept {
+        done!(hamlet_agents::erase(cx, agent));
     }
     diesel::update(hamlet::table.find(id))
         .set(hamlet::erased.eq(true))

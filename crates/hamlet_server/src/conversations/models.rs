@@ -8,7 +8,7 @@ use hamlet_store::ids::AgentId;
 
 use crate::realm::settings::{self, Overrides, Settings};
 use crate::society::agents::{self, AgentKind, Effort};
-use crate::society::{hand, hires, limits, workers};
+use crate::society::{hamlet_agents, hand, limits, workers};
 
 /// The model an agent's next call runs, its effort and its tier.
 #[derive(Clone, Debug, PartialEq)]
@@ -85,11 +85,11 @@ fn named(
         AgentKind::Hand => {
             hand::model(db)?.unwrap_or_else(|| settings.model.clone())
         }
-        AgentKind::Hire => {
-            let hire = hires::get(db, agent)?;
-            match hire.model {
+        AgentKind::Hamlet => {
+            let found = hamlet_agents::get(db, agent)?;
+            match found.model {
                 Some(model) => model,
-                None => limits::of(db, &hire.hamlet)?
+                None => limits::of(db, &found.hamlet)?
                     .model
                     .unwrap_or_else(|| settings.model.clone()),
             }

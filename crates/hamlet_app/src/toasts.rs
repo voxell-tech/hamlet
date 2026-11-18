@@ -32,12 +32,12 @@ use bevy_fynix::{
 use hamlet_client::messages::{Answer, Response, ServerFault};
 use hamlet_client::outbox::{Outbox, RequestId};
 use hamlet_client::realm::{
-    Departure, Faulted, Kind, Left, LivesIn, Scholar, Seen, Shown,
+    Departure, Faulted, Kind, Left, LivesIn, Profile, Seen, Shown,
     name_of,
 };
 use hamlet_client::waits::{RaisedBy, Waiting};
 use hamlet_protocol::client::{
-    AgentKind, Arrival, ClientMessage, LeftHow, ReplyKind, ScholarId,
+    AgentKind, Arrival, ClientMessage, LeftHow, ProfileId, ReplyKind,
     ServerMessage, WaitDetail,
 };
 use hamlet_ui::styles::{
@@ -50,7 +50,7 @@ use hamlet_ui::{AnyView, Cx, View, kinds, rules, with_cx};
 
 use crate::convo::Convo;
 use crate::hub::Showing;
-use crate::screens::petition::{Need, answers};
+use crate::screens::wait::{Need, answers};
 use crate::standing::Standing;
 use crate::updates::{self, Offer, Ready};
 use crate::{PanelSystems, chat};
@@ -83,7 +83,7 @@ pub fn plugin(app: &mut App) {
         .init_resource::<Decreed>()
         .add_observer(answered)
         .add_observer(failed)
-        .add_observer(refused)
+        .add_observer(rejected)
         .add_systems(
             PreUpdate,
             (raise, judged, keep, settle)
@@ -165,17 +165,17 @@ struct Toast {
 #[derive(Clone, PartialEq, Debug)]
 enum What {
     /// A new wait, with the answers it takes.
-    Petition(Entity),
+    Wait(Entity),
     /// Something that happened, which nothing answers.
     Notice {
         kind: StatusKind,
         head: String,
         line: String,
     },
-    /// The Hand let a scholar in or turned it away, which a chief
+    /// The Hand let a profile in or turned it away, which a chief
     /// can undo.
     Verdict {
-        scholar: ScholarId,
+        profile: ProfileId,
         name: String,
         housed: bool,
     },
@@ -288,7 +288,7 @@ fn raise(
     }
     let now = time.elapsed_secs();
     for entity in &waits {
-        toasts.push(What::Petition(entity), now);
+        toasts.push(What::Wait(entity), now);
     }
     for (name, shown, kind, departure) in &answered {
         let name = shown.map_or(name.as_str(), |shown| &shown.0);
@@ -307,7 +307,7 @@ fn raise(
     }
     for (agent, name, shown) in &failing {
         let name = shown.map_or(name.as_str(), |shown| &shown.0);
-        // A fault the chief is asked about is a petition already.
+        // A fault the chief is asked about is a wait already.
         let asked = waiting.iter().any(|(wait, by)| {
             by.is_some_and(|by| by.0 == agent)
                 && matches!(wait.detail, WaitDetail::Fault {})
@@ -325,37 +325,37 @@ fn raise(
     }
 }
 
-/// Raises a toast when the Hand lets a scholar in or turns it away:
-/// a scholar that went from waiting to housed or turned, by the Hand.
+/// Raises a toast when the Hand lets a profile in or turns it away:
+/// a profile that went from waiting to housed or turned, by the Hand.
 /// What was there at the first state is not new.
 fn judged(
     time: Res<Time>,
     seen: Option<Res<Seen>>,
-    scholars: Query<&Scholar>,
+    profiles: Query<&Profile>,
     mut toasts: ResMut<Toasts>,
-    mut before: Local<HashMap<ScholarId, Arrival>>,
+    mut before: Local<HashMap<ProfileId, Arrival>>,
     mut primed: Local<bool>,
 ) {
     if seen.is_none() {
         return;
     }
     let now = time.elapsed_secs();
-    for scholar in &scholars {
-        let scholar = &scholar.0;
-        let was = before.insert(scholar.id, scholar.arrival);
-        let by_hand = scholar.arrival_by.as_deref() == Some(HAND);
+    for profile in &profiles {
+        let profile = &profile.0;
+        let was = before.insert(profile.id, profile.arrival);
+        let by_hand = profile.arrival_by.as_deref() == Some(HAND);
         if !*primed || !by_hand || was != Some(Arrival::Waiting) {
             continue;
         }
-        let housed = match scholar.arrival {
+        let housed = match profile.arrival {
             Arrival::Housed => true,
             Arrival::Turned => false,
             Arrival::Waiting | Arrival::Apart => continue,
         };
         toasts.push(
             What::Verdict {
-                scholar: scholar.id,
-                name: scholar.name.clone(),
+                profile: profile.id,
+                name: profile.name.clone(),
                 housed,
             },
             now,
@@ -364,9 +364,9 @@ fn judged(
     *primed = true;
 }
 
-/// The command that takes back the Hand's verdict on `scholar`.
-fn undo_of(scholar: ScholarId, housed: bool) -> String {
-    let address = hamlet_client::realm::scholar_address(scholar);
+/// The command that takes back the Hand's verdict on `profile`.
+fn undo_of(profile: ProfileId, housed: bool) -> String {
+    let address = hamlet_client::realm::profile_address(profile);
     match housed {
         true => format!("/turn-away {address}"),
         false => format!("/welcome {address}"),
@@ -390,13 +390,13 @@ fn failed(
 }
 
 /// The commands the window made, from the world, a form or a button
-/// rather than typed in a chat, whose refusal would otherwise be said
-/// only in the chat they went to.
+/// rather than typed in a chat, whose rejection would otherwise be
+/// said only in the chat they went to.
 #[derive(Resource, Default)]
 pub(crate) struct Decreed(HashSet<RequestId>);
 
 /// Watches the command just queued, the last thing sent, so that its
-/// refusal is toasted.
+/// rejection is toasted.
 pub(crate) fn watch_last(world: &mut World) {
     let last = world.resource::<Outbox>().iter().last().and_then(
         |message| match message {
@@ -412,8 +412,8 @@ pub(crate) fn watch_last(world: &mut World) {
     }
 }
 
-/// A command given from the world that the server refused.
-fn refused(
+/// A command given from the world that the server rejected.
+fn rejected(
     response: On<Response>,
     time: Res<Time>,
     mut decreed: ResMut<Decreed>,
@@ -444,9 +444,7 @@ fn refused(
 /// An answer from a toast or anywhere else takes its toast away.
 fn answered(answer: On<Answer>, mut toasts: ResMut<Toasts>) {
     let wait = answer.wait;
-    toasts
-        .shown
-        .retain(|toast| toast.what != What::Petition(wait));
+    toasts.shown.retain(|toast| toast.what != What::Wait(wait));
 }
 
 /// Opens the stack and keeps its toasts while the pointer is on it,
@@ -483,7 +481,7 @@ fn keep(
         toast.opacity > 0.0
             && match &toast.what {
                 // Its chat, open, shows it in full.
-                What::Petition(wait) => {
+                What::Wait(wait) => {
                     waiting.get(*wait).is_ok_and(|by| {
                         by.is_none_or(|by| Some(by.0) != chatting)
                     })
@@ -644,7 +642,7 @@ fn card(toast: &Toast) -> AnyView {
     let (id, what) = (toast.id, toast.what.clone());
     AnyView::new(move |cx: &mut Cx| {
         let (mark, head, from, kind, line, answers) = match &what {
-            What::Petition(wait) => {
+            What::Wait(wait) => {
                 let Some(waiting) = cx.world.get::<Waiting>(*wait)
                 else {
                     return cx.build(column(()));
@@ -678,20 +676,20 @@ fn card(toast: &Toast) -> AnyView {
                 column(()).boxed(),
             ),
             What::Verdict {
-                scholar,
+                profile,
                 name,
                 housed,
             } => {
-                let undo = undo_of(*scholar, *housed);
+                let undo = undo_of(*profile, *housed);
                 let (head, line, kind) = if *housed {
                     (
-                        "The Hand let a scholar in",
+                        "The Hand let a profile in",
                         format!("{name} has a house in the city."),
                         StatusKind::Success,
                     )
                 } else {
                     (
-                        "The Hand turned a scholar away",
+                        "The Hand turned a profile away",
                         format!("{name} waits at the harbor."),
                         StatusKind::Warning,
                     )
@@ -842,7 +840,7 @@ fn behind(toasts: &Toasts, id: u64) -> String {
 }
 
 /// `content`, a part of the words of the toast of `what`: a
-/// petition's opens it where it is answered. Pressing a toast leaves
+/// wait's opens it where it is answered. Pressing a toast leaves
 /// it on show; only its close takes it away.
 fn opening(what: What, content: impl View) -> impl View {
     button(row((content,)))
@@ -850,8 +848,8 @@ fn opening(what: What, content: impl View) -> impl View {
         .min_width(px(0.0))
         .rules(opener)
         .on_activate(move |world| {
-            if let What::Petition(wait) = &what {
-                crate::petition::open(world, *wait);
+            if let What::Wait(wait) = &what {
+                crate::wait::open(world, *wait);
             }
         })
 }
@@ -887,7 +885,7 @@ fn fading(id: u64) -> impl FnOnce(&mut Cx) + Send + Sync + 'static {
     }
 }
 
-/// Takes every toast away. Petitions stay among the waits, and a
+/// Takes every toast away. Waits stay among the waits, and a
 /// closed update is not offered again while the window is open.
 fn dismiss_all(world: &mut World) {
     let update =
@@ -927,7 +925,7 @@ pub(crate) fn unopened(world: &mut World, address: &str) {
 }
 
 /// Takes toast `id` away, and no other, though another says the same.
-/// A petition stays among the waits, and a closed update is not
+/// A wait stays among the waits, and a closed update is not
 /// offered again while the window is open.
 fn dismiss(world: &mut World, id: u64) {
     let version = world
@@ -960,7 +958,7 @@ mod tests {
     use super::*;
     use crate::testing::{panel_app, press, words};
 
-    fn app_with_a_petition() -> App {
+    fn app_with_a_wait() -> App {
         let mut app = panel_app();
         app.add_plugins(plugin);
         // What waits at the first state is not new.
@@ -984,8 +982,8 @@ mod tests {
     }
 
     #[test]
-    fn a_new_petition_toasts_and_is_answered_in_place() {
-        let mut app = app_with_a_petition();
+    fn a_new_wait_toasts_and_is_answered_in_place() {
+        let mut app = app_with_a_wait();
         assert_eq!(app.world().resource::<Toasts>().shown.len(), 1);
         let shown = words(&mut app);
         assert!(shown.iter().any(|text| text == "ada"), "{shown:?}");
@@ -1008,17 +1006,17 @@ mod tests {
         app.add_plugins(plugin);
         let mut state = hamlet_testing::realm::state();
         state.settings.newcomers = protocol::Newcomers::Hand;
-        let mut moss = hamlet_testing::realm::scholar(3, "moss", &[]);
+        let mut moss = hamlet_testing::realm::profile(3, "moss", &[]);
         moss.arrival = Arrival::Waiting;
         moss.house = None;
-        state.scholars.push(moss);
+        state.profiles.push(moss);
         hamlet_client::receive(
             app.world_mut(),
             ServerMessage::State(state.clone()),
         );
         app.update();
         state.revision += 1;
-        let moss = state.scholars.last_mut().unwrap();
+        let moss = state.profiles.last_mut().unwrap();
         moss.arrival = Arrival::Housed;
         moss.arrival_by = Some(HAND.into());
         hamlet_client::receive(
@@ -1032,21 +1030,21 @@ mod tests {
         assert!(
             shown
                 .iter()
-                .any(|text| text == "The Hand let a scholar in"),
+                .any(|text| text == "The Hand let a profile in"),
             "{shown:?}"
         );
         press(&mut app, "Undo");
         let undone =
             app.world().resource::<Outbox>().iter().any(|message| {
                 matches!(message, ClientMessage::Say(say)
-                    if say.text == "/turn-away scholar#3")
+                    if say.text == "/turn-away profile#3")
             });
         assert!(undone);
     }
 
     #[test]
     fn a_toast_stays_under_the_pointer_and_fades_otherwise() {
-        let mut app = app_with_a_petition();
+        let mut app = app_with_a_wait();
         let step = Duration::from_secs_f32(STAYS + 2.0);
         app.insert_resource(TimeUpdateStrategy::ManualDuration(step));
         app.world_mut()
@@ -1241,7 +1239,7 @@ mod tests {
     }
 
     #[test]
-    fn a_command_from_the_world_that_is_refused_toasts() {
+    fn a_command_from_the_world_that_is_rejected_toasts() {
         let mut app = panel_app();
         app.add_plugins(plugin).add_observer(chat::decreed);
         app.world_mut().trigger(hamlet_realm::orders::Decree {
@@ -1261,14 +1259,14 @@ mod tests {
         let [say] = &said[..] else {
             panic!("one command: {said:?}");
         };
-        let refusal = serde_json::from_value(serde_json::json!({
+        let rejection = serde_json::from_value(serde_json::json!({
             "type": "reply",
             "to": say.id,
             "kind": "error",
             "text": "the house would stand on another",
         }))
         .unwrap();
-        hamlet_client::receive(app.world_mut(), refusal);
+        hamlet_client::receive(app.world_mut(), rejection);
         let shown = &app.world().resource::<Toasts>().shown;
         assert!(matches!(
             &shown[..],

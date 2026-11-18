@@ -1,4 +1,4 @@
-//! The reasons the society refuses a change, in words a chief or an
+//! The reasons the society rejects a change, in words a chief or an
 //! agent reads.
 
 use serde::{Deserialize, Serialize};
@@ -14,7 +14,7 @@ use serde::{Deserialize, Serialize};
     thiserror::Error,
 )]
 #[serde(tag = "reason", rename_all = "kebab-case")]
-pub(crate) enum Refusal {
+pub(crate) enum Rejection {
     #[error(
         "`{name}` is not a name: use one line of 1 to 40 characters \
          with no colon"
@@ -28,30 +28,30 @@ pub(crate) enum Refusal {
     HamletLiving { id: String },
     #[error("the hamlet `{id}` was erased")]
     HamletErased { id: String },
-    #[error("the hamlet `{id}` holds its most hires, {most}")]
+    #[error("the hamlet `{id}` holds its most agents, {most}")]
     HamletFull { id: String, most: i64 },
-    #[error("a hamlet's tier is 50, 100, 200 or 500 hires")]
+    #[error("a hamlet's tier is 50, 100, 200 or 500 agents")]
     BadTier,
-    #[error("no scholar has the address `{address}`")]
-    NoScholar { address: String },
-    #[error("`{name}` is another chief's scholar")]
-    ScholarNotOwn { name: String },
-    #[error("the scholar `{name}` no longer lives in the city")]
-    ScholarGone { name: String },
-    #[error("the scholar `{name}` is still living; remove it first")]
-    ScholarLiving { name: String },
-    #[error("the scholar `{name}` was erased")]
-    ScholarErased { name: String },
+    #[error("no profile has the address `{address}`")]
+    NoProfile { address: String },
+    #[error("`{name}` is another chief's profile")]
+    ProfileNotOwn { name: String },
+    #[error("the profile `{name}` no longer lives in the city")]
+    ProfileGone { name: String },
+    #[error("the profile `{name}` is still living; remove it first")]
+    ProfileLiving { name: String },
+    #[error("the profile `{name}` was erased")]
+    ProfileErased { name: String },
     #[error(
-        "`{name}` is a blank hire's own, not a scholar of the city"
+        "`{name}` is a blank agent's own, not a profile of the city"
     )]
     Apart { name: String },
-    #[error("the scholar `{name}` lives in the city already")]
+    #[error("the profile `{name}` lives in the city already")]
     Housed { name: String },
-    #[error("the scholar `{name}` was turned away already")]
+    #[error("the profile `{name}` was turned away already")]
     TurnedAway { name: String },
     #[error(
-        "the scholar `{name}` waits at the harbor; welcome it into \
+        "the profile `{name}` waits at the harbor; welcome it into \
          the city first"
     )]
     AtHarbor { name: String },
@@ -60,8 +60,8 @@ pub(crate) enum Refusal {
          city's middle"
     )]
     Crowded { name: String },
-    #[error("`{name}` still has hires that may come back: {hires}")]
-    ScholarHasHires { name: String, hires: String },
+    #[error("`{name}` still has agents that may come back: {agents}")]
+    ProfileHasAgents { name: String, agents: String },
     #[error("`{name}` has no version `{version}`")]
     NoVersion { name: String, version: String },
     #[error(
@@ -79,10 +79,10 @@ pub(crate) enum Refusal {
     NotChief { hamlet: String },
     #[error("only `{owner}`'s chief may do that")]
     NotOwner { owner: String },
-    #[error("only a lead of `{name}` may do that")]
-    NotLead { name: String },
-    #[error("only a mayor may do that")]
-    NotMayor,
+    #[error("only a parent of `{name}` may do that")]
+    NotParent { name: String },
+    #[error("only a lead may do that")]
+    NotLead,
     #[error("a worker cannot do that")]
     Worker,
     #[error("`{name}` has left: {how}")]
@@ -91,35 +91,36 @@ pub(crate) enum Refusal {
     NotLeft { name: String },
     #[error("`{name}` was erased")]
     Erased { name: String },
-    #[error("a mayor cannot be ended; seat another mayor first")]
-    EndingMayor,
+    #[error("a lead cannot be ended; set another lead first")]
+    EndingLead,
     #[error(
-        "`{name}` is on a chief's task; a lead may end or merge it \
-         once it has answered and its protected minutes have passed"
+        "`{name}` is on a chief's task; a parent may end or merge \
+         it once it has answered and its protected minutes have \
+         passed"
     )]
     OnChiefsTask { name: String },
-    #[error("`{name}` is already the mayor")]
-    AlreadyMayor { name: String },
+    #[error("`{name}` is already the lead")]
+    AlreadyLead { name: String },
     #[error("`{name}` is in another hamlet")]
     OtherHamlet { name: String },
     #[error("no agent has the address `{address}`")]
     NoOne { address: String },
-    #[error("`{name}` is not a hire")]
-    NotHire { name: String },
+    #[error("`{name}` is not an agent of a hamlet")]
+    NotHamletAgent { name: String },
     #[error("`{address}` is not an address")]
     BadAddress { address: String },
-    #[error("a road needs two different hires")]
+    #[error("a channel needs two different agents")]
     SameEnds,
-    #[error("`{a}` and `{b}` already have a road")]
-    RoadExists { a: String, b: String },
-    #[error("`{a}` and `{b}` have no road to take up")]
-    NoRoad { a: String, b: String },
-    #[error("the hamlet `{hamlet}` has its most roads, {most}")]
-    TooManyRoads { hamlet: String, most: i64 },
-    #[error("the chief allows no roads between hamlets")]
-    NoRoadsBetween,
+    #[error("`{a}` and `{b}` already have a channel")]
+    ChannelExists { a: String, b: String },
+    #[error("`{a}` and `{b}` have no channel to close")]
+    NoChannel { a: String, b: String },
+    #[error("the hamlet `{hamlet}` has its most channels, {most}")]
+    TooManyChannels { hamlet: String, most: i64 },
+    #[error("the chief allows no channels between hamlets")]
+    NoChannelsBetween,
     #[error(
-        "both ends of an agreed road must be in different hamlets"
+        "both ends of an agreed channel must be in different hamlets"
     )]
     SameHamlet,
     #[error("`{name}` has no such tool: {tool}")]
@@ -133,11 +134,11 @@ pub(crate) enum Refusal {
     )]
     ChiefChose { name: String },
     #[error(
-        "the hamlet `{id}` holds {count} hires, more than {tier}"
+        "the hamlet `{id}` holds {count} agents, more than {tier}"
     )]
     TierTooSmall { id: String, count: i64, tier: i64 },
-    #[error("a road joins hires only")]
-    RoadEnds,
+    #[error("a channel joins agents of hamlets only")]
+    ChannelEnds,
     #[error("there is no past session {number} here")]
     NoSession { number: i64 },
     #[error("a turn is running here; stop it, then {then}")]
@@ -240,7 +241,7 @@ pub(crate) enum Refusal {
     NoFilesInPaths,
     #[error("{error}")]
     WorkspaceNotOpened { error: String },
-    #[error("Use /dream <scholar#id|address>")]
+    #[error("Use /dream <profile#id|address>")]
     DreamUsage,
     #[error("A dream is running; one dreams at a time.")]
     DreamRunning,
@@ -268,8 +269,8 @@ pub(crate) enum Refusal {
         "There is no command /{name}; the client lists the commands."
     )]
     NoCommand { name: String },
-    #[error("Say this to a hamlet's mayor or one of its hires.")]
-    SayToMayorOrHire,
+    #[error("Say this to a hamlet's lead or one of its agents.")]
+    SayToLeadOrAgent,
     #[error("Say what you need a skill for.")]
     NoSkillQuestion,
     #[error(
@@ -299,18 +300,18 @@ pub(crate) enum Refusal {
     LookFailed { error: String },
     #[error("Only the current session of a chief's chat goes back.")]
     RewindNotCurrent,
-    #[error("A nickname is one line of at most {most} letters.")]
-    BadNickname { most: usize },
-    #[error("Say which hamlet to hire into.")]
-    NoHamletToHireInto,
+    #[error("A name is one line of at most {most} letters.")]
+    BadAgentName { most: usize },
+    #[error("Say which hamlet to add an agent to.")]
+    NoHamletToAddTo,
     #[error(
-        "Give `scholar` to hire one of the city, or `name` for a \
-         blank agent, not both."
+        "Give `profile` to add an agent of one in the city, or \
+         `name` for a blank agent, not both."
     )]
-    HireBoth,
+    AddBoth,
     #[error("Reflect after zero or more turns.")]
     BadReflectEvery,
-    #[error("A blank scholar needs a character to start from.")]
+    #[error("A blank profile needs a character to start from.")]
     NoCharacter,
     #[error("{why}")]
     BadEndpoint { why: String },
@@ -323,10 +324,10 @@ pub(crate) enum Refusal {
     #[error("Say what to send.")]
     NothingToSend,
     #[error(
-        "You have no road to {other}. Request one from your lead \
-         with request_road."
+        "You have no channel to {other}. Request one from your \
+         parent with request_channel."
     )]
-    NoRoadTo { other: String },
+    NoChannelTo { other: String },
     #[error(
         "{other} is waiting on your answer already; tell it what it \
          needs instead of putting a question."
@@ -336,7 +337,7 @@ pub(crate) enum Refusal {
     NotYourLine,
     #[error("Choose a remote workspace in the settings first.")]
     NoWorkspaceChosen,
-    #[error("Moving the lodges failed: {error}")]
+    #[error("Moving the worktrees failed: {error}")]
     MoveFailed { error: String },
     #[error("Every conversation of it was brought in before.")]
     BroughtInBefore,

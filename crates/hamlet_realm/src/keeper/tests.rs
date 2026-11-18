@@ -54,7 +54,7 @@ fn app() -> (App, Entity) {
                         &mut commands,
                         &kit,
                         &mut materials,
-                        Who::mayor(),
+                        Who::lead(),
                         Transform::default(),
                         None,
                     )
