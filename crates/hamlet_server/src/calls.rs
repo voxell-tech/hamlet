@@ -358,7 +358,7 @@ impl Core<'_, '_> {
 }
 
 /// The chat session of `conversation`, whose edits and commands a
-/// chief may trust.
+/// chief may grant for its length.
 pub(crate) fn chat_session(
     conversation: &Conversation,
 ) -> Option<Session> {

@@ -286,9 +286,9 @@ pub(crate) fn resume(
     diesel::update(chat::table.find((agent, chief)))
         .set(chat::current.eq(number))
         .execute(cx.db)?;
-    // A session gone back to gets held again for what it was trusted
-    // with (H11).
-    crate::society::oversight::gate::reset_trust(
+    // A session gone back to gets held again for what it was granted
+    // (H11).
+    crate::society::oversight::gate::reset_session_grant(
         cx.db,
         crate::society::oversight::gate::Session {
             agent,

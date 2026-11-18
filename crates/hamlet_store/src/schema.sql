@@ -661,7 +661,7 @@ CREATE TABLE turn_gate (
 ) STRICT;
 
 -- Edits and commands a chief allowed for the rest of a chat session.
-CREATE TABLE trust (
+CREATE TABLE session_grant (
     agent INTEGER NOT NULL REFERENCES agent(id),
     chief INTEGER NOT NULL REFERENCES chief(id),
     session INTEGER NOT NULL CHECK (session >= 1),

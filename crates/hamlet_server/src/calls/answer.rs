@@ -163,7 +163,7 @@ fn grant_always(
 }
 
 /// The effect of `ruling` on each call `wait` held: its network kept
-/// when it may run, its session trusted after an `/always`, and its
+/// when it may run, its session granted after an `/always`, and its
 /// turn told once of a denial.
 fn rule_calls(
     cx: &mut Change<'_>,
@@ -187,7 +187,7 @@ fn rule_calls(
                 wait.danger
             && let Some(session) = chat_session(conversation)
         {
-            gate::trust(cx.db, session, danger)?;
+            gate::grant_session(cx.db, session, danger)?;
         }
         if ruling == Ruling::Deny
             && let Some(danger) = wait.danger

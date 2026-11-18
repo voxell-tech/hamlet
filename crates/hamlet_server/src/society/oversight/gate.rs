@@ -1,6 +1,7 @@
 //! The gate every tool call passes before it runs (C7, H11): what it
-//! reaches, what the chief's mode, grants and trust allow, what the
-//! chief keeps for itself, and what the chief refused in the turn.
+//! reaches, what the chief's mode, grants and session grants allow,
+//! what the chief keeps for itself, and what the chief refused in the
+//! turn.
 
 use anyhow::Result;
 use diesel::prelude::*;
@@ -8,7 +9,9 @@ use diesel::upsert::excluded;
 use hamlet_protocol::client::{AttachedFile, Permission};
 use hamlet_store::Db;
 use hamlet_store::ids::{AgentId, ChiefId, ConversationId};
-use hamlet_store::schema::{permission_grant, trust, turn_gate};
+use hamlet_store::schema::{
+    permission_grant, session_grant, turn_gate,
+};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
@@ -482,7 +485,8 @@ fn refused(
     })
 }
 
-/// The chat session whose edits and commands a chief may trust.
+/// The chat session whose edits and commands a chief may grant for
+/// its length.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub(crate) struct Session {
     pub agent: AgentId,
@@ -490,52 +494,59 @@ pub(crate) struct Session {
     pub session: i64,
 }
 
-/// The chief's trust in the edits and in the commands of `session`.
-pub(crate) fn trusted(
+/// Whether the chief granted the edits and the commands of `session`
+/// for its length.
+pub(crate) fn session_granted(
     db: &mut Db,
     session: Session,
 ) -> Result<(bool, bool)> {
-    Ok(trust::table
+    Ok(session_grant::table
         .find((session.agent, session.chief, session.session))
-        .select((trust::edit, trust::command))
+        .select((session_grant::edit, session_grant::command))
         .first(db)
         .optional()?
         .unwrap_or((false, false)))
 }
 
-/// Trusts the edits or the commands of `session` from now on.
-pub(crate) fn trust(
+/// Grants the edits or the commands of `session` for the rest of it.
+pub(crate) fn grant_session(
     db: &mut Db,
     session: Session,
     danger: Danger,
 ) -> Result<()> {
     let (edit, command) =
         (danger == Danger::Edit, danger == Danger::Command);
-    diesel::insert_into(trust::table)
+    diesel::insert_into(session_grant::table)
         .values((
-            trust::agent.eq(session.agent),
-            trust::chief.eq(session.chief),
-            trust::session.eq(session.session),
-            trust::edit.eq(edit),
-            trust::command.eq(command),
+            session_grant::agent.eq(session.agent),
+            session_grant::chief.eq(session.chief),
+            session_grant::session.eq(session.session),
+            session_grant::edit.eq(edit),
+            session_grant::command.eq(command),
         ))
-        .on_conflict((trust::agent, trust::chief, trust::session))
+        .on_conflict((
+            session_grant::agent,
+            session_grant::chief,
+            session_grant::session,
+        ))
         .do_update()
         .set((
-            trust::edit.eq(trust::edit.or(excluded(trust::edit))),
-            trust::command
-                .eq(trust::command.or(excluded(trust::command))),
+            session_grant::edit
+                .eq(session_grant::edit
+                    .or(excluded(session_grant::edit))),
+            session_grant::command.eq(session_grant::command
+                .or(excluded(session_grant::command))),
         ))
         .execute(db)?;
     Ok(())
 }
 
-/// Takes back the trust of a session that is resumed (H11).
-pub(crate) fn reset_trust(
+/// Takes back the grant of a session that is resumed (H11).
+pub(crate) fn reset_session_grant(
     db: &mut Db,
     session: Session,
 ) -> Result<()> {
-    diesel::delete(trust::table.find((
+    diesel::delete(session_grant::table.find((
         session.agent,
         session.chief,
         session.session,

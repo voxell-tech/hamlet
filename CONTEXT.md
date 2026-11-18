@@ -220,7 +220,7 @@ _Avoid_: road, link
 A message one agent sends another along a channel.
 _Avoid_: mail, DM
 
-### Work, waits and trust
+### Work, waits and grants
 
 **Task**:
 A chief's instruction and everything done for it, which carries what it
@@ -235,12 +235,13 @@ thread of the agent that asks and on a toast.
 _Avoid_: petition, pending item, approval request
 
 **Grant**:
-A chief's allowing of an act that waits: once, for the session (trust), or
-for good.
+A chief's allowing of an act that waits: once, for the session (a session
+grant), or for good.
 _Avoid_: permission, whitelist
 
-**Trust**:
+**Session grant**:
 A grant for the rest of a session.
+_Avoid_: trust
 
 ### Actions and rejections
 

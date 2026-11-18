@@ -471,6 +471,16 @@ diesel::table! {
 }
 
 diesel::table! {
+    session_grant (agent, chief, session) {
+        agent -> BigInt,
+        chief -> BigInt,
+        session -> BigInt,
+        edit -> Bool,
+        command -> Bool,
+    }
+}
+
+diesel::table! {
     skill_offer (id) {
         id -> BigInt,
         agent -> BigInt,
@@ -513,16 +523,6 @@ diesel::table! {
         how -> Nullable<Text>,
         text -> Nullable<Text>,
         change -> Nullable<Text>,
-    }
-}
-
-diesel::table! {
-    trust (agent, chief, session) {
-        agent -> BigInt,
-        chief -> BigInt,
-        session -> BigInt,
-        edit -> Bool,
-        command -> Bool,
     }
 }
 
@@ -651,6 +651,8 @@ diesel::joinable!(reflection -> task (task));
 diesel::joinable!(review -> agent (parent));
 diesel::joinable!(review -> conversation (conversation));
 diesel::joinable!(review -> task (task));
+diesel::joinable!(session_grant -> agent (agent));
+diesel::joinable!(session_grant -> chief (chief));
 diesel::joinable!(skill_offer -> agent (agent));
 diesel::joinable!(skill_offer -> task (task));
 diesel::joinable!(task -> agent (agent));
@@ -658,8 +660,6 @@ diesel::joinable!(task -> chief (chief));
 diesel::joinable!(task -> hamlet (payer));
 diesel::joinable!(tool_call -> conversation (conversation));
 diesel::joinable!(tool_call -> wait (wait));
-diesel::joinable!(trust -> agent (agent));
-diesel::joinable!(trust -> chief (chief));
 diesel::joinable!(turn_gate -> conversation (conversation));
 diesel::joinable!(wait -> agent (agent));
 diesel::joinable!(wait -> chief (chief));
@@ -706,10 +706,10 @@ diesel::allow_tables_to_appear_in_same_query!(
     reflection,
     review,
     runtime,
+    session_grant,
     skill_offer,
     task,
     tool_call,
-    trust,
     turn_gate,
     usage,
     wait,

@@ -275,7 +275,7 @@ impl Core<'_, '_> {
         let db = self.realm.store().connection();
         let limits = society::limits_of(db, at.hamlet.as_ref())?;
         let (edit, command) = match chat_session(&call.conversation) {
-            Some(session) => gate::trusted(db, session)?,
+            Some(session) => gate::session_granted(db, session)?,
             None => (false, false),
         };
         let standing = Standing {
