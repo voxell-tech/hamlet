@@ -38,22 +38,26 @@ const EVERY = 10;
 
 /**
  * A conversation's reflections: `answered`, the chief turns answered since
- * the last one ran, `running` when a chief turn has not ended, and `k`, the
- * number the next is asked under; when `asked`, reflection `k` is owed or
- * running already.
+ * the last one ran, and `k`, the number the next is asked under; when
+ * `asked`, reflection `k` is owed or running already.
  */
 type Owed = (conversation: ConversationId) => Promise<{
     readonly answered: number;
-    readonly running: boolean;
     readonly k: number;
     readonly asked: boolean;
 }>;
 
+/**
+ * As today's `answered` (`crates/hamlet_server/src/talk/reflections.rs:29-66`),
+ * a turn answered in a session the chief has left asks its reflection at
+ * once, whatever `reflect_every` is.
+ */
 export function reflection(
     peers: Peers,
     copies: ReadCopies,
     withHarness: WithHarness,
     every: number | undefined,
+    chief: () => Promise<ConversationId | undefined>,
 ): Extension {
     const owed = owedOf(withHarness);
     return defineExtension({
@@ -62,13 +66,18 @@ export function reflection(
         hooks: [
             hook(GenerationTask, {
                 afterRun: async (_run, api) => {
+                    const { answered, asked } = await owed(api.conversationId);
+                    if (asked || answered === 0) return undefined;
+                    const now = await chief();
+                    const left =
+                        now !== undefined && now !== api.conversationId;
                     const after =
                         every ??
                         (await copies()).settings?.reflect_every ??
                         EVERY;
-                    if (after === 0) return undefined;
-                    const { answered, asked } = await owed(api.conversationId);
-                    if (asked || answered < after) return undefined;
+                    if (!left && (after === 0 || answered < after)) {
+                        return undefined;
+                    }
                     await withHarness((harness, context) =>
                         ask(harness, peers, api.conversationId, context),
                     );
@@ -81,16 +90,17 @@ export function reflection(
 
 /**
  * Asks the reflection a session owes as a chief leaves it, by `/new` or
- * `/resume`, whatever `reflect_every` is.
+ * `/resume`, whatever `reflect_every` is. A turn still running then asks
+ * its own when it answers.
  */
 export async function reflectOnLeaving(
     c: AgentCall,
     conversation: ConversationId,
 ): Promise<void> {
-    const { answered, running } = await owedOf((use) =>
+    const { answered } = await owedOf((use) =>
         withHarness(c, generationOf(c).options, use),
     )(conversation);
-    if (answered >= 1 || running) await reflectIn(c, conversation);
+    if (answered >= 1) await reflectIn(c, conversation);
 }
 
 /**
@@ -136,7 +146,7 @@ function owedOf(withHarness: WithHarness): Owed {
                 (tx) => lastAsked(tx, conversation),
                 context,
             );
-            const none = { answered: 0, running: false, ...last };
+            const none = { answered: 0, ...last };
             if (last.asked) return none;
             const kept = await harness.conversation(conversation, context);
             if (kept === undefined) return none;
@@ -179,15 +189,7 @@ function owedOf(withHarness: WithHarness): Owed {
                 }
                 cursor = page.next;
             } while (cursor !== undefined);
-            // An aborted turn leaves its line open and its run ended.
-            const running =
-                open &&
-                (await harness.commit(
-                    (tx) =>
-                        live(tx, conversation, GenerationTask.definition.name),
-                    context,
-                ));
-            return { answered, running, ...last };
+            return { answered, ...last };
         });
 }
 

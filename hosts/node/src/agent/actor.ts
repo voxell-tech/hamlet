@@ -6,6 +6,7 @@ import {
 import type { Api, Model, Models } from "@earendil-works/pi-ai";
 import {
     type Conversation,
+    type ConversationId,
     type Cursor,
     createRegistry,
     type EntryId,
@@ -196,6 +197,7 @@ function parts(
     withHarness: WithHarness,
     tell: TellFailed,
     failed: FailedTurns,
+    chief: () => Promise<ConversationId | undefined>,
 ): Extension[] {
     if (builtIns === undefined) return [promptPart(prompt)];
     const builtIn = builtIns.listed.map((extension) =>
@@ -211,7 +213,7 @@ function parts(
     }
     return [
         promptPart(prompt),
-        reflection(peers, prompt.copies, withHarness, reflectEvery()),
+        reflection(peers, prompt.copies, withHarness, reflectEvery(), chief),
         cutOffRule(tell),
         failed.extension,
         ...builtIn,
@@ -444,7 +446,8 @@ async function wake(c: AgentContext, config: AgentConfig): Promise<void> {
         ...promptSources(c, copies, peers),
         ...(errand === undefined ? {} : { errand }),
     };
-    const tell = tellingFailed(peers, row.standingTask, () => current(c.db));
+    const chief = () => current(c.db);
+    const tell = tellingFailed(peers, row.standingTask, chief);
     const failed = failedTurns(peers, withHarness, tell);
     const offer = offerOf(row);
     const builtIns: BuiltIns | undefined =
@@ -458,6 +461,7 @@ async function wake(c: AgentContext, config: AgentConfig): Promise<void> {
         withHarness,
         tell,
         failed,
+        chief,
     )) {
         registry.install(part);
     }

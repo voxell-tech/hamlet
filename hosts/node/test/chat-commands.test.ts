@@ -19,6 +19,7 @@ import type {
     OpenTask,
     ReadAnswer,
 } from "../src/agent/messages.ts";
+import { REFLECT } from "../src/agent/reflect.ts";
 import { conversationOfChat } from "../src/agent/sessions.ts";
 import {
     fakeCalls,
@@ -915,9 +916,6 @@ test("a chief's line sent while a rewind is out lands in the session it goes to"
     await lapsing.promise;
 
     const sending = submitted(agent, line("Three"));
-    // A line racing the rewind is admitted in milliseconds, so a second
-    // decides only whether the race is caught, never whether it passes.
-    await Promise.race([sending, delay(1_000)]);
     lapse.resolve(null);
     assert.deepEqual(await rewinding, { type: "rewound", text: "Two" });
     await sending;
@@ -1011,6 +1009,7 @@ test("a rewind while a question has no answer goes ahead, and the answer lands i
             toolCall("ask", { to: "hire#12", question: "Which file?" }),
             fauxAssistantMessage("Asked Ada."),
             fauxAssistantMessage("Thanks."),
+            fauxAssistantMessage("Kept."),
         ],
     );
     await told(agent, "Ask Ada");
@@ -1034,7 +1033,12 @@ test("a rewind while a question has no answer goes ahead, and the answer lands i
     await agent.idle();
 
     assert.deepEqual(await said(agent, await now(agent)), []);
-    assert.equal((await said(agent, asking)).at(-1), "Thanks.");
+    // Answered in a session put away, the turn asks its reflection there.
+    assert.deepEqual((await said(agent, asking)).slice(-3), [
+        "Thanks.",
+        REFLECT,
+        "Kept.",
+    ]);
 });
 
 test("a line steered into a running turn is charged to its own task", async (t) => {

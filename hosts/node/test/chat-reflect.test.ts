@@ -385,6 +385,22 @@ test("a /new mid-turn at zero reflects once, after the answer", async (t) => {
     assert.equal((await reflections(agent)).length, 1);
 });
 
+test("a /new during a turn that then fails asks no reflection", async (t) => {
+    const busy = held("");
+    const { agent, sent } = await wake(t, "0", [busy.step, words("Kept.")]);
+    send(agent, "line-1", "a");
+    await busy.asked;
+    await agent.actions.new_session(agent.by(from.client), {
+        id: "new-1",
+        to: 7,
+    });
+    busy.release();
+    await agent.idle();
+
+    assert.deepEqual(await reflections(agent), []);
+    assert.deepEqual(named(sent, "open_task"), []);
+});
+
 test("a /new repeated after a kill cut off its reflection's task asks the realm again under the same request", async (t) => {
     let hangs = true;
     const { agent, sent: calls } = await wake(
