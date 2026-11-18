@@ -75,6 +75,9 @@ impl Source for Files {
 /// it.
 #[derive(Component, Default)]
 struct Index {
+    /// The hamlet's folder as the realm names it, when it was read.
+    named: Option<PathBuf>,
+    /// That folder, while it is on this machine.
     folder: Option<PathBuf>,
     paths: Vec<PathBuf>,
     /// The start of the word it was read for.
@@ -105,18 +108,21 @@ fn index_in(world: &mut World, hub: Entity) {
             .map(|token| token.start)
     })
     .flatten();
+    // Read again, too, once the chat is with an agent of another
+    // hamlet.
+    let named = word.and_then(|_| hamlet_folder(world, hub));
     let Ok(mut held) = world.get_entity_mut(hub) else {
         return;
     };
     let mut was = held.entry::<Index>().or_default().into_mut();
-    if word.is_none() || word == was.word {
+    if word.is_none() || (word == was.word && named == was.named) {
         was.word = word;
         return;
     }
-    let folder =
-        hamlet_folder(world, hub).filter(|folder| folder.is_dir());
+    let folder = named.clone().filter(|folder| folder.is_dir());
     let paths = folder.as_deref().map(read).unwrap_or_default();
     world.entity_mut(hub).insert(Index {
+        named,
         folder,
         paths,
         word,

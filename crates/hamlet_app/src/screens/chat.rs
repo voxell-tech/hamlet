@@ -494,6 +494,10 @@ const UNLISTED: &str = "Only the commands listed as you type / run \
                         here. The rest are in the menus, or \
                         right-click an agent or a hamlet.";
 
+/// What a command to an agent that cannot be reached is told.
+const UNSENT: &str =
+    "This agent cannot be reached, so the command was not sent.";
+
 /// Sends what is typed in `hub`'s field, as Enter does.
 pub(crate) fn send_typed(world: &mut World, hub: Entity) {
     let Some(plain) = field::typed(world, hub) else {
@@ -503,13 +507,22 @@ pub(crate) fn send_typed(world: &mut World, hub: Entity) {
     // a button or a menu.
     if plain.text.trim_start().starts_with('/') {
         let line = plain.text.trim().to_owned();
-        if suggestions::commands::run(world, hub, &line) {
-            // What ran may take the focus, as a popup does.
-            tell(world, Some(hub), "");
-            field::with_field(world, hub, |mut field| field.clear());
-        } else {
-            focus(world, hub);
-            tell(world, Some(hub), UNLISTED);
+        match suggestions::commands::run(world, hub, &line) {
+            Some(true) => {
+                // What ran may take the focus, as a popup does.
+                tell(world, Some(hub), "");
+                field::with_field(world, hub, |mut field| {
+                    field.clear();
+                });
+            }
+            Some(false) => {
+                focus(world, hub);
+                tell(world, Some(hub), UNSENT);
+            }
+            None => {
+                focus(world, hub);
+                tell(world, Some(hub), UNLISTED);
+            }
         }
         return;
     }

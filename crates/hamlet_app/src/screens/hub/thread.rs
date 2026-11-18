@@ -593,7 +593,9 @@ fn compact(agent: Entity) -> impl View {
             chat::tool_button(
                 Glyph::Notes,
                 "Compact now: summarize the earlier messages",
-                move |world| compact_now(world, agent),
+                move |world| {
+                    compact_now(world, agent);
+                },
             )
         },
     )
@@ -601,13 +603,17 @@ fn compact(agent: Entity) -> impl View {
 }
 
 /// Summarizes the earlier part of `agent`'s conversation now.
-pub(crate) fn compact_now(world: &mut World, agent: Entity) {
-    if let Some(to) = id_of(world, agent) {
-        world.trigger(Compact {
-            request: protocol::RequestId::new(),
-            to,
-        });
-    }
+pub(crate) fn compact_now(
+    world: &mut World,
+    agent: Entity,
+) -> Option<protocol::RequestId> {
+    let to = id_of(world, agent)?;
+    let request = protocol::RequestId::new();
+    world.trigger(Compact {
+        request: request.clone(),
+        to,
+    });
+    Some(request)
 }
 
 /// The least width of the model's name before the toolbar folds.
@@ -665,7 +671,11 @@ impl ToolbarAction {
             ToolbarAction::Folder => {
                 chat::attach::choose(world, hub, What::Folders);
             }
-            ToolbarAction::Compact => compact_now(world, agent),
+            ToolbarAction::Compact => {
+                if let Some(request) = compact_now(world, agent) {
+                    chat::asked_in(world, request, hub);
+                }
+            }
         }
     }
 }

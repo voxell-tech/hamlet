@@ -609,12 +609,19 @@ fn chip_atom(key: u64, name: &str) -> Atom {
 }
 
 /// Puts the chip of the attachment `key` at the caret of `hub`'s
-/// field.
+/// field, or at the end of the draft of its chat while no field is
+/// shown, so the chip and the attachment stay together.
 fn put_chip(world: &mut World, hub: Entity, key: u64) {
     let name = world.resource::<Attached>().name_of(key);
-    super::field::with_field(world, hub, |mut field| {
+    let put = super::field::with_field(world, hub, |mut field| {
         field.insert_atom(chip_atom(key, &name));
     });
+    if put.is_none() {
+        let chat = convo::chat_of(world, hub);
+        let mut draft = super::field::draft_of(world, hub, chat);
+        draft.push(Piece::Atom(chip_atom(key, &name)));
+        super::field::give_draft(world, hub, chat, draft);
+    }
 }
 
 /// `files` grouped by the first part of their names.

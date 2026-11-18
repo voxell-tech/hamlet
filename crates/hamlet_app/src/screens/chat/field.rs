@@ -141,16 +141,30 @@ pub(super) fn give_draft(
     chat: Entity,
     pieces: Vec<Piece>,
 ) {
-    put_draft(world, hub, chat, pieces);
-    let mut fields = world.query::<(Entity, &ChatField)>();
+    let mut fields = world.query::<(
+        Entity,
+        &ChatField,
+        Option<&Holds>,
+        &RichField,
+    )>();
     let fields = fields
         .iter(world)
-        .filter(|(_, field)| field.0 == hub)
-        .map(|(node, _)| node)
+        .filter(|(_, field, ..)| field.0 == hub)
+        .map(|(node, _, holds, field)| {
+            (node, holds.map(|holds| (holds.0, field.pieces())))
+        })
         .collect::<Vec<_>>();
-    for node in fields {
+    // What a field holds of another chat is kept before it lets go;
+    // the words given for `chat` take the place of its own.
+    for (node, held) in fields {
+        if let Some((held, typed)) = held
+            && held != chat
+        {
+            put_draft(world, hub, held, typed);
+        }
         world.entity_mut(node).remove::<Holds>();
     }
+    put_draft(world, hub, chat, pieces);
     let shows = crate::convo::chat_of(world, hub) == chat;
     let elsewhere = world
         .get_resource::<InputFocus>()

@@ -6,32 +6,51 @@ use bevy::ecs::entity::Entity;
 use bevy::ecs::world::World;
 use hamlet_client::messages::ChiefMessage;
 use hamlet_client::realm::{ActionUsage, Actions};
+use hamlet_protocol::client::RequestId;
 use hamlet_protocol::signs::Sign;
 
-use super::super::replied;
+use super::super::{asked_in, replied};
 use super::{Entry, Pick, Source};
 use crate::convo::agent_of;
 use crate::screens::hub::thread::compact_now;
 use crate::world_menu;
 
-/// Each command listed, with what runs it for a Hub's chat.
-const LISTED: [(&str, fn(&mut World, Entity)); 5] = [
+/// Each command listed, with what runs it for a Hub's chat and says
+/// whether it went out.
+const LISTED: [(&str, fn(&mut World, Entity) -> bool); 5] = [
     ("compact", |world, hub| {
         let agent = agent_of(world, hub);
-        compact_now(world, agent);
+        let request = compact_now(world, agent);
+        made_in(world, hub, request)
     }),
     ("retry", |world, hub| say(world, hub, "/retry")),
     ("stop", |world, hub| {
         let agent = agent_of(world, hub);
         let request = world_menu::stop(world, agent);
         replied(world, hub, request);
+        true
     }),
     ("reflect", |world, hub| say(world, hub, "/reflect")),
     ("model", |world, hub| {
         let agent = agent_of(world, hub);
         world_menu::model::open(world, agent);
+        true
     }),
 ];
+
+/// Says the answer to `request`, if it was made, under `hub`'s field,
+/// and whether it was made.
+fn made_in(
+    world: &mut World,
+    hub: Entity,
+    request: Option<RequestId>,
+) -> bool {
+    let Some(request) = request else {
+        return false;
+    };
+    asked_in(world, request, hub);
+    true
+}
 
 pub(super) struct Commands;
 
@@ -66,29 +85,30 @@ impl Source for Commands {
 }
 
 /// Runs the command `line` is for `hub`'s chat, when it is one listed
-/// and allowed, and says whether it ran.
+/// and allowed. None when it is not one; else whether it went out,
+/// which a command to an agent with no address does not.
 pub(in crate::screens::chat) fn run(
     world: &mut World,
     hub: Entity,
     line: &str,
-) -> bool {
-    let Some(name) = line.strip_prefix(Sign::Command.char()) else {
-        return false;
-    };
-    let found = LISTED.into_iter().find(|(listed, _)| {
+) -> Option<bool> {
+    let name = line.strip_prefix(Sign::Command.char())?;
+    let (_, run) = LISTED.into_iter().find(|(listed, _)| {
         *listed == name && Actions::is_allowed(world, listed)
-    });
-    if let Some((_, run)) = found {
-        run(world, hub);
-    }
-    found.is_some()
+    })?;
+    Some(run(world, hub))
 }
 
-/// Sends the command `line` to the agent `hub`'s chat is with.
-fn say(world: &mut World, hub: Entity, line: &str) {
-    if let Some(to) =
-        crate::convo::of(world, hub).and_then(|convo| convo.to(world))
-    {
-        world.trigger(ChiefMessage::words(to, line.into()));
-    }
+/// Sends the command `line` to the agent `hub`'s chat is with, and
+/// says whether it went.
+fn say(world: &mut World, hub: Entity, line: &str) -> bool {
+    let Some(to) = crate::convo::of(world, hub)
+        .and_then(|convo| convo.to(world))
+    else {
+        return false;
+    };
+    let message = ChiefMessage::words(to, line.into());
+    let request = message.request.clone();
+    world.trigger(message);
+    made_in(world, hub, Some(request))
 }

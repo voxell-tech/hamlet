@@ -263,7 +263,12 @@ pub(crate) fn bring_following(world: &mut World) -> Option<Entity> {
 /// Makes `hub` the one of the shown desk that follows the world's
 /// selection.
 pub(crate) fn follow(world: &mut World, hub: Entity) {
+    // Taken mutably only to change it, as a change runs `keep_hubs`
+    // again.
     if let Some(id) = world.get::<Hub>(hub).map(|hub| hub.0.clone())
+        && world.get_resource::<Desks>().is_some_and(|desks| {
+            desks.following() != Some(id.as_str())
+        })
         && let Some(mut desks) = world.get_resource_mut::<Desks>()
     {
         desks.follow(&id);

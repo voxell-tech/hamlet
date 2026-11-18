@@ -187,6 +187,10 @@ pub(crate) fn talk_to_hand(world: &mut World) {
     let Some(hand) = agents::hand(world) else {
         return;
     };
+    // The tab in front stays for a Hand with no address.
+    if id_and_shown(world, hand).is_none() {
+        return;
+    }
     if let Some(hub) = hub::opening_in(world) {
         seat(world, hub, hand);
         hub::show(world, hub, Showing::Thread);
