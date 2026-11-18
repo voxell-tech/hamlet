@@ -368,13 +368,16 @@ async function create(
     config: AgentConfig,
     input: AgentInput,
 ): Promise<void> {
-    await c.db.run(
-        "INSERT OR IGNORE INTO agent (id, kind, task, place_version, tools_off, place, brief) VALUES (1, ?, ?, ?, ?, ?, ?)",
-        input.kind,
-        input.task,
-        ...rowOf(input.place),
-        input.brief === undefined ? null : JSON.stringify(input.brief),
-    );
+    await c.db.transaction(async (db) => {
+        await db.run(
+            "INSERT OR IGNORE INTO agent (id, kind, task, place_version, tools_off, place, brief) VALUES (1, ?, ?, ?, ?, ?, ?)",
+            input.kind,
+            input.task,
+            ...rowOf(input.place),
+            input.brief === undefined ? null : JSON.stringify(input.brief),
+        );
+        await keep({ db }, input.copies);
+    });
     config.files(numberOf(c));
 }
 
@@ -483,7 +486,15 @@ async function wake(c: AgentContext, config: AgentConfig): Promise<void> {
     }
     failed.follow(harness);
     harness.resume();
-    const read = refreshed(c, peers).catch((error: unknown) =>
+    const configuring = () =>
+        configured(c, copies).catch((error: unknown) =>
+            peers.report("the model was not configured", error),
+        );
+    // Done at every wake, so a configure a kill cut off is done again, and
+    // before any action, so a first turn runs on the copies the create
+    // input held.
+    await configuring();
+    const read = refreshed(c, peers).then(configuring, (error: unknown) =>
         peers.report("the copies were not read from the realm", error),
     );
     void read
@@ -491,30 +502,18 @@ async function wake(c: AgentContext, config: AgentConfig): Promise<void> {
         .catch((error: unknown) =>
             peers.report("the copy's model's key was not read", error),
         );
-    // Configured at every wake, even when the realm was not reached, so a
-    // configure a kill cut off is done again.
-    const copied = read
-        .then(() => configured(c, copies))
-        .catch((error: unknown) =>
-            peers.report("the model was not configured", error),
-        );
     if (
         (row.kind === "worker" || row.kind === "errand") &&
         row.brief !== undefined
     ) {
         const { kind, brief } = row;
-        // A new worker or errand holds no copies yet, so its turn waits for
-        // the realm's answer, whatever it is.
-        void copied
-            .then(() =>
-                briefTurn(c, options, peers, kind, brief, row.standingTask),
-            )
-            .catch((error: unknown) =>
+        void briefTurn(c, options, peers, kind, brief, row.standingTask).catch(
+            (error: unknown) =>
                 peers.report(
                     "the realm was not told how the brief's turn ended",
                     error,
                 ),
-            );
+        );
     }
 }
 
