@@ -1,5 +1,4 @@
 import assert from "node:assert/strict";
-import { readFileSync } from "node:fs";
 import { type TestContext, test } from "node:test";
 import {
     type Context,
@@ -7,7 +6,6 @@ import {
     fauxAssistantMessage,
 } from "@earendil-works/pi-ai";
 import { getCurrentSystemPrompt } from "@earendil-works/pi-ai/utils/transcript";
-import { decodeCborCompat } from "../src/actor/serde.ts";
 import type {
     AgentInput,
     ChatEvent,
@@ -27,18 +25,7 @@ import {
     type Woken,
     wakeAgent,
 } from "./agent-testing.ts";
-import { context } from "./testing.ts";
-
-function fixture(name: string): unknown {
-    return decodeCborCompat(
-        readFileSync(
-            new URL(
-                `../../../crates/hamlet_messages/fixtures/${name}.cbor`,
-                import.meta.url,
-            ),
-        ),
-    );
-}
+import { context, fixture } from "./testing.ts";
 
 const ERRAND = fixture("agent/errand.input") as AgentInput;
 const WORKER = fixture("agent/worker.input") as AgentInput;

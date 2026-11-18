@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { readdirSync, readFileSync } from "node:fs";
+import { readdirSync } from "node:fs";
 import { type TestContext, test } from "node:test";
 import { isDeepStrictEqual } from "node:util";
 import {
@@ -14,7 +14,6 @@ import {
     type ProviderEnv,
 } from "@earendil-works/pi-ai";
 import { ActorError, type Calls } from "../src/actor/actor/mod.ts";
-import { decodeCborCompat, decodeCborJsonCompat } from "../src/actor/serde.ts";
 import { chatActions } from "../src/agent/chat.ts";
 import { signIns } from "../src/agent/login.ts";
 import {
@@ -45,32 +44,16 @@ import {
     type Woken,
     wakeAgent,
 } from "./agent-testing.ts";
-import { context } from "./testing.ts";
-
-const FOLDER = new URL(
-    "../../../crates/hamlet_messages/fixtures/",
-    import.meta.url,
-);
-
-/**
- * A fixture as the host decodes it: an answer as `Calls.call` does, and a
- * call's arguments or a create input as the host does for an action.
- */
-function fixture(name: string): unknown {
-    const bytes = readFileSync(new URL(`${name}.cbor`, FOLDER));
-    return name.endsWith(".answer")
-        ? decodeCborJsonCompat(bytes)
-        : decodeCborCompat(bytes);
-}
+import { context, FIXTURES, fixture } from "./testing.ts";
 
 function answer(name: string): never {
     return fixture(`${name}.answer`) as never;
 }
 
 function fixtures(pattern: RegExp): string[] {
-    return readdirSync(FOLDER)
+    return readdirSync(FIXTURES)
         .flatMap((folder) =>
-            readdirSync(new URL(`${folder}/`, FOLDER)).map(
+            readdirSync(new URL(`${folder}/`, FIXTURES)).map(
                 (file) => `${folder}/${file.replace(/\.cbor$/, "")}`,
             ),
         )
