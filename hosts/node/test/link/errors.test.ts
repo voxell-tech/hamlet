@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 import { setTimeout as sleep } from "node:timers/promises";
 import { inFolder } from "../native/support.ts";
+import { fixture } from "../testing.ts";
 import {
     answer,
     childrenOf,
@@ -11,6 +12,38 @@ import {
 } from "./support.ts";
 
 const SKIP = { skip: process.platform !== "linux" };
+
+/**
+ * What agent 1 reads when the realm refuses it `action` as its wrong caller:
+ * the stored `error/wrong_caller.run.realm`, the workspace's refusal of the
+ * realm's `run`, with only the action and the caller renamed in its message
+ * and metadata. No stored fixture has an agent as its caller.
+ */
+function wrongCallerOfRealm(action: string): unknown {
+    const renamed: Record<string, string> = {
+        run: action,
+        realm: "agent",
+        local: "1",
+    };
+    const rename = (value: unknown): unknown => {
+        if (typeof value === "string") {
+            return value.replace(
+                /\b(run|realm|local)\b/g,
+                (word) => renamed[word] ?? word,
+            );
+        }
+        if (value !== null && typeof value === "object") {
+            return Object.fromEntries(
+                Object.entries(value).map(([key, inner]) => [
+                    key,
+                    rename(inner),
+                ]),
+            );
+        }
+        return value;
+    };
+    return { error: rename(fixture("error/wrong_caller.run.realm.answer")) };
+}
 
 /** How long a Node host may outlive its demo host. */
 const GONE_WAIT_MS = 2_000;
@@ -66,7 +99,7 @@ test(
 );
 
 test(
-    "a TypeScript agent's call to the realm reads message.wrong_caller with its metadata, across both hops",
+    "a TypeScript agent's call to the realm reads message.wrong_caller as its stored fixture holds it, metadata included, across both hops",
     SKIP,
     async () => {
         await inFolder(async (dir) => {
@@ -77,17 +110,7 @@ test(
                 "agent/1/ask",
             );
             await stopped(demo, await nodePid(demo, 1));
-            assert.deepEqual(read, {
-                error: {
-                    group: "message",
-                    code: "wrong_caller",
-                    message: "agent/1 may not send 'heard'.",
-                    metadata: {
-                        action: "heard",
-                        caller: { actor: { kind: "agent", key: "1" } },
-                    },
-                },
-            });
+            assert.deepEqual(read, wrongCallerOfRealm("heard"));
         });
     },
 );
@@ -108,17 +131,7 @@ test(
             );
             const notes = await demo.ask("tell 2 count");
             await stopped(demo, await nodePid(demo, 1));
-            assert.deepEqual(read, {
-                error: {
-                    group: "message",
-                    code: "wrong_caller",
-                    message: "agent/1 may not send 'tell'.",
-                    metadata: {
-                        action: "tell",
-                        caller: { actor: { kind: "agent", key: "1" } },
-                    },
-                },
-            });
+            assert.deepEqual(read, wrongCallerOfRealm("tell"));
             assert.equal(notes, "agent/2/count 0");
         });
     },

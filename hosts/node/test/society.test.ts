@@ -1,6 +1,10 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { fauxAssistantMessage } from "@earendil-works/pi-ai";
+import {
+    type Context,
+    fauxAssistantMessage,
+    fauxToolCall,
+} from "@earendil-works/pi-ai";
 import type { SocietyActs, SocietyTool } from "../src/agent/messages.ts";
 import {
     fakeCalls,
@@ -13,6 +17,7 @@ import {
     until,
     type Woken,
     wakeAgent,
+    within,
 } from "./agent-testing.ts";
 import { context } from "./testing.ts";
 
@@ -296,6 +301,117 @@ test("tell carries t<task id>, the turn's task and its conversation, and a refus
         ],
     );
     await agent.stop();
+});
+
+/**
+ * How long the first `tell` waits for the second to reach the realm. The
+ * second starts within milliseconds of the first; this is ten times what a
+ * busy machine takes.
+ */
+const OVERLAP_MS = 5_000;
+
+test("two society tools in one answer run at once, each answered under its own call id, and the next request holds both results", async (t) => {
+    const second = Promise.withResolvers<void>();
+    let met: string | undefined;
+    const { calls, sent } = fakeCalls({
+        realm: {
+            tell: async (message) => {
+                if (message.act.to.type !== "mayor") {
+                    second.resolve();
+                    return {
+                        type: "refused",
+                        why: { type: "no_road", to: 12 },
+                        words: "you have no road to `hire#12`; ask your lead for one with request_road",
+                    };
+                }
+                met = await within(
+                    second.promise.then(() => "met"),
+                    OVERLAP_MS,
+                    "alone",
+                );
+                return { type: "done" };
+            },
+        },
+    });
+    const requested: Context[] = [];
+    const agent = await wakeAgent(t, {
+        calls,
+        responses: [
+            fauxAssistantMessage(
+                [
+                    fauxToolCall(
+                        "tell",
+                        { to: "mayor", text: "The tests pass" },
+                        { id: "c1" },
+                    ),
+                    fauxToolCall(
+                        "tell",
+                        { to: "hire#12", text: "The tests pass" },
+                        { id: "c2" },
+                    ),
+                ],
+                { stopReason: "toolUse" },
+            ),
+            (context) => {
+                requested.push(context);
+                return fauxAssistantMessage("Told.");
+            },
+        ],
+    });
+    await agent.actions.submit(
+        agent.by(from.realm),
+        line("input-1", "Tell them.", "task-1"),
+    );
+    await agent.idle();
+    await agent.stop();
+
+    assert.equal(met, "met");
+    const tells = named(sent, "tell").map(
+        (call) =>
+            call.message as {
+                call: string;
+                task: string;
+                conversation: string;
+                act: { to: unknown };
+            },
+    );
+    assert.deepEqual(
+        tells.map(({ task, act }) => ({ task, to: act.to })),
+        [
+            { task: "task-1", to: { type: "mayor" } },
+            { task: "task-1", to: { type: "agent", agent: 12 } },
+        ],
+    );
+    const [first, other] = tells;
+    assert.ok(first && other);
+    assert.notEqual(first.call, other.call);
+    assert.equal(first.conversation, other.conversation);
+    assert.match(first.conversation, /^[1-9][0-9]*$/);
+
+    assert.equal(requested.length, 1);
+    assert.deepEqual(
+        requested[0]?.messages.flatMap((message) =>
+            message.role === "toolResult"
+                ? [
+                      {
+                          id: message.toolCallId,
+                          text: message.content
+                              .map((part) =>
+                                  part.type === "text" ? part.text : "",
+                              )
+                              .join(""),
+                      },
+                  ]
+                : [],
+        ),
+        [
+            { id: "c1", text: "Sent." },
+            {
+                id: "c2",
+                text: "you have no road to `hire#12`; ask your lead for one with request_road",
+            },
+        ],
+    );
 });
 
 test("ask carries its conversation and no task when its input named none, and the turn on a question replies with its answer", async (t) => {

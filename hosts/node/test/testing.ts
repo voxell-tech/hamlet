@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { DatabaseSync, type SQLInputValue } from "node:sqlite";
@@ -8,8 +8,26 @@ import { BACKGROUND_CONTEXT } from "@earendil-works/chord/context";
 import { createModels, fauxProvider } from "@earendil-works/pi-ai";
 import type { StorageConformanceAssertions } from "@earendil-works/pi-durable/testing";
 import type { RawAccess } from "../src/actor/common/database/mod.ts";
+import { decodeCborCompat, decodeCborJsonCompat } from "../src/actor/serde.ts";
 
 export const context = BACKGROUND_CONTEXT;
+
+/** The folder of `hamlet_messages`' fixtures. */
+export const FIXTURES = new URL(
+    "../../../crates/hamlet_messages/fixtures/",
+    import.meta.url,
+);
+
+/**
+ * A fixture as the host decodes it: an answer as `Calls.call` does, and a
+ * call's arguments or a create input as the host does for an action.
+ */
+export function fixture(name: string): unknown {
+    const bytes = readFileSync(new URL(`${name}.cbor`, FIXTURES));
+    return name.endsWith(".answer")
+        ? decodeCborJsonCompat(bytes)
+        : decodeCborCompat(bytes);
+}
 
 /** A folder removed after the test or suite whose `after` this is given. */
 export function scratchFolder(t: { after(fn: () => void): void }): string {
