@@ -5,6 +5,7 @@ use hamlet_messages::agent::{
 };
 use hamlet_messages::profile::Branch;
 use hamlet_messages::realm::ProfileId;
+use hamlet_messages::realm::documents::ReadCopies;
 use hamlet_messages::sender::Hand;
 use hamlet_messages::workspace::reach::{
     Footing, Reach, SecretsVersion,
@@ -85,6 +86,8 @@ async fn a_hire_goes_live_through_its_steps() {
     realm.reach_held(MAYOR).await;
     let seen = hire_seen(&realm);
     realm.live(MAYOR).await;
+    let copies =
+        realm.tool(MAYOR, &ReadCopies::default()).await.unwrap();
     let (standing, closed) = realm
         .stopped_rows(|db| {
             let standing = db.query_row(
@@ -122,7 +125,7 @@ async fn a_hire_goes_live_through_its_steps() {
                     folder: None,
                 },
                 brief: None,
-                copies: Default::default(),
+                copies,
             }],
             fills: vec![Fill {
                 profile: BLANK,

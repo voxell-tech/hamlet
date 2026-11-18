@@ -30,7 +30,8 @@ use super::peer::When;
 use super::steps::{self, Cx, Kind, StepId, Steps};
 use super::tasks::{self, Origin, TaskId};
 use super::{
-    Realm, chiefs, oversight, place, record, tree, versions, waits,
+    Realm, chiefs, documents, oversight, place, record, tree,
+    versions, waits,
 };
 
 #[derive(Debug, PartialEq)]
@@ -316,7 +317,7 @@ pub(super) async fn run(
                         .collect(),
                     model: None,
                 }),
-                copies: Default::default(),
+                copies: documents::for_agent(&rows, agent).await?,
             };
             cx.peers().create(&Agent(agent), &input).await?;
         }

@@ -131,6 +131,29 @@ async fn close(writer: &Writer<'_>, row: StepId) -> Result<Affected> {
     Ok(Affected::default())
 }
 
+/// The query of the numbers of `kind`'s open rows that have not done
+/// `step`.
+pub(super) fn not_done<S: Steps>(
+    kind: Kind,
+    step: S,
+) -> Result<String> {
+    let before = S::ALL
+        .iter()
+        .take_while(|&&each| each != step)
+        .map(|each| format!("'{}'", each.name()))
+        .collect::<Vec<_>>();
+    let done = if before.is_empty() {
+        "done IS NULL".to_owned()
+    } else {
+        format!("(done IS NULL OR done IN ({}))", before.join(", "))
+    };
+    Ok(format!(
+        "SELECT n FROM step WHERE kind = '{}' AND closed = 0 AND \
+         {done}",
+        change::case_name(&kind)?
+    ))
+}
+
 pub(super) struct Row {
     pub done: Option<String>,
     pub closed: bool,

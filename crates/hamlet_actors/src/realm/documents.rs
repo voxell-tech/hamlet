@@ -23,8 +23,9 @@ use super::act::{Act, Decided, Decision, Unchanged};
 use super::calls::Made;
 use super::change::{self, Affected, Rows, Writer};
 use super::peer::When;
+use super::steps::{self, Kind};
 use super::tree::choices::{self, Choice, Chosen};
-use super::{Realm, chiefs, settings, tree};
+use super::{Realm, chiefs, hire, settings, tree, workers};
 use crate::cbor;
 
 const CHARTER: &str =
@@ -227,13 +228,21 @@ async fn catalogue(rows: &Rows<'_>) -> Result<Catalogue> {
     })
 }
 
-/// The agents that are hiring or live.
+/// The agents that are hiring or live and whose actor is made.
 pub(super) async fn living(
     rows: &Rows<'_>,
 ) -> Result<Vec<AgentNumber>> {
+    let unmade = [
+        steps::not_done(Kind::Hire, hire::Step::Create)?,
+        steps::not_done(Kind::Worker, workers::Step::Create)?,
+    ];
     Ok(rows
         .values::<u32>(
-            "SELECT id FROM agent WHERE status IN ('hiring', 'live')",
+            &format!(
+                "SELECT id FROM agent WHERE status IN ('hiring', \
+                 'live') AND id NOT IN ({}) AND id NOT IN ({})",
+                unmade[0], unmade[1]
+            ),
             Vec::new(),
         )
         .await?
@@ -288,6 +297,38 @@ pub(super) async fn model(
         fast: chosen.fast.unwrap_or(false),
         price,
     }))
+}
+
+/// Every part of the copies the realm holds for `agent`, at its
+/// version.
+pub(super) async fn for_agent(
+    rows: &Rows<'_>,
+    agent: AgentNumber,
+) -> Result<Copies> {
+    newer(rows, agent, &ReadCopies::default()).await
+}
+
+/// The parts `reader` reads whose versions differ from those `have`
+/// names.
+async fn newer(
+    rows: &Rows<'_>,
+    reader: AgentNumber,
+    have: &ReadCopies,
+) -> Result<Copies> {
+    let mut copies = Copies::default();
+    for part in Part::ALL {
+        let held = match part {
+            Part::Charter => have.charter,
+            Part::Character => have.character,
+            Part::Model => have.model,
+            Part::Settings => have.settings,
+        };
+        let version = version(rows, part).await?;
+        if held != Some(version) {
+            fill(rows, &mut copies, part, version, reader).await?;
+        }
+    }
+    Ok(copies)
 }
 
 /// Fills `part` of the copies `reader` reads.
@@ -518,20 +559,7 @@ impl Act<Agent> for ReadCopies {
         by: &Agent,
         rows: &Rows<'_>,
     ) -> Result<Copies> {
-        let mut copies = Copies::default();
-        for part in Part::ALL {
-            let have = match part {
-                Part::Charter => self.charter,
-                Part::Character => self.character,
-                Part::Model => self.model,
-                Part::Settings => self.settings,
-            };
-            let version = version(rows, part).await?;
-            if have != Some(version) {
-                fill(rows, &mut copies, part, version, by.0).await?;
-            }
-        }
-        Ok(copies)
+        newer(rows, by.0, self).await
     }
 
     fn decide(
@@ -544,5 +572,36 @@ impl Act<Agent> for ReadCopies {
 
     fn answer(&self, done: Unchanged, _made: &Made) -> Copies {
         match done {}
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use hamlet_messages::realm::HamletId;
+
+    use super::super::testing::Started;
+    use super::*;
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn a_hire_is_living_once_its_agent_is_made() {
+        let started = Started::new().await;
+        let agent = AgentNumber(2);
+        started.found(&HamletId("h".to_owned()), agent).await;
+        let row = hire::row(agent);
+        started.commit(steps::Change::Begin { row }).await.unwrap();
+        let mut seen = Vec::new();
+        let mut from = None;
+        for to in ["profile", "branch", "create", "fill"] {
+            let rows = started.rows();
+            seen.push(living(&rows).await.unwrap().contains(&agent));
+            started
+                .commit(steps::Change::Advance { row, from, to })
+                .await
+                .unwrap();
+            from = Some(to);
+        }
+
+        assert_eq!(seen, [false, false, false, true]);
+        started.stop().await;
     }
 }

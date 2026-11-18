@@ -54,6 +54,8 @@ mod budget;
 mod chiefs;
 #[path = "realm/choices.rs"]
 mod choices;
+#[path = "realm/copies.rs"]
+mod copies;
 #[path = "realm/errands.rs"]
 mod errands;
 #[path = "realm/first_start.rs"]

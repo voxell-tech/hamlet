@@ -19,9 +19,9 @@ use super::super::calls::Made;
 use super::super::change::{
     self, Affected, Rows, Writer, integer, number,
 };
-use super::super::reviews;
 use super::super::steps::{self, Cx, Kind, StepId, Steps};
 use super::super::tasks::TaskId;
+use super::super::{documents, reviews};
 
 const ANSWERED: &str = "answered";
 
@@ -340,7 +340,8 @@ pub(in crate::realm) async fn run(
                 task: errand.task.on_the_wire(),
                 place: outside(),
                 brief: Some(brief(&rows, n).await?),
-                copies: Default::default(),
+                copies: documents::for_agent(&rows, n.agent())
+                    .await?,
             };
             cx.peers().create(&Agent(n.agent()), &input).await?;
         }

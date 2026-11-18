@@ -6,6 +6,7 @@ use hamlet_messages::agent::{
 use hamlet_messages::realm::budget::{
     BudgetRead, OpenTask, Payer, ReadBudget, TaskOpened, TaskTurn,
 };
+use hamlet_messages::realm::documents::ReadCopies;
 use hamlet_messages::realm::hamlets::{ReadRecord, Record};
 use hamlet_messages::realm::workers::{
     Ended, StartWorker, Started, WorkerDone, WorkerRefusal,
@@ -140,6 +141,8 @@ async fn a_worker_answers_its_starter_once_and_ends() {
     assert_eq!(worker, FOUR, "a worker takes the next agent number");
     let task = standing(&realm, THREE);
     let input = made_until(&realm, FOUR).await;
+    let copies =
+        realm.tool(FOUR, &ReadCopies::default()).await.unwrap();
     assert_eq!(
         input,
         AgentInput {
@@ -152,7 +155,7 @@ async fn a_worker_answers_its_starter_once_and_ends() {
                 tools: Vec::new(),
                 model: None,
             }),
-            copies: Default::default(),
+            copies,
         }
     );
     let reach = reach_until(&realm, FOUR, "is a worker's", |reach| {
