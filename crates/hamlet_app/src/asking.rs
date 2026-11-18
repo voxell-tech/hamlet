@@ -21,7 +21,7 @@ use bevy_fynix::{
     ScopedExt, ViewExt, component, keyed, resource, style,
 };
 use hamlet_client::messages::{Answer, Answered};
-use hamlet_client::waits::{Choice, Refused, Waiting};
+use hamlet_client::waits::{Choice, Rejected, Waiting};
 use hamlet_protocol::client::{Offer, Pick, Questions, RequestId};
 use hamlet_ui::styles::{
     Fills, Looks, bare, marked, note, note_rules, small_rules,
@@ -422,16 +422,16 @@ pub fn card(card: Entity, asked: Questions) -> impl View {
         move |at| page(card, &asked, *at),
     )
     .within(bare());
-    // The server checks the answers; its refusal stays until the
+    // The server checks the answers; its rejection stays until the
     // next.
     #[expect(
         clippy::redundant_closure_for_method_calls,
         reason = "Option::cloned is not general over the lifetime"
     )]
-    let refused = keyed(
-        component::<Refused, _>(card, |refused| refused.cloned()),
-        |refused| match refused {
-            Some(Refused(text)) => label(text.clone())
+    let rejected = keyed(
+        component::<Rejected, _>(card, |rejected| rejected.cloned()),
+        |rejected| match rejected {
+            Some(Rejected(text)) => label(text.clone())
                 .tone(Tone::Critical)
                 .rules(small_rules)
                 .boxed(),
@@ -440,7 +440,7 @@ pub fn card(card: Entity, asked: Questions) -> impl View {
     )
     .within(bare());
     with_cx(move |cx| {
-        column((message, pages, refused)).gap(cx.theme().space.gap)
+        column((message, pages, rejected)).gap(cx.theme().space.gap)
     })
 }
 
@@ -460,7 +460,7 @@ mod tests {
     #[test]
     fn the_chat_shows_its_oldest_request_and_sends_its_response() {
         let mut app = panel_app();
-        app.add_plugins(crate::petition::plugin);
+        app.add_plugins(crate::wait::plugin);
         let shown = app.world().resource::<Convo>().chat;
         let chat = app.world().get::<Chat>(shown).unwrap().0.clone();
         let question = |id: &str, since, chat: &protocol::ChatRef| {
@@ -494,7 +494,7 @@ mod tests {
         app.update();
         bevy_fynix::mount::<HamletTheme>(
             app.world_mut(),
-            crate::petition::in_chat(),
+            crate::wait::in_chat(),
         );
         app.update();
         let shown = words(&mut app);

@@ -569,7 +569,8 @@ impl Core<'_, '_> {
         let db = self.realm.store().connection();
         let address =
             crate::society::addresses::address_of(db, agent)?;
-        let cwd = at.place.folder.as_ref().unwrap_or(&at.place.lodge);
+        let cwd =
+            at.place.folder.as_ref().unwrap_or(&at.place.worktree);
         let feed = self.terminals.commands(
             AgentId(u64::try_from(agent.0)?),
             at.hamlet.as_ref().map(|hamlet| hamlet.0.clone()),

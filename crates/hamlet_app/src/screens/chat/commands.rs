@@ -11,7 +11,7 @@ use bevy_fynix::views::{
     frame, label,
 };
 use bevy_fynix::{ScopedExt, ViewExt, derived, every_frame, keyed};
-use hamlet_client::realm::DeedUsage;
+use hamlet_client::realm::ActionUsage;
 use hamlet_protocol::client as protocol;
 use hamlet_ui::styles::{bare, small_rules};
 use hamlet_ui::{AnyView, View};
@@ -30,7 +30,7 @@ fn typed(world: &World) -> Option<String> {
 
 /// The commands that start with what is typed, while it is a slash
 /// and one word.
-fn matching(world: &World) -> Vec<protocol::Deed> {
+fn matching(world: &World) -> Vec<protocol::Action> {
     let Some(typed) = typed(world) else {
         return Vec::new();
     };
@@ -41,26 +41,27 @@ fn matching(world: &World) -> Vec<protocol::Deed> {
         return Vec::new();
     }
     let start = start.to_lowercase();
-    world
-        .get_resource::<DeedUsage>()
-        .map_or_else(Vec::new, |deeds| {
-            deeds
+    world.get_resource::<ActionUsage>().map_or_else(
+        Vec::new,
+        |actions| {
+            actions
                 .0
                 .iter()
-                .filter(|deed| deed.name.starts_with(&start))
+                .filter(|action| action.name.starts_with(&start))
                 .take(MOST)
                 .cloned()
                 .collect()
-        })
+        },
+    )
 }
 
 /// The list over the field, while anything matches.
 pub(super) fn list() -> impl View {
-    keyed(derived(matching).when(every_frame()), |deeds| {
-        if deeds.is_empty() {
+    keyed(derived(matching).when(every_frame()), |actions| {
+        if actions.is_empty() {
             return frame().boxed();
         }
-        column(deeds.iter().cloned().map(line).collect::<Vec<_>>())
+        column(actions.iter().cloned().map(line).collect::<Vec<_>>())
             .gap(0.0)
             .padding(UiRect::bottom(px(6.0)))
             .boxed()
@@ -69,15 +70,15 @@ pub(super) fn list() -> impl View {
 }
 
 /// A command as it is typed, with what it does under it.
-fn line(deed: protocol::Deed) -> AnyView {
-    let name = deed.name;
+fn line(action: protocol::Action) -> AnyView {
+    let name = action.name;
     button(
         column((
-            label(deed.usage)
+            label(action.usage)
                 .bold(true)
                 .wrap(false)
                 .rules(small_rules),
-            label(deed.description)
+            label(action.description)
                 .tone(Tone::Dim)
                 .rules(small_rules),
         ))

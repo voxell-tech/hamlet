@@ -1,4 +1,4 @@
-//! Addresses of hamlets, agents and scholars, copied and drawn as
+//! Addresses of hamlets, agents and profiles, copied and drawn as
 //! chips.
 
 use bevy::app::{App, PreUpdate};
@@ -20,7 +20,7 @@ use bevy_fynix::EntityCursor;
 use bevy_fynix::tokens::Tone;
 use bevy_fynix::views::{Atom, FrameProps, TooltipExt, label, row};
 use hamlet_client::realm::{
-    self as agents, HamletId, Identity, Kind, Left, Mayor, Scholar,
+    self as agents, HamletId, Identity, Kind, Lead, Left, Profile,
     Shown,
 };
 use hamlet_desktop::clipboard::CopyRich;
@@ -65,7 +65,7 @@ pub(crate) fn links() -> AgentLinks {
 #[derive(Component, Clone, Copy, PartialEq, Eq, Debug)]
 pub(crate) enum Named {
     Agent(Entity),
-    Scholar(Entity),
+    Profile(Entity),
 }
 
 /// Copies `hamlet` as `hamlet <id> (<name>)`.
@@ -79,7 +79,7 @@ pub(crate) fn copy_hamlet(world: &mut World, hamlet: Entity) {
     copy(world, format!("hamlet {id} ({name})"));
 }
 
-/// Copies `agent` as its address and name, as in `hire#3 (Mira)`.
+/// Copies `agent` as its address and name, as in `agent#3 (Mira)`.
 pub(crate) fn copy_agent(world: &mut World, agent: Entity) {
     // An agent's name, which commands know it by, is its address.
     let address = agents::name_of(world, agent);
@@ -108,17 +108,15 @@ fn escape(text: &str) -> String {
         .replace('"', "&quot;")
 }
 
-/// The living agent or the scholar `address` names.
+/// The living agent or the profile `address` names.
 fn named(world: &World, address: &str) -> Option<Named> {
     let agent = match address.parse::<Address>().ok()? {
-        Address::Scholar(id) => {
-            return agents::scholar(world, id).map(Named::Scholar);
+        Address::Profile(id) => {
+            return agents::profile(world, id).map(Named::Profile);
         }
         Address::Hand => agents::hand(world),
-        Address::Mayor { hamlet } => {
-            agents::mayor_of(world, &hamlet?)
-        }
-        address @ (Address::Hire(_) | Address::Worker(_)) => {
+        Address::Lead { hamlet } => agents::lead_of(world, &hamlet?),
+        address @ (Address::Agent(_) | Address::Worker(_)) => {
             agents::named(world, &address.to_string())
         }
     }?;
@@ -141,19 +139,19 @@ pub(crate) fn chip_of(
             let kind = world.get::<Kind>(agent)?.0;
             let mark = match kind {
                 protocol::AgentKind::Hand => Glyph::Tower,
-                protocol::AgentKind::Hire
-                    if world.get::<Mayor>(agent).is_some() =>
+                protocol::AgentKind::Hamlet
+                    if world.get::<Lead>(agent).is_some() =>
                 {
-                    Glyph::Mayor
+                    Glyph::Lead
                 }
-                protocol::AgentKind::Hire => Glyph::Hire,
+                protocol::AgentKind::Hamlet => Glyph::HamletAgent,
                 protocol::AgentKind::Worker => Glyph::Worker,
             };
             (mark, agents::shown_of(world, agent))
         }
-        Named::Scholar(scholar) => {
-            let name = world.get::<Scholar>(scholar)?.0.name.clone();
-            (Glyph::Scholar, name)
+        Named::Profile(profile) => {
+            let name = world.get::<Profile>(profile)?.0.name.clone();
+            (Glyph::Profile, name)
         }
     };
     // A name in brackets after the address must be its current name.
@@ -212,14 +210,14 @@ fn named_moved(
             Changed<Name>,
             Changed<Shown>,
             Changed<Left>,
-            Changed<Mayor>,
-            Changed<Scholar>,
+            Changed<Lead>,
+            Changed<Profile>,
         )>,
     >,
     mut gone: (
         RemovedComponents<Identity>,
-        RemovedComponents<Mayor>,
-        RemovedComponents<Scholar>,
+        RemovedComponents<Lead>,
+        RemovedComponents<Profile>,
     ),
     mut links: ResMut<AgentLinks>,
 ) {
@@ -260,6 +258,6 @@ fn open(
             talk_to_hand(world);
         }
         Named::Agent(agent) => talk_to(world, agent),
-        Named::Scholar(scholar) => hub::open_scholar(world, scholar),
+        Named::Profile(profile) => hub::open_profile(world, profile),
     });
 }

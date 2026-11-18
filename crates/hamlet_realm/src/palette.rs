@@ -149,7 +149,7 @@ pub struct Palette {
     pub ink: Vec3,
     #[serde(with = "tint::linear")]
     pub wax: Vec3,
-    /// The cream cloth only a mayor wears.
+    /// The cream cloth only a lead wears.
     #[serde(with = "tint::linear")]
     pub mantle: Vec3,
     /// The worn top of a stool.

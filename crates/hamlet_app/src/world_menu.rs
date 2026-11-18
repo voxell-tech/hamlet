@@ -1,12 +1,12 @@
 //! The right-click menu of a thing in the world, and its questions.
 
-mod deed;
+mod action;
+mod add_agent;
+mod channel;
 mod founding;
-mod hire;
 mod items;
 pub(crate) mod model;
-mod new_scholar;
-mod road;
+mod new_profile;
 
 use bevy::app::{App, Update};
 use bevy::ecs::component::{Component, Mutable};
@@ -38,14 +38,14 @@ use bevy_fynix::{
 };
 use hamlet_client::messages::Veto;
 use hamlet_client::outbox::RequestId;
-use hamlet_client::realm::{self as agents, Deeds};
+use hamlet_client::realm::{self as agents, Actions};
 use hamlet_realm::orders;
 use hamlet_realm::pick::{Asked, AskedGround, Thing};
 use hamlet_ui::widgets::icons::{Glyph, glyph};
 use hamlet_ui::widgets::keys::Keys;
 use hamlet_ui::{AnyView, Cx, View, with_cx};
 
-pub(crate) use self::deed::{Deed, question};
+pub(crate) use self::action::{Action, question};
 pub(crate) use self::founding::Founding;
 pub(crate) use self::model::{ChipName, Hook, chip};
 pub use self::model::{
@@ -70,10 +70,10 @@ pub fn plugin(app: &mut App) {
         .init_resource::<founding::FolderAsker>()
         .init_resource::<founding::Awaited>()
         .add_observer(founding::chosen)
-        .init_resource::<new_scholar::Making>()
-        .init_resource::<hire::Hiring>()
-        .init_resource::<road::Roading>()
-        .init_resource::<deed::Reason>()
+        .init_resource::<new_profile::Making>()
+        .init_resource::<add_agent::AgentForm>()
+        .init_resource::<channel::Channeling>()
+        .init_resource::<action::Reason>()
         .add_command(submit, &SUBMIT_KEYS)
         .add_observer(ask_of_row)
         .add_systems(
@@ -106,18 +106,18 @@ pub(crate) enum Open {
     #[default]
     Nothing,
     Menu(Thing, Vec2),
-    /// The question before a deed, against what it was asked from.
-    Question(Deed, Rect),
+    /// The question before an action, against what it was asked from.
+    Question(Action, Rect),
     /// The menu of the bare ground.
     Ground(Vec2),
     /// The form a hamlet is founded with.
     Founding(Vec2),
-    /// The form a scholar is made in the city with.
-    NewScholar(Vec2),
-    /// The form a scholar is hired under a lead with.
-    Hire(Entity, Vec2),
-    /// The form a road from an agent is built with.
-    Road(Entity, Vec2),
+    /// The form a profile is made in the city with.
+    NewProfile(Vec2),
+    /// The form an agent is added under a parent with.
+    AddAgent(Entity, Vec2),
+    /// The form a channel from an agent is opened with.
+    Channel(Entity, Vec2),
     /// The model an agent runs, its effort and its tier.
     Model(Entity),
 }
@@ -129,8 +129,8 @@ impl Open {
             self,
             Open::Question(..)
                 | Open::Founding(_)
-                | Open::NewScholar(_)
-                | Open::Hire(..)
+                | Open::NewProfile(_)
+                | Open::AddAgent(..)
         )
     }
 }
@@ -138,10 +138,10 @@ impl Open {
 /// Does what the open popup's first button does.
 fn submit(world: &mut World) {
     match world.resource::<Open>().clone() {
-        Open::Question(deed, _) => deed::answer(world, &deed),
+        Open::Question(action, _) => action::answer(world, &action),
         Open::Founding(_) => founding::submit(world),
-        Open::NewScholar(_) => new_scholar::submit(world),
-        Open::Hire(lead, _) => hire::submit(world, lead),
+        Open::NewProfile(_) => new_profile::submit(world),
+        Open::AddAgent(parent, _) => add_agent::submit(world, parent),
         _ => {}
     }
 }
@@ -321,10 +321,10 @@ pub(crate) fn open_for(world: &mut World, thing: Thing) {
     *world.resource_mut::<Open>() = Open::Menu(thing, at);
 }
 
-/// Opens the menu of `agent` at `at`, the mayor's if it is the first.
+/// Opens the menu of `agent` at `at`, the lead's if it is the first.
 pub fn open_agent(world: &mut World, agent: Entity, at: Vec2) {
     let thing =
-        if hamlet_client::realm::first_mayor(world) == Some(agent) {
+        if hamlet_client::realm::first_lead(world) == Some(agent) {
             Thing::Keeper
         } else {
             Thing::Agent(agent)
@@ -339,38 +339,39 @@ pub(crate) fn has_items(world: &World, thing: Thing) -> bool {
 
 /// Opens the form a hamlet is founded with, at the pointer.
 pub(crate) fn ask_found(world: &mut World) {
-    if !Deeds::is_allowed(world, "create-hamlet") {
+    if !Actions::is_allowed(world, "create-hamlet") {
         return;
     }
     let at = pointer(world);
     *world.resource_mut::<Open>() = Open::Founding(at);
 }
 
-/// Opens the new scholar form at the pointer.
-pub(crate) fn ask_new_scholar(world: &mut World) {
-    if !Deeds::is_allowed(world, "scholar") {
+/// Opens the new profile form at the pointer.
+pub(crate) fn ask_new_profile(world: &mut World) {
+    if !Actions::is_allowed(world, "profile") {
         return;
     }
     let at = pointer(world);
-    *world.resource_mut::<Open>() = Open::NewScholar(at);
+    *world.resource_mut::<Open>() = Open::NewProfile(at);
 }
 
-/// Opens the form that hires under `lead`, at the pointer.
-pub(crate) fn ask_hire(world: &mut World, lead: Entity) {
-    if !Deeds::is_allowed(world, "hire") {
+/// Opens the form that adds an agent under `parent`, at the pointer.
+pub(crate) fn ask_add_agent(world: &mut World, parent: Entity) {
+    if !Actions::is_allowed(world, "add-agent") {
         return;
     }
     let at = pointer(world);
-    *world.resource_mut::<Open>() = Open::Hire(lead, at);
+    *world.resource_mut::<Open>() = Open::AddAgent(parent, at);
 }
 
-/// Opens the form a road from `agent` is built with, at the pointer.
-pub(crate) fn ask_road(world: &mut World, agent: Entity) {
-    if !Deeds::is_allowed(world, "road") {
+/// Opens the form a channel from `agent` is opened with, at the
+/// pointer.
+pub(crate) fn ask_channel(world: &mut World, agent: Entity) {
+    if !Actions::is_allowed(world, "channel") {
         return;
     }
     let at = pointer(world);
-    *world.resource_mut::<Open>() = Open::Road(agent, at);
+    *world.resource_mut::<Open>() = Open::Channel(agent, at);
 }
 
 /// Opens the popup of `agent`'s model, over its chip.
@@ -378,29 +379,30 @@ pub(crate) fn ask_model(world: &mut World, agent: Entity) {
     model::open(world, agent);
 }
 
-/// Asks before `deed` is done, at the pointer.
-pub(crate) fn ask(world: &mut World, deed: Deed) {
+/// Asks before `action` is done, at the pointer.
+pub(crate) fn ask(world: &mut World, action: Action) {
     let at = pointer(world);
-    ask_against(world, deed, Rect::from_corners(at, at));
+    ask_against(world, action, Rect::from_corners(at, at));
 }
 
-/// Asks before `deed` is done, against `anchor` in the window.
+/// Asks before `action` is done, against `anchor` in the window.
 pub(crate) fn ask_against(
     world: &mut World,
-    deed: Deed,
+    action: Action,
     anchor: Rect,
 ) {
     // A reason typed for an earlier question is not this one's.
-    if let Some(mut reason) = world.get_resource_mut::<deed::Reason>()
+    if let Some(mut reason) =
+        world.get_resource_mut::<action::Reason>()
     {
-        *reason = deed::Reason::default();
+        *reason = action::Reason::default();
     }
-    *world.resource_mut::<Open>() = Open::Question(deed, anchor);
+    *world.resource_mut::<Open>() = Open::Question(action, anchor);
 }
 
 /// Brings back `agent`, which was removed or merged away.
 pub(super) fn restore(world: &mut World, agent: Entity) {
-    if !Deeds::is_allowed(world, "restore") {
+    if !Actions::is_allowed(world, "restore") {
         return;
     }
     let text = format!("/restore {}", agents::name_of(world, agent));
@@ -427,8 +429,8 @@ fn menus() -> AnyView {
             (
                 world.resource::<Open>().clone(),
                 world
-                    .get_resource::<Deeds>()
-                    .map(|deeds| deeds.0.clone()),
+                    .get_resource::<Actions>()
+                    .map(|actions| actions.0.clone()),
             )
         })
         .when(every_frame()),
@@ -443,11 +445,11 @@ fn menus() -> AnyView {
                     cx.build(menu(at, items))
                 })
             }
-            Open::Question(deed, anchor) => {
-                question(deed, anchor).boxed()
+            Open::Question(action, anchor) => {
+                question(action, anchor).boxed()
             }
             Open::Ground(at) => AnyView::new(move |cx: &mut Cx| {
-                if !Deeds::is_allowed(cx.world, "create-hamlet") {
+                if !Actions::is_allowed(cx.world, "create-hamlet") {
                     return cx.build(frame());
                 }
                 let found =
@@ -460,11 +462,15 @@ fn menus() -> AnyView {
                 cx.build(menu(at, vec![found]))
             }),
             Open::Founding(at) => founding::founding(at).boxed(),
-            Open::NewScholar(at) => {
-                new_scholar::new_scholar(at).boxed()
+            Open::NewProfile(at) => {
+                new_profile::new_profile(at).boxed()
             }
-            Open::Hire(lead, at) => hire::hire(lead, at).boxed(),
-            Open::Road(agent, at) => road::road(agent, at).boxed(),
+            Open::AddAgent(parent, at) => {
+                add_agent::form(parent, at).boxed()
+            }
+            Open::Channel(agent, at) => {
+                channel::channel(agent, at).boxed()
+            }
             Open::Model(agent) => model::picker(agent).boxed(),
         },
     )

@@ -67,14 +67,14 @@ fn held_by_agents(layout: &Layout) -> HashSet<ImageId> {
             .map(|entry| entry.path())
             .collect::<Vec<_>>()
     };
-    let mut lodges = vec![layout.hand()];
-    lodges.extend(children(layout.workers()));
+    let mut worktrees = vec![layout.hand()];
+    worktrees.extend(children(layout.workers()));
     for hamlet in children(layout.hamlets()) {
-        lodges.extend(children(hamlet));
+        worktrees.extend(children(hamlet));
     }
-    lodges
+    worktrees
         .into_iter()
-        .flat_map(|lodge| children(lodge.join(SEEN)))
+        .flat_map(|worktree| children(worktree.join(SEEN)))
         .filter_map(|file| {
             file.file_name()?
                 .to_str()?

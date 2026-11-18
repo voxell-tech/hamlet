@@ -9,10 +9,10 @@ use super::args::{
 };
 use super::{Call, unsupported};
 use crate::core::Core;
-use crate::realm::change::{Done, checked, refuse};
+use crate::realm::change::{Done, checked, reject};
 use crate::society::hamlets::{self, Mode};
 use crate::society::limits::{self, Limit};
-use crate::society::refusal::Refusal;
+use crate::society::rejection::Rejection;
 use crate::society::{authority, spend};
 
 impl Core<'_, '_> {
@@ -44,15 +44,15 @@ impl Core<'_, '_> {
             | Called::ResetBudget(ResetBudget { hamlet }) => {
                 hamlet.clone()
             }
-            _ => refuse!(unsupported(call)),
+            _ => reject!(unsupported(call)),
         };
         let id = HamletId(named.clone());
         let db = self.realm.store().connection();
         if hamlets::find(db, &id)?.is_none() {
-            refuse!(Refusal::NoHamlet { id: named });
+            reject!(Rejection::NoHamlet { id: named });
         }
         if !authority::may_govern(db, by, &id)? {
-            refuse!(Refusal::NotChief { hamlet: named });
+            reject!(Rejection::NotChief { hamlet: named });
         }
         match called {
             Called::NameHamlet(NameHamlet { name, .. }) => self
@@ -72,7 +72,7 @@ impl Core<'_, '_> {
                     Ok(hamlets::set_tier(cx, &id, i64::from(tier))?
                         .map(|()| {
                             format!(
-                                "`{id}` holds at most {tier} hires."
+                                "`{id}` holds at most {tier} agents."
                             )
                         }))
                 })
@@ -80,10 +80,10 @@ impl Core<'_, '_> {
             Called::SetFolder(SetFolder { folder, .. }) => {
                 let folder = (!folder.is_empty()).then_some(folder);
                 if let Some(folder) = &folder
-                    && let Err(refusal) =
+                    && let Err(rejection) =
                         hamlets::check_folder(folder)
                 {
-                    refuse!(refusal);
+                    reject!(rejection);
                 }
                 self.carry(call, |cx, _| {
                     Ok(hamlets::set_folder(
@@ -105,7 +105,7 @@ impl Core<'_, '_> {
                 let mode = match mode.as_str() {
                     "manual" => Mode::Manual,
                     "auto" => Mode::Auto,
-                    _ => refuse!(Refusal::NoMode),
+                    _ => reject!(Rejection::NoMode),
                 };
                 self.carry(call, |cx, _| {
                     Ok(hamlets::set_mode(cx, &id, mode)?.map(|()| {
@@ -120,7 +120,8 @@ impl Core<'_, '_> {
                 .carry(call, |cx, _| {
                     Ok(hamlets::remove(cx, &id, &reason)?.map(|()| {
                         format!(
-                            "`{id}` was removed and its hires ended."
+                            "`{id}` was removed and its agents \
+                             ended."
                         )
                     }))
                 }),

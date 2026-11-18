@@ -43,9 +43,9 @@ fn next(
 fn a_stop_holds_the_queue_until_a_chiefs_line_runs_first_or_a_resume()
 {
     let mut realm = Realm::new();
-    let mayor = realm.found("docs", "ada").agent;
-    let running = say_to(&mut realm, mayor, "r1");
-    let waiting = say_to(&mut realm, mayor, "r2");
+    let lead = realm.found("docs", "ada").agent;
+    let running = say_to(&mut realm, lead, "r1");
+    let waiting = say_to(&mut realm, lead, "r2");
     let conversation = running.conversation;
     let db = realm.db();
     conversations::bound(db, conversation, "c1", "pi", "1").unwrap();
@@ -60,11 +60,11 @@ fn a_stop_holds_the_queue_until_a_chiefs_line_runs_first_or_a_resume()
     )
     .unwrap();
     let stopped =
-        realm.chief(|cx| Ok(Ok(stop(cx, mayor, &[])?))).unwrap();
+        realm.chief(|cx| Ok(Ok(stop(cx, lead, &[])?))).unwrap();
     assert_eq!(stopped, 1);
     // A stop before the runtime reports the end does not count twice.
     let again = realm
-        .chief(|cx| Ok(Ok(stop(cx, mayor, &[conversation])?)))
+        .chief(|cx| Ok(Ok(stop(cx, lead, &[conversation])?)))
         .unwrap();
     assert_eq!(again, 0);
     inputs::settled(
@@ -77,25 +77,26 @@ fn a_stop_holds_the_queue_until_a_chiefs_line_runs_first_or_a_resume()
     )
     .unwrap();
     assert!(next(&mut realm, conversation).is_empty());
-    let after = say_to(&mut realm, mayor, "r3");
+    let after = say_to(&mut realm, lead, "r3");
     assert_eq!(next(&mut realm, conversation), [after.request]);
-    realm.chief(|cx| Ok(Ok(stop(cx, mayor, &[])?))).unwrap();
+    realm.chief(|cx| Ok(Ok(stop(cx, lead, &[])?))).unwrap();
     assert!(next(&mut realm, conversation).is_empty());
-    realm.chief(|cx| Ok(Ok(resume(cx, mayor)?))).unwrap();
+    realm.chief(|cx| Ok(Ok(resume(cx, lead)?))).unwrap();
     assert_eq!(next(&mut realm, conversation), [waiting.request]);
 }
 
 #[test]
 fn a_failed_request_comes_back_without_a_turn() {
     let mut realm = Realm::new();
-    let lead = realm.found("docs", "ada");
-    let (mayor, bo) = (lead.agent, realm.hire(&lead, "bo").agent);
+    let founded = realm.found("docs", "ada");
+    let (lead, bo) =
+        (founded.agent, realm.add_agent(&founded, "bo").agent);
     let env = env();
     realm
-        .by(Actor::Agent(mayor), |cx| {
-            let from = current(cx, &env, mayor)?;
+        .by(Actor::Agent(lead), |cx| {
+            let from = current(cx, &env, lead)?;
             let task =
-                tasks::mint(cx, Origin::Notice, mayor, None, None)?;
+                tasks::mint(cx, Origin::Notice, lead, None, None)?;
             diesel::insert_into(tool_call::table)
                 .values((
                     tool_call::runtime.eq("pi"),
@@ -109,7 +110,7 @@ fn a_failed_request_comes_back_without_a_turn() {
                 kind: MessageKind::Request,
                 runtime: "pi",
                 key: "k1",
-                sender: mayor,
+                sender: lead,
                 receiver: bo,
                 from,
                 address: "",
@@ -142,7 +143,7 @@ fn a_failed_request_comes_back_without_a_turn() {
             Ok(Ok(()))
         })
         .unwrap();
-    let ours = of(realm.db(), mayor).unwrap().unwrap();
+    let ours = of(realm.db(), lead).unwrap().unwrap();
     let owed =
         inputs::owed(realm.db(), ours, Resend::Nothing, |_| false)
             .unwrap();

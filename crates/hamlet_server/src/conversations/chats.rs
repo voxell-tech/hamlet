@@ -17,10 +17,10 @@ use super::models;
 use super::tasks::{self, Origin};
 use crate::attachments::captions::Line;
 use crate::conversations::{self, Begin, Kind};
-use crate::realm::change::{Change, Done, refuse};
+use crate::realm::change::{Change, Done, reject};
 use crate::realm::settings::EffectiveSettings;
 use crate::runtimes;
-use crate::society::refusal::Refusal;
+use crate::society::rejection::Rejection;
 use crate::society::{agents, chiefs};
 
 #[cfg(test)]
@@ -30,7 +30,7 @@ mod tests;
 const COMPACT: &str =
     "Several people write to this agent. Say who said each thing: a \
      chief's lines as that chief's, and each notification, request \
-     and response by the address in its heading, such as `hire#3 \
+     and response by the address in its heading, such as `agent#3 \
      (Mira)`. Never give an agent's words to a chief. Keep what \
      each one still waits for.";
 
@@ -161,7 +161,7 @@ pub(crate) fn say_with(
         },
     )?;
     conversations::release(cx, conversation, Some(&request))?;
-    crate::society::hires::take_purpose(cx, agent, text)?;
+    crate::society::hamlet_agents::take_purpose(cx, agent, text)?;
     cx.touched.agents.insert(agent);
     Ok(Said {
         conversation,
@@ -420,21 +420,21 @@ pub(crate) fn withdraw(
     item: &str,
 ) -> Done<()> {
     let Some(conversation) = of(cx.db, agent)? else {
-        refuse!(Refusal::NotQueued);
+        reject!(Rejection::NotQueued);
     };
     let Some(request) = item.strip_prefix(super::QUEUED) else {
-        refuse!(Refusal::NotQueued);
+        reject!(Rejection::NotQueued);
     };
     let name = chief_name(cx.db, chief)?;
     let Some(input) = inputs::find(cx.db, conversation, request)?
     else {
-        refuse!(Refusal::NotQueued);
+        reject!(Rejection::NotQueued);
     };
     let Mark::Chief { chief: by, .. } = input.mark()? else {
-        refuse!(Refusal::NotQueued);
+        reject!(Rejection::NotQueued);
     };
     if input.state != State::Kept || by != name {
-        refuse!(Refusal::NotQueued);
+        reject!(Rejection::NotQueued);
     }
     inputs::withdraw(cx, conversation, request)?;
     if let Some(task) = input.task {
@@ -453,10 +453,10 @@ pub(crate) fn rewind(
     chief: ChiefId,
     item: &str,
 ) -> Done<(String, Vec<AttachedImage>, Vec<AttachedFile>)> {
-    let not_a_line = || Refusal::NotYourLine;
+    let not_a_line = || Rejection::NotYourLine;
     let conversation = current(cx, env, agent)?;
     if inputs::is_busy(cx.db, conversation)? {
-        refuse!(Refusal::TurnRunning {
+        reject!(Rejection::TurnRunning {
             then: "rewind".into()
         });
     }
@@ -466,7 +466,7 @@ pub(crate) fn rewind(
     let Some(target) =
         items.iter().position(|(_, kept)| kept.entry == entry)
     else {
-        refuse!(not_a_line());
+        reject!(not_a_line());
     };
     let name = chief_name(cx.db, chief)?;
     let mark = items[target]
@@ -480,12 +480,12 @@ pub(crate) fn rewind(
         chief: by, text, ..
     }) = &mark
     else {
-        refuse!(not_a_line());
+        reject!(not_a_line());
     };
     let images = mark.as_ref().map(Mark::images).unwrap_or_default();
     let files = mark.as_ref().map(Mark::files).unwrap_or_default();
     if *by != name {
-        refuse!(not_a_line());
+        reject!(not_a_line());
     }
     let kept = conversations::get(cx.db, conversation)?;
     crate::society::oversight::lapse_in(
@@ -515,7 +515,7 @@ pub(crate) fn retry(
     let conversation = current(cx, env, agent)?;
     // What waits under a hold stays queued behind the retry.
     if inputs::is_running(cx.db, conversation)? {
-        refuse!(Refusal::TurnRunning {
+        reject!(Rejection::TurnRunning {
             then: "retry".into()
         });
     }
@@ -528,7 +528,7 @@ pub(crate) fn retry(
                 )
         });
     if answered {
-        refuse!(Refusal::Answered);
+        reject!(Rejection::Answered);
     }
     let task =
         tasks::mint(cx, Origin::Retry, agent, Some(chief), None)?;

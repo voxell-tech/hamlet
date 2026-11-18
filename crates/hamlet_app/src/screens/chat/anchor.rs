@@ -149,15 +149,15 @@ mod tests {
     use crate::screens::chat::{plugin, transcript};
 
     const REPLY: &str =
-        "Hamlet (hire#2) reported 7 hires, not the 6 it said \
-         earlier. None is known to be blocked.\n\n| Hire | Role \
-         |\n|---|---|\n| hire#2 (Usability) | Rail, badge, chat \
-         width, terminal and the chat's timeline |\n| hire#2 \
+        "Hamlet (agent#2) reported 7 agents, not the 6 it said \
+         earlier. None is known to be blocked.\n\n| Agent | Role \
+         |\n|---|---|\n| agent#2 (Usability) | Rail, badge, chat \
+         width, terminal and the chat's timeline |\n| agent#2 \
          (Hamlet Reorg Design) | Design for reorganizing hamlets \
-         |\n| hire#2 (Stop and Errors) | Stop, errors and streaming \
-         |\n\n- Ended since the last report: nothing.\n- A request \
-         between mayors: none.\n\nThe mayor can ask each hire how \
-         far along it is.";
+         |\n| agent#2 (Stop and Errors) | Stop, errors and \
+         streaming |\n\n- Ended since the last report: nothing.\n- \
+         A request between leads: none.\n\nThe lead can ask each \
+         agent how far along it is.";
 
     /// The top and bottom of each row drawn, and of the view.
     fn drawn(world: &mut World) -> (Vec<(f32, f32)>, (f32, f32)) {
@@ -249,7 +249,7 @@ mod tests {
             );
             app.update();
         };
-        // A response from a mayor, each answered with a reply that
+        // A response from a lead, each answered with a reply that
         // streams, the next response queued while it does.
         let input = |turn: usize, queued: bool| protocol::Item {
             id: format!("in:{turn}"),
@@ -258,7 +258,7 @@ mod tests {
             message: Some(protocol::ItemMessage::Response),
             text: "Status of the hamlet".into(),
             chief: None,
-            author: Some("Mayor".into()),
+            author: Some("Lead".into()),
             event: None,
             from: None,
             queued,

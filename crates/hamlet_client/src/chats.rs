@@ -460,7 +460,7 @@ pub enum Entry {
     },
     /// The summary of the conversation's earlier part.
     Summary(String),
-    /// Another hire's conversation merged into this one.
+    /// Another agent's conversation merged into this one.
     Merged {
         from: Option<protocol::AgentId>,
         name: String,
@@ -710,7 +710,7 @@ mod tests {
             app.world_mut(),
             protocol::ServerMessage::State(realm),
         );
-        let scout = realm::named(app.world(), "hire#3").unwrap();
+        let scout = realm::named(app.world(), "agent#3").unwrap();
         assert_eq!(
             app.world().get::<TalksTo>(chat),
             Some(&TalksTo(scout))

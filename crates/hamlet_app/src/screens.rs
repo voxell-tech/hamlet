@@ -4,11 +4,11 @@ pub mod chat;
 pub mod hub;
 pub mod links;
 pub mod overview;
-pub mod petition;
 pub mod pictures;
 pub mod settings;
 pub mod terminal;
 pub mod viewer;
+pub mod wait;
 
 use bevy::app::App;
 
@@ -19,9 +19,9 @@ pub fn plugin(app: &mut App) {
         chat::plugin,
         links::plugin,
         pictures::plugin,
-        petition::plugin,
         settings::plugin,
         terminal::plugin,
         viewer::plugin,
+        wait::plugin,
     ));
 }

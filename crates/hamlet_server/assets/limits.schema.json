@@ -5,14 +5,14 @@
     "hamlets",
     "budget",
     "task",
-    "road",
+    "channel",
     "mostAgents",
-    "mostRoads",
+    "mostChannels",
     "models",
     "model",
     "pinned",
     "efforts",
-    "mayor",
+    "lead",
     "leaving",
     "asking",
     "permissions"
@@ -83,8 +83,8 @@
       "type": "object",
       "required": [
         "most",
-        "roadsBetween",
-        "removalMayors"
+        "channelsBetween",
+        "removalLeads"
       ],
       "properties": {
         "most": {
@@ -93,11 +93,11 @@
           "maximum": 9007199254740991,
           "default": 6
         },
-        "roadsBetween": {
+        "channelsBetween": {
           "type": "boolean",
           "default": true
         },
-        "removalMayors": {
+        "removalLeads": {
           "type": "integer",
           "minimum": 0,
           "maximum": 9007199254740991,
@@ -228,7 +228,7 @@
       "additionalProperties": false,
       "default": {}
     },
-    "road": {
+    "channel": {
       "type": "object",
       "required": [
         "tokens",
@@ -270,7 +270,7 @@
       "maximum": 9007199254740991,
       "default": 12
     },
-    "mostRoads": {
+    "mostChannels": {
       "type": "integer",
       "minimum": 0,
       "maximum": 9007199254740991,
@@ -312,11 +312,11 @@
       },
       "default": {}
     },
-    "mayor": {
+    "lead": {
       "type": "object",
       "required": [
         "createAgents",
-        "buildRoads",
+        "openChannels",
         "removeAgents",
         "mergeAgents",
         "toldDays"
@@ -326,7 +326,7 @@
           "type": "boolean",
           "default": true
         },
-        "buildRoads": {
+        "openChannels": {
           "type": "boolean",
           "default": true
         },
@@ -374,12 +374,12 @@
     "asking": {
       "type": "object",
       "required": [
-        "mayorReview",
+        "leadReview",
         "refusals",
         "questions"
       ],
       "properties": {
-        "mayorReview": {
+        "leadReview": {
           "anyOf": [
             {
               "type": "string",

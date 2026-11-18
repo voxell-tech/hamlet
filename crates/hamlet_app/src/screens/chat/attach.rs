@@ -38,10 +38,10 @@ use bevy_fynix::views::{
 };
 use bevy_fynix::{ScopedExt, ViewExt, derived, keyed, resource};
 use hamlet_client::files::{
-    FilesForget, FilesKept, FilesRefused, Gather, Gathered,
+    FilesForget, FilesKept, FilesRejected, Gather, Gathered,
     UploadFiles,
 };
-use hamlet_client::images::{ImageKept, ImageRefused, Upload};
+use hamlet_client::images::{ImageKept, ImageRejected, Upload};
 use hamlet_client::realm::Account;
 use hamlet_desktop::choose::{Choose, Chosen, What};
 use hamlet_desktop::clipboard::{Paste, Pasted};
@@ -90,10 +90,10 @@ pub(super) fn plugin(app: &mut App) {
         .add_message::<FileDragAndDrop>()
         .add_message::<FileDropped>()
         .add_observer(kept)
-        .add_observer(refused)
+        .add_observer(rejected)
         .add_observer(gathered)
         .add_observer(files_kept)
-        .add_observer(files_refused)
+        .add_observer(files_rejected)
         .add_observer(chosen)
         .add_observer(paste)
         .add_observer(pasted)
@@ -164,7 +164,7 @@ enum Progress {
     /// Its file is read, or its bytes are on their way up.
     Sending,
     Kept(ImageId),
-    Refused(String),
+    Rejected(String),
 }
 
 /// A file or a folder on its way to the next line.
@@ -195,7 +195,7 @@ enum Load {
         bytes: u64,
     },
     Kept(Vec<AttachedFile>),
-    Refused(String),
+    Rejected(String),
 }
 
 /// The kind of thing dragged over the window.
@@ -310,7 +310,7 @@ impl Attached {
                             .map(|file| file.size)
                             .sum::<u64>(),
                 ),
-                Load::Reading | Load::Refused(_) => (files, bytes),
+                Load::Reading | Load::Rejected(_) => (files, bytes),
             }
         })
     }
@@ -414,7 +414,7 @@ impl Attached {
                 Progress::Kept(_) => {
                     (image.size.map(size).unwrap_or_default(), None)
                 }
-                Progress::Refused(text) => {
+                Progress::Rejected(text) => {
                     (String::new(), Some(text.clone()))
                 }
             };
@@ -444,7 +444,7 @@ impl Attached {
                 ),
                 None,
             ),
-            Load::Refused(text) => {
+            Load::Rejected(text) => {
                 (String::new(), Some(text.clone()))
             }
         };
@@ -660,7 +660,7 @@ pub(super) fn attach(world: &mut World, incoming: Vec<Incoming>) {
                 let progress = match bytes.len() as u64 <= MOST_BYTES
                 {
                     true => Progress::Sending,
-                    false => Progress::Refused(
+                    false => Progress::Rejected(
                         "The image is too large.".into(),
                     ),
                 };
@@ -771,16 +771,16 @@ fn files_kept(kept: On<FilesKept>, mut attached: ResMut<Attached>) {
     }
 }
 
-fn files_refused(
-    refused: On<FilesRefused>,
+fn files_rejected(
+    rejected: On<FilesRejected>,
     mut attached: ResMut<Attached>,
 ) {
     if let Some(parcel) = attached
         .parcels
         .iter_mut()
-        .find(|parcel| parcel.key == refused.key)
+        .find(|parcel| parcel.key == rejected.key)
     {
-        parcel.load = Load::Refused(refused.text.clone());
+        parcel.load = Load::Rejected(rejected.text.clone());
     }
 }
 
@@ -811,7 +811,7 @@ fn finish_reads(
                 commands.trigger(Upload { key, bytes });
             }
             Err(text) => {
-                attachment.progress = Progress::Refused(text);
+                attachment.progress = Progress::Rejected(text);
             }
         }
     }
@@ -831,16 +831,17 @@ fn kept(kept: On<ImageKept>, mut attached: ResMut<Attached>) {
     }
 }
 
-fn refused(
-    refused: On<ImageRefused>,
+fn rejected(
+    rejected: On<ImageRejected>,
     mut attached: ResMut<Attached>,
 ) {
     if let Some(attachment) = attached
         .list
         .iter_mut()
-        .find(|attachment| attachment.key == refused.key)
+        .find(|attachment| attachment.key == rejected.key)
     {
-        attachment.progress = Progress::Refused(refused.text.clone());
+        attachment.progress =
+            Progress::Rejected(rejected.text.clone());
     }
 }
 
@@ -1122,7 +1123,7 @@ struct Face {
     name: String,
     /// Its size, or how far it has got.
     size: String,
-    /// Why it is refused or held back, which its tooltip says.
+    /// Why it is rejected or held back, which its tooltip says.
     trouble: Option<String>,
     image: bool,
 }

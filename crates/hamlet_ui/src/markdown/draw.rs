@@ -989,15 +989,15 @@ mod tests {
         let mut app = ui_app(1000, 1.0);
         app.add_plugins(FynixPlugin::<HamletTheme>::default())
             .insert_resource(AgentLinks {
-                is_address: |word| word == "hire#2",
+                is_address: |word| word == "agent#2",
                 resolve: chip,
                 generation: 0,
             });
         theme::show(app.world_mut(), HamletTheme::designed());
-        let text = "| Hire | Role |\n|---|---|\n| hire#2 (Hamlet \
+        let text = "| Agent | Role |\n|---|---|\n| agent#2 (Hamlet \
                     Reorg Design) | Design for reorganizing \
                     hamlets, with words enough to wrap over two \
-                    lines or more |\n| hire#2 (Stop and Errors) | \
+                    lines or more |\n| agent#2 (Stop and Errors) | \
                     Stop |";
         let table = mount::<HamletTheme>(
             app.world_mut(),

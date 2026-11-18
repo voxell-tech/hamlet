@@ -19,7 +19,7 @@ pub(crate) enum Standing {
     Gone,
     /// Gone into another agent.
     Merged,
-    /// A scholar the Hand turned away.
+    /// A profile the Hand turned away.
     Turned,
 }
 

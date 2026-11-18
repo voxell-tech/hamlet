@@ -1,5 +1,5 @@
 //! A world generated from the society's state
-//! (docs/islands.md): land from a seed, a town per mayor, a
+//! (docs/islands.md): land from a seed, a town per lead, a
 //! house and a robot per agent, a road per pair.
 
 mod building;

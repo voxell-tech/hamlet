@@ -9,23 +9,24 @@ use serde::Deserialize;
 use serde::de::DeserializeOwned;
 use serde_json::Value;
 
-use crate::society::refusal::Refusal;
+use crate::society::rejection::Rejection;
 use crate::tools::catalogue::{FACTS, Society};
 
-const ADDRESS: &str = "An agent's address: `hand`, `mayor`, \
-                       `mayor@<hamlet id>`, `hire#<id>` or \
+const ADDRESS: &str = "An agent's address: `hand`, `lead`, \
+                       `lead@<hamlet id>`, `agent#<id>` or \
                        `worker#<id>`.";
 const REASON: &str =
     "Why, in a sentence, if it helps; the record keeps it.";
-const PATHS: &str =
-    "Files or folders in your lodge or your hamlet's folder, copied \
-     into the receiver's inbox; the message says where. Links are \
-     not followed. Over 32 MiB or 1000 files waits for a chief.";
-const SCHOLAR: &str = "The scholar's address, `scholar#<id>`.";
+const PATHS: &str = "Files or folders in your worktree or your \
+                     hamlet's folder, copied into the receiver's \
+                     inbox; the message says where. Links are not \
+                     followed. Over 32 MiB or 1000 files waits for \
+                     a chief.";
+const PROFILE: &str = "The profile's address, `profile#<id>`.";
 const HAMLET: &str = "The hamlet's id.";
 
-/// Send a notification to an agent you have a road to. It starts a
-/// turn of theirs; you do not wait, and expect no response.
+/// Send a notification to an agent you have a channel to. It starts
+/// a turn of theirs; you do not wait, and expect no response.
 #[derive(Deserialize, JsonSchema)]
 pub(crate) struct Notify {
     #[schemars(description = ADDRESS)]
@@ -37,10 +38,10 @@ pub(crate) struct Notify {
     pub paths: Vec<String>,
 }
 
-/// Send a request to an agent you have a road to. It returns at once;
-/// the answer comes later as a response that starts a turn of yours,
-/// or as an error response on your next turn. End your turn if you
-/// have nothing else to do.
+/// Send a request to an agent you have a channel to. It returns at
+/// once; the answer comes later as a response that starts a turn of
+/// yours, or as an error response on your next turn. End your turn if
+/// you have nothing else to do.
 #[derive(Deserialize, JsonSchema)]
 pub(crate) struct Request {
     #[schemars(description = ADDRESS)]
@@ -88,7 +89,7 @@ pub(crate) struct RequestLibrarian {
 
 /// Read what you may spend: your hamlet's or the realm's spend this
 /// period against its budget, your own, your allowance and your
-/// task's cap. A call over any of them is refused.
+/// task's cap. A call over any of them is rejected.
 #[derive(Deserialize, JsonSchema)]
 pub(crate) struct ReadBudget {}
 
@@ -100,10 +101,10 @@ pub(crate) struct Object {
     pub reason: String,
 }
 
-/// Propose to your lead a road to an agent of your hamlet you need to
-/// reach.
+/// Propose to your parent a channel to an agent of your hamlet you
+/// need to reach.
 #[derive(Deserialize, JsonSchema)]
-pub(crate) struct ProposeRoad {
+pub(crate) struct ProposeChannel {
     #[schemars(description = ADDRESS)]
     pub to: String,
     #[serde(default)]
@@ -111,35 +112,36 @@ pub(crate) struct ProposeRoad {
     pub reason: String,
 }
 
-/// Make a new scholar of the city, to hire next. Without a character
-/// it starts from the realm's own. A scholar you make may wait at the
-/// harbor until it is let into the city; its hires work all the same.
+/// Make a new profile of the city, to add an agent of next. Without
+/// a character it starts from the realm's own. A profile you make may
+/// wait at the harbor until it is let into the city; its agents work
+/// all the same.
 #[derive(Deserialize, JsonSchema)]
-pub(crate) struct CreateScholar {
+pub(crate) struct CreateProfile {
     /// A short name, one line with no colon. It is a label and may
     /// repeat.
     pub name: String,
-    /// Who the scholar is and how it works.
+    /// Who the profile is and how it works.
     #[serde(default)]
     pub character: String,
 }
 
-/// Hire a scholar into your hamlet under you, or under a hire of your
-/// tree. Leave out `scholar` to hire a blank agent instead, which
-/// starts from the realm's character and the library's skills and is
-/// not a scholar of the city.
+/// Add an agent of a profile to your hamlet under you, or under an
+/// agent of your tree. Leave out `profile` to add a blank agent
+/// instead, which starts from the realm's character and the library's
+/// skills and is not a profile of the city.
 #[derive(Deserialize, JsonSchema)]
-pub(crate) struct Hire {
-    /// The scholar's address, `scholar#<id>`, with `@<version>` to
+pub(crate) struct AddAgent {
+    /// The profile's address, `profile#<id>`, with `@<version>` to
     /// pin a version.
     #[serde(default)]
-    pub scholar: String,
-    /// A blank agent's name, in place of `scholar`.
+    pub profile: String,
+    /// A blank agent's name, in place of `profile`.
     #[serde(default)]
     pub name: String,
-    /// What the hire is for.
+    /// What the agent is for.
     pub purpose: String,
-    /// The hire it answers to; you when left out.
+    /// The agent it answers to; you when left out.
     #[serde(default)]
     pub under: String,
     /// The hamlet, for the Hand.
@@ -147,15 +149,15 @@ pub(crate) struct Hire {
     pub hamlet: String,
 }
 
-/// Make a scholar of the city from what a hire under you learned: a
-/// blank hire's own scholar joins it; a city scholar's hire starts a
-/// new scholar with its memory and skills, and stays a hire. It may
-/// wait at the harbor until let in.
+/// Make a profile of the city from what an agent under you learned: a
+/// blank agent's own profile joins it; an agent of a city profile
+/// starts a new profile with its memory and skills, and stays where
+/// it is. It may wait at the harbor until let in.
 #[derive(Deserialize, JsonSchema)]
-pub(crate) struct MakeScholar {
+pub(crate) struct MakeProfile {
     #[schemars(description = ADDRESS)]
-    pub hire: String,
-    /// The scholar's name; the hire's when left out.
+    pub agent: String,
+    /// The profile's name; the agent's when left out.
     #[serde(default)]
     pub name: String,
     #[serde(default)]
@@ -163,13 +165,13 @@ pub(crate) struct MakeScholar {
     pub reason: String,
 }
 
-/// End a hire under you; its lodge and branch are archived. With
+/// End an agent under you; its worktree and branch are archived. With
 /// `dream`, it reflects and dreams once more to bring what it learned
-/// home to its scholar, and you are notified of what it brought.
+/// home to its profile, and you are notified of what it brought.
 #[derive(Deserialize, JsonSchema)]
-pub(crate) struct EndHire {
+pub(crate) struct EndAgent {
     #[schemars(description = ADDRESS)]
-    pub hire: String,
+    pub agent: String,
     #[serde(default)]
     pub dream: bool,
     #[serde(default)]
@@ -177,10 +179,10 @@ pub(crate) struct EndHire {
     pub reason: String,
 }
 
-/// Merge one hire under you into another: the kept hire takes what
-/// the other learned, its roads and its hires.
+/// Merge one agent under you into another: the kept agent takes what
+/// the other learned, its channels and its agents.
 #[derive(Deserialize, JsonSchema)]
-pub(crate) struct MergeHires {
+pub(crate) struct MergeAgents {
     #[schemars(description = ADDRESS)]
     pub absorbed: String,
     #[schemars(description = ADDRESS)]
@@ -190,12 +192,12 @@ pub(crate) struct MergeHires {
     pub reason: String,
 }
 
-/// Choose the model a hire under you runs; leave out `model` for its
-/// hamlet's.
+/// Choose the model an agent under you runs; leave out `model` for
+/// its hamlet's.
 #[derive(Deserialize, JsonSchema)]
 pub(crate) struct SetModel {
     #[schemars(description = ADDRESS)]
-    pub hire: String,
+    pub agent: String,
     /// The model, as `provider::id`.
     #[serde(default)]
     pub model: String,
@@ -204,11 +206,11 @@ pub(crate) struct SetModel {
     pub reason: String,
 }
 
-/// Turn built-in tools off or back on for a hire under you.
+/// Turn built-in tools off or back on for an agent under you.
 #[derive(Deserialize, JsonSchema)]
 pub(crate) struct SetTools {
     #[schemars(description = ADDRESS)]
-    pub hire: String,
+    pub agent: String,
     #[serde(default)]
     pub off: Vec<String>,
     #[serde(default)]
@@ -218,12 +220,12 @@ pub(crate) struct SetTools {
     pub reason: String,
 }
 
-/// Give a hire under you an allowance in dollars for the budget's
+/// Give an agent under you an allowance in dollars for the budget's
 /// period, or none.
 #[derive(Deserialize, JsonSchema)]
 pub(crate) struct SetAllowance {
     #[schemars(description = ADDRESS)]
-    pub hire: String,
+    pub agent: String,
     #[serde(default)]
     pub dollars: Option<f64>,
     #[serde(default)]
@@ -231,24 +233,24 @@ pub(crate) struct SetAllowance {
     pub reason: String,
 }
 
-/// Give a hire under you a short nickname it is shown by in the
-/// world; leave out `nickname` for its own name.
+/// Give an agent under you a short name it is shown by in the
+/// world; leave out `name` for its profile's name.
 #[derive(Deserialize, JsonSchema)]
-pub(crate) struct Nickname {
+pub(crate) struct RenameAgent {
     #[schemars(description = ADDRESS)]
-    pub hire: String,
+    pub agent: String,
     /// At most 24 letters.
     #[serde(default)]
-    pub nickname: String,
+    pub name: String,
     #[serde(default)]
     #[schemars(description = REASON)]
     pub reason: String,
 }
 
-/// Lay a road between two hires under you, so they can send each
-/// other notifications and requests.
+/// Open a channel between two agents under you, so they can send
+/// each other notifications and requests.
 #[derive(Deserialize, JsonSchema)]
-pub(crate) struct LayRoad {
+pub(crate) struct OpenChannel {
     #[schemars(description = ADDRESS)]
     pub a: String,
     #[schemars(description = ADDRESS)]
@@ -258,9 +260,9 @@ pub(crate) struct LayRoad {
     pub reason: String,
 }
 
-/// Take up a road you laid between two hires under you.
+/// Close a channel you opened between two agents under you.
 #[derive(Deserialize, JsonSchema)]
-pub(crate) struct TakeUpRoad {
+pub(crate) struct CloseChannel {
     #[schemars(description = ADDRESS)]
     pub a: String,
     #[schemars(description = ADDRESS)]
@@ -270,10 +272,10 @@ pub(crate) struct TakeUpRoad {
     pub reason: String,
 }
 
-/// As a mayor, agree a road between a hire of your hamlet and one of
-/// another. It opens once both mayors agree.
+/// As a lead, agree a channel between an agent of your hamlet and
+/// one of another. It opens once both leads agree.
 #[derive(Deserialize, JsonSchema)]
-pub(crate) struct AgreeRoad {
+pub(crate) struct AgreeChannel {
     #[schemars(description = ADDRESS)]
     pub mine: String,
     #[schemars(description = ADDRESS)]
@@ -283,32 +285,32 @@ pub(crate) struct AgreeRoad {
     pub reason: String,
 }
 
-/// Found a hamlet with a scholar as its mayor, or a blank agent when
-/// `scholar` is left out.
+/// Found a hamlet with a profile as its lead, or a blank agent when
+/// `profile` is left out.
 #[derive(Deserialize, JsonSchema)]
 pub(crate) struct FoundHamlet {
     /// The name it is shown by: one line, up to 40 characters, no
     /// colon. Its id is made for it.
     pub name: String,
-    /// The address, `scholar#<id>`, of the scholar its mayor is a
-    /// hire of.
+    /// The address, `profile#<id>`, of the profile its lead is an
+    /// agent of.
     #[serde(default)]
-    pub scholar: String,
+    pub profile: String,
     /// What the hamlet is for.
     pub purpose: String,
 }
 
-/// Seat a hire as its hamlet's mayor.
+/// Make an agent its hamlet's lead.
 #[derive(Deserialize, JsonSchema)]
-pub(crate) struct SeatMayor {
+pub(crate) struct SetLead {
     #[schemars(description = ADDRESS)]
-    pub hire: String,
+    pub agent: String,
     #[serde(default)]
     #[schemars(description = REASON)]
     pub reason: String,
 }
 
-/// Remove a hamlet and end its hires; a chief approves it first.
+/// Remove a hamlet and end its agents; a chief approves it first.
 #[derive(Deserialize, JsonSchema)]
 pub(crate) struct RemoveHamlet {
     #[schemars(description = HAMLET)]
@@ -353,7 +355,7 @@ pub(crate) struct MoveHamlet {
     pub z: f64,
 }
 
-/// Set how many hires a hamlet holds; a chief approves it first.
+/// Set how many agents a hamlet holds; a chief approves it first.
 #[derive(Deserialize, JsonSchema)]
 pub(crate) struct SetTier {
     #[schemars(description = HAMLET)]
@@ -399,7 +401,7 @@ pub(crate) struct EditLimits {
     /// The hamlet's id; the realm's limits when left out.
     #[serde(default)]
     pub hamlet: String,
-    /// The section, such as `budget`, `road`, `reserved` or
+    /// The section, such as `budget`, `channel`, `reserved` or
     /// `asking`; empty for a key outside every section.
     #[serde(default)]
     pub section: String,
@@ -416,11 +418,11 @@ pub(crate) struct ReadRecord {
     pub hamlet: String,
 }
 
-/// List a scholar's files, or read one, at its `main` or a version.
+/// List a profile's files, or read one, at its `main` or a version.
 #[derive(Deserialize, JsonSchema)]
-pub(crate) struct ReadScholar {
-    #[schemars(description = SCHOLAR)]
-    pub scholar: String,
+pub(crate) struct ReadProfile {
+    #[schemars(description = PROFILE)]
+    pub profile: String,
     /// A file to read.
     #[serde(default)]
     pub path: String,
@@ -429,11 +431,11 @@ pub(crate) struct ReadScholar {
     pub version: String,
 }
 
-/// Write a file of a scholar's `main`; a chief approves it first.
+/// Write a file of a profile's `main`; a chief approves it first.
 #[derive(Deserialize, JsonSchema)]
-pub(crate) struct EditScholar {
-    #[schemars(description = SCHOLAR)]
-    pub scholar: String,
+pub(crate) struct EditProfile {
+    #[schemars(description = PROFILE)]
+    pub profile: String,
     /// The file.
     pub path: String,
     /// Its new text; empty removes it.
@@ -442,11 +444,11 @@ pub(crate) struct EditScholar {
     pub message: String,
 }
 
-/// Name the scholar's `main` as a version; a chief approves it first.
+/// Name the profile's `main` as a version; a chief approves it first.
 #[derive(Deserialize, JsonSchema)]
 pub(crate) struct Tag {
-    #[schemars(description = SCHOLAR)]
-    pub scholar: String,
+    #[schemars(description = PROFILE)]
+    pub profile: String,
     /// The version's name.
     pub tag: String,
     /// What it holds.
@@ -454,11 +456,11 @@ pub(crate) struct Tag {
     pub note: String,
 }
 
-/// Undo a commit of a scholar's `main`; a chief approves it first.
+/// Undo a commit of a profile's `main`; a chief approves it first.
 #[derive(Deserialize, JsonSchema)]
 pub(crate) struct Revert {
-    #[schemars(description = SCHOLAR)]
-    pub scholar: String,
+    #[schemars(description = PROFILE)]
+    pub profile: String,
     /// The commit or version to undo.
     pub commit: String,
     #[serde(default)]
@@ -466,70 +468,70 @@ pub(crate) struct Revert {
     pub reason: String,
 }
 
-/// List a scholar's versions and the latest commits of its `main`.
+/// List a profile's versions and the latest commits of its `main`.
 #[derive(Deserialize, JsonSchema)]
 pub(crate) struct Versions {
-    #[schemars(description = SCHOLAR)]
-    pub scholar: String,
+    #[schemars(description = PROFILE)]
+    pub profile: String,
 }
 
-/// Make a new scholar from a version of another.
+/// Make a new profile from a version of another.
 #[derive(Deserialize, JsonSchema)]
 pub(crate) struct Fork {
-    #[schemars(description = SCHOLAR)]
-    pub scholar: String,
+    #[schemars(description = PROFILE)]
+    pub profile: String,
     /// A version or commit; `main` when left out.
     #[serde(default)]
     pub version: String,
-    /// The new scholar's name.
+    /// The new profile's name.
     pub name: String,
 }
 
-/// Take a file or folder out of a scholar's whole history and its
-/// hires' lodges; a chief approves it first.
+/// Take a file or folder out of a profile's whole history and its
+/// agents' worktrees; a chief approves it first.
 #[derive(Deserialize, JsonSchema)]
 pub(crate) struct Purge {
-    #[schemars(description = SCHOLAR)]
-    pub scholar: String,
-    /// The path in the scholar.
+    #[schemars(description = PROFILE)]
+    pub profile: String,
+    /// The path in the profile.
     pub path: String,
 }
 
-/// Let a scholar waiting at the harbor into the city.
+/// Let a profile waiting at the harbor into the city.
 #[derive(Deserialize, JsonSchema)]
 pub(crate) struct Welcome {
-    #[schemars(description = SCHOLAR)]
-    pub scholar: String,
+    #[schemars(description = PROFILE)]
+    pub profile: String,
     #[serde(default)]
     #[schemars(description = REASON)]
     pub reason: String,
 }
 
-/// Keep a scholar at the harbor, or send one back there from the
-/// city. Its hires work all the same.
+/// Keep a profile at the harbor, or send one back there from the
+/// city. Its agents work all the same.
 #[derive(Deserialize, JsonSchema)]
 pub(crate) struct TurnAway {
-    #[schemars(description = SCHOLAR)]
-    pub scholar: String,
+    #[schemars(description = PROFILE)]
+    pub profile: String,
     #[serde(default)]
     #[schemars(description = REASON)]
     pub reason: String,
 }
 
-/// Give a scholar a new name.
+/// Give a profile a new name.
 #[derive(Deserialize, JsonSchema)]
-pub(crate) struct NameScholar {
-    #[schemars(description = SCHOLAR)]
-    pub scholar: String,
+pub(crate) struct NameProfile {
+    #[schemars(description = PROFILE)]
+    pub profile: String,
     /// One line, up to 40 characters, no colon.
     pub name: String,
 }
 
-/// Set a scholar's house down elsewhere in the city.
+/// Set a profile's house down elsewhere in the city.
 #[derive(Deserialize, JsonSchema)]
 pub(crate) struct MoveHouse {
-    #[schemars(description = SCHOLAR)]
-    pub scholar: String,
+    #[schemars(description = PROFILE)]
+    pub profile: String,
     pub x: f64,
     pub z: f64,
     /// Which way its door faces.
@@ -537,39 +539,39 @@ pub(crate) struct MoveHouse {
     pub degrees: Option<f64>,
 }
 
-/// Archive a scholar and end its hires; a chief approves it first.
+/// Archive a profile and end its agents; a chief approves it first.
 #[derive(Deserialize, JsonSchema)]
-pub(crate) struct RemoveScholar {
-    #[schemars(description = SCHOLAR)]
-    pub scholar: String,
+pub(crate) struct RemoveProfile {
+    #[schemars(description = PROFILE)]
+    pub profile: String,
     #[serde(default)]
     #[schemars(description = REASON)]
     pub reason: String,
 }
 
-/// Bring an archived scholar back with its hires.
+/// Bring an archived profile back with its agents.
 #[derive(Deserialize, JsonSchema)]
-pub(crate) struct RestoreScholar {
-    #[schemars(description = SCHOLAR)]
-    pub scholar: String,
+pub(crate) struct RestoreProfile {
+    #[schemars(description = PROFILE)]
+    pub profile: String,
     #[serde(default)]
     #[schemars(description = REASON)]
     pub reason: String,
 }
 
-/// Erase an archived scholar for good; a chief approves it first.
+/// Erase an archived profile for good; a chief approves it first.
 #[derive(Deserialize, JsonSchema)]
-pub(crate) struct EraseScholar {
-    #[schemars(description = SCHOLAR)]
-    pub scholar: String,
+pub(crate) struct EraseProfile {
+    #[schemars(description = PROFILE)]
+    pub profile: String,
 }
 
-/// Hold a hire at a version of its scholar, or let it follow `main`
+/// Hold an agent at a version of its profile, or let it follow `main`
 /// again.
 #[derive(Deserialize, JsonSchema)]
 pub(crate) struct Pin {
     #[schemars(description = ADDRESS)]
-    pub hire: String,
+    pub agent: String,
     /// The version, or `main`.
     pub version: String,
     #[serde(default)]
@@ -577,21 +579,21 @@ pub(crate) struct Pin {
     pub reason: String,
 }
 
-/// Bring an ended hire back, or split a merged one out again.
+/// Bring an ended agent back, or split a merged one out again.
 #[derive(Deserialize, JsonSchema)]
-pub(crate) struct RestoreHire {
+pub(crate) struct RestoreAgent {
     #[schemars(description = ADDRESS)]
-    pub hire: String,
+    pub agent: String,
     #[serde(default)]
     #[schemars(description = REASON)]
     pub reason: String,
 }
 
-/// Erase an ended hire for good; a chief approves it first.
+/// Erase an ended agent for good; a chief approves it first.
 #[derive(Deserialize, JsonSchema)]
-pub(crate) struct EraseHire {
+pub(crate) struct EraseAgent {
     #[schemars(description = ADDRESS)]
-    pub hire: String,
+    pub agent: String,
 }
 
 /// Choose how hard an agent's model thinks; `none` for the realm's
@@ -614,12 +616,12 @@ pub(crate) struct SetFast {
     pub fast: bool,
 }
 
-/// Have a hire bring what it learned home to its scholar, or a
-/// scholar's hires do so and the scholar tidy its `main`, even with
+/// Have an agent bring what it learned home to its profile, or a
+/// profile's agents do so and the profile tidy its `main`, even with
 /// dreams off.
 #[derive(Deserialize, JsonSchema)]
 pub(crate) struct Dream {
-    /// A hire's address, or a scholar's, `scholar#<id>`.
+    /// An agent's address, or a profile's, `profile#<id>`.
     pub who: String,
 }
 
@@ -647,7 +649,8 @@ pub(crate) struct Resume {
     pub agent: String,
 }
 
-/// Write a memory file of an agent's lodge; empty content removes it.
+/// Write a memory file of an agent's worktree; empty content removes
+/// it.
 #[derive(Deserialize, JsonSchema)]
 pub(crate) struct EditMemory {
     #[schemars(description = ADDRESS)]
@@ -665,8 +668,8 @@ pub(crate) struct ReadPrompt {
     pub agent: String,
 }
 
-/// Read what an agent knows in its lodge: its character, memory and
-/// skills, and what it learned that its scholar's `main` lacks.
+/// Read what an agent knows in its worktree: its character, memory
+/// and skills, and what it learned that its profile's `main` lacks.
 #[derive(Deserialize, JsonSchema)]
 pub(crate) struct ReadPapers {
     #[schemars(description = ADDRESS)]
@@ -692,7 +695,7 @@ pub(crate) struct EditSettings {
     #[serde(default)]
     #[schemars(extend("enum" = ["open", "chief", "hand"]))]
     pub newcomers: Option<String>,
-    /// The character a blank scholar starts from.
+    /// The character a blank profile starts from.
     #[serde(default)]
     pub character: Option<String>,
 }
@@ -735,7 +738,7 @@ macro_rules! called {
             pub fn read(
                 tool: Society,
                 arguments: &BTreeMap<String, Value>,
-            ) -> Result<Self, Refusal> {
+            ) -> Result<Self, Rejection> {
                 let given = given(arguments);
                 match tool {
                     $(Society::$tool => {
@@ -743,7 +746,7 @@ macro_rules! called {
                     })*
                     // `request_chief` reads its own arguments.
                     Society::RequestChief => {
-                        Err(Refusal::Unsupported {
+                        Err(Rejection::Unsupported {
                             what: format!("the tool {}", tool.name()),
                         })
                     }
@@ -773,21 +776,21 @@ called!(
     RequestLibrarian,
     ReadBudget,
     Object,
-    ProposeRoad,
-    CreateScholar,
-    MakeScholar,
-    Hire,
-    EndHire,
-    MergeHires,
+    ProposeChannel,
+    CreateProfile,
+    MakeProfile,
+    AddAgent,
+    EndAgent,
+    MergeAgents,
     SetModel,
     SetTools,
     SetAllowance,
-    Nickname,
-    LayRoad,
-    TakeUpRoad,
-    AgreeRoad,
+    RenameAgent,
+    OpenChannel,
+    CloseChannel,
+    AgreeChannel,
     FoundHamlet,
-    SeatMayor,
+    SetLead,
     RemoveHamlet,
     RestoreHamlet,
     EraseHamlet,
@@ -799,8 +802,8 @@ called!(
     ResetBudget,
     EditLimits,
     ReadRecord,
-    ReadScholar,
-    EditScholar,
+    ReadProfile,
+    EditProfile,
     Tag,
     Revert,
     Versions,
@@ -808,14 +811,14 @@ called!(
     Purge,
     Welcome,
     TurnAway,
-    NameScholar,
+    NameProfile,
     MoveHouse,
-    RemoveScholar,
-    RestoreScholar,
-    EraseScholar,
+    RemoveProfile,
+    RestoreProfile,
+    EraseProfile,
     Pin,
-    RestoreHire,
-    EraseHire,
+    RestoreAgent,
+    EraseAgent,
     SetEffort,
     SetFast,
     Dream,
@@ -859,9 +862,9 @@ fn given(arguments: &BTreeMap<String, Value>) -> Value {
 fn parse<A: DeserializeOwned>(
     tool: Society,
     given: Value,
-) -> Result<A, Refusal> {
+) -> Result<A, Rejection> {
     serde_json::from_value(given).map_err(|error| {
-        Refusal::ArgumentsUnfit {
+        Rejection::ArgumentsUnfit {
             tool: tool.name().into(),
             error: error.to_string(),
         }

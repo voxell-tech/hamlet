@@ -64,7 +64,7 @@ pub(crate) enum Mark {
     /// A summary asked of the conversation now.
     #[serde(rename = "hamlet.compaction")]
     Compaction { at: i64 },
-    /// The conversation of a hire merged into this one.
+    /// The conversation of an agent merged into this one.
     #[serde(rename = "hamlet.merged")]
     Merged {
         from: AgentId,

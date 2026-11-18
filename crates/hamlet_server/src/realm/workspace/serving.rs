@@ -1,7 +1,7 @@
 //! The realm working in a remote workspace: each agent's session
-//! there, its lodge's remote copy kept in step by tasks of their own,
-//! and every lodge moved there at a chief's word. No handler awaits
-//! the workspace: a push, a pull or a move runs as a task.
+//! there, its worktree's remote copy kept in step by tasks of their
+//! own, and every worktree moved there at a chief's word. No handler
+//! awaits the workspace: a push, a pull or a move runs as a task.
 
 use std::collections::BTreeSet;
 use std::path::PathBuf;
@@ -17,42 +17,42 @@ use hamlet_sandbox::scrub::scrub_text;
 use hamlet_store::Db;
 use hamlet_store::ids::AgentId;
 
-use super::lodges::{self, Synced};
+use super::worktrees::{self, Synced};
 use super::{Policy, Session, Transport, workspace_of};
 use crate::app::tasks::BackgroundResult;
 use crate::clients::check::reply;
-use crate::core::{Core, RemoteWorkspace, UnpushedLodge};
+use crate::core::{Core, RemoteWorkspace, UnpushedWorktree};
 use crate::knowledge;
 use crate::knowledge::worker::RepositoryWriteLock;
 use crate::realm::Realm;
 use crate::realm::jobs::Job;
-use crate::society::refusal::Refusal;
-use crate::society::{agents, hamlets, hires};
+use crate::society::rejection::Rejection;
+use crate::society::{agents, hamlet_agents, hamlets};
 use crate::tools::builtin::Network;
 use crate::tools::hamlet_of;
 
-/// A lodge's remote copy: what both copies held alike when last in
+/// A worktree's remote copy: what both copies held alike when last in
 /// step, or nothing before its first push. The tasks that push to it
 /// and pull from it take it one at a time.
 #[derive(Clone, Default)]
 pub(crate) struct RemoteCopy(Arc<tokio::sync::Mutex<Option<Synced>>>);
 
-/// The parts a task needs to keep one lodge's remote copy in step.
+/// The parts a task needs to keep one worktree's remote copy in step.
 #[derive(Clone)]
-pub(crate) struct Lodging {
+pub(crate) struct RemoteWorktree {
     session: Session,
     path: PathBuf,
     copy: RemoteCopy,
     writing: RepositoryWriteLock,
 }
 
-impl Lodging {
-    /// Sends the remote copy what the server's lodge changed since
+impl RemoteWorktree {
+    /// Sends the remote copy what the server's worktree changed since
     /// they were last in step, or all of it when they never were.
     pub async fn push(&self) -> Result<()> {
         let mut held = self.copy.0.lock().await;
         let synced =
-            lodges::push(&self.session, &self.path, held.as_ref())
+            worktrees::push(&self.session, &self.path, held.as_ref())
                 .await?;
         *held = Some(synced);
         Ok(())
@@ -64,7 +64,8 @@ impl Lodging {
         let mut held = self.copy.0.lock().await;
         if held.is_none() {
             *held = Some(
-                lodges::push(&self.session, &self.path, None).await?,
+                worktrees::push(&self.session, &self.path, None)
+                    .await?,
             );
         }
         Ok(())
@@ -72,17 +73,18 @@ impl Lodging {
 
     /// Brings home what the remote copy changed since they were last
     /// in step. Never in step, nothing the remote holds is known to
-    /// be newer, so the server's lodge stands and is pushed.
+    /// be newer, so the server's worktree stands and is pushed.
     pub async fn pull(&self) -> Result<()> {
         let mut held = self.copy.0.lock().await;
         let Some(base) = held.as_ref() else {
             *held = Some(
-                lodges::push(&self.session, &self.path, None).await?,
+                worktrees::push(&self.session, &self.path, None)
+                    .await?,
             );
             return Ok(());
         };
         let (pulled, synced) =
-            lodges::pull(&self.session, base).await?;
+            worktrees::pull(&self.session, base).await?;
         {
             let _held = self.writing.hold();
             pulled.apply(&self.path)?;
@@ -131,17 +133,18 @@ impl RemoteWorkspace<'_> {
         Ok(Some(session_in(db, transport, agent, network)?))
     }
 
-    /// The keeper of `agent`'s lodge's remote copy, when the realm
-    /// works in a remote workspace and the agent has a lodge.
-    pub(crate) fn lodging(
+    /// The keeper of `agent`'s worktree's remote copy, when the realm
+    /// works in a remote workspace and the agent has a worktree.
+    pub(crate) fn worktree(
         &mut self,
         realm: &mut Realm,
         writing: &RepositoryWriteLock,
         agent: AgentId,
-    ) -> Result<Option<Lodging>> {
+    ) -> Result<Option<RemoteWorktree>> {
         let layout = realm.layout().clone();
         let db = realm.store().connection();
-        let Ok(found) = knowledge::lodging(db, &layout, agent) else {
+        let Ok(found) = knowledge::worktree(db, &layout, agent)
+        else {
             return Ok(None);
         };
         let Some(session) =
@@ -149,30 +152,30 @@ impl RemoteWorkspace<'_> {
         else {
             return Ok(None);
         };
-        Ok(Some(Lodging {
+        Ok(Some(RemoteWorktree {
             session,
             path: found.path,
-            copy: self.lodged.entry(agent).or_default().clone(),
+            copy: self.worktrees.entry(agent).or_default().clone(),
             writing: writing.clone(),
         }))
     }
 
-    /// Owes the remote workspace a push of the lodges the jobs `done`
-    /// changed, when the realm works in one.
+    /// Owes the remote workspace a push of the worktrees the jobs
+    /// `done` changed, when the realm works in one.
     pub(crate) fn owe_pushes(&mut self, db: &mut Db, done: &[Job]) {
         if self.workspace.is_none() {
             return;
         }
         for job in done {
             self.unpushed.write_batch(
-                job.lodges(db).into_iter().map(UnpushedLodge),
+                job.worktrees(db).into_iter().map(UnpushedWorktree),
             );
         }
     }
 
-    /// Starts pushing each lodge owed a push, on a task of its own; a
-    /// push that fails is logged with `secrets` left out, and the
-    /// next push sends what it would have.
+    /// Starts pushing each worktree owed a push, on a task of its
+    /// own; a push that fails is logged with `secrets` left out, and
+    /// the next push sends what it would have.
     pub(crate) fn push_owed(
         &mut self,
         realm: &mut Realm,
@@ -182,22 +185,22 @@ impl RemoteWorkspace<'_> {
         let unpushed = self
             .unpushed
             .drain()
-            .map(|UnpushedLodge(agent)| agent)
+            .map(|UnpushedWorktree(agent)| agent)
             .collect::<BTreeSet<_>>();
         for agent in unpushed {
-            let Some(lodging) =
-                self.lodging(realm, writing, agent)?
+            let Some(worktree) =
+                self.worktree(realm, writing, agent)?
             else {
                 continue;
             };
             let secrets = secrets.to_vec();
             tokio::spawn(async move {
-                if let Err(error) = lodging.push().await {
+                if let Err(error) = worktree.push().await {
                     let words =
                         scrub_text(&secrets, &format!("{error:#}"));
                     warn!(
-                        "could not bring a lodge to the workspace: \
-                         {words}"
+                        "could not bring a worktree to the \
+                         workspace: {words}"
                     );
                 }
             });
@@ -207,11 +210,11 @@ impl RemoteWorkspace<'_> {
 }
 
 impl Core<'_, '_> {
-    /// Starts copying every lodge to the workspace chosen in the
+    /// Starts copying every worktree to the workspace chosen in the
     /// settings, replacing what is there, on a task of its own, which
     /// reports how it goes and answers `id` once done. The realm goes
     /// on working where it works until its next start.
-    pub(crate) fn move_lodges(
+    pub(crate) fn move_worktrees(
         &mut self,
         client: u64,
         id: &RequestId,
@@ -220,27 +223,27 @@ impl Core<'_, '_> {
         else {
             return self.answer(
                 client,
-                reply(id, Err(Refusal::NoWorkspaceChosen)),
+                reply(id, Err(Rejection::NoWorkspaceChosen)),
             );
         };
         let transport = Transport::new(chosen)?;
         let layout = self.realm.layout().clone();
         let db = self.realm.store().connection();
-        let mut lodged = vec![crate::society::hand::id(db)?];
-        lodged.extend(agents::living(db)?.into_iter().filter(
-            |agent| {
-                hires::find(db, *agent)
+        let mut with_worktrees = vec![crate::society::hand::id(db)?];
+        with_worktrees.extend(
+            agents::living(db)?.into_iter().filter(|agent| {
+                hamlet_agents::find(db, *agent)
                     .is_ok_and(|found| found.is_some())
-            },
-        ));
+            }),
+        );
         let mut moves = Vec::new();
-        for agent in lodged {
+        for agent in with_worktrees {
             let db = self.realm.store().connection();
-            let Ok(found) = knowledge::lodging(db, &layout, agent)
+            let Ok(found) = knowledge::worktree(db, &layout, agent)
             else {
                 continue;
             };
-            moves.push(Lodging {
+            moves.push(RemoteWorktree {
                 session: session_in(
                     db,
                     &transport,
@@ -260,13 +263,13 @@ impl Core<'_, '_> {
         let id = id.clone();
         self.later.spawn_many(move |report| async move {
             let mut failed = None;
-            for (done, lodging) in moves.into_iter().enumerate() {
+            for (done, worktree) in moves.into_iter().enumerate() {
                 let done = i64::try_from(done).unwrap_or(of);
                 report.send(BackgroundResult::Moving {
                     progress: progress(done, of, Stage::Copying),
                     answer: None,
                 });
-                if let Err(error) = lodging.push().await {
+                if let Err(error) = worktree.push().await {
                     failed = Some(scrub_text(
                         &secrets,
                         &format!("{error:#}"),
@@ -281,7 +284,7 @@ impl Core<'_, '_> {
             let last = progress(of, of, stage);
             let answer = match failed {
                 None => Ok(last.text.clone()),
-                Some(error) => Err(Refusal::MoveFailed { error }),
+                Some(error) => Err(Rejection::MoveFailed { error }),
             };
             report.send(BackgroundResult::Moving {
                 progress: last,
@@ -292,14 +295,14 @@ impl Core<'_, '_> {
     }
 }
 
-/// The stage of moving the lodges.
+/// The stage of moving the worktrees.
 enum Stage<'a> {
     Copying,
     Moved,
     Failed(&'a str),
 }
 
-/// The progress of moving the lodges: `done` of `of` copied, at
+/// The progress of moving the worktrees: `done` of `of` copied, at
 /// `stage`.
 fn progress(
     done: i64,
@@ -309,17 +312,17 @@ fn progress(
     let (state, text) = match stage {
         Stage::Copying => (
             SettingsViewWorkspaceMoveState::Moving,
-            "Copying the lodges.".to_owned(),
+            "Copying the worktrees.".to_owned(),
         ),
         Stage::Moved => (
             SettingsViewWorkspaceMoveState::Moved,
-            "Every lodge is in the chosen workspace; the realm \
+            "Every worktree is in the chosen workspace; the realm \
              works there from its next start."
                 .to_owned(),
         ),
         Stage::Failed(error) => (
             SettingsViewWorkspaceMoveState::Failed,
-            format!("Moving the lodges failed: {error}"),
+            format!("Moving the worktrees failed: {error}"),
         ),
     };
     SettingsViewWorkspaceMove {

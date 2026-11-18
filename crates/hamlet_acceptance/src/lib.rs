@@ -10,7 +10,7 @@ pub mod realm;
 pub use cli::{Cli, Ended};
 pub use client::{Client, Ending, Wire, chat};
 pub use faux::Faux;
-pub use hamlet_protocol::client::{AgentId, ScholarId};
+pub use hamlet_protocol::client::{AgentId, ProfileId};
 use hamlet_testing::openai;
 pub use hamlet_testing::{Server, call, calls, failure, words};
 pub use home::Home;
@@ -92,44 +92,44 @@ impl Session {
         self.chief.hand()
     }
 
-    /// The id of the city's living scholar `name`, made first when
+    /// The id of the city's living profile `name`, made first when
     /// there is none.
-    pub async fn scholar(&mut self, name: &str) -> ScholarId {
+    pub async fn profile(&mut self, name: &str) -> ProfileId {
         let living = |c: &Client| {
-            c.scholar(name).filter(|scholar| scholar.left.is_none())
+            c.profile(name).filter(|profile| profile.left.is_none())
         };
-        if let Some(scholar) = living(&self.chief) {
-            return scholar.id;
+        if let Some(profile) = living(&self.chief) {
+            return profile.id;
         }
         let hand = self.hand();
         self.chief
-            .command(hand, &format!("/scholar new {name}"))
+            .command(hand, &format!("/profile new {name}"))
             .await;
         self.chief
-            .until(&format!("scholar {name}"), |c| {
+            .until(&format!("profile {name}"), |c| {
                 living(c).is_some()
             })
             .await;
-        living(&self.chief).expect("the scholar is made").id
+        living(&self.chief).expect("the profile is made").id
     }
 
-    /// Founds the hamlet named `hamlet` under the scholar called
-    /// `scholar`, made if the city has none, keeps its id in
-    /// [`NAMES`] and gives the mayor's id.
+    /// Founds the hamlet named `hamlet` under the profile called
+    /// `profile`, made if the city has none, keeps its id in
+    /// [`NAMES`] and gives the lead's id.
     pub async fn found(
         &mut self,
         hamlet: &str,
-        scholar: &str,
+        profile: &str,
         purpose: &str,
     ) -> AgentId {
-        let scholar = self.scholar(scholar).await;
+        let profile = self.profile(profile).await;
         let hand = self.hand();
         self.chief
             .command(
                 hand,
                 &format!(
-                    "/create-hamlet scholar#{} {hamlet}: {purpose}",
-                    scholar.0
+                    "/create-hamlet profile#{} {hamlet}: {purpose}",
+                    profile.0
                 ),
             )
             .await;
@@ -137,7 +137,7 @@ impl Session {
     }
 
     /// Waits for the hamlet named `hamlet`, keeps its id in
-    /// [`NAMES`] for the faux script, and gives its mayor's id.
+    /// [`NAMES`] for the faux script, and gives its lead's id.
     pub async fn named(&mut self, hamlet: &str) -> AgentId {
         self.chief
             .until(&format!("{hamlet} in the realm"), |c| {
@@ -158,76 +158,81 @@ impl Session {
         names.insert(hamlet.into(), found.id.into());
         std::fs::write(&file, serde_json::to_vec(&names).unwrap())
             .unwrap();
-        found.mayor
+        found.lead
     }
 
-    /// Has `lead` hire the scholar called `scholar`, made if the
-    /// city has none, and gives the new hire's id.
-    pub async fn hire(
+    /// Has `parent` add an agent of the profile called `profile`,
+    /// made if the city has none, and gives the new agent's id.
+    pub async fn add_agent(
         &mut self,
-        lead: AgentId,
-        scholar: &str,
+        parent: AgentId,
+        profile: &str,
         purpose: &str,
     ) -> AgentId {
-        self.hired(lead, scholar, "", purpose).await
+        self.added(parent, profile, "", purpose).await
     }
 
-    /// Has `lead` hire the scholar called `scholar` under the agent
-    /// at `under`, and gives the new hire's id.
-    pub async fn hire_under(
+    /// Has `parent` add an agent of the profile called `profile`
+    /// under the agent at `under`, and gives the new agent's id.
+    pub async fn add_agent_under(
         &mut self,
-        lead: AgentId,
-        scholar: &str,
+        parent: AgentId,
+        profile: &str,
         under: &str,
         purpose: &str,
     ) -> AgentId {
-        self.hired(lead, scholar, &format!("under {under} "), purpose)
-            .await
+        self.added(
+            parent,
+            profile,
+            &format!("under {under} "),
+            purpose,
+        )
+        .await
     }
 
-    async fn hired(
+    async fn added(
         &mut self,
-        lead: AgentId,
-        scholar: &str,
+        parent: AgentId,
+        profile: &str,
         under: &str,
         purpose: &str,
     ) -> AgentId {
-        let scholar = self.scholar(scholar).await;
+        let profile = self.profile(profile).await;
         let hamlet = self
             .chief
             .realm()
             .agents
             .into_iter()
-            .find(|a| a.id == lead)
+            .find(|a| a.id == parent)
             .and_then(|a| a.hamlet);
-        let hires = move |c: &Client| {
+        let agents = move |c: &Client| {
             c.realm()
                 .agents
                 .into_iter()
                 .filter(|a| {
-                    a.scholar == Some(scholar)
+                    a.profile == Some(profile)
                         && a.hamlet == hamlet
                         && a.left.is_none()
                 })
                 .collect::<Vec<_>>()
         };
-        let before = hires(&self.chief).len();
+        let before = agents(&self.chief).len();
         self.chief
             .command(
-                lead,
+                parent,
                 &format!(
-                    "/hire scholar#{} {under}{purpose}",
-                    scholar.0
+                    "/add-agent profile#{} {under}{purpose}",
+                    profile.0
                 ),
             )
             .await;
         self.chief
-            .until("the new hire", |c| hires(c).len() > before)
+            .until("the new agent", |c| agents(c).len() > before)
             .await;
-        hires(&self.chief)
+        agents(&self.chief)
             .into_iter()
             .max_by_key(|a| a.id)
-            .expect("the hire came")
+            .expect("the agent came")
             .id
     }
 }

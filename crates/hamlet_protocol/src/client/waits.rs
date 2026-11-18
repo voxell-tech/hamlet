@@ -3,7 +3,7 @@
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
-use crate::client::{AgentId, Change, ChatRef, RequestId, ScholarId};
+use crate::client::{AgentId, Change, ChatRef, ProfileId, RequestId};
 
 #[derive(
     Clone, Debug, PartialEq, Serialize, Deserialize, JsonSchema,
@@ -69,10 +69,10 @@ pub enum WaitDetail {
     Question { questions: Questions },
     #[serde(rename = "objection")]
     Objection {},
-    /// A scholar an agent made, waiting at the harbor to be let into
+    /// A profile an agent made, waiting at the harbor to be let into
     /// the city.
     #[serde(rename = "newcomer")]
-    Newcomer { scholar: ScholarId },
+    Newcomer { profile: ProfileId },
 }
 
 /// A fault's cause a chief sets up once for every agent.

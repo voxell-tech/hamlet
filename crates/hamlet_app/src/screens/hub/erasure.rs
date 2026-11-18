@@ -41,7 +41,7 @@ struct Erasure {
 /// What is being erased.
 #[derive(Clone, PartialEq)]
 enum Erased {
-    /// An agent that left, or a scholar.
+    /// An agent that left, or a profile.
     Entity(Entity),
     /// A closed hamlet, by its id.
     Closed(String),
@@ -81,20 +81,20 @@ fn resolve(gone: On<Remove<Identity>>, mut world: DeferredWorld) {
     }
 }
 
-/// Its lead's thread, else its hamlet's page, else the realm's.
+/// Its parent's thread, else its hamlet's page, else the realm's.
 fn landing(world: &World, agent: Entity) -> Landing {
     let home =
         |of: Entity| world.get::<LivesIn>(of).map(|lives| lives.0);
     let hamlet = home(agent)
         .filter(|hamlet| world.get_entity(*hamlet).is_ok());
-    // A mayor heads its hamlet, under no lead of its own there.
-    let lead = world
+    // A lead heads its hamlet, under no parent of its own there.
+    let parent = world
         .get::<Parent>(agent)
         .and_then(|parent| agents::agent(world, parent.0))
-        .filter(|lead| world.get::<Left>(*lead).is_none())
-        .filter(|lead| hamlet.is_none() || home(*lead) == hamlet);
-    match (lead, hamlet) {
-        (Some(lead), _) => Landing::Thread(lead),
+        .filter(|parent| world.get::<Left>(*parent).is_none())
+        .filter(|parent| hamlet.is_none() || home(*parent) == hamlet);
+    match (parent, hamlet) {
+        (Some(parent), _) => Landing::Thread(parent),
         (None, Some(hamlet)) => {
             Landing::Page(Showing::Hamlet(hamlet))
         }
@@ -102,13 +102,13 @@ fn landing(world: &World, agent: Entity) -> Landing {
     }
 }
 
-/// Follows the erasure of `scholar`.
-pub(crate) fn expect_scholar(
+/// Follows the erasure of `profile`.
+pub(crate) fn expect_profile(
     world: &mut World,
-    scholar: Entity,
+    profile: Entity,
     name: String,
 ) {
-    expect(world, Erased::Entity(scholar), name);
+    expect(world, Erased::Entity(profile), name);
 }
 
 /// Follows the erasure of the closed hamlet `id`, called `name`.
@@ -130,7 +130,7 @@ fn expect(world: &mut World, of: Erased, name: String) {
 /// The entity the Hub's page is of.
 fn shown_entity(world: &World) -> Option<Entity> {
     match *world.get_resource::<Showing>()? {
-        Showing::Scholar(of)
+        Showing::Profile(of)
         | Showing::Hamlet(of)
         | Showing::Gone(of)
         | Showing::Chief(of) => Some(of),
@@ -146,7 +146,7 @@ fn entity_of(thing: Thing) -> Option<Entity> {
         Thing::Agent(of)
         | Thing::House(of)
         | Thing::Ruin(of)
-        | Thing::Scholar(of)
+        | Thing::Profile(of)
         | Thing::Common(of)
         | Thing::Chief(of)
         | Thing::ChiefPlace(of) => Some(of),
@@ -212,11 +212,11 @@ fn settle(world: &mut World) {
 /// Turns the Hub to `after`, else to the realm's page.
 fn land(world: &mut World, after: Landing) {
     match after {
-        Landing::Thread(lead)
-            if world.get::<Kind>(lead).is_some()
-                && world.get::<Left>(lead).is_none() =>
+        Landing::Thread(parent)
+            if world.get::<Kind>(parent).is_some()
+                && world.get::<Left>(parent).is_none() =>
         {
-            talk_to(world, lead);
+            talk_to(world, parent);
         }
         Landing::Page(Showing::Hamlet(hamlet))
             if world.get_entity(hamlet).is_ok() =>

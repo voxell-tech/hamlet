@@ -11,7 +11,7 @@ wire messages, watch rules and page boundaries; this page covers the window.
 
 A chat entity has `Chat(ChatRef)`, `Transcript`, `Status`, `Usage` and a
 `TalksTo(agent)` relationship. Its reference names the agent by its id
-(the Hand, a hire or a worker). Adding the chat sends `open`; removing it
+(the Hand, an agent of a hamlet or a worker). Adding the chat sends `open`; removing it
 sends `close`. Reconnecting opens every watched chat again.
 
 The server answers with a `transcript` page. Live `turn` operations add or
@@ -23,7 +23,8 @@ answered, summary or merged.
 
 ## One conversation
 
-The Hand and each hire have one conversation, shown alike by every client.
+The Hand and each agent of a hamlet have one conversation, shown alike by
+every client.
 The chief's lines, other agents' messages and its workers' answers all go
 into it, one turn at a time. A worker has its own.
 
@@ -32,7 +33,7 @@ A message from another agent carries `author` and `from` instead of
 response. The window draws it as a card headed by its kind and sender's
 chip, folded to its first line; a press or Enter opens it (`bubble.rs`).
 The model reads it under a bracketed heading, as
-`[A request from hire#3 (Mira); your final answer goes back to it as the response]`.
+`[A request from agent#3 (Mira); your final answer goes back to it as the response]`.
 A `notify` or `request` call is a step that names the agent it reached in
 `agent`. An error response starts no turn; its card is edged in red and
 reads "It could not answer: " and the cause in plain words.
@@ -53,18 +54,18 @@ and their answers queue under the hold (`conversations/chats.rs`).
 fills (C28), or when the chief asks with "Compact now" or `/compact`. The
 summary is a `summary` item, a line between turns that opens to it.
 
-**A merge.** The kept hire's conversation gets a `merged` item whose
-`from` is the absorbed hire, a line that opens that hire's conversation in
+**A merge.** The kept agent's conversation gets a `merged` item whose
+`from` is the absorbed agent, a line that opens that agent's conversation in
 place. It stays as it was, so a split gives it back.
 
 **Lines between turns.** A change to the agent is an `event` item for
 people alone (`chats::event`), drawn as a centred line (`card.rs`): a
-model or effort change, a stop or resume, a dream, becoming a scholar of
+model or effort change, a stop or resume, a dream, becoming a profile of
 the city, a rename, the fast tier.
 
 ## Brought in from another program
 
-A hire made for a conversation brought in from another program (C35)
+An agent made for a conversation brought in from another program (C35)
 has it as its conversation. The card "Bring in your
 projects" (`hamlet_app/src/welcome/projects.rs`) lists the projects
 found on the window's machine, or in an export file chosen in the
@@ -72,7 +73,7 @@ system's dialog; it opens once when first-run setup ends on a realm with
 no hamlet, and from Settings. `hamlet_import` reads the conversations on
 the chief's machine, off the frame (`hamlet_client/src/imports.rs`), the
 client sends each as a file and the project as `import-project`, and the
-server (`conversations/imports.rs`) founds or finds the hamlet, makes the hires
+server (`conversations/imports.rs`) founds or finds the hamlet, makes the agents
 and holds each conversation's entries until the runtime makes it with
 them, which waits for a model to be set up. Until then its chat shows
 the entries held, and its watchers get its transcript anew once the
@@ -120,7 +121,7 @@ to use the window's controls; those controls send commands to the server.
 Unaddressed server faults and error replies to the chat's own requests show
 under the field and play the Error sound. Fault waits stay on the realm's page
 in the Hub. Faults with a `setup` cause, no model or refused credentials,
-share one toast per cause and model, as "5 mayors can't use Claude Sonnet
+share one toast per cause and model, as "5 leads can't use Claude Sonnet
 5.5" (`toasts.rs`); a fault's words come from `conversations/failures.rs`.
 
 ## Links
@@ -138,10 +139,10 @@ path must exist there. A relative path is looked for under the selected
 hamlet's received work folder, and becomes a link only if its canonical
 path stays under that folder. `..` and symlinks are followed before that
 check. The received realm folder is excluded after resolving links, for
-absolute and relative paths alike. No file under an agent's lodge becomes a
+absolute and relative paths alike. No file under an agent's worktree becomes a
 link or a local picture. The work folder is a path on the server's machine;
 with `hamlet dev` it is local too. Nothing downloads a server file.
-Lodge-relative paths such as an agent's `memory/` or `skills/` stay plain
+Worktree-relative paths such as an agent's `memory/` or `skills/` stay plain
 text unless they name a file in the local work folder.
 
 **When the disk is asked.** Once for each distinct path when a paragraph
@@ -156,15 +157,15 @@ unopened.
 
 ## Agents named in the chat
 
-An agent's or a scholar's address in a line is drawn as a chip: the glyph
+An agent's or a profile's address in a line is drawn as a chip: the glyph
 of what it is, its current name, and the address in its tooltip. A click
-opens the agent's chat or the scholar's page.
+opens the agent's chat or the profile's page.
 
-- `hire#<id>`, `worker#<id>`, `scholar#<id>` and `mayor@<hamlet>` are
+- `agent#<id>`, `worker#<id>`, `profile#<id>` and `lead@<hamlet>` are
   chips in running text, inline code and link addresses, as
-  `[Mira](hire#3)`.
+  `[Mira](agent#3)`.
 - `hand` is one only in inline code or as a link's address.
-- A copied address's name, `hire#3 (Mira)`, is part of the chip.
+- A copied address's name, `agent#3 (Mira)`, is part of the chip.
 - An address that names no one stays words, as does anything in a fenced
   code block.
 
@@ -177,7 +178,7 @@ out (`hamlet_ui/src/markdown/chips.rs`).
 A table's columns are each at least as wide as their longest word or chip,
 and share the rest in proportion to their widest cell.
 
-"Copy Agent ID" in an agent's menu copies `hire#3 (Mira)`; "Copy Hamlet
+"Copy Agent ID" in an agent's menu copies `agent#3 (Mira)`; "Copy Hamlet
 ID" copies `hamlet <id> (<name>)`.
 
 In the field, an address becomes a chip once written whole: pasted, or
@@ -215,7 +216,7 @@ line that names the message it answers, its words as a JSON string, and
 the words of the reply after a blank line:
 
 ```
-(Replying to Mayor: "Paper or ebook?\nBoth ship soon.")
+(Replying to Lead: "Paper or ebook?\nBoth ship soon.")
 
 Paper.
 ```
@@ -272,11 +273,11 @@ That message and everything after it leave the active conversation, and
 its words go back in the field to be changed and sent again.
 
 **The record.** The server forks the conversation from the entry before
-that message and makes the fork the agent's conversation, trusting
-nothing yet. The client sends
+that message and makes the fork the agent's conversation, with no
+session grants yet. The client sends
 `rewind` with the chat reference and the item's string ID. A `rewound`
 reply gives the words back; a reset followed by a transcript replaces the
-shown items. The server refuses a rewind while work is running or queued
+shown items. The server rejects a rewind while work is running or queued
 and closes waits raised by the part taken back.
 
 **What is not undone.** Files changed, commands run, memory, skills, files
@@ -354,7 +355,7 @@ takes image files copied in a file manager, or a picture
 such as a screenshot; words on the clipboard are pasted as words. Each image
 is uploaded at once, shown as a chip in the field, and sent with the line,
 which may hold only images. A line waits for every image to be kept; the chip
-of one the server refused is marked, and says why in its tooltip, until it is
+of one the server rejected is marked, and says why in its tooltip, until it is
 taken out. Files are read off the frame, and one over 20 MiB is refused
 unread.
 
@@ -384,9 +385,9 @@ places the ones its `@path` tokens name.
 A model that takes no images has the button greyed out, and a drag over
 the window says it cannot be dropped; a paste or drop is refused the same way.
 The chip of an image already in the field when the model is changed is greyed
-out with a tooltip that says so, and the server refuses the line (S30).
+out with a tooltip that says so, and the server rejects the line (S30).
 The catalogue entry of the agent's model tells which: a model the catalogue
-does not list is taken to see, and the server refuses what it cannot (S30).
+does not list is taken to see, and the server rejects what it cannot (S30).
 The number of images a line takes is the model's limit. A chief says that a
 model of a custom endpoint takes images, and within what limits, in the model
 catalogue in Settings, or with `hamlet models images`.

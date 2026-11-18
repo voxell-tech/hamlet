@@ -13,13 +13,13 @@ async fn reads_and_edits() {
     c.found("docs", "ada", "keep the docs").await;
     c.until(|c| !c.state().hamlets.is_empty()).await;
     let docs = c.hamlet_id("docs");
-    let ada = c.scholar("ada");
+    let ada = c.profile("ada");
     assert!(
         !c.ask(json!({"type":"read","what":"prompt","agent":HAND}))
             .await["prompt"]
             .is_null()
     );
-    assert!(!c.ask(json!({"type":"read","what":"papers","of":{"scholar":ada}})).await["papers"].is_null());
+    assert!(!c.ask(json!({"type":"read","what":"papers","of":{"profile":ada}})).await["papers"].is_null());
     for what in ["charter", "models"] {
         assert!(
             !c.ask(json!({"type":"read","what":what})).await[what]
@@ -42,9 +42,9 @@ async fn reads_and_edits() {
             ["charter"],
         json!({"own":true,"text":"Serve the chief with care."})
     );
-    assert_eq!(c.ask(json!({"type":"edit","doc":"character","scholar":ada,"text":"Calm and exact."})).await["kind"], "notice");
-    assert_eq!(c.ask(json!({"type":"edit","doc":"memory","of":{"scholar":ada},"path":"tea.md","text":"---\ndescription: Tea\n---\nEarl grey.\n"})).await["kind"], "notice");
-    let papers = c.ask(json!({"type":"read","what":"papers","of":{"scholar":ada}})).await;
+    assert_eq!(c.ask(json!({"type":"edit","doc":"character","profile":ada,"text":"Calm and exact."})).await["kind"], "notice");
+    assert_eq!(c.ask(json!({"type":"edit","doc":"memory","of":{"profile":ada},"path":"tea.md","text":"---\ndescription: Tea\n---\nEarl grey.\n"})).await["kind"], "notice");
+    let papers = c.ask(json!({"type":"read","what":"papers","of":{"profile":ada}})).await;
     assert_eq!(papers["papers"]["character"], "Calm and exact.");
     c.finish("reads-and-edits").await;
 }

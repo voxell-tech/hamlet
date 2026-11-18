@@ -161,7 +161,7 @@ async fn starts_at_another_hamlet_and_switches_agents_and_hamlets() {
     let home = s.home.path();
     let chat = Cli::run(
         home,
-        &["chat", "--to", &format!("mayor@{mill}")],
+        &["chat", "--to", &format!("lead@{mill}")],
         &format!("Mill?\n/hamlet {docs}\nDocs?\n/hand\nHand?\n"),
         &[],
     )
@@ -174,7 +174,7 @@ async fn starts_at_another_hamlet_and_switches_agents_and_hamlets() {
     let switched = Cli::run(
         home,
         &["chat"],
-        "/agent hire#2\nAgain?\n/agent missing\n",
+        "/agent agent#2\nAgain?\n/agent missing\n",
         &[],
     )
     .await;
@@ -265,7 +265,7 @@ async fn asks_for_approvals_and_keeps_them_across_a_crash() {
 }
 
 #[tokio::test]
-async fn edits_limits_in_editor_and_reports_a_refusal() {
+async fn edits_limits_in_editor_and_reports_a_rejection() {
     let mut s = Session::start(Faux::new()).await;
     s.found("docs", "ada", "keep the docs").await;
     let docs = s.chief.hamlet_id("docs");
@@ -283,7 +283,7 @@ async fn edits_limits_in_editor_and_reports_a_refusal() {
         serde_json::from_str::<serde_json::Value>(&good.seen())
             .unwrap();
     assert_eq!(seen["budget"]["period"], "day");
-    assert_eq!(seen["road"]["most"], 24);
+    assert_eq!(seen["channel"]["most"], 24);
     s.chief
         .until("the new cost", |c| {
             c.hamlet("docs").unwrap().limits.budget.cost == Some(8.0)
@@ -294,14 +294,14 @@ async fn edits_limits_in_editor_and_reports_a_refusal() {
     let seen = edit(&s, &["limits"], &realm).await;
     assert_eq!(seen.code(), Some(0), "{seen:?}");
     assert!(
-        realm.seen().contains("roadsBetween"),
+        realm.seen().contains("channelsBetween"),
         "{}",
         realm.seen()
     );
     let broken = editor(&s, "broken", "echo '{' > \"$1\"");
-    let refused =
+    let rejected =
         edit(&s, &["limits", "--hamlet", &docs], &broken).await;
-    assert_eq!(refused.code(), Some(1), "{refused:?}");
+    assert_eq!(rejected.code(), Some(1), "{rejected:?}");
     assert_eq!(
         s.chief.hamlet("docs").unwrap().limits.budget.cost,
         Some(8.0)
@@ -309,15 +309,15 @@ async fn edits_limits_in_editor_and_reports_a_refusal() {
 }
 
 #[tokio::test]
-async fn edits_a_scholars_character_and_memory_in_editor() {
+async fn edits_a_profiles_character_and_memory_in_editor() {
     let mut s = Session::start(Faux::new()).await;
     let ada = s.found("docs", "ada", "keep the docs").await;
-    let scholar = s.chief.scholar("ada").unwrap().id;
+    let profile = s.chief.profile("ada").unwrap().id;
     let write =
         editor(&s, "write", "echo 'Brave and plain.' > \"$1\"");
     let saved = edit(
         &s,
-        &["character", &format!("scholar#{}", scholar.0)],
+        &["character", &format!("profile#{}", profile.0)],
         &write,
     )
     .await;
@@ -329,15 +329,15 @@ async fn edits_a_scholars_character_and_memory_in_editor() {
          \"$1\"",
     );
     let saved =
-        edit(&s, &["memory", "hire#2", "tea.md"], &note).await;
+        edit(&s, &["memory", "agent#2", "tea.md"], &note).await;
     assert_eq!(saved.code(), Some(0), "{saved:?}");
     let papers = s.chief.papers(Keeper::Agent(ada)).await;
     assert_eq!(papers.character.trim(), "Brave and plain.");
     assert_eq!(papers.memory[0].path, "tea.md");
-    // The scholar's own memory is another file than the hire's.
+    // The profile's own memory is another file than the agent's.
     assert!(
         s.chief
-            .papers(Keeper::Scholar(scholar))
+            .papers(Keeper::Profile(profile))
             .await
             .memory
             .is_empty()
@@ -346,7 +346,7 @@ async fn edits_a_scholars_character_and_memory_in_editor() {
         editor(&s, "failing", "echo 'not saved' > \"$1\"; exit 2");
     let failed = edit(
         &s,
-        &["character", &format!("scholar#{}", scholar.0)],
+        &["character", &format!("profile#{}", profile.0)],
         &failing,
     )
     .await;

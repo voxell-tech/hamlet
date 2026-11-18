@@ -17,7 +17,7 @@ use std::path::PathBuf;
 use bevy::picking::hover::HoverMap;
 use bevy::prelude::*;
 use bevy::window::FileDragAndDrop;
-use hamlet_client::realm::Mayor;
+use hamlet_client::realm::Lead;
 
 pub use self::greet::greet;
 use self::lift::Fall;
@@ -165,11 +165,11 @@ pub struct PlaySettings {
     pub heart_time: f32,
 }
 
-/// A deed the chief asked of the server by hand.
+/// An action the chief asked of the server by hand.
 #[derive(Message, Clone, Debug, PartialEq)]
 pub enum Wish {
-    /// A road between two agents.
-    Road { a: Entity, b: Entity },
+    /// A channel between two agents.
+    Channel { a: Entity, b: Entity },
 }
 
 /// A robot's handling of late. Times are the scene's clock.
@@ -338,7 +338,7 @@ fn meet(
 }
 
 /// The robot the pointer is on as `thing`: a hamlet's robot, or a
-/// scholar's figure in the city when the pointer is on the figure
+/// profile's figure in the city when the pointer is on the figure
 /// itself, not on the house that shares its name.
 fn robot_under(
     thing: Thing,
@@ -347,7 +347,7 @@ fn robot_under(
     over: &HoverMap,
 ) -> Option<Entity> {
     match thing {
-        Thing::Scholar(_) => boxes
+        Thing::Profile(_) => boxes
             .iter()
             .find(|(hit, of, parent)| {
                 **of == thing
@@ -422,7 +422,7 @@ fn met(
     thing: Thing,
     boxes: &Query<(Entity, &Thing, &ChildOf)>,
     robots: &Query<&Robot>,
-    agents: &Query<(Entity, &Housed, Has<Mayor>)>,
+    agents: &Query<(Entity, &Housed, Has<Lead>)>,
 ) -> Option<(Entity, Option<Entity>)> {
     let robot_for = |agent: Entity| {
         let (_, housed, _) = agents.get(agent).ok()?;

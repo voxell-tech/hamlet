@@ -232,6 +232,7 @@ fn publish_address(
     let url = format!("ws://{}", listening.address);
     let confinement = core.confinement();
     let layout = core.realm.layout().clone();
+    // RFC 3339 in UTC, to the millisecond.
     let started = format!("{:.3}", jiff::Timestamp::now());
     let address = json!({
         "url": url,

@@ -78,7 +78,7 @@ fn face(cx: &Cx, who: &Who, size: f32) -> impl View + use<> {
     let theme = cx.theme();
     let mark = match who.kind {
         Kind::Agent => Glyph::Robot,
-        Kind::Mayor => Glyph::Mayor,
+        Kind::Lead => Glyph::Lead,
         Kind::Hand => Glyph::Tower,
         Kind::Me | Kind::Chief => Glyph::Hearth,
     };
@@ -97,7 +97,7 @@ fn face(cx: &Cx, who: &Who, size: f32) -> impl View + use<> {
             .fill(who.paint);
     match who.kind {
         Kind::Agent => face.radius(size / 2.0),
-        Kind::Mayor | Kind::Hand => face
+        Kind::Lead | Kind::Hand => face
             .radius(size / 2.0)
             .border(1.5)
             .border_color(theme.palette.gold_3),
@@ -236,7 +236,7 @@ fn said<B: Board>(line: Line, chat: Entity, id: String) -> AnyView {
             let tag = if line.by == 0 { "" } else { &who.tag };
             let tag = label(tag.to_string()).wrap(false);
             head.push(match who.kind {
-                Kind::Mayor | Kind::Hand => tag
+                Kind::Lead | Kind::Hand => tag
                     .bold(true)
                     .tone(Tone::Faint)
                     .rules(small_rules)

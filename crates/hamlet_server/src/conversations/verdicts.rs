@@ -110,7 +110,7 @@ pub(crate) fn rule(
                     kind: WaitKind::Fault,
                     danger: None,
                     agent: conversation.agent,
-                    scholar: None,
+                    profile: None,
                     conversation: Some(conversation.id),
                     task: input.as_ref().and_then(|input| input.task),
                     about: words.clone(),

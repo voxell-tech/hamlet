@@ -32,7 +32,7 @@ use crate::realm::credentials::write_whole;
 use crate::realm::layout::Layout;
 use crate::realm::settings::Settings;
 use crate::society::agents::Effort;
-use crate::society::refusal::Refusal;
+use crate::society::rejection::Rejection;
 
 mod listing;
 
@@ -440,15 +440,16 @@ impl Core<'_, '_> {
             self.publish();
             return self.answer(
                 client,
-                reply(id, Ok::<_, Refusal>(words.into())),
+                reply(id, Ok::<_, Rejection>(words.into())),
             );
         }
         let name =
             name.unwrap_or_else(|| self.env.settings.model.clone());
         let (provider, model) = match self.named_model(&name)? {
             Ok(found) => found,
-            Err(refusal) => {
-                return self.answer(client, reply(id, Err(refusal)));
+            Err(rejection) => {
+                return self
+                    .answer(client, reply(id, Err(rejection)));
             }
         };
         self.model_link(LinkState::Testing, None, None)?;
@@ -588,15 +589,17 @@ impl Core<'_, '_> {
         &mut self,
         client: u64,
         answer: &LoginReply,
-    ) -> Result<String, Refusal> {
+    ) -> Result<String, Rejection> {
         let signin = self
             .providers
             .logins
             .get_mut(&answer.login)
             .filter(|s| s.client == client)
             .ok_or_else(no_sign_in)?;
-        let prompt =
-            signin.prompt.take().ok_or(Refusal::SignInNotWaiting)?;
+        let prompt = signin
+            .prompt
+            .take()
+            .ok_or(Rejection::SignInNotWaiting)?;
         let scope = signin.scope.clone();
         self.credentials.remember(&answer.value);
         self.providers.controls.push(control(
@@ -795,7 +798,7 @@ impl Core<'_, '_> {
             } else {
                 self.answer(
                     *client,
-                    reply(id, Ok::<_, Refusal>(words)),
+                    reply(id, Ok::<_, Rejection>(words)),
                 )?;
             }
         }
@@ -808,12 +811,12 @@ impl Core<'_, '_> {
             .split_once("::")
             .filter(|(p, m)| !p.is_empty() && !m.is_empty())
         else {
-            return Ok(Err(Refusal::NoEndpointNamed {
+            return Ok(Err(Rejection::NoEndpointNamed {
                 name: name.into(),
             }));
         };
         if !self.provider_views()?.iter().any(|p| p.id == provider) {
-            return Ok(Err(Refusal::NoSuchEndpoint {
+            return Ok(Err(Rejection::NoSuchEndpoint {
                 name: name.into(),
                 endpoint: provider.into(),
             }));
@@ -823,7 +826,9 @@ impl Core<'_, '_> {
                 list.iter().any(|m| Listing::of(m).id == id)
             });
         if !listed && self.env.settings.model != name {
-            return Ok(Err(Refusal::NoModel { model: name.into() }));
+            return Ok(Err(Rejection::NoModel {
+                model: name.into(),
+            }));
         }
         Ok(Ok((provider.into(), id.into())))
     }
@@ -1035,7 +1040,7 @@ impl Core<'_, '_> {
                 },
             );
         if bad {
-            return Ok(Err(Refusal::BadCost));
+            return Ok(Err(Rejection::BadCost));
         }
         let empty = set
             .images
@@ -1047,12 +1052,14 @@ impl Core<'_, '_> {
                     || takes.max_bytes == Some(0)
             });
         if empty {
-            return Ok(Err(Refusal::BadImageLimit));
+            return Ok(Err(Rejection::BadImageLimit));
         }
         let db = self.realm.store().connection();
         let mut cards = catalogue(db)?;
         let Some(card) = cards.get_mut(name) else {
-            return Ok(Err(Refusal::NoModel { model: name.into() }));
+            return Ok(Err(Rejection::NoModel {
+                model: name.into(),
+            }));
         };
         if let Some(note) = set.note {
             card.note = self.credentials.scrub_text(&note);
@@ -1084,10 +1091,10 @@ fn flat_price(rate: f64) -> Price {
     }
 }
 
-/// The refusal of a sign-in reply or cancel that is not the
+/// The rejection of a sign-in reply or cancel that is not the
 /// connection's own open one.
-fn no_sign_in() -> Refusal {
-    Refusal::NoSignIn
+fn no_sign_in() -> Rejection {
+    Rejection::NoSignIn
 }
 
 fn control(

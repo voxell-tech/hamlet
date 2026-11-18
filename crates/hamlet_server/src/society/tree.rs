@@ -1,56 +1,56 @@
-//! The tree of hires: the Hand above every mayor, and each hire under
-//! its parent.
+//! The tree of agents: the Hand above every lead, and each agent
+//! under its parent.
 
 use anyhow::Result;
 use diesel::prelude::*;
 use hamlet_store::Db;
 use hamlet_store::ids::{AgentId, HamletId};
-use hamlet_store::schema::{agent, hamlet, hire};
+use hamlet_store::schema::{agent, hamlet, hamlet_agent};
 
-/// The living hires whose parent is `parent`, or the living mayors of
+/// The living agents whose parent is `parent`, or the living leads of
 /// living hamlets when `parent` is `None`, the Hand.
 pub(crate) fn children(
     db: &mut Db,
     parent: Option<AgentId>,
 ) -> Result<Vec<AgentId>> {
     Ok(match parent {
-        Some(parent) => hire::table
+        Some(parent) => hamlet_agent::table
             .inner_join(agent::table)
-            .filter(hire::parent.eq(parent))
+            .filter(hamlet_agent::parent.eq(parent))
             .filter(agent::ended_at.is_null())
-            .order(hire::agent)
-            .select(hire::agent)
+            .order(hamlet_agent::agent)
+            .select(hamlet_agent::agent)
             .load(db)?,
         None => hamlet::table
-            .inner_join(agent::table.on(agent::id.eq(hamlet::mayor)))
+            .inner_join(agent::table.on(agent::id.eq(hamlet::lead)))
             .filter(hamlet::removed_at.is_null())
             .filter(agent::ended_at.is_null())
             .order(hamlet::id)
-            .select(hamlet::mayor)
+            .select(hamlet::lead)
             .load(db)?,
     })
 }
 
-/// The parent of `hire`: `None` for a mayor, which is under the Hand.
+/// The parent of `agent`: `None` for a lead, which is under the Hand.
 pub(crate) fn parent(
     db: &mut Db,
-    hire: AgentId,
+    agent: AgentId,
 ) -> Result<Option<AgentId>> {
-    Ok(hire::table
-        .find(hire)
-        .select(hire::parent)
+    Ok(hamlet_agent::table
+        .find(agent)
+        .select(hamlet_agent::parent)
         .first::<Option<AgentId>>(db)?)
 }
 
-/// Whether `lead` is above `hire` in its tree.
+/// Whether `ancestor` is above `agent` in its tree.
 pub(crate) fn is_above(
     db: &mut Db,
-    lead: AgentId,
-    hire: AgentId,
+    ancestor: AgentId,
+    agent: AgentId,
 ) -> Result<bool> {
-    let mut at = hire;
+    let mut at = agent;
     while let Some(up) = parent(db, at)? {
-        if up == lead {
+        if up == ancestor {
             return Ok(true);
         }
         at = up;
@@ -58,13 +58,13 @@ pub(crate) fn is_above(
     Ok(false)
 }
 
-/// Every living hire under `lead`, at any depth.
+/// Every living agent under `ancestor`, at any depth.
 pub(crate) fn under(
     db: &mut Db,
-    lead: AgentId,
+    ancestor: AgentId,
 ) -> Result<Vec<AgentId>> {
     let mut out = Vec::new();
-    let mut next = vec![lead];
+    let mut next = vec![ancestor];
     while let Some(at) = next.pop() {
         for child in children(db, Some(at))? {
             out.push(child);
@@ -74,10 +74,10 @@ pub(crate) fn under(
     Ok(out)
 }
 
-/// The mayor of `hamlet`.
-pub(crate) fn mayor(
+/// The lead of `hamlet`.
+pub(crate) fn lead(
     db: &mut Db,
     hamlet: &HamletId,
 ) -> Result<AgentId> {
-    Ok(hamlet::table.find(hamlet).select(hamlet::mayor).first(db)?)
+    Ok(hamlet::table.find(hamlet).select(hamlet::lead).first(db)?)
 }

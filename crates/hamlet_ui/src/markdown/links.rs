@@ -249,7 +249,7 @@ fn scan(
         };
         if let Some((part, target)) = link {
             let mut part = start + part.start..start + part.end;
-            // A copied address carries its name: `hire#3 (Mira)`.
+            // A copied address carries its name: `agent#3 (Mira)`.
             let name = match matches!(target, Target::Agent(_))
                 && part.end == end
             {
@@ -319,10 +319,10 @@ mod tests {
         matches!(
             word,
             "hand"
-                | "hire#3"
+                | "agent#3"
                 | "worker#12"
-                | "mayor@0b6f-9a"
-                | "scholar#4"
+                | "lead@0b6f-9a"
+                | "profile#4"
         )
     }
 
@@ -370,16 +370,16 @@ mod tests {
         let agent = |address: &str| Target::Agent(address.into());
         assert_eq!(
             links(
-                "Ask hire#3 (Mira Vale), then worker#12. On the \
-                 other hand (left), see mayor@0b6f-9a and scholar#4 \
-                 (x)y, not hire#x or hire#3, (Mira)."
+                "Ask agent#3 (Mira Vale), then worker#12. On the \
+                 other hand (left), see lead@0b6f-9a and profile#4 \
+                 (x)y, not agent#x or agent#3, (Mira)."
             ),
             [
-                ("hire#3 (Mira Vale)", agent("hire#3")),
+                ("agent#3 (Mira Vale)", agent("agent#3")),
                 ("worker#12", agent("worker#12")),
-                ("mayor@0b6f-9a", agent("mayor@0b6f-9a")),
-                ("scholar#4", agent("scholar#4")),
-                ("hire#3", agent("hire#3")),
+                ("lead@0b6f-9a", agent("lead@0b6f-9a")),
+                ("profile#4", agent("profile#4")),
+                ("agent#3", agent("agent#3")),
             ]
         );
         let code = |text: &str| Span {
@@ -392,13 +392,13 @@ mod tests {
         };
         assert_eq!(
             linked(
-                vec![code("hand"), code("hire#3 (Mira)")],
+                vec![code("hand"), code("agent#3 (Mira)")],
                 is_address
             )
             .into_iter()
             .map(|span| span.link)
             .collect::<Vec<_>>(),
-            [Some(agent("hand")), Some(agent("hire#3"))]
+            [Some(agent("hand")), Some(agent("agent#3"))]
         );
         assert_eq!(address("hand", is_address), Some(agent("hand")));
         // In a field, `hand` is one as it is copied, with its name.

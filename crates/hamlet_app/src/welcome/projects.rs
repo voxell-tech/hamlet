@@ -506,8 +506,8 @@ fn page() -> AnyView {
         description(
             "Each project Claude Code, Codex or pi worked on \
              becomes a hamlet working on its folder, and each \
-             conversation picked a hire that carries it on. Open a \
-             project to pick its conversations.",
+             conversation picked an agent that carries it on. Open \
+             a project to pick its conversations.",
         ),
     ))
     .gap(4.0);

@@ -42,5 +42,5 @@ Put a topic that grows into its own folder, such as
 
 Edit lines in place with the `edit` tool; do not append duplicates. When a note
 turns out wrong, correct or delete it. With several chiefs, record whose a
-preference is. What you keep in your lodge goes home to your scholar, so keep
-what any hire of it would want to know.
+preference is. What you keep in your worktree goes home to your profile, so
+keep what any agent of it would want to know.

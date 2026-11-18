@@ -586,7 +586,7 @@ mod tests {
         shells
     }
 
-    /// Runs `command` with `shell` in a scratch lodge.
+    /// Runs `command` with `shell` in a scratch worktree.
     #[cfg(windows)]
     async fn call(shell: &Shell, command: &str) -> Outcome {
         use hamlet_sandbox::{AllLeftovers, Sandbox};
@@ -594,10 +594,10 @@ mod tests {
         use crate::tools::builtin::{Network, ToolSession};
 
         let scratch = hamlet_testing::Scratch::new("shell-call");
-        let lodge = scratch.join("lodges/home/0");
-        fs::create_dir_all(&lodge).unwrap();
+        let worktree = scratch.join("worktrees/home/0");
+        fs::create_dir_all(&worktree).unwrap();
         let place = Place {
-            lodge,
+            worktree,
             folder: None,
             realm: scratch.to_path_buf(),
             shared: Vec::new(),

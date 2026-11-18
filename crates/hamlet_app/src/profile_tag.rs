@@ -1,4 +1,4 @@
-//! The tag of an agent's city scholar, which opens its page.
+//! The tag of an agent's city profile, which opens its page.
 
 use bevy::ecs::entity::Entity;
 use bevy::ecs::world::World;
@@ -11,7 +11,7 @@ use bevy_fynix::views::{
 };
 use bevy_fynix::{ScopedExt, ViewExt, style};
 use hamlet_client::realm::{
-    Learned, Scholar, city_scholar, shown_of,
+    Learned, Profile, city_profile, shown_of,
 };
 use hamlet_ui::styles::{note, small_rules};
 use hamlet_ui::theme::HamletTheme;
@@ -19,7 +19,7 @@ use hamlet_ui::widgets::ellipsis::cut;
 use hamlet_ui::widgets::icons::{Glyph, glyph};
 use hamlet_ui::{AnyView, Cx, View, with_cx};
 
-/// The most letters of a scholar's name a tag shows.
+/// The most letters of a profile's name a tag shows.
 const NAME_SHOWN: usize = 16;
 
 /// The side of the tag's icon, and of its mark.
@@ -30,24 +30,24 @@ const MARK: f32 = 5.0;
 const BADGE: f32 = 10.0;
 const BADGE_ICON: f32 = 7.0;
 
-/// The scholar of the city an agent is of, as its tag shows it.
+/// The profile of the city an agent is of, as its tag shows it.
 #[derive(Clone, PartialEq, Debug)]
-pub(crate) struct ScholarTag {
-    pub scholar: Entity,
+pub(crate) struct ProfileTag {
+    pub profile: Entity,
     pub name: String,
-    /// Whether the agent goes by its scholar's name.
+    /// Whether the agent goes by its profile's name.
     pub same_name: bool,
     /// Whether the agent learned what no dream has brought home yet.
     pub learned: bool,
 }
 
-impl ScholarTag {
-    /// The tag of `agent`, while it is of a scholar of the city.
+impl ProfileTag {
+    /// The tag of `agent`, while it is of a profile of the city.
     pub(crate) fn of(world: &World, agent: Entity) -> Option<Self> {
-        let scholar = city_scholar(world, agent)?;
-        let name = world.get::<Scholar>(scholar)?.0.name.clone();
+        let profile = city_profile(world, agent)?;
+        let name = world.get::<Profile>(profile)?.0.name.clone();
         Some(Self {
-            scholar,
+            profile,
             same_name: shown_of(world, agent) == name,
             learned: world.get::<Learned>(agent).is_some(),
             name,
@@ -56,7 +56,7 @@ impl ScholarTag {
 
     /// What the tag says under the pointer.
     pub(crate) fn tip(&self) -> String {
-        let of = format!("Of {}, a scholar of the city", self.name);
+        let of = format!("Of {}, a profile of the city", self.name);
         if self.learned {
             format!("{of}\n{}", learned_words(&self.name))
         } else {
@@ -65,15 +65,15 @@ impl ScholarTag {
     }
 }
 
-/// What the mark of a hire that learned what `scholar` lacks says.
-pub(crate) fn learned_words(scholar: &str) -> String {
+/// What the mark of an agent that learned what `profile` lacks says.
+pub(crate) fn learned_words(profile: &str) -> String {
     format!(
-        "Learned what {scholar} does not know yet; a dream brings \
+        "Learned what {profile} does not know yet; a dream brings \
          it home"
     )
 }
 
-/// The mark of what a hire learned that its scholar lacks.
+/// The mark of what an agent learned that its profile lacks.
 pub(crate) fn learned_mark() -> impl View {
     with_cx(|cx| {
         frame()
@@ -86,8 +86,8 @@ pub(crate) fn learned_mark() -> impl View {
 }
 
 /// `tag` as a capsule.
-pub(crate) fn tag(tag: &ScholarTag) -> AnyView {
-    let mut parts = vec![glyph(Glyph::Scholar, TAG_ICON).boxed()];
+pub(crate) fn tag(tag: &ProfileTag) -> AnyView {
+    let mut parts = vec![glyph(Glyph::Profile, TAG_ICON).boxed()];
     if !tag.same_name {
         parts.push(
             label(cut(&tag.name, NAME_SHOWN))
@@ -99,24 +99,24 @@ pub(crate) fn tag(tag: &ScholarTag) -> AnyView {
     if tag.learned {
         parts.push(learned_mark().boxed());
     }
-    let scholar = tag.scholar;
+    let profile = tag.profile;
     let tip = tag.tip();
     button(row(parts).gap(4.0).align(AlignItems::Center))
         .shrink(0.0)
         .rules(tag_style)
         .tooltip(move || note(tip.clone()))
         .on_activate(move |world| {
-            crate::hub::open_scholar(world, scholar);
+            crate::hub::open_profile(world, profile);
         })
         .boxed()
 }
 
 /// `tag` as a badge on the top-left corner of the agent's icon.
-pub(crate) fn badge(tag: &ScholarTag) -> AnyView {
-    let scholar = tag.scholar;
+pub(crate) fn badge(tag: &ProfileTag) -> AnyView {
+    let profile = tag.profile;
     let tip = tag.tip();
     let learned = tag.learned;
-    button(glyph(Glyph::Scholar, BADGE_ICON))
+    button(glyph(Glyph::Profile, BADGE_ICON))
         .position(PositionType::Absolute)
         .inset(UiRect {
             left: px(-BADGE / 2.0),
@@ -131,7 +131,7 @@ pub(crate) fn badge(tag: &ScholarTag) -> AnyView {
         .rules(move |cx: &mut Cx| badge_style(cx, learned))
         .tooltip(move || note(tip.clone()))
         .on_activate(move |world| {
-            crate::hub::open_scholar(world, scholar);
+            crate::hub::open_profile(world, profile);
         })
         .boxed()
 }

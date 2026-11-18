@@ -22,16 +22,16 @@ pub(crate) const REFLECT: &str =
      for anything you did that is likely to come up again. If \
      nothing is worth keeping, say so in one line.";
 
-/// The instruction to reflect before a hire's last dream.
+/// The instruction to reflect before an agent's last dream.
 const LAST_REFLECT: &str =
     "Last reflection (automatic, not from a chief). You were ended, \
-     and your last dream brings home to your scholar only what your \
-     lodge holds. Look back over your whole conversation, including \
-     any part brought in from another program. Keep what is worth \
-     remembering about the chiefs and the lessons learned in your \
-     lodge's memory/ folder, and save or improve a skill in its \
-     skills/ for anything likely to come up again. If nothing is \
-     worth keeping, say so in one line.";
+     and your last dream brings home to your profile only what your \
+     worktree holds. Look back over your whole conversation, \
+     including any part brought in from another program. Keep what \
+     is worth remembering about the chiefs and the lessons learned \
+     in your worktree's memory/ folder, and save or improve a skill \
+     in its skills/ for anything likely to come up again. If \
+     nothing is worth keeping, say so in one line.";
 
 /// Counts an answered chief's turn of `id`, and requests a reflection
 /// once `every` turns were.

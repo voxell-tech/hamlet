@@ -1,19 +1,20 @@
-//! A scholar's versions, and the version a hire is made or pinned at.
+//! A profile's versions, and the version an agent is made or pinned
+//! at.
 
 use hamlet_git::{CommitId, MAIN, Repository};
 use hamlet_store::Db;
-use hamlet_store::ids::{AgentId, ScholarId};
+use hamlet_store::ids::{AgentId, ProfileId};
 
 use crate::realm::change::Done;
 use crate::realm::layout::Layout;
 use crate::society::addresses;
-use crate::society::hires::{self, Hiring};
-use crate::society::refusal::Refusal;
+use crate::society::hamlet_agents::{self, ProfileChoice};
+use crate::society::rejection::Rejection;
 
 /// The most commits [`versions`] lists.
 const MOST_SHOWN: usize = 12;
 
-/// The versions of the scholar in `repo` and the latest commits of
+/// The versions of the profile in `repo` and the latest commits of
 /// its `main`.
 pub(crate) fn versions(repo: &Repository) -> anyhow::Result<String> {
     let mut lines = Vec::new();
@@ -57,50 +58,50 @@ pub(crate) fn pinned(name: &str, target: Option<&str>) -> String {
             "{name} takes {version} in once idle, and no later \
              learning."
         ),
-        None => format!("{name} follows its scholar's main again."),
+        None => format!("{name} follows its profile's main again."),
     }
 }
 
-/// A hire of the living `scholar`, at its `main` or pinned to
-/// `version` when that is one the scholar has.
+/// An agent of the living `profile`, at its `main` or pinned to
+/// `version` when that is one the profile has.
 pub(crate) fn existing(
     db: &mut Db,
     layout: &Layout,
-    scholar: ScholarId,
+    profile: ProfileId,
     version: Option<String>,
-) -> Done<Hiring> {
+) -> Done<ProfileChoice> {
     if let Some(version) = &version {
-        let found = Repository::open(&layout.repository(scholar))
+        let found = Repository::open(&layout.repository(profile))
             .ok()
             .and_then(|repo| repo.resolve(version).ok().flatten());
         if found.is_none() || version == MAIN {
-            return Ok(Err(Refusal::NoVersion {
-                name: addresses::scholar_name_of(db, scholar)?,
+            return Ok(Err(Rejection::NoVersion {
+                name: addresses::profile_name_of(db, profile)?,
                 version: version.clone(),
             }));
         }
     }
-    Ok(Ok(Hiring::Existing {
-        scholar,
+    Ok(Ok(ProfileChoice::Existing {
+        profile,
         pin: version,
     }))
 }
 
-/// The version to pin `hire` to, none for `main`.
+/// The version to pin `agent` to, none for `main`.
 pub(crate) fn pin_target(
     db: &mut Db,
     layout: &Layout,
-    hire: AgentId,
+    agent: AgentId,
     version: &str,
 ) -> Done<Option<String>> {
     if version == MAIN {
         return Ok(Ok(None));
     }
-    let found = hires::get(db, hire)?;
-    let repo = Repository::open(&layout.repository(found.scholar))?;
+    let found = hamlet_agents::get(db, agent)?;
+    let repo = Repository::open(&layout.repository(found.profile))?;
     if repo.resolve(version)?.is_none() {
-        return Ok(Err(Refusal::NoVersion {
-            name: addresses::scholar_name_of(db, found.scholar)?,
+        return Ok(Err(Rejection::NoVersion {
+            name: addresses::profile_name_of(db, found.profile)?,
             version: version.into(),
         }));
     }

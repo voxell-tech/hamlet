@@ -59,8 +59,8 @@ const HAND_STARTERS: &[&str] = &[
     "Set up a hamlet for a new project.",
 ];
 
-/// What can be said first to a hire.
-const HIRE_STARTERS: &[&str] = &[
+/// What can be said first to an agent of a hamlet.
+const AGENT_STARTERS: &[&str] = &[
     "What are you working on?",
     "Look through the folder and tell me what you see.",
     "What do you remember so far?",
@@ -80,7 +80,7 @@ fn starters(world: &World, agent: Entity) -> &'static [&'static str] {
     match world.get::<Kind>(agent).map(|kind| kind.0) {
         Some(protocol::AgentKind::Hand) => HAND_STARTERS,
         Some(protocol::AgentKind::Worker) => WORKER_STARTERS,
-        _ => HIRE_STARTERS,
+        _ => AGENT_STARTERS,
     }
 }
 
@@ -782,7 +782,7 @@ impl Lines {
 /// Rows of a merged conversation added each time more is asked for.
 const MERGED_PAGE: usize = 40;
 
-/// A hire's conversation merged into the chat, open under its row.
+/// An agent's conversation merged into the chat, open under its row.
 #[derive(Resource, Default)]
 pub struct MergedLines {
     /// The row it is open under.
@@ -820,7 +820,7 @@ impl MergedLines {
     }
 }
 
-/// Opens hire `from`'s conversation under row `id` of `chat`.
+/// Opens agent `from`'s conversation under row `id` of `chat`.
 pub(crate) fn open_merged(
     world: &mut World,
     chat: Entity,
@@ -1025,7 +1025,7 @@ pub fn ask_earlier(
                 };
                 let id = chats::earlier(world, chat);
                 if let Some(id) = &id {
-                    super::refused(world, id.clone());
+                    super::rejected(world, id.clone());
                 }
                 world.resource_mut::<Reading>().page =
                     id.map(|id| (id, reference));

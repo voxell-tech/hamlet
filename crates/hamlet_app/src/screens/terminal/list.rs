@@ -110,7 +110,7 @@ pub(super) struct Branch {
     /// Its name, when it has one besides its address.
     pub(super) name: Option<String>,
     pub(super) kind: AgentKind,
-    pub(super) mayor: bool,
+    pub(super) lead: bool,
     /// The log of the commands it ran, shown once it is pinned.
     pub(super) log: Option<Item>,
     /// The shells under it, its own and its agents'.
@@ -156,7 +156,7 @@ pub(super) struct Owner {
     pub(super) kind: AgentKind,
     pub(super) parent: Option<AgentId>,
     pub(super) hamlet: Option<String>,
-    pub(super) mayor: bool,
+    pub(super) lead: bool,
     pub(super) address: String,
     pub(super) name: String,
 }
@@ -256,13 +256,13 @@ fn owner(world: &World, agent: AgentId) -> Option<Owner> {
             .get::<realm::LivesIn>(entity)
             .and_then(|lives| world.get::<realm::HamletId>(lives.0))
             .map(|hamlet| hamlet.0.clone()),
-        mayor: world.get::<realm::Mayor>(entity).is_some(),
+        lead: world.get::<realm::Lead>(entity).is_some(),
         address,
         name,
     })
 }
 
-/// The agent a tree puts `owner` under: its lead or starter.
+/// The agent a tree puts `owner` under: its parent or starter.
 fn above(
     owner: &Owner,
     owners: &BTreeMap<AgentId, Owner>,
@@ -273,7 +273,7 @@ fn above(
         .is_some_and(|parent| parent.kind == AgentKind::Hand);
     match owner.kind {
         AgentKind::Hand => None,
-        AgentKind::Hire if hand => None,
+        AgentKind::Hamlet if hand => None,
         _ => Some(parent),
     }
 }
@@ -407,7 +407,7 @@ fn ordered(
         let found = owners.get(agent);
         let rank = match found {
             Some(o) if o.kind == AgentKind::Worker && top => 0,
-            Some(o) if o.mayor => 1,
+            Some(o) if o.lead => 1,
             Some(o) if o.kind == AgentKind::Worker => 3,
             _ => 2,
         };
@@ -448,7 +448,7 @@ fn branch(
             address,
             name,
             kind: found.map_or(AgentKind::Worker, |o| o.kind),
-            mayor: found.is_some_and(|o| o.mayor),
+            lead: found.is_some_and(|o| o.lead),
             log: logs.into_iter().next().map(|mut log| {
                 log.item.crumbs = crumbs.clone();
                 log.item
@@ -1063,7 +1063,7 @@ mod tests {
         let mut worker =
             hamlet_testing::realm::agent(id, "home", false);
         worker.kind = AgentKind::Worker;
-        worker.name = format!("worker#{id}");
+        worker.address = format!("worker#{id}");
         worker.hamlet = hamlet.map(String::from);
         worker.parent = parent.map(AgentId);
         worker
@@ -1137,7 +1137,7 @@ mod tests {
                 rows.iter().map(|row| (*row).to_owned()).collect(),
             )
         };
-        // The chief's first, then its workers, then the mayor's tree.
+        // The chief's first, then its workers, then the lead's tree.
         assert_eq!(
             rows(app.world().resource::<Listed>()),
             [
@@ -1147,9 +1147,9 @@ mod tests {
                         "0:mine",
                         "0:worker#6 (1)",
                         "1:w6",
-                        "0:hire#2 (2)",
+                        "0:agent#2 (2)",
                         "1:m-sh",
-                        "1:hire#4 (1)",
+                        "1:agent#4 (1)",
                         "2:worker#5 (1)",
                         "3:w5",
                     ]
@@ -1183,7 +1183,7 @@ mod tests {
                 What::Terminal(_) => None,
             })
             .collect::<Vec<_>>();
-        assert_eq!(logs, [("hire#2", "bash")]);
+        assert_eq!(logs, [("agent#2", "bash")]);
 
         // A log shows only once its agent is pinned.
         let listed = app.world().resource::<Listed>();

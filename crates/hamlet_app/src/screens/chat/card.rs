@@ -249,8 +249,8 @@ fn event_words(
         Event::Dreamed { summary } => {
             (Glyph::Moon, format!("Dreamed · {summary}"))
         }
-        Event::Scholar { .. } => {
-            (Glyph::Scholar, "Became a scholar of the city".into())
+        Event::Profile { .. } => {
+            (Glyph::Profile, "Became a profile of the city".into())
         }
         Event::Renamed { name } => {
             (Glyph::Rename, format!("Renamed to {name}"))
@@ -278,7 +278,7 @@ fn event(event: protocol::ItemEvent) -> impl View {
     })
 }
 
-/// A merged hire's line, which opens to its conversation.
+/// A merged agent's line, which opens to its conversation.
 fn merged(
     chat: Entity,
     id: String,

@@ -1,4 +1,4 @@
-//! A scholar of the city made of what a hire learned (H38).
+//! A profile of the city made of what an agent learned (H38).
 
 use hamlet_store::ids::Actor;
 
@@ -9,24 +9,24 @@ use crate::realm::change::done;
 use crate::society::addresses::Reach;
 use crate::society::city;
 
-/// `/make-scholar <address> [name]`.
-pub(super) fn make_scholar(
+/// `/make-profile <address> [name]`.
+pub(super) fn make_profile(
     core: &mut Core<'_, '_>,
     line: &Line,
 ) -> Answer {
     let Some(text) = line.words().first().copied() else {
-        return Ok(Err(core.deeds.usage(&line.name)));
+        return Ok(Err(core.actions.usage(&line.name)));
     };
-    let hire =
+    let agent =
         done!(core.resolve(text, line.here.as_ref(), Reach::Kept));
-    done!(core.leads(hire));
+    done!(core.directs(agent));
     let layout = core.realm.layout().clone();
     let chief = core.realm.chief();
-    let make = promotion::make_scholar(
+    let make = promotion::make_profile(
         core.realm.store().connection(),
         &layout,
         &core.writing,
-        hire,
+        agent,
         &line.tail(1),
         chief,
         String::new(),
@@ -36,8 +36,8 @@ pub(super) fn make_scholar(
     Ok(match made {
         Ok(made) => Ok(format!(
             "{} lives in the city, made of what `{text}` learned.",
-            city::get(db, made.scholar)?.label()
+            city::get(db, made.profile)?.label()
         )),
-        Err(refusal) => Err(refusal),
+        Err(rejection) => Err(rejection),
     })
 }

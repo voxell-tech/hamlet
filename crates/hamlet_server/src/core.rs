@@ -22,7 +22,7 @@ use crate::attachments::files::FileUpload;
 use crate::attachments::images::uploads::ImageUpload;
 use crate::calls::looks::LookFindings;
 use crate::calls::tool_runs::ToolRuns;
-use crate::clients::commands::Deeds;
+use crate::clients::commands::Actions;
 use crate::clients::connection::UploadOf;
 use crate::clients::fold::Fold;
 use crate::clients::{Clients, Connections, ConversationWatcher};
@@ -52,8 +52,8 @@ pub(crate) fn plugin(app: &mut bevy_app::App) {
         .init_resource::<Added>()
         .init_resource::<ToolFaults>()
         .init_resource::<Catalogue>()
-        .init_resource::<Lodged>()
-        .add_message::<UnpushedLodge>()
+        .init_resource::<Worktrees>()
+        .add_message::<UnpushedWorktree>()
         .init_resource::<Moving>();
 }
 
@@ -105,15 +105,15 @@ impl Catalogue {
 #[derive(Resource, Deref, DerefMut)]
 pub(crate) struct Workspace(pub Option<Transport>);
 
-/// Each lodge as both copies held it when last in step, by agent.
+/// Each worktree as both copies held it when last in step, by agent.
 #[derive(Resource, Deref, DerefMut, Default)]
-pub(crate) struct Lodged(pub HashMap<AgentId, RemoteCopy>);
+pub(crate) struct Worktrees(pub HashMap<AgentId, RemoteCopy>);
 
-/// The lodges whose remote copy is owed a push, by agent.
+/// The worktrees whose remote copy is owed a push, by agent.
 #[derive(Message)]
-pub(crate) struct UnpushedLodge(pub AgentId);
+pub(crate) struct UnpushedWorktree(pub AgentId);
 
-/// The progress of moving the lodges to the chosen workspace.
+/// The progress of moving the worktrees to the chosen workspace.
 #[derive(Resource, Deref, DerefMut, Default)]
 pub(crate) struct Moving(
     pub Option<protocol::SettingsViewWorkspaceMove>,
@@ -133,12 +133,12 @@ pub(crate) struct ModelTools<'w> {
 }
 
 /// The remote workspace the agents' tools run in, and how its copies
-/// of the lodges stand.
+/// of the worktrees stand.
 #[derive(SystemParam)]
 pub(crate) struct RemoteWorkspace<'w> {
     pub workspace: Res<'w, Workspace>,
-    pub lodged: ResMut<'w, Lodged>,
-    pub unpushed: ResMut<'w, Messages<UnpushedLodge>>,
+    pub worktrees: ResMut<'w, Worktrees>,
+    pub unpushed: ResMut<'w, Messages<UnpushedWorktree>>,
     pub moving: ResMut<'w, Moving>,
 }
 
@@ -178,7 +178,7 @@ pub(crate) struct Core<'w, 's> {
     /// The runtimes' inputs that ended, followed once kept.
     pub ended: MessageWriter<'w, InputEnded>,
     /// The chief's commands.
-    pub deeds: Res<'w, Deeds>,
+    pub actions: Res<'w, Actions>,
     /// The input's spawns and despawns, applied after it.
     pub commands: Commands<'w, 's>,
     pub uploads: Uploads<'w, 's>,
@@ -199,7 +199,7 @@ pub(crate) struct Core<'w, 's> {
     /// on them.
     pub looks: LookFindings<'w, 's>,
     /// Held while anything writes the realm's repositories and
-    /// lodges.
+    /// worktrees.
     pub writing: Res<'w, RepositoryWriteLock>,
     /// The chief's shells and the agents' commands terminals.
     pub terminals: ResMut<'w, Terminals>,
@@ -238,8 +238,8 @@ impl Core<'_, '_> {
         Ok(made)
     }
 
-    /// Makes a change by `actor` that may be refused, leaving nothing
-    /// of it when it is.
+    /// Makes a change by `actor` that may be rejected, leaving
+    /// nothing of it when it is.
     pub fn attempt<T>(
         &mut self,
         actor: Actor,

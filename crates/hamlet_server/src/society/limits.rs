@@ -9,10 +9,10 @@ use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
-use super::refusal::Refusal;
+use super::rejection::Rejection;
 use super::spend::micros;
 use super::{authority, hamlets};
-use crate::realm::change::{Change, Done, refuse};
+use crate::realm::change::{Change, Done, reject};
 
 /// Millionths of a dollar.
 pub(crate) type Micros = i64;
@@ -22,15 +22,15 @@ pub(crate) type Micros = i64;
 #[serde(default, rename_all = "camelCase")]
 pub(crate) struct Limits {
     pub budget: Budget,
-    pub road: RoadRules,
+    pub channel: ChannelRules,
     pub reserved: Reserved,
     /// The hamlet's own model, else the realm's.
     pub model: Option<String>,
-    /// How many days of decisions each hire is told (H17).
+    /// How many days of decisions each agent is told (H17).
     pub told_days: i64,
     pub asking: ChiefQuestions,
-    /// How long after a chief's task a hire may not be ended or
-    /// merged by a lead (H7).
+    /// How long after a chief's task an agent may not be ended or
+    /// merged by a parent (H7).
     pub protected_minutes: i64,
 }
 
@@ -38,7 +38,7 @@ impl Default for Limits {
     fn default() -> Self {
         Self {
             budget: Budget::default(),
-            road: RoadRules::default(),
+            channel: ChannelRules::default(),
             reserved: Reserved::default(),
             model: None,
             told_days: 7,
@@ -52,9 +52,12 @@ impl Limits {
     /// What is wrong with these limits, in words.
     pub fn fault(&self) -> Option<String> {
         let negative = [
-            ("a road's price", self.road.price),
-            ("the most roads", self.road.most),
-            ("the days a road stays", self.road.grows_over_days),
+            ("a channel's price", self.channel.price),
+            ("the most channels", self.channel.most),
+            (
+                "the days a channel stays",
+                self.channel.grows_over_days,
+            ),
             ("the days of decisions told", self.told_days),
             ("the questions a turn puts", self.asking.questions),
             ("the refusals a turn takes", self.asking.refusals),
@@ -112,16 +115,16 @@ pub(crate) enum Period {
     Month,
 }
 
-/// What roads cost and how many a hamlet holds (H3).
+/// What channels cost and how many a hamlet holds (H3).
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(default, rename_all = "camelCase")]
-pub(crate) struct RoadRules {
+pub(crate) struct ChannelRules {
     pub price: Micros,
     pub most: i64,
     pub grows_over_days: i64,
 }
 
-impl Default for RoadRules {
+impl Default for ChannelRules {
     fn default() -> Self {
         Self {
             price: 10_000,
@@ -131,15 +134,15 @@ impl Default for RoadRules {
     }
 }
 
-/// The leads' acts a chief keeps for itself, so they wait for a chief
-/// (H22).
+/// The parents' acts a chief keeps for itself, so they wait for a
+/// chief (H22).
 #[derive(
     Clone, Debug, Default, PartialEq, Serialize, Deserialize,
 )]
 #[serde(default, rename_all = "camelCase")]
 pub(crate) struct Reserved {
-    pub hire: bool,
-    pub roads: bool,
+    pub add: bool,
+    pub channels: bool,
     pub end: bool,
     pub merge: bool,
 }
@@ -163,7 +166,7 @@ impl Default for ChiefQuestions {
     }
 }
 
-/// When a lead reviews a chief's instruction to a hire under it
+/// When a parent reviews a chief's instruction to an agent under it
 /// (H10).
 #[derive(
     Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize,
@@ -171,7 +174,7 @@ impl Default for ChiefQuestions {
 #[serde(rename_all = "camelCase")]
 pub(crate) enum Review {
     Always,
-    /// When the lead's model is served from another machine.
+    /// When the parent's model is served from another machine.
     Remote,
     Never,
 }
@@ -180,8 +183,8 @@ pub(crate) enum Review {
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(default, rename_all = "camelCase")]
 pub(crate) struct RealmLimits {
-    /// Whether mayors may agree roads between their hamlets.
-    pub roads_between: bool,
+    /// Whether leads may agree channels between their hamlets.
+    pub channels_between: bool,
     /// The budget of the Hand and of the workers it and the chiefs
     /// start outside a hamlet.
     pub budget: Budget,
@@ -190,7 +193,7 @@ pub(crate) struct RealmLimits {
 impl Default for RealmLimits {
     fn default() -> Self {
         Self {
-            roads_between: true,
+            channels_between: true,
             budget: Budget::default(),
         }
     }
@@ -224,11 +227,11 @@ pub(crate) enum Limit {
     BudgetCost(Option<Micros>),
     BudgetMinutes(Option<i64>),
     BudgetPeriod(Period),
-    RoadPrice(Micros),
-    RoadMost(i64),
-    RoadGrowsOverDays(i64),
-    ReservedHire(bool),
-    ReservedRoads(bool),
+    ChannelPrice(Micros),
+    ChannelMost(i64),
+    ChannelGrowsOverDays(i64),
+    ReservedAdd(bool),
+    ReservedChannels(bool),
     ReservedEnd(bool),
     ReservedMerge(bool),
     AskingQuestions(i64),
@@ -237,7 +240,7 @@ pub(crate) enum Limit {
     Model(Option<String>),
     ToldDays(i64),
     ProtectedMinutes(i64),
-    RoadsBetween(bool),
+    ChannelsBetween(bool),
 }
 
 impl Limit {
@@ -247,12 +250,12 @@ impl Limit {
         section: &str,
         key: &str,
         value: Value,
-    ) -> Result<Self, Refusal> {
+    ) -> Result<Self, Rejection> {
         fn of<T: DeserializeOwned>(
             value: Value,
-        ) -> Result<T, Refusal> {
+        ) -> Result<T, Rejection> {
             serde_json::from_value(value)
-                .map_err(|_| Refusal::LimitsUnfit)
+                .map_err(|_| Rejection::LimitsUnfit)
         }
         Ok(match (section, key) {
             ("budget", "cost") => Self::BudgetCost(
@@ -260,15 +263,17 @@ impl Limit {
             ),
             ("budget", "minutes") => Self::BudgetMinutes(of(value)?),
             ("budget", "period") => Self::BudgetPeriod(of(value)?),
-            ("road", "price") => {
-                Self::RoadPrice(micros(of::<f64>(value)?))
+            ("channel", "price") => {
+                Self::ChannelPrice(micros(of::<f64>(value)?))
             }
-            ("road", "most") => Self::RoadMost(of(value)?),
-            ("road", "growsOverDays") => {
-                Self::RoadGrowsOverDays(of(value)?)
+            ("channel", "most") => Self::ChannelMost(of(value)?),
+            ("channel", "growsOverDays") => {
+                Self::ChannelGrowsOverDays(of(value)?)
             }
-            ("reserved", "hire") => Self::ReservedHire(of(value)?),
-            ("reserved", "roads") => Self::ReservedRoads(of(value)?),
+            ("reserved", "add") => Self::ReservedAdd(of(value)?),
+            ("reserved", "channels") => {
+                Self::ReservedChannels(of(value)?)
+            }
             ("reserved", "end") => Self::ReservedEnd(of(value)?),
             ("reserved", "merge") => Self::ReservedMerge(of(value)?),
             ("asking", "questions") => {
@@ -283,8 +288,10 @@ impl Limit {
             ("", "protectedMinutes") => {
                 Self::ProtectedMinutes(of(value)?)
             }
-            ("", "roadsBetween") => Self::RoadsBetween(of(value)?),
-            _ => return Err(Refusal::LimitsUnfit),
+            ("", "channelsBetween") => {
+                Self::ChannelsBetween(of(value)?)
+            }
+            _ => return Err(Rejection::LimitsUnfit),
         })
     }
 
@@ -302,19 +309,21 @@ impl Limit {
 }
 
 impl Limits {
-    /// Sets `limit`, refused when it is not a hamlet's.
-    pub fn set(&mut self, limit: Limit) -> Result<(), Refusal> {
+    /// Sets `limit`, rejected when it is not a hamlet's.
+    pub fn set(&mut self, limit: Limit) -> Result<(), Rejection> {
         let Err(limit) = limit.set_budget(&mut self.budget) else {
             return Ok(());
         };
         match limit {
-            Limit::RoadPrice(price) => self.road.price = price,
-            Limit::RoadMost(most) => self.road.most = most,
-            Limit::RoadGrowsOverDays(days) => {
-                self.road.grows_over_days = days;
+            Limit::ChannelPrice(price) => self.channel.price = price,
+            Limit::ChannelMost(most) => self.channel.most = most,
+            Limit::ChannelGrowsOverDays(days) => {
+                self.channel.grows_over_days = days;
             }
-            Limit::ReservedHire(on) => self.reserved.hire = on,
-            Limit::ReservedRoads(on) => self.reserved.roads = on,
+            Limit::ReservedAdd(on) => self.reserved.add = on,
+            Limit::ReservedChannels(on) => {
+                self.reserved.channels = on;
+            }
             Limit::ReservedEnd(on) => self.reserved.end = on,
             Limit::ReservedMerge(on) => self.reserved.merge = on,
             Limit::AskingQuestions(most) => {
@@ -334,8 +343,8 @@ impl Limits {
             Limit::BudgetCost(_)
             | Limit::BudgetMinutes(_)
             | Limit::BudgetPeriod(_)
-            | Limit::RoadsBetween(_) => {
-                return Err(Refusal::LimitsUnfit);
+            | Limit::ChannelsBetween(_) => {
+                return Err(Rejection::LimitsUnfit);
             }
         }
         Ok(())
@@ -343,12 +352,14 @@ impl Limits {
 }
 
 impl RealmLimits {
-    /// Sets `limit`, refused when it is not the realm's.
-    pub fn set(&mut self, limit: Limit) -> Result<(), Refusal> {
+    /// Sets `limit`, rejected when it is not the realm's.
+    pub fn set(&mut self, limit: Limit) -> Result<(), Rejection> {
         match limit.set_budget(&mut self.budget) {
             Ok(()) => {}
-            Err(Limit::RoadsBetween(on)) => self.roads_between = on,
-            Err(_) => return Err(Refusal::LimitsUnfit),
+            Err(Limit::ChannelsBetween(on)) => {
+                self.channels_between = on;
+            }
+            Err(_) => return Err(Rejection::LimitsUnfit),
         }
         Ok(())
     }
@@ -371,22 +382,22 @@ pub(crate) fn set_one(
 pub(crate) fn set_hamlet(
     cx: &mut Change<'_>,
     id: &HamletId,
-    edit: impl FnOnce(&mut Limits) -> Result<(), Refusal>,
+    edit: impl FnOnce(&mut Limits) -> Result<(), Rejection>,
 ) -> Done<()> {
     if hamlets::find(cx.db, id)?.is_none() {
-        refuse!(Refusal::NoHamlet { id: id.to_string() });
+        reject!(Rejection::NoHamlet { id: id.to_string() });
     }
     if !authority::may_govern(cx.db, cx.actor, id)? {
-        refuse!(Refusal::NotChief {
+        reject!(Rejection::NotChief {
             hamlet: id.to_string()
         });
     }
     let mut own = of(cx.db, id)?;
-    if let Err(refusal) = edit(&mut own) {
-        refuse!(refusal);
+    if let Err(rejection) = edit(&mut own) {
+        reject!(rejection);
     }
     if let Some(why) = own.fault() {
-        refuse!(Refusal::BadLimits { why });
+        reject!(Rejection::BadLimits { why });
     }
     hamlets::set_limits(cx, id, &own)
 }
@@ -396,17 +407,17 @@ pub(crate) fn set_hamlet(
 pub(crate) fn set_realm(
     cx: &mut Change<'_>,
     chief: ChiefId,
-    edit: impl FnOnce(&mut RealmLimits) -> Result<(), Refusal>,
+    edit: impl FnOnce(&mut RealmLimits) -> Result<(), Rejection>,
 ) -> Done<()> {
     if !authority::may_rule(cx.db, cx.actor)? {
-        refuse!(Refusal::NotRealmChief);
+        reject!(Rejection::NotRealmChief);
     }
     let mut own = realm(cx.db)?;
-    if let Err(refusal) = edit(&mut own) {
-        refuse!(refusal);
+    if let Err(rejection) = edit(&mut own) {
+        reject!(rejection);
     }
     if let Some(why) = own.budget.fault() {
-        refuse!(Refusal::BadLimits { why });
+        reject!(Rejection::BadLimits { why });
     }
     diesel::replace_into(document::table)
         .values((

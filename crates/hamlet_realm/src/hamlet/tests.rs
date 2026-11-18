@@ -1,8 +1,8 @@
 use bevy::prelude::*;
 use hamlet_client::realm::{
-    Activity, Busy, Carried, Doing, HamletId, Hire, Identity, Kind,
-    Left, Lived, LivesIn, Mayor, MergedInto, Road, RoadUse, Spot,
-    Traffic,
+    Activity, Busy, Carried, Channel, ChannelUse, Doing, HamletAgent,
+    HamletId, Identity, Kind, Lead, Left, Lived, LivesIn, MergedInto,
+    Spot, Traffic,
 };
 use hamlet_client::{ClientPlugin, receive};
 use hamlet_protocol::client as protocol;
@@ -26,18 +26,18 @@ use crate::{Clock, Stage};
 /// The first hamlet's id in the client's fixture.
 const HOME: &str = "home";
 
-/// The id of a test hire, by the order the tests count it in: 0 is
-/// the fixture's mayor, the rest are made by [`hire`].
+/// The id of a test agent, by the order the tests count it in: 0 is
+/// the fixture's lead, the rest are made by [`hamlet_agent`].
 fn id_of(number: u64) -> protocol::AgentId {
     protocol::AgentId(if number == 0 { 2 } else { 1000 + number })
 }
 
-/// A hire of a test hamlet, counted `number`.
-fn hire(number: u64, hamlet: Entity) -> impl Bundle {
+/// An agent of a test hamlet, counted `number`.
+fn hamlet_agent(number: u64, hamlet: Entity) -> impl Bundle {
     (
         Identity(id_of(number)),
-        Kind(protocol::AgentKind::Hire),
-        Hire,
+        Kind(protocol::AgentKind::Hamlet),
+        HamletAgent,
         LivesIn(hamlet),
     )
 }
@@ -78,8 +78,9 @@ fn app() -> (App, Entity) {
 fn a_hamlet_that_is_removed_takes_its_town_with_it() {
     let (mut app, _) = app();
     let mill = settle(&mut app, "mill");
-    let miller =
-        app.world_mut().spawn((hire(1, mill), Lived::default()));
+    let miller = app
+        .world_mut()
+        .spawn((hamlet_agent(1, mill), Lived::default()));
     let miller = miller.id();
     app.update();
     assert_eq!(app.world().resource::<Society>().towns.len(), 2);
@@ -103,27 +104,27 @@ fn a_hamlet_that_is_removed_takes_its_town_with_it() {
     assert!(society.roads.is_empty());
 }
 
-/// A hamlet with its first mayor in office.
+/// A hamlet with its first lead in office.
 fn settle(app: &mut App, name: &str) -> Entity {
     if app
         .world()
         .contains_resource::<hamlet_client::realm::Seen>()
     {
-        // The mayors take the ids after the Hand's and the first
-        // mayor's.
+        // The leads take the ids after the Hand's and the first
+        // lead's.
         let world = app.world_mut();
-        let mayor =
+        let lead =
             world.query::<&HamletId>().iter(world).count() as u64 + 2;
         receive_change(
             app,
             protocol::Update::Hamlet {
-                hamlet: realm::hamlet(name, mayor),
+                hamlet: realm::hamlet(name, lead),
             },
         );
         receive_change(
             app,
             protocol::Update::Agent {
-                agent: realm::agent(mayor, name, true),
+                agent: realm::agent(lead, name, true),
             },
         );
     } else {
@@ -164,7 +165,7 @@ fn tell(
 ) {
     for number in living.iter().chain(gone.iter().map(|(n, _)| n)) {
         if entity(app, *number).is_none() {
-            app.world_mut().spawn(hire(*number, hamlet));
+            app.world_mut().spawn(hamlet_agent(*number, hamlet));
         }
     }
     for number in living {
@@ -231,22 +232,22 @@ fn the_world_shows_who_left_and_who_came_back() {
 }
 
 #[test]
-fn a_new_mayor_trades_houses_with_the_one_before() {
+fn a_new_lead_trades_houses_with_the_one_before() {
     let (mut app, hamlet) = app();
     tell(&mut app, hamlet, &[1, 2], &[]);
     let (hall, home) =
         (agent(&mut app, 0).plot, agent(&mut app, 2).plot);
     let (founder, two) =
         (entity(&mut app, 0).unwrap(), entity(&mut app, 2).unwrap());
-    app.world_mut().entity_mut(founder).remove::<Mayor>();
-    app.world_mut().entity_mut(two).insert(Mayor);
+    app.world_mut().entity_mut(founder).remove::<Lead>();
+    app.world_mut().entity_mut(two).insert(Lead);
     app.update();
     assert_eq!(agent(&mut app, 2).plot, hall);
     assert_eq!(agent(&mut app, 0).plot, home);
     let town = app.world().get::<Sited>(hamlet).unwrap().0;
-    let mayor =
-        app.world().resource::<Society>().town(town).unwrap().mayor;
-    assert_eq!(mayor, agent(&mut app, 2).id);
+    let lead =
+        app.world().resource::<Society>().town(town).unwrap().lead;
+    assert_eq!(lead, agent(&mut app, 2).id);
 }
 
 #[test]
@@ -289,7 +290,9 @@ fn a_newcomer_takes_the_plot_of_one_who_left_and_keeps_it() {
         (2, lived(20, Some(30))),
         (3, lived(40, None)),
     ] {
-        later.world_mut().spawn((hire(number, hamlet), times));
+        later
+            .world_mut()
+            .spawn((hamlet_agent(number, hamlet), times));
     }
     tell(&mut later, hamlet, &[1, 3], &[(2, None)]);
     assert_eq!(agent(&mut later, 3).plot, stood);
@@ -321,20 +324,23 @@ fn an_agent_with_no_plot_waits_for_one_and_the_society_rests() {
 }
 
 #[test]
-fn roads_and_work_follow_the_entities() {
+fn channels_and_work_follow_the_entities() {
     let (mut app, hamlet) = app();
     tell(&mut app, hamlet, &[1, 2], &[]);
     let (a, b) =
         (entity(&mut app, 1).unwrap(), entity(&mut app, 2).unwrap());
     let traffic = |messages, level| Traffic {
-        kind: protocol::RoadKind::Laid,
+        kind: protocol::ChannelKind::Opened,
         level,
         messages,
         last_from: Some(a),
     };
-    let road = app
+    let channel = app
         .world_mut()
-        .spawn((Road { ends: (a, b) }, traffic(0, RoadUse::Dirt)))
+        .spawn((
+            Channel { ends: (a, b) },
+            traffic(0, ChannelUse::Dirt),
+        ))
         .id();
     app.world_mut().entity_mut(a).insert((
         Busy,
@@ -346,7 +352,7 @@ fn roads_and_work_follow_the_entities() {
         },
     ));
     app.update();
-    let pair = app.world().get::<Laid>(road).unwrap().0;
+    let pair = app.world().get::<Laid>(channel).unwrap().0;
     let level = |app: &App| {
         app.world()
             .resource::<Society>()
@@ -358,23 +364,23 @@ fn roads_and_work_follow_the_entities() {
     assert_eq!(one.state, KeeperState::Working);
     assert_eq!(one.work.task, Task::Fetch);
 
-    // A message: the road is used more and its sender walks.
+    // A message: the channel is used more and its sender walks.
     app.world_mut()
-        .entity_mut(road)
-        .insert(traffic(3, RoadUse::Paved));
-    app.world_mut().trigger(Carried { road, from: a });
+        .entity_mut(channel)
+        .insert(traffic(3, ChannelUse::Paved));
+    app.world_mut().trigger(Carried { channel, from: a });
     app.update();
     assert_eq!(level(&app), Some(RoadLevel::Paved));
     let trips = &app.world().resource::<Trips>().trips;
     assert_eq!(trips.len(), 1);
     assert_eq!(trips[0].walker, one.id);
 
-    app.world_mut().entity_mut(road).despawn();
+    app.world_mut().entity_mut(channel).despawn();
     assert_eq!(level(&app), None);
 }
 
 #[test]
-fn several_hamlets_are_towns_with_roads_between() {
+fn several_hamlets_are_towns_with_channels_between() {
     let (mut app, hamlet) = app();
     let mill = settle(&mut app, "mill");
     tell(&mut app, hamlet, &[1, 2], &[]);
@@ -391,26 +397,26 @@ fn several_hamlets_are_towns_with_roads_between() {
         let id = app.world().get::<Housed>(agent).unwrap().0;
         app.world().resource::<Society>().agent(id).unwrap().clone()
     };
-    let mayor = entity(&mut app, 0).unwrap();
-    let (here, there) = (housed(&app, mayor), housed(&app, miller));
+    let lead = entity(&mut app, 0).unwrap();
+    let (here, there) = (housed(&app, lead), housed(&app, miller));
     assert_ne!(here.town, there.town);
-    // Each first mayor has its town's hall.
+    // Each first lead has its town's hall.
     let society = app.world().resource::<Society>();
-    assert_eq!(society.town(there.town).unwrap().mayor, there.id);
+    assert_eq!(society.town(there.town).unwrap().lead, there.id);
 
-    // A road between the mayors crosses the towns.
-    let ends = if mayor <= miller {
-        (mayor, miller)
+    // A channel between the leads crosses the towns.
+    let ends = if lead <= miller {
+        (lead, miller)
     } else {
-        (miller, mayor)
+        (miller, lead)
     };
     let traffic = Traffic {
-        kind: protocol::RoadKind::Mayors,
-        level: RoadUse::Dirt,
+        kind: protocol::ChannelKind::Leads,
+        level: ChannelUse::Dirt,
         messages: 0,
         last_from: None,
     };
-    app.world_mut().spawn((Road { ends }, traffic));
+    app.world_mut().spawn((Channel { ends }, traffic));
     app.update();
     let pair = Pair::new(here.id, there.id);
     assert!(app.world().resource::<Society>().road(pair).is_some());
@@ -569,7 +575,7 @@ fn a_received_realm_houses_the_founder_in_its_hall() {
     let founder = society.agent(housed).unwrap();
     assert_eq!(society.towns.len(), 1);
     assert_eq!(society.agents.len(), 3);
-    assert_eq!(society.towns[0].mayor, founder.id);
+    assert_eq!(society.towns[0].lead, founder.id);
     assert_eq!(founder.plot, 0);
     assert_eq!(founder.state, KeeperState::Rest);
 }
@@ -610,7 +616,7 @@ fn a_frame_from_the_server_houses_the_founder_in_the_update_it_arrives()
 }
 
 #[test]
-fn a_hire_housed_after_the_first_state_crosses_by_boat() {
+fn an_agent_housed_after_the_first_state_crosses_by_boat() {
     use bevy::transform::TransformPlugin;
 
     use super::crossing::Voyage;

@@ -10,7 +10,7 @@ use bevy_ecs::system::ResMut;
 use bevy_log::error;
 use hamlet_protocol::client::ItemEvent;
 use hamlet_store::Db;
-use hamlet_store::ids::{Actor, AgentId, DreamId, ScholarId};
+use hamlet_store::ids::{Actor, AgentId, DreamId, ProfileId};
 
 use crate::app::input::AddHandler;
 use crate::app::timers::AddTimer;
@@ -21,22 +21,22 @@ use crate::conversations::tasks::{self, Origin};
 use crate::conversations::{self, Begin, Kind, models, reflections};
 use crate::core::Core;
 use crate::realm::Realm;
-use crate::realm::change::{Done, checked, done, refuse};
+use crate::realm::change::{Done, checked, done, reject};
 use crate::realm::jobs::Job;
 use crate::realm::layout::Layout;
 use crate::realm::settings::Dreams;
 use crate::society::dreams::{
     self, Asked, Dream, DreamKind, Outcome,
 };
-use crate::society::refusal::Refusal;
-use crate::society::{addresses, agents, city, hand, hires};
+use crate::society::rejection::Rejection;
+use crate::society::{addresses, agents, city, hamlet_agents, hand};
 use crate::{knowledge, runtimes};
 
-/// The least time between two dreams of one hire.
-const HIRE_REST: i64 = 6 * 3_600_000;
-/// The least time between two dreams of one scholar.
-const SCHOLAR_REST: i64 = 24 * 3_600_000;
-/// The time after its end a hire may still dream once more.
+/// The least time between two dreams of one agent.
+const AGENT_REST: i64 = 6 * 3_600_000;
+/// The least time between two dreams of one profile.
+const PROFILE_REST: i64 = 24 * 3_600_000;
+/// The time after its end an agent may still dream once more.
 const ENDING_WINDOW: i64 = 24 * 3_600_000;
 const DREAM_CHECK: std::time::Duration =
     std::time::Duration::from_secs(60);
@@ -62,38 +62,38 @@ fn start_next_dream(
 ) -> bevy_ecs::error::Result {
     let ended = ended.drain().flat_map(|e| e.0).collect::<Vec<_>>();
     for (dream, summary) in ended {
-        core.dreamt(dream, &summary, Notify::Lead)?;
+        core.dreamt(dream, &summary, Notify::Ender)?;
     }
     core.dream_tick()?;
     Ok(())
 }
 
-/// Who learns how the last dream of an ended hire ended.
+/// Who learns how the last dream of an ended agent ended.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub(crate) enum Notify {
     /// The agent that ended it, by a notification.
-    Lead,
+    Ender,
     /// The call that ended it, in its answer.
     Answered,
 }
 
-/// The living hires that learned what no dream took home yet.
+/// The living agents that learned what no dream took home yet.
 #[derive(Resource, Default)]
 pub(crate) struct Learned(pub BTreeSet<AgentId>);
 
 impl Learned {
     pub fn take_in(&mut self, learning: &BTreeMap<AgentId, bool>) {
-        for (&hire, &has) in learning {
+        for (&agent, &has) in learning {
             if has {
-                self.0.insert(hire);
+                self.0.insert(agent);
             } else {
-                self.0.remove(&hire);
+                self.0.remove(&agent);
             }
         }
     }
 }
 
-/// Whether each hire the jobs `done` may have changed has learned
+/// Whether each agent the jobs `done` may have changed has learned
 /// anything.
 pub(crate) fn learning(
     db: &mut Db,
@@ -102,50 +102,50 @@ pub(crate) fn learning(
 ) -> BTreeMap<AgentId, bool> {
     let mut learning = BTreeMap::new();
     for job in done {
-        let found = learners(db, job).and_then(|hires| {
-            hires
+        let found = learners(db, job).and_then(|agents| {
+            agents
                 .into_iter()
-                .map(|hire| {
-                    Ok((hire, has_learned(db, layout, hire)?))
+                .map(|agent| {
+                    Ok((agent, has_learned(db, layout, agent)?))
                 })
                 .collect::<Result<Vec<_>>>()
         });
         match found {
             Ok(found) => learning.extend(found),
             Err(error) => {
-                error!("finding what hires learned: {error:#}");
+                error!("finding what agents learned: {error:#}");
             }
         }
     }
     learning
 }
 
-/// The hires whose branch, or whose scholar's `main`, `job` changes.
+/// The agents whose branch, or whose profile's `main`, `job` changes.
 fn learners(db: &mut Db, job: &Job) -> Result<Vec<AgentId>> {
-    let of_scholar = |db: &mut Db, scholar, also: Option<AgentId>| {
-        let mut hires = hires::living_of(db, scholar)?
+    let of_profile = |db: &mut Db, profile, also: Option<AgentId>| {
+        let mut agents = hamlet_agents::living_of(db, profile)?
             .into_iter()
-            .map(|hire| hire.agent)
+            .map(|found| found.agent)
             .collect::<Vec<_>>();
-        hires.extend(also);
-        anyhow::Ok(hires)
+        agents.extend(also);
+        anyhow::Ok(agents)
     };
     Ok(match job {
-        Job::Lodge { hire }
-        | Job::Commit { hire }
-        | Job::TakeIn { hire }
-        | Job::EraseHire { hire } => vec![*hire],
-        Job::BringHome { hire } => {
-            let scholar = hires::get(db, *hire)?.scholar;
-            of_scholar(db, scholar, Some(*hire))?
+        Job::Worktree { agent }
+        | Job::Commit { agent }
+        | Job::TakeIn { agent }
+        | Job::EraseAgent { agent } => vec![*agent],
+        Job::BringHome { agent } => {
+            let profile = hamlet_agents::get(db, *agent)?.profile;
+            of_profile(db, profile, Some(*agent))?
         }
         Job::DreamEnd { dream, .. } => {
             let dream = dreams::get(db, *dream)?;
-            of_scholar(db, dream.scholar, dream.hire)?
+            of_profile(db, dream.profile, dream.agent)?
         }
-        Job::Plant { scholar, .. }
-        | Job::EraseScholar { scholar } => {
-            of_scholar(db, *scholar, None)?
+        Job::Plant { profile, .. }
+        | Job::EraseProfile { profile } => {
+            of_profile(db, *profile, None)?
         }
         Job::Merge { merge } | Job::Split { merge } => {
             let merge = crate::society::merges::get(db, *merge)?;
@@ -163,7 +163,7 @@ fn has_learned(
     layout: &Layout,
     agent: AgentId,
 ) -> Result<bool> {
-    Ok(hires::find(db, agent)?.is_some()
+    Ok(hamlet_agents::find(db, agent)?.is_some()
         && agents::get(db, agent)?.is_living()
         && knowledge::dreams::has_learned(db, layout, agent)?)
 }
@@ -176,7 +176,7 @@ fn note_learned(
     let db = realm.store().connection();
     let mut find = || {
         let mut found = BTreeSet::new();
-        for agent in agents::all_hires(db)? {
+        for agent in agents::all_hamlet_agents(db)? {
             if has_learned(db, &layout, agent)? {
                 found.insert(agent);
             }
@@ -185,31 +185,37 @@ fn note_learned(
     };
     match find() {
         Ok(found) => learned.0 = found,
-        Err(error) => error!("finding what hires learned: {error:#}"),
+        Err(error) => {
+            error!("finding what agents learned: {error:#}");
+        }
     }
 }
 
-/// A hire or a scholar that dreams.
+/// An agent or a profile that dreams.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub(crate) enum Dreamer {
-    Hire { hire: AgentId, ending: bool },
-    Scholar(ScholarId),
+    /// An agent of a hamlet.
+    Agent {
+        agent: AgentId,
+        ending: bool,
+    },
+    Profile(ProfileId),
 }
 
 impl Dreamer {
     fn asked(self) -> Asked {
         match self {
-            Self::Hire { hire, .. } => Asked::Hire(hire),
-            Self::Scholar(scholar) => Asked::Scholar(scholar),
+            Self::Agent { agent, .. } => Asked::Agent(agent),
+            Self::Profile(profile) => Asked::Profile(profile),
         }
     }
 
     fn is_of(self, dream: &Dream) -> bool {
         match self {
-            Self::Hire { hire, .. } => dream.hire == Some(hire),
-            Self::Scholar(scholar) => {
-                dream.kind == DreamKind::Scholar
-                    && dream.scholar == scholar
+            Self::Agent { agent, .. } => dream.agent == Some(agent),
+            Self::Profile(profile) => {
+                dream.kind == DreamKind::Profile
+                    && dream.profile == profile
             }
         }
     }
@@ -227,31 +233,36 @@ pub(crate) fn next(
     }
     for asked in dreams::asked(db)? {
         let dreamer = match asked {
-            Asked::Hire(hire) => {
-                let found = agents::get(db, hire)?;
-                (!found.erased).then_some(Dreamer::Hire {
-                    hire,
+            Asked::Agent(agent) => {
+                let found = agents::get(db, agent)?;
+                (!found.erased).then_some(Dreamer::Agent {
+                    agent,
                     ending: !found.is_living(),
                 })
             }
-            Asked::Scholar(scholar) => city::living(db, scholar)?
-                .map(|_| Dreamer::Scholar(scholar)),
+            Asked::Profile(profile) => city::living(db, profile)?
+                .map(|_| Dreamer::Profile(profile)),
         };
         match dreamer {
-            // An ended hire's dream waits for its reflection.
-            Some(Dreamer::Hire { hire, ending: true })
-                if reflections::is_reflecting(db, hire)? => {}
+            // An ended agent's dream waits for its reflection.
+            Some(Dreamer::Agent {
+                agent,
+                ending: true,
+            }) if reflections::is_reflecting(db, agent)? => {}
             Some(dreamer) => return Ok(Some(dreamer)),
             None => dreams::forget(db, asked)?,
         }
     }
-    for (hire, ended) in
-        hires::ended_to_dream(db, now - ENDING_WINDOW)?
+    for (agent, ended) in
+        hamlet_agents::ended_to_dream(db, now - ENDING_WINDOW)?
     {
-        let dreamt = dreams::last_of_hire(db, hire)?
+        let dreamt = dreams::last_of_agent(db, agent)?
             .is_some_and(|d| d.ending && d.began >= ended);
-        if !dreamt && !reflections::is_reflecting(db, hire)? {
-            return Ok(Some(Dreamer::Hire { hire, ending: true }));
+        if !dreamt && !reflections::is_reflecting(db, agent)? {
+            return Ok(Some(Dreamer::Agent {
+                agent,
+                ending: true,
+            }));
         }
     }
     if !settings.on || !in_hours(settings.hours, now)? {
@@ -275,32 +286,33 @@ fn due(
     layout: &Layout,
     now: i64,
 ) -> Result<Option<Dreamer>> {
-    for agent in agents::all_hires(db)? {
+    for agent in agents::all_hamlet_agents(db)? {
         if !agents::get(db, agent)?.is_living()
             || inputs::is_agent_busy(db, agent)?
         {
             continue;
         }
-        let rested = dreams::last_of_hire(db, agent)?
-            .is_none_or(|d| now - d.began >= HIRE_REST);
+        let rested = dreams::last_of_agent(db, agent)?
+            .is_none_or(|d| now - d.began >= AGENT_REST);
         if rested
             && knowledge::dreams::has_learned(db, layout, agent)?
         {
-            return Ok(Some(Dreamer::Hire {
-                hire: agent,
+            return Ok(Some(Dreamer::Agent {
+                agent,
                 ending: false,
             }));
         }
     }
-    for scholar in city::all(db)? {
-        if !scholar.is_living() || !scholar.planted {
+    for profile in city::all(db)? {
+        if !profile.is_living() || !profile.planted {
             continue;
         }
-        let rested = dreams::last_of_scholar(db, scholar.id)?
-            .is_none_or(|d| now - d.began >= SCHOLAR_REST);
-        let has_hires = !hires::living_of(db, scholar.id)?.is_empty();
-        if rested && has_hires {
-            return Ok(Some(Dreamer::Scholar(scholar.id)));
+        let rested = dreams::last_of_profile(db, profile.id)?
+            .is_none_or(|d| now - d.began >= PROFILE_REST);
+        let has_agents =
+            !hamlet_agents::living_of(db, profile.id)?.is_empty();
+        if rested && has_agents {
+            return Ok(Some(Dreamer::Profile(profile.id)));
         }
     }
     Ok(None)
@@ -326,8 +338,8 @@ fn brought(dream: &Dream, summary: &str) -> String {
 }
 
 impl Core<'_, '_> {
-    /// Tells the hire's conversation, and its ender as `notify` says,
-    /// how dream `id` ended.
+    /// Tells the agent's conversation, and its ender as `notify`
+    /// says, how dream `id` ended.
     pub(crate) fn dreamt(
         &mut self,
         id: DreamId,
@@ -336,40 +348,40 @@ impl Core<'_, '_> {
     ) -> Result<()> {
         let db = self.realm.store().connection();
         let dream = dreams::get(db, id)?;
-        let Some(hire) = dream.hire else {
+        let Some(agent) = dream.agent else {
             return Ok(());
         };
         let line = brought(&dream, summary);
-        let lead = match agents::get(db, hire)?.ended_by {
-            Some(Actor::Agent(lead))
+        let ender = match agents::get(db, agent)?.ended_by {
+            Some(Actor::Agent(ender))
                 if dream.ending
-                    && notify == Notify::Lead
-                    && lead != hire
-                    && agents::get(db, lead)?.is_living() =>
+                    && notify == Notify::Ender
+                    && ender != agent
+                    && agents::get(db, ender)?.is_living() =>
             {
-                Some(lead)
+                Some(ender)
             }
             _ => None,
         };
         self.change(Actor::Realm, |cx, env| {
             conversations::chats::event(
                 cx,
-                hire,
+                agent,
                 ItemEvent::Dreamed {
                     summary: line.clone(),
                 },
             )?;
-            let (Some(lead), Some(from)) =
-                (lead, conversations::chats::of(cx.db, hire)?)
+            let (Some(ender), Some(from)) =
+                (ender, conversations::chats::of(cx.db, agent)?)
             else {
                 return Ok(());
             };
-            let name = addresses::name_of(cx.db, hire)?;
-            let address = addresses::address_of(cx.db, lead)?;
+            let name = addresses::name_of(cx.db, agent)?;
+            let address = addresses::address_of(cx.db, ender)?;
             let text =
                 format!("The last dream of {name} ended. {line}");
             let task =
-                tasks::mint(cx, Origin::Notice, hire, None, None)?;
+                tasks::mint(cx, Origin::Notice, agent, None, None)?;
             messages::send(
                 cx,
                 env,
@@ -377,8 +389,8 @@ impl Core<'_, '_> {
                     kind: MessageKind::Notification,
                     runtime: "hamlet",
                     key: &format!("dream:{id}"),
-                    sender: hire,
-                    receiver: lead,
+                    sender: agent,
+                    receiver: ender,
                     from,
                     address: &address,
                     task,
@@ -394,38 +406,38 @@ impl Core<'_, '_> {
         self.start_dream(None)
     }
 
-    /// [`Self::dream_tick`] for the call that just ended `hire` with
+    /// [`Self::dream_tick`] for the call that just ended `agent` with
     /// a dream, which answers how it ended.
     pub(crate) fn dream_tick_ending(
         &mut self,
-        hire: AgentId,
+        agent: AgentId,
     ) -> Result<()> {
-        self.start_dream(Some(hire))
+        self.start_dream(Some(agent))
     }
 
-    /// How the last dream of `hire`, just ended, fares, for its
+    /// How the last dream of `agent`, just ended, fares, for its
     /// ender.
     pub(crate) fn last_dream_words(
         &mut self,
-        hire: AgentId,
+        agent: AgentId,
         notify: Notify,
     ) -> Result<String> {
         let db = self.realm.store().connection();
         let told = match notify {
-            Notify::Lead => {
+            Notify::Ender => {
                 " You will be notified of what it brings home; until \
-                 then its scholar has nothing new from it."
+                 then its profile has nothing new from it."
             }
             Notify::Answered => "",
         };
-        if reflections::is_reflecting(db, hire)? {
+        if reflections::is_reflecting(db, agent)? {
             return Ok(format!(
                 "It reflects on its conversation, then dreams once \
                  more to bring what it learned home.{told}"
             ));
         }
-        let ended = agents::get(db, hire)?.ended_at.unwrap_or(0);
-        let last = dreams::last_of_hire(db, hire)?
+        let ended = agents::get(db, agent)?.ended_at.unwrap_or(0);
+        let last = dreams::last_of_agent(db, agent)?
             .filter(|d| d.ending && d.began >= ended);
         Ok(match last {
             Some(dream) if dream.ended.is_some() => {
@@ -467,12 +479,12 @@ impl Core<'_, '_> {
             }
             tried.push(dreamer);
             let notify = match dreamer {
-                Dreamer::Hire { hire, .. }
-                    if Some(hire) == answered =>
+                Dreamer::Agent { agent, .. }
+                    if Some(agent) == answered =>
                 {
                     Notify::Answered
                 }
-                _ => Notify::Lead,
+                _ => Notify::Ender,
             };
             if self.dream(dreamer, notify)?.is_some() {
                 return Ok(());
@@ -480,23 +492,23 @@ impl Core<'_, '_> {
         }
     }
 
-    /// `/dream <scholar#id|address>`: dreams now, or in its turn.
+    /// `/dream <profile#id|address>`: dreams now, or in its turn.
     pub(crate) fn dream_command(
         &mut self,
         here: Option<&hamlet_store::ids::HamletId>,
         words: &[&str],
     ) -> Done<String> {
         let [target] = words else {
-            refuse!(Refusal::DreamUsage);
+            reject!(Rejection::DreamUsage);
         };
         let dreamer = done!(self.dreamer(here, target));
-        if let Dreamer::Hire { hire, .. } = dreamer {
-            done!(self.leads(hire));
+        if let Dreamer::Agent { agent, .. } = dreamer {
+            done!(self.directs(agent));
         }
         Ok(Ok(self.ask_dreams(dreamer)?))
     }
 
-    /// The living scholar, or the agent living or ended, `target`
+    /// The living profile, or the agent living or ended, `target`
     /// names in `here`.
     pub(crate) fn dreamer(
         &mut self,
@@ -504,11 +516,11 @@ impl Core<'_, '_> {
         target: &str,
     ) -> Done<Dreamer> {
         let db = self.realm.store().connection();
-        if target.starts_with("scholar#") {
-            let id = checked!(addresses::parse_scholar(target));
+        if target.starts_with("profile#") {
+            let id = checked!(addresses::parse_profile(target));
             return Ok(city::living(db, id)?
-                .map(|found| Dreamer::Scholar(found.id))
-                .ok_or_else(|| Refusal::NoScholar {
+                .map(|found| Dreamer::Profile(found.id))
+                .ok_or_else(|| Rejection::NoProfile {
                     address: target.into(),
                 }));
         }
@@ -520,14 +532,11 @@ impl Core<'_, '_> {
             addresses::Reach::Kept,
         ));
         let ending = !agents::get(db, agent)?.is_living();
-        Ok(Ok(Dreamer::Hire {
-            hire: agent,
-            ending,
-        }))
+        Ok(Ok(Dreamer::Agent { agent, ending }))
     }
 
     /// Asks for the dream of `dreamer` whatever the settings say,
-    /// after those of a scholar's hires that learned what it lacks.
+    /// after those of a profile's agents that learned what it lacks.
     /// Returns how each fares.
     pub(crate) fn ask_dreams(
         &mut self,
@@ -536,13 +545,15 @@ impl Core<'_, '_> {
         let layout = self.realm.layout().clone();
         let db = self.realm.store().connection();
         let mut dreamers = Vec::new();
-        if let Dreamer::Scholar(scholar) = dreamer {
-            for hire in hires::living_of(db, scholar)? {
+        if let Dreamer::Profile(profile) = dreamer {
+            for found in hamlet_agents::living_of(db, profile)? {
                 if knowledge::dreams::has_learned(
-                    db, &layout, hire.agent,
+                    db,
+                    &layout,
+                    found.agent,
                 )? {
-                    dreamers.push(Dreamer::Hire {
-                        hire: hire.agent,
+                    dreamers.push(Dreamer::Agent {
+                        agent: found.agent,
                         ending: false,
                     });
                 }
@@ -562,11 +573,11 @@ impl Core<'_, '_> {
         let mut words = Vec::new();
         for dreamer in dreamers {
             let label = match dreamer {
-                Dreamer::Hire { hire, .. } => {
-                    addresses::name_of(db, hire)?
+                Dreamer::Agent { agent, .. } => {
+                    addresses::name_of(db, agent)?
                 }
-                Dreamer::Scholar(scholar) => {
-                    city::get(db, scholar)?.label()
+                Dreamer::Profile(profile) => {
+                    city::get(db, profile)?.label()
                 }
             };
             let of = if one {
@@ -599,27 +610,28 @@ impl Core<'_, '_> {
     ) -> Result<Option<DreamId>> {
         let layout = self.realm.layout().clone();
         let db = self.realm.store().connection();
-        let (kind, scholar, hire, ending, agent) = match dreamer {
-            Dreamer::Hire { hire, ending } => {
-                let found = hires::get(db, hire)?;
-                (
-                    DreamKind::Hire,
-                    found.scholar,
-                    Some(hire),
-                    ending,
-                    hire,
-                )
-            }
-            Dreamer::Scholar(scholar) => (
-                DreamKind::Scholar,
-                scholar,
-                None,
-                false,
-                hand::id(db)?,
-            ),
-        };
+        let (kind, profile, hamlet_agent, ending, agent) =
+            match dreamer {
+                Dreamer::Agent { agent, ending } => {
+                    let found = hamlet_agents::get(db, agent)?;
+                    (
+                        DreamKind::Agent,
+                        found.profile,
+                        Some(agent),
+                        ending,
+                        agent,
+                    )
+                }
+                Dreamer::Profile(profile) => (
+                    DreamKind::Profile,
+                    profile,
+                    None,
+                    false,
+                    hand::id(db)?,
+                ),
+            };
         let id = self.change(Actor::Realm, |cx, _| {
-            dreams::begin(cx, kind, scholar, hire, ending)
+            dreams::begin(cx, kind, profile, hamlet_agent, ending)
         })?;
         let writing = self.writing.clone();
         let held = writing.hold();
@@ -645,36 +657,37 @@ impl Core<'_, '_> {
             return Ok(None);
         }
         let checkout = knowledge::dreams::checkout(&layout, id);
-        let label = city::get(db, scholar)?.label();
-        let instructions = match hire {
-            Some(hire) => {
-                let lodge =
-                    knowledge::lodging(db, &layout, hire)?.path;
-                let who = addresses::name_of(db, hire)?;
+        let label = city::get(db, profile)?.label();
+        let instructions = match hamlet_agent {
+            Some(hamlet_agent) => {
+                let worktree =
+                    knowledge::worktree(db, &layout, hamlet_agent)?
+                        .path;
+                let who = addresses::name_of(db, hamlet_agent)?;
                 format!(
                     "You are dreaming, between your work as \
-                     `{who}`, a hire of the scholar `{label}`. Your \
-                     lodge at {} holds what you learned as this \
-                     hire: your memory/ and skills/. `{label}`'s \
-                     shared knowledge, its main, is checked out at \
-                     {}; every hire of `{label}` starts from it and \
-                     takes it in.\n\nBring home what any hire of \
-                     `{label}` would want to know: move or merge it \
-                     into the checkout's memory/ and skills/, \
-                     written for a reader who was not there. Keep \
-                     in your lodge what only this hire needs. Tidy \
-                     as you go: one fact in one place, nothing \
-                     stale, the root memory files short, and a true \
-                     `description:` on every memory file. Do not \
-                     change CHARACTER.md. When done, answer in one \
-                     line what you brought home, or `Nothing to \
-                     bring home.`",
-                    lodge.display(),
+                     `{who}`, an agent of the profile `{label}`. \
+                     Your worktree at {} holds what you learned as \
+                     this agent: your memory/ and skills/. \
+                     `{label}`'s shared knowledge, its main, is \
+                     checked out at {}; every agent of `{label}` \
+                     starts from it and takes it in.\n\nBring home \
+                     what any agent of `{label}` would want to \
+                     know: move or merge it into the checkout's \
+                     memory/ and skills/, written for a reader who \
+                     was not there. Keep in your worktree what only \
+                     this agent needs. Tidy as you go: one fact in \
+                     one place, nothing stale, the root memory \
+                     files short, and a true `description:` on \
+                     every memory file. Do not change CHARACTER.md. \
+                     When done, answer in one line what you brought \
+                     home, or `Nothing to bring home.`",
+                    worktree.display(),
                     checkout.display()
                 )
             }
             None => format!(
-                "You are tidying the knowledge of the scholar \
+                "You are tidying the knowledge of the profile \
                  `{label}`, checked out at {}: its memory/ and \
                  skills/. Merge what is said twice, correct or \
                  remove what is stale, keep the root memory files \
@@ -737,22 +750,22 @@ mod tests {
 
     use super::*;
     use crate::society::agents::EndHow;
-    use crate::society::hires::LastDream;
+    use crate::society::hamlet_agents::LastDream;
     use crate::testing::Realm;
 
     #[test]
-    fn only_a_hire_ended_with_a_dream_dreams_once_more() {
+    fn only_an_agent_ended_with_a_dream_dreams_once_more() {
         let mut realm = Realm::new();
-        let mayor = realm.found("mill", "ada");
-        let plain = realm.hire(&mayor, "bo");
-        let dreaming = realm.hire(&mayor, "cy");
+        let lead = realm.found("mill", "ada");
+        let plain = realm.add_agent(&lead, "bo");
+        let dreaming = realm.add_agent(&lead, "cy");
         for (ended, last) in [
             (&plain, LastDream::Without),
             (&dreaming, LastDream::With),
         ] {
             realm
                 .chief(|cx| {
-                    hires::end(
+                    hamlet_agents::end(
                         cx,
                         ended.agent,
                         EndHow::Ended,
@@ -766,8 +779,8 @@ mod tests {
         let now = realm.at;
         assert_eq!(
             next(realm.db(), &layout, &off, now).unwrap(),
-            Some(Dreamer::Hire {
-                hire: dreaming.agent,
+            Some(Dreamer::Agent {
+                agent: dreaming.agent,
                 ending: true
             })
         );
@@ -775,8 +788,8 @@ mod tests {
             .by(Actor::Realm, |cx| {
                 Ok(Ok(dreams::begin(
                     cx,
-                    DreamKind::Hire,
-                    dreaming.scholar,
+                    DreamKind::Agent,
+                    dreaming.profile,
                     Some(dreaming.agent),
                     true,
                 )?))

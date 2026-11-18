@@ -7,7 +7,7 @@ use bevy::ui::UiSystems;
 use hamlet_assets::tint;
 use hamlet_client::realm::{Activity, Busy, Doing, Saying};
 
-use self::words::{deed, gist, tail};
+use self::words::{action, gist, tail};
 use super::generator::Robot;
 use super::hamlet::Housed;
 use super::label::{self, Lens};
@@ -87,7 +87,7 @@ pub struct Bubble {
     /// trail from a thought.
     point: Entity,
     trail: Entity,
-    /// The words of what its agent says now and the deed they were
+    /// The words of what its agent says now and the action they were
     /// made with. Nothing until they are made.
     said: Option<(String, Option<Doing>)>,
     /// The words it shows, whether they are a thought, and the
@@ -383,7 +383,7 @@ fn bubbles(
         if !kept {
             let words = if saying.thought {
                 gist(&saying.text, set.most_thought)
-                    .or_else(|| deed(doing?).map(String::from))
+                    .or_else(|| action(doing?).map(String::from))
                     .unwrap_or_default()
             } else {
                 tail(&saying.text, set.most)

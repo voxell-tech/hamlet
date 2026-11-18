@@ -4,13 +4,15 @@ use anyhow::{Context, Result};
 use diesel::prelude::*;
 use hamlet_store::Db;
 use hamlet_store::ids::{
-    Actor, AgentId, ChiefId, HamletId, ScholarId,
+    Actor, AgentId, ChiefId, HamletId, ProfileId,
 };
 use hamlet_store::schema::hamlet_chief;
 
 use super::agents::{self, AgentKind};
-use super::refusal::Refusal;
-use super::{addresses, chiefs, city, hamlets, hires, tree, workers};
+use super::rejection::Rejection;
+use super::{
+    addresses, chiefs, city, hamlet_agents, hamlets, tree, workers,
+};
 use crate::realm::change::Done;
 
 /// Whether `chief` is a chief of `hamlet` (C7).
@@ -70,9 +72,9 @@ pub(crate) fn may_reach(
     };
     Ok(match agents::get(db, id)?.kind {
         AgentKind::Hand => true,
-        AgentKind::Hire => {
-            let hire = hires::get(db, id)?;
-            is_chief_of(db, chief, &hire.hamlet)?
+        AgentKind::Hamlet => {
+            let agent = hamlet_agents::get(db, id)?;
+            is_chief_of(db, chief, &agent.hamlet)?
         }
         AgentKind::Worker => {
             let worker = workers::get(db, id)?;
@@ -85,34 +87,34 @@ pub(crate) fn may_reach(
     })
 }
 
-/// Refuses unless `actor` may reach the agent `id`.
+/// Rejects unless `actor` may reach the agent `id`.
 pub(crate) fn reaches(
     db: &mut Db,
     actor: Actor,
     id: AgentId,
 ) -> Done<()> {
     let Some(found) = agents::find(db, id)? else {
-        return Ok(Err(Refusal::NoOne {
+        return Ok(Err(Rejection::NoOne {
             address: id.to_string(),
         }));
     };
     if !may_reach(db, actor, found.id)? {
         let name = addresses::name_of(db, id)?;
-        return Ok(Err(Refusal::NotYours { name }));
+        return Ok(Err(Rejection::NotYours { name }));
     }
     Ok(Ok(()))
 }
 
-/// Whether `actor` may lead the hire `id`: a chief of its hamlet, the
-/// Hand, or a hire above it in its tree.
-pub(crate) fn may_lead(
+/// Whether `actor` may direct the agent `id` of a hamlet: a chief of
+/// its hamlet, the Hand, or an agent above it in its tree.
+pub(crate) fn may_direct(
     db: &mut Db,
     actor: Actor,
     id: AgentId,
 ) -> Result<bool> {
-    let hire = hires::get(db, id)?;
+    let hamlet = hamlet_agents::get(db, id)?.hamlet;
     Ok(match actor {
-        Actor::Chief(chief) => is_chief_of(db, chief, &hire.hamlet)?,
+        Actor::Chief(chief) => is_chief_of(db, chief, &hamlet)?,
         Actor::Agent(agent) => {
             is_hand(db, actor)? || tree::is_above(db, agent, id)?
         }
@@ -128,7 +130,7 @@ pub(crate) fn may_steer(
     id: AgentId,
 ) -> Result<bool> {
     Ok(match agents::get(db, id)?.kind {
-        AgentKind::Hire => may_lead(db, actor, id)?,
+        AgentKind::Hamlet => may_direct(db, actor, id)?,
         AgentKind::Hand => {
             matches!(actor, Actor::Chief(_) | Actor::Realm)
         }
@@ -150,25 +152,25 @@ pub(crate) fn may_steer(
     })
 }
 
-/// Whether `actor` may keep the scholar `id`: its chief, or the Hand.
+/// Whether `actor` may keep the profile `id`: its chief, or the Hand.
 pub(crate) fn may_keep(
     db: &mut Db,
     actor: Actor,
-    id: ScholarId,
+    id: ProfileId,
 ) -> Result<bool> {
-    let scholar = city::get(db, id)?;
+    let profile = city::get(db, id)?;
     Ok(match actor {
-        Actor::Chief(chief) => scholar.chief == Some(chief),
+        Actor::Chief(chief) => profile.chief == Some(chief),
         Actor::Agent(_) => is_hand(db, actor)?,
         Actor::Realm => true,
     })
 }
 
-/// Whether `actor` may hire the scholar `id` into `hamlet`.
-pub(crate) fn may_hire(
+/// Whether `actor` may add an agent of the profile `id` to `hamlet`.
+pub(crate) fn may_add(
     db: &mut Db,
     actor: Actor,
-    id: ScholarId,
+    id: ProfileId,
     hamlet: &HamletId,
 ) -> Result<bool> {
     let owner = city::get(db, id)?.chief;
@@ -187,7 +189,7 @@ pub(crate) fn may_hire(
     })
 }
 
-/// The chief a scholar belongs to when `actor` makes it.
+/// The chief a profile belongs to when `actor` makes it.
 pub(crate) fn owner_for(
     db: &mut Db,
     actor: Actor,

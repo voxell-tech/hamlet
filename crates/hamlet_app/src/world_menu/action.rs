@@ -1,4 +1,4 @@
-//! The deeds asked about before they are done.
+//! The actions asked about before they are done.
 
 use bevy::ecs::entity::Entity;
 use bevy::ecs::query::{With, Without};
@@ -18,7 +18,8 @@ use bevy_fynix::{ScopedExt, ViewExt};
 use hamlet_client::messages::Rewind;
 use hamlet_client::outbox::RequestId;
 use hamlet_client::realm::{
-    self as agents, Busy, Deeds, HamletId, Hire, Left, LivesIn,
+    self as agents, Actions, Busy, HamletAgent, HamletId, Left,
+    LivesIn,
 };
 use hamlet_realm::orders;
 use hamlet_ui::styles::{Looks, button, lettered};
@@ -30,11 +31,11 @@ use super::close;
 use crate::chat;
 use crate::convo::Convo;
 
-/// A deed asked about before it is done.
+/// An action asked about before it is done.
 #[derive(Clone, PartialEq)]
-pub(crate) enum Deed {
+pub(crate) enum Action {
     End(Entity),
-    /// Ends this hire after one more dream.
+    /// Ends this agent after one more dream.
     EndWithDream(Entity),
     Merge {
         absorbed: Entity,
@@ -46,8 +47,8 @@ pub(crate) enum Deed {
     Erase(Entity),
     /// Takes a skill out of the library.
     Unshelve(String),
-    /// Makes this agent the mayor of its hamlet.
-    Mayor(Entity),
+    /// Makes this agent the lead of its hamlet.
+    Lead(Entity),
     /// Rewinds the open conversation to before message `entry`.
     Rewind {
         chat: Entity,
@@ -57,8 +58,8 @@ pub(crate) enum Deed {
     },
     /// Ends the realm's own charter, so the built-in one stands.
     DefaultCharter,
-    /// Copies every lodge to the saved workspace.
-    MoveLodges,
+    /// Copies every worktree to the saved workspace.
+    MoveWorktrees,
 }
 
 /// The reason typed under a question, and whether its field is shown.
@@ -68,13 +69,13 @@ pub(crate) struct Reason {
     more: bool,
 }
 
-/// Closes the question and does `deed`, as its first button does.
-pub(super) fn answer(world: &mut World, deed: &Deed) {
+/// Closes the question and does `action`, as its first button does.
+pub(super) fn answer(world: &mut World, action: &Action) {
     close(world);
-    deed.run(world);
+    action.run(world);
 }
 
-impl Deed {
+impl Action {
     /// Sends the chief's command that does it, with any reason typed.
     pub(crate) fn run(&self, world: &mut World) {
         if !self.is_available(world) {
@@ -91,16 +92,16 @@ impl Deed {
             format!("{command} {reason}").trim_end().to_string()
         };
         match self {
-            Deed::End(agent) => {
+            Action::End(agent) => {
                 let text = with(format!("/end {}", name(*agent)));
                 orders::decree(world, *agent, text);
             }
-            Deed::EndWithDream(agent) => {
+            Action::EndWithDream(agent) => {
                 let text =
                     with(format!("/end {} dream", name(*agent)));
                 orders::decree(world, *agent, text);
             }
-            Deed::Merge { absorbed, kept } => {
+            Action::Merge { absorbed, kept } => {
                 let text = with(format!(
                     "/merge {} into {}",
                     name(*absorbed),
@@ -108,30 +109,30 @@ impl Deed {
                 ));
                 orders::decree(world, *kept, text);
             }
-            Deed::Erase(agent) => {
+            Action::Erase(agent) => {
                 let text = format!("/erase {}", name(*agent));
                 crate::hub::erasure::expect_agent(world, *agent);
                 orders::decree(world, *agent, text);
             }
-            Deed::Mayor(agent) => {
-                let text = with(format!("/mayor {}", name(*agent)));
+            Action::Lead(agent) => {
+                let text = with(format!("/lead {}", name(*agent)));
                 orders::decree(world, *agent, text);
             }
             // The hamlets and the library are the realm's.
-            Deed::Close(hamlet) => {
+            Action::Close(hamlet) => {
                 let text = with(format!("/remove-hamlet {hamlet}"));
                 chat::decree(world, hamlet, text);
             }
-            Deed::Unshelve(skill) => {
+            Action::Unshelve(skill) => {
                 chat::command(world, format!("/unshelve {skill}"));
             }
-            Deed::DefaultCharter => {
+            Action::DefaultCharter => {
                 crate::settings::default_charter(world);
             }
-            Deed::MoveLodges => {
-                crate::settings::workspace::move_lodges(world);
+            Action::MoveWorktrees => {
+                crate::settings::workspace::move_worktrees(world);
             }
-            Deed::Rewind { chat, entry, .. } => {
+            Action::Rewind { chat, entry, .. } => {
                 world.trigger(Rewind {
                     chat: *chat,
                     request: RequestId::new(),
@@ -146,11 +147,11 @@ impl Deed {
     fn takes_reason(&self) -> bool {
         matches!(
             self,
-            Deed::End(_)
-                | Deed::EndWithDream(_)
-                | Deed::Merge { .. }
-                | Deed::Mayor(_)
-                | Deed::Close(_)
+            Action::End(_)
+                | Action::EndWithDream(_)
+                | Action::Merge { .. }
+                | Action::Lead(_)
+                | Action::Close(_)
         )
     }
 
@@ -161,122 +162,128 @@ impl Deed {
             Self::Close(_) => "remove-hamlet",
             Self::Erase(_) => "erase",
             Self::Unshelve(_) => "unshelve",
-            Self::Mayor(_) => "mayor",
+            Self::Lead(_) => "lead",
             Self::DefaultCharter
-            | Self::MoveLodges
+            | Self::MoveWorktrees
             | Self::Rewind { .. } => return true,
         };
-        Deeds::is_allowed(world, command)
+        Actions::is_allowed(world, command)
     }
 
     fn question(&self, world: &World) -> String {
         let name = |agent: &Entity| agents::shown_of(world, *agent);
         match self {
-            Deed::End(agent) | Deed::EndWithDream(agent) => {
+            Action::End(agent) | Action::EndWithDream(agent) => {
                 format!("End {}?", name(agent))
             }
-            Deed::Merge { absorbed, kept } => format!(
+            Action::Merge { absorbed, kept } => format!(
                 "Merge {} into {}?",
                 name(absorbed),
                 name(kept)
             ),
-            Deed::Close(hamlet) => {
+            Action::Close(hamlet) => {
                 format!("Close down {}?", hamlet)
             }
-            Deed::Erase(agent) => {
+            Action::Erase(agent) => {
                 format!("Delete {} for good?", name(agent))
             }
-            Deed::Unshelve(skill) => {
+            Action::Unshelve(skill) => {
                 format!("Take {} out of the library?", skill)
             }
-            Deed::Mayor(agent) => {
-                format!("Make {} mayor?", name(agent))
+            Action::Lead(agent) => {
+                format!("Make {} lead?", name(agent))
             }
-            Deed::Rewind { .. } => "Rewind to here?".to_string(),
-            Deed::DefaultCharter => {
+            Action::Rewind { .. } => "Rewind to here?".to_string(),
+            Action::DefaultCharter => {
                 "Go back to the default charter?".to_string()
             }
-            Deed::MoveLodges => "Move every lodge?".to_string(),
+            Action::MoveWorktrees => {
+                "Move every worktree?".to_string()
+            }
         }
     }
 
     fn outcome(&self, world: &World) -> String {
         let name = |agent: &Entity| agents::shown_of(world, *agent);
         match self {
-            Deed::End(agent) | Deed::EndWithDream(agent) => format!(
-                "The hire {} goes to the archive, with its memory, \
-                 skills and log. It can be restored. With a dream, \
-                 it first brings what it learned home to its \
-                 scholar, for the scholar's later hires.",
-                name(agent)
-            ),
-            Deed::Merge { absorbed, kept } => format!(
-                "{} takes the memory, skills, files and roads of \
-                 {}, whose lodge is archived. It can be split out \
-                 again.",
+            Action::End(agent) | Action::EndWithDream(agent) => {
+                format!(
+                    "The agent {} goes to the archive, with its \
+                     memory, skills and log. It can be restored. \
+                     With a dream, it first brings what it learned \
+                     home to its profile, for the profile's later \
+                     agents.",
+                    name(agent)
+                )
+            }
+            Action::Merge { absorbed, kept } => format!(
+                "{} takes the memory, skills, files and channels of \
+                 {}, whose worktree is archived. It can be split \
+                 out again.",
                 name(kept),
                 name(absorbed)
             ),
-            Deed::Close(hamlet) => format!(
-                "Everyone in {hamlet} stops and every lodge is \
+            Action::Close(hamlet) => format!(
+                "Everyone in {hamlet} stops and every worktree is \
                  archived. You can restore it from the list of \
                  hamlets."
             ),
-            Deed::Erase(agent) => {
+            Action::Erase(agent) => {
                 let name = name(agent);
                 format!(
-                    "The archived lodge of {name} is deleted from \
-                     disk. This cannot be undone."
+                    "The archived worktree of {name} is deleted \
+                     from disk. This cannot be undone."
                 )
             }
-            Deed::Unshelve(skill) => format!(
+            Action::Unshelve(skill) => format!(
                 "{skill} is deleted from the library for every \
                  hamlet. This cannot be undone."
             ),
-            Deed::Mayor(agent) => format!(
-                "{} runs the hamlet from now on, and today's mayor \
+            Action::Lead(agent) => format!(
+                "{} runs the hamlet from now on, and today's lead \
                  becomes one of its agents.",
                 name(agent)
             ),
-            Deed::Rewind { .. } => format!(
+            Action::Rewind { .. } => format!(
                 "{} forgets this message and everything after it, \
                  and the message goes back in the message box. \
                  Changed files, commands that ran, letters and \
                  spending are not undone.",
                 name(&world.resource::<Convo>().agent)
             ),
-            Deed::DefaultCharter => "Your own charter is deleted \
-                                     from disk. This cannot be \
-                                     undone."
+            Action::DefaultCharter => "Your own charter is deleted \
+                                       from disk. This cannot be \
+                                       undone."
                 .to_string(),
-            Deed::MoveLodges => "Each agent's lodge is copied to \
-                                 the saved workspace, and the \
-                                 lodges already there are replaced. \
-                                 This cannot be undone."
-                .to_string(),
+            Action::MoveWorktrees => {
+                "Each agent's worktree is copied to the saved \
+                 workspace, and the worktrees already there are \
+                 replaced. This cannot be undone."
+                    .to_string()
+            }
         }
     }
 
-    /// The other deed its question offers beside it.
-    fn alternative(&self) -> Option<Deed> {
+    /// The other action its question offers beside it.
+    fn alternative(&self) -> Option<Action> {
         match self {
-            Deed::End(agent) => Some(Deed::EndWithDream(*agent)),
+            Action::End(agent) => Some(Action::EndWithDream(*agent)),
             _ => None,
         }
     }
 
     fn verb(&self) -> &'static str {
         match self {
-            Deed::End(_) => "End",
-            Deed::EndWithDream(_) => "End with Dream",
-            Deed::Merge { .. } => "Merge",
-            Deed::Close(_) => "Close Down",
-            Deed::Erase(_) => "Delete",
-            Deed::Unshelve(_) => "Take Out",
-            Deed::Mayor(_) => "Make Mayor",
-            Deed::Rewind { .. } => "Rewind",
-            Deed::DefaultCharter => "Use the Default",
-            Deed::MoveLodges => "Replace Them",
+            Action::End(_) => "End",
+            Action::EndWithDream(_) => "End with Dream",
+            Action::Merge { .. } => "Merge",
+            Action::Close(_) => "Close Down",
+            Action::Erase(_) => "Delete",
+            Action::Unshelve(_) => "Take Out",
+            Action::Lead(_) => "Make Lead",
+            Action::Rewind { .. } => "Rewind",
+            Action::DefaultCharter => "Use the Default",
+            Action::MoveWorktrees => "Replace Them",
         }
     }
 
@@ -290,22 +297,22 @@ impl Deed {
                 .collect()
         };
         match self {
-            Deed::End(agent) | Deed::EndWithDream(agent) => {
+            Action::End(agent) | Action::EndWithDream(agent) => {
                 busy(world, &[*agent])
             }
-            Deed::Merge { absorbed, kept } => {
+            Action::Merge { absorbed, kept } => {
                 busy(world, &[*absorbed, *kept])
             }
-            Deed::Erase(_)
-            | Deed::Unshelve(_)
-            | Deed::Mayor(_)
-            | Deed::Rewind { .. }
-            | Deed::DefaultCharter
-            | Deed::MoveLodges => Vec::new(),
-            Deed::Close(hamlet) => {
+            Action::Erase(_)
+            | Action::Unshelve(_)
+            | Action::Lead(_)
+            | Action::Rewind { .. }
+            | Action::DefaultCharter
+            | Action::MoveWorktrees => Vec::new(),
+            Action::Close(hamlet) => {
                 let mut living =
                     world.query_filtered::<(Entity, &LivesIn), (
-                        With<Hire>,
+                        With<HamletAgent>,
                         With<Busy>,
                         Without<Left>,
                     )>();
@@ -323,13 +330,13 @@ impl Deed {
     }
 }
 
-/// The question before `deed`, warning of each agent at work.
-pub(crate) fn question(deed: Deed, anchor: Rect) -> impl View {
+/// The question before `action`, warning of each agent at work.
+pub(crate) fn question(action: Action, anchor: Rect) -> impl View {
     built(move |cx| {
-        if !deed.is_available(cx.world) {
+        if !action.is_available(cx.world) {
             return cx.build(frame());
         }
-        let working = deed.working(cx.world);
+        let working = action.working(cx.world);
         let warning = match working.as_slice() {
             [] => frame().boxed(),
             names => label(format!(
@@ -341,11 +348,13 @@ pub(crate) fn question(deed: Deed, anchor: Rect) -> impl View {
             .tone(Tone::Critical)
             .boxed(),
         };
-        let done = deed.clone();
-        let alternative = deed.alternative();
+        let done = action.clone();
+        let alternative = action.alternative();
         // A merge that completes is purple; the rest end something.
-        let variant = match &deed {
-            Deed::Merge { .. } => Variant::Tinted(StatusKind::Merged),
+        let variant = match &action {
+            Action::Merge { .. } => {
+                Variant::Tinted(StatusKind::Merged)
+            }
             _ => Variant::Danger,
         };
         let (gap, section, padding, heading) = {
@@ -357,7 +366,7 @@ pub(crate) fn question(deed: Deed, anchor: Rect) -> impl View {
                 theme.text.heading,
             )
         };
-        let reason = if deed.takes_reason() {
+        let reason = if action.takes_reason() {
             super::optional::<Reason>(
                 |r| r.more,
                 |r| r.more = !r.more,
@@ -378,12 +387,12 @@ pub(crate) fn question(deed: Deed, anchor: Rect) -> impl View {
             frame().boxed()
         };
         let body = column((
-            label(deed.question(cx.world)).size(heading).bold(true),
-            label(deed.outcome(cx.world)).wrap(true),
+            label(action.question(cx.world)).size(heading).bold(true),
+            label(action.outcome(cx.world)).wrap(true),
             warning,
             reason,
             row((
-                lettered(deed.verb())
+                lettered(action.verb())
                     .variant(variant)
                     .on_activate(move |world| answer(world, &done)),
                 match alternative {
@@ -405,8 +414,8 @@ pub(crate) fn question(deed: Deed, anchor: Rect) -> impl View {
         .width(px(300.0));
         // The chief's own message hangs its question from its right
         // edge.
-        let placements = match deed {
-            Deed::Rewind { .. } => {
+        let placements = match action {
+            Action::Rewind { .. } => {
                 [PopoverSide::Bottom, PopoverSide::Top]
                     .into_iter()
                     .map(|side| PopoverPlacement {
@@ -423,8 +432,8 @@ pub(crate) fn question(deed: Deed, anchor: Rect) -> impl View {
             .on_dismiss(|world, _| close(world))
             .padding(bevy::ui::UiRect::all(px(padding)));
         // Ringed as the message it asks about is.
-        match deed {
-            Deed::Rewind { .. } => {
+        match action {
+            Action::Rewind { .. } => {
                 let ring = cx.theme().palette.accent;
                 cx.build(popup.border_color(ring))
             }
@@ -441,11 +450,11 @@ mod tests {
     use super::*;
 
     #[test]
-    fn a_deed_goes_to_the_mayor_of_the_agents_received_hamlet() {
+    fn an_action_goes_to_the_lead_of_the_agents_received_hamlet() {
         let mut app = crate::testing::panel_app();
         app.add_plugins(chat::plugin);
         let mut state = hamlet_testing::realm::state();
-        state.deeds = hamlet_testing::realm::deeds(&["end"]);
+        state.actions = hamlet_testing::realm::actions(&["end"]);
         state.hamlets.push(hamlet_testing::realm::hamlet("mill", 4));
         state
             .agents
@@ -463,8 +472,8 @@ mod tests {
             .drain()
             .for_each(drop);
         let carder =
-            agents::named(app.world_mut(), "hire#5").unwrap();
-        Deed::End(carder).run(app.world_mut());
+            agents::named(app.world_mut(), "agent#5").unwrap();
+        Action::End(carder).run(app.world_mut());
         app.world_mut().flush();
         let sent = app
             .world_mut()
@@ -475,6 +484,6 @@ mod tests {
             panic!("one command: {sent:?}");
         };
         assert_eq!(say.to, protocol::AgentId(4));
-        assert_eq!(say.text, "/end hire#5");
+        assert_eq!(say.text, "/end agent#5");
     }
 }

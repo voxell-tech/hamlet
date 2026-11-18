@@ -81,7 +81,7 @@ export const schema = {
             ]
         },
         "Capability": {
-            "description": "A thing a runtime can do; the server refuses a runtime that lacks\none Hamlet needs.",
+            "description": "A thing a runtime can do; the server rejects a runtime that lacks\none Hamlet needs.",
             "enum": [
                 "operations",
                 "attempts",
@@ -1572,7 +1572,7 @@ export const schema = {
                 },
                 {
                     "additionalProperties": false,
-                    "description": "The latest credential under the host's provider lease, or a\nrefusal.",
+                    "description": "The latest credential under the host's provider lease, or a\nrejection.",
                     "properties": {
                         "credential": {
                             "$ref": "#/$defs/Credential"
@@ -1694,7 +1694,7 @@ export const schema = {
                             "type": "string"
                         },
                         "type": {
-                            "const": "refused",
+                            "const": "rejected",
                             "type": "string"
                         },
                         "v": {
@@ -2191,7 +2191,7 @@ export const schema = {
                             "type": "string"
                         },
                         "type": {
-                            "const": "refusal",
+                            "const": "rejection",
                             "type": "string"
                         },
                         "v": {

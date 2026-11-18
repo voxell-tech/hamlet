@@ -186,13 +186,16 @@ struct Requests(HashMap<protocol::RequestId, Said>);
 /// What of a request's reply shows.
 #[derive(Clone, Copy, PartialEq)]
 enum Said {
-    Refusal,
+    Rejection,
     Reply,
 }
 
-/// Says the refusal of the request `id` under the field.
-pub(super) fn refused(world: &mut World, id: protocol::RequestId) {
-    world.resource_mut::<Requests>().0.insert(id, Said::Refusal);
+/// Says the rejection of the request `id` under the field.
+pub(super) fn rejected(world: &mut World, id: protocol::RequestId) {
+    world
+        .resource_mut::<Requests>()
+        .0
+        .insert(id, Said::Rejection);
 }
 
 /// Says the reply to the request `id` under the field.
@@ -204,28 +207,28 @@ fn remember_said(
     message: On<ChiefMessage>,
     mut requests: ResMut<Requests>,
 ) {
-    requests.0.insert(message.request.clone(), Said::Refusal);
+    requests.0.insert(message.request.clone(), Said::Rejection);
 }
 
 fn remember_rewind(
     rewind: On<Rewind>,
     mut requests: ResMut<Requests>,
 ) {
-    requests.0.insert(rewind.request.clone(), Said::Refusal);
+    requests.0.insert(rewind.request.clone(), Said::Rejection);
 }
 
 fn remember_compact(
     compact: On<Compact>,
     mut requests: ResMut<Requests>,
 ) {
-    requests.0.insert(compact.request.clone(), Said::Refusal);
+    requests.0.insert(compact.request.clone(), Said::Rejection);
 }
 
 fn remember_withdraw(
     withdraw: On<Withdraw>,
     mut requests: ResMut<Requests>,
 ) {
-    requests.0.insert(withdraw.request.clone(), Said::Refusal);
+    requests.0.insert(withdraw.request.clone(), Said::Rejection);
 }
 
 fn remember_resume(
@@ -241,7 +244,7 @@ fn response(
     mut draft: ResMut<Draft>,
     mut commands: Commands,
 ) {
-    let (text, refused) = match &response.message {
+    let (text, rejected) = match &response.message {
         protocol::ServerMessage::Reply(reply) => {
             (&reply.text, reply.kind == protocol::ReplyKind::Error)
         }
@@ -255,7 +258,7 @@ fn response(
     let Some(said) = requests.0.remove(&response.to) else {
         return;
     };
-    if refused {
+    if rejected {
         draft.notice.clone_from(text);
         commands.trigger(ChatError);
     } else if said == Said::Reply {
@@ -330,10 +333,10 @@ pub(crate) fn send(
     true
 }
 
-/// A chief's command about a hamlet, addressed to its mayor.
+/// A chief's command about a hamlet, addressed to its lead.
 pub(crate) fn decree(world: &mut World, hamlet: &str, text: String) {
-    if let Some(mayor) = agents::mayor_of(world, hamlet) {
-        command_to(world, mayor, text);
+    if let Some(lead) = agents::lead_of(world, hamlet) {
+        command_to(world, lead, text);
     }
 }
 
@@ -344,7 +347,7 @@ pub(crate) fn command(world: &mut World, text: String) {
     }
 }
 
-/// Sends a command the window made, its refusal toasted.
+/// Sends a command the window made, its rejection toasted.
 fn command_to(world: &mut World, agent: Entity, text: String) {
     if let Some(to) = agents::id_of(world, agent) {
         let message = ChiefMessage::words(to, text);

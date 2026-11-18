@@ -123,7 +123,7 @@ pub struct Waiting {
     Clone, Debug, PartialEq, Serialize, Deserialize, JsonSchema,
 )]
 #[serde(deny_unknown_fields)]
-pub struct Refusal {
+pub struct Rejection {
     #[schemars(length(min = 1))]
     pub id: String,
     #[schemars(length(min = 1))]

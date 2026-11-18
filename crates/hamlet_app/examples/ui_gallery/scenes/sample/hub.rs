@@ -59,14 +59,14 @@ pub(super) fn setup(world: &mut World, scene: Scene) {
     if scene == Scene::ModelsSearch {
         hamlet_app::world_menu::search_models(world, "wren");
     }
-    if scene == Scene::Scholar {
-        let scholar = hamlet_client::realm::scholar(
+    if scene == Scene::Profile {
+        let profile = hamlet_client::realm::profile(
             world,
-            protocol::ScholarId(2),
+            protocol::ProfileId(2),
         )
-        .expect("the received scholar");
-        world.insert_resource(Showing::Scholar(scholar));
-        // As the hub turns its rail to a scholar's page.
+        .expect("the received profile");
+        world.insert_resource(Showing::Profile(profile));
+        // As the hub turns its rail to a profile's page.
         world.insert_resource(hub::RailTab::City);
         keep_notes(world);
     }

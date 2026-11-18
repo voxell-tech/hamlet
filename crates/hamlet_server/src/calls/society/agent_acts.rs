@@ -5,8 +5,8 @@ use hamlet_protocol::client::{self as protocol, Keeper};
 use hamlet_store::ids::{Actor, AgentId};
 
 use super::args::{
-    Called, Dream, EditMemory, EraseHire, Pin, ReadPapers,
-    ReadPrompt, Reflect, RestoreHire, Resume, SetEffort, SetFast,
+    Called, Dream, EditMemory, EraseAgent, Pin, ReadPapers,
+    ReadPrompt, Reflect, RestoreAgent, Resume, SetEffort, SetFast,
     Stop,
 };
 use super::{Call, cut, unsupported};
@@ -16,60 +16,64 @@ use crate::core::Core;
 use crate::knowledge::memory_path;
 use crate::knowledge::papers::papers;
 use crate::knowledge::versions::{pin_target, pinned};
-use crate::realm::change::{Done, checked, done, refuse};
+use crate::realm::change::{Done, checked, done, reject};
 use crate::society::addresses::{self, Reach};
 use crate::society::agents::{self, Effort};
-use crate::society::refusal::Refusal;
-use crate::society::{authority, hires, merges};
+use crate::society::rejection::Rejection;
+use crate::society::{authority, hamlet_agents, merges};
 
 /// The address that names every agent but the caller.
 const ALL: &str = "all";
 
 impl Core<'_, '_> {
-    /// Carries out the Hand's `called` on a hire it leads.
-    pub(super) fn led_tool(
+    /// Carries out the Hand's `called` on an agent it is a parent
+    /// of.
+    pub(super) fn child_tool(
         &mut self,
         call: &Call<'_>,
         called: Called,
     ) -> Done<String> {
         match called {
             Called::Pin(Pin {
-                hire,
+                agent: address,
                 version,
                 reason,
             }) => {
-                let hire = done!(self.led_within(
+                let agent = done!(self.child_within(
                     call,
-                    &hire,
+                    &address,
                     None,
                     Reach::Living
                 ));
-                let name = self.name(hire)?;
+                let name = self.name(agent)?;
                 let layout = self.realm.layout().clone();
                 let db = self.realm.store().connection();
                 let target =
-                    done!(pin_target(db, &layout, hire, &version));
+                    done!(pin_target(db, &layout, agent, &version));
                 self.carry(call, |cx, _| {
-                    Ok(hires::set_pin(
+                    Ok(hamlet_agents::set_pin(
                         cx,
-                        hire,
+                        agent,
                         target.as_deref(),
                         &reason,
                     )?
                     .map(|()| pinned(&name, target.as_deref())))
                 })
             }
-            Called::RestoreHire(RestoreHire { hire, reason }) => {
-                let hire = done!(self.led_within(
+            Called::RestoreAgent(RestoreAgent {
+                agent: address,
+                reason,
+            }) => {
+                let agent = done!(self.child_within(
                     call,
-                    &hire,
+                    &address,
                     None,
                     Reach::Kept
                 ));
-                let name = self.name(hire)?;
-                // A merged hire comes back by splitting its merge.
+                let name = self.name(agent)?;
+                // A merged agent comes back by splitting its merge.
                 let db = self.realm.store().connection();
-                let merge = merges::of_absorbed(db, hire)?;
+                let merge = merges::of_absorbed(db, agent)?;
                 self.carry(call, |cx, _| {
                     Ok(match &merge {
                         Some(merge) => merges::split(
@@ -78,30 +82,32 @@ impl Core<'_, '_> {
                         .map(|()| {
                             format!(
                                 "{name} is back; what it brought to \
-                                 the hire it was merged into is \
+                                 the agent it was merged into is \
                                  taken out again."
                             )
                         }),
-                        None => hires::come_back(cx, hire, &reason)?
-                            .map(|()| format!("{name} is back.")),
+                        None => hamlet_agents::come_back(
+                            cx, agent, &reason,
+                        )?
+                        .map(|()| format!("{name} is back.")),
                     })
                 })
             }
-            Called::EraseHire(EraseHire { hire }) => {
-                let hire = done!(self.led_within(
+            Called::EraseAgent(EraseAgent { agent: address }) => {
+                let agent = done!(self.child_within(
                     call,
-                    &hire,
+                    &address,
                     None,
                     Reach::Kept
                 ));
-                let name = self.name(hire)?;
+                let name = self.name(agent)?;
                 self.carry(call, |cx, _| {
-                    Ok(hires::erase(cx, hire)?.map(|()| {
+                    Ok(hamlet_agents::erase(cx, agent)?.map(|()| {
                         format!("{name} was erased for good.")
                     }))
                 })
             }
-            _ => refuse!(unsupported(call)),
+            _ => reject!(unsupported(call)),
         }
     }
 
@@ -129,7 +135,7 @@ impl Core<'_, '_> {
             | Called::ReadPapers(ReadPapers { agent }) => {
                 agent.clone()
             }
-            _ => refuse!(unsupported(call)),
+            _ => reject!(unsupported(call)),
         };
         let agent = done!(self.named(&address, None));
         let name = self.name(agent)?;
@@ -141,10 +147,10 @@ impl Core<'_, '_> {
             _ => authority::may_reach(db, by, agent)?,
         };
         if !allowed && agent == caller {
-            refuse!(Refusal::OwnSteering);
+            reject!(Rejection::OwnSteering);
         }
         if !allowed {
-            refuse!(Refusal::NotYours { name });
+            reject!(Rejection::NotYours { name });
         }
         match called {
             Called::SetEffort(SetEffort { effort, .. }) => {
@@ -152,7 +158,7 @@ impl Core<'_, '_> {
                     "" | "none" => None,
                     level => match level.parse::<Effort>() {
                         Ok(effort) => Some(effort),
-                        Err(_) => refuse!(Refusal::NoEffort {
+                        Err(_) => reject!(Rejection::NoEffort {
                             level: level.to_owned(),
                         }),
                     },
@@ -198,7 +204,7 @@ impl Core<'_, '_> {
             }),
             Called::Stop(_) => {
                 if agent == caller {
-                    refuse!(Refusal::StopSelf);
+                    reject!(Rejection::StopSelf);
                 }
                 let working = self.working()?;
                 self.carry(call, |cx, _| {
@@ -223,8 +229,10 @@ impl Core<'_, '_> {
             }) => {
                 let path = checked!(memory_path(&path));
                 self.begin(call)?;
-                self.write_lodge_memory(by, agent, &path, &content)?;
-                Ok(Ok(format!("Wrote {path} of {name}'s lodge.")))
+                self.write_worktree_memory(
+                    by, agent, &path, &content,
+                )?;
+                Ok(Ok(format!("Wrote {path} of {name}'s worktree.")))
             }
             Called::ReadPrompt(_) => {
                 let conversation = self.change(by, |cx, env| {
@@ -299,19 +307,19 @@ impl Core<'_, '_> {
     ) -> Done<String> {
         let dreamer = done!(self.dreamer(None, &args.who));
         match dreamer {
-            Dreamer::Scholar(scholar) => {
+            Dreamer::Profile(profile) => {
                 let db = self.realm.store().connection();
                 let by = Actor::Agent(call.conversation.agent);
-                if !authority::may_keep(db, by, scholar)? {
-                    refuse!(Refusal::ScholarNotOwn {
-                        name: addresses::scholar_name_of(
-                            db, scholar
+                if !authority::may_keep(db, by, profile)? {
+                    reject!(Rejection::ProfileNotOwn {
+                        name: addresses::profile_name_of(
+                            db, profile
                         )?,
                     });
                 }
             }
-            Dreamer::Hire { hire, .. } => {
-                done!(self.leads_hire(call, hire));
+            Dreamer::Agent { agent, .. } => {
+                done!(self.require_child(call, agent));
             }
         }
         self.begin(call)?;
@@ -341,7 +349,7 @@ fn paper_text(papers: &protocol::Papers) -> String {
         }
     }
     if !papers.learned.is_empty() {
-        lines.push("# Learned, not yet in its scholar's main".into());
+        lines.push("# Learned, not yet in its profile's main".into());
         for path in &papers.learned {
             lines.push(format!("- {path}"));
         }

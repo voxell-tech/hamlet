@@ -8,7 +8,7 @@ use bevy::render::render_resource::{
 };
 use bevy::ui::UiSystems;
 use hamlet_assets::tint;
-use hamlet_client::realm::Mayor;
+use hamlet_client::realm::Lead;
 use hamlet_client::waits::{Choice, ChoiceExt, RaisedBy, Waiting};
 
 use super::label::{self, Lens};
@@ -357,7 +357,7 @@ fn place(
         (Entity, &Thing, &Footprint, &GlobalTransform),
         With<Named>,
     >,
-    mayors: Query<(), With<Mayor>>,
+    leads: Query<(), With<Lead>>,
     mut tags: Query<(
         &NeedTag,
         &mut Node,
@@ -367,9 +367,9 @@ fn place(
 ) {
     let (camera, view) = lens.camera();
     for (tag, mut node, mut visibility, computed) in &mut tags {
-        // Only the first hamlet's mayor lives in the cottage.
+        // Only the first hamlet's lead lives in the cottage.
         let own = Thing::House(tag.agent);
-        let hall = mayors.contains(tag.agent);
+        let hall = leads.contains(tag.agent);
         let point = houses
             .iter()
             .find(|(_, thing, ..)| **thing == own)

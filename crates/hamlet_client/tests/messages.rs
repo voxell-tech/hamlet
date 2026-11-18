@@ -3,7 +3,7 @@ use bevy_ecs::prelude::*;
 use hamlet_client::chats::Chat;
 use hamlet_client::messages::*;
 use hamlet_client::outbox::Outbox;
-use hamlet_client::realm::mayor_of;
+use hamlet_client::realm::lead_of;
 use hamlet_client::waits::{Choice, Waiting};
 use hamlet_client::{ClientPlugin, receive};
 use hamlet_protocol::client as protocol;
@@ -26,7 +26,7 @@ fn chief_messages_become_requests_with_fresh_uuid_ids_and_wire_ids() {
     let mut initial = state();
     initial.waits.push(wait("held"));
     receive(world, protocol::ServerMessage::State(initial));
-    let ada_entity = mayor_of(world, "home").unwrap();
+    let ada_entity = lead_of(world, "home").unwrap();
     let wait =
         world.query::<(Entity, &Waiting)>().single(world).unwrap().0;
     let reference = protocol::ChatRef { with: ada() };
@@ -97,7 +97,7 @@ struct Observed {
 #[test]
 fn structured_questions_reconcile_and_send_picks_without_forging_chief_text()
  {
-    use hamlet_client::waits::{Asks, Refused};
+    use hamlet_client::waits::{Asks, Rejected};
     use serde_json::json;
 
     let mut app = app();
@@ -125,7 +125,7 @@ fn structured_questions_reconcile_and_send_picks_without_forging_chief_text()
     world.flush();
     let sent =
         world.resource_mut::<Outbox>().drain().collect::<Vec<_>>();
-    let [protocol::ClientMessage::Answer(refused)] = sent.as_slice()
+    let [protocol::ClientMessage::Answer(answer)] = sent.as_slice()
     else {
         panic!("the words are sent")
     };
@@ -137,14 +137,14 @@ fn structured_questions_reconcile_and_send_picks_without_forging_chief_text()
             images: Vec::new(),
             file: None,
             files: Vec::new(),
-            to: refused.id.clone(),
+            to: answer.id.clone(),
             kind: protocol::ReplyKind::Error,
             text: "question 1 takes no words".into(),
         }),
     );
     assert_eq!(
-        world.get::<Refused>(entity),
-        Some(&Refused("question 1 takes no words".into()))
+        world.get::<Rejected>(entity),
+        Some(&Rejected("question 1 takes no words".into()))
     );
     world.trigger(Answered {
         entity,
@@ -178,7 +178,7 @@ fn structured_questions_reconcile_and_send_picks_without_forging_chief_text()
             text: "answered".into(),
         }),
     );
-    assert!(world.get::<Refused>(entity).is_none());
+    assert!(world.get::<Rejected>(entity).is_none());
     initial.waits.clear();
     receive(world, protocol::ServerMessage::State(initial));
     assert!(world.get_entity(entity).is_err());

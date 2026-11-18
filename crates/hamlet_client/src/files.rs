@@ -106,7 +106,7 @@ pub struct FilesKept {
 /// The files gathered for `key` could not be read or sent, or the
 /// connection was lost on the way.
 #[derive(Event, Clone, Debug)]
-pub struct FilesRefused {
+pub struct FilesRejected {
     pub key: u64,
     pub text: String,
 }
@@ -224,9 +224,9 @@ pub(crate) fn off_frame<T: Send + 'static>(
     Some(done)
 }
 
-fn refuse(world: &mut World, key: u64, text: impl Into<String>) {
+fn reject(world: &mut World, key: u64, text: impl Into<String>) {
     drop_pack(world, key);
-    world.trigger(FilesRefused {
+    world.trigger(FilesRejected {
         key,
         text: text.into(),
     });
@@ -251,7 +251,7 @@ fn drop_pack(world: &mut World, key: u64) {
 fn walk_off_frame(world: &mut World, key: u64, paths: Vec<PathBuf>) {
     drop_pack(world, key);
     let Some(done) = off_frame(world, move || walk(&paths)) else {
-        refuse(world, key, "The window has no runtime to read with.");
+        reject(world, key, "The window has no runtime to read with.");
         return;
     };
     world.resource_mut::<Packs>().0.insert(key, Stage::Walking);
@@ -443,7 +443,7 @@ fn collect(world: &mut World) {
                         waiting.push(Pending::Walk { key, done });
                     }
                     Err(oneshot::error::TryRecvError::Closed) => {
-                        refuse(world, key, "The reading stopped.");
+                        reject(world, key, "The reading stopped.");
                     }
                     Ok(result) => walked(world, key, result),
                 }
@@ -465,7 +465,7 @@ fn collect(world: &mut World) {
                     });
                 }
                 Err(oneshot::error::TryRecvError::Closed) => {
-                    refuse(world, key, "The reading stopped.");
+                    reject(world, key, "The reading stopped.");
                 }
                 Ok(result) => {
                     read(world, key, file, upload, offset, result);
@@ -485,9 +485,9 @@ fn walked(world: &mut World, key: u64, result: io::Result<Walked>) {
         return;
     }
     match result {
-        Err(error) => refuse(world, key, error.to_string()),
+        Err(error) => reject(world, key, error.to_string()),
         Ok(Walked { files, .. }) if files.is_empty() => {
-            refuse(world, key, "There is nothing to send in that.");
+            reject(world, key, "There is nothing to send in that.");
         }
         Ok(Walked { files, skipped }) => {
             let bytes = files.iter().map(|file| file.size).sum();
@@ -525,7 +525,7 @@ fn read(
     let bytes = match result {
         Ok(bytes) => bytes,
         Err(error) => {
-            refuse(world, key, error.to_string());
+            reject(world, key, error.to_string());
             return;
         }
     };
@@ -618,7 +618,7 @@ fn read_off_frame(
     let Some(done) =
         off_frame(world, move || read_at(&source, offset))
     else {
-        refuse(world, key, "The window has no runtime to read with.");
+        reject(world, key, "The window has no runtime to read with.");
         return;
     };
     world.resource_mut::<Reading>().0.push(Pending::Part {
@@ -654,8 +654,8 @@ fn kept(
     pump(world, key);
 }
 
-/// The words of a refusal or fault, none for what is no refusal.
-fn refusal(message: &protocol::ServerMessage) -> Option<String> {
+/// The words of a rejection or fault, none for what is no rejection.
+fn rejection(message: &protocol::ServerMessage) -> Option<String> {
     match message {
         protocol::ServerMessage::Fault(fault) => {
             Some(fault.text.clone())
@@ -676,8 +676,8 @@ fn answered(world: &mut World, response: Response) {
         return;
     };
     let key = step.key();
-    if let Some(text) = refusal(&response.message) {
-        refuse(world, key, text);
+    if let Some(text) = rejection(&response.message) {
+        reject(world, key, text);
         return;
     }
     let protocol::ServerMessage::Reply(reply) = response.message
@@ -691,7 +691,7 @@ fn answered(world: &mut World, response: Response) {
                 (None, Some(upload)) => {
                     read_off_frame(world, key, file, upload, 0);
                 }
-                (None, None) => refuse(
+                (None, None) => reject(
                     world,
                     key,
                     "The server did not accept the file.",
@@ -708,7 +708,7 @@ fn answered(world: &mut World, response: Response) {
             None if next < file.size => {
                 read_off_frame(world, key, file, upload, next);
             }
-            None => refuse(world, key, "The server kept no file."),
+            None => reject(world, key, "The server kept no file."),
         },
     }
 }
@@ -725,7 +725,7 @@ fn lost(_: On<Reconnected>, mut commands: Commands) {
             .map(|(key, _)| *key)
             .collect::<Vec<_>>();
         for key in going {
-            refuse(world, key, "The connection was lost.");
+            reject(world, key, "The connection was lost.");
         }
     });
 }

@@ -42,8 +42,8 @@ fn event_words(event: &ItemEvent) -> String {
         ItemEvent::Dreamed { summary } => {
             format!("dreamed: {summary}")
         }
-        ItemEvent::Scholar { scholar } => {
-            format!("became {scholar}, a scholar of the city")
+        ItemEvent::Profile { profile } => {
+            format!("became {profile}, a profile of the city")
         }
         ItemEvent::Renamed { name } => format!("renamed to {name}"),
         ItemEvent::Fast { on: true } => "fast tier on".into(),
@@ -62,22 +62,22 @@ fn tool_line(tool: &ItemTool) -> String {
     }
 }
 
-/// The living agent `to` addresses: `hand`, `mayor@<hamlet>`,
-/// `hire#<id>` or `worker#<id>`.
+/// The living agent `to` addresses: `hand`, `lead@<hamlet>`,
+/// `agent#<id>` or `worker#<id>`.
 pub(crate) fn resolve(state: &State, to: &str) -> Result<AgentId> {
     let nobody = || {
         anyhow::anyhow!(
-            "no agent is at `{to}`; use hand, mayor@<hamlet>, \
-             hire#<id> or worker#<id>"
+            "no agent is at `{to}`; use hand, lead@<hamlet>, \
+             agent#<id> or worker#<id>"
         )
     };
     let (id, kind) =
         match to.parse::<Address>().map_err(|_| nobody())? {
             Address::Hand => return Ok(state.hand),
-            Address::Mayor { hamlet: None } => {
-                bail!("mayor needs a hamlet: mayor@<hamlet>")
+            Address::Lead { hamlet: None } => {
+                bail!("lead needs a hamlet: lead@<hamlet>")
             }
-            Address::Mayor {
+            Address::Lead {
                 hamlet: Some(hamlet),
             } => {
                 let found = state
@@ -87,11 +87,11 @@ pub(crate) fn resolve(state: &State, to: &str) -> Result<AgentId> {
                     .with_context(|| {
                         format!("no hamlet has the id `{hamlet}`")
                     })?;
-                return Ok(found.mayor);
+                return Ok(found.lead);
             }
-            Address::Hire(id) => (id, AgentKind::Hire),
+            Address::Agent(id) => (id, AgentKind::Hamlet),
             Address::Worker(id) => (id, AgentKind::Worker),
-            Address::Scholar(_) => return Err(nobody()),
+            Address::Profile(_) => return Err(nobody()),
         };
     state
         .agents
@@ -117,11 +117,11 @@ pub async fn run(
         "hamlet: Ctrl-D quits after your lines are answered; Ctrl-C \
          quits at once and stops no agent"
     );
-    for deed in &state.deeds {
+    for action in &state.actions {
         eprintln!(
             "  /{}: {}",
-            format!("{} {}", deed.name, deed.usage).trim_end(),
-            deed.description
+            format!("{} {}", action.name, action.usage).trim_end(),
+            action.description
         );
     }
     eprintln!(
@@ -205,7 +205,7 @@ struct TerminalChat {
 }
 
 impl TerminalChat {
-    /// Opens `chat`, ending the chat if the server refuses.
+    /// Opens `chat`, ending the chat if the server rejects.
     async fn open(
         &mut self,
         id: RequestId,
@@ -293,7 +293,7 @@ impl TerminalChat {
                 }
                 let whom = match command {
                     "/agent" => "agent ",
-                    "/hamlet" => "mayor of ",
+                    "/hamlet" => "lead of ",
                     _ => "",
                 };
                 let name =
@@ -536,7 +536,7 @@ fn switch(
         .iter()
         .find(|h| h.id == name || h.name == name)
         .with_context(|| format!("no hamlet named `{name}`"))?;
-    Ok(hamlet.mayor)
+    Ok(hamlet.lead)
 }
 
 fn prompt(screen: &mut Screen, interactive: bool) -> Result<()> {

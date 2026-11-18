@@ -179,7 +179,7 @@ fn file_name(path: &str) -> String {
         .to_string()
 }
 
-/// `to` with its agent's name, as `hire#4 (Mira)`.
+/// `to` with its agent's name, as `agent#4 (Mira)`.
 fn whom(
     world: &World,
     to: &str,

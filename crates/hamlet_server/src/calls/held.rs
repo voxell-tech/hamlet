@@ -16,7 +16,7 @@ pub(crate) enum State {
     /// Reserved, not decided.
     Open,
     /// Let run without a chief's answer; made again each time, as
-    /// grants and trust change.
+    /// grants and session grants change.
     Allowed {
         net: bool,
     },

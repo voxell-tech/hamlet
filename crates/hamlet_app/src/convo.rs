@@ -133,9 +133,9 @@ fn seat_as(
     convo.with = with;
 }
 
-/// `agent`'s house: the hall for the first mayor.
+/// `agent`'s house: the hall for the first lead.
 pub(crate) fn home_of(world: &World, agent: Entity) -> Thing {
-    if agents::first_mayor(world) == Some(agent) {
+    if agents::first_lead(world) == Some(agent) {
         Thing::Cottage
     } else {
         Thing::House(agent)
@@ -147,7 +147,7 @@ pub(crate) fn talk_to(world: &mut World, agent: Entity) {
     if seat(world, agent) == Seating::Unaddressed {
         return;
     }
-    let hall = agents::first_mayor(world) == Some(agent);
+    let hall = agents::first_lead(world) == Some(agent);
     let selected =
         world.get_resource::<Selected>().map(|selected| selected.0);
     let same = match selected {
@@ -268,11 +268,12 @@ mod tests {
             protocol::ServerMessage::State(state.clone()),
         );
         app.update();
-        let scout = agents::named(app.world_mut(), "hire#3").unwrap();
+        let scout =
+            agents::named(app.world_mut(), "agent#3").unwrap();
         talk_to(app.world_mut(), scout);
         assert_eq!(
             app.world().resource::<Convo>().with.as_deref(),
-            Some("hire#3")
+            Some("agent#3")
         );
         let revision = app.world().resource::<Seen>().revision + 1;
         receive(
@@ -314,7 +315,7 @@ mod tests {
             .drain()
             .for_each(drop);
         let carder =
-            agents::named(app.world_mut(), "hire#5").unwrap();
+            agents::named(app.world_mut(), "agent#5").unwrap();
         talk_to(app.world_mut(), carder);
         app.update();
         let opens = app

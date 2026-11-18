@@ -6,7 +6,7 @@ use std::hash::Hash;
 use anyhow::{Result, bail, ensure};
 use bevy_ecs::entity::Entity;
 use hamlet_protocol::runtime::{
-    self, CredentialRequest, CredentialRequestAction as Action,
+    self, CredentialRequest, CredentialRequestAction as LeaseAction,
     CredentialResult,
 };
 
@@ -39,7 +39,7 @@ struct Lease<R> {
     /// The lease's id, which the runtime commits or releases by.
     id: String,
     /// The credential's revision when the lease was taken; a commit
-    /// after it changed is refused.
+    /// after it changed is rejected.
     revision: u64,
 }
 
@@ -145,7 +145,7 @@ impl<R: Copy + Eq + Hash> Authority<R> {
         request: &CredentialRequest,
         answer: &mut CredentialResult,
     ) -> Result<bool> {
-        if request.action == Action::End {
+        if request.action == LeaseAction::End {
             self.finish(at, &request.scope);
             return Ok(true);
         }
@@ -155,15 +155,17 @@ impl<R: Copy + Eq + Hash> Authority<R> {
             bail!("No credential authority for this request.");
         };
         let provider = provider.clone();
-        if matches!(request.action, Action::Read | Action::Acquire)
-            && !open
+        if matches!(
+            request.action,
+            LeaseAction::Read | LeaseAction::Acquire
+        ) && !open
         {
             bail!("This credential scope has ended.");
         }
         match request.action {
-            Action::End => unreachable!(),
-            Action::Read => {}
-            Action::Acquire => {
+            LeaseAction::End => unreachable!(),
+            LeaseAction::Read => {}
+            LeaseAction::Acquire => {
                 if self.held.contains_key(&provider) {
                     return Ok(false);
                 }
@@ -176,7 +178,7 @@ impl<R: Copy + Eq + Hash> Authority<R> {
                 answer.lease = Some(lease.id.clone());
                 self.held.insert(provider.clone(), lease);
             }
-            Action::Commit | Action::Release => {
+            LeaseAction::Commit | LeaseAction::Release => {
                 if !self.held.get(&provider).is_some_and(|lease| {
                     lease.runtime == at
                         && lease.scope == request.scope
@@ -191,7 +193,7 @@ impl<R: Copy + Eq + Hash> Authority<R> {
                     .remove(&provider)
                     .expect("the lease was checked as held")
                     .revision;
-                let saved = if request.action == Action::Commit {
+                let saved = if request.action == LeaseAction::Commit {
                     request
                         .credential
                         .clone()
@@ -217,7 +219,7 @@ impl<R: Copy + Eq + Hash> Authority<R> {
                 saved?;
             }
         }
-        let serving = if request.action == Action::Read {
+        let serving = if request.action == LeaseAction::Read {
             serving
         } else {
             ""
@@ -255,7 +257,7 @@ mod tests {
     }
 
     #[test]
-    fn leases_serialize_latest_reads_refuse_foreign_owners_and_finish_started_rotations()
+    fn leases_serialize_latest_reads_reject_foreign_owners_and_finish_started_rotations()
      {
         let dir = Scratch::new("credential-authority");
         let mut credentials = Credentials::open(&dir).unwrap();
@@ -300,10 +302,10 @@ mod tests {
                 None,
             ),
         );
-        let refused = authority.flush(&mut credentials, "");
-        assert_eq!(refused.len(), 2);
+        let rejected = authority.flush(&mut credentials, "");
+        assert_eq!(rejected.len(), 2);
         assert!(
-            refused.iter().all(|(_, answer)| answer.error.is_some())
+            rejected.iter().all(|(_, answer)| answer.error.is_some())
         );
         authority.finish(0, "first");
         authority.finish(1, "cancelled");
@@ -382,9 +384,9 @@ mod tests {
             .save_model("openrouter", Some(original.clone()))
             .unwrap();
         authority.request(0, request("refresh", "stale", "commit", Some(&lease), Some(json!({"type":"oauth","access":"late-access","refresh":"late-refresh","expires":99.0,"extra":{}}))));
-        let refused =
+        let rejected =
             authority.flush(&mut credentials, "").pop().unwrap().1;
-        assert!(refused.error.unwrap().contains("changed"));
+        assert!(rejected.error.unwrap().contains("changed"));
         assert_eq!(
             credentials.model("openrouter", ""),
             Some(original.clone())

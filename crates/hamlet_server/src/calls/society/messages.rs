@@ -1,12 +1,12 @@
-//! An agent's messages, road proposals and workers (H30, H31).
+//! An agent's messages, channel proposals and workers (H30, H31).
 
 use anyhow::Result;
 use diesel::prelude::*;
 use hamlet_store::ids::{Actor, AgentId};
 use hamlet_store::schema::worker;
 
-use super::args::{Notify, ProposeRoad, Request, StartWorker};
-use super::{Call, Step, refused, said, task_chief};
+use super::args::{Notify, ProposeChannel, Request, StartWorker};
+use super::{Call, Step, rejected, said, task_chief};
 use crate::attachments::inbox::INBOX;
 use crate::calls::looks::Look;
 use crate::calls::place;
@@ -18,9 +18,9 @@ use crate::conversations::{Kind, briefs};
 use crate::core::Core;
 use crate::realm::change::done;
 use crate::society::agents::{self, EndHow};
-use crate::society::refusal::Refusal;
+use crate::society::rejection::Rejection;
 use crate::society::workers::{self, Start, Starter};
-use crate::society::{addresses, hires, roads};
+use crate::society::{addresses, channels, hamlet_agents};
 use crate::tools::builtin::{Network, Outcome};
 use crate::tools::catalogue::Society;
 
@@ -53,34 +53,35 @@ impl Core<'_, '_> {
         )
     }
 
-    /// Proposes a road to the caller's lead, as a notification to it.
-    pub(in crate::calls) fn propose_road(
+    /// Proposes a channel to the caller's parent, as a notification
+    /// to it.
+    pub(in crate::calls) fn propose_channel(
         &mut self,
         call: &Call<'_>,
-        args: ProposeRoad,
+        args: ProposeChannel,
     ) -> Result<Step> {
         let sender = call.conversation.agent;
         let here = self.hamlet_of(sender)?;
         let to = match self.named(&args.to, here.as_ref())? {
             Ok(to) => to,
-            Err(refusal) => return Ok(Step::of(Err(refusal))),
+            Err(rejection) => return Ok(Step::of(Err(rejection))),
         };
         let db = self.realm.store().connection();
-        let lead = match hires::find(db, sender)? {
-            Some(hire) => match hire.parent {
+        let parent = match hamlet_agents::find(db, sender)? {
+            Some(found) => match found.parent {
                 Some(parent) => parent,
                 None => crate::society::hand::id(db)?,
             },
-            None => return Ok(Step::of(Err(Refusal::RoadEnds))),
+            None => return Ok(Step::of(Err(Rejection::ChannelEnds))),
         };
         let name = self.name(to)?;
         let words =
-            format!("I propose a road to {name}: {}", args.reason);
+            format!("I propose a channel to {name}: {}", args.reason);
         self.deliver(
             call,
             MessageKind::Notification,
-            lead,
-            "lead",
+            parent,
+            "parent",
             &words,
             &[],
         )
@@ -106,7 +107,7 @@ impl Core<'_, '_> {
         let here = self.hamlet_of(sender)?;
         let receiver = match self.named(address, here.as_ref())? {
             Ok(receiver) => receiver,
-            Err(refusal) => return Ok(Step::of(Err(refusal))),
+            Err(rejection) => return Ok(Step::of(Err(rejection))),
         };
         self.deliver(call, kind, receiver, address, words, paths)
     }
@@ -122,15 +123,17 @@ impl Core<'_, '_> {
     ) -> Result<Step> {
         let sender = call.conversation.agent;
         if receiver == sender {
-            return Ok(Step::of(Err(Refusal::SendToSelf)));
+            return Ok(Step::of(Err(Rejection::SendToSelf)));
         }
         if words.is_empty() {
-            return Ok(Step::of(Err(Refusal::NothingToSend)));
+            return Ok(Step::of(Err(Rejection::NothingToSend)));
         }
         let other = self.name(receiver)?;
         let db = self.realm.store().connection();
-        if roads::way(db, sender, receiver)?.is_none() {
-            return Ok(Step::of(Err(Refusal::NoRoadTo { other })));
+        if channels::way(db, sender, receiver)?.is_none() {
+            return Ok(Step::of(Err(Rejection::NoChannelTo {
+                other,
+            })));
         }
         let mut words = words.to_owned();
         let mut images = Vec::new();
@@ -148,8 +151,8 @@ impl Core<'_, '_> {
                     words.push_str(&captions);
                     images = kept;
                 }
-                Err(refusal) => {
-                    return Ok(Step::of(Err(refusal)));
+                Err(rejection) => {
+                    return Ok(Step::of(Err(rejection)));
                 }
             }
         }
@@ -188,7 +191,7 @@ impl Core<'_, '_> {
             })?;
         match sent {
             Ok(found) => self.sent(&found),
-            Err(refusal) => Ok(Step::of(Err(refusal))),
+            Err(rejection) => Ok(Step::of(Err(rejection))),
         }
     }
 
@@ -207,13 +210,13 @@ impl Core<'_, '_> {
         let from =
             addresses::address_of(db, call.conversation.agent)?
                 .replace('#', "-");
-        let (session, lodging) =
+        let (session, worktree) =
             self.tools_of(call, at.place, Network::Closed)?;
         let inbox = self
             .open_inbox(receiver, &format!("{INBOX}/from-{from}"))?;
         Ok(Look::Copy {
             session,
-            lodging,
+            worktree,
             paths: paths.to_vec(),
             inbox: Box::new(inbox),
             images: layout.images(),
@@ -260,7 +263,7 @@ impl Core<'_, '_> {
             wait: waits,
         } = args;
         if tools.iter().any(|tool| Society::named(tool).is_some()) {
-            return Ok(Step::of(Err(Refusal::WorkerTools)));
+            return Ok(Step::of(Err(Rejection::WorkerTools)));
         }
         let names = self.tools.catalogue.names();
         let db = self.realm.store().connection();
@@ -274,7 +277,7 @@ impl Core<'_, '_> {
             tools.iter().find(|tool| !only.contains(tool))
         {
             let name = self.name(starter)?;
-            return Ok(Step::of(Err(Refusal::NoTool {
+            return Ok(Step::of(Err(Rejection::NoTool {
                 name,
                 tool: missing.clone(),
             })));
@@ -302,7 +305,7 @@ impl Core<'_, '_> {
             })?;
         match done {
             Ok(id) => self.worked(id),
-            Err(refusal) => Ok(Step::of(Err(refusal))),
+            Err(rejection) => Ok(Step::of(Err(rejection))),
         }
     }
 
@@ -329,7 +332,7 @@ impl Core<'_, '_> {
                 ))
             }
             (Some(how), _) => Step::Done(reached(
-                refused(format!("{name} ended: {}.", how.words())),
+                rejected(format!("{name} ended: {}.", how.words())),
                 id,
             )),
             (None, _) => {

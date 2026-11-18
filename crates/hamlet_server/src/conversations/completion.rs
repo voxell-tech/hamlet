@@ -27,7 +27,7 @@ use crate::society::{dreams, workers};
 pub(crate) struct Followed {
     /// The tool calls, by runtime and key, whose wait is over.
     pub wake: Vec<(String, String)>,
-    /// An ended hire's reflection ended.
+    /// An ended agent's reflection ended.
     pub dream: bool,
 }
 
@@ -182,8 +182,8 @@ pub(crate) fn follow(
         && found.is_living()
         && !inputs::is_agent_busy(cx.db, agent)?
     {
-        jobs::add(cx, &Job::Commit { hire: agent })?;
-        jobs::add(cx, &Job::TakeIn { hire: agent })?;
+        jobs::add(cx, &Job::Commit { agent })?;
+        jobs::add(cx, &Job::TakeIn { agent })?;
     }
     Ok(followed)
 }
@@ -280,7 +280,7 @@ fn errand_ended(
                     Verdict::Refused,
                     format!(
                         "The librarian did not take `{name}`: \
-                         {answer} It stays in your lodge."
+                         {answer} It stays in your worktree."
                     ),
                 )
             }
@@ -327,8 +327,8 @@ fn errand_ended(
     )
 }
 
-/// Keeps how a lead's review of the instruction `owner` names ended,
-/// raising its objection for the chief to rule on.
+/// Keeps how a parent's review of the instruction `owner` names
+/// ended, raising its objection for the chief to rule on.
 fn reviewed(
     cx: &mut Change<'_>,
     owner: &str,
@@ -376,15 +376,16 @@ fn reviewed(
     if objected || found.done_at.is_some() {
         return Ok(());
     }
-    let lead = review::table
+    let parent = review::table
         .find(task)
-        .select(review::lead)
+        .select(review::parent)
         .first::<hamlet_store::ids::AgentId>(cx.db)?;
-    let lead_name = crate::society::addresses::name_of(cx.db, lead)?;
+    let parent_name =
+        crate::society::addresses::name_of(cx.db, parent)?;
     let name =
         crate::society::addresses::name_of(cx.db, found.agent)?;
     let about = format!(
-        "A chief told `{name}`: {}\n{lead_name} objects: {reason}",
+        "A chief told `{name}`: {}\n{parent_name} objects: {reason}",
         found.text.unwrap_or_default()
     );
     let on = oversight::raise(
@@ -393,7 +394,7 @@ fn reviewed(
             kind: WaitKind::Objection,
             danger: None,
             agent: found.agent,
-            scholar: None,
+            profile: None,
             conversation: Some(conversation),
             task: Some(task),
             about,
@@ -406,7 +407,7 @@ fn reviewed(
     diesel::insert_into(objection::table)
         .values((
             objection::task.eq(task),
-            objection::agent.eq(lead),
+            objection::agent.eq(parent),
             objection::source.eq("review"),
             objection::reason.eq(&reason),
             objection::wait.eq(on),
@@ -467,7 +468,7 @@ fn fault(
             kind: WaitKind::Fault,
             danger: None,
             agent: kept.agent,
-            scholar: None,
+            profile: None,
             conversation: Some(kept.id),
             task: input.task,
             about: failure.words,

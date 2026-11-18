@@ -25,7 +25,8 @@ use bevy_fynix::{
 use hamlet_client::messages::Veto;
 use hamlet_client::outbox::RequestId;
 use hamlet_client::realm::{
-    Busy, Closed, Deeds, HamletId, Identity, Left, Scholar, Treasury,
+    Actions, Busy, Closed, HamletId, Identity, Left, Profile,
+    Treasury,
 };
 use hamlet_client::waits::Waiting;
 use hamlet_protocol::client as protocol;
@@ -50,8 +51,8 @@ pub use self::hamlet::{Page, hamlet};
 pub use self::record::Annals;
 pub(crate) use self::rows::standing;
 use self::rows::{agent_rows, hamlet_rows, pressable, stale};
-use crate::petition::Queue;
 use crate::standing::{Standing, need_you};
+use crate::wait::Queue;
 use crate::{chat, words, world_menu};
 
 pub fn plugin(app: &mut App) {
@@ -152,11 +153,11 @@ pub fn overview() -> impl View {
                     .tooltip(|| note("Cross to the other island"))
                     .boxed(),
                 action(
-                    Glyph::Scholar,
-                    "New Scholar",
-                    world_menu::ask_new_scholar,
+                    Glyph::Profile,
+                    "New Profile",
+                    world_menu::ask_new_profile,
                 )
-                .tooltip(|| note(words::SCHOLAR))
+                .tooltip(|| note(words::PROFILE))
                 .boxed(),
             ]),
             scroll_area((column((needs(), hamlets(), closed()))
@@ -287,7 +288,7 @@ struct Today {
     needs: usize,
     working: usize,
     resting: usize,
-    scholars: usize,
+    profiles: usize,
     harbor: usize,
 }
 
@@ -308,14 +309,14 @@ fn today_of(world: &World) -> Today {
             }
         }
     }
-    let (mut scholars, mut harbor) = (0, 0);
-    if let Some(mut query) = world.try_query::<&Scholar>() {
-        for scholar in query.iter(world).map(|scholar| &scholar.0) {
-            if scholar.left.is_some() {
+    let (mut profiles, mut harbor) = (0, 0);
+    if let Some(mut query) = world.try_query::<&Profile>() {
+        for profile in query.iter(world).map(|profile| &profile.0) {
+            if profile.left.is_some() {
                 continue;
             }
-            match scholar.arrival {
-                protocol::Arrival::Housed => scholars += 1,
+            match profile.arrival {
+                protocol::Arrival::Housed => profiles += 1,
                 _ => harbor += 1,
             }
         }
@@ -324,7 +325,7 @@ fn today_of(world: &World) -> Today {
         needs,
         working,
         resting,
-        scholars,
+        profiles,
         harbor,
     }
 }
@@ -374,7 +375,7 @@ fn today() -> AnyView {
                     waits.glyph(),
                     need_you(today.needs),
                     waits.tone(),
-                    "Petitions waiting for your answer",
+                    "Waits for your answer",
                 ),
                 figure(
                     today.working,
@@ -391,14 +392,14 @@ fn today() -> AnyView {
                     "Agents resting until there is work",
                 ),
                 figure(
-                    today.scholars,
-                    Glyph::Scholar,
-                    match today.scholars {
-                        1 => "scholar",
-                        _ => "scholars",
+                    today.profiles,
+                    Glyph::Profile,
+                    match today.profiles {
+                        1 => "profile",
+                        _ => "profiles",
                     },
                     Tone::Body,
-                    words::SCHOLAR,
+                    words::PROFILE,
                 ),
                 figure(
                     today.harbor,
@@ -428,7 +429,7 @@ fn needs() -> AnyView {
     })
     .within(bare());
     with_cx(move |cx| {
-        column((head, crate::petition::waiting()))
+        column((head, crate::wait::waiting()))
             .gap(cx.theme().space.gap)
             // Out of the page while nothing waits, its gap with it.
             .display(resource::<Queue, _>(|queue| {
@@ -448,7 +449,7 @@ struct HamletCard {
     hamlet: Entity,
     title: String,
     standing: (Glyph, String, StatusKind),
-    mayor: Option<String>,
+    lead: Option<String>,
     account: String,
     spent: Option<rows::Meter>,
 }
@@ -468,10 +469,10 @@ fn hamlet_cards(world: &World) -> Vec<HamletCard> {
                     .filter(|row| row.standing == standing)
                     .count()
             };
-            let mayor = living
+            let lead = living
                 .iter()
-                .find(|row| row.mayor)
-                .map(|row| format!("Mayor: {}", row.name));
+                .find(|row| row.lead)
+                .map(|row| format!("Lead: {}", row.name));
             HamletCard {
                 hamlet: facts.hamlet,
                 title: facts.title,
@@ -480,7 +481,7 @@ fn hamlet_cards(world: &World) -> Vec<HamletCard> {
                     how_many(Standing::Works),
                     how_many(Standing::Waits),
                 ),
-                mayor,
+                lead,
                 // Its budget shows once something is spent.
                 account: match world.get::<Treasury>(facts.hamlet) {
                     Some(t)
@@ -507,7 +508,7 @@ fn hamlets() -> AnyView {
         parts.extend(cards.iter().cloned().map(|card| {
             let hamlet = card.hamlet;
             let mut lines = Vec::from_iter(
-                card.mayor.map(|mayor| note(mayor).boxed()),
+                card.lead.map(|lead| note(lead).boxed()),
             );
             if !card.account.is_empty() {
                 lines.push(budget(card.account, card.spent));
@@ -567,10 +568,10 @@ fn closed() -> AnyView {
             (
                 world.resource::<Closed>().0.clone(),
                 world
-                    .resource::<Deeds>()
+                    .resource::<Actions>()
                     .is_supported("restore-hamlet"),
                 world
-                    .resource::<Deeds>()
+                    .resource::<Actions>()
                     .is_supported("erase-hamlet"),
                 world.resource::<Erasing>().0.clone(),
             )
@@ -591,7 +592,7 @@ fn closed() -> AnyView {
                         "Restore",
                         move |world| {
                             if world
-                                .resource::<Deeds>()
+                                .resource::<Actions>()
                                 .is_supported("restore-hamlet")
                             {
                                 world.resource_mut::<Erasing>().0 =
@@ -637,8 +638,8 @@ fn closed() -> AnyView {
                                 hamlet.name
                             )),
                             note(
-                                "Every archived lodge is deleted. \
-                                 This cannot be undone.",
+                                "Every archived worktree is \
+                                 deleted. This cannot be undone.",
                             ),
                             buttons(vec![
                                 bad_action(
@@ -649,7 +650,7 @@ fn closed() -> AnyView {
                                             .resource_mut::<Erasing>()
                                             .0 = None;
                                         if world
-                                            .resource::<Deeds>()
+                                            .resource::<Actions>()
                                             .is_supported(
                                                 "erase-hamlet",
                                             )
@@ -725,7 +726,7 @@ mod tests {
         let mut app = panel_app();
         app.add_plugins(plugin);
         let mut state = hamlet_testing::realm::state();
-        state.deeds = hamlet_testing::realm::deeds(&[
+        state.actions = hamlet_testing::realm::actions(&[
             "restore-hamlet",
             "erase-hamlet",
         ]);
@@ -758,7 +759,7 @@ mod tests {
         );
         press(&mut app, "Delete");
         assert!(app.world().resource::<Outbox>().iter().any(|m| matches!(m, protocol::ClientMessage::Say(s) if s.text == "/erase-hamlet mill" && s.to == protocol::AgentId(1))));
-        app.world_mut().resource_mut::<Deeds>().0.clear();
+        app.world_mut().resource_mut::<Actions>().0.clear();
         app.update();
         let shown = words(&mut app);
         assert!(
@@ -773,7 +774,7 @@ mod tests {
         let mut app = panel_app();
         app.add_plugins(plugin);
         let mut state = hamlet_testing::realm::state();
-        state.deeds = hamlet_testing::realm::deeds(&[
+        state.actions = hamlet_testing::realm::actions(&[
             "restore-hamlet",
             "erase-hamlet",
         ]);

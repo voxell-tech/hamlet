@@ -416,7 +416,7 @@ fn respawn_keepers(
             &mut commands,
             &kit,
             &mut materials,
-            Who::mayor(),
+            Who::lead(),
             Transform::default(),
             demo.keeper_state,
         );
@@ -452,7 +452,7 @@ fn respawn_keepers(
                 &mut commands,
                 &kit,
                 &mut materials,
-                Who::mayor(),
+                Who::lead(),
                 Transform::from_translation(at).with_rotation(turn),
                 state,
             );
@@ -560,9 +560,9 @@ fn box_keeper(
     mut commands: Commands,
     mut meshes: ResMut<Assets<Mesh>>,
     pick: Res<PickSettings>,
-    mayors: Query<Entity, (With<MainKeeper>, Without<Boxed>)>,
+    leads: Query<Entity, (With<MainKeeper>, Without<Boxed>)>,
 ) {
-    for robot in &mayors {
+    for robot in &leads {
         let boxed = commands
             .spawn((
                 hit_box(

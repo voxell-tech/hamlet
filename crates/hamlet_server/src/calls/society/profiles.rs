@@ -1,98 +1,98 @@
-//! The Hand's reads and changes of a scholar.
+//! The Hand's reads and changes of a profile.
 
 use anyhow::Result;
 use hamlet_git::{
     Author, Change as GitChange, CommitId, MAIN, Repository,
 };
-use hamlet_store::ids::{Actor, ScholarId};
+use hamlet_store::ids::{Actor, ProfileId};
 
 use super::args::{
-    Called, EditScholar, EraseScholar, Fork, MoveHouse, NameScholar,
-    Purge, ReadScholar, RemoveScholar, RestoreScholar, Revert, Tag,
+    Called, EditProfile, EraseProfile, Fork, MoveHouse, NameProfile,
+    Purge, ReadProfile, RemoveProfile, RestoreProfile, Revert, Tag,
     TurnAway, Versions, Welcome,
 };
 use super::{Call, cut, unsupported};
 use crate::core::Core;
 use crate::knowledge::CHARACTER;
 use crate::knowledge::versions::versions;
-use crate::realm::change::{Done, done, refuse};
+use crate::realm::change::{Done, done, reject};
 use crate::realm::jobs;
 use crate::society::addresses::{self, Reach};
 use crate::society::city::{self, CHARACTER_MOST};
-use crate::society::refusal::Refusal;
+use crate::society::rejection::Rejection;
 use crate::society::{authority, names};
 
 impl Core<'_, '_> {
-    /// The scholar at `address` within `reach`, which `call`'s agent
+    /// The profile at `address` within `reach`, which `call`'s agent
     /// may keep.
-    fn kept_scholar(
+    fn kept_profile(
         &mut self,
         call: &Call<'_>,
         address: &str,
         reach: Reach,
-    ) -> Done<ScholarId> {
+    ) -> Done<ProfileId> {
         let db = self.realm.store().connection();
-        let id = done!(addresses::scholar_at(db, address, reach));
+        let id = done!(addresses::profile_at(db, address, reach));
         if !authority::may_keep(
             db,
             Actor::Agent(call.conversation.agent),
             id,
         )? {
-            return Ok(Err(Refusal::ScholarNotOwn {
+            return Ok(Err(Rejection::ProfileNotOwn {
                 name: city::get(db, id)?.label(),
             }));
         }
         Ok(Ok(id))
     }
 
-    /// Carries out the Hand's `called` on a scholar of the city.
-    pub(super) fn scholar_tool(
+    /// Carries out the Hand's `called` on a profile of the city.
+    pub(super) fn profile_tool(
         &mut self,
         call: &Call<'_>,
         called: Called,
     ) -> Done<String> {
         let (address, reach) = match &called {
-            Called::RestoreScholar(RestoreScholar {
-                scholar,
+            Called::RestoreProfile(RestoreProfile {
+                profile,
                 ..
             })
-            | Called::EraseScholar(EraseScholar { scholar }) => {
-                (scholar.clone(), Reach::Kept)
+            | Called::EraseProfile(EraseProfile { profile }) => {
+                (profile.clone(), Reach::Kept)
             }
-            Called::Versions(Versions { scholar })
-            | Called::Fork(Fork { scholar, .. })
-            | Called::Purge(Purge { scholar, .. })
-            | Called::Welcome(Welcome { scholar, .. })
-            | Called::TurnAway(TurnAway { scholar, .. })
-            | Called::NameScholar(NameScholar { scholar, .. })
-            | Called::MoveHouse(MoveHouse { scholar, .. })
-            | Called::RemoveScholar(RemoveScholar {
-                scholar, ..
-            }) => (scholar.clone(), Reach::Living),
-            _ => refuse!(unsupported(call)),
+            Called::Versions(Versions { profile })
+            | Called::Fork(Fork { profile, .. })
+            | Called::Purge(Purge { profile, .. })
+            | Called::Welcome(Welcome { profile, .. })
+            | Called::TurnAway(TurnAway { profile, .. })
+            | Called::NameProfile(NameProfile { profile, .. })
+            | Called::MoveHouse(MoveHouse { profile, .. })
+            | Called::RemoveProfile(RemoveProfile {
+                profile, ..
+            }) => (profile.clone(), Reach::Living),
+            _ => reject!(unsupported(call)),
         };
-        let scholar = done!(self.kept_scholar(call, &address, reach));
-        let shown = addresses::scholar_name_of(
+        let profile = done!(self.kept_profile(call, &address, reach));
+        let shown = addresses::profile_name_of(
             self.realm.store().connection(),
-            scholar,
+            profile,
         )?;
         match called {
             Called::Versions(_) => {
-                Ok(Ok(versions(&self.repository(scholar)?)?))
+                Ok(Ok(versions(&self.repository(profile)?)?))
             }
             Called::Purge(Purge { path, .. }) => {
                 self.begin(call)?;
                 let by = Actor::Agent(call.conversation.agent);
-                self.purge_path(by, scholar, &path)
+                self.purge_path(by, profile, &path)
             }
             Called::Fork(Fork { version, name, .. }) => {
-                let repo = self.repository(scholar)?;
+                let repo = self.repository(profile)?;
                 let commit =
                     done!(Self::version_of(&repo, &shown, &version));
                 let owner = self.owner(call, None)?;
                 self.carry(call, |cx, _| {
                     let fork = jobs::Fork {
-                        from: scholar,
+                        from: profile,
                         commit: commit.to_string(),
                     };
                     let made = done!(city::make(
@@ -103,23 +103,23 @@ impl Core<'_, '_> {
                         Some(fork)
                     ));
                     let made =
-                        addresses::scholar_name_of(cx.db, made)?;
+                        addresses::profile_name_of(cx.db, made)?;
                     Ok(Ok(format!("Forked {shown} as {made}.")))
                 })
             }
-            Called::NameScholar(NameScholar { name, .. }) => self
+            Called::NameProfile(NameProfile { name, .. }) => self
                 .carry(call, |cx, _| {
-                    done!(city::rename(cx, scholar, &name));
+                    done!(city::rename(cx, profile, &name));
                     let named =
-                        addresses::scholar_name_of(cx.db, scholar)?;
-                    Ok(Ok(format!("The scholar is {named} now.")))
+                        addresses::profile_name_of(cx.db, profile)?;
+                    Ok(Ok(format!("The profile is {named} now.")))
                 }),
             Called::MoveHouse(MoveHouse {
                 x, z, degrees, ..
             }) => {
                 let turn = degrees.map(f64::to_radians);
                 self.carry(call, |cx, _| {
-                    Ok(city::place(cx, scholar, x, z, turn)?.map(
+                    Ok(city::place(cx, profile, x, z, turn)?.map(
                         |()| {
                             format!(
                                 "{shown}'s house stands at {x}, {z}."
@@ -130,7 +130,7 @@ impl Core<'_, '_> {
             }
             Called::Welcome(Welcome { reason, .. }) => {
                 self.carry(call, |cx, _| {
-                    Ok(city::welcome(cx, scholar, &reason)?.map(
+                    Ok(city::welcome(cx, profile, &reason)?.map(
                         |()| {
                             format!(
                                 "{shown} moved into its house in \
@@ -142,35 +142,35 @@ impl Core<'_, '_> {
             }
             Called::TurnAway(TurnAway { reason, .. }) => {
                 self.carry(call, |cx, _| {
-                    Ok(city::turn_away(cx, scholar, &reason)?.map(
+                    Ok(city::turn_away(cx, profile, &reason)?.map(
                         |()| format!("{shown} waits at the harbor."),
                     ))
                 })
             }
-            Called::RemoveScholar(RemoveScholar {
+            Called::RemoveProfile(RemoveProfile {
                 reason, ..
             }) => self.carry(call, |cx, _| {
-                Ok(city::archive(cx, scholar, &reason)?.map(|()| {
-                    format!("{shown} left the city, with its hires.")
+                Ok(city::archive(cx, profile, &reason)?.map(|()| {
+                    format!("{shown} left the city, with its agents.")
                 }))
             }),
-            Called::RestoreScholar(RestoreScholar {
+            Called::RestoreProfile(RestoreProfile {
                 reason, ..
             }) => self.carry(call, |cx, _| {
-                Ok(city::restore(cx, scholar, &reason)?.map(|()| {
+                Ok(city::restore(cx, profile, &reason)?.map(|()| {
                     format!("{shown} is back in the city.")
                 }))
             }),
             _ => self.carry(call, |cx, _| {
-                Ok(city::erase(cx, scholar)?.map(|()| {
+                Ok(city::erase(cx, profile)?.map(|()| {
                     format!("{shown} was erased for good.")
                 }))
             }),
         }
     }
 
-    fn repository(&self, scholar: ScholarId) -> Result<Repository> {
-        Repository::open(&self.realm.layout().repository(scholar))
+    fn repository(&self, profile: ProfileId) -> Result<Repository> {
+        Repository::open(&self.realm.layout().repository(profile))
     }
 
     /// The commit `version` names in `repo`: a version, a commit, or
@@ -183,26 +183,26 @@ impl Core<'_, '_> {
         let wanted = if version.is_empty() { MAIN } else { version };
         Ok(match repo.resolve(wanted)? {
             Some(commit) => Ok(commit),
-            None => Err(Refusal::NoVersion {
+            None => Err(Rejection::NoVersion {
                 name: name.into(),
                 version: wanted.into(),
             }),
         })
     }
 
-    pub(super) fn read_scholar(
+    pub(super) fn read_profile(
         &mut self,
         call: &Call<'_>,
-        args: ReadScholar,
+        args: ReadProfile,
     ) -> Done<String> {
-        let ReadScholar {
-            scholar: name,
+        let ReadProfile {
+            profile: name,
             path,
             version,
         } = args;
-        let scholar =
-            done!(self.kept_scholar(call, &name, Reach::Living));
-        let repo = self.repository(scholar)?;
+        let profile =
+            done!(self.kept_profile(call, &name, Reach::Living));
+        let repo = self.repository(profile)?;
         let at = done!(Self::version_of(&repo, &name, &version));
         if path.is_empty() {
             let files = repo
@@ -220,33 +220,33 @@ impl Core<'_, '_> {
             Some(bytes) => {
                 Ok(cut(String::from_utf8_lossy(&bytes).into_owned()))
             }
-            None => Err(Refusal::NoFile { path }),
+            None => Err(Rejection::NoFile { path }),
         })
     }
 
-    pub(super) fn edit_scholar(
+    pub(super) fn edit_profile(
         &mut self,
         call: &Call<'_>,
-        args: EditScholar,
+        args: EditProfile,
     ) -> Done<String> {
-        let EditScholar {
-            scholar: name,
+        let EditProfile {
+            profile: name,
             path,
             content,
             message,
         } = args;
-        let scholar =
-            done!(self.kept_scholar(call, &name, Reach::Living));
+        let profile =
+            done!(self.kept_profile(call, &name, Reach::Living));
         if path.is_empty()
             || path.starts_with('/')
             || path.split('/').any(|part| part == "..")
         {
-            return Ok(Err(Refusal::NoFile { path }));
+            return Ok(Err(Rejection::NoFile { path }));
         }
         if path == CHARACTER
             && content.chars().count() > CHARACTER_MOST
         {
-            return Ok(Err(Refusal::LongCharacter));
+            return Ok(Err(Rejection::LongCharacter));
         }
         let change = if content.is_empty() {
             GitChange::Remove { path: path.clone() }
@@ -259,7 +259,7 @@ impl Core<'_, '_> {
         self.begin(call)?;
         self.commit_main(
             Actor::Agent(call.conversation.agent),
-            scholar,
+            profile,
             &[change],
             if message.is_empty() {
                 "Edited by the Hand"
@@ -270,27 +270,27 @@ impl Core<'_, '_> {
         Ok(Ok(format!("Wrote {path} of {name}.")))
     }
 
-    pub(super) fn tag_scholar(
+    pub(super) fn tag_profile(
         &mut self,
         call: &Call<'_>,
         args: Tag,
     ) -> Done<String> {
         let Tag {
-            scholar: name,
+            profile: name,
             tag,
             note,
         } = args;
-        let scholar =
-            done!(self.kept_scholar(call, &name, Reach::Living));
-        let repo = self.repository(scholar)?;
-        if let Err(refusal) = names::check_version(&tag) {
-            return Ok(Err(refusal));
+        let profile =
+            done!(self.kept_profile(call, &name, Reach::Living));
+        let repo = self.repository(profile)?;
+        if let Err(rejection) = names::check_version(&tag) {
+            return Ok(Err(rejection));
         }
         if tag == MAIN || repo.resolve(&tag)?.is_some() {
-            return Ok(Err(Refusal::VersionTaken { version: tag }));
+            return Ok(Err(Rejection::VersionTaken { version: tag }));
         }
         let Some(at) = repo.tip(MAIN)? else {
-            return Ok(Err(Refusal::NoVersion {
+            return Ok(Err(Rejection::NoVersion {
                 name,
                 version: MAIN.into(),
             }));
@@ -311,19 +311,19 @@ impl Core<'_, '_> {
         Ok(Ok(format!("Tagged {name}'s main as {tag}.")))
     }
 
-    pub(super) fn revert_scholar(
+    pub(super) fn revert_profile(
         &mut self,
         call: &Call<'_>,
         args: Revert,
     ) -> Done<String> {
         let Revert {
-            scholar: name,
+            profile: name,
             commit,
             reason,
         } = args;
-        let scholar =
-            done!(self.kept_scholar(call, &name, Reach::Living));
-        let repo = self.repository(scholar)?;
+        let profile =
+            done!(self.kept_profile(call, &name, Reach::Living));
+        let repo = self.repository(profile)?;
         let commit = done!(Self::version_of(&repo, &name, &commit));
         let by = Actor::Agent(call.conversation.agent);
         let author = by.to_string();
@@ -340,7 +340,7 @@ impl Core<'_, '_> {
             },
         )?;
         drop(held);
-        self.main_moved(by, scholar)?;
+        self.main_moved(by, profile)?;
         Ok(Ok(if merged.clashes.is_empty() {
             format!("Reverted the commit on {name}'s main.")
         } else {

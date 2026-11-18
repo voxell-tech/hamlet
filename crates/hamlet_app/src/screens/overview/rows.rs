@@ -11,7 +11,7 @@ use bevy_fynix::views::{
     BehaviorExt, FrameProps, button, column, row,
 };
 use hamlet_client::realm::{
-    Account, HamletId, Identity, Kind, Left, LivesIn, Mayor,
+    Account, HamletId, Identity, Kind, Lead, Left, LivesIn,
     MergedInto, OwnModel, Parent, Treasury,
 };
 use hamlet_protocol::client::{AgentId, AgentKind};
@@ -23,8 +23,8 @@ use hamlet_ui::widgets::icons::{Glyph, glyph};
 use hamlet_ui::{AnyView, View, with_cx};
 
 use crate::naming::Naming;
+use crate::profile_tag::ProfileTag;
 use crate::roll::Roll;
-use crate::scholar_tag::ScholarTag;
 use crate::standing::{Standing, need_you};
 use crate::world_menu;
 
@@ -84,16 +84,16 @@ pub(crate) fn standing(
     (state.glyph(), words, state.kind())
 }
 
-/// An agent of a hamlet, living or gone: a hire, or a worker.
+/// Someone of a hamlet, living or gone: an agent, or a worker.
 #[derive(Clone, PartialEq)]
 pub(super) struct AgentRow {
     pub agent: Entity,
     pub id: AgentId,
     /// What it is shown by.
     pub name: String,
-    /// The scholar of the city it is of.
-    pub tag: Option<ScholarTag>,
-    pub mayor: bool,
+    /// The profile of the city it is of.
+    pub tag: Option<ProfileTag>,
+    pub lead: bool,
     pub worker: bool,
     /// What its row says under its name, or the way it left.
     pub under: String,
@@ -101,7 +101,7 @@ pub(super) struct AgentRow {
     pub gone: bool,
     /// Its own model and what it spent, where it has either.
     pub account: String,
-    /// How many leads are above it in its hamlet's tree.
+    /// How many parents are above it in its hamlet's tree.
     pub depth: usize,
 }
 
@@ -111,7 +111,7 @@ type Told<'a> = (
     Option<&'a OwnModel>,
     Option<&'a Account>,
     Option<&'a MergedInto>,
-    (Has<Mayor>, Has<Left>),
+    (Has<Lead>, Has<Left>),
     &'a Identity,
     Option<&'a Parent>,
     &'a Kind,
@@ -167,7 +167,7 @@ fn in_tree(
         below.reverse();
         pending.extend(below);
     }
-    // Whatever no lead reaches goes last.
+    // Whatever no parent reaches goes last.
     for row in rows {
         if !ordered.iter().any(|done| done.agent == row.agent) {
             ordered.push(row);
@@ -198,7 +198,7 @@ pub(super) fn agent_rows(
                 own,
                 account,
                 into,
-                (mayor, gone),
+                (lead, gone),
                 id,
                 parent,
                 kind,
@@ -231,8 +231,8 @@ pub(super) fn agent_rows(
                     agent,
                     id: id.0,
                     name: named(agent),
-                    tag: ScholarTag::of(world, agent),
-                    mayor,
+                    tag: ProfileTag::of(world, agent),
+                    lead,
                     worker: kind.0 == AgentKind::Worker,
                     under,
                     standing: Standing::of(world, agent),
@@ -243,9 +243,7 @@ pub(super) fn agent_rows(
             },
         )
         .collect::<Vec<_>>();
-    rows.sort_by_key(|row| {
-        (row.gone, !row.mayor, row.worker, row.id)
-    });
+    rows.sort_by_key(|row| (row.gone, !row.lead, row.worker, row.id));
     let (gone, living) = rows.into_iter().partition(|row| row.gone);
     let mut rows = in_tree(living, &parents, &ids);
     rows.extend(in_tree(gone, &parents, &ids));

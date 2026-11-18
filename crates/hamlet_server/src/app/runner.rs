@@ -368,12 +368,12 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn a_scholars_dream_writes_its_main_through_its_tools() {
+    async fn a_profiles_dream_writes_its_main_through_its_tools() {
         let dir = Scratch::new("server-core-dream");
         let script = r#"{
             "responses": ["Hello."],
             "kinds": {"dream": [
-                {"calls": [{"name": "write", "arguments": {"path": "memory/shared.md", "content": "---\ndescription: What every hire knows.\n---\nBe brief."}}]},
+                {"calls": [{"name": "write", "arguments": {"path": "memory/shared.md", "content": "---\ndescription: What every agent knows.\n---\nBe brief."}}]},
                 "Kept one shared note."
             ]}
         }"#;
@@ -388,13 +388,13 @@ mod tests {
             })
             .unwrap()
             .unwrap();
-        until(&mut server, "the scholar planted", |core| {
+        until(&mut server, "the profile planted", |core| {
             let db = core.realm.store().connection();
             Ok(crate::society::city::get(db, ada)?.planted)
         })
         .await
         .unwrap();
-        let address = format!("scholar#{}", ada.0);
+        let address = format!("profile#{}", ada.0);
         let began = server
             .core()
             .unwrap()
@@ -403,7 +403,7 @@ mod tests {
         assert!(began.is_ok(), "{began:?}");
         until(&mut server, "the dream's end", |core| {
             let db = core.realm.store().connection();
-            Ok(crate::society::dreams::last_of_scholar(db, ada)?
+            Ok(crate::society::dreams::last_of_profile(db, ada)?
                 .is_some_and(|dream| dream.ended.is_some()))
         })
         .await
@@ -471,7 +471,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn the_hand_writes_its_lodge_and_reads_it_back_with_a_command()
+    async fn the_hand_writes_its_worktree_and_reads_it_back_with_a_command()
      {
         let dir = Scratch::new("server-core-tools");
         let script = r#"{"responses": [
@@ -481,9 +481,9 @@ mod tests {
         ]}"#;
         let (mut server, said) = told(&dir, script, "Note it").await;
         let mut core = server.core().unwrap();
-        let lodge = core.realm.layout().hand();
+        let worktree = core.realm.layout().hand();
         assert_eq!(
-            std::fs::read_to_string(lodge.join("notes/seen.md"))
+            std::fs::read_to_string(worktree.join("notes/seen.md"))
                 .unwrap(),
             "seen it"
         );

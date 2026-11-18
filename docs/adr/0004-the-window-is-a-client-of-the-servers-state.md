@@ -7,7 +7,7 @@ status: accepted
 The window and the server are separate processes, even on one machine, and
 the window never starts the server: `hamlet dev` starts both for local work.
 The server sends the window ready-made state (a snapshot of hamlets, agents,
-roads, budgets and what waits, then its changes, plus the live events of
+channels, budgets and what waits, then its changes, plus the live events of
 turns and transcripts on request) over one WebSocket that needs a token even
 on localhost. The window fills its components from it and holds no rules of
 its own.

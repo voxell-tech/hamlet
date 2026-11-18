@@ -13,7 +13,7 @@ use crate::realm::change::{Done, done};
 use crate::society::addresses::{self, Reach};
 use crate::society::authority;
 use crate::society::oversight::{self, gate};
-use crate::society::refusal::Refusal;
+use crate::society::rejection::Rejection;
 
 /// The commands that oversee the agents' work.
 pub(super) const OVERSIGHT: &[Command] = &[
@@ -206,10 +206,10 @@ impl Core<'_, '_> {
         let (Some(address), Some(permission)) =
             (words.next(), words.next())
         else {
-            return Ok(Err(self.deeds.usage("revoke")));
+            return Ok(Err(self.actions.usage("revoke")));
         };
         let Some(permission) = gate::permission(permission) else {
-            return Ok(Err(self.deeds.usage("revoke")));
+            return Ok(Err(self.actions.usage("revoke")));
         };
         let target = done!(self.resolve(address, here, Reach::Kept));
         let chief = self.realm.chief();
@@ -250,11 +250,11 @@ impl Core<'_, '_> {
         let Some((address, text)) =
             rest.split_once(char::is_whitespace)
         else {
-            return Ok(Err(self.deeds.usage("to")));
+            return Ok(Err(self.actions.usage("to")));
         };
         let text = text.trim();
         if text.is_empty() {
-            return Ok(Err(self.deeds.usage("to")));
+            return Ok(Err(self.actions.usage("to")));
         }
         let target =
             done!(self.resolve(address, here, Reach::Living));
@@ -291,7 +291,7 @@ impl Core<'_, '_> {
         brief: &str,
     ) -> Done<String> {
         if brief.is_empty() {
-            return Ok(Err(self.deeds.usage("worker")));
+            return Ok(Err(self.actions.usage("worker")));
         }
         let chief = self.realm.chief();
         let db = self.realm.store().connection();
@@ -321,7 +321,7 @@ impl Core<'_, '_> {
                 &env.overrides,
                 id,
             )? {
-                return Ok(Err(Refusal::NoModelSetUp));
+                return Ok(Err(Rejection::NoModelSetUp));
             }
             crate::conversations::briefs::give(
                 cx,

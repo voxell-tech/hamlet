@@ -24,7 +24,7 @@ use bevy::prelude::*;
 use bevy::shape::Aabb3d;
 use bevy::window::PrimaryWindow;
 use hamlet_client::realm::{
-    Identity, Left, Lodging, Mayor, Nickname, Shown,
+    AgentName, Identity, Lead, Left, Lodging, Shown,
 };
 
 pub use self::camera::{
@@ -107,9 +107,9 @@ pub struct PickSettings {
 /// A thing in the world that can be pointed at.
 #[derive(Component, Clone, Copy, PartialEq, Eq, Debug)]
 pub enum Thing {
-    /// The mayor.
+    /// The lead.
     Keeper,
-    /// An agent besides the mayor: the entity that carries its
+    /// An agent besides the lead: the entity that carries its
     /// `Name`.
     Agent(Entity),
     /// The house of that agent.
@@ -117,7 +117,7 @@ pub enum Thing {
     /// The remains of the house of an agent that was removed or
     /// merged.
     Ruin(Entity),
-    /// The mayor's house.
+    /// The lead's house.
     Cottage,
     /// A hamlet's common: the entity that carries the hamlet's
     /// `Name`.
@@ -131,9 +131,9 @@ pub enum Thing {
     Library,
     /// The Hand's tower, at the middle of the city.
     Hand,
-    /// The house of a scholar: the entity that carries its
-    /// `Scholar` and `Name`.
-    Scholar(Entity),
+    /// The house of a profile: the entity that carries its
+    /// `Profile` and `Name`.
+    Profile(Entity),
     /// The clockwork on a hamlet's workbench, which sets its mode.
     Clockwork(Entity),
     /// The workbench on a hamlet's common, which stands for its
@@ -142,7 +142,7 @@ pub enum Thing {
 }
 
 /// What the names of things are read from: an agent's `Shown` name, a
-/// scholar's `Lodging`, the mayor's `Nickname`, all over its `Name`.
+/// profile's `Lodging`, the lead's `AgentName`, all over its `Name`.
 pub type Names<'w, 's> = Query<
     'w,
     's,
@@ -150,21 +150,21 @@ pub type Names<'w, 's> = Query<
         &'static Name,
         Option<&'static Shown>,
         Option<&'static Lodging>,
-        Option<&'static Nickname>,
-        Has<Mayor>,
+        Option<&'static AgentName>,
+        Has<Lead>,
         Has<Left>,
         Option<&'static Identity>,
     ),
 >;
 
-/// The nickname of the first mayor, which the world calls it by.
-fn mayor_nickname(names: &Names) -> Option<String> {
+/// The own name of the first lead, which the world calls it by.
+fn lead_name(names: &Names) -> Option<String> {
     names
         .iter()
-        .filter(|(.., mayor, left, _)| *mayor && !left)
+        .filter(|(.., lead, left, _)| *lead && !left)
         .min_by_key(|(.., identity)| identity.map(|i| i.0))
-        .and_then(|(_, _, _, nickname, ..)| nickname)
-        .map(|nickname| nickname.0.clone())
+        .and_then(|(_, _, _, name, ..)| name)
+        .map(|name| name.0.clone())
 }
 
 impl Thing {
@@ -174,15 +174,15 @@ impl Thing {
             Ok((name, None, ..)) => name.as_str().to_string(),
             Err(_) => String::new(),
         };
-        let lodged = |scholar: Entity, names: &Names| match names
-            .get(scholar)
+        let lodged = |profile: Entity, names: &Names| match names
+            .get(profile)
         {
             Ok((_, _, Some(lodging), ..)) => lodging.0.clone(),
-            _ => named(scholar),
+            _ => named(profile),
         };
         match self {
             Thing::Keeper => {
-                mayor_nickname(names).unwrap_or("The Mayor".into())
+                lead_name(names).unwrap_or("The Lead".into())
             }
             Thing::Agent(agent) => named(agent),
             Thing::House(agent) => {
@@ -193,7 +193,7 @@ impl Thing {
             }
             Thing::Cottage => format!(
                 "{}'s House",
-                mayor_nickname(names).unwrap_or("The Mayor".into())
+                lead_name(names).unwrap_or("The Lead".into())
             ),
             Thing::Common(hamlet) => {
                 format!("The Common of {}", named(hamlet))
@@ -206,8 +206,8 @@ impl Thing {
             }
             Thing::Library => "The Library".into(),
             Thing::Hand => "The Hand's Tower".into(),
-            Thing::Scholar(scholar) => {
-                format!("{}'s House", lodged(scholar, names))
+            Thing::Profile(profile) => {
+                format!("{}'s House", lodged(profile, names))
             }
             Thing::Clockwork(hamlet) => {
                 format!("The Clockwork of {}", named(hamlet))
@@ -239,17 +239,17 @@ impl Thing {
     fn sign(self, names: &Names) -> String {
         match self {
             Thing::Cottage => {
-                mayor_nickname(names).unwrap_or("Mayor".into())
+                lead_name(names).unwrap_or("Lead".into())
             }
             Thing::House(agent) | Thing::Ruin(agent) => {
                 Thing::Agent(agent).name(names)
             }
             // A hamlet is known by the name over its common.
             Thing::Common(hamlet) => Thing::Agent(hamlet).name(names),
-            // A scholar's house carries what it is lodged under.
-            Thing::Scholar(scholar) => match names.get(scholar) {
+            // A profile's house carries what it is lodged under.
+            Thing::Profile(profile) => match names.get(profile) {
                 Ok((_, _, Some(lodging), ..)) => lodging.0.clone(),
-                _ => Thing::Agent(scholar).name(names),
+                _ => Thing::Agent(profile).name(names),
             },
             other => other.name(names),
         }

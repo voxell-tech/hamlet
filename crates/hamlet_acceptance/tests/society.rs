@@ -1,6 +1,6 @@
 //! What agents do in the society with their tools: the Hand's and a
-//! lead's, notifications and requests, workers, and the acts a chief
-//! keeps for itself.
+//! parent's, notifications and requests, workers, and the acts a
+//! chief keeps for itself.
 
 use hamlet_acceptance::*;
 use hamlet_protocol::client::*;
@@ -20,37 +20,37 @@ fn failures(
 }
 
 #[tokio::test]
-async fn the_hand_makes_a_scholar_founds_a_hamlet_and_hires_into_it()
+async fn the_hand_makes_a_profile_founds_a_hamlet_and_adds_an_agent()
 {
     let mut s = Session::start(Faux::new().agent(
         1,
         [
             calls([
                 (
-                    "create_scholar",
+                    "create_profile",
                     json!({"name": "bo", "character": "Careful."}),
                 ),
                 (
                     "found_hamlet",
-                    json!({"name": "bog", "scholar": "scholar#2", "purpose": "drain"}),
+                    json!({"name": "bog", "profile": "profile#2", "purpose": "drain"}),
                 ),
             ]),
             words("Founded."),
             calls([
                 (
-                    "create_scholar",
+                    "create_profile",
                     json!({"name": "cy", "character": "Digs."}),
                 ),
                 (
-                    "hire",
-                    json!({"scholar": "scholar#3", "purpose": "dig", "hamlet": "{{bog}}"}),
+                    "add_agent",
+                    json!({"profile": "profile#3", "purpose": "dig", "hamlet": "{{bog}}"}),
                 ),
             ])
             .filled_from(NAMES),
-            words("Hired."),
+            words("Added."),
             call(
-                "seat_mayor",
-                json!({"hire": "hire#3", "reason": "cy leads now"}),
+                "set_lead",
+                json!({"agent":"agent#3", "reason": "cy leads now"}),
             ),
             words("Seated."),
         ],
@@ -63,129 +63,129 @@ async fn the_hand_makes_a_scholar_founds_a_hamlet_and_hires_into_it()
     s.chief.shows(&now, "Founded.").await;
     let bo = s.named("bog").await;
     assert_eq!(bo, AgentId(2));
-    assert_eq!(s.chief.agent("hire#2").unwrap().parent, Some(hand));
-    let scholar = s.chief.scholar("bo").unwrap();
-    assert_eq!(scholar.chief, "chief");
-    let papers = s.chief.papers(Keeper::Scholar(scholar.id)).await;
+    assert_eq!(s.chief.agent("agent#2").unwrap().parent, Some(hand));
+    let profile = s.chief.profile("bo").unwrap();
+    assert_eq!(profile.chief, "chief");
+    let papers = s.chief.papers(Keeper::Profile(profile.id)).await;
     assert_eq!(papers.character, "Careful.");
 
-    s.chief.tell(hand, "Hire cy.").await;
-    s.chief.shows(&now, "Hired.").await;
-    let cy = s.chief.id("hire#3");
-    assert_eq!(s.chief.agent("hire#3").unwrap().parent, Some(bo));
+    s.chief.tell(hand, "Add cy.").await;
+    s.chief.shows(&now, "Added.").await;
+    let cy = s.chief.id("agent#3");
+    assert_eq!(s.chief.agent("agent#3").unwrap().parent, Some(bo));
 
     s.chief.tell(hand, "Seat cy.").await;
     s.chief.shows(&now, "Seated.").await;
-    assert_eq!(s.chief.hamlet("bog").unwrap().mayor, cy);
-    assert_eq!(s.chief.agent("hire#2").unwrap().parent, Some(cy));
+    assert_eq!(s.chief.hamlet("bog").unwrap().lead, cy);
+    assert_eq!(s.chief.agent("agent#2").unwrap().parent, Some(cy));
     assert!(
         failures(&s.chief, &now).iter().all(|(_, f)| f.is_none())
     );
 }
 
 #[tokio::test]
-async fn a_lead_runs_the_hires_under_it_and_nothing_beyond_them() {
+async fn a_parent_runs_the_agents_under_it_and_nothing_beyond_them() {
     let mut s = Session::start(Faux::new().agent(
         2,
         [
             calls([
                 (
-                    "create_scholar",
+                    "create_profile",
                     json!({"name": "cy", "character": "Digs."}),
                 ),
                 (
-                    "create_scholar",
+                    "create_profile",
                     json!({"name": "dee", "character": "Hauls."}),
                 ),
             ]),
             calls([
-                ("hire", json!({"scholar": "scholar#3", "purpose": "dig"})),
-                ("hire", json!({"scholar": "scholar#4", "purpose": "haul"})),
+                ("add_agent", json!({"profile": "profile#3", "purpose": "dig"})),
+                ("add_agent", json!({"profile": "profile#4", "purpose": "haul"})),
             ]),
             calls([
                 (
                     "set_tools",
-                    json!({"hire": "hire#3", "off": ["bash"], "reason": "no shell"}),
+                    json!({"agent":"agent#3", "off": ["bash"], "reason": "no shell"}),
                 ),
                 (
                     "set_allowance",
-                    json!({"hire": "hire#3", "dollars": 2.5, "reason": "small"}),
+                    json!({"agent":"agent#3", "dollars": 2.5, "reason": "small"}),
                 ),
                 (
                     "set_model",
-                    json!({"hire": "hire#3", "model": "faux::faux-1", "reason": "same"}),
+                    json!({"agent":"agent#3", "model": "faux::faux-1", "reason": "same"}),
                 ),
                 (
-                    "nickname",
-                    json!({"hire": "hire#3", "nickname": "Spade", "reason": "short"}),
+                    "rename_agent",
+                    json!({"agent":"agent#3", "name": "Spade", "reason": "short"}),
                 ),
                 (
-                    "lay_road",
-                    json!({"a": "hire#3", "b": "hire#4", "reason": "share"}),
+                    "open_channel",
+                    json!({"a": "agent#3", "b": "agent#4", "reason": "share"}),
                 ),
             ]),
             calls([
                 (
-                    "take_up_road",
-                    json!({"a": "hire#3", "b": "hire#4", "reason": "done"}),
+                    "close_channel",
+                    json!({"a": "agent#3", "b": "agent#4", "reason": "done"}),
                 ),
                 (
-                    "end_hire",
-                    json!({"hire": "hire#4", "reason": "finished"}),
+                    "end_agent",
+                    json!({"agent":"agent#4", "reason": "finished"}),
                 ),
                 ("read_record", json!({"hamlet": "{{docs}}"})),
                 (
-                    "end_hire",
-                    json!({"hire": "hand", "reason": "not mine"}),
+                    "end_agent",
+                    json!({"agent":"hand", "reason": "not mine"}),
                 ),
             ])
             .filled_from(NAMES),
-            words("Led."),
+            words("Parented."),
         ],
     ))
     .await;
     let ada = s.found("docs", "ada", "keep the docs").await;
     let now = chat(ada);
     s.chief.open(&now).await;
-    s.chief.tell(ada, "Lead.").await;
-    s.chief.shows(&now, "Led.").await;
+    s.chief.tell(ada, "Parent.").await;
+    s.chief.shows(&now, "Parented.").await;
 
-    let cy = s.chief.agent("hire#3").unwrap();
-    assert_eq!((cy.kind, cy.parent), (AgentKind::Hire, Some(ada)));
-    assert_eq!(cy.nickname.as_deref(), Some("Spade"));
-    // A chief above it names it too, and an empty name takes the
-    // nickname away.
+    let cy = s.chief.agent("agent#3").unwrap();
+    assert_eq!((cy.kind, cy.parent), (AgentKind::Hamlet, Some(ada)));
+    assert_eq!(cy.name.as_deref(), Some("Spade"));
+    // A chief above it names it too, and an empty name takes its name
+    // away.
     assert_eq!(
-        s.chief.command(ada, "/nickname hire#3 Pick").await,
-        "`hire#3` is called Pick now."
+        s.chief.command(ada, "/name-agent agent#3 Pick").await,
+        "`agent#3` is called Pick now."
     );
     assert_eq!(
-        s.chief.command(ada, "/nickname hire#3").await,
-        "`hire#3` goes by its name again."
+        s.chief.command(ada, "/name-agent agent#3").await,
+        "`agent#3` goes by its own name again."
     );
     s.chief
-        .until("the nickname gone", |c| {
-            c.agent("hire#3").is_some_and(|cy| cy.nickname.is_none())
+        .until("the name gone", |c| {
+            c.agent("agent#3").is_some_and(|cy| cy.name.is_none())
         })
         .await;
     assert_eq!(
-        s.chief.command(ada, "/tools hire#3").await,
-        "`hire#3` has these off: bash"
+        s.chief.command(ada, "/tools agent#3").await,
+        "`agent#3` has these off: bash"
     );
     s.chief
         .until("its tools off shown", |c| {
-            c.agent("hire#3")
+            c.agent("agent#3")
                 .is_some_and(|cy| cy.tools_off == ["bash"])
         })
         .await;
     // A chief chooses how any agent thinks, its tier and its model.
     assert_eq!(
-        s.chief.command(ada, "/effort hire#3 xhigh").await,
-        "`hire#3` thinks at xhigh."
+        s.chief.command(ada, "/effort agent#3 xhigh").await,
+        "`agent#3` thinks at xhigh."
     );
     assert_eq!(
-        s.chief.command(ada, "/fast hire#3 on").await,
-        "`hire#3` calls for the fast tier: on."
+        s.chief.command(ada, "/fast agent#3 on").await,
+        "`agent#3` calls for the fast tier: on."
     );
     assert_eq!(
         s.chief.command(ada, "/model hand faux::faux-1").await,
@@ -193,7 +193,7 @@ async fn a_lead_runs_the_hires_under_it_and_nothing_beyond_them() {
     );
     s.chief
         .until("the choices shown", |c| {
-            c.agent("hire#3").is_some_and(|cy| {
+            c.agent("agent#3").is_some_and(|cy| {
                 cy.effort == Some(hamlet_protocol::Effort::XHigh)
                     && cy.fast
             }) && c.agent("hand").is_some_and(|hand| {
@@ -201,17 +201,17 @@ async fn a_lead_runs_the_hires_under_it_and_nothing_beyond_them() {
             })
         })
         .await;
-    let dee = s.chief.agent("hire#4").unwrap();
+    let dee = s.chief.agent("agent#4").unwrap();
     assert_eq!(dee.left.unwrap().how, LeftHow::Ended);
     let record = s.chief.command(ada, "/history").await;
     for line in [
-        "hire#2 (ada) hired hire#3 (cy)",
-        "hire#2 (ada) set the allowance of hire#3 (cy): small",
-        "hire#2 (ada) chose the model of hire#3 (cy): same",
-        "hire#2 (ada) nicknamed hire#3 (cy): short",
-        "hire#2 (ada) laid a road from hire#3 (cy): share",
-        "hire#2 (ada) took up a road from hire#3 (cy): done",
-        "hire#2 (ada) ended hire#4 (dee): finished",
+        "agent#2 (ada) added agent#3 (cy)",
+        "agent#2 (ada) set the allowance of agent#3 (cy): small",
+        "agent#2 (ada) chose the model of agent#3 (cy): same",
+        "agent#2 (ada) renamed agent#3 (cy): short",
+        "agent#2 (ada) opened a channel from agent#3 (cy): share",
+        "agent#2 (ada) closed a channel from agent#3 (cy): done",
+        "agent#2 (ada) ended agent#4 (dee): finished",
     ] {
         assert!(
             record.contains(line),
@@ -219,13 +219,13 @@ async fn a_lead_runs_the_hires_under_it_and_nothing_beyond_them() {
         );
     }
 
-    // The Hand's tools and other hamlets' agents are not a lead's.
+    // The Hand's tools and other hamlets' agents are not a parent's.
     let outcome = failures(&s.chief, &now)
         .into_iter()
         .filter(|(_, failure)| failure.is_some())
         .map(|(tool, _)| tool)
         .collect::<Vec<_>>();
-    assert_eq!(outcome, ["read_record", "end_hire"]);
+    assert_eq!(outcome, ["read_record", "end_agent"]);
 }
 
 #[tokio::test]
@@ -238,13 +238,13 @@ async fn notifications_requests_and_responses_share_one_conversation_and_request
                 [
                     call(
                         "notify",
-                        json!({"to": "hire#3", "text": "Hello cy"}),
+                        json!({"to": "agent#3", "text": "Hello cy"}),
                     ),
                     words("Told."),
                     // As "Copy Agent ID" copies it.
                     call(
                         "request",
-                        json!({"to": "hire#3 (cy)", "text": "Which colour?"}),
+                        json!({"to": "agent#3 (cy)", "text": "Which colour?"}),
                     ),
                     words("Asked cy."),
                     words("cy said blue."),
@@ -264,7 +264,7 @@ async fn notifications_requests_and_responses_share_one_conversation_and_request
     )
     .await;
     let ada = s.found("docs", "ada", "keep the docs").await;
-    let cy = s.hire(ada, "cy", "dig").await;
+    let cy = s.add_agent(ada, "cy", "dig").await;
     let (now, theirs) = (chat(ada), chat(cy));
     s.chief.open(&now).await;
     s.chief.open(&theirs).await;
@@ -278,7 +278,7 @@ async fn notifications_requests_and_responses_share_one_conversation_and_request
         .into_iter()
         .find(|i| i.text == "Hello cy")
         .unwrap();
-    assert_eq!(notification.author.as_deref(), Some("hire#2 (ada)"));
+    assert_eq!(notification.author.as_deref(), Some("agent#2 (ada)"));
     assert_eq!(notification.from, Some(ada));
     assert_eq!(notification.chief, None);
 
@@ -299,7 +299,7 @@ async fn notifications_requests_and_responses_share_one_conversation_and_request
         .chief
         .items(&now)
         .into_iter()
-        .find(|i| i.author.as_deref() == Some("hire#3 (cy)"))
+        .find(|i| i.author.as_deref() == Some("agent#3 (cy)"))
         .unwrap();
     assert_eq!(response.text, "Blue.");
     assert!(
@@ -364,8 +364,8 @@ async fn what_the_hand_reserves_for_a_chief_waits_for_one() {
         1,
         [
             call(
-                "edit_scholar",
-                json!({"scholar": "scholar#2", "path": "memory/farm.md",
+                "edit_profile",
+                json!({"profile": "profile#2", "path": "memory/farm.md",
                        "content": "---\ndescription: The farm\n---\nWheat.\n",
                        "message": "Remember the farm."}),
             ),
@@ -399,17 +399,17 @@ async fn what_the_hand_reserves_for_a_chief_waits_for_one() {
         panic!("an approval: {edit:?}");
     };
     assert_eq!(danger, &WaitDanger::Reserved);
-    let scholar = s.chief.scholar("ada").unwrap();
+    let profile = s.chief.profile("ada").unwrap();
     assert!(
         s.chief
-            .papers(Keeper::Scholar(scholar.id))
+            .papers(Keeper::Profile(profile.id))
             .await
             .memory
             .is_empty()
     );
     s.chief.command(hand, "/allow").await;
     s.chief.shows(&now, "Edited.").await;
-    let papers = s.chief.papers(Keeper::Scholar(scholar.id)).await;
+    let papers = s.chief.papers(Keeper::Profile(profile.id)).await;
     assert_eq!(papers.memory.len(), 1);
     assert_eq!(papers.memory[0].path, "farm.md");
     assert_eq!(papers.memory[0].description, "The farm");
@@ -430,21 +430,21 @@ async fn what_the_hand_reserves_for_a_chief_waits_for_one() {
     s.chief.shows(&now, "Removed.").await;
     assert!(s.chief.hamlet("docs").is_none());
     assert_eq!(
-        s.chief.agent("hire#2").unwrap().left.unwrap().how,
+        s.chief.agent("agent#2").unwrap().left.unwrap().how,
         LeftHow::Hamlet
     );
 }
 
 #[tokio::test]
-async fn two_mayors_agree_a_road_between_their_hamlets() {
+async fn two_leads_agree_a_channel_between_their_hamlets() {
     let mut s = Session::start(
         Faux::new()
             .agent(
                 2,
                 [
                     call(
-                        "agree_road",
-                        json!({"mine": "hire#4", "theirs": "hire#5", "reason": "share files"}),
+                        "agree_channel",
+                        json!({"mine": "agent#4", "theirs": "agent#5", "reason": "share files"}),
                     ),
                     words("Agreed."),
                 ],
@@ -453,8 +453,8 @@ async fn two_mayors_agree_a_road_between_their_hamlets() {
                 3,
                 [
                     call(
-                        "agree_road",
-                        json!({"mine": "hire#5", "theirs": "hire#4", "reason": "share files"}),
+                        "agree_channel",
+                        json!({"mine": "agent#5", "theirs": "agent#4", "reason": "share files"}),
                     ),
                     words("Agreed too."),
                 ],
@@ -463,43 +463,43 @@ async fn two_mayors_agree_a_road_between_their_hamlets() {
     .await;
     let ada = s.found("docs", "ada", "keep the docs").await;
     let bo = s.found("mill", "bo", "grind").await;
-    s.hire(ada, "cy", "dig").await;
-    s.hire(bo, "dee", "haul").await;
+    s.add_agent(ada, "cy", "dig").await;
+    s.add_agent(bo, "dee", "haul").await;
     let agreed = |c: &Client| {
         c.realm().hamlets.iter().any(|h| {
-            h.roads.iter().any(|r| r.kind == RoadKind::Agreed)
+            h.channels.iter().any(|r| r.kind == ChannelKind::Agreed)
         })
     };
     s.chief.open(&chat(ada)).await;
     s.chief.open(&chat(bo)).await;
-    s.chief.tell(ada, "Agree the road.").await;
+    s.chief.tell(ada, "Agree the channel.").await;
     s.chief.shows(&chat(ada), "Agreed.").await;
-    assert!(!agreed(&s.chief), "one mayor alone opens no road");
-    s.chief.tell(bo, "Agree the road.").await;
+    assert!(!agreed(&s.chief), "one lead alone opens no channel");
+    s.chief.tell(bo, "Agree the channel.").await;
     s.chief.shows(&chat(bo), "Agreed too.").await;
-    s.chief.until("the road opens", agreed).await;
+    s.chief.until("the channel opens", agreed).await;
 }
 
 #[tokio::test]
-async fn a_mayors_blank_hire_stays_out_of_the_city_and_the_harbor() {
-    // The mayor, agent 2, hires a blank agent.
+async fn a_leads_blank_agent_stays_out_of_the_city_and_the_harbor() {
+    // The lead, agent 2, adds a blank agent.
     let mut s = Session::start(Faux::new().agent(
         2,
         [
             call(
-                "hire",
+                "add_agent",
                 json!({"name": "sam", "purpose": "read the docs"}),
             ),
-            words("Hired sam."),
+            words("Added sam."),
         ],
     ))
     .await;
     let ada = s.found("docs", "ada", "keep the docs").await;
     s.chief.open(&chat(ada)).await;
-    s.chief.tell(ada, "Hire a reader.").await;
-    s.chief.shows(&chat(ada), "Hired sam.").await;
-    assert!(s.chief.agent("hire#3").is_some());
-    let sam = s.chief.scholar("sam").unwrap();
+    s.chief.tell(ada, "Add a reader.").await;
+    s.chief.shows(&chat(ada), "Added sam.").await;
+    assert!(s.chief.agent("agent#3").is_some());
+    let sam = s.chief.profile("sam").unwrap();
     assert_eq!((sam.arrival, sam.house), (Arrival::Apart, None));
     assert!(s.chief.waits().is_empty(), "{:?}", s.chief.waits());
 }

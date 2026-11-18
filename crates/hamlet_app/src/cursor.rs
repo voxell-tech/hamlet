@@ -59,7 +59,7 @@ pub enum Axis {
     Rising,
 }
 
-/// The deed the pointer says can be done where it is.
+/// The action the pointer says can be done where it is.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Mode {
     Point,
@@ -77,7 +77,7 @@ pub enum Mode {
     /// Over text that can be typed in.
     Write,
     Resize(Axis),
-    /// The deed asked for is not allowed here.
+    /// The action asked for is not allowed here.
     Refuse,
     /// The app is about to be busy.
     Wait,

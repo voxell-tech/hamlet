@@ -1,27 +1,27 @@
-//! The addresses chiefs and agents name the Hand, mayors, hires,
-//! workers and scholars by: `hand`, `mayor`, `mayor@<hamlet>`,
-//! `hire#<id>`, `worker#<id>` and `scholar#<id>`.
+//! The addresses chiefs and agents name the Hand, leads, agents,
+//! workers and profiles by: `hand`, `lead`, `lead@<hamlet>`,
+//! `agent#<id>`, `worker#<id>` and `profile#<id>`.
 
 use std::fmt;
 use std::str::FromStr;
 
-use crate::client::{AgentId, ScholarId};
-use crate::{HAND, MAYOR};
+use crate::client::{AgentId, ProfileId};
+use crate::{HAND, LEAD};
 
-/// The most bytes of a hamlet's id in a mayor's address.
+/// The most bytes of a hamlet's id in a lead's address.
 const LONGEST_HAMLET: usize = 64;
 
-/// An agent's or a scholar's address.
+/// An agent's or a profile's address.
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub enum Address {
     Hand,
-    /// A hamlet's mayor, by the hamlet's id, or the speaker's own.
-    Mayor {
+    /// A hamlet's lead, by the hamlet's id, or the speaker's own.
+    Lead {
         hamlet: Option<String>,
     },
-    Hire(AgentId),
+    Agent(AgentId),
     Worker(AgentId),
-    Scholar(ScholarId),
+    Profile(ProfileId),
 }
 
 /// Text that is no address.
@@ -37,16 +37,16 @@ impl FromStr for Address {
         if text == HAND {
             return Ok(Self::Hand);
         }
-        if text == MAYOR {
-            return Ok(Self::Mayor { hamlet: None });
+        if text == LEAD {
+            return Ok(Self::Lead { hamlet: None });
         }
-        if let Some(hamlet) = text.strip_prefix("mayor@") {
+        if let Some(hamlet) = text.strip_prefix("lead@") {
             let plain = (1..=LONGEST_HAMLET).contains(&hamlet.len())
                 && hamlet
                     .bytes()
                     .all(|b| b.is_ascii_alphanumeric() || b == b'-');
             return match plain {
-                true => Ok(Self::Mayor {
+                true => Ok(Self::Lead {
                     hamlet: Some(hamlet.into()),
                 }),
                 false => Err(bad()),
@@ -59,9 +59,9 @@ impl FromStr for Address {
         }
         let id = id.parse::<u64>().map_err(|_| bad())?;
         match kind {
-            "hire" => Ok(Self::Hire(AgentId(id))),
+            "agent" => Ok(Self::Agent(AgentId(id))),
             "worker" => Ok(Self::Worker(AgentId(id))),
-            "scholar" => Ok(Self::Scholar(ScholarId(id))),
+            "profile" => Ok(Self::Profile(ProfileId(id))),
             _ => Err(bad()),
         }
     }
@@ -71,19 +71,19 @@ impl fmt::Display for Address {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             Self::Hand => f.write_str(HAND),
-            Self::Mayor { hamlet: None } => f.write_str(MAYOR),
-            Self::Mayor {
+            Self::Lead { hamlet: None } => f.write_str(LEAD),
+            Self::Lead {
                 hamlet: Some(hamlet),
-            } => write!(f, "{MAYOR}@{hamlet}"),
-            Self::Hire(id) => write!(f, "hire#{}", id.0),
+            } => write!(f, "{LEAD}@{hamlet}"),
+            Self::Agent(id) => write!(f, "agent#{}", id.0),
             Self::Worker(id) => write!(f, "worker#{}", id.0),
-            Self::Scholar(id) => write!(f, "scholar#{}", id.0),
+            Self::Profile(id) => write!(f, "profile#{}", id.0),
         }
     }
 }
 
 /// `text` without the ` (<name>)` an address is shown and copied
-/// with, as in `hire#2 (Mira)`.
+/// with, as in `agent#2 (Mira)`.
 pub fn bare(text: &str) -> &str {
     let text = text.trim();
     match text.split_once(" (") {
@@ -107,18 +107,19 @@ mod tests {
     fn an_address_reads_back_as_it_was_written() {
         for text in [
             "hand",
-            "mayor",
-            "mayor@0f8fad5b-d9cb-469f-a165-70867728950e",
-            "hire#2",
+            "lead",
+            "lead@0f8fad5b-d9cb-469f-a165-70867728950e",
+            "agent#2",
             "worker#7",
-            "scholar#4",
+            "profile#4",
         ] {
             assert_eq!(
                 text.parse::<Address>().unwrap().to_string(),
                 text
             );
         }
-        for text in ["hire#", "hire#+2", "hire#2a", "mayor@", "pip#2"]
+        for text in
+            ["agent#", "agent#+2", "agent#2a", "lead@", "pip#2"]
         {
             assert!(text.parse::<Address>().is_err(), "{text}");
         }

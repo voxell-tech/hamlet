@@ -29,7 +29,7 @@ pub(super) struct HouseSignature {
     pub(super) plot: u32,
     pub(super) archived: bool,
     pub(super) cleared: bool,
-    pub(super) mayor: bool,
+    pub(super) lead: bool,
     pub(super) wings: u8,
 }
 

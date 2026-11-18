@@ -14,11 +14,11 @@ use hamlet_store::schema::document;
 use serde::{Deserialize, Serialize};
 
 use crate::core::Core;
-use crate::realm::change::{Done, refuse};
+use crate::realm::change::{Done, reject};
 use crate::realm::credentials::WorkspaceAddress;
 use crate::society::agents::Effort;
 use crate::society::city::CHARACTER_MOST;
-use crate::society::refusal::Refusal;
+use crate::society::rejection::Rejection;
 
 /// The settings after this process's overrides.
 #[derive(Resource, Clone, Debug)]
@@ -72,9 +72,9 @@ pub(crate) struct Settings {
     /// otherwise (H29a).
     pub effort: Option<Effort>,
     pub dreams: Dreams,
-    /// Who lets a scholar an agent made into the city.
+    /// Who lets a profile an agent made into the city.
     pub newcomers: Newcomers,
-    /// The character a scholar made blank starts from.
+    /// The character a profile made blank starts from.
     pub character: String,
     /// How the last check of the model's provider went.
     #[serde(default = "untested")]
@@ -109,10 +109,10 @@ impl Default for Settings {
     }
 }
 
-/// The character a scholar made blank starts from, until a chief
+/// The character a profile made blank starts from, until a chief
 /// gives the realm its own.
 pub(crate) const CHARACTER: &str =
-    "You are a scholar new to this realm. You know nothing of your \
+    "You are a profile new to this realm. You know nothing of your \
      own yet: use the library's skills, learn from the work you are \
      given, and keep what is worth keeping in your memory so that \
      it lasts.";
@@ -245,7 +245,7 @@ impl Core<'_, '_> {
         }
         if let Some(every) = set.reflect_every {
             let Ok(every) = u64::try_from(every) else {
-                refuse!(Refusal::BadReflectEvery);
+                reject!(Rejection::BadReflectEvery);
             };
             settings.reflect_every = every;
         }
@@ -260,10 +260,10 @@ impl Core<'_, '_> {
         }
         if let Some(character) = set.character {
             if character.trim().is_empty() {
-                refuse!(Refusal::NoCharacter);
+                reject!(Rejection::NoCharacter);
             }
             if character.chars().count() > CHARACTER_MOST {
-                refuse!(Refusal::LongCharacter);
+                reject!(Rejection::LongCharacter);
             }
             settings.character = character;
         }
@@ -277,7 +277,7 @@ impl Core<'_, '_> {
                 })
                 .collect::<Vec<_>>();
             if let Some(why) = endpoint_fault(&endpoints) {
-                refuse!(Refusal::BadEndpoint { why });
+                reject!(Rejection::BadEndpoint { why });
             }
             removed = settings
                 .endpoints
@@ -300,7 +300,7 @@ impl Core<'_, '_> {
                 if let Some(why) =
                     endpoint_fault(std::slice::from_ref(&address))
                 {
-                    refuse!(Refusal::BadEndpoint { why });
+                    reject!(Rejection::BadEndpoint { why });
                 }
                 Some(Some(WorkspaceAddress {
                     url: address.base_url,

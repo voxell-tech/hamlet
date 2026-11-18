@@ -1,54 +1,55 @@
-//! What a scholar of the city made of a hire starts from (H38).
+//! What a profile of the city made of an agent starts from (H38).
 
 use anyhow::Result;
 use hamlet_git::{MAIN, Repository};
 use hamlet_store::Db;
-use hamlet_store::ids::{AgentId, ChiefId, ScholarId};
+use hamlet_store::ids::{AgentId, ChiefId, ProfileId};
 
 use super::worker::RepositoryWriteLock;
 use super::{CHARACTER, branch};
 use crate::realm::change::{Change, Done, done};
 use crate::realm::layout::Layout;
 use crate::society::city::{self, Arrival};
-use crate::society::hires;
+use crate::society::hamlet_agents;
 
 pub(crate) struct Made {
-    pub scholar: ScholarId,
+    pub profile: ProfileId,
     pub character: String,
 }
 
-/// The change that makes a scholar of the city of what `hire`
+/// The change that makes a profile of the city of what `agent`
 /// learned, read now.
-pub(crate) fn make_scholar(
+pub(crate) fn make_profile(
     db: &mut Db,
     layout: &Layout,
     writing: &RepositoryWriteLock,
-    hire: AgentId,
+    agent: AgentId,
     name: &str,
     owner: ChiefId,
     reason: String,
 ) -> Result<impl FnOnce(&mut Change<'_>) -> Done<Made> + use<>> {
-    let source = source(db, layout, writing, hire, name)?;
+    let source = source(db, layout, writing, agent, name)?;
     Ok(move |cx: &mut Change<'_>| {
-        let scholar = done!(city::make_of_hire(
+        let profile = done!(city::make_of_agent(
             cx,
-            hire,
+            agent,
             &source.name,
             owner,
             source.commit,
             &reason,
         ));
         Ok(Ok(Made {
-            scholar,
+            profile,
             character: source.character,
         }))
     })
 }
 
-/// What a scholar made of a hire starts from.
+/// What a profile made of an agent starts from.
 struct Source {
     name: String,
-    /// The tip of the hire's branch to fork; none for a blank hire.
+    /// The tip of the agent's branch to fork; none for a blank
+    /// agent.
     commit: Option<String>,
     character: String,
 }
@@ -57,21 +58,21 @@ fn source(
     db: &mut Db,
     layout: &Layout,
     writing: &RepositoryWriteLock,
-    hire: AgentId,
+    agent: AgentId,
     name: &str,
 ) -> Result<Source> {
-    let found = hires::get(db, hire)?;
-    let scholar = city::get(db, found.scholar)?;
+    let found = hamlet_agents::get(db, agent)?;
+    let profile = city::get(db, found.profile)?;
     let name = match name.trim() {
-        "" => found.nickname.unwrap_or(scholar.name),
+        "" => found.name.unwrap_or(profile.name),
         given => given.to_owned(),
     };
     let held = writing.hold();
-    // A scholar whose repository is not made yet has nothing to
-    // fork, and a blank hire's joins with what its branch holds once
+    // A profile whose repository is not made yet has nothing to
+    // fork, and a blank agent's joins with what its branch holds once
     // it is.
     let Ok(repository) =
-        Repository::open(&layout.repository(found.scholar))
+        Repository::open(&layout.repository(found.profile))
     else {
         return Ok(Source {
             name,
@@ -79,17 +80,17 @@ fn source(
             character: String::new(),
         });
     };
-    let commit = if scholar.arrival == Arrival::Apart {
+    let commit = if profile.arrival == Arrival::Apart {
         None
     } else {
         // So the branch's tip holds all it learned.
         super::run::commit(
             db,
             layout,
-            hire,
+            agent,
             crate::app::clock::now(),
         )?;
-        repository.tip(&branch(hire))?
+        repository.tip(&branch(agent))?
     };
     let read_at = match commit {
         Some(commit) => Some(commit),

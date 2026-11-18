@@ -1,5 +1,5 @@
 //! The city island's own buildings: the Hand's tower at its middle,
-//! and the houses of the scholars about it, with the scholars that
+//! and the houses of the profiles about it, with the profiles that
 //! wait on its pier for a house. The Hearth and the library stand
 //! beside them on ground of their own.
 
@@ -13,7 +13,7 @@ mod tower;
 use bevy::light::NotShadowCaster;
 use bevy::prelude::*;
 use bevy::window::RequestRedraw;
-use hamlet_client::realm::{Busy, HandId, Identity, Left, Scholar};
+use hamlet_client::realm::{Busy, HandId, Identity, Left, Profile};
 
 use crate::generator::land::{IslandId, Land};
 use crate::generator::society::{Claim, Ground, Society};
@@ -63,11 +63,11 @@ struct Lamp;
 /// The glass of the city's buildings, each made once.
 #[derive(Resource, Clone)]
 struct Glass {
-    /// The glowing windows of the scholars' houses.
+    /// The glowing windows of the profiles' houses.
     windows: Handle<StandardMaterial>,
     /// The windows of a house nobody is in.
     dark: Handle<StandardMaterial>,
-    /// The shutters of a house its scholar has left.
+    /// The shutters of a house its profile has left.
     shut: Handle<StandardMaterial>,
     /// The tower's windows and lantern.
     lamp: Handle<StandardMaterial>,
@@ -180,18 +180,18 @@ fn raise(
 }
 
 /// Grows the city island about everything that stands on it: the
-/// places that hold ground and the scholars' houses.
+/// places that hold ground and the profiles' houses.
 fn shape(
     mut land: ResMut<Land>,
     society: Res<Society>,
-    scholars: Query<(Entity, &Scholar)>,
+    profiles: Query<(Entity, &Profile)>,
 ) {
     let mut spots = society
         .claims
         .iter()
         .filter(|claim| claim.place.island() == IslandId::City)
         .map(|claim| claim.at)
-        .chain(houses::spots(&land, &scholars))
+        .chain(houses::spots(&land, &profiles))
         .collect::<Vec<_>>();
     spots.sort_by(|a, b| {
         a.x.total_cmp(&b.x).then(a.y.total_cmp(&b.y))
@@ -219,7 +219,7 @@ const TOWER: (f32, f32, f32) = (3.0, 12.0, 14.0);
 const WINDOWS: (f32, f32) = (1.2, 16.0);
 
 /// Burns the tower's light while the Hand works, and the windows of
-/// the scholars' houses after dark.
+/// the profiles' houses after dark.
 fn shine(
     time: Res<Time>,
     clock: Res<Clock>,

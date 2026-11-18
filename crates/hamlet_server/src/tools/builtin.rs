@@ -33,7 +33,7 @@ use self::parcel::{Sent, To};
 use self::shell::{Dialect, Shells};
 use crate::attachments::images::Limits;
 use crate::realm::change::Done;
-use crate::society::refusal::Refusal;
+use crate::society::rejection::Rejection;
 
 const FILE_TOOLS: [&str; 5] =
     ["read", "write", "edit", "search", "find"];
@@ -42,18 +42,18 @@ const FILE_TOOLS: [&str; 5] =
 pub(crate) const UNREADABLE: &str =
     "[a file that could not be read as text]";
 
-/// The places an agent's tools work in: its lodge, or a worker's
+/// The places an agent's tools work in: its worktree, or a worker's
 /// scratch folder, and the folder its hamlet works on (C20).
 #[derive(Clone, Debug)]
 pub struct Place {
-    /// The agent's lodge, or a worker's scratch folder.
-    pub lodge: PathBuf,
+    /// The agent's worktree, or a worker's scratch folder.
+    pub worktree: PathBuf,
     /// The folder its hamlet works on.
     pub folder: Option<PathBuf>,
     /// The realm's folder, which the tools never read.
     pub realm: PathBuf,
     /// The folders they read and never write: the library, the tools
-    /// added by hand, and a worker's starter's lodge.
+    /// added by hand, and a worker's starter's worktree.
     pub shared: Vec<PathBuf>,
 }
 
@@ -445,7 +445,7 @@ impl ToolSession {
                     Ok(env) => env,
                     Err(unopened) => {
                         return Ok(Err(
-                            Refusal::WorkspaceNotOpened {
+                            Rejection::WorkspaceNotOpened {
                                 error: unopened.to_string(),
                             },
                         ));
@@ -475,25 +475,25 @@ impl ToolSession {
         }
     }
 
-    /// True when an edit of `path` stays in the agent's own lodge,
+    /// True when an edit of `path` stays in the agent's own worktree,
     /// where the sandbox keeps it.
-    pub fn is_lodge_edit(&self, path: &str) -> bool {
+    pub fn is_worktree_edit(&self, path: &str) -> bool {
         let Self::Local { place, .. } = self else {
-            // A remote lodge is never taken as one.
+            // A remote worktree is never taken as one.
             return false;
         };
-        let lodge = text(&place.lodge);
+        let worktree = text(&place.worktree);
         let folder = place.folder.as_deref().map(text);
         let there =
             |path: &String| std::path::Path::new(path).exists();
-        let own = firsts(path, &lodge, folder.as_deref())
-            .is_some_and(|[folder, lodge]| {
-                !there(&folder) && there(&lodge)
+        let own = firsts(path, &worktree, folder.as_deref())
+            .is_some_and(|[folder, worktree]| {
+                !there(&folder) && there(&worktree)
             });
-        let full = footing(path, &lodge, folder.as_deref(), own);
+        let full = footing(path, &worktree, folder.as_deref(), own);
         hamlet_sandbox::is_within(
             std::path::Path::new(&full),
-            &place.lodge,
+            &place.worktree,
         )
     }
 
@@ -655,10 +655,10 @@ pub(crate) fn environment(
     let mut policy = match &place.folder {
         None => {
             let mut env = base_env();
-            env.insert("HOME".into(), text(&place.lodge));
+            env.insert("HOME".into(), text(&place.worktree));
             Policy {
                 ro: place.shared.clone(),
-                rw: vec![place.lodge.clone()],
+                rw: vec![place.worktree.clone()],
                 env,
                 ..Policy::default()
             }
@@ -667,7 +667,7 @@ pub(crate) fn environment(
         // environment, so the project's tools are found.
         Some(folder) => Policy {
             ro: place.shared.clone(),
-            rw: vec![folder.clone(), place.lodge.clone()],
+            rw: vec![folder.clone(), place.worktree.clone()],
             open: true,
             hidden: vec![place.realm.clone()],
             env: host_env(),
@@ -675,40 +675,45 @@ pub(crate) fn environment(
         },
     };
     policy.net = network.is_open();
-    std::fs::create_dir_all(&place.lodge)?;
-    let cwd = place.folder.as_ref().unwrap_or(&place.lodge);
+    std::fs::create_dir_all(&place.worktree)?;
+    let cwd = place.folder.as_ref().unwrap_or(&place.worktree);
     Env::new(&text(cwd), policy, *sandbox)
 }
 
 /// The full path a tool's `path` names (C20): a relative one is the
-/// folder's, else the lodge's when only the lodge has its first part.
+/// folder's, else the worktree's when only the worktree has its first
+/// part.
 fn footing(
     path: &str,
-    lodge: &str,
+    worktree: &str,
     folder: Option<&str>,
     own: bool,
 ) -> String {
     match folder {
         _ if path::is_absolute(path) => path::normalize(path),
         Some(folder) if !own => path::join(&[folder, path]),
-        _ => path::join(&[lodge, path]),
+        _ => path::join(&[worktree, path]),
     }
 }
 
-/// The folder's and the lodge's path of the first part of a relative
-/// `path`, which decide where it is footed, while there is a folder.
+/// The folder's and the worktree's path of the first part of a
+/// relative `path`, which decide where it is footed, while there is a
+/// folder.
 fn firsts(
     path: &str,
-    lodge: &str,
+    worktree: &str,
     folder: Option<&str>,
 ) -> Option<[String; 2]> {
     let folder = folder.filter(|_| !path::is_absolute(path))?;
     let first = path.split(['\\', '/']).next().unwrap_or("");
-    Some([path::join(&[folder, first]), path::join(&[lodge, first])])
+    Some([
+        path::join(&[folder, first]),
+        path::join(&[worktree, first]),
+    ])
 }
 
-/// The arguments of a call, refused as pi refuses ones that break the
-/// tool's parameters.
+/// The arguments of a call, rejected as pi rejects ones that break
+/// the tool's parameters.
 struct Arguments<'a> {
     tool: &'a str,
     map: &'a Map<String, Value>,

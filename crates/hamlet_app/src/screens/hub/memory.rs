@@ -1,4 +1,4 @@
-//! The memory, skills and character of an agent or a scholar.
+//! The memory, skills and character of an agent or a profile.
 
 use bevy::ecs::resource::Resource;
 use bevy::ecs::world::World;
@@ -293,7 +293,7 @@ fn add(
     .within(bare())
 }
 
-/// The skills of an agent or a scholar.
+/// The skills of an agent or a profile.
 pub(super) fn skills_section() -> AnyView {
     keyed(resource::<Papers, _>(|p| p.skills.clone()), |skills| {
         if skills.is_empty() {
@@ -319,7 +319,7 @@ pub(super) fn skills_section() -> AnyView {
     .boxed()
 }
 
-/// The character of an agent or a scholar, with the way to edit it.
+/// The character of an agent or a profile, with the way to edit it.
 pub(super) fn character_section() -> AnyView {
     section(
         Glyph::Face,
@@ -338,7 +338,7 @@ pub(super) fn character_section() -> AnyView {
     )
 }
 
-/// The character of an agent or a scholar.
+/// The character of an agent or a profile.
 fn character() -> impl View {
     keyed(resource::<Papers, _>(|p| p.character.clone()), |text| {
         if text.is_empty() {

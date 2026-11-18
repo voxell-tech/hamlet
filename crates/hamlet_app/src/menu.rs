@@ -385,7 +385,7 @@ pub fn open_menu() -> impl View {
         bevy_fynix::derived(|world: &World| {
             (
                 world.resource::<OpenMenu>().0,
-                hamlet_client::realm::Deeds::is_allowed(
+                hamlet_client::realm::Actions::is_allowed(
                     world,
                     "create-hamlet",
                 ),
@@ -395,7 +395,7 @@ pub fn open_menu() -> impl View {
         .when(crate::roll::either(
             crate::roll::either(
                 crate::roll::moved::<OpenMenu>(),
-                crate::roll::moved::<hamlet_client::realm::Deeds>(),
+                crate::roll::moved::<hamlet_client::realm::Actions>(),
             ),
             crate::roll::moved::<Updates>(),
         )),

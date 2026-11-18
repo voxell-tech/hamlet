@@ -6,9 +6,11 @@ use hamlet_testing::Scratch;
 
 use crate::realm::change::{Change, Done, run};
 use crate::realm::layout::Layout;
+use crate::society::hamlet_agents::{
+    self, NewAgent, ProfileChoice, Spec,
+};
 use crate::society::hamlets::{self, Founding};
-use crate::society::hires::{self, Hired, Hiring, Spec};
-use crate::society::refusal::Refusal;
+use crate::society::rejection::Rejection;
 use crate::society::{chiefs, hand};
 
 /// A PNG of `width` by `height` pixels.
@@ -86,7 +88,7 @@ impl Realm {
         &mut self,
         actor: Actor,
         make: impl FnOnce(&mut Change<'_>) -> Done<T>,
-    ) -> Result<T, Refusal> {
+    ) -> Result<T, Rejection> {
         self.at += 1000;
         let at = self.at;
         let mut tx = self.store.immediate().unwrap();
@@ -99,24 +101,24 @@ impl Realm {
     pub fn chief<T>(
         &mut self,
         make: impl FnOnce(&mut Change<'_>) -> Done<T>,
-    ) -> Result<T, Refusal> {
+    ) -> Result<T, Rejection> {
         let chief = Actor::Chief(self.chief);
         self.by(chief, make)
     }
 
-    /// Founds a hamlet named `name` under a new mayor named `mayor`;
-    /// the mayor's `hamlet` is its id.
-    pub fn found(&mut self, name: &str, mayor: &str) -> Hired {
+    /// Founds a hamlet named `name` under a new lead named `lead`;
+    /// the lead's `hamlet` is its id.
+    pub fn found(&mut self, name: &str, lead: &str) -> NewAgent {
         let chief = self.chief;
-        let (name, mayor) = (name.to_owned(), mayor.to_owned());
+        let (name, lead) = (name.to_owned(), lead.to_owned());
         self.chief(|cx| {
             hamlets::found(
                 cx,
                 Founding {
                     name,
                     chief,
-                    mayor: Hiring::Blank {
-                        name: mayor,
+                    lead: ProfileChoice::Blank {
+                        name: lead,
                         character: "Careful.".into(),
                     },
                     purpose: "Build it".into(),
@@ -126,17 +128,21 @@ impl Realm {
         .unwrap()
     }
 
-    /// Hires a blank agent named `name` under `lead`, in its hamlet.
-    pub fn hire(&mut self, lead: &Hired, name: &str) -> Hired {
+    /// Adds a blank agent named `name` under `parent`, in its hamlet.
+    pub fn add_agent(
+        &mut self,
+        parent: &NewAgent,
+        name: &str,
+    ) -> NewAgent {
         let owner = self.chief;
         let name = name.to_owned();
         self.chief(|cx| {
-            hires::hire(
+            hamlet_agents::add(
                 cx,
                 Spec {
-                    hamlet: lead.hamlet.clone(),
-                    parent: Some(lead.agent),
-                    hiring: Hiring::Blank {
+                    hamlet: parent.hamlet.clone(),
+                    parent: Some(parent.agent),
+                    profile: ProfileChoice::Blank {
                         name,
                         character: String::new(),
                     },

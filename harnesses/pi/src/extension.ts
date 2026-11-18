@@ -126,7 +126,7 @@ export function hamletExtension(host: Host, tools: readonly ToolSpec[]) {
                                     ? {}
                                     : { diagnostics: answer.diagnostics }),
                             };
-                        case "refusal":
+                        case "rejection":
                             return {
                                 output: [{ type: "text", text: answer.words }],
                                 isError: true,
@@ -182,7 +182,7 @@ export function hamletExtension(host: Host, tools: readonly ToolSpec[]) {
                     switch (answer.type) {
                         case "allowed":
                             return undefined;
-                        case "refusal":
+                        case "rejection":
                             return { block: answer.words };
                         default:
                             return { block: unexpected(answer) };

@@ -4,35 +4,35 @@ use std::collections::BTreeSet;
 
 use hamlet_store::Db;
 use hamlet_store::ids::{
-    Actor, AgentId, ConversationId, HamletId, ScholarId,
+    Actor, AgentId, ConversationId, HamletId, ProfileId,
 };
 
-use crate::society::refusal::Refusal;
+use crate::society::rejection::Rejection;
 
-/// What a change does: a defect as an error, an expected refusal as
+/// What a change does: a defect as an error, an expected rejection as
 /// `Err` inside.
-pub(crate) type Done<T> = anyhow::Result<Result<T, Refusal>>;
+pub(crate) type Done<T> = anyhow::Result<Result<T, Rejection>>;
 
-/// Ends a change with `refusal`.
-macro_rules! refuse {
-    ($refusal:expr) => {
-        return Ok(Err($refusal))
+/// Ends a change with `rejection`.
+macro_rules! reject {
+    ($rejection:expr) => {
+        return Ok(Err($rejection))
     };
 }
-pub(crate) use refuse;
+pub(crate) use reject;
 
-/// Unwraps a check's result, or ends the change with its refusal.
+/// Unwraps a check's result, or ends the change with its rejection.
 macro_rules! checked {
     ($result:expr) => {
         match $result {
             Ok(value) => value,
-            Err(refusal) => return Ok(Err(refusal)),
+            Err(rejection) => return Ok(Err(rejection)),
         }
     };
 }
 pub(crate) use checked;
 
-/// Unwraps a change's result, or ends the change with its refusal.
+/// Unwraps a change's result, or ends the change with its rejection.
 macro_rules! done {
     ($result:expr) => {
         $crate::realm::change::checked!($result?)
@@ -44,7 +44,7 @@ pub(crate) use done;
 #[derive(Debug, Default, PartialEq)]
 pub(crate) struct Touched {
     pub agents: BTreeSet<AgentId>,
-    pub scholars: BTreeSet<ScholarId>,
+    pub profiles: BTreeSet<ProfileId>,
     pub hamlets: BTreeSet<HamletId>,
     /// The conversations whose queued inputs or hold changed.
     pub queues: BTreeSet<ConversationId>,
@@ -72,7 +72,7 @@ impl<'a> Change<'a> {
 
 /// Why a change stopped before its end.
 enum Stop {
-    Refused(Refusal),
+    Rejected(Rejection),
     Defect(anyhow::Error),
 }
 
@@ -83,13 +83,13 @@ impl From<diesel::result::Error> for Stop {
 }
 
 /// Makes the change `make` by `actor` at `at` in a savepoint, rolled
-/// back on a refusal.
+/// back on a rejection.
 pub(crate) fn run<T>(
     db: &mut Db,
     at: i64,
     actor: Actor,
     make: impl FnOnce(&mut Change<'_>) -> Done<T>,
-) -> anyhow::Result<(Result<T, Refusal>, Touched)> {
+) -> anyhow::Result<(Result<T, Rejection>, Touched)> {
     use diesel::Connection;
 
     let mut touched = Touched::default();
@@ -97,12 +97,12 @@ pub(crate) fn run<T>(
         let mut cx = Change::new(db, at, actor);
         let made = make(&mut cx).map_err(Stop::Defect)?;
         touched = std::mem::take(&mut cx.touched);
-        made.map_err(Stop::Refused)
+        made.map_err(Stop::Rejected)
     });
     match made {
         Ok(value) => Ok((Ok(value), touched)),
-        Err(Stop::Refused(refusal)) => {
-            Ok((Err(refusal), Touched::default()))
+        Err(Stop::Rejected(rejection)) => {
+            Ok((Err(rejection), Touched::default()))
         }
         Err(Stop::Defect(error)) => Err(error),
     }

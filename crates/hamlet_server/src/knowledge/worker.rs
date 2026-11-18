@@ -39,7 +39,7 @@ pub(crate) fn plugin(app: &mut bevy_app::App) {
 #[derive(Message)]
 pub(crate) struct JobsDone {
     pub jobs: Vec<Job>,
-    /// Whether each hire the jobs may have changed has learned
+    /// Whether each agent the jobs may have changed has learned
     /// anything.
     pub learning: BTreeMap<AgentId, bool>,
 }
@@ -51,7 +51,7 @@ impl JobsDone {
     }
 }
 
-/// The lodges the runner's jobs changed are owed a push, and the
+/// The worktrees the runner's jobs changed are owed a push, and the
 /// clients see what they did.
 fn take_in_jobs_done(
     mut done: ResMut<Messages<JobsDone>>,
@@ -68,7 +68,7 @@ fn take_in_jobs_done(
     }
 }
 
-/// What the hires learned and the dreams that ended, after `done`.
+/// What the agents learned and the dreams that ended, after `done`.
 pub(crate) fn after_jobs(
     learned: &mut Learned,
     inputs: &InputSender,
@@ -101,7 +101,7 @@ pub(crate) struct Runner {
 /// [`RepositoryWriteLock`], which the loop may wait on.
 const BUSY: Duration = Duration::from_millis(250);
 
-/// Held by whoever writes the realm's repositories and lodges.
+/// Held by whoever writes the realm's repositories and worktrees.
 #[derive(Resource, Clone, Default)]
 pub(crate) struct RepositoryWriteLock(Arc<Mutex<()>>);
 

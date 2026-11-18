@@ -8,9 +8,9 @@ use super::args::{Called, EditCharter, EditSettings, Unshelve};
 use super::{Call, cut, unsupported};
 use crate::conversations::prompt;
 use crate::core::Core;
-use crate::realm::change::{Done, refuse};
+use crate::realm::change::{Done, reject};
 use crate::society::authority;
-use crate::society::refusal::Refusal;
+use crate::society::rejection::Rejection;
 
 impl Core<'_, '_> {
     pub(super) fn realm_tool(
@@ -32,22 +32,22 @@ impl Core<'_, '_> {
             }
             Called::EditCharter(EditCharter { text }) => {
                 if !authority::may_rule(db, by)? {
-                    refuse!(Refusal::NotRealmChief);
+                    reject!(Rejection::NotRealmChief);
                 }
                 self.begin(call)?;
                 self.edit_charter(Some(text))
             }
             Called::EditSettings(args) => {
                 if !authority::may_rule(db, by)? {
-                    refuse!(Refusal::NotRealmChief);
+                    reject!(Rejection::NotRealmChief);
                 }
                 let Ok(set) = settings_set(args) else {
-                    refuse!(Refusal::SettingsUnfit);
+                    reject!(Rejection::SettingsUnfit);
                 };
                 self.begin(call)?;
                 self.edit_settings(set)
             }
-            _ => refuse!(unsupported(call)),
+            _ => reject!(unsupported(call)),
         }
     }
 }

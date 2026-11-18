@@ -5,8 +5,8 @@ use std::collections::HashMap;
 
 use bevy::prelude::*;
 use hamlet_client::realm::{
-    HamletId, Identity, Kind, Left, Lived, LivesIn, Mayor,
-    MergedInto, Spot,
+    HamletId, Identity, Kind, Lead, Left, Lived, LivesIn, MergedInto,
+    Spot,
 };
 use hamlet_protocol::client::AgentKind;
 
@@ -98,7 +98,7 @@ pub(super) fn house(
                 town
             }
         };
-        let Some(mayor) = society.town(town).map(|t| t.mayor) else {
+        let Some(lead) = society.town(town).map(|t| t.lead) else {
             continue;
         };
         // Agents are housed, and those who left are seen out, in the
@@ -106,7 +106,7 @@ pub(super) fn house(
         // free at the time, as it did when the world last saw it.
         let new = homeless
             .iter()
-            .filter(|(.., kind)| kind.0 == AgentKind::Hire)
+            .filter(|(.., kind)| kind.0 == AgentKind::Hamlet)
             .filter(|(_, _, lives, ..)| lives.0 == hamlet)
             .collect::<Vec<_>>();
         let mut story = new
@@ -126,13 +126,13 @@ pub(super) fn house(
         story.sort_by_key(|(when, ..)| *when);
         for ((_, _, goes), entity, host) in story {
             if !goes {
-                // The first to come, the mayor it was founded with,
-                // is housed in the hall. A later mayor trades houses
+                // The first to come, the lead it was founded with,
+                // is housed in the hall. A later lead trades houses
                 // with it, in `seat`.
                 let hall_free =
-                    !homes.values().any(|home| *home == mayor);
+                    !homes.values().any(|home| *home == lead);
                 let agent = if hall_free {
-                    Some(mayor)
+                    Some(lead)
                 } else if society.has_room(&land, town) {
                     society.add_agent(&land, town)
                 } else {
@@ -172,25 +172,25 @@ pub(super) fn house(
     }
 }
 
-/// The mayor lives in the hall: a hire that becomes mayor trades
-/// houses with the mayor before it, whether it is seen happen or the
-/// world meets the hamlet with a later mayor than its first.
+/// The lead lives in the hall: an agent that becomes lead trades
+/// houses with the lead before it, whether it is seen happen or the
+/// world meets the hamlet with a later lead than its first.
 pub(super) fn seat(
     mut society: ResMut<Society>,
-    mayors: Query<
+    leads: Query<
         &Housed,
         (
-            With<Mayor>,
+            With<Lead>,
             Without<Left>,
-            Or<(Added<Mayor>, Changed<Housed>)>,
+            Or<(Added<Lead>, Changed<Housed>)>,
         ),
     >,
 ) {
-    for housed in &mayors {
+    for housed in &leads {
         let seated = society
             .agent(housed.0)
             .and_then(|agent| society.town(agent.town))
-            .is_none_or(|town| town.mayor == housed.0);
+            .is_none_or(|town| town.lead == housed.0);
         if !seated {
             society.seat(housed.0);
         }

@@ -46,7 +46,7 @@ pub enum Target {
     Web(String),
     /// A path with no line number, which may name no file.
     Path(String),
-    /// An agent's or a scholar's address, which may name no one.
+    /// An agent's or a profile's address, which may name no one.
     Agent(String),
     /// An [`Target::Agent`] in words that still grow, drawn as words.
     AgentWords(String),
@@ -147,7 +147,7 @@ pub struct AgentLinks {
     pub generation: u64,
 }
 
-/// Whether a word is an agent's or a scholar's address.
+/// Whether a word is an agent's or a profile's address.
 pub type IsAddress = fn(&str) -> bool;
 
 /// The [`IsAddress`] of [`AgentLinks`], else one that takes no word.

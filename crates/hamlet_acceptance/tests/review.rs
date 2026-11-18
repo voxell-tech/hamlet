@@ -1,4 +1,4 @@
-//! A lead's review of a chief's line to a hire under it, and a
+//! A parent's review of a chief's line to an agent under it, and a
 //! chief's workers.
 
 use hamlet_acceptance::*;
@@ -7,7 +7,8 @@ use hamlet_testing::words;
 use serde_json::json;
 
 #[tokio::test]
-async fn a_lead_reviews_a_chiefs_line_to_its_hire_and_may_object() {
+async fn a_parent_reviews_a_chiefs_line_to_its_agent_and_may_object()
+{
     let mut s = Session::start(
         Faux::new()
             .agent(
@@ -27,7 +28,7 @@ async fn a_lead_reviews_a_chiefs_line_to_its_hire_and_may_object() {
     )
     .await;
     let ada = s.found("docs", "ada", "keep the docs").await;
-    let bob = s.hire(ada, "bob", "write tests").await;
+    let bob = s.add_agent(ada, "bob", "write tests").await;
     assert_eq!(bob.0, 3);
     let reply = s
         .chief
@@ -37,7 +38,7 @@ async fn a_lead_reviews_a_chiefs_line_to_its_hire_and_may_object() {
     let now = chat(bob);
     s.chief.open(&now).await;
 
-    // A line the lead passes is simply done.
+    // A line the parent passes is simply done.
     s.chief.tell(bob, "Plain line.").await;
     s.chief.shows(&now, "Plain done.").await;
     assert!(s.chief.waits().is_empty());
@@ -47,14 +48,14 @@ async fn a_lead_reviews_a_chiefs_line_to_its_hire_and_may_object() {
     s.chief.tell(bob, "Odd line.").await;
     let objection = s
         .chief
-        .wait_for("the lead's objection", |w| {
+        .wait_for("the parent's objection", |w| {
             matches!(w.detail, WaitDetail::Objection {})
         })
         .await;
     assert_eq!(objection.agent, Some(bob));
     assert!(
         objection.about.contains(
-            "hire#2 (ada) objects: the odd line breaks the plan."
+            "agent#2 (ada) objects: the odd line breaks the plan."
         ),
         "{}",
         objection.about
@@ -65,7 +66,7 @@ async fn a_lead_reviews_a_chiefs_line_to_its_hire_and_may_object() {
 }
 
 #[tokio::test]
-async fn a_lead_does_not_review_unless_the_limits_say_so() {
+async fn a_parent_does_not_review_unless_the_limits_say_so() {
     let mut s = Session::start(
         Faux::new()
             .agent(3, [words("Done.")])
@@ -73,7 +74,7 @@ async fn a_lead_does_not_review_unless_the_limits_say_so() {
     )
     .await;
     let ada = s.found("docs", "ada", "keep the docs").await;
-    let bob = s.hire(ada, "bob", "write tests").await;
+    let bob = s.add_agent(ada, "bob", "write tests").await;
     let now = chat(bob);
     s.chief.open(&now).await;
     s.chief.tell(bob, "Any line.").await;
@@ -89,7 +90,7 @@ async fn a_chief_starts_a_worker_and_reads_its_answer() {
     )
     .await;
     let ada = s.found("docs", "ada", "keep the docs").await;
-    s.chief.refused(ada, "/worker").await;
+    s.chief.rejected(ada, "/worker").await;
     let said = s.chief.command(ada, "/worker count the files").await;
     assert!(said.starts_with("Started worker#3;"), "{said}");
     let worker = s.chief.id("worker#3");

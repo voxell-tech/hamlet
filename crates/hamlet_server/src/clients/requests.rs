@@ -25,7 +25,7 @@ use crate::core::{Core, Live};
 use crate::realm::change::{Done, done};
 use crate::society::agents::Effort;
 use crate::society::authority;
-use crate::society::refusal::Refusal;
+use crate::society::rejection::Rejection;
 
 /// The answer to a compaction asked of a conversation.
 pub(crate) const COMPACTING: &str =
@@ -162,12 +162,12 @@ impl Core<'_, '_> {
         else {
             return Ok(());
         };
-        // A line no model can answer is refused, so the agent is not
+        // A line no model can answer is rejected, so the agent is not
         // left working on it for good.
         if !self.has_model(agent)? {
             return self.answer(
                 client,
-                reply(&say.id, Err(Refusal::NoModelSetUp)),
+                reply(&say.id, Err(Rejection::NoModelSetUp)),
             );
         }
         let attached = match self.attach(
@@ -177,9 +177,9 @@ impl Core<'_, '_> {
             &say.files,
         )? {
             Ok(attached) => attached,
-            Err(refusal) => {
+            Err(rejection) => {
                 return self
-                    .answer(client, reply(&say.id, Err(refusal)));
+                    .answer(client, reply(&say.id, Err(rejection)));
             }
         };
         let request = say.id.as_str().to_owned();
@@ -232,7 +232,7 @@ impl Core<'_, '_> {
                 self.connections.settle(conversation, request)
             {
                 let answer =
-                    reply(&id, Ok::<_, Refusal>(String::new()));
+                    reply(&id, Ok::<_, Rejection>(String::new()));
                 self.connections.send(client, answer);
             }
         }
@@ -276,7 +276,7 @@ impl Core<'_, '_> {
             .filter_map(|file| files.size(file))
             .sum::<u64>();
         if together > ImportProject::MOST_BYTES {
-            return Ok(Err(Refusal::ProjectTooBig {
+            return Ok(Err(Rejection::ProjectTooBig {
                 most: ImportProject::MOST_BYTES >> 20,
             }));
         }
@@ -338,7 +338,7 @@ impl Core<'_, '_> {
                 Vec<protocol::AttachedImage>,
                 Vec<protocol::AttachedFile>,
             ),
-            Refusal,
+            Rejection,
         >,
     > {
         let chief = self.realm.chief();
@@ -349,7 +349,7 @@ impl Core<'_, '_> {
         Ok(done)
     }
 
-    /// The agent `to` names, or `None` once request `id` was refused
+    /// The agent `to` names, or `None` once request `id` was rejected
     /// because this server's chief may not reach it.
     pub(crate) fn reached(
         &mut self,
@@ -362,8 +362,8 @@ impl Core<'_, '_> {
         let db = self.realm.store().connection();
         match authority::reaches(db, chief, agent)? {
             Ok(()) => Ok(Some(agent)),
-            Err(refusal) => {
-                self.answer(client, reply(id, Err(refusal)))?;
+            Err(rejection) => {
+                self.answer(client, reply(id, Err(rejection)))?;
                 Ok(None)
             }
         }
@@ -411,12 +411,12 @@ impl Core<'_, '_> {
         let chief = self.realm.chief();
         let agent = AgentId(i64::try_from(chat.with.0)?);
         let db = self.realm.store().connection();
-        if let Err(refusal) =
+        if let Err(rejection) =
             authority::reaches(db, Actor::Chief(chief), agent)?
         {
-            return Ok(Err(refusal));
+            return Ok(Err(rejection));
         }
-        // A hire that left keeps its conversation, read as it was.
+        // An agent that left keeps its conversation, read as it was.
         if let Some(conversation) = chats::of(db, agent)? {
             return Ok(Ok(conversation));
         }
@@ -653,7 +653,7 @@ impl Core<'_, '_> {
             confinement,
             activity: &activity,
             providers,
-            deeds: self.deeds.listed(),
+            actions: self.actions.listed(),
             settings_view,
             waits,
             library,

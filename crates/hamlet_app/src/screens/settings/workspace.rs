@@ -1,4 +1,4 @@
-//! The Workspace page: where agents' commands run and their lodges
+//! The Workspace page: where agents' commands run and their worktrees
 //! are kept.
 
 use bevy::app::{App, PreUpdate};
@@ -28,7 +28,7 @@ use super::{Pane, alone, field};
 use crate::PanelSystems;
 use crate::overview::heading;
 use crate::secret::secret_field;
-use crate::world_menu::{self, Deed};
+use crate::world_menu::{self, Action};
 
 pub(super) fn plugin(app: &mut App) {
     app.init_resource::<Draft>()
@@ -54,9 +54,9 @@ struct Draft {
     token: String,
     saving: Option<protocol::RequestId>,
     saved: bool,
-    /// The move of the lodges asked for and not yet answered.
+    /// The move of the worktrees asked for and not yet answered.
     moving: Option<protocol::RequestId>,
-    refusal: String,
+    rejection: String,
 }
 
 /// Starts the draft from the chosen workspace as the page opens.
@@ -101,19 +101,19 @@ fn save(world: &mut World) {
     let mut draft = world.resource_mut::<Draft>();
     draft.saving = Some(id);
     draft.saved = false;
-    draft.refusal.clear();
+    draft.rejection.clear();
 }
 
-/// Asks the server to copy the lodges to the saved workspace.
-pub(crate) fn move_lodges(world: &mut World) {
+/// Asks the server to copy the worktrees to the saved workspace.
+pub(crate) fn move_worktrees(world: &mut World) {
     let id = world.resource_mut::<Outbox>().send(|id| {
-        protocol::ClientMessage::MoveLodges(protocol::MoveLodges {
-            id,
-        })
+        protocol::ClientMessage::MoveWorktrees(
+            protocol::MoveWorktrees { id },
+        )
     });
     let mut draft = world.resource_mut::<Draft>();
     draft.moving = Some(id);
-    draft.refusal.clear();
+    draft.rejection.clear();
 }
 
 fn answered(response: On<Response>, mut draft: ResMut<Draft>) {
@@ -123,10 +123,10 @@ fn answered(response: On<Response>, mut draft: ResMut<Draft>) {
             protocol::ServerMessage::Reply(reply)
                 if reply.kind == protocol::ReplyKind::Error =>
             {
-                draft.refusal.clone_from(&reply.text);
+                draft.rejection.clone_from(&reply.text);
             }
             protocol::ServerMessage::Fault(fault) => {
-                draft.refusal.clone_from(&fault.text);
+                draft.rejection.clone_from(&fault.text);
             }
             _ => {}
         }
@@ -139,10 +139,10 @@ fn answered(response: On<Response>, mut draft: ResMut<Draft>) {
         protocol::ServerMessage::Reply(reply)
             if reply.kind == protocol::ReplyKind::Error =>
         {
-            draft.refusal.clone_from(&reply.text);
+            draft.rejection.clone_from(&reply.text);
         }
         protocol::ServerMessage::Fault(fault) => {
-            draft.refusal.clone_from(&fault.text);
+            draft.rejection.clone_from(&fault.text);
         }
         protocol::ServerMessage::Reply(_) => {
             draft.token.clear();
@@ -167,14 +167,15 @@ fn pending(settings: &Settings) -> String {
     }
 }
 
-/// The latest move of the lodges, as the server tells it.
+/// The latest move of the worktrees, as the server tells it.
 fn move_of(
     settings: &Settings,
 ) -> Option<&protocol::SettingsViewWorkspaceMove> {
     settings.0.workspace.moving.as_ref()
 }
 
-/// What moving the lodges does, how far it has come or how it ended.
+/// What moving the worktrees does, how far it has come or how it
+/// ended.
 fn progress(settings: &Settings) -> String {
     use protocol::SettingsViewWorkspaceMoveState as State;
     if !is_waiting_for_restart(settings) {
@@ -183,7 +184,7 @@ fn progress(settings: &Settings) -> String {
     match move_of(settings) {
         Some(latest) if latest.state == State::Moving => {
             format!(
-                "Moving lodges: {} of {}.",
+                "Moving worktrees: {} of {}.",
                 latest.done, latest.of
             )
         }
@@ -197,14 +198,14 @@ fn progress(settings: &Settings) -> String {
                 "this computer"
             };
             format!(
-                "Copies every agent's lodge to {to}, replacing the \
-                 lodges there."
+                "Copies every agent's worktree to {to}, replacing \
+                 the worktrees there."
             )
         }
     }
 }
 
-/// The button that moves the lodges to the saved workspace.
+/// The button that moves the worktrees to the saved workspace.
 fn moving() -> AnyView {
     keyed(
         resource::<Settings, _>(|settings| {
@@ -216,8 +217,8 @@ fn moving() -> AnyView {
         }),
         |offered| {
             if *offered {
-                bad_action(Glyph::Send, "Move Lodges", |world| {
-                    world_menu::ask(world, Deed::MoveLodges);
+                bad_action(Glyph::Send, "Move Worktrees", |world| {
+                    world_menu::ask(world, Action::MoveWorktrees);
                 })
             } else {
                 frame().boxed()
@@ -291,12 +292,12 @@ pub(super) fn page() -> impl View {
             note(resource::<Settings, _>(pending)),
         )),
         moved(),
-        label(resource::<Draft, _>(|draft| draft.refusal.clone()))
+        label(resource::<Draft, _>(|draft| draft.rejection.clone()))
             .tone(Tone::Critical),
     ))
 }
 
-/// The card that moves the lodges, once a restart waits.
+/// The card that moves the worktrees, once a restart waits.
 fn moved() -> impl View {
     keyed(resource::<Settings, _>(is_waiting_for_restart), |waits| {
         if !*waits {

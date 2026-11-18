@@ -297,7 +297,7 @@ mod tests {
     fn manifest(version: &str, deb: &Asset) -> Vec<u8> {
         serde_json::to_vec(&serde_json::json!({
             "version": version,
-            "notes": "Roads",
+            "notes": "Channels",
             "page": "https://example.com/v",
             "files": { "deb": {
                 "url": deb.url, "sha256": deb.sha256, "size": deb.size,

@@ -1,4 +1,4 @@
-//! Recordings of a chief's chats: with the Hand, and a hire in a
+//! Recordings of a chief's chats: with the Hand, and an agent in a
 //! manual hamlet.
 
 use hamlet_acceptance::{Faux, Home, call, calls, failure, words};

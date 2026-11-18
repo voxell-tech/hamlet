@@ -16,7 +16,7 @@ use strum::{Display, EnumString, IntoStaticStr};
 use super::inputs::{State, Status};
 use crate::realm::change::Change;
 use crate::society::agents::{self, AgentKind};
-use crate::society::{hires, workers};
+use crate::society::{hamlet_agents, workers};
 
 #[derive(
     Clone,
@@ -87,7 +87,8 @@ pub(crate) fn mint(
 }
 
 /// The hamlet that pays for what `agent` does on its own account: a
-/// hire's hamlet, a worker's starter's, and the realm for the Hand.
+/// hamlet agent's hamlet, a worker's starter's, and the realm for the
+/// Hand.
 pub(crate) fn payer_of(
     db: &mut Db,
     agent: AgentId,
@@ -95,7 +96,9 @@ pub(crate) fn payer_of(
     let found = agents::get(db, agent)?;
     Ok(match found.kind {
         AgentKind::Hand => None,
-        AgentKind::Hire => Some(hires::get(db, agent)?.hamlet),
+        AgentKind::Hamlet => {
+            Some(hamlet_agents::get(db, agent)?.hamlet)
+        }
         AgentKind::Worker => workers::get(db, agent)?.hamlet,
     })
 }
@@ -134,20 +137,20 @@ pub(crate) fn instructions(
         .load(db)?)
 }
 
-/// Whether a lead may not end or merge `hire` at `at` (H7): an input
-/// of a chief's task is still to end in one of its conversations, or
-/// a chief's instruction it worked on is unanswered or was answered
-/// less than `minutes` ago.
+/// Whether a parent may not end or merge `agent` at `at` (H7): an
+/// input of a chief's task is still to end in one of its
+/// conversations, or a chief's instruction it worked on is unanswered
+/// or was answered less than `minutes` ago.
 pub(crate) fn protects(
     db: &mut Db,
-    hire: AgentId,
+    agent: AgentId,
     at: i64,
     minutes: i64,
 ) -> Result<bool> {
     let working = input::table
         .inner_join(conversation::table)
         .inner_join(task::table)
-        .filter(conversation::agent.eq(hire))
+        .filter(conversation::agent.eq(agent))
         .filter(task::chief.is_not_null())
         .filter(input::state.ne(State::Dropped))
         .filter(
@@ -164,7 +167,7 @@ pub(crate) fn protects(
     let recent = input::table
         .inner_join(conversation::table)
         .inner_join(task::table)
-        .filter(conversation::agent.eq(hire))
+        .filter(conversation::agent.eq(agent))
         .filter(task::origin.eq(Origin::Chief))
         .filter(task::done_at.is_null().or(task::done_at.gt(since)))
         .count()

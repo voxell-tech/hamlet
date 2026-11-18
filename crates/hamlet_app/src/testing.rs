@@ -70,7 +70,7 @@ pub(crate) fn seat_hand(app: &mut App) -> Entity {
 }
 
 pub(crate) fn seat_ada(app: &mut App) -> Entity {
-    let ada = hamlet_client::realm::named(app.world_mut(), "hire#2")
+    let ada = hamlet_client::realm::named(app.world_mut(), "agent#2")
         .unwrap();
     crate::convo::seat(app.world_mut(), ada);
     ada

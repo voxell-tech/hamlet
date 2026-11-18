@@ -159,7 +159,7 @@ mod tests {
     }
 
     #[test]
-    fn refuses_bash_under_system_root() {
+    fn rejects_bash_under_system_root() {
         let machine = fake(
             &[("PATH", r"C:\WINDOWS\cmd"), ("ProgramFiles", "")],
             &[r"C:\WINDOWS\cmd\git.exe", r"C:\WINDOWS\bin\bash.exe"],

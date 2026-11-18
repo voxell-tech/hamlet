@@ -4,14 +4,14 @@ use anyhow::Result;
 use hamlet_store::ids::Actor;
 
 use super::args::{RequestLibrarian, SubmitSkill};
-use super::{Call, Step, refused, said};
+use super::{Call, Step, rejected, said};
 use crate::conversations::errands::{self, Ended, Errand};
 use crate::core::Core;
 use crate::knowledge::folder::Folder;
 use crate::knowledge::{self, library};
 use crate::realm::change::Done;
 use crate::society::library::{self as shelf, Offering};
-use crate::society::refusal::Refusal;
+use crate::society::rejection::Rejection;
 
 /// The errand the librarian's calls are.
 pub(crate) const LIBRARIAN: &str = "librarian";
@@ -67,7 +67,7 @@ impl Core<'_, '_> {
                 ))));
             }
             Some(Ended::Failed(failure)) => {
-                return Ok(Step::Done(refused(format!(
+                return Ok(Step::Done(rejected(format!(
                     "The librarian could not answer: {failure}"
                 ))));
             }
@@ -75,7 +75,7 @@ impl Core<'_, '_> {
         }
         let request = args.text;
         if request.is_empty() {
-            return Ok(Step::of(Err(Refusal::NoSkillRequest)));
+            return Ok(Step::of(Err(Rejection::NoSkillRequest)));
         }
         let by = self.name(call.conversation.agent)?;
         let instructions = format!(
@@ -129,23 +129,23 @@ impl Core<'_, '_> {
                 b.is_ascii_alphanumeric() || b == b'-' || b == b'_'
             });
         if !plain {
-            return Ok(Step::of(Err(Refusal::BadSkillFolder)));
+            return Ok(Step::of(Err(Rejection::BadSkillFolder)));
         }
         let layout = self.realm.layout().clone();
         if library::has(&layout, &name)? {
-            return Ok(Step::of(Err(Refusal::SkillInLibrary {
+            return Ok(Step::of(Err(Rejection::SkillInLibrary {
                 name,
             })));
         }
         let db = self.realm.store().connection();
         if shelf::is_judging(db, &name)? {
-            return Ok(Step::of(Err(Refusal::SkillBeingJudged)));
+            return Ok(Step::of(Err(Rejection::SkillBeingJudged)));
         }
         let agent = call.conversation.agent;
-        let lodge = knowledge::lodging(db, &layout, agent)?.path;
-        let files = match skill_files(&lodge, &name)? {
+        let worktree = knowledge::worktree(db, &layout, agent)?.path;
+        let files = match skill_files(&worktree, &name)? {
             Ok(files) => files,
-            Err(refusal) => return Ok(Step::of(Err(refusal))),
+            Err(rejection) => return Ok(Step::of(Err(rejection))),
         };
         let paper = files
             .iter()
@@ -157,7 +157,7 @@ impl Core<'_, '_> {
         if library::field(&paper, "name:").is_empty()
             || library::field(&paper, "description:").is_empty()
         {
-            return Ok(Step::of(Err(Refusal::SkillFrontMatter {
+            return Ok(Step::of(Err(Rejection::SkillFrontMatter {
                 name,
             })));
         }
@@ -220,19 +220,19 @@ impl Core<'_, '_> {
     }
 }
 
-/// The files of the skill `name` in the lodge at `lodge`, within the
-/// library's cap.
+/// The files of the skill `name` in the worktree at `worktree`,
+/// within the library's cap.
 fn skill_files(
-    lodge: &std::path::Path,
+    worktree: &std::path::Path,
     name: &str,
 ) -> Done<Vec<(String, Vec<u8>)>> {
-    let Ok(folder) = Folder::open(lodge) else {
-        return Ok(Err(Refusal::NoSkill { name: name.into() }));
+    let Ok(folder) = Folder::open(worktree) else {
+        return Ok(Err(Rejection::NoSkill { name: name.into() }));
     };
     let prefix = format!("skills/{name}/");
     let listing = folder.list_under(&format!("skills/{name}"))?;
     if listing.is_empty() {
-        return Ok(Err(Refusal::NoSkill { name: name.into() }));
+        return Ok(Err(Rejection::NoSkill { name: name.into() }));
     }
     let mut files = Vec::new();
     let mut total = 0;
@@ -240,7 +240,7 @@ fn skill_files(
         let bytes = folder.read(&entry.path)?;
         total += bytes.len();
         if total > library::MOST_BYTES {
-            return Ok(Err(Refusal::SkillTooBig {
+            return Ok(Err(Rejection::SkillTooBig {
                 name: name.into(),
             }));
         }

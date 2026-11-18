@@ -6,7 +6,9 @@ use diesel::upsert::excluded;
 use hamlet_protocol::client::{AttachedFile, Permission};
 use hamlet_store::Db;
 use hamlet_store::ids::{AgentId, ChiefId, ConversationId};
-use hamlet_store::schema::{permission_grant, trust, turn_gate};
+use hamlet_store::schema::{
+    permission_grant, session_grant, turn_gate,
+};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
@@ -189,16 +191,17 @@ fn cut(text: &str) -> String {
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum Caller {
     Hand,
-    Hire,
+    /// An agent of a hamlet.
+    Hamlet,
     Worker,
 }
 
 /// The permissions and mode in force at a call.
 #[derive(Clone, Debug, Default)]
 pub(crate) struct Standing {
-    /// The edit stays in the agent's own lodge, which is always free
-    /// (C21).
-    pub lodge_edit: bool,
+    /// The edit stays in the agent's own worktree, which is always
+    /// free (C21).
+    pub worktree_edit: bool,
     pub net: bool,
     pub holds_edits: bool,
     pub holds_commands: bool,
@@ -270,7 +273,7 @@ fn is_reserved(
     };
     match (caller, tool.facts().reserve) {
         (Caller::Hand, Reserve::Hand) => true,
-        (Caller::Hire, Reserve::Limit(limit)) => {
+        (Caller::Hamlet, Reserve::Limit(limit)) => {
             limit.is_kept(reserved)
         }
         _ => false,
@@ -292,7 +295,7 @@ fn reach(call: &Call, standing: &Standing) -> Verdict {
             }
         }
         Call::Edit { .. } => {
-            if standing.holds_edits && !standing.lodge_edit {
+            if standing.holds_edits && !standing.worktree_edit {
                 Verdict::Hold(Danger::Edit)
             } else {
                 Verdict::Run { net: false }
@@ -477,15 +480,15 @@ fn refused(
     })
 }
 
-/// Whether a chief trusts the edits and the commands of
-/// `conversation`.
-pub(crate) fn trusted(
+/// Whether a chief granted the edits and the commands of
+/// `conversation` for the rest of it.
+pub(crate) fn session_granted(
     db: &mut Db,
     conversation: ConversationId,
 ) -> Result<(bool, bool)> {
-    let rows = trust::table
-        .filter(trust::conversation.eq(conversation))
-        .select((trust::edit, trust::command))
+    let rows = session_grant::table
+        .filter(session_grant::conversation.eq(conversation))
+        .select((session_grant::edit, session_grant::command))
         .load::<(bool, bool)>(db)?;
     Ok(rows
         .into_iter()
@@ -494,9 +497,9 @@ pub(crate) fn trusted(
         }))
 }
 
-/// Keeps that `chief` trusts the edits or the commands of
-/// `conversation` from now on.
-pub(crate) fn trust(
+/// Keeps that `chief` granted the edits or the commands of
+/// `conversation` for the rest of it.
+pub(crate) fn grant_session(
     db: &mut Db,
     conversation: ConversationId,
     chief: ChiefId,
@@ -504,19 +507,24 @@ pub(crate) fn trust(
 ) -> Result<()> {
     let (edit, command) =
         (danger == Danger::Edit, danger == Danger::Command);
-    diesel::insert_into(trust::table)
+    diesel::insert_into(session_grant::table)
         .values((
-            trust::conversation.eq(conversation),
-            trust::chief.eq(chief),
-            trust::edit.eq(edit),
-            trust::command.eq(command),
+            session_grant::conversation.eq(conversation),
+            session_grant::chief.eq(chief),
+            session_grant::edit.eq(edit),
+            session_grant::command.eq(command),
         ))
-        .on_conflict((trust::conversation, trust::chief))
+        .on_conflict((
+            session_grant::conversation,
+            session_grant::chief,
+        ))
         .do_update()
         .set((
-            trust::edit.eq(trust::edit.or(excluded(trust::edit))),
-            trust::command
-                .eq(trust::command.or(excluded(trust::command))),
+            session_grant::edit
+                .eq(session_grant::edit
+                    .or(excluded(session_grant::edit))),
+            session_grant::command.eq(session_grant::command
+                .or(excluded(session_grant::command))),
         ))
         .execute(db)?;
     Ok(())

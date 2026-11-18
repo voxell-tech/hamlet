@@ -39,14 +39,13 @@ fn the_view_stays_within_reach_of_something_to_look_at() {
 }
 
 #[test]
-fn the_mayors_nickname_names_its_things_and_a_scholar_house_its_lodging()
- {
-    use hamlet_client::realm::{Identity, Lodging, Mayor, Nickname};
+fn the_leads_name_names_its_things_and_a_profile_house_its_lodging() {
+    use hamlet_client::realm::{AgentName, Identity, Lead, Lodging};
     use hamlet_protocol::client::AgentId;
 
     let mut world = World::new();
-    let mayor = world
-        .spawn((Name::new("hire#2"), Mayor, Identity(AgentId(2))))
+    let lead = world
+        .spawn((Name::new("agent#2"), Lead, Identity(AgentId(2))))
         .id();
     let house = world
         .spawn((Name::new("ada"), Lodging("Countess".into())))
@@ -54,17 +53,17 @@ fn the_mayors_nickname_names_its_things_and_a_scholar_house_its_lodging()
     let bare = world.spawn(Name::new("bea")).id();
     let mut state = SystemState::<Names>::new(&mut world);
     let names = state.get(&world).unwrap();
-    assert_eq!(Thing::Keeper.name(&names), "The Mayor");
-    assert_eq!(Thing::Cottage.sign(&names), "Mayor");
-    assert_eq!(Thing::Scholar(house).sign(&names), "Countess");
-    assert_eq!(Thing::Scholar(bare).sign(&names), "bea");
+    assert_eq!(Thing::Keeper.name(&names), "The Lead");
+    assert_eq!(Thing::Cottage.sign(&names), "Lead");
+    assert_eq!(Thing::Profile(house).sign(&names), "Countess");
+    assert_eq!(Thing::Profile(bare).sign(&names), "bea");
     assert_eq!(
-        Thing::Scholar(house).name(&names),
+        Thing::Profile(house).name(&names),
         "Countess's House"
     );
     world
-        .entity_mut(mayor)
-        .insert(Nickname("Chief of Staff".into()));
+        .entity_mut(lead)
+        .insert(AgentName("Chief of Staff".into()));
     let names = state.get(&world).unwrap();
     assert_eq!(Thing::Keeper.name(&names), "Chief of Staff");
     assert_eq!(Thing::Cottage.name(&names), "Chief of Staff's House");

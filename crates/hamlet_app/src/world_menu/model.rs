@@ -1299,7 +1299,7 @@ mod tests {
         assert_eq!(levels.as_deref(), Some("lantern::wren-large"));
     }
 
-    /// The popup of `hire#2`'s model over a catalogue of two.
+    /// The popup of `agent#2`'s model over a catalogue of two.
     fn picking() -> (App, Entity) {
         let mut app = panel_app();
         app.add_plugins(super::super::plugin)
@@ -1323,7 +1323,7 @@ mod tests {
             listed("lantern::wren-large"),
             listed("lantern::wren-mini"),
         ];
-        let ada = realm::named(app.world_mut(), "hire#2").unwrap();
+        let ada = realm::named(app.world_mut(), "agent#2").unwrap();
         // The chip it hangs from, laid out.
         app.world_mut().spawn((
             Hook::Chip,
@@ -1364,6 +1364,6 @@ mod tests {
                 _ => None,
             })
             .collect::<Vec<_>>();
-        assert_eq!(said, ["/model hire#2 lantern::wren-large"]);
+        assert_eq!(said, ["/model agent#2 lantern::wren-large"]);
     }
 }

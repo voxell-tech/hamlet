@@ -62,10 +62,10 @@ fn growth_moves_nothing() {
             .count(),
         1
     );
-    // Everyone has a road to the mayor of its town.
+    // Everyone has a road to the lead of its town.
     for t in &s.towns {
-        for a in s.agents_of(t.id).filter(|a| a.id != t.mayor) {
-            assert!(s.road(Pair::new(a.id, t.mayor)).is_some());
+        for a in s.agents_of(t.id).filter(|a| a.id != t.lead) {
+            assert!(s.road(Pair::new(a.id, t.lead)).is_some());
         }
     }
 }
@@ -161,9 +161,9 @@ fn there_is_always_room_for_one_more_town() {
             assert!(usable > 20, "{usable} plots");
         }
         // It is joined to every other town.
-        let mayor = s.town(id).unwrap().mayor;
+        let lead = s.town(id).unwrap().lead;
         for other in s.towns.iter().filter(|t| t.id != id) {
-            assert!(s.road(Pair::new(mayor, other.mayor)).is_some());
+            assert!(s.road(Pair::new(lead, other.lead)).is_some());
         }
     }
     assert!(land.sites.len() > 90);
@@ -218,8 +218,8 @@ fn a_moved_town_keeps_everyone_and_everything_and_lands_where_put() {
         assert!(now.usable);
     }
     // Its roads reach it where it is now.
-    let mayor = s.town(town).unwrap().mayor;
-    let across = s.town(far).unwrap().mayor;
+    let lead = s.town(town).unwrap().lead;
+    let across = s.town(far).unwrap().lead;
     let end = |agent: AgentId| {
         let a = s.agent(agent).unwrap();
         End {
@@ -227,14 +227,14 @@ fn a_moved_town_keeps_everyone_and_everything_and_lands_where_put() {
             plot: a.plot,
         }
     };
-    let route = Route::between(&land, end(mayor), end(across));
+    let route = Route::between(&land, end(lead), end(across));
     let door = plot(&land, site, HALL_PLOT).door();
     let ends = [route.line.pts[0], *route.line.pts.last().unwrap()];
     assert!(
         ends.iter().any(|p| p.xz().distance(door) < 0.5),
         "{ends:?} {door}"
     );
-    let inside = Route::between(&land, end(mayor), end(AgentId(1)));
+    let inside = Route::between(&land, end(lead), end(AgentId(1)));
     for p in &inside.line.pts {
         assert!(p.xz().distance(to) < land.set.town.radius + 2.0);
     }
@@ -251,7 +251,7 @@ fn a_town_is_not_set_down_on_water_or_on_another_place() {
     let town = TownId(0);
     let site = s.town(town).unwrap().site;
     let stood = land.sites.clone();
-    let refused = |s: &mut Society, land: &mut Land, to, why| {
+    let rejected = |s: &mut Society, land: &mut Land, to, why| {
         assert_eq!(s.move_town(land, town, to), Err(why));
         assert_eq!(land.sites, stood);
     };
@@ -263,10 +263,10 @@ fn a_town_is_not_set_down_on_water_or_on_another_place() {
         })
         .find(|&p| land.river_dist(p) < 1.0)
         .unwrap();
-    refused(&mut s, &mut land, river, Unfit::Water);
+    rejected(&mut s, &mut land, river, Unfit::Water);
 
     let there = land.sites[s.town(other).unwrap().site].at;
-    refused(
+    rejected(
         &mut s,
         &mut land,
         there + Vec2::new(20.0, 5.0),
@@ -280,7 +280,7 @@ fn a_town_is_not_set_down_on_water_or_on_another_place() {
         })
         .find(|&p| land.mound(p) > 0.5)
         .unwrap();
-    refused(&mut s, &mut land, peak, Unfit::Steep);
+    rejected(&mut s, &mut land, peak, Unfit::Steep);
 
     // Nor on ground something else holds, and nothing is
     // founded there.
@@ -290,7 +290,7 @@ fn a_town_is_not_set_down_on_water_or_on_another_place() {
         at: to + Vec2::new(10.0, 0.0),
         radius: 12.0,
     });
-    refused(&mut s, &mut land, to, Unfit::Crowded);
+    rejected(&mut s, &mut land, to, Unfit::Crowded);
     // A town stays on the hamlet island, and the Hearth in the city.
     assert_eq!(
         s.fits(&land, Ground::Chief, there),
@@ -357,7 +357,7 @@ fn a_house_keeps_clear_of_the_citys_middle() {
     let land = land();
     let mut s = Society::default();
     let city = land.island(IslandId::City).centre;
-    let house = Ground::House(hamlet_protocol::client::ScholarId(1));
+    let house = Ground::House(hamlet_protocol::client::ProfileId(1));
     s.claims.push(Claim {
         place: house,
         at: city + Vec2::new(80.0, 0.0),

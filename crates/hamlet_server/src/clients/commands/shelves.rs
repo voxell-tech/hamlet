@@ -16,8 +16,8 @@ pub(super) const SHELVES: &[Command] = &[
     },
     Command {
         name: "dream",
-        usage: "/dream <scholar#id|address>",
-        does: "Have a hire bring its learning home, or a scholar \
+        usage: "/dream <profile#id|address>",
+        does: "Have an agent bring its learning home, or a profile \
                tidy",
         run: |core, line| {
             core.dream_command(line.here.as_ref(), &line.words())
@@ -31,7 +31,7 @@ impl Core<'_, '_> {
         words: &[&str],
     ) -> Done<String> {
         let [skill, reason @ ..] = words else {
-            return Ok(Err(self.deeds.usage("unshelve")));
+            return Ok(Err(self.actions.usage("unshelve")));
         };
         let by = Actor::Chief(self.realm.chief());
         self.unshelve_skill(by, skill, &reason.join(" "))

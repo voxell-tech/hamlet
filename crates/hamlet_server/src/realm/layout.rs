@@ -2,7 +2,7 @@
 
 use std::path::{Path, PathBuf};
 
-use hamlet_store::ids::{AgentId, HamletId, ScholarId};
+use hamlet_store::ids::{AgentId, HamletId, ProfileId};
 
 /// The paths of a realm's folder.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -44,13 +44,13 @@ impl Layout {
         self.root.join("harnesses")
     }
 
-    pub fn scholars(&self) -> PathBuf {
-        self.root.join("scholars")
+    pub fn profiles(&self) -> PathBuf {
+        self.root.join("profiles")
     }
 
-    /// A scholar's repository, the Hand's included.
-    pub fn repository(&self, scholar: ScholarId) -> PathBuf {
-        self.scholars().join(format!("{scholar}.git"))
+    /// A profile's repository, the Hand's included.
+    pub fn repository(&self, profile: ProfileId) -> PathBuf {
+        self.profiles().join(format!("{profile}.git"))
     }
 
     /// The terminals kept across restarts, outside agents' reach.
@@ -58,7 +58,7 @@ impl Layout {
         self.root.join("terminals")
     }
 
-    /// The Hand's lodge.
+    /// The Hand's worktree.
     pub fn hand(&self) -> PathBuf {
         self.root.join("hand")
     }
@@ -67,14 +67,18 @@ impl Layout {
         self.root.join("hamlets")
     }
 
-    /// The folder of a hamlet's lodges.
+    /// The folder of a hamlet's worktrees.
     pub fn hamlet(&self, hamlet: &HamletId) -> PathBuf {
         self.hamlets().join(hamlet.as_str())
     }
 
-    /// A hire's lodge, in its hamlet's folder under its agent's id.
-    pub fn lodge(&self, hamlet: &HamletId, hire: AgentId) -> PathBuf {
-        self.hamlet(hamlet).join(hire.to_string())
+    /// An agent's worktree, in its hamlet's folder under its id.
+    pub fn worktree(
+        &self,
+        hamlet: &HamletId,
+        agent: AgentId,
+    ) -> PathBuf {
+        self.hamlet(hamlet).join(agent.to_string())
     }
 
     /// The folder of the workers' scratch folders.

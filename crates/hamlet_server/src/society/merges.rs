@@ -1,26 +1,26 @@
-//! Merging two hires of a hamlet into one, and splitting them again
-//! (H5): the kept hire takes the absorbed one's laid roads, its
-//! hires and its inbox; a job brings what the absorbed hire learned
+//! Merging two agents of a hamlet into one, and splitting them again
+//! (H5): the kept agent takes the absorbed one's opened channels, its
+//! agents and its inbox; a job brings what the absorbed agent learned
 //! into the kept one's branch.
 
 use anyhow::{Context, Result};
 use diesel::prelude::*;
 use hamlet_store::Db;
-use hamlet_store::ids::{AgentId, MergeId, RoadId, TaskId};
-use hamlet_store::schema::{hire, hire_merge, road};
+use hamlet_store::ids::{AgentId, ChannelId, MergeId, TaskId};
+use hamlet_store::schema::{agent_merge, channel, hamlet_agent};
 use serde_json::json;
 
 use super::agents::{self, EndHow};
+use super::channels::{self, ChannelKind};
 use super::record::{self, Decision, DecisionKind};
-use super::refusal::Refusal;
-use super::roads::{self, RoadKind};
-use super::{hires, tree};
-use crate::realm::change::{Change, Done, done, refuse};
+use super::rejection::Rejection;
+use super::{hamlet_agents, tree};
+use crate::realm::change::{Change, Done, done, reject};
 use crate::realm::jobs::{self, Job};
 
 /// A merge as it is kept.
 #[derive(Clone, Debug, PartialEq, Queryable, Selectable)]
-#[diesel(table_name = hire_merge)]
+#[diesel(table_name = agent_merge)]
 pub(crate) struct Merge {
     pub id: MergeId,
     pub kept: AgentId,
@@ -36,7 +36,7 @@ pub(crate) struct Merge {
 }
 
 pub(crate) fn get(db: &mut Db, id: MergeId) -> Result<Merge> {
-    hire_merge::table
+    agent_merge::table
         .find(id)
         .select(Merge::as_select())
         .first(db)
@@ -44,21 +44,22 @@ pub(crate) fn get(db: &mut Db, id: MergeId) -> Result<Merge> {
         .with_context(|| format!("no merge {id}"))
 }
 
-/// The merge that absorbed `hire`, while it stands.
+/// The merge that absorbed `agent`, while it stands.
 pub(crate) fn of_absorbed(
     db: &mut Db,
-    hire: AgentId,
+    agent: AgentId,
 ) -> Result<Option<Merge>> {
-    Ok(hire_merge::table
-        .filter(hire_merge::absorbed.eq(hire))
-        .filter(hire_merge::split_at.is_null())
-        .order(hire_merge::id.desc())
+    Ok(agent_merge::table
+        .filter(agent_merge::absorbed.eq(agent))
+        .filter(agent_merge::split_at.is_null())
+        .order(agent_merge::id.desc())
         .select(Merge::as_select())
         .first(db)
         .optional()?)
 }
 
-/// Merges the living hire `absorbed` into `kept`, of the same hamlet.
+/// Merges the living agent `absorbed` into `kept`, of the same
+/// hamlet.
 pub(crate) fn merge(
     cx: &mut Change<'_>,
     kept: AgentId,
@@ -66,26 +67,28 @@ pub(crate) fn merge(
     reason: &str,
 ) -> Done<MergeId> {
     if kept == absorbed {
-        refuse!(Refusal::SameEnds);
+        reject!(Rejection::SameEnds);
     }
-    let (one, other) =
-        (hires::get(cx.db, kept)?, hires::get(cx.db, absorbed)?);
+    let (one, other) = (
+        hamlet_agents::get(cx.db, kept)?,
+        hamlet_agents::get(cx.db, absorbed)?,
+    );
     for id in [kept, absorbed] {
-        done!(hires::require_living(cx.db, id));
+        done!(hamlet_agents::require_living(cx.db, id));
     }
     if one.hamlet != other.hamlet {
-        refuse!(Refusal::OtherHamlet {
+        reject!(Rejection::OtherHamlet {
             name: super::addresses::name_of(cx.db, absorbed)?
         });
     }
-    if hires::is_mayor(cx.db, absorbed)? {
-        refuse!(Refusal::EndingMayor);
+    if hamlet_agents::is_lead(cx.db, absorbed)? {
+        reject!(Rejection::EndingLead);
     }
     for id in [kept, absorbed] {
-        done!(hires::unprotected(cx, id));
+        done!(hamlet_agents::unprotected(cx, id));
     }
-    // The kept hire takes the absorbed one's place in the tree when
-    // it was under it, and its hires under it either way.
+    // The kept agent takes the absorbed one's place in the tree when
+    // it was under it, and its agents under it either way.
     let parent = if one.parent == Some(absorbed) {
         other.parent
     } else {
@@ -95,26 +98,29 @@ pub(crate) fn merge(
         .into_iter()
         .filter(|child| *child != kept)
         .collect::<Vec<_>>();
-    diesel::update(hire::table.find(kept))
-        .set(hire::parent.eq(parent))
+    diesel::update(hamlet_agent::table.find(kept))
+        .set(hamlet_agent::parent.eq(parent))
         .execute(cx.db)?;
-    diesel::update(hire::table.filter(hire::agent.eq_any(&children)))
-        .set(hire::parent.eq(kept))
-        .execute(cx.db)?;
+    diesel::update(
+        hamlet_agent::table
+            .filter(hamlet_agent::agent.eq_any(&children)),
+    )
+    .set(hamlet_agent::parent.eq(kept))
+    .execute(cx.db)?;
     cx.touched.agents.extend(children);
-    move_roads(cx, kept, absorbed)?;
-    let id = diesel::insert_into(hire_merge::table)
+    move_channels(cx, kept, absorbed)?;
+    let id = diesel::insert_into(agent_merge::table)
         .values((
-            hire_merge::kept.eq(kept),
-            hire_merge::absorbed.eq(absorbed),
-            hire_merge::at.eq(cx.at),
-            hire_merge::by.eq(cx.actor.to_string()),
-            hire_merge::reason.eq(reason),
+            agent_merge::kept.eq(kept),
+            agent_merge::absorbed.eq(absorbed),
+            agent_merge::at.eq(cx.at),
+            agent_merge::by.eq(cx.actor.to_string()),
+            agent_merge::reason.eq(reason),
         ))
-        .returning(hire_merge::id)
+        .returning(agent_merge::id)
         .get_result::<MergeId>(cx.db)?;
-    diesel::update(hire::table.find(absorbed))
-        .set(hire::merged_into.eq(kept))
+    diesel::update(hamlet_agent::table.find(absorbed))
+        .set(hamlet_agent::merged_into.eq(kept))
         .execute(cx.db)?;
     agents::end(cx, absorbed, EndHow::Merged, reason)?;
     record::keep(
@@ -123,7 +129,7 @@ pub(crate) fn merge(
             .hamlet(&one.hamlet)
             .subject(absorbed)
             .other(kept)
-            .scholar(other.scholar)
+            .profile(other.profile)
             .detail(json!({ "merge": id.0 })),
     )?;
     jobs::add(cx, &Job::Merge { merge: id })?;
@@ -132,57 +138,58 @@ pub(crate) fn merge(
     Ok(Ok(id))
 }
 
-/// Gives `kept` the open laid roads of `absorbed`, but one to `kept`
-/// or to a hire `kept` has a road to already.
-fn move_roads(
+/// Gives `kept` the open channels of `absorbed` that were opened, but
+/// one to `kept` or to an agent `kept` has a channel to already.
+fn move_channels(
     cx: &mut Change<'_>,
     kept: AgentId,
     absorbed: AgentId,
 ) -> Result<()> {
-    let open = road::table
-        .filter(road::a.eq(absorbed).or(road::b.eq(absorbed)))
-        .filter(road::up_at.is_null())
-        .filter(road::kind.eq(RoadKind::Laid))
+    let open = channel::table
+        .filter(channel::a.eq(absorbed).or(channel::b.eq(absorbed)))
+        .filter(channel::closed_at.is_null())
+        .filter(channel::kind.eq(ChannelKind::Opened))
         .select((
-            road::id,
-            road::a,
-            road::b,
-            road::reason,
-            road::task,
+            channel::id,
+            channel::a,
+            channel::b,
+            channel::reason,
+            channel::task,
         ))
-        .load::<(RoadId, AgentId, AgentId, String, Option<TaskId>)>(
+        .load::<(ChannelId, AgentId, AgentId, String, Option<TaskId>)>(
             cx.db,
         )?;
     for (id, a, b, reason, task) in open {
         let other = if a == absorbed { b } else { a };
-        diesel::update(road::table.find(id))
+        diesel::update(channel::table.find(id))
             .set((
-                road::up_at.eq(cx.at),
-                road::up_by.eq(cx.actor.to_string()),
-                road::up_reason.eq("its end was merged"),
+                channel::closed_at.eq(cx.at),
+                channel::closed_by.eq(cx.actor.to_string()),
+                channel::closed_reason.eq("its end was merged"),
             ))
             .execute(cx.db)?;
-        if other == kept || roads::open(cx.db, kept, other)?.is_some()
+        if other == kept
+            || channels::between(cx.db, kept, other)?.is_some()
         {
             continue;
         }
-        let new = roads::insert(
+        let new = channels::insert(
             cx,
             kept,
             other,
-            RoadKind::Laid,
+            ChannelKind::Opened,
             &reason,
             task,
         )?;
-        diesel::update(road::table.find(new))
-            .set(road::inherited_from.eq(id))
+        diesel::update(channel::table.find(new))
+            .set(channel::inherited_from.eq(id))
             .execute(cx.db)?;
     }
     Ok(())
 }
 
-/// Splits the merge `id` again: the absorbed hire comes back and the
-/// merge's commit is undone on the kept hire's branch.
+/// Splits the merge `id` again: the absorbed agent comes back and the
+/// merge's commit is undone on the kept agent's branch.
 pub(crate) fn split(
     cx: &mut Change<'_>,
     id: MergeId,
@@ -190,16 +197,16 @@ pub(crate) fn split(
 ) -> Done<()> {
     let found = get(cx.db, id)?;
     if found.split_at.is_some() {
-        refuse!(Refusal::AlreadySplit);
+        reject!(Rejection::AlreadySplit);
     }
-    done!(hires::come_back(cx, found.absorbed, reason));
-    diesel::update(hire_merge::table.find(id))
+    done!(hamlet_agents::come_back(cx, found.absorbed, reason));
+    diesel::update(agent_merge::table.find(id))
         .set((
-            hire_merge::split_at.eq(cx.at),
-            hire_merge::split_by.eq(cx.actor.to_string()),
+            agent_merge::split_at.eq(cx.at),
+            agent_merge::split_by.eq(cx.actor.to_string()),
         ))
         .execute(cx.db)?;
-    let hamlet = hires::get(cx.db, found.kept)?.hamlet;
+    let hamlet = hamlet_agents::get(cx.db, found.kept)?.hamlet;
     record::keep(
         cx,
         Decision::new(DecisionKind::Split, reason)
@@ -213,17 +220,17 @@ pub(crate) fn split(
     Ok(Ok(()))
 }
 
-/// Keeps what the merge job did to the kept hire's branch.
+/// Keeps what the merge job did to the kept agent's branch.
 pub(crate) fn merged(
     db: &mut Db,
     id: MergeId,
     commit: &str,
     clashes: &[String],
 ) -> Result<()> {
-    diesel::update(hire_merge::table.find(id))
+    diesel::update(agent_merge::table.find(id))
         .set((
-            hire_merge::merge_commit.eq(commit),
-            hire_merge::clashes.eq(serde_json::to_string(clashes)?),
+            agent_merge::merge_commit.eq(commit),
+            agent_merge::clashes.eq(serde_json::to_string(clashes)?),
         ))
         .execute(db)?;
     Ok(())
@@ -235,8 +242,8 @@ pub(crate) fn unmerged(
     id: MergeId,
     commit: &str,
 ) -> Result<()> {
-    diesel::update(hire_merge::table.find(id))
-        .set(hire_merge::split_commit.eq(commit))
+    diesel::update(agent_merge::table.find(id))
+        .set(agent_merge::split_commit.eq(commit))
         .execute(db)?;
     Ok(())
 }

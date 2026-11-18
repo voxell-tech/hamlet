@@ -130,7 +130,7 @@ pub(super) fn setup(world: &mut World, scene: Scene) -> Transcript {
                 .expect("a local link");
             // The chat finds its paths in the agent's hamlet's work
             // folder.
-            let agent = realm::first_mayor(world).expect("the mayor");
+            let agent = realm::first_lead(world).expect("the lead");
             let hamlet =
                 world.get::<LivesIn>(agent).expect("a hamlet").0;
             world
@@ -173,7 +173,7 @@ pub(super) fn setup(world: &mut World, scene: Scene) -> Transcript {
                  are in [the orchard \
                  notes](https://example.com/orchard).\n\n```sh\ncargo \
                  test -p almanac -- --nocapture\n```\n\nAsk \
-                 `hire#11` if a row looks wrong.",
+                 `agent#11` if a row looks wrong.",
             ),
         ]),
         Scene::Images | Scene::NoImages => {
@@ -226,10 +226,10 @@ pub(super) fn setup(world: &mut World, scene: Scene) -> Transcript {
                 "request:0",
                 "request",
                 protocol::ToolCall::Request {
-                    to: "hire#3".into(),
+                    to: "agent#3".into(),
                     text: "Is the key by the mill door?".into(),
                 },
-                "{\"to\": \"hire#3\", \"text\": \"Is the key by the \
+                "{\"to\": \"agent#3\",\"text\": \"Is the key by the \
                  mill door?\"}",
             ));
             items.push(tool(

@@ -27,8 +27,8 @@ use bevy_fynix::tokens::Tone;
 use bevy_fynix::views::{BehaviorExt, FrameProps, label, overlay};
 use bevy_fynix::{ScopedExt, resource};
 use hamlet_client::realm::{
-    Account, Activity, Busy, Hire, Left, LivesIn, Mayor, MergedInto,
-    Mode, Purpose, Roster, Shown, Treasury, Works,
+    Account, Activity, Busy, HamletAgent, Lead, Left, LivesIn,
+    MergedInto, Mode, Purpose, Roster, Shown, Treasury, Works,
 };
 use hamlet_client::waits::Waiting;
 use hamlet_realm::chief::{Beside, Look};
@@ -64,9 +64,9 @@ type Doing<'a> = (
 );
 
 /// An agent that lives in a hamlet, that it is at work and that it is
-/// the mayor.
+/// the lead.
 type Living<'a> =
-    (Entity, &'a Name, &'a LivesIn, Has<Busy>, Has<Mayor>);
+    (Entity, &'a Name, &'a LivesIn, Has<Busy>, Has<Lead>);
 
 pub(crate) fn plugin(app: &mut App) {
     app.init_resource::<Card>()
@@ -116,9 +116,13 @@ pub(crate) fn short(text: &str, most: usize) -> String {
 pub(crate) struct Told<'w, 's> {
     roster: Roster<'w, 's>,
     names: Query<'w, 's, (&'static Name, Option<&'static Shown>)>,
-    agents: Query<'w, 's, Doing<'static>, With<Hire>>,
-    living:
-        Query<'w, 's, Living<'static>, (With<Hire>, Without<Left>)>,
+    agents: Query<'w, 's, Doing<'static>, With<HamletAgent>>,
+    living: Query<
+        'w,
+        's,
+        Living<'static>,
+        (With<HamletAgent>, Without<Left>),
+    >,
     waits: Query<'w, 's, &'static Waiting>,
     spent: Query<'w, 's, &'static Treasury>,
     works: Query<'w, 's, &'static Works>,
@@ -143,7 +147,7 @@ impl Told<'_, '_> {
     fn agent_of(&self, thing: Thing) -> Option<(Entity, bool)> {
         match thing {
             Thing::Keeper | Thing::Cottage => {
-                self.roster.first_mayor().map(|mayor| (mayor, false))
+                self.roster.first_lead().map(|lead| (lead, false))
             }
             Thing::Agent(agent) | Thing::House(agent) => {
                 Some((agent, false))
@@ -154,7 +158,7 @@ impl Told<'_, '_> {
             | Thing::ChiefPlace(_)
             | Thing::Library
             | Thing::Hand
-            | Thing::Scholar(_)
+            | Thing::Profile(_)
             | Thing::Clockwork(_)
             | Thing::Workbench(_) => None,
         }
@@ -184,8 +188,8 @@ impl Told<'_, '_> {
             .living
             .iter()
             .filter(|(_, _, lives, ..)| lives.0 == hamlet)
-            .map(|(agent, name, _, busy, mayor)| {
-                (agent, name.as_str(), busy, mayor)
+            .map(|(agent, name, _, busy, lead)| {
+                (agent, name.as_str(), busy, lead)
             })
             .collect::<Vec<_>>();
         let at_work =
@@ -198,25 +202,23 @@ impl Told<'_, '_> {
         let (_, state, kind) =
             standing(people.len(), at_work, waiting);
         let tone = kind.words();
-        let mayor = people
+        let lead = people
             .iter()
-            .find(|(_, _, _, mayor)| *mayor)
-            .map(|(agent, ..)| {
-                format!("Mayor: {}", self.name(*agent))
-            })
+            .find(|(_, _, _, lead)| *lead)
+            .map(|(agent, ..)| format!("Lead: {}", self.name(*agent)))
             .unwrap_or_default();
         Card {
             shown: true,
             title: self.name(hamlet),
             state,
             tone,
-            purpose: mayor,
+            purpose: lead,
             account: self
                 .spent
                 .get(hamlet)
                 .map(|t| t.0.summary.clone())
                 .unwrap_or_default(),
-            hint: "Click its hall to talk to the mayor".to_string(),
+            hint: "Click its hall to talk to the lead".to_string(),
         }
     }
 
@@ -419,7 +421,7 @@ impl Told<'_, '_> {
                 let (agent, ruin) = self.agent_of(thing)?;
                 self.of_agent(agent, ruin, thing)
             }
-            Thing::Library | Thing::Hand | Thing::Scholar(_) => None,
+            Thing::Library | Thing::Hand | Thing::Profile(_) => None,
         }
     }
 }

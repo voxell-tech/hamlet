@@ -172,8 +172,8 @@ pub enum Sound {
     Born,
     Gone,
     Restored,
-    /// A hamlet has another mayor.
-    Mayor,
+    /// A hamlet has another lead.
+    Lead,
     Founded,
     /// A menu or a popup opening, and closing.
     PopOpen,
@@ -253,7 +253,7 @@ impl Sound {
         Self::Born,
         Self::Gone,
         Self::Restored,
-        Self::Mayor,
+        Self::Lead,
         Self::Founded,
         Self::PopOpen,
         Self::PopClose,
@@ -328,7 +328,7 @@ impl Sound {
             Self::Born
             | Self::Gone
             | Self::Restored
-            | Self::Mayor
+            | Self::Lead
             | Self::Founded => Family::Lives,
             Self::Allowed | Self::Denied | Self::Stopped => {
                 Family::Answers
@@ -353,7 +353,7 @@ impl Sound {
         matches!(self.family(), Family::Interface | Family::Answers)
             || matches!(
                 self,
-                Self::Dawn | Self::Dusk | Self::Founded | Self::Mayor
+                Self::Dawn | Self::Dusk | Self::Founded | Self::Lead
             )
     }
 
@@ -479,7 +479,7 @@ impl Sound {
             Self::Born => "born",
             Self::Gone => "gone",
             Self::Restored => "restored",
-            Self::Mayor => "mayor",
+            Self::Lead => "lead",
             Self::Founded => "founded",
             Self::PopOpen => "pop-open",
             Self::PopClose => "pop-close",

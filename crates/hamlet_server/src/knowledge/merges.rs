@@ -1,4 +1,4 @@
-//! The repositories' side of merging two hires and splitting them
+//! The repositories' side of merging two agents and splitting them
 //! again (H5).
 
 use std::collections::BTreeMap;
@@ -12,7 +12,7 @@ use hamlet_store::ids::{Actor, MergeId};
 
 use super::folder::Folder;
 use super::run::{check_out, commit};
-use super::{CHARACTER, branch, lodging};
+use super::{CHARACTER, branch, worktree};
 use crate::realm::layout::Layout;
 use crate::society::{addresses, merges};
 
@@ -20,8 +20,8 @@ use crate::society::{addresses, merges};
 /// as `moved:<from>..<to>`.
 const MOVED: &str = "moved:";
 
-/// Brings what the absorbed hire of merge `id` learned into the kept
-/// hire's branch and lodge, once.
+/// Brings what the absorbed agent of merge `id` learned into the kept
+/// agent's branch and worktree, once.
 pub(super) fn merge(
     db: &mut Db,
     layout: &Layout,
@@ -34,10 +34,10 @@ pub(super) fn merge(
     }
     commit(db, layout, found.absorbed, at)?;
     commit(db, layout, found.kept, at)?;
-    let kept = lodging(db, layout, found.kept)?;
-    let absorbed = lodging(db, layout, found.absorbed)?;
+    let kept = worktree(db, layout, found.kept)?;
+    let absorbed = worktree(db, layout, found.absorbed)?;
     // What it took in is put aside under a name a path can hold.
-    let from = format!("hire-{}", found.absorbed);
+    let from = format!("agent-{}", found.absorbed);
     let name = Actor::Realm.to_string();
     let author = Author { name: &name, at };
     let message = format!(
@@ -45,12 +45,12 @@ pub(super) fn merge(
         addresses::address_of(db, found.absorbed)?,
         found.reason
     );
-    let repo = Repository::open(&layout.repository(kept.scholar))?;
+    let repo = Repository::open(&layout.repository(kept.profile))?;
     let kept_branch = branch(found.kept);
     let ours = repo
         .tip(&kept_branch)?
-        .context("the kept hire has no branch")?;
-    let (mark, tip, clashes) = if kept.scholar == absorbed.scholar {
+        .context("the kept agent has no branch")?;
+    let (mark, tip, clashes) = if kept.profile == absorbed.profile {
         match repo.tip(&branch(found.absorbed))? {
             Some(theirs) => {
                 let merged = repo.merge(
@@ -71,7 +71,7 @@ pub(super) fn merge(
         }
     } else {
         let theirs =
-            Repository::open(&layout.repository(absorbed.scholar))?;
+            Repository::open(&layout.repository(absorbed.profile))?;
         let (changes, clashes) = learned(
             &repo,
             ours,
@@ -88,8 +88,8 @@ pub(super) fn merge(
     move_inbox(&absorbed.path, &kept.path, &from)
 }
 
-/// The changes that bring what the hire on `theirs_branch` of
-/// `theirs` learned since it last took in its scholar's `main` onto
+/// The changes that bring what the agent on `theirs_branch` of
+/// `theirs` learned since it last took in its profile's `main` onto
 /// the kept tip `ours` of `repo`, and the paths that clashed. A file
 /// both changed is put aside as `<name>.from-<from>`, a skill as
 /// `<skill>-from-<from>`.
@@ -157,8 +157,8 @@ fn aside(path: &str, from: &str) -> String {
     format!("{path}.from-{from}")
 }
 
-/// Moves what waits in the absorbed lodge's `inbox/` into the kept
-/// lodge's, under `from-<from>/`.
+/// Moves what waits in the absorbed worktree's `inbox/` into the kept
+/// worktree's, under `from-<from>/`.
 fn move_inbox(
     absorbed: &std::path::Path,
     kept: &std::path::Path,
@@ -185,8 +185,8 @@ fn move_inbox(
     Ok(())
 }
 
-/// Undoes merge `id` on the kept hire's branch, once, keeping what
-/// the kept hire changed since.
+/// Undoes merge `id` on the kept agent's branch, once, keeping what
+/// the kept agent changed since.
 pub(super) fn split(
     db: &mut Db,
     layout: &Layout,
@@ -197,13 +197,13 @@ pub(super) fn split(
     if found.split_commit.is_some() {
         return Ok(());
     }
-    let kept = lodging(db, layout, found.kept)?;
+    let kept = worktree(db, layout, found.kept)?;
     let Some(mark) = found.merge_commit else {
         merges::unmerged(db, id, "")?;
         return Ok(());
     };
     commit(db, layout, found.kept, at)?;
-    let repo = Repository::open(&layout.repository(kept.scholar))?;
+    let repo = Repository::open(&layout.repository(kept.profile))?;
     let kept_branch = branch(found.kept);
     let name = Actor::Realm.to_string();
     let author = Author { name: &name, at };
@@ -250,7 +250,7 @@ fn undo_range(
     author: Author<'_>,
 ) -> Result<CommitId> {
     let tip =
-        repo.tip(branch)?.context("the kept hire has no branch")?;
+        repo.tip(branch)?.context("the kept agent has no branch")?;
     let now = repo
         .entries(tip)?
         .into_iter()

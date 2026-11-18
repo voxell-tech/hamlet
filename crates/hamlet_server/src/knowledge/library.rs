@@ -10,7 +10,7 @@ use crate::core::Core;
 use crate::realm::change::Done;
 use crate::realm::layout::Layout;
 use crate::society::library::{self as shelf, Event, EventKind};
-use crate::society::refusal::Refusal;
+use crate::society::rejection::Rejection;
 
 macro_rules! starter {
     ($name:literal, [$($file:literal),+]) => {
@@ -230,7 +230,9 @@ impl Core<'_, '_> {
             unshelve(&layout, skill, &message, &author, at)?;
         drop(held);
         let Some(commit) = unshelved else {
-            return Ok(Err(Refusal::NoSkill { name: skill.into() }));
+            return Ok(Err(Rejection::NoSkill {
+                name: skill.into(),
+            }));
         };
         let (agent, chief) = match by {
             Actor::Agent(agent) => (Some(agent), None),

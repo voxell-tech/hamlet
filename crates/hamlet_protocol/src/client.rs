@@ -85,7 +85,7 @@ impl ClientMessage {
                 | Read::Papers { id, .. }
                 | Read::Charter { id },
             )
-            | Self::MoveLodges(MoveLodges { id })
+            | Self::MoveWorktrees(MoveWorktrees { id })
             | Self::Terminal(
                 Terminal::Open { id, .. }
                 | Terminal::Watch { id, .. }
@@ -165,8 +165,8 @@ pub enum ClientMessage {
     Check(Check),
     #[serde(rename = "read")]
     Read(Read),
-    #[serde(rename = "move-lodges")]
-    MoveLodges(MoveLodges),
+    #[serde(rename = "move-worktrees")]
+    MoveWorktrees(MoveWorktrees),
     #[serde(rename = "terminal")]
     Terminal(Terminal),
 }

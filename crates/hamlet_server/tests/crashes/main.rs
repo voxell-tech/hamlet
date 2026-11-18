@@ -126,10 +126,10 @@ async fn a_job_cut_off_by_a_crash_runs_at_the_next_start() {
     let mut realm = Realm::faulting("jobs");
     let (mut server, mut chief) = realm.serve(Faux::new()).await;
     let hand = chief.hand();
-    let scholars = realm.path("scholars");
+    let profiles = realm.path("profiles");
     let planted =
-        || std::fs::read_dir(&scholars).map_or(0, Iterator::count);
-    // The jobs runner's first pass plants the Hand's own scholar; it
+        || std::fs::read_dir(&profiles).map_or(0, Iterator::count);
+    // The jobs runner's first pass plants the Hand's own profile; it
     // is over before the next job is kept, so only the stopped loop
     // could run that one.
     for _ in 0..100 {
@@ -139,19 +139,19 @@ async fn a_job_cut_off_by_a_crash_runs_at_the_next_start() {
         tokio::time::sleep(Duration::from_millis(50)).await;
     }
     chief
-        .tell(hand, "/scholar new sam: A careful reader.")
+        .tell(hand, "/profile new sam: A careful reader.")
         .await;
     realm.paused().await;
     server.kill();
-    // The scholar is kept and its repository is a job still to run:
-    // only the Hand's own scholar has one.
+    // The profile is kept and its repository is a job still to run:
+    // only the Hand's own profile has one.
     assert_eq!(planted(), 1);
 
     // The next start runs it: sam's main gets its first commit.
     let (_server, mut chief) = realm.serve(Faux::new()).await;
     let mut versions = String::new();
     for _ in 0..100 {
-        versions = chief.command(hand, "/versions scholar#2").await;
+        versions = chief.command(hand, "/versions profile#2").await;
         if versions.contains("Latest commits of main") {
             return;
         }
@@ -172,7 +172,7 @@ async fn a_turn_ended_before_a_crash_is_followed_at_the_next_start() {
         .realm()
         .agents
         .into_iter()
-        .find(|agent| agent.name.starts_with("worker"))
+        .find(|agent| agent.address.starts_with("worker"))
         .expect("the worker is in the realm");
     assert!(worker.left.is_none());
     server.kill();
@@ -181,7 +181,7 @@ async fn a_turn_ended_before_a_crash_is_followed_at_the_next_start() {
     let (_server, mut chief) = realm.serve(Faux::new()).await;
     chief
         .until("the worker to end", |c| {
-            c.agent(&worker.name).is_some_and(|a| a.left.is_some())
+            c.agent(&worker.address).is_some_and(|a| a.left.is_some())
         })
         .await;
 }
@@ -218,15 +218,15 @@ async fn a_command_cut_off_after_it_ran_is_not_run_again() {
     assert_eq!(lines(&ran), ["ran"]);
 }
 
-/// The Hand makes the scholar `sam`, and the server is killed after
-/// the change and before the call is answered; how many scholars
+/// The Hand makes the profile `sam`, and the server is killed after
+/// the change and before the call is answered; how many profiles
 /// named `sam` there are once the Hand asked again, and how the call
 /// failed, if it did.
-async fn scholar_made_across_a_crash(
+async fn profile_made_across_a_crash(
     mut realm: Realm,
 ) -> (usize, Option<String>) {
     let make = call(
-        "create_scholar",
+        "create_profile",
         json!({"name": "sam", "character": "A careful reader."}),
     );
     let (mut server, mut chief) =
@@ -244,7 +244,7 @@ async fn scholar_made_across_a_crash(
     chief.shows(&hand_chat, "Made.").await;
     let made = chief
         .realm()
-        .scholars
+        .profiles
         .iter()
         .filter(|s| s.name == "sam")
         .count();
@@ -261,7 +261,7 @@ async fn scholar_made_across_a_crash(
 async fn a_society_call_cut_off_after_its_change_is_answered_the_same()
  {
     let (made, failure) =
-        scholar_made_across_a_crash(Realm::faulting("carried")).await;
+        profile_made_across_a_crash(Realm::faulting("carried")).await;
     assert_eq!((made, failure), (1, None));
 }
 
@@ -269,10 +269,10 @@ async fn a_society_call_cut_off_after_its_change_is_answered_the_same()
 async fn control_a_change_and_its_answer_kept_apart_lose_the_answer()
 {
     // The crash test above must catch a change kept apart from its
-    // call's answer: asked again, the call makes a second scholar,
-    // since scholar names may repeat.
+    // call's answer: asked again, the call makes a second profile,
+    // since profile names may repeat.
     let realm = Realm::faulting("carried")
         .with("HAMLET_FAULT_SPLIT_MARKER", "1");
-    let (made, _) = scholar_made_across_a_crash(realm).await;
+    let (made, _) = profile_made_across_a_crash(realm).await;
     assert_eq!(made, 2);
 }

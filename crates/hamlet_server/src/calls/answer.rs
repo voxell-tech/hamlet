@@ -4,7 +4,7 @@ use anyhow::Result;
 use hamlet_protocol::client::{Choice, Permission, Pick};
 use hamlet_store::ids::{Actor, ChiefId, WaitId};
 
-use super::{held, trusting};
+use super::{chat_session, held};
 use crate::app::follow_up::WakeHeldCall;
 use crate::conversations::{
     self, Conversation, chats, inputs, questions, tasks,
@@ -15,7 +15,7 @@ use crate::society::oversight::gate::{self, TurnGate};
 use crate::society::oversight::{
     self, Danger, Ruling, Wait, WaitKind,
 };
-use crate::society::refusal::Refusal;
+use crate::society::rejection::Rejection;
 use crate::society::{addresses, authority};
 
 /// The fault in a chief's choice that cannot answer a wait so.
@@ -119,9 +119,9 @@ fn rule_wait(
     // A newcomer gone or let in since stays as it is.
     if wait.kind == WaitKind::Newcomer
         && ruling == Ruling::Welcome
-        && let Some(scholar) = wait.scholar
+        && let Some(profile) = wait.profile
     {
-        let _ = crate::society::city::welcome(cx, scholar, text)?;
+        let _ = crate::society::city::welcome(cx, profile, text)?;
     }
     if wait.kind == WaitKind::Objection {
         super::objections::rule(cx.db, wait.id, ruling, cx.at)?;
@@ -181,9 +181,9 @@ fn rule_calls(
         if ruling == Ruling::Always
             && let Some(danger @ (Danger::Edit | Danger::Command)) =
                 wait.danger
-            && let Some(trusted) = trusting(conversation)
+            && let Some(session) = chat_session(conversation)
         {
-            gate::trust(cx.db, trusted, chief, danger)?;
+            gate::grant_session(cx.db, session, chief, danger)?;
         }
         if ruling == Ruling::Deny
             && let Some(danger) = wait.danger
@@ -216,29 +216,29 @@ impl Core<'_, '_> {
         choice: &Choice,
         text: Option<&str>,
         picks: Option<&[Pick]>,
-    ) -> Result<std::result::Result<String, Refusal>> {
+    ) -> Result<std::result::Result<String, Rejection>> {
         let chief = self.realm.chief();
         let Ok(number) = id.trim_start_matches('#').parse::<i64>()
         else {
-            return Ok(Err(Refusal::NoWait));
+            return Ok(Err(Rejection::NoWait));
         };
         let db = self.realm.store().connection();
         let Some(wait) = oversight::find(db, WaitId(number))?
             .filter(|wait| wait.open)
         else {
-            return Ok(Err(Refusal::NoWait));
+            return Ok(Err(Rejection::NoWait));
         };
         if let Some(agent) = wait.agent
-            && let Err(refusal) =
+            && let Err(rejection) =
                 authority::reaches(db, Actor::Chief(chief), agent)?
         {
-            return Ok(Err(refusal));
+            return Ok(Err(rejection));
         }
         let text =
             match words(&wait, choice, text.unwrap_or(""), picks)? {
                 Ok(text) => text,
                 Err(why) => {
-                    return Ok(Err(Refusal::WaitUnanswerable {
+                    return Ok(Err(Rejection::WaitUnanswerable {
                         why: why.to_string(),
                     }));
                 }
@@ -268,7 +268,7 @@ impl Core<'_, '_> {
             Ok(true)
         })?;
         if !settled {
-            return Ok(Err(Refusal::NoWait));
+            return Ok(Err(Rejection::NoWait));
         }
         for ruled in ruled {
             self.wake_call(&ruled.call.runtime, &ruled.call.key);

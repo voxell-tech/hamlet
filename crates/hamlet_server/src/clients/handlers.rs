@@ -17,7 +17,7 @@ use super::connection::Event;
 use super::{Clients, Connections};
 use crate::app::input::{AddHandler, InputOrigin};
 use crate::core::Core;
-use crate::society::refusal::Refusal;
+use crate::society::rejection::Rejection;
 
 pub(crate) fn plugin(app: &mut App) {
     app.add_message::<ClientEvent>()
@@ -55,8 +55,8 @@ pub(crate) fn plugin(app: &mut App) {
         .add_handler::<FromClient<protocol::Say>, _>(say)
         .add_handler::<FromClient<ReadModels>, _>(read_models)
         .add_handler::<FromClient<protocol::Read>, _>(read)
-        .add_handler::<FromClient<protocol::MoveLodges>, _>(
-            move_lodges,
+        .add_handler::<FromClient<protocol::MoveWorktrees>, _>(
+            move_worktrees,
         )
         .add_handler::<FromClient<protocol::Login>, _>(login)
         .add_handler::<FromClient<protocol::Check>, _>(check);
@@ -176,7 +176,7 @@ fn write(
             to(commands, client, ReadModels { id, refresh });
         }
         ClientMessage::Read(m) => to(commands, client, m),
-        ClientMessage::MoveLodges(m) => to(commands, client, m),
+        ClientMessage::MoveWorktrees(m) => to(commands, client, m),
         ClientMessage::Terminal(m) => to(commands, client, m),
         ClientMessage::Login(m) => to(commands, client, m),
         ClientMessage::Check(m) => to(commands, client, m),
@@ -250,14 +250,16 @@ fn read(
         })
 }
 
-fn move_lodges(
-    mut received: ResMut<Messages<FromClient<protocol::MoveLodges>>>,
+fn move_worktrees(
+    mut received: ResMut<
+        Messages<FromClient<protocol::MoveWorktrees>>,
+    >,
     mut core: Core,
 ) -> Result {
     received
         .drain()
         .try_for_each(|FromClient { client, request }| {
-            core.move_lodges(client, &request.id)?;
+            core.move_worktrees(client, &request.id)?;
             Ok(())
         })
 }
@@ -286,10 +288,10 @@ fn open(
          }| {
             let conversation = match core.watch_target(&open.chat)? {
                 Ok(conversation) => conversation,
-                Err(refusal) => {
+                Err(rejection) => {
                     core.answer(
                         client,
-                        reply(&open.id, Err(refusal)),
+                        reply(&open.id, Err(rejection)),
                     )?;
                     return Ok(());
                 }
@@ -334,7 +336,7 @@ fn compact(
             let words = core.compact_chat(agent)?;
             core.answer(
                 client,
-                reply(&compact.id, Ok::<_, Refusal>(words)),
+                reply(&compact.id, Ok::<_, Rejection>(words)),
             )?;
             Ok(())
         },
@@ -390,7 +392,7 @@ fn resume(
             let words = core.resume_agents(&targets)?;
             core.answer(
                 client,
-                reply(&resume.id, Ok::<_, Refusal>(words)),
+                reply(&resume.id, Ok::<_, Rejection>(words)),
             )?;
             Ok(())
         },
@@ -459,7 +461,7 @@ fn stop(
             let words = core.stop_turns(&targets)?;
             core.answer(
                 client,
-                reply(&stop.id, Ok::<_, Refusal>(words)),
+                reply(&stop.id, Ok::<_, Rejection>(words)),
             )?;
             Ok(())
         },
@@ -585,7 +587,7 @@ fn rewind(
                         upload: None,
                     })
                 }
-                Err(refusal) => reply(&rewind.id, Err(refusal)),
+                Err(rejection) => reply(&rewind.id, Err(rejection)),
             };
             core.answer(client, answer)?;
             Ok(())

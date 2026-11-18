@@ -48,7 +48,7 @@ pub(crate) enum InputKind {
     Dream,
     /// A summary of the conversation's earlier part, asked now.
     Compaction,
-    /// What a hire merged into this one said and did.
+    /// What an agent merged into this one said and did.
     Merged,
 }
 hamlet_store::named_text!(InputKind);

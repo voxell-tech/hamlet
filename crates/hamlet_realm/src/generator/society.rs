@@ -44,7 +44,7 @@ pub struct Town {
     /// The site it was founded on. Never changes: a town that is
     /// moved takes its site along.
     pub site: usize,
-    pub mayor: AgentId,
+    pub lead: AgentId,
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -52,7 +52,7 @@ pub struct Agent {
     pub id: AgentId,
     pub town: TownId,
     /// The plot its house stands on. Changes only when it moves
-    /// town, or trades houses with the mayor on becoming one.
+    /// town, or trades houses with the lead on becoming one.
     pub plot: u32,
     pub state: KeeperState,
     /// Its task while it works.
@@ -216,7 +216,7 @@ impl Society {
             .is_some_and(|town| self.free_plot(land, town).is_some())
     }
 
-    /// Adds an agent with a house and a road to its mayor. None
+    /// Adds an agent with a house and a road to its lead. None
     /// when the town has no plot left.
     pub fn add_agent(
         &mut self,
@@ -227,7 +227,7 @@ impl Society {
         let plot = self.free_plot(land, &t)?;
         self.clear(town, plot);
         let id = self.spawn_agent(town, plot);
-        self.add_road(id, t.mayor);
+        self.add_road(id, t.lead);
         Some(id)
     }
 
@@ -286,16 +286,16 @@ impl Society {
         Outcome::Changed
     }
 
-    /// Makes `agent` its town's mayor: it and the mayor before it
-    /// trade houses, so the mayor lives in the hall. Unchanged when
-    /// it is the mayor already or lives in another town.
+    /// Makes `agent` its town's lead: it and the lead before it
+    /// trade houses, so the lead lives in the hall. Unchanged when
+    /// it is the lead already or lives in another town.
     pub fn seat(&mut self, agent: AgentId) -> Outcome {
         let Some(new) = self.agent(agent).cloned() else {
             return Outcome::Unchanged;
         };
         let Some(old) = self
             .town(new.town)
-            .map(|town| town.mayor)
+            .map(|town| town.lead)
             .filter(|old| *old != agent)
             .and_then(|old| self.agent(old).cloned())
         else {
@@ -310,15 +310,15 @@ impl Society {
         if let Some(town) =
             self.towns.iter_mut().find(|town| town.id == new.town)
         {
-            town.mayor = agent;
+            town.lead = agent;
         }
         Outcome::Changed
     }
 
     /// Archives an agent: its house becomes a ruin and its roads go.
-    /// A mayor cannot be removed.
+    /// A lead cannot be removed.
     pub fn remove_agent(&mut self, id: AgentId) -> Outcome {
-        if self.towns.iter().any(|t| t.mayor == id) {
+        if self.towns.iter().any(|t| t.lead == id) {
             return Outcome::Unchanged;
         }
         let Some(agent) = self.agent_mut(id) else {
@@ -329,7 +329,7 @@ impl Society {
         Outcome::Changed
     }
 
-    /// Brings an archived agent back, with a road to its mayor.
+    /// Brings an archived agent back, with a road to its lead.
     /// Its house stands where it stood, or on another plot if a
     /// newcomer has built there since. Unchanged when its town has no
     /// plot left for it.
@@ -357,7 +357,7 @@ impl Society {
             agent.into = None;
             agent.plot = plot;
         }
-        self.add_road(id, town.mayor);
+        self.add_road(id, town.lead);
         Outcome::Changed
     }
 
@@ -381,8 +381,8 @@ impl Society {
     /// Merges `gone` into `kept`: `kept` gains a wing and the roads
     /// of both, and `gone`'s house is archived.
     pub fn merge(&mut self, kept: AgentId, gone: AgentId) -> Outcome {
-        let is_mayor = |id| self.towns.iter().any(|t| t.mayor == id);
-        if kept == gone || is_mayor(gone) {
+        let is_lead = |id| self.towns.iter().any(|t| t.lead == id);
+        if kept == gone || is_lead(gone) {
             return Outcome::Unchanged;
         }
         let moved = self

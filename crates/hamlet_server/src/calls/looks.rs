@@ -10,8 +10,8 @@ use hamlet_store::ids::AgentId;
 
 use super::CallId;
 use crate::attachments::inbox::Inbox;
-use crate::realm::workspace::serving::Lodging;
-use crate::society::refusal::Refusal;
+use crate::realm::workspace::serving::RemoteWorktree;
+use crate::society::rejection::Rejection;
 use crate::tools::builtin::ToolSession;
 use crate::tools::builtin::parcel::To;
 
@@ -27,7 +27,7 @@ pub(crate) struct CallWithLooks(CallId);
 
 /// The files a parcel would send, as measured.
 #[derive(Component)]
-pub(crate) struct Measured(Result<Measure, Refusal>);
+pub(crate) struct Measured(Result<Measure, Rejection>);
 
 /// The file an edit writes, as it was before.
 #[derive(Component)]
@@ -35,7 +35,7 @@ pub(crate) struct Previewed(Result<Option<String>, String>);
 
 /// The files a parcel sent, as copied.
 #[derive(Component)]
-pub(crate) struct Copied(Result<Copy, Refusal>);
+pub(crate) struct Copied(Result<Copy, Rejection>);
 
 /// The findings of the looks, as the handlers reach them.
 #[derive(SystemParam)]
@@ -75,7 +75,7 @@ impl LookFindings<'_, '_> {
     pub fn measured(
         &self,
         call: &CallId,
-    ) -> Option<&Result<Measure, Refusal>> {
+    ) -> Option<&Result<Measure, Rejection>> {
         Some(&self.of(call)?.1?.0)
     }
 
@@ -89,12 +89,12 @@ impl LookFindings<'_, '_> {
     pub fn copied(
         &self,
         call: &CallId,
-    ) -> Option<&Result<Copy, Refusal>> {
+    ) -> Option<&Result<Copy, Rejection>> {
         Some(&self.of(call)?.3?.0)
     }
 
     /// Keeps what a look of `call` found, once the input's commands
-    /// apply. Gives the agent whose lodge it wrote into, when it
+    /// apply. Gives the agent whose worktree it wrote into, when it
     /// copied files.
     pub fn found(
         &mut self,
@@ -135,19 +135,19 @@ pub(crate) enum Look {
     /// The files under `paths` a parcel would send.
     Measure {
         session: ToolSession,
-        lodging: Option<Lodging>,
+        worktree: Option<RemoteWorktree>,
         paths: Vec<String>,
     },
     /// The file at `path`, as it is now.
     Preview {
         session: ToolSession,
-        lodging: Option<Lodging>,
+        worktree: Option<RemoteWorktree>,
         path: String,
     },
     /// The files under `paths`, copied into `receiver`'s `inbox`.
     Copy {
         session: ToolSession,
-        lodging: Option<Lodging>,
+        worktree: Option<RemoteWorktree>,
         paths: Vec<String>,
         inbox: Box<Inbox>,
         /// The folder of kept images.
@@ -158,35 +158,35 @@ pub(crate) enum Look {
 
 /// A look's finding.
 pub(crate) enum Found {
-    Measured(Result<Measure, Refusal>),
+    Measured(Result<Measure, Rejection>),
     Previewed(Result<Option<String>, String>),
     Copied {
         receiver: AgentId,
-        sent: Result<Copy, Refusal>,
+        sent: Result<Copy, Rejection>,
     },
 }
 
 impl Look {
     /// Looks, with `secrets` taken out of what it says. A remote
-    /// workspace has the lodge in step first.
+    /// workspace has the worktree in step first.
     pub async fn run(self, secrets: Vec<String>) -> Found {
-        let scrubbed = |error: anyhow::Error| Refusal::LookFailed {
+        let scrubbed = |error: anyhow::Error| Rejection::LookFailed {
             error: hamlet_sandbox::scrub::scrub_text(
                 &secrets,
                 &format!("{error:#}"),
             ),
         };
-        let lodging = match &self {
-            Self::Measure { lodging, .. }
-            | Self::Preview { lodging, .. }
-            | Self::Copy { lodging, .. } => lodging.clone(),
+        let worktree = match &self {
+            Self::Measure { worktree, .. }
+            | Self::Preview { worktree, .. }
+            | Self::Copy { worktree, .. } => worktree.clone(),
         };
-        let unready = match lodging {
-            Some(lodging) => {
-                lodging.in_step().await.err().map(|error| {
+        let unready = match worktree {
+            Some(worktree) => {
+                worktree.in_step().await.err().map(|error| {
                     scrubbed(error.context(
                         "The remote workspace could not take the \
-                         lodge in",
+                         worktree in",
                     ))
                 })
             }
@@ -195,7 +195,7 @@ impl Look {
         match self {
             Self::Measure { session, paths, .. } => {
                 Found::Measured(match unready {
-                    Some(refusal) => Err(refusal),
+                    Some(rejection) => Err(rejection),
                     None => {
                         match session.parcel(&paths, None).await {
                             Ok(sent) => sent
@@ -207,7 +207,7 @@ impl Look {
             }
             Self::Preview { session, path, .. } => {
                 Found::Previewed(match unready {
-                    Some(refusal) => Err(refusal.to_string()),
+                    Some(rejection) => Err(rejection.to_string()),
                     None => session
                         .preview(&path)
                         .await
@@ -223,7 +223,7 @@ impl Look {
                 ..
             } => {
                 let sent = match unready {
-                    Some(refusal) => Err(refusal),
+                    Some(rejection) => Err(rejection),
                     None => {
                         let to = To {
                             inbox: &mut inbox,
@@ -242,7 +242,7 @@ impl Look {
                                 }
                                 Ok((captions, sent.images))
                             }
-                            Ok(Err(refusal)) => Err(refusal),
+                            Ok(Err(rejection)) => Err(rejection),
                             Err(error) => Err(scrubbed(error)),
                         }
                     }

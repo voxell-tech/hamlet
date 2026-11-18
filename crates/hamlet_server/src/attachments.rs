@@ -1,6 +1,6 @@
 //! What a chief's line carries besides its words: the images and
 //! files the realm keeps, the captions that say where each is saved,
-//! and the inbox of the lodge it is saved in (C33, S29).
+//! and the inbox of the worktree it is saved in (C33, S29).
 
 pub(crate) mod captions;
 pub(crate) mod files;

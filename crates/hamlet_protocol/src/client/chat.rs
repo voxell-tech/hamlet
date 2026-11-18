@@ -232,7 +232,7 @@ pub struct Item {
     /// The files a chief's line carried.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub files: Vec<AttachedFile>,
-    /// The agent a message is from, or the hire a merge brought in.
+    /// The agent a message is from, or the agent a merge brought in.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[serde(deserialize_with = "crate::client::present")]
     #[schemars(with = "AgentId")]
@@ -283,7 +283,7 @@ pub enum ItemKind {
     /// The summary of the conversation's earlier part.
     #[serde(rename = "summary")]
     Summary,
-    /// Another hire's conversation, brought in by a merge.
+    /// Another agent's conversation, brought in by a merge.
     #[serde(rename = "merged")]
     Merged,
     /// A change to the agent, for people alone.
@@ -336,9 +336,9 @@ pub enum ItemEvent {
     /// A dream ended; `summary` is the first line of its answer.
     #[serde(rename = "dreamed")]
     Dreamed { summary: String },
-    /// A scholar of the city, `scholar`, was made of what it became.
-    #[serde(rename = "scholar")]
-    Scholar { scholar: String },
+    /// A profile of the city, `profile`, was made of what it became.
+    #[serde(rename = "profile")]
+    Profile { profile: String },
     /// The name it is shown by now.
     #[serde(rename = "renamed")]
     Renamed { name: String },

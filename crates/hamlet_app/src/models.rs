@@ -362,7 +362,7 @@ mod tests {
     }
 
     #[test]
-    fn allowance_refresh_and_a_refused_catalogue_edit_go_through_the_server()
+    fn allowance_refresh_and_a_rejected_catalogue_edit_go_through_the_server()
      {
         let mut app = with_catalogue();
         mount::<HamletTheme>(app.world_mut(), shelf());
@@ -388,11 +388,11 @@ mod tests {
     fn a_hamlets_list_and_default_keep_the_rest_of_its_received_limits()
      {
         let mut app = with_catalogue();
-        let mayor =
-            hamlet_client::realm::first_mayor(app.world()).unwrap();
+        let lead =
+            hamlet_client::realm::first_lead(app.world()).unwrap();
         let hamlet = app
             .world()
-            .get::<hamlet_client::realm::LivesIn>(mayor)
+            .get::<hamlet_client::realm::LivesIn>(lead)
             .unwrap()
             .0;
         mount::<HamletTheme>(app.world_mut(), of_hamlet(hamlet));
@@ -400,14 +400,14 @@ mod tests {
         press_and_update(&mut app, "small");
         let edit = sent(&mut app).remove(0);
         assert_eq!(edit["whole"]["model"], "far::small");
-        assert_eq!(edit["whole"]["road"]["most"], 24);
+        assert_eq!(edit["whole"]["channel"]["most"], 24);
         assert_eq!(edit["whole"]["budget"]["cost"], 5.0);
         incoming(
             &mut app,
-            json!({"type":"reply", "to":edit["id"], "kind":"error", "text":"This model was refused."}),
+            json!({"type":"reply", "to":edit["id"], "kind":"error", "text":"This model was rejected."}),
         );
         assert!(
-            all_words(&mut app).contains("This model was refused.")
+            all_words(&mut app).contains("This model was rejected.")
         );
     }
     #[test]

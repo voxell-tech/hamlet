@@ -1,32 +1,34 @@
-//! Hires: scholars working in a hamlet, each with a branch, a lodge
-//! and a place in the hamlet's tree.
+//! Agents of hamlets: profiles working in a hamlet, each with a
+//! branch, a worktree and a place in the hamlet's tree.
 
 use anyhow::{Context, Result};
 use diesel::prelude::*;
 use hamlet_store::Db;
 use hamlet_store::ids::{
-    Actor, AgentId, ChiefId, HamletId, ScholarId,
+    Actor, AgentId, ChiefId, HamletId, ProfileId,
 };
-use hamlet_store::schema::{agent, hamlet, hire, hire_tool_off};
+use hamlet_store::schema::{
+    agent, agent_tool_off, hamlet, hamlet_agent,
+};
 use serde_json::json;
 
 use super::agents::{self, AgentKind, EndHow};
 use super::limits::{self, Micros};
 use super::record::{self, Decision, DecisionKind};
-use super::refusal::Refusal;
+use super::rejection::Rejection;
 use super::{city, hamlets, tree};
-use crate::realm::change::{Change, Done, checked, done, refuse};
+use crate::realm::change::{Change, Done, checked, done, reject};
 use crate::realm::jobs::{self, Job};
 
 #[derive(Clone, Debug, PartialEq, Queryable, Selectable)]
-#[diesel(table_name = hire)]
-pub(crate) struct Hire {
+#[diesel(table_name = hamlet_agent)]
+pub(crate) struct HamletAgent {
     pub agent: AgentId,
     pub hamlet: HamletId,
-    pub scholar: ScholarId,
+    pub profile: ProfileId,
     pub parent: Option<AgentId>,
     pub purpose: String,
-    pub nickname: Option<String>,
+    pub name: Option<String>,
     pub pin: Option<String>,
     pub base: Option<String>,
     pub model: Option<String>,
@@ -38,60 +40,60 @@ pub(crate) struct Hire {
     pub ending_dream: bool,
 }
 
-/// Whether an ended hire dreams once more.
+/// Whether an ended agent dreams once more.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub(crate) enum LastDream {
     Without,
     With,
 }
 
-/// The scholar a hire is of.
+/// The profile an agent is of.
 #[derive(Clone, Debug, PartialEq)]
-pub(crate) enum Hiring {
-    /// A blank agent: a scholar made for this hire alone, apart from
+pub(crate) enum ProfileChoice {
+    /// A blank agent: a profile made for this agent alone, apart from
     /// the city, so it has no house and never waits at the harbor.
-    /// With no name it is named for its place: Mayor, or Hire and
+    /// With no name it is named for its place: Lead, or Agent and
     /// its number.
     Blank { name: String, character: String },
-    /// A living scholar, at its `main` or pinned to a version.
+    /// A living profile, at its `main` or pinned to a version.
     Existing {
-        scholar: ScholarId,
+        profile: ProfileId,
         pin: Option<String>,
     },
 }
 
-/// A hire to make.
+/// An agent to add.
 #[derive(Clone, Debug)]
 pub(crate) struct Spec {
     pub hamlet: HamletId,
-    /// The hire it answers to; `None` makes the hamlet's mayor.
+    /// The agent it answers to; `None` makes the hamlet's lead.
     pub parent: Option<AgentId>,
-    pub hiring: Hiring,
+    pub profile: ProfileChoice,
     pub purpose: String,
     pub reason: String,
-    /// The chief a new scholar belongs to.
+    /// The chief a new profile belongs to.
     pub owner: ChiefId,
 }
 
-/// A hire just made.
+/// An agent just added.
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub(crate) struct Hired {
+pub(crate) struct NewAgent {
     pub agent: AgentId,
-    pub scholar: ScholarId,
+    pub profile: ProfileId,
     pub hamlet: HamletId,
 }
 
-/// Hires a scholar into a hamlet under a parent, or as the mayor of a
-/// hamlet being founded.
-pub(crate) fn hire(cx: &mut Change<'_>, spec: Spec) -> Done<Hired> {
+/// Adds an agent of a profile to a hamlet under a parent, or as the
+/// lead of a hamlet being founded.
+pub(crate) fn add(cx: &mut Change<'_>, spec: Spec) -> Done<NewAgent> {
     let place = hamlets::get(cx.db, &spec.hamlet)?;
     if !place.is_living() {
-        refuse!(Refusal::HamletRemoved {
+        reject!(Rejection::HamletRemoved {
             id: spec.hamlet.to_string()
         });
     }
     if count_living(cx.db, &spec.hamlet)? >= place.tier {
-        refuse!(Refusal::HamletFull {
+        reject!(Rejection::HamletFull {
             id: spec.hamlet.to_string(),
             most: place.tier,
         });
@@ -99,24 +101,24 @@ pub(crate) fn hire(cx: &mut Change<'_>, spec: Spec) -> Done<Hired> {
     if let Some(parent) = spec.parent {
         let above = get(cx.db, parent)?;
         if above.hamlet != spec.hamlet {
-            refuse!(Refusal::OtherHamlet {
+            reject!(Rejection::OtherHamlet {
                 name: super::addresses::name_of(cx.db, parent)?
             });
         }
         done!(require_living(cx.db, parent));
     }
-    let (scholar, pin, new) = match spec.hiring {
-        Hiring::Blank { name, character } => {
+    let (profile, pin, new) = match spec.profile {
+        ProfileChoice::Blank { name, character } => {
             let name = match name.trim() {
-                "" if spec.parent.is_none() => "Mayor".to_owned(),
-                // Counted among every hire the hamlet has had, so the
-                // name is not one a living hire of it goes by.
+                "" if spec.parent.is_none() => "Lead".to_owned(),
+                // Counted among every agent the hamlet has had, so
+                // the name is not one a living agent of it goes by.
                 "" => {
-                    let had = hire::table
-                        .filter(hire::hamlet.eq(&spec.hamlet))
+                    let had = hamlet_agent::table
+                        .filter(hamlet_agent::hamlet.eq(&spec.hamlet))
                         .count()
                         .get_result::<i64>(cx.db)?;
-                    format!("Hire {had}")
+                    format!("Agent {had}")
                 }
                 given => given.to_owned(),
             };
@@ -125,34 +127,34 @@ pub(crate) fn hire(cx: &mut Change<'_>, spec: Spec) -> Done<Hired> {
             ));
             (made, None, true)
         }
-        Hiring::Existing { scholar, pin } => {
-            let found = city::get(cx.db, scholar)?;
-            if let Some(refusal) =
+        ProfileChoice::Existing { profile, pin } => {
+            let found = city::get(cx.db, profile)?;
+            if let Some(rejection) =
                 found.gone().or_else(|| found.apart())
             {
-                refuse!(refusal);
+                reject!(rejection);
             }
-            (scholar, pin, false)
+            (profile, pin, false)
         }
     };
-    let agent = agents::make(cx, AgentKind::Hire)?;
-    diesel::insert_into(hire::table)
+    let agent = agents::make(cx, AgentKind::Hamlet)?;
+    diesel::insert_into(hamlet_agent::table)
         .values((
-            hire::agent.eq(agent),
-            hire::hamlet.eq(&spec.hamlet),
-            hire::scholar.eq(scholar),
-            hire::parent.eq(spec.parent),
-            hire::purpose.eq(spec.purpose.trim()),
-            hire::pin.eq(&pin),
+            hamlet_agent::agent.eq(agent),
+            hamlet_agent::hamlet.eq(&spec.hamlet),
+            hamlet_agent::profile.eq(profile),
+            hamlet_agent::parent.eq(spec.parent),
+            hamlet_agent::purpose.eq(spec.purpose.trim()),
+            hamlet_agent::pin.eq(&pin),
         ))
         .execute(cx.db)?;
-    jobs::add(cx, &Job::Lodge { hire: agent })?;
+    jobs::add(cx, &Job::Worktree { agent })?;
     record::keep(
         cx,
-        Decision::new(DecisionKind::Hired, &spec.reason)
+        Decision::new(DecisionKind::Added, &spec.reason)
             .hamlet(&spec.hamlet)
             .subject(agent)
-            .scholar(scholar)
+            .profile(profile)
             .detail(json!({
                 "new": new,
                 "pin": pin,
@@ -160,30 +162,34 @@ pub(crate) fn hire(cx: &mut Change<'_>, spec: Spec) -> Done<Hired> {
             })),
     )?;
     cx.touched.hamlets.insert(spec.hamlet.clone());
-    cx.touched.scholars.insert(scholar);
-    Ok(Ok(Hired {
+    cx.touched.profiles.insert(profile);
+    Ok(Ok(NewAgent {
         agent,
-        scholar,
+        profile,
         hamlet: spec.hamlet,
     }))
 }
 
-pub(crate) fn find(db: &mut Db, id: AgentId) -> Result<Option<Hire>> {
-    Ok(hire::table
+pub(crate) fn find(
+    db: &mut Db,
+    id: AgentId,
+) -> Result<Option<HamletAgent>> {
+    Ok(hamlet_agent::table
         .find(id)
-        .select(Hire::as_select())
+        .select(HamletAgent::as_select())
         .first(db)
         .optional()?)
 }
 
-pub(crate) fn get(db: &mut Db, id: AgentId) -> Result<Hire> {
-    find(db, id)?.with_context(|| format!("no hire {id}"))
+pub(crate) fn get(db: &mut Db, id: AgentId) -> Result<HamletAgent> {
+    find(db, id)?
+        .with_context(|| format!("no agent {id} in a hamlet"))
 }
 
 /// The most letters of a first message a purpose keeps.
 const PURPOSE_KEPT: usize = 200;
 
-/// Gives a hire with no purpose the first line of `text` as its
+/// Gives an agent with no purpose the first line of `text` as its
 /// purpose.
 pub(crate) fn take_purpose(
     cx: &mut Change<'_>,
@@ -202,54 +208,57 @@ pub(crate) fn take_purpose(
         return Ok(());
     };
     let purpose = line.chars().take(PURPOSE_KEPT).collect::<String>();
-    diesel::update(hire::table.find(agent))
-        .set(hire::purpose.eq(purpose))
+    diesel::update(hamlet_agent::table.find(agent))
+        .set(hamlet_agent::purpose.eq(purpose))
         .execute(cx.db)?;
     cx.touched.agents.insert(agent);
     Ok(())
 }
 
-/// The living hires of `hamlet`, in the order they were hired.
+/// The living agents of `hamlet`, in the order they were added.
 pub(crate) fn living_in(
     db: &mut Db,
     hamlet: &HamletId,
-) -> Result<Vec<Hire>> {
-    Ok(hire::table
+) -> Result<Vec<HamletAgent>> {
+    Ok(hamlet_agent::table
         .inner_join(agent::table)
-        .filter(hire::hamlet.eq(hamlet))
+        .filter(hamlet_agent::hamlet.eq(hamlet))
         .filter(agent::ended_at.is_null())
-        .order(hire::agent)
-        .select(Hire::as_select())
+        .order(hamlet_agent::agent)
+        .select(HamletAgent::as_select())
         .load(db)?)
 }
 
-/// The living hires of the scholar `scholar`.
+/// The living agents of the profile `profile`.
 pub(crate) fn living_of(
     db: &mut Db,
-    scholar: ScholarId,
-) -> Result<Vec<Hire>> {
-    Ok(hire::table
+    profile: ProfileId,
+) -> Result<Vec<HamletAgent>> {
+    Ok(hamlet_agent::table
         .inner_join(agent::table)
-        .filter(hire::scholar.eq(scholar))
+        .filter(hamlet_agent::profile.eq(profile))
         .filter(agent::ended_at.is_null())
-        .order(hire::agent)
-        .select(Hire::as_select())
+        .order(hamlet_agent::agent)
+        .select(HamletAgent::as_select())
         .load(db)?)
 }
 
-/// The hires ended with a last dream since `since`, and when each
+/// The agents ended with a last dream since `since`, and when each
 /// ended.
 pub(crate) fn ended_to_dream(
     db: &mut Db,
     since: i64,
 ) -> Result<Vec<(AgentId, i64)>> {
-    Ok(hire::table
+    Ok(hamlet_agent::table
         .inner_join(agent::table)
-        .filter(hire::ending_dream.eq(true))
+        .filter(hamlet_agent::ending_dream.eq(true))
         .filter(agent::ended_at.ge(since))
         .filter(agent::erased.eq(false))
         .order(agent::ended_at)
-        .select((hire::agent, agent::ended_at.assume_not_null()))
+        .select((
+            hamlet_agent::agent,
+            agent::ended_at.assume_not_null(),
+        ))
         .load(db)?)
 }
 
@@ -257,43 +266,43 @@ pub(crate) fn count_living(
     db: &mut Db,
     hamlet: &HamletId,
 ) -> Result<i64> {
-    Ok(hire::table
+    Ok(hamlet_agent::table
         .inner_join(agent::table)
-        .filter(hire::hamlet.eq(hamlet))
+        .filter(hamlet_agent::hamlet.eq(hamlet))
         .filter(agent::ended_at.is_null())
         .count()
         .get_result(db)?)
 }
 
 /// True when `id` holds its hamlet's office.
-pub(crate) fn is_mayor(db: &mut Db, id: AgentId) -> Result<bool> {
-    let hire = get(db, id)?;
-    Ok(tree::mayor(db, &hire.hamlet)? == id)
+pub(crate) fn is_lead(db: &mut Db, id: AgentId) -> Result<bool> {
+    let agent = get(db, id)?;
+    Ok(tree::lead(db, &agent.hamlet)? == id)
 }
 
-/// The refusal of a call that names the ended hire `id`.
-pub(crate) fn left(db: &mut Db, id: AgentId) -> Result<Refusal> {
+/// The rejection of a call that names the ended agent `id`.
+pub(crate) fn left(db: &mut Db, id: AgentId) -> Result<Rejection> {
     let agent = agents::get(db, id)?;
     let name = super::addresses::name_of(db, id)?;
     Ok(match agent.ended_how {
-        _ if agent.erased => Refusal::Erased { name },
-        Some(how) => Refusal::Left {
+        _ if agent.erased => Rejection::Erased { name },
+        Some(how) => Rejection::Left {
             name,
             how: how.words().into(),
         },
-        None => Refusal::NotLeft { name },
+        None => Rejection::NotLeft { name },
     })
 }
 
-/// Refuses the agent `id` unless it is living, saying how it left.
+/// Rejects the agent `id` unless it is living, saying how it left.
 pub(crate) fn require_living(db: &mut Db, id: AgentId) -> Done<()> {
     if !agents::get(db, id)?.is_living() {
-        refuse!(left(db, id)?);
+        reject!(left(db, id)?);
     }
     Ok(Ok(()))
 }
 
-/// Ends the living hire `id`.
+/// Ends the living agent `id`.
 pub(crate) fn end(
     cx: &mut Change<'_>,
     id: AgentId,
@@ -301,159 +310,160 @@ pub(crate) fn end(
     last: LastDream,
     reason: &str,
 ) -> Done<()> {
-    let hire = get(cx.db, id)?;
+    let agent = get(cx.db, id)?;
     done!(require_living(cx.db, id));
     if how != EndHow::Hamlet {
-        if is_mayor(cx.db, id)? {
-            refuse!(Refusal::EndingMayor);
+        if is_lead(cx.db, id)? {
+            reject!(Rejection::EndingLead);
         }
         done!(unprotected(cx, id));
         let children = tree::children(cx.db, Some(id))?;
         diesel::update(
-            hire::table.filter(hire::agent.eq_any(&children)),
+            hamlet_agent::table
+                .filter(hamlet_agent::agent.eq_any(&children)),
         )
-        .set(hire::parent.eq(hire.parent))
+        .set(hamlet_agent::parent.eq(agent.parent))
         .execute(cx.db)?;
         cx.touched.agents.extend(children);
         record::keep(
             cx,
             Decision::new(DecisionKind::Ended, reason)
-                .hamlet(&hire.hamlet)
+                .hamlet(&agent.hamlet)
                 .subject(id)
-                .scholar(hire.scholar)
+                .profile(agent.profile)
                 .detail(json!({ "how": how })),
         )?;
     }
     agents::end(cx, id, how, reason)?;
-    diesel::update(hire::table.find(id))
-        .set(hire::ending_dream.eq(last == LastDream::With))
+    diesel::update(hamlet_agent::table.find(id))
+        .set(hamlet_agent::ending_dream.eq(last == LastDream::With))
         .execute(cx.db)?;
     if last == LastDream::With {
         crate::conversations::reflections::before_last_dream(cx, id)?;
     }
-    jobs::add(cx, &Job::Commit { hire: id })?;
-    cx.touched.hamlets.insert(hire.hamlet);
-    cx.touched.scholars.insert(hire.scholar);
+    jobs::add(cx, &Job::Commit { agent: id })?;
+    cx.touched.hamlets.insert(agent.hamlet);
+    cx.touched.profiles.insert(agent.profile);
     Ok(Ok(()))
 }
 
-/// Refuses an agent that would end or merge `hire` while it is on a
+/// Rejects an agent that would end or merge `agent` while it is on a
 /// chief's task (H7); a chief may.
 pub(crate) fn unprotected(
     cx: &mut Change<'_>,
-    hire: AgentId,
+    agent: AgentId,
 ) -> Done<()> {
     if !matches!(cx.actor, Actor::Agent(_)) {
         return Ok(Ok(()));
     }
-    let hamlet = get(cx.db, hire)?.hamlet;
+    let hamlet = get(cx.db, agent)?.hamlet;
     let minutes = limits::of(cx.db, &hamlet)?.protected_minutes;
     if crate::conversations::tasks::protects(
-        cx.db, hire, cx.at, minutes,
+        cx.db, agent, cx.at, minutes,
     )? {
-        refuse!(Refusal::OnChiefsTask {
-            name: super::addresses::name_of(cx.db, hire)?,
+        reject!(Rejection::OnChiefsTask {
+            name: super::addresses::name_of(cx.db, agent)?,
         });
     }
     Ok(Ok(()))
 }
 
-/// Brings back the ended hire `id` under its old parent, or the mayor
+/// Brings back the ended agent `id` under its old parent, or the lead
 /// when that has gone.
 pub(crate) fn come_back(
     cx: &mut Change<'_>,
     id: AgentId,
     reason: &str,
 ) -> Done<()> {
-    let hire = get(cx.db, id)?;
-    let agent = agents::get(cx.db, id)?;
-    if agent.is_living() || agent.erased {
-        refuse!(left(cx.db, id)?);
+    let agent = get(cx.db, id)?;
+    let ended = agents::get(cx.db, id)?;
+    if ended.is_living() || ended.erased {
+        reject!(left(cx.db, id)?);
     }
-    let place = hamlets::get(cx.db, &hire.hamlet)?;
+    let place = hamlets::get(cx.db, &agent.hamlet)?;
     if !place.is_living() {
-        refuse!(Refusal::HamletRemoved {
-            id: hire.hamlet.to_string()
+        reject!(Rejection::HamletRemoved {
+            id: agent.hamlet.to_string()
         });
     }
-    let scholar = city::get(cx.db, hire.scholar)?;
-    if let Some(refusal) = scholar.gone() {
-        refuse!(refusal);
+    let profile = city::get(cx.db, agent.profile)?;
+    if let Some(rejection) = profile.gone() {
+        reject!(rejection);
     }
-    if count_living(cx.db, &hire.hamlet)? >= place.tier {
-        refuse!(Refusal::HamletFull {
-            id: hire.hamlet.to_string(),
+    if count_living(cx.db, &agent.hamlet)? >= place.tier {
+        reject!(Rejection::HamletFull {
+            id: agent.hamlet.to_string(),
             most: place.tier,
         });
     }
-    let mayor = tree::mayor(cx.db, &hire.hamlet)?;
-    let parent = match hire.parent {
+    let lead = tree::lead(cx.db, &agent.hamlet)?;
+    let parent = match agent.parent {
         Some(parent)
             if parent != id
                 && agents::get(cx.db, parent)?.is_living() =>
         {
             parent
         }
-        _ => mayor,
+        _ => lead,
     };
-    diesel::update(hire::table.find(id))
+    diesel::update(hamlet_agent::table.find(id))
         .set((
-            hire::parent.eq(Some(parent)),
-            hire::merged_into.eq(None::<AgentId>),
+            hamlet_agent::parent.eq(Some(parent)),
+            hamlet_agent::merged_into.eq(None::<AgentId>),
         ))
         .execute(cx.db)?;
     agents::come_back(cx, id)?;
-    jobs::add(cx, &Job::Lodge { hire: id })?;
+    jobs::add(cx, &Job::Worktree { agent: id })?;
     record::keep(
         cx,
         Decision::new(DecisionKind::Restored, reason)
-            .hamlet(&hire.hamlet)
+            .hamlet(&agent.hamlet)
             .subject(id)
-            .scholar(hire.scholar),
+            .profile(agent.profile),
     )?;
-    cx.touched.hamlets.insert(hire.hamlet);
-    cx.touched.scholars.insert(hire.scholar);
+    cx.touched.hamlets.insert(agent.hamlet);
+    cx.touched.profiles.insert(agent.profile);
     Ok(Ok(()))
 }
 
-/// Erases the ended hire `id` for good: its lodge and branch go.
+/// Erases the ended agent `id` for good: its worktree and branch go.
 pub(crate) fn erase(cx: &mut Change<'_>, id: AgentId) -> Done<()> {
-    let hire = get(cx.db, id)?;
-    let agent = agents::get(cx.db, id)?;
-    if agent.is_living() || agent.erased {
-        refuse!(left(cx.db, id)?);
+    let agent = get(cx.db, id)?;
+    let ended = agents::get(cx.db, id)?;
+    if ended.is_living() || ended.erased {
+        reject!(left(cx.db, id)?);
     }
     agents::erase(cx, id)?;
-    jobs::add(cx, &Job::EraseHire { hire: id })?;
+    jobs::add(cx, &Job::EraseAgent { agent: id })?;
     record::keep(
         cx,
         Decision::new(DecisionKind::Erased, "")
-            .hamlet(&hire.hamlet)
+            .hamlet(&agent.hamlet)
             .subject(id)
-            .scholar(hire.scholar),
+            .profile(agent.profile),
     )?;
-    cx.touched.hamlets.insert(hire.hamlet);
+    cx.touched.hamlets.insert(agent.hamlet);
     Ok(Ok(()))
 }
 
-/// Gives the office of `hamlet` to its hire `id`, the old mayor going
+/// Gives the office of `hamlet` to its agent `id`, the old lead going
 /// under it.
-pub(crate) fn seat(
+pub(crate) fn set_lead(
     cx: &mut Change<'_>,
     hamlet_id: &HamletId,
     id: AgentId,
     reason: &str,
 ) -> Done<()> {
-    let hire = get(cx.db, id)?;
-    if &hire.hamlet != hamlet_id {
-        refuse!(Refusal::OtherHamlet {
+    let agent = get(cx.db, id)?;
+    if &agent.hamlet != hamlet_id {
+        reject!(Rejection::OtherHamlet {
             name: super::addresses::name_of(cx.db, id)?
         });
     }
     done!(require_living(cx.db, id));
-    let old = tree::mayor(cx.db, hamlet_id)?;
+    let old = tree::lead(cx.db, hamlet_id)?;
     if old == id {
-        refuse!(Refusal::AlreadyMayor {
+        reject!(Rejection::AlreadyLead {
             name: super::addresses::name_of(cx.db, id)?
         });
     }
@@ -461,17 +471,20 @@ pub(crate) fn seat(
         .into_iter()
         .filter(|child| *child != id)
         .collect::<Vec<_>>();
-    diesel::update(hire::table.filter(hire::agent.eq_any(&moved)))
-        .set(hire::parent.eq(Some(id)))
+    diesel::update(
+        hamlet_agent::table
+            .filter(hamlet_agent::agent.eq_any(&moved)),
+    )
+    .set(hamlet_agent::parent.eq(Some(id)))
+    .execute(cx.db)?;
+    diesel::update(hamlet_agent::table.find(old))
+        .set(hamlet_agent::parent.eq(Some(id)))
         .execute(cx.db)?;
-    diesel::update(hire::table.find(old))
-        .set(hire::parent.eq(Some(id)))
-        .execute(cx.db)?;
-    diesel::update(hire::table.find(id))
-        .set(hire::parent.eq(None::<AgentId>))
+    diesel::update(hamlet_agent::table.find(id))
+        .set(hamlet_agent::parent.eq(None::<AgentId>))
         .execute(cx.db)?;
     diesel::update(hamlet::table.find(hamlet_id))
-        .set(hamlet::mayor.eq(id))
+        .set(hamlet::lead.eq(id))
         .execute(cx.db)?;
     record::keep(
         cx,
@@ -486,7 +499,7 @@ pub(crate) fn seat(
     Ok(Ok(()))
 }
 
-/// Chooses the model of the living hire `id`, or its hamlet's when
+/// Chooses the model of the living agent `id`, or its hamlet's when
 /// `None` (H29).
 pub(crate) fn set_model(
     cx: &mut Change<'_>,
@@ -494,26 +507,26 @@ pub(crate) fn set_model(
     model: Option<&str>,
     reason: &str,
 ) -> Done<()> {
-    let hire = get(cx.db, id)?;
+    let agent = get(cx.db, id)?;
     done!(require_living(cx.db, id));
-    if matches!(hire.model_by, Some(Actor::Chief(_)))
+    if matches!(agent.model_by, Some(Actor::Chief(_)))
         && !matches!(cx.actor, Actor::Chief(_))
     {
-        refuse!(Refusal::ChiefChose {
+        reject!(Rejection::ChiefChose {
             name: super::addresses::name_of(cx.db, id)?
         });
     }
-    diesel::update(hire::table.find(id))
+    diesel::update(hamlet_agent::table.find(id))
         .set((
-            hire::model.eq(model),
-            hire::model_by.eq(model.map(|_| cx.actor)),
-            hire::model_reason.eq(model.map(|_| reason)),
+            hamlet_agent::model.eq(model),
+            hamlet_agent::model_by.eq(model.map(|_| cx.actor)),
+            hamlet_agent::model_reason.eq(model.map(|_| reason)),
         ))
         .execute(cx.db)?;
     record::keep(
         cx,
         Decision::new(DecisionKind::Model, reason)
-            .hamlet(&hire.hamlet)
+            .hamlet(&agent.hamlet)
             .subject(id)
             .detail(json!({ "model": model })),
     )?;
@@ -521,7 +534,7 @@ pub(crate) fn set_model(
     Ok(Ok(()))
 }
 
-/// Turns tools of the living hire `id` off, and back on.
+/// Turns tools of the living agent `id` off, and back on.
 pub(crate) fn set_tools(
     cx: &mut Change<'_>,
     id: AgentId,
@@ -529,29 +542,29 @@ pub(crate) fn set_tools(
     on: &[String],
     reason: &str,
 ) -> Done<()> {
-    let hire = get(cx.db, id)?;
+    let agent = get(cx.db, id)?;
     done!(require_living(cx.db, id));
     for tool in off {
-        diesel::insert_into(hire_tool_off::table)
+        diesel::insert_into(agent_tool_off::table)
             .values((
-                hire_tool_off::hire.eq(id),
-                hire_tool_off::tool.eq(tool),
-                hire_tool_off::at.eq(cx.at),
-                hire_tool_off::by.eq(cx.actor),
+                agent_tool_off::agent.eq(id),
+                agent_tool_off::tool.eq(tool),
+                agent_tool_off::at.eq(cx.at),
+                agent_tool_off::by.eq(cx.actor),
             ))
             .on_conflict_do_nothing()
             .execute(cx.db)?;
     }
     diesel::delete(
-        hire_tool_off::table
-            .filter(hire_tool_off::hire.eq(id))
-            .filter(hire_tool_off::tool.eq_any(on)),
+        agent_tool_off::table
+            .filter(agent_tool_off::agent.eq(id))
+            .filter(agent_tool_off::tool.eq_any(on)),
     )
     .execute(cx.db)?;
     record::keep(
         cx,
         Decision::new(DecisionKind::Tools, reason)
-            .hamlet(&hire.hamlet)
+            .hamlet(&agent.hamlet)
             .subject(id)
             .detail(json!({ "off": off, "on": on })),
     )?;
@@ -564,14 +577,14 @@ pub(crate) fn tools_off(
     db: &mut Db,
     id: AgentId,
 ) -> Result<Vec<String>> {
-    Ok(hire_tool_off::table
-        .filter(hire_tool_off::hire.eq(id))
-        .order(hire_tool_off::tool)
-        .select(hire_tool_off::tool)
+    Ok(agent_tool_off::table
+        .filter(agent_tool_off::agent.eq(id))
+        .order(agent_tool_off::tool)
+        .select(agent_tool_off::tool)
         .load(db)?)
 }
 
-/// Gives the living hire `id` an allowance for its hamlet's period,
+/// Gives the living agent `id` an allowance for its hamlet's period,
 /// or none.
 pub(crate) fn set_allowance(
     cx: &mut Change<'_>,
@@ -579,18 +592,19 @@ pub(crate) fn set_allowance(
     allowance: Option<Micros>,
     reason: &str,
 ) -> Done<()> {
-    let hire = get(cx.db, id)?;
+    let agent = get(cx.db, id)?;
     done!(require_living(cx.db, id));
-    diesel::update(hire::table.find(id))
+    diesel::update(hamlet_agent::table.find(id))
         .set((
-            hire::allowance.eq(allowance),
-            hire::allowance_by.eq(allowance.map(|_| cx.actor)),
+            hamlet_agent::allowance.eq(allowance),
+            hamlet_agent::allowance_by
+                .eq(allowance.map(|_| cx.actor)),
         ))
         .execute(cx.db)?;
     record::keep(
         cx,
         Decision::new(DecisionKind::Allowance, reason)
-            .hamlet(&hire.hamlet)
+            .hamlet(&agent.hamlet)
             .subject(id)
             .detail(json!({ "micros": allowance })),
     )?;
@@ -598,47 +612,47 @@ pub(crate) fn set_allowance(
     Ok(Ok(()))
 }
 
-/// Pins the living hire `id` to `version`, or to `main` when none.
+/// Pins the living agent `id` to `version`, or to `main` when none.
 pub(crate) fn set_pin(
     cx: &mut Change<'_>,
     id: AgentId,
     version: Option<&str>,
     reason: &str,
 ) -> Done<()> {
-    let hire = get(cx.db, id)?;
+    let agent = get(cx.db, id)?;
     done!(require_living(cx.db, id));
-    diesel::update(hire::table.find(id))
-        .set(hire::pin.eq(version))
+    diesel::update(hamlet_agent::table.find(id))
+        .set(hamlet_agent::pin.eq(version))
         .execute(cx.db)?;
     record::keep(
         cx,
         Decision::new(DecisionKind::Pinned, reason)
-            .hamlet(&hire.hamlet)
+            .hamlet(&agent.hamlet)
             .subject(id)
-            .scholar(hire.scholar)
+            .profile(agent.profile)
             .detail(json!({ "version": version })),
     )?;
-    jobs::add(cx, &Job::TakeIn { hire: id })?;
+    jobs::add(cx, &Job::TakeIn { agent: id })?;
     cx.touched.agents.insert(id);
     Ok(Ok(()))
 }
 
-/// The most letters a nickname has.
-pub(crate) const NICKNAME: usize = 24;
+/// The most letters the name of an agent or a worker has.
+pub(crate) const NAME_LETTERS: usize = 24;
 
-/// `nickname` trimmed, none when it is empty.
-pub(crate) fn check_nickname(
-    nickname: Option<&str>,
-) -> Result<Option<&str>, Refusal> {
-    let nickname = nickname.map(str::trim).filter(|n| !n.is_empty());
-    match nickname {
-        Some(nickname)
-            if nickname.chars().count() > NICKNAME
-                || nickname.contains(char::is_control) =>
+/// `name` trimmed, none when it is empty.
+pub(crate) fn check_name(
+    name: Option<&str>,
+) -> Result<Option<&str>, Rejection> {
+    let name = name.map(str::trim).filter(|n| !n.is_empty());
+    match name {
+        Some(name)
+            if name.chars().count() > NAME_LETTERS
+                || name.contains(char::is_control) =>
         {
-            Err(Refusal::BadNickname { most: NICKNAME })
+            Err(Rejection::BadAgentName { most: NAME_LETTERS })
         }
-        _ => Ok(nickname),
+        _ => Ok(name),
     }
 }
 
@@ -659,27 +673,27 @@ pub(crate) fn renamed(
     )
 }
 
-/// Calls the living hire `id` `nickname` in the world, or by its own
-/// name again when none (H46).
-pub(crate) fn set_nickname(
+/// Calls the living agent `id` `name` in the world, or by its
+/// profile's name again when none (H46).
+pub(crate) fn set_name(
     cx: &mut Change<'_>,
     id: AgentId,
-    nickname: Option<&str>,
+    name: Option<&str>,
     reason: &str,
 ) -> Done<()> {
-    let hire = get(cx.db, id)?;
+    let agent = get(cx.db, id)?;
     done!(require_living(cx.db, id));
-    let nickname = checked!(check_nickname(nickname));
-    diesel::update(hire::table.find(id))
-        .set(hire::nickname.eq(nickname))
+    let name = checked!(check_name(name));
+    diesel::update(hamlet_agent::table.find(id))
+        .set(hamlet_agent::name.eq(name))
         .execute(cx.db)?;
-    renamed(cx, id, hire.nickname.as_deref() != nickname)?;
+    renamed(cx, id, agent.name.as_deref() != name)?;
     record::keep(
         cx,
-        Decision::new(DecisionKind::Nicknamed, reason)
-            .hamlet(&hire.hamlet)
+        Decision::new(DecisionKind::AgentNamed, reason)
+            .hamlet(&agent.hamlet)
             .subject(id)
-            .detail(json!({ "nickname": nickname })),
+            .detail(json!({ "name": name })),
     )?;
     cx.touched.agents.insert(id);
     Ok(Ok(()))
@@ -692,8 +706,8 @@ pub(crate) fn took_in(
     id: AgentId,
     base: &str,
 ) -> Result<()> {
-    diesel::update(hire::table.find(id))
-        .set(hire::base.eq(base))
+    diesel::update(hamlet_agent::table.find(id))
+        .set(hamlet_agent::base.eq(base))
         .execute(db)?;
     Ok(())
 }

@@ -5,7 +5,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::client::{
     AgentId, Endpoint, ImageBytes, ImageId, ImageInput, ImageSize,
-    Listed, Price, RequestId, ScholarId, Skill,
+    Listed, Price, ProfileId, RequestId, Skill,
 };
 
 #[derive(
@@ -19,14 +19,14 @@ pub enum Edit {
         #[serde(deserialize_with = "Option::deserialize")]
         text: Option<String>,
     },
-    /// A scholar's character, as a commit on its `main`.
+    /// A profile's character, as a commit on its `main`.
     #[serde(rename = "character")]
     Character {
         id: RequestId,
-        scholar: ScholarId,
+        profile: ProfileId,
         text: String,
     },
-    /// A memory file of a scholar's `main` or a hire's lodge, by
+    /// A memory file of a profile's `main` or an agent's worktree, by
     /// its path under `memory/`; empty text removes it.
     #[serde(rename = "memory")]
     Memory {
@@ -247,8 +247,8 @@ pub struct Charter {
     pub text: String,
 }
 
-/// Whose knowledge an edit or a read is of: a scholar's `main`, or an
-/// agent's lodge laid over its scholar.
+/// Whose knowledge an edit or a read is of: a profile's `main`, or an
+/// agent's worktree laid over its profile.
 #[derive(
     Clone,
     Copy,
@@ -261,19 +261,20 @@ pub struct Charter {
 )]
 #[serde(rename_all = "lowercase")]
 pub enum Keeper {
-    Scholar(ScholarId),
+    Profile(ProfileId),
     Agent(AgentId),
 }
 
-/// A scholar's knowledge, or what an agent sees of it in its lodge.
+/// A profile's knowledge, or what an agent sees of it in its
+/// worktree.
 #[derive(
     Clone, Debug, PartialEq, Serialize, Deserialize, JsonSchema,
 )]
 #[serde(deny_unknown_fields)]
 pub struct Papers {
     pub character: String,
-    /// The paths of the files the agent's lodge changed, added or
-    /// removed against its scholar; empty for a scholar.
+    /// The paths of the files the agent's worktree changed, added or
+    /// removed against its profile; empty for a profile.
     pub learned: Vec<String>,
     pub memory: Vec<MemoryFile>,
     pub skills: Vec<Skill>,

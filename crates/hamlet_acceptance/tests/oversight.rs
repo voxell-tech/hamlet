@@ -25,7 +25,7 @@ async fn the_network_waits_for_a_chief_and_always_becomes_a_grant() {
     ]))
     .await;
     let hand = s.hand();
-    let lodge = s.home.file("hand");
+    let worktree = s.home.file("hand");
     let now = chat(hand);
     s.chief.open(&now).await;
     s.chief.tell(hand, "Try the network.").await;
@@ -46,13 +46,13 @@ async fn the_network_waits_for_a_chief_and_always_becomes_a_grant() {
         first.answers,
         [Choice::Allow, Choice::Always, Choice::Deny]
     );
-    assert!(!lodge.join("one").exists());
+    assert!(!worktree.join("one").exists());
     s.chief.choose(&first.id, Choice::Allow, None).await;
     let second = s
         .chief
         .wait_for("the second ask", |w| w.subject.contains("two"))
         .await;
-    assert!(lodge.join("one").exists());
+    assert!(worktree.join("one").exists());
 
     // Refused: the command does not run, and the rest of the turn's
     // network calls are refused without asking again.
@@ -61,7 +61,8 @@ async fn the_network_waits_for_a_chief_and_always_becomes_a_grant() {
         .await;
     s.chief.shows(&now, "Done.").await;
     assert!(
-        !lodge.join("two").exists() && !lodge.join("three").exists()
+        !worktree.join("two").exists()
+            && !worktree.join("three").exists()
     );
     assert!(s.chief.waits().is_empty());
 
@@ -74,7 +75,8 @@ async fn the_network_waits_for_a_chief_and_always_becomes_a_grant() {
     s.chief.choose(&fourth.id, Choice::Always, None).await;
     s.chief.shows(&now, "Done again.").await;
     assert!(
-        lodge.join("four").exists() && lodge.join("five").exists()
+        worktree.join("four").exists()
+            && worktree.join("five").exists()
     );
     assert!(s.chief.waits().is_empty());
     let grants = s.chief.realm().grants;
@@ -145,9 +147,9 @@ async fn a_manual_hamlet_asks_before_it_edits_or_runs_in_its_folder()
     let edited = folder.join("notes.txt");
     let ran_file = folder.join("ran");
     let home = Home::new();
-    // The mayor's lodge, in a hamlet whose id is made once it is
+    // The lead's worktree, in a hamlet whose id is made once it is
     // founded.
-    let lodge_file = home.file("hamlets/{{docs}}/2/lodge-file");
+    let worktree_file = home.file("hamlets/{{docs}}/2/worktree-file");
     let mut s = Session::start_in(
         home,
         Faux::new().agent(
@@ -160,7 +162,7 @@ async fn a_manual_hamlet_asks_before_it_edits_or_runs_in_its_folder()
                 bash(&format!("echo ran > {}", ran_file.display())),
                 call(
                     "write",
-                    json!({"path": lodge_file, "content": "own\n"}),
+                    json!({"path": worktree_file, "content": "own\n"}),
                 )
                 .filled_from(NAMES),
                 words("Done."),
@@ -171,8 +173,8 @@ async fn a_manual_hamlet_asks_before_it_edits_or_runs_in_its_folder()
     .await;
     let ada = s.found("docs", "ada", "keep the docs").await;
     assert_eq!(ada, AgentId(2));
-    let lodge_file = s.home.file(&format!(
-        "hamlets/{}/2/lodge-file",
+    let worktree_file = s.home.file(&format!(
+        "hamlets/{}/2/worktree-file",
         s.chief.hamlet_id("docs")
     ));
     s.chief
@@ -209,10 +211,10 @@ async fn a_manual_hamlet_asks_before_it_edits_or_runs_in_its_folder()
         .command(ada, &format!("/allow #{}", command.id))
         .await;
 
-    // The hire's own lodge is free.
+    // The agent's own worktree is free.
     s.chief.shows(&now, "Done.").await;
     assert_eq!(fs::read_to_string(&ran_file).unwrap(), "ran\n");
-    assert!(lodge_file.exists());
+    assert!(worktree_file.exists());
     assert!(s.chief.waits().is_empty());
 }
 

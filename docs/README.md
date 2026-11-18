@@ -27,7 +27,7 @@ Then read the page for the part you are about to touch.
 
 | Page | What it explains |
 |---|---|
-| [`realm.md`](realm.md) | The realm on disk: its folder, database, scholars and lodges, credentials and claim |
+| [`realm.md`](realm.md) | The realm on disk: its folder, database, profiles and worktrees, credentials and claim |
 | [`cli.md`](cli.md) | The `hamlet` command: serving, stopping, chatting, editing, signing in, and finding the server and the window |
 | [`sandbox.md`](sandbox.md) | What an agent's tools can reach: the sandbox, the network, a folder a hamlet works on, manual and auto |
 | [`prompt.md`](prompt.md) | What an agent is told every turn: the charter, its character, its memory and skills, and how the chief reads and edits them |
@@ -37,7 +37,7 @@ Then read the page for the part you are about to touch.
 | [`chief.md`](chief.md) | The chief in the world: the Hearth, the mascot and Wickstep |
 | [`sound.md`](sound.md) | Every sound and the music, all made in code |
 | [`ui-warmth.md`](ui-warmth.md) | How the panels glow and answer the hand |
-| [`society.md`](society.md) | The Hand, the city of scholars, hamlets and hires, roads, dreams, the shared library and what waits |
+| [`society.md`](society.md) | The Hand, the city of profiles, hamlets and their agents, channels, dreams, the shared library and what waits |
 | [`harness.md`](harness.md) | The harness: runtimes, bindings, the runtime protocol, its IDs and what a harness must be able to do |
 | [`protocol.md`](protocol.md) | The client protocol: transport, messages, watched conversations and errors |
 | [`chat.md`](chat.md) | An agent's one conversation, its queue, compaction and merges, paging, drawing, local links and pictures, and rewinds through the server |

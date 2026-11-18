@@ -1,38 +1,38 @@
-//! A scholar's or a lodge's papers.
+//! A profile's or a worktree's papers.
 
 use hamlet_git::{MAIN, Repository};
 use hamlet_protocol::client::{self as protocol, Keeper};
 use hamlet_store::Db;
-use hamlet_store::ids::{AgentId, ScholarId};
+use hamlet_store::ids::{AgentId, ProfileId};
 
 use crate::knowledge::folder::Folder;
 use crate::knowledge::library::field;
-use crate::knowledge::{CHARACTER, lodging, outside_git};
+use crate::knowledge::{CHARACTER, outside_git, worktree};
 use crate::realm::change::Done;
 use crate::realm::layout::Layout;
-use crate::society::refusal::Refusal;
+use crate::society::rejection::Rejection;
 
-/// The papers of `of`: a scholar's `main`, or an agent's lodge.
+/// The papers of `of`: a profile's `main`, or an agent's worktree.
 pub(crate) fn papers(
     db: &mut Db,
     layout: &Layout,
     of: Keeper,
 ) -> Done<protocol::Papers> {
-    let (scholar, lodge) = match of {
-        Keeper::Scholar(scholar) => {
-            (ScholarId(i64::try_from(scholar.0)?), None)
+    let (profile, worktree) = match of {
+        Keeper::Profile(profile) => {
+            (ProfileId(i64::try_from(profile.0)?), None)
         }
         Keeper::Agent(agent) => {
             let agent = AgentId(i64::try_from(agent.0)?);
-            let Ok(lodging) = lodging(db, layout, agent) else {
-                return Ok(Err(Refusal::NoOne {
+            let Ok(worktree) = worktree(db, layout, agent) else {
+                return Ok(Err(Rejection::NoOne {
                     address: agent.to_string(),
                 }));
             };
-            (lodging.scholar, Some(lodging.path))
+            (worktree.profile, Some(worktree.path))
         }
     };
-    let repo = Repository::open(&layout.repository(scholar))?;
+    let repo = Repository::open(&layout.repository(profile))?;
     let main = repo.tip(MAIN)?;
     let character = match main {
         Some(tip) => repo
@@ -43,7 +43,7 @@ pub(crate) fn papers(
     };
     let mut files = Vec::<(String, Vec<u8>)>::new();
     let mut learned = Vec::new();
-    match &lodge {
+    match &worktree {
         Some(path) => {
             let Ok(folder) = Folder::open(path) else {
                 return Ok(Ok(protocol::Papers {

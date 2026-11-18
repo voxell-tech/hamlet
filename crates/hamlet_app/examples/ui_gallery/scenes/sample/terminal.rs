@@ -139,7 +139,7 @@ pub(super) fn logs(state: &mut protocol::State) {
 }
 
 /// Adds the hamlets, the agents and the terminals to `state`: the
-/// mayor of `home` with a hire under it, and a worker the hire
+/// lead of `home` with an agent under it, and a worker that agent
 /// started, so the list shows its tree.
 pub(super) fn state(state: &mut protocol::State, scene: Scene) {
     if !matches!(
@@ -154,7 +154,7 @@ pub(super) fn state(state: &mut protocol::State, scene: Scene) {
     state.hamlets.push(hamlet_testing::realm::hamlet("mill", 3));
     let mut worker = hamlet_testing::realm::agent(5, "home", false);
     worker.kind = protocol::AgentKind::Worker;
-    worker.name = "worker#5".into();
+    worker.address = "worker#5".into();
     worker.parent = Some(protocol::AgentId(4));
     state.agents.extend([
         hamlet_testing::realm::agent(3, "mill", true),

@@ -106,7 +106,7 @@ pub(super) struct Pose {
     pub ring: f32,
     /// The winding key's angle.
     pub key: f32,
-    /// The mayor's pennant, as a turn about its spire.
+    /// The lead's pennant, as a turn about its spire.
     pub flag: f32,
 }
 

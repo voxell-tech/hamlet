@@ -36,7 +36,7 @@ impl Core<'_, '_> {
         let Some(kept) =
             conversations::by_handle(db, &runtime, conversation)?
         else {
-            return Ok(Err(Answer::Refusal(NOBODY.into())));
+            return Ok(Err(Answer::Rejection(NOBODY.into())));
         };
         let request =
             Request::new("tool", &json!([input, tool, arguments]))?;
@@ -49,7 +49,7 @@ impl Core<'_, '_> {
             input,
             tool,
         )? {
-            return Ok(Err(Answer::Refusal(IDENTITY.into())));
+            return Ok(Err(Answer::Rejection(IDENTITY.into())));
         }
         Ok(Ok(Call {
             call: CallId {
@@ -107,7 +107,7 @@ impl Core<'_, '_> {
             self.tell_call(
                 &reply,
                 &request.key,
-                Answer::Refusal(held::WITHDRAWN.into()),
+                Answer::Rejection(held::WITHDRAWN.into()),
             );
             return Ok(());
         }
@@ -128,7 +128,7 @@ impl Core<'_, '_> {
         } else {
             match self.decide(&call)? {
                 Decision::Run { .. } => Answer::Allowed,
-                Decision::Block(words) => Answer::Refusal(words),
+                Decision::Block(words) => Answer::Rejection(words),
                 Decision::Wait(words) => {
                     Answer::Waiting(words.into())
                 }

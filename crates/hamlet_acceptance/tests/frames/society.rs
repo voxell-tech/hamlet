@@ -1,23 +1,23 @@
-//! Recordings of the society: hires, notifications and requests,
-//! roads, leaving and merging, hamlets, the library, and what waits
-//! for a chief.
+//! Recordings of the society: agents, notifications and requests,
+//! channels, leaving and merging, hamlets, the library, and what
+//! waits for a chief.
 
 use hamlet_acceptance::{Faux, call, calls, words};
-use hamlet_protocol::client::RoadKind;
+use hamlet_protocol::client::ChannelKind;
 use serde_json::json;
 
 use super::capture::{Capture, HAND};
 
-/// A realm with the hamlet `docs` under `ada` (2), and its hires
-/// `cy` (3, `hire#3`) and `dee` (4, `hire#4`), once all are there
+/// A realm with the hamlet `docs` under `ada` (2), and its agents
+/// `cy` (3, `agent#3`) and `dee` (4, `agent#4`), once all are there
 /// and at rest.
 async fn docs(faux: Faux) -> Capture {
     let mut c = Capture::start(faux).await;
     c.found("docs", "ada", "keep the docs").await;
     c.until(|c| c.state().agents.iter().any(|a| a.id.0 == 2))
         .await;
-    c.hire(2, "cy", "dig").await;
-    c.hire(2, "dee", "haul").await;
+    c.add_agent(2, "cy", "dig").await;
+    c.add_agent(2, "dee", "haul").await;
     c.until(|c| c.state().agents.len() == 4).await;
     c.idle().await;
     c
@@ -33,12 +33,12 @@ async fn society() {
                 [
                     call(
                         "notify",
-                        json!({"to":"hire#3","text":"Hello cy"}),
+                        json!({"to":"agent#3","text":"Hello cy"}),
                     ),
                     words("Told."),
                     call(
                         "request",
-                        json!({"to":"hire#3","text":"Which colour?"}),
+                        json!({"to":"agent#3","text":"Which colour?"}),
                     ),
                     words("Asked cy."),
                     words("cy said blue."),
@@ -63,28 +63,28 @@ async fn society() {
 #[ignore = "records real sessions; see the acceptance README"]
 async fn leaving() {
     let mut c = docs(Faux::new()).await;
-    c.say(2, "/end hire#3 Finished").await;
+    c.say(2, "/end agent#3 Finished").await;
     c.until(|c| {
         c.state()
             .agents
             .iter()
-            .any(|a| a.name == "hire#3" && a.left.is_some())
+            .any(|a| a.address == "agent#3" && a.left.is_some())
     })
     .await;
-    c.say(2, "/restore hire#3").await;
-    c.say(2, "/merge hire#3 into hire#4 Together").await;
+    c.say(2, "/restore agent#3").await;
+    c.say(2, "/merge agent#3 into agent#4 Together").await;
     c.until(|c| {
         c.has(|m| {
             m["changes"].as_array().is_some_and(|updates| {
                 updates.iter().any(|u| {
-                    u["agent"]["name"] == "hire#3"
+                    u["agent"]["name"] == "agent#3"
                         && u["agent"]["left"]["how"] == "merged"
                 })
             })
         })
     })
     .await;
-    c.say(2, "/restore hire#3").await;
+    c.say(2, "/restore agent#3").await;
     c.open(2).await;
     c.finish("leaving").await;
 }
@@ -98,20 +98,20 @@ async fn realm() {
                 2,
                 [
                     call(
-                        "agree_road",
-                        json!({"mine":"hire#3","theirs":"hire#6","reason":"Trade"}),
+                        "agree_channel",
+                        json!({"mine":"agent#3","theirs":"agent#6","reason":"Trade"}),
                     ),
-                    words("Road proposed."),
+                    words("Channel proposed."),
                 ],
             )
             .agent(
                 5,
                 [
                     call(
-                        "agree_road",
-                        json!({"mine":"hire#6","theirs":"hire#3","reason":"Trade"}),
+                        "agree_channel",
+                        json!({"mine":"agent#6","theirs":"agent#3","reason":"Trade"}),
                     ),
-                    words("Road agreed."),
+                    words("Channel agreed."),
                 ],
             ),
     )
@@ -119,21 +119,21 @@ async fn realm() {
     c.found("mill", "bo", "grind flour").await;
     c.until(|c| c.state().agents.iter().any(|a| a.id.0 == 5))
         .await;
-    c.hire(5, "dee", "haul").await;
+    c.add_agent(5, "dee", "haul").await;
     c.say(
         HAND,
         &format!("/move-hamlet {} 60 80", c.hamlet_id("mill")),
     )
     .await;
-    c.say(2, "Propose a road.").await;
+    c.say(2, "Propose a channel.").await;
     c.idle().await;
-    c.say(5, "Agree the road.").await;
+    c.say(5, "Agree the channel.").await;
     c.until(|c| {
         c.state()
             .hamlets
             .iter()
-            .flat_map(|h| h.roads.iter())
-            .any(|r| r.kind == RoadKind::Agreed)
+            .flat_map(|h| h.channels.iter())
+            .any(|r| r.kind == ChannelKind::Agreed)
     })
     .await;
     c.say(

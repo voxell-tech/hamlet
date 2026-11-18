@@ -32,7 +32,7 @@ use super::bubble::Bubble;
 use super::field::set;
 use super::reply::{AROUND, Replying, show_marks, unreplied};
 use crate::convo::Convo;
-use crate::world_menu::{self, Deed, Open};
+use crate::world_menu::{self, Action, Open};
 
 pub(super) fn plugin(app: &mut App) {
     app.add_observer(reveal).add_observer(retype);
@@ -117,19 +117,19 @@ pub fn ask(world: &mut World, chat: Entity, entry: &str) {
             )
         })
         .unwrap_or_default();
-    let deed = Deed::Rewind {
+    let action = Action::Rewind {
         chat,
         entry: entry.to_string(),
         at,
     };
-    world_menu::ask_against(world, deed, anchor);
+    world_menu::ask_against(world, action, anchor);
 }
 
 /// The message of `chat` a rewind is asked about, and its time.
 fn asked(open: &Open, chat: Entity) -> Option<(&str, u64)> {
     match open {
         Open::Question(
-            Deed::Rewind {
+            Action::Rewind {
                 chat: of,
                 entry,
                 at,

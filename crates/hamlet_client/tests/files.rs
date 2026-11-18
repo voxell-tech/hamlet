@@ -4,7 +4,7 @@ use std::time::{Duration, Instant};
 use bevy_app::App;
 use bevy_ecs::prelude::*;
 use hamlet_client::files::{
-    FilesKept, FilesRefused, Gather, Gathered, UploadFiles,
+    FilesKept, FilesRejected, Gather, Gathered, UploadFiles,
 };
 use hamlet_client::outbox::Outbox;
 use hamlet_client::{ClientPlugin, Tokio, receive};
@@ -45,7 +45,7 @@ fn a_folder_is_gathered_then_sent_file_by_file_under_its_names() {
         .insert_resource(Tokio(runtime.handle().clone()));
     let gathered = Arc::new(Mutex::new(Vec::new()));
     let kept = Arc::new(Mutex::new(Vec::new()));
-    let refused = Arc::new(Mutex::new(Vec::new()));
+    let rejected = Arc::new(Mutex::new(Vec::new()));
     let g = gathered.clone();
     app.add_observer(move |e: On<Gathered>| {
         g.lock().unwrap().push((e.key, e.files, e.bytes));
@@ -54,8 +54,8 @@ fn a_folder_is_gathered_then_sent_file_by_file_under_its_names() {
     app.add_observer(move |e: On<FilesKept>| {
         k.lock().unwrap().push(e.files.clone());
     });
-    let r = refused.clone();
-    app.add_observer(move |e: On<FilesRefused>| {
+    let r = rejected.clone();
+    app.add_observer(move |e: On<FilesRejected>| {
         r.lock().unwrap().push(e.text.clone());
     });
 
@@ -121,7 +121,7 @@ fn a_folder_is_gathered_then_sent_file_by_file_under_its_names() {
     receive(app.world_mut(), protocol::ServerMessage::Reply(done));
     app.update();
 
-    assert!(refused.lock().unwrap().is_empty());
+    assert!(rejected.lock().unwrap().is_empty());
     let names = kept.lock().unwrap()[0]
         .iter()
         .map(|file| (file.name.clone(), file.size))

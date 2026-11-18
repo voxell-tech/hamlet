@@ -13,7 +13,7 @@ use hamlet_protocol::client::{
 };
 use hamlet_store::Db;
 use hamlet_store::ids::{
-    AgentId, ChiefId, ConversationId, ScholarId, TaskId, WaitId,
+    AgentId, ChiefId, ConversationId, ProfileId, TaskId, WaitId,
 };
 use hamlet_store::schema::wait;
 use serde::{Deserialize, Serialize};
@@ -21,7 +21,7 @@ use strum::{Display, EnumString, IntoStaticStr};
 
 use crate::conversations::{self, Kind};
 use crate::realm::change::Change;
-use crate::society::addresses::{self, wire_agent, wire_scholar};
+use crate::society::addresses::{self, wire_agent, wire_profile};
 
 #[derive(
     Clone,
@@ -50,7 +50,7 @@ pub(crate) enum WaitKind {
     Question,
     /// An objection to a chief's instruction.
     Objection,
-    /// A scholar an agent made, waiting at the harbor to be let
+    /// A profile an agent made, waiting at the harbor to be let
     /// into the city.
     Newcomer,
 }
@@ -201,7 +201,7 @@ pub(crate) struct Wait {
     pub danger: Option<Danger>,
     pub agent: Option<AgentId>,
     /// The newcomer it is about.
-    pub scholar: Option<ScholarId>,
+    pub profile: Option<ProfileId>,
     /// The conversation it was raised in.
     pub conversation: Option<ConversationId>,
     pub task: Option<TaskId>,
@@ -255,7 +255,7 @@ pub(crate) struct Raise {
     pub danger: Option<Danger>,
     pub agent: AgentId,
     /// The newcomer a `newcomer` wait is about.
-    pub scholar: Option<ScholarId>,
+    pub profile: Option<ProfileId>,
     pub conversation: Option<ConversationId>,
     pub task: Option<TaskId>,
     pub about: String,
@@ -278,7 +278,7 @@ pub(crate) fn raise(
         .filter(wait::agent.eq(raise.agent))
         .filter(wait::about.eq(&raise.about))
         .filter(wait::danger.is(raise.danger))
-        .filter(wait::scholar.is(raise.scholar))
+        .filter(wait::profile.is(raise.profile))
         .filter(wait::conversation.is(raise.conversation))
         .select(wait::id)
         .first::<WaitId>(cx.db)
@@ -300,7 +300,7 @@ pub(crate) fn raise(
             wait::kind.eq(raise.kind),
             wait::danger.eq(raise.danger),
             wait::agent.eq(raise.agent),
-            wait::scholar.eq(raise.scholar),
+            wait::profile.eq(raise.profile),
             wait::conversation.eq(raise.conversation),
             wait::task.eq(raise.task),
             wait::about.eq(&raise.about),
@@ -490,8 +490,8 @@ fn view(db: &mut Db, wait: &Wait) -> Result<protocol::Wait> {
         },
         WaitKind::Objection => WaitDetail::Objection {},
         WaitKind::Newcomer => WaitDetail::Newcomer {
-            scholar: wire_scholar(wait.scholar.with_context(
-                || format!("wait {} has no scholar", wait.id),
+            profile: wire_profile(wait.profile.with_context(
+                || format!("wait {} has no profile", wait.id),
             )?),
         },
     };

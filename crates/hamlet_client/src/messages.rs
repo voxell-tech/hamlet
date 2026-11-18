@@ -10,9 +10,9 @@ use hamlet_protocol::client as protocol;
 use crate::chats::Chat;
 use crate::outbox::{Outbox, RequestId};
 use crate::realm::id_of;
-use crate::waits::{Choice, Refused, Waiting};
+use crate::waits::{Choice, Rejected, Waiting};
 
-/// Observers routing the chief's deeds into protocol requests.
+/// Observers routing the chief's actions into protocol requests.
 pub fn plugin(app: &mut App) {
     app.init_resource::<Outbox>()
         .init_resource::<Rewinds>()
@@ -331,7 +331,7 @@ pub(crate) fn receive(
                 files: reply.files.clone(),
             });
         }
-        let refusal = match message {
+        let rejection = match message {
             protocol::ServerMessage::Reply(reply)
                 if reply.kind == protocol::ReplyKind::Error =>
             {
@@ -346,9 +346,9 @@ pub(crate) fn receive(
         if let Some(need) = need
             && let Ok(mut need) = world.get_entity_mut(need)
         {
-            match refusal {
-                Some(text) => need.insert(Refused(text)),
-                None => need.remove::<Refused>(),
+            match rejection {
+                Some(text) => need.insert(Rejected(text)),
+                None => need.remove::<Rejected>(),
             };
         }
     }

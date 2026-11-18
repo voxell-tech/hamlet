@@ -77,8 +77,8 @@ pub(crate) enum Phase {
     Ready,
     /// Failed; it starts again once its wait is over.
     Down,
-    /// Refused for good, with words for a chief (S24).
-    Refused(String),
+    /// Rejected for good, with words for a chief (S24).
+    Rejected(String),
 }
 
 /// A runtime of the harness, an entity from its first start.
@@ -283,7 +283,7 @@ impl Runtimes<'_, '_> {
 
     /// Checks the hello of `runtime` against what it began with,
     /// keeping its versions the first time. Returns the words of its
-    /// refusal.
+    /// rejection.
     pub fn hello(
         &mut self,
         db: &mut Db,
@@ -300,7 +300,7 @@ impl Runtimes<'_, '_> {
                 runtime::version,
             ))
             .first::<(bool, Option<String>, Option<String>)>(db)?;
-        let refusal = if !hello
+        let rejection = if !hello
             .versions
             .iter()
             .any(|version| VERSION.is_compatible(version))
@@ -339,9 +339,9 @@ impl Runtimes<'_, '_> {
         } else {
             None
         };
-        match &refusal {
+        match &rejection {
             Some(words) => {
-                found.phase = Phase::Refused(words.clone());
+                found.phase = Phase::Rejected(words.clone());
             }
             None => {
                 if !begun {
@@ -357,7 +357,7 @@ impl Runtimes<'_, '_> {
                 found.ready_at = Some(Instant::now());
             }
         }
-        Ok(refusal)
+        Ok(rejection)
     }
 
     /// The adapter and harness versions `runtime` began with.
@@ -384,7 +384,7 @@ impl Runtimes<'_, '_> {
             .entity(entity)
             .despawn_related::<RuntimeLines>();
         runtime.process = None;
-        if matches!(runtime.phase, Phase::Refused(_)) {
+        if matches!(runtime.phase, Phase::Rejected(_)) {
             return;
         }
         if runtime.ready_at.is_some_and(|at| at.elapsed() >= SETTLED)

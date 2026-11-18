@@ -196,7 +196,7 @@ pub fn all() -> Vec<Set> {
                 },
                 Actor {
                     script: turns(Act::Listen, Act::Talk),
-                    ..actor(Who::mayor(), TALK_GAP / 2.0, 0.0, -SIDE)
+                    ..actor(Who::lead(), TALK_GAP / 2.0, 0.0, -SIDE)
                 },
             ],
             &[0.9, 1.5, 2.1, 2.55, 3.3, 4.0],
@@ -303,8 +303,8 @@ pub fn all() -> Vec<Set> {
         &[1.0, 1.1, 1.2, 1.3, 1.45, 3.0, 3.1, 3.2, 3.3, 3.45],
     ));
 
-    // The mayor among six of its town.
-    let mut family = vec![actor(Who::mayor(), 0.0, 0.0, 0.0)];
+    // The lead among six of its town.
+    let mut family = vec![actor(Who::lead(), 0.0, 0.0, 0.0)];
     let looks = [
         (Hat::Cap, Paint::Moss, Emblem::Dot),
         (Hat::Cone, Paint::Slate, Emblem::Bars),
@@ -388,7 +388,7 @@ pub fn crowd(n: usize) -> Vec<Actor> {
     let across = (n as f32 * 1.5).sqrt().ceil() as usize;
     let mut cast = vec![Actor {
         script: vec![(0.0, Act::Think)],
-        ..actor(Who::mayor(), CROWD_AT.x, CROWD_AT.y + 0.6, 0.0)
+        ..actor(Who::lead(), CROWD_AT.x, CROWD_AT.y + 0.6, 0.0)
     }];
     for i in 1..n {
         let who = Who::agent(i as u32 * 7 + 3);

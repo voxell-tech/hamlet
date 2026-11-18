@@ -2,10 +2,12 @@ use hamlet_store::ids::{Actor, AgentId, HamletId};
 
 use super::addresses::{self, Reach};
 use super::agents::{self, Effort, EndHow};
+use super::channels::{self, Agreed, Way};
+use super::hamlet_agents::{
+    self, LastDream, NewAgent, ProfileChoice, Spec,
+};
 use super::hamlets::{self, Founding};
-use super::hires::{self, Hired, Hiring, LastDream, Spec};
-use super::refusal::Refusal;
-use super::roads::{self, Agreed, Way};
+use super::rejection::Rejection;
 use super::workers::{self, Start, Starter};
 use super::{authority, chiefs, city, merges, tree};
 use crate::conversations::{chats, models};
@@ -15,33 +17,33 @@ use crate::realm::settings::{
 };
 use crate::testing::Realm;
 
-/// Founds a hamlet named `name` under a new mayor named `mayor`:
-/// its id and its mayor.
+/// Founds a hamlet named `name` under a new lead named `lead`:
+/// its id and its lead.
 fn found(
     realm: &mut Realm,
     name: &str,
-    mayor: &str,
+    lead: &str,
 ) -> (HamletId, AgentId) {
-    let hired = realm.found(name, mayor);
-    (hired.hamlet, hired.agent)
+    let lead = realm.found(name, lead);
+    (lead.hamlet, lead.agent)
 }
 
-/// Hires the scholar `name`, new or existing, under `parent` in
-/// `hamlet`.
-fn hire(
+/// Adds an agent of the profile `profile`, new or existing, under
+/// `parent` in `hamlet`.
+fn add(
     realm: &mut Realm,
     hamlet: &HamletId,
     parent: AgentId,
-    hiring: Hiring,
-) -> Result<Hired, Refusal> {
+    profile: ProfileChoice,
+) -> Result<NewAgent, Rejection> {
     let (owner, hamlet) = (realm.chief, hamlet.clone());
     realm.chief(|cx| {
-        hires::hire(
+        hamlet_agents::add(
             cx,
             Spec {
                 hamlet,
                 parent: Some(parent),
-                hiring,
+                profile,
                 purpose: "Help".into(),
                 reason: "needed".into(),
                 owner,
@@ -50,25 +52,31 @@ fn hire(
     })
 }
 
-fn new(name: &str) -> Hiring {
-    Hiring::Blank {
+fn new(name: &str) -> ProfileChoice {
+    ProfileChoice::Blank {
         name: name.into(),
         character: String::new(),
     }
 }
 
-/// The hiring of a new scholar of the city named `name`, which,
-/// unlike a blank agent's, can be hired again.
-fn of_city(realm: &mut Realm, name: &str) -> Hiring {
+/// A new profile of the city named `name`, which, unlike a blank
+/// agent's, can have another agent added.
+fn of_city(realm: &mut Realm, name: &str) -> ProfileChoice {
     let chief = realm.chief;
-    let scholar = realm
+    let profile = realm
         .chief(|cx| city::make(cx, name, chief, "", None))
         .unwrap();
-    Hiring::Existing { scholar, pin: None }
+    ProfileChoice::Existing { profile, pin: None }
 }
 
 fn end(cx: &mut Change<'_>, id: AgentId) -> Done<()> {
-    hires::end(cx, id, EndHow::Ended, LastDream::Without, "done")
+    hamlet_agents::end(
+        cx,
+        id,
+        EndHow::Ended,
+        LastDream::Without,
+        "done",
+    )
 }
 
 fn name(realm: &mut Realm, id: AgentId) -> String {
@@ -79,186 +87,184 @@ fn find(
     realm: &mut Realm,
     text: &str,
     here: Option<&HamletId>,
-) -> Result<AgentId, Refusal> {
+) -> Result<AgentId, Rejection> {
     let address = addresses::parse(text)?;
     addresses::resolve(realm.db(), &address, here, Reach::Living)
         .unwrap()
 }
 
 #[test]
-fn a_hire_is_addressed_by_its_id_never_by_name() {
+fn an_agent_is_addressed_by_its_id_never_by_name() {
     let mut realm = Realm::new();
-    let mayor = realm.found("docs", "ada");
-    let docs = mayor.hamlet.clone();
+    let lead = realm.found("docs", "ada");
+    let docs = lead.hamlet.clone();
     // A hamlet's id is made for it: not its name.
     assert_ne!(docs.as_str(), "docs");
     let scouting = of_city(&mut realm, "scout");
-    let scout =
-        hire(&mut realm, &docs, mayor.agent, scouting).unwrap();
-    let again = hire(
+    let scout = add(&mut realm, &docs, lead.agent, scouting).unwrap();
+    let again = add(
         &mut realm,
         &docs,
-        mayor.agent,
-        Hiring::Existing {
-            scholar: scout.scholar,
+        lead.agent,
+        ProfileChoice::Existing {
+            profile: scout.profile,
             pin: None,
         },
     )
     .unwrap();
-    assert_eq!(scout.scholar, again.scholar);
+    assert_eq!(scout.profile, again.profile);
     assert_eq!(
-        name(&mut realm, mayor.agent),
-        format!("hire#{} (ada)", mayor.agent)
+        name(&mut realm, lead.agent),
+        format!("agent#{} (ada)", lead.agent)
     );
     assert_eq!(
         name(&mut realm, again.agent),
-        format!("hire#{} (scout)", again.agent)
+        format!("agent#{} (scout)", again.agent)
     );
     assert_eq!(
-        find(&mut realm, &format!("hire#{}", again.agent), None),
+        find(&mut realm, &format!("agent#{}", again.agent), None),
         Ok(again.agent)
     );
     assert!(matches!(
         find(&mut realm, "scout", Some(&docs)),
-        Err(Refusal::BadAddress { .. })
+        Err(Rejection::BadAddress { .. })
     ));
     assert!(matches!(
-        find(&mut realm, "hire#999", None),
-        Err(Refusal::NoOne { .. })
+        find(&mut realm, "agent#999", None),
+        Err(Rejection::NoOne { .. })
     ));
-    // The Hand is no hire.
-    let hand = format!("hire#{}", realm.hand);
+    // The Hand is no agent of a hamlet.
+    let hand = format!("agent#{}", realm.hand);
     assert!(matches!(
         find(&mut realm, &hand, None),
-        Err(Refusal::NoOne { .. })
+        Err(Rejection::NoOne { .. })
     ));
     assert_eq!(
-        find(&mut realm, &format!("mayor@{docs}"), None),
-        Ok(mayor.agent)
+        find(&mut realm, &format!("lead@{docs}"), None),
+        Ok(lead.agent)
     );
     assert!(matches!(
-        find(&mut realm, "mayor@docs", None),
-        Err(Refusal::BadAddress { .. })
+        find(&mut realm, "lead@docs", None),
+        Err(Rejection::BadAddress { .. })
     ));
     assert_eq!(find(&mut realm, "hand", None), Ok(realm.hand));
-    // A name is a label: it may repeat, and a scholar's is its id.
+    // A name is a label: it may repeat, and a profile's is its id.
     let twin =
-        hire(&mut realm, &docs, mayor.agent, new("scout")).unwrap();
-    assert_ne!(twin.scholar, scout.scholar);
+        add(&mut realm, &docs, lead.agent, new("scout")).unwrap();
+    assert_ne!(twin.profile, scout.profile);
     assert_eq!(
-        addresses::parse_scholar(&format!(
-            "scholar#{}",
-            twin.scholar
+        addresses::parse_profile(&format!(
+            "profile#{}",
+            twin.profile
         )),
-        Ok(twin.scholar)
+        Ok(twin.profile)
     );
-    assert!(addresses::parse_scholar("scout").is_err());
+    assert!(addresses::parse_profile("scout").is_err());
 }
 
 #[test]
-fn a_scholar_is_renamed_without_changing_its_address() {
+fn a_profile_is_renamed_without_changing_its_address() {
     let mut realm = Realm::new();
-    let mayor = realm.found("docs", "ada");
+    let lead = realm.found("docs", "ada");
     realm
-        .chief(|cx| city::rename(cx, mayor.scholar, "Ada Lovelace"))
+        .chief(|cx| city::rename(cx, lead.profile, "Ada Lovelace"))
         .unwrap();
     assert_eq!(
-        name(&mut realm, mayor.agent),
-        format!("hire#{} (Ada Lovelace)", mayor.agent)
+        name(&mut realm, lead.agent),
+        format!("agent#{} (Ada Lovelace)", lead.agent)
     );
     assert!(matches!(
-        realm.chief(|cx| city::rename(cx, mayor.scholar, "a: b")),
-        Err(Refusal::BadName { .. })
+        realm.chief(|cx| city::rename(cx, lead.profile, "a: b")),
+        Err(Rejection::BadName { .. })
     ));
 }
 
 #[test]
-fn the_tree_heals_when_a_lead_ends() {
+fn the_tree_heals_when_a_parent_ends() {
     let mut realm = Realm::new();
-    let (docs, mayor) = found(&mut realm, "docs", "ada");
-    let lead =
-        hire(&mut realm, &docs, mayor, new("lead")).unwrap().agent;
-    let mid =
-        hire(&mut realm, &docs, lead, new("mid")).unwrap().agent;
-    let low = hire(&mut realm, &docs, mid, new("low")).unwrap().agent;
+    let (docs, lead) = found(&mut realm, "docs", "ada");
+    let top = add(&mut realm, &docs, lead, new("top")).unwrap().agent;
+    let mid = add(&mut realm, &docs, top, new("mid")).unwrap().agent;
+    let low = add(&mut realm, &docs, mid, new("low")).unwrap().agent;
     assert_eq!(tree::parent(realm.db(), low).unwrap(), Some(mid));
     assert_eq!(
-        realm.chief(|cx| hires::end(
+        realm.chief(|cx| hamlet_agents::end(
             cx,
-            mayor,
+            lead,
             EndHow::Ended,
             LastDream::Without,
             "done"
         )),
-        Err(Refusal::EndingMayor)
+        Err(Rejection::EndingLead)
     );
     realm.chief(|cx| end(cx, mid)).unwrap();
-    assert_eq!(tree::parent(realm.db(), low).unwrap(), Some(lead));
-    assert!(tree::is_above(realm.db(), mayor, low).unwrap());
+    assert_eq!(tree::parent(realm.db(), low).unwrap(), Some(top));
+    assert!(tree::is_above(realm.db(), lead, low).unwrap());
     // Back under its old parent, which still lives.
     realm
-        .chief(|cx| hires::come_back(cx, mid, "again"))
+        .chief(|cx| hamlet_agents::come_back(cx, mid, "again"))
         .unwrap();
-    assert_eq!(tree::parent(realm.db(), mid).unwrap(), Some(lead));
+    assert_eq!(tree::parent(realm.db(), mid).unwrap(), Some(top));
 }
 
 #[test]
-fn a_new_mayor_takes_the_root_and_the_old_one_stays_under_it() {
+fn a_new_lead_takes_the_root_and_the_old_one_stays_under_it() {
     let mut realm = Realm::new();
     let (docs, old) = found(&mut realm, "docs", "ada");
-    let next = hire(&mut realm, &docs, old, new("bo")).unwrap().agent;
-    let other =
-        hire(&mut realm, &docs, old, new("cy")).unwrap().agent;
+    let next = add(&mut realm, &docs, old, new("bo")).unwrap().agent;
+    let other = add(&mut realm, &docs, old, new("cy")).unwrap().agent;
     realm
-        .chief(|cx| hires::seat(cx, &docs, next, "steadier"))
+        .chief(|cx| {
+            hamlet_agents::set_lead(cx, &docs, next, "steadier")
+        })
         .unwrap();
-    assert_eq!(tree::mayor(realm.db(), &docs).unwrap(), next);
+    assert_eq!(tree::lead(realm.db(), &docs).unwrap(), next);
     assert_eq!(tree::parent(realm.db(), next).unwrap(), None);
     assert_eq!(tree::parent(realm.db(), old).unwrap(), Some(next));
     assert_eq!(tree::parent(realm.db(), other).unwrap(), Some(next));
     assert_eq!(
         tree::children(realm.db(), None).unwrap(),
         vec![next],
-        "the Hand is above the new mayor"
+        "the Hand is above the new lead"
     );
 }
 
 #[test]
-fn a_removed_hamlet_comes_back_whole_only_while_its_scholars_live() {
+fn a_removed_hamlet_comes_back_whole_only_while_its_profiles_live() {
     let mut realm = Realm::new();
-    let mayor = realm.found("docs", "ada");
-    let docs = mayor.hamlet.clone();
+    let lead = realm.found("docs", "ada");
+    let docs = lead.hamlet.clone();
     let scout =
-        hire(&mut realm, &docs, mayor.agent, new("scout")).unwrap();
+        add(&mut realm, &docs, lead.agent, new("scout")).unwrap();
     realm
         .chief(|cx| hamlets::remove(cx, &docs, "done"))
         .unwrap();
-    for id in [mayor.agent, scout.agent] {
+    for id in [lead.agent, scout.agent] {
         let ended = agents::get(realm.db(), id).unwrap();
         assert_eq!(ended.ended_how, Some(EndHow::Hamlet));
     }
     assert!(matches!(
-        find(&mut realm, &format!("hire#{}", scout.agent), None),
-        Err(Refusal::NoOne { .. })
+        find(&mut realm, &format!("agent#{}", scout.agent), None),
+        Err(Rejection::NoOne { .. })
     ));
     realm
-        .chief(|cx| city::archive(cx, scout.scholar, "retired"))
+        .chief(|cx| city::archive(cx, scout.profile, "retired"))
         .unwrap();
     assert!(matches!(
         realm.chief(|cx| hamlets::restore(cx, &docs, "again")),
-        Err(Refusal::ScholarGone { .. })
+        Err(Rejection::ProfileGone { .. })
     ));
     realm
-        .chief(|cx| city::restore(cx, scout.scholar, "back"))
+        .chief(|cx| city::restore(cx, scout.profile, "back"))
         .unwrap();
     realm
         .chief(|cx| hamlets::restore(cx, &docs, "again"))
         .unwrap();
     assert_eq!(
         tree::parent(realm.db(), scout.agent).unwrap(),
-        Some(mayor.agent)
+        Some(lead.agent)
     );
-    assert_eq!(tree::mayor(realm.db(), &docs).unwrap(), mayor.agent);
+    assert_eq!(tree::lead(realm.db(), &docs).unwrap(), lead.agent);
     realm
         .chief(|cx| hamlets::remove(cx, &docs, "done"))
         .unwrap();
@@ -266,7 +272,7 @@ fn a_removed_hamlet_comes_back_whole_only_while_its_scholars_live() {
     assert!(agents::get(realm.db(), scout.agent).unwrap().erased);
     assert_eq!(
         name(&mut realm, scout.agent),
-        format!("hire#{}", scout.agent)
+        format!("agent#{}", scout.agent)
     );
     // Its name is free again, under an id never given before.
     let chief = realm.chief;
@@ -277,7 +283,7 @@ fn a_removed_hamlet_comes_back_whole_only_while_its_scholars_live() {
                 Founding {
                     name: "docs".into(),
                     chief,
-                    mayor: new("zed"),
+                    lead: new("zed"),
                     purpose: "again".into(),
                 },
             )
@@ -297,17 +303,17 @@ fn a_hamlet_must_have_a_name() {
                 Founding {
                     name: name.into(),
                     chief,
-                    mayor: new("ada"),
+                    lead: new("ada"),
                     purpose: "Build it".into(),
                 }
             )),
-            Err(Refusal::BadName { .. })
+            Err(Rejection::BadName { .. })
         ));
     }
     let docs = realm.found("docs", "ada").hamlet;
     assert!(matches!(
         realm.chief(|cx| hamlets::rename(cx, &docs, " ")),
-        Err(Refusal::BadName { .. })
+        Err(Rejection::BadName { .. })
     ));
     realm
         .chief(|cx| hamlets::rename(cx, &docs, "Docs site"))
@@ -317,37 +323,37 @@ fn a_hamlet_must_have_a_name() {
 }
 
 #[test]
-fn a_scholar_leaves_with_its_hires_and_comes_back_with_them() {
+fn a_profile_leaves_with_its_agents_and_comes_back_with_them() {
     let mut realm = Realm::new();
-    let (docs, mayor) = found(&mut realm, "docs", "ada");
+    let (docs, lead) = found(&mut realm, "docs", "ada");
     let site = realm.found("site", "bea").hamlet;
     let scouting = of_city(&mut realm, "scout");
-    let scout = hire(&mut realm, &docs, mayor, scouting).unwrap();
-    let site_mayor = tree::mayor(realm.db(), &site).unwrap();
-    let there = hire(
+    let scout = add(&mut realm, &docs, lead, scouting).unwrap();
+    let site_lead = tree::lead(realm.db(), &site).unwrap();
+    let there = add(
         &mut realm,
         &site,
-        site_mayor,
-        Hiring::Existing {
-            scholar: scout.scholar,
+        site_lead,
+        ProfileChoice::Existing {
+            profile: scout.profile,
             pin: None,
         },
     )
     .unwrap();
-    let ada = hires::get(realm.db(), mayor).unwrap().scholar;
+    let ada = hamlet_agents::get(realm.db(), lead).unwrap().profile;
     assert_eq!(
         realm.chief(|cx| city::archive(cx, ada, "retired")),
-        Err(Refusal::EndingMayor),
-        "a mayor's scholar stays while it holds the office"
+        Err(Rejection::EndingLead),
+        "a lead's profile stays while it holds the office"
     );
     realm
-        .chief(|cx| city::archive(cx, scout.scholar, "retired"))
+        .chief(|cx| city::archive(cx, scout.profile, "retired"))
         .unwrap();
     assert!(
         !agents::get(realm.db(), there.agent).unwrap().is_living()
     );
     realm
-        .chief(|cx| city::restore(cx, scout.scholar, "back"))
+        .chief(|cx| city::restore(cx, scout.profile, "back"))
         .unwrap();
     assert!(
         agents::get(realm.db(), scout.agent).unwrap().is_living()
@@ -358,54 +364,63 @@ fn a_scholar_leaves_with_its_hires_and_comes_back_with_them() {
 }
 
 #[test]
-fn roads_follow_the_tree_and_join_hamlets_once_both_mayors_agree() {
+fn channels_follow_the_tree_and_join_hamlets_once_both_leads_agree() {
     let mut realm = Realm::new();
     let (docs, ada) = found(&mut realm, "docs", "ada");
     let (site, bea) = found(&mut realm, "site", "bea");
     let scout =
-        hire(&mut realm, &docs, ada, new("scout")).unwrap().agent;
+        add(&mut realm, &docs, ada, new("scout")).unwrap().agent;
     let mill =
-        hire(&mut realm, &docs, ada, new("mill")).unwrap().agent;
-    let far = hire(&mut realm, &site, bea, new("far")).unwrap().agent;
+        add(&mut realm, &docs, ada, new("mill")).unwrap().agent;
+    let far = add(&mut realm, &site, bea, new("far")).unwrap().agent;
     let hand = realm.hand;
     let db = realm.db();
-    assert_eq!(roads::way(db, scout, ada).unwrap(), Some(Way::Tree));
-    assert_eq!(roads::way(db, hand, ada).unwrap(), Some(Way::Tree));
-    assert_eq!(roads::way(db, ada, bea).unwrap(), Some(Way::Mayors));
-    assert_eq!(roads::way(db, scout, mill).unwrap(), None);
-    assert_eq!(roads::way(db, hand, scout).unwrap(), None);
+    assert_eq!(
+        channels::way(db, scout, ada).unwrap(),
+        Some(Way::Tree)
+    );
+    assert_eq!(
+        channels::way(db, hand, ada).unwrap(),
+        Some(Way::Tree)
+    );
+    assert_eq!(
+        channels::way(db, ada, bea).unwrap(),
+        Some(Way::Leads)
+    );
+    assert_eq!(channels::way(db, scout, mill).unwrap(), None);
+    assert_eq!(channels::way(db, hand, scout).unwrap(), None);
 
-    let laid = realm
+    let opened = realm
         .by(Actor::Agent(ada), |cx| {
-            roads::lay(cx, scout, mill, "pair", None)
+            channels::open(cx, scout, mill, "pair", None)
         })
         .unwrap();
     assert_eq!(
-        roads::way(realm.db(), mill, scout).unwrap(),
-        Some(Way::Road(laid))
+        channels::way(realm.db(), mill, scout).unwrap(),
+        Some(Way::Channel(opened))
     );
     assert!(matches!(
-        realm.chief(|cx| roads::lay(cx, scout, far, "x", None)),
-        Err(Refusal::OtherHamlet { .. })
+        realm.chief(|cx| channels::open(cx, scout, far, "x", None)),
+        Err(Rejection::OtherHamlet { .. })
     ));
     let first = realm
         .by(Actor::Agent(ada), |cx| {
-            roads::agree(cx, ada, scout, far, "trade", None)
+            channels::agree(cx, ada, scout, far, "trade", None)
         })
         .unwrap();
     assert_eq!(first, Agreed::Waiting);
-    assert_eq!(roads::way(realm.db(), scout, far).unwrap(), None);
+    assert_eq!(channels::way(realm.db(), scout, far).unwrap(), None);
     let second = realm
         .by(Actor::Agent(bea), |cx| {
-            roads::agree(cx, bea, scout, far, "trade", None)
+            channels::agree(cx, bea, scout, far, "trade", None)
         })
         .unwrap();
-    let Agreed::Laid(road) = second else {
+    let Agreed::Opened(channel) = second else {
         panic!("both agreed")
     };
     assert_eq!(
-        roads::way(realm.db(), far, scout).unwrap(),
-        Some(Way::Road(road))
+        channels::way(realm.db(), far, scout).unwrap(),
+        Some(Way::Channel(channel))
     );
 }
 
@@ -434,7 +449,7 @@ fn a_worker_starts_no_worker_and_works_where_its_starter_does() {
         realm.by(Actor::Agent(worker), |cx| {
             workers::start(cx, start(Starter::Agent(worker)))
         }),
-        Err(Refusal::Worker)
+        Err(Rejection::Worker)
     );
     let hand = realm.hand;
     let by_hand = realm
@@ -471,12 +486,12 @@ fn houses_keep_apart_and_clear_of_the_middle() {
 }
 
 #[test]
-fn a_scholar_a_hire_makes_waits_at_the_harbor_until_let_in() {
+fn a_profile_an_agent_makes_waits_at_the_harbor_until_let_in() {
     use crate::society::oversight::{self, WaitKind};
     let mut realm = Realm::new();
-    let (_, mayor) = found(&mut realm, "docs", "ada");
+    let (_, lead) = found(&mut realm, "docs", "ada");
     let chief = realm.chief;
-    // The Hand makes scholars for the chiefs: they move in at once.
+    // The Hand makes profiles for the chiefs: they move in at once.
     let hand = realm.hand;
     let kept = realm
         .by(Actor::Agent(hand), |cx| {
@@ -492,7 +507,7 @@ fn a_scholar_a_hire_makes_waits_at_the_harbor_until_let_in() {
         (city::Arrival::Housed, true)
     );
     let sam = realm
-        .by(Actor::Agent(mayor), |cx| {
+        .by(Actor::Agent(lead), |cx| {
             city::make(cx, "sam", chief, "", None)
         })
         .unwrap();
@@ -502,7 +517,7 @@ fn a_scholar_a_hire_makes_waits_at_the_harbor_until_let_in() {
     );
     let waits = |realm: &mut Realm| {
         oversight::open(realm.db()).unwrap().iter().any(|w| {
-            w.kind == WaitKind::Newcomer && w.scholar == Some(sam)
+            w.kind == WaitKind::Newcomer && w.profile == Some(sam)
         })
     };
     assert!(waits(&mut realm));
@@ -523,11 +538,11 @@ fn a_scholar_a_hire_makes_waits_at_the_harbor_until_let_in() {
 }
 
 #[test]
-fn a_lead_leaves_a_hire_on_a_chiefs_task_alone() {
+fn a_parent_leaves_an_agent_on_a_chiefs_task_alone() {
     let mut realm = Realm::new();
-    let (docs, mayor) = found(&mut realm, "docs", "ada");
-    let bo = hire(&mut realm, &docs, mayor, new("bo")).unwrap().agent;
-    let cy = hire(&mut realm, &docs, mayor, new("cy")).unwrap().agent;
+    let (docs, lead) = found(&mut realm, "docs", "ada");
+    let bo = add(&mut realm, &docs, lead, new("bo")).unwrap().agent;
+    let cy = add(&mut realm, &docs, lead, new("cy")).unwrap().agent;
     let env = EffectiveSettings {
         settings: Settings::default(),
         overrides: Overrides {
@@ -549,13 +564,13 @@ fn a_lead_leaves_a_hire_on_a_chiefs_task_alone() {
             Ok(Ok(()))
         })
         .unwrap();
-    // Unanswered, the chief's line keeps it from its lead.
-    let protected = Err(Refusal::OnChiefsTask {
-        name: format!("hire#{bo} (bo)"),
+    // Unanswered, the chief's line keeps it from its parent.
+    let protected = Err(Rejection::OnChiefsTask {
+        name: format!("agent#{bo} (bo)"),
     });
-    let ended = realm.by(Actor::Agent(mayor), |cx| end(cx, bo));
+    let ended = realm.by(Actor::Agent(lead), |cx| end(cx, bo));
     assert_eq!(ended, protected);
-    let merged = realm.by(Actor::Agent(mayor), |cx| {
+    let merged = realm.by(Actor::Agent(lead), |cx| {
         merges::merge(cx, cy, bo, "they overlap").map(|m| m.map(drop))
     });
     assert_eq!(merged, protected);
@@ -564,18 +579,18 @@ fn a_lead_leaves_a_hire_on_a_chiefs_task_alone() {
 }
 
 #[test]
-fn a_hire_without_a_purpose_takes_its_first_message() {
+fn an_agent_without_a_purpose_takes_its_first_message() {
     let mut realm = Realm::new();
-    let (docs, mayor) = found(&mut realm, "docs", "ada");
+    let (docs, lead) = found(&mut realm, "docs", "ada");
     let owner = realm.chief;
     let bo = realm
         .chief(|cx| {
-            hires::hire(
+            hamlet_agents::add(
                 cx,
                 Spec {
                     hamlet: docs.clone(),
-                    parent: Some(mayor),
-                    hiring: new("bo"),
+                    parent: Some(lead),
+                    profile: new("bo"),
                     purpose: String::new(),
                     reason: String::new(),
                     owner,
@@ -601,15 +616,15 @@ fn a_hire_without_a_purpose_takes_its_first_message() {
             })
             .unwrap();
     }
-    let purpose = hires::get(realm.db(), bo).unwrap().purpose;
+    let purpose = hamlet_agents::get(realm.db(), bo).unwrap().purpose;
     assert_eq!(purpose, "Sort the shelves.");
 }
 
 #[test]
 fn an_agents_own_effort_wins_and_the_realms_fills_in() {
     let mut realm = Realm::new();
-    let (docs, mayor) = found(&mut realm, "docs", "ada");
-    let bo = hire(&mut realm, &docs, mayor, new("bo")).unwrap().agent;
+    let (docs, lead) = found(&mut realm, "docs", "ada");
+    let bo = add(&mut realm, &docs, lead, new("bo")).unwrap().agent;
     let settings = Settings {
         effort: Some(Effort::Low),
         ..Settings::default()
@@ -622,7 +637,7 @@ fn an_agents_own_effort_wins_and_the_realms_fills_in() {
         .chief(|cx| agents::set_effort(cx, bo, Some(Effort::Max)))
         .unwrap();
     assert_eq!(effort(&mut realm, bo), Some(Effort::Max));
-    assert_eq!(effort(&mut realm, mayor), Some(Effort::Low));
+    assert_eq!(effort(&mut realm, lead), Some(Effort::Low));
     // A worker thinks as hard as its starter unless it was told.
     let worker = realm
         .by(Actor::Agent(bo), |cx| {
@@ -657,14 +672,14 @@ fn an_effort_a_model_lacks_gives_way_to_the_nearest_it_has() {
 #[test]
 fn only_a_chief_of_the_hamlet_steers_its_agents() {
     let mut realm = Realm::new();
-    let (_, mayor) = found(&mut realm, "docs", "ada");
+    let (_, lead) = found(&mut realm, "docs", "ada");
     let other = chiefs::ensure(realm.db(), "sam", 2).unwrap();
     let hand = realm.hand;
     let (own, other) =
         (Actor::Chief(realm.chief), Actor::Chief(other));
     let db = realm.db();
-    assert!(authority::may_steer(db, own, mayor).unwrap());
-    assert!(!authority::may_steer(db, other, mayor).unwrap());
+    assert!(authority::may_steer(db, own, lead).unwrap());
+    assert!(!authority::may_steer(db, other, lead).unwrap());
     // The Hand serves every chief of the realm.
     assert!(authority::may_steer(db, other, hand).unwrap());
 }
@@ -672,16 +687,16 @@ fn only_a_chief_of_the_hamlet_steers_its_agents() {
 #[test]
 fn the_hand_does_what_a_chief_does_but_steer_itself() {
     let mut realm = Realm::new();
-    let (docs, mayor) = found(&mut realm, "docs", "ada");
-    let (hand, hire) =
-        (Actor::Agent(realm.hand), Actor::Agent(mayor));
+    let (docs, lead) = found(&mut realm, "docs", "ada");
+    let (hand, agent) =
+        (Actor::Agent(realm.hand), Actor::Agent(lead));
     let the_hand = realm.hand;
     let db = realm.db();
     assert!(authority::may_govern(db, hand, &docs).unwrap());
     assert!(authority::may_rule(db, hand).unwrap());
-    assert!(authority::may_reach(db, hand, mayor).unwrap());
-    assert!(!authority::may_govern(db, hire, &docs).unwrap());
-    assert!(!authority::may_rule(db, hire).unwrap());
-    assert!(!authority::may_reach(db, hire, the_hand).unwrap());
+    assert!(authority::may_reach(db, hand, lead).unwrap());
+    assert!(!authority::may_govern(db, agent, &docs).unwrap());
+    assert!(!authority::may_rule(db, agent).unwrap());
+    assert!(!authority::may_reach(db, agent, the_hand).unwrap());
     assert!(!authority::may_steer(db, hand, the_hand).unwrap());
 }

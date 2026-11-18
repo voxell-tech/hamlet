@@ -7,8 +7,8 @@ use bevy_fynix::ViewExt;
 use bevy_fynix::tokens::Tone;
 use bevy_fynix::views::{BehaviorExt, Label, label, menu_item};
 use hamlet_client::realm::{
-    self as agents, Busy, Deeds, HamletId, Identity, Kind, Left,
-    Mayor,
+    self as agents, Actions, Busy, HamletId, Identity, Kind, Lead,
+    Left,
 };
 use hamlet_protocol::client as protocol;
 use hamlet_realm::generator::society::Ground;
@@ -16,12 +16,12 @@ use hamlet_realm::pick::{Also, Selected, Thing, focus_on, select};
 use hamlet_realm::{moving, orders};
 use hamlet_ui::AnyView;
 
-use super::deed::Deed;
+use super::action::Action;
 use super::{close, restore, stop};
-use crate::scholar_tag::ScholarTag;
+use crate::profile_tag::ProfileTag;
 use crate::screens::terminal::{Pins, pin};
 
-/// A living hire that is not its hamlet's mayor, with its name.
+/// A living agent of a hamlet that is not its lead, with its name.
 fn plain_agent(
     world: &World,
     thing: Thing,
@@ -30,8 +30,8 @@ fn plain_agent(
         return None;
     };
     let plain = world.get::<Kind>(agent).map(|kind| kind.0)
-        == Some(protocol::AgentKind::Hire)
-        && world.get::<Mayor>(agent).is_none()
+        == Some(protocol::AgentKind::Hamlet)
+        && world.get::<Lead>(agent).is_none()
         && world.get::<Left>(agent).is_none();
     let name = agents::shown_of(world, agent);
     plain.then_some((agent, name))
@@ -49,46 +49,47 @@ pub(super) fn item(
         .boxed()
 }
 
-/// An item that asks before it does `deed`.
-fn asking(text: Label, deed: Deed, at: Vec2) -> AnyView {
+/// An item that asks before it does `action`.
+fn asking(text: Label, action: Action, at: Vec2) -> AnyView {
     menu_item(text.wrap(false))
         .on_activate(move |world| {
             super::ask_against(
                 world,
-                deed.clone(),
+                action.clone(),
                 Rect::from_corners(at, at),
             );
         })
         .boxed()
 }
 
-/// Hires a scholar under `lead`, while it is a living hire.
-fn hire_under(world: &World, lead: Entity) -> Option<AnyView> {
-    let hire = world.get::<Kind>(lead).map(|kind| kind.0)
-        == Some(protocol::AgentKind::Hire);
-    (hire
-        && world.get::<Left>(lead).is_none()
-        && Deeds::is_allowed(world, "hire"))
+/// Adds an agent under `parent`, while it is a living agent of a
+/// hamlet.
+fn add_under(world: &World, parent: Entity) -> Option<AnyView> {
+    let of_hamlet = world.get::<Kind>(parent).map(|kind| kind.0)
+        == Some(protocol::AgentKind::Hamlet);
+    (of_hamlet
+        && world.get::<Left>(parent).is_none()
+        && Actions::is_allowed(world, "add-agent"))
     .then(|| {
-        item("Hire Under".into(), move |world| {
-            super::ask_hire(world, lead);
+        item("Add Agent Under".into(), move |world| {
+            super::ask_add_agent(world, parent);
         })
     })
 }
 
-/// The items about the city scholar `agent` is of.
-fn of_scholar(world: &World, agent: Entity) -> Vec<AnyView> {
-    let Some(tag) = ScholarTag::of(world, agent) else {
+/// The items about the city profile `agent` is of.
+fn of_profile(world: &World, agent: Entity) -> Vec<AnyView> {
+    let Some(tag) = ProfileTag::of(world, agent) else {
         return Vec::new();
     };
-    let scholar = tag.scholar;
+    let profile = tag.profile;
     let mut items =
-        vec![item("Go to Scholar".into(), move |world| {
-            crate::hub::open_scholar(world, scholar);
+        vec![item("Go to Profile".into(), move |world| {
+            crate::hub::open_profile(world, profile);
         })];
     if tag.learned
         && world.get::<Left>(agent).is_none()
-        && Deeds::is_allowed(world, "dream")
+        && Actions::is_allowed(world, "dream")
     {
         let address = agents::name_of(world, agent);
         items.push(item("Dream".into(), move |world| {
@@ -98,14 +99,15 @@ fn of_scholar(world: &World, agent: Entity) -> Vec<AnyView> {
     items
 }
 
-/// Makes a city scholar of what the hire `agent` learned.
-fn make_scholar(world: &World, agent: Entity) -> Option<AnyView> {
-    let hire = world.get::<Kind>(agent).map(|kind| kind.0)
-        == Some(protocol::AgentKind::Hire);
-    (hire && Deeds::is_allowed(world, "make-scholar")).then(|| {
-        item("Make Scholar".into(), move |world| {
+/// Makes a city profile of what the agent `agent` learned.
+fn make_profile(world: &World, agent: Entity) -> Option<AnyView> {
+    let of_hamlet = world.get::<Kind>(agent).map(|kind| kind.0)
+        == Some(protocol::AgentKind::Hamlet);
+    let allowed = Actions::is_allowed(world, "make-profile");
+    (of_hamlet && allowed).then(|| {
+        item("Make Profile".into(), move |world| {
             let text = format!(
-                "/make-scholar {}",
+                "/make-profile {}",
                 agents::name_of(world, agent)
             );
             orders::decree(world, agent, text);
@@ -117,16 +119,17 @@ fn focus(thing: Thing) -> AnyView {
     item("Focus".into(), move |w| focus_on(w, thing, false))
 }
 
-/// Builds a road from the hire `agent`, while it may have one.
-fn road(world: &World, agent: Entity) -> Option<AnyView> {
-    let hire = world.get::<Kind>(agent).map(|kind| kind.0)
-        == Some(protocol::AgentKind::Hire);
-    (hire
+/// Opens a channel from `agent`, an agent of a hamlet, while it may
+/// have one.
+fn channel(world: &World, agent: Entity) -> Option<AnyView> {
+    let of_hamlet = world.get::<Kind>(agent).map(|kind| kind.0)
+        == Some(protocol::AgentKind::Hamlet);
+    (of_hamlet
         && world.get::<Left>(agent).is_none()
-        && Deeds::is_allowed(world, "road"))
+        && Actions::is_allowed(world, "channel"))
     .then(|| {
-        item("Build a Road".into(), move |world| {
-            super::ask_road(world, agent);
+        item("Open a Channel".into(), move |world| {
+            super::ask_channel(world, agent);
         })
     })
 }
@@ -156,35 +159,35 @@ fn pin_bash(world: &World, agent: Entity) -> Option<AnyView> {
     })
 }
 
-fn for_mayor(world: &World) -> Vec<AnyView> {
-    let mut items = vec![item("Stop the Mayor".into(), |world| {
-        if let Some(mayor) = agents::first_mayor(world) {
-            let request = stop(world, mayor);
+fn for_lead(world: &World) -> Vec<AnyView> {
+    let mut items = vec![item("Stop the Lead".into(), |world| {
+        if let Some(lead) = agents::first_lead(world) {
+            let request = stop(world, lead);
             crate::toasts::announce(
                 world,
                 request,
-                "Stopped the Mayor",
+                "Stopped the Lead",
             );
         }
     })];
-    if let Some(mayor) = agents::first_mayor(world) {
-        if let Some(hire) = hire_under(world, mayor) {
-            items.insert(0, hire);
+    if let Some(lead) = agents::first_lead(world) {
+        if let Some(add) = add_under(world, lead) {
+            items.insert(0, add);
         }
-        items.extend(pin_bash(world, mayor));
+        items.extend(pin_bash(world, lead));
     }
     items
 }
 
 fn for_ruin(world: &World, agent: Entity) -> Vec<AnyView> {
     let mut items = Vec::new();
-    if Deeds::is_allowed(world, "restore") {
+    if Actions::is_allowed(world, "restore") {
         items.push(item(
             format!("Restore {}", agents::shown_of(world, agent)),
             move |world| restore(world, agent),
         ));
     }
-    items.extend(make_scholar(world, agent));
+    items.extend(make_profile(world, agent));
     items
 }
 
@@ -196,8 +199,8 @@ fn for_agent(
     at: Vec2,
 ) -> Vec<AnyView> {
     let name = |agent: Entity| agents::shown_of(world, agent);
-    let mut items = Vec::from_iter(hire_under(world, agent));
-    items.extend(road(world, agent));
+    let mut items = Vec::from_iter(add_under(world, agent));
+    items.extend(channel(world, agent));
     items.extend(pin_bash(world, agent));
     if world.get::<Busy>(agent).is_some() {
         let shown = name(agent);
@@ -207,8 +210,8 @@ fn for_agent(
             crate::toasts::announce(w, request, head.clone());
         }));
     }
-    items.extend(of_scholar(world, agent));
-    items.extend(make_scholar(world, agent));
+    items.extend(of_profile(world, agent));
+    items.extend(make_profile(world, agent));
     items.push(item("Copy Agent ID".into(), move |world| {
         crate::reference::copy_agent(world, agent);
     }));
@@ -223,15 +226,15 @@ fn for_agent(
         .flatten()
         .filter_map(|thing| plain_agent(world, thing))
         .find(|(other, _)| *other != agent);
-    // Its roads are built and taken up in its details.
+    // Its channels are opened and closed in its details.
     if let Some((them, other)) =
-        other.filter(|_| Deeds::is_allowed(world, "merge"))
+        other.filter(|_| Actions::is_allowed(world, "merge"))
     {
-        let into_me = Deed::Merge {
+        let into_me = Action::Merge {
             absorbed: them,
             kept: agent,
         };
-        let into_other = Deed::Merge {
+        let into_other = Action::Merge {
             absorbed: agent,
             kept: them,
         };
@@ -246,17 +249,17 @@ fn for_agent(
             at,
         ));
     }
-    if Deeds::is_allowed(world, "mayor") {
+    if Actions::is_allowed(world, "lead") {
         items.push(asking(
-            label(format!("Make {me} Mayor")),
-            Deed::Mayor(agent),
+            label(format!("Make {me} Lead")),
+            Action::Lead(agent),
             at,
         ));
     }
-    if Deeds::is_allowed(world, "end") {
+    if Actions::is_allowed(world, "end") {
         items.push(asking(
             label(format!("End {me}")),
-            Deed::End(agent),
+            Action::End(agent),
             at,
         ));
     }
@@ -275,12 +278,13 @@ fn for_common(
         .get::<HamletId>(hamlet)
         .map(|id| id.0.clone())
         .unwrap_or_default();
-    // A hire under its mayor, first, as what is done to it most.
-    let mut items = agents::mayor_of(world, &id)
-        .and_then(|mayor| {
-            hire_under(world, mayor).map(|_| {
-                item("Hire".into(), move |world| {
-                    super::ask_hire(world, mayor);
+    // An agent added under its lead, first, as what is done to it
+    // most.
+    let mut items = agents::lead_of(world, &id)
+        .and_then(|lead| {
+            add_under(world, lead).map(|_| {
+                item("Add Agent".into(), move |world| {
+                    super::ask_add_agent(world, lead);
                 })
             })
         })
@@ -290,10 +294,10 @@ fn for_common(
         crate::reference::copy_hamlet(world, hamlet);
     }));
     // Last, and red, as nothing done to it is harder to undo.
-    if !id.is_empty() && Deeds::is_allowed(world, "remove-hamlet") {
+    if !id.is_empty() && Actions::is_allowed(world, "remove-hamlet") {
         items.push(asking(
             label(format!("Close Down {name}")).tone(Tone::Critical),
-            Deed::Close(id),
+            Action::Close(id),
             at,
         ));
     }
@@ -351,7 +355,7 @@ pub(super) fn items(
     at: Vec2,
 ) -> Vec<AnyView> {
     match thing {
-        Thing::Keeper | Thing::Cottage => for_mayor(world),
+        Thing::Keeper | Thing::Cottage => for_lead(world),
         Thing::Ruin(agent) => for_ruin(world, agent),
         Thing::Agent(agent) | Thing::House(agent) => {
             for_agent(world, thing, agent, at)
@@ -369,14 +373,14 @@ pub(super) fn items(
             None => Vec::new(),
         },
         // Selecting it already opens its page.
-        Thing::Scholar(scholar) => {
+        Thing::Profile(profile) => {
             let mut items = Vec::new();
             let housed = world
-                .get::<hamlet_client::realm::Scholar>(scholar)
+                .get::<hamlet_client::realm::Profile>(profile)
                 .is_some_and(|s| s.0.house.is_some());
-            if housed && Deeds::is_allowed(world, "move-house") {
+            if housed && Actions::is_allowed(world, "move-house") {
                 items.push(item("Move House".into(), move |w| {
-                    orders::carry_house(w, scholar);
+                    orders::carry_house(w, profile);
                 }));
             }
             items

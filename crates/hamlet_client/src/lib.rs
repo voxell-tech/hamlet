@@ -41,7 +41,7 @@ impl Plugin for ClientPlugin {
             .init_resource::<realm::Settings>()
             .init_resource::<realm::Providers>()
             .init_resource::<realm::Grants>()
-            .init_resource::<realm::Deeds>()
+            .init_resource::<realm::Actions>()
             .init_resource::<realm::Skills>()
             .init_resource::<realm::Closed>()
             .add_plugins((

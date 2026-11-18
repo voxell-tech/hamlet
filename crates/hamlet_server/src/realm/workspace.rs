@@ -1,10 +1,10 @@
 //! A remote workspace (C18): another machine whose worker runs the
-//! agents' tools, each agent in its own `/lodge` with its hamlet's
+//! agents' tools, each agent in its own `/worktree` with its hamlet's
 //! `/project` and the library at `/library`. Requests carry a bearer
 //! token; virtual paths never reach the host.
 
-pub(crate) mod lodges;
 pub(crate) mod serving;
+pub(crate) mod worktrees;
 
 use std::path::PathBuf;
 use std::time::Duration;

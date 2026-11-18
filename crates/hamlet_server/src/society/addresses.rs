@@ -1,91 +1,91 @@
-//! Addresses of agents and scholars, by ids (C30, H14).
+//! Addresses of agents and profiles, by ids (C30, H14).
 
 use anyhow::Result;
 use diesel::prelude::*;
 use hamlet_protocol::address::{Address, bare};
 use hamlet_protocol::client as protocol;
 use hamlet_store::Db;
-use hamlet_store::ids::{Actor, AgentId, HamletId, ScholarId};
-use hamlet_store::schema::{agent, hire, scholar, worker};
+use hamlet_store::ids::{Actor, AgentId, HamletId, ProfileId};
+use hamlet_store::schema::{agent, hamlet_agent, profile, worker};
 
 use super::agents::{self, AgentKind};
 use super::names::hamlet_id;
-use super::refusal::Refusal;
+use super::rejection::Rejection;
 use super::{chiefs, city, hamlets, hand, tree};
-use crate::realm::change::{Done, checked, done, refuse};
+use crate::realm::change::{Done, checked, done, reject};
 
-/// Which agents or scholars an address may name.
+/// Which agents or profiles an address may name.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum Reach {
     Living,
-    /// The ended agents and the archived scholars too.
+    /// The ended agents and the archived profiles too.
     Kept,
 }
 
 /// Reads an agent's address, with or without the name shown beside
 /// it.
-pub(crate) fn parse(text: &str) -> Result<Address, Refusal> {
+pub(crate) fn parse(text: &str) -> Result<Address, Rejection> {
     let text = bare(text);
     match text.parse::<Address>() {
-        Ok(Address::Mayor {
+        Ok(Address::Lead {
             hamlet: Some(hamlet),
         }) if hamlet_id(&hamlet).is_none() => {}
-        Ok(Address::Scholar(_)) | Err(_) => {}
+        Ok(Address::Profile(_)) | Err(_) => {}
         Ok(address) => return Ok(address),
     }
-    Err(Refusal::BadAddress {
+    Err(Rejection::BadAddress {
         address: text.into(),
     })
 }
 
-/// Reads a scholar's address, `scholar#<id>`, with or without the
+/// Reads a profile's address, `profile#<id>`, with or without the
 /// name shown beside it.
-pub(crate) fn parse_scholar(
+pub(crate) fn parse_profile(
     text: &str,
-) -> Result<ScholarId, Refusal> {
+) -> Result<ProfileId, Rejection> {
     let text = bare(text);
     match text.parse::<Address>() {
-        Ok(Address::Scholar(id)) => i64::try_from(id.0).ok(),
+        Ok(Address::Profile(id)) => i64::try_from(id.0).ok(),
         _ => None,
     }
-    .map(ScholarId)
-    .ok_or_else(|| Refusal::BadAddress {
+    .map(ProfileId)
+    .ok_or_else(|| Rejection::BadAddress {
         address: text.into(),
     })
 }
 
-/// The scholar `text` addresses, among those `reach` allows.
-pub(crate) fn scholar_at(
+/// The profile `text` addresses, among those `reach` allows.
+pub(crate) fn profile_at(
     db: &mut Db,
     text: &str,
     reach: Reach,
-) -> Done<ScholarId> {
-    let id = checked!(parse_scholar(text));
+) -> Done<ProfileId> {
+    let id = checked!(parse_profile(text));
     let found = city::find(db, id)?.filter(|found| {
-        found.kind == city::ScholarKind::Scholar
+        found.kind == city::ProfileKind::Profile
             && (reach == Reach::Kept || found.is_living())
     });
     Ok(match found {
         Some(found) => Ok(found.id),
-        None => Err(Refusal::NoScholar {
+        None => Err(Rejection::NoProfile {
             address: text.into(),
         }),
     })
 }
 
-/// The living scholar `text` addresses, and the `@<version>` it pins.
-pub(crate) fn scholar_pinned(
+/// The living profile `text` addresses, and the `@<version>` it pins.
+pub(crate) fn profile_pinned(
     db: &mut Db,
     text: &str,
-) -> Done<(ScholarId, Option<String>)> {
+) -> Done<(ProfileId, Option<String>)> {
     let (address, version) = match text.split_once('@') {
         Some((address, version)) => {
             (address, Some(version.to_owned()))
         }
         None => (text, None),
     };
-    Ok(scholar_at(db, address, Reach::Living)?
-        .map(|scholar| (scholar, version)))
+    Ok(profile_at(db, address, Reach::Living)?
+        .map(|profile| (profile, version)))
 }
 
 /// The protocols' form of the agent `id`.
@@ -93,14 +93,14 @@ pub(crate) fn wire_agent(id: AgentId) -> protocol::AgentId {
     protocol::AgentId(u64::try_from(id.0).unwrap_or_default())
 }
 
-/// The protocols' form of the scholar `id`.
-pub(crate) fn wire_scholar(id: ScholarId) -> protocol::ScholarId {
-    protocol::ScholarId(u64::try_from(id.0).unwrap_or_default())
+/// The protocols' form of the profile `id`.
+pub(crate) fn wire_profile(id: ProfileId) -> protocol::ProfileId {
+    protocol::ProfileId(u64::try_from(id.0).unwrap_or_default())
 }
 
-/// The address of the scholar `id`.
-pub(crate) fn scholar_address(id: ScholarId) -> String {
-    Address::Scholar(wire_scholar(id)).to_string()
+/// The address of the profile `id`.
+pub(crate) fn profile_address(id: ProfileId) -> String {
+    Address::Profile(wire_profile(id)).to_string()
 }
 
 /// The agent `address` names, said in `here`, the speaker's hamlet.
@@ -110,30 +110,30 @@ pub(crate) fn resolve(
     here: Option<&HamletId>,
     reach: Reach,
 ) -> Done<AgentId> {
-    let none = || Refusal::NoOne {
+    let none = || Rejection::NoOne {
         address: address.to_string(),
     };
     let stored =
         |id: protocol::AgentId| i64::try_from(id.0).ok().map(AgentId);
     match address {
         Address::Hand => Ok(Ok(hand::id(db)?)),
-        Address::Mayor { hamlet } => {
+        Address::Lead { hamlet } => {
             let named = hamlet.as_deref().map(hamlet_id);
             let hamlet = match named {
                 Some(Some(hamlet)) => hamlet,
-                Some(None) => refuse!(none()),
+                Some(None) => reject!(none()),
                 None => match here {
                     Some(here) => here.clone(),
-                    None => refuse!(none()),
+                    None => reject!(none()),
                 },
             };
             done!(hamlets::living(db, &hamlet));
-            Ok(Ok(tree::mayor(db, &hamlet)?))
+            Ok(Ok(tree::lead(db, &hamlet)?))
         }
-        Address::Scholar(_) => refuse!(none()),
+        Address::Profile(_) => reject!(none()),
         Address::Worker(id) => {
             let Some(id) = stored(*id) else {
-                refuse!(none());
+                reject!(none());
             };
             let found = agents::find(db, id)?;
             match found {
@@ -144,28 +144,28 @@ pub(crate) fn resolve(
                 {
                     Ok(Ok(id))
                 }
-                _ => refuse!(none()),
+                _ => reject!(none()),
             }
         }
-        Address::Hire(id) => {
+        Address::Agent(id) => {
             let Some(id) = stored(*id) else {
-                refuse!(none());
+                reject!(none());
             };
-            let mut query = hire::table
+            let mut query = hamlet_agent::table
                 .inner_join(agent::table)
-                .inner_join(scholar::table)
-                .filter(hire::agent.eq(id))
+                .inner_join(profile::table)
+                .filter(hamlet_agent::agent.eq(id))
                 .filter(agent::erased.eq(false))
-                .select(hire::agent)
+                .select(hamlet_agent::agent)
                 .into_boxed();
             if reach == Reach::Living {
                 query = query
                     .filter(agent::ended_at.is_null())
-                    .filter(scholar::left_at.is_null());
+                    .filter(profile::left_at.is_null());
             }
             match query.first::<AgentId>(db).optional()? {
                 Some(found) => Ok(Ok(found)),
-                None => refuse!(none()),
+                None => reject!(none()),
             }
         }
     }
@@ -196,49 +196,52 @@ pub(crate) fn actor_address(
     })
 }
 
-/// The address of `id`: `hand`, `hire#id` or `worker#id` (C30).
+/// The address of `id`: `hand`, `agent#id` or `worker#id` (C30).
 pub(crate) fn address_of(db: &mut Db, id: AgentId) -> Result<String> {
     let kind = agents::get(db, id)?.kind;
     Ok(match kind {
         AgentKind::Hand => Address::Hand,
-        AgentKind::Hire => Address::Hire(wire_agent(id)),
+        AgentKind::Hamlet => Address::Agent(wire_agent(id)),
         AgentKind::Worker => Address::Worker(wire_agent(id)),
     }
     .to_string())
 }
 
-/// How `id` is shown to chiefs and agents, as in `hire#3 (Mira)`.
+/// How `id` is shown to chiefs and agents, as in `agent#3 (Mira)`.
 pub(crate) fn name_of(db: &mut Db, id: AgentId) -> Result<String> {
     let address = address_of(db, id)?;
     let found = agents::get(db, id)?;
     if found.kind == AgentKind::Worker
-        && let Some(nickname) = worker::table
+        && let Some(name) = worker::table
             .find(id)
-            .select(worker::nickname)
+            .select(worker::name)
             .first::<Option<String>>(db)?
     {
-        return Ok(format!("{address} ({nickname})"));
+        return Ok(format!("{address} ({name})"));
     }
-    if found.kind != AgentKind::Hire || found.erased {
+    if found.kind != AgentKind::Hamlet || found.erased {
         return Ok(address);
     }
-    let (nickname, name) = hire::table
-        .inner_join(scholar::table)
-        .filter(hire::agent.eq(id))
-        .select((hire::nickname, scholar::name))
+    let (agent_name, profile_name) = hamlet_agent::table
+        .inner_join(profile::table)
+        .filter(hamlet_agent::agent.eq(id))
+        .select((hamlet_agent::name, profile::name))
         .first::<(Option<String>, String)>(db)?;
-    Ok(format!("{address} ({})", nickname.unwrap_or(name)))
+    Ok(format!(
+        "{address} ({})",
+        agent_name.unwrap_or(profile_name)
+    ))
 }
 
-/// How the scholar `id` is shown to chiefs and agents, as in
-/// `scholar#2 (Mira)`.
-pub(crate) fn scholar_name_of(
+/// How the profile `id` is shown to chiefs and agents, as in
+/// `profile#2 (Mira)`.
+pub(crate) fn profile_name_of(
     db: &mut Db,
-    id: ScholarId,
+    id: ProfileId,
 ) -> Result<String> {
-    let name = scholar::table
+    let name = profile::table
         .find(id)
-        .select(scholar::name)
+        .select(profile::name)
         .first::<String>(db)?;
-    Ok(format!("{} ({name})", scholar_address(id)))
+    Ok(format!("{} ({name})", profile_address(id)))
 }

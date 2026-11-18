@@ -9,7 +9,7 @@ there is no icon font, no file to load and no licence to carry.
 `hamlet_ui/src/widgets/icons.rs` is the only place an icon is drawn.
 
 - `Glyph` names every icon. A name says what the picture is (`Moon`,
-  `Bell`, `Check`) unless the picture is the hamlet's own thing (`Mayor`,
+  `Bell`, `Check`) unless the picture is the hamlet's own thing (`Lead`,
   `Hamlet`, `Hearth`).
 - `glyph(Glyph::Bell, 14.0)` is the icon as a view. It takes `.tone(...)`
   like a label, and a button's look tints it with its lettering.
@@ -53,9 +53,9 @@ An icon means one thing across the app, so the eye can trust it. Those
 that name a part of Hamlet:
 
 - `Tree` the Hub, `Globe` the world and the realm, `Hamlet` a hamlet,
-  `Scholar` a scholar and the city, `Anchor` the harbor, `Signpost`
-  roads, `Hearth` the chief's hearth.
-- `Tower` the Hand, `Mayor` a mayor and the leads, `Hire` a hire,
+  `Profile` a profile and the city, `Anchor` the harbor, `Signpost`
+  channels, `Hearth` the chief's hearth.
+- `Tower` the Hand, `Lead` a lead and the parents, `HamletAgent` an agent of a hamlet,
   `Worker` a worker, `Robot` agents in general, `Face` an agent's
   character, `Notes` what it is told in writing (its prompt, memory
   and the charter), `Book` skills, the library and a hamlet's limits.

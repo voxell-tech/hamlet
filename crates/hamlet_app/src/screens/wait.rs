@@ -258,17 +258,17 @@ pub(crate) fn open(world: &mut World, wait: Entity) {
     let Some(waiting) = world.get::<Waiting>(wait) else {
         return;
     };
-    let scholar = match &waiting.detail {
-        WaitDetail::Newcomer { scholar } => {
-            hamlet_client::realm::scholar(world, *scholar)
+    let profile = match &waiting.detail {
+        WaitDetail::Newcomer { profile } => {
+            hamlet_client::realm::profile(world, *profile)
         }
         _ => None,
     };
     let asker = hamlet_client::realm::named(world, &waiting.by);
     show_tab(world, HUB);
-    match (scholar, asker) {
-        (Some(scholar), _) => {
-            crate::hub::show(world, Showing::Scholar(scholar));
+    match (profile, asker) {
+        (Some(profile), _) => {
+            crate::hub::show(world, Showing::Profile(profile));
         }
         (None, Some(agent)) => {
             crate::convo::talk_to(world, agent);
@@ -419,7 +419,7 @@ fn held(
 /// The line over the card of `need`, `tail` at its end.
 fn head(
     need: &Need,
-    scholar: &str,
+    profile: &str,
     tail: AnyView,
 ) -> impl View + use<> {
     let what = match &need.detail {
@@ -439,7 +439,7 @@ fn head(
             format!("{} ran into an error", need.shown)
         }
         WaitDetail::Newcomer { .. } => {
-            format!("{scholar} wants to move into the city")
+            format!("{profile} wants to move into the city")
         }
     };
     let when = match need.asked {
@@ -542,22 +542,22 @@ fn strip(need: &Need, tail: AnyView) -> AnyView {
             Some(_) => frame().boxed(),
             None => answers(&need),
         };
-        let scholar = match &need.detail {
-            WaitDetail::Newcomer { scholar } => {
-                hamlet_client::realm::scholar(cx.world, *scholar)
-                    .and_then(|scholar| {
-                        cx.world.get::<hamlet_client::realm::Scholar>(
-                            scholar,
+        let profile = match &need.detail {
+            WaitDetail::Newcomer { profile } => {
+                hamlet_client::realm::profile(cx.world, *profile)
+                    .and_then(|profile| {
+                        cx.world.get::<hamlet_client::realm::Profile>(
+                            profile,
                         )
                     })
                     .map_or_else(
-                        || "A new scholar".to_string(),
-                        |scholar| scholar.0.name.clone(),
+                        || "A new profile".to_string(),
+                        |profile| profile.0.name.clone(),
                     )
             }
             _ => String::new(),
         };
-        let head = head(&need, &scholar, tail);
+        let head = head(&need, &profile, tail);
         // A form says its questions itself.
         let line = match &need.detail {
             WaitDetail::Question { .. }

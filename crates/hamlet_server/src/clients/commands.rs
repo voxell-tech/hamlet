@@ -21,8 +21,8 @@ use crate::clients::handlers::FromClient;
 use crate::core::Core;
 use crate::realm::change::{Done, done};
 use crate::society::addresses::Reach;
-use crate::society::hires;
-use crate::society::refusal::Refusal;
+use crate::society::hamlet_agents;
+use crate::society::rejection::Rejection;
 
 type Run = fn(&mut Core<'_, '_>, &Line) -> Answer;
 
@@ -54,7 +54,7 @@ const CHAT: &[Command] = &[
     Command {
         name: "hamlet",
         usage: "/hamlet <hamlet>",
-        does: "Talk to a hamlet's mayor",
+        does: "Talk to a hamlet's lead",
         run: choose_in_client,
     },
     Command {
@@ -81,7 +81,7 @@ const CHAT: &[Command] = &[
         does: "Stop an agent's work and hold what waits",
         run: |core, line| match targets(core, line)? {
             Ok(targets) => Ok(Ok(core.stop_turns(&targets)?)),
-            Err(refusal) => Ok(Err(refusal)),
+            Err(rejection) => Ok(Err(rejection)),
         },
     },
     Command {
@@ -90,7 +90,7 @@ const CHAT: &[Command] = &[
         does: "Let a stopped agent take what waits",
         run: |core, line| match targets(core, line)? {
             Ok(targets) => Ok(Ok(core.resume_agents(&targets)?)),
-            Err(refusal) => Ok(Err(refusal)),
+            Err(rejection) => Ok(Err(rejection)),
         },
     },
 ];
@@ -115,24 +115,24 @@ impl Line {
     }
 }
 
-/// A command's answer: words for the chief, or a refusal.
+/// A command's answer: words for the chief, or a rejection.
 pub(crate) type Answer = Done<String>;
 
 /// Every command, in the order a client lists them.
 #[derive(Resource, Default)]
-pub(crate) struct Deeds(
+pub(crate) struct Actions(
     Vec<(&'static Command, SystemId<In<Line>, Answer>)>,
 );
 
-impl Deeds {
+impl Actions {
     /// The commands a client may offer.
-    pub fn listed(&self) -> Vec<protocol::Deed> {
+    pub fn listed(&self) -> Vec<protocol::Action> {
         self.0
             .iter()
-            .map(|(command, _)| protocol::Deed {
+            .map(|(command, _)| protocol::Action {
                 description: command.does.into(),
                 name: command.name.into(),
-                // A deed's usage is what follows its name.
+                // An action's usage is what follows its name.
                 usage: command
                     .usage
                     .strip_prefix('/')
@@ -144,14 +144,14 @@ impl Deeds {
             .collect()
     }
 
-    /// The usage of command `name`, as a refusal.
-    pub fn usage(&self, name: &str) -> Refusal {
+    /// The usage of command `name`, as a rejection.
+    pub fn usage(&self, name: &str) -> Rejection {
         let usage = self
             .0
             .iter()
             .find(|(command, _)| command.name == name)
             .map_or("", |(command, _)| command.usage);
-        Refusal::CommandUsage {
+        Rejection::CommandUsage {
             usage: usage.into(),
         }
     }
@@ -189,13 +189,13 @@ impl AddCommands for App {
                     run(&mut core, &line)
                 },
             );
-            let mut deeds = world.get_resource_or_init::<Deeds>();
+            let mut actions = world.get_resource_or_init::<Actions>();
             assert!(
-                deeds.system(command.name).is_none(),
+                actions.system(command.name).is_none(),
                 "the command /{} is added twice",
                 command.name
             );
-            deeds.0.push((command, system));
+            actions.0.push((command, system));
         }
         self
     }
@@ -229,14 +229,15 @@ fn run(
         .map_err(|error| anyhow!("{error}"))??;
     let answer = match line {
         None => return Ok(()),
-        Some(Err(refusal)) => Err(refusal),
+        Some(Err(rejection)) => Err(rejection),
         Some(Ok(line)) => {
-            let found = world.resource::<Deeds>().system(&line.name);
+            let found =
+                world.resource::<Actions>().system(&line.name);
             match found {
                 Some(system) => world
                     .run_system_with(system, line)
                     .map_err(|error| anyhow!("{error}"))??,
-                None => Err(Refusal::NoCommand { name: line.name }),
+                None => Err(Rejection::NoCommand { name: line.name }),
             }
         }
     };
@@ -251,19 +252,20 @@ fn run(
 fn line_of(
     In((client, say)): In<(u64, protocol::Say)>,
     mut core: Core,
-) -> Result<Option<Result<Line, Refusal>>> {
+) -> Result<Option<Result<Line, Rejection>>> {
     let Some(agent) = core.reached(client, &say.id, say.to.0)? else {
         return Ok(None);
     };
     if !say.images.is_empty() || !say.files.is_empty() {
-        return Ok(Some(Err(Refusal::CommandAttachments)));
+        return Ok(Some(Err(Rejection::CommandAttachments)));
     }
     let text = say.text.trim().trim_start_matches('/');
     let (name, rest) = text
         .split_once(char::is_whitespace)
         .map_or((text, ""), |(name, rest)| (name, rest.trim()));
     let db = core.realm.store().connection();
-    let here = hires::find(db, agent)?.map(|hire| hire.hamlet);
+    let here = hamlet_agents::find(db, agent)?
+        .map(|hamlet_agent| hamlet_agent.hamlet);
     Ok(Some(Ok(Line {
         agent,
         here,
@@ -277,7 +279,7 @@ fn answered(
     In((client, id, answer)): In<(
         u64,
         protocol::RequestId,
-        Result<String, Refusal>,
+        Result<String, Rejection>,
     )>,
     mut core: Core,
 ) -> Result<()> {

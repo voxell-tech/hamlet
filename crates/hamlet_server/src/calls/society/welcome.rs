@@ -1,7 +1,7 @@
 //! The Hand judging a newcomer to the city for the chiefs (H45).
 
 use anyhow::Result;
-use hamlet_store::ids::{Actor, ScholarId};
+use hamlet_store::ids::{Actor, ProfileId};
 
 use crate::conversations::errands::{self, Ended, Errand};
 use crate::conversations::tasks::{self, Origin};
@@ -15,17 +15,17 @@ pub(crate) const WELCOME: &str = "welcome";
 /// The Hand's part before every verdict.
 const ROLE: &str =
     "You are the Hand, deciding for the chiefs which newcomers move \
-     into the city. The city is where the realm's scholars live \
-     between their work: any hamlet can hire a scholar there, and \
-     what it learns stays with it. Let a newcomer in when it is a \
-     scholar the realm will want again, distinct from those the \
-     city has. Turn it away when it repeats one of them, is too \
-     narrow to keep, or is unclear. A newcomer turned away still \
-     works for the hamlet that made it. The chiefs can undo what \
-     you decide.";
+     into the city. The city is where the realm's profiles live \
+     between their work: any hamlet can add an agent of a profile \
+     there, and what it learns stays with it. Let a newcomer in \
+     when it is a profile the realm will want again, distinct from \
+     those the city has. Turn it away when it repeats one of them, \
+     is too narrow to keep, or is unclear. A newcomer turned away \
+     still works for the hamlet that made it. The chiefs can undo \
+     what you decide.";
 
 /// The owner of the errand that judges the newcomer `id`.
-fn owner(id: ScholarId) -> String {
+fn owner(id: ProfileId) -> String {
     format!("newcomer:{id}")
 }
 
@@ -34,19 +34,19 @@ fn owner(id: ScholarId) -> String {
 pub(crate) fn judge(
     cx: &mut Change<'_>,
     env: &EffectiveSettings,
-    id: ScholarId,
+    id: ProfileId,
     character: &str,
 ) -> Result<()> {
     let newcomer = city::get(cx.db, id)?;
     let maker = addresses::actor_name(cx.db, Some(newcomer.made_by))?;
     let living = city::all(cx.db)?
         .into_iter()
-        .filter(|scholar| {
-            scholar.is_living()
-                && scholar.id != id
-                && scholar.arrival == city::Arrival::Housed
+        .filter(|profile| {
+            profile.is_living()
+                && profile.id != id
+                && profile.arrival == city::Arrival::Housed
         })
-        .map(|scholar| format!("- {}", scholar.label()))
+        .map(|profile| format!("- {}", profile.label()))
         .collect::<Vec<_>>();
     let city = if living.is_empty() {
         "(nobody yet)".to_owned()
@@ -55,7 +55,7 @@ pub(crate) fn judge(
     };
     let instructions = format!("{ROLE}\n\n# The city\n{city}");
     let question = format!(
-        "{maker} made the scholar `{}`, whose character \
+        "{maker} made the profile `{}`, whose character \
          is:\n\n{}\n\nShould it move into the city? Answer ACCEPT \
          or TURN AWAY on the first line, then say why in one line.",
         newcomer.label(),
@@ -97,7 +97,7 @@ pub(crate) fn judged(
     else {
         return Ok(());
     };
-    let id = ScholarId(id);
+    let id = ProfileId(id);
     let Ended::Answered(answer) = ended else {
         return Ok(());
     };
