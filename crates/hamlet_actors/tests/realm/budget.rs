@@ -291,3 +291,31 @@ async fn a_charge_before_the_period_began_counts_nothing() {
     assert_eq!(spent, over_cost(&payer, 50, 50));
     realm.host.shutdown().await.unwrap();
 }
+
+#[tokio::test(flavor = "multi_thread")]
+async fn a_charge_in_the_millisecond_of_a_reset_counts() {
+    // reset the hamlet's budget, charge past it, and move the
+    // charge to the reset's millisecond: the charge still counts.
+    let (realm, hamlet) = hamlet_with(0).await;
+    let task = standing(&realm, MAYOR);
+    let payer = pays(&hamlet);
+    limit(
+        &realm,
+        Some(&hamlet),
+        vec![BudgetLimit::Cost { micros: 5 }],
+    )
+    .await;
+
+    reset(&realm, payer.clone()).await;
+    realm.tool(MAYOR, &charge("c1", &task, 5, 1)).await.unwrap();
+    realm
+        .write(
+            "UPDATE charge SET at = (SELECT MAX(at) FROM \
+             budget_reset) WHERE call = 'c1'",
+        )
+        .await;
+    let spent = may_spend(&realm, MAYOR, &task).await;
+
+    assert_eq!(spent, over_cost(&payer, 5, 5));
+    realm.host.shutdown().await.unwrap();
+}

@@ -4,6 +4,7 @@ use anyhow::Result;
 use hamlet_actor::{Action, Ctx, Handler};
 use hamlet_messages::Message;
 use hamlet_messages::address::{Agent, Workspace};
+use hamlet_messages::realm::budget::{OpenTask, TaskOpened};
 use hamlet_messages::realm::client::{Answer, Say};
 use hamlet_messages::realm::{
     Asked, ChiefRequest, Gate, LeadRefusal, Rank, Refusable,
@@ -255,6 +256,19 @@ impl Handler<Answer> for Realm {
         let by = sender(&ctx, &answer)?;
         let id = marker::Id::Request(answer.0.id.clone());
         act::run(&self, &ctx, by, Some(id), Answer::NAME, answer)
+            .await
+    }
+}
+
+impl Handler<OpenTask> for Realm {
+    async fn handle(
+        self: Arc<Self>,
+        ctx: Ctx<Self>,
+        open: OpenTask,
+    ) -> Result<TaskOpened> {
+        let by = sender(&ctx, &open)?;
+        let id = marker::Id::Request(open.request.clone());
+        act::run(&self, &ctx, by, Some(id), OpenTask::NAME, open)
             .await
     }
 }

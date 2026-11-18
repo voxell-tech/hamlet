@@ -171,7 +171,7 @@ impl Actor for Realm {
         Tool<SetAllowance>,
         Asked<SetAllowance>,
         Tool<ReadBudget>,
-        Bare<OpenTask>,
+        OpenTask,
         Asked<NameHamlet>,
         Asked<MoveHamlet>,
         Asked<SetMode>,

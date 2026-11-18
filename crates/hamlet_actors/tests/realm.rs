@@ -88,6 +88,8 @@ mod settings;
 mod society;
 #[path = "realm/steps.rs"]
 mod steps;
+#[path = "realm/tasks.rs"]
+mod tasks;
 #[path = "realm/waits.rs"]
 mod waits;
 #[path = "realm/workers.rs"]

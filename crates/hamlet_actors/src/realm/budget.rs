@@ -146,7 +146,9 @@ async fn reset(
 ) -> Result<Affected> {
     writer
         .execute(
-            "INSERT INTO budget_reset (payer, at) VALUES (?1, ?2)",
+            "INSERT INTO budget_reset (payer, last_charge, at) \
+             VALUES (?1, (SELECT COALESCE(MAX(rowid), 0) FROM \
+             charge), ?2)",
             vec![
                 BindParam::Text(serde_json::to_string(payer)?),
                 BindParam::Integer(writer.at().0),
@@ -211,8 +213,9 @@ pub(super) async fn spent(
         .row::<(u64, u64)>(
             "SELECT COALESCE(SUM(micros), 0), \
              COALESCE(SUM(took_ms), 0) FROM charge WHERE payer = ?1 \
-             AND at >= ?2 AND at > COALESCE((SELECT MAX(at) FROM \
-             budget_reset WHERE payer = ?1), -1)",
+             AND at >= ?2 AND rowid > COALESCE((SELECT \
+             MAX(last_charge) FROM budget_reset WHERE payer = ?1), \
+             0)",
             vec![
                 BindParam::Text(serde_json::to_string(payer)?),
                 BindParam::Integer(began(rows, budget.period).await?),

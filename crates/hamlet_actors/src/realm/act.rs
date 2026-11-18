@@ -117,11 +117,14 @@ where
     By: Witness,
     A: Act<By> + Serialize,
 {
+    let key = id
+        .map(|id| marker::Key::of(&by, id, name, &act))
+        .transpose()?;
     let stood = exec(
         realm,
         ctx,
         by,
-        id,
+        key,
         name,
         act,
         async |_, _, _| Ok(None::<Barred<Infallible>>),
@@ -141,18 +144,24 @@ pub(super) async fn run_tool<T: ToolAct>(
     name: &'static str,
     tool: Tool<T>,
 ) -> Result<Result<<T::Run as Act<Agent>>::Output, Stood>> {
+    let key = marker::Key::of(
+        &by,
+        marker::Id::Call(tool.call.clone()),
+        name,
+        &tool,
+    )?;
     let Tool {
-        call,
         task,
         conversation,
         act,
+        ..
     } = tool;
     let act = act.run(task.clone());
     exec(
         realm,
         ctx,
         by,
-        Some(marker::Id::Call(call)),
+        Some(key),
         name,
         act,
         async move |by: &Agent, rows: &Rows<'_>, act: &T::Run| {
@@ -228,7 +237,7 @@ async fn exec<By, A, S>(
     realm: &Arc<Realm>,
     ctx: &Ctx<Realm>,
     by: By,
-    id: Option<marker::Id>,
+    key: Option<marker::Key>,
     name: &'static str,
     act: A,
     bar: impl AsyncFn(&By, &Rows<'_>, &A) -> Result<Option<Barred<S>>>,
@@ -238,9 +247,7 @@ where
     By: Witness,
     A: Act<By> + Serialize,
 {
-    let key = id
-        .map(|id| marker::Key::of(&by, id, name, &act))
-        .transpose()?;
+    hamlet_host::fault::point(&format!("called/{name}"));
     let mut waited = false;
     let (done, pushes) = loop {
         #[cfg(feature = "faults")]
@@ -304,6 +311,9 @@ where
                         },
                     )
                     .await?;
+                hamlet_host::fault::point(&format!(
+                    "committed/{name}"
+                ));
                 after_reserving(realm, ctx, pushes);
                 return Ok(Err(reserved(wait)?));
             }
@@ -336,6 +346,9 @@ where
                         },
                     )
                     .await?;
+                hamlet_host::fault::point(&format!(
+                    "committed/{name}"
+                ));
                 break (decided.done, pushes);
             }
         }
