@@ -94,13 +94,10 @@ pub struct Limits {
 #[derive(Resource, Clone, PartialEq, Debug, serde::Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct SoundSettings {
-    /// True when the effects, the wildlife and the ambience are off.
+    /// True when the effects and the ambience are off.
     pub muted: bool,
     /// True when the music plays. It does not follow `muted`.
     pub music_on: bool,
-    /// True when the animals are heard: birds, crickets and any
-    /// other wildlife. Off, none plays whatever its volume.
-    pub wildlife_on: bool,
     /// True when the environment is heard: wind.
     pub ambience_on: bool,
     /// The master volume, 0 to 1, of the effects and the music.
@@ -110,13 +107,9 @@ pub struct SoundSettings {
     /// The chief's own level for the music, 0 to 1.
     pub music_level: f32,
     /// The volume of each kind of sound, before the master volume:
-    /// birds and owls; wind; footsteps; hammer, wheel, steam,
-    /// quill and kite; doors and letters; the chime and the fault
-    /// note.
-    pub wildlife: f32,
+    /// wind; footsteps; hammer, wheel, steam, quill and kite; doors
+    /// and letters; the chime and the fault note.
     pub ambience: f32,
-    /// The birds' share of the wildlife.
-    pub birds: f32,
     pub steps: f32,
     pub work: f32,
     pub doors: f32,
@@ -172,8 +165,7 @@ pub struct SoundSettings {
     pub alerts_everywhere: bool,
     /// Seconds the ambience takes to change with the hour.
     pub fade: f32,
-    /// Height of the ears below which birds and owls are at
-    /// their loudest.
+    /// Height of the ears below which the wind is at its softest.
     pub close: f32,
     /// Seconds the music takes to come in and to go out.
     pub music_fade: f32,
@@ -204,11 +196,7 @@ impl SoundSettings {
 
     /// True when the family is not switched off.
     pub fn is_on(&self, family: Family) -> bool {
-        match family {
-            Family::Wildlife => self.wildlife_on,
-            Family::Ambience => self.ambience_on,
-            _ => true,
-        }
+        family != Family::Ambience || self.ambience_on
     }
 }
 

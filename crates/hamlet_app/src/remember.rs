@@ -101,8 +101,6 @@ pub struct View {
     sound_on: bool,
     music_on: bool,
     #[serde(default = "on")]
-    wildlife_on: bool,
-    #[serde(default = "on")]
     ambience_on: bool,
     sound_level: f32,
     music_level: f32,
@@ -329,7 +327,6 @@ pub fn restore(world: &mut World) {
     let mut sound = world.resource_mut::<SoundSettings>();
     sound.muted = !view.sound_on;
     sound.music_on = view.music_on;
-    sound.wildlife_on = view.wildlife_on;
     sound.ambience_on = view.ambience_on;
     sound.sound_level = view.sound_level.clamp(0.0, 1.0);
     sound.music_level = view.music_level.clamp(0.0, 1.0);
@@ -448,7 +445,6 @@ pub fn keep(
         sky: *sky,
         sound_on: !sound.muted,
         music_on: sound.music_on,
-        wildlife_on: sound.wildlife_on,
         ambience_on: sound.ambience_on,
         sound_level: sound.sound_level,
         music_level: sound.music_level,
@@ -502,7 +498,6 @@ mod tests {
             sky: TimeOfDay::At(18.5),
             sound_on: false,
             music_on: false,
-            wildlife_on: false,
             ambience_on: true,
             sound_level: 0.5,
             music_level: 0.25,

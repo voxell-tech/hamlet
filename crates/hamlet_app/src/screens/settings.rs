@@ -801,13 +801,6 @@ fn sound() -> impl View {
             ),
         ),
         field(
-            "Wildlife",
-            alone(sound_switch(
-                |s| s.wildlife_on,
-                |s, on| s.wildlife_on = on,
-            )),
-        ),
-        field(
             "Ambience",
             alone(sound_switch(
                 |s| s.ambience_on,
