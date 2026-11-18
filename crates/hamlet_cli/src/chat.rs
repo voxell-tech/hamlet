@@ -305,7 +305,7 @@ impl TerminalChat {
         prompt(&mut self.screen, self.interactive)
     }
 
-    /// Says `line`, with what its `@path` tokens name attached where
+    /// Says `line`, with what its `#path` tokens name attached where
     /// the tokens stood. The line is not said if one cannot be
     /// attached.
     async fn say_line(&mut self, line: String) -> Result<()> {

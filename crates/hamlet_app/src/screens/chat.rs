@@ -5,7 +5,6 @@ pub(crate) mod attach;
 pub(crate) mod bubble;
 mod card;
 mod change;
-mod commands;
 mod edits;
 mod entry;
 mod field;
@@ -14,6 +13,7 @@ mod lines;
 mod quote;
 pub(crate) mod reply;
 mod rewind;
+mod suggestions;
 mod timeline;
 
 use std::collections::HashMap;
@@ -103,6 +103,7 @@ pub fn plugin(app: &mut App) {
         .add_plugins((
             anchor::plugin,
             attach::plugin,
+            suggestions::plugin,
             rewind::plugin,
             lines::plugin,
             reply::plugin,
@@ -483,21 +484,31 @@ fn told(tell: On<Tell>, mut commands: Commands) {
     });
 }
 
+/// What a typed command the list does not offer is told.
+const UNLISTED: &str = "Only the commands listed as you type / run \
+                        here. The rest are in the menus, or \
+                        right-click an agent or a hamlet.";
+
 /// Sends what is typed in `hub`'s field, as Enter does.
 pub(crate) fn send_typed(world: &mut World, hub: Entity) {
     let Some(plain) = field::typed(world, hub) else {
         return;
     };
-    focus(world, hub);
+    // Only the commands the list offers run here: the rest each have
+    // a button or a menu.
     if plain.text.trim_start().starts_with('/') {
-        tell(
-            world,
-            Some(hub),
-            "Commands are not typed here. Use the menus, or \
-             right-click an agent or a hamlet.",
-        );
+        let line = plain.text.trim().to_owned();
+        if suggestions::commands::run(world, hub, &line) {
+            // What ran may take the focus, as a popup does.
+            tell(world, Some(hub), "");
+            field::with_field(world, hub, |mut field| field.clear());
+        } else {
+            focus(world, hub);
+            tell(world, Some(hub), UNLISTED);
+        }
         return;
     }
+    focus(world, hub);
     if without_model(world, hub) {
         // Kept in the field, to send once a model is set up.
         tell(
@@ -643,11 +654,12 @@ fn message_bar_in(
         if without_model(world, hub) {
             return "Set up a model to start".to_string();
         }
-        match convo::of(world, hub).map(|c| &c.with) {
+        let message = match convo::of(world, hub).map(|c| &c.with) {
             Some(Some(name)) => format!("Message {name}"),
             Some(None) => "Message the Hand".to_string(),
             None => "Message".to_string(),
-        }
+        };
+        format!("{message}. {}", suggestions::hint(world))
     })
     .when(every_frame());
     let field = row((hinted(
@@ -677,7 +689,7 @@ fn message_bar_in(
     .min_width(px(FIELD_LEAST))
     .overflow(Overflow::clip());
     let card = column((
-        commands::list(hub),
+        suggestions::list(hub),
         reply::preview(hub),
         attach::indicator(hub),
         attach::holds(hub),
@@ -989,7 +1001,7 @@ mod tests {
             .world_mut()
             .spawn((Window::default(), PrimaryWindow))
             .id();
-        for command in ["/compact", "/agent ada", "/hamlet home"] {
+        for command in ["/hand", "/agent ada", "/hamlet home"] {
             type_in(&mut app, command);
             app.update();
             app.world_mut().write_message(KeyboardInput {
@@ -1001,11 +1013,11 @@ mod tests {
                 window,
             });
             app.update();
-            assert!(crate::testing::words(&mut app).iter().any(
-                |text| text
-                    == "Commands are not typed here. Use the menus, \
-                        or right-click an agent or a hamlet."
-            ));
+            assert!(
+                crate::testing::words(&mut app)
+                    .iter()
+                    .any(|text| text == UNLISTED)
+            );
         }
         let places = attach::Places::new();
         let hub = hub(&app);

@@ -6,12 +6,15 @@
 //!
 //! [`screen`] keeps a terminal's screen as both ends of the client
 //! protocol draw it, and [`address`] reads and writes the addresses
-//! agents and profiles are named by.
+//! agents and profiles are named by. [`signs`] are what a word of a
+//! chief's line starts with to name an agent, a command, a skill or a
+//! file.
 
 pub mod address;
 pub mod client;
 pub mod runtime;
 pub mod screen;
+pub mod signs;
 mod version;
 
 pub use version::{BadVersion, Version};

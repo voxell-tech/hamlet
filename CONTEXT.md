@@ -43,7 +43,9 @@ _Avoid_: blank profile, temp agent
 How a chief or an agent names an agent or a profile, by ids and never by a
 name: `hand`, `lead@<hamlet>` (by the hamlet's id), `agent#<id>`,
 `worker#<id>`, `profile#<id>`. Wherever an agent is shown, its address comes
-first and its name beside it.
+first and its name beside it. In the chat's field, `@` lists the other agents,
+those it has a channel to first, and the one picked is put in as its
+address's chip.
 _Avoid_: handle, username
 
 **Name**:

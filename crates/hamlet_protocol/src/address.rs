@@ -83,9 +83,11 @@ impl fmt::Display for Address {
 }
 
 /// `text` without the ` (<name>)` an address is shown and copied
-/// with, as in `agent#2 (Mira)`.
+/// with, as in `agent#2 (Mira)`, and without the `@` a line mentions
+/// it after.
 pub fn bare(text: &str) -> &str {
     let text = text.trim();
+    let text = text.strip_prefix('@').unwrap_or(text);
     match text.split_once(" (") {
         Some((address, _)) if text.ends_with(')') => {
             address.trim_end()
