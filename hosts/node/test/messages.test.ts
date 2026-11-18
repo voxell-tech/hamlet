@@ -192,8 +192,31 @@ const STOPPING: Answers = {
     realm: { lapse: () => answer("realm/lapse") },
 };
 
+const REWINDING: Answers = { ...STOPPING, ...COMMANDED };
+
 function uuid(n: number): string {
     return `00000000-0000-4000-8000-${String(n).padStart(12, "0")}`;
+}
+
+/** A chief's line, then its rewind. */
+async function rewound(t: TestContext, calls: Calls): Promise<Woken> {
+    const agent = await chief(t, calls, ["One."]);
+    await say(agent, "Go.");
+    const page = await agent.actions.read_chat(agent.by(from.client), {
+        id: uuid(4),
+        chat: CHIEF,
+    });
+    const line = page.items.find((item) => item.kind === "user");
+    assert.ok(line);
+    assert.deepEqual(
+        await agent.actions.rewind(agent.by(from.client), {
+            id: uuid(5),
+            chat: CHIEF,
+            item: line.id,
+        }),
+        { type: "rewound", text: "Go." },
+    );
+    return agent;
 }
 
 async function say(agent: Woken, text: string): Promise<void> {
@@ -646,27 +669,15 @@ const WRITTEN: readonly Written[] = [
         own: ["conversation"],
     },
     {
+        fixture: "workspace/cancel.conversation",
+        drive: rewound,
+        answers: REWINDING,
+        own: ["which.conversation"],
+    },
+    {
         fixture: "realm/lapse.rewound",
-        drive: async (t, calls) => {
-            const agent = await chief(t, calls, ["One."]);
-            await say(agent, "Go.");
-            const page = await agent.actions.read_chat(agent.by(from.client), {
-                id: uuid(4),
-                chat: CHIEF,
-            });
-            const line = page.items.find((item) => item.kind === "user");
-            assert.ok(line);
-            assert.deepEqual(
-                await agent.actions.rewind(agent.by(from.client), {
-                    id: uuid(5),
-                    chat: CHIEF,
-                    item: line.id,
-                }),
-                { type: "rewound", text: "Go." },
-            );
-            return agent;
-        },
-        answers: COMMANDED,
+        drive: rewound,
+        answers: REWINDING,
         own: ["conversation"],
     },
     {
@@ -1397,8 +1408,8 @@ const NOT_THE_AGENTS: readonly (readonly [RegExp, string])[] = [
         "the realm's call of the workspace",
     ],
     [
-        /^workspace\/cancel\.(conversation|one)\.args$/,
-        "a cancel of one conversation or one call: `/stop` cancels every command the agent has out",
+        /^workspace\/cancel\.one\.args$/,
+        "a cancel of one call: `/stop` cancels every command the agent has out, and a rewind those of the session it leaves",
     ],
     [
         /^workspace\/command_status\./,

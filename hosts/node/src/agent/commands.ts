@@ -38,6 +38,7 @@ import {
     nowSeconds,
     session,
 } from "./sessions.ts";
+import { timersEnded } from "./timers.ts";
 import { refused, textOf } from "./transcript.ts";
 import { callOf, conversationsOf, draftOf, isBusy, refOf } from "./turn.ts";
 import { endsLater } from "./workspace-tools.ts";
@@ -268,9 +269,9 @@ async function refusedRetry(
 
 /**
  * Takes the current session back to before the chief's line `item`: the
- * session points at a fork made at the entry before it. The realm is told
- * first, so the repeat of a rewind cut off before the move tells it again;
- * one after the move finds no such line.
+ * session points at a fork made at the entry before it. The workspace and
+ * the realm are told first, so the repeat of a rewind cut off before the
+ * move tells them again; one after the move finds no such line.
  */
 export async function rewind(
     c: AgentCall,
@@ -285,7 +286,7 @@ export async function rewind(
         };
     }
     const at = entryOf(message.item);
-    const { options, inTurn } = generationOf(c);
+    const { options, inTurn, peers } = generationOf(c);
     return inTurn(async () => {
         const from = await current(c.db);
         if (from === undefined || at === undefined) {
@@ -297,8 +298,13 @@ export async function rewind(
         if (typeof found === "string") {
             return rewindRefused(found, message.item);
         }
+        await peers.cancel({
+            which: { type: "conversation", conversation: refOf(from) },
+        });
         await lapsed(c, from, "rewound");
         const fork = await withHarness(c, options, async (harness, context) => {
+            // A timer left set would fire a turn in the session left.
+            await timersEnded(harness, from, context);
             const kept = await harness.conversation(from, context);
             const before = found.before;
             const made =

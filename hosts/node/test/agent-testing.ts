@@ -68,6 +68,7 @@ export function fakeCalls(answers: {
     > = {
         [WORKSPACE.kind]: {
             list_tools: () => ({ tools: [], faults: [] }),
+            cancel: () => ({ commands: [] }),
             ...answers.workspace,
         },
         [REALM.kind]: {
@@ -476,7 +477,6 @@ export function toolCall(
 export function credentialsFile() {
     const file = new Map<string, Kept>();
     const { calls, sent } = fakeCalls({
-        workspace: { cancel: () => ({ commands: [] }) },
         realm: {
             credential: ({ provider }) =>
                 file.get(provider) ?? {

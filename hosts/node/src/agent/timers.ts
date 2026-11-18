@@ -2,11 +2,14 @@
  * pi-durable keeps each timer's sleep, so the agent keeps no timer of its
  * own, and the wrapper keeps one host alarm for the earliest one.
  */
+import type { Context } from "@earendil-works/chord/context";
 import {
+    type ConversationId,
     defineExtension,
     defineTask,
     defineTool,
     type Extension,
+    type Harness,
 } from "@earendil-works/pi-durable";
 import { callOf, draftOf, failed, words } from "./turn.ts";
 
@@ -57,6 +60,24 @@ export const Wake = defineTask<
             context,
         ),
 });
+
+/** Ends every timer `conversation` set that has not fired. */
+export async function timersEnded(
+    harness: Harness,
+    conversation: ConversationId,
+    context: Context,
+): Promise<void> {
+    const set = await harness.commit(
+        (tx) =>
+            tx.scanTasks({ conversationId: conversation, kind: KIND }, 1000),
+        context,
+    );
+    for (const task of set.items) {
+        if (task.state.outcome === undefined) {
+            await harness.abortTask(task.id, context);
+        }
+    }
+}
 
 export function timers(): Extension {
     return defineExtension({

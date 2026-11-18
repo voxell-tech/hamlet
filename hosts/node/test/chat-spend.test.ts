@@ -439,9 +439,7 @@ test("a turn with no model fails with the model it lacks", async (t) => {
 
 test("a stopped turn tells nothing", async (t) => {
     const asked = Promise.withResolvers<void>();
-    const { calls, sent } = fakeCalls({
-        workspace: { cancel: () => ({ commands: [] }) },
-    });
+    const { calls, sent } = fakeCalls({});
     const agent = await wakeAgent(t, {
         calls,
         responses: [

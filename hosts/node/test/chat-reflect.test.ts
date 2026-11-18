@@ -47,10 +47,7 @@ async function wake(
         if (before === undefined) delete process.env.HAMLET_REFLECT_EVERY;
         else process.env.HAMLET_REFLECT_EVERY = before;
     });
-    const { calls, sent } = fakeCalls({
-        workspace: { cancel: () => ({ commands: [] }) },
-        realm: { open_task: openTask },
-    });
+    const { calls, sent } = fakeCalls({ realm: { open_task: openTask } });
     const agent = await wakeAgent(t, { calls, responses });
     t.after(() => agent.stop());
     return { agent, sent };

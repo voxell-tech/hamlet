@@ -154,13 +154,10 @@ const ADA = { agent: 12, name: "Ada" };
 
 const NO_RETRIES: HarnessSettings = { retry: { maxRetries: 0 } };
 
-/** Answers `cancel` and `open_task`, which `fakeCalls` does not. */
+/** Answers `open_task`, which `fakeCalls` does not. */
 function fakes(answers: Parameters<typeof fakeCalls>[0] = {}) {
     return fakeCalls({
-        workspace: {
-            cancel: () => ({ commands: [] }),
-            ...answers.workspace,
-        },
+        ...answers,
         realm: {
             open_task: () => ({ type: "opened", task: "task-retry" }),
             ...answers.realm,
@@ -544,6 +541,36 @@ test("a retry cut off by a kill opens its task again under the client's request"
         "Carry on from where you stopped.",
         "Carried on.",
     ]);
+});
+
+test("a rewind cancels the commands of the session it leaves and ends the timers it set", async (t) => {
+    const { calls, sent } = fakes();
+    const agent = await wake(t, calls, [
+        toolCall("wake", { in_seconds: 3600, note: "look again" }),
+        fauxAssistantMessage("Set."),
+    ]);
+    await told(agent, "Go");
+    const left = await now(agent);
+
+    await agent.actions.rewind(agent.by(from.client), {
+        id: "rw-1",
+        chat: { with: 7 },
+        item: await itemOfLine(agent, "Go"),
+    });
+
+    assert.deepEqual(named(sent, "cancel").at(-1)?.message, {
+        which: { type: "conversation", conversation: String(left) },
+    });
+    const harness = await agent.harness();
+    const timers = await harness.commit(
+        (tx) => tx.scanTasks({ conversationId: left, kind: "hamlet.wake" }, 10),
+        context,
+    );
+    assert.equal(timers.items.length, 1);
+    assert.deepEqual(
+        timers.items.map((task) => task.state.outcome?.status),
+        ["aborted"],
+    );
 });
 
 test("a failed turn rewound away is not carried on", async (t) => {
