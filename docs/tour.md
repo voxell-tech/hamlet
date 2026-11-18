@@ -242,8 +242,9 @@ codec, `link.fingerprint` the frames' shapes), and then each takes the
 other's calls and creates through its `Port` (`link/port.rs`). The Node
 host's entry is `hosts/node/src/main.ts`: it takes the link before the
 actor layer loads, serves the kinds of `hosts/node/src/demo.ts` its
-`--kind` arguments name through `serveLink` in
-`hosts/node/src/actor/registry/link.ts`, and exits 1 on any failure. A
+`--kind` arguments name through `serve` in `hosts/node/src/entry.ts`,
+which runs `serveLink` of `hosts/node/src/actor/registry/link.ts`, and
+exits 1 on any failure. A
 peer's request is checked against who that host speaks for (`link/peer.rs`),
 then runs on the host's own call or start path, so `admit` checks it
 again. A call, a create and a subscribe cross the link. A call to the
@@ -383,13 +384,14 @@ hamlet, hire, say a line, answer a chief's waits, end an agent, lay
 roads, and set budgets, review limits, modes, folders, allowances,
 nicknames, the charter, models and prices. `realm live <n>` waits
 until agent `<n>` is live, and `realm world` prints the world a client
-reads. The `agent` lines act as an agent. Each calls `forward`, an
-action that `demo-host.ts` alone registers and only the program may
-call, which sends the line's message as that agent. They tell, ask,
+reads. The `agent` lines act as an agent through `forward`, an action
+that `demo-host.ts` alone registers and only the program may call,
+which sends the line's message as that agent. They tell, ask,
 reply, ask a chief, object, agree roads, start and end workers, ask
 and charge, run commands, read copies and keep a credential.
-`agent <n> inputs` and `agent <n> await` read the inputs in agent
-`<n>`'s transcript through `taken`, another action of the demo's. The
+`agent <n> inputs` and `agent <n> await` do not use `forward`. They
+read the inputs in agent `<n>`'s transcript through `taken`, another
+action of the demo's. The
 `pi` lines of `agent_host.rs` make a client's chat calls on an agent,
 follow its chat, print its entries or the Node host's process id, and
 copy a file into its filesystem. `pi die-after <action>` has the Node
@@ -736,6 +738,7 @@ realm, workspace and library, as [the actor runtime](#the-actor-runtime)
 describes. The realm creates every agent with its create input: the
 Hand and each hire by a hire's steps (`realm/hire.rs`), a worker by
 `realm/workers.rs` and an errand by `realm/workers/errands.rs`. The
+realm's first start begins the Hand's steps (`realm/chiefs.rs`). The
 demo's `realm say` gives an agent a chief's line. The kill kit's rows
 on `Demo::RealmActor` run there.
 
@@ -807,14 +810,19 @@ keeps the realm awake meanwhile.
 A hire is one transaction, then six steps in `hire.rs`, each recorded
 done by a transaction of its own (`steps.rs`). The first four call
 another actor: the profile's actor, its branch `hires/<n>`, the agent
-made with its place and its task, and the agent's filesystem filled.
+made with its place, its task and its copies, and the agent's
+filesystem filled.
 `Reach` commits the hire's first reach as wanted, which the push after
 that commit sends to the workspace, and `Live` calls no actor: the
 transaction that records it makes the hire live and closes the row. A
 worker (`workers.rs`), an errand (`workers/errands.rs`), a review
-(`reviews.rs`) and a parcel (`parcels.rs`) have steps of their own. At
-the realm's start, each step row not closed goes on from its last done
-step, and `End` closes the row.
+(`reviews.rs`) and a parcel (`parcels.rs`) have steps of their own. A
+step that fails in passing is tried again on the steps' schedule
+(`steps::retried`). A step its callee refuses fails for good, and
+`end_failed` ends its row: a hire or a worker as failed, an errand as
+one that gave no answer, a review as failed and a parcel as refused.
+At the realm's start, each step row not closed goes on from its last
+done step, and `End` closes the row.
 
 The rest is by module: `chiefs.rs` founds a hamlet, with
 `chiefs/hamlet.rs` its name, site, mode and folder, `chiefs/limits.rs`
