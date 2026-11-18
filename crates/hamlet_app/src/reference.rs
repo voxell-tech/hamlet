@@ -28,7 +28,7 @@ use hamlet_protocol::address::{Address, is_address};
 use hamlet_protocol::client as protocol;
 use hamlet_realm::sound::{Cue, Sound};
 use hamlet_ui::markdown::AgentLinks;
-use hamlet_ui::styles::note;
+use hamlet_ui::styles::{note, raised};
 use hamlet_ui::theme::HamletTheme;
 use hamlet_ui::widgets::icons::{Glyph, glyph};
 use hamlet_ui::{AnyView, Cx, View};
@@ -178,7 +178,7 @@ fn mark_of(world: &World, agent: Entity) -> Option<Glyph> {
 fn face(cx: &mut Cx, mark: Glyph, name: String) -> impl View + use<> {
     let theme = cx.theme();
     row((
-        glyph(mark, CHIP_TEXT).tone(Tone::Reference),
+        raised(glyph(mark, CHIP_TEXT).tone(Tone::Reference)),
         label(name)
             .size(CHIP_TEXT)
             .wrap(false)
