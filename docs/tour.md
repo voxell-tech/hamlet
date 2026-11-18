@@ -477,11 +477,19 @@ the agent and the call's id, with the hash of its request; the row's id
 is the `CommandId`. The command runs on a thread of its own
 (`run::start`). The call waits 5 seconds (`run::ANSWER_WITHIN`): it
 answers `Ended` with the command's end if it ended by then, else
-`Running` with its id. After `Running`, the workspace calls the agent
-once with `Finished` when the command ends; a failed call is logged and
-dropped. The actor stays awake while a command runs. A command whose
-host stopped or was killed keeps its row `running`, and the next start
-of the workspace marks it cut off (`run::CUT_OFF`); no one is told.
+`Running` with its id. Before it answers `Running`, its row becomes
+`running_later`, as does a run a chief allowed: the workspace calls the
+agent once with `Finished` when the command ends; a failed call is
+logged and dropped. The actor stays awake while a command runs, and
+sets the actor's run wake to the latest time limit of such commands,
+so a host that stopped cleanly starts it again by then. A command whose
+host stopped or was killed keeps its row running, and the next start
+of the workspace marks it cut off (`run::CUT_OFF`). A `running_later`
+one becomes `cut_off_later`, and the start calls its agent with
+`Finished` and `Exit::CutOff`, again while the link to the agent's host
+is down, for up to a minute (`LINK_WITHIN`). Once the agent answers, the
+row is `cut_off`; a failed call is logged, and the next start calls
+again. An ended reach leaves its agent's rows untold.
 `CommandStatus` answers by command id, for the agent's own commands. A
 repeat of a call with the same id and request answers from its row, or
 waits with the first call while the command runs. The same id with

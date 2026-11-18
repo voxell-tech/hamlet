@@ -928,6 +928,63 @@ for (const [what, run] of [
     });
 }
 
+test("a command a restart cut off is told once, the model reads that it may have partially run, and a rewind goes ahead after", async (t) => {
+    const asked: (readonly Message[])[] = [];
+    const { calls, sent } = fakes({
+        workspace: { run: () => ({ type: "running", command: 4 }) },
+    });
+    const agent = await wake(t, calls, [
+        fauxAssistantMessage("First."),
+        toolCall("bash", { command: "sleep 40" }),
+        fauxAssistantMessage("It runs."),
+        seen(asked, "It was cut off."),
+    ]);
+    await told(agent, "One");
+    await told(agent, "Run it");
+    const item = await itemOfLine(agent, "Run it");
+    const rewind = (id: string) =>
+        agent.actions.rewind(agent.by(from.client), {
+            id,
+            chat: { with: 7 },
+            item,
+        });
+    const cutOff: Finished = {
+        call: callOfRun(sent),
+        outcome: {
+            type: "run",
+            end: {
+                type: "ran",
+                command: 4,
+                exit: { type: "cut_off" },
+                output: "",
+                policy: "",
+                took_ms: 0,
+            },
+        },
+    };
+
+    const before = await rewind("rw-1");
+    await agent.actions.finished(agent.by(from.workspace), cutOff);
+    await agent.actions.finished(agent.by(from.workspace), cutOff);
+    await agent.idle();
+
+    const words =
+        "\n[Command 4: interrupted by a restart and may have partially run]";
+    assert.equal(before.type, "refused");
+    assert.deepEqual(
+        (await entriesOf(agent, await now(agent)))
+            .filter((entry) => entry.kind === "hamlet.finished")
+            .map(shown),
+        [words],
+    );
+    assert.equal(asked.length, 1);
+    assert.equal(textOf(asked[0]?.at(-1) as Message), words);
+    assert.deepEqual(await rewind("rw-2"), {
+        type: "rewound",
+        text: "Run it",
+    });
+});
+
 test("a rewind while a question has no answer goes ahead, and the answer lands in the session it left", async (t) => {
     const agent = await wake(
         t,

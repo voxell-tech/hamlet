@@ -256,7 +256,11 @@ function ran(end: RunEnd): ToolExecutionResult {
             ? `exit code ${end.exit.code}`
             : end.exit.type === "failed"
               ? `failed: ${end.exit.words}`
-              : end.exit.type.replace("_", " ");
+              : end.exit.type === "cut_off"
+                ? // Today's words for a call a restart interrupted, with
+                  // the command for the tool `Finished` does not name.
+                  "interrupted by a restart and may have partially run"
+                : end.exit.type.replace("_", " ");
     const result = words(
         `${end.output}${cut}\n[Command ${end.command}: ${exit}]`,
     );
