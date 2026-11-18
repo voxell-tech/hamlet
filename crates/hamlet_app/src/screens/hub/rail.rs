@@ -2166,11 +2166,14 @@ fn header(hub: Entity, section: &Section, above: f32) -> AnyView {
                 .wrap(false)
         })
         .boxed(),
-        label(section.count.to_string()).tone(Tone::Dim).boxed(),
     ];
-    if matches!(group, Group::Hamlet(_)) {
+    if hamlet {
         words.push(frame().grow(1.0).boxed());
         words.push(mark_icon(section.mark));
+    } else {
+        words.push(
+            label(section.count.to_string()).tone(Tone::Dim).boxed(),
+        );
     }
     let words = row(words).gap(6.0).align(AlignItems::Center);
     let words = match group_meaning(group) {
