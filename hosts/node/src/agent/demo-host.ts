@@ -46,49 +46,31 @@ import type {
     StreamFunction,
     ToolCall,
 } from "@earendil-works/pi-ai";
-import { takeLink } from "@hamlet/actor-node";
+import type { ActionCaller, Calls } from "../actor/actor/mod.ts";
+import { fail, serve, take } from "../entry.ts";
+import type { AgentContext } from "./actor.ts";
 import type { AgentFilesystem } from "./filesystem.ts";
 
-const NO_LINK =
-    "this process has no link to a Rust host. The demo's Rust host starts it itself, with nothing between them: set HAMLET_NODE to the Node executable itself.";
+const ENTRY = "hamlet demo agent host";
 
 /** A kill test reads it to tell this process from the next one. */
 const PID_FILE = "demo-node.pid";
 
-function fail(words: string): never {
-    console.error(`hamlet demo agent host: ${words}`);
-    process.exit(1);
-}
-
-function reason(error: unknown): string {
-    if (!(error instanceof Error)) return String(error);
-    const metadata: unknown = "metadata" in error ? error.metadata : undefined;
-    const cause =
-        typeof metadata === "object" && metadata !== null && "error" in metadata
-            ? `: ${String(metadata.error)}`
-            : "";
-    return `${error.message}${cause}`;
-}
-
-try {
-    takeLink();
-} catch {
-    fail(NO_LINK);
-}
+take(ENTRY);
 
 const home = process.env.HAMLET_HOME;
-if (home === undefined) fail("HAMLET_HOME names no realm folder");
+if (home === undefined) fail(ENTRY, "HAMLET_HOME names no realm folder");
 writeFileSync(join(home, PID_FILE), `${process.pid}\n`);
 
 const [
-    { serveLink },
-    { agentActor },
+    { actor, Address },
+    { agentActor, wrongCaller },
     { openAgentFilesystem },
     { signIns },
     { claudeExecutable, withClaude },
     ai,
 ] = await Promise.all([
-    import("../actor/registry/link.ts"),
+    import("../actor/actor/mod.ts"),
     import("./actor.ts"),
     import("./native-filesystem.ts"),
     import("./login.ts"),
@@ -278,18 +260,101 @@ function measured(
     return out;
 }
 
+/** Kills this process; nothing is answered before the signal lands. */
+function die(): Promise<never> {
+    process.kill(process.pid, "SIGKILL");
+    // The signal may land after `kill` returns.
+    return new Promise(() => {});
+}
+
 function dyingIn(files: AgentFilesystem): AgentFilesystem {
     return {
         ...files,
         edit: async (path, edits, context) => {
             const edited = await files.edit(path, edits, context);
             if (!dying.delete(path)) return edited;
-            process.kill(process.pid, "SIGKILL");
-            // The signal may land after `kill` returns: nothing is answered before it.
-            return new Promise(() => {});
+            return die();
         },
     };
 }
+
+/** The realm's actions whose next answer kills this process once it arrives. */
+const dyingAfter = new Set<string>();
+
+/**
+ * `c`, whose calls of the realm kill this process once the realm answered an
+ * action of `dyingAfter`, before the caller reads the answer.
+ */
+function dyingAfterCalls(c: AgentContext): AgentContext {
+    const call: Calls["call"] = async (to, name, args, options) => {
+        const answer = await c.call(to, name, args, options);
+        if (to.kind === "realm" && dyingAfter.delete(name)) return die();
+        return answer;
+    };
+    return new Proxy(c, {
+        get: (target, key) => {
+            if (key === "call") return call;
+            const value: unknown = Reflect.get(target, key, target);
+            return typeof value === "function" ? value.bind(target) : value;
+        },
+    });
+}
+
+/** Shorter than the demo's own call of `forward`. */
+const FORWARD_MS = 20_000;
+
+type DemoCall = AgentContext & ActionCaller;
+
+/** Throws as every other action does unless the program made the call. */
+function fromProgram(c: DemoCall, action: string): void {
+    if (c.caller !== null) throw wrongCaller(action, c.caller);
+}
+
+/** The program's own actions on an agent, for the demo's commands. */
+const demoActions = {
+    /** Calls `name` of the actor at `to` as this agent, and answers its answer. */
+    forward: async (
+        c: DemoCall,
+        to: { readonly kind: string; readonly key: string },
+        name: string,
+        args: readonly unknown[],
+    ): Promise<unknown> => {
+        fromProgram(c, "forward");
+        const answer = await c.call(Address.of(to.kind, to.key), name, args, {
+            deadlineMs: FORWARD_MS,
+        });
+        return answer ?? null;
+    },
+    /** The agent's standing task and the inputs in its transcript, oldest first. */
+    taken: async (c: DemoCall) => {
+        fromProgram(c, "taken");
+        const standing = await c.db.get<{ task: string }>(
+            "SELECT task FROM agent WHERE id = 1",
+        );
+        const inputs = await c.db.all<{
+            taken: number;
+            kind: string;
+            task: string | null;
+            question: number | null;
+        }>(
+            "SELECT id AS taken, substr(record ->> '$.kind', 8) AS kind, record ->> '$.data.task' AS task, record ->> '$.data.question' AS question FROM pi_entries WHERE record ->> '$.kind' LIKE 'hamlet.%' ORDER BY id",
+        );
+        return { standing: standing?.task ?? null, inputs };
+    },
+    /** Every entry of the agent's conversations, as its file holds it. */
+    entries: async (c: DemoCall) => {
+        fromProgram(c, "entries");
+        return c.db.all<{ conversation: number; id: number; record: string }>(
+            "SELECT conversation_id AS conversation, id, record FROM pi_entries ORDER BY id",
+        );
+    },
+    /** Arms `dyingAfter` for the realm's next answer to `action`. */
+    die_after: async (c: DemoCall, action: string) => {
+        fromProgram(c, "die_after");
+        dyingAfter.add(action);
+        return null;
+    },
+};
 
 const args = process.argv.slice(2);
 const path = args.includes("--faux")
@@ -408,7 +473,7 @@ if (executable !== undefined)
     withClaude(models, { executable, folder: join(home, "claude") });
 const { provider, id } = core.getModel();
 
-const agent = agentActor({
+const { config } = agentActor({
     models,
     model: `${provider}/${id}`,
     listed: () => models.getModels(),
@@ -416,9 +481,12 @@ const agent = agentActor({
     signIns: signIns(models),
 });
 
-try {
-    await serveLink({ agent });
-} catch (error) {
-    fail(reason(error));
-}
-process.exit(0);
+// Built from the agent's untyped parts, as `agentActor` builds it.
+const parts: object = config;
+await serve(ENTRY, {
+    agent: actor({
+        ...parts,
+        onWake: (c: AgentContext) => config.onWake?.(dyingAfterCalls(c)),
+        actions: { ...config.actions, ...demoActions },
+    }),
+});

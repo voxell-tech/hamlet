@@ -20,7 +20,8 @@ import {
     defineTool,
 } from "@earendil-works/pi-durable";
 import { pi } from "../../src/pi/actor.ts";
-import { fauxModels, startHost } from "../testing.ts";
+import { fauxModels } from "../testing.ts";
+import { startLocalHost } from "./support.ts";
 
 const [dir, replay, mode] = process.argv.slice(2);
 if (
@@ -72,15 +73,20 @@ const agent = pi({
     model,
 });
 
-const host = await startHost(dir, { agent });
+const host = await startLocalHost(dir, { agent });
 say({ event: "started", due: host.due });
 if (mode === "resume") {
     await sleep(3_000);
     say({ event: "waited", modelCalls: faux.state.callCount });
 }
-const answer = await host.call("agent", "a1", "prompt", "Run slow.", {
-    requestId: "prompt-1",
-});
+const a1 = host.at("agent", "a1");
+await host.getOrStart(a1);
+const answer = await host.call(
+    a1,
+    "prompt",
+    ["Run slow.", { requestId: "prompt-1" }],
+    { deadlineMs: 60_000 },
+);
 say({ event: "answer", answer, modelCalls: faux.state.callCount });
 await host.shutdown();
 // The native module keeps Node's event loop alive after the host stops.

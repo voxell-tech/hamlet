@@ -411,6 +411,38 @@ fn key(pid: Pid) -> u64 {
     pid.as_raw_nonzero().get().unsigned_abs().into()
 }
 
+#[cfg(target_os = "linux")]
+pub(crate) fn has_ended(pid: u32) -> io::Result<bool> {
+    match std::fs::read_to_string(format!("/proc/{pid}/stat")) {
+        // The name, in parentheses, may itself hold spaces and ')'.
+        Ok(stat) => {
+            Ok(stat.rsplit_once(')').is_some_and(|(_, rest)| {
+                matches!(
+                    rest.split_whitespace().next(),
+                    Some("Z" | "X")
+                )
+            }))
+        }
+        Err(error) if error.kind() == io::ErrorKind::NotFound => {
+            Ok(true)
+        }
+        Err(error) => Err(error),
+    }
+}
+
+#[cfg(not(target_os = "linux"))]
+pub(crate) fn has_ended(pid: u32) -> io::Result<bool> {
+    let Some(pid) = i32::try_from(pid).ok().and_then(Pid::from_raw)
+    else {
+        return Ok(true);
+    };
+    match rustix::process::test_kill_process(pid) {
+        Ok(()) | Err(rustix::io::Errno::PERM) => Ok(false),
+        Err(rustix::io::Errno::SRCH) => Ok(true),
+        Err(error) => Err(error.into()),
+    }
+}
+
 pub(crate) fn end_now() -> ! {
     if kill_process(getpid(), Signal::KILL).is_err() {
         std::process::abort();

@@ -404,3 +404,33 @@ mod bound {
         assert!(ended.unwrap().success());
     }
 }
+
+/// Waits up to 30 s for a child that exits at once, three hundred
+/// times what it takes on a busy machine.
+#[test]
+fn a_process_has_ended_once_it_is_dead_also_before_it_is_collected() {
+    use super::has_ended;
+
+    assert!(!has_ended(std::process::id()).unwrap());
+    let mut child =
+        std::process::Command::new(std::env::current_exe().unwrap())
+            .arg("--list")
+            .stdout(std::process::Stdio::null())
+            .spawn()
+            .unwrap();
+    let pid = child.id();
+    #[cfg(target_os = "linux")]
+    {
+        let until = std::time::Instant::now()
+            + std::time::Duration::from_secs(30);
+        while !has_ended(pid).unwrap() {
+            assert!(
+                std::time::Instant::now() < until,
+                "{pid} runs on"
+            );
+            std::thread::sleep(std::time::Duration::from_millis(10));
+        }
+    }
+    child.wait().unwrap();
+    assert!(has_ended(pid).unwrap());
+}

@@ -13,7 +13,7 @@ import {
 } from "@earendil-works/pi-durable";
 import { SqliteStorage } from "@earendil-works/pi-durable/storage/sqlite";
 import { createStorageConformance } from "@earendil-works/pi-durable/testing";
-import { actor } from "../../src/actor/actor/mod.ts";
+import { actor, type CallOptions } from "../../src/actor/actor/mod.ts";
 import { db } from "../../src/actor/db/mod.ts";
 import { pi } from "../../src/pi/actor.ts";
 import { actorSqlite } from "../../src/pi/actor-sqlite.ts";
@@ -24,9 +24,12 @@ import {
     context,
     fauxModels,
     scratchFolder,
-    startHost,
     tablesIn,
 } from "../testing.ts";
+import { startLocalHost } from "./support.ts";
+
+/** Long enough for a faux turn on a loaded machine. */
+const TURN: CallOptions = { deadlineMs: 60_000 };
 
 /** The tables the pi wrapper keeps in an agent's file, beside the actor core's. */
 const PI_TABLES = [
@@ -66,18 +69,18 @@ test("the pi wrapper as an actor answers one prompt once, and a second prompt wi
             }),
         },
     });
-    const host = await startHost(dir, { agent });
+    const host = await startLocalHost(dir, { agent });
+    const a1 = host.at("agent", "a1");
+    await host.getOrStart(a1);
     const prompt = [
         "What is the capital of France?",
         { requestId: "prompt-1" },
-    ];
+    ] as const;
 
-    const answered = await host.call("agent", "a1", "prompt", ...prompt);
+    const answered = await host.call(a1, "prompt", prompt, TURN);
     assert.partialDeepStrictEqual(answered, { status: "done", text: "Paris." });
     assert.equal(faux.state.callCount, 1);
-    const transcript = (await host.call("agent", "a1", "transcript")) as {
-        entries: { kind: string }[];
-    };
+    const transcript = await host.call(a1, "transcript", [], TURN);
     assert.deepEqual(
         transcript.entries
             .map((row) => row.kind)
@@ -85,10 +88,10 @@ test("the pi wrapper as an actor answers one prompt once, and a second prompt wi
         ["pi.user", "pi.assistant"],
     );
 
-    const again = await host.call("agent", "a1", "prompt", ...prompt);
+    const again = await host.call(a1, "prompt", prompt, TURN);
     assert.deepEqual(again, answered);
     assert.equal(faux.state.callCount, 1);
-    assert.deepEqual(await host.call("agent", "a1", "transcript"), transcript);
+    assert.deepEqual(await host.call(a1, "transcript", [], TURN), transcript);
     await host.shutdown();
 
     assert.deepEqual(
@@ -133,9 +136,10 @@ test("each tool and environment of the actor gets the context its onWake got", a
             woken.push(c);
         },
     });
-    const host = await startHost(dir, { agent });
-
-    const answered = await host.call("agent", "a1", "prompt", "Who are you?");
+    const host = await startLocalHost(dir, { agent });
+    const a1 = host.at("agent", "a1");
+    await host.getOrStart(a1);
+    const answered = await host.call(a1, "prompt", ["Who are you?"], TURN);
     await host.shutdown();
 
     assert.partialDeepStrictEqual(answered, { status: "done", text: "done" });
@@ -197,23 +201,25 @@ describe("pi-durable's storage conformance on c.db inside an actor, over the wra
             throw new Error("only the names are read here");
         },
     }).map((each) => each.name);
-    let host: Awaited<ReturnType<typeof startHost>>;
+    let host: Awaited<
+        ReturnType<typeof startLocalHost<{ conformance: typeof conformance }>>
+    >;
     after(() => host.shutdown());
     const dir = scratchFolder({ after });
     before(async () => {
-        host = await startHost(dir, { conformance });
+        host = await startLocalHost(dir, { conformance });
     });
 
     test("has every case", () => assert.equal(names.length, CONFORMANCE_CASES));
     for (const [index, name] of names.entries()) {
         test(name, async () => {
             // A fresh actor, so each case gets a file of its own.
-            const outcome = (await host.call(
-                "conformance",
-                `case-${index}`,
-                "run",
-                name,
-            )) as { failed?: string; tables?: string[] };
+            const each = host.at("conformance", `case-${index}`);
+            await host.getOrStart(each);
+            const outcome = (await host.call(each, "run", [name], TURN)) as {
+                failed?: string;
+                tables?: string[];
+            };
             assert.equal(outcome.failed, undefined);
             const tables = outcome.tables ?? [];
             assert.ok(tables.includes("pi_entries"), tables.join(", "));

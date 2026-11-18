@@ -7,8 +7,6 @@ import type { TestContext } from "node:test";
 import { BACKGROUND_CONTEXT } from "@earendil-works/chord/context";
 import { createModels, fauxProvider } from "@earendil-works/pi-ai";
 import type { StorageConformanceAssertions } from "@earendil-works/pi-durable/testing";
-import type { CoreRegistry } from "@hamlet/actor-node";
-import type { AnyActorDefinition } from "../src/actor/actor/definition.ts";
 import type { RawAccess } from "../src/actor/common/database/mod.ts";
 
 export const context = BACKGROUND_CONTEXT;
@@ -75,55 +73,6 @@ export const conformanceAssertions: StorageConformanceAssertions = {
             return true;
         }),
 };
-
-/**
- * Starts `kinds` on the native module's host in this process, each actor in
- * its own file at `actors/<kind>/<key>.sqlite` under `dir`. Needs the native
- * module built and copied beside its loader in `crates/hamlet_actor_node`.
- */
-export async function startHost(
-    dir: string,
-    kinds: Record<string, AnyActorDefinition>,
-) {
-    // Loaded here, not at the top: the layer's registry is large, and every
-    // test that starts no host, kill children included, would load it.
-    const [
-        { RegistryConfigSchema },
-        { buildNativeRegistry, callNative, callThrough },
-    ] = await Promise.all([
-        import("../src/actor/registry/config/index.ts"),
-        import("../src/actor/registry/native.ts"),
-    ]);
-    const { registry } = await buildNativeRegistry(
-        RegistryConfigSchema.parse({ use: kinds }),
-    );
-    const native = registry as unknown as CoreRegistry;
-    const due = await callNative(() => native.start(dir));
-    return {
-        /** The actors the host started at once: an alarm was due, or a kill cut off their run. */
-        due,
-        /** Calls `action` on the actor of `kind` and `key`, made and started first if it is not running. */
-        call: async (
-            kind: string,
-            key: string,
-            action: string,
-            ...args: unknown[]
-        ): Promise<unknown> => {
-            await callNative(() => native.getOrStart({ kind, key }));
-            return callThrough(
-                (bytes) =>
-                    native.call({ kind, key }, action, Buffer.from(bytes), {
-                        deadlineMs: CALL_DEADLINE_MS,
-                    }),
-                args,
-            );
-        },
-        shutdown: () => callNative(() => native.shutdown()),
-    };
-}
-
-/** Long enough for a faux turn on a loaded machine. */
-const CALL_DEADLINE_MS = 60_000;
 
 /**
  * The actor layer's database client over a plain `node:sqlite` file, with no

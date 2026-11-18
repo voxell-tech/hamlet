@@ -170,22 +170,6 @@ fn a_profile_or_library_command_runs_both_beside_the_kinds_it_names()
     );
 }
 
-#[test]
-#[cfg_attr(
-    windows,
-    ignore = "the demo opens no sandbox on Windows, so its \
-              workspace cannot start"
-)]
-fn a_demo_host_with_the_realm_actor_runs_the_workspace_beside_the_kinds_it_names()
- {
-    let home = Scratch::new("demo-realm-actor");
-    let mut serve =
-        Serve::start(&home, &["--kind", "x", "--realm-actor"]);
-    assert_eq!(serve.ask("realm found h1"), "founded/h1 2");
-    assert_eq!(serve.ask("get k1"), "x/k1 0");
-    assert!(serve.stop());
-}
-
 /// A `tell`'s arguments and its answer cross as base64 text, a third
 /// over their size, and not as a list of numbers, which takes two
 /// bytes for each byte of `0xff`.
