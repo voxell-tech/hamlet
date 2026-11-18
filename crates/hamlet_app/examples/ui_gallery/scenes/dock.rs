@@ -9,12 +9,9 @@ use bevy_fynix::dock::{
     Edge,
 };
 use bevy_fynix::views::{FrameProps, column};
-use hamlet_app::{
-    highlight_panel, hub, layout, menu, panel, settings, terminal,
-};
+use hamlet_app::{hub, layout, menu, panel, settings, terminal};
 use hamlet_ui::styles::ICON;
 use hamlet_ui::theme::HamletTheme;
-use hamlet_ui::widgets::effects::Highlight;
 use hamlet_ui::widgets::icons::Glyph;
 use hamlet_ui::{Cx, View};
 
@@ -50,19 +47,7 @@ pub(super) fn seed_dock(world: &mut World) {
         DockWindowKind::new("Realm", world_stand)
             .icon(Glyph::Globe.image(ICON)),
     );
-    registry.register(
-        "hub",
-        DockWindowKind::new("Hub", || {
-            highlight_panel(
-                hub::screen(),
-                Highlight {
-                    attention: true,
-                    flash: true,
-                },
-            )
-        })
-        .icon(Glyph::Tree.image(ICON)),
-    );
+    registry.register("hub", hub::window("hub"));
     registry.register(
         "settings",
         DockWindowKind::new("Settings", || panel(settings::screen()))

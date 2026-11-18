@@ -3,6 +3,7 @@
 //! `[` or `]`, and the mouse's back and forward buttons, move the
 //! panel under the pointer.
 
+use bevy::ecs::entity::Entity;
 use bevy::ecs::hierarchy::ChildOf;
 use bevy::ecs::system::Res;
 use bevy::ecs::world::World;
@@ -113,7 +114,19 @@ pub(crate) fn mouse_way(world: &World) -> Option<Way> {
 /// Whether the mouse's pointer is over a panel of `scope`: the node
 /// nearest under it, or one it is inside of, stands for the scope.
 pub(crate) fn pointer_over(world: &World, scope: ScopeId) -> bool {
-    let top = world
+    under_pointer(world, |node| {
+        world.get::<Scope>(node).is_some_and(|s| s.0 == scope)
+    })
+    .is_some()
+}
+
+/// The node nearest under the mouse's pointer, or one it is inside
+/// of, that `is` holds for.
+pub(crate) fn under_pointer(
+    world: &World,
+    is: impl Fn(Entity) -> bool,
+) -> Option<Entity> {
+    let mut at = world
         .get_resource::<HoverMap>()
         .and_then(|hover| hover.get(&PointerId::Mouse))
         .and_then(|hits| {
@@ -121,12 +134,11 @@ pub(crate) fn pointer_over(world: &World, scope: ScopeId) -> bool {
                 .min_by(|(_, a), (_, b)| a.depth.total_cmp(&b.depth))
                 .map(|(&node, _)| node)
         });
-    let mut at = top;
     while let Some(node) = at {
-        if world.get::<Scope>(node).is_some_and(|s| s.0 == scope) {
-            return true;
+        if is(node) {
+            return Some(node);
         }
         at = world.get::<ChildOf>(node).map(ChildOf::parent);
     }
-    false
+    None
 }

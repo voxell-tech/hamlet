@@ -498,12 +498,14 @@ fn ruled(
     })
 }
 
-/// The way to its whole prompt, on a page of its own.
-fn prompt() -> AnyView {
+/// The way to its whole prompt, on a page of its own in `hub`.
+fn prompt(hub: Entity) -> AnyView {
     section_line(
         Glyph::Notes,
         "Prompt",
-        action(Glyph::Into, "Open", super::thread::show_prompt),
+        action(Glyph::Into, "Open", move |world| {
+            super::thread::show_prompt(world, hub);
+        }),
     )
 }
 
@@ -525,8 +527,8 @@ fn reflect() -> AnyView {
     .boxed()
 }
 
-/// The sheet in place of `agent`'s thread while it is open.
-pub(super) fn sheet(agent: Entity) -> impl View {
+/// The sheet in place of `agent`'s thread in `hub` while it is open.
+pub(super) fn sheet(hub: Entity, agent: Entity) -> impl View {
     column((scroll_area((column((
         facts_sections(agent, head),
         memory::character_section(),
@@ -537,7 +539,7 @@ pub(super) fn sheet(agent: Entity) -> impl View {
             memory::view(|| Some(reflect()), None),
         ),
         memory::skills_section(),
-        prompt(),
+        prompt(hub),
         facts_sections(agent, powers),
     ))
     .gap(0.0)

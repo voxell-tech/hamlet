@@ -38,7 +38,6 @@ use hamlet_ui::{AnyView, Cx, View, with_cx};
 
 use crate::age::Age;
 use crate::convo::{Convo, talk_at};
-use crate::dock::{HUB, show_tab};
 use crate::hub::{Sheet, Showing};
 use crate::roll::{either, moved};
 use crate::standing::Standing;
@@ -265,17 +264,19 @@ pub(crate) fn open(world: &mut World, wait: Entity) {
         _ => None,
     };
     let asker = hamlet_client::realm::named(world, &waiting.by);
-    show_tab(world, HUB);
+    let Some(hub) = crate::hub::bring_following(world) else {
+        return;
+    };
     match (profile, asker) {
         (Some(profile), _) => {
-            crate::hub::show(world, Showing::Profile(profile));
+            crate::hub::show(world, hub, Showing::Profile(profile));
         }
         (None, Some(agent)) => {
             crate::convo::talk_to(world, agent);
-            world.insert_resource(Sheet::Chat);
+            world.entity_mut(hub).insert(Sheet::Chat);
             world.resource_mut::<ChatWaits>().shown = Some(wait);
         }
-        (None, None) => crate::hub::show(world, Showing::Realm),
+        (None, None) => crate::hub::show(world, hub, Showing::Realm),
     }
 }
 

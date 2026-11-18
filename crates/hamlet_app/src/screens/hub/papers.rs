@@ -68,10 +68,11 @@ pub(super) fn selected(world: &World) -> Option<protocol::AgentId> {
     id_of(world, world.resource::<Convo>().agent)
 }
 
-/// Whose papers the Hub shows: a profile's, else the chat agent's.
+/// Whose papers the following Hub shows: a profile's, else the chat
+/// agent's.
 pub(super) fn keeper(world: &World) -> Option<protocol::Keeper> {
-    if let Some(&Showing::Profile(profile)) =
-        world.get_resource::<Showing>()
+    if let Some(Showing::Profile(profile)) = super::following(world)
+        .and_then(|hub| super::showing(world, hub))
     {
         let id = world.get::<Profile>(profile)?.0.id;
         return Some(protocol::Keeper::Profile(id));

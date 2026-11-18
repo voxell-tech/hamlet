@@ -17,7 +17,6 @@ use hamlet_protocol::client as protocol;
 use hamlet_realm::pick::{Selected, Thing, bring_into_view, select};
 
 use crate::PanelSystems;
-use crate::dock::{HUB, show_tab};
 use crate::hub::{self, Showing};
 
 /// Opens the chat with the Hand as soon as the realm names it.
@@ -163,8 +162,7 @@ pub(crate) fn talk_to(world: &mut World, agent: Entity) {
     if !same {
         select(world, Some(home_of(world, agent)));
     }
-    hub::show(world, Showing::Thread);
-    show_tab(world, HUB);
+    hub::show_following(world, Showing::Thread);
 }
 
 /// Points the chat back at the Hand and brings its tower into view.
@@ -176,8 +174,7 @@ pub(crate) fn talk_to_hand(world: &mut World) {
     if world.contains_resource::<Selected>() {
         select(world, Some(Thing::Hand));
     }
-    hub::show(world, Showing::Thread);
-    show_tab(world, HUB);
+    hub::show_following(world, Showing::Thread);
     bring_into_view(world, Thing::Hand);
 }
 

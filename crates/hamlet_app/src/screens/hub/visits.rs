@@ -1,8 +1,9 @@
 //! The Hub's back and forward through the pages gone through.
 
 use bevy::app::{App, Update};
+use bevy::ecs::component::Component;
 use bevy::ecs::entity::Entity;
-use bevy::ecs::resource::Resource;
+use bevy::ecs::query::With;
 use bevy::ecs::schedule::IntoScheduleConfigs;
 use bevy::ecs::world::World;
 use bevy::input::keyboard::KeyCode;
@@ -14,9 +15,7 @@ use hamlet_ui::widgets::keys::Keys;
 
 use super::{Sheet, Showing, show};
 use crate::convo::{Convo, seat};
-use crate::trail::{
-    Trail, Way, mouse_pressed, mouse_way, pointer_over,
-};
+use crate::trail::{Trail, Way, mouse_pressed, mouse_way};
 
 /// The Hub's keys, in force while the pointer is over it.
 pub(super) const KEYS: ScopeId = ScopeId("hub");
@@ -31,43 +30,50 @@ pub(super) fn plugin(app: &mut App) {
         repeat: false,
     };
     let primary = |key| Keys::new(key).primary().chord();
-    app.init_resource::<Visits>()
-        .add_scope(ScopeSpec {
-            id: KEYS,
-            label: "Hub",
-            layer: Layer::Panel,
-            active: None,
-        })
-        .add_command(
-            command("hub.back", "Back", |world, _| {
-                travel(world, Way::Back);
-            }),
-            &[primary(KeyCode::BracketLeft)],
-        )
-        .add_command(
-            command("hub.forward", "Forward", |world, _| {
-                travel(world, Way::Forward);
-            }),
-            &[primary(KeyCode::BracketRight)],
-        )
-        .add_command(
-            CommandSpec {
-                enabled: super::profile::asking,
-                ..command(
-                    "hub.submit",
-                    "Do what the profile's form asks",
-                    |world, _| super::profile::submit(world),
-                )
+    app.add_scope(ScopeSpec {
+        id: KEYS,
+        label: "Hub",
+        layer: Layer::Panel,
+        active: None,
+    })
+    .add_command(
+        command("hub.back", "Back", |world, _| {
+            travel_under_pointer(world, Way::Back);
+        }),
+        &[primary(KeyCode::BracketLeft)],
+    )
+    .add_command(
+        command("hub.forward", "Forward", |world, _| {
+            travel_under_pointer(world, Way::Forward);
+        }),
+        &[primary(KeyCode::BracketRight)],
+    )
+    .add_command(
+        CommandSpec {
+            enabled: |world| {
+                super::under_pointer(world).is_some_and(|hub| {
+                    super::profile::asking(world, hub)
+                })
             },
-            &crate::world_menu::SUBMIT_KEYS,
-        )
-        .add_systems(
-            Update,
-            (mouse_travel.run_if(mouse_pressed), record).chain(),
-        );
+            ..command(
+                "hub.submit",
+                "Do what the profile's form asks",
+                |world, _| {
+                    if let Some(hub) = super::under_pointer(world) {
+                        super::profile::submit(world, hub);
+                    }
+                },
+            )
+        },
+        &crate::world_menu::SUBMIT_KEYS,
+    )
+    .add_systems(
+        Update,
+        (mouse_travel.run_if(mouse_pressed), record).chain(),
+    );
 }
 
-/// One page of the Hub.
+/// One page of a Hub.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 struct Visit {
     showing: Showing,
@@ -75,16 +81,16 @@ struct Visit {
     sheet: Sheet,
 }
 
-/// The pages behind the one shown and those ahead of it.
-#[derive(Resource, Default)]
+/// The pages behind the one a Hub shows and those ahead of it.
+#[derive(Component, Default)]
 pub(crate) struct Visits(Trail<Visit>);
 
-fn here(world: &World) -> Option<Visit> {
-    let showing = *world.get_resource::<Showing>()?;
+fn here(world: &World, hub: Entity) -> Option<Visit> {
+    let showing = *world.get::<Showing>(hub)?;
     let agent = matches!(showing, Showing::Thread | Showing::Prompt)
         .then(|| world.get_resource::<Convo>().map(|c| c.agent))
         .flatten();
-    let sheet = world.get_resource::<Sheet>().copied()?;
+    let sheet = world.get::<Sheet>(hub).copied()?;
     Some(Visit {
         showing,
         agent,
@@ -92,10 +98,19 @@ fn here(world: &World) -> Option<Visit> {
     })
 }
 
-/// Keeps the page left behind whenever the Hub turns to another.
+/// Keeps the page left behind whenever a Hub turns to another.
 fn record(world: &mut World) {
-    if let Some(visit) = here(world) {
-        world.resource_mut::<Visits>().0.keep(visit);
+    let Some(mut hubs) =
+        world.try_query_filtered::<Entity, With<Visits>>()
+    else {
+        return;
+    };
+    for hub in hubs.iter(world).collect::<Vec<_>>() {
+        if let Some(visit) = here(world, hub)
+            && let Some(mut visits) = world.get_mut::<Visits>(hub)
+        {
+            visits.0.keep(visit);
+        }
     }
 }
 
@@ -128,20 +143,25 @@ fn thing_of(world: &World, visit: &Visit) -> Option<Option<Thing>> {
     })
 }
 
-/// Turns the Hub to the page behind, or the one ahead.
-fn travel(world: &mut World, way: Way) {
-    let Some(now) = here(world) else {
+/// Turns `hub` to the page behind, or the one ahead.
+fn travel(world: &mut World, hub: Entity, way: Way) {
+    let Some(now) = here(world, hub) else {
         return;
     };
-    let mut trail =
-        core::mem::take(&mut world.resource_mut::<Visits>().0);
+    let Some(mut visits) = world.get_mut::<Visits>(hub) else {
+        return;
+    };
+    let mut trail = core::mem::take(&mut visits.0);
     let next = trail.travel(way, now, |visit| stands(world, visit));
-    world.resource_mut::<Visits>().0 = trail;
+    if let Some(mut visits) = world.get_mut::<Visits>(hub) {
+        visits.0 = trail;
+    }
     let Some(next) = next else {
         return;
     };
     // Selecting the agent would turn a prompt page to its chat.
-    if let Some(thing) = thing_of(world, &next)
+    if super::is_following(world, hub)
+        && let Some(thing) = thing_of(world, &next)
         && world.resource::<Selected>().0 != thing
     {
         select(world, thing);
@@ -151,18 +171,25 @@ fn travel(world: &mut World, way: Way) {
     {
         seat(world, agent);
     }
-    if *world.resource::<Sheet>() != next.sheet {
-        *world.resource_mut::<Sheet>() = next.sheet;
+    if let Some(mut sheet) = world.get_mut::<Sheet>(hub)
+        && *sheet != next.sheet
+    {
+        *sheet = next.sheet;
     }
-    show(world, next.showing);
+    show(world, hub, next.showing);
 }
 
-/// Turns the Hub by the mouse's back or forward button.
+fn travel_under_pointer(world: &mut World, way: Way) {
+    if let Some(hub) = super::under_pointer(world) {
+        travel(world, hub, way);
+    }
+}
+
+/// Turns the Hub under the pointer by the mouse's back or forward
+/// button.
 fn mouse_travel(world: &mut World) {
-    if let Some(way) = mouse_way(world)
-        && pointer_over(world, KEYS)
-    {
-        travel(world, way);
+    if let Some(way) = mouse_way(world) {
+        travel_under_pointer(world, way);
     }
 }
 
@@ -178,33 +205,31 @@ mod tests {
         let mut app = panel_app();
         app.add_plugins(plugin);
         let ada = realm::named(app.world_mut(), "agent#2").unwrap();
-        app.insert_resource(Showing::Realm)
-            .init_resource::<Sheet>()
-            .init_resource::<Selected>()
+        app.init_resource::<Selected>()
             .init_resource::<hamlet_realm::pick::Also>();
+        let hub = crate::testing::hub(&mut app);
         app.update();
         crate::convo::talk_to(app.world_mut(), ada);
-        show(app.world_mut(), Showing::Thread);
+        show(app.world_mut(), hub, Showing::Thread);
         app.update();
-        *app.world_mut().resource_mut::<Sheet>() = Sheet::Details;
+        *app.world_mut().get_mut::<Sheet>(hub).unwrap() =
+            Sheet::Details;
         app.update();
-        travel(app.world_mut(), Way::Back);
+        let sheet =
+            |app: &App| *app.world().get::<Sheet>(hub).unwrap();
+        let showing =
+            |app: &App| *app.world().get::<Showing>(hub).unwrap();
+        travel(app.world_mut(), hub, Way::Back);
         app.update();
-        assert_eq!(*app.world().resource::<Sheet>(), Sheet::Chat);
-        assert_eq!(
-            *app.world().resource::<Showing>(),
-            Showing::Thread
-        );
-        travel(app.world_mut(), Way::Back);
+        assert_eq!(sheet(&app), Sheet::Chat);
+        assert_eq!(showing(&app), Showing::Thread);
+        travel(app.world_mut(), hub, Way::Back);
         app.update();
-        assert_eq!(
-            *app.world().resource::<Showing>(),
-            Showing::Realm
-        );
-        travel(app.world_mut(), Way::Forward);
-        travel(app.world_mut(), Way::Forward);
+        assert_eq!(showing(&app), Showing::Realm);
+        travel(app.world_mut(), hub, Way::Forward);
+        travel(app.world_mut(), hub, Way::Forward);
         app.update();
-        assert_eq!(*app.world().resource::<Sheet>(), Sheet::Details);
+        assert_eq!(sheet(&app), Sheet::Details);
         assert_eq!(app.world().resource::<Convo>().agent, ada);
     }
 }

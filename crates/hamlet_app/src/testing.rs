@@ -62,6 +62,20 @@ pub(crate) fn panel_app() -> App {
     app
 }
 
+/// The first Hub in a dock of its own, following the world's
+/// selection.
+pub(crate) fn hub(app: &mut App) -> Entity {
+    let world = app.world_mut();
+    world.get_resource_or_init::<DockTree>().set_root_leaf(
+        bevy_fynix::dock::DockLeaf::new(
+            "side",
+            bevy_fynix::dock::DockAreaStyle::TabBar,
+        )
+        .with_windows(vec![crate::dock::HUB.into()]),
+    );
+    crate::hub::first(world)
+}
+
 pub(crate) fn seat_hand(app: &mut App) -> Entity {
     let hand =
         hamlet_client::realm::named(app.world_mut(), "hand").unwrap();
@@ -146,6 +160,7 @@ pub(crate) fn keeping(app: &mut App, folder: PathBuf) {
         .init_resource::<crate::screens::terminal::Shown>()
         .init_resource::<crate::screens::terminal::Folds>()
         .init_resource::<crate::screens::terminal::Pins>()
+        .init_resource::<crate::hub::CollapsedRails>()
         .add_systems(Update, desk::capture)
         .add_plugins(crate::remember::plugin);
 }

@@ -16,7 +16,6 @@ use hamlet_ui::theme::HamletTheme;
 use hamlet_ui::widgets::icons::Glyph;
 use hamlet_ui::{AnyView, View, built, with_cx};
 
-use crate::dock::{HUB, show_tab};
 use crate::world_menu::{self, Action};
 
 #[derive(Clone, PartialEq)]
@@ -48,7 +47,7 @@ fn empty_state<R: Resource>(
                 column((
                     description(hint),
                     action(Glyph::Talk, "Open Chat", |w| {
-                        show_tab(w, HUB);
+                        crate::hub::bring_following(w);
                     }),
                 ))
                 .gap(section)

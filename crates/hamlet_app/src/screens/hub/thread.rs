@@ -7,7 +7,7 @@ use bevy::ecs::hierarchy::{ChildOf, Children};
 use bevy::ecs::query::{Has, With, Without};
 use bevy::ecs::resource::Resource;
 use bevy::ecs::schedule::IntoScheduleConfigs;
-use bevy::ecs::system::{Commands, Query, Res, ResMut};
+use bevy::ecs::system::{Commands, Query, Res};
 use bevy::ecs::world::World;
 use bevy::ui::{
     AlignItems, ComputedNode, Node, Overflow, UiRect, UiSystems, Val,
@@ -29,7 +29,7 @@ use hamlet_client::realm::{
 };
 use hamlet_desktop::choose::What;
 use hamlet_protocol::client as protocol;
-use hamlet_realm::pick::{Thing, select};
+use hamlet_realm::pick::Thing;
 use hamlet_ui::kinds::card;
 use hamlet_ui::styles::{
     Fills, ICON, Looks, Tipped, action, bare, card_name, choice,
@@ -45,7 +45,7 @@ use hamlet_ui::widgets::icons::{Glyph, glyph};
 use hamlet_ui::widgets::tabs::{self, Spread};
 use hamlet_ui::{AnyView, Cx, View, built, with_cx};
 
-use super::{Showing, details, show};
+use super::{Showing, details, look_at, show};
 use crate::convo::Convo;
 use crate::overview::tell;
 use crate::profile_tag::{ProfileTag, learned_mark, learned_words};
@@ -55,19 +55,23 @@ use crate::standing::Standing;
 use crate::world_menu::ChipName;
 use crate::{chat, words, world_menu};
 
-/// The tabs between a thread's chat and its details.
-const SHEETS: [(Sheet, Glyph, &str); 2] = [
-    (Sheet::Chat, Glyph::Talk, "Chat"),
-    (Sheet::Details, Glyph::Sliders, "Details"),
-];
+/// The tabs between the chat and the details of `hub`'s thread.
+fn sheets_of(
+    hub: Entity,
+) -> [((Entity, Sheet), Glyph, &'static str); 2] {
+    [
+        ((hub, Sheet::Chat), Glyph::Talk, "Chat"),
+        ((hub, Sheet::Details), Glyph::Sliders, "Details"),
+    ]
+}
 
 pub(super) fn plugin(app: &mut App) {
     app.add_systems(Update, mark_open_chips)
         .add_systems(PostUpdate, crowd.after(UiSystems::Layout));
 }
 
-/// What the thread's page shows.
-#[derive(Resource, Clone, Copy, Default, PartialEq, Eq, Debug)]
+/// What a Hub's thread page shows.
+#[derive(Component, Clone, Copy, Default, PartialEq, Eq, Debug)]
 pub enum Sheet {
     #[default]
     Chat,
@@ -125,18 +129,19 @@ fn called(world: &World, agent: Entity) -> String {
     shown_of(world, agent)
 }
 
-/// The steps above `agent` in the chain of command.
-fn above(world: &World, agent: Entity) -> Vec<AnyView> {
+/// The steps above `agent` in the chain of command, in `hub`.
+fn above(world: &World, hub: Entity, agent: Entity) -> Vec<AnyView> {
     let hamlet = world.get::<LivesIn>(agent).map(|l| l.0);
     let mut parts = vec![
-        crumb("Realm", |world| show(world, Showing::Realm)).boxed(),
+        crumb("Realm", move |world| show(world, hub, Showing::Realm))
+            .boxed(),
         crumb_slash().boxed(),
     ];
     if let Some(hamlet) = hamlet {
         parts.push(
             crumb(name_of(world, hamlet), move |world| {
-                select(world, Some(Thing::Common(hamlet)));
-                show(world, Showing::Hamlet(hamlet));
+                look_at(world, hub, Thing::Common(hamlet));
+                show(world, hub, Showing::Hamlet(hamlet));
             })
             .boxed(),
         );
@@ -162,7 +167,7 @@ fn above(world: &World, agent: Entity) -> Vec<AnyView> {
     for ancestor in parents {
         parts.push(
             crumb(called(world, ancestor), move |world| {
-                crate::convo::talk_to(world, ancestor);
+                super::talk_in(world, hub, ancestor);
             })
             .boxed(),
         );
@@ -171,18 +176,22 @@ fn above(world: &World, agent: Entity) -> Vec<AnyView> {
     parts
 }
 
-/// The path to the thread, then the page `under` it, if any.
-fn path(agent: Entity, under: Option<&'static str>) -> impl View {
+/// The path to `hub`'s thread, then the page `under` it, if any.
+fn path(
+    hub: Entity,
+    agent: Entity,
+    under: Option<&'static str>,
+) -> impl View {
     built(move |cx| {
         let world = &*cx.world;
-        let mut parts = above(world, agent);
+        let mut parts = above(world, hub, agent);
         let name = called(world, agent);
         parts.push(match under {
             None => crate::naming::name_crumb(agent, name),
-            Some(_) => {
-                crumb(name, |world| show(world, Showing::Thread))
-                    .boxed()
-            }
+            Some(_) => crumb(name, move |world| {
+                show(world, hub, Showing::Thread);
+            })
+            .boxed(),
         });
         if under.is_none()
             && let Some(tag) = ProfileTag::of(world, agent)
@@ -285,7 +294,7 @@ fn quick(world: &World, agent: Entity) -> Vec<AnyView> {
     buttons
 }
 
-fn header(agent: Entity) -> impl View {
+fn header(hub: Entity, agent: Entity) -> impl View {
     built(move |cx| {
         // Gone while empty.
         let thing = if cx.world.get::<Kind>(agent).map(|kind| kind.0)
@@ -321,7 +330,7 @@ fn header(agent: Entity) -> impl View {
         cx.build(
             column((
                 row((
-                    path(agent, None)
+                    path(hub, agent, None)
                         .tooltip(move || note(address.clone())),
                     state(agent),
                 ))
@@ -330,10 +339,14 @@ fn header(agent: Entity) -> impl View {
                 .min_width(px(0.0)),
                 row((
                     column((tabs::strip(
-                        &SHEETS,
+                        &sheets_of(hub),
                         Spread::Packed,
-                        |world, sheet| {
-                            *world.resource_mut::<Sheet>() = sheet;
+                        |world, (hub, sheet)| {
+                            if let Some(mut now) =
+                                world.get_mut::<Sheet>(hub)
+                            {
+                                *now = sheet;
+                            }
                         },
                     ),))
                     .grow(1.0)
@@ -881,15 +894,19 @@ fn talk() -> AnyView {
     .boxed()
 }
 
-/// The thread of the agent the chat is with.
-pub(super) fn living() -> impl View {
-    let about = keyed(seated(), |&(_, agent)| header(agent).boxed())
-        .within(bare());
+/// `hub`'s thread with the agent the chat is with.
+pub(super) fn living(hub: Entity) -> impl View {
+    let about = keyed(seated(), move |&(_, agent)| {
+        header(hub, agent).boxed()
+    })
+    .within(bare());
     let body = keyed(
-        resource::<Sheet, _>(|sheet| *sheet == Sheet::Details),
-        |open| match open {
-            true => keyed(seated(), |&(_, agent)| {
-                details::sheet(agent).boxed()
+        component::<Sheet, _>(hub, |sheet| {
+            sheet == Some(&Sheet::Details)
+        }),
+        move |open| match open {
+            true => keyed(seated(), move |&(_, agent)| {
+                details::sheet(hub, agent).boxed()
             })
             .within(filling())
             .boxed(),
@@ -904,8 +921,8 @@ pub(super) fn living() -> impl View {
     })
 }
 
-/// Reads the chat agent's prompt and turns the page to it.
-pub(crate) fn show_prompt(world: &mut World) {
+/// Reads the chat agent's prompt and turns `hub`'s page to it.
+pub(crate) fn show_prompt(world: &mut World, hub: Entity) {
     let convo = world.resource::<Convo>();
     let agent = convo.agent;
     *world.resource_mut::<Briefing>() = Briefing {
@@ -913,35 +930,39 @@ pub(crate) fn show_prompt(world: &mut World) {
         ..Briefing::default()
     };
     super::papers::prompt(world);
-    show(world, Showing::Prompt);
+    show(world, hub, Showing::Prompt);
 }
 
 /// Leaves the prompt of an agent the chat is no longer with.
 pub(super) fn leave_prompt(
     convo: Res<Convo>,
     briefing: Res<Briefing>,
-    mut showing: ResMut<Showing>,
+    mut hubs: Query<&mut Showing>,
 ) {
-    if *showing == Showing::Prompt
-        && briefing.agent != Some(convo.agent)
-    {
-        *showing = Showing::Thread;
+    for mut showing in &mut hubs {
+        if *showing == Showing::Prompt
+            && briefing.agent != Some(convo.agent)
+        {
+            *showing = Showing::Thread;
+        }
     }
 }
 
-/// The prompt's page about the agent the chat is with.
-fn aside(body: impl View + 'static) -> impl View {
-    let head =
-        keyed(resource::<Convo, _>(|convo| convo.agent), |agent| {
+/// The prompt's page in `hub` about the agent the chat is with.
+fn aside(hub: Entity, body: impl View + 'static) -> impl View {
+    let head = keyed(
+        resource::<Convo, _>(|convo| convo.agent),
+        move |agent| {
             let name = with_cx(|cx| {
                 row((title("Prompt"), frame().grow(1.0), copy()))
                     .gap(cx.theme().space.gap)
                     .align(AlignItems::Center)
                     .width(percent(100.0))
             });
-            page_head(path(*agent, Some("Prompt")), name).boxed()
-        })
-        .within(bare());
+            page_head(path(hub, *agent, Some("Prompt")), name).boxed()
+        },
+    )
+    .within(bare());
     with_cx(move |cx| {
         column((head, body))
             .fills_height()
@@ -1052,8 +1073,8 @@ fn copy() -> impl View {
     .within(bare())
 }
 
-/// The whole of the agent's prompt, part by part.
-pub(super) fn prompt_page() -> impl View {
+/// The whole of the agent's prompt, part by part, in `hub`.
+pub(super) fn prompt_page(hub: Entity) -> impl View {
     let shown = keyed(
         resource::<Briefing, _>(|b| {
             (b.prompt.clone(), b.failed.clone())
@@ -1061,7 +1082,7 @@ pub(super) fn prompt_page() -> impl View {
         |(prompt, failed)| prompt_sections(prompt, failed.as_deref()),
     )
     .within(bare());
-    aside(scroll_area((shown,)))
+    aside(hub, scroll_area((shown,)))
 }
 
 #[cfg(test)]
@@ -1082,21 +1103,23 @@ mod tests {
         app
     }
 
-    fn ada_app() -> App {
+    fn ada_app() -> (App, Entity) {
         let mut app = hub_app();
         let ada = crate::testing::seat_ada(&mut app);
         app.insert_resource(hamlet_realm::pick::Selected(Some(
             Thing::Agent(ada),
-        )))
-        .insert_resource(Showing::Thread)
-        .insert_resource(Sheet::Details);
+        )));
+        let hub = crate::testing::hub(&mut app);
+        app.world_mut()
+            .entity_mut(hub)
+            .insert((Showing::Thread, Sheet::Details));
         app.update();
         bevy_fynix::mount::<HamletTheme>(
             app.world_mut(),
-            crate::hub::screen(),
+            super::super::screen(hub),
         );
         app.update();
-        app
+        (app, hub)
     }
 
     fn request(app: &App, what: &str) -> serde_json::Value {
@@ -1134,7 +1157,7 @@ mod tests {
         use serde_json::json;
         #[derive(Resource, Default)]
         struct Edits(Vec<Edit>);
-        let mut app = ada_app();
+        let (mut app, _) = ada_app();
         app.init_resource::<Edits>().add_observer(
             |edit: On<Edit>, mut edits: ResMut<Edits>| {
                 edits.0.push(edit.event().clone());
@@ -1252,9 +1275,9 @@ mod tests {
     #[test]
     fn late_reads_cannot_fill_the_next_agents_pages() {
         use serde_json::json;
-        let mut app = ada_app();
+        let (mut app, hub) = ada_app();
         let papers = request(&app, "papers");
-        show_prompt(app.world_mut());
+        show_prompt(app.world_mut(), hub);
         let prompt = request(&app, "prompt");
         select_scout(&mut app);
         let scout = request(&app, "papers");
@@ -1273,7 +1296,7 @@ mod tests {
         );
         // The prompt page is left for the thread of the next agent.
         assert_eq!(
-            *app.world().resource::<Showing>(),
+            *app.world().get::<Showing>(hub).unwrap(),
             Showing::Thread
         );
         assert!(has_span(&mut app, "Scout character"));

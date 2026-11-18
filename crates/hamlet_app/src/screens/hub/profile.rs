@@ -221,8 +221,8 @@ fn run(world: &mut World, address: &str, name: &str, act: &Act) {
     let first = typed::<First>(world);
     let second = typed::<Second>(world);
     if let Some(text) = command(address, name, act, &first, &second) {
-        if let (Act::Erase, Some(Showing::Profile(profile))) =
-            (act, world.get_resource::<Showing>().copied())
+        if *act == Act::Erase
+            && let Some(profile) = profile_at(world, address)
         {
             super::erasure::expect_profile(
                 world,
@@ -233,6 +233,15 @@ fn run(world: &mut World, address: &str, name: &str, act: &Act) {
         tell_hand(world, text);
         world.resource_mut::<Form>().act = None;
     }
+}
+
+/// The profile at `address`.
+fn profile_at(world: &World, address: &str) -> Option<Entity> {
+    let mut profiles = world.try_query::<(Entity, &Profile)>()?;
+    profiles
+        .iter(world)
+        .find(|(_, profile)| profile_address(profile.0.id) == address)
+        .map(|(entity, _)| entity)
 }
 
 fn field<M: Component>(marker: M) -> impl View {
@@ -853,8 +862,8 @@ fn careful(shown: &Shown) -> AnyView {
     )
 }
 
-/// The profile's page.
-fn body(shown: &Shown) -> AnyView {
+/// The profile's page in `hub`.
+fn body(hub: Entity, shown: &Shown) -> AnyView {
     let profile = shown.entity;
     let name = shown.profile.name.clone();
     let address = profile_address(shown.profile.id);
@@ -881,19 +890,15 @@ fn body(shown: &Shown) -> AnyView {
             // The path names it; where it stands is beside the path.
             beside((
                 crumbs(vec![
-                    crumb("Realm", |world| {
-                        show(world, Showing::Realm);
+                    crumb("Realm", move |world| {
+                        show(world, hub, Showing::Realm);
                     })
                     .boxed(),
                     crumb_slash().boxed(),
-                    crumb("City", |world| {
-                        show(world, Showing::Realm);
+                    crumb("City", move |world| {
+                        show(world, hub, Showing::Realm);
                         // The city is the rail's tab that lists it.
-                        if let Some(mut tab) =
-                            world.get_resource_mut::<rail::Tab>()
-                        {
-                            *tab = rail::Tab::City;
-                        }
+                        rail::turn(world, hub, rail::Tab::City);
                     })
                     .boxed(),
                     crumb_slash().boxed(),
@@ -922,10 +927,9 @@ fn body(shown: &Shown) -> AnyView {
     .boxed()
 }
 
-/// Does the action the shown profile's form asks for.
-pub(super) fn submit(world: &mut World) {
-    let Some(Showing::Profile(profile)) =
-        world.get_resource::<Showing>().copied()
+/// Does the action the form of the profile `hub` shows asks for.
+pub(super) fn submit(world: &mut World, hub: Entity) {
+    let Some(Showing::Profile(profile)) = super::showing(world, hub)
     else {
         return;
     };
@@ -939,22 +943,22 @@ pub(super) fn submit(world: &mut World) {
     run(world, &address, &shown.profile.name, &act);
 }
 
-/// Whether an action of the profile shown waits for its words.
-pub(super) fn asking(world: &World) -> bool {
+/// Whether an action of the profile `hub` shows waits for its words.
+pub(super) fn asking(world: &World, hub: Entity) -> bool {
     world.resource::<Form>().act.is_some()
         && matches!(
-            world.get_resource::<Showing>(),
+            super::showing(world, hub),
             Some(Showing::Profile(_))
         )
 }
 
-/// The page of `profile`.
-pub(super) fn page(profile: Entity) -> impl View {
+/// The page of `profile` in `hub`.
+pub(super) fn page(hub: Entity, profile: Entity) -> impl View {
     keyed(
         derived(move |world: &World| shown(world, profile))
             .when(every_frame()),
-        |shown| match shown {
-            Some(shown) => body(shown),
+        move |shown| match shown {
+            Some(shown) => body(hub, shown),
             None => dim("That profile is not in the city.").boxed(),
         },
     )

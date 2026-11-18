@@ -270,8 +270,10 @@ pub(super) fn setup(world: &mut World, scene: Scene) {
     ));
     if matches!(scene, Scene::Hamlet | Scene::Bylaws | Scene::Agents)
     {
-        world
-            .insert_resource(hamlet_app::hub::Showing::Hamlet(first));
+        super::hub::show(
+            world,
+            hamlet_app::hub::Showing::Hamlet(first),
+        );
     }
     if scene == Scene::Merged
         && let Some(gone) = hamlet_client::realm::agent(
@@ -280,7 +282,7 @@ pub(super) fn setup(world: &mut World, scene: Scene) {
         )
     {
         world.insert_resource(Selected(Some(Thing::Agent(gone))));
-        world.insert_resource(hamlet_app::hub::Showing::Gone(gone));
+        super::hub::show(world, hamlet_app::hub::Showing::Gone(gone));
     }
     if scene == Scene::Bylaws {
         world.insert_resource(hamlet_app::overview::Page::Limits);

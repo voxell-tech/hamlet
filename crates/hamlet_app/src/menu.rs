@@ -351,6 +351,12 @@ fn items(
             ));
             items.push(item(
                 Glyph::Split,
+                "New Hub Panel",
+                None,
+                crate::hub::new_hub,
+            ));
+            items.push(item(
+                Glyph::Split,
                 "New Terminal Panel",
                 None,
                 |w| {

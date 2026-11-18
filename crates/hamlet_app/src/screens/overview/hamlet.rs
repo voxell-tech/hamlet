@@ -42,8 +42,8 @@ use hamlet_ui::{AnyView, Cx, View, with_cx};
 use super::heading;
 use super::record::record_of;
 use super::rows::{AgentRow, Meter, agent_rows, hamlet_rows, stale};
-use crate::convo::talk_to;
 use crate::forms::{self, Asking};
+use crate::hub::Showing;
 use crate::roll::{either, moved};
 use crate::{profile_tag, words, world_menu};
 
@@ -143,12 +143,12 @@ const PAGES: [(Page, Glyph, &str); 3] = [
     (Page::History, Glyph::History, "History"),
 ];
 
-/// Everyone in `hamlet` as a tree, each pressed to talk to.
-fn list_of(hamlet: Entity) -> impl View {
+/// Everyone in `hamlet` as a tree, each pressed to talk to in `hub`.
+fn list_of(hub: Entity, hamlet: Entity) -> impl View {
     let people =
         derived(move |world: &World| agent_rows(world, Some(hamlet)))
             .when(stale());
-    keyed(people, |rows| {
+    keyed(people, move |rows| {
         let tree = |gone: bool| {
             let rows = rows
                 .iter()
@@ -157,7 +157,7 @@ fn list_of(hamlet: Entity) -> impl View {
             branches(&rows)
                 .into_iter()
                 .zip(rows)
-                .map(|(branch, row)| person(row, branch))
+                .map(|(branch, row)| person(hub, row, branch))
                 .collect::<Vec<_>>()
         };
         let (living, gone) = (tree(false), tree(true));
@@ -294,8 +294,8 @@ fn lines(cx: &Cx, depth: usize, branch: &Branch) -> Vec<AnyView> {
     parts
 }
 
-/// One agent as a row of the list.
-fn person(row_of: &AgentRow, branch: Branch) -> AnyView {
+/// One agent as a row of the list in `hub`.
+fn person(hub: Entity, row_of: &AgentRow, branch: Branch) -> AnyView {
     let agent = row_of.agent;
     let gone = row_of.gone;
     let thing = if gone {
@@ -373,9 +373,14 @@ fn person(row_of: &AgentRow, branch: Branch) -> AnyView {
             .tagged(world_menu::Asks(thing))
             .on_activate(move |world| {
                 if gone {
-                    select(world, Some(thing));
+                    crate::hub::show(
+                        world,
+                        hub,
+                        Showing::Gone(agent),
+                    );
+                    crate::hub::look_at(world, hub, thing);
                 } else {
-                    talk_to(world, agent);
+                    crate::hub::talk_in(world, hub, agent);
                 }
             })
             .boxed(),
@@ -463,8 +468,9 @@ pub(super) fn budget(words: String, spent: Option<Meter>) -> AnyView {
     .boxed()
 }
 
-/// One hamlet: what it is, what can be done to it, and its pages.
-pub fn hamlet(hamlet: Entity) -> impl View {
+/// One hamlet in `hub`: what it is, what can be done to it, and its
+/// pages.
+pub fn hamlet(hub: Entity, hamlet: Entity) -> impl View {
     let facts = derived(move |world: &World| {
         hamlet_rows(world)
             .into_iter()
@@ -536,9 +542,11 @@ pub fn hamlet(hamlet: Entity) -> impl View {
         }
         // A double click on its name renames it.
         let path = crumbs(vec![
-            crumb("Realm", |world| {
-                select(world, None);
-                crate::hub::show(world, crate::hub::Showing::Realm);
+            crumb("Realm", move |world| {
+                if crate::hub::is_following(world, hub) {
+                    select(world, None);
+                }
+                crate::hub::show(world, hub, Showing::Realm);
             })
             .boxed(),
             crumb_slash().boxed(),
@@ -585,7 +593,7 @@ pub fn hamlet(hamlet: Entity) -> impl View {
     let page =
         keyed(resource::<Page, _>(|page| *page), move |page| {
             match page {
-                Page::Agents => list_of(hamlet).boxed(),
+                Page::Agents => list_of(hub, hamlet).boxed(),
                 Page::Limits => crate::limits::panel(hamlet),
                 Page::History => record_of(hamlet).boxed(),
             }

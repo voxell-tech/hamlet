@@ -490,7 +490,7 @@ fn keep(
     time: Res<Time>,
     pile: Query<&Hovered, With<Pile>>,
     waiting: Query<(), With<Waiting>>,
-    showing: Option<Res<Showing>>,
+    showing: Query<&Showing>,
     chat_waits: Option<Res<ChatWaits>>,
     mut toasts: ResMut<Toasts>,
 ) {
@@ -502,7 +502,7 @@ fn keep(
         return;
     }
     let now = time.elapsed_secs();
-    let chatting = showing.is_some_and(|s| *s == Showing::Thread);
+    let chatting = showing.iter().any(|s| *s == Showing::Thread);
     let mut next = toasts.shown.clone();
     for toast in &mut next {
         if open {

@@ -31,7 +31,7 @@ use hamlet_client::realm::{
 use hamlet_client::waits::Waiting;
 use hamlet_protocol::client as protocol;
 use hamlet_realm::harbor::glide_to_other_pier;
-use hamlet_realm::pick::{Selected, Thing, select};
+use hamlet_realm::pick::Thing;
 use hamlet_ui::kinds::tile;
 use hamlet_ui::styles::{
     Fills, ICON, action, bad_action, bare, buttons, card_button,
@@ -127,8 +127,9 @@ fn counted(text: &str, count: usize) -> AnyView {
 /// The size of a figure of the day.
 const FIGURE: f32 = 24.0;
 
-/// The realm's page: its figures, what waits, and the hamlets.
-pub fn overview() -> impl View {
+/// The realm's page in `hub`: its figures, what waits, and the
+/// hamlets.
+pub fn overview(hub: Entity) -> impl View {
     with_cx(move |cx| {
         column((
             // Stopping every agent stands apart, at the far end.
@@ -136,8 +137,8 @@ pub fn overview() -> impl View {
                 .gap(cx.theme().space.gap)
                 .align(AlignItems::Center),
             // A realm with no hamlet shows only the ways to begin.
-            keyed(derived(any_hamlet).when(stale()), |&any| {
-                if any { today() } else { get_started() }
+            keyed(derived(any_hamlet).when(stale()), move |&any| {
+                if any { today() } else { get_started(hub) }
             })
             .within(bare()),
             // Ways about the world, under the figures they lead to.
@@ -160,7 +161,7 @@ pub fn overview() -> impl View {
                 .tooltip(|| note(words::PROFILE))
                 .boxed(),
             ]),
-            scroll_area((column((needs(), hamlets(), closed()))
+            scroll_area((column((needs(), hamlets(hub), closed()))
                 .gap(cx.theme().space.section),)),
         ))
         .fills_height()
@@ -178,7 +179,7 @@ fn any_hamlet(world: &World) -> bool {
 }
 
 /// The ways a new chief begins: the Hand, or a hamlet.
-fn get_started() -> AnyView {
+fn get_started(hub: Entity) -> AnyView {
     with_cx(move |cx| {
         column((
             part_title("Get started".into(), Tone::Faint),
@@ -187,7 +188,7 @@ fn get_started() -> AnyView {
                 "Talk to the Hand",
                 "Your own agent. Ask it anything, or to set things \
                  up for you.",
-                talk_to_hand,
+                move |world| talk_to_hand(world, hub),
             ),
             start_card(
                 Glyph::Folder,
@@ -202,11 +203,11 @@ fn get_started() -> AnyView {
     .boxed()
 }
 
-/// Opens the Hand's chat.
-fn talk_to_hand(world: &mut World) {
+/// Opens the Hand's chat in `hub`.
+fn talk_to_hand(world: &mut World, hub: Entity) {
     if let Some(hand) = hamlet_client::realm::hand(world) {
         crate::convo::seat(world, hand);
-        crate::hub::show(world, crate::hub::Showing::Thread);
+        crate::hub::show(world, hub, crate::hub::Showing::Thread);
     }
 }
 
@@ -215,7 +216,7 @@ fn start_card(
     which: Glyph,
     head: &'static str,
     words: &'static str,
-    act: fn(&mut World),
+    act: impl Fn(&mut World) + Send + Sync + Clone + 'static,
 ) -> AnyView {
     with_cx(move |cx| {
         let gap = cx.theme().space.gap;
@@ -235,7 +236,7 @@ fn start_card(
         )
         .rules(card_button)
         .tagged(Variant::Default)
-        .on_activate(act)
+        .on_activate(act.clone())
     })
     .boxed()
 }
@@ -498,9 +499,9 @@ fn hamlet_cards(world: &World) -> Vec<HamletCard> {
         .collect()
 }
 
-/// Each hamlet on a card that opens its page.
-fn hamlets() -> AnyView {
-    keyed(derived(hamlet_cards).when(stale()), |cards| {
+/// Each hamlet on a card that opens its page in `hub`.
+fn hamlets(hub: Entity) -> AnyView {
+    keyed(derived(hamlet_cards).when(stale()), move |cards| {
         if cards.is_empty() {
             return column(()).boxed();
         }
@@ -521,11 +522,14 @@ fn hamlets() -> AnyView {
                 move |world| {
                     crate::hub::show(
                         world,
+                        hub,
                         crate::hub::Showing::Hamlet(hamlet),
                     );
-                    if world.contains_resource::<Selected>() {
-                        select(world, Some(Thing::Common(hamlet)));
-                    }
+                    crate::hub::look_at(
+                        world,
+                        hub,
+                        Thing::Common(hamlet),
+                    );
                 },
             )
             .boxed()
@@ -741,9 +745,10 @@ mod tests {
             app.world_mut(),
             protocol::ServerMessage::State(state),
         );
+        let hub = crate::testing::hub(&mut app);
         bevy_fynix::mount::<hamlet_ui::theme::HamletTheme>(
             app.world_mut(),
-            overview(),
+            overview(hub),
         );
         app.update();
         assert!(words(&mut app).iter().any(|s| s == "Closed down"));

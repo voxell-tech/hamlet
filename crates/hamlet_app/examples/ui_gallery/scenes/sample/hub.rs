@@ -15,8 +15,10 @@ pub(super) fn setup(world: &mut World, scene: Scene) {
     ) {
         keep_notes(world);
         // The thread with its details open beside it.
-        world.insert_resource(Showing::Thread);
-        world.insert_resource(hub::Sheet::Details);
+        let first = hub::first(world);
+        world
+            .entity_mut(first)
+            .insert((Showing::Thread, hub::Sheet::Details));
         let agent = world.resource::<Convo>().agent;
         world.entity_mut(agent).insert((
             hamlet_client::realm::Allowance(5.0),
@@ -43,7 +45,7 @@ pub(super) fn setup(world: &mut World, scene: Scene) {
             | Scene::Field
             | Scene::Code
     ) {
-        world.insert_resource(Showing::Thread);
+        show(world, Showing::Thread);
     }
     if scene == Scene::HubMenu {
         let agent = world.resource::<Convo>().agent;
@@ -65,9 +67,11 @@ pub(super) fn setup(world: &mut World, scene: Scene) {
             protocol::ProfileId(2),
         )
         .expect("the received profile");
-        world.insert_resource(Showing::Profile(profile));
         // As the hub turns its rail to a profile's page.
-        world.insert_resource(hub::RailTab::City);
+        let first = hub::first(world);
+        world
+            .entity_mut(first)
+            .insert((Showing::Profile(profile), hub::RailTab::City));
         keep_notes(world);
     }
     if scene == Scene::Prompt {
@@ -107,8 +111,14 @@ pub(super) fn setup(world: &mut World, scene: Scene) {
             ],
             ..Default::default()
         });
-        world.insert_resource(Showing::Prompt);
+        show(world, Showing::Prompt);
     }
+}
+
+/// Turns the first Hub to `showing`.
+pub(super) fn show(world: &mut World, showing: Showing) {
+    let first = hub::first(world);
+    world.entity_mut(first).insert(showing);
 }
 
 /// A catalogue of a few models over several providers.

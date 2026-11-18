@@ -618,7 +618,6 @@ mod tests {
             .init_resource::<crate::menu::OpenMenu>()
             .init_resource::<crate::world_menu::Open>()
             .init_resource::<bevy_fynix::dock::DockDrag>()
-            .init_resource::<crate::hub::Showing>()
             .init_resource::<crate::hover::Card>()
             .insert_resource(crate::reference::links())
             .add_plugins((plugin, crate::sounds::plugin));
@@ -816,7 +815,6 @@ mod tests {
             .init_resource::<crate::menu::OpenMenu>()
             .init_resource::<crate::world_menu::Open>()
             .init_resource::<bevy_fynix::dock::DockDrag>()
-            .init_resource::<crate::hub::Showing>()
             .init_resource::<crate::hover::Card>()
             .add_plugins((plugin, crate::sounds::plugin));
         app.update();
