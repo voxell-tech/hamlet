@@ -80,7 +80,7 @@ it, and it is not edited here.
 | `hamlet_actor_client` | A Rust client that calls actors |
 | `hamlet_actor_wire` | The actor runtime's shared types and versioned wire formats, generated from the schemas in `schemas/` |
 | `hamlet_actor_error`, `hamlet_actor_error_macros` | The actor runtime's structured errors and the derive that declares them |
-| `hamlet_host` | Runs actors in this process, each in one plain SQLite file; the `demo` example, its counter actor, its stand-ins for the realm and an agent, with `--realm-actor` the realm actor with stand-ins for an agent and a profile, and its `demo profile` and `demo library` commands; fault points behind the `faults` feature |
+| `hamlet_host` | Runs actors in this process, each in one plain SQLite file; the `demo` example, its counter actor, its stand-ins for the realm and an agent, with `--realm-actor` the realm actor and the real agent in a Node child, with a stand-in profile, and its `demo profile` and `demo library` commands; fault points behind the `faults` feature |
 | `hamlet_address` | An actor's address, the name rule for its kind and key, and `Caller`, who made a call, as a host stamps it |
 | `hamlet_actors` | Hamlet's actors on the actor host: the `workspace`, which runs the agents' commands and file changes within each agent's reach; the `realm`, which keeps the hamlets, the tree of hires, roads, letters, budgets and waits; the `profile`, a profile's repository; the `library`, the shared skills |
 | `hamlet_messages` | The calls Hamlet's actors make to each other and their answers, one module per actor that takes them, and the CBOR fixture of each |
@@ -242,8 +242,9 @@ codec, `link.fingerprint` the frames' shapes), and then each takes the
 other's calls and creates through its `Port` (`link/port.rs`). The Node
 host's entry is `hosts/node/src/main.ts`: it takes the link before the
 actor layer loads, serves the kinds of `hosts/node/src/demo.ts` its
-`--kind` arguments name through `serveLink` in
-`hosts/node/src/actor/registry/link.ts`, and exits 1 on any failure. A
+`--kind` arguments name through `serve` in `hosts/node/src/entry.ts`,
+which runs `serveLink` of `hosts/node/src/actor/registry/link.ts`, and
+exits 1 on any failure. A
 peer's request is checked against who that host speaks for (`link/peer.rs`),
 then runs on the host's own call or start path, so `admit` checks it
 again. A call, a create and a subscribe cross the link. A call to the
@@ -339,8 +340,9 @@ the host from the command line, under a host name and with the kinds of
 its options (`examples/demo/kinds.rs`: a host registers only those, or
 by default the counter, the workspace, the profile, the library and
 both stand-ins, or with `--link` the stand-in realm alone; whatever the
-kinds, it also registers the workspace with `--realm-actor`, and the
-profile and the library for `demo profile` and `demo library`), each counter
+kinds, it also registers the workspace and the library with
+`--realm-actor`, and the profile and the library for `demo profile`
+and `demo library`), each counter
 line run by `examples/demo/command.rs`, with the
 counter actor in `examples/demo/counter.rs`; a counter calls another as
 itself, and `calls --count <n>` times those calls. The demo also
@@ -356,18 +358,53 @@ is told. `demo --link` runs the agents in a Node host instead, its child
 `hosts/node/src/demo.ts`, reached through the realm's `tell` and, as a
 client, through `watch` (`examples/demo/watch.rs`), which follows an
 agent's event. Its route table lets the realm and an agent call each
-other and a client call either. With `--realm-actor` before the
-command, the demo runs the [realm actor](#the-realm-actor) in place of
-both stand-ins, with a stand-in agent and a stand-in profile from
-`examples/demo/realm.rs`. Its `realm` lines found, hire, end, answer a
-chief's waits and set budgets, allowances, models and a hamlet's folder
-and mode. Its `agent` lines tell, ask, reply, object, agree roads,
-start workers, charge, fetch parcels and run commands through it.
-`realm world` prints the world a client reads. They print `<name>
-<number>` lines and work one per line under `demo --realm-actor
-serve`, because a one-shot command exits before a hire's steps finish.
+other and a client call either.
+
+With `--realm-actor` before the command, the demo runs the real realm
+and the real agent together. The Rust host runs the
+[realm actor](#the-realm-actor), the workspace, the library and
+`StandInProfile`, a stand-in profile that answers each branch done
+(`examples/demo/realm_actor.rs`). Its Node child runs the
+[agent actor](#the-agent-actor) (`examples/demo/agent_host.rs`). The
+Rust host starts the workspace and the realm, and waits until the
+realm's Hand, agent 1, is live before it boots. The route table in
+`agent_host.rs` lets a client call the realm and an agent, the realm
+and an agent call each other, the workspace, the profile and the
+library, and those three call the realm and an agent. The child runs
+`hosts/node/src/agent/demo-host.ts`, which serves `agent` on a faux
+model that the line it is given drives. `HAMLET_DEMO_FAUX` names a
+faux script the model answers from, and `HAMLET_DEMO_SIGN_IN=1` lists
+two providers on loopback to sign in to. `demo-host.ts` and
+`hosts/node/src/main.ts` share `hosts/node/src/entry.ts`, which takes
+the link from the Rust host and serves the kinds until the Rust host's
+goodbye.
+
+The `realm` lines of `realm_actor.rs` act as the chief. They found a
+hamlet, hire, say a line, answer a chief's waits, end an agent, lay
+roads, and set budgets, review limits, modes, folders, allowances,
+nicknames, the charter, models and prices. `realm live <n>` waits
+until agent `<n>` is live, and `realm world` prints the world a client
+reads. The `agent` lines act as an agent through `forward`, an action
+that `demo-host.ts` alone registers and only the program may call,
+which sends the line's message as that agent. They tell, ask,
+reply, ask a chief, object, agree roads, start and end workers, ask
+and charge, run commands, read copies and keep a credential.
+`agent <n> inputs` and `agent <n> await` do not use `forward`. They
+read the inputs in agent `<n>`'s transcript through `taken`, another
+action of the demo's. The
+`pi` lines of `agent_host.rs` make a client's chat calls on an agent,
+follow its chat, print its entries or the Node host's process id, and
+copy a file into its filesystem. `pi die-after <action>` has the Node
+host kill itself once the realm answers the agent's next call of
+`<action>`, before the agent reads the answer. The `realm` and `agent`
+lines print `<name> <number>` lines. All three kinds of line work one
+per line under `demo --realm-actor serve`, because a one-shot command
+exits before a hire's steps finish.
+
 The `faults` feature of `hamlet_actors` makes a realm action panic when
-`HAMLET_REALM_PANIC` names it. `demo profile` and `demo library`, in
+`HAMLET_REALM_PANIC` names it. `realm/act.rs` holds the fault points
+`called/<action>`, as an act begins, and `committed/<action>`, after
+its commit. `demo profile` and `demo library`, in
 `examples/demo/profile.rs` and `examples/demo/library.rs`, drive a
 [profile and the library](#the-profile-and-library-actors) through
 stand-ins for the realm and the agents, which call as themselves and
@@ -402,10 +439,39 @@ the commands after each restart, and what each restart must show.
 `workspace-command` kills the host while a command answered `Running`
 still runs, and checks after each restart that the command did not go
 on, that its row reads cut off and that the agent was told the cut-off
-end once (`agent.finished` is 1). A
-row's `Demo::Linked` starts `demo --link`; `link-kill-node` has an agent
-kill its own Node host (`Kill::NodeHost`), and `link-kill-rust` and
-`ts-schedule` kill the Rust host with the Node host running.
+end once (`agent.finished` is 1).
+
+Each row names the demo it starts, so `cargo xtask killkit --runs 12`
+runs every row twelve times in one invocation. A row named on the
+command line runs alone. `Demo::Local` starts `demo serve`. `Demo::Linked`
+starts `demo --link`. Under it, `link-kill-node` has an agent kill its own Node
+host (`Kill::NodeHost`), and `link-kill-rust` and `ts-schedule` kill
+the Rust host with the Node host running. `Demo::RealmActor` starts
+`demo --realm-actor serve`, the real realm and the real agent, with a
+faux script when the row names one. Its setup lines may wait with
+`until <n> <count> <words>` until agent `<n>`'s conversation holds
+`<count>` entries that begin with `<words>`. Eight rows run there:
+
+- `realm-say` kills the demo host at `committed/say`, after the realm
+  commits a chief's line to the mayor and before it answers.
+- `realm-tell` has the Node host kill itself once the realm answers
+  the Hand's `tell` to the mayor, before the tool's result is kept.
+- `realm-objection` kills the demo host at a random time after a
+  hire's objection and its mayor's letter on that task.
+- `agent-mid-turn` has the Node host kill itself in the agent's `edit`
+  of a file of its own, after the file is written and before the
+  result is kept.
+- `agent-timer` kills the demo host at a random time after the agent
+  sets a timer 20 s ahead, and starts it again after the timer is due.
+- `chat-compact` has the Node host kill itself once the realm answers
+  the `tell` the model asks for after a compaction's summary.
+- `chat-new` kills the demo host at `called/open_task`, as the
+  reflection that `/new` asks of the session it left opens its task.
+- `chat-retry` kills the demo host at `called/open_task`, in the
+  mayor's `/retry` of a turn that its hamlet's spent budget failed.
+
+The rows are in `src/scenario/realm.rs`, `src/scenario/agent.rs` and
+`src/scenario/chat.rs`.
 `cargo xtask idle` is `xtask/src/idle.rs`. It reads `/proc` for the
 resident memory of a process tree and the growth of each thread's
 `voluntary_ctxt_switches`.
@@ -579,8 +645,8 @@ reach and commands in `workspace.rs`, then `files.rs`, `changes.rs`,
 An agent, the actor `agent/<n>` keyed by its `AgentNumber`, runs in the
 Node host, in `hosts/node/src/agent/`. It is pi-durable's actor wrapper,
 ported to `hosts/node/src/pi/`, composed in `actor.ts` with actions of
-its own: the realm's `submit`, `place` and `fill`, the workspace's
-`finished`, and `pi.wake`, the alarm of its timers. Each action checks
+its own: the realm's `submit`, `place`, `fill` and `copies`, the
+workspace's `finished`, and `pi.wake`, the alarm of its timers. Each action checks
 its sender, reads its message with the lenient readers of `messages.ts`,
 which types every message the agent takes or sends, and answers `null`.
 An input is taken once under its id.
@@ -617,15 +683,19 @@ workspace or the realm answers with what it kept.
 A chief's chat with an agent is a list of sessions, each a pi-durable
 conversation. `sessions.ts` keeps them in the agent's `chat` table, with
 the one that is current. `chat.ts` takes a client's chat calls, each from
-a client only, and a sign-in's on the Hand alone.
+a client only through `askedBy`. A sign-in is the Hand's alone, and any
+other agent answers `login` with `not_the_hand`.
 
 - `commands.ts` runs `/new`, `/resume`, `/retry`, `/stop`, a rewind and
   `/reflect`, with today's notices and refusals.
 - `transcript.ts` answers `read_chat` and `read_history` and sends the
   `chat` events a client follows, numbered within each wake.
 - `copies.ts` keeps the realm's copies of the charter, the character, the
-  model and the settings. The wake reads them with `read_copies`, and the
-  realm sends a newer one with `copies`.
+  model and the settings. The realm's create input carries the copies it
+  holds for the agent, and the create keeps them in the transaction that
+  writes the agent's row, so a first turn runs on them. Each wake asks
+  for newer ones with `read_copies` without waiting, and the realm sends
+  a newer one with `copies`.
 - `prompt.ts` builds the system prompt before every model call from the
   copies, memory and the list of skills, each cut to its limit.
 - `compaction.ts` sizes compaction for the model that runs, and asks once
@@ -635,8 +705,11 @@ a client only, and a sign-in's on the Hand alone.
 - `failed.ts` writes a failed turn's notice and tells the realm
   `turn_failed`.
 - `models.ts` gives each model call the realm's `credential` and the
-  copy's price. The host keeps a list of the secrets it holds, and
-  `models.ts` scrubs them from what a client reads.
+  copy's price (`agentModels`). The host keeps a list of the secrets it
+  holds, the realm's secret list among them, and `models.ts` scrubs them
+  from what a client reads. `modelList` answers a client's
+  `read_models`, and `checkModel` its `check`, which asks a model for a
+  hello outside any conversation and charges nothing.
   `login.ts` runs a sign-in step by step and gives the credential to the
   realm's `keep_credential`.
 - `claude.ts` adds the provider `claude`, which runs Anthropic's program
@@ -660,18 +733,14 @@ holding its turn open. The timer's input starts a new turn.
 writes or takes against `hamlet_messages`'s fixtures.
 `test/native/agent-actor.test.ts` runs the agent on the native host.
 
-With `HAMLET_DEMO_AGENT=pi`, `demo --link` runs the real agent in its
-Node host instead of the kinds of `demo.ts`. `examples/demo/agent_host.rs`
-starts `hosts/node/src/agent/demo-host.ts`, which serves `agent` on a
-faux model that the line it is given drives, and runs
-`examples/demo/stand_in_realm.rs` as `realm/local`: it answers
-`may_spend`, keeps each charge and act once per call id, and sends the
-agent a line, a place and a fill on the demo's `pi` commands, which also
-make every chat call. `HAMLET_DEMO_FAUX` names a faux script the model
-answers from, and `HAMLET_DEMO_SIGN_IN=1` lists two providers on
-loopback to sign in to. The kill kit's `agent-tell`, `agent-mid-turn` and
-`agent-timer` (`hamlet_killkit/src/scenario/agent.rs`) and `chat-compact`,
-`chat-new` and `chat-retry` (`scenario/chat.rs`) run there.
+`demo --realm-actor` runs the agent in its Node host against the real
+realm, workspace and library, as [the actor runtime](#the-actor-runtime)
+describes. The realm creates every agent with its create input: the
+Hand and each hire by a hire's steps (`realm/hire.rs`), a worker by
+`realm/workers.rs` and an errand by `realm/workers/errands.rs`. The
+realm's first start begins the Hand's steps (`realm/chiefs.rs`). The
+demo's `realm say` gives an agent a chief's line. The kill kit's rows
+on `Demo::RealmActor` run there.
 
 ## The realm actor
 
@@ -724,20 +793,36 @@ keeps each version wanted and in force) and copy (`documents.rs`), and
 makes the action's deliveries, such as `Submit` to an agent, a notice,
 a worker's answer to its starter, or `ChiefAnswer` to the workspace,
 before or after the answer. `peer.rs` is the one way to another actor.
-A failed call is logged, and `Say` answers whether its line reached
-the agent; what was committed stays.
+`lanes.rs` keeps the order of the deliveries to one agent. A commit
+lines up its deliveries while its transaction is open, and each waits
+for the deliveries to the same agent lined up before it, so an agent
+takes them in the order their acts committed. Deliveries to different
+agents do not wait on each other. A failed call is logged, and `Say`
+answers whether its line reached the agent; what was committed stays.
+Two deliveries are owed, because no repeat by their sender carries
+them: a line a review kept (`Delivery::Kept`) and a parcel's refusal
+notice (`Delivery::ParcelRefused`). After a failure in passing,
+`calls.rs` makes an owed delivery again on the steps' schedule
+(`steps::retried`: 1 s, then doubled up to 60 s) until it is taken,
+its callee refuses it, its receiver has left or the realm stops, and
+keeps the realm awake meanwhile.
 
 A hire is one transaction, then six steps in `hire.rs`, each recorded
 done by a transaction of its own (`steps.rs`). The first four call
 another actor: the profile's actor, its branch `hires/<n>`, the agent
-made with its place and its task, and the agent's filesystem filled.
+made with its place, its task and its copies, and the agent's
+filesystem filled.
 `Reach` commits the hire's first reach as wanted, which the push after
 that commit sends to the workspace, and `Live` calls no actor: the
 transaction that records it makes the hire live and closes the row. A
 worker (`workers.rs`), an errand (`workers/errands.rs`), a review
-(`reviews.rs`) and a parcel (`parcels.rs`) have steps of their own. At
-the realm's start, each step row not closed goes on from its last done
-step, and `End` closes the row.
+(`reviews.rs`) and a parcel (`parcels.rs`) have steps of their own. A
+step that fails in passing is tried again on the steps' schedule
+(`steps::retried`). A step its callee refuses fails for good, and
+`end_failed` ends its row: a hire or a worker as failed, an errand as
+one that gave no answer, a review as failed and a parcel as refused.
+At the realm's start, each step row not closed goes on from its last
+done step, and `End` closes the row.
 
 The rest is by module: `chiefs.rs` founds a hamlet, with
 `chiefs/hamlet.rs` its name, site, mode and folder, `chiefs/limits.rs`
@@ -762,15 +847,18 @@ task until a chief rules; `waits.rs` keeps the waits for a chief of
 every kind and their answers, and the refusals counted on a task;
 `documents.rs` and `settings.rs` keep the charter, the catalogue and
 the settings and push each agent its copies; `secrets.rs` holds
-`credentials.json`, written whole with mode 0600, and answers the
-workspace's `Secrets` and an agent's `Credential`; `record.rs` keeps
+`credentials.json`, written whole with mode 0600, and answers
+`Secrets`, the list a scrub reads, and an agent's `Credential`;
+`record.rs` keeps
 the decisions. `world.rs` keeps the world a client reads with
 `ReadWorld` as a copy in memory, rebuilt after each commit that
 changes it, and `versions.rs` numbers those commits in the file.
 
 `tests/realm.rs` runs the realm on a host with stand-ins for the
-workspace, the agents and the profiles, which keep what they were sent
-and can hold a call, or fail it once for one agent. The files in
+workspace, the agents and the profiles. They keep what they were sent,
+and a test can hold a call, fail it once or fail it every time for one
+agent. A test calls the realm as the program or as a client, and as
+an agent or the workspace through that stand-in's `forward`. The files in
 `tests/realm/` group its tests by subject.
 
 ## The profile and library actors
@@ -943,7 +1031,9 @@ built-in ones.
 | What the agent's model reads, and the model it runs on | `hosts/node/src/agent/prompt.ts`, `copies.ts`, `models.ts`, `compaction.ts` |
 | A sign-in, or the provider `claude` | `hosts/node/src/agent/login.ts`, `claude.ts` |
 | A message the agent takes or sends | `hosts/node/src/agent/messages.ts`; `hosts/node/test/messages.test.ts` checks it against `hamlet_messages/fixtures/` |
-| The Node host's entry and the demo's TypeScript kinds | `hosts/node/src/main.ts`, `demo.ts`, `actor/registry/link.ts`; the linked demo in `hamlet_host/examples/demo/link.rs` |
+| The Node host's entry and the demo's TypeScript kinds | `hosts/node/src/main.ts`, `entry.ts`, `demo.ts`, `actor/registry/link.ts`; the linked demo in `hamlet_host/examples/demo/link.rs` |
+| The demo's real realm and agent: its kinds, route table, verbs and faux model | `hamlet_host/examples/demo/realm_actor.rs`, `agent_host.rs`; `hosts/node/src/agent/demo-host.ts` |
+| A model request: its key, its price and its scrub; a client's model list and model check | `hosts/node/src/agent/models.ts` (`agentModels`, `modelList`, `checkModel`), `chat.ts` (`askedBy`, `read_models`, `check`) |
 | What a TypeScript actor can do: call another actor with a deadline, its address and caller, `get`, `all` and `run` on its rows | `hosts/node/src/actor/actor/calls.ts`, `config.ts`; `registry/native.ts`, `runtime.ts`, `napi-runtime.ts`; `common/database/`; the native side in `hamlet_actor_node/src/address.rs`, `actor_context.rs` |
 | The native module's TypeScript declarations | `hamlet_actor_node/index.d.ts` and `index.js`, written by `cargo xtask declarations`, never by hand |
 | What the host reports on `Host::events` | `hamlet_host/src/event.rs` |
@@ -959,6 +1049,8 @@ built-in ones.
 | Workers' scratch folders on the workspace | `hamlet_actors/src/workspace/workers.rs` |
 | Tools added by hand on the workspace | `hamlet_actors/src/workspace/tools.rs` |
 | How the realm actor runs an action: the marker, the transaction, the calls after it | `hamlet_actors/src/realm/act.rs`, `change.rs`, `calls.rs`; [the realm actor](#the-realm-actor) |
+| The order of the realm's deliveries to one agent | `hamlet_actors/src/realm/lanes.rs` |
+| An owed delivery the realm makes again after a failure | `hamlet_actors/src/realm/calls.rs` (`Delivery::owed`, `again`), `steps.rs` (`retried`) |
 | The realm actor's hires, ends and steps | `hamlet_actors/src/realm/tree/lead.rs`, `hire.rs`, `steps.rs` |
 | The realm actor's roads, letters, budgets and waits | `hamlet_actors/src/realm/roads.rs`, `laid.rs`, `letters.rs`, `budget.rs`, `waits.rs` |
 | A profile's versions, edits, purge and erase | `hamlet_actors/src/profile/versions.rs`; [the profile and library actors](#the-profile-and-library-actors) |
