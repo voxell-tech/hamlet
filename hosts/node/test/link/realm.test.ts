@@ -6,8 +6,11 @@ import { answer, type Demo, startDemo } from "./support.ts";
 /** The demo opens no sandbox on Windows, so its workspace cannot start. */
 const SKIP = { skip: process.platform === "win32" };
 
-/** Long enough for a faux turn and a restarted Node host on a loaded machine. */
-const TURN_MS = 30_000;
+/**
+ * A faux turn, a restarted Node host's included, ends within 3 s here; this
+ * is twenty times that.
+ */
+const TURN_MS = 60_000;
 
 const NOISE = /\b(WARN|ERROR)\b/;
 
@@ -29,6 +32,16 @@ async function chatHolds(
         (items) => items.some(found),
         TURN_MS,
     );
+}
+
+/**
+ * Asserts that agent 3 holds agent 2's tell once: a later letter from agent 2
+ * reaches it after any copy of the first, as one agent's letters arrive in
+ * the order they were sent.
+ */
+async function heldOnce(demo: Demo): Promise<void> {
+    assert.equal(await demo.ask("agent 2 tell t2 hire#3 later"), "sent/t2 1");
+    assert.equal(await demo.ask("agent 3 await letter 2"), "took/3/letter 2");
 }
 
 /** Founds `h1`, whose mayor is agent 2, and hires agents 3 to `last` under it, each live. */
@@ -78,10 +91,7 @@ test(
                 /^taken\/s1 /,
             );
             await chatHolds(demo, 2, (item) => item.text === "Done: Sent.");
-            assert.equal(
-                await demo.ask("agent 3 await letter 1"),
-                "took/3/letter 1",
-            );
+            await heldOnce(demo);
             assert.equal(await demo.stop(), 0);
         });
     },
@@ -154,10 +164,7 @@ test(
             );
             await chatHolds(demo, 2, (item) => item.text === "Done: Sent.");
             assert.notEqual(await demo.ask("pi pid"), before);
-            assert.equal(
-                await demo.ask("agent 3 await letter 1"),
-                "took/3/letter 1",
-            );
+            await heldOnce(demo);
             assert.equal(await demo.stop(), 0);
         });
     },
