@@ -717,6 +717,42 @@ test("a wake follows the current session and the peers' chats, and resets a past
     assert.equal(now.items.at(-2)?.text.endsWith("Later."), true);
 });
 
+test("a past session no client reads tells its readers once to read again, however many commits change it", async (t) => {
+    const first = await wake(t, [
+        fauxAssistantMessage("One."),
+        fauxAssistantMessage("Two."),
+        fauxAssistantMessage("Late noted."),
+    ]);
+    await sender(first)(line("a"));
+    await first.actions.new_session(first.by(from.client), {
+        id: "00000000-0000-4000-8000-000000000001",
+        to: 7,
+    });
+    await sender(first)(line("b"));
+    await first.stop();
+    const next = await first.again();
+    t.after(() => next.stop());
+    const past: ChatRef = { with: 7, past: 1 };
+    const conversation = await conversationOfChat(next.by(from.client), past);
+
+    await sender(next)({
+        type: "answer",
+        question: 6,
+        from: { agent: 3, name: "Ada" },
+        text: "Late.",
+        conversation: String(conversation),
+    });
+
+    const resets = () =>
+        chatEvents(next).filter(
+            (event) =>
+                isDeepStrictEqual(event.chat, past) &&
+                event.ops.some((op) => op.type === "reset"),
+        );
+    await until(() => resets().length > 0);
+    assert.equal(resets().length, 1);
+});
+
 test("a client following the chief's chat reads again after /resume to a session past at the wake", async (t) => {
     const first = await wake(t, reflecting(["One.", "Two.", "Three."]));
     await sender(first)(line("a"));

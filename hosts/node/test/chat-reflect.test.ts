@@ -290,6 +290,50 @@ test("a short cut-off's second try answers its turn, and the reflection follows 
     assert.equal((await reflections(agent)).length, 1);
 });
 
+test("a /reflect while a cut-off waits for its summary is asked after the turn carries on", async (t) => {
+    const long = (n: number) => `Line ${n}. ${"word ".repeat(7_000)}`;
+    const summary = held("Summary.");
+    const { agent } = await wake(t, "0", [
+        words("One."),
+        words("Two."),
+        words("Three."),
+        () => fauxAssistantMessage([], { stopReason: "length" }),
+        summary.step,
+        words("Four."),
+        words("Kept."),
+    ]);
+    const line = say(agent);
+    for (const n of [1, 2, 3]) await line(long(n));
+    send(agent, "line-4", "Line 4. Answer now.");
+    await summary.asked;
+
+    assert.equal(await agent.actions.reflect(agent.by(from.client)), "asked");
+    summary.release();
+    await until(async () => (await said(agent)).at(-1) === "Kept.");
+
+    assert.deepEqual((await said(agent)).slice(-4), [
+        CARRY_ON,
+        "Four.",
+        REFLECT,
+        "Kept.",
+    ]);
+});
+
+test("a /reflect as the turn that owes a reflection ends asks one reflection on one task", async (t) => {
+    const busy = held("One.");
+    const { agent, sent } = await wake(t, "1", [busy.step, words("Kept.")]);
+    send(agent, "line-1", "a");
+    await busy.asked;
+
+    busy.release();
+    const asked = await agent.actions.reflect(agent.by(from.client));
+    await agent.idle();
+
+    assert.ok(asked === "asked" || asked === "already");
+    assert.deepEqual(await said(agent), ["a", "One.", REFLECT, "Kept."]);
+    assert.equal(named(sent, "open_task").length, 1);
+});
+
 test("an empty answer fails its turn, which is not counted", async (t) => {
     const { agent } = await wake(t, "1", [
         () => fauxAssistantMessage([]),

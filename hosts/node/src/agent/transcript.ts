@@ -90,6 +90,8 @@ interface Attached {
     readonly harness: Harness;
     readonly made: Set<ConversationId>;
     readonly folds: Map<ConversationId, Promise<Fold>>;
+    /** Past sessions whose readers were told to read again, and none has. */
+    readonly told: Set<ConversationId>;
 }
 
 const WATCHES = new WeakMap<Following, Watch>();
@@ -143,6 +145,7 @@ async function attach(
         harness,
         made: new Set(),
         folds: new Map(),
+        told: new Set(),
     };
     harness.observeCommits({
         advance: (publication) => {
@@ -211,6 +214,8 @@ function changed(
             const row = await rowOf(c, conversation);
             if (row === undefined) return;
             if (row.kind === "chief" && row.current === 0) {
+                if (at.told.has(conversation)) return;
+                at.told.add(conversation);
                 follow.send(refOfRow(agentOf(c), row), [{ type: "reset" }]);
                 return;
             }
