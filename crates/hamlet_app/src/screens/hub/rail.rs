@@ -518,8 +518,11 @@ pub(super) struct Line {
     pub mark: Option<Standing>,
     /// What the search also finds it by: its address.
     pub address: String,
-    /// How far under another agent it is set in.
+    /// How far under another agent it is set in. The lead's agents
+    /// are set in as far as the lead.
     pub depth: u8,
+    /// How many agents it is under, which folds go by.
+    pub level: u8,
     /// Whether no row after it is set in under the same agent.
     pub last: bool,
     /// For each level above, whether its guide runs past this row.
@@ -796,25 +799,39 @@ fn family_lines(
     open: &dyn Fn(Group) -> bool,
 ) -> Vec<Line> {
     let mut rows = Vec::<(Line, u8)>::new();
+    let mut lifted = false;
     for (node, depth) in family {
         let depth = *depth;
+        if depth == 0 {
+            lifted = matches!(node, Node::Agent(agent)
+                if agent.lead || agent.kind == protocol::AgentKind::Hand);
+        }
+        let set_in = |level: u8| {
+            if lifted {
+                level.saturating_sub(1)
+            } else {
+                level
+            }
+        };
         match node {
             Node::Agent(agent) => {
-                let line = agent_line(world, agent, depth, false);
-                rows.push((line, depth));
+                let mut line = agent_line(world, agent, depth, false);
+                line.level = depth;
+                rows.push((line, set_in(depth)));
             }
             Node::Workers { group, workers } => {
                 let shown = open(*group);
-                rows.push((
-                    workers_line(*group, workers, shown, depth),
-                    depth,
-                ));
+                let mut line =
+                    workers_line(*group, workers, shown, depth);
+                line.level = depth;
+                rows.push((line, set_in(depth)));
                 if shown {
                     let under = depth.saturating_add(1);
                     for worker in workers {
-                        let line =
+                        let mut line =
                             agent_line(world, worker, under, false);
-                        rows.push((line, under));
+                        line.level = under;
+                        rows.push((line, set_in(under)));
                     }
                 }
             }
@@ -876,6 +893,7 @@ fn workers_line(
         depth,
         last: true,
         rails: Vec::new(),
+        level: 0,
         current: false,
         fold: Some((group, !open)),
         worker: true,
@@ -942,6 +960,7 @@ fn agent_line(
         depth,
         last,
         rails: Vec::new(),
+        level: 0,
         current: is_current(world, target),
         fold: None,
         worker: agent.kind == protocol::AgentKind::Worker,
@@ -954,7 +973,7 @@ fn fold_parents(lines: Vec<Line>, folded: &[Group]) -> Vec<Line> {
     // From the end, each open subtree with its most pressing mark.
     let mut after = Vec::<(u8, Standing)>::new();
     for at in (0..lines.len()).rev() {
-        let depth = lines[at].depth;
+        let depth = lines[at].level;
         let mut under = false;
         let mut mark = Standing::of_all(lines[at].mark);
         while let Some(&(below, of)) = after.last()
@@ -983,13 +1002,13 @@ fn fold_parents(lines: Vec<Line>, folded: &[Group]) -> Vec<Line> {
     let mut hidden_below: Option<u8> = None;
     for line in lines {
         if let Some(depth) = hidden_below {
-            if line.depth > depth {
+            if line.level > depth {
                 continue;
             }
             hidden_below = None;
         }
         if matches!(line.fold, Some((_, true))) {
-            hidden_below = Some(line.depth);
+            hidden_below = Some(line.level);
         }
         kept.push(line);
     }
@@ -1017,6 +1036,7 @@ fn page_line(
         depth: 0,
         last: true,
         rails: Vec::new(),
+        level: 0,
         current: is_current(world, target),
         fold: None,
         worker: false,
@@ -1070,6 +1090,7 @@ fn needs(world: &World, all: &[Agent]) -> (Vec<Line>, usize) {
                 depth: 0,
                 last: true,
                 rails: Vec::new(),
+                level: 0,
                 current: false,
                 fold: None,
                 worker: false,
@@ -1123,6 +1144,7 @@ fn needs(world: &World, all: &[Agent]) -> (Vec<Line>, usize) {
             depth: 0,
             last: true,
             rails: Vec::new(),
+            level: 0,
             current: false,
             fold: None,
             // What waits is never set lighter.
@@ -1811,13 +1833,10 @@ fn expanded(line: &Line, dimmed: bool) -> AnyView {
     } else {
         Tone::Body
     };
-    let name = column((one_line(
-        label(line.name.clone())
-            .tone(name_tone)
-            .bold(!(worker || dimmed)),
-    ),))
-    .min_width(px(0.0))
-    .overflow(Overflow::clip());
+    let name =
+        column((one_line(label(line.name.clone()).tone(name_tone)),))
+            .min_width(px(0.0))
+            .overflow(Overflow::clip());
     let mut words = vec![name.boxed(), frame().grow(1.0).boxed()];
     words.push(
         label(resource::<Minute, _>(move |_| age(now_ms(), since)))
@@ -2002,9 +2021,17 @@ fn header(section: &Section, above: f32) -> AnyView {
     } else {
         Tone::Faint
     };
+    let hamlet = matches!(group, Group::Hamlet(_));
+    let title = section.title.clone();
     let mut words = vec![
-        crate::overview::part_title(section.title.clone(), tone)
-            .boxed(),
+        with_cx(move |cx| {
+            label(title.clone())
+                .size(cx.theme().text.heading)
+                .bold(hamlet)
+                .tone(tone)
+                .wrap(false)
+        })
+        .boxed(),
         label(section.count.to_string()).tone(Tone::Dim).boxed(),
     ];
     if matches!(group, Group::Hamlet(_)) {
