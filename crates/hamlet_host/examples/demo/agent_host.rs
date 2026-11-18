@@ -533,7 +533,7 @@ impl Action for Taken {
     const NAME: &'static str = "taken";
 }
 
-/// What `taken` of demo-host.ts answers.
+/// The answer of `taken` of demo-host.ts.
 #[derive(Serialize, Deserialize)]
 pub struct Holding {
     pub standing: RealmTask,
@@ -550,7 +550,7 @@ pub struct Input {
     pub task: Option<RealmTask>,
     /// The letter a question asks in.
     pub question: Option<u32>,
-    /// What the model reads of it, as its entry keeps it.
+    /// The text the model reads, as its entry keeps it.
     pub text: String,
 }
 

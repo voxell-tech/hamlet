@@ -36,7 +36,6 @@ impl Turn {
     }
 }
 
-/// A delivery with its turn.
 pub(super) struct Queued {
     pub delivery: Delivery,
     pub turn: Turn,

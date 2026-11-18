@@ -619,7 +619,7 @@ impl<'a> Until<'a> {
         }))
     }
 
-    /// How many of the entries among `lines` begin with the words.
+    /// The number of entries among `lines` that begin with the words.
     fn held(&self, lines: &[String]) -> usize {
         lines
             .iter()
@@ -742,7 +742,8 @@ const SCENARIO_ENV: &[&str] = &[
     "HAMLET_REALM_PANIC",
 ];
 
-/// How often [`Host::until`] reads the conversation it waits on.
+/// The interval at which [`Host::until`] reads the conversation it
+/// waits on.
 const POLL: Duration = Duration::from_millis(100);
 
 /// The line [`Host::until`] sends after `pi conversation`: one read

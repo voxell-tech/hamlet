@@ -1,5 +1,5 @@
 /**
- * What every entry of the Node host does first and last: it takes the link
+ * The first and last steps of every entry of the Node host: it takes the link
  * from the Rust host that started it, and serves its kinds until that host's
  * goodbye. A failure is named on standard error under the entry's name, and
  * the process exits 1.

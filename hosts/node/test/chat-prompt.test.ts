@@ -280,7 +280,7 @@ test("read_prompt answers what the next request sends", async (t) => {
         ),
     );
     assert.ok(text.includes("# Your place\n"));
-    // As `crates/hamlet_server/src/talk/prompt/place.rs:181-186` words it,
+    // As `crates/hamlet_server/src/talk/prompt/place.rs` words it,
     // with a society tool under the name the model calls it by.
     assert.ok(
         text.includes(

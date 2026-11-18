@@ -70,8 +70,8 @@ pub(super) enum Stood {
     Gate(Gate),
 }
 
-/// Why `agent` may not act: an errand's standing, or how it left the
-/// tree.
+/// The reason `agent` may not act: an errand's standing, or how it
+/// left the tree.
 pub(super) async fn standing(
     rows: &Rows<'_>,
     agent: AgentNumber,

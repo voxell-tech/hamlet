@@ -163,7 +163,7 @@ export interface Keys {
     of(provider: string): Promise<Given>;
 }
 
-/** What a request carries from its credential, as pi-ai's request options. */
+/** The part of its credential a request carries, as pi-ai's request options. */
 export interface Given {
     readonly apiKey?: string;
     readonly env?: ProviderEnv;

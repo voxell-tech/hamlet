@@ -100,7 +100,7 @@ export function hasWordsOrCall(answer: AssistantMessage): boolean {
 }
 
 /**
- * As `crates/hamlet_server/src/talk/verdicts.rs:55-60` rules: an answer
+ * As `crates/hamlet_server/src/talk/verdicts.rs` rules: an answer
  * stands when it ended and has words or a call; any other fails its turn.
  */
 export function stands(answer: AssistantMessage): boolean {

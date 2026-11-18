@@ -840,7 +840,7 @@ export interface Check {
     readonly model: string;
 }
 
-/** As today's check answers: the model's hello, its failure, or a refusal of the name. */
+/** The model's hello, its failure, or a refusal of its name. */
 export interface Checked {
     readonly type: "answered" | "failed" | "refused";
     readonly words: string;

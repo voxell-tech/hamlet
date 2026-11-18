@@ -394,7 +394,6 @@ impl Sent {
         Ok(Vec::new())
     }
 
-    /// The notice that tells the sender `text`.
     fn notice(&self, text: String) -> Calls {
         Calls::after_answer(Delivery::ParcelRefused {
             to: self.sender,

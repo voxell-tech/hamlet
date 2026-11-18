@@ -48,7 +48,7 @@ type Owed = (conversation: ConversationId) => Promise<{
 }>;
 
 /**
- * As today's `answered` (`crates/hamlet_server/src/talk/reflections.rs:29-66`),
+ * As today's `answered` (`crates/hamlet_server/src/talk/reflections.rs`),
  * a turn answered in a session the chief has left asks its reflection at
  * once, whatever `reflect_every` is.
  */

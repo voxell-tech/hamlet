@@ -47,8 +47,8 @@ export interface ClaudeProgram {
 const APP = "hamlet/0.1.0";
 
 /**
- * How long `claude auth login` has to give its link: today's 30 s
- * (`harnesses/pi/src/claude.ts:34`) cut to end before the sign-in's step
+ * The time `claude auth login` has to give its link: today's 30 s
+ * (`harnesses/pi/src/claude.ts`) cut to end before the sign-in's step
  * does, so a link that never comes fails in this file's words.
  */
 const LINK_WAIT_MS = STEP_WAIT_MS - 5_000;

@@ -280,7 +280,7 @@ pub(super) async fn resolve(
         .map(|hamlet| hamlet.mayor))
 }
 
-/// Where a caller's own row stands.
+/// The state of a caller's own row.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(super) enum Life {
     /// A hire or the Hand hiring or live, or a worker or an errand
