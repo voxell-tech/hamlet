@@ -13,7 +13,7 @@ mod profile;
 mod thread;
 mod visits;
 
-use std::collections::{BTreeSet, HashMap};
+use std::collections::BTreeSet;
 
 use bevy::app::{App, Update};
 use bevy::ecs::change_detection::{DetectChanges, DetectChangesMut};
@@ -122,17 +122,8 @@ pub(crate) struct CollapsedRails(pub(crate) BTreeSet<String>);
 /// The dock window of the Hub `id`.
 pub fn window(id: &str) -> DockWindowKind<HamletTheme> {
     let id = id.to_owned();
-    DockWindowKind::new("Hub", move || {
-        // Its tab glows while anything waits for the chief.
-        highlight_panel(
-            panel(id.clone()),
-            Highlight {
-                attention: true,
-                flash: true,
-            },
-        )
-    })
-    .icon(Glyph::Tree.image(ICON))
+    DockWindowKind::new("Hub", move || panel(id.clone()).boxed())
+        .icon(Glyph::Tree.image(ICON))
 }
 
 fn is_hub(id: &str) -> bool {
@@ -406,10 +397,21 @@ fn page(hub: Entity) -> impl View {
 /// The Hub panel `id`, once its Hub is kept.
 fn panel(id: String) -> impl View {
     keyed(
-        derived(move |world: &World| hub_of(world, &id))
-            .when(every_frame()),
-        |hub| match hub {
-            Some(hub) => screen(*hub).boxed(),
+        derived(move |world: &World| {
+            hub_of(world, &id)
+                .map(|hub| (hub, is_following(world, hub)))
+        })
+        .when(every_frame()),
+        |hub| match *hub {
+            // Its tab glows while anything waits for the chief, and
+            // only the following Hub flashes as its page changes.
+            Some((hub, following)) => highlight_panel(
+                screen(hub),
+                Highlight {
+                    attention: true,
+                    flash: following,
+                },
+            ),
             None => frame().boxed(),
         },
     )
@@ -527,29 +529,25 @@ fn seat_if_new(world: &mut World, agent: Entity) {
     }
 }
 
-/// Tells the flashing panels that a Hub shows something else.
+/// Tells the following Hub's panel that it shows something else.
 pub(crate) fn tell_page(
     world: &mut World,
-    mut seen: Local<HashMap<Entity, (Showing, Option<Entity>)>>,
+    mut seen: Local<Option<(Entity, Showing, Option<Entity>)>>,
 ) {
-    let Some(mut hubs) = world.try_query::<(Entity, &Showing)>()
-    else {
+    let Some(hub) = following(world) else {
         return;
     };
-    let agent = world.resource::<Convo>().agent;
-    let now = hubs
-        .iter(world)
-        .map(|(hub, page)| {
-            let agent = (*page == Showing::Thread).then_some(agent);
-            (hub, (*page, agent))
-        })
-        .collect::<HashMap<_, _>>();
-    // A Hub's first page is not a change.
-    let changed = now.iter().any(|(hub, page)| {
-        seen.get(hub).is_some_and(|was| was != page)
-    });
-    *seen = now;
-    if changed {
+    let Some(page) = showing(world, hub) else {
+        return;
+    };
+    let agent = (page == Showing::Thread)
+        .then(|| world.resource::<Convo>().agent);
+    let now = (hub, page, agent);
+    // A Hub's first page, or another Hub following, is not a change.
+    if seen
+        .replace(now)
+        .is_some_and(|was| was.0 == hub && was != now)
+    {
         world.write_message(Updated);
     }
 }

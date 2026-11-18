@@ -2226,7 +2226,7 @@ fn header(hub: Entity, section: &Section, above: f32) -> AnyView {
 }
 
 /// The rail's sections in its three places.
-#[derive(Resource, Default, PartialEq)]
+#[derive(Component, Default, PartialEq)]
 struct Parts {
     /// The realm's own and what waits, over the tabs.
     over: Vec<Section>,
@@ -2612,5 +2612,21 @@ mod tests {
             .unwrap();
         assert_eq!(needs.count, 2);
         assert_eq!(names(&app, hub, in_hamlet), ["ada"]);
+    }
+
+    #[test]
+    fn a_hub_opened_later_gets_its_rows() {
+        let mut app = panel_app();
+        app.add_plugins(plugin);
+        crate::testing::hub(&mut app);
+        app.update();
+        let second = crate::hub::spawn(
+            app.world_mut(),
+            "hub-2".into(),
+            RailState::Expanded,
+        );
+        app.update();
+        let parts = app.world().get::<Parts>(second).unwrap();
+        assert!(!parts.over.is_empty());
     }
 }
