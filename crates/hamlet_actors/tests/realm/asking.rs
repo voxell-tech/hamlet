@@ -137,7 +137,7 @@ pub(super) async fn open_waits(
 }
 
 /// What `agent` was given after its first `skip` inputs, in words.
-fn given(
+pub(super) fn given(
     realm: &Realm,
     agent: AgentNumber,
     skip: usize,

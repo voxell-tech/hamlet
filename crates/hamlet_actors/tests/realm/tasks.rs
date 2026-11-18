@@ -1,14 +1,13 @@
-use hamlet_messages::agent::Input;
 use hamlet_messages::realm::Done;
 use hamlet_messages::realm::budget::{
     Budget, OpenTask, SpendRefusal, TaskOpened, TaskTurn,
 };
 use hamlet_protocol::client::{Choice, RequestId};
 
-use super::asking::{chief_task, objection, open_waits};
+use super::asking::{chief_task, given, objection, open_waits};
 use super::{
     MAYOR, THREE, answer, error_code, hamlet_with, may_spend, paid,
-    submits_to, tell, to, tool, until,
+    tell, to, tool, until,
 };
 
 #[tokio::test(flavor = "multi_thread")]
@@ -83,9 +82,8 @@ async fn a_task_a_held_letter_carries_is_spent_on_only_once_delivered()
         .await
         .unwrap();
     until("the letter reaches the mayor", || {
-        submits_to(&realm, MAYOR).iter().any(|submit| {
-            matches!(&submit.input, Input::Letter { text, .. } if text == "it is done")
-        })
+        given(&realm, MAYOR, 0)
+            .contains(&"letter: it is done".to_owned())
     })
     .await;
     let once_delivered = may_spend(&realm, MAYOR, &task).await;

@@ -5,11 +5,13 @@ use hamlet_messages::agent::{Input, InputId, Submit};
 use hamlet_messages::realm::client::{SayAnswer, SayRefusal};
 use hamlet_messages::sender::Hand;
 use hamlet_messages::workspace::AgentNumber;
-use hamlet_protocol::client::RequestId;
+use hamlet_protocol::client::{Choice, RequestId};
 
+use super::asking::{chief_task, given, objection, open_waits};
 use super::{
-    Callee, FOUR, MAYOR, Realm, Seen, THREE, error_code, founded,
-    hamlet_with, say, submits_to, until,
+    Callee, FOUR, MAYOR, Realm, Seen, THREE, answer, error_code,
+    founded, hamlet_with, paid, say, submits_to, tell, to, tool,
+    until,
 };
 
 async fn mayor_held_at_its_branch(realm: &Realm) {
@@ -224,6 +226,56 @@ async fn a_line_held_at_one_agent_does_not_hold_a_line_to_another() {
     assert!(matches!(said_other.unwrap(), SayAnswer::Taken { .. }));
     assert_eq!(reached, (0, 1));
     assert!(matches!(said_held.unwrap(), SayAnswer::Taken { .. }));
+    realm.host.shutdown().await.unwrap();
+}
+
+/// A chief's go on 3's objection tells 3 and gives the mayor the
+/// letter 3 sent on that task while it objected. The notice is held
+/// at 3; the test looks for the letter at the mayor for 5 s, over a
+/// hundred times what a delivery that is not held takes here.
+#[tokio::test(flavor = "multi_thread")]
+async fn an_acts_delivery_held_at_one_agent_does_not_hold_its_delivery_to_another()
+ {
+    let (realm, _) = hamlet_with(1).await;
+    let task = chief_task(&realm, THREE).await;
+    realm
+        .tool(THREE, &tool("o1", objection(&task, "no")))
+        .await
+        .unwrap();
+    realm
+        .tool(
+            THREE,
+            &paid("t1", &task, tell(to(MAYOR), "it is done")),
+        )
+        .await
+        .unwrap();
+    let waits = open_waits(&realm, THREE).await;
+    let before = submits_to(&realm, THREE).len();
+    realm.seen.hold_next(Callee::Submit, THREE);
+
+    realm
+        .ask(&answer(&waits[0].0.to_string(), Choice::Go, None))
+        .await
+        .unwrap();
+    until("the notice waits at 3", || {
+        realm.seen.is_waiting(Callee::Submit, THREE)
+    })
+    .await;
+    let reached = tokio::time::timeout(
+        Duration::from_secs(5),
+        until("the letter reaches the mayor", || {
+            given(&realm, MAYOR, 0)
+                .contains(&"letter: it is done".to_owned())
+        }),
+    )
+    .await;
+    realm.seen.release(Callee::Submit);
+
+    assert!(reached.is_ok(), "the letter waited for 3's notice");
+    until("the notice reaches 3", || {
+        submits_to(&realm, THREE).len() > before
+    })
+    .await;
     realm.host.shutdown().await.unwrap();
 }
 

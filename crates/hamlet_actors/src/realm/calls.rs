@@ -108,45 +108,61 @@ impl Push {
     }
 }
 
+/// Makes `deliveries`, each once the deliveries lined up before it
+/// to the same agents are done: one agent's in their order, and
+/// those to different agents at the same time.
 pub(super) async fn deliver_all(
     realm: &Arc<Realm>,
     ctx: &Ctx<Realm>,
     deliveries: Vec<Queued>,
     when: When,
 ) -> Made {
-    let mut made = Made::default();
-    for Queued { delivery, mut turn } in deliveries {
-        turn.come().await;
-        let shown = format!("{delivery:?}");
-        let delivered = match delivery {
-            Delivery::Line { to, submit } => {
-                realm.peers.call(&Agent(to), &submit, when).await
-            }
-            Delivery::Letter(_) | Delivery::Answer(_) => {
-                letters::deliver(realm, ctx, delivery).await
-            }
-            Delivery::ChiefAnswer(wait) => {
-                waits::deliver(realm, ctx, wait).await
-            }
-            Delivery::Notice(wait) => {
-                waits::notice(realm, ctx, wait).await
-            }
-            Delivery::WorkerAnswer(worker) => {
-                workers::answer(realm, ctx, worker).await
-            }
-            Delivery::Held(task) => {
-                asking::deliver_held(realm, ctx, task).await
-            }
-        };
-        if let Err(error) = delivered {
-            tracing::warn!(
-                delivery = shown,
-                "a delivery failed: {error:#}"
-            );
-            made.failed.push(error);
-        }
+    let made = futures::future::join_all(
+        deliveries
+            .into_iter()
+            .map(|queued| deliver(realm, ctx, queued, when)),
+    )
+    .await;
+    Made {
+        failed: made.into_iter().filter_map(Result::err).collect(),
     }
-    made
+}
+
+async fn deliver(
+    realm: &Arc<Realm>,
+    ctx: &Ctx<Realm>,
+    Queued { delivery, mut turn }: Queued,
+    when: When,
+) -> Result<()> {
+    turn.come().await;
+    let shown = format!("{delivery:?}");
+    let delivered = match delivery {
+        Delivery::Line { to, submit } => {
+            realm.peers.call(&Agent(to), &submit, when).await
+        }
+        Delivery::Letter(_) | Delivery::Answer(_) => {
+            letters::deliver(realm, ctx, delivery).await
+        }
+        Delivery::ChiefAnswer(wait) => {
+            waits::deliver(realm, ctx, wait).await
+        }
+        Delivery::Notice(wait) => {
+            waits::notice(realm, ctx, wait).await
+        }
+        Delivery::WorkerAnswer(worker) => {
+            workers::answer(realm, ctx, worker).await
+        }
+        Delivery::Held(task) => {
+            asking::deliver_held(realm, ctx, task).await
+        }
+    };
+    if let Err(error) = &delivered {
+        tracing::warn!(
+            delivery = shown,
+            "a delivery failed: {error:#}"
+        );
+    }
+    delivered
 }
 
 async fn push(
