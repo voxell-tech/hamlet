@@ -463,8 +463,7 @@ pub(super) async fn run(
     n: u64,
     Step::Deadline: Step,
 ) -> Result<Vec<change::Change>> {
-    let task = TaskId::of(&RealmTask(n.to_string()))
-        .with_context(|| format!("no task {n} to review"))?;
+    let task = task_of(n)?;
     let rows = cx.rows()?;
     let kept = held(&rows, task)
         .await?
@@ -495,6 +494,25 @@ pub(super) async fn run(
         }
         .into(),
     ])
+}
+
+/// The changes that fail the review of row `n`, whose step failed for
+/// good, as its deadline does.
+pub(super) fn failed(n: u64) -> Result<Vec<change::Change>> {
+    let task = task_of(n)?;
+    Ok(vec![
+        Change::End {
+            task,
+            verdict: Verdict::Failed,
+        }
+        .into(),
+        steps::Change::Close { row: row(task)? }.into(),
+    ])
+}
+
+fn task_of(n: u64) -> Result<TaskId> {
+    TaskId::of(&RealmTask(n.to_string()))
+        .with_context(|| format!("no task {n} to review"))
 }
 
 /// Gives the hire its line, once the chief lets an objected line go

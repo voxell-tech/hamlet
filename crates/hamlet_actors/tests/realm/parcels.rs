@@ -34,9 +34,9 @@ use tokio::sync::watch;
 
 use super::asking::{chief_task, held_rows, objection, on};
 use super::{
-    AgentStandIn, Forward, MAYOR, ProfileStandIn, Realm, Seen, THREE,
-    answer, forward, founded, hires, kind, seen, submits_to, tell,
-    to, tool, until,
+    AgentStandIn, Callee, DEADLINE, Forward, MAYOR, ProfileStandIn,
+    Realm, Seen, THREE, answer, forward, founded, hires, kind, seen,
+    submits_to, tell, to, tool, until,
 };
 
 /// The files the stand-in workspace holds, by path, and the parts it
@@ -208,6 +208,7 @@ impl Handler<Parcel> for FilesStandIn {
             parcel.agent, MAYOR,
             "the sender's files are read"
         );
+        self.seen.called(Callee::Parcel, parcel.agent).await?;
         Ok(self.files.measure(&parcel.paths))
     }
 }
@@ -438,7 +439,7 @@ async fn chief_answers(
             } => {}
             other => panic!("the wait answers {other:?}"),
         }
-        assert!(begun.elapsed() < super::DEADLINE, "no wait {wait}");
+        assert!(begun.elapsed() < DEADLINE, "no wait {wait}");
         tokio::time::sleep(Duration::from_millis(20)).await;
     }
 }
@@ -461,7 +462,7 @@ async fn opens(realm: &Realm, wait: &str) {
             } => {}
             other => panic!("the wait answers {other:?}"),
         }
-        assert!(begun.elapsed() < super::DEADLINE, "no wait {wait}");
+        assert!(begun.elapsed() < DEADLINE, "no wait {wait}");
         tokio::time::sleep(Duration::from_millis(20)).await;
     }
 }
@@ -921,4 +922,42 @@ async fn a_parcel_whose_sender_ended_is_swept() {
     let states = parcel_states(&realm).await;
 
     assert_eq!(states, [("refused".to_owned(), true)]);
+}
+
+/// Whether each parcel's step rows are closed, by parcel.
+async fn parcel_rows_closed(realm: &Realm) -> Vec<bool> {
+    realm
+        .stopped_rows(|db| {
+            db.prepare(
+                "SELECT closed FROM step WHERE kind = 'parcel' \
+                 ORDER BY n",
+            )?
+            .query_map([], |row| row.get(0))?
+            .collect()
+        })
+        .await
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn a_parcel_whose_measure_is_refused_is_refused_and_driven_no_further()
+ {
+    // the workspace refuses to measure the mayor's parcel, as a
+    // callee's own error: the parcel is refused and its row closed,
+    // and a restart drives it no further and sweeps it.
+    let (realm, files) =
+        sending(Files::with(&[("/project/a", b"a")])).await;
+    realm.seen.fail_for_good(Callee::Parcel, MAYOR);
+
+    sends(&realm, "t1", "Here.", &["/project/a"]).await;
+    let begun = std::time::Instant::now();
+    while parcel_rows_closed(&realm).await != [true] {
+        assert!(begun.elapsed() < DEADLINE, "never: the row closes");
+        tokio::time::sleep(Duration::from_millis(100)).await;
+    }
+    let realm = restart(realm, &files).await;
+    let states = parcel_states(&realm).await;
+
+    assert_eq!(states, [("refused".to_owned(), true)]);
+    assert_eq!(parcel_rows_closed(&realm).await, [true]);
+    assert!(letters_to_three(&realm).is_empty());
 }

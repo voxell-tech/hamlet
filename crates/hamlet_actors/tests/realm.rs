@@ -123,6 +123,8 @@ enum Callee {
     Branch,
     Create,
     Fill,
+    /// The workspace's measure of a parcel, by its sender.
+    Parcel,
     Place,
     SetReach,
     Submit,

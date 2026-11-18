@@ -475,7 +475,7 @@ pub(super) async fn run(
     n: u64,
     step: Step,
 ) -> Result<Vec<change::Change>> {
-    let parcel = ParcelId(u32::try_from(n & (AFTER_ALLOW - 1))?);
+    let parcel = parcel_of(n)?;
     let after_allow = n & AFTER_ALLOW != 0;
     let rows = cx.rows()?;
     let sent = Sent::read(&rows, parcel).await?;
@@ -507,6 +507,28 @@ pub(super) async fn run(
         }
         Step::Measure | Step::Copy => Ok(Vec::new()),
     }
+}
+
+/// The changes that refuse the parcel of row `n`, whose step failed
+/// for good.
+pub(super) fn failed(n: u64) -> Result<Vec<change::Change>> {
+    Ok(vec![
+        Change::Refused {
+            parcel: parcel_of(n)?,
+        }
+        .into(),
+        steps::Change::Close {
+            row: StepId {
+                kind: steps::Kind::Parcel,
+                n,
+            },
+        }
+        .into(),
+    ])
+}
+
+fn parcel_of(n: u64) -> Result<ParcelId> {
+    Ok(ParcelId(u32::try_from(n & (AFTER_ALLOW - 1))?))
 }
 
 /// Whether `sender` or `receiver` has ended, so that no one is told

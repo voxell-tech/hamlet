@@ -236,8 +236,8 @@ const FIRST_RETRY: Duration = Duration::from_secs(1);
 const LAST_RETRY: Duration = Duration::from_secs(60);
 
 /// Drives `row` until it is done. A step that fails in passing runs
-/// again while the realm runs; one that fails for good ends its
-/// hire or worker.
+/// again while the realm runs; one that fails for good ends its row
+/// as a failure of its kind.
 async fn drive(realm: Arc<Realm>, ctx: Ctx<Realm>, row: StepId) {
     let mut retry = FIRST_RETRY;
     loop {
@@ -263,23 +263,30 @@ async fn drive(realm: Arc<Realm>, ctx: Ctx<Realm>, row: StepId) {
     }
 }
 
-/// Ends the hire or the worker whose row failed for good.
+/// Ends the row that failed for good: its hire or worker ends as
+/// failed, its errand as one that gave no answer, its review as
+/// failed and its parcel as refused.
 async fn end_failed(
     realm: &Arc<Realm>,
     ctx: &Ctx<Realm>,
     row: StepId,
 ) -> Result<()> {
-    let agent = AgentNumber(u32::try_from(row.n)?);
+    let agent = u32::try_from(row.n).map(AgentNumber);
     let tx = change::Transaction::begin(ctx).await?;
+    let rows = tx.rows();
     let (changes, calls) = match row.kind {
         Kind::Hire => {
-            (tree::failed(&tx.rows(), agent).await?, Calls::none())
+            (tree::failed(&rows, agent?).await?, Calls::none())
         }
         Kind::Worker => (
-            workers::failed(&tx.rows(), agent).await?,
-            Calls::after_answer(Delivery::WorkerAnswer(agent)),
+            workers::failed(&rows, agent?).await?,
+            Calls::after_answer(Delivery::WorkerAnswer(agent?)),
         ),
-        Kind::Errand | Kind::Review | Kind::Parcel => return Ok(()),
+        Kind::Errand => {
+            (errands::failed(&rows, row.n).await?, Calls::none())
+        }
+        Kind::Review => (reviews::failed(row.n)?, Calls::none()),
+        Kind::Parcel => (parcels::failed(row.n)?, Calls::none()),
     };
     if changes.is_empty() {
         return Ok(());
