@@ -11,7 +11,7 @@ use hamlet_messages::workspace::RealmTask;
 use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
 
-use super::callers::{Member, Stood, Witness};
+use super::callers::{self, Stood, Witness};
 use super::calls::{self, Calls, Made, Push};
 use super::change::{self, Change, Rows};
 use super::lanes::Lined;
@@ -166,13 +166,14 @@ pub(super) async fn run_tool<T: ToolAct>(
         name,
         act,
         async move |by: &Agent, rows: &Rows<'_>, act: &T::Run| {
-            if let Some(stood) = by.standing(rows).await? {
+            if let Some(stood) = callers::standing(rows, by.0).await?
+            {
                 return Ok(Some(Barred::Stood(stood)));
             }
             let kept = reserved::reserve(
                 rows,
                 T::TOOL,
-                by.agent(),
+                by.0,
                 task.as_ref(),
                 conversation.as_ref(),
                 act,
