@@ -70,7 +70,7 @@ import {
     type Submit,
     type ToolName,
 } from "./messages.ts";
-import { agentModels, askCopiedKey, configured } from "./models.ts";
+import { agentModels, configured, secretsRefreshed } from "./models.ts";
 import { ownFiles } from "./own-files.ts";
 import { type PromptSources, promptPart, promptSources } from "./prompt.ts";
 import { reflectEvery, reflection } from "./reflect.ts";
@@ -526,14 +526,12 @@ async function wake(c: AgentContext, config: AgentConfig): Promise<void> {
     // before any action, so a first turn runs on the copies the create
     // input held.
     await configuring();
-    const read = refreshed(c, peers).then(configuring, (error: unknown) =>
+    void refreshed(c, peers).then(configuring, (error: unknown) =>
         peers.report("the copies were not read from the realm", error),
     );
-    void read
-        .then(() => askCopiedKey(config.models, copies, peers))
-        .catch((error: unknown) =>
-            peers.report("the copy's model's key was not read", error),
-        );
+    void secretsRefreshed(peers.reach).catch((error: unknown) =>
+        peers.report("the realm's secret list was not read", error),
+    );
     if (
         (row.kind === "worker" || row.kind === "errand") &&
         row.brief !== undefined

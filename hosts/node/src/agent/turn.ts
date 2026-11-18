@@ -60,13 +60,14 @@ const BARE = [
     "lapse",
     "open_task",
     "read_copies",
+    "secrets",
     "worker_done",
     "errand_done",
 ] as const;
 
 export type BareRealm = {
     readonly [N in (typeof BARE)[number]]: (
-        message: Parameters<RealmActions[N]>[0],
+        ...message: Parameters<RealmActions[N]>
     ) => Promise<ReturnType<RealmActions[N]>>;
 };
 
@@ -81,7 +82,7 @@ export function peersOf(given: {
         reach: Object.fromEntries(
             BARE.map((name) => [
                 name,
-                (message: never) => reach(REALM, name, [message]),
+                (...message: never) => reach(REALM, name, message),
             ]),
         ) as unknown as BareRealm,
         cancel: (message) => reach(WORKSPACE, "cancel", [message]),

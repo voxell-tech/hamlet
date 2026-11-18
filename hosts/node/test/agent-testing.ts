@@ -74,6 +74,7 @@ export function fakeCalls(answers: {
             may_spend: () => ({ type: "done" }),
             charge: () => null,
             read_copies: () => ({}),
+            secrets: () => ({ version: 1, values: [] }),
             lapse: () => null,
             turn_failed: () => null,
             ...answers.realm,
@@ -468,7 +469,10 @@ export function toolCall(
     });
 }
 
-/** A realm whose `credential` answers what `keep_credential` kept. */
+/**
+ * A realm whose `credential` answers what `keep_credential` kept, and whose
+ * secret list holds every secret of it.
+ */
 export function credentialsFile() {
     const file = new Map<string, Kept>();
     const { calls, sent } = fakeCalls({
@@ -484,6 +488,14 @@ export function credentialsFile() {
                 file.set(provider, value);
                 return null;
             },
+            secrets: () => ({
+                version: 1,
+                values: [...file.values()].flatMap((kept) =>
+                    kept.type === "key"
+                        ? [kept.key]
+                        : [kept.login.access, kept.login.refresh],
+                ),
+            }),
         },
     });
     return { file, calls, sent };
@@ -501,4 +513,22 @@ export async function itemOfLine(agent: Woken, text: string): Promise<string> {
     );
     assert.ok(line !== undefined, `the line ${text} is in the session`);
     return `${line.id}:0`;
+}
+
+/** Every table of the agent's database, as text. */
+export async function dumped(agent: Woken): Promise<string> {
+    const tables = await agent.c.db.all<{ name: string }>(
+        "SELECT name FROM sqlite_master WHERE type = 'table'",
+    );
+    const decoder = new TextDecoder();
+    let text = "";
+    for (const { name } of tables) {
+        const rows = await agent.c.db.all<Record<string, unknown>>(
+            `SELECT * FROM "${name}"`,
+        );
+        text += JSON.stringify(rows, (_key, value: unknown) =>
+            value instanceof Uint8Array ? decoder.decode(value) : value,
+        );
+    }
+    return text;
 }

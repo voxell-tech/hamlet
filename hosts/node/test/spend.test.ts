@@ -60,7 +60,7 @@ test("each provider request is asked for and charged once under its own id", asy
         sent
             .filter((call) => call.to === "realm/local")
             .map((call) => call.name)
-            .filter((name) => name !== "read_copies"),
+            .filter((name) => name !== "read_copies" && name !== "secrets"),
         ["may_spend", "charge", "may_spend", "charge"],
     );
     assert.deepEqual(
@@ -112,7 +112,12 @@ test("a refused model call ends the turn with the realm's words and sends no req
     assert.deepEqual(
         sent
             .map((call) => call.name)
-            .filter((name) => name !== "list_tools" && name !== "read_copies"),
+            .filter(
+                (name) =>
+                    name !== "list_tools" &&
+                    name !== "read_copies" &&
+                    name !== "secrets",
+            ),
         ["may_spend", "turn_failed"],
     );
     const harness = await agent.harness();
@@ -473,7 +478,12 @@ test("a provider's stream that breaks is worded as the provider's failure, retri
     assert.deepEqual(
         sent
             .map((call) => call.name)
-            .filter((name) => name !== "list_tools" && name !== "read_copies"),
+            .filter(
+                (name) =>
+                    name !== "list_tools" &&
+                    name !== "read_copies" &&
+                    name !== "secrets",
+            ),
         ["may_spend", "may_spend", "charge"],
     );
     const texts = (await agent.entries()).map((entry) => entry.text);

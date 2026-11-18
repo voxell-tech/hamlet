@@ -27,6 +27,7 @@ import {
 import { conversationOfChat } from "../src/agent/sessions.ts";
 import type { BareRealm, Peers } from "../src/agent/turn.ts";
 import {
+    dumped,
     fakeCalls,
     from,
     itemOfLine,
@@ -534,23 +535,6 @@ test("a new conversation takes the copy's model", async (t) => {
     assert.deepEqual(names, ["loopback::large", "loopback::large"]);
     await agent.stop();
 });
-
-async function dumped(agent: Woken): Promise<string> {
-    const tables = await agent.c.db.all<{ name: string }>(
-        "SELECT name FROM sqlite_master WHERE type = 'table'",
-    );
-    const decoder = new TextDecoder();
-    let text = "";
-    for (const { name } of tables) {
-        const rows = await agent.c.db.all<Record<string, unknown>>(
-            `SELECT * FROM "${name}"`,
-        );
-        text += JSON.stringify(rows, (_key, value: unknown) =>
-            value instanceof Uint8Array ? decoder.decode(value) : value,
-        );
-    }
-    return text;
-}
 
 function splitting(
     chunks: readonly string[],

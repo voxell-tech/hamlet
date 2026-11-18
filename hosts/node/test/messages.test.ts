@@ -26,6 +26,7 @@ import {
     type OauthLogin,
     REALM,
     readClient,
+    type SecretList,
     type Submit,
     type TaskOpened,
     U32_MAX,
@@ -568,6 +569,10 @@ const WRITTEN: readonly Written[] = [
     // Sent at the first wake, which holds no copy yet.
     { fixture: "realm/read_copies.none" },
     {
+        fixture: "realm/secrets",
+        answers: { realm: { secrets: () => answer("realm/secrets") } },
+    },
+    {
         fixture: "realm/read_copies",
         drive: async (t, calls, sent) => {
             const first = await wakeAgent(t, {
@@ -820,7 +825,8 @@ for (const row of WRITTEN) {
         const call = of().at(-1);
         assert.ok(call, `the agent sent no ${action}`);
         const expected = fixture(`${row.fixture}.args`) as unknown[];
-        // Each action takes one message, but `list_tools` takes none.
+        // Each action takes one message, but `list_tools` and `secrets` take
+        // none.
         const args =
             call.message === undefined ? [] : [structuredClone(call.message)];
         for (const path of row.own ?? []) {
@@ -1178,6 +1184,33 @@ test("realm/read_copies.answer is read by the wake, and its charter reaches the 
     await agent.stop();
 });
 
+test("realm/secrets.answer's values are taken out of what a client reads", async (t) => {
+    const given = answer("realm/secrets") as SecretList;
+    const [value] = given.values;
+    assert.ok(value !== undefined);
+    const { calls } = fakeCalls({ realm: { secrets: () => given } });
+    const agent = await wakeAgent(t, {
+        calls,
+        input: HAND,
+        responses: [fauxAssistantMessage(`It is ${value}.`)],
+    });
+    await agent.actions.submit(agent.by(from.realm), {
+        id: "line-secret",
+        input: { type: "line", text: "What is it?" },
+    });
+    await agent.idle();
+    const read = async () =>
+        JSON.stringify(
+            await agent.actions.read_chat(agent.by(from.client), {
+                id: "00000000-0000-4000-8000-0000000000cc",
+                chat: { with: 7 },
+            }),
+        );
+    await until(async () => (await read()).includes("It is [REDACTED]."));
+    assert.ok(!(await read()).includes(value));
+    await agent.stop();
+});
+
 test("a client's call is refused in its fixture's words", {
     todo: "the agent words a refusal as today's server does, and `hamlet_messages` words it otherwise",
 }, async (t) => {
@@ -1362,7 +1395,7 @@ const NOT_THE_AGENTS: readonly (readonly [RegExp, string])[] = [
         /^realm\/lapse\.stopped\.args$/,
         "a stop's lapse of one conversation: as today, `/stop` lapses every wait the agent raised",
     ],
-    [/^realm\/(needs_chief|secrets)\./, "the workspace's call of the realm"],
+    [/^realm\/needs_chief\./, "the workspace's call of the realm"],
     [
         /^workspace\/(set_reach|cancel_agent|chief_answer)\./,
         "the realm's call of the workspace",
@@ -1477,6 +1510,7 @@ test("every fixture is one the agent writes or takes, or is listed with its reas
             "realm/lapse",
             "realm/open_task",
             "realm/read_copies",
+            "realm/secrets",
             "realm/turn_failed",
             "realm/worker_done",
             "realm/errand_done",
