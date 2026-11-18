@@ -1001,6 +1001,59 @@ mod tests {
     }
 
     #[test]
+    fn a_rewind_whose_hub_closed_adds_to_another_hubs_draft() {
+        let mut app = crate::testing::panel_app();
+        app.add_plugins(plugin);
+        app.update();
+        let (asker, shown) = (hub(&app), convo(&app).clone());
+        let chat = shown.chat;
+        let world = app.world_mut();
+        let other = crate::hub::spawn(
+            world,
+            "hub-2".into(),
+            crate::hub::RailState::Expanded,
+        );
+        world.entity_mut(other).insert(shown);
+        field::give_draft(
+            world,
+            other,
+            chat,
+            vec![Piece::Text("Mine".into())],
+        );
+        let before = world
+            .resource::<Requests>()
+            .0
+            .keys()
+            .cloned()
+            .collect::<Vec<_>>();
+        rewind_to(world, asker, chat, "message/1");
+        let request = world
+            .resource::<Requests>()
+            .0
+            .keys()
+            .find(|request| !before.contains(request))
+            .cloned()
+            .unwrap();
+        world.despawn(asker);
+        world.trigger(hamlet_client::messages::Rewound {
+            chat,
+            request,
+            text: "Back again".into(),
+            images: Vec::new(),
+            files: Vec::new(),
+        });
+        app.update();
+        let kept = field::draft_of(app.world(), other, chat)
+            .into_iter()
+            .map(|piece| match piece {
+                Piece::Text(text) => text,
+                Piece::Atom(_) => String::new(),
+            })
+            .collect::<String>();
+        assert_eq!(kept, "Mine\nBack again");
+    }
+
+    #[test]
     fn a_focus_asked_for_before_the_field_is_mounted_waits_for_it() {
         let mut app = crate::testing::panel_app();
         app.add_message::<Cue>()
