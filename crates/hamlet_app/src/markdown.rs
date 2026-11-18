@@ -30,12 +30,16 @@ fn words<'a>(
     }
 }
 
-/// True while the entry `id` is the last of its conversation and
-/// may have more words to come.
+/// True while the entry `id` is the last of its conversation before
+/// the queued lines and may have more words to come.
 fn is_growing(world: &World, chat: Entity, id: &str) -> bool {
     world.get::<Transcript>(chat).is_some_and(|transcript| {
         transcript.is_answering()
-            && transcript.items().last().map(|item| item.id.as_str())
+            && transcript
+                .items()
+                .iter()
+                .rfind(|item| !item.queued)
+                .map(|item| item.id.as_str())
                 == Some(id)
     })
 }
@@ -282,12 +286,30 @@ mod tests {
             "no chip while the words grow: a chip moves with each \
              layout"
         );
-        let items = app
+        // A line queued after it leaves it growing.
+        let mut items = app
             .world()
             .get::<Transcript>(chat)
             .unwrap()
             .items()
             .to_vec();
+        items.push(Item {
+            id: "queued".into(),
+            at: 0,
+            queued: true,
+            entry: Entry::Chief {
+                name: "a".into(),
+                text: "next".into(),
+                images: Vec::new(),
+                files: Vec::new(),
+            },
+        });
+        app.world_mut().entity_mut(chat).insert(
+            Transcript::from_items(items.clone())
+                .with_answering(true),
+        );
+        assert_eq!(targets(read.get(app.world())), growing);
+        items.pop();
         app.world_mut()
             .entity_mut(chat)
             .insert(Transcript::from_items(items));
