@@ -1,6 +1,7 @@
-//! Letters and questions between agents along roads (H30, H31): each
-//! receiver's conversation with each sender, the message kept once
-//! per tool call, and a question's answer carried back to its sender.
+//! Letters and questions between agents along channels (H30, H31):
+//! each receiver's conversation with each sender, the message kept
+//! once per tool call, and a question's answer carried back to its
+//! sender.
 
 use anyhow::Result;
 use diesel::deserialize::FromSqlRow;

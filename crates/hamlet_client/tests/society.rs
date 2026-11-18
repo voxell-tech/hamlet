@@ -3,7 +3,7 @@ use bevy_ecs::prelude::*;
 use hamlet_client::realm::*;
 use hamlet_client::{ClientPlugin, receive};
 use hamlet_protocol::client as protocol;
-use hamlet_testing::realm::{agent, hamlet, road, state};
+use hamlet_testing::realm::{agent, channel, hamlet, state};
 
 fn app() -> App {
     let mut app = App::new();
@@ -93,11 +93,11 @@ fn departures_resolve_later_merge_hosts_and_restores_keep_identity() {
 struct Letters(Vec<(Entity, Entity)>);
 
 #[test]
-fn roads_are_unordered_shared_and_only_growth_carries_letters() {
+fn channels_are_unordered_shared_and_only_growth_carries_letters() {
     let mut app = app();
     app.init_resource::<Letters>().add_observer(
         |event: On<Carried>, mut letters: ResMut<Letters>| {
-            letters.0.push((event.road, event.from));
+            letters.0.push((event.channel, event.from));
         },
     );
     let world = app.world_mut();
@@ -107,29 +107,32 @@ fn roads_are_unordered_shared_and_only_growth_carries_letters() {
         .agents
         .extend([agent(3, "home", false), agent(4, "mill", true)]);
     let [ada, scout_id, miller] = [2, 3, 4].map(protocol::AgentId);
-    let home_road = road(ada, scout_id, 8);
-    let between = road(ada, miller, 2);
-    let scout_road = road(scout_id, miller, 0);
-    state.hamlets[0].roads =
-        vec![home_road.clone(), between.clone(), scout_road.clone()];
-    state.hamlets[1].roads = vec![between.clone(), scout_road];
+    let home_channel = channel(ada, scout_id, 8);
+    let between = channel(ada, miller, 2);
+    let scout_channel = channel(scout_id, miller, 0);
+    state.hamlets[0].channels = vec![
+        home_channel.clone(),
+        between.clone(),
+        scout_channel.clone(),
+    ];
+    state.hamlets[1].channels = vec![between.clone(), scout_channel];
     receive(world, protocol::ServerMessage::State(state.clone()));
-    assert_eq!(world.query::<&Road>().iter(world).count(), 3);
+    assert_eq!(world.query::<&Channel>().iter(world).count(), 3);
     assert!(world.resource::<Letters>().0.is_empty());
     let founder = named(world, "agent#2").unwrap();
     let scout = named(world, "agent#3").unwrap();
     let entity = world
-        .query::<(Entity, &Road)>()
+        .query::<(Entity, &Channel)>()
         .iter(world)
         .find(|(_, r)| r.has_end(founder) && r.has_end(scout))
         .unwrap()
         .0;
     let mut changed = state.hamlets[0].clone();
-    let roads = &mut changed.roads;
-    let first = &mut roads[0];
+    let channels = &mut changed.channels;
+    let first = &mut channels[0];
     std::mem::swap(&mut first.a, &mut first.b);
-    roads[0].messages += 1;
-    roads[0].last_from = Some(scout_id);
+    channels[0].messages += 1;
+    channels[0].last_from = Some(scout_id);
     change(
         world,
         1,
@@ -140,7 +143,7 @@ fn roads_are_unordered_shared_and_only_growth_carries_letters() {
     assert_eq!(world.resource::<Letters>().0, [(entity, scout)]);
     assert_eq!(
         world.get::<Traffic>(entity).unwrap().level,
-        RoadUse::Paved
+        ChannelUse::Paved
     );
     change(
         world,
@@ -150,24 +153,24 @@ fn roads_are_unordered_shared_and_only_growth_carries_letters() {
         }],
     );
     assert_eq!(world.resource::<Letters>().0.len(), 1);
-    changed.roads = vec![between];
+    changed.channels = vec![between];
     change(
         world,
         3,
         vec![protocol::Update::Hamlet { hamlet: changed }],
     );
-    assert_eq!(world.query::<&Road>().iter(world).count(), 1);
+    assert_eq!(world.query::<&Channel>().iter(world).count(), 1);
     assert!(world.get_entity(entity).is_err());
     state.revision = 4;
     state.hamlets.truncate(1);
-    state.hamlets[0].roads = Vec::new();
+    state.hamlets[0].channels = Vec::new();
     state.agents.retain(|a| a.hamlet.as_deref() != Some("mill"));
     let miller = named(world, "agent#4").unwrap();
     let mill = world.get::<LivesIn>(miller).unwrap().0;
     receive(world, protocol::ServerMessage::State(state));
     assert!(world.get_entity(mill).is_err());
     assert!(world.get_entity(miller).is_err());
-    assert_eq!(world.query::<&Road>().iter(world).count(), 0);
+    assert_eq!(world.query::<&Channel>().iter(world).count(), 0);
 }
 
 #[derive(Resource, Default)]

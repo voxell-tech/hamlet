@@ -1,5 +1,6 @@
-//! The form a road is built with: a search over the agents of the
-//! realm that the agent has no road to yet, one pressed to build it.
+//! The form a channel is opened with: a search over the agents of the
+//! realm that the agent has no channel to yet, one pressed to open
+//! it.
 
 use bevy::ecs::entity::Entity;
 use bevy::ecs::resource::Resource;
@@ -11,7 +12,7 @@ use bevy_fynix::views::{
 };
 use bevy_fynix::{ScopedExt, ViewExt, derived, every_frame, keyed};
 use hamlet_client::realm::{
-    self as agents, Deeds, Kind, Left, road_between,
+    self as agents, Deeds, Kind, Left, channel_between,
 };
 use hamlet_protocol::client as protocol;
 use hamlet_realm::orders;
@@ -27,11 +28,11 @@ const LIST: f32 = 240.0;
 
 /// What is typed in the search.
 #[derive(Resource, Default, Clone, PartialEq)]
-pub(crate) struct Roading {
+pub(crate) struct Channeling {
     search: String,
 }
 
-/// The agents of hamlets `agent` could have a road to whose shown
+/// The agents of hamlets `agent` could have a channel to whose shown
 /// names hold `search`, by name.
 fn choices(
     world: &World,
@@ -52,7 +53,9 @@ fn choices(
                 && left.is_none()
         })
         .map(|(other, ..)| other)
-        .filter(|other| road_between(world, agent, *other).is_none())
+        .filter(|other| {
+            channel_between(world, agent, *other).is_none()
+        })
         .map(|other| (other, agents::shown_of(world, other)))
         .filter(|(_, name)| name.to_lowercase().contains(&search))
         .collect::<Vec<_>>();
@@ -63,12 +66,16 @@ fn choices(
 fn list(agent: Entity) -> impl View {
     keyed(
         derived(move |world: &World| {
-            choices(world, agent, &world.resource::<Roading>().search)
+            choices(
+                world,
+                agent,
+                &world.resource::<Channeling>().search,
+            )
         })
         .when(every_frame()),
         move |found| {
             if found.is_empty() {
-                return description("No agent to build a road to.")
+                return description("No agent to open a channel to.")
                     .boxed();
             }
             column(
@@ -83,8 +90,8 @@ fn list(agent: Entity) -> impl View {
                             .rules(choice(false))
                             .on_activate(move |world| {
                                 close(world);
-                                *world.resource_mut::<Roading>() =
-                                    Roading::default();
+                                *world.resource_mut::<Channeling>() =
+                                    Channeling::default();
                                 orders::introduce(
                                     world, agent, other,
                                 );
@@ -100,10 +107,10 @@ fn list(agent: Entity) -> impl View {
     .within(column(()))
 }
 
-/// The form a road from `agent` is built with.
-pub(super) fn road(agent: Entity, at: Vec2) -> impl View {
+/// The form a channel from `agent` is opened with.
+pub(super) fn channel(agent: Entity, at: Vec2) -> impl View {
     built(move |cx| {
-        if !Deeds::is_allowed(cx.world, "road")
+        if !Deeds::is_allowed(cx.world, "channel")
             || cx.world.get_entity(agent).is_err()
         {
             return cx.build(frame());
@@ -118,14 +125,14 @@ pub(super) fn road(agent: Entity, at: Vec2) -> impl View {
             )
         };
         let body = column((
-            label(format!("A road from {}", from))
+            label(format!("A channel from {}", from))
                 .size(heading)
                 .bold(true),
             crate::search::search(
                 "Search agents",
                 String::new(),
                 |world, text| {
-                    world.resource_mut::<Roading>().search = text;
+                    world.resource_mut::<Channeling>().search = text;
                 },
             ),
             column((scroll_area((list(agent),)),))

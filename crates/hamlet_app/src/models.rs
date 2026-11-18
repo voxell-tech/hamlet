@@ -400,7 +400,7 @@ mod tests {
         press_and_update(&mut app, "small");
         let edit = sent(&mut app).remove(0);
         assert_eq!(edit["whole"]["model"], "far::small");
-        assert_eq!(edit["whole"]["road"]["most"], 24);
+        assert_eq!(edit["whole"]["channel"]["most"], 24);
         assert_eq!(edit["whole"]["budget"]["cost"], 5.0);
         incoming(
             &mut app,

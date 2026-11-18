@@ -3,12 +3,12 @@
 //! hamlet.
 
 mod add_agent;
+mod channel;
 mod deed;
 mod founding;
 mod items;
 mod model;
 mod new_profile;
-mod road;
 
 use bevy::app::{App, Update};
 use bevy::ecs::component::{Component, Mutable};
@@ -74,7 +74,7 @@ pub fn plugin(app: &mut App) {
         .add_observer(founding::chosen)
         .init_resource::<new_profile::Making>()
         .init_resource::<add_agent::AgentForm>()
-        .init_resource::<road::Roading>()
+        .init_resource::<channel::Channeling>()
         .init_resource::<deed::Reason>()
         .add_command(submit, &SUBMIT_KEYS)
         .add_observer(ask_of_row)
@@ -120,8 +120,8 @@ pub(crate) enum Open {
     NewProfile(Vec2),
     /// The form an agent is added under a parent with.
     AddAgent(Entity, Vec2),
-    /// The form a road from an agent is built with.
-    Road(Entity, Vec2),
+    /// The form a channel from an agent is opened with.
+    Channel(Entity, Vec2),
     /// The model an agent runs, its effort and its tier.
     Model(Entity),
 }
@@ -376,13 +376,14 @@ pub(crate) fn ask_add_agent(world: &mut World, parent: Entity) {
     *world.resource_mut::<Open>() = Open::AddAgent(parent, at);
 }
 
-/// Opens the form a road from `agent` is built with, at the pointer.
-pub(crate) fn ask_road(world: &mut World, agent: Entity) {
-    if !Deeds::is_allowed(world, "road") {
+/// Opens the form a channel from `agent` is opened with, at the
+/// pointer.
+pub(crate) fn ask_channel(world: &mut World, agent: Entity) {
+    if !Deeds::is_allowed(world, "channel") {
         return;
     }
     let at = pointer(world);
-    *world.resource_mut::<Open>() = Open::Road(agent, at);
+    *world.resource_mut::<Open>() = Open::Channel(agent, at);
 }
 
 /// Opens the popup of `agent`'s model, over its chip.
@@ -479,7 +480,9 @@ fn menus() -> AnyView {
             Open::AddAgent(parent, at) => {
                 add_agent::form(parent, at).boxed()
             }
-            Open::Road(agent, at) => road::road(agent, at).boxed(),
+            Open::Channel(agent, at) => {
+                channel::channel(agent, at).boxed()
+            }
             Open::Model(agent) => model::picker(agent).boxed(),
         },
     )
@@ -576,7 +579,8 @@ mod tests {
     }
 
     #[test]
-    fn roads_are_offered_only_when_supported_and_sent_to_the_lead() {
+    fn channels_are_offered_only_when_supported_and_sent_to_the_lead()
+    {
         let mut state = realm::state();
         state.agents.extend([
             realm::agent(3, "home", false),
@@ -601,21 +605,21 @@ mod tests {
                 "unsupported: {absent}"
             );
         }
-        state.deeds = realm::deeds(&["road"]);
+        state.deeds = realm::deeds(&["channel"]);
         hamlet_client::receive(
             app.world_mut(),
             protocol::ServerMessage::State(state),
         );
         open(&mut app, Open::Nothing);
-        open(&mut app, Open::Road(a, Vec2::ZERO));
+        open(&mut app, Open::Channel(a, Vec2::ZERO));
         press(&mut app, "agent#4");
         let messages = sent(&mut app);
         let [protocol::ClientMessage::Say(say)] = &messages[..]
         else {
-            panic!("one road: {messages:?}");
+            panic!("one channel: {messages:?}");
         };
         assert_eq!(say.to, protocol::AgentId(2));
-        assert_eq!(say.text, "/road agent#3 agent#4");
+        assert_eq!(say.text, "/channel agent#3 agent#4");
     }
 
     #[test]

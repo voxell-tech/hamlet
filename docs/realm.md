@@ -9,7 +9,7 @@ and `realm/layout.rs` defines `Layout`. The server's chief is named by
 
 | Path under the realm | Owner and contents |
 |---|---|
-| `realm.sqlite`, its WAL and shared-memory files | `hamlet_store`'s `Store`: who exists and answers to whom, roads, the record, tasks and spend, conversations and their inputs, waits and grants, the chief's documents, markers and jobs |
+| `realm.sqlite`, its WAL and shared-memory files | `hamlet_store`'s `Store`: who exists and answers to whom, channels, the record, tasks and spend, conversations and their inputs, waits and grants, the chief's documents, markers and jobs |
 | `realm.id` | The identity also recorded in `realm.sqlite` |
 | `harnesses/<instance>/` | That runtime's own store: conversations, checkpoints, model responses and input admission |
 | `credentials.json` | Server-owned installation ID, connection token and provider credentials |

@@ -48,34 +48,34 @@ pub fn decree(world: &mut World, agent: Entity, text: String) {
     world.flush();
 }
 
-/// Builds a road between two agents at the chief's word.
-fn road(world: &mut World, a: Entity, b: Entity) {
-    if !Deeds::is_allowed(world, "road") {
+/// Opens a channel between two agents at the chief's word.
+fn channel(world: &mut World, a: Entity, b: Entity) {
+    if !Deeds::is_allowed(world, "channel") {
         return;
     }
     if let (Some(a_name), Some(b_name)) =
         (name(world, a), name(world, b))
     {
-        decree(world, a, format!("/road {a_name} {b_name}"));
+        decree(world, a, format!("/channel {a_name} {b_name}"));
     }
 }
 
-/// Takes up the road between two agents at the chief's word.
+/// Closes the channel between two agents at the chief's word.
 pub fn part(world: &mut World, a: Entity, b: Entity) {
-    if !Deeds::is_allowed(world, "unroad") {
+    if !Deeds::is_allowed(world, "unchannel") {
         return;
     }
     if let (Some(a_name), Some(b_name)) =
         (name(world, a), name(world, b))
     {
-        decree(world, a, format!("/unroad {a_name} {b_name}"));
+        decree(world, a, format!("/unchannel {a_name} {b_name}"));
     }
 }
 
-/// Has two agents greet each other and builds a road between them.
+/// Has two agents greet each other and opens a channel between them.
 pub fn introduce(world: &mut World, a: Entity, b: Entity) {
     hand::greet(world, a, b);
-    road(world, a, b);
+    channel(world, a, b);
 }
 
 /// Takes the town of `hamlet` in hand, to be set down with a click
@@ -191,8 +191,8 @@ fn grant(
     }
     for wish in wishes.read().cloned() {
         match wish {
-            Wish::Road { a, b } => commands
-                .queue(move |world: &mut World| road(world, a, b)),
+            Wish::Channel { a, b } => commands
+                .queue(move |world: &mut World| channel(world, a, b)),
         }
     }
 }

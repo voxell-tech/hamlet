@@ -1,6 +1,6 @@
 # The hamlet: the society of agents
 
-Chiefs, the Hand, the city of profiles, hamlets with their agents, the roads
+Chiefs, the Hand, the city of profiles, hamlets with their agents, the channels
 and letters between them, the tasks and budgets that bound their work, the
 library, dreams, and what waits for a chief. One agent on its own is in
 [`core.md`](core.md).
@@ -14,9 +14,9 @@ A chief overrules the Hand, parents and leads alike.
 
 **H22.** A chief's limits bound a hamlet, and only a human changes them;
 every check reads them as they are now. They can reserve to a chief what a
-parent may otherwise do alone: adding agents, laying and taking up roads,
+parent may otherwise do alone: adding agents, opening and closing channels,
 ending agents and merging them. A reserved act waits for a chief (H11). The realm has
-limits of its own: whether roads may be agreed between hamlets, and the
+limits of its own: whether channels may be agreed between hamlets, and the
 budget of the Hand and of the workers started outside a hamlet (H8).
 
 **H24.** Only a line a human types can be a command. A letter between agents
@@ -47,7 +47,7 @@ chief is talking to.
 | `/model <address> <model\|none> [reason]`, `/tools <address> -<tool> +<tool>`, `/allowance <address> <dollars\|none>` | An agent's model, tools and allowance (H29, H41, H44) |
 | `/effort <address> <off\|minimal\|low\|medium\|high\|xhigh\|max\|none>`, `/fast <address> <on\|off>` | How hard an agent's model thinks, and whether it asks for the provider's fast tier (H29a) |
 | `/name-agent <address> [name]` | What an agent or a worker is called in the world, or none to go by its own again (H46) |
-| `/road <address> <address> [reason]`, `/unroad <address> <address> [reason]` | Lay or take up a road between two agents (H3) |
+| `/channel <address> <address> [reason]`, `/unchannel <address> <address> [reason]` | Open or close a channel between two agents (H3) |
 | `/worker <task>` | Start a worker on a task in the hamlet (H42) |
 | `/folder <folder\|none>`, `/mode <manual\|auto>` | The hamlet's folder and its mode (C20, C21) |
 | `/budget`, `/reset-budget` | The hamlet's spend, and starting its period again (H8) |
@@ -73,7 +73,7 @@ empty city and no hamlet.
   the city,
   whose character starts from the app's default for it, and a worktree. A chief
   edits its character as any profile's.
-- Every chief talks to the Hand first. It has a road to each lead and to no
+- Every chief talks to the Hand first. It has a channel to each lead and to no
   other agent.
 - It can do in any hamlet what a parent can (H41), and found hamlets (H6), give
   a hamlet's office to another agent (H18), remove a hamlet (H19), read a
@@ -229,10 +229,10 @@ parents make it. An agent with agents under it is a parent.
 - A parent has the lead's powers over the agents under it, and only those:
   to add agents under itself or under an agent of its tree, make profiles,
   end agents, merge them, choose their models, turn their tools off, give
-  them allowances, and lay and take up roads among them. Every agent of a
+  them allowances, and open and close channels among them. Every agent of a
   hamlet has these tools (H35), so any of them can become a parent.
 - The Hand is above every lead, and a chief overrules anything (H23).
-- An agent has a road to its parent and to each agent under it while they
+- An agent has a channel to its parent and to each agent under it while they
   live (H3).
 - A chief's instruction to an agent is reviewed by its parent (H10).
 
@@ -253,7 +253,7 @@ it, which ends when the task is answered.
   it ends.
 - Its spend is charged to its starter's task, hamlet and allowance.
 - It is not counted among a hamlet's agents, and has no branch, worktree,
-  memory or roads.
+  memory or channels.
 
 **H17.** Every decision of a chief, the Hand or a parent is kept in the hamlet's
 record with its reason, when one was given, and a chief can read the record in
@@ -267,7 +267,7 @@ same hamlet at once, subject to the chief's limits (H22) and tasks (H7). A
 reason may be given, and the record keeps it; none is needed, here or for any
 other decision.
 
-In a merge the kept agent takes the absorbed agent's laid roads, its agents
+In a merge the kept agent takes the absorbed agent's opened channels, its agents
 and its inbox, and takes in what the absorbed agent learned: when both are of one
 profile, the absorbed branch is merged into the kept one, keeping the kept
 side where both changed; when they are of different profiles, what the
@@ -306,26 +306,26 @@ effort the model cannot be asked for becomes the nearest it can. A chief may
 also turn on an agent's fast tier, which asks the model's provider for its
 faster, dearer tier where it has one; it is off unless turned on.
 
-## Roads and letters
+## Channels and letters
 
-**H3.** Agents reach each other along roads, of four kinds:
+**H3.** Agents reach each other along channels, of four kinds:
 
-- **Tree roads**: an agent to its parent and to each agent under it, and the
+- **Tree channels**: an agent to its parent and to each agent under it, and the
   Hand to each lead.
-- **Leads' roads**: between each two leads.
-- **Laid roads**: between two agents of one hamlet, laid by a parent over both,
+- **Leads' channels**: between each two leads.
+- **Opened channels**: between two agents of one hamlet, opened by a parent over both,
   or by a chief. Each costs the hamlet [$0.01], up to the most the limits
-  allow [24] in a hamlet, and is charged to the task that laid it; a chief's
-  road has no task. What a road cost is not given back.
-- **Agreed roads**: between agents of different hamlets, once both leads
-  agree (`agree_road`), and only while the realm allows roads between
+  allow [24] in a hamlet, and is charged to the task that opened it; a chief's
+  channel has no task. What a channel cost is not given back.
+- **Agreed channels**: between agents of different hamlets, once both leads
+  agree (`agree_channel`), and only while the realm allows channels between
   hamlets [yes].
 
-A road nobody used for [7] days is shown grown over. A chief or a parent can take
-up a laid or agreed road. Roads of an agent that was merged go to the agent
+A channel nobody used for [7] days is shown grown over. A chief or a parent can close
+an opened or agreed channel. Channels of an agent that was merged go to the agent
 that absorbed it, and are not charged again.
 
-**H30.** An agent sends messages only along its roads, in two ways:
+**H30.** An agent sends messages only along its channels, in two ways:
 
 - **A letter** (`tell`): sent without waiting. The other agent works on it
   in its own conversation with the sender, and the reply comes back later as a
@@ -349,8 +349,8 @@ it, and the sender is told of a refusal. No send holds more than [256 MiB] in
 one file, [1 GiB] or [10000 files] in all. A remote workspace gives at most 4
 MiB of a file at once, so a sender working there sends no larger file.
 
-An agent can ask its parent for a road to another agent of its hamlet
-(`request_road`).
+An agent can ask its parent for a channel to another agent of its hamlet
+(`request_channel`).
 
 **H31.** While another agent waits on an agent's reply, that agent cannot
 send letters: they would reach the waiting agent after it stopped
@@ -366,7 +366,7 @@ against its hamlet's budget (H8).
 
 **H8.** A hamlet has a budget for a period of a [day] or a month, on cost
 [$50], or none, and on model time; tokens are counted but not capped. The realm has one
-for the Hand and for the workers started outside a hamlet. Every road and
+for the Hand and for the workers started outside a hamlet. Every channel and
 model call is charged, including reflections, summaries and recorded failed
 or aborted attempts. A response with no reported tokens is estimated unless
 it failed or was aborted; an attempt with no reported usage costs nothing.
@@ -420,9 +420,9 @@ costing at most a cap [$0.20].
 
 **H14.** Between hamlets:
 
-- There is a road between each two leads from the start.
-- Agents of different hamlets have a road once both leads agree to it
-  (`agree_road`), and only while the realm allows such roads [yes].
+- There is a channel between each two leads from the start.
+- Agents of different hamlets have a channel once both leads agree to it
+  (`agree_channel`), and only while the realm allows such channels [yes].
 - A profile's name is a label and need not be unique (C10). An agent is
   reached by an address: `hand`; `lead`, which is the local office, and
   `lead@<hamlet id>`; `agent#<id>`; and `worker#<id>`. A profile is
@@ -432,7 +432,7 @@ costing at most a cap [$0.20].
 - A message between hamlets is paid for by the sender's hamlet.
 
 The chiefs of each hamlet concerned are told, in their conversation with its
-lead, when a hamlet is founded or removed, its lead changes, or a road
+lead, when a hamlet is founded or removed, its lead changes, or a channel
 between hamlets is agreed.
 
 **H19.** A chief, or the Hand on a chief's order, can remove a hamlet. Its
@@ -506,9 +506,9 @@ the tools in its own row:
 | Who | Tools |
 |---|---|
 | Every agent but a worker | `tell`, `ask` (H30), `start_worker` (H42), `submit_skill`, `ask_librarian` (H33), `ask_chief` (H10), `read_budget` (H8) |
-| Every agent of a hamlet | `request_road` |
-| A parent, and the Hand | `create_profile`, `add_agent`, `end_agent`, `merge_agents`, `set_model`, `set_tools`, `set_allowance`, `rename_agent`, `lay_road`, `take_up_road` |
-| A lead, when other hamlets live | `agree_road` |
+| Every agent of a hamlet | `request_channel` |
+| A parent, and the Hand | `create_profile`, `add_agent`, `end_agent`, `merge_agents`, `set_model`, `set_tools`, `set_allowance`, `rename_agent`, `open_channel`, `close_channel` |
+| A lead, when other hamlets live | `agree_channel` |
 | The Hand | `found_hamlet`, `set_lead`, `remove_hamlet`, `read_record`, `read_profile`, `edit_profile`, `tag`, `revert` |
 | Every agent but a worker, in a chief conversation | `object` (H10) |
 | A worker | None of the society's |

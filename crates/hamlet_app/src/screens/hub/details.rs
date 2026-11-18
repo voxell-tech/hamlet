@@ -15,8 +15,8 @@ use bevy_fynix::{
     Bevy, ScopedExt, ViewExt, ViewSeq, derived, every_frame, keyed,
 };
 use hamlet_client::realm::{
-    Account, Allowance, Bylaws, Deeds, Kind, LivesIn, Profile, Road,
-    ToolsOff, id_of, name_of, roads_of, shown_of,
+    Account, Allowance, Bylaws, Channel, Deeds, Kind, LivesIn,
+    Profile, ToolsOff, channels_of, id_of, name_of, shown_of,
 };
 use hamlet_protocol::client as protocol;
 use hamlet_realm::orders;
@@ -56,7 +56,7 @@ struct Facts {
     /// Its address, and what it is called in the world.
     address: String,
     called: String,
-    roads: Vec<(Entity, String)>,
+    channels: Vec<(Entity, String)>,
     spent: String,
     /// Its allowance in dollars, and the period of its hamlet's
     /// budget that it is for.
@@ -65,18 +65,18 @@ struct Facts {
 }
 
 fn facts(world: &World, agent: Entity) -> Facts {
-    let mut roads = roads_of(world, agent)
-        .filter_map(|road| world.get::<Road>(road))
-        .map(|road| {
-            if road.ends.0 == agent {
-                road.ends.1
+    let mut channels = channels_of(world, agent)
+        .filter_map(|channel| world.get::<Channel>(channel))
+        .map(|channel| {
+            if channel.ends.0 == agent {
+                channel.ends.1
             } else {
-                road.ends.0
+                channel.ends.0
             }
         })
         .map(|other| (other, shown_of(world, other)))
         .collect::<Vec<_>>();
-    roads.sort_by(|a, b| a.1.cmp(&b.1));
+    channels.sort_by(|a, b| a.1.cmp(&b.1));
     Facts {
         hand: world.get::<Kind>(agent).map(|kind| kind.0)
             == Some(protocol::AgentKind::Hand),
@@ -94,7 +94,7 @@ fn facts(world: &World, agent: Entity) -> Facts {
             .flatten(),
         address: name_of(world, agent),
         called: shown_of(world, agent),
-        roads,
+        channels,
         spent: world
             .get::<Account>(agent)
             .map(|account| account.cost.clone())
@@ -362,15 +362,15 @@ fn about(facts: &Facts) -> Option<AnyView> {
     })
 }
 
-/// The agents it has a road to, each to take up, and a way to build
+/// The agents it has a channel to, each to close, and a way to open
 /// another.
-fn roads(agent: Entity, facts: &Facts) -> AnyView {
+fn channels(agent: Entity, facts: &Facts) -> AnyView {
     let mut parts = Vec::new();
-    for (other, name) in facts.roads.iter().cloned() {
+    for (other, name) in facts.channels.iter().cloned() {
         let cut = button(glyph(Glyph::Cross, ICON).tone(Tone::Faint))
             .padding(UiRect::all(px(2.0)))
             .rules(bevy_fynix::views::tint)
-            .tip("Take up the road")
+            .tip("Close the channel")
             .on_activate(move |world| {
                 orders::part(world, agent, other);
             });
@@ -382,12 +382,12 @@ fn roads(agent: Entity, facts: &Facts) -> AnyView {
         );
     }
     parts.push(
-        row((action(Glyph::Plus, "Build a road", move |world| {
-            crate::world_menu::ask_road(world, agent);
+        row((action(Glyph::Plus, "Open a channel", move |world| {
+            crate::world_menu::ask_channel(world, agent);
         }),))
         .boxed(),
     );
-    section(Glyph::Signpost, "Roads", None, column(parts).gap(6.0))
+    section(Glyph::Signpost, "Channels", None, column(parts).gap(6.0))
 }
 
 /// The sections of the agent's own facts that `build` makes, kept in
@@ -398,13 +398,13 @@ fn facts_sections(
 ) -> impl View {
     keyed(
         derived(move |world: &World| {
-            let roads = Deeds::is_allowed(world, "road")
-                || Deeds::is_allowed(world, "unroad");
-            (facts(world, agent), roads)
+            let channels = Deeds::is_allowed(world, "channel")
+                || Deeds::is_allowed(world, "unchannel");
+            (facts(world, agent), channels)
         })
         .when(every_frame()),
-        move |(facts, may_road)| {
-            column(build(agent, facts, *may_road)).gap(0.0).boxed()
+        move |(facts, may_channel)| {
+            column(build(agent, facts, *may_channel)).gap(0.0).boxed()
         },
     )
     .within(bare())
@@ -415,18 +415,18 @@ fn head(_: Entity, facts: &Facts, _: bool) -> Vec<AnyView> {
     about(facts).into_iter().collect()
 }
 
-/// What it may do: its tools and its roads.
+/// What it may do: its tools and its channels.
 fn powers(
     agent: Entity,
     facts: &Facts,
-    may_road: bool,
+    may_channel: bool,
 ) -> Vec<AnyView> {
     let mut parts = Vec::new();
     if !facts.hand && !facts.worker {
         parts.push(tools(agent, facts));
     }
-    if may_road && !facts.hand {
-        parts.push(roads(agent, facts));
+    if may_channel && !facts.hand {
+        parts.push(channels(agent, facts));
     }
     parts
 }

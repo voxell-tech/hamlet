@@ -209,7 +209,7 @@ impl Deed {
                 name(agent)
             ),
             Deed::Merge { absorbed, kept } => format!(
-                "{} takes the memory, skills, files and roads of \
+                "{} takes the memory, skills, files and channels of \
                  {}, whose worktree is archived. It can be split \
                  out again.",
                 name(kept),

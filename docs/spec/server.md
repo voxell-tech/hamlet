@@ -29,7 +29,7 @@ the token.
 
 **S5.** A window shows what the server sends and holds no rules of its own:
 the state of the realm (the Hand, hamlets, profiles, living and ended
-agents, roads, budgets, the shared library, removed hamlets and what waits)
+agents, channels, budgets, the shared library, removed hamlets and what waits)
 and its changes, the live events of turns (C30), and conversations on
 request, including read-only letters and questions between agents (C22). A
 window that joins late or connects again starts from the state as it is now.
@@ -102,7 +102,7 @@ mode (ADR 0008).
 ## The realm's records and effects
 
 **S26.** Everything the server keeps about who exists, who answers to whom,
-roads, conversations, waits and spend is in one database, and a profile's
+channels, conversations, waits and spend is in one database, and a profile's
 knowledge is in git (ADR 0011). Every change to the database is one
 transaction and is checked in one place before it is made; a change that is
 refused leaves nothing. What the clients see again after a change is what that
@@ -129,7 +129,7 @@ keeps the rules (ADR 0001).
 **S17.** An agent has a harness for its new conversations. A conversation
 stays with the harness, and the version of it, it began in, for as long as
 it is kept. Changing an agent's harness changes only its later
-conversations, and keeps its identity, worktree, roads and permissions.
+conversations, and keeps its identity, worktree, channels and permissions.
 
 **S18.** The server allows every tool call and every change to the record
 when it is carried out, under the permissions, waits, limits and budget as

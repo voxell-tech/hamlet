@@ -1,6 +1,6 @@
 //! Who an agent is and where (C11, H17): its office, the agents above
-//! and under it, its roads, what it may not use, how its hamlet was
-//! run lately, and for the Hand and leads the other hamlets.
+//! and under it, its channels, what it may not use, how its hamlet
+//! was run lately, and for the Hand and leads the other hamlets.
 
 use anyhow::Result;
 use hamlet_store::Db;
@@ -8,7 +8,7 @@ use hamlet_store::ids::{Actor, AgentId};
 
 use crate::conversations::{Conversation, Kind, tasks};
 use crate::society::agents::{self, AgentKind};
-use crate::society::roads::{self, Way};
+use crate::society::channels::{self, Way};
 use crate::society::{
     addresses, authority, city, hamlet_agents, hamlets, limits,
     record, tree, workers,
@@ -32,12 +32,13 @@ const PARENT: &str =
      agent when a kind of work will come back and deserves its own \
      memory; do small one-off things yourself, or with \
      `start_worker`. Check the agents below for one that fits \
-     before adding one. `lay_road` lets two agents under you write \
-     to each other directly; `end_agent` ends one nobody needs and \
-     `merge_agents` makes one agent of two whose work overlaps: the \
-     kept agent takes what the other learned, its roads and its \
-     agents. `set_model`, `set_tools` and `set_allowance` shape an \
-     agent under you, and `rename_agent` names it in the world.";
+     before adding one. `open_channel` lets two agents under you \
+     write to each other directly; `end_agent` ends one nobody \
+     needs and `merge_agents` makes one agent of two whose work \
+     overlaps: the kept agent takes what the other learned, its \
+     channels and its agents. `set_model`, `set_tools` and \
+     `set_allowance` shape an agent under you, and `rename_agent` \
+     names it in the world.";
 
 /// How an agent takes a chief's instruction.
 const OBJECT: &str =
@@ -95,14 +96,14 @@ pub(super) fn place(
         }
         AgentKind::Hamlet => hamlet_agent(db, id, &mut lines)?,
     }
-    let ways = roads::ways(db, id)?;
+    let ways = channels::ways(db, id)?;
     if !ways.is_empty() {
         lines.push("You can write to and put questions to:".into());
         for (other, way) in ways {
             let how = match way {
                 Way::Tree => "",
                 Way::Leads => " (a fellow lead)",
-                Way::Road(_) => " (by road)",
+                Way::Channel(_) => " (by channel)",
             };
             lines.push(format!(
                 "- {}{how}",
@@ -259,9 +260,9 @@ pub(super) fn realm(
     let head = match own {
         None => "# The realm\nThe hamlets:",
         Some(_) => {
-            "# The realm\nThe other hamlets. With `agree_road`, two \
-             leads open a road between an agent of each, once both \
-             agree:"
+            "# The realm\nThe other hamlets. With `agree_channel`, \
+             two leads open a channel between an agent of each, once \
+             both agree:"
         }
     };
     Ok(Some(format!("{head}\n{}", lines.join("\n"))))

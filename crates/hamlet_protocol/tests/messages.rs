@@ -471,8 +471,8 @@ fn server(wire: Value) -> ServerMessage {
 fn limits_wire() -> Value {
     json!({
         "budget": {"period": "day", "cost": 5.0, "minutes": null},
-        "road": {"price": 0.01, "most": 24, "growsOverDays": 7},
-        "reserved": {"add": false, "roads": true, "end": false, "merge": true},
+        "channel": {"price": 0.01, "most": 24, "growsOverDays": 7},
+        "reserved": {"add": false, "channels": true, "end": false, "merge": true},
         "model": null, "toldDays": 7, "protectedMinutes": 0,
         "asking": {"review": "remote", "questions": 3, "refusals": 3}
     })
@@ -488,7 +488,7 @@ fn hamlet_wire() -> Value {
             "caps": {"micros": 5000000, "ms": null}, "summary": "$1.25 today", "lines": ["100 tokens"],
             "left": 0.75, "remains": "$3.75 left"
         },
-        "roads": [], "at": null, "lead": 2, "tier": 50, "chiefs": ["chief"]
+        "channels": [], "at": null, "lead": 2, "tier": 50, "chiefs": ["chief"]
     })
 }
 
@@ -571,7 +571,7 @@ fn state_wire() -> Value {
         "type": "state", "epoch": 1, "revision": 2, "chief": "chief", "confinement": {"kind": "sandbox", "name": "Seatbelt"},
         "hamlets": [hamlet_wire()], "agents": [hand_wire(), agent_wire()], "waits": [wait_wire()],
         "grants": grants_wire(), "settings": settings_wire(), "providers": providers_wire(),
-        "realm": "/home/chief/.hamlet", "hand": 1, "profiles": [profile_wire()], "limits": {"roadsBetween": true, "budget": {"period": "day", "cost": 5.0, "minutes": null}}, "library": [], "closed": [],
+        "realm": "/home/chief/.hamlet", "hand": 1, "profiles": [profile_wire()], "limits": {"channelsBetween": true, "budget": {"period": "day", "cost": 5.0, "minutes": null}}, "library": [], "closed": [],
         "deeds": [{"name": "mode", "usage": "<manual|auto>", "description": "Whether agents ask before they change the folder"}],
         "terminals": [terminal_wire()]
     })
@@ -785,7 +785,7 @@ fn society_and_realm_fields_round_trip_without_losing_departures_or_profiles()
     wire["agents"][1]["left"] = json!({"how": "merged", "into": a, "at": 12, "by": "the lead", "reason": "Shared work", "words": "scout merged into founder"});
     wire["agents"][1]["consulting"] = json!(true);
     wire["agents"][1]["conversations"] = json!([{"with": b, "kind": "letters", "count": 2, "last": null}]);
-    wire["hamlets"][0]["roads"] = json!([{"a": a, "b": b, "kind": "agreed", "messages": 10, "level": "rail", "lastFrom": null}]);
+    wire["hamlets"][0]["channels"] = json!([{"a": a, "b": b, "kind": "agreed", "messages": 10, "level": "rail", "lastFrom": null}]);
     wire["profiles"][0]["left"] =
         json!({"at": 14, "by": "the chief", "reason": "Retired"});
     wire["profiles"][0]["arrival"] = json!("housed");

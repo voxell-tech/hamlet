@@ -74,7 +74,7 @@ fn recorded_society_carries_letters_and_questions_with_their_authors()
             .count(),
         3
     );
-    assert_eq!(world.query::<&Road>().iter(world).count(), 3);
+    assert_eq!(world.query::<&Channel>().iter(world).count(), 3);
     assert!(world.resource::<SeenEvents>().letters >= 2);
     let scout = entity(world, 3);
     assert!(
@@ -119,7 +119,7 @@ fn recorded_leaving_restores_the_same_agent_then_resolves_its_merge_host()
 }
 
 #[test]
-fn recorded_realm_places_a_second_town_builds_a_road_and_closes_then_erases_it()
+fn recorded_realm_places_a_second_town_opens_a_channel_and_closes_then_erases_it()
  {
     let mut placed = false;
     let mut built = false;
@@ -131,12 +131,14 @@ fn recorded_realm_places_a_second_town_builds_a_road_and_closes_then_erases_it()
                 .query::<&Spot>()
                 .iter(world)
                 .any(|spot| spot.0 == Some((60.0, 80.0)));
-            built |= world.query::<&Road>().iter(world).any(|road| {
-                world
-                    .get::<LivesIn>(road.ends.0)
-                    .zip(world.get::<LivesIn>(road.ends.1))
-                    .is_some_and(|(a, b)| a.0 != b.0)
-            });
+            built |= world.query::<&Channel>().iter(world).any(
+                |channel| {
+                    world
+                        .get::<LivesIn>(channel.ends.0)
+                        .zip(world.get::<LivesIn>(channel.ends.1))
+                        .is_some_and(|(a, b)| a.0 != b.0)
+                },
+            );
             closed |= world.get_resource::<Closed>().is_some_and(
                 |closed| closed.0.iter().any(|h| h.name == "mill"),
             );

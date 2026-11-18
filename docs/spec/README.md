@@ -7,7 +7,7 @@ behind the design are in [`docs/adr/`](../adr/).
 | File | Holds | IDs |
 |---|---|---|
 | [`core.md`](core.md) | One agent: its worktree, what it is told, its tools, what they reach, its conversations | C |
-| [`hamlet.md`](hamlet.md) | The society: chiefs, the Hand, the city of profiles and their versions, hamlets, their agents and their tree, workers, roads, letters, tasks, budgets, dreams, the library, what waits for a chief | H |
+| [`hamlet.md`](hamlet.md) | The society: chiefs, the Hand, the city of profiles and their versions, hamlets, their agents and their tree, workers, channels, letters, tasks, budgets, dreams, the library, what waits for a chief | H |
 | [`server.md`](server.md) | Where agents run, the harnesses their conversations run in, how the realm's records and effects are kept, and how the window reaches them | S |
 
 The drawn world is not specified here; the pages in `docs/` describe it.

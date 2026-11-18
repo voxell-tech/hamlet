@@ -1,6 +1,6 @@
 //! The bridge from the client's entities to the world: every hamlet,
-//! agent and road entity takes its place in the society the generator
-//! draws.
+//! agent and channel entity takes its place in the society the
+//! generator draws.
 
 mod crossing;
 mod housing;
@@ -20,7 +20,7 @@ use crate::harbor::Harbor;
 use crate::sky::CameraSettings;
 use crate::{RealmSystems, library};
 
-/// Draws the client's hamlets, agents and roads in the generated
+/// Draws the client's hamlets, agents and channels in the generated
 /// world.
 pub(crate) fn plugin(app: &mut App) {
     app.add_plugins(pointing::plugin)
@@ -97,6 +97,6 @@ struct Wing(AgentId);
 #[derive(Component)]
 struct Returning;
 
-/// The road of the society a road entity is drawn as.
+/// The road of the society a channel entity is drawn as.
 #[derive(Component, Clone, Copy)]
 struct Laid(Pair);

@@ -21,7 +21,7 @@ worktree the server commits it to the branch. What an agent learns stays on its 
 until a dream brings it home to `main`; when `main` moves, an idle unpinned
 agent has it merged into its branch, never while a turn of it runs.
 
-Who exists, who answers to whom, roads, conversations, waits and spend are
+Who exists, who answers to whom, channels, conversations, waits and spend are
 not in git. They are in the database (ADR 0012). Git keeps knowledge, the
 database keeps structure.
 

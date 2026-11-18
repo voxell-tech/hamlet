@@ -368,7 +368,7 @@ Every state and change carries the society and realm in full:
 - `Agent.consulting` and `conversations` describe library work and incoming
   peer conversations. `Agent.left` describes a departure, and only an agent
   that left has one.
-- `Hamlet.roads` carry road ends by `AgentId`, their kind and traffic.
+- `Hamlet.channels` carry channel ends by `AgentId`, their kind and traffic.
   `Hamlet.lead` is the agent at the root of its tree. `Hamlet.at` is the hamlet's position, or `null`
   for a hamlet never set down, which stands on the first free site.
 - `Profile.arrival` is `housed`, `waiting` at the harbor, `turned`

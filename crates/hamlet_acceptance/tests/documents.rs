@@ -195,7 +195,7 @@ async fn edits_limits_one_key_or_whole_and_refuses_misshapen_ones() {
     assert_eq!(reply.kind, ReplyKind::Error, "{}", reply.text);
     let reply = s
         .chief
-        .limit(Some("docs"), "road", "most", json!("many"))
+        .limit(Some("docs"), "channel", "most", json!("many"))
         .await;
     assert_eq!(reply.kind, ReplyKind::Error, "{}", reply.text);
     let reply = s
@@ -217,8 +217,10 @@ async fn edits_limits_one_key_or_whole_and_refuses_misshapen_ones() {
         .await;
     assert_eq!(reply.kind, ReplyKind::Error, "{}", reply.text);
     assert_eq!(reply.text, "a budget cannot be less than zero");
-    let reply =
-        s.chief.limit(Some("docs"), "road", "most", json!(-1)).await;
+    let reply = s
+        .chief
+        .limit(Some("docs"), "channel", "most", json!(-1))
+        .await;
     assert_eq!(reply.kind, ReplyKind::Error, "{}", reply.text);
     assert!(
         !s.chief.messages()[before..]

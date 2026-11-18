@@ -20,7 +20,7 @@ pub struct Limits {
     pub protected_minutes: i64,
     /// The parents' acts that wait for a chief.
     pub reserved: LimitsReserved,
-    pub road: LimitsRoad,
+    pub channel: LimitsChannel,
     /// How many days of decisions each agent is told (H17).
     #[serde(rename = "toldDays")]
     pub told_days: i64,
@@ -35,9 +35,9 @@ pub struct RealmLimits {
     /// The Hand's budget, and that of the workers started outside a
     /// hamlet.
     pub budget: LimitsBudget,
-    /// Whether leads may agree roads between their hamlets.
-    #[serde(rename = "roadsBetween")]
-    pub roads_between: bool,
+    /// Whether leads may agree channels between their hamlets.
+    #[serde(rename = "channelsBetween")]
+    pub channels_between: bool,
 }
 
 #[derive(
@@ -95,15 +95,15 @@ pub struct LimitsReserved {
     pub add: bool,
     pub end: bool,
     pub merge: bool,
-    pub roads: bool,
+    pub channels: bool,
 }
 
-/// What roads cost and how many a hamlet holds (H3).
+/// What channels cost and how many a hamlet holds (H3).
 #[derive(
     Clone, Debug, PartialEq, Serialize, Deserialize, JsonSchema,
 )]
 #[serde(deny_unknown_fields)]
-pub struct LimitsRoad {
+pub struct LimitsChannel {
     #[serde(rename = "growsOverDays")]
     pub grows_over_days: i64,
     pub most: i64,

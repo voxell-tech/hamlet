@@ -73,7 +73,7 @@ endpoint, which bills a fixed price per answer.
 | `city` | The empty realm, founding hamlets, the agent tree, removing, restoring and erasing profiles and hamlets, hamlet administration. |
 | `chats` | Answers, sessions, `/new`, `/resume`, `/retry`, `/stop`, `Rewind`, history, reflection. |
 | `oversight` | Network approvals and grants, manual and auto modes, `ask_chief`, objections. |
-| `society` | The Hand's and a parent's tools, tell and ask, workers, reserved acts, roads. |
+| `society` | The Hand's and a parent's tools, tell and ask, workers, reserved acts, channels. |
 | `files` | Files on a line saved in the inbox and named in its item, files sent with `tell`, and a send over the cap held for a chief. |
 | `images` | Images on a line uploaded in parts, kept once by hash, carried by the line's item and read back by id. |
 | `documents` | Charter, character, memory, limits, settings, catalogue, and the prompt that follows them. |
@@ -94,7 +94,7 @@ endpoint, which bills a fixed price per answer.
 `tests/frames/` records 18 real server sessions through the client protocol:
 the Hand's chats, an agent's approvals, reads and edits, sign-in, spend,
 letters and questions, leaving and merging, hamlets and
-roads, the library, and the questions and objections that wait for a chief.
+channels, the library, and the questions and objections that wait for a chief.
 It uses scratch realms, faux responses and a loopback endpoint, never a live
 provider. Both wire directions are saved as JSONL; connection tokens and the
 fake sign-in key are redacted. IDs, timestamps and stream boundaries come

@@ -1,7 +1,7 @@
 # The society and the realm
 
 Agents run on the server. The window receives the Hand, the profiles, the
-hamlets with their agents and roads, the library and the waits through the
+hamlets with their agents and channels, the library and the waits through the
 client protocol; it reads no records from the realm's disk. The glossary is
 [`CONTEXT.md`](../CONTEXT.md), and what the society must do is in
 [`spec/hamlet.md`](spec/hamlet.md).
@@ -84,8 +84,8 @@ hamlet form a tree under the lead, as deep as its parents make it. An agent
 with agents under it is a parent, with the lead's powers over its subtree: it
 adds agents, creates profiles, ends and merges agents, chooses their models, turns tools off and sets
 allowances (`set_model`, `set_tools`, `set_allowance`), gives them names
-the world shows them by (`rename_agent`, or a chief's `/name-agent`), and lays and
-takes up roads among them. The lead's office can be given to another agent with `/lead`; the
+the world shows them by (`rename_agent`, or a chief's `/name-agent`), and opens and
+closes channels among them. The lead's office can be given to another agent with `/lead`; the
 old lead and its agents go under the new one.
 
 A worker is started for one task by any agent but a worker (`start_worker`)
@@ -95,14 +95,14 @@ and a scratch folder, and ends with its answer, which goes back to its starter
 as the tool's answer or as a letter. A chief watches its own worker's
 conversation.
 
-## Roads and letters
+## Channels and letters
 
-Tree roads join an agent to its parent and the agents under it, and the Hand
-to each lead; leads have roads to each other; a parent or a chief lays a road
+Tree channels join an agent to its parent and the agents under it, and the Hand
+to each lead; leads have channels to each other; a parent or a chief opens a channel
 between two agents of one hamlet, which costs the hamlet and the task that
-laid it. An agent asks its parent for one with `request_road`. Agents of
+opened it. An agent asks its parent for one with `request_channel`. Agents of
 different hamlets
-have a road once both leads call `agree_road`, while the realm's limits allow
+have a channel once both leads call `agree_channel`, while the realm's limits allow
 it.
 
 `tell` sends a letter without waiting; `ask` waits for the answer. Either can
@@ -128,7 +128,7 @@ an input of that task is still to end in its conversations, or until the
 hamlet's `protectedMinutes` have passed since the chief's instruction was
 answered. A chief may.
 `/merge <a> into <b>` makes one agent of two of a hamlet: the kept agent
-takes the absorbed one's laid roads, agents and inbox, and takes in what it
+takes the absorbed one's opened channels, agents and inbox, and takes in what it
 learned. Agents of one profile merge their branches; agents of different
 profiles bring what the absorbed agent learned into the kept branch, a
 clashing file kept as `<name>.from-<absorbed>` and a clashing skill as

@@ -51,7 +51,7 @@ diesel::table! {
         at -> BigInt,
         reason -> Text,
         task -> Nullable<BigInt>,
-        road -> Nullable<BigInt>,
+        channel -> Nullable<BigInt>,
     }
 }
 
@@ -86,7 +86,36 @@ diesel::table! {
         at -> BigInt,
         chief -> BigInt,
         usage -> BigInt,
-        road_charge -> BigInt,
+        channel_charge -> BigInt,
+    }
+}
+
+diesel::table! {
+    channel (id) {
+        id -> BigInt,
+        a -> BigInt,
+        b -> BigInt,
+        kind -> Text,
+        opened_at -> BigInt,
+        opened_by -> Text,
+        reason -> Text,
+        task -> Nullable<BigInt>,
+        inherited_from -> Nullable<BigInt>,
+        closed_at -> Nullable<BigInt>,
+        closed_by -> Nullable<Text>,
+        closed_reason -> Nullable<Text>,
+    }
+}
+
+diesel::table! {
+    channel_charge (id) {
+        id -> BigInt,
+        channel -> BigInt,
+        hamlet -> Text,
+        agent -> Nullable<BigInt>,
+        task -> Nullable<BigInt>,
+        at -> BigInt,
+        micros -> BigInt,
     }
 }
 
@@ -432,35 +461,6 @@ diesel::table! {
 }
 
 diesel::table! {
-    road (id) {
-        id -> BigInt,
-        a -> BigInt,
-        b -> BigInt,
-        kind -> Text,
-        laid_at -> BigInt,
-        laid_by -> Text,
-        reason -> Text,
-        task -> Nullable<BigInt>,
-        inherited_from -> Nullable<BigInt>,
-        up_at -> Nullable<BigInt>,
-        up_by -> Nullable<Text>,
-        up_reason -> Nullable<Text>,
-    }
-}
-
-diesel::table! {
-    road_charge (id) {
-        id -> BigInt,
-        road -> BigInt,
-        hamlet -> Text,
-        agent -> Nullable<BigInt>,
-        task -> Nullable<BigInt>,
-        at -> BigInt,
-        micros -> BigInt,
-    }
-}
-
-diesel::table! {
     runtime (id) {
         id -> Text,
         harness -> Text,
@@ -594,8 +594,8 @@ diesel::table! {
 }
 
 diesel::joinable!(agent_tool_off -> hamlet_agent (agent));
+diesel::joinable!(agreement -> channel (channel));
 diesel::joinable!(agreement -> hamlet (hamlet));
-diesel::joinable!(agreement -> road (road));
 diesel::joinable!(agreement -> task (task));
 diesel::joinable!(answer_fault -> conversation (conversation));
 diesel::joinable!(attempt -> agent (agent));
@@ -604,6 +604,11 @@ diesel::joinable!(attempt -> hamlet (payer));
 diesel::joinable!(attempt -> task (task));
 diesel::joinable!(budget_reset -> chief (chief));
 diesel::joinable!(budget_reset -> hamlet (hamlet));
+diesel::joinable!(channel -> task (task));
+diesel::joinable!(channel_charge -> agent (agent));
+diesel::joinable!(channel_charge -> channel (channel));
+diesel::joinable!(channel_charge -> hamlet (hamlet));
+diesel::joinable!(channel_charge -> task (task));
 diesel::joinable!(chat -> agent (agent));
 diesel::joinable!(chat -> chief (chief));
 diesel::joinable!(chat_session -> conversation (conversation));
@@ -646,11 +651,6 @@ diesel::joinable!(reflection -> task (task));
 diesel::joinable!(review -> agent (parent));
 diesel::joinable!(review -> conversation (conversation));
 diesel::joinable!(review -> task (task));
-diesel::joinable!(road -> task (task));
-diesel::joinable!(road_charge -> agent (agent));
-diesel::joinable!(road_charge -> hamlet (hamlet));
-diesel::joinable!(road_charge -> road (road));
-diesel::joinable!(road_charge -> task (task));
 diesel::joinable!(skill_offer -> agent (agent));
 diesel::joinable!(skill_offer -> task (task));
 diesel::joinable!(task -> agent (agent));
@@ -678,6 +678,8 @@ diesel::allow_tables_to_appear_in_same_query!(
     answer_fault,
     attempt,
     budget_reset,
+    channel,
+    channel_charge,
     chat,
     chat_session,
     chief,
@@ -703,8 +705,6 @@ diesel::allow_tables_to_appear_in_same_query!(
     realm,
     reflection,
     review,
-    road,
-    road_charge,
     runtime,
     skill_offer,
     task,

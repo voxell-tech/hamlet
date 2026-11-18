@@ -109,18 +109,18 @@ pub(crate) enum Refusal {
     NotHamletAgent { name: String },
     #[error("`{address}` is not an address")]
     BadAddress { address: String },
-    #[error("a road needs two different agents")]
+    #[error("a channel needs two different agents")]
     SameEnds,
-    #[error("`{a}` and `{b}` already have a road")]
-    RoadExists { a: String, b: String },
-    #[error("`{a}` and `{b}` have no road to take up")]
-    NoRoad { a: String, b: String },
-    #[error("the hamlet `{hamlet}` has its most roads, {most}")]
-    TooManyRoads { hamlet: String, most: i64 },
-    #[error("the chief allows no roads between hamlets")]
-    NoRoadsBetween,
+    #[error("`{a}` and `{b}` already have a channel")]
+    ChannelExists { a: String, b: String },
+    #[error("`{a}` and `{b}` have no channel to close")]
+    NoChannel { a: String, b: String },
+    #[error("the hamlet `{hamlet}` has its most channels, {most}")]
+    TooManyChannels { hamlet: String, most: i64 },
+    #[error("the chief allows no channels between hamlets")]
+    NoChannelsBetween,
     #[error(
-        "both ends of an agreed road must be in different hamlets"
+        "both ends of an agreed channel must be in different hamlets"
     )]
     SameHamlet,
     #[error("`{name}` has no such tool: {tool}")]
@@ -137,8 +137,8 @@ pub(crate) enum Refusal {
         "the hamlet `{id}` holds {count} agents, more than {tier}"
     )]
     TierTooSmall { id: String, count: i64, tier: i64 },
-    #[error("a road joins agents of hamlets only")]
-    RoadEnds,
+    #[error("a channel joins agents of hamlets only")]
+    ChannelEnds,
     #[error("there is no past session {number} here")]
     NoSession { number: i64 },
     #[error("a turn is running here; stop it, then {then}")]
@@ -324,10 +324,10 @@ pub(crate) enum Refusal {
     #[error("Say what to send.")]
     NothingToSend,
     #[error(
-        "You have no road to {other}. Request one from your parent \
-         with request_road."
+        "You have no channel to {other}. Request one from your \
+         parent with request_channel."
     )]
-    NoRoadTo { other: String },
+    NoChannelTo { other: String },
     #[error(
         "{other} is waiting on your answer already; tell it what it \
          needs instead of putting a question."

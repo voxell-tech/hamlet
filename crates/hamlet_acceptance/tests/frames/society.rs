@@ -1,9 +1,9 @@
-//! Recordings of the society: agents, letters and questions, roads,
-//! leaving and merging, hamlets, the library, and what waits for a
-//! chief.
+//! Recordings of the society: agents, letters and questions,
+//! channels, leaving and merging, hamlets, the library, and what
+//! waits for a chief.
 
 use hamlet_acceptance::{Faux, call, calls, words};
-use hamlet_protocol::client::RoadKind;
+use hamlet_protocol::client::ChannelKind;
 use serde_json::json;
 
 use super::capture::{Capture, HAND};
@@ -118,20 +118,20 @@ async fn realm() {
                 2,
                 [
                     call(
-                        "agree_road",
+                        "agree_channel",
                         json!({"mine":"agent#3","theirs":"agent#6","reason":"Trade"}),
                     ),
-                    words("Road proposed."),
+                    words("Channel proposed."),
                 ],
             )
             .agent(
                 5,
                 [
                     call(
-                        "agree_road",
+                        "agree_channel",
                         json!({"mine":"agent#6","theirs":"agent#3","reason":"Trade"}),
                     ),
-                    words("Road agreed."),
+                    words("Channel agreed."),
                 ],
             ),
     )
@@ -145,15 +145,15 @@ async fn realm() {
         &format!("/move-hamlet {} 60 80", c.hamlet_id("mill")),
     )
     .await;
-    c.say(2, "Propose a road.").await;
+    c.say(2, "Propose a channel.").await;
     c.idle().await;
-    c.say(5, "Agree the road.").await;
+    c.say(5, "Agree the channel.").await;
     c.until(|c| {
         c.state()
             .hamlets
             .iter()
-            .flat_map(|h| h.roads.iter())
-            .any(|r| r.kind == RoadKind::Agreed)
+            .flat_map(|h| h.channels.iter())
+            .any(|r| r.kind == ChannelKind::Agreed)
     })
     .await;
     c.say(

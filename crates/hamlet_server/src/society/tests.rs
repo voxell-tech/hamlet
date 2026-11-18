@@ -2,10 +2,10 @@ use hamlet_store::ids::{Actor, AgentId, HamletId};
 
 use super::addresses::{self, Reach};
 use super::agents::{self, Effort, EndHow};
+use super::channels::{self, Agreed, Way};
 use super::hamlet_agents::{self, NewAgent, ProfileChoice, Spec};
 use super::hamlets::{self, Founding};
 use super::refusal::Refusal;
-use super::roads::{self, Agreed, Way};
 use super::workers::{self, Start, Starter};
 use super::{authority, chiefs, city, merges, tree};
 use crate::conversations::{chats, models};
@@ -354,7 +354,7 @@ fn a_profile_leaves_with_its_agents_and_comes_back_with_them() {
 }
 
 #[test]
-fn roads_follow_the_tree_and_join_hamlets_once_both_leads_agree() {
+fn channels_follow_the_tree_and_join_hamlets_once_both_leads_agree() {
     let mut realm = Realm::new();
     let (docs, ada) = found(&mut realm, "docs", "ada");
     let (site, bea) = found(&mut realm, "site", "bea");
@@ -365,43 +365,52 @@ fn roads_follow_the_tree_and_join_hamlets_once_both_leads_agree() {
     let far = add(&mut realm, &site, bea, new("far")).unwrap().agent;
     let hand = realm.hand;
     let db = realm.db();
-    assert_eq!(roads::way(db, scout, ada).unwrap(), Some(Way::Tree));
-    assert_eq!(roads::way(db, hand, ada).unwrap(), Some(Way::Tree));
-    assert_eq!(roads::way(db, ada, bea).unwrap(), Some(Way::Leads));
-    assert_eq!(roads::way(db, scout, mill).unwrap(), None);
-    assert_eq!(roads::way(db, hand, scout).unwrap(), None);
+    assert_eq!(
+        channels::way(db, scout, ada).unwrap(),
+        Some(Way::Tree)
+    );
+    assert_eq!(
+        channels::way(db, hand, ada).unwrap(),
+        Some(Way::Tree)
+    );
+    assert_eq!(
+        channels::way(db, ada, bea).unwrap(),
+        Some(Way::Leads)
+    );
+    assert_eq!(channels::way(db, scout, mill).unwrap(), None);
+    assert_eq!(channels::way(db, hand, scout).unwrap(), None);
 
-    let laid = realm
+    let opened = realm
         .by(Actor::Agent(ada), |cx| {
-            roads::lay(cx, scout, mill, "pair", None)
+            channels::open(cx, scout, mill, "pair", None)
         })
         .unwrap();
     assert_eq!(
-        roads::way(realm.db(), mill, scout).unwrap(),
-        Some(Way::Road(laid))
+        channels::way(realm.db(), mill, scout).unwrap(),
+        Some(Way::Channel(opened))
     );
     assert!(matches!(
-        realm.chief(|cx| roads::lay(cx, scout, far, "x", None)),
+        realm.chief(|cx| channels::open(cx, scout, far, "x", None)),
         Err(Refusal::OtherHamlet { .. })
     ));
     let first = realm
         .by(Actor::Agent(ada), |cx| {
-            roads::agree(cx, ada, scout, far, "trade", None)
+            channels::agree(cx, ada, scout, far, "trade", None)
         })
         .unwrap();
     assert_eq!(first, Agreed::Waiting);
-    assert_eq!(roads::way(realm.db(), scout, far).unwrap(), None);
+    assert_eq!(channels::way(realm.db(), scout, far).unwrap(), None);
     let second = realm
         .by(Actor::Agent(bea), |cx| {
-            roads::agree(cx, bea, scout, far, "trade", None)
+            channels::agree(cx, bea, scout, far, "trade", None)
         })
         .unwrap();
-    let Agreed::Laid(road) = second else {
+    let Agreed::Opened(channel) = second else {
         panic!("both agreed")
     };
     assert_eq!(
-        roads::way(realm.db(), far, scout).unwrap(),
-        Some(Way::Road(road))
+        channels::way(realm.db(), far, scout).unwrap(),
+        Some(Way::Channel(channel))
     );
 }
 

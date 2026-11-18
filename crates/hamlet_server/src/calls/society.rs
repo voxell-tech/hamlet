@@ -15,7 +15,7 @@ use hamlet_store::ids::{
 };
 
 use self::args::{
-    AddAgent, AgreeRoad, Called, CreateProfile, EndAgent,
+    AddAgent, AgreeChannel, Called, CreateProfile, EndAgent,
     FoundHamlet, MergeAgents, ReadRecord, RemoveHamlet, RenameAgent,
     SetAllowance, SetLead, SetModel, SetTools,
 };
@@ -30,7 +30,7 @@ use crate::society::hamlet_agents::{self, ProfileChoice, Spec};
 use crate::society::hamlets::{self, Founding};
 use crate::society::refusal::Refusal;
 use crate::society::spend::{self, micros, money};
-use crate::society::{authority, city, limits, record, roads};
+use crate::society::{authority, channels, city, limits, record};
 use crate::tools::builtin::Outcome;
 use crate::tools::catalogue::Society;
 
@@ -67,8 +67,8 @@ impl Core<'_, '_> {
         match called {
             Called::Tell(args) => self.tell(call, args),
             Called::Ask(args) => self.ask(call, args),
-            Called::RequestRoad(args) => {
-                self.request_road(call, args)
+            Called::RequestChannel(args) => {
+                self.request_channel(call, args)
             }
             Called::StartWorker(args) => {
                 self.start_worker(call, args)
@@ -239,33 +239,43 @@ impl Core<'_, '_> {
                     .map(|()| words))
                 })
             }
-            Called::LayRoad(args::LayRoad { a, b, reason }) => {
+            Called::OpenChannel(args::OpenChannel {
+                a,
+                b,
+                reason,
+            }) => {
                 let a = done!(self.child(call, &a, here));
                 let b = done!(self.child(call, &b, here));
                 let (one, other) = (self.name(a)?, self.name(b)?);
                 let task = self.task_of(call)?;
                 self.carry(call, |cx, _| {
-                    Ok(roads::lay(cx, a, b, &reason, task)?.map(
+                    Ok(channels::open(cx, a, b, &reason, task)?.map(
                         |_| {
                             format!(
-                                "Laid a road between {one} and \
+                                "Opened a channel between {one} and \
                                  {other}."
                             )
                         },
                     ))
                 })
             }
-            Called::TakeUpRoad(args::TakeUpRoad { a, b, reason }) => {
+            Called::CloseChannel(args::CloseChannel {
+                a,
+                b,
+                reason,
+            }) => {
                 let a = done!(self.child(call, &a, here));
                 let b = done!(self.child(call, &b, here));
                 let (one, other) = (self.name(a)?, self.name(b)?);
                 self.carry(call, |cx, _| {
-                    Ok(roads::take_up(cx, a, b, &reason)?.map(|()| {
-                        format!(
-                            "Took up the road between {one} and \
-                             {other}."
-                        )
-                    }))
+                    Ok(channels::close(cx, a, b, &reason)?.map(
+                        |()| {
+                            format!(
+                                "Closed the channel between {one} \
+                                 and {other}."
+                            )
+                        },
+                    ))
                 })
             }
             Called::MergeAgents(MergeAgents {
@@ -285,8 +295,8 @@ impl Core<'_, '_> {
                     .map(|_| format!("Merged {one} into {other}.")))
                 })
             }
-            Called::AgreeRoad(args) => {
-                self.agree_road(call, here, args)
+            Called::AgreeChannel(args) => {
+                self.agree_channel(call, here, args)
             }
             Called::FoundHamlet(FoundHamlet {
                 name,
@@ -378,7 +388,7 @@ impl Core<'_, '_> {
             Called::Object(_)
             | Called::Tell(_)
             | Called::Ask(_)
-            | Called::RequestRoad(_)
+            | Called::RequestChannel(_)
             | Called::StartWorker(_)
             | Called::SubmitSkill(_)
             | Called::AskLibrarian(_) => {
@@ -610,13 +620,13 @@ impl Core<'_, '_> {
         })
     }
 
-    fn agree_road(
+    fn agree_channel(
         &mut self,
         call: &Call<'_>,
         here: Option<&HamletId>,
-        args: AgreeRoad,
+        args: AgreeChannel,
     ) -> Done<String> {
-        let AgreeRoad {
+        let AgreeChannel {
             mine,
             theirs,
             reason,
@@ -631,17 +641,18 @@ impl Core<'_, '_> {
         let task = self.task_of(call)?;
         let (one, other) = (self.name(mine)?, self.name(theirs)?);
         self.carry(call, |cx, _| {
-            Ok(roads::agree(cx, agent, mine, theirs, &reason, task)?
-                .map(|agreed| match agreed {
-                    roads::Agreed::Laid(_) => format!(
-                        "The road between {one} and {other} is open."
-                    ),
-                    roads::Agreed::Waiting => format!(
-                        "You agree a road between {one} and \
-                         {other}; it opens once the other lead \
-                         agrees."
-                    ),
-                }))
+            Ok(channels::agree(
+                cx, agent, mine, theirs, &reason, task,
+            )?
+            .map(|agreed| match agreed {
+                channels::Agreed::Opened(_) => format!(
+                    "The channel between {one} and {other} is open."
+                ),
+                channels::Agreed::Waiting => format!(
+                    "You agree a channel between {one} and {other}; \
+                     it opens once the other lead agrees."
+                ),
+            }))
         })
     }
 }

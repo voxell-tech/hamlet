@@ -1,12 +1,13 @@
-//! An agent's words to another along a road (H30, H31), its request
-//! for a road, and the workers it starts, each kept once per call.
+//! An agent's words to another along a channel (H30, H31), its
+//! request for a channel, and the workers it starts, each kept once
+//! per call.
 
 use anyhow::Result;
 use diesel::prelude::*;
 use hamlet_store::ids::{Actor, AgentId};
 use hamlet_store::schema::worker;
 
-use super::args::{Ask, RequestRoad, StartWorker, Tell};
+use super::args::{Ask, RequestChannel, StartWorker, Tell};
 use super::{Call, Step, refused, said, task_chief};
 use crate::attachments::inbox::INBOX;
 use crate::calls::looks::Look;
@@ -20,7 +21,7 @@ use crate::core::Core;
 use crate::society::agents::{self, EndHow};
 use crate::society::refusal::Refusal;
 use crate::society::workers::{self, Start, Starter};
-use crate::society::{addresses, hamlet_agents, roads};
+use crate::society::{addresses, channels, hamlet_agents};
 use crate::tools::builtin::Network;
 use crate::tools::catalogue::Society;
 
@@ -53,11 +54,12 @@ impl Core<'_, '_> {
         )
     }
 
-    /// Requests a road from the caller's parent, as a letter to it.
-    pub(in crate::calls) fn request_road(
+    /// Requests a channel from the caller's parent, as a letter to
+    /// it.
+    pub(in crate::calls) fn request_channel(
         &mut self,
         call: &Call<'_>,
-        args: RequestRoad,
+        args: RequestChannel,
     ) -> Result<Step> {
         let sender = call.conversation.agent;
         let here = self.hamlet_of(sender)?;
@@ -71,11 +73,11 @@ impl Core<'_, '_> {
                 Some(parent) => parent,
                 None => crate::society::hand::id(db)?,
             },
-            None => return Ok(Step::of(Err(Refusal::RoadEnds))),
+            None => return Ok(Step::of(Err(Refusal::ChannelEnds))),
         };
         let name = self.name(to)?;
         let words =
-            format!("I request a road to {name}: {}", args.reason);
+            format!("I request a channel to {name}: {}", args.reason);
         self.deliver(
             call,
             MessageKind::Letter,
@@ -129,8 +131,8 @@ impl Core<'_, '_> {
         }
         let other = self.name(receiver)?;
         let db = self.realm.store().connection();
-        if roads::way(db, sender, receiver)?.is_none() {
-            return Ok(Step::of(Err(Refusal::NoRoadTo { other })));
+        if channels::way(db, sender, receiver)?.is_none() {
+            return Ok(Step::of(Err(Refusal::NoChannelTo { other })));
         }
         if kind == MessageKind::Question
             && letters::would_loop(db, sender, receiver)?

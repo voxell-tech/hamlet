@@ -28,7 +28,7 @@ pub enum Play {
     Cheer,
     /// A thinking agent's light was nudged.
     Nudge,
-    /// Two robots were introduced, for a road between them.
+    /// Two robots were introduced, for a channel between them.
     Introduce,
     /// A chief's mascot went out by Wickstep, and was lit again
     /// where it was going.

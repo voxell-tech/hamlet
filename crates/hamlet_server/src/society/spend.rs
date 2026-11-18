@@ -9,7 +9,7 @@ use hamlet_store::Db;
 use hamlet_store::functions::total;
 use hamlet_store::ids::{AgentId, ChiefId, HamletId, TaskId};
 use hamlet_store::schema::{
-    attempt, budget_reset, road_charge, usage,
+    attempt, budget_reset, channel_charge, usage,
 };
 
 use crate::app::clock;
@@ -84,7 +84,7 @@ fn period_start(period: Period, at: i64) -> Result<i64> {
 }
 
 /// What `payer`, a hamlet or the realm, spent in its period at `at`:
-/// its model calls and its roads, after its last reset.
+/// its model calls and its channels, after its last reset.
 pub(crate) fn of_payer(
     db: &mut Db,
     payer: Option<&HamletId>,
@@ -96,7 +96,10 @@ pub(crate) fn of_payer(
         let mut query = budget_reset::table
             .filter(budget_reset::at.ge(start))
             .order(budget_reset::id.desc())
-            .select((budget_reset::usage, budget_reset::road_charge))
+            .select((
+                budget_reset::usage,
+                budget_reset::channel_charge,
+            ))
             .into_boxed();
         query = match payer {
             Some(hamlet) => {
@@ -129,14 +132,14 @@ pub(crate) fn of_payer(
     };
     let mut amount = Amount::from(query.first::<Sums>(db)?);
     if let Some(hamlet) = payer {
-        let roads = road_charge::table
-            .filter(road_charge::hamlet.eq(hamlet))
-            .filter(road_charge::at.ge(start))
-            .filter(road_charge::id.gt(reset.1))
-            .select(total(road_charge::micros))
+        let channels = channel_charge::table
+            .filter(channel_charge::hamlet.eq(hamlet))
+            .filter(channel_charge::at.ge(start))
+            .filter(channel_charge::id.gt(reset.1))
+            .select(total(channel_charge::micros))
             .first::<Option<i64>>(db)?;
         amount.micros =
-            amount.micros.saturating_add(roads.unwrap_or(0));
+            amount.micros.saturating_add(channels.unwrap_or(0));
     }
     Ok(amount)
 }
@@ -158,11 +161,12 @@ pub(crate) fn of_task(db: &mut Db, task: TaskId) -> Result<Amount> {
             ))
             .first::<Sums>(db)?,
     );
-    let roads = road_charge::table
-        .filter(road_charge::task.eq(task))
-        .select(total(road_charge::micros))
+    let channels = channel_charge::table
+        .filter(channel_charge::task.eq(task))
+        .select(total(channel_charge::micros))
         .first::<Option<i64>>(db)?;
-    amount.micros = amount.micros.saturating_add(roads.unwrap_or(0));
+    amount.micros =
+        amount.micros.saturating_add(channels.unwrap_or(0));
     Ok(amount)
 }
 
@@ -309,8 +313,8 @@ pub(crate) fn reset(
         .select(max(usage::ordinal))
         .first::<Option<i64>>(db)?
         .unwrap_or(-1);
-    let last_road = road_charge::table
-        .select(max(road_charge::id))
+    let last_channel = channel_charge::table
+        .select(max(channel_charge::id))
         .first::<Option<i64>>(db)?
         .unwrap_or(-1);
     diesel::insert_into(budget_reset::table)
@@ -319,7 +323,7 @@ pub(crate) fn reset(
             budget_reset::at.eq(at),
             budget_reset::chief.eq(chief),
             budget_reset::usage.eq(last_usage),
-            budget_reset::road_charge.eq(last_road),
+            budget_reset::channel_charge.eq(last_channel),
         ))
         .execute(db)?;
     Ok(())

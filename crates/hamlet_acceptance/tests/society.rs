@@ -128,13 +128,13 @@ async fn a_parent_runs_the_agents_under_it_and_nothing_beyond_them() {
                     json!({"agent":"agent#3", "name": "Spade", "reason": "short"}),
                 ),
                 (
-                    "lay_road",
+                    "open_channel",
                     json!({"a": "agent#3", "b": "agent#4", "reason": "share"}),
                 ),
             ]),
             calls([
                 (
-                    "take_up_road",
+                    "close_channel",
                     json!({"a": "agent#3", "b": "agent#4", "reason": "done"}),
                 ),
                 (
@@ -217,8 +217,8 @@ async fn a_parent_runs_the_agents_under_it_and_nothing_beyond_them() {
         "agent#2 (ada) set the allowance of agent#3 (cy): small",
         "agent#2 (ada) chose the model of agent#3 (cy): same",
         "agent#2 (ada) renamed agent#3 (cy): short",
-        "agent#2 (ada) laid a road from agent#3 (cy): share",
-        "agent#2 (ada) took up a road from agent#3 (cy): done",
+        "agent#2 (ada) opened a channel from agent#3 (cy): share",
+        "agent#2 (ada) closed a channel from agent#3 (cy): done",
         "agent#2 (ada) ended agent#4 (dee): finished",
     ] {
         assert!(
@@ -237,7 +237,7 @@ async fn a_parent_runs_the_agents_under_it_and_nothing_beyond_them() {
 }
 
 #[tokio::test]
-async fn letters_and_questions_go_along_roads_and_a_question_back_is_refused()
+async fn letters_and_questions_go_along_channels_and_a_question_back_is_refused()
  {
     let mut s = Session::start(
         Faux::new()
@@ -444,14 +444,14 @@ async fn what_the_hand_reserves_for_a_chief_waits_for_one() {
 }
 
 #[tokio::test]
-async fn two_leads_agree_a_road_between_their_hamlets() {
+async fn two_leads_agree_a_channel_between_their_hamlets() {
     let mut s = Session::start(
         Faux::new()
             .agent(
                 2,
                 [
                     call(
-                        "agree_road",
+                        "agree_channel",
                         json!({"mine": "agent#4", "theirs": "agent#5", "reason": "share files"}),
                     ),
                     words("Agreed."),
@@ -461,7 +461,7 @@ async fn two_leads_agree_a_road_between_their_hamlets() {
                 3,
                 [
                     call(
-                        "agree_road",
+                        "agree_channel",
                         json!({"mine": "agent#5", "theirs": "agent#4", "reason": "share files"}),
                     ),
                     words("Agreed too."),
@@ -475,17 +475,17 @@ async fn two_leads_agree_a_road_between_their_hamlets() {
     s.add_agent(bo, "dee", "haul").await;
     let agreed = |c: &Client| {
         c.realm().hamlets.iter().any(|h| {
-            h.roads.iter().any(|r| r.kind == RoadKind::Agreed)
+            h.channels.iter().any(|r| r.kind == ChannelKind::Agreed)
         })
     };
     s.chief.open(&chat(ada)).await;
     s.chief.open(&chat(bo)).await;
-    s.chief.tell(ada, "Agree the road.").await;
+    s.chief.tell(ada, "Agree the channel.").await;
     s.chief.shows(&chat(ada), "Agreed.").await;
-    assert!(!agreed(&s.chief), "one lead alone opens no road");
-    s.chief.tell(bo, "Agree the road.").await;
+    assert!(!agreed(&s.chief), "one lead alone opens no channel");
+    s.chief.tell(bo, "Agree the channel.").await;
     s.chief.shows(&chat(bo), "Agreed too.").await;
-    s.chief.until("the road opens", agreed).await;
+    s.chief.until("the channel opens", agreed).await;
 }
 
 #[tokio::test]

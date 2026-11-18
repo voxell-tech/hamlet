@@ -41,7 +41,7 @@ system prompt is built again from these parts, in this order:
 | The character | The agent's character at the tip of its branch, at most 4000 characters of it | A chief |
 | The memory | The files at the root of its worktree's `memory/`, at most 8000 characters in all, and the description of each folder under it | The agent |
 | The skills | Its worktree's skills, then the library's | The agent; the librarian |
-| The place | Who it is, who it answers to and who answers to it, its roads, the tools turned off for it, how its hamlet was run lately (H17) | The record |
+| The place | Who it is, who it answers to and who answers to it, its channels, the tools turned off for it, how its hamlet was run lately (H17) | The record |
 | The realm | The other hamlets, for the Hand and leads; the hamlets a chief can found, when there are none | The record |
 
 A part changed by anyone counts from the agent's next step. No part follows

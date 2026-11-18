@@ -19,7 +19,7 @@ pub(crate) enum Society {
     AskChief,
     ReadBudget,
     Object,
-    RequestRoad,
+    RequestChannel,
     CreateProfile,
     AddAgent,
     EndAgent,
@@ -28,9 +28,9 @@ pub(crate) enum Society {
     SetTools,
     SetAllowance,
     RenameAgent,
-    LayRoad,
-    TakeUpRoad,
-    AgreeRoad,
+    OpenChannel,
+    CloseChannel,
+    AgreeChannel,
     FoundHamlet,
     SetLead,
     RemoveHamlet,
@@ -73,7 +73,7 @@ pub(crate) enum Reserve {
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum Limit {
     Add,
-    Roads,
+    Channels,
     End,
     Merge,
 }
@@ -83,7 +83,7 @@ impl Limit {
     pub fn is_kept(self, reserved: &Reserved) -> bool {
         match self {
             Self::Add => reserved.add,
-            Self::Roads => reserved.roads,
+            Self::Channels => reserved.channels,
             Self::End => reserved.end,
             Self::Merge => reserved.merge,
         }
@@ -157,7 +157,7 @@ pub(crate) const FACTS: [Facts; 28] = {
         facts(S::AskChief, "ask_chief", Everyone),
         facts(S::ReadBudget, "read_budget", Everyone),
         facts(S::Object, "object", Chats),
-        facts(S::RequestRoad, "request_road", HamletAgents)
+        facts(S::RequestChannel, "request_channel", HamletAgents)
             .doing(Doing::Await),
         facts(S::CreateProfile, "create_profile", Parents)
             .doing(Doing::Think),
@@ -172,11 +172,12 @@ pub(crate) const FACTS: [Facts; 28] = {
         facts(S::SetTools, "set_tools", Parents),
         facts(S::SetAllowance, "set_allowance", Parents),
         facts(S::RenameAgent, "rename_agent", Parents),
-        facts(S::LayRoad, "lay_road", Parents)
-            .reserved(Reserve::Limit(Limit::Roads)),
-        facts(S::TakeUpRoad, "take_up_road", Parents)
-            .reserved(Reserve::Limit(Limit::Roads)),
-        facts(S::AgreeRoad, "agree_road", Leads).doing(Doing::Await),
+        facts(S::OpenChannel, "open_channel", Parents)
+            .reserved(Reserve::Limit(Limit::Channels)),
+        facts(S::CloseChannel, "close_channel", Parents)
+            .reserved(Reserve::Limit(Limit::Channels)),
+        facts(S::AgreeChannel, "agree_channel", Leads)
+            .doing(Doing::Await),
         facts(S::FoundHamlet, "found_hamlet", Hand),
         facts(S::SetLead, "set_lead", Hand),
         facts(S::RemoveHamlet, "remove_hamlet", Hand)

@@ -28,8 +28,8 @@ const PATHS: &str =
 const PROFILE: &str = "The profile's address, `profile#<id>`.";
 const HAMLET: &str = "The hamlet's id.";
 
-/// Send a letter to an agent you have a road to. It is queued for
-/// them; you do not wait for an answer.
+/// Send a letter to an agent you have a channel to. It is queued
+/// for them; you do not wait for an answer.
 #[derive(Deserialize, JsonSchema)]
 pub(crate) struct Tell {
     #[schemars(description = ADDRESS)]
@@ -41,9 +41,9 @@ pub(crate) struct Tell {
     pub paths: Vec<String>,
 }
 
-/// Put a question to an agent you have a road to and wait for its
-/// answer. Put only what you need; a question to someone waiting on
-/// you is refused.
+/// Put a question to an agent you have a channel to and wait for
+/// its answer. Put only what you need; a question to someone waiting
+/// on you is refused.
 #[derive(Deserialize, JsonSchema)]
 pub(crate) struct Ask {
     #[schemars(description = ADDRESS)]
@@ -104,10 +104,10 @@ pub(crate) struct Object {
     pub reason: String,
 }
 
-/// Request from your parent a road to an agent of your hamlet you
-/// need to reach.
+/// Request from your parent a channel to an agent of your hamlet
+/// you need to reach.
 #[derive(Deserialize, JsonSchema)]
-pub(crate) struct RequestRoad {
+pub(crate) struct RequestChannel {
     #[schemars(description = ADDRESS)]
     pub to: String,
     #[serde(default)]
@@ -163,7 +163,7 @@ pub(crate) struct EndAgent {
 }
 
 /// Merge one agent under you into another: the kept agent takes what
-/// the other learned, its roads and its agents.
+/// the other learned, its channels and its agents.
 #[derive(Deserialize, JsonSchema)]
 pub(crate) struct MergeAgents {
     #[schemars(description = ADDRESS)]
@@ -230,10 +230,10 @@ pub(crate) struct RenameAgent {
     pub reason: String,
 }
 
-/// Lay a road between two agents under you, so they can write and put
-/// questions to each other.
+/// Open a channel between two agents under you, so they can write
+/// and put questions to each other.
 #[derive(Deserialize, JsonSchema)]
-pub(crate) struct LayRoad {
+pub(crate) struct OpenChannel {
     #[schemars(description = ADDRESS)]
     pub a: String,
     #[schemars(description = ADDRESS)]
@@ -243,9 +243,9 @@ pub(crate) struct LayRoad {
     pub reason: String,
 }
 
-/// Take up a road you laid between two agents under you.
+/// Close a channel you opened between two agents under you.
 #[derive(Deserialize, JsonSchema)]
-pub(crate) struct TakeUpRoad {
+pub(crate) struct CloseChannel {
     #[schemars(description = ADDRESS)]
     pub a: String,
     #[schemars(description = ADDRESS)]
@@ -255,10 +255,10 @@ pub(crate) struct TakeUpRoad {
     pub reason: String,
 }
 
-/// As a lead, agree a road between an agent of your hamlet and one of
-/// another. It opens once both leads agree.
+/// As a lead, agree a channel between an agent of your hamlet and
+/// one of another. It opens once both leads agree.
 #[derive(Deserialize, JsonSchema)]
-pub(crate) struct AgreeRoad {
+pub(crate) struct AgreeChannel {
     #[schemars(description = ADDRESS)]
     pub mine: String,
     #[schemars(description = ADDRESS)]
@@ -412,7 +412,7 @@ called!(
     AskLibrarian,
     ReadBudget,
     Object,
-    RequestRoad,
+    RequestChannel,
     CreateProfile,
     AddAgent,
     EndAgent,
@@ -421,9 +421,9 @@ called!(
     SetTools,
     SetAllowance,
     RenameAgent,
-    LayRoad,
-    TakeUpRoad,
-    AgreeRoad,
+    OpenChannel,
+    CloseChannel,
+    AgreeChannel,
     FoundHamlet,
     SetLead,
     RemoveHamlet,

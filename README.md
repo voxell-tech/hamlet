@@ -31,7 +31,7 @@ and open-source forever.
   its profile's `main`. Tag versions, pin an agent to one, revert or fork
   a profile.
 - **Hamlets that run themselves**: A hamlet's lead adds agents, directs
-  them and lays the roads their letters and questions travel along.
+  them and opens the channels their letters and questions travel along.
   Parents review the work of the agents under them.
 - **Agents that grow**: An agent starts with a sandboxed shell, a file
   editor and its memory, and writes its own skills. A librarian shelves
@@ -60,7 +60,7 @@ Hamlet's words in one minute:
 | **Profile** | Who an agent is: a git repository of its character, memory and skills. |
 | **Hamlet** | Agents of profiles with a budget and, optionally, a folder to work in. |
 | **Lead** | The agent that leads a hamlet. |
-| **Road** | A path between two agents that their letters travel along. |
+| **Channel** | A link between two agents that their letters travel along. |
 
 The shortest path to seeing it work:
 
@@ -80,7 +80,7 @@ your real files alone.
 Early and moving fast.
 
 - **`hamlet_server`** (Rust) owns the realm: the agents, profiles'
-  repositories, roads, letters, library, approvals and budgets.
+  repositories, channels, letters, library, approvals and budgets.
 - **pi harness** (Node processes) owns conversations and model calls.
 - **The window** is a protocol client. Closing it stops no agent.
 - **Tests** use faux and loopback providers. They do not establish

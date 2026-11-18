@@ -32,7 +32,7 @@ impl Default for RealmBylaws {
                 minutes: None,
                 period: protocol::Period::Day,
             },
-            roads_between: true,
+            channels_between: true,
         })
     }
 }
@@ -406,7 +406,7 @@ pub fn register(world: &mut World) {
     world.register_component::<Left>();
     world.register_component::<MergedInto>();
     world.register_component::<Absorbed>();
-    world.register_component::<Road>();
+    world.register_component::<Channel>();
     world.register_component::<Traffic>();
     world.register_component::<Spot>();
     world.register_component::<PeerChats>();
@@ -544,11 +544,12 @@ pub struct Left;
 impl Left {
     fn on_insert(mut world: DeferredWorld, context: HookContext) {
         index::file_agent(world.reborrow(), context);
-        // An agent that left keeps its entity, but none of its roads.
-        let roads =
-            roads_of(&world, context.entity).collect::<Vec<_>>();
-        for road in roads {
-            world.commands().entity(road).try_despawn();
+        // An agent that left keeps its entity, but none of its
+        // channels.
+        let channels =
+            channels_of(&world, context.entity).collect::<Vec<_>>();
+        for channel in channels {
+            world.commands().entity(channel).try_despawn();
         }
     }
 }
@@ -932,7 +933,7 @@ fn departures(world: &mut World) {
         let host = into.and_then(|into| agent(world, into));
         let mut entity = world.entity_mut(entity);
         // Only on a difference: `Left` inserted again would file the
-        // agent and look for its roads once more.
+        // agent and look for its channels once more.
         let merged =
             entity.get::<MergedInto>().map(|merged| merged.0);
         if entity.contains::<Left>() && merged == host {
@@ -952,13 +953,13 @@ fn society(world: &mut World, value: protocol::Hamlet, news: bool) {
         return;
     };
     let mut wanted = Vec::new();
-    for value in value.roads {
+    for value in value.channels {
         let (Some(a), Some(b)) =
             (agent(world, value.a), agent(world, value.b))
         else {
             continue;
         };
-        // An agent that left has no roads, though its hamlet still
+        // An agent that left has no channels, though its hamlet still
         // lists them.
         if world.get::<Left>(a).is_some()
             || world.get::<Left>(b).is_some()
@@ -966,16 +967,18 @@ fn society(world: &mut World, value: protocol::Hamlet, news: bool) {
             continue;
         }
         let ends = if a <= b { (a, b) } else { (b, a) };
-        let road = road_between(world, a, b);
-        let before = road
+        let channel = channel_between(world, a, b);
+        let before = channel
             .and_then(|e| world.get::<Traffic>(e))
             .map_or(0, |t| t.messages);
         let traffic = Traffic {
             level: match value.level {
-                protocol::RoadLevel::Overgrown => RoadUse::Overgrown,
-                protocol::RoadLevel::Dirt => RoadUse::Dirt,
-                protocol::RoadLevel::Paved => RoadUse::Paved,
-                protocol::RoadLevel::Rail => RoadUse::Rail,
+                protocol::ChannelLevel::Overgrown => {
+                    ChannelUse::Overgrown
+                }
+                protocol::ChannelLevel::Dirt => ChannelUse::Dirt,
+                protocol::ChannelLevel::Paved => ChannelUse::Paved,
+                protocol::ChannelLevel::Rail => ChannelUse::Rail,
             },
             kind: value.kind,
             messages: value.messages,
@@ -983,25 +986,29 @@ fn society(world: &mut World, value: protocol::Hamlet, news: bool) {
                 .last_from
                 .and_then(|from| agent(world, from)),
         };
-        let entity =
-            road.unwrap_or_else(|| world.spawn(Road { ends }).id());
+        let entity = channel
+            .unwrap_or_else(|| world.spawn(Channel { ends }).id());
         put(&mut world.entity_mut(entity), traffic);
         wanted.push(entity);
         if news
             && traffic.messages > before
             && let Some(from) = traffic.last_from
         {
-            world.trigger(Carried { road: entity, from });
+            world.trigger(Carried {
+                channel: entity,
+                from,
+            });
         }
     }
     let mut gone = world
         .get::<Agents>(hamlet)
         .into_iter()
         .flat_map(RelationshipTarget::iter)
-        .flat_map(|agent| roads_of(world, agent))
-        .filter(|road| !wanted.contains(road))
+        .flat_map(|agent| channels_of(world, agent))
+        .filter(|channel| !wanted.contains(channel))
         .collect::<Vec<_>>();
-    // A road between two of the hamlet's agents is met at each end.
+    // A channel between two of the hamlet's agents is met at each
+    // end.
     gone.sort_unstable();
     gone.dedup();
     for entity in gone {
@@ -1019,104 +1026,106 @@ pub struct MergedInto(pub Entity);
 #[relationship_target(relationship = MergedInto)]
 pub struct Absorbed(Vec<Entity>);
 
-/// A road between two agent entities.
+/// A channel between two agent entities.
 #[derive(Component, Clone, Copy, Debug, PartialEq, Eq)]
-#[component(immutable, on_insert = Road::on_insert)]
-pub struct Road {
+#[component(immutable, on_insert = Channel::on_insert)]
+pub struct Channel {
     pub ends: (Entity, Entity),
 }
 
-impl Road {
-    /// Membership of an agent among the road's ends.
+impl Channel {
+    /// Membership of an agent among the channel's ends.
     pub fn has_end(&self, agent: Entity) -> bool {
         self.ends.0 == agent || self.ends.1 == agent
     }
 
-    // Each end holds the road as a relationship, so the road goes
-    // with either end.
+    // Each end holds the channel as a relationship, so the channel
+    // goes with either end.
     fn on_insert(mut world: DeferredWorld, context: HookContext) {
-        let Some(&Road { ends: (from, to) }) =
-            world.get::<Road>(context.entity)
+        let Some(&Channel { ends: (from, to) }) =
+            world.get::<Channel>(context.entity)
         else {
             return;
         };
         world
             .commands()
             .entity(context.entity)
-            .try_insert((RoadFrom(from), RoadTo(to)));
+            .try_insert((ChannelFrom(from), ChannelTo(to)));
     }
 }
 
-/// A road's first end.
+/// A channel's first end.
 #[derive(Component, Clone, Copy, Debug, PartialEq, Eq)]
-#[relationship(relationship_target = RoadsFrom)]
-pub struct RoadFrom(pub Entity);
+#[relationship(relationship_target = ChannelsFrom)]
+pub struct ChannelFrom(pub Entity);
 
-/// The roads whose first end is this agent.
+/// The channels whose first end is this agent.
 #[derive(Component, Default, Debug)]
-#[relationship_target(relationship = RoadFrom, linked_spawn)]
-pub struct RoadsFrom(Vec<Entity>);
+#[relationship_target(relationship = ChannelFrom, linked_spawn)]
+pub struct ChannelsFrom(Vec<Entity>);
 
-/// A road's second end.
+/// A channel's second end.
 #[derive(Component, Clone, Copy, Debug, PartialEq, Eq)]
-#[relationship(relationship_target = RoadsTo)]
-pub struct RoadTo(pub Entity);
+#[relationship(relationship_target = ChannelsTo)]
+pub struct ChannelTo(pub Entity);
 
-/// The roads whose second end is this agent.
+/// The channels whose second end is this agent.
 #[derive(Component, Default, Debug)]
-#[relationship_target(relationship = RoadTo, linked_spawn)]
-pub struct RoadsTo(Vec<Entity>);
+#[relationship_target(relationship = ChannelTo, linked_spawn)]
+pub struct ChannelsTo(Vec<Entity>);
 
-/// The roads of an agent with these relationship targets.
-pub fn roads<'a>(
-    from: Option<&'a RoadsFrom>,
-    to: Option<&'a RoadsTo>,
+/// The channels of an agent with these relationship targets.
+pub fn channels<'a>(
+    from: Option<&'a ChannelsFrom>,
+    to: Option<&'a ChannelsTo>,
 ) -> impl Iterator<Item = Entity> + 'a {
     let from = from.into_iter().flat_map(RelationshipTarget::iter);
     from.chain(to.into_iter().flat_map(RelationshipTarget::iter))
 }
 
-/// The roads with an agent at one end.
-pub fn roads_of(
+/// The channels with an agent at one end.
+pub fn channels_of(
     world: &World,
     agent: Entity,
 ) -> impl Iterator<Item = Entity> + '_ {
-    roads(world.get(agent), world.get(agent))
+    channels(world.get(agent), world.get(agent))
 }
 
-/// The road between two agents.
-pub fn road_between(
+/// The channel between two agents.
+pub fn channel_between(
     world: &World,
     a: Entity,
     b: Entity,
 ) -> Option<Entity> {
-    roads_of(world, a).find(|road| {
-        world.get::<Road>(*road).is_some_and(|road| road.has_end(b))
+    channels_of(world, a).find(|channel| {
+        world
+            .get::<Channel>(*channel)
+            .is_some_and(|channel| channel.has_end(b))
     })
 }
 
-/// The drawn level of traffic on a road.
+/// The drawn level of traffic on a channel.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum RoadUse {
+pub enum ChannelUse {
     Overgrown,
     Dirt,
     Paved,
     Rail,
 }
 
-/// A road's received traffic and latest sender.
+/// A channel's received traffic and latest sender.
 #[derive(Component, Clone, Copy, Debug, PartialEq, Eq)]
 pub struct Traffic {
-    pub kind: protocol::RoadKind,
-    pub level: RoadUse,
+    pub kind: protocol::ChannelKind,
+    pub level: ChannelUse,
     pub messages: u64,
     pub last_from: Option<Entity>,
 }
 
-/// A letter carried along a road.
+/// A letter carried along a channel.
 #[derive(Event, Clone, Copy, Debug)]
 pub struct Carried {
-    pub road: Entity,
+    pub channel: Entity,
     pub from: Entity,
 }
 
@@ -1135,9 +1144,9 @@ pub struct Spot(pub Option<(f32, f32)>);
 mod tests {
     use bevy_app::App;
     use hamlet_protocol::client as protocol;
-    use hamlet_testing::realm::{agent, road, state};
+    use hamlet_testing::realm::{agent, channel, state};
 
-    use super::{named, road_between, roads_of, shown_of};
+    use super::{channel_between, channels_of, named, shown_of};
     use crate::{ClientPlugin, receive};
 
     #[test]
@@ -1161,7 +1170,7 @@ mod tests {
     }
 
     #[test]
-    fn a_road_goes_with_an_end_that_left_or_is_gone_and_is_not_laid_again()
+    fn a_channel_goes_with_an_end_that_left_or_is_gone_and_is_not_opened_again()
      {
         let mut app = App::new();
         app.add_plugins(ClientPlugin { server: None });
@@ -1169,15 +1178,15 @@ mod tests {
         realm.agents.push(agent(3, "home", false));
         realm.agents.push(agent(4, "home", false));
         let ada = protocol::AgentId(2);
-        realm.hamlets[0].roads = vec![
-            road(ada, protocol::AgentId(3), 0),
-            road(ada, protocol::AgentId(4), 0),
+        realm.hamlets[0].channels = vec![
+            channel(ada, protocol::AgentId(3), 0),
+            channel(ada, protocol::AgentId(4), 0),
         ];
         let world = app.world_mut();
         receive(world, protocol::ServerMessage::State(realm.clone()));
         let [ada, scout, miner] = ["agent#2", "agent#3", "agent#4"]
             .map(|name| named(world, name).unwrap());
-        assert_eq!(roads_of(world, ada).count(), 2);
+        assert_eq!(channels_of(world, ada).count(), 2);
         realm.agents[2].left = Some(protocol::Left {
             at: 1,
             by: "chief".into(),
@@ -1189,12 +1198,12 @@ mod tests {
         realm.revision += 1;
         receive(world, protocol::ServerMessage::State(realm.clone()));
         assert!(world.get_entity(scout).is_ok());
-        assert_eq!(road_between(world, ada, scout), None);
-        let mine = road_between(world, ada, miner).unwrap();
+        assert_eq!(channel_between(world, ada, scout), None);
+        let mine = channel_between(world, ada, miner).unwrap();
         realm.agents.pop();
         realm.revision += 1;
         receive(world, protocol::ServerMessage::State(realm));
         assert!(world.get_entity(mine).is_err());
-        assert_eq!(roads_of(world, ada).count(), 0);
+        assert_eq!(channels_of(world, ada).count(), 0);
     }
 }

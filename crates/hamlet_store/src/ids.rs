@@ -74,8 +74,8 @@ integer_id!(
     WaitId
 );
 integer_id!(
-    /// A row of `road`.
-    RoadId
+    /// A row of `channel`.
+    ChannelId
 );
 integer_id!(
     /// A row of `job`.

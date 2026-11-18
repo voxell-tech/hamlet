@@ -1,5 +1,5 @@
-//! Roads, along which agents send letters and questions (H3, H14,
-//! H30): the tree's, the leads', and those laid or agreed.
+//! Channels, along which agents send letters and questions (H3, H14,
+//! H30): the tree's, the leads', and those opened or agreed.
 
 use anyhow::Result;
 use diesel::deserialize::FromSqlRow;
@@ -7,8 +7,10 @@ use diesel::expression::AsExpression;
 use diesel::prelude::*;
 use diesel::sql_types::Text;
 use hamlet_store::Db;
-use hamlet_store::ids::{Actor, AgentId, HamletId, RoadId, TaskId};
-use hamlet_store::schema::{agreement, road, road_charge};
+use hamlet_store::ids::{
+    Actor, AgentId, ChannelId, HamletId, TaskId,
+};
+use hamlet_store::schema::{agreement, channel, channel_charge};
 use serde::{Deserialize, Serialize};
 use serde_json::json;
 use strum::{Display, EnumString, IntoStaticStr};
@@ -39,13 +41,13 @@ use crate::realm::change::{Change, Done, done, refuse};
 #[serde(rename_all = "kebab-case")]
 #[strum(serialize_all = "kebab-case")]
 #[diesel(sql_type = Text)]
-pub(crate) enum RoadKind {
+pub(crate) enum ChannelKind {
     /// Between two agents of a hamlet.
-    Laid,
+    Opened,
     /// Between agents of two hamlets, once both leads agreed.
     Agreed,
 }
-hamlet_store::named_text!(RoadKind);
+hamlet_store::named_text!(ChannelKind);
 
 /// How two agents are joined.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -54,24 +56,24 @@ pub(crate) enum Way {
     Tree,
     /// Two leads.
     Leads,
-    Road(RoadId),
+    Channel(ChannelId),
 }
 
 #[derive(Clone, Debug, PartialEq, Queryable, Selectable)]
-#[diesel(table_name = road)]
-pub(crate) struct Road {
-    pub id: RoadId,
+#[diesel(table_name = channel)]
+pub(crate) struct Channel {
+    pub id: ChannelId,
     pub a: AgentId,
     pub b: AgentId,
-    pub kind: RoadKind,
-    pub laid_at: i64,
-    pub laid_by: Actor,
+    pub kind: ChannelKind,
+    pub opened_at: i64,
+    pub opened_by: Actor,
     pub reason: String,
     pub task: Option<TaskId>,
-    pub inherited_from: Option<RoadId>,
-    pub up_at: Option<i64>,
-    pub up_by: Option<Actor>,
-    pub up_reason: Option<String>,
+    pub inherited_from: Option<ChannelId>,
+    pub closed_at: Option<i64>,
+    pub closed_by: Option<Actor>,
+    pub closed_reason: Option<String>,
 }
 
 /// How `from` reaches `to`, if it can: both living, and joined.
@@ -109,15 +111,15 @@ pub(crate) fn way(
             if is_lead(db, &a)? && is_lead(db, &b)? {
                 return Ok(Some(Way::Leads));
             }
-            let Some(found) = open(db, from, to)? else {
+            let Some(found) = between(db, from, to)? else {
                 return Ok(None);
             };
-            if found.kind == RoadKind::Agreed
-                && !limits::realm(db)?.roads_between
+            if found.kind == ChannelKind::Agreed
+                && !limits::realm(db)?.channels_between
             {
                 return Ok(None);
             }
-            Ok(Some(Way::Road(found.id)))
+            Ok(Some(Way::Channel(found.id)))
         }
         _ => Ok(None),
     }
@@ -161,16 +163,17 @@ pub(crate) fn ways(
                     }
                 }
             }
-            let roads = road::table
-                .filter(road::a.eq(id).or(road::b.eq(id)))
-                .filter(road::up_at.is_null())
-                .select(Road::as_select())
+            let channels = channel::table
+                .filter(channel::a.eq(id).or(channel::b.eq(id)))
+                .filter(channel::closed_at.is_null())
+                .select(Channel::as_select())
                 .load(db)?;
-            for found in roads {
+            for found in channels {
                 let other =
                     if found.a == id { found.b } else { found.a };
-                if way(db, id, other)? == Some(Way::Road(found.id)) {
-                    out.push((other, Way::Road(found.id)));
+                if way(db, id, other)? == Some(Way::Channel(found.id))
+                {
+                    out.push((other, Way::Channel(found.id)));
                 }
             }
         }
@@ -179,48 +182,48 @@ pub(crate) fn ways(
     Ok(out)
 }
 
-/// The open road between `a` and `b`.
-pub(crate) fn open(
+/// The channel between `a` and `b` that is still open.
+pub(crate) fn between(
     db: &mut Db,
     a: AgentId,
     b: AgentId,
-) -> Result<Option<Road>> {
+) -> Result<Option<Channel>> {
     let (a, b) = (a.min(b), a.max(b));
-    Ok(road::table
-        .filter(road::a.eq(a))
-        .filter(road::b.eq(b))
-        .filter(road::up_at.is_null())
-        .select(Road::as_select())
+    Ok(channel::table
+        .filter(channel::a.eq(a))
+        .filter(channel::b.eq(b))
+        .filter(channel::closed_at.is_null())
+        .select(Channel::as_select())
         .first(db)
         .optional()?)
 }
 
-/// The open laid roads of `hamlet`.
-pub(crate) fn laid_in(
+/// The channels of `hamlet` that were opened and are still open.
+pub(crate) fn opened_in(
     db: &mut Db,
     hamlet: &HamletId,
-) -> Result<Vec<Road>> {
+) -> Result<Vec<Channel>> {
     let living = hamlet_agents::living_in(db, hamlet)?
         .into_iter()
         .map(|agent| agent.agent)
         .collect::<Vec<_>>();
-    Ok(road::table
-        .filter(road::kind.eq(RoadKind::Laid))
-        .filter(road::up_at.is_null())
-        .filter(road::a.eq_any(&living))
-        .select(Road::as_select())
+    Ok(channel::table
+        .filter(channel::kind.eq(ChannelKind::Opened))
+        .filter(channel::closed_at.is_null())
+        .filter(channel::a.eq_any(&living))
+        .select(Channel::as_select())
         .load(db)?)
 }
 
-/// Lays a road between two living agents of one hamlet, charged to
-/// the hamlet and to `task` (H3).
-pub(crate) fn lay(
+/// Opens a channel between two living agents of one hamlet, charged
+/// to the hamlet and to `task` (H3).
+pub(crate) fn open(
     cx: &mut Change<'_>,
     a: AgentId,
     b: AgentId,
     reason: &str,
     task: Option<TaskId>,
-) -> Done<RoadId> {
+) -> Done<ChannelId> {
     if a == b {
         refuse!(Refusal::SameEnds);
     }
@@ -228,7 +231,7 @@ pub(crate) fn lay(
         hamlet_agents::find(cx.db, a)?,
         hamlet_agents::find(cx.db, b)?,
     ) else {
-        refuse!(Refusal::RoadEnds);
+        refuse!(Refusal::ChannelEnds);
     };
     for id in [a, b] {
         done!(hamlet_agents::require_living(cx.db, id));
@@ -239,23 +242,23 @@ pub(crate) fn lay(
         });
     }
     if way(cx.db, a, b)?.is_some() {
-        refuse!(Refusal::RoadExists {
+        refuse!(Refusal::ChannelExists {
             a: name_of(cx.db, a)?,
             b: name_of(cx.db, b)?,
         });
     }
-    let rules = limits::of(cx.db, &one.hamlet)?.road;
-    if laid_in(cx.db, &one.hamlet)?.len() as i64 >= rules.most {
-        refuse!(Refusal::TooManyRoads {
+    let rules = limits::of(cx.db, &one.hamlet)?.channel;
+    if opened_in(cx.db, &one.hamlet)?.len() as i64 >= rules.most {
+        refuse!(Refusal::TooManyChannels {
             hamlet: one.hamlet.to_string(),
             most: rules.most,
         });
     }
-    let id = insert(cx, a, b, RoadKind::Laid, reason, task)?;
+    let id = insert(cx, a, b, ChannelKind::Opened, reason, task)?;
     charge(cx, id, &one.hamlet, task, rules.price)?;
     record::keep(
         cx,
-        Decision::new(DecisionKind::Road, reason)
+        Decision::new(DecisionKind::Channel, reason)
             .hamlet(&one.hamlet)
             .subject(a)
             .other(b),
@@ -263,27 +266,27 @@ pub(crate) fn lay(
     Ok(Ok(id))
 }
 
-/// Lays a road of `kind` between `a` and `b`.
+/// Opens a channel of `kind` between `a` and `b`.
 pub(crate) fn insert(
     cx: &mut Change<'_>,
     a: AgentId,
     b: AgentId,
-    kind: RoadKind,
+    kind: ChannelKind,
     reason: &str,
     task: Option<TaskId>,
-) -> Result<RoadId> {
+) -> Result<ChannelId> {
     let (a, b) = (a.min(b), a.max(b));
-    let id = diesel::insert_into(road::table)
+    let id = diesel::insert_into(channel::table)
         .values((
-            road::a.eq(a),
-            road::b.eq(b),
-            road::kind.eq(kind),
-            road::laid_at.eq(cx.at),
-            road::laid_by.eq(cx.actor),
-            road::reason.eq(reason),
-            road::task.eq(task),
+            channel::a.eq(a),
+            channel::b.eq(b),
+            channel::kind.eq(kind),
+            channel::opened_at.eq(cx.at),
+            channel::opened_by.eq(cx.actor),
+            channel::reason.eq(reason),
+            channel::task.eq(task),
         ))
-        .returning(road::id)
+        .returning(channel::id)
         .get_result(cx.db)?;
     cx.touched.agents.extend([a, b]);
     Ok(id)
@@ -291,7 +294,7 @@ pub(crate) fn insert(
 
 fn charge(
     cx: &mut Change<'_>,
-    road: RoadId,
+    channel: ChannelId,
     hamlet: &HamletId,
     task: Option<TaskId>,
     micros: i64,
@@ -300,45 +303,45 @@ fn charge(
         Actor::Agent(agent) => Some(agent),
         _ => None,
     };
-    diesel::insert_into(road_charge::table)
+    diesel::insert_into(channel_charge::table)
         .values((
-            road_charge::road.eq(road),
-            road_charge::hamlet.eq(hamlet),
-            road_charge::agent.eq(agent),
-            road_charge::task.eq(task),
-            road_charge::at.eq(cx.at),
-            road_charge::micros.eq(micros),
+            channel_charge::channel.eq(channel),
+            channel_charge::hamlet.eq(hamlet),
+            channel_charge::agent.eq(agent),
+            channel_charge::task.eq(task),
+            channel_charge::at.eq(cx.at),
+            channel_charge::micros.eq(micros),
         ))
         .execute(cx.db)?;
     cx.touched.hamlets.insert(hamlet.clone());
     Ok(())
 }
 
-/// Takes up the laid or agreed road between `a` and `b`. What it cost
-/// is not given back.
-pub(crate) fn take_up(
+/// Closes the opened or agreed channel between `a` and `b`. What it
+/// cost is not given back.
+pub(crate) fn close(
     cx: &mut Change<'_>,
     a: AgentId,
     b: AgentId,
     reason: &str,
 ) -> Done<()> {
-    let Some(found) = open(cx.db, a, b)? else {
-        refuse!(Refusal::NoRoad {
+    let Some(found) = between(cx.db, a, b)? else {
+        refuse!(Refusal::NoChannel {
             a: name_of(cx.db, a)?,
             b: name_of(cx.db, b)?,
         });
     };
-    diesel::update(road::table.find(found.id))
+    diesel::update(channel::table.find(found.id))
         .set((
-            road::up_at.eq(cx.at),
-            road::up_by.eq(cx.actor),
-            road::up_reason.eq(reason),
+            channel::closed_at.eq(cx.at),
+            channel::closed_by.eq(cx.actor),
+            channel::closed_reason.eq(reason),
         ))
         .execute(cx.db)?;
     let hamlet = hamlet_agents::get(cx.db, a)?.hamlet;
     record::keep(
         cx,
-        Decision::new(DecisionKind::Unroad, reason)
+        Decision::new(DecisionKind::Unchannel, reason)
             .hamlet(&hamlet)
             .subject(a)
             .other(b),
@@ -347,17 +350,17 @@ pub(crate) fn take_up(
     Ok(Ok(()))
 }
 
-/// What a lead's agreement to a road between hamlets came to.
+/// What a lead's agreement to a channel between hamlets came to.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum Agreed {
     /// The other hamlet's lead has not agreed yet.
     Waiting,
-    Laid(RoadId),
+    Opened(ChannelId),
 }
 
-/// Keeps the agreement of `lead` to a road between agents `a` and `b`
-/// of different hamlets, one of them its own, and lays the road once
-/// the other hamlet's lead agreed too (H14).
+/// Keeps the agreement of `lead` to a channel between agents `a` and
+/// `b` of different hamlets, one of them its own, and opens the
+/// channel once the other hamlet's lead agreed too (H14).
 pub(crate) fn agree(
     cx: &mut Change<'_>,
     lead: AgentId,
@@ -366,14 +369,14 @@ pub(crate) fn agree(
     reason: &str,
     task: Option<TaskId>,
 ) -> Done<Agreed> {
-    if !limits::realm(cx.db)?.roads_between {
-        refuse!(Refusal::NoRoadsBetween);
+    if !limits::realm(cx.db)?.channels_between {
+        refuse!(Refusal::NoChannelsBetween);
     }
     let (Some(one), Some(other)) = (
         hamlet_agents::find(cx.db, a)?,
         hamlet_agents::find(cx.db, b)?,
     ) else {
-        refuse!(Refusal::RoadEnds);
+        refuse!(Refusal::ChannelEnds);
     };
     for id in [a, b] {
         done!(hamlet_agents::require_living(cx.db, id));
@@ -390,7 +393,7 @@ pub(crate) fn agree(
         refuse!(Refusal::NotLead);
     }
     if way(cx.db, a, b)?.is_some() {
-        refuse!(Refusal::RoadExists {
+        refuse!(Refusal::ChannelExists {
             a: name_of(cx.db, a)?,
             b: name_of(cx.db, b)?,
         });
@@ -417,33 +420,33 @@ pub(crate) fn agree(
         .filter(agreement::a.eq(low))
         .filter(agreement::b.eq(high))
         .filter(agreement::hamlet.eq(theirs))
-        .filter(agreement::road.is_null())
+        .filter(agreement::channel.is_null())
         .count()
         .get_result::<i64>(cx.db)?
         > 0;
     if !agreed_there {
         return Ok(Ok(Agreed::Waiting));
     }
-    let id = insert(cx, a, b, RoadKind::Agreed, reason, task)?;
+    let id = insert(cx, a, b, ChannelKind::Agreed, reason, task)?;
     diesel::update(
         agreement::table
             .filter(agreement::a.eq(low))
             .filter(agreement::b.eq(high))
-            .filter(agreement::road.is_null()),
+            .filter(agreement::channel.is_null()),
     )
-    .set(agreement::road.eq(id))
+    .set(agreement::channel.eq(id))
     .execute(cx.db)?;
     for hamlet in [&one.hamlet, &other.hamlet] {
-        let price = limits::of(cx.db, hamlet)?.road.price;
+        let price = limits::of(cx.db, hamlet)?.channel.price;
         charge(cx, id, hamlet, task, price)?;
         record::keep(
             cx,
-            Decision::new(DecisionKind::RoadAgreed, reason)
+            Decision::new(DecisionKind::ChannelAgreed, reason)
                 .hamlet(hamlet)
                 .subject(a)
                 .other(b)
-                .detail(json!({ "road": id })),
+                .detail(json!({ "channel": id })),
         )?;
     }
-    Ok(Ok(Agreed::Laid(id)))
+    Ok(Ok(Agreed::Opened(id)))
 }

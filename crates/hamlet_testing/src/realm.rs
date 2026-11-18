@@ -25,7 +25,7 @@ pub fn state() -> protocol::State {
             "workspace": {"url": null, "running": null}
         },
         "limits": {
-            "roadsBetween": true,
+            "channelsBetween": true,
             "budget": {"period": "day", "cost": 5, "minutes": null}
         },
         "realm": "/tmp/hamlet-test", "library": [], "closed": [],
@@ -39,7 +39,7 @@ pub fn hamlet(id: &str, lead: u64) -> protocol::Hamlet {
     serde_json::from_value(json!({
         "id": id, "name": id, "folder": null, "before": [], "mode": "manual",
         "modeWords": "Agents ask you before each edit and command.",
-        "roads": [], "at": null, "lead": lead, "tier": 50, "chiefs": ["chief"],
+        "channels": [], "at": null, "lead": lead, "tier": 50, "chiefs": ["chief"],
         "budget": {
             "period": "day", "periodWords": "today", "gone": 0,
             "spent": {"tokens": 0, "micros": 0, "ms": 0},
@@ -49,8 +49,8 @@ pub fn hamlet(id: &str, lead: u64) -> protocol::Hamlet {
         },
         "limits": {
             "budget": {"period": "day", "cost": 5, "minutes": null},
-            "road": {"price": 0.01, "most": 24, "growsOverDays": 7},
-            "reserved": {"add": false, "roads": false, "end": false, "merge": false},
+            "channel": {"price": 0.01, "most": 24, "growsOverDays": 7},
+            "reserved": {"add": false, "channels": false, "end": false, "merge": false},
             "model": null, "toldDays": 7, "protectedMinutes": 0,
             "asking": {"review": "remote", "questions": 3, "refusals": 3}
         }
@@ -115,18 +115,18 @@ pub fn wait(id: &str) -> protocol::Wait {
     })).unwrap()
 }
 
-/// A laid road whose last sender is its first end.
-pub fn road(
+/// An opened channel whose last sender is its first end.
+pub fn channel(
     a: protocol::AgentId,
     b: protocol::AgentId,
     messages: u64,
-) -> protocol::Road {
-    protocol::Road {
+) -> protocol::Channel {
+    protocol::Channel {
         a,
         b,
-        kind: protocol::RoadKind::Laid,
+        kind: protocol::ChannelKind::Opened,
         messages,
-        level: protocol::RoadLevel::Paved,
+        level: protocol::ChannelLevel::Paved,
         last_from: Some(a),
     }
 }

@@ -8,7 +8,7 @@ This replaces [ADR 0005](0005-the-home-is-the-servers-store-the-harnesses-stores
 
 A realm keeps its structure in one SQLite database, `realm.sqlite`, of
 `STRICT` tables with keys, foreign keys and checks: one table for each thing
-(profiles, hamlets, agents, agents of hamlets, workers, roads, decisions, tasks,
+(profiles, hamlets, agents, agents of hamlets, workers, channels, decisions, tasks,
 attempts and usage, conversations, inputs, waits, grants, markers, jobs, and
 the rest in `schema.sql`). A JSON column holds only an opaque payload: a
 marker's outcome, a transcript item, a decision's detail, a chief's
@@ -63,7 +63,7 @@ replaced by an empty one (S25).
 - Both stores in one pi-durable storage, JSONL files, or one database per
   hamlet. Rejected for the reasons ADR 0005 gave: the records would take the
   shape of one harness's storage, a change and its marker could not commit
-  together, and a road between hamlets spans two stores.
+  together, and a channel between hamlets spans two stores.
 
 ## Consequences
 

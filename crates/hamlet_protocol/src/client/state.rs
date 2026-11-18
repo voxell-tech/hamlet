@@ -586,7 +586,7 @@ pub struct Hamlet {
     #[serde(rename = "modeWords")]
     pub mode_words: String,
     pub name: String,
-    pub roads: Vec<Road>,
+    pub channels: Vec<Channel>,
     /// The most agents it holds.
     pub tier: u64,
 }
@@ -626,14 +626,14 @@ pub struct TownAt {
     Clone, Debug, PartialEq, Serialize, Deserialize, JsonSchema,
 )]
 #[serde(deny_unknown_fields)]
-pub struct Road {
+pub struct Channel {
     pub a: AgentId,
     pub b: AgentId,
-    pub kind: RoadKind,
+    pub kind: ChannelKind,
     #[serde(rename = "lastFrom")]
     #[serde(deserialize_with = "Option::deserialize")]
     pub last_from: Option<AgentId>,
-    pub level: RoadLevel,
+    pub level: ChannelLevel,
     pub messages: u64,
 }
 
@@ -647,16 +647,16 @@ pub struct Road {
     Deserialize,
     JsonSchema,
 )]
-pub enum RoadKind {
+pub enum ChannelKind {
     /// An agent and its parent, or the Hand and a lead.
     #[serde(rename = "tree")]
     Tree,
     /// Two leads.
     #[serde(rename = "leads")]
     Leads,
-    /// Laid between two agents of a hamlet.
-    #[serde(rename = "laid")]
-    Laid,
+    /// Opened between two agents of a hamlet.
+    #[serde(rename = "opened")]
+    Opened,
     /// Agreed between agents of two hamlets.
     #[serde(rename = "agreed")]
     Agreed,
@@ -665,7 +665,7 @@ pub enum RoadKind {
 #[derive(
     Clone, Debug, PartialEq, Serialize, Deserialize, JsonSchema,
 )]
-pub enum RoadLevel {
+pub enum ChannelLevel {
     #[serde(rename = "overgrown")]
     Overgrown,
     #[serde(rename = "dirt")]

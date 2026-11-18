@@ -33,7 +33,7 @@ trusting memory: the engine moves every release.
 |---|---|---|
 | A fact about one thing | A component | `Faulted`, `Busy`, `Housed` |
 | A fact nothing may edit in place | `#[component(immutable)]`, replaced by inserting it again | Server facts projected into client entities (`docs/tour.md`) |
-| One thing points at another, and the other should know | A relationship | `LivesIn` and `Agents`, `TalksTo`, `RaisedBy`, and a road's `RoadFrom` and `RoadTo`, which take it with either end |
+| One thing points at another, and the other should know | A relationship | `LivesIn` and `Agents`, `TalksTo`, `RaisedBy`, and a channel's `ChannelFrom` and `ChannelTo`, which take it with either end |
 | A link kept as a bare `Entity` and found by scanning | Make it a relationship, with `linked_spawn` where one goes with the other | `Sign` and `Signed` |
 | One of a kind for the whole app | A resource | `Society`, `Stage`, `Selected` |
 | Something happened, and whoever cares answers at once | An observer event (`commands.trigger`, `On<E>`) | `ChiefMessage`, `Carried`, `Reconnected` |
@@ -141,7 +141,7 @@ Three orders are easy to get wrong:
   `Steer` (the camera moved by hand, and the stage the chief sets),
   `Aim` (the pointer's place over the world), `Act` (the hand, the
   things carried, the clockworks, the chief and the library) and
-  `Bridge` (the client's hamlets, agents and roads drawn, then the view
+  `Bridge` (the client's hamlets, agents and channels drawn, then the view
   framed on them).
 - A field's text reaches its handler only when the field loses focus:
   Bevy sends `FocusLost` in `PostUpdate`

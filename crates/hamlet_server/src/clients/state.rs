@@ -17,12 +17,12 @@ use crate::knowledge;
 use crate::realm::layout::Layout;
 use crate::realm::settings::EffectiveSettings;
 use crate::society::agents::{Agent, AgentKind, Effort, EndHow};
+use crate::society::channels::{self, ChannelKind, Way};
 use crate::society::city::{self, Arrival, Profile};
 use crate::society::hamlets::{self, Hamlet, Mode};
 use crate::society::limits::{
     self, Limits, Period, RealmLimits, Review,
 };
-use crate::society::roads::{self, RoadKind, Way};
 use crate::society::{
     addresses, chiefs, hamlet_agents, hand, spend, workers,
 };
@@ -341,26 +341,27 @@ fn hamlet_view(
     at: i64,
 ) -> Result<protocol::Hamlet> {
     let own = limits::of(db, &place.id)?;
-    let mut roads_shown = Vec::new();
+    let mut channels_shown = Vec::new();
     let living = hamlet_agents::living_in(db, &place.id)?;
     let mut seen = std::collections::BTreeSet::new();
     for agent in &living {
-        for (other, way) in roads::ways(db, agent.agent)? {
+        for (other, way) in channels::ways(db, agent.agent)? {
             let pair =
                 (agent.agent.min(other), agent.agent.max(other));
             if !seen.insert(pair) {
                 continue;
             }
             let kind = match way {
-                Way::Tree => protocol::RoadKind::Tree,
-                Way::Leads => protocol::RoadKind::Leads,
-                Way::Road(_) => {
-                    let found = roads::open(db, pair.0, pair.1)?;
+                Way::Tree => protocol::ChannelKind::Tree,
+                Way::Leads => protocol::ChannelKind::Leads,
+                Way::Channel(_) => {
+                    let found =
+                        channels::between(db, pair.0, pair.1)?;
                     match found.map(|r| r.kind) {
-                        Some(RoadKind::Agreed) => {
-                            protocol::RoadKind::Agreed
+                        Some(ChannelKind::Agreed) => {
+                            protocol::ChannelKind::Agreed
                         }
-                        _ => protocol::RoadKind::Laid,
+                        _ => protocol::ChannelKind::Opened,
                     }
                 }
             };
@@ -376,13 +377,13 @@ fn hamlet_view(
                 .order(message::at.desc())
                 .select((message::sender, message::at))
                 .load::<(AgentId, i64)>(db)?;
-            let level = road_level(
+            let level = channel_level(
                 used.len(),
                 used.first().map(|(_, at)| *at),
                 &own,
                 at,
             );
-            roads_shown.push(protocol::Road {
+            channels_shown.push(protocol::Channel {
                 a: wire_agent(pair.0),
                 b: wire_agent(pair.1),
                 kind,
@@ -434,29 +435,29 @@ fn hamlet_view(
                 .into(),
         },
         name: place.name.clone(),
-        roads: roads_shown,
+        channels: channels_shown,
         tier: u64::try_from(place.tier).unwrap_or_default(),
     })
 }
 
-/// How worn a road is: by how much it carries, grown over once unused
-/// for its days (H3).
-fn road_level(
+/// How worn a channel is: by how much it carries, grown over once
+/// unused for its days (H3).
+fn channel_level(
     messages: usize,
     last: Option<i64>,
     limits: &Limits,
     at: i64,
-) -> protocol::RoadLevel {
+) -> protocol::ChannelLevel {
     let grown = last.is_none_or(|last| {
         at - last
-            > crate::app::clock::days(limits.road.grows_over_days)
+            > crate::app::clock::days(limits.channel.grows_over_days)
     });
     match messages {
-        _ if grown && messages == 0 => protocol::RoadLevel::Dirt,
-        _ if grown => protocol::RoadLevel::Overgrown,
-        0..=4 => protocol::RoadLevel::Dirt,
-        5..=24 => protocol::RoadLevel::Paved,
-        _ => protocol::RoadLevel::Rail,
+        _ if grown && messages == 0 => protocol::ChannelLevel::Dirt,
+        _ if grown => protocol::ChannelLevel::Overgrown,
+        0..=4 => protocol::ChannelLevel::Dirt,
+        5..=24 => protocol::ChannelLevel::Paved,
+        _ => protocol::ChannelLevel::Rail,
     }
 }
 
@@ -619,12 +620,12 @@ pub(crate) fn hamlet_limits(own: &Limits) -> protocol::Limits {
             add: own.reserved.add,
             end: own.reserved.end,
             merge: own.reserved.merge,
-            roads: own.reserved.roads,
+            channels: own.reserved.channels,
         },
-        road: protocol::LimitsRoad {
-            grows_over_days: own.road.grows_over_days,
-            most: own.road.most,
-            price: own.road.price as f64 / 1_000_000.0,
+        channel: protocol::LimitsChannel {
+            grows_over_days: own.channel.grows_over_days,
+            most: own.channel.most,
+            price: own.channel.price as f64 / 1_000_000.0,
         },
         told_days: own.told_days,
     }
@@ -635,7 +636,7 @@ pub(crate) fn realm_limits(
 ) -> protocol::RealmLimits {
     protocol::RealmLimits {
         budget: budget_view(&own.budget),
-        roads_between: own.roads_between,
+        channels_between: own.channels_between,
     }
 }
 

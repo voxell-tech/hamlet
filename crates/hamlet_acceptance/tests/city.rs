@@ -43,8 +43,8 @@ async fn founds_a_hamlet_under_a_new_profile_then_an_existing_one() {
     let profile = s.chief.profile("ada").unwrap();
     assert_eq!(profile.agents, [ada]);
     assert_eq!(lead.profile, Some(profile.id));
-    assert!(hamlet.roads.iter().any(|r| {
-        r.kind == RoadKind::Tree && r.a == hand && r.b == ada
+    assert!(hamlet.channels.iter().any(|r| {
+        r.kind == ChannelKind::Tree && r.a == hand && r.b == ada
     }));
     assert_eq!(realm.profiles.len(), 1);
 
@@ -240,26 +240,29 @@ async fn a_chief_runs_a_hamlet_by_commands() {
     assert!(reply.contains("/no/such/folder"), "{reply}");
     s.chief.command(ada, "/folder none").await;
 
-    // A road is laid between two agents and taken up again.
+    // A channel is opened between two agents and closed again.
     let eve = s.add_agent(ada, "eve", "write").await;
     s.chief
-        .command(ada, "/road agent#4 agent#3 they share a file")
+        .command(ada, "/channel agent#4 agent#3 they share a file")
         .await;
     s.chief
-        .until("the laid road", |c| {
-            c.hamlet("The Docs").unwrap().roads.iter().any(|r| {
-                r.kind == RoadKind::Laid && [r.a, r.b] == [bob, eve]
+        .until("the opened channel", |c| {
+            c.hamlet("The Docs").unwrap().channels.iter().any(|r| {
+                r.kind == ChannelKind::Opened
+                    && [r.a, r.b] == [bob, eve]
             })
         })
         .await;
-    s.chief.command(ada, "/unroad agent#4 agent#3 done").await;
     s.chief
-        .until("the road gone", |c| {
+        .command(ada, "/unchannel agent#4 agent#3 done")
+        .await;
+    s.chief
+        .until("the channel gone", |c| {
             c.hamlet("The Docs")
                 .unwrap()
-                .roads
+                .channels
                 .iter()
-                .all(|r| r.kind != RoadKind::Laid)
+                .all(|r| r.kind != ChannelKind::Opened)
         })
         .await;
     // The lead's office passes to another agent.

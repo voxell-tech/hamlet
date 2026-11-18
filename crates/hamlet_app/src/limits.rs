@@ -266,7 +266,7 @@ fn cost(
                     section,
                     key,
                     serde_json::json!(
-                        (value > 0.0 || section == "road")
+                        (value > 0.0 || section == "channel")
                             .then_some(value)
                     ),
                 );
@@ -439,7 +439,7 @@ fn budget(hamlet: Entity) -> impl View {
 }
 
 /// The parents' acts a chief keeps for itself, and the caps on the
-/// tree and its roads.
+/// tree and its channels.
 fn parents() -> impl View {
     group((
         heading(Glyph::Lead, "Waits for you"),
@@ -457,27 +457,30 @@ fn parents() -> impl View {
             switch("reserved", "merge", |l| l.reserved.merge).boxed(),
         ),
         line(
-            "Lay roads",
-            switch("reserved", "roads", |l| l.reserved.roads).boxed(),
+            "Open channels",
+            switch("reserved", "channels", |l| l.reserved.channels)
+                .boxed(),
         ),
-        heading(Glyph::Signpost, "The tree and its roads"),
+        heading(Glyph::Signpost, "The tree and its channels"),
         line(
-            "Most roads",
-            whole("road", "most", |l| l.road.most, 10_000).boxed(),
+            "Most channels",
+            whole("channel", "most", |l| l.channel.most, 10_000)
+                .boxed(),
         ),
         line(
-            "Days a road takes to grow",
+            "Days a channel takes to grow",
             whole(
-                "road",
+                "channel",
                 "growsOverDays",
-                |l| l.road.grows_over_days,
+                |l| l.channel.grows_over_days,
                 3650,
             )
             .boxed(),
         ),
         line(
-            "Price of a road, in dollars",
-            cost("road", "price", |l| Some(l.road.price)).boxed(),
+            "Price of a channel, in dollars",
+            cost("channel", "price", |l| Some(l.channel.price))
+                .boxed(),
         ),
         heading(Glyph::Clock, "What agents are told"),
         line(
@@ -498,7 +501,7 @@ fn parents() -> impl View {
 }
 
 /// The realm's own limits: the Hand's budget and whether leads may
-/// agree roads between their hamlets.
+/// agree channels between their hamlets.
 pub fn realm() -> AnyView {
     let period = control("budget", "period", || {
         keyed(
@@ -544,13 +547,13 @@ pub fn realm() -> AnyView {
             );
         },
     );
-    let roads = control("", "roadsBetween", || {
+    let channels = control("", "channelsBetween", || {
         toggle(
             resource::<RealmBylaws, _>(|limits| {
-                limits.0.roads_between
+                limits.0.channels_between
             }),
             |world, on| {
-                put_realm(world, "", "roadsBetween", on.into());
+                put_realm(world, "", "channelsBetween", on.into());
             },
         )
         .boxed()
@@ -559,7 +562,7 @@ pub fn realm() -> AnyView {
         heading(Glyph::Globe, "The realm"),
         line("The Hand's budget starts again every", period),
         spend,
-        line("Leads may agree roads between hamlets", roads),
+        line("Leads may agree channels between hamlets", channels),
     ))
     .boxed()
 }
@@ -688,7 +691,7 @@ impl Part {
             Part::Front => "Limits",
             Part::Budget => "Budget",
             Part::Models => "Models",
-            Part::Parents => "Parents and roads",
+            Part::Parents => "Parents and channels",
         }
     }
 
@@ -731,7 +734,7 @@ impl Part {
                     (limits.reserved.add, "add an agent"),
                     (limits.reserved.end, "end an agent"),
                     (limits.reserved.merge, "merge"),
-                    (limits.reserved.roads, "link agents"),
+                    (limits.reserved.channels, "link agents"),
                 ]
                 .into_iter()
                 .filter(|(kept, _)| *kept)
@@ -751,7 +754,7 @@ impl Part {
                 };
                 format!(
                     "{asks}. Up to {} links between agents.",
-                    limits.road.most
+                    limits.channel.most
                 )
             }
         }
@@ -964,15 +967,15 @@ mod tests {
         let sent = edits(&app);
         assert_eq!(sent[0]["whole"], expected);
         assert!(sent[0].get("set").is_none());
-        enter(&mut app, "Days a road takes to grow", "4");
+        enter(&mut app, "Days a channel takes to grow", "4");
         assert_eq!(
             edits(&app)[1]["set"],
-            json!({"section": "road", "key": "growsOverDays", "value": 4})
+            json!({"section": "channel", "key": "growsOverDays", "value": 4})
         );
     }
 
     #[test]
-    fn period_is_text_and_a_free_road_is_not_an_uncapped_meter() {
+    fn period_is_text_and_a_free_channel_is_not_an_uncapped_meter() {
         use crate::testing::press;
         let (mut app, _) = page(Part::Budget);
         press(&mut app, "A month");
@@ -982,10 +985,10 @@ mod tests {
         );
         *app.world_mut().resource_mut::<Part>() = Part::Parents;
         app.update();
-        enter(&mut app, "Price of a road, in dollars", "0");
+        enter(&mut app, "Price of a channel, in dollars", "0");
         assert_eq!(
             edits(&app)[1]["set"],
-            json!({"section": "road", "key": "price", "value": 0.0})
+            json!({"section": "channel", "key": "price", "value": 0.0})
         );
     }
 }

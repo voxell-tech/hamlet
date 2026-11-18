@@ -64,7 +64,7 @@ _Avoid_: mayor, orchestrator, main agent
 **Parent**:
 An agent with agents under it, or the Hand. It has the lead's powers over
 its subtree: adding agents, ending, merging, choosing models and tools, setting
-allowances and laying roads.
+allowances and opening channels.
 _Avoid_: lead (the top of a hamlet), manager, supervisor
 
 **Worker**:
@@ -111,7 +111,7 @@ _Avoid_: sleep, sync
 
 **Merge**:
 Making one agent of two, in one hamlet: the kept agent takes the absorbed
-one's roads, agents, inbox and what it learned.
+one's channels, agents, inbox and what it learned.
 
 **Split**:
 Bringing a merged agent back out again, by undoing the merge's commit
@@ -209,13 +209,15 @@ _Avoid_: task (a task is an agent's work)
 
 ### Between agents
 
-**Road**:
+**Channel**:
 A link between two agents along which they send letters. Its kind is tree
-(an agent and its parent, or the Hand and a lead), leads', laid (between two
-agents of a hamlet) or agreed (between agents of two hamlets).
+(an agent and its parent, or the Hand and a lead), leads', opened (between two
+agents of a hamlet) or agreed (between agents of two hamlets). The world draws
+a channel as a road.
+_Avoid_: road, link
 
 **Letter**:
-A message one agent sends another along a road.
+A message one agent sends another along a channel.
 _Avoid_: mail, DM
 
 ### Work, waits and trust
@@ -255,7 +257,7 @@ An answer saying why an action cannot be carried out.
 ### Records and the library
 
 **Record**:
-A hamlet's account of its agents, departures, roads and lead's office, and
+A hamlet's account of its agents, departures, channels and lead's office, and
 the decisions that changed them. `/history` and the window's History
 show it.
 

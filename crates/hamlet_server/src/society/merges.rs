@@ -1,19 +1,19 @@
 //! Merging two agents of a hamlet into one, and splitting them again
-//! (H5): the kept agent takes the absorbed one's laid roads, its
+//! (H5): the kept agent takes the absorbed one's opened channels, its
 //! agents and its inbox; a job brings what the absorbed agent learned
 //! into the kept one's branch.
 
 use anyhow::{Context, Result};
 use diesel::prelude::*;
 use hamlet_store::Db;
-use hamlet_store::ids::{AgentId, MergeId, RoadId, TaskId};
-use hamlet_store::schema::{agent_merge, hamlet_agent, road};
+use hamlet_store::ids::{AgentId, ChannelId, MergeId, TaskId};
+use hamlet_store::schema::{agent_merge, channel, hamlet_agent};
 use serde_json::json;
 
 use super::agents::{self, EndHow};
+use super::channels::{self, ChannelKind};
 use super::record::{self, Decision, DecisionKind};
 use super::refusal::Refusal;
-use super::roads::{self, RoadKind};
 use super::{hamlet_agents, tree};
 use crate::realm::change::{Change, Done, done, refuse};
 use crate::realm::jobs::{self, Job};
@@ -108,7 +108,7 @@ pub(crate) fn merge(
     .set(hamlet_agent::parent.eq(kept))
     .execute(cx.db)?;
     cx.touched.agents.extend(children);
-    move_roads(cx, kept, absorbed)?;
+    move_channels(cx, kept, absorbed)?;
     let id = diesel::insert_into(agent_merge::table)
         .values((
             agent_merge::kept.eq(kept),
@@ -138,50 +138,51 @@ pub(crate) fn merge(
     Ok(Ok(id))
 }
 
-/// Gives `kept` the open laid roads of `absorbed`, but one to `kept`
-/// or to an agent `kept` has a road to already.
-fn move_roads(
+/// Gives `kept` the open channels of `absorbed` that were opened, but
+/// one to `kept` or to an agent `kept` has a channel to already.
+fn move_channels(
     cx: &mut Change<'_>,
     kept: AgentId,
     absorbed: AgentId,
 ) -> Result<()> {
-    let open = road::table
-        .filter(road::a.eq(absorbed).or(road::b.eq(absorbed)))
-        .filter(road::up_at.is_null())
-        .filter(road::kind.eq(RoadKind::Laid))
+    let open = channel::table
+        .filter(channel::a.eq(absorbed).or(channel::b.eq(absorbed)))
+        .filter(channel::closed_at.is_null())
+        .filter(channel::kind.eq(ChannelKind::Opened))
         .select((
-            road::id,
-            road::a,
-            road::b,
-            road::reason,
-            road::task,
+            channel::id,
+            channel::a,
+            channel::b,
+            channel::reason,
+            channel::task,
         ))
-        .load::<(RoadId, AgentId, AgentId, String, Option<TaskId>)>(
+        .load::<(ChannelId, AgentId, AgentId, String, Option<TaskId>)>(
             cx.db,
         )?;
     for (id, a, b, reason, task) in open {
         let other = if a == absorbed { b } else { a };
-        diesel::update(road::table.find(id))
+        diesel::update(channel::table.find(id))
             .set((
-                road::up_at.eq(cx.at),
-                road::up_by.eq(cx.actor.to_string()),
-                road::up_reason.eq("its end was merged"),
+                channel::closed_at.eq(cx.at),
+                channel::closed_by.eq(cx.actor.to_string()),
+                channel::closed_reason.eq("its end was merged"),
             ))
             .execute(cx.db)?;
-        if other == kept || roads::open(cx.db, kept, other)?.is_some()
+        if other == kept
+            || channels::between(cx.db, kept, other)?.is_some()
         {
             continue;
         }
-        let new = roads::insert(
+        let new = channels::insert(
             cx,
             kept,
             other,
-            RoadKind::Laid,
+            ChannelKind::Opened,
             &reason,
             task,
         )?;
-        diesel::update(road::table.find(new))
-            .set(road::inherited_from.eq(id))
+        diesel::update(channel::table.find(new))
+            .set(channel::inherited_from.eq(id))
             .execute(cx.db)?;
     }
     Ok(())

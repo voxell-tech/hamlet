@@ -507,7 +507,7 @@ fn header(agent: Entity) -> impl View {
                     return frame().boxed();
                 }
                 more_button(
-                    "Adding agents, roads, merging and ending it",
+                    "Adding agents, channels, merging and ending it",
                     move |world| {
                         world_menu::open_for(world, thing);
                     },

@@ -10,7 +10,7 @@ run on it. So agents run on a server, and the window, in Rust and Bevy, is
 a client of it (ADR 0004).
 
 The server is Rust, the crate `hamlet_server`, and keeps everything Hamlet
-means: the Hand, profiles, hamlets, their agents and their tree, workers, roads,
+means: the Hand, profiles, hamlets, their agents and their tree, workers, channels,
 letters, questions, tasks and their caps, budgets and spend, what waits for a
 chief, standing permissions, objections, the charter and settings, which tools
 an agent may run and where, the client protocol and the connection's token.
@@ -31,7 +31,7 @@ on their own schedule. A process boundary also keeps pi-durable's
 experimental API out of Hamlet's rules.
 
 A harness's own hooks are never the last word. A prototype tried the
-split before it was built: a Rust process keeping roads, approvals, a
+split before it was built: a Rust process keeping channels, approvals, a
 budget and markers, and a Node worker running real pi-durable 1.2.0 with
 its own SQLite file and a faux model. A script killed either process, or
 both, at fixed points and checked both stores and the kept transcript.

@@ -168,8 +168,8 @@ pub struct PlaySettings {
 /// A deed the chief asked of the server by hand.
 #[derive(Message, Clone, Debug, PartialEq)]
 pub enum Wish {
-    /// A road between two agents.
-    Road { a: Entity, b: Entity },
+    /// A channel between two agents.
+    Channel { a: Entity, b: Entity },
 }
 
 /// A robot's handling of late. Times are the scene's clock.

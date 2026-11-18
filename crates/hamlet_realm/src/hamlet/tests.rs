@@ -1,7 +1,7 @@
 use bevy::prelude::*;
 use hamlet_client::realm::{
-    Activity, Busy, Carried, Doing, HamletAgent, HamletId, Identity,
-    Kind, Lead, Left, Lived, LivesIn, MergedInto, Road, RoadUse,
+    Activity, Busy, Carried, Channel, ChannelUse, Doing, HamletAgent,
+    HamletId, Identity, Kind, Lead, Left, Lived, LivesIn, MergedInto,
     Spot, Traffic,
 };
 use hamlet_client::{ClientPlugin, receive};
@@ -324,20 +324,23 @@ fn an_agent_with_no_plot_waits_for_one_and_the_society_rests() {
 }
 
 #[test]
-fn roads_and_work_follow_the_entities() {
+fn channels_and_work_follow_the_entities() {
     let (mut app, hamlet) = app();
     tell(&mut app, hamlet, &[1, 2], &[]);
     let (a, b) =
         (entity(&mut app, 1).unwrap(), entity(&mut app, 2).unwrap());
     let traffic = |messages, level| Traffic {
-        kind: protocol::RoadKind::Laid,
+        kind: protocol::ChannelKind::Opened,
         level,
         messages,
         last_from: Some(a),
     };
-    let road = app
+    let channel = app
         .world_mut()
-        .spawn((Road { ends: (a, b) }, traffic(0, RoadUse::Dirt)))
+        .spawn((
+            Channel { ends: (a, b) },
+            traffic(0, ChannelUse::Dirt),
+        ))
         .id();
     app.world_mut().entity_mut(a).insert((
         Busy,
@@ -349,7 +352,7 @@ fn roads_and_work_follow_the_entities() {
         },
     ));
     app.update();
-    let pair = app.world().get::<Laid>(road).unwrap().0;
+    let pair = app.world().get::<Laid>(channel).unwrap().0;
     let level = |app: &App| {
         app.world()
             .resource::<Society>()
@@ -361,23 +364,23 @@ fn roads_and_work_follow_the_entities() {
     assert_eq!(one.state, KeeperState::Working);
     assert_eq!(one.work.task, Task::Fetch);
 
-    // A message: the road is used more and its sender walks.
+    // A message: the channel is used more and its sender walks.
     app.world_mut()
-        .entity_mut(road)
-        .insert(traffic(3, RoadUse::Paved));
-    app.world_mut().trigger(Carried { road, from: a });
+        .entity_mut(channel)
+        .insert(traffic(3, ChannelUse::Paved));
+    app.world_mut().trigger(Carried { channel, from: a });
     app.update();
     assert_eq!(level(&app), Some(RoadLevel::Paved));
     let trips = &app.world().resource::<Trips>().trips;
     assert_eq!(trips.len(), 1);
     assert_eq!(trips[0].walker, one.id);
 
-    app.world_mut().entity_mut(road).despawn();
+    app.world_mut().entity_mut(channel).despawn();
     assert_eq!(level(&app), None);
 }
 
 #[test]
-fn several_hamlets_are_towns_with_roads_between() {
+fn several_hamlets_are_towns_with_channels_between() {
     let (mut app, hamlet) = app();
     let mill = settle(&mut app, "mill");
     tell(&mut app, hamlet, &[1, 2], &[]);
@@ -401,19 +404,19 @@ fn several_hamlets_are_towns_with_roads_between() {
     let society = app.world().resource::<Society>();
     assert_eq!(society.town(there.town).unwrap().lead, there.id);
 
-    // A road between the leads crosses the towns.
+    // A channel between the leads crosses the towns.
     let ends = if lead <= miller {
         (lead, miller)
     } else {
         (miller, lead)
     };
     let traffic = Traffic {
-        kind: protocol::RoadKind::Leads,
-        level: RoadUse::Dirt,
+        kind: protocol::ChannelKind::Leads,
+        level: ChannelUse::Dirt,
         messages: 0,
         last_from: None,
     };
-    app.world_mut().spawn((Road { ends }, traffic));
+    app.world_mut().spawn((Channel { ends }, traffic));
     app.update();
     let pair = Pair::new(here.id, there.id);
     assert!(app.world().resource::<Society>().road(pair).is_some());

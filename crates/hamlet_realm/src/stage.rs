@@ -47,9 +47,9 @@ pub enum RealmSystems {
     /// The chief's deeds on what was aimed: the hand, the things
     /// carried, the clockworks, the mascot and the library.
     Act,
-    /// The client's hamlets, agents and roads drawn in the society,
-    /// after the chief and the library have taken their sites, and
-    /// the view framed on them.
+    /// The client's hamlets, agents and channels drawn in the
+    /// society, after the chief and the library have taken their
+    /// sites, and the view framed on them.
     Bridge,
 }
 

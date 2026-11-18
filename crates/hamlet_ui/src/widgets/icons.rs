@@ -141,7 +141,7 @@ pub enum Glyph {
     Coins,
     /// A dial with a needle: the budget.
     Meter,
-    /// A signpost: roads.
+    /// A signpost: channels.
     Signpost,
     /// A robot's head: a worker, and an agent in general.
     Robot,

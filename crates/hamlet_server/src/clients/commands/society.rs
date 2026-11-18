@@ -13,7 +13,7 @@ use crate::society::hamlet_agents::{self, ProfileChoice, Spec};
 use crate::society::hamlets::{self, Founding, Mode};
 use crate::society::refusal::Refusal;
 use crate::society::{
-    authority, city, record, roads, spend, workers,
+    authority, channels, city, record, spend, workers,
 };
 
 /// The word that stands in place of a profile for a blank agent.
@@ -147,16 +147,16 @@ pub(super) const SOCIETY: &[Command] = &[
         run: allowance,
     },
     Command {
-        name: "road",
-        usage: "/road <address> <address> [reason]",
-        does: "Lay a road between two agents",
-        run: |core, line| road(core, line, Roadwork::Lay),
+        name: "channel",
+        usage: "/channel <address> <address> [reason]",
+        does: "Open a channel between two agents",
+        run: |core, line| channel(core, line, Channelwork::Open),
     },
     Command {
-        name: "unroad",
-        usage: "/unroad <address> <address> [reason]",
-        does: "Take up a road",
-        run: |core, line| road(core, line, Roadwork::TakeUp),
+        name: "unchannel",
+        usage: "/unchannel <address> <address> [reason]",
+        does: "Close a channel",
+        run: |core, line| channel(core, line, Channelwork::Close),
     },
     Command {
         name: "folder",
@@ -266,11 +266,11 @@ enum Housing {
     TurnAway,
 }
 
-/// A command's work on a road.
+/// A command's work on a channel.
 #[derive(Clone, Copy)]
-enum Roadwork {
-    Lay,
-    TakeUp,
+enum Channelwork {
+    Open,
+    Close,
 }
 
 /// The chief as the actor of a command.
@@ -772,11 +772,11 @@ fn allowance(core: &mut Core<'_, '_>, line: &Line) -> Answer {
     }))
 }
 
-/// Lays a road between two agents, or takes it up.
-fn road(
+/// Opens a channel between two agents, or closes it.
+fn channel(
     core: &mut Core<'_, '_>,
     line: &Line,
-    work: Roadwork,
+    work: Channelwork,
 ) -> Answer {
     let words = line.words();
     let (Some(a), Some(b)) = (words.first(), words.get(1)) else {
@@ -790,17 +790,17 @@ fn road(
     }
     let reason = line.tail(2);
     match work {
-        Roadwork::Lay => {
+        Channelwork::Open => {
             let done = core.attempt(by(core), |cx, _| {
-                roads::lay(cx, a, b, &reason, None)
+                channels::open(cx, a, b, &reason, None)
             })?;
-            Ok(done.map(|_| "The road is laid.".into()))
+            Ok(done.map(|_| "The channel is open.".into()))
         }
-        Roadwork::TakeUp => {
+        Channelwork::Close => {
             let done = core.attempt(by(core), |cx, _| {
-                roads::take_up(cx, a, b, &reason)
+                channels::close(cx, a, b, &reason)
             })?;
-            Ok(done.map(|()| "The road is taken up.".into()))
+            Ok(done.map(|()| "The channel is closed.".into()))
         }
     }
 }

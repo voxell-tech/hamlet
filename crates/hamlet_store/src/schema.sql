@@ -194,30 +194,30 @@ CREATE TABLE worker (
 ) STRICT;
 CREATE INDEX worker_starter ON worker(starter);
 
--- Roads
+-- Channels
 
--- A road laid between two agents of a hamlet, or agreed between agents
--- of two hamlets. Roads along the tree are not kept.
-CREATE TABLE road (
+-- A channel opened between two agents of a hamlet, or agreed between
+-- agents of two hamlets. Channels along the tree are not kept.
+CREATE TABLE channel (
     id INTEGER PRIMARY KEY,
     a INTEGER NOT NULL REFERENCES hamlet_agent(agent),
     b INTEGER NOT NULL REFERENCES hamlet_agent(agent),
-    kind TEXT NOT NULL CHECK (kind IN ('laid', 'agreed')),
-    laid_at INTEGER NOT NULL,
-    laid_by TEXT NOT NULL,
+    kind TEXT NOT NULL CHECK (kind IN ('opened', 'agreed')),
+    opened_at INTEGER NOT NULL,
+    opened_by TEXT NOT NULL,
     reason TEXT NOT NULL,
     task INTEGER REFERENCES task(id),
-    inherited_from INTEGER REFERENCES road(id),
-    up_at INTEGER,
-    up_by TEXT,
-    up_reason TEXT,
+    inherited_from INTEGER REFERENCES channel(id),
+    closed_at INTEGER,
+    closed_by TEXT,
+    closed_reason TEXT,
     CHECK (a < b)
 ) STRICT;
-CREATE UNIQUE INDEX road_open ON road(a, b) WHERE up_at IS NULL;
-CREATE INDEX road_b ON road(b);
+CREATE UNIQUE INDEX channel_open ON channel(a, b) WHERE closed_at IS NULL;
+CREATE INDEX channel_b ON channel(b);
 
--- One lead's agreement to a road between hamlets. The road is laid
--- when both leads agree.
+-- One lead's agreement to a channel between hamlets. The channel is
+-- opened when both leads agree.
 CREATE TABLE agreement (
     id INTEGER PRIMARY KEY,
     a INTEGER NOT NULL REFERENCES hamlet_agent(agent),
@@ -227,22 +227,22 @@ CREATE TABLE agreement (
     at INTEGER NOT NULL,
     reason TEXT NOT NULL,
     task INTEGER REFERENCES task(id),
-    road INTEGER REFERENCES road(id),
+    channel INTEGER REFERENCES channel(id),
     CHECK (a < b)
 ) STRICT;
 CREATE UNIQUE INDEX agreement_open ON agreement(a, b, hamlet)
-    WHERE road IS NULL;
+    WHERE channel IS NULL;
 
-CREATE TABLE road_charge (
+CREATE TABLE channel_charge (
     id INTEGER PRIMARY KEY,
-    road INTEGER NOT NULL REFERENCES road(id),
+    channel INTEGER NOT NULL REFERENCES channel(id),
     hamlet TEXT NOT NULL REFERENCES hamlet(id),
     agent INTEGER REFERENCES agent(id),
     task INTEGER REFERENCES task(id),
     at INTEGER NOT NULL,
     micros INTEGER NOT NULL CHECK (micros >= 0)
 ) STRICT;
-CREATE INDEX road_charge_hamlet ON road_charge(hamlet, at);
+CREATE INDEX channel_charge_hamlet ON channel_charge(hamlet, at);
 
 -- The record
 
@@ -341,7 +341,7 @@ CREATE TABLE usage (
 ) STRICT, WITHOUT ROWID;
 
 -- A chief starting a budget's period again: a hamlet's, or the
--- realm's when empty. Spend after the last usage and road charge it
+-- realm's when empty. Spend after the last usage and channel charge it
 -- names counts.
 CREATE TABLE budget_reset (
     id INTEGER PRIMARY KEY,
@@ -349,7 +349,7 @@ CREATE TABLE budget_reset (
     at INTEGER NOT NULL,
     chief INTEGER NOT NULL REFERENCES chief(id),
     usage INTEGER NOT NULL,
-    road_charge INTEGER NOT NULL
+    channel_charge INTEGER NOT NULL
 ) STRICT;
 
 -- Conversations
@@ -502,7 +502,7 @@ CREATE TABLE answer_fault (
 
 -- The society
 
--- A letter or question one agent sent another along a road (H30),
+-- A letter or question one agent sent another along a channel (H30),
 -- once per tool call.
 CREATE TABLE message (
     id INTEGER PRIMARY KEY,

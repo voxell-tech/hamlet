@@ -24,7 +24,7 @@ each hamlet works on.
 
 ## Considered options
 
-- One store per hamlet. Rejected: moving an agent, a road between hamlets
+- One store per hamlet. Rejected: moving an agent, a channel between hamlets
   and a vote that founds one each span hamlets, and in one store each is
   one commit.
 - One pi-durable storage for the records and the conversations together.

@@ -15,7 +15,7 @@ pub(crate) type Micros = i64;
 #[serde(default, rename_all = "camelCase")]
 pub(crate) struct Limits {
     pub budget: Budget,
-    pub road: RoadRules,
+    pub channel: ChannelRules,
     pub reserved: Reserved,
     /// The hamlet's own model, else the realm's.
     pub model: Option<String>,
@@ -31,7 +31,7 @@ impl Default for Limits {
     fn default() -> Self {
         Self {
             budget: Budget::default(),
-            road: RoadRules::default(),
+            channel: ChannelRules::default(),
             reserved: Reserved::default(),
             model: None,
             told_days: 7,
@@ -46,9 +46,12 @@ impl Limits {
     /// hold.
     pub fn fault(&self) -> Option<String> {
         let negative = [
-            ("a road's price", self.road.price),
-            ("the most roads", self.road.most),
-            ("the days a road stays", self.road.grows_over_days),
+            ("a channel's price", self.channel.price),
+            ("the most channels", self.channel.most),
+            (
+                "the days a channel stays",
+                self.channel.grows_over_days,
+            ),
             ("the days of decisions told", self.told_days),
             ("the questions a turn puts", self.asking.questions),
             ("the refusals a turn takes", self.asking.refusals),
@@ -106,16 +109,16 @@ pub(crate) enum Period {
     Month,
 }
 
-/// What roads cost and how many a hamlet holds (H3).
+/// What channels cost and how many a hamlet holds (H3).
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(default, rename_all = "camelCase")]
-pub(crate) struct RoadRules {
+pub(crate) struct ChannelRules {
     pub price: Micros,
     pub most: i64,
     pub grows_over_days: i64,
 }
 
-impl Default for RoadRules {
+impl Default for ChannelRules {
     fn default() -> Self {
         Self {
             price: 10_000,
@@ -133,7 +136,7 @@ impl Default for RoadRules {
 #[serde(default, rename_all = "camelCase")]
 pub(crate) struct Reserved {
     pub add: bool,
-    pub roads: bool,
+    pub channels: bool,
     pub end: bool,
     pub merge: bool,
 }
@@ -175,8 +178,8 @@ pub(crate) enum Review {
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(default, rename_all = "camelCase")]
 pub(crate) struct RealmLimits {
-    /// Whether leads may agree roads between their hamlets.
-    pub roads_between: bool,
+    /// Whether leads may agree channels between their hamlets.
+    pub channels_between: bool,
     /// The budget of the Hand and of the workers it and the chiefs
     /// start outside a hamlet.
     pub budget: Budget,
@@ -185,7 +188,7 @@ pub(crate) struct RealmLimits {
 impl Default for RealmLimits {
     fn default() -> Self {
         Self {
-            roads_between: true,
+            channels_between: true,
             budget: Budget::default(),
         }
     }

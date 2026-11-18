@@ -80,17 +80,17 @@ fn focus(thing: Thing) -> AnyView {
     item("Focus".into(), move |w| focus_on(w, thing, false))
 }
 
-/// Builds a road from `agent`, an agent of a hamlet, while it may
+/// Opens a channel from `agent`, an agent of a hamlet, while it may
 /// have one.
-fn road(world: &World, agent: Entity) -> Option<AnyView> {
+fn channel(world: &World, agent: Entity) -> Option<AnyView> {
     let of_hamlet = world.get::<Kind>(agent).map(|kind| kind.0)
         == Some(protocol::AgentKind::Hamlet);
     (of_hamlet
         && world.get::<Left>(agent).is_none()
-        && Deeds::is_allowed(world, "road"))
+        && Deeds::is_allowed(world, "channel"))
     .then(|| {
-        item("Build a Road...".into(), move |world| {
-            super::ask_road(world, agent);
+        item("Open a Channel...".into(), move |world| {
+            super::ask_channel(world, agent);
         })
     })
 }
@@ -157,7 +157,7 @@ fn for_agent(
 ) -> Vec<AnyView> {
     let name = |agent: Entity| agents::shown_of(world, agent);
     let mut items = Vec::from_iter(add_under(world, agent));
-    items.extend(road(world, agent));
+    items.extend(channel(world, agent));
     items.extend(pin_bash(world, agent));
     if world.get::<Busy>(agent).is_some() {
         items.push(item(format!("Stop {}", name(agent)), move |w| {
@@ -178,7 +178,7 @@ fn for_agent(
         .flatten()
         .filter_map(|thing| plain_agent(world, thing))
         .find(|(other, _)| *other != agent);
-    // Its roads are built and taken up in its details.
+    // Its channels are opened and closed in its details.
     if let Some((them, other)) =
         other.filter(|_| Deeds::is_allowed(world, "merge"))
     {

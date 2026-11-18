@@ -374,7 +374,7 @@ impl Core<'_, '_> {
                     return Ok(Err(Refusal::LimitsUnfit));
                 };
                 let own = RealmLimits {
-                    roads_between: edited.roads_between,
+                    channels_between: edited.channels_between,
                     budget: budget_of(&edited.budget),
                 };
                 if let Some(why) = own.budget.fault() {
@@ -820,14 +820,14 @@ fn budget_of(budget: &protocol::LimitsBudget) -> limits::Budget {
 fn limits_of(shown: &protocol::Limits) -> Limits {
     Limits {
         budget: budget_of(&shown.budget),
-        road: limits::RoadRules {
-            price: micros(shown.road.price),
-            most: shown.road.most,
-            grows_over_days: shown.road.grows_over_days,
+        channel: limits::ChannelRules {
+            price: micros(shown.channel.price),
+            most: shown.channel.most,
+            grows_over_days: shown.channel.grows_over_days,
         },
         reserved: limits::Reserved {
             add: shown.reserved.add,
-            roads: shown.reserved.roads,
+            channels: shown.reserved.channels,
             end: shown.reserved.end,
             merge: shown.reserved.merge,
         },
