@@ -17,8 +17,8 @@ use bevy::ecs::system::{Commands, Local, Query, Res, ResMut};
 use bevy::ecs::world::World;
 use bevy::text::{Justify, LineBreak, TextLayout};
 use bevy::ui::{
-    AlignItems, ComputedNode, JustifyContent, ScrollPosition, UiRect,
-    percent, px,
+    AlignItems, ComputedNode, JustifyContent, Overflow,
+    ScrollPosition, UiRect, Val, percent, px,
 };
 use bevy_fynix::tokens::Tone;
 use bevy_fynix::views::{
@@ -1212,7 +1212,7 @@ fn quiet(hub: Entity) -> impl View {
                     .filter(|_| own)
                     .map(|said| {
                         lettered(*said)
-                            .rules(hamlet_ui::styles::button)
+                            .rules(hamlet_ui::styles::quiet_button)
                             .on_activate(move |world| {
                                 super::field::set(
                                     world,
@@ -1228,7 +1228,8 @@ fn quiet(hub: Entity) -> impl View {
                 column((
                     label(format!("Say hello to {name}"))
                         .size(theme.text.heading)
-                        .bold(true),
+                        .bold(true)
+                        .tone(Tone::Dim),
                     column(starters)
                         .gap(theme.space.gap)
                         .align(AlignItems::Center),
@@ -1241,13 +1242,17 @@ fn quiet(hub: Entity) -> impl View {
                 .gap(theme.space.section)
                 .align(AlignItems::Center)
                 .padding(UiRect::all(px(theme.space.section)))
+                // Centred while it fits; taller than the chat, it
+                // keeps its top and is cut at the bottom.
+                .margin(UiRect::vertical(Val::Auto))
             })
             .boxed()
         },
     );
     overlay((empty,))
         .justify(JustifyContent::Center)
-        .align(AlignItems::Center)
+        .align(AlignItems::FlexStart)
+        .overflow(Overflow::clip())
 }
 
 /// The rows of the merged conversation open in `hub`.

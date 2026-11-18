@@ -47,6 +47,17 @@ pub fn pad() -> UiRect {
 /// text. It steps up under the pointer and down while pressed, and
 /// is only an outline while it cannot be pressed.
 pub fn button(cx: &mut Cx) {
+    framed_button(cx, Tone::Faint, true);
+}
+
+/// A [`button`] whose lettering is dim and plain until the pointer
+/// comes, for what is offered without asking to be pressed.
+pub fn quiet_button(cx: &mut Cx) {
+    framed_button(cx, Tone::Dim, false);
+}
+
+/// A button with the edge of a field, lettered in `tone` at rest.
+fn framed_button(cx: &mut Cx, tone: Tone, bold: bool) {
     style::<HamletTheme>()
         .frame(|f, t| {
             f.fill(t.palette.button)
@@ -54,10 +65,8 @@ pub fn button(cx: &mut Cx) {
                 .border_color(t.edge())
                 .radius(t.space.round)
         })
-        .label(|l, t| {
-            l.tone(Tone::Faint).size(t.text.small).bold(true)
-        })
-        .icon(|i, _| i.tone(Tone::Faint))
+        .label(move |l, t| l.tone(tone).size(t.text.small).bold(bold))
+        .icon(move |i, _| i.tone(tone))
         .hovered(|s| {
             s.frame(|f, t| f.fill(t.palette.button_hover))
                 .tone(Tone::Body)
