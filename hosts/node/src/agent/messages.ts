@@ -857,6 +857,8 @@ export interface ClientActions {
     read_prompt(): { readonly text: string };
     reflect(): "asked" | "already";
     login(message: Login): LoginAnswer;
+    read_models(): ModelList;
+    check(message: Check): Checked;
 }
 
 export const WORKSPACE: Address<WorkspaceActions> = Address.of(
@@ -1085,6 +1087,8 @@ export const readClient: {
     read_prompt: () => [],
     reflect: () => [],
     login: first(LOGIN, (login) => login as Login),
+    read_models: () => [],
+    check: first(obj({ model: str() }, OPEN), ({ model }) => ({ model })),
 };
 
 function first<S extends Schema, T>(

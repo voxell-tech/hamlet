@@ -1471,10 +1471,6 @@ const NOT_THE_AGENTS: readonly (readonly [RegExp, string])[] = [
         "a row the library keeps in its own file",
     ],
     [
-        /^agent\/(read_models|check)(\..+)?\.(args|answer)$/,
-        "a client's call the agent does not take yet",
-    ],
-    [
         /^realm\/(agree_road|ask_chief|object|start_worker|read_budget|read_record|set_allowance|set_model|set_nickname|fetch_part)\./,
         "an agent's call of the realm, which this agent does not make",
     ],

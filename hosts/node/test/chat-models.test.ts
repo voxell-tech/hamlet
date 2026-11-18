@@ -345,6 +345,35 @@ function listing(): { listed: Models; second: ReturnType<typeof loopback> } {
     return { listed: second.add(createModels()), second };
 }
 
+test("a client reads the listing's models and checks one with the realm's key", async (t) => {
+    const { calls, sent } = signedIn();
+    const second = loopback();
+    const keysSeen: (string | undefined)[] = [];
+    second.core.setResponses([
+        (_transcript, options) => {
+            keysSeen.push(options?.apiKey);
+            return fauxAssistantMessage(" Hello! ");
+        },
+    ]);
+    const agent = await wakeAgent(t, { calls, models: second.add });
+    const client = agent.by(from.client);
+
+    const { models } = await agent.actions.read_models(client);
+    const checked = await agent.actions.check(client, {
+        model: "loopback::large",
+    });
+
+    assert.deepEqual(models, modelList(agent.config.models));
+    assert.ok(models.some((model) => model.name === "loopback::large"));
+    assert.deepEqual(checked, { type: "answered", words: "Hello!" });
+    assert.deepEqual(keysSeen, [KEY]);
+    assert.deepEqual(
+        named(sent, "credential").map((call) => call.message),
+        [{ provider: "loopback" }],
+    );
+    await agent.stop();
+});
+
 test("a check is not charged", async () => {
     const { listed, second } = listing();
     const { realm, asked } = recordingRealm();

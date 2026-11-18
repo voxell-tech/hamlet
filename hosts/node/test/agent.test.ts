@@ -287,6 +287,7 @@ test("the kind's definition passes actor()'s own checks, and its actions are the
     assert.deepEqual(
         Object.keys(flattenActionHandlers(definition.config.actions)).sort(),
         [
+            "check",
             "copies",
             "fill",
             "finished",
@@ -296,6 +297,7 @@ test("the kind's definition passes actor()'s own checks, and its actions are the
             "place",
             "read_chat",
             "read_history",
+            "read_models",
             "read_prompt",
             "reflect",
             "resume",

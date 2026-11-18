@@ -203,7 +203,7 @@ test("a key sign-in leaves the key only in credentials.json", async (t) => {
     await agent.stop();
 });
 
-test("a hire signs no one in: sign-in is the Hand's alone", async (t) => {
+test("a hire signs no one in: sign-in is the Hand's alone, on a host with sign-ins or without", async (t) => {
     const { calls, sent } = credentialsFile();
     const agent = await wakeAgent(t, {
         calls,
@@ -217,11 +217,20 @@ test("a hire signs no one in: sign-in is the Hand's alone", async (t) => {
         models: loopback(() => fauxAssistantMessage("Hello.")),
     });
     t.after(() => agent.stop());
-    const hire = client(agent, signIns(agent.config.models));
+    const message: Login = {
+        id: "00000000-0000-4000-8000-0000000000dd",
+        start: { provider: "loopback", method: "key" },
+    };
 
-    await assert.rejects(hire.start("loopback", "key"), {
-        message: "only the Hand signs in",
-    });
+    for (const config of [
+        { ...agent.config, signIns: signIns(agent.config.models) },
+        agent.config,
+    ]) {
+        assert.deepEqual(
+            await chatActions(config).login(agent.by(from.client), message),
+            { type: "not_the_hand" },
+        );
+    }
     assert.deepEqual(named(sent, "keep_credential"), []);
 });
 

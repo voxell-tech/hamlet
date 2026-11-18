@@ -18,7 +18,7 @@ import {
     stop,
 } from "./commands.ts";
 import { type ClientActions, readClient } from "./messages.ts";
-import { secretsLoaded } from "./models.ts";
+import { agentKeys, checkModel, modelList, secretsLoaded } from "./models.ts";
 import { promptSources, renderPrompt } from "./prompt.ts";
 import { readChat, readHistory } from "./transcript.ts";
 
@@ -69,16 +69,26 @@ export function chatActions(config: AgentConfig): ChatHandlers {
         }),
         reflect: askedBy("reflect", reflectNow),
         login: askedBy("login", async (c, login) => {
+            if ((await rowAt(c)).kind !== "hand") {
+                return { type: "not_the_hand" };
+            }
             if (config.signIns === undefined) {
                 throw new Error("this host signs no one in");
-            }
-            if ((await rowAt(c)).kind !== "hand") {
-                throw new Error("only the Hand signs in");
             }
             return config.signIns.step(
                 login,
                 generationOf(c).peers.reach.keep_credential,
             );
         }),
+        read_models: askedBy("read_models", async () => ({
+            models: modelList(config.models),
+        })),
+        check: askedBy("check", (c, { model }) =>
+            checkModel(
+                config.models,
+                agentKeys(config.models, generationOf(c).peers),
+                model,
+            ),
+        ),
     };
 }

@@ -696,7 +696,7 @@ function plainly(error: string): string {
     return `That model did not answer a hello. Pick another one. (${detail})`;
 }
 
-function agentKeys(listed: Models, peers: Peers): Keys {
+export function agentKeys(listed: Models, peers: Peers): Keys {
     return keysOf(peers.reach, peers.report, {
         listed,
         keep: peers.reach.keep_credential,
