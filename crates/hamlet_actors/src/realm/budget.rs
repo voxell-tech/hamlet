@@ -146,7 +146,9 @@ async fn reset(
 ) -> Result<Affected> {
     writer
         .execute(
-            "INSERT INTO budget_reset (payer, at) VALUES (?1, ?2)",
+            "INSERT INTO budget_reset (payer, last_charge, at) \
+             VALUES (?1, (SELECT COALESCE(MAX(rowid), 0) FROM \
+             charge), ?2)",
             vec![
                 BindParam::Text(serde_json::to_string(payer)?),
                 BindParam::Integer(writer.at().0),
@@ -211,8 +213,9 @@ pub(super) async fn spent(
         .row::<(u64, u64)>(
             "SELECT COALESCE(SUM(micros), 0), \
              COALESCE(SUM(took_ms), 0) FROM charge WHERE payer = ?1 \
-             AND at >= ?2 AND at > COALESCE((SELECT MAX(at) FROM \
-             budget_reset WHERE payer = ?1), -1)",
+             AND at >= ?2 AND rowid > COALESCE((SELECT \
+             MAX(last_charge) FROM budget_reset WHERE payer = ?1), \
+             0)",
             vec![
                 BindParam::Text(serde_json::to_string(payer)?),
                 BindParam::Integer(began(rows, budget.period).await?),
@@ -286,7 +289,8 @@ impl Act<Agent> for MaySpend {
             Spending::Open { task, cap } => Some((task, cap)),
             Spending::Refused(refusal) => return Ok(Some(refusal)),
         };
-        let Some(payer) = tasks::payer_of(rows, &self.task).await?
+        let Some(payer) =
+            tasks::payer_of(rows, by.0, &self.task).await?
         else {
             return Ok(Some(SpendRefusal::Budget(
                 Budget::NoSuchTask,
@@ -336,15 +340,19 @@ impl Act<Agent> for MaySpend {
 
 impl Act<Agent> for Charge {
     type Output = ();
+    /// The payer of the task, else the caller's own.
     type Loaded = Option<Payer>;
     type Done = ();
 
     async fn load(
         &self,
-        _by: &Agent,
+        by: &Agent,
         rows: &Rows<'_>,
     ) -> Result<Option<Payer>> {
-        tasks::payer_of(rows, &self.task).await
+        match tasks::payer_of(rows, by.0, &self.task).await? {
+            Some(payer) => Ok(Some(payer)),
+            None => tasks::own_payer(rows, by.0).await,
+        }
     }
 
     fn decide(

@@ -14,10 +14,11 @@ use hamlet_messages::realm::{
     HamletId, HowEnded, Left, Named, ProfileId, ToolName,
 };
 use hamlet_messages::sender::Hand;
-use hamlet_messages::workspace::AgentNumber;
+use hamlet_messages::workspace::{AgentNumber, Numbered};
+pub(super) use lead::failed;
 
 use super::callers::Decider;
-use super::change::{self, Affected, Rows, Writer, number};
+use super::change::{self, Affected, Rows, Writer, integer, number};
 use super::world::Part;
 use super::{chiefs, record};
 
@@ -279,6 +280,45 @@ pub(super) async fn resolve(
         .map(|hamlet| hamlet.mayor))
 }
 
+/// Where a caller's own row stands.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(super) enum Life {
+    /// A hire or the Hand hiring or live, or a worker or an errand
+    /// that has not ended.
+    Living,
+    Ended,
+    /// The realm holds no row for the number.
+    Unknown,
+}
+
+pub(super) async fn life(
+    rows: &Rows<'_>,
+    agent: AgentNumber,
+) -> Result<Life> {
+    let living = match agent.numbered() {
+        Numbered::Errand(n) => {
+            rows.value::<bool>(
+                "SELECT ended IS NULL FROM errand WHERE n = ?1",
+                vec![integer(n.get())?],
+            )
+            .await?
+        }
+        Numbered::Tree(_) => {
+            rows.value::<bool>(
+                "SELECT status IN ('hiring', 'live') FROM agent \
+                 WHERE id = ?1",
+                vec![number(agent)],
+            )
+            .await?
+        }
+    };
+    Ok(match living {
+        Some(true) => Life::Living,
+        Some(false) => Life::Ended,
+        None => Life::Unknown,
+    })
+}
+
 pub(super) async fn left(
     rows: &Rows<'_>,
     agent: AgentNumber,
@@ -420,7 +460,7 @@ pub(super) enum Change {
     /// The agent ends, and its hires go to its lead.
     End {
         agent: AgentNumber,
-        by: record::By,
+        how: HowEnded,
         why: Option<String>,
     },
     /// `mayor` becomes the root of its hamlet's tree, with the old
@@ -454,8 +494,8 @@ pub(super) async fn apply(
         Change::Purpose { hire, text } => {
             purpose(writer, hire, text).await
         }
-        Change::End { agent, by, why } => {
-            lead::end(writer, agent, by, why).await
+        Change::End { agent, how, why } => {
+            lead::end(writer, agent, how, why).await
         }
         Change::Seat { mayor } => lead::seat(writer, mayor).await,
         Change::Tools { hire, off, on } => {

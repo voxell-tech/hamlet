@@ -682,6 +682,7 @@ fn past_the_count(refused: usize, most: u32) -> Option<Gate> {
 }
 
 pub(super) enum Asker {
+    /// An agent that ended, or a number with no row.
     Ended,
     /// Its call already has a wait.
     Known,
@@ -702,7 +703,7 @@ impl Act<Workspace> for NeedsChief {
         _by: &Workspace,
         rows: &Rows<'_>,
     ) -> Result<Asker> {
-        if tree::left(rows, self.agent).await?.is_some() {
+        if tree::life(rows, self.agent).await? != tree::Life::Living {
             return Ok(Asker::Ended);
         }
         let known = rows
@@ -1046,8 +1047,8 @@ impl Act<Client> for Answer {
 
 impl Act<Agent> for TurnFailed {
     type Output = ();
-    /// The fault's wait with its cause as CBOR; `None` for an agent
-    /// that ended or a task the realm does not hold.
+    /// The fault's wait with its cause as CBOR; `None` for a task
+    /// the caller may not name.
     type Loaded = Option<(WaitId, Vec<u8>)>;
     type Done = ();
 
@@ -1056,13 +1057,7 @@ impl Act<Agent> for TurnFailed {
         by: &Agent,
         rows: &Rows<'_>,
     ) -> Result<Option<(WaitId, Vec<u8>)>> {
-        if tree::left(rows, by.0).await?.is_some() {
-            return Ok(None);
-        }
-        let Some(task) = TaskId::of(&self.task) else {
-            return Ok(None);
-        };
-        if tasks::payer(rows, task).await?.is_none() {
+        if tasks::named(rows, by.0, &self.task).await?.is_none() {
             return Ok(None);
         }
         let mut cause = Vec::new();

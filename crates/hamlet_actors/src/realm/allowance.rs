@@ -270,7 +270,7 @@ impl Act<Agent> for ReadBudget {
         rows: &Rows<'_>,
     ) -> Result<Self::Output> {
         let payer = match &self.task {
-            Some(task) => tasks::payer_of(rows, task).await?,
+            Some(task) => tasks::payer_of(rows, by.0, task).await?,
             None => tasks::own_payer(rows, by.0).await?,
         };
         let Some(payer) = payer else {

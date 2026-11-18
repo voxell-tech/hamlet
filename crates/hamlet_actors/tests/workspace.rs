@@ -1053,7 +1053,10 @@ async fn ended(peers: &Peers, answer: RunAnswer) -> CommandEnd {
 
 /// Output past the tail's limits goes whole, scrubbed, to the spill
 /// file the end names; the end carries only the tail. Output within
-/// them leaves no file.
+/// them leaves no file. The long command closes its output and ends
+/// two seconds later, since the workspace reads output for only
+/// 100 ms after a command ends; reading its 20 KB takes under 200 ms
+/// on a busy machine.
 #[cfg(unix)]
 #[tokio::test(flavor = "multi_thread")]
 async fn output_past_the_tail_spills_to_a_file() {
@@ -1064,7 +1067,8 @@ async fn output_past_the_tail_spills_to_a_file() {
     realm_sets(&host, 1, reach(None)).await;
     let short =
         done(agent_runs(&host, &run("c1", "seq 1 2000")).await);
-    let script = format!("seq 1 3000; echo {SECRET}");
+    let script =
+        format!("seq 1 3000; echo {SECRET}; exec >&- 2>&-; sleep 2");
     let long =
         ended(&peers, agent_runs(&host, &run("c2", &script)).await)
             .await;

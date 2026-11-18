@@ -70,6 +70,8 @@ async fn an_errand_is_a_numbered_agent_outside_the_tree() {
     seed(&realm, 0, &task, 1_000).await;
 
     let input = made_until(&realm, errand(0)).await;
+    let copies =
+        realm.tool(errand(0), &ReadCopies::default()).await.unwrap();
 
     assert_eq!(
         input,
@@ -85,7 +87,7 @@ async fn an_errand_is_a_numbered_agent_outside_the_tree() {
                 folder: None,
             },
             brief: Some(brief()),
-            copies: Default::default(),
+            copies,
         }
     );
     let world = realm.ask(&ReadWorld).await.unwrap();

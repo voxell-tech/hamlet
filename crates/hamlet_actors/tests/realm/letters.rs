@@ -15,7 +15,7 @@ use hamlet_protocol::client::RequestId;
 use super::{
     Callee, FOUR, MAYOR, Realm, Seen, THREE, error_code, found,
     founded, hamlet_with, hires, paid, purpose_of, say, seen_submits,
-    standing, tell, to, tool, words,
+    standing, submits_to, tell, to, tool, until, words,
 };
 
 fn from(agent: AgentNumber) -> Author {
@@ -364,5 +364,43 @@ async fn a_letter_to_no_agent_names_its_address() {
         .unwrap();
 
     assert_eq!(words(sent), "no agent has the address `hire#9`");
+    realm.host.shutdown().await.unwrap();
+}
+
+/// The first letter is held at the hire while the second is told.
+/// The test looks for the second letter at the hire for 500 ms, over
+/// a hundred times what a delivery that is not held takes here; the
+/// order it asserts holds however long that look lasts.
+#[tokio::test(flavor = "multi_thread")]
+async fn two_letters_to_one_hire_reach_it_in_the_order_told() {
+    let (realm, _) = hamlet_with(1).await;
+    realm.seen.hold_next(Callee::Submit, THREE);
+
+    let first = realm
+        .tool(MAYOR, &tool("t1", tell(to(THREE), "dig the well")))
+        .await
+        .unwrap();
+    until("the first letter waits at the hire", || {
+        realm.seen.is_waiting(Callee::Submit, THREE)
+    })
+    .await;
+    let second = realm
+        .tool(MAYOR, &tool("t2", tell(to(THREE), "then rest")))
+        .await
+        .unwrap();
+    let _ = tokio::time::timeout(
+        Duration::from_millis(500),
+        until("the second letter reaches the hire", || {
+            !submits_to(&realm, THREE).is_empty()
+        }),
+    )
+    .await;
+    realm.seen.release(Callee::Submit);
+    let seen = format!("{:?}", seen_submits(&realm, THREE, 2).await);
+
+    assert_eq!((first, second), (Done::Done, Done::Done));
+    let (dig, rest) =
+        (seen.find("dig the well"), seen.find("then rest"));
+    assert!(dig.is_some() && dig < rest, "{seen}");
     realm.host.shutdown().await.unwrap();
 }

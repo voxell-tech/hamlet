@@ -30,7 +30,8 @@ use super::peer::When;
 use super::steps::{self, Cx, Kind, StepId, Steps};
 use super::tasks::{self, Origin, TaskId};
 use super::{
-    Realm, chiefs, oversight, place, record, tree, versions, waits,
+    Realm, chiefs, documents, oversight, place, record, tree,
+    versions, waits,
 };
 
 #[derive(Debug, PartialEq)]
@@ -254,6 +255,20 @@ fn words(how: HowEnded, answer: Option<String>) -> String {
     }
 }
 
+/// The changes that end worker `agent`, whose start failed for good.
+/// None for a worker that ended.
+pub(super) async fn failed(
+    rows: &Rows<'_>,
+    agent: AgentNumber,
+) -> Result<Vec<change::Change>> {
+    if tree::life(rows, agent).await? != tree::Life::Living {
+        return Ok(Vec::new());
+    }
+    let mut changes = ending(agent, HowEnded::Failed, None);
+    changes.push(steps::Change::Close { row: row(agent) }.into());
+    Ok(changes)
+}
+
 fn row(agent: AgentNumber) -> StepId {
     StepId {
         kind: Kind::Worker,
@@ -316,7 +331,7 @@ pub(super) async fn run(
                         .collect(),
                     model: None,
                 }),
-                copies: Default::default(),
+                copies: documents::for_agent(&rows, agent).await?,
             };
             cx.peers().create(&Agent(agent), &input).await?;
         }
@@ -392,14 +407,13 @@ impl Act<Agent> for StartWorker {
         if starter.agent.kind == AgentKind::Worker {
             return Ok(ByAgent::AWorker);
         }
-        let named = self.task.as_ref().and_then(TaskId::of);
+        let named = match &self.task {
+            Some(task) => tasks::named(rows, by.0, task).await?,
+            None => None,
+        };
         let task = match named {
-            Some(task)
-                if tasks::payer(rows, task).await?.is_some() =>
-            {
-                task
-            }
-            _ => tasks::standing(rows, by.0).await?,
+            Some(task) => task,
+            None => tasks::standing(rows, by.0).await?,
         };
         Ok(ByAgent::Starter {
             worker: tree::fresh(rows).await?,

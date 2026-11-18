@@ -28,9 +28,8 @@ pub(in crate::realm) async fn send(
 #[cfg(test)]
 mod tests {
     use hamlet_actor_error::ActorError;
-    use hamlet_messages::realm::HamletId;
+    use hamlet_messages::realm::{HamletId, HowEnded};
 
-    use super::super::super::record;
     use super::super::super::testing::Started;
     use super::*;
 
@@ -51,7 +50,7 @@ mod tests {
         started
             .commit(tree::Change::End {
                 agent: HIRE,
-                by: record::By::Chief,
+                how: HowEnded::ByTheChief,
                 why: None,
             })
             .await

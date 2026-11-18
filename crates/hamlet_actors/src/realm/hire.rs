@@ -9,7 +9,7 @@ use hamlet_messages::workspace::AgentNumber;
 use super::change::Change;
 use super::peer::When;
 use super::steps::{Cx, Kind, StepId, Steps};
-use super::{place, tasks, tree, versions};
+use super::{documents, place, tasks, tree, versions};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(super) enum Step {
@@ -85,7 +85,7 @@ pub(super) async fn run(
                     .on_the_wire(),
                 place: place::of(&rows, agent).await?,
                 brief: None,
-                copies: Default::default(),
+                copies: documents::for_agent(&rows, agent).await?,
             };
             cx.peers().create(&Agent(agent), &input).await?;
         }

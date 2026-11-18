@@ -9,7 +9,9 @@ use std::time::{Duration, Instant};
 
 use anyhow::{Context, bail};
 use hamlet_actor::{Action, Actor, Ctx, Handler, Registry};
-use hamlet_actor_core::{ActorConfig, ActorFactory, ShutdownKind};
+use hamlet_actor_core::{
+    ActorConfig, ActorFactory, ActorLifecycle, ShutdownKind,
+};
 use hamlet_actor_error::ActorError;
 use hamlet_actors::realm;
 use hamlet_host::{Address, Caller, Host, HostOptions, HostRef};
@@ -50,10 +52,14 @@ mod allowance;
 mod asking;
 #[path = "realm/budget.rs"]
 mod budget;
+#[path = "realm/callers.rs"]
+mod callers;
 #[path = "realm/chiefs.rs"]
 mod chiefs;
 #[path = "realm/choices.rs"]
 mod choices;
+#[path = "realm/copies.rs"]
+mod copies;
 #[path = "realm/errands.rs"]
 mod errands;
 #[path = "realm/first_start.rs"]
@@ -66,6 +72,8 @@ mod laid;
 mod lead;
 #[path = "realm/letters.rs"]
 mod letters;
+#[path = "realm/living.rs"]
+mod living;
 #[path = "realm/oversight.rs"]
 mod oversight;
 #[path = "realm/parcels.rs"]
@@ -74,6 +82,8 @@ mod parcels;
 mod places;
 #[path = "realm/record.rs"]
 mod record;
+#[path = "realm/repeats.rs"]
+mod repeats;
 #[path = "realm/reserved.rs"]
 mod reserved;
 #[path = "realm/reviews.rs"]
@@ -88,6 +98,8 @@ mod settings;
 mod society;
 #[path = "realm/steps.rs"]
 mod steps;
+#[path = "realm/tasks.rs"]
+mod tasks;
 #[path = "realm/waits.rs"]
 mod waits;
 #[path = "realm/workers.rs"]
@@ -127,9 +139,15 @@ struct Seen {
     chief_answers: Mutex<Vec<ChiefAnswer>>,
     branches: Mutex<Vec<(ProfileId, Branch)>>,
     failing: Mutex<HashSet<(Callee, AgentNumber)>>,
+    /// The calls that fail every time, with an error of the callee's
+    /// own.
+    refusing: Mutex<HashSet<(Callee, AgentNumber)>>,
     held: watch::Sender<HashSet<Callee>>,
     /// The calls that wait while the test holds their callee.
     waiting: Mutex<HashSet<(Callee, AgentNumber)>>,
+    /// The callees held for one agent's next call alone, with that
+    /// agent and whether its call came.
+    alone: Mutex<HashMap<Callee, (AgentNumber, bool)>>,
 }
 
 impl Seen {
@@ -141,24 +159,40 @@ impl Seen {
         agent: AgentNumber,
     ) -> anyhow::Result<()> {
         let mut held = self.held.subscribe();
-        if held.borrow().contains(&callee) {
-            self.waiting.lock().unwrap().insert((callee, agent));
+        let passes = match self.alone.lock().unwrap().get_mut(&callee)
+        {
+            Some((held, came)) if *held == agent && !*came => {
+                *came = true;
+                false
+            }
+            Some(_) => true,
+            None => false,
+        };
+        if !passes {
+            if held.borrow().contains(&callee) {
+                self.waiting.lock().unwrap().insert((callee, agent));
+            }
+            let released =
+                held.wait_for(|held| !held.contains(&callee)).await;
+            self.waiting.lock().unwrap().remove(&(callee, agent));
+            released?;
         }
-        let released =
-            held.wait_for(|held| !held.contains(&callee)).await;
-        self.waiting.lock().unwrap().remove(&(callee, agent));
-        released?;
         if self.failing.lock().unwrap().remove(&(callee, agent)) {
-            bail!(
-                "the stand-in fails {callee:?} of {} once",
-                agent.0
-            );
+            return Err(ActorLifecycle::NotReady.build());
+        }
+        if self.refusing.lock().unwrap().contains(&(callee, agent)) {
+            bail!("the stand-in refuses {callee:?} of {}", agent.0);
         }
         Ok(())
     }
 
+    /// Fails `agent`'s next call of `callee` as an actor not ready.
     fn fail_once(&self, callee: Callee, agent: AgentNumber) {
         self.failing.lock().unwrap().insert((callee, agent));
+    }
+
+    fn fail_for_good(&self, callee: Callee, agent: AgentNumber) {
+        self.refusing.lock().unwrap().insert((callee, agent));
     }
 
     fn has_failed(&self, callee: Callee, agent: AgentNumber) -> bool {
@@ -175,7 +209,15 @@ impl Seen {
         });
     }
 
+    /// Holds `agent`'s next call of `callee` until `release`; every
+    /// other call of `callee` passes.
+    fn hold_next(&self, callee: Callee, agent: AgentNumber) {
+        self.alone.lock().unwrap().insert(callee, (agent, false));
+        self.hold(callee);
+    }
+
     fn release(&self, callee: Callee) {
+        self.alone.lock().unwrap().remove(&callee);
         self.held.send_modify(|held| {
             held.remove(&callee);
         });

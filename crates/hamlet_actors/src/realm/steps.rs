@@ -8,13 +8,15 @@ use std::time::Duration;
 
 use anyhow::{Context as _, Result, bail};
 use hamlet_actor::{BindParam, Ctx};
+use hamlet_messages::workspace::AgentNumber;
 use serde::{Deserialize, Serialize};
 use tokio::sync::watch;
 
+use super::calls::{Calls, Delivery};
 use super::change::{self, Affected, Rows, Writer};
-use super::peer::Peers;
+use super::peer::{self, Peers};
 use super::workers::errands;
-use super::{Realm, calls, hire, parcels, reviews, workers};
+use super::{Realm, calls, hire, parcels, reviews, tree, workers};
 
 #[derive(
     Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize,
@@ -131,6 +133,29 @@ async fn close(writer: &Writer<'_>, row: StepId) -> Result<Affected> {
     Ok(Affected::default())
 }
 
+/// The query of the numbers of `kind`'s open rows that have not done
+/// `step`.
+pub(super) fn not_done<S: Steps>(
+    kind: Kind,
+    step: S,
+) -> Result<String> {
+    let before = S::ALL
+        .iter()
+        .take_while(|&&each| each != step)
+        .map(|each| format!("'{}'", each.name()))
+        .collect::<Vec<_>>();
+    let done = if before.is_empty() {
+        "done IS NULL".to_owned()
+    } else {
+        format!("(done IS NULL OR done IN ({}))", before.join(", "))
+    };
+    Ok(format!(
+        "SELECT n FROM step WHERE kind = '{}' AND closed = 0 AND \
+         {done}",
+        change::case_name(&kind)?
+    ))
+}
+
 pub(super) struct Row {
     pub done: Option<String>,
     pub closed: bool,
@@ -179,12 +204,85 @@ impl Cx<'_> {
     }
 }
 
+/// The first wait before a step that failed in passing is run again,
+/// doubled after each failure up to [`LAST_RETRY`].
+const FIRST_RETRY: Duration = Duration::from_secs(1);
+
+const LAST_RETRY: Duration = Duration::from_secs(60);
+
+/// Drives `row` until it is done. A step that fails in passing runs
+/// again while the realm runs; one that fails for good ends its
+/// hire or worker.
 async fn drive(realm: Arc<Realm>, ctx: Ctx<Realm>, row: StepId) {
-    let cx = Cx {
-        realm: &realm,
-        ctx: &ctx,
+    let mut retry = FIRST_RETRY;
+    loop {
+        let Err(error) = walk_row(&realm, &ctx, row).await else {
+            return;
+        };
+        tracing::warn!(?row, "a step failed: {error:#}");
+        if peer::refused(&error) {
+            if let Err(error) = end_failed(&realm, &ctx, row).await {
+                tracing::warn!(
+                    ?row,
+                    "ending a failed row: {error:#}"
+                );
+            }
+            return;
+        }
+        let stopping = ctx.abort_signal();
+        tokio::select! {
+            () = stopping.cancelled() => return,
+            () = tokio::time::sleep(retry) => {}
+        }
+        retry = (retry * 2).min(LAST_RETRY);
+    }
+}
+
+/// Ends the hire or the worker whose row failed for good.
+async fn end_failed(
+    realm: &Arc<Realm>,
+    ctx: &Ctx<Realm>,
+    row: StepId,
+) -> Result<()> {
+    let agent = AgentNumber(u32::try_from(row.n)?);
+    let tx = change::Transaction::begin(ctx).await?;
+    let (changes, calls) = match row.kind {
+        Kind::Hire => {
+            (tree::failed(&tx.rows(), agent).await?, Calls::none())
+        }
+        Kind::Worker => (
+            workers::failed(&tx.rows(), agent).await?,
+            Calls::after_answer(Delivery::WorkerAnswer(agent)),
+        ),
+        Kind::Errand | Kind::Review | Kind::Parcel => return Ok(()),
     };
-    let driven = match row.kind {
+    if changes.is_empty() {
+        return Ok(());
+    }
+    let write = change::Write::<()> {
+        changes,
+        entries: Vec::new(),
+        marker: None,
+    };
+    let (pushes, lined) =
+        tx.commit_lined(realm, write, calls).await?;
+    calls::after_answer(
+        realm.clone(),
+        ctx.clone(),
+        lined.after_answer,
+        pushes,
+    )
+    .await;
+    Ok(())
+}
+
+async fn walk_row(
+    realm: &Arc<Realm>,
+    ctx: &Ctx<Realm>,
+    row: StepId,
+) -> Result<()> {
+    let cx = Cx { realm, ctx };
+    match row.kind {
         Kind::Hire => {
             walk(&cx, row, async move |cx: &Cx<'_>, step| {
                 hire::run(cx, row.n, step).await
@@ -215,9 +313,6 @@ async fn drive(realm: Arc<Realm>, ctx: Ctx<Realm>, row: StepId) {
             })
             .await
         }
-    };
-    if let Err(error) = driven {
-        tracing::warn!(?row, "a step failed: {error:#}");
     }
 }
 

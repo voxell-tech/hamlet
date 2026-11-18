@@ -1,17 +1,25 @@
 use std::time::Duration;
 
 use hamlet_messages::agent::{
-    AgentInput, AgentKind, Fill, Place, PlaceVersion,
+    AgentInput, AgentKind, Fill, Input, Place, PlaceVersion,
 };
 use hamlet_messages::profile::Branch;
 use hamlet_messages::realm::ProfileId;
+use hamlet_messages::realm::documents::ReadCopies;
+use hamlet_messages::realm::workers::{StartWorker, Started};
 use hamlet_messages::sender::Hand;
 use hamlet_messages::workspace::reach::{
     Footing, Reach, SecretsVersion,
 };
-use hamlet_messages::workspace::{ReachVersion, RealmTask, SetReach};
+use hamlet_messages::workspace::{
+    AgentNumber, ReachVersion, RealmTask, SetReach,
+};
 
-use super::{Callee, MAYOR, Realm, founded, hamlet_with, until};
+use super::{
+    Callee, FOUR, MAYOR, Realm, THREE, founded, hamlet_with, hires,
+    made_until, seen_submits, submits_to, tell, to, tool, until,
+    words,
+};
 
 const BLANK: ProfileId = ProfileId(2);
 
@@ -85,6 +93,8 @@ async fn a_hire_goes_live_through_its_steps() {
     realm.reach_held(MAYOR).await;
     let seen = hire_seen(&realm);
     realm.live(MAYOR).await;
+    let copies =
+        realm.tool(MAYOR, &ReadCopies::default()).await.unwrap();
     let (standing, closed) = realm
         .stopped_rows(|db| {
             let standing = db.query_row(
@@ -122,7 +132,7 @@ async fn a_hire_goes_live_through_its_steps() {
                     folder: None,
                 },
                 brief: None,
-                copies: Default::default(),
+                copies,
             }],
             fills: vec![Fill {
                 profile: BLANK,
@@ -251,5 +261,99 @@ async fn a_step_done_again_leaves_one_hire() {
         );
         assert_eq!(Some(wanted), applied, "set back to {done}");
     }
+    realm.host.shutdown().await.unwrap();
+}
+
+/// The agent rows that are still hiring, and how `agent` ended.
+async fn hiring_and_how(
+    realm: &Realm,
+    agent: AgentNumber,
+) -> (i64, Option<String>) {
+    realm
+        .stopped_rows(|db| {
+            let hiring = db.query_row(
+                "SELECT COUNT(*) FROM agent WHERE status = 'hiring'",
+                [],
+                |row| row.get(0),
+            )?;
+            let how = db.query_row(
+                "SELECT ended_how FROM agent WHERE id = ?1",
+                [agent.0],
+                |row| row.get(0),
+            )?;
+            Ok((hiring, how))
+        })
+        .await
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn a_hire_whose_agent_cannot_be_made_ends_as_failed() {
+    // hire 3's agent refuses to be made: the hire ends as failed,
+    // the mayor's letter to it is refused in the words of an end,
+    // and no agent is left hiring.
+    let (realm, _) = hamlet_with(0).await;
+    realm.seen.fail_for_good(Callee::Create, THREE);
+    hires(&realm, MAYOR, "h1").await;
+
+    let told = realm
+        .tool(MAYOR, &tool("t1", tell(to(THREE), "dig the well")))
+        .await
+        .unwrap();
+
+    assert!(words(told).contains("its task failed"));
+    assert!(submits_to(&realm, THREE).is_empty());
+    let (hiring, how) = hiring_and_how(&realm, THREE).await;
+    assert_eq!(hiring, 0);
+    assert_eq!(how.as_deref(), Some(r#"{"type":"failed"}"#));
+    realm.host.shutdown().await.unwrap();
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn a_worker_whose_agent_cannot_be_made_ends_and_its_starter_hears()
+ {
+    let (realm, _) = hamlet_with(1).await;
+    realm.seen.fail_for_good(Callee::Create, FOUR);
+
+    let started = realm
+        .tool(
+            THREE,
+            &tool(
+                "w1",
+                StartWorker {
+                    brief: "count the files".to_owned(),
+                    tools: Vec::new(),
+                    task: None,
+                    hamlet: None,
+                },
+            ),
+        )
+        .await
+        .unwrap();
+    let told = seen_submits(&realm, THREE, 1).await;
+
+    assert_eq!(started, Started::Started { worker: FOUR });
+    assert_eq!(
+        told[0].input,
+        Input::WorkerAnswer {
+            worker: FOUR,
+            text: "It gave no answer.".to_owned(),
+        }
+    );
+    let (_, how) = hiring_and_how(&realm, FOUR).await;
+    assert_eq!(how.as_deref(), Some(r#"{"type":"failed"}"#));
+    realm.host.shutdown().await.unwrap();
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn a_hire_whose_agent_is_not_ready_is_made_once_it_is() {
+    let (realm, _) = hamlet_with(0).await;
+    realm.seen.fail_once(Callee::Create, THREE);
+
+    hires(&realm, MAYOR, "h1").await;
+    made_until(&realm, THREE).await;
+    realm.live(THREE).await;
+
+    let (hiring, how) = hiring_and_how(&realm, THREE).await;
+    assert_eq!((hiring, how), (0, None));
     realm.host.shutdown().await.unwrap();
 }

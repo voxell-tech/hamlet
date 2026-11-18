@@ -1,5 +1,8 @@
 use std::path::PathBuf;
+use std::sync::Arc;
 
+use hamlet_actor_error::ActorError;
+use hamlet_messages::address::{self, Party};
 use hamlet_messages::realm::documents::{
     EditSettings, Endpoint, RemoteWorkspace, Setting, SettingRefusal,
 };
@@ -11,10 +14,11 @@ use hamlet_messages::realm::{Done, SecretList, Secrets};
 use hamlet_messages::sender::Hand;
 use hamlet_messages::workspace::AgentNumber;
 use hamlet_messages::workspace::reach::SecretsVersion;
+use hamlet_testing::Scratch;
 use serde_json::{Value, json};
 
 use super::chiefs::chief;
-use super::{MAYOR, Realm, THREE, hamlet_with, until};
+use super::{MAYOR, Realm, Seen, THREE, hamlet_with, open, until};
 
 fn file(realm: &Realm) -> PathBuf {
     realm.scratch.join("credentials.json")
@@ -217,8 +221,8 @@ async fn a_credential_is_given_only_to_an_agent() {
         provider: "anthropic".to_owned(),
     };
 
-    let given = credential(&realm, AgentNumber(7), "anthropic").await;
-    let unknown = credential(&realm, AgentNumber(7), "openai").await;
+    let given = credential(&realm, Hand::NUMBER, "anthropic").await;
+    let unknown = credential(&realm, Hand::NUMBER, "openai").await;
 
     assert_eq!(
         given,
@@ -508,4 +512,39 @@ async fn a_removed_endpoint_forgets_its_key() {
         "a forgotten key is still taken out"
     );
     realm.host.shutdown().await.unwrap();
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn a_realm_whose_credentials_are_damaged_says_why_it_did_not_start()
+ {
+    let scratch = Scratch::new("realm-damaged-credentials");
+    let key = "sk-made-up-in-a-damaged-file";
+    std::fs::write(
+        scratch.join("credentials.json"),
+        format!(r#"{{"version": "{key}"}}"#),
+    )
+    .unwrap();
+    let host = open(&scratch, &Arc::new(Seen::default()), None).await;
+
+    let started =
+        host.get_or_start(&address::Realm.address().unwrap()).await;
+
+    let error = started.unwrap_err();
+    let extracted = ActorError::extract(&error);
+    assert_eq!(
+        (extracted.group(), extracted.code()),
+        ("realm", "not_started")
+    );
+    assert!(
+        extracted.message().contains("reading credentials.json"),
+        "{}",
+        extracted.message()
+    );
+    let shown = format!(
+        "{error:?} {} {:?}",
+        extracted.message(),
+        extracted.meta
+    );
+    assert!(!shown.contains(key), "{shown}");
+    host.shutdown().await.unwrap();
 }

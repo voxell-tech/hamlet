@@ -12,6 +12,7 @@ use hamlet_messages::workspace::AgentNumber;
 use serde::{Deserialize, Serialize};
 
 use super::change::Affected;
+use super::lanes::Queued;
 use super::oversight::asking;
 use super::peer::When;
 use super::tasks::TaskId;
@@ -110,11 +111,12 @@ impl Push {
 pub(super) async fn deliver_all(
     realm: &Arc<Realm>,
     ctx: &Ctx<Realm>,
-    deliveries: Vec<Delivery>,
+    deliveries: Vec<Queued>,
     when: When,
 ) -> Made {
     let mut made = Made::default();
-    for delivery in deliveries {
+    for Queued { delivery, mut turn } in deliveries {
+        turn.come().await;
         let shown = format!("{delivery:?}");
         let delivered = match delivery {
             Delivery::Line { to, submit } => {
@@ -170,7 +172,7 @@ async fn push(
 pub(super) async fn after_answer(
     realm: Arc<Realm>,
     ctx: Ctx<Realm>,
-    deliveries: Vec<Delivery>,
+    deliveries: Vec<Queued>,
     pushes: Vec<Push>,
 ) {
     push_all(&realm, &ctx, pushes).await;

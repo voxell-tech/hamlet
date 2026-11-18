@@ -3,16 +3,18 @@ use std::time::Duration;
 use hamlet_messages::realm::{
     Asked, Done, End, EndRefusal, FoundAnswer, HamletId, Hire,
     HireAnswer, HireRefusal, HowEnded, LeadRefusal, Left, Named,
-    Rank,
+    Rank, Tool,
 };
 use hamlet_messages::sender::Hand;
-use hamlet_messages::workspace::AgentNumber;
 use hamlet_messages::workspace::reach::Reach;
+use hamlet_messages::workspace::{
+    AgentNumber, ConversationId, RealmTask,
+};
 use hamlet_protocol::client::RequestId;
 
 use super::{
     Callee, MAYOR, Realm, chief_hires, error_code, found, founded,
-    hire, hired, tool, until,
+    hire, hired, paid, standing, tool, until,
 };
 
 fn under(agent: u32) -> Option<Named> {
@@ -356,6 +358,35 @@ async fn a_repeated_hire_hires_once() {
     assert!(again.iter().all(|answer| *answer == first), "{again:?}");
     assert_eq!(error_code(other), "message.id_reused");
     assert_eq!((agents, hires, made), (3, 2, 1));
+    realm.host.shutdown().await.unwrap();
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn a_tool_call_repeated_from_another_turn_is_a_reused_id() {
+    // the same hire under one call id from the mayor's turn on its
+    // own task, then on the Hand's, then in another conversation:
+    // each later one is refused, and one agent is hired.
+    let realm = Realm::start().await;
+    realm.live(Hand::NUMBER).await;
+    founded(&realm).await;
+    realm.reach_held(MAYOR).await;
+    let own = standing(&realm, MAYOR);
+    let other = standing(&realm, Hand::NUMBER);
+    let in_turn = |task: &RealmTask, conversation: &str| Tool {
+        conversation: Some(ConversationId(conversation.to_owned())),
+        ..paid("h1", task, hire(None))
+    };
+
+    let first = realm.tool(MAYOR, &in_turn(&own, "c1")).await;
+    let again = realm.tool(MAYOR, &in_turn(&own, "c1")).await;
+    let other_task = realm.tool(MAYOR, &in_turn(&other, "c1")).await;
+    let other_conversation =
+        realm.tool(MAYOR, &in_turn(&own, "c2")).await;
+
+    assert_eq!(first.unwrap(), hired(3));
+    assert_eq!(again.unwrap(), hired(3));
+    assert_eq!(error_code(other_task), "message.id_reused");
+    assert_eq!(error_code(other_conversation), "message.id_reused");
     realm.host.shutdown().await.unwrap();
 }
 
