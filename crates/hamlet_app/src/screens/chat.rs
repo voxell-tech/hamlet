@@ -955,13 +955,42 @@ mod tests {
         );
         app.world_mut().resource_mut::<InputFocus>().clear();
         app.update();
+        // The rewind is asked in the Hub, which goes to another chat
+        // before the words come back: they wait with their reply as
+        // the draft of the chat they were said in.
+        let asked = |app: &App| {
+            app.world()
+                .resource::<Requests>()
+                .0
+                .keys()
+                .cloned()
+                .collect::<Vec<_>>()
+        };
+        let before = asked(&app);
+        rewind_to(app.world_mut(), hub, chat, "message/é:7");
+        let request = asked(&app)
+            .into_iter()
+            .find(|request| !before.contains(request))
+            .unwrap();
+        let other = app
+            .world_mut()
+            .spawn(Transcript::from_items(Vec::new()))
+            .id();
+        app.world_mut().get_mut::<convo::Convo>(hub).unwrap().chat =
+            other;
+        app.update();
         app.world_mut().trigger(hamlet_client::messages::Rewound {
             chat,
-            request: protocol::RequestId::new(),
+            request,
             text,
             images: Vec::new(),
             files: Vec::new(),
         });
+        app.update();
+        assert_eq!(typed(&app, input), "");
+        app.world_mut().get_mut::<convo::Convo>(hub).unwrap().chat =
+            chat;
+        app.update();
         app.update();
         assert_eq!(typed(&app, input), "Digital, please.");
         assert!(
