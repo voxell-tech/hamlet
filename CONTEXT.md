@@ -260,7 +260,8 @@ _Avoid_: dead letter (a letter is what one agent sends another)
 **Copy**:
 What an agent keeps of a document the realm owns: its charter, its
 character, its model or its settings, each with the realm's version. The
-realm sends a newer one, and the agent reads them again at each wake.
+realm makes an agent with its copies, sends a newer one, and the agent
+reads them again at each wake.
 _Avoid_: cache, mirror
 
 ### Between agents
