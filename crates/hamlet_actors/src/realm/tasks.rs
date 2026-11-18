@@ -176,7 +176,7 @@ pub(super) async fn payer(
 
 /// The task `task` names when `agent` may name it: a task the realm
 /// holds that is the agent's own, that the agent works or runs an
-/// errand on, or that a letter to the agent carries.
+/// errand on, or that a letter given to the agent carries.
 pub(super) async fn named(
     rows: &Rows<'_>,
     agent: AgentNumber,
@@ -193,8 +193,9 @@ pub(super) async fn named(
         .value::<i64>(
             "SELECT 1 FROM task WHERE id = ?1 AND (agent = ?2 OR id \
              IN (SELECT task FROM worker WHERE agent = ?2) OR id IN \
-             (SELECT task FROM letter WHERE receiver = ?2) OR id IN \
-             (SELECT task FROM errand WHERE n = ?3))",
+             (SELECT task FROM letter WHERE receiver = ?2 AND \
+             given_at IS NOT NULL) OR id IN (SELECT task FROM \
+             errand WHERE n = ?3))",
             vec![task.column()?, number(agent), errand],
         )
         .await?;

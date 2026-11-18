@@ -52,6 +52,9 @@ pub(super) enum Change {
     },
     /// The answer to a question, kept once.
     Answer { question: LetterId, text: String },
+    /// The letter is given to its receiver, which may name its task
+    /// from now on.
+    Given { letter: LetterId },
 }
 
 pub(super) async fn apply(
@@ -84,6 +87,19 @@ pub(super) async fn apply(
         }
         Change::Answer { question, text } => {
             keep_answer(writer, question, text).await
+        }
+        Change::Given { letter } => {
+            writer
+                .execute(
+                    "UPDATE letter SET given_at = ?2 WHERE id = ?1 \
+                     AND given_at IS NULL",
+                    vec![
+                        change::integer(letter.0)?,
+                        BindParam::Integer(writer.at().0),
+                    ],
+                )
+                .await?;
+            Ok(Affected::default())
         }
     }
 }
@@ -147,7 +163,8 @@ pub(super) async fn fresh(rows: &Rows<'_>) -> Result<LetterId> {
 
 /// Makes `delivery`, a letter or an answer, from its row as it is
 /// now: `Submit` to the receiver under the letter's id, or to the
-/// asker's conversation under the answer's.
+/// asker's conversation under the answer's. A letter is marked given
+/// before its receiver is called.
 pub(super) async fn deliver(
     realm: &Arc<Realm>,
     ctx: &Ctx<Realm>,
@@ -156,6 +173,12 @@ pub(super) async fn deliver(
     let rows = Rows::outside(ctx)?;
     let (to, submit) = match delivery {
         Delivery::Letter(letter) => {
+            change::commit(
+                realm,
+                ctx,
+                vec![Change::Given { letter }.into()],
+            )
+            .await?;
             letter_input(&rows, letter).await?
         }
         Delivery::Answer(question) => {

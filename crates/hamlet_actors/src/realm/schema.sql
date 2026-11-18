@@ -130,6 +130,7 @@ CREATE TABLE IF NOT EXISTS letter (
 	task INTEGER,
 	conversation TEXT,
 	answer TEXT,
+	given_at INTEGER,
 	at INTEGER NOT NULL) STRICT;
 
 -- laid.rs

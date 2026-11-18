@@ -118,7 +118,7 @@ fn held(task: &RealmTask) -> Done<SpendRefusal> {
 }
 
 /// The open waits of `agent`: id, kind and subject.
-async fn open_waits(
+pub(super) async fn open_waits(
     realm: &Realm,
     agent: AgentNumber,
 ) -> Vec<(i64, String, String)> {
