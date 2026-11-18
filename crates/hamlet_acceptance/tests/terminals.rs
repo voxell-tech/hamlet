@@ -26,6 +26,12 @@ fn known_shell(home: &Home) -> Vec<(&'static str, String)> {
         .collect::<Vec<_>>();
     env.push(("SHELL", shell.into()));
     env.push(("ZDOTDIR", startup.display().to_string()));
+    if shell == "/bin/sh" {
+        // `sh` reads the startup files of `HOME` and `ENV`.
+        env.retain(|(name, _)| !matches!(*name, "HOME" | "ENV"));
+        env.push(("HOME", startup.display().to_string()));
+        env.push(("ENV", String::new()));
+    }
     env
 }
 
