@@ -395,7 +395,7 @@ mod logs;
 /// The handshake, with a stand-in Node host as the child: the
 /// example `link_child`, built beside this test.
 mod handshake {
-    use std::collections::HashMap;
+    use std::collections::{BTreeMap, HashMap};
     use std::io::{Read, Write};
     #[cfg(unix)]
     use std::os::unix::process::ExitStatusExt;
@@ -629,33 +629,187 @@ mod handshake {
         assert!(supervisor.shutdown().await.unwrap().success());
     }
 
-    #[tokio::test]
-    async fn the_childs_environment_holds_only_the_named_variables() {
-        assert!(std::env::vars_os().any(|(name, _)| {
-            name.to_string_lossy().starts_with("CARGO_")
-        }));
-        let home = Scratch::new("link-env");
-        let names = home.join("env");
-        let (_host, supervisor) =
-            open(&home, &["--env", names.to_str().unwrap()]);
-        wait_for(&mut supervisor.state(), LinkState::Ready).await;
-        supervisor.shutdown().await;
+    /// The variables [`environment_host`] runs with that its child
+    /// gets, each with a made-up value.
+    fn crossing() -> BTreeMap<String, String> {
+        // A process that has no real one cannot load its DLLs.
+        #[cfg(windows)]
+        let system_root = std::env::var("SystemRoot").unwrap();
+        let mut crossing = vec![
+            ("PATH", "/made-up/bin"),
+            ("HAMLET_FAULT_DIR", "/made-up/faults"),
+            ("HAMLET_REFLECT_EVERY", "7"),
+            ("HAMLET_CLAUDE_EXECUTABLE", "/made-up/claude"),
+            ("HAMLET_ACTOR_ENDPOINT", "http://127.0.0.1:9"),
+            ("HAMLET_ACTOR_TOKEN", ACTOR_TOKEN),
+            ("CLAUDE_CONFIG_DIR", "/made-up/claude-config"),
+            ("HOME", "/made-up/home"),
+            ("TMPDIR", "/made-up/tmp"),
+            ("HTTP_PROXY", PROXY),
+            ("HTTPS_PROXY", PROXY),
+            ("NO_PROXY", "localhost"),
+            ("NODE_EXTRA_CA_CERTS", "/made-up/ca.pem"),
+            ("SSL_CERT_FILE", "/made-up/cert.pem"),
+            ("SSL_CERT_DIR", "/made-up/certs"),
+        ];
+        #[cfg(not(windows))]
+        crossing.extend([
+            ("http_proxy", PROXY),
+            ("https_proxy", PROXY),
+            ("no_proxy", "localhost"),
+        ]);
+        #[cfg(windows)]
+        crossing.extend([
+            ("USERPROFILE", r"C:\made-up\home"),
+            ("APPDATA", r"C:\made-up\roaming"),
+            ("LOCALAPPDATA", r"C:\made-up\local"),
+            ("TEMP", r"C:\made-up\temp"),
+            ("TMP", r"C:\made-up\tmp"),
+            ("SystemRoot", &system_root),
+        ]);
+        crossing
+            .into_iter()
+            .map(|(name, value)| (name.to_owned(), value.to_owned()))
+            .collect()
+    }
 
-        let mut expected = vec!["HAMLET_HOME"];
-        for inherited in ["PATH", "HAMLET_FAULT_DIR"] {
-            if std::env::var_os(inherited).is_some() {
-                expected.push(inherited);
-            }
+    /// A made-up token of the actor runtime, which no log holds.
+    const ACTOR_TOKEN: &str = "made-up-actor-token-4711";
+
+    /// A made-up proxy whose password no log holds.
+    const PROXY: &str =
+        "http://user:made-up-proxy-password@127.0.0.1:9";
+
+    /// A made-up key outside what crosses.
+    const OUTSIDE_KEY: &str = "made-up-hamlet-key-0815";
+
+    /// The folder of the Rust host [`environment_host`] runs. Unset,
+    /// that test does nothing.
+    const ENVIRONMENT_HOME: &str =
+        "HAMLET_LINK_TEST_ENVIRONMENT_HOME";
+
+    /// The folder, in its realm folder, where [`environment_child`]
+    /// writes its environment. Absent, that test does nothing.
+    const WRITTEN: &str = "child-environment";
+
+    #[tokio::test]
+    async fn the_child_gets_each_named_variable_with_its_value_and_no_other()
+     {
+        let home = Scratch::new("link-env");
+        let mut command = tokio::process::Command::new(
+            std::env::current_exe().unwrap(),
+        );
+        command
+            .args([
+                "--exact",
+                "handshake::environment_host",
+                "--nocapture",
+            ])
+            .env_clear()
+            .envs(crossing())
+            .env(ENVIRONMENT_HOME, &*home)
+            .env("HAMLET_API_KEY", OUTSIDE_KEY)
+            .env("ANTHROPIC_API_KEY", OUTSIDE_KEY)
+            .env("HAMLET_ACTORS_TOKEN", OUTSIDE_KEY)
+            .env("LANG", "C.UTF-8")
+            .kill_on_drop(true);
+        #[cfg(unix)]
+        command.env("HAMLET_ACTOR_RAW", {
+            use std::os::unix::ffi::OsStrExt;
+            std::ffi::OsStr::from_bytes(b"not \xff UTF-8")
+        });
+        let output =
+            tokio::time::timeout(READY_WAIT, command.output())
+                .await
+                .expect("the Rust host ended")
+                .unwrap();
+        let printed = [&output.stdout[..], &output.stderr]
+            .map(String::from_utf8_lossy)
+            .join("\n");
+        assert!(output.status.success(), "{printed}");
+        assert!(printed.contains("the Node host ended"), "{printed}");
+        for secret in
+            [ACTOR_TOKEN, "made-up-proxy-password", OUTSIDE_KEY]
+        {
+            assert!(!printed.contains(secret), "{printed}");
         }
-        expected.sort_unstable();
-        let names = std::fs::read_to_string(names).unwrap();
-        let mut names = names
-            .lines()
-            // CoreFoundation sets it in each process that loads it.
-            .filter(|name| *name != "__CF_USER_TEXT_ENCODING")
-            .collect::<Vec<_>>();
-        names.sort_unstable();
-        assert_eq!(names, expected);
+
+        let written =
+            std::fs::read(home.join(WRITTEN).join("environment"))
+                .unwrap();
+        let mut got: BTreeMap<String, String> =
+            serde_json::from_slice(&written).unwrap();
+        // CoreFoundation sets it in each process that loads it.
+        got.remove("__CF_USER_TEXT_ENCODING");
+        let mut expected = crossing();
+        expected.insert(
+            "HAMLET_HOME".to_owned(),
+            home.to_str().unwrap().to_owned(),
+        );
+        assert_eq!(got, expected);
+    }
+
+    /// Runs as a Rust host in a process of its own, with
+    /// [`environment_child`] as its child, until that child has
+    /// written its environment. Prints what it logged.
+    #[tokio::test]
+    async fn environment_host() {
+        let Some(home) = std::env::var_os(ENVIRONMENT_HOME) else {
+            return;
+        };
+        let home = PathBuf::from(home);
+        let written = home.join(WRITTEN);
+        std::fs::create_dir(&written).unwrap();
+        let logs = Logs::default();
+        let recording = logs.record(LevelFilter::TRACE);
+        let exe = std::env::current_exe().unwrap();
+        let (_host, supervisor) = open_with(
+            &home,
+            ChildOptions {
+                argv: vec![
+                    exe.to_str().unwrap().to_owned(),
+                    "--exact".to_owned(),
+                    "handshake::environment_child".to_owned(),
+                ],
+                kinds: vec!["agent".to_owned()],
+            },
+        );
+        let deadline = Instant::now() + READY_WAIT;
+        while !written.join("environment").exists() {
+            assert!(Instant::now() < deadline, "{}", logs.text());
+            tokio::time::sleep(Duration::from_millis(10)).await;
+        }
+        supervisor.shutdown().await;
+        drop(recording);
+        write!(std::io::stdout(), "{}", logs.text()).unwrap();
+    }
+
+    /// Writes this process's environment, as JSON, to `environment`
+    /// in the folder [`WRITTEN`] of the realm folder.
+    #[test]
+    fn environment_child() {
+        let Some(home) = std::env::var_os("HAMLET_HOME") else {
+            return;
+        };
+        let written = Path::new(&home).join(WRITTEN);
+        if !written.is_dir() {
+            return;
+        }
+        let environment = std::env::vars_os()
+            .map(|(name, value)| {
+                (
+                    name.to_string_lossy().into_owned(),
+                    value.to_string_lossy().into_owned(),
+                )
+            })
+            .collect::<BTreeMap<_, _>>();
+        let part = written.join("environment.part");
+        std::fs::write(
+            &part,
+            serde_json::to_vec(&environment).unwrap(),
+        )
+        .unwrap();
+        std::fs::rename(part, written.join("environment")).unwrap();
     }
 
     #[tokio::test]
