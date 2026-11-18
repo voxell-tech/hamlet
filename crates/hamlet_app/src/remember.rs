@@ -41,6 +41,10 @@ use crate::{PanelSystems, hub};
 /// divider writes once.
 const SETTLE: f32 = 0.8;
 
+/// The seconds before a view that could not be written is tried
+/// again.
+const RETRY: f32 = 5.0;
+
 /// The time a remembered selection is looked for before it is given
 /// up: an agent removed since never comes. Longer than the first
 /// reconnection tries, for a window opened before its server listens.
@@ -474,12 +478,20 @@ pub fn keep(
     if written.as_ref() == Some(&view) {
         return;
     }
-    if let Ok(text) = toml::to_string(&view)
-        && std::fs::create_dir_all(&folder.0).is_ok()
-    {
-        let _ = std::fs::write(file(&folder.0), text);
+    let saved = toml::to_string(&view).is_ok_and(|text| {
+        std::fs::create_dir_all(&folder.0).is_ok()
+            && std::fs::write(file(&folder.0), text).is_ok()
+    });
+    match saved {
+        true => *written = Some(view),
+        // Tried again a while later, as the folder may come back. A
+        // failed write may have cut the file short, so what it held
+        // is no longer known.
+        false => {
+            *written = None;
+            *due = Some(now + RETRY);
+        }
     }
-    *written = Some(view);
 }
 
 #[cfg(test)]
