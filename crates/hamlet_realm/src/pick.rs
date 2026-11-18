@@ -23,7 +23,9 @@ use bevy::picking::mesh_picking::{
 use bevy::prelude::*;
 use bevy::shape::Aabb3d;
 use bevy::window::PrimaryWindow;
-use hamlet_client::realm::Shown;
+use hamlet_client::realm::{
+    Identity, Left, Lodging, Mayor, Nickname, Shown,
+};
 
 pub use self::camera::{
     Centre, Following, Glide, Leash, Orbit, Stance, Steer,
@@ -139,20 +141,49 @@ pub enum Thing {
     Workbench(Entity),
 }
 
-/// The names things go by in the world: an agent's `Shown` name, a
-/// hire's nickname or else its scholar's name, over its `Name`.
-pub type Names<'w, 's> =
-    Query<'w, 's, (&'static Name, Option<&'static Shown>)>;
+/// What the names of things are read from: an agent's `Shown` name, a
+/// scholar's `Lodging`, the mayor's `Nickname`, all over its `Name`.
+pub type Names<'w, 's> = Query<
+    'w,
+    's,
+    (
+        &'static Name,
+        Option<&'static Shown>,
+        Option<&'static Lodging>,
+        Option<&'static Nickname>,
+        Has<Mayor>,
+        Has<Left>,
+        Option<&'static Identity>,
+    ),
+>;
+
+/// The nickname of the first mayor, which the world calls it by.
+fn mayor_nickname(names: &Names) -> Option<String> {
+    names
+        .iter()
+        .filter(|(.., mayor, left, _)| *mayor && !left)
+        .min_by_key(|(.., identity)| identity.map(|i| i.0))
+        .and_then(|(_, _, _, nickname, ..)| nickname)
+        .map(|nickname| nickname.0.clone())
+}
 
 impl Thing {
     pub fn name(self, names: &Names) -> String {
         let named = |agent: Entity| match names.get(agent) {
-            Ok((_, Some(shown))) => shown.0.clone(),
-            Ok((name, None)) => name.as_str().to_string(),
+            Ok((_, Some(shown), ..)) => shown.0.clone(),
+            Ok((name, None, ..)) => name.as_str().to_string(),
             Err(_) => String::new(),
         };
+        let lodged = |scholar: Entity, names: &Names| match names
+            .get(scholar)
+        {
+            Ok((_, _, Some(lodging), ..)) => lodging.0.clone(),
+            _ => named(scholar),
+        };
         match self {
-            Thing::Keeper => "The Mayor".into(),
+            Thing::Keeper => {
+                mayor_nickname(names).unwrap_or("The Mayor".into())
+            }
             Thing::Agent(agent) => named(agent),
             Thing::House(agent) => {
                 format!("{}'s House", named(agent))
@@ -160,7 +191,10 @@ impl Thing {
             Thing::Ruin(agent) => {
                 format!("{}'s Ruin", named(agent))
             }
-            Thing::Cottage => "The Mayor's House".into(),
+            Thing::Cottage => format!(
+                "{}'s House",
+                mayor_nickname(names).unwrap_or("The Mayor".into())
+            ),
             Thing::Common(hamlet) => {
                 format!("The Common of {}", named(hamlet))
             }
@@ -173,7 +207,7 @@ impl Thing {
             Thing::Library => "The Library".into(),
             Thing::Hand => "The Hand's Tower".into(),
             Thing::Scholar(scholar) => {
-                format!("{}'s House", named(scholar))
+                format!("{}'s House", lodged(scholar, names))
             }
             Thing::Clockwork(hamlet) => {
                 format!("The Clockwork of {}", named(hamlet))
@@ -204,16 +238,19 @@ impl Thing {
     /// The few words shown over it all the time, when it is `Named`.
     fn sign(self, names: &Names) -> String {
         match self {
-            Thing::Cottage => "Mayor".into(),
+            Thing::Cottage => {
+                mayor_nickname(names).unwrap_or("Mayor".into())
+            }
             Thing::House(agent) | Thing::Ruin(agent) => {
                 Thing::Agent(agent).name(names)
             }
             // A hamlet is known by the name over its common.
             Thing::Common(hamlet) => Thing::Agent(hamlet).name(names),
-            // A scholar's house carries its scholar's name.
-            Thing::Scholar(scholar) => {
-                Thing::Agent(scholar).name(names)
-            }
+            // A scholar's house carries what it is lodged under.
+            Thing::Scholar(scholar) => match names.get(scholar) {
+                Ok((_, _, Some(lodging), ..)) => lodging.0.clone(),
+                _ => Thing::Agent(scholar).name(names),
+            },
             other => other.name(names),
         }
     }

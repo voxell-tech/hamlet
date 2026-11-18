@@ -124,6 +124,11 @@ pub struct Nickname(pub String);
 #[derive(Component, Clone, Debug, PartialEq, Eq)]
 pub struct Shown(pub String);
 
+/// What a scholar's house shows: the nickname of its hire when it has
+/// exactly one, else the scholar's name.
+#[derive(Component, Clone, Debug, PartialEq, Eq)]
+pub struct Lodging(pub String);
+
 /// The version of its scholar a hire is pinned to.
 #[derive(Component, Clone, Debug, PartialEq, Eq)]
 pub struct Pin(pub String);
@@ -387,6 +392,7 @@ pub fn register(world: &mut World) {
     world.register_component::<Allowance>();
     world.register_component::<Nickname>();
     world.register_component::<Shown>();
+    world.register_component::<Lodging>();
     world.register_component::<OwnModel>();
     world.register_component::<OwnEffort>();
     world.register_component::<Fast>();
@@ -638,6 +644,7 @@ pub(crate) fn state(world: &mut World, state: protocol::State) {
         .filter_map(|agent| upsert_agent(world, agent))
         .collect::<Vec<_>>();
     departures(world);
+    refresh_lodgings(world);
     for hamlet in hamlet_values {
         society(world, hamlet, news);
     }
@@ -739,6 +746,33 @@ fn refresh_shown(world: &mut World, agent: Entity) {
         })
         .unwrap_or_else(|| address.as_str().to_owned());
     put(&mut world.entity_mut(agent), Shown(shown));
+}
+
+/// Sets what each scholar's house shows.
+fn refresh_lodgings(world: &mut World) {
+    let hires = world
+        .query_filtered::<(&OfScholar, Option<&Nickname>), (
+            With<Hire>,
+            Without<Left>,
+        )>()
+        .iter(world)
+        .map(|(of, nickname)| (of.0, nickname.map(|n| n.0.clone())))
+        .collect::<Vec<_>>();
+    let scholars = world
+        .query::<(Entity, &Scholar)>()
+        .iter(world)
+        .map(|(entity, scholar)| {
+            (entity, scholar.0.id, scholar.0.name.clone())
+        })
+        .collect::<Vec<_>>();
+    for (entity, id, name) in scholars {
+        let mut of = hires.iter().filter(|(of, _)| *of == id);
+        let shown = match (of.next(), of.next()) {
+            (Some((_, Some(nickname))), None) => nickname.clone(),
+            _ => name,
+        };
+        put(&mut world.entity_mut(entity), Lodging(shown));
+    }
 }
 
 fn upsert_agent(
@@ -919,6 +953,7 @@ pub(crate) fn changes(world: &mut World, changes: protocol::Changes) {
         }
     }
     departures(world);
+    refresh_lodgings(world);
     for hamlet in hamlets {
         society(world, hamlet, true);
     }
@@ -1146,7 +1181,9 @@ mod tests {
     use hamlet_protocol::client as protocol;
     use hamlet_testing::realm::{agent, road, state};
 
-    use super::{named, road_between, roads_of, shown_of};
+    use super::{
+        Lodging, named, road_between, roads_of, scholar, shown_of,
+    };
     use crate::{ClientPlugin, receive};
 
     #[test]
@@ -1167,6 +1204,32 @@ mod tests {
         receive(world, protocol::ServerMessage::State(realm));
         assert_eq!(shown_of(world, ada), "Countess");
         assert_eq!(named(world, "hire#2"), Some(ada));
+    }
+
+    #[test]
+    fn a_scholars_house_shows_its_only_hires_nickname() {
+        let mut app = App::new();
+        app.add_plugins(ClientPlugin { server: None });
+        let mut realm = state();
+        let world = app.world_mut();
+        let house = |world: &bevy_ecs::world::World| {
+            let entity = scholar(world, protocol::ScholarId(2))?;
+            world.get::<Lodging>(entity).map(|l| l.0.clone())
+        };
+        receive(world, protocol::ServerMessage::State(realm.clone()));
+        assert_eq!(house(world).as_deref(), Some("ada"));
+        realm.revision = 1;
+        realm.agents[1].nickname = Some("Countess".into());
+        receive(world, protocol::ServerMessage::State(realm.clone()));
+        assert_eq!(house(world).as_deref(), Some("Countess"));
+        // A second hire of the scholar leaves the house with the
+        // scholar's name.
+        realm.revision = 2;
+        let mut other = agent(3, "home", false);
+        other.scholar = Some(protocol::ScholarId(2));
+        realm.agents.push(other);
+        receive(world, protocol::ServerMessage::State(realm.clone()));
+        assert_eq!(house(world).as_deref(), Some("ada"));
     }
 
     #[test]

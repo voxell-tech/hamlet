@@ -1,3 +1,5 @@
+use bevy::ecs::system::SystemState;
+
 use super::*;
 use crate::sky::CameraSettings;
 
@@ -34,4 +36,37 @@ fn the_view_stays_within_reach_of_something_to_look_at() {
         (held.distance(Vec2::new(2500.0, 150.0)) - camera.pan).abs()
             < 40.0
     );
+}
+
+#[test]
+fn the_mayors_nickname_names_its_things_and_a_scholar_house_its_lodging()
+ {
+    use hamlet_client::realm::{Identity, Lodging, Mayor, Nickname};
+    use hamlet_protocol::client::AgentId;
+
+    let mut world = World::new();
+    let mayor = world
+        .spawn((Name::new("hire#2"), Mayor, Identity(AgentId(2))))
+        .id();
+    let house = world
+        .spawn((Name::new("ada"), Lodging("Countess".into())))
+        .id();
+    let bare = world.spawn(Name::new("bea")).id();
+    let mut state = SystemState::<Names>::new(&mut world);
+    let names = state.get(&world).unwrap();
+    assert_eq!(Thing::Keeper.name(&names), "The Mayor");
+    assert_eq!(Thing::Cottage.sign(&names), "Mayor");
+    assert_eq!(Thing::Scholar(house).sign(&names), "Countess");
+    assert_eq!(Thing::Scholar(bare).sign(&names), "bea");
+    assert_eq!(
+        Thing::Scholar(house).name(&names),
+        "Countess's House"
+    );
+    world
+        .entity_mut(mayor)
+        .insert(Nickname("Chief of Staff".into()));
+    let names = state.get(&world).unwrap();
+    assert_eq!(Thing::Keeper.name(&names), "Chief of Staff");
+    assert_eq!(Thing::Cottage.name(&names), "Chief of Staff's House");
+    assert_eq!(Thing::Cottage.sign(&names), "Chief of Staff");
 }
