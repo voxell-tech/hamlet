@@ -3,13 +3,11 @@
 //! `agent`, or plays a part of the Node host's half by hand.
 //!
 //! ```text
-//! link_child [--env <file>] [--starts <file>] [--stray] [--frames <file>]
+//! link_child [--starts <file>] [--stray] [--frames <file>]
 //!            [--protocol <version> | --hold | --welcomed
 //!             | --ask-early <file> | --forge <stamp> | --silent
 //!             | --end-subscription | --ask-subscribe]
 //!
-//! --env <file>          write the names of its environment's
-//!                       variables to <file>, one to a line
 //! --starts <file>       append `<pid> <ms>` to <file> once it has
 //!                       taken the link's ends, <ms> in Unix
 //!                       milliseconds
@@ -92,7 +90,6 @@ enum Part {
 }
 
 fn main() -> Result<()> {
-    let mut env = None;
     let mut starts = None;
     let mut frames = None;
     let mut stray = false;
@@ -104,7 +101,6 @@ fn main() -> Result<()> {
                 .with_context(|| format!("{arg} needs a value"))
         };
         match arg.as_str() {
-            "--env" => env = Some(PathBuf::from(value()?)),
             "--starts" => starts = Some(PathBuf::from(value()?)),
             "--frames" => frames = Some(PathBuf::from(value()?)),
             "--stray" => stray = true,
@@ -126,12 +122,6 @@ fn main() -> Result<()> {
             }
             _ => bail!("unknown argument {arg}"),
         }
-    }
-    if let Some(path) = env {
-        let names = std::env::vars_os()
-            .map(|(name, _)| format!("{}\n", name.to_string_lossy()))
-            .collect::<String>();
-        std::fs::write(path, names)?;
     }
     match mode {
         Mode::Serve => {
