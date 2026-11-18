@@ -1,9 +1,11 @@
-//! The `@path` tokens of a typed line, which attach what they name
+//! The `#path` tokens of a typed line, which attach what they name
 //! where they stand (C33).
 
 use std::path::{Path, PathBuf};
 
-/// A line with its `@path` tokens taken out.
+use hamlet_protocol::signs::Sign;
+
+/// A line with its `#path` tokens taken out.
 #[derive(Debug, PartialEq)]
 pub(crate) struct Taken {
     pub text: String,
@@ -15,10 +17,11 @@ pub(crate) struct Taken {
 /// The characters a sentence may put after a path.
 const TRAILING: [char; 7] = ['.', ',', ';', ':', '!', '?', ')'];
 
-/// Takes from `line` each token `@path` or `@"path with spaces"`
+/// Takes from `line` each token `#path` or `#"path with spaces"`
 /// that starts the line or follows whitespace and whose path
-/// `exists`. Any other token stays in the text. A token that ends a
-/// word with a mark of punctuation names the path before the mark.
+/// `exists`. Any other token stays in the text, as `#3`, a wait,
+/// does. A token that ends a word with a mark of punctuation names
+/// the path before the mark.
 pub(crate) fn take(
     line: &str,
     exists: impl Fn(&Path) -> bool,
@@ -29,10 +32,16 @@ pub(crate) fn take(
     for (start, ch) in line.char_indices() {
         let follows_space = after;
         after = ch.is_whitespace();
-        if ch != '@' || !follows_space || start < skip_to {
+        if Sign::of(ch) != Some(Sign::File)
+            || !follows_space
+            || start < skip_to
+        {
             continue;
         }
         let rest = &line[start + 1..];
+        if Sign::File.refuses(rest) {
+            continue;
+        }
         // The names the token may mean, each with where it ends.
         let names = match rest.strip_prefix('"') {
             Some(quoted) => {
@@ -108,12 +117,12 @@ mod tests {
     fn a_token_is_taken_out_where_it_stood() {
         for (line, text, paths) in [
             (
-                "look at @a.png and compare",
+                "look at #a.png and compare",
                 "look at and compare",
                 "8 a.png",
             ),
-            ("@notes what is in it", "what is in it", "0 notes"),
-            ("compare @a.png", "compare ", "8 a.png"),
+            ("#notes what is in it", "what is in it", "0 notes"),
+            ("compare #a.png", "compare ", "8 a.png"),
         ] {
             assert_eq!(taken(line), (text.into(), paths.into()));
         }
@@ -122,9 +131,9 @@ mod tests {
     #[test]
     fn two_tokens_keep_their_order() {
         for (line, text, paths) in [
-            ("@a.png @notes", "", "0 a.png, 0 notes"),
+            ("#a.png #notes", "", "0 a.png, 0 notes"),
             (
-                "see @a.png, then @notes.",
+                "see #a.png, then #notes.",
                 "see , then .",
                 "4 a.png, 11 notes",
             ),
@@ -136,7 +145,7 @@ mod tests {
     #[test]
     fn a_quoted_token_holds_spaces() {
         assert_eq!(
-            taken("read @\"my dir/b.txt\" now"),
+            taken("read #\"my dir/b.txt\" now"),
             ("read now".into(), "5 my dir/b.txt".into())
         );
     }
@@ -144,11 +153,13 @@ mod tests {
     #[test]
     fn what_names_no_path_stays_in_the_text() {
         for line in [
-            "ask @someone about it",
-            "mail a@b.com",
-            "a lone @ here",
-            "@\"unclosed a.png",
-            "@\"nothing here\" at all",
+            "ask #someone about it",
+            "ask @notes about it",
+            "issue a#b",
+            "a lone # here",
+            "allow #3",
+            "#\"unclosed a.png",
+            "#\"nothing here\" at all",
         ] {
             assert_eq!(taken(line), (line.into(), String::new()));
         }

@@ -9,7 +9,7 @@ mod rail;
 
 pub(crate) use self::rail::guides;
 mod profile;
-mod thread;
+pub(crate) mod thread;
 mod visits;
 
 use bevy::app::{App, Update};

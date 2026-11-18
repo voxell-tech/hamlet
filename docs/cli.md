@@ -94,11 +94,12 @@ own and attaches it to the next line (C33). A folder goes with everything under
 it, links left out. What is attached and over 32 MiB or 1000 files, images
 aside, asks `y/N` before it is sent; the end of input answers no. Attachments
 still held when input ends go in a line of their own. In a line of words, in
-the terminal or piped in, `@path` or `@"path with spaces"` at the start of the
+the terminal or piped in, `#path` or `#"path with spaces"` at the start of the
 line or after whitespace attaches what the path names where the token stood,
 and the token leaves the words, with the space after it when it stood alone. A
-path that does not exist leaves the token in the words, so `@someone` and
-`a@b.com` stay as they are; a token that ends a word with `.`, `,`, `;`, `:`,
+path that does not exist leaves the token in the words, so `#someone` and
+`a#b` stay as they are, and `#3`, a wait, is never a path; a token that ends a
+word with `.`, `,`, `;`, `:`,
 `!`, `?` or `)` names the path before the mark. Paths are read from the folder
 `hamlet chat` runs in. A path that cannot be attached stops the line from
 being said. A line that begins with `/` is no line of words, and its tokens

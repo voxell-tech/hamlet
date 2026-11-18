@@ -584,7 +584,7 @@ fn compact(agent: Entity) -> impl View {
 }
 
 /// Summarizes the earlier part of `agent`'s conversation now.
-fn compact_now(world: &mut World, agent: Entity) {
+pub(crate) fn compact_now(world: &mut World, agent: Entity) {
     if let Some(to) = id_of(world, agent) {
         world.trigger(Compact {
             request: protocol::RequestId::new(),
