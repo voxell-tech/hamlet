@@ -266,16 +266,25 @@ fn unchanged_expiry(before: &Value, mut kept: Value) -> Value {
 /// The credential as the agent reads it; `None` for one it cannot.
 fn given(value: &Value) -> Option<CredentialAnswer> {
     match value["type"].as_str()? {
-        "api_key" => Some(CredentialAnswer::Key {
-            // A key of settings alone has none, as pi-ai keeps it.
-            key: value["key"].as_str().unwrap_or_default().to_owned(),
-            env: match value.get("env") {
+        "api_key" => {
+            let env: Settings = match value.get("env") {
                 Some(env) => {
                     serde_json::from_value(env.clone()).ok()?
                 }
                 None => Settings::new(),
-            },
-        }),
+            };
+            let key = match value["key"].as_str() {
+                Some(key) => key,
+                // A key of settings alone has none, as pi-ai keeps
+                // it.
+                None if !env.is_empty() => "",
+                None => return None,
+            };
+            Some(CredentialAnswer::Key {
+                key: key.to_owned(),
+                env,
+            })
+        }
         "oauth" => {
             let mut extra = value.as_object()?.clone();
             extra.retain(|field, _| {

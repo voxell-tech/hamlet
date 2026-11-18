@@ -297,9 +297,11 @@ async fn a_key_is_kept_and_given_back_with_its_settings() {
 async fn a_stored_key_of_settings_alone_reads_with_an_empty_key() {
     let mut file = todays_file();
     file["models"]["bedrock"] = json!({ "type": "api_key", "env": { "AWS_PROFILE": "work" } });
+    file["models"]["blank"] = json!({ "type": "api_key" });
     let realm = moved_over(Realm::start().await, &file).await;
 
     let given = credential(&realm, Hand::NUMBER, "bedrock").await;
+    let blank = credential(&realm, Hand::NUMBER, "blank").await;
 
     assert_eq!(
         given,
@@ -308,6 +310,15 @@ async fn a_stored_key_of_settings_alone_reads_with_an_empty_key() {
             env: [("AWS_PROFILE".to_owned(), "work".to_owned())]
                 .into(),
         }
+    );
+    assert_eq!(
+        blank,
+        CredentialAnswer::Refused {
+            why: CredentialRefusal::NotSignedIn {
+                provider: "blank".to_owned()
+            }
+        },
+        "a key of neither a key nor settings is none"
     );
     realm.host.shutdown().await.unwrap();
 }

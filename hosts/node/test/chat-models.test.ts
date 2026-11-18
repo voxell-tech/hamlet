@@ -918,13 +918,47 @@ test("requests at once ask the realm for a key once", async () => {
 });
 
 test("a key of settings alone serves a request with its settings and no key", async () => {
-    const env = { AWS_PROFILE: "work" };
+    const core = createFauxCore({
+        provider: "profiled",
+        models: [{ id: "large", name: "Large" }],
+    });
+    const seen: unknown[] = [];
+    core.setResponses([
+        (_transcript, options) => {
+            seen.push({ apiKey: options?.apiKey, env: options?.env });
+            return fauxAssistantMessage("Hello");
+        },
+    ]);
+    const listed = createModels();
+    (listed as MutableModels).setProvider(
+        createProvider({
+            id: "profiled",
+            models: core.models,
+            api: { stream: core.stream, streamSimple: core.streamSimple },
+            auth: {
+                apiKey: {
+                    name: "a profile",
+                    // As pi-ai's Bedrock: a profile in the settings signs in.
+                    resolve: async ({ ctx, credential }) =>
+                        (credential?.env?.PROFILE ??
+                            (await ctx.env("PROFILE"))) === undefined
+                            ? undefined
+                            : { auth: {} },
+                },
+            },
+        }),
+    );
+    const env = { PROFILE: "work" };
     const keys = keysOf(
         { credential: async () => ({ type: "key", key: "", env }) },
         () => {},
     );
 
-    assert.deepStrictEqual(await keys.of("loopback"), { env });
+    assert.deepEqual(await checkModel(listed, keys, "profiled::large"), {
+        type: "answered",
+        words: "Hello",
+    });
+    assert.deepStrictEqual(seen, [{ apiKey: undefined, env }]);
 });
 
 async function currentSession(agent: Woken) {
