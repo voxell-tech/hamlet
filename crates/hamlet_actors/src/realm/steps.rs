@@ -8,13 +8,16 @@ use std::time::Duration;
 
 use anyhow::{Context as _, Result, bail};
 use hamlet_actor::{BindParam, Ctx};
+use hamlet_actor_error::ActorError;
+use hamlet_messages::workspace::AgentNumber;
 use serde::{Deserialize, Serialize};
 use tokio::sync::watch;
 
+use super::calls::{Calls, Delivery};
 use super::change::{self, Affected, Rows, Writer};
 use super::peer::Peers;
 use super::workers::errands;
-use super::{Realm, calls, hire, parcels, reviews, workers};
+use super::{Realm, calls, hire, parcels, reviews, tree, workers};
 
 #[derive(
     Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize,
@@ -202,12 +205,96 @@ impl Cx<'_> {
     }
 }
 
+/// The first wait before a step that failed in passing is run again,
+/// doubled after each failure up to [`LAST_RETRY`].
+const FIRST_RETRY: Duration = Duration::from_secs(1);
+
+const LAST_RETRY: Duration = Duration::from_secs(60);
+
+/// Drives `row` until it is done. A step that fails in passing runs
+/// again while the realm runs; one that fails for good ends its
+/// hire or worker.
 async fn drive(realm: Arc<Realm>, ctx: Ctx<Realm>, row: StepId) {
-    let cx = Cx {
-        realm: &realm,
-        ctx: &ctx,
+    let mut retry = FIRST_RETRY;
+    loop {
+        let Err(error) = walk_row(&realm, &ctx, row).await else {
+            return;
+        };
+        tracing::warn!(?row, "a step failed: {error:#}");
+        if for_good(&error) {
+            if let Err(error) = end_failed(&realm, &ctx, row).await {
+                tracing::warn!(
+                    ?row,
+                    "ending a failed row: {error:#}"
+                );
+            }
+            return;
+        }
+        let stopping = ctx.abort_signal();
+        tokio::select! {
+            () = stopping.cancelled() => return,
+            () = tokio::time::sleep(retry) => {}
+        }
+        retry = (retry * 2).min(LAST_RETRY);
+    }
+}
+
+/// Whether `error` is a callee's own answer. An actor still starting,
+/// a link that is down and a fault of the realm's own pass.
+fn for_good(error: &anyhow::Error) -> bool {
+    error
+        .chain()
+        .find_map(|cause| cause.downcast_ref::<ActorError>())
+        .is_some_and(|answer| {
+            !matches!(answer.group(), "actor" | "link")
+        })
+}
+
+/// Ends the hire or the worker whose row failed for good.
+async fn end_failed(
+    realm: &Arc<Realm>,
+    ctx: &Ctx<Realm>,
+    row: StepId,
+) -> Result<()> {
+    let agent = AgentNumber(u32::try_from(row.n)?);
+    let tx = change::Transaction::begin(ctx).await?;
+    let (changes, calls) = match row.kind {
+        Kind::Hire => {
+            (tree::failed(&tx.rows(), agent).await?, Calls::none())
+        }
+        Kind::Worker => (
+            workers::failed(&tx.rows(), agent).await?,
+            Calls::after_answer(Delivery::WorkerAnswer(agent)),
+        ),
+        Kind::Errand | Kind::Review | Kind::Parcel => return Ok(()),
     };
-    let driven = match row.kind {
+    if changes.is_empty() {
+        return Ok(());
+    }
+    let write = change::Write::<()> {
+        changes,
+        entries: Vec::new(),
+        marker: None,
+    };
+    let (pushes, lined) =
+        tx.commit_lined(realm, write, calls).await?;
+    calls::after_answer(
+        realm.clone(),
+        ctx.clone(),
+        lined.after_answer,
+        pushes,
+    )
+    .await;
+    Ok(())
+}
+
+async fn walk_row(
+    realm: &Arc<Realm>,
+    ctx: &Ctx<Realm>,
+    row: StepId,
+) -> Result<()> {
+    let cx = Cx { realm, ctx };
+    match row.kind {
         Kind::Hire => {
             walk(&cx, row, async move |cx: &Cx<'_>, step| {
                 hire::run(cx, row.n, step).await
@@ -238,9 +325,6 @@ async fn drive(realm: Arc<Realm>, ctx: Ctx<Realm>, row: StepId) {
             })
             .await
         }
-    };
-    if let Err(error) = driven {
-        tracing::warn!(?row, "a step failed: {error:#}");
     }
 }
 

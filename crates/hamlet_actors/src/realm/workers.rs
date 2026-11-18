@@ -255,6 +255,20 @@ fn words(how: HowEnded, answer: Option<String>) -> String {
     }
 }
 
+/// The changes that end worker `agent`, whose start failed for good.
+/// None for a worker that ended.
+pub(super) async fn failed(
+    rows: &Rows<'_>,
+    agent: AgentNumber,
+) -> Result<Vec<change::Change>> {
+    if tree::life(rows, agent).await? != tree::Life::Living {
+        return Ok(Vec::new());
+    }
+    let mut changes = ending(agent, HowEnded::Failed, None);
+    changes.push(steps::Change::Close { row: row(agent) }.into());
+    Ok(changes)
+}
+
 fn row(agent: AgentNumber) -> StepId {
     StepId {
         kind: Kind::Worker,

@@ -255,22 +255,18 @@ impl<By: Lead> Act<By> for End {
                 workers::ending(hire, HowEnded::Stopped, None);
             return Decision::Change(decided);
         }
-        let mut decided = Decided::new(Ended::Hire)
-            .change(Change::End {
-                agent: hire,
-                by: by.by(),
-                why: self.why.clone(),
-            })
-            .change(waits::Change::Lapse { agent: hire })
-            .change(steps::Change::Close {
-                row: hire::row(hire),
-            })
-            .record(record::Entry::Ended {
+        let mut decided =
+            Decided::new(Ended::Hire).record(record::Entry::Ended {
                 hire,
                 by: by.by(),
                 why: self.why.clone(),
             });
-        decided.changes.extend(ending.workers);
+        decided.changes = hire_ending(
+            hire,
+            how_of(by.by()),
+            self.why.clone(),
+            ending.workers,
+        );
         Decision::Change(decided)
     }
 
@@ -352,10 +348,61 @@ impl<By: RealmWide> Act<By> for Seat {
     }
 }
 
+/// The changes that end `hire`, close its steps and stop its living
+/// `workers`.
+fn hire_ending(
+    hire: AgentNumber,
+    how: HowEnded,
+    why: Option<String>,
+    workers: Vec<change::Change>,
+) -> Vec<change::Change> {
+    [
+        Change::End {
+            agent: hire,
+            how,
+            why,
+        }
+        .into(),
+        waits::Change::Lapse { agent: hire }.into(),
+        steps::Change::Close {
+            row: hire::row(hire),
+        }
+        .into(),
+    ]
+    .into_iter()
+    .chain(workers)
+    .collect()
+}
+
+/// The changes that end `hire`, whose steps failed for good. None
+/// for the Hand, a mayor or a hire that ended: an end refuses them.
+pub(in crate::realm) async fn failed(
+    rows: &Rows<'_>,
+    hire: AgentNumber,
+) -> Result<Vec<change::Change>> {
+    let lineage = super::lineage_of(rows, hire).await?;
+    if lineage.agent.kind == AgentKind::Hand
+        || lineage.is_mayor()
+        || matches!(lineage.agent.status, Status::Ended(_))
+    {
+        return Ok(Vec::new());
+    }
+    let workers = workers::end_with(rows, hire).await?;
+    Ok(hire_ending(hire, HowEnded::Failed, None, workers))
+}
+
+fn how_of(by: record::By) -> HowEnded {
+    match by {
+        record::By::Chief => HowEnded::ByTheChief,
+        record::By::Agent(Hand::NUMBER) => HowEnded::ByTheHand,
+        record::By::Agent(lead) => HowEnded::ByALead { lead },
+    }
+}
+
 pub(in crate::realm) async fn end(
     writer: &Writer<'_>,
     agent: AgentNumber,
-    by: record::By,
+    how: HowEnded,
     why: Option<String>,
 ) -> Result<Affected> {
     let rows = writer.rows();
@@ -371,11 +418,6 @@ pub(in crate::realm) async fn end(
         .collect::<BTreeSet<_>>();
     let roads_seen = (!laid::of(&rows, agent).await?.is_empty())
         .then_some(Part::Roads);
-    let how = match by {
-        record::By::Chief => HowEnded::ByTheChief,
-        record::By::Agent(Hand::NUMBER) => HowEnded::ByTheHand,
-        record::By::Agent(lead) => HowEnded::ByALead { lead },
-    };
     super::set_ended(writer, agent, &how, why).await?;
     for hire in moved {
         set_lead(writer, hire, lead).await?;

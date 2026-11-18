@@ -9,7 +9,9 @@ use std::time::{Duration, Instant};
 
 use anyhow::{Context, bail};
 use hamlet_actor::{Action, Actor, Ctx, Handler, Registry};
-use hamlet_actor_core::{ActorConfig, ActorFactory, ShutdownKind};
+use hamlet_actor_core::{
+    ActorConfig, ActorFactory, ActorLifecycle, ShutdownKind,
+};
 use hamlet_actor_error::ActorError;
 use hamlet_actors::realm;
 use hamlet_host::{Address, Caller, Host, HostOptions, HostRef};
@@ -133,6 +135,9 @@ struct Seen {
     chief_answers: Mutex<Vec<ChiefAnswer>>,
     branches: Mutex<Vec<(ProfileId, Branch)>>,
     failing: Mutex<HashSet<(Callee, AgentNumber)>>,
+    /// The calls that fail every time, with an error of the callee's
+    /// own.
+    refusing: Mutex<HashSet<(Callee, AgentNumber)>>,
     held: watch::Sender<HashSet<Callee>>,
     /// The calls that wait while the test holds their callee.
     waiting: Mutex<HashSet<(Callee, AgentNumber)>>,
@@ -165,16 +170,21 @@ impl Seen {
             released?;
         }
         if self.failing.lock().unwrap().remove(&(callee, agent)) {
-            bail!(
-                "the stand-in fails {callee:?} of {} once",
-                agent.0
-            );
+            return Err(ActorLifecycle::NotReady.build());
+        }
+        if self.refusing.lock().unwrap().contains(&(callee, agent)) {
+            bail!("the stand-in refuses {callee:?} of {}", agent.0);
         }
         Ok(())
     }
 
+    /// Fails `agent`'s next call of `callee` as an actor not ready.
     fn fail_once(&self, callee: Callee, agent: AgentNumber) {
         self.failing.lock().unwrap().insert((callee, agent));
+    }
+
+    fn fail_for_good(&self, callee: Callee, agent: AgentNumber) {
+        self.refusing.lock().unwrap().insert((callee, agent));
     }
 
     fn has_failed(&self, callee: Callee, agent: AgentNumber) -> bool {

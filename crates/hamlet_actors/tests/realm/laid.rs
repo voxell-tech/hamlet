@@ -370,11 +370,11 @@ async fn a_road_request_gives_a_lead_with_no_purpose_one() {
 #[tokio::test(flavor = "multi_thread")]
 async fn a_road_request_to_a_lead_still_hiring_waits_for_its_steps() {
     // the chief hires 3 under the mayor and 4 under 3. 3's create
-    // fails once, so 3 stays hiring. 4's road request waits out the
+    // is held, so 3 stays hiring. 4's road request waits out the
     // hiring wait and is refused `StillHiring`, and 3 is given
     // nothing.
     let (realm, hamlet) = hamlet_with(0).await;
-    realm.seen.fail_once(Callee::Create, THREE);
+    realm.seen.hold_next(Callee::Create);
     chief_hires(&realm, &hamlet, hire(Some(to(MAYOR)))).await;
     chief_hires(&realm, &hamlet, hire(Some(to(THREE)))).await;
     realm.live(FOUR).await;

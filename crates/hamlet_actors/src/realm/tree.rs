@@ -15,6 +15,7 @@ use hamlet_messages::realm::{
 };
 use hamlet_messages::sender::Hand;
 use hamlet_messages::workspace::{AgentNumber, Numbered};
+pub(super) use lead::failed;
 
 use super::callers::Decider;
 use super::change::{self, Affected, Rows, Writer, integer, number};
@@ -459,7 +460,7 @@ pub(super) enum Change {
     /// The agent ends, and its hires go to its lead.
     End {
         agent: AgentNumber,
-        by: record::By,
+        how: HowEnded,
         why: Option<String>,
     },
     /// `mayor` becomes the root of its hamlet's tree, with the old
@@ -493,8 +494,8 @@ pub(super) async fn apply(
         Change::Purpose { hire, text } => {
             purpose(writer, hire, text).await
         }
-        Change::End { agent, by, why } => {
-            lead::end(writer, agent, by, why).await
+        Change::End { agent, how, why } => {
+            lead::end(writer, agent, how, why).await
         }
         Change::Seat { mayor } => lead::seat(writer, mayor).await,
         Change::Tools { hire, off, on } => {
