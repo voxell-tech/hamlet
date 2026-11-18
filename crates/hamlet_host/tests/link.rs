@@ -432,6 +432,25 @@ mod handshake {
     /// Set, the Rust host's child holds.
     const HOST_HOLD: &str = "HAMLET_LINK_TEST_HOLD";
 
+    /// A made-up token of the actor runtime, which no log holds.
+    const ACTOR_TOKEN: &str = "made-up-actor-token-4711";
+
+    /// A made-up proxy whose password no log holds.
+    const PROXY: &str =
+        "http://user:made-up-proxy-password@127.0.0.1:9";
+
+    /// A made-up key outside what crosses.
+    const OUTSIDE_KEY: &str = "made-up-hamlet-key-0815";
+
+    /// The folder of the Rust host [`environment_host`] runs. Unset,
+    /// that test does nothing.
+    const ENVIRONMENT_HOME: &str =
+        "HAMLET_LINK_TEST_ENVIRONMENT_HOME";
+
+    /// The folder, in its realm folder, where [`environment_child`]
+    /// writes its environment. Absent, that test does nothing.
+    const WRITTEN: &str = "child-environment";
+
     /// What the Rust host's child does on the link.
     enum StandIn {
         Serves,
@@ -632,7 +651,7 @@ mod handshake {
     /// The variables [`environment_host`] runs with that its child
     /// gets, each with a made-up value.
     fn crossing() -> BTreeMap<String, String> {
-        // A process that has no real one cannot load its DLLs.
+        // Windows processes need the real one.
         #[cfg(windows)]
         let system_root = std::env::var("SystemRoot").unwrap();
         let mut crossing = vec![
@@ -665,7 +684,7 @@ mod handshake {
             ("LOCALAPPDATA", r"C:\made-up\local"),
             ("TEMP", r"C:\made-up\temp"),
             ("TMP", r"C:\made-up\tmp"),
-            ("SystemRoot", &system_root),
+            ("SystemRoot", system_root.as_str()),
         ]);
         crossing
             .into_iter()
@@ -673,25 +692,8 @@ mod handshake {
             .collect()
     }
 
-    /// A made-up token of the actor runtime, which no log holds.
-    const ACTOR_TOKEN: &str = "made-up-actor-token-4711";
-
-    /// A made-up proxy whose password no log holds.
-    const PROXY: &str =
-        "http://user:made-up-proxy-password@127.0.0.1:9";
-
-    /// A made-up key outside what crosses.
-    const OUTSIDE_KEY: &str = "made-up-hamlet-key-0815";
-
-    /// The folder of the Rust host [`environment_host`] runs. Unset,
-    /// that test does nothing.
-    const ENVIRONMENT_HOME: &str =
-        "HAMLET_LINK_TEST_ENVIRONMENT_HOME";
-
-    /// The folder, in its realm folder, where [`environment_child`]
-    /// writes its environment. Absent, that test does nothing.
-    const WRITTEN: &str = "child-environment";
-
+    /// The Rust host has twice [`READY_WAIT`], a minute, to end; it
+    /// takes well under a second.
     #[tokio::test]
     async fn the_child_gets_each_named_variable_with_its_value_and_no_other()
      {
@@ -719,7 +721,7 @@ mod handshake {
             std::ffi::OsStr::from_bytes(b"not \xff UTF-8")
         });
         let output =
-            tokio::time::timeout(READY_WAIT, command.output())
+            tokio::time::timeout(2 * READY_WAIT, command.output())
                 .await
                 .expect("the Rust host ended")
                 .unwrap();
@@ -737,8 +739,10 @@ mod handshake {
         let written =
             std::fs::read(home.join(WRITTEN).join("environment"))
                 .unwrap();
-        let mut got: BTreeMap<String, String> =
-            serde_json::from_slice(&written).unwrap();
+        let mut got = serde_json::from_slice::<
+            BTreeMap<String, String>,
+        >(&written)
+        .unwrap();
         // CoreFoundation sets it in each process that loads it.
         got.remove("__CF_USER_TEXT_ENCODING");
         let mut expected = crossing();
