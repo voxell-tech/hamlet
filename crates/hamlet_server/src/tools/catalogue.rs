@@ -27,7 +27,7 @@ pub(crate) enum Society {
     SetModel,
     SetTools,
     SetAllowance,
-    Nickname,
+    RenameAgent,
     LayRoad,
     TakeUpRoad,
     AgreeRoad,
@@ -171,7 +171,7 @@ pub(crate) const FACTS: [Facts; 28] = {
         facts(S::SetModel, "set_model", Parents),
         facts(S::SetTools, "set_tools", Parents),
         facts(S::SetAllowance, "set_allowance", Parents),
-        facts(S::Nickname, "nickname", Parents),
+        facts(S::RenameAgent, "rename_agent", Parents),
         facts(S::LayRoad, "lay_road", Parents)
             .reserved(Reserve::Limit(Limit::Roads)),
         facts(S::TakeUpRoad, "take_up_road", Parents)

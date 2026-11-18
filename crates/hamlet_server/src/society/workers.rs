@@ -33,7 +33,7 @@ pub(crate) struct Worker {
     pub call_runtime: Option<String>,
     pub call_key: Option<String>,
     pub answer: Option<String>,
-    pub nickname: Option<String>,
+    pub name: Option<String>,
 }
 
 impl Worker {
@@ -123,21 +123,21 @@ pub(crate) fn get(db: &mut Db, id: AgentId) -> Result<Worker> {
     find(db, id)?.with_context(|| format!("no worker {id}"))
 }
 
-/// Calls the living worker `id` `nickname` in the world, or by its
+/// Calls the living worker `id` `name` in the world, or by its
 /// address again when none.
-pub(crate) fn set_nickname(
+pub(crate) fn set_name(
     cx: &mut Change<'_>,
     id: AgentId,
-    nickname: Option<&str>,
+    name: Option<&str>,
 ) -> Done<()> {
     get(cx.db, id)?;
     done!(hamlet_agents::require_living(cx.db, id));
-    let nickname = match hamlet_agents::check_nickname(nickname) {
-        Ok(nickname) => nickname,
+    let name = match hamlet_agents::check_name(name) {
+        Ok(name) => name,
         Err(refusal) => refuse!(refusal),
     };
     diesel::update(worker::table.find(id))
-        .set(worker::nickname.eq(nickname))
+        .set(worker::name.eq(name))
         .execute(cx.db)?;
     cx.touched.agents.insert(id);
     Ok(Ok(()))

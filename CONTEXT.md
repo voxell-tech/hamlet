@@ -47,18 +47,14 @@ first and its name beside it.
 _Avoid_: handle, username
 
 **Name**:
-The words a profile, a hamlet, an agent or a worker is shown by: a profile's
-name, a hamlet's name, an agent's or a worker's nickname. Metadata a chief
-changes and that may repeat; it never finds anything. Everyone but the Hand
-has one a chief can change. A profile and a hamlet always have one; a
-hamlet's id is a UUID no one reads.
-
-**Nickname**:
-What an agent or a worker is called in the world, given by a chief, or for
-an agent of a hamlet by the Hand or a parent above it. Its address,
-`agent#<id>` or
-`worker#<id>`, stays the same.
-_Avoid_: alias
+The words a profile, a hamlet, an agent or a worker is shown by. Metadata a
+chief changes and that may repeat; it never finds anything. Everyone but the
+Hand has one a chief can change. A profile and a hamlet always have one; a
+hamlet's id is a UUID no one reads. An agent or a worker has one only once
+it is given one, by a chief, or for an agent of a hamlet by the Hand or a
+parent above it; until then an agent goes by its profile's name and a worker
+by its address. Its address, `agent#<id>` or `worker#<id>`, stays the same.
+_Avoid_: nickname, alias
 
 **Lead**:
 The agent at the top of a hamlet's tree: the one the chief talks to first.

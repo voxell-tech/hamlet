@@ -300,8 +300,8 @@ pub(crate) enum Refusal {
     LookFailed { error: String },
     #[error("Only the current session of a chief's chat goes back.")]
     RewindNotCurrent,
-    #[error("A nickname is one line of at most {most} letters.")]
-    BadNickname { most: usize },
+    #[error("A name is one line of at most {most} letters.")]
+    BadAgentName { most: usize },
     #[error("Say which hamlet to add an agent to.")]
     NoHamletToAddTo,
     #[error(

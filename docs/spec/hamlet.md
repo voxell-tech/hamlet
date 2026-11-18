@@ -46,7 +46,7 @@ chief is talking to.
 | `/restore <address> [reason]`, `/erase <address>` | Bring an ended agent back, or split a merged one out again, or erase it for good (H20) |
 | `/model <address> <model\|none> [reason]`, `/tools <address> -<tool> +<tool>`, `/allowance <address> <dollars\|none>` | An agent's model, tools and allowance (H29, H41, H44) |
 | `/effort <address> <off\|minimal\|low\|medium\|high\|xhigh\|max\|none>`, `/fast <address> <on\|off>` | How hard an agent's model thinks, and whether it asks for the provider's fast tier (H29a) |
-| `/nickname <address> [nickname]` | What an agent or a worker is called in the world, or its own name again (H46) |
+| `/name-agent <address> [name]` | What an agent or a worker is called in the world, or none to go by its own again (H46) |
 | `/road <address> <address> [reason]`, `/unroad <address> <address> [reason]` | Lay or take up a road between two agents (H3) |
 | `/worker <task>` | Start a worker on a task in the hamlet (H42) |
 | `/folder <folder\|none>`, `/mode <manual\|auto>` | The hamlet's folder and its mode (C20, C21) |
@@ -388,9 +388,9 @@ its own allowance and that of every parent above it. A worker counts as its
 starter.
 
 **H46.** A chief of its hamlet, the Hand or a parent above it can give an agent
-a nickname of at most 24 letters, kept in the record. The world shows an
-agent by its nickname, else by its profile's name; the window keeps its
-address. A chief can nickname a worker too, which is shown by its address
+a name of at most 24 letters, kept in the record. The world shows an
+agent by its name, else by its profile's name; the window keeps its
+address. A chief can name a worker too, which is shown by its address
 without one. Everyone but the Hand can be renamed: a profile with
 `/name-profile`, a hamlet with `/name-hamlet`. In the window, a double
 click on the name at the top of its page in the Hub renames it.
@@ -507,7 +507,7 @@ the tools in its own row:
 |---|---|
 | Every agent but a worker | `tell`, `ask` (H30), `start_worker` (H42), `submit_skill`, `ask_librarian` (H33), `ask_chief` (H10), `read_budget` (H8) |
 | Every agent of a hamlet | `request_road` |
-| A parent, and the Hand | `create_profile`, `add_agent`, `end_agent`, `merge_agents`, `set_model`, `set_tools`, `set_allowance`, `nickname`, `lay_road`, `take_up_road` |
+| A parent, and the Hand | `create_profile`, `add_agent`, `end_agent`, `merge_agents`, `set_model`, `set_tools`, `set_allowance`, `rename_agent`, `lay_road`, `take_up_road` |
 | A lead, when other hamlets live | `agree_road` |
 | The Hand | `found_hamlet`, `set_lead`, `remove_hamlet`, `read_record`, `read_profile`, `edit_profile`, `tag`, `revert` |
 | Every agent but a worker, in a chief conversation | `object` (H10) |

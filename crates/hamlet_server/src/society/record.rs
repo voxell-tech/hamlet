@@ -72,7 +72,7 @@ pub(crate) enum DecisionKind {
     Tools,
     Allowance,
     Pinned,
-    Nicknamed,
+    AgentNamed,
     Road,
     Unroad,
     RoadAgreed,
@@ -236,8 +236,7 @@ impl DecisionKind {
             Self::RoadAgreed => "agreed a road from",
             Self::RoadRefused => "refused a road for",
             Self::Pinned => "pinned",
-            Self::Nicknamed => "nicknamed",
-            Self::ProfileNamed => "renamed",
+            Self::AgentNamed | Self::ProfileNamed => "renamed",
             _ => "changed",
         }
     }

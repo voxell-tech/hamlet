@@ -242,7 +242,7 @@ fn the_hand_profiles_and_workers_are_agents_and_profiles_of_their_own()
     let mut state = state();
     let mut worker = agent(3, "home", false);
     worker.kind = protocol::AgentKind::Worker;
-    worker.name = "worker#3".into();
+    worker.address = "worker#3".into();
     worker.hamlet = None;
     worker.profile = None;
     worker.parent = None;

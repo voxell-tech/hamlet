@@ -419,8 +419,8 @@ struct Agent {
     hamlet: Option<Entity>,
     lead: bool,
     mark: Option<Standing>,
-    /// Its address, and what it goes by: its nickname, or its
-    /// profile's name.
+    /// Its address, and what it goes by: its name, or its profile's
+    /// name.
     address: String,
     called: String,
     title: String,

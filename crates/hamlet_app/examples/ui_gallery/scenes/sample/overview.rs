@@ -124,7 +124,7 @@ pub(super) fn setup(world: &mut World, scene: Scene) {
                 },
             ));
             if *name == "pip" {
-                agent.nickname = Some("Pippin".into());
+                agent.name = Some("Pippin".into());
             }
             agent.purpose = match *name {
                 "scout" => "Reads the orchard's records.",
@@ -204,11 +204,13 @@ pub(super) fn setup(world: &mut World, scene: Scene) {
         let mut wait = hamlet_testing::realm::wait("toast");
         // From an agent whose chat is not the one open, which shows
         // its own waits in full.
-        if let Some(fen) =
-            next.agents.iter().find(|agent| agent.name == "agent#15")
+        if let Some(fen) = next
+            .agents
+            .iter()
+            .find(|agent| agent.address == "agent#15")
         {
             wait.agent = Some(fen.id);
-            wait.by = fen.name.clone();
+            wait.by = fen.address.clone();
             if let Some(chat) = &mut wait.chat {
                 chat.with = fen.id;
             }
@@ -320,8 +322,10 @@ fn busy_realm(state: &mut protocol::State) {
         .duration_since(std::time::UNIX_EPOCH)
         .unwrap_or_default()
         .as_millis() as u64;
-    if let Some(hand) =
-        state.agents.iter_mut().find(|agent| agent.name == "hand")
+    if let Some(hand) = state
+        .agents
+        .iter_mut()
+        .find(|agent| agent.address == "hand")
     {
         hand.activity.doing_words = "Founding a hamlet".into();
         hand.busy = true;
@@ -329,7 +333,7 @@ fn busy_realm(state: &mut protocol::State) {
     let Some(parent) = state
         .agents
         .iter_mut()
-        .find(|agent| agent.name == "agent#11")
+        .find(|agent| agent.address == "agent#11")
     else {
         return;
     };
@@ -339,7 +343,7 @@ fn busy_realm(state: &mut protocol::State) {
     let parent = parent.id;
     let mut worker = hamlet_testing::realm::agent(40, "home", false);
     worker.kind = protocol::AgentKind::Worker;
-    worker.name = "worker#40".into();
+    worker.address = "worker#40".into();
     worker.profile = None;
     worker.parent = Some(parent);
     worker.busy = true;
@@ -347,12 +351,14 @@ fn busy_realm(state: &mut protocol::State) {
     worker.activity.doing_words =
         "Reading the orchard's notes".into();
     state.agents.push(worker);
-    if let Some(waiting) =
-        state.agents.iter().find(|agent| agent.name == "agent#14")
+    if let Some(waiting) = state
+        .agents
+        .iter()
+        .find(|agent| agent.address == "agent#14")
     {
         let mut wait = hamlet_testing::realm::wait("ask");
         wait.agent = Some(waiting.id);
-        wait.by = waiting.name.clone();
+        wait.by = waiting.address.clone();
         wait.since = since;
         state.waits.push(wait);
     }
@@ -365,11 +371,11 @@ const MERGED: u64 = 12;
 /// agents at rest, so every state shows in the rail and the list.
 fn more_states(state: &mut protocol::State) {
     let mut set =
-        |name: &str, run: &mut dyn FnMut(&mut protocol::Agent)| {
+        |address: &str, run: &mut dyn FnMut(&mut protocol::Agent)| {
             if let Some(agent) = state
                 .agents
                 .iter_mut()
-                .find(|agent| agent.name == name)
+                .find(|agent| agent.address == address)
             {
                 run(agent);
             }
@@ -393,7 +399,7 @@ fn merge_away(state: &mut protocol::State) {
         .expect("a received departure")
     };
     for agent in &mut state.agents {
-        match agent.name.as_str() {
+        match agent.address.as_str() {
             "agent#12" => {
                 agent.left = Some(left("merged", Some(10), "Merged"));
             }

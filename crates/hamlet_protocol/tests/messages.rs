@@ -494,7 +494,7 @@ fn hamlet_wire() -> Value {
 
 fn hand_wire() -> Value {
     json!({
-        "id": 1, "kind": "hand", "name": "hand", "nickname": null, "hamlet": null, "profile": null,
+        "id": 1, "kind": "hand", "address": "hand", "name": null, "hamlet": null, "profile": null,
         "parent": null, "pin": null, "purpose": "", "since": 0, "lead": false, "model": "faux/test",
         "ownModel": null, "effort": null, "fast": false,
         "busy": false, "faulted": false,
@@ -507,7 +507,7 @@ fn hand_wire() -> Value {
 
 fn agent_wire() -> Value {
     json!({
-        "id": 2, "kind": "hamlet", "name": "agent#2", "nickname": "Fen", "hamlet": "home", "profile": 1,
+        "id": 2, "kind": "hamlet", "address": "agent#2", "name": "Fen", "hamlet": "home", "profile": 1,
         "parent": 1, "pin": "v1", "purpose": "Help the chief",
         "since": 1700000000000_i64, "lead": true, "model": "faux/test",
         "ownModel": "faux/test", "effort": "xhigh", "fast": true,
@@ -600,7 +600,7 @@ fn state_and_every_update_keep_the_servers_ready_made_values() {
     };
     assert_eq!(state.hand, AgentId(1));
     assert_eq!(state.agents[0].kind, AgentKind::Hand);
-    assert_eq!(state.agents[1].name, "agent#2");
+    assert_eq!(state.agents[1].address, "agent#2");
     assert_eq!(state.agents[1].activity.doing, Doing::ReadFile);
     assert_eq!(state.hamlets[0].lead, AgentId(2));
     assert_eq!(state.profiles[0].agents, [AgentId(2)]);

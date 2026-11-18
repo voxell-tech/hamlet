@@ -51,7 +51,7 @@ async fn society() {
     c.shows(2, "Told.").await;
     c.until(|c| {
         c.state().agents.iter().any(|a| {
-            a.name == "agent#3"
+            a.address == "agent#3"
                 && !a.busy
                 && !a.conversations.is_empty()
         })
@@ -88,7 +88,7 @@ async fn leaving() {
         c.state()
             .agents
             .iter()
-            .any(|a| a.name == "agent#3" && a.left.is_some())
+            .any(|a| a.address == "agent#3" && a.left.is_some())
     })
     .await;
     c.say(2, "/restore agent#3").await;

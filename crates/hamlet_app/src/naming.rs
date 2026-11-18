@@ -91,7 +91,7 @@ fn named(world: &World, named: Entity) -> Option<Named> {
     let kind = world.get::<Kind>(named)?.0;
     (kind != protocol::AgentKind::Hand
         && world.get::<Left>(named).is_none()
-        && Deeds::is_allowed(world, "nickname"))
+        && Deeds::is_allowed(world, "name-agent"))
     .then(|| Named::Agent(agents::name_of(world, named)))
 }
 
@@ -114,7 +114,7 @@ fn commit(world: &mut World, named: Entity, typed: &str) {
         }
         Some(Named::Agent(address)) => chat::command(
             world,
-            format!("/nickname {address} {typed}")
+            format!("/name-agent {address} {typed}")
                 .trim_end()
                 .to_string(),
         ),

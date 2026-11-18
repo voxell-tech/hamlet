@@ -37,7 +37,7 @@ const PARENT: &str =
      `merge_agents` makes one agent of two whose work overlaps: the \
      kept agent takes what the other learned, its roads and its \
      agents. `set_model`, `set_tools` and `set_allowance` shape an \
-     agent under you, and `nickname` names it in the world.";
+     agent under you, and `rename_agent` names it in the world.";
 
 /// How an agent takes a chief's instruction.
 const OBJECT: &str =

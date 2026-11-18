@@ -218,7 +218,7 @@ diesel::table! {
         profile -> BigInt,
         parent -> Nullable<BigInt>,
         purpose -> Text,
-        nickname -> Nullable<Text>,
+        name -> Nullable<Text>,
         pin -> Nullable<Text>,
         base -> Nullable<Text>,
         model -> Nullable<Text>,
@@ -589,7 +589,7 @@ diesel::table! {
         call_runtime -> Nullable<Text>,
         call_key -> Nullable<Text>,
         answer -> Nullable<Text>,
-        nickname -> Nullable<Text>,
+        name -> Nullable<Text>,
     }
 }
 

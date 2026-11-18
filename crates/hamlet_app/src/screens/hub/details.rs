@@ -157,8 +157,8 @@ fn read_only(text: String) -> AnyView {
 }
 
 /// What an agent is called in the world, typed over: Enter gives it
-/// the nickname, and a field left empty its own name again.
-fn nickname_field(facts: &Facts) -> AnyView {
+/// the name, and a field left empty its own again.
+fn name_field(facts: &Facts) -> AnyView {
     let address = facts.address.clone();
     let had = facts.called.clone();
     text_field(had.clone(), move |world, typed| {
@@ -166,7 +166,7 @@ fn nickname_field(facts: &Facts) -> AnyView {
         if typed != had {
             crate::chat::command(
                 world,
-                format!("/nickname {address} {typed}")
+                format!("/name-agent {address} {typed}")
                     .trim_end()
                     .into(),
             );
@@ -325,7 +325,7 @@ fn about(facts: &Facts) -> Option<AnyView> {
         parts.push(setting(
             "Called",
             "What it is called in the world; empty for its own name",
-            nickname_field(facts),
+            name_field(facts),
         ));
         parts.push(setting(
             "Version",

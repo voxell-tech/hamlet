@@ -187,7 +187,7 @@ fn snapshots_reconcile_by_identity_across_epochs_and_changes_only_advance_the_se
     first.revision = 8;
     first.hamlets.truncate(1);
     first.agents.truncate(2);
-    first.agents[1].name = "renamed".into();
+    first.agents[1].address = "renamed".into();
     first.waits.truncate(1);
     first.waits[0].about = "a new question".into();
     receive(world, protocol::ServerMessage::State(first.clone()));

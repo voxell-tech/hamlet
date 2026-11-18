@@ -124,8 +124,8 @@ async fn a_parent_runs_the_agents_under_it_and_nothing_beyond_them() {
                     json!({"agent":"agent#3", "model": "faux::faux-1", "reason": "same"}),
                 ),
                 (
-                    "nickname",
-                    json!({"agent":"agent#3", "nickname": "Spade", "reason": "short"}),
+                    "rename_agent",
+                    json!({"agent":"agent#3", "name": "Spade", "reason": "short"}),
                 ),
                 (
                     "lay_road",
@@ -160,20 +160,20 @@ async fn a_parent_runs_the_agents_under_it_and_nothing_beyond_them() {
 
     let cy = s.chief.agent("agent#3").unwrap();
     assert_eq!((cy.kind, cy.parent), (AgentKind::Hamlet, Some(ada)));
-    assert_eq!(cy.nickname.as_deref(), Some("Spade"));
-    // A chief above it names it too, and an empty name takes the
-    // nickname away.
+    assert_eq!(cy.name.as_deref(), Some("Spade"));
+    // A chief above it names it too, and an empty name takes its name
+    // away.
     assert_eq!(
-        s.chief.command(ada, "/nickname agent#3 Pick").await,
+        s.chief.command(ada, "/name-agent agent#3 Pick").await,
         "`agent#3` is called Pick now."
     );
     assert_eq!(
-        s.chief.command(ada, "/nickname agent#3").await,
-        "`agent#3` goes by its name again."
+        s.chief.command(ada, "/name-agent agent#3").await,
+        "`agent#3` goes by its own name again."
     );
     s.chief
-        .until("the nickname gone", |c| {
-            c.agent("agent#3").is_some_and(|cy| cy.nickname.is_none())
+        .until("the name gone", |c| {
+            c.agent("agent#3").is_some_and(|cy| cy.name.is_none())
         })
         .await;
     assert_eq!(
@@ -216,7 +216,7 @@ async fn a_parent_runs_the_agents_under_it_and_nothing_beyond_them() {
         "agent#2 (ada) added agent#3 (cy)",
         "agent#2 (ada) set the allowance of agent#3 (cy): small",
         "agent#2 (ada) chose the model of agent#3 (cy): same",
-        "agent#2 (ada) nicknamed agent#3 (cy): short",
+        "agent#2 (ada) renamed agent#3 (cy): short",
         "agent#2 (ada) laid a road from agent#3 (cy): share",
         "agent#2 (ada) took up a road from agent#3 (cy): done",
         "agent#2 (ada) ended agent#4 (dee): finished",

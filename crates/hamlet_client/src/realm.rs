@@ -114,12 +114,13 @@ pub struct Parent(pub protocol::AgentId);
 #[derive(Component, Clone, Copy, Debug, PartialEq, Eq)]
 pub struct OfProfile(pub protocol::ProfileId);
 
-/// What an agent is called in the world.
+/// What an agent is called in the world, while it has a name of its
+/// own.
 #[derive(Component, Clone, Debug, PartialEq, Eq)]
-pub struct Nickname(pub String);
+pub struct AgentName(pub String);
 
-/// What an agent is shown by: its nickname, else its profile's name,
-/// else its address.
+/// What an agent is shown by: its name, else its profile's name, else
+/// its address.
 #[derive(Component, Clone, Debug, PartialEq, Eq)]
 pub struct Shown(pub String);
 
@@ -384,7 +385,7 @@ pub fn register(world: &mut World) {
     world.register_component::<OfProfile>();
     world.register_component::<Pin>();
     world.register_component::<Allowance>();
-    world.register_component::<Nickname>();
+    world.register_component::<AgentName>();
     world.register_component::<Shown>();
     world.register_component::<OwnModel>();
     world.register_component::<OwnEffort>();
@@ -708,15 +709,15 @@ fn upsert_profile(
     entity
 }
 
-/// Sets what the agent is shown by from its nickname, its profile's
-/// name and its address.
+/// Sets what the agent is shown by from its name, its profile's name
+/// and its address.
 fn refresh_shown(world: &mut World, agent: Entity) {
     let Some(address) = world.get::<Name>(agent) else {
         return;
     };
     let shown = world
-        .get::<Nickname>(agent)
-        .map(|nickname| nickname.0.clone())
+        .get::<AgentName>(agent)
+        .map(|name| name.0.clone())
         .or_else(|| {
             let of = world.get::<OfProfile>(agent)?;
             let profile =
@@ -744,7 +745,7 @@ fn upsert_agent(
     let mut agent = world.entity_mut(entity);
     put(&mut agent, Identity(value.id));
     put(&mut agent, Kind(value.kind));
-    put(&mut agent, Name::new(value.name));
+    put(&mut agent, Name::new(value.address));
     flag(
         &mut agent,
         value.kind == protocol::AgentKind::Hamlet,
@@ -754,7 +755,7 @@ fn upsert_agent(
     optional(&mut agent, value.profile.map(OfProfile));
     optional(&mut agent, value.pin.clone().map(Pin));
     optional(&mut agent, value.allowance.map(Allowance));
-    optional(&mut agent, value.nickname.clone().map(Nickname));
+    optional(&mut agent, value.name.clone().map(AgentName));
     optional(&mut agent, value.own_model.clone().map(OwnModel));
     optional(&mut agent, value.effort.map(OwnEffort));
     flag(&mut agent, value.fast, Fast);
@@ -1140,7 +1141,7 @@ mod tests {
     use crate::{ClientPlugin, receive};
 
     #[test]
-    fn an_agent_is_shown_by_its_nickname_else_its_profiles_name() {
+    fn an_agent_is_shown_by_its_name_else_its_profiles_name() {
         let mut app = App::new();
         app.add_plugins(ClientPlugin { server: None });
         let mut realm = state();
@@ -1153,7 +1154,7 @@ mod tests {
         receive(world, protocol::ServerMessage::State(realm.clone()));
         assert_eq!(shown_of(world, ada), "Ada Lovelace");
         realm.revision = 2;
-        realm.agents[1].nickname = Some("Countess".into());
+        realm.agents[1].name = Some("Countess".into());
         receive(world, protocol::ServerMessage::State(realm));
         assert_eq!(shown_of(world, ada), "Countess");
         assert_eq!(named(world, "agent#2"), Some(ada));

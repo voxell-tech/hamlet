@@ -172,7 +172,7 @@ async fn a_turn_ended_before_a_crash_is_followed_at_the_next_start() {
         .realm()
         .agents
         .into_iter()
-        .find(|agent| agent.name.starts_with("worker"))
+        .find(|agent| agent.address.starts_with("worker"))
         .expect("the worker is in the realm");
     assert!(worker.left.is_none());
     server.kill();
@@ -181,7 +181,7 @@ async fn a_turn_ended_before_a_crash_is_followed_at_the_next_start() {
     let (_server, mut chief) = realm.serve(Faux::new()).await;
     chief
         .until("the worker to end", |c| {
-            c.agent(&worker.name).is_some_and(|a| a.left.is_some())
+            c.agent(&worker.address).is_some_and(|a| a.left.is_some())
         })
         .await;
 }

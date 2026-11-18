@@ -28,7 +28,7 @@ pub(crate) struct HamletAgent {
     pub profile: ProfileId,
     pub parent: Option<AgentId>,
     pub purpose: String,
-    pub nickname: Option<String>,
+    pub name: Option<String>,
     pub pin: Option<String>,
     pub base: Option<String>,
     pub model: Option<String>,
@@ -607,49 +607,49 @@ pub(crate) fn set_pin(
     Ok(Ok(()))
 }
 
-/// The most letters a nickname has.
-pub(crate) const NICKNAME: usize = 24;
+/// The most letters the name of an agent or a worker has.
+pub(crate) const NAME_LETTERS: usize = 24;
 
-/// `nickname` trimmed, none when it is empty, or the refusal of one
-/// that is too long or more than one line.
-pub(crate) fn check_nickname(
-    nickname: Option<&str>,
+/// `name` trimmed, none when it is empty, or the refusal of one that
+/// is too long or more than one line.
+pub(crate) fn check_name(
+    name: Option<&str>,
 ) -> Result<Option<&str>, Refusal> {
-    let nickname = nickname.map(str::trim).filter(|n| !n.is_empty());
-    match nickname {
-        Some(nickname)
-            if nickname.chars().count() > NICKNAME
-                || nickname.contains(char::is_control) =>
+    let name = name.map(str::trim).filter(|n| !n.is_empty());
+    match name {
+        Some(name)
+            if name.chars().count() > NAME_LETTERS
+                || name.contains(char::is_control) =>
         {
-            Err(Refusal::BadNickname { most: NICKNAME })
+            Err(Refusal::BadAgentName { most: NAME_LETTERS })
         }
-        _ => Ok(nickname),
+        _ => Ok(name),
     }
 }
 
-/// Calls the living agent `id` `nickname` in the world, or by its own
-/// name again when none (H46).
-pub(crate) fn set_nickname(
+/// Calls the living agent `id` `name` in the world, or by its
+/// profile's name again when none (H46).
+pub(crate) fn set_name(
     cx: &mut Change<'_>,
     id: AgentId,
-    nickname: Option<&str>,
+    name: Option<&str>,
     reason: &str,
 ) -> Done<()> {
     let agent = get(cx.db, id)?;
     done!(require_living(cx.db, id));
-    let nickname = match check_nickname(nickname) {
-        Ok(nickname) => nickname,
+    let name = match check_name(name) {
+        Ok(name) => name,
         Err(refusal) => refuse!(refusal),
     };
     diesel::update(hamlet_agent::table.find(id))
-        .set(hamlet_agent::nickname.eq(nickname))
+        .set(hamlet_agent::name.eq(name))
         .execute(cx.db)?;
     record::keep(
         cx,
-        Decision::new(DecisionKind::Nicknamed, reason)
+        Decision::new(DecisionKind::AgentNamed, reason)
             .hamlet(&agent.hamlet)
             .subject(id)
-            .detail(json!({ "nickname": nickname })),
+            .detail(json!({ "name": name })),
     )?;
     cx.touched.agents.insert(id);
     Ok(Ok(()))

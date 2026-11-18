@@ -126,7 +126,7 @@ fn agent_view(
     at: i64,
 ) -> Result<protocol::Agent> {
     let id = found.id;
-    let name = addresses::address_of(db, id)?;
+    let address = addresses::address_of(db, id)?;
     let (hamlet, profile, parent, purpose, lead) = match found.kind {
         AgentKind::Hand => {
             let profile = hand::profile(db)?;
@@ -204,12 +204,12 @@ fn agent_view(
         AgentKind::Hamlet => hamlet_agents::get(db, id)?.model,
         AgentKind::Worker => workers::get(db, id)?.model,
     };
-    let (pin, nickname, allowance, tools_off) = match found.kind {
+    let (pin, name, allowance, tools_off) = match found.kind {
         AgentKind::Hamlet => {
             let agent = hamlet_agents::get(db, id)?;
             (
                 agent.pin,
-                agent.nickname,
+                agent.name,
                 agent
                     .allowance
                     .map(|micros| micros as f64 / 1_000_000.0),
@@ -217,7 +217,7 @@ fn agent_view(
             )
         }
         AgentKind::Worker => {
-            (None, workers::get(db, id)?.nickname, None, Vec::new())
+            (None, workers::get(db, id)?.name, None, Vec::new())
         }
         AgentKind::Hand => (None, None, None, Vec::new()),
     };
@@ -237,6 +237,7 @@ fn agent_view(
             step: shown
                 .map_or(0, |a| u64::try_from(a.step).unwrap_or(0)),
         },
+        address,
         allowance,
         busy: found.is_living() && inputs::is_agent_busy(db, id)?,
         consulting: found.is_living()
@@ -260,7 +261,6 @@ fn agent_view(
         lead,
         model,
         name,
-        nickname,
         own_model,
         parent: parent.map(wire_agent),
         pin,

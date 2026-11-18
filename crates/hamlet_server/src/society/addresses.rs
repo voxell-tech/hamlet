@@ -185,29 +185,32 @@ pub(crate) fn address_of(db: &mut Db, id: AgentId) -> Result<String> {
 }
 
 /// How `id` is shown to chiefs and agents: its address, and beside it
-/// the nickname of an agent, or else its profile's name, as in
-/// `agent#3 (Mira)`, or a worker's nickname. An erased agent shows
-/// its address only.
+/// the name of an agent, or else its profile's name, as in
+/// `agent#3 (Mira)`, or a worker's name. An erased agent shows its
+/// address only.
 pub(crate) fn name_of(db: &mut Db, id: AgentId) -> Result<String> {
     let address = address_of(db, id)?;
     let found = agents::get(db, id)?;
     if found.kind == AgentKind::Worker
-        && let Some(nickname) = worker::table
+        && let Some(name) = worker::table
             .find(id)
-            .select(worker::nickname)
+            .select(worker::name)
             .first::<Option<String>>(db)?
     {
-        return Ok(format!("{address} ({nickname})"));
+        return Ok(format!("{address} ({name})"));
     }
     if found.kind != AgentKind::Hamlet || found.erased {
         return Ok(address);
     }
-    let (nickname, name) = hamlet_agent::table
+    let (agent_name, profile_name) = hamlet_agent::table
         .inner_join(profile::table)
         .filter(hamlet_agent::agent.eq(id))
-        .select((hamlet_agent::nickname, profile::name))
+        .select((hamlet_agent::name, profile::name))
         .first::<(Option<String>, String)>(db)?;
-    Ok(format!("{address} ({})", nickname.unwrap_or(name)))
+    Ok(format!(
+        "{address} ({})",
+        agent_name.unwrap_or(profile_name)
+    ))
 }
 
 /// How the profile `id` is shown to chiefs and agents, as in

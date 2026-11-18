@@ -1107,7 +1107,7 @@ mod tests {
         let mut worker =
             hamlet_testing::realm::agent(id, "home", false);
         worker.kind = AgentKind::Worker;
-        worker.name = format!("worker#{id}");
+        worker.address = format!("worker#{id}");
         worker.hamlet = hamlet.map(String::from);
         worker.parent = parent.map(AgentId);
         worker

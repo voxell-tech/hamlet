@@ -16,7 +16,7 @@ use hamlet_store::ids::{
 
 use self::args::{
     AddAgent, AgreeRoad, Called, CreateProfile, EndAgent,
-    FoundHamlet, MergeAgents, Nickname, ReadRecord, RemoveHamlet,
+    FoundHamlet, MergeAgents, ReadRecord, RemoveHamlet, RenameAgent,
     SetAllowance, SetLead, SetModel, SetTools,
 };
 use super::looks::Look;
@@ -212,24 +212,25 @@ impl Core<'_, '_> {
                     }))
                 })
             }
-            Called::Nickname(Nickname {
+            Called::RenameAgent(RenameAgent {
                 agent: address,
-                nickname,
+                name: typed,
                 reason,
             }) => {
                 let hamlet_agent =
                     done!(self.child(call, &address, here));
-                let given =
-                    (!nickname.is_empty()).then_some(nickname);
+                let given = (!typed.is_empty()).then_some(typed);
                 let name = self.name(hamlet_agent)?;
                 let words = match &given {
-                    Some(nickname) => {
-                        format!("{name} is called {nickname} now.")
+                    Some(given) => {
+                        format!("{name} is called {given} now.")
                     }
-                    None => format!("{name} goes by its name again."),
+                    None => format!(
+                        "{name} goes by its profile's name again."
+                    ),
                 };
                 self.carry(call, |cx, _| {
-                    Ok(hamlet_agents::set_nickname(
+                    Ok(hamlet_agents::set_name(
                         cx,
                         hamlet_agent,
                         given.as_deref(),

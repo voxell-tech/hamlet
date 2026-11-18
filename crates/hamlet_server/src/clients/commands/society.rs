@@ -128,11 +128,11 @@ pub(super) const SOCIETY: &[Command] = &[
         run: fast,
     },
     Command {
-        name: "nickname",
-        usage: "/nickname <address> [nickname]",
-        does: "Call an agent or a worker something in the world, or \
-               by its name again",
-        run: nickname,
+        name: "name-agent",
+        usage: "/name-agent <address> [name]",
+        does: "Give an agent or a worker a name to be shown by in \
+               the world, or none to go by its own again",
+        run: name_agent,
     },
     Command {
         name: "tools",
@@ -674,7 +674,7 @@ fn fast(core: &mut Core<'_, '_>, line: &Line) -> Answer {
     }))
 }
 
-fn nickname(core: &mut Core<'_, '_>, line: &Line) -> Answer {
+fn name_agent(core: &mut Core<'_, '_>, line: &Line) -> Answer {
     let Some(text) = line.words().first().copied() else {
         return usage(core, line);
     };
@@ -691,25 +691,20 @@ fn nickname(core: &mut Core<'_, '_>, line: &Line) -> Answer {
     } else {
         found!(core.directs(agent));
     }
-    let nickname = line.tail(1);
-    let given = (!nickname.is_empty()).then_some(nickname);
+    let typed = line.tail(1);
+    let given = (!typed.is_empty()).then_some(typed);
     let done = core.attempt(by(core), |cx, _| {
         if worker {
-            workers::set_nickname(cx, agent, given.as_deref())
+            workers::set_name(cx, agent, given.as_deref())
         } else {
-            hamlet_agents::set_nickname(
-                cx,
-                agent,
-                given.as_deref(),
-                "",
-            )
+            hamlet_agents::set_name(cx, agent, given.as_deref(), "")
         }
     })?;
     Ok(done.map(|()| match &given {
-        Some(nickname) => {
-            format!("`{text}` is called {nickname} now.")
+        Some(given) => {
+            format!("`{text}` is called {given} now.")
         }
-        None => format!("`{text}` goes by its name again."),
+        None => format!("`{text}` goes by its own name again."),
     }))
 }
 

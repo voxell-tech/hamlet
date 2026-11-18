@@ -5,11 +5,11 @@ use hamlet_acceptance::*;
 use hamlet_protocol::client::*;
 use serde_json::json;
 
-fn names(state: &State) -> Vec<(String, AgentId, bool)> {
+fn addresses(state: &State) -> Vec<(String, AgentId, bool)> {
     state
         .agents
         .iter()
-        .map(|a| (a.name.clone(), a.id, a.left.is_some()))
+        .map(|a| (a.address.clone(), a.id, a.left.is_some()))
         .collect()
 }
 
@@ -46,7 +46,7 @@ async fn a_wait_and_its_held_call_survive_a_crash() {
         .await;
     let mut chief = Client::join(&server).await;
     let after = chief.realm();
-    assert_eq!(names(&after), names(&before));
+    assert_eq!(addresses(&after), addresses(&before));
     assert_eq!(after.waits, std::slice::from_ref(&wait));
     chief.open(&now).await;
     assert!(chief.texts(&now).contains(&"Fetch it.".to_string()));
@@ -96,7 +96,7 @@ async fn the_realm_comes_back_as_it_was_after_a_stop() {
     let server = s.home.serve(&Faux::new(), QUIET).await;
     let mut chief = Client::join(&server).await;
     let after = chief.realm();
-    assert_eq!(names(&after), names(&before));
+    assert_eq!(addresses(&after), addresses(&before));
     assert_eq!(after.profiles, before.profiles);
     assert_eq!(after.hand, before.hand);
     assert_eq!(after.limits, before.limits);

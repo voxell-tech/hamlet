@@ -79,12 +79,12 @@ impl Client {
 
     /// The agent at `address` as the realm stands (`hand`, `docs#0`,
     /// `docs#2`, `worker#7`); the living one when it was used twice.
-    pub fn agent(&self, name: &str) -> Option<Agent> {
+    pub fn agent(&self, address: &str) -> Option<Agent> {
         let mut found = self
             .realm()
             .agents
             .into_iter()
-            .filter(|a| a.name == name)
+            .filter(|a| a.address == address)
             .collect::<Vec<_>>();
         found.sort_by_key(|a| a.left.is_none());
         found.pop()

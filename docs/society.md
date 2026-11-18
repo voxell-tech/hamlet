@@ -72,7 +72,7 @@ An address names an agent by ids and never by a name: `hand`, `lead@<hamlet>`
 (the lead of the hamlet with that id), `agent#<id>` and `worker#<id>`. A
 profile is `profile#<id>`. Wherever an agent is shown to an agent or a chief,
 a prompt, a notice, a letter's header or a tool's result, its address comes
-first and its name beside it, as `agent#3 (Mira)`: its nickname, else its
+first and its name beside it, as `agent#3 (Mira)`: its own name, else its
 profile's name.
 The Hand and parents see the profiles they may add agents of in their
 prompts, as `profile#<id> (<name>)`, since a name finds nothing.
@@ -83,8 +83,8 @@ what it learned, which the Hub shows under an agent's memory. The agents of a
 hamlet form a tree under the lead, as deep as its parents make it. An agent
 with agents under it is a parent, with the lead's powers over its subtree: it
 adds agents, creates profiles, ends and merges agents, chooses their models, turns tools off and sets
-allowances (`set_model`, `set_tools`, `set_allowance`), gives them nicknames
-the world shows them by (`nickname`, or a chief's `/nickname`), and lays and
+allowances (`set_model`, `set_tools`, `set_allowance`), gives them names
+the world shows them by (`rename_agent`, or a chief's `/name-agent`), and lays and
 takes up roads among them. The lead's office can be given to another agent with `/lead`; the
 old lead and its agents go under the new one.
 

@@ -291,7 +291,7 @@ impl Under {
     }
 }
 
-/// What `agent` is called in the path: its nickname, else its address
+/// What `agent` is called in the path: its name, else its address
 /// without its hamlet, and the Hand as itself.
 fn called(world: &World, agent: Entity) -> String {
     if world.get::<Kind>(agent).map(|kind| kind.0)

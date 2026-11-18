@@ -12,7 +12,7 @@ async fn a_new_realm_holds_the_hand_and_an_empty_city() {
     let hand = &realm.agents[0];
     assert_eq!(hand.id, realm.hand);
     assert_eq!(hand.kind, AgentKind::Hand);
-    assert_eq!(hand.name, "hand");
+    assert_eq!(hand.address, "hand");
     assert!(realm.profiles.is_empty() && realm.hamlets.is_empty());
     let hand = s.hand();
     assert_eq!(

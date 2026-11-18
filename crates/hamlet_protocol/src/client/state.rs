@@ -217,6 +217,8 @@ pub enum Update {
 #[serde(deny_unknown_fields)]
 pub struct Agent {
     pub activity: AgentActivity,
+    /// Its address: `hand`, `agent#id` or `worker#id`.
+    pub address: String,
     /// The dollars an agent may spend in its hamlet's budget period;
     /// left out while it has no allowance.
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -245,13 +247,11 @@ pub struct Agent {
     pub left: Option<Left>,
     /// The model it runs now.
     pub model: String,
-    /// Its address: `hand`, `agent#id` or `worker#id`.
-    pub name: String,
     /// What an agent or a worker is called in the world, given by a
     /// chief or an agent above it; none while an agent goes by its
     /// profile's name and a worker by its address.
     #[serde(deserialize_with = "Option::deserialize")]
-    pub nickname: Option<String>,
+    pub name: Option<String>,
     /// The model chosen for it; none while it follows its hamlet's,
     /// or the realm's default.
     #[serde(rename = "ownModel")]
@@ -822,11 +822,11 @@ mod tests {
         let mut state = state();
         state.agents.push(ours(realm::agent(4, "home", false)));
         state.apply(&Update::AgentGone { id: AgentId(3) });
-        let names = state
+        let addresses = state
             .agents
             .iter()
-            .map(|a| a.name.as_str())
+            .map(|a| a.address.as_str())
             .collect::<Vec<_>>();
-        assert_eq!(names, ["hand", "agent#2", "agent#4"]);
+        assert_eq!(addresses, ["hand", "agent#2", "agent#4"]);
     }
 }

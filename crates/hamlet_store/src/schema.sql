@@ -148,8 +148,9 @@ CREATE TABLE hamlet_agent (
     profile INTEGER NOT NULL REFERENCES profile(id),
     parent INTEGER REFERENCES hamlet_agent(agent),
     purpose TEXT NOT NULL,
-    -- What the chief or an agent above it calls it in the world.
-    nickname TEXT CHECK (nickname IS NULL OR length(nickname) > 0),
+    -- What the chief or an agent above it calls it in the world; none
+    -- while it goes by its profile's name.
+    name TEXT CHECK (name IS NULL OR length(name) > 0),
     pin TEXT,
     base TEXT,
     model TEXT,
@@ -186,8 +187,9 @@ CREATE TABLE worker (
     call_runtime TEXT,
     call_key TEXT,
     answer TEXT,
-    -- What the chief calls it in the world.
-    nickname TEXT CHECK (nickname IS NULL OR length(nickname) > 0),
+    -- What the chief calls it in the world; none while it goes by its
+    -- address.
+    name TEXT CHECK (name IS NULL OR length(name) > 0),
     CHECK ((starter IS NULL) <> (chief IS NULL))
 ) STRICT;
 CREATE INDEX worker_starter ON worker(starter);

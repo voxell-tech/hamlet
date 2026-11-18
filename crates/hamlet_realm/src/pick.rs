@@ -140,7 +140,7 @@ pub enum Thing {
 }
 
 /// The names things go by in the world: an agent's `Shown` name, its
-/// nickname or else its profile's name, over its `Name`.
+/// own name or else its profile's name, over its `Name`.
 pub type Names<'w, 's> =
     Query<'w, 's, (&'static Name, Option<&'static Shown>)>;
 
