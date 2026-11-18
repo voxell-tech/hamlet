@@ -130,8 +130,7 @@ impl Push {
 }
 
 /// Makes `deliveries`, each once the deliveries lined up before it
-/// to the same agents are done: one agent's in their order, and
-/// those to different agents at the same time.
+/// to the same agents are done.
 pub(super) async fn deliver_all(
     realm: &Arc<Realm>,
     ctx: &Ctx<Realm>,

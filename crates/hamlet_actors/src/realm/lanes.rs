@@ -1,7 +1,9 @@
 //! The order of the deliveries to one agent: each waits for the
 //! deliveries to the same agent that were lined up before it, so an
 //! agent takes them in the order their acts committed. Deliveries to
-//! other agents do not wait on each other.
+//! different agents go at the same time, except that one delivery
+//! reaching several agents holds each of their lanes until it is
+//! done.
 
 use std::collections::HashMap;
 use std::sync::{Mutex, PoisonError};

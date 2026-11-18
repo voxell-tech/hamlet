@@ -798,8 +798,11 @@ before or after the answer. `peer.rs` is the one way to another actor.
 lines up its deliveries while its transaction is open, and each waits
 for the deliveries to the same agent lined up before it, so an agent
 takes them in the order their acts committed. Deliveries to different
-agents do not wait on each other. A failed call is logged, and `Say`
-answers whether its line reached the agent; what was committed stays.
+agents go at the same time, except that one delivery reaching several
+agents, such as a task's held letters and answers (`Delivery::Held`),
+holds each of their lanes until it is done. A failed call is logged,
+and `Say` answers whether its line reached the agent; what was
+committed stays.
 Two deliveries are owed, because no repeat by their sender carries
 them: a line a review kept (`Delivery::Kept`) and a parcel's refusal
 notice (`Delivery::ParcelRefused`). After a failure in passing,
