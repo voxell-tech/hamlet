@@ -3,7 +3,7 @@
 
 use bevy::prelude::*;
 use bevy::ui::UiSystems;
-use hamlet_client::realm::{Lodging, Shown};
+use hamlet_client::realm::{AgentName, Lodging, Shown};
 
 use super::{Footprint, Hovered, Names, PickSettings, Thing};
 use crate::label::{self, Lens};
@@ -11,20 +11,7 @@ use crate::label::{self, Lens};
 pub(super) fn plugin(app: &mut App) {
     app.add_systems(Startup, spawn).add_systems(
         PostUpdate,
-        (
-            name_tag,
-            signs,
-            write_signs.run_if(
-                any_match_filter::<
-                    Or<(
-                        Changed<Name>,
-                        Changed<Thing>,
-                        Changed<Reads>,
-                    )>,
-                >,
-            ),
-        )
-            .before(UiSystems::Layout),
+        (name_tag, signs, write_signs).before(UiSystems::Layout),
     );
 }
 
@@ -200,12 +187,18 @@ fn words(
     }
 }
 
-/// Writes on each sign the name it shows.
+/// Writes on each sign the name it shows, in the frame a name
+/// changes.
 fn write_signs(
     names: Names,
     renamed: Query<
         (),
-        Or<(Changed<Name>, Changed<Shown>, Changed<Lodging>)>,
+        Or<(
+            Changed<Name>,
+            Changed<Shown>,
+            Changed<Lodging>,
+            Changed<AgentName>,
+        )>,
     >,
     mut unshown: RemovedComponents<Shown>,
     named: Query<(Ref<Thing>, &Signed, Option<Ref<Reads>>)>,
