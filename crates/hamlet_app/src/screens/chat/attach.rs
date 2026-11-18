@@ -1494,12 +1494,20 @@ pub(super) fn holds() -> impl View {
     .within(bare())
 }
 
+/// Opens the dialog `what` is chosen in, for the open chat.
+pub(crate) fn choose(world: &mut World, what: What) {
+    let asker = world.resource::<Convo>().chat;
+    world.trigger(Choose { asker, what });
+}
+
+/// Whether the open chat's model takes images.
+pub(crate) fn sees_images(world: &World) -> bool {
+    matches!(sight(world), Sight::Sees(_))
+}
+
 /// A control that opens the dialog `what` is chosen in.
 fn chooser(which: Glyph, tip: &'static str, what: What) -> AnyView {
-    super::tool_button(which, tip, move |world| {
-        let asker = world.resource::<Convo>().chat;
-        world.trigger(Choose { asker, what });
-    })
+    super::tool_button(which, tip, move |world| choose(world, what))
 }
 
 /// The buttons of the composer's toolbar that open the dialogs

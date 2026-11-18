@@ -30,7 +30,8 @@ use hamlet_protocol::client::{
 use hamlet_realm::needs::{TagAnswered, TagOpened};
 use hamlet_ui::kinds::card;
 use hamlet_ui::styles::{
-    Looks, bare, buttons, command_block, marked, note, status_mark,
+    Looks, bare, buttons, command_block, marked, marked_wrapping,
+    note, status_mark,
 };
 use hamlet_ui::theme::StatusKind;
 use hamlet_ui::widgets::effects::Variant;
@@ -338,11 +339,11 @@ fn button(need: &Need, at: usize) -> AnyView {
         .then(|| scope(need))
         .flatten();
     let need = need.clone();
-    let button = marked(which, text).variant(variant).on_activate(
-        move |world| {
+    let button = marked_wrapping(which, text)
+        .variant(variant)
+        .on_activate(move |world| {
             answer(world, &need, choice.clone());
-        },
-    );
+        });
     match scope {
         Some(words) => {
             button.tooltip(move || note(words.clone())).boxed()

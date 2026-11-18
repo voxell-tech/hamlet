@@ -10,8 +10,8 @@ use bevy::ui::{
 };
 use bevy_fynix::tokens::{MotionTokens, SurfaceTokens, Tone};
 use bevy_fynix::views::{
-    self, BehaviorExt, Frame, FrameProps, Stack, TooltipExt, column,
-    frame, label, menu_item, row, scroll, tinted_icon,
+    self, BehaviorExt, Frame, FrameProps, Label, Stack, TooltipExt,
+    column, frame, label, menu_item, row, scroll, tinted_icon,
 };
 use bevy_fynix::{
     Bevy, Focused, Prop, ScopedExt, ViewExt, ViewSeq, Visual, style,
@@ -558,7 +558,20 @@ pub fn marked(
     which: Glyph,
     text: impl Into<Prop<String>>,
 ) -> impl View + FrameProps {
-    views::button(headed(glyph(which, ICON), label(text).wrap(false)))
+    marking(which, label(text).wrap(false))
+}
+
+/// A button with an icon before its text, no wider than what holds
+/// it: where that is narrower than its text, the text wraps.
+pub fn marked_wrapping(
+    which: Glyph,
+    text: impl Into<Prop<String>>,
+) -> impl View + FrameProps {
+    marking(which, label(text).wrap(true)).max_width(percent(100.0))
+}
+
+fn marking(which: Glyph, words: Label) -> impl View + FrameProps {
+    views::button(headed(glyph(which, ICON), words))
         // Less on the icon's side, which has air of its own.
         .padding(UiRect::new(px(10.0), px(13.0), px(0.0), px(0.0)))
         .min_height(px(CONTROL))

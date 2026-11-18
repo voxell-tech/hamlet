@@ -49,10 +49,10 @@ use hamlet_ui::{AnyView, Cx, View, with_cx};
 
 pub(crate) use self::deed::{Deed, question};
 pub(crate) use self::founding::Founding;
+pub(crate) use self::model::{ChipName, Hook, chip};
 pub use self::model::{
     Favorites, LastSide, open as open_model, search as search_models,
 };
-pub(crate) use self::model::{Hook, chip};
 
 /// The command that sends the form open in a popup, or answers yes to
 /// its question, from the keys.

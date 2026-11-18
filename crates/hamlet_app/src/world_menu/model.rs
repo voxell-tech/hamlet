@@ -1183,6 +1183,11 @@ pub(super) fn picker(agent: Entity) -> impl View {
     .within(overlay(()))
 }
 
+/// On the name of the model in the composer's chip, which is cut with
+/// an ellipsis where the chip is narrower than it.
+#[derive(Component)]
+pub(crate) struct ChipName;
+
 /// The model `agent` runs as the composer's chip shows it: its
 /// provider's mark, its name, the effort it thinks at and a bolt on
 /// its fast tier. Its tooltip names them in words.
@@ -1208,7 +1213,7 @@ pub(crate) fn chip(agent: Entity) -> impl View {
             };
             let mut parts = vec![
                 mark(provider_of(&now.model), ICON),
-                label(name).wrap(false).boxed(),
+                one_line(label(name)).tagged(ChipName).boxed(),
             ];
             if let Some(effort) = effort {
                 parts.push(
@@ -1240,11 +1245,12 @@ pub(crate) fn chip(agent: Entity) -> impl View {
             row(parts)
                 .gap(6.0)
                 .align(AlignItems::Center)
+                .min_width(px(0.0))
                 .tooltip(move || note(said.clone()))
                 .boxed()
         },
     )
-    .within(row(()))
+    .within(row(()).min_width(px(0.0)))
 }
 
 #[cfg(test)]

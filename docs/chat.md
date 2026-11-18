@@ -406,7 +406,12 @@ ones too. Drop files on the window, paste with Cmd+V on macOS or Ctrl+V
 elsewhere in the field, or press the picture button in the composer's
 toolbar and choose them. The picture, file and folder buttons stand
 together before "Compact now" and Send, round icon buttons of the row's
-height like Compact's, so Tab goes from the field to them. A paste takes image files copied in a file manager, or a picture
+height like Compact's, so Tab goes from the field to them. The toolbar fits
+any width (`hub/thread.rs`, `crowd`): the model's name is cut with an
+ellipsis first, then the icon buttons fold into one "More" button whose
+menu holds the same actions, then the hamlet's mode shows its shield
+alone, and only then is the name cut further. Each comes back once there
+is room for it. A paste takes image files copied in a file manager, or a picture
 such as a screenshot; words on the clipboard are pasted as words. Each image
 is uploaded at once, shown as a chip in the field, and sent with the line,
 which may hold only images. A line waits for every image to be kept; the chip

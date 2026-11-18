@@ -709,6 +709,7 @@ fn message(chat: Entity, id: String) -> AnyView {
             .align(AlignItems::Center)
             .width(percent(100.0))
             .min_width(px(0.0))
+            .overflow(Overflow::clip_x())
             .rules(small_rules),
         )
         .width(percent(100.0))
