@@ -74,14 +74,62 @@ fn endpoint(endpoint: &protocol::SettingsViewEndpoints) -> AnyView {
     .boxed()
 }
 
-/// A provider the server holds a sign-in or key for.
+/// A provider the server holds a sign-in or key for, over its plan's
+/// limits once it told them, with Remove, which asks first: a sign-in
+/// is not given back by a click.
 fn configured(id: &str, name: &str) -> AnyView {
-    beside((
-        row((mark(id, ICON), label(name.to_string()).bold(true)))
-            .gap(8.0)
-            .align(AlignItems::Center)
-            .fills_width(),
-        pill("Configured"),
+    let (armed, gone) = (id.to_string(), id.to_string());
+    let asked = id.to_string();
+    let named = name.to_string();
+    close((
+        beside((
+            row((mark(id, ICON), label(name.to_string()).bold(true)))
+                .gap(8.0)
+                .align(AlignItems::Center)
+                .fills_width(),
+            pill("Configured"),
+            // Quiet until confirmed: the red is on the confirm.
+            action(Glyph::Gone, "Remove", move |world| {
+                world.resource_mut::<Shelf>().removing =
+                    Some(armed.clone());
+            }),
+        )),
+        keyed(
+            resource::<Shelf, _>(move |shelf| {
+                shelf.removing.as_deref() == Some(&*asked)
+            }),
+            move |asking| {
+                if !*asking {
+                    return views::frame().boxed();
+                }
+                let gone = gone.clone();
+                close((
+                    note(format!(
+                        "Remove {named}? Hamlet forgets its sign-in \
+                         or key. Agents on its models stop until \
+                         you add it again."
+                    )),
+                    hamlet_ui::styles::buttons(vec![
+                        bad_action(
+                            Glyph::Gone,
+                            "Yes, remove",
+                            move |world| {
+                                super::forget(world, gone.clone());
+                            },
+                        )
+                        .boxed(),
+                        action(Glyph::Back, "Keep", |world| {
+                            world.resource_mut::<Shelf>().removing =
+                                None;
+                        })
+                        .boxed(),
+                    ]),
+                ))
+                .boxed()
+            },
+        )
+        .within(bare()),
+        crate::plans::of_provider(id.to_string()),
     ))
     .boxed()
 }

@@ -6,6 +6,7 @@ import { openaiProvider } from "@earendil-works/pi-ai/providers/openai";
 import { openaiCodexProvider } from "@earendil-works/pi-ai/providers/openai-codex";
 import { zaiProvider } from "@earendil-works/pi-ai/providers/zai";
 import { claudeProvider } from "./claude.ts";
+import { CHATGPT_REFUSAL, chatgptRefused, seen } from "./limits.ts";
 
 /** The providers a chief signs in to with a subscription (ADR 0006). */
 export const SUBSCRIPTIONS = ["chatgpt", "openrouter", "claude"];
@@ -105,6 +106,10 @@ function zai(): Provider {
     });
 }
 
+/** Whether the ChatGPT plan last refused, so that the next answer tells the refusal lifted. */
+let refused = false;
+
+/** `source` as the provider `chatgpt`'s, telling a refusal for the plan's limits as it passes. */
 function alias(source: ReturnType<Provider["stream"]>) {
     const out = createAssistantMessageEventStream();
     void (async () => {
@@ -116,6 +121,21 @@ function alias(source: ReturnType<Provider["stream"]>) {
                       ? event.error
                       : event.partial;
             message.provider = "chatgpt";
+            if (
+                event.type === "error" &&
+                message.errorMessage?.includes(CHATGPT_REFUSAL)
+            ) {
+                refused = true;
+                seen("chatgpt", chatgptRefused());
+            } else if (event.type === "done" && refused) {
+                // The plan answers again: the refusal lifted.
+                refused = false;
+                seen("chatgpt", {
+                    checked: Date.now(),
+                    state: "ok",
+                    windows: [],
+                });
+            }
             out.push(event);
         }
         const message = await source.result();

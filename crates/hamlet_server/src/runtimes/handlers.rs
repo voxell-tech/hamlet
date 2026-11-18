@@ -124,6 +124,7 @@ pub(crate) fn write(
         RuntimeMessage::CredentialRequest(m) => to(commands, from, m),
         RuntimeMessage::ProviderResult(m) => to(commands, from, m),
         RuntimeMessage::ProviderEvent(m) => to(commands, from, m),
+        RuntimeMessage::Limits(m) => to(commands, from, m),
         RuntimeMessage::Page(_) | RuntimeMessage::Statuses(_) => {}
     }
 }

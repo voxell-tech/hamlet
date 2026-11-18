@@ -34,8 +34,10 @@ use crate::realm::settings::Settings;
 use crate::society::agents::Effort;
 use crate::society::rejection::Rejection;
 
+mod limits;
 mod listing;
 
+use self::limits::Told;
 use self::listing::Listing;
 
 /// The price in dollars per million tokens of a model nothing prices.
@@ -72,6 +74,8 @@ pub(crate) struct Providers {
     /// Requests not yet sent to a runtime.
     outgoing: Vec<ProviderRequest>,
     controls: Vec<ProviderControl>,
+    /// What each provider last told of its limits.
+    limits: Told,
     faux: bool,
 }
 
@@ -91,6 +95,8 @@ struct Pending {
 enum Settles {
     Reply,
     Catalogue,
+    /// Once every provider asked for its limits answered.
+    Limits,
 }
 
 /// A sign-in in progress, owned by the connection that began it.
@@ -126,6 +132,7 @@ impl Providers {
             logins: HashMap::new(),
             outgoing: Vec::new(),
             controls: Vec::new(),
+            limits: Told::default(),
             faux,
         })
     }
@@ -173,6 +180,7 @@ impl Providers {
                     "The provider did not answer in time.".into(),
                 ),
                 credential: None,
+                limits: None,
                 models: None,
                 providers: None,
                 text: None,
@@ -329,6 +337,8 @@ impl Core<'_, '_> {
             ProviderRequestAction::Describe
             | ProviderRequestAction::Refresh => Some(12),
             ProviderRequestAction::Hello => Some(95),
+            ProviderRequestAction::Limits
+            | ProviderRequestAction::Logout => Some(20),
             ProviderRequestAction::Login => None,
         }
         .map(|seconds| Instant::now() + Duration::from_secs(seconds));
@@ -432,6 +442,9 @@ impl Core<'_, '_> {
             Check::Connection { id } => {
                 (id, None, ProviderRequestAction::Refresh)
             }
+            Check::Limits { id } => {
+                return self.check_limits(client, id);
+            }
         };
         // The faux model needs no trying.
         if self.providers.faux {
@@ -462,6 +475,94 @@ impl Core<'_, '_> {
             Settles::Reply,
         )?;
         self.send_providers()
+    }
+
+    /// Asks each signed-in provider that keeps limits how much of
+    /// them is used, unless it told so within the last minute, and
+    /// answers `client` once each answered.
+    fn check_limits(
+        &mut self,
+        client: u64,
+        id: &RequestId,
+    ) -> Result<()> {
+        let now = crate::app::clock::now();
+        let asked = self
+            .provider_views()?
+            .into_iter()
+            .filter(|p| {
+                self.reads_limits(p)
+                    && !self.providers.limits.fresh(&p.id, now)
+                    && !self.asking_limits(&p.id)
+            })
+            .map(|p| p.id)
+            .collect::<Vec<_>>();
+        if asked.is_empty() {
+            return self.answer(
+                client,
+                reply(
+                    id,
+                    Ok::<_, Rejection>("Limits checked.".into()),
+                ),
+            );
+        }
+        for provider in &asked {
+            self.send_provider_request(
+                Some((client, id)),
+                provider,
+                ProviderRequestAction::Limits,
+                None,
+                None,
+                Settles::Limits,
+            )?;
+        }
+        self.send_providers()
+    }
+
+    /// Whether the limits of `provider` are read: a signed-in
+    /// provider that keeps them, or the faux provider of a faux
+    /// realm.
+    fn reads_limits(&self, provider: &ProviderView) -> bool {
+        if self.providers.faux {
+            provider.id == FAUX
+        } else {
+            provider.configured
+                && limits::READ.contains(&&*provider.id)
+        }
+    }
+
+    /// Whether a read of `provider`'s limits is under way.
+    fn asking_limits(&self, provider: &str) -> bool {
+        self.providers.pending.values().any(|p| {
+            p.provider == provider
+                && p.action == ProviderRequestAction::Limits
+        })
+    }
+
+    /// Takes what a turn learnt of a provider's limits; a new refusal
+    /// reads all of them again, where the provider tells them.
+    pub(crate) fn limits_seen(
+        &mut self,
+        seen: runtime::LimitsSeen,
+    ) -> Result<()> {
+        let provider = seen.provider;
+        let refused =
+            self.providers.limits.seen(&provider, seen.limits);
+        if refused
+            && provider != "chatgpt"
+            && !self.asking_limits(&provider)
+        {
+            self.send_provider_request(
+                None,
+                &provider,
+                ProviderRequestAction::Limits,
+                None,
+                None,
+                Settles::Reply,
+            )?;
+            self.send_providers()?;
+        }
+        self.publish();
+        Ok(())
     }
 
     /// Answers a client's read of the models, requesting each
@@ -514,6 +615,9 @@ impl Core<'_, '_> {
             Login::Cancel { id, cancel } => {
                 let words = self.login_cancel(client, cancel)?;
                 self.answer(client, reply(id, words))?;
+            }
+            Login::Forget { id, forget } => {
+                self.login_forget(client, id, forget)?;
             }
         }
         self.send_providers()
@@ -648,6 +752,55 @@ impl Core<'_, '_> {
         Ok(Ok("Sign-in cancelled.".into()))
     }
 
+    /// Signs out of `provider`, or removes its key: the credential
+    /// and what it told of its limits are forgotten at once, and a
+    /// runtime that keeps a login of its own, as Claude's program
+    /// does, signs out too before the client is answered.
+    fn login_forget(
+        &mut self,
+        client: u64,
+        id: &RequestId,
+        provider: &str,
+    ) -> Result<()> {
+        let name = self
+            .provider_views()?
+            .into_iter()
+            .find(|p| p.id == provider)
+            .map_or_else(|| provider.to_owned(), |p| p.name);
+        if !self.credentials.is_configured(provider) {
+            return self.answer(
+                client,
+                reply(
+                    id,
+                    Ok::<_, Rejection>(format!(
+                        "Nothing is kept for {name}."
+                    )),
+                ),
+            );
+        }
+        self.credentials.save_model(provider, None)?;
+        self.providers.limits.forget(provider);
+        self.publish();
+        if provider == "claude" {
+            self.send_provider_request(
+                Some((client, id)),
+                provider,
+                ProviderRequestAction::Logout,
+                None,
+                None,
+                Settles::Reply,
+            )?;
+            return Ok(());
+        }
+        self.answer(
+            client,
+            reply(
+                id,
+                Ok::<_, Rejection>(format!("{name} is removed.")),
+            ),
+        )
+    }
+
     /// A step of a sign-in the runtime `from` runs.
     pub(crate) fn provider_event(
         &mut self,
@@ -711,6 +864,8 @@ impl Core<'_, '_> {
                     crate::realm::credentials::unpack(credential)?;
                 self.credentials
                     .save_model(&pending.provider, Some(value))?;
+                // Another sign-in may be another plan.
+                self.providers.limits.forget(&pending.provider);
             }
             let step = match result.error {
                 None => LoginStep::Done {
@@ -720,6 +875,51 @@ impl Core<'_, '_> {
             };
             if let Some((client, id)) = &pending.from {
                 self.answer(*client, login_step(id, &login, step))?;
+            }
+            self.publish();
+            return Ok(());
+        }
+        if pending.action == ProviderRequestAction::Logout {
+            let words = match &result.error {
+                None => "Claude is removed, and its program signed \
+                         out."
+                    .to_owned(),
+                Some(error) => format!(
+                    "Claude is removed from Hamlet, but its program \
+                     could not sign out: {}",
+                    self.credentials.scrub_text(error)
+                ),
+            };
+            if let Some((client, id)) = &pending.from {
+                self.answer(
+                    *client,
+                    reply(id, Ok::<_, Rejection>(words)),
+                )?;
+            }
+            self.publish();
+            return Ok(());
+        }
+        if pending.action == ProviderRequestAction::Limits {
+            // A provider that could not be read keeps what it told
+            // before.
+            if result.error.is_none()
+                && let Some(limits) = result.limits
+            {
+                self.providers.limits.read(&pending.provider, limits);
+            }
+            let more = self.providers.pending.values().any(|p| {
+                pending.from.is_some() && p.from == pending.from
+            });
+            if let Some((client, id)) = &pending.from
+                && !more
+            {
+                self.answer(
+                    *client,
+                    reply(
+                        id,
+                        Ok::<_, Rejection>("Limits checked.".into()),
+                    ),
+                )?;
             }
             self.publish();
             return Ok(());
@@ -899,11 +1099,13 @@ impl Core<'_, '_> {
                     "claude" => "Sign in to Claude".into(),
                     _ => p.name.clone(),
                 };
+                let configured =
+                    self.credentials.model(&p.id, &serving).is_some();
                 ProviderView {
-                    configured: self
-                        .credentials
-                        .model(&p.id, &serving)
-                        .is_some(),
+                    configured,
+                    limits: (configured || self.providers.faux)
+                        .then(|| self.providers.limits.view(&p.id))
+                        .flatten(),
                     methods,
                     label,
                     id: p.id,

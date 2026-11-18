@@ -103,6 +103,8 @@ pub enum RuntimeMessage {
     ProviderResult(ProviderResult),
     #[serde(rename = "provider_event")]
     ProviderEvent(ProviderEvent),
+    #[serde(rename = "limits")]
+    Limits(LimitsSeen),
     #[serde(rename = "credential_request")]
     CredentialRequest(CredentialRequest),
     #[serde(rename = "hello")]

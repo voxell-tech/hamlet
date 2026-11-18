@@ -95,6 +95,7 @@ pub(super) fn open_settings(
             scene,
             Scene::Settings
                 | Scene::SettingsModels
+                | Scene::SettingsEndpoints
                 | Scene::Charter
                 | Scene::Workspace
                 | Scene::Mcp
