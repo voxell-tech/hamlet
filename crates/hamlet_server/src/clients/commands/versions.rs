@@ -1,5 +1,5 @@
 //! A chief's commands on a profile's history: versions named and
-//! listed, a hire pinned, a commit undone, a profile forked, and a
+//! listed, an agent pinned, a commit undone, a profile forked, and a
 //! path purged from all of it.
 
 use hamlet_git::{Author, CommitId, MAIN, Repository};
@@ -13,7 +13,7 @@ use crate::realm::change::Done;
 use crate::realm::jobs::Fork;
 use crate::society::addresses::{self, Reach};
 use crate::society::refusal::Refusal;
-use crate::society::{authority, city, hires, names};
+use crate::society::{authority, city, hamlet_agents, names};
 
 /// The commands about a profile's versions.
 pub(super) const VERSIONS: &[Command] = &[
@@ -32,7 +32,7 @@ pub(super) const VERSIONS: &[Command] = &[
     Command {
         name: "pin",
         usage: "/pin <address> <version|main> [reason]",
-        does: "Hold a hire at a version, or let it follow main",
+        does: "Hold an agent at a version, or let it follow main",
         run: |core, line| core.pin(line.here.as_ref(), &line.words()),
     },
     Command {
@@ -189,21 +189,21 @@ impl Core<'_, '_> {
             Err(refusal) => return Ok(Err(refusal)),
         };
         let db = self.realm.store().connection();
-        let hire = match addresses::resolve(
+        let agent = match addresses::resolve(
             db,
             &parsed,
             here,
             Reach::Living,
         )? {
-            Ok(hire) => hire,
+            Ok(agent) => agent,
             Err(refusal) => return Ok(Err(refusal)),
         };
-        if let Err(refusal) = self.directs(hire)? {
+        if let Err(refusal) = self.directs(agent)? {
             return Ok(Err(refusal));
         }
         let layout = self.realm.layout().clone();
         let db = self.realm.store().connection();
-        let found = hires::get(db, hire)?;
+        let found = hamlet_agents::get(db, agent)?;
         let repo =
             Repository::open(&layout.repository(found.profile))?;
         let target = (*version != MAIN).then_some(*version);
@@ -215,11 +215,11 @@ impl Core<'_, '_> {
                 version: version.into(),
             }));
         }
-        let name = addresses::name_of(db, hire)?;
+        let name = addresses::name_of(db, agent)?;
         let reason = reason.join(" ");
         let chief = self.realm.chief();
         let done = self.attempt(Actor::Chief(chief), |cx, _| {
-            hires::set_pin(cx, hire, target, &reason)
+            hamlet_agents::set_pin(cx, agent, target, &reason)
         })?;
         Ok(done.map(|()| match target {
             Some(version) => format!(
@@ -322,7 +322,7 @@ impl Core<'_, '_> {
     }
 
     /// Takes the path out of every commit, every branch and every
-    /// lodge of the profile's hires.
+    /// lodge of the profile's agents.
     pub(super) fn purge(&mut self, words: &[&str]) -> Done<String> {
         let [profile, path] = words else {
             return Ok(Err(self.deeds.usage("purge")));
@@ -341,8 +341,8 @@ impl Core<'_, '_> {
         let writing = self.writing.clone();
         let held = writing.hold();
         let db = self.realm.store().connection();
-        for hire in hires::living_of(db, id)? {
-            let lodge = layout.lodge(&hire.hamlet, hire.agent);
+        for agent in hamlet_agents::living_of(db, id)? {
+            let lodge = layout.lodge(&agent.hamlet, agent.agent);
             let Ok(folder) = Folder::open(&lodge) else {
                 continue;
             };
@@ -356,8 +356,8 @@ impl Core<'_, '_> {
             hamlet_git::purge(&layout.repository(id), path)?;
         drop(held);
         let db = self.realm.store().connection();
-        for hire in hires::living_of(db, id)? {
-            self.remote.unpushed.write(UnpushedLodge(hire.agent));
+        for agent in hamlet_agents::living_of(db, id)? {
+            self.remote.unpushed.write(UnpushedLodge(agent.agent));
         }
         let by = Actor::Chief(self.realm.chief());
         self.main_moved(by, id)?;

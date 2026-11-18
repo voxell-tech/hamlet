@@ -14,14 +14,14 @@ use hamlet_store::Db;
 use hamlet_store::ids::{AgentId, HamletId};
 
 use crate::society::agents::{self, AgentKind};
-use crate::society::{hires, workers};
+use crate::society::{hamlet_agents, workers};
 
 /// Adds the plugin of the custom tools.
 pub(crate) fn plugin(app: &mut App) {
     app.add_plugins(custom::plugin);
 }
 
-/// The hamlet whose folder `agent`'s tools work on: a hire's, a
+/// The hamlet whose folder `agent`'s tools work on: its own, a
 /// worker's own, else its starter's; none for the Hand.
 pub(crate) fn hamlet_of(
     db: &mut Db,
@@ -29,13 +29,16 @@ pub(crate) fn hamlet_of(
 ) -> Result<Option<HamletId>> {
     Ok(match agents::get(db, agent)?.kind {
         AgentKind::Hand => None,
-        AgentKind::Hire => Some(hires::get(db, agent)?.hamlet),
+        AgentKind::Hamlet => {
+            Some(hamlet_agents::get(db, agent)?.hamlet)
+        }
         AgentKind::Worker => {
             let worker = workers::get(db, agent)?;
             match (worker.hamlet, worker.starter) {
                 (Some(hamlet), _) => Some(hamlet),
                 (None, Some(starter)) => {
-                    hires::find(db, starter)?.map(|h| h.hamlet)
+                    hamlet_agents::find(db, starter)?
+                        .map(|h| h.hamlet)
                 }
                 (None, None) => None,
             }

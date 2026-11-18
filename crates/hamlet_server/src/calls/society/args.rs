@@ -16,7 +16,7 @@ use crate::society::refusal::Refusal;
 use crate::tools::catalogue::{FACTS, Society};
 
 const ADDRESS: &str = "An agent's address: `hand`, `lead`, \
-                       `lead@<hamlet id>`, `hire#<id>` or \
+                       `lead@<hamlet id>`, `agent#<id>` or \
                        `worker#<id>`.";
 const REASON: &str =
     "Why, in a sentence, if it helps; the record keeps it.";
@@ -115,9 +115,10 @@ pub(crate) struct RequestRoad {
     pub reason: String,
 }
 
-/// Make a new profile of the city, to hire next. Without a character
-/// it starts from the realm's own. A profile you make may wait at the
-/// harbor until it is let into the city; its hires work all the same.
+/// Make a new profile of the city, to add an agent of next. Without
+/// a character it starts from the realm's own. A profile you make may
+/// wait at the harbor until it is let into the city; its agents work
+/// all the same.
 #[derive(Deserialize, JsonSchema)]
 pub(crate) struct CreateProfile {
     /// A short name, one line with no colon. It is a label and may
@@ -128,12 +129,12 @@ pub(crate) struct CreateProfile {
     pub character: String,
 }
 
-/// Hire a profile into your hamlet under you, or under a hire of your
-/// tree. Leave out `profile` to hire a blank agent instead, which
-/// starts from the realm's character and the library's skills and is
-/// not a profile of the city.
+/// Add an agent of a profile to your hamlet under you, or under an
+/// agent of your tree. Leave out `profile` to add a blank agent
+/// instead, which starts from the realm's character and the library's
+/// skills and is not a profile of the city.
 #[derive(Deserialize, JsonSchema)]
-pub(crate) struct Hire {
+pub(crate) struct AddAgent {
     /// The profile's address, `profile#<id>`, with `@<version>` to
     /// pin a version.
     #[serde(default)]
@@ -141,9 +142,9 @@ pub(crate) struct Hire {
     /// A blank agent's name, in place of `profile`.
     #[serde(default)]
     pub name: String,
-    /// What the hire is for.
+    /// What the agent is for.
     pub purpose: String,
-    /// The hire it answers to; you when left out.
+    /// The agent it answers to; you when left out.
     #[serde(default)]
     pub under: String,
     /// The hamlet, for the Hand.
@@ -151,20 +152,20 @@ pub(crate) struct Hire {
     pub hamlet: String,
 }
 
-/// End a hire under you. Its work stays in its profile.
+/// End an agent under you. Its work stays in its profile.
 #[derive(Deserialize, JsonSchema)]
-pub(crate) struct EndHire {
+pub(crate) struct EndAgent {
     #[schemars(description = ADDRESS)]
-    pub hire: String,
+    pub agent: String,
     #[serde(default)]
     #[schemars(description = REASON)]
     pub reason: String,
 }
 
-/// Merge one hire under you into another: the kept hire takes what
-/// the other learned, its roads and its hires.
+/// Merge one agent under you into another: the kept agent takes what
+/// the other learned, its roads and its agents.
 #[derive(Deserialize, JsonSchema)]
-pub(crate) struct MergeHires {
+pub(crate) struct MergeAgents {
     #[schemars(description = ADDRESS)]
     pub absorbed: String,
     #[schemars(description = ADDRESS)]
@@ -174,12 +175,12 @@ pub(crate) struct MergeHires {
     pub reason: String,
 }
 
-/// Choose the model a hire under you runs; leave out `model` for its
-/// hamlet's.
+/// Choose the model an agent under you runs; leave out `model` for
+/// its hamlet's.
 #[derive(Deserialize, JsonSchema)]
 pub(crate) struct SetModel {
     #[schemars(description = ADDRESS)]
-    pub hire: String,
+    pub agent: String,
     /// The model, as `provider::id`.
     #[serde(default)]
     pub model: String,
@@ -188,11 +189,11 @@ pub(crate) struct SetModel {
     pub reason: String,
 }
 
-/// Turn built-in tools off or back on for a hire under you.
+/// Turn built-in tools off or back on for an agent under you.
 #[derive(Deserialize, JsonSchema)]
 pub(crate) struct SetTools {
     #[schemars(description = ADDRESS)]
-    pub hire: String,
+    pub agent: String,
     #[serde(default)]
     pub off: Vec<String>,
     #[serde(default)]
@@ -202,12 +203,12 @@ pub(crate) struct SetTools {
     pub reason: String,
 }
 
-/// Give a hire under you an allowance in dollars for the budget's
+/// Give an agent under you an allowance in dollars for the budget's
 /// period, or none.
 #[derive(Deserialize, JsonSchema)]
 pub(crate) struct SetAllowance {
     #[schemars(description = ADDRESS)]
-    pub hire: String,
+    pub agent: String,
     #[serde(default)]
     pub dollars: Option<f64>,
     #[serde(default)]
@@ -215,12 +216,12 @@ pub(crate) struct SetAllowance {
     pub reason: String,
 }
 
-/// Give a hire under you a short nickname it is shown by in the
+/// Give an agent under you a short nickname it is shown by in the
 /// world; leave out `nickname` for its own name.
 #[derive(Deserialize, JsonSchema)]
 pub(crate) struct Nickname {
     #[schemars(description = ADDRESS)]
-    pub hire: String,
+    pub agent: String,
     /// At most 24 letters.
     #[serde(default)]
     pub nickname: String,
@@ -229,7 +230,7 @@ pub(crate) struct Nickname {
     pub reason: String,
 }
 
-/// Lay a road between two hires under you, so they can write and put
+/// Lay a road between two agents under you, so they can write and put
 /// questions to each other.
 #[derive(Deserialize, JsonSchema)]
 pub(crate) struct LayRoad {
@@ -242,7 +243,7 @@ pub(crate) struct LayRoad {
     pub reason: String,
 }
 
-/// Take up a road you laid between two hires under you.
+/// Take up a road you laid between two agents under you.
 #[derive(Deserialize, JsonSchema)]
 pub(crate) struct TakeUpRoad {
     #[schemars(description = ADDRESS)]
@@ -254,7 +255,7 @@ pub(crate) struct TakeUpRoad {
     pub reason: String,
 }
 
-/// As a lead, agree a road between a hire of your hamlet and one of
+/// As a lead, agree a road between an agent of your hamlet and one of
 /// another. It opens once both leads agree.
 #[derive(Deserialize, JsonSchema)]
 pub(crate) struct AgreeRoad {
@@ -274,19 +275,19 @@ pub(crate) struct FoundHamlet {
     /// The name it is shown by: one line, up to 40 characters, no
     /// colon. Its id is made for it.
     pub name: String,
-    /// The address, `profile#<id>`, of the profile its lead is a
-    /// hire of.
+    /// The address, `profile#<id>`, of the profile its lead is an
+    /// agent of.
     #[serde(default)]
     pub profile: String,
     /// What the hamlet is for.
     pub purpose: String,
 }
 
-/// Make a hire its hamlet's lead.
+/// Make an agent its hamlet's lead.
 #[derive(Deserialize, JsonSchema)]
 pub(crate) struct SetLead {
     #[schemars(description = ADDRESS)]
-    pub hire: String,
+    pub agent: String,
     #[serde(default)]
     #[schemars(description = REASON)]
     pub reason: String,
@@ -413,9 +414,9 @@ called!(
     Object,
     RequestRoad,
     CreateProfile,
-    Hire,
-    EndHire,
-    MergeHires,
+    AddAgent,
+    EndAgent,
+    MergeAgents,
     SetModel,
     SetTools,
     SetAllowance,

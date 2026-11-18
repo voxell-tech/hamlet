@@ -100,19 +100,19 @@ pub(super) fn stand(
     }
 }
 
-/// Has each figure pace its yard while any of its profile's hires is
+/// Has each figure pace its yard while any of its profile's agents is
 /// busy.
 pub(super) fn work(
     profiles: Query<&Profile>,
-    hires: Query<(&Identity, Has<Busy>)>,
+    agents: Query<(&Identity, Has<Busy>)>,
     mut figures: Query<(&Figure, &mut Robot)>,
 ) {
     for (figure, mut robot) in &mut figures {
         let Ok(profile) = profiles.get(figure.profile) else {
             continue;
         };
-        let busy = hires.iter().any(|(id, busy)| {
-            busy && profile.0.hires.contains(&id.0)
+        let busy = agents.iter().any(|(id, busy)| {
+            busy && profile.0.agents.contains(&id.0)
         });
         if robot.is_busy() != busy {
             robot.set_busy(busy);

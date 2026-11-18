@@ -85,7 +85,7 @@ pub(crate) fn standing(
     (state.glyph(), words, state.kind())
 }
 
-/// An agent of a hamlet, living or gone: a hire, or a worker.
+/// Someone of a hamlet, living or gone: an agent, or a worker.
 #[derive(Clone, PartialEq)]
 pub(super) struct AgentRow {
     pub agent: Entity,
@@ -118,7 +118,7 @@ type Told<'a> = (
 );
 
 /// `rows` in the order of their tree: each parent followed by its
-/// hires, the living before those that are gone.
+/// agents, the living before those that are gone.
 fn in_tree(
     rows: Vec<AgentRow>,
     parents: &[(AgentId, Option<AgentId>)],
@@ -178,7 +178,7 @@ fn in_tree(
 }
 
 /// Everyone of `hamlet`, or of every hamlet: the lead, the living
-/// hires in the order they came and the workers after them, then
+/// agents in the order they came and the workers after them, then
 /// those that are gone.
 pub(super) fn agent_rows(
     world: &World,

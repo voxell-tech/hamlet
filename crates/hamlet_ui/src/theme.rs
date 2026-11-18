@@ -361,7 +361,7 @@ impl StatusKind {
 pub struct Statuses {
     /// Done: success, finished, restored, approved. Green.
     pub success: Status,
-    /// Merged: a hire merged into another, a merge action or
+    /// Merged: an agent merged into another, a merge action or
     /// record. Purple.
     pub merged: Status,
     /// In progress or a warning: an agent at work, something

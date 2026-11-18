@@ -52,7 +52,7 @@ enum Step {
     },
     Night(bool),
     /// Gives the city profiles, each with a spot for its house, the
-    /// hires that live and whether it has left, as the server
+    /// agents that live and whether it has left, as the server
     /// would send them.
     Profiles(Vec<(Vec2, usize, bool)>),
     /// Gives the city this many profiles waiting on its pier, some of
@@ -548,23 +548,23 @@ fn run(
             hour.0 = Some(sky.held(night));
         }
         Step::Profiles(profiles) => {
-            for (k, (at, hires, left)) in
+            for (k, (at, count, left)) in
                 profiles.into_iter().enumerate()
             {
                 let id = 100 + k as u64;
-                let hired = (0..hires as u64)
+                let agents = (0..count as u64)
                     .map(|n| protocol::AgentId(1000 + id * 10 + n))
                     .collect::<Vec<_>>();
-                for hire in &hired {
-                    commands.spawn(Identity(*hire));
+                for agent in &agents {
+                    commands.spawn(Identity(*agent));
                 }
                 commands.spawn((
                     Name::new(format!("Profile {k}")),
                     Profile(protocol::Profile {
+                        agents,
                         arrival: protocol::Arrival::Housed,
                         arrival_by: None,
                         chief: String::new(),
-                        hires: hired,
                         house: Some(protocol::HouseAt {
                             turn: f64::from((-at.x).atan2(-at.y)),
                             x: f64::from(at.x),
@@ -590,6 +590,7 @@ fn run(
                 commands.spawn((
                     Name::new(format!("Newcomer {k}")),
                     Profile(protocol::Profile {
+                        agents: Vec::new(),
                         arrival: if k % 2 == 0 {
                             protocol::Arrival::Waiting
                         } else {
@@ -597,7 +598,6 @@ fn run(
                         },
                         arrival_by: None,
                         chief: String::new(),
-                        hires: Vec::new(),
                         house: None,
                         id: protocol::ProfileId(id),
                         left: None,

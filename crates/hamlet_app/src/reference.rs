@@ -20,7 +20,7 @@ pub(crate) fn copy_hamlet(world: &mut World, hamlet: Entity) {
     copy(world, format!("hamlet {id} ({name})"));
 }
 
-/// Copies `agent` as its address and name, as in `hire#3 (Mira)`.
+/// Copies `agent` as its address and name, as in `agent#3 (Mira)`.
 pub(crate) fn copy_agent(world: &mut World, agent: Entity) {
     // An agent's name, which commands know it by, is its address.
     let address = agents::name_of(world, agent);

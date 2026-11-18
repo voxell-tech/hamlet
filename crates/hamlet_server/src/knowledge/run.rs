@@ -11,7 +11,7 @@ use super::worker::RepositoryWriteLock;
 use super::{CHARACTER, branch, lodging, outside_git};
 use crate::realm::jobs::{Fork, Job};
 use crate::realm::layout::Layout;
-use crate::society::{city, hires, library as shelf};
+use crate::society::{city, hamlet_agents, library as shelf};
 
 /// The longest a failed job waits before it runs again.
 const MOST_WAIT: i64 = 300_000;
@@ -86,18 +86,18 @@ pub(crate) fn run(
         } => {
             plant(db, layout, *profile, character, fork.as_ref(), at)
         }
-        Job::Lodge { hire } => lodge(db, layout, *hire),
-        Job::Commit { hire } => {
-            commit(db, layout, *hire, at).map(drop)
+        Job::Lodge { agent } => lodge(db, layout, *agent),
+        Job::Commit { agent } => {
+            commit(db, layout, *agent, at).map(drop)
         }
-        Job::TakeIn { hire } => take_in(db, layout, *hire, at),
-        Job::EraseHire { hire } => {
-            let found = lodging(db, layout, *hire)?;
+        Job::TakeIn { agent } => take_in(db, layout, *agent, at),
+        Job::EraseAgent { agent } => {
+            let found = lodging(db, layout, *agent)?;
             remove_folder(&found.path)?;
             if let Ok(repo) =
                 Repository::open(&layout.repository(found.profile))
             {
-                repo.delete_branch(&branch(*hire))?;
+                repo.delete_branch(&branch(*agent))?;
             }
             Ok(())
         }
@@ -245,8 +245,12 @@ fn lodge(db: &mut Db, layout: &Layout, agent: AgentId) -> Result<()> {
         None => {
             let start = target(&repo, found.pin.as_deref())?;
             repo.branch(&branch, start)?;
-            if hires::find(db, agent)?.is_some() {
-                hires::took_in(db, agent, &start.to_string())?;
+            if hamlet_agents::find(db, agent)?.is_some() {
+                hamlet_agents::took_in(
+                    db,
+                    agent,
+                    &start.to_string(),
+                )?;
             }
             start
         }
@@ -360,8 +364,8 @@ fn take_in(
         Author { name: &name, at },
     )?;
     check_out(&repo, merged.commit, &Folder::make(&found.path)?)?;
-    if hires::find(db, agent)?.is_some() {
-        hires::took_in(db, agent, &into.to_string())?;
+    if hamlet_agents::find(db, agent)?.is_some() {
+        hamlet_agents::took_in(db, agent, &into.to_string())?;
     }
     Ok(())
 }

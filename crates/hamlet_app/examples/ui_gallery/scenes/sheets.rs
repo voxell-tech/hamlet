@@ -362,7 +362,7 @@ pub(super) fn status_sheet() -> Ui {
             "References",
             row((
                 styles::reference("home"),
-                styles::reference("hire#11"),
+                styles::reference("agent#11"),
                 styles::reference("feature/orchard-notes"),
             ))
             .gap(8.0)

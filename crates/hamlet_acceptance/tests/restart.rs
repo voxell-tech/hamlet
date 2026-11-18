@@ -30,9 +30,9 @@ async fn a_wait_and_its_held_call_survive_a_crash() {
         .command(hand, "/create-hamlet docs: keep the docs")
         .await;
     chief
-        .until("the lead", |c| c.agent("hire#2").is_some())
+        .until("the lead", |c| c.agent("agent#2").is_some())
         .await;
-    let ada = chief.id("hire#2");
+    let ada = chief.id("agent#2");
     let now = chat(ada);
     chief.open(&now).await;
     chief.tell(ada, "Fetch it.").await;
@@ -80,9 +80,9 @@ async fn the_realm_comes_back_as_it_was_after_a_stop() {
     s.chief.shows(&now, "Hello.").await;
     s.chief.command(hand, "/profile new bo: A digger.").await;
     let ada = s.found("docs", "ada", "keep the docs").await;
-    s.hire(ada, "cy", "dig").await;
+    s.add_agent(ada, "cy", "dig").await;
     s.chief.command(ada, "/tier 100").await;
-    s.chief.command(ada, "/end hire#3 done").await;
+    s.chief.command(ada, "/end agent#3 done").await;
     s.chief.limit(Some("docs"), "road", "most", json!(5)).await;
     s.chief.tell(hand, "Found one.").await;
     s.chief.shows(&now, "Founded.").await;

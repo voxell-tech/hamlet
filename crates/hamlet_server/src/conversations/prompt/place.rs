@@ -1,4 +1,4 @@
-//! Who an agent is and where (C11, H17): its office, the hires above
+//! Who an agent is and where (C11, H17): its office, the agents above
 //! and under it, its roads, what it may not use, how its hamlet was
 //! run lately, and for the Hand and leads the other hamlets.
 
@@ -10,8 +10,8 @@ use crate::conversations::{Conversation, Kind, tasks};
 use crate::society::agents::{self, AgentKind};
 use crate::society::roads::{self, Way};
 use crate::society::{
-    addresses, authority, city, hamlets, hires, limits, record, tree,
-    workers,
+    addresses, authority, city, hamlet_agents, hamlets, limits,
+    record, tree, workers,
 };
 
 /// How an agent reads what another agent sends it.
@@ -24,20 +24,20 @@ const MESSAGES: &str =
      agent's. Each lodge is closed to other agents: put what they \
      need in your message.";
 
-/// A parent's part: what it may do over the hires under it.
+/// A parent's part: what it may do over the agents under it.
 const PARENT: &str =
-    "You are the parent of the hires under you. `hire` brings a \
-     profile of the city in under you or under a hire of your tree, \
-     and `create_profile` makes a new profile to hire. Hire when a \
-     kind of work will come back and deserves its own memory; do \
-     small one-off things yourself, or with `start_worker`. Check \
-     the hires below for one that fits before hiring. `lay_road` \
-     lets two hires under you write to each other directly; \
-     `end_hire` ends one nobody needs and `merge_hires` makes one \
-     hire of two whose work overlaps: the kept hire takes what the \
-     other learned, its roads and its hires. `set_model`, \
-     `set_tools` and `set_allowance` shape a hire under you, and \
-     `nickname` names it in the world.";
+    "You are the parent of the agents under you. `add_agent` brings \
+     a profile of the city in under you or under an agent of your \
+     tree, and `create_profile` makes a new profile to add. Add an \
+     agent when a kind of work will come back and deserves its own \
+     memory; do small one-off things yourself, or with \
+     `start_worker`. Check the agents below for one that fits \
+     before adding one. `lay_road` lets two agents under you write \
+     to each other directly; `end_agent` ends one nobody needs and \
+     `merge_agents` makes one agent of two whose work overlaps: the \
+     kept agent takes what the other learned, its roads and its \
+     agents. `set_model`, `set_tools` and `set_allowance` shape an \
+     agent under you, and `nickname` names it in the world.";
 
 /// How an agent takes a chief's instruction.
 const OBJECT: &str =
@@ -46,11 +46,11 @@ const OBJECT: &str =
      for the chief's ruling before doing anything. If the chief \
      says go on, do it and do not object again. You may not refuse.";
 
-/// What a parent is told of a chief's instructions to its hires.
-const TOLD: &str = "A chief can instruct the hires under you \
-                    directly. You may tell the chief if you think \
-                    one was a mistake, but you may not undo it or \
-                    act against a hire for following it. The latest:";
+/// What a parent is told of a chief's instructions to its agents.
+const TOLD: &str =
+    "A chief can instruct the agents under you directly. You may \
+     tell the chief if you think one was a mistake, but you may not \
+     undo it or act against an agent for following it. The latest:";
 
 /// The most decisions and instructions a place tells.
 const MOST_TOLD: usize = 12;
@@ -69,13 +69,13 @@ pub(super) fn place(
         AgentKind::Hand => lines.push(
             "You are the Hand of this realm: the chiefs' own agent. \
              You found hamlets (`found_hamlet`) and set their leads \
-             (`set_lead`), make profiles (`create_profile`) and \
-             hire them into any hamlet, and are the parent of every \
-             hire. You read any hamlet's record (`read_record`) and \
-             any profile (`read_profile`). What you do to what a \
-             chief owns, removing a hamlet or changing, tagging or \
-             reverting a profile, waits for a chief first. Each \
-             lead answers to you."
+             (`set_lead`), make profiles (`create_profile`) and add \
+             agents of them to any hamlet, and are the parent of \
+             every agent in a hamlet. You read any hamlet's record \
+             (`read_record`) and any profile (`read_profile`). What \
+             you do to what a chief owns, removing a hamlet or \
+             changing, tagging or reverting a profile, waits for a \
+             chief first. Each lead answers to you."
                 .into(),
         ),
         AgentKind::Worker => {
@@ -93,7 +93,7 @@ pub(super) fn place(
             ));
             return Ok(lines.join("\n"));
         }
-        AgentKind::Hire => hire(db, id, &mut lines)?,
+        AgentKind::Hamlet => hamlet_agent(db, id, &mut lines)?,
     }
     let ways = roads::ways(db, id)?;
     if !ways.is_empty() {
@@ -126,30 +126,31 @@ pub(super) fn place(
     Ok(lines.join("\n"))
 }
 
-/// A hire's office, tree, tools and lately.
-fn hire(
+/// An agent of a hamlet's office, tree, tools and lately.
+fn hamlet_agent(
     db: &mut Db,
     id: AgentId,
     lines: &mut Vec<String>,
 ) -> Result<()> {
-    let found = hires::get(db, id)?;
+    let found = hamlet_agents::get(db, id)?;
     let name = addresses::name_of(db, id)?;
-    // A hire hired without a purpose takes its first message as one.
+    // An agent added without a purpose takes its first message as
+    // one.
     let purpose = found.purpose.trim().trim_end_matches('.');
     lines.push(if purpose.is_empty() {
         format!(
-            "You are `{name}`, a profile of the city, hired into \
+            "You are `{name}`, a profile of the city, working in \
              `{}`.",
             found.hamlet
         )
     } else {
         format!(
-            "You are `{name}`, a profile of the city, hired into \
+            "You are `{name}`, a profile of the city, working in \
              `{}` to {purpose}",
             found.hamlet
         )
     });
-    let lead = hires::is_lead(db, id)?;
+    let lead = hamlet_agents::is_lead(db, id)?;
     match found.parent {
         Some(parent) => lines.push(format!(
             "You answer to `{}`.",
@@ -162,21 +163,21 @@ fn hire(
         None => {}
     }
     let own = limits::of(db, &found.hamlet)?;
-    // Any hire can become a parent.
+    // Any agent of a hamlet can become a parent.
     lines.push(PARENT.into());
     let under = tree::under(db, id)?;
     if !under.is_empty() {
-        lines.push("Hires under you:".into());
+        lines.push("Agents under you:".into());
         for each in &under {
-            let hire = hires::get(db, *each)?;
+            let agent = hamlet_agents::get(db, *each)?;
             lines.push(format!(
                 "- {}: {}",
                 addresses::name_of(db, *each)?,
-                hire.purpose
+                agent.purpose
             ));
         }
     }
-    let off = hires::tools_off(db, id)?;
+    let off = hamlet_agents::tools_off(db, id)?;
     if !off.is_empty() {
         lines.push(format!(
             "Your parent turned these tools off for you: {}.",
@@ -226,8 +227,8 @@ pub(super) fn realm(
     let found = agents::get(db, id)?;
     let own = match found.kind {
         AgentKind::Hand => None,
-        AgentKind::Hire if hires::is_lead(db, id)? => {
-            Some(hires::get(db, id)?.hamlet)
+        AgentKind::Hamlet if hamlet_agents::is_lead(db, id)? => {
+            Some(hamlet_agents::get(db, id)?.hamlet)
         }
         _ => return Ok(None),
     };
@@ -236,9 +237,9 @@ pub(super) fn realm(
         if !hamlet.is_living() || Some(&hamlet.id) == own.as_ref() {
             continue;
         }
-        let count = hires::count_living(db, &hamlet.id)?;
+        let count = hamlet_agents::count_living(db, &hamlet.id)?;
         lines.push(format!(
-            "- {} (`{}`): lead `{}`, {count} hires",
+            "- {} (`{}`): lead `{}`, {count} agents",
             hamlet.name,
             hamlet.id,
             addresses::name_of(db, hamlet.lead)?
@@ -259,15 +260,16 @@ pub(super) fn realm(
         None => "# The realm\nThe hamlets:",
         Some(_) => {
             "# The realm\nThe other hamlets. With `agree_road`, two \
-             leads open a road between a hire of each, once both \
+             leads open a road between an agent of each, once both \
              agree:"
         }
     };
     Ok(Some(format!("{head}\n{}", lines.join("\n"))))
 }
 
-/// The profiles of the city that `id` may hire, for the Hand and for
-/// hires that are parents: what `hire` takes as `profile`.
+/// The profiles of the city that `id` may add agents of, for the Hand
+/// and for agents that are parents: what `add_agent` takes as
+/// `profile`.
 pub(super) fn profiles(
     db: &mut Db,
     id: AgentId,
@@ -275,7 +277,7 @@ pub(super) fn profiles(
     let found = agents::get(db, id)?;
     let hamlet = match found.kind {
         AgentKind::Hand => None,
-        AgentKind::Hire => Some(hires::get(db, id)?.hamlet),
+        AgentKind::Hamlet => Some(hamlet_agents::get(db, id)?.hamlet),
         AgentKind::Worker => return Ok(None),
     };
     let mut lines = Vec::new();
@@ -286,7 +288,7 @@ pub(super) fn profiles(
             continue;
         }
         let may = match &hamlet {
-            Some(hamlet) => authority::may_hire(
+            Some(hamlet) => authority::may_add(
                 db,
                 Actor::Agent(id),
                 profile.id,
@@ -307,9 +309,9 @@ pub(super) fn profiles(
         lines.push(format!("- and {more} more"));
     }
     Ok(Some(format!(
-        "# The city's profiles\nWhat `hire` takes as `profile`; a \
-         name is a label that may repeat, the address is the \
-         profile:\n{}",
+        "# The city's profiles\nWhat `add_agent` takes as \
+         `profile`; a name is a label that may repeat, the address \
+         is the profile:\n{}",
         lines.join("\n")
     )))
 }

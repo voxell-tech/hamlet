@@ -1,5 +1,5 @@
 //! Tool reach through real commands and file tools, with canaries on
-//! disk: what a hire's commands and file tools can touch.
+//! disk: what an agent's commands and file tools can touch.
 
 use std::fs;
 

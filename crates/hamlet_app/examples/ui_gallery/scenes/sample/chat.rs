@@ -159,7 +159,7 @@ pub(super) fn setup(world: &mut World, scene: Scene) -> Transcript {
                  are in [the orchard \
                  notes](https://example.com/orchard).\n\n```sh\ncargo \
                  test -p almanac -- --nocapture\n```\n\nAsk \
-                 `hire#11` if a row looks wrong.",
+                 `agent#11` if a row looks wrong.",
             ),
         ]),
         Scene::Images | Scene::NoImages => {

@@ -1,4 +1,4 @@
-//! Addresses: how chiefs and agents name the Hand, leads, hires,
+//! Addresses: how chiefs and agents name the Hand, leads, agents,
 //! workers and profiles, by ids and never by a profile's name (C30,
 //! H14).
 
@@ -8,7 +8,7 @@ use anyhow::Result;
 use diesel::prelude::*;
 use hamlet_store::Db;
 use hamlet_store::ids::{Actor, AgentId, HamletId, ProfileId};
-use hamlet_store::schema::{agent, hire, profile, worker};
+use hamlet_store::schema::{agent, hamlet_agent, profile, worker};
 
 use super::agents::{self, AgentKind};
 use super::names::hamlet_id;
@@ -24,7 +24,7 @@ pub(crate) enum Address {
     Lead {
         hamlet: Option<HamletId>,
     },
-    Hire(AgentId),
+    Agent(AgentId),
     Worker(AgentId),
 }
 
@@ -36,7 +36,7 @@ impl fmt::Display for Address {
             Self::Lead {
                 hamlet: Some(hamlet),
             } => write!(f, "lead@{hamlet}"),
-            Self::Hire(id) => write!(f, "hire#{id}"),
+            Self::Agent(id) => write!(f, "agent#{id}"),
             Self::Worker(id) => write!(f, "worker#{id}"),
         }
     }
@@ -50,7 +50,7 @@ pub(crate) enum Reach {
     Kept,
 }
 
-/// Reads an address: `hand`, `lead`, `lead@<hamlet>`, `hire#<id>`
+/// Reads an address: `hand`, `lead`, `lead@<hamlet>`, `agent#<id>`
 /// or `worker#<id>`.
 pub(crate) fn parse(text: &str) -> Result<Address, Refusal> {
     let text = text.trim();
@@ -71,7 +71,7 @@ pub(crate) fn parse(text: &str) -> Result<Address, Refusal> {
     let (kind, id) = text.split_once('#').ok_or_else(bad)?;
     let id = AgentId(id.parse::<i64>().map_err(|_| bad())?);
     match kind {
-        "hire" => Ok(Address::Hire(id)),
+        "agent" => Ok(Address::Agent(id)),
         "worker" => Ok(Address::Worker(id)),
         _ => Err(bad()),
     }
@@ -127,13 +127,13 @@ pub(crate) fn resolve(
                 _ => refuse!(none()),
             }
         }
-        Address::Hire(id) => {
-            let mut query = hire::table
+        Address::Agent(id) => {
+            let mut query = hamlet_agent::table
                 .inner_join(agent::table)
                 .inner_join(profile::table)
-                .filter(hire::agent.eq(id))
+                .filter(hamlet_agent::agent.eq(id))
                 .filter(agent::erased.eq(false))
-                .select(hire::agent)
+                .select(hamlet_agent::agent)
                 .into_boxed();
             if reach == Reach::Living {
                 query = query
@@ -173,21 +173,21 @@ pub(crate) fn actor_address(
     })
 }
 
-/// The address of `id`: `hand`, `hire#id` or `worker#id` (C30).
+/// The address of `id`: `hand`, `agent#id` or `worker#id` (C30).
 pub(crate) fn address_of(db: &mut Db, id: AgentId) -> Result<String> {
     let kind = agents::get(db, id)?.kind;
     Ok(match kind {
         AgentKind::Hand => Address::Hand,
-        AgentKind::Hire => Address::Hire(id),
+        AgentKind::Hamlet => Address::Agent(id),
         AgentKind::Worker => Address::Worker(id),
     }
     .to_string())
 }
 
 /// How `id` is shown to chiefs and agents: its address, and beside it
-/// the nickname of a hire, or else its profile's name, as in
-/// `hire#3 (Mira)`, or a worker's nickname. An erased hire shows its
-/// address only.
+/// the nickname of an agent, or else its profile's name, as in
+/// `agent#3 (Mira)`, or a worker's nickname. An erased agent shows
+/// its address only.
 pub(crate) fn name_of(db: &mut Db, id: AgentId) -> Result<String> {
     let address = address_of(db, id)?;
     let found = agents::get(db, id)?;
@@ -199,13 +199,13 @@ pub(crate) fn name_of(db: &mut Db, id: AgentId) -> Result<String> {
     {
         return Ok(format!("{address} ({nickname})"));
     }
-    if found.kind != AgentKind::Hire || found.erased {
+    if found.kind != AgentKind::Hamlet || found.erased {
         return Ok(address);
     }
-    let (nickname, name) = hire::table
+    let (nickname, name) = hamlet_agent::table
         .inner_join(profile::table)
-        .filter(hire::agent.eq(id))
-        .select((hire::nickname, profile::name))
+        .filter(hamlet_agent::agent.eq(id))
+        .select((hamlet_agent::nickname, profile::name))
         .first::<(Option<String>, String)>(db)?;
     Ok(format!("{address} ({})", nickname.unwrap_or(name)))
 }

@@ -2,9 +2,9 @@
 //! and the question before anything that ends an agent or closes a
 //! hamlet.
 
+mod add_agent;
 mod deed;
 mod founding;
-mod hire;
 mod items;
 mod model;
 mod new_profile;
@@ -73,7 +73,7 @@ pub fn plugin(app: &mut App) {
         .init_resource::<founding::Awaited>()
         .add_observer(founding::chosen)
         .init_resource::<new_profile::Making>()
-        .init_resource::<hire::Hiring>()
+        .init_resource::<add_agent::AgentForm>()
         .init_resource::<road::Roading>()
         .init_resource::<deed::Reason>()
         .add_command(submit, &SUBMIT_KEYS)
@@ -118,8 +118,8 @@ pub(crate) enum Open {
     Founding(Vec2),
     /// The form a profile is made in the city with.
     NewProfile(Vec2),
-    /// The form a profile is hired under a parent with.
-    Hire(Entity, Vec2),
+    /// The form an agent is added under a parent with.
+    AddAgent(Entity, Vec2),
     /// The form a road from an agent is built with.
     Road(Entity, Vec2),
     /// The model an agent runs, its effort and its tier.
@@ -134,7 +134,7 @@ impl Open {
             Open::Question(..)
                 | Open::Founding(_)
                 | Open::NewProfile(_)
-                | Open::Hire(..)
+                | Open::AddAgent(..)
         )
     }
 }
@@ -146,7 +146,7 @@ fn submit(world: &mut World) {
         Open::Question(deed, _) => deed::answer(world, &deed),
         Open::Founding(_) => founding::submit(world),
         Open::NewProfile(_) => new_profile::submit(world),
-        Open::Hire(parent, _) => hire::submit(world, parent),
+        Open::AddAgent(parent, _) => add_agent::submit(world, parent),
         _ => {}
     }
 }
@@ -366,14 +366,14 @@ pub(crate) fn ask_new_profile(world: &mut World) {
     *world.resource_mut::<Open>() = Open::NewProfile(at);
 }
 
-/// Opens the form a profile is hired under `parent` with, at the
+/// Opens the form an agent is added under `parent` with, at the
 /// pointer.
-pub(crate) fn ask_hire(world: &mut World, parent: Entity) {
-    if !Deeds::is_allowed(world, "hire") {
+pub(crate) fn ask_add_agent(world: &mut World, parent: Entity) {
+    if !Deeds::is_allowed(world, "add-agent") {
         return;
     }
     let at = pointer(world);
-    *world.resource_mut::<Open>() = Open::Hire(parent, at);
+    *world.resource_mut::<Open>() = Open::AddAgent(parent, at);
 }
 
 /// Opens the form a road from `agent` is built with, at the pointer.
@@ -476,7 +476,9 @@ fn menus() -> AnyView {
             Open::NewProfile(at) => {
                 new_profile::new_profile(at).boxed()
             }
-            Open::Hire(parent, at) => hire::hire(parent, at).boxed(),
+            Open::AddAgent(parent, at) => {
+                add_agent::form(parent, at).boxed()
+            }
             Open::Road(agent, at) => road::road(agent, at).boxed(),
             Open::Model(agent) => model::picker(agent).boxed(),
         },
@@ -581,8 +583,8 @@ mod tests {
             realm::agent(4, "home", false),
         ]);
         let mut app = app(state.clone());
-        let a = agents::named(app.world_mut(), "hire#3").unwrap();
-        let b = agents::named(app.world_mut(), "hire#4").unwrap();
+        let a = agents::named(app.world_mut(), "agent#3").unwrap();
+        let b = agents::named(app.world_mut(), "agent#4").unwrap();
         app.world_mut().resource_mut::<Selected>().0 =
             Some(Thing::Agent(a));
         app.world_mut().resource_mut::<Also>().0 =
@@ -590,9 +592,9 @@ mod tests {
         open(&mut app, Open::Menu(Thing::Agent(a), Vec2::ZERO));
         let shown = words(&mut app);
         for absent in [
-            "End hire#3...",
-            "Make hire#3 Lead...",
-            "Merge hire#3 into hire#4...",
+            "End agent#3...",
+            "Make agent#3 Lead...",
+            "Merge agent#3 into agent#4...",
         ] {
             assert!(
                 !shown.iter().any(|text| text == absent),
@@ -606,14 +608,14 @@ mod tests {
         );
         open(&mut app, Open::Nothing);
         open(&mut app, Open::Road(a, Vec2::ZERO));
-        press(&mut app, "hire#4");
+        press(&mut app, "agent#4");
         let messages = sent(&mut app);
         let [protocol::ClientMessage::Say(say)] = &messages[..]
         else {
             panic!("one road: {messages:?}");
         };
         assert_eq!(say.to, protocol::AgentId(2));
-        assert_eq!(say.text, "/road hire#3 hire#4");
+        assert_eq!(say.text, "/road agent#3 agent#4");
     }
 
     #[test]

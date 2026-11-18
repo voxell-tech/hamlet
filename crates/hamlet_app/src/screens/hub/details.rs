@@ -1,7 +1,7 @@
 //! The details sheet beside a thread: what only it shows of the
-//! agent. Its kind, profile, parent and hires are in the path and the
-//! rail, its model in the composer and its sessions and side chats in
-//! the session menu, so they are not repeated here.
+//! agent. Its kind, profile, parent and agents are in the path and
+//! the rail, its model in the composer and its sessions and side
+//! chats in the session menu, so they are not repeated here.
 
 use bevy::ecs::entity::Entity;
 use bevy::ecs::world::World;
@@ -111,13 +111,13 @@ fn facts(world: &World, agent: Entity) -> Facts {
     }
 }
 
-/// The named versions of the profile `agent` is a hire of.
+/// The named versions of the profile `agent` is an agent of.
 fn versions_of(world: &World, agent: Entity) -> Option<Vec<String>> {
     let id = id_of(world, agent)?;
     let mut profiles = world.try_query::<&Profile>()?;
     profiles
         .iter(world)
-        .find(|profile| profile.0.hires.contains(&id))
+        .find(|profile| profile.0.agents.contains(&id))
         .map(|profile| {
             profile
                 .0
@@ -156,8 +156,8 @@ fn read_only(text: String) -> AnyView {
     .boxed()
 }
 
-/// What a hire is called in the world, typed over: Enter gives it the
-/// nickname, and a field left empty its own name again.
+/// What an agent is called in the world, typed over: Enter gives it
+/// the nickname, and a field left empty its own name again.
 fn nickname_field(facts: &Facts) -> AnyView {
     let address = facts.address.clone();
     let had = facts.called.clone();
@@ -261,7 +261,7 @@ fn shown_version(name: &str) -> String {
     }
 }
 
-/// The built-in tools a hire can be kept from, each with what it
+/// The built-in tools an agent can be kept from, each with what it
 /// does.
 const TOOLS: [(&str, &str); 6] = [
     ("read", "Reads files"),

@@ -14,18 +14,18 @@ pub(crate) const HAMLET: &str =
 pub(crate) const LEAD: &str =
     "The hamlet's top agent, the one you talk to first.";
 
-pub(crate) const HIRE: &str =
-    "An agent working in a hamlet, under its lead or another hire.";
+pub(crate) const AGENT: &str =
+    "An agent working in a hamlet, under its lead or another agent.";
 
 pub(crate) const WORKER: &str =
     "A helper started for one task. It ends with its answer.";
 
 pub(crate) const PROFILE: &str = "A saved agent with its own memory \
-                                  and skills, which hamlets can \
-                                  hire.";
+                                  and skills, which hamlets can add \
+                                  as agents.";
 
 pub(crate) const CITY: &str =
-    "Where the profiles live while they are not hired.";
+    "Where the profiles live while they are not at work.";
 
 pub(crate) const HARBOR: &str =
     "New profiles wait here until you let them into the city.";
@@ -46,15 +46,15 @@ pub(crate) const LIMITS: &str = "What the hamlet may spend, and \
 
 pub(crate) const AGENTS: &str = "Everyone working in the hamlet.";
 
-/// A hire or lead that is no profile of the city.
+/// An agent or lead that is no profile of the city.
 pub(crate) const BLANK: &str = "A fresh agent made for this job \
                                 alone. What it learns stays with \
                                 the job.";
 
-/// A profile as a hire or a lead.
-pub(crate) const HIRED_PROFILE: &str = "Brings its memory and \
-                                        skills to the job, and can \
-                                        take home what it learns.";
+/// A profile as an agent or a lead.
+pub(crate) const EXISTING_PROFILE: &str =
+    "Brings its memory and skills to the job, and can take home \
+     what it learns.";
 
 /// A hamlet whose agents ask before each edit and command, as its
 /// approvals say it.

@@ -61,7 +61,7 @@ pub(crate) enum DecisionKind {
     Reverted,
     Forked,
     Purged,
-    Hired,
+    Added,
     Ended,
     Merged,
     Split,
@@ -221,7 +221,7 @@ impl DecisionKind {
     pub fn done(self) -> &'static str {
         match self {
             Self::Founded => "founded the hamlet under",
-            Self::Hired => "hired",
+            Self::Added => "added",
             Self::Ended => "ended",
             Self::Merged => "merged",
             Self::Split => "split",

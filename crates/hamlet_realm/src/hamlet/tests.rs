@@ -1,8 +1,8 @@
 use bevy::prelude::*;
 use hamlet_client::realm::{
-    Activity, Busy, Carried, Doing, HamletId, Hire, Identity, Kind,
-    Lead, Left, Lived, LivesIn, MergedInto, Road, RoadUse, Spot,
-    Traffic,
+    Activity, Busy, Carried, Doing, HamletAgent, HamletId, Identity,
+    Kind, Lead, Left, Lived, LivesIn, MergedInto, Road, RoadUse,
+    Spot, Traffic,
 };
 use hamlet_client::{ClientPlugin, receive};
 use hamlet_protocol::client as protocol;
@@ -26,18 +26,18 @@ use crate::{Clock, Stage};
 /// The first hamlet's id in the client's fixture.
 const HOME: &str = "home";
 
-/// The id of a test hire, by the order the tests count it in: 0 is
-/// the fixture's lead, the rest are made by [`hire`].
+/// The id of a test agent, by the order the tests count it in: 0 is
+/// the fixture's lead, the rest are made by [`hamlet_agent`].
 fn id_of(number: u64) -> protocol::AgentId {
     protocol::AgentId(if number == 0 { 2 } else { 1000 + number })
 }
 
-/// A hire of a test hamlet, counted `number`.
-fn hire(number: u64, hamlet: Entity) -> impl Bundle {
+/// An agent of a test hamlet, counted `number`.
+fn hamlet_agent(number: u64, hamlet: Entity) -> impl Bundle {
     (
         Identity(id_of(number)),
-        Kind(protocol::AgentKind::Hire),
-        Hire,
+        Kind(protocol::AgentKind::Hamlet),
+        HamletAgent,
         LivesIn(hamlet),
     )
 }
@@ -78,8 +78,9 @@ fn app() -> (App, Entity) {
 fn a_hamlet_that_is_removed_takes_its_town_with_it() {
     let (mut app, _) = app();
     let mill = settle(&mut app, "mill");
-    let miller =
-        app.world_mut().spawn((hire(1, mill), Lived::default()));
+    let miller = app
+        .world_mut()
+        .spawn((hamlet_agent(1, mill), Lived::default()));
     let miller = miller.id();
     app.update();
     assert_eq!(app.world().resource::<Society>().towns.len(), 2);
@@ -164,7 +165,7 @@ fn tell(
 ) {
     for number in living.iter().chain(gone.iter().map(|(n, _)| n)) {
         if entity(app, *number).is_none() {
-            app.world_mut().spawn(hire(*number, hamlet));
+            app.world_mut().spawn(hamlet_agent(*number, hamlet));
         }
     }
     for number in living {
@@ -289,7 +290,9 @@ fn a_newcomer_takes_the_plot_of_one_who_left_and_keeps_it() {
         (2, lived(20, Some(30))),
         (3, lived(40, None)),
     ] {
-        later.world_mut().spawn((hire(number, hamlet), times));
+        later
+            .world_mut()
+            .spawn((hamlet_agent(number, hamlet), times));
     }
     tell(&mut later, hamlet, &[1, 3], &[(2, None)]);
     assert_eq!(agent(&mut later, 3).plot, stood);
@@ -610,7 +613,7 @@ fn a_frame_from_the_server_houses_the_founder_in_the_update_it_arrives()
 }
 
 #[test]
-fn a_hire_housed_after_the_first_state_crosses_by_boat() {
+fn an_agent_housed_after_the_first_state_crosses_by_boat() {
     use bevy::transform::TransformPlugin;
 
     use super::crossing::Voyage;

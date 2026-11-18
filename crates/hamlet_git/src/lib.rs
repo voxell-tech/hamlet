@@ -1,6 +1,6 @@
 //! Repositories the server alone writes, through gix and never a git
 //! program: a profile's character, memory and skills with their whole
-//! history, its hires' branches and its versions.
+//! history, its agents' branches and its versions.
 //!
 //! Files are read and written by the caller, so a lodge on this
 //! machine or on a remote workspace is kept the same way: the caller

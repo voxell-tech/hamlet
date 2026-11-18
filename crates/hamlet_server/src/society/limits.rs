@@ -19,10 +19,10 @@ pub(crate) struct Limits {
     pub reserved: Reserved,
     /// The hamlet's own model, else the realm's.
     pub model: Option<String>,
-    /// How many days of decisions each hire is told (H17).
+    /// How many days of decisions each agent is told (H17).
     pub told_days: i64,
     pub asking: ChiefQuestions,
-    /// How long after a chief's task a hire may not be ended or
+    /// How long after a chief's task an agent may not be ended or
     /// merged by a parent (H7).
     pub protected_minutes: i64,
 }
@@ -132,7 +132,7 @@ impl Default for RoadRules {
 )]
 #[serde(default, rename_all = "camelCase")]
 pub(crate) struct Reserved {
-    pub hire: bool,
+    pub add: bool,
     pub roads: bool,
     pub end: bool,
     pub merge: bool,
@@ -158,7 +158,7 @@ impl Default for ChiefQuestions {
     }
 }
 
-/// When a parent reviews a chief's instruction to a hire under it
+/// When a parent reviews a chief's instruction to an agent under it
 /// (H10).
 #[derive(
     Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize,

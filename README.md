@@ -23,16 +23,16 @@ and open-source forever.
 ## Features
 
 - **The Hand**: You are the chief and talk to the Hand, your own agent
-  above every hamlet. It founds hamlets, hires into them and starts
+  above every hamlet. It founds hamlets, adds agents to them and starts
   workers for small jobs.
-- **Profiles that learn**: Every agent but the Hand and its workers is a
-  hire of a profile, a git repository of a character, memory and skills.
-  A hire works on a branch of its own, and what it learns is merged into
-  its profile's `main`. Tag versions, pin a hire to one, revert or fork a
-  profile.
-- **Hamlets that run themselves**: A hamlet's lead hires, directs and lays
-  the roads its agents' letters and questions travel along. Parents review
-  their hires' work.
+- **Profiles that learn**: Every agent but the Hand and the workers is
+  of a profile, a git repository of a character, memory and skills. An
+  agent works on a branch of its own, and what it learns is merged into
+  its profile's `main`. Tag versions, pin an agent to one, revert or fork
+  a profile.
+- **Hamlets that run themselves**: A hamlet's lead adds agents, directs
+  them and lays the roads their letters and questions travel along.
+  Parents review the work of the agents under them.
 - **Agents that grow**: An agent starts with a sandboxed shell, a file
   editor and its memory, and writes its own skills. A librarian shelves
   the useful ones in a library every agent shares, and an idle profile
@@ -58,8 +58,8 @@ Hamlet's words in one minute:
 | **Realm** | Everything one server keeps: its chiefs, the Hand, the profiles and the hamlets. |
 | **Hand** | Your own agent, always there, above every hamlet. |
 | **Profile** | Who an agent is: a git repository of its character, memory and skills. |
-| **Hamlet** | Hires of profiles with a budget and, optionally, a folder to work in. |
-| **Lead** | The hire that leads a hamlet. |
+| **Hamlet** | Agents of profiles with a budget and, optionally, a folder to work in. |
+| **Lead** | The agent that leads a hamlet. |
 | **Road** | A path between two agents that their letters travel along. |
 
 The shortest path to seeing it work:

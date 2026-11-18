@@ -6,8 +6,8 @@ use hamlet_testing::Scratch;
 
 use crate::realm::change::{Change, Done, run};
 use crate::realm::layout::Layout;
+use crate::society::hamlet_agents::{NewAgent, ProfileChoice};
 use crate::society::hamlets::{self, Founding};
-use crate::society::hires::{Hired, Hiring};
 use crate::society::refusal::Refusal;
 use crate::society::{chiefs, hand};
 
@@ -106,7 +106,7 @@ impl Realm {
 
     /// Founds a hamlet named `name` under a new lead named `lead`;
     /// the lead's `hamlet` is its id.
-    pub fn found(&mut self, name: &str, lead: &str) -> Hired {
+    pub fn found(&mut self, name: &str, lead: &str) -> NewAgent {
         let chief = self.chief;
         let (name, lead) = (name.to_owned(), lead.to_owned());
         self.chief(|cx| {
@@ -115,7 +115,7 @@ impl Realm {
                 Founding {
                     name,
                     chief,
-                    lead: Hiring::Blank {
+                    lead: ProfileChoice::Blank {
                         name: lead,
                         character: "Careful.".into(),
                     },

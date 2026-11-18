@@ -1,6 +1,6 @@
 //! What a command's words name: an agent or a profile by its address,
-//! a profile to hire at a version, and the chief's right over a
-//! hamlet, a hire or an agent's model.
+//! a profile to add an agent of at a version, and the chief's right
+//! over a hamlet, an agent or an agent's model.
 
 use hamlet_git::Repository;
 use hamlet_store::ids::{
@@ -11,7 +11,7 @@ use crate::core::Core;
 use crate::realm::change::Done;
 use crate::society::addresses::{self, Reach};
 use crate::society::agents::{self, AgentKind};
-use crate::society::hires::Hiring;
+use crate::society::hamlet_agents::ProfileChoice;
 use crate::society::refusal::Refusal;
 use crate::society::{authority, city, hamlets};
 
@@ -32,11 +32,11 @@ pub(super) fn is_profile(word: &str) -> bool {
 impl Core<'_, '_> {
     /// The profile `text` addresses: a living one of the chief's, at
     /// its `main` or pinned to `@version`.
-    pub(super) fn hiring(
+    pub(super) fn profile_choice(
         &mut self,
         text: &str,
         chief: ChiefId,
-    ) -> Done<Hiring> {
+    ) -> Done<ProfileChoice> {
         let (profile, version) = match self.profile_pinned(text)? {
             Ok(found) => found,
             Err(refusal) => return Ok(Err(refusal)),
@@ -67,13 +67,13 @@ impl Core<'_, '_> {
             .map(|profile| (profile, version)))
     }
 
-    /// A hire of the living `profile`, at its `main` or pinned to
+    /// An agent of the living `profile`, at its `main` or pinned to
     /// `version` when that is one the profile has.
     pub(crate) fn existing(
         &mut self,
         profile: ProfileId,
         version: Option<String>,
-    ) -> Done<Hiring> {
+    ) -> Done<ProfileChoice> {
         if let Some(version) = &version {
             let found = Repository::open(
                 &self.realm.layout().repository(profile),
@@ -88,7 +88,7 @@ impl Core<'_, '_> {
                 }));
             }
         }
-        Ok(Ok(Hiring::Existing {
+        Ok(Ok(ProfileChoice::Existing {
             profile,
             pin: version,
         }))
@@ -149,16 +149,17 @@ impl Core<'_, '_> {
         Ok(Ok(()))
     }
 
-    /// Refuses unless this server's chief may direct the hire `hire`.
-    pub(crate) fn directs(&mut self, hire: AgentId) -> Done<()> {
+    /// Refuses unless this server's chief may direct the agent of a
+    /// hamlet `agent`.
+    pub(crate) fn directs(&mut self, agent: AgentId) -> Done<()> {
         let chief = self.realm.chief();
         let db = self.realm.store().connection();
-        if agents::get(db, hire)?.kind != AgentKind::Hire {
-            let name = addresses::name_of(db, hire)?;
-            return Ok(Err(Refusal::NotHire { name }));
+        if agents::get(db, agent)?.kind != AgentKind::Hamlet {
+            let name = addresses::name_of(db, agent)?;
+            return Ok(Err(Refusal::NotHamletAgent { name }));
         }
-        if !authority::may_direct(db, Actor::Chief(chief), hire)? {
-            let name = addresses::name_of(db, hire)?;
+        if !authority::may_direct(db, Actor::Chief(chief), agent)? {
+            let name = addresses::name_of(db, agent)?;
             return Ok(Err(Refusal::NotYours { name }));
         }
         Ok(Ok(()))
@@ -177,6 +178,6 @@ impl Core<'_, '_> {
     }
 
     pub(super) fn no_hamlet(&self) -> Refusal {
-        Refusal::SayToLeadOrHire
+        Refusal::SayToLeadOrAgent
     }
 }

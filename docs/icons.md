@@ -55,7 +55,7 @@ that name a part of Hamlet:
 - `Tree` the Hub, `Globe` the world and the realm, `Hamlet` a hamlet,
   `Profile` a profile and the city, `Anchor` the harbor, `Signpost`
   roads, `Hearth` the chief's hearth.
-- `Tower` the Hand, `Lead` a lead and the parents, `Hire` a hire,
+- `Tower` the Hand, `Lead` a lead and the parents, `HamletAgent` an agent of a hamlet,
   `Worker` a worker, `Robot` agents in general, `Face` an agent's
   character, `Notes` what it is told in writing (its prompt, memory
   and the charter), `Book` skills, the library and a hamlet's limits.

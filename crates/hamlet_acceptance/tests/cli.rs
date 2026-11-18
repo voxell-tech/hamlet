@@ -174,7 +174,7 @@ async fn starts_at_another_hamlet_and_switches_agents_and_hamlets() {
     let switched = Cli::run(
         home,
         &["chat"],
-        "/agent hire#2\nAgain?\n/agent missing\n",
+        "/agent agent#2\nAgain?\n/agent missing\n",
         &[],
     )
     .await;
@@ -329,12 +329,12 @@ async fn edits_a_profiles_character_and_memory_in_editor() {
          \"$1\"",
     );
     let saved =
-        edit(&s, &["memory", "hire#2", "tea.md"], &note).await;
+        edit(&s, &["memory", "agent#2", "tea.md"], &note).await;
     assert_eq!(saved.code(), Some(0), "{saved:?}");
     let papers = s.chief.papers(Keeper::Agent(ada)).await;
     assert_eq!(papers.character.trim(), "Brave and plain.");
     assert_eq!(papers.memory[0].path, "tea.md");
-    // The profile's own memory is another file than the hire's.
+    // The profile's own memory is another file than the agent's.
     assert!(
         s.chief
             .papers(Keeper::Profile(profile))

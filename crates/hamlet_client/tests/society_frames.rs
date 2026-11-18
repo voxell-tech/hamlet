@@ -68,7 +68,10 @@ fn recorded_society_carries_letters_and_questions_with_their_authors()
     );
     let world = app.world_mut();
     assert_eq!(
-        world.query_filtered::<(), With<Hire>>().iter(world).count(),
+        world
+            .query_filtered::<(), With<HamletAgent>>()
+            .iter(world)
+            .count(),
         3
     );
     assert_eq!(world.query::<&Road>().iter(world).count(), 3);
@@ -84,7 +87,7 @@ fn recorded_society_carries_letters_and_questions_with_their_authors()
                 == protocol::ConversationViewKind::Questions
                 && chat.count == 1)
     );
-    assert!(world.query::<&Transcript>().iter(world).flat_map(Transcript::items).any(|item| matches!(&item.entry, Entry::Agent {name, text} if name == "hire#2 (ada)" && text.contains("Hello cy"))));
+    assert!(world.query::<&Transcript>().iter(world).flat_map(Transcript::items).any(|item| matches!(&item.entry, Entry::Agent {name, text} if name == "agent#2 (ada)" && text.contains("Hello cy"))));
 }
 
 #[test]
@@ -147,7 +150,7 @@ fn recorded_realm_places_a_second_town_builds_a_road_and_closes_then_erases_it()
         !world
             .query::<&Name>()
             .iter(world)
-            .any(|name| name.as_str() == "hire#5")
+            .any(|name| name.as_str() == "agent#5")
     );
 }
 

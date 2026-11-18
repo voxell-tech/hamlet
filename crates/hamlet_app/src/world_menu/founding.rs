@@ -137,7 +137,7 @@ fn lead() -> impl View {
             let found = found.clone();
             // What it is to have a blank agent or a profile as lead.
             let meaning = match chosen {
-                Some(_) => words::HIRED_PROFILE,
+                Some(_) => words::EXISTING_PROFILE,
                 None => words::BLANK,
             };
             hamlet_ui::styles::close((
@@ -385,7 +385,7 @@ mod tests {
             protocol::ServerMessage::State(state),
         );
         let scout =
-            hamlet_client::realm::named(app.world_mut(), "hire#3")
+            hamlet_client::realm::named(app.world_mut(), "agent#3")
                 .unwrap();
         crate::convo::talk_to(app.world_mut(), scout);
         app.insert_resource(Founding {

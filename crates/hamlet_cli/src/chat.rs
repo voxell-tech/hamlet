@@ -22,7 +22,7 @@ fn chat_ref(with: AgentId) -> ChatRef {
 }
 
 /// The living agent `to` addresses: `hand`, `lead@<hamlet>`,
-/// `hire#<id>` or `worker#<id>`.
+/// `agent#<id>` or `worker#<id>`.
 pub(crate) fn resolve(state: &State, to: &str) -> Result<AgentId> {
     if to == HAND {
         return Ok(state.hand);
@@ -50,7 +50,7 @@ pub(crate) fn resolve(state: &State, to: &str) -> Result<AgentId> {
         .with_context(|| {
             format!(
                 "no agent is at `{to}`; use hand, lead@<hamlet>, \
-                 hire#<id> or worker#<id>"
+                 agent#<id> or worker#<id>"
             )
         })
 }

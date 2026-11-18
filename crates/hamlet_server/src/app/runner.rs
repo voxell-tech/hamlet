@@ -373,7 +373,7 @@ mod tests {
         let script = r#"{
             "responses": ["Hello."],
             "kinds": {"dream": [
-                {"calls": [{"name": "write", "arguments": {"path": "memory/shared.md", "content": "---\ndescription: What every hire knows.\n---\nBe brief."}}]},
+                {"calls": [{"name": "write", "arguments": {"path": "memory/shared.md", "content": "---\ndescription: What every agent knows.\n---\nBe brief."}}]},
                 "Kept one shared note."
             ]}
         }"#;

@@ -490,9 +490,9 @@ mod tests {
     #[test]
     fn a_renamed_agent_is_found_by_its_new_name_only() {
         let mut app = app(state());
-        let ada = realm::named(app.world(), "hire#2").unwrap();
+        let ada = realm::named(app.world(), "agent#2").unwrap();
         app.world_mut().entity_mut(ada).insert(Name::new("keeper"));
-        assert_eq!(realm::named(app.world(), "hire#2"), None);
+        assert_eq!(realm::named(app.world(), "agent#2"), None);
         assert_eq!(realm::named(app.world(), "keeper"), Some(ada));
     }
 
@@ -501,14 +501,14 @@ mod tests {
         let mut app = app(state());
         let ada = realm::lead_of(app.world(), "home").unwrap();
         app.world_mut().entity_mut(ada).insert(Left);
-        assert_eq!(realm::named(app.world(), "hire#2"), None);
+        assert_eq!(realm::named(app.world(), "agent#2"), None);
         assert_eq!(realm::lead_of(app.world(), "home"), None);
         assert_eq!(
             realm::agent(app.world(), protocol::AgentId(2)),
             Some(ada)
         );
         app.world_mut().entity_mut(ada).remove::<Left>();
-        assert_eq!(realm::named(app.world(), "hire#2"), Some(ada));
+        assert_eq!(realm::named(app.world(), "agent#2"), Some(ada));
         assert_eq!(realm::lead_of(app.world(), "home"), Some(ada));
     }
 
@@ -546,7 +546,7 @@ mod tests {
         );
         assert_eq!(realm::hamlet(app.world(), "mill"), None);
         assert_eq!(realm::lead_of(app.world(), "mill"), None);
-        assert_eq!(realm::named(app.world(), "hire#3"), None);
+        assert_eq!(realm::named(app.world(), "agent#3"), None);
         assert_eq!(
             realm::agent(app.world(), protocol::AgentId(3)),
             None
@@ -567,14 +567,14 @@ mod tests {
     }
 
     #[test]
-    fn hires_of_two_hamlets_are_told_apart_by_address() {
+    fn agents_of_two_hamlets_are_told_apart_by_address() {
         let mut realm = state();
         realm.hamlets.push(hamlet("mill", 4));
         realm.agents.push(agent(3, "home", false));
         realm.agents.push(agent(4, "mill", true));
         let mut app = app(realm);
-        let home = realm::named(app.world(), "hire#3");
-        let mill = realm::named(app.world(), "hire#4");
+        let home = realm::named(app.world(), "agent#3");
+        let mill = realm::named(app.world(), "agent#4");
         assert!(home.is_some() && mill.is_some());
         assert_ne!(home, mill);
         assert_eq!(
@@ -582,7 +582,7 @@ mod tests {
             mill
         );
         app.world_mut().entity_mut(home.unwrap()).insert(Left);
-        assert_eq!(realm::named(app.world(), "hire#3"), None);
-        assert_eq!(realm::named(app.world(), "hire#4"), mill);
+        assert_eq!(realm::named(app.world(), "agent#3"), None);
+        assert_eq!(realm::named(app.world(), "agent#4"), mill);
     }
 }

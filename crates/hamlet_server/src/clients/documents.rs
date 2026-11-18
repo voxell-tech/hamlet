@@ -25,7 +25,7 @@ use crate::society::city::{self, CHARACTER_MOST};
 use crate::society::limits::{self, Limits, RealmLimits};
 use crate::society::refusal::Refusal;
 use crate::society::spend::micros;
-use crate::society::{authority, hamlets, hires};
+use crate::society::{authority, hamlet_agents, hamlets};
 
 /// Refuses a memory path that is not a plain relative path under
 /// `memory/`.
@@ -221,7 +221,7 @@ impl Core<'_, '_> {
         self.remote.unpushed.write(UnpushedLodge(agent));
         let by = Actor::Chief(self.realm.chief());
         self.change(by, |cx, _| {
-            jobs::add(cx, &Job::Commit { hire: agent })?;
+            jobs::add(cx, &Job::Commit { agent })?;
             Ok(())
         })?;
         Ok(Ok("The memory is saved.".into()))
@@ -396,7 +396,7 @@ impl Core<'_, '_> {
     }
 
     /// Commits `changes` to the `main` of `profile` as `by`'s, and
-    /// has its idle hires take them in.
+    /// has its idle agents take them in.
     pub(crate) fn commit_main(
         &mut self,
         by: Actor,
@@ -422,19 +422,23 @@ impl Core<'_, '_> {
         self.main_moved(by, profile)
     }
 
-    /// Has the idle hires of `profile` take in its `main`, which `by`
-    /// moved.
+    /// Has the idle agents of `profile` take in its `main`, which
+    /// `by` moved.
     pub(crate) fn main_moved(
         &mut self,
         by: Actor,
         profile: ProfileId,
     ) -> Result<()> {
         self.change(by, |cx, _| {
-            for hire in hires::living_of(cx.db, profile)? {
+            for agent in hamlet_agents::living_of(cx.db, profile)? {
                 if !crate::conversations::inputs::is_agent_busy(
-                    cx.db, hire.agent,
+                    cx.db,
+                    agent.agent,
                 )? {
-                    jobs::add(cx, &Job::TakeIn { hire: hire.agent })?;
+                    jobs::add(
+                        cx,
+                        &Job::TakeIn { agent: agent.agent },
+                    )?;
                 }
             }
             cx.touched.profiles.insert(profile);
@@ -821,7 +825,7 @@ fn limits_of(shown: &protocol::Limits) -> Limits {
             grows_over_days: shown.road.grows_over_days,
         },
         reserved: limits::Reserved {
-            hire: shown.reserved.hire,
+            add: shown.reserved.add,
             roads: shown.reserved.roads,
             end: shown.reserved.end,
             merge: shown.reserved.merge,

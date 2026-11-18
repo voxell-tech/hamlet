@@ -18,7 +18,7 @@ and `realm/layout.rs` defines `Layout`. The server's chief is named by
 | `server.log` | Detached server's output, written by the CLI's process launch |
 | `profiles/<id>.git/` | Each profile's repository, the Hand's included |
 | `hand/` | The Hand's lodge |
-| `hamlets/<hamlet id>/<hire id>/` | A hire's lodge: `memory/`, `skills/` and `inbox/`, a checkout of its branch |
+| `hamlets/<hamlet id>/<agent id>/` | An agent's lodge: `memory/`, `skills/` and `inbox/`, a checkout of its branch |
 | `workers/<id>/` | A worker's scratch folder while it runs |
 | `library.git/`, `library/` | The library's repository, and its `main` checked out, read-only to agent tools |
 | `tools/` | Hand-added tool manifests and scripts, loaded again whenever they change |
@@ -75,13 +75,13 @@ the server's words. The server goes on.
 ## Profiles and lodges
 
 A profile's repository holds `CHARACTER.md`, `memory/` and `skills/`; `main`
-is what the profile knows, `hires/<agent id>` is a hire's branch, and a tag is
-a version
-([ADR 0011](adr/0011-profiles-are-git-repositories-hires-are-branches-lodges-are-checkouts.md)).
+is what the profile knows, `agents/<agent id>` is an agent's branch, and a tag
+is a version
+([ADR 0011](adr/0011-profiles-are-git-repositories-agents-are-branches-lodges-are-checkouts.md)).
 The server alone writes a repository, through `hamlet_git`. A lodge is the
-checkout of a hire's branch without `CHARACTER.md`, plus `inbox/`, which is
+checkout of an agent's branch without `CHARACTER.md`, plus `inbox/`, which is
 never committed. After a turn that changed a lodge a `commit` job commits it
-to the branch, and when the hire is idle and `main` has moved a `take-in` job
+to the branch, and when the agent is idle and `main` has moved a `take-in` job
 merges `main` into the branch and writes the merged files into the lodge, so
 a turn never sees `main` change under it. `knowledge.rs` names the branch and
 finds a lodge; `knowledge/run.rs` runs the jobs. The character is read from the

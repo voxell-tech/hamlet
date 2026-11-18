@@ -52,7 +52,7 @@ pub(super) fn setup(world: &mut World, scene: Scene) {
     // the hamlet.
     if matches!(scene, Scene::Hamlet | Scene::Bylaws) {
         state.deeds.extend(hamlet_testing::realm::deeds(&[
-            "hire",
+            "add-agent",
             "worker",
             "name-hamlet",
             "move-hamlet",
@@ -68,7 +68,7 @@ pub(super) fn setup(world: &mut World, scene: Scene) {
             .into(),
     }];
     let mut next = 10;
-    // The profile of each hire has the hire's id.
+    // The profile of each agent has the agent's id.
     let mut profiles = vec![(2, "ada")];
     for (id, title, lead, others) in [
         (
@@ -110,7 +110,7 @@ pub(super) fn setup(world: &mut World, scene: Scene) {
             next += 1;
         }
         // In the hollow scout is a parent, with pip and wren under
-        // it; elsewhere every hire is under the lead.
+        // it; elsewhere every agent is under the lead.
         let parent = next;
         for (number, name) in (1..).zip(others) {
             let mut agent =
@@ -166,7 +166,7 @@ pub(super) fn setup(world: &mut World, scene: Scene) {
         // raised by scout, who made it.
         let mut wait = hamlet_testing::realm::wait("moss");
         wait.agent = Some(protocol::AgentId(10));
-        wait.by = "hire#10".into();
+        wait.by = "agent#10".into();
         wait.about = "profile#90 (moss)".into();
         wait.subject = wait.about.clone();
         wait.chat = None;
@@ -187,7 +187,7 @@ pub(super) fn setup(world: &mut World, scene: Scene) {
     }
     if scene == Scene::Toasts {
         // The Hand holds the door. Once the realm is on show it
-        // lets moss in and a hire raises a petition.
+        // lets moss in and an agent raises a petition.
         state.settings.newcomers = protocol::Newcomers::Hand;
         let mut next = state.clone();
         next.revision += 1;
@@ -205,7 +205,7 @@ pub(super) fn setup(world: &mut World, scene: Scene) {
         // From an agent whose chat is not the one open, which shows
         // its own waits in full.
         if let Some(fen) =
-            next.agents.iter().find(|agent| agent.name == "hire#15")
+            next.agents.iter().find(|agent| agent.name == "agent#15")
         {
             wait.agent = Some(fen.id);
             wait.by = fen.name.clone();
@@ -313,7 +313,7 @@ pub(in crate::scenes) fn later(
     }
 }
 
-/// Makes the realm one at work: a hire that waits on a worker,
+/// Makes the realm one at work: an agent that waits on a worker,
 /// another that waits for the chief, and the Hand at its desk.
 fn busy_realm(state: &mut protocol::State) {
     let since = std::time::SystemTime::now()
@@ -329,7 +329,7 @@ fn busy_realm(state: &mut protocol::State) {
     let Some(parent) = state
         .agents
         .iter_mut()
-        .find(|agent| agent.name == "hire#11")
+        .find(|agent| agent.name == "agent#11")
     else {
         return;
     };
@@ -348,7 +348,7 @@ fn busy_realm(state: &mut protocol::State) {
         "Reading the orchard's notes".into();
     state.agents.push(worker);
     if let Some(waiting) =
-        state.agents.iter().find(|agent| agent.name == "hire#14")
+        state.agents.iter().find(|agent| agent.name == "agent#14")
     {
         let mut wait = hamlet_testing::realm::wait("ask");
         wait.agent = Some(waiting.id);
@@ -358,10 +358,10 @@ fn busy_realm(state: &mut protocol::State) {
     }
 }
 
-/// The hire merged into its parent in the merged scene.
+/// The agent merged into its parent in the merged scene.
 const MERGED: u64 = 12;
 
-/// Makes one hire work, one stop on a fault and one wait, beside the
+/// Makes one agent work, one stop on a fault and one wait, beside the
 /// agents at rest, so every state shows in the rail and the list.
 fn more_states(state: &mut protocol::State) {
     let mut set =
@@ -374,16 +374,16 @@ fn more_states(state: &mut protocol::State) {
                 run(agent);
             }
         };
-    set("hire#12", &mut |agent| {
+    set("agent#12", &mut |agent| {
         agent.busy = true;
         agent.activity.doing = protocol::Doing::Run;
         agent.activity.doing_words = "Running the tests".into();
     });
-    set("hire#15", &mut |agent| agent.faulted = true);
+    set("agent#15", &mut |agent| agent.faulted = true);
 }
 
-/// Merges the third hire of the hollow into its parent, and ends a
-/// hire of the mill, so the rail lists both as gone.
+/// Merges the third agent of the hollow into its parent, and ends an
+/// agent of the mill, so the rail lists both as gone.
 fn merge_away(state: &mut protocol::State) {
     let left = |how: &str, into: Option<u64>, words: &str| {
         serde_json::from_value::<protocol::Left>(serde_json::json!({
@@ -394,10 +394,10 @@ fn merge_away(state: &mut protocol::State) {
     };
     for agent in &mut state.agents {
         match agent.name.as_str() {
-            "hire#12" => {
+            "agent#12" => {
                 agent.left = Some(left("merged", Some(10), "Merged"));
             }
-            "hire#14" => {
+            "agent#14" => {
                 agent.left = Some(left("ended", None, "Ended"));
             }
             _ => {}

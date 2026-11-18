@@ -209,7 +209,7 @@ async fn a_manual_hamlet_asks_before_it_edits_or_runs_in_its_folder()
         .command(ada, &format!("/allow #{}", command.id))
         .await;
 
-    // The hire's own lodge is free.
+    // The agent's own lodge is free.
     s.chief.shows(&now, "Done.").await;
     assert_eq!(fs::read_to_string(&ran_file).unwrap(), "ran\n");
     assert!(lodge_file.exists());

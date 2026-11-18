@@ -72,9 +72,13 @@ impl Layout {
         self.hamlets().join(hamlet.as_str())
     }
 
-    /// A hire's lodge, in its hamlet's folder under its agent's id.
-    pub fn lodge(&self, hamlet: &HamletId, hire: AgentId) -> PathBuf {
-        self.hamlet(hamlet).join(hire.to_string())
+    /// An agent's lodge, in its hamlet's folder under its id.
+    pub fn lodge(
+        &self,
+        hamlet: &HamletId,
+        agent: AgentId,
+    ) -> PathBuf {
+        self.hamlet(hamlet).join(agent.to_string())
     }
 
     /// The folder of the workers' scratch folders.

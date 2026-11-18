@@ -106,7 +106,7 @@ pub(super) fn house(
         // free at the time, as it did when the world last saw it.
         let new = homeless
             .iter()
-            .filter(|(.., kind)| kind.0 == AgentKind::Hire)
+            .filter(|(.., kind)| kind.0 == AgentKind::Hamlet)
             .filter(|(_, _, lives, ..)| lives.0 == hamlet)
             .collect::<Vec<_>>();
         let mut story = new
@@ -172,7 +172,7 @@ pub(super) fn house(
     }
 }
 
-/// The lead lives in the hall: a hire that becomes lead trades
+/// The lead lives in the hall: an agent that becomes lead trades
 /// houses with the lead before it, whether it is seen happen or the
 /// world meets the hamlet with a later lead than its first.
 pub(super) fn seat(

@@ -70,7 +70,7 @@ pub struct Works {
     pub before: Vec<String>,
     pub mode: Mode,
     pub words: String,
-    /// The most hires it holds.
+    /// The most agents it holds.
     pub tier: u64,
 }
 
@@ -92,42 +92,42 @@ pub struct Treasury(pub protocol::Report);
 #[require(Activity, Lived, Kind)]
 pub struct Identity(pub protocol::AgentId);
 
-/// Whether an agent is the Hand, a hire or a worker.
+/// Whether an agent is the Hand, an agent of a hamlet or a worker.
 #[derive(Component, Clone, Copy, Debug, PartialEq, Eq)]
 pub struct Kind(pub protocol::AgentKind);
 
 impl Default for Kind {
     fn default() -> Self {
-        Self(protocol::AgentKind::Hire)
+        Self(protocol::AgentKind::Hamlet)
     }
 }
 
-/// An agent that is a hire, for queries that want only hires.
+/// An agent of a hamlet, for queries that want only those.
 #[derive(Component, Clone, Copy, Debug)]
-pub struct Hire;
+pub struct HamletAgent;
 
-/// The agent a hire or worker answers to.
+/// The agent an agent of a hamlet or a worker answers to.
 #[derive(Component, Clone, Copy, Debug, PartialEq, Eq)]
 pub struct Parent(pub protocol::AgentId);
 
-/// The profile a hire is of.
+/// The profile an agent is of.
 #[derive(Component, Clone, Copy, Debug, PartialEq, Eq)]
 pub struct OfProfile(pub protocol::ProfileId);
 
-/// What a hire is called in the world.
+/// What an agent is called in the world.
 #[derive(Component, Clone, Debug, PartialEq, Eq)]
 pub struct Nickname(pub String);
 
-/// What an agent is shown by: a hire's nickname, else its profile's
-/// name, else its address.
+/// What an agent is shown by: its nickname, else its profile's name,
+/// else its address.
 #[derive(Component, Clone, Debug, PartialEq, Eq)]
 pub struct Shown(pub String);
 
-/// The version of its profile a hire is pinned to.
+/// The version of its profile an agent is pinned to.
 #[derive(Component, Clone, Debug, PartialEq, Eq)]
 pub struct Pin(pub String);
 
-/// The dollars a hire may spend in its hamlet's budget period.
+/// The dollars an agent may spend in its hamlet's budget period.
 #[derive(Component, Clone, Copy, Debug, PartialEq)]
 pub struct Allowance(pub f64);
 
@@ -347,7 +347,7 @@ pub struct Seen {
 #[derive(Component, Clone, Debug, Default, PartialEq, Eq)]
 pub struct HouseSkills(pub Vec<String>);
 
-/// The built-in tools a hire has turned off.
+/// The built-in tools an agent has turned off.
 #[derive(Component, Clone, Debug, Default, PartialEq, Eq)]
 pub struct ToolsOff(pub Vec<String>);
 
@@ -379,7 +379,7 @@ pub fn register(world: &mut World) {
     world.register_component::<Treasury>();
     world.register_component::<Identity>();
     world.register_component::<Kind>();
-    world.register_component::<Hire>();
+    world.register_component::<HamletAgent>();
     world.register_component::<Parent>();
     world.register_component::<OfProfile>();
     world.register_component::<Pin>();
@@ -695,15 +695,15 @@ fn upsert_profile(
     let mut entity_mut = world.entity_mut(entity);
     put(&mut entity_mut, Name::new(value.name.clone()));
     put(&mut entity_mut, Profile(value));
-    // A rename changes what its hires are shown by.
-    let hires = world
+    // A rename changes what its agents are shown by.
+    let agents = world
         .query::<(Entity, &OfProfile)>()
         .iter(world)
         .filter(|(_, of)| of.0 == id)
-        .map(|(hire, _)| hire)
+        .map(|(agent, _)| agent)
         .collect::<Vec<_>>();
-    for hire in hires {
-        refresh_shown(world, hire);
+    for agent in agents {
+        refresh_shown(world, agent);
     }
     entity
 }
@@ -731,7 +731,7 @@ fn upsert_agent(
     world: &mut World,
     value: protocol::Agent,
 ) -> Option<Entity> {
-    // A hire whose hamlet has not arrived waits for its next frame.
+    // An agent whose hamlet has not arrived waits for its next frame.
     let hamlet = match &value.hamlet {
         Some(id) => Some(hamlet(world, id)?),
         None => None,
@@ -745,7 +745,11 @@ fn upsert_agent(
     put(&mut agent, Identity(value.id));
     put(&mut agent, Kind(value.kind));
     put(&mut agent, Name::new(value.name));
-    flag(&mut agent, value.kind == protocol::AgentKind::Hire, Hire);
+    flag(
+        &mut agent,
+        value.kind == protocol::AgentKind::Hamlet,
+        HamletAgent,
+    );
     optional(&mut agent, value.parent.map(Parent));
     optional(&mut agent, value.profile.map(OfProfile));
     optional(&mut agent, value.pin.clone().map(Pin));
@@ -1136,13 +1140,13 @@ mod tests {
     use crate::{ClientPlugin, receive};
 
     #[test]
-    fn a_hire_is_shown_by_its_nickname_else_its_profiles_name() {
+    fn an_agent_is_shown_by_its_nickname_else_its_profiles_name() {
         let mut app = App::new();
         app.add_plugins(ClientPlugin { server: None });
         let mut realm = state();
         let world = app.world_mut();
         receive(world, protocol::ServerMessage::State(realm.clone()));
-        let ada = named(world, "hire#2").unwrap();
+        let ada = named(world, "agent#2").unwrap();
         assert_eq!(shown_of(world, ada), "ada");
         realm.revision = 1;
         realm.profiles[0].name = "Ada Lovelace".into();
@@ -1152,7 +1156,7 @@ mod tests {
         realm.agents[1].nickname = Some("Countess".into());
         receive(world, protocol::ServerMessage::State(realm));
         assert_eq!(shown_of(world, ada), "Countess");
-        assert_eq!(named(world, "hire#2"), Some(ada));
+        assert_eq!(named(world, "agent#2"), Some(ada));
     }
 
     #[test]
@@ -1170,7 +1174,7 @@ mod tests {
         ];
         let world = app.world_mut();
         receive(world, protocol::ServerMessage::State(realm.clone()));
-        let [ada, scout, miner] = ["hire#2", "hire#3", "hire#4"]
+        let [ada, scout, miner] = ["agent#2", "agent#3", "agent#4"]
             .map(|name| named(world, name).unwrap());
         assert_eq!(roads_of(world, ada).count(), 2);
         realm.agents[2].left = Some(protocol::Left {

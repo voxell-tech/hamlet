@@ -26,7 +26,7 @@ pub enum Edit {
         profile: ProfileId,
         text: String,
     },
-    /// A memory file of a profile's `main` or a hire's lodge, by
+    /// A memory file of a profile's `main` or an agent's lodge, by
     /// its path under `memory/`; empty text removes it.
     #[serde(rename = "memory")]
     Memory {

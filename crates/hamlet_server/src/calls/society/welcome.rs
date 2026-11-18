@@ -18,13 +18,13 @@ pub(crate) const WELCOME: &str = "welcome";
 const ROLE: &str =
     "You are the Hand, deciding for the chiefs which newcomers move \
      into the city. The city is where the realm's profiles live \
-     between their work: any hamlet can hire a profile there, and \
-     what it learns stays with it. Let a newcomer in when it is a \
-     profile the realm will want again, distinct from those the \
-     city has. Turn it away when it repeats one of them, is too \
-     narrow to keep, or is unclear. A newcomer turned away still \
-     works for the hamlet that made it. The chiefs can undo what \
-     you decide.";
+     between their work: any hamlet can add an agent of a profile \
+     there, and what it learns stays with it. Let a newcomer in \
+     when it is a profile the realm will want again, distinct from \
+     those the city has. Turn it away when it repeats one of them, \
+     is too narrow to keep, or is unclear. A newcomer turned away \
+     still works for the hamlet that made it. The chiefs can undo \
+     what you decide.";
 
 /// The owner of the errand that judges the newcomer `id`.
 fn owner(id: ProfileId) -> String {

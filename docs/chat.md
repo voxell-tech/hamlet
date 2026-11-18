@@ -11,7 +11,7 @@ wire messages, watch rules and page boundaries; this page covers the window.
 
 A chat entity has `Chat(ChatRef)`, `Transcript`, `Status`, `Usage` and a
 `TalksTo(agent)` relationship. Its reference names the agent by its id
-(the Hand, a hire or a worker). Adding the chat sends `open`; removing it
+(the Hand, an agent of a hamlet or a worker). Adding the chat sends `open`; removing it
 sends `close`. Reconnecting opens every watched chat again.
 
 The server answers with a `transcript` page. Live `turn` operations add or
@@ -27,7 +27,7 @@ comes from `read history`, listed by the day each was last used; Read
 opens a numbered past conversation read-only, drawn as the chat is, and
 Resume sends `/resume <n>`. Every conversation is kept.
 
-A hire made for a conversation brought in from another program (C35)
+An agent made for a conversation brought in from another program (C35)
 has it as the first session of its chat. The card "Bring in your
 projects" (`hamlet_app/src/welcome/projects.rs`) lists the projects
 found on the window's machine, or in an export file chosen in the
@@ -35,7 +35,7 @@ system's dialog; it opens once when first-run setup ends on a realm with
 no hamlet, and from Settings. `hamlet_import` reads the conversations on
 the chief's machine, off the frame (`hamlet_client/src/imports.rs`), the
 client sends each as a file and the project as `import-project`, and the
-server (`conversations/imports.rs`) founds or finds the hamlet, makes the hires
+server (`conversations/imports.rs`) founds or finds the hamlet, makes the agents
 and holds each conversation's entries until the runtime makes it with
 them, which waits for a model to be set up. Until then its chat shows
 the entries held, and its watchers get its transcript anew once the

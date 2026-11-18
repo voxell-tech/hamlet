@@ -129,7 +129,7 @@ fn profile_shown(
 ) -> Option<protocol::ProfileId> {
     match of {
         protocol::Keeper::Profile(profile) => Some(profile),
-        // The Hand is no profile's hire: it has no character.
+        // The Hand is no agent of a profile: it has no character.
         protocol::Keeper::Agent(_) => world
             .get::<OfProfile>(world.resource::<Convo>().agent)
             .map(|of| of.0),

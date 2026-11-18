@@ -15,13 +15,13 @@ pub struct Limits {
     #[serde(deserialize_with = "Option::deserialize")]
     pub model: Option<String>,
     /// How long after a chief's task a parent may not end or merge
-    /// the hire (H7).
+    /// the agent (H7).
     #[serde(rename = "protectedMinutes")]
     pub protected_minutes: i64,
     /// The parents' acts that wait for a chief.
     pub reserved: LimitsReserved,
     pub road: LimitsRoad,
-    /// How many days of decisions each hire is told (H17).
+    /// How many days of decisions each agent is told (H17).
     #[serde(rename = "toldDays")]
     pub told_days: i64,
 }
@@ -50,7 +50,7 @@ pub struct LimitsAsking {
     pub review: LimitsReview,
 }
 
-/// When a parent reviews a chief's instruction to a hire under it
+/// When a parent reviews a chief's instruction to an agent under it
 /// (H10).
 #[derive(
     Clone,
@@ -92,8 +92,8 @@ pub struct LimitsBudget {
 )]
 #[serde(deny_unknown_fields)]
 pub struct LimitsReserved {
+    pub add: bool,
     pub end: bool,
-    pub hire: bool,
     pub merge: bool,
     pub roads: bool,
 }

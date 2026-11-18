@@ -19,13 +19,13 @@ const USAGE: &str = "usage: hamlet [--insecure]
        hamlet dev [--port <n>] [--faux <script.json>] [--home <dir>] \
                      [--insecure] [--hot]
        hamlet window
-       hamlet chat [--to <hand|hire#<id>|lead@<hamlet>>] [--attach \
+       hamlet chat [--to <hand|agent#<id>|lead@<hamlet>>] [--attach \
                      <path>]...
        hamlet import [--file <export>] [--all] [--sessions | \
                      --suggested | <project or conversation id>...]
        hamlet edit <charter|limits|settings> [--hamlet <id>]
        hamlet edit character <profile#id>
-       hamlet edit memory <profile#id|hire#<id>> [path]
+       hamlet edit memory <profile#id|agent#<id>> [path]
        hamlet login <provider> [--key]
        hamlet models [try [model] | refresh]
        hamlet models images <model> [off | [--width <px>] [--height \
@@ -41,7 +41,7 @@ server serves in the foreground; Ctrl-C stops it.
 import lists the projects Claude Code, Codex and pi worked on in the \
                      last 30 days, or those of a ChatGPT or Claude \
                      export, and brings each one named in as a \
-                     hamlet with a hire for each conversation.
+                     hamlet with an agent for each conversation.
 --insecure, on Windows only, runs agents' commands with no sandbox.
 
 env: HAMLET_HOME (~/.hamlet), HAMLET_SERVER and HAMLET_TOKEN (remote \

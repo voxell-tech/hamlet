@@ -12,7 +12,7 @@ use hamlet_store::schema::{agent, hand, permission_grant, worker};
 use serde::{Deserialize, Serialize};
 use strum::{Display, EnumString, IntoStaticStr};
 
-use super::hires;
+use super::hamlet_agents;
 use crate::realm::change::{Change, Done, done};
 
 /// The harness an agent's conversations run in unless it is given
@@ -39,7 +39,7 @@ pub(crate) const HARNESS: &str = "pi";
 #[diesel(sql_type = Text)]
 pub(crate) enum AgentKind {
     Hand,
-    Hire,
+    Hamlet,
     Worker,
 }
 hamlet_store::named_text!(AgentKind);
@@ -64,9 +64,9 @@ hamlet_store::named_text!(AgentKind);
 #[strum(serialize_all = "kebab-case")]
 #[diesel(sql_type = Text)]
 pub(crate) enum EndHow {
-    /// A parent or a chief ended the hire.
+    /// A parent or a chief ended the agent.
     Ended,
-    /// The hire was merged into another.
+    /// The agent was merged into another.
     Merged,
     /// Its profile left the city.
     Profile,
@@ -169,7 +169,7 @@ impl EndHow {
     pub fn words(&self) -> &'static str {
         match self {
             Self::Ended => "it was ended",
-            Self::Merged => "it was merged into another hire",
+            Self::Merged => "it was merged into another agent",
             Self::Profile => "its profile left the city",
             Self::Hamlet => "its hamlet was removed",
             Self::Answered => "it answered its task",
@@ -239,7 +239,7 @@ pub(crate) fn set_effort(
     id: AgentId,
     effort: Option<Effort>,
 ) -> Done<()> {
-    done!(hires::require_living(cx.db, id));
+    done!(hamlet_agents::require_living(cx.db, id));
     diesel::update(agent::table.find(id))
         .set(agent::effort.eq(effort))
         .execute(cx.db)?;
@@ -254,7 +254,7 @@ pub(crate) fn set_fast(
     id: AgentId,
     fast: bool,
 ) -> Done<()> {
-    done!(hires::require_living(cx.db, id));
+    done!(hamlet_agents::require_living(cx.db, id));
     diesel::update(agent::table.find(id))
         .set(agent::fast.eq(fast))
         .execute(cx.db)?;
@@ -264,7 +264,7 @@ pub(crate) fn set_fast(
 
 /// Chooses the model of the living agent `id`, or lets it follow its
 /// hamlet's or the realm's default when `None` (H29). A parent may
-/// not change a chief's choice for a hire.
+/// not change a chief's choice for an agent of a hamlet.
 pub(crate) fn set_model(
     cx: &mut Change<'_>,
     id: AgentId,
@@ -273,7 +273,9 @@ pub(crate) fn set_model(
 ) -> Done<()> {
     let found = get(cx.db, id)?;
     match found.kind {
-        AgentKind::Hire => hires::set_model(cx, id, model, reason),
+        AgentKind::Hamlet => {
+            hamlet_agents::set_model(cx, id, model, reason)
+        }
         AgentKind::Hand => {
             diesel::update(hand::table)
                 .set(hand::model.eq(model))
@@ -282,7 +284,7 @@ pub(crate) fn set_model(
             Ok(Ok(()))
         }
         AgentKind::Worker => {
-            done!(hires::require_living(cx.db, id));
+            done!(hamlet_agents::require_living(cx.db, id));
             diesel::update(worker::table.find(id))
                 .set(worker::model.eq(model))
                 .execute(cx.db)?;
@@ -292,10 +294,10 @@ pub(crate) fn set_model(
     }
 }
 
-/// Every hire, living or ended, oldest first.
-pub(crate) fn all_hires(db: &mut Db) -> Result<Vec<AgentId>> {
+/// Every agent of a hamlet, living or ended, oldest first.
+pub(crate) fn all_hamlet_agents(db: &mut Db) -> Result<Vec<AgentId>> {
     Ok(agent::table
-        .filter(agent::kind.eq(AgentKind::Hire))
+        .filter(agent::kind.eq(AgentKind::Hamlet))
         .order(agent::id)
         .select(agent::id)
         .load(db)?)

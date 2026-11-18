@@ -59,8 +59,9 @@ async fn edits_the_charter_character_and_memory_and_the_prompt_follows()
     })
     .await;
     assert_eq!(reply.kind, ReplyKind::Notice, "{}", reply.text);
-    // A hire's own memory is its lodge's, which it alone has learned.
-    let own = memory("Own", "A hire's note.");
+    // An agent's own memory is its lodge's, which it alone has
+    // learned.
+    let own = memory("Own", "An agent's note.");
     edit(&mut s.chief, |id| Edit::Memory {
         id,
         of: Keeper::Agent(ada),
@@ -88,7 +89,7 @@ async fn edits_the_charter_character_and_memory_and_the_prompt_follows()
     let prompt = s.chief.prompt(ada).await;
     assert!(prompt.starts_with("Be brief."), "{prompt}");
     assert!(prompt.contains("# Your character\nCalm."), "{prompt}");
-    assert!(prompt.contains("You are `hire#2 (ada)`"), "{prompt}");
+    assert!(prompt.contains("You are `agent#2 (ada)`"), "{prompt}");
 
     let ServerMessage::Read(ReadResult::Charter { charter, .. }) =
         s.chief.read(|id| Read::Charter { id }).await

@@ -273,7 +273,7 @@ fn owner(world: &World, agent: AgentId) -> Option<Owner> {
     })
 }
 
-/// The agent a tree puts `owner` under: a hire's parent or a worker's
+/// The agent a tree puts `owner` under: its parent or a worker's
 /// starter. A lead heads its hamlet's tree, though it answers to
 /// the Hand.
 fn above(
@@ -286,7 +286,7 @@ fn above(
         .is_some_and(|parent| parent.kind == AgentKind::Hand);
     match owner.kind {
         AgentKind::Hand => None,
-        AgentKind::Hire if hand => None,
+        AgentKind::Hamlet if hand => None,
         _ => Some(parent),
     }
 }
@@ -412,8 +412,8 @@ pub(super) fn tree(
 }
 
 /// `agents` in the order a tree shows them: a chief's workers, then
-/// the lead, then hires in the order they came, then workers; or,
-/// below an agent, its hires before its workers.
+/// the lead, then the other agents in the order they came, then
+/// workers; or, below an agent, its agents before its workers.
 fn ordered(
     agents: BTreeSet<AgentId>,
     owners: &BTreeMap<AgentId, Owner>,
@@ -1195,9 +1195,9 @@ mod tests {
                         "0:mine",
                         "0:worker#6 (1)",
                         "1:w6",
-                        "0:hire#2 (2)",
+                        "0:agent#2 (2)",
                         "1:m-sh",
-                        "1:hire#4 (1)",
+                        "1:agent#4 (1)",
                         "2:worker#5 (1)",
                         "3:w5",
                     ]
@@ -1231,7 +1231,7 @@ mod tests {
                 What::Terminal(_) => None,
             })
             .collect::<Vec<_>>();
-        assert_eq!(logs, [("hire#2", "bash")]);
+        assert_eq!(logs, [("agent#2", "bash")]);
 
         // A log shows only once its agent is pinned, under the hamlet
         // and the agents above it.

@@ -139,8 +139,8 @@ pub enum Thing {
     Workbench(Entity),
 }
 
-/// The names things go by in the world: an agent's `Shown` name, a
-/// hire's nickname or else its profile's name, over its `Name`.
+/// The names things go by in the world: an agent's `Shown` name, its
+/// nickname or else its profile's name, over its `Name`.
 pub type Names<'w, 's> =
     Query<'w, 's, (&'static Name, Option<&'static Shown>)>;
 

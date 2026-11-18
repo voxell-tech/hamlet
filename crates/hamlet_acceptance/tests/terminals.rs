@@ -190,7 +190,7 @@ async fn an_agent_has_no_terminal_tools_and_its_bash_commands_show_read_only()
         .expect("the agent's commands");
     let docs = s.chief.hamlet_id("docs");
     assert_eq!(commands.hamlet.as_deref(), Some(docs.as_str()));
-    assert_eq!(commands.name, format!("hire#{}'s commands", ada.0));
+    assert_eq!(commands.name, format!("agent#{}'s commands", ada.0));
     assert_eq!(commands.last.as_deref(), Some("echo ran-$((2 + 3))"));
     assert!(!commands.running);
     let id = commands.id.clone();

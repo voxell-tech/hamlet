@@ -1,4 +1,4 @@
-//! The form a road is built with: a search over the hires of the
+//! The form a road is built with: a search over the agents of the
 //! realm that the agent has no road to yet, one pressed to build it.
 
 use bevy::ecs::entity::Entity;
@@ -31,24 +31,24 @@ pub(crate) struct Roading {
     search: String,
 }
 
-/// The hires `agent` could have a road to whose shown names hold
-/// `search`, by name.
+/// The agents of hamlets `agent` could have a road to whose shown
+/// names hold `search`, by name.
 fn choices(
     world: &World,
     agent: Entity,
     search: &str,
 ) -> Vec<(Entity, String)> {
-    let Some(mut hires) =
+    let Some(mut agents_found) =
         world.try_query::<(Entity, &Kind, Option<&Left>)>()
     else {
         return Vec::new();
     };
     let search = search.trim().to_lowercase();
-    let mut found = hires
+    let mut found = agents_found
         .iter(world)
         .filter(|(other, kind, left)| {
             *other != agent
-                && kind.0 == protocol::AgentKind::Hire
+                && kind.0 == protocol::AgentKind::Hamlet
                 && left.is_none()
         })
         .map(|(other, ..)| other)
@@ -68,7 +68,7 @@ fn list(agent: Entity) -> impl View {
         .when(every_frame()),
         move |found| {
             if found.is_empty() {
-                return description("No hire to build a road to.")
+                return description("No agent to build a road to.")
                     .boxed();
             }
             column(
@@ -122,7 +122,7 @@ pub(super) fn road(agent: Entity, at: Vec2) -> impl View {
                 .size(heading)
                 .bold(true),
             crate::search::search(
-                "Search hires",
+                "Search agents",
                 String::new(),
                 |world, text| {
                     world.resource_mut::<Roading>().search = text;

@@ -20,7 +20,7 @@ use crate::core::Core;
 use crate::society::agents::{self, EndHow};
 use crate::society::refusal::Refusal;
 use crate::society::workers::{self, Start, Starter};
-use crate::society::{addresses, hires, roads};
+use crate::society::{addresses, hamlet_agents, roads};
 use crate::tools::builtin::Network;
 use crate::tools::catalogue::Society;
 
@@ -66,8 +66,8 @@ impl Core<'_, '_> {
             Err(refusal) => return Ok(Step::of(Err(refusal))),
         };
         let db = self.realm.store().connection();
-        let parent = match hires::find(db, sender)? {
-            Some(hire) => match hire.parent {
+        let parent = match hamlet_agents::find(db, sender)? {
+            Some(found) => match found.parent {
                 Some(parent) => parent,
                 None => crate::society::hand::id(db)?,
             },

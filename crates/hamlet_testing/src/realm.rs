@@ -9,7 +9,7 @@ use tokio::runtime::Handle;
 use tokio_tungstenite::tungstenite::Message;
 
 /// A realm with its Hand and a first hamlet `home` under the lead
-/// `hire#2`, a hire of the profile `ada`, at revision zero.
+/// `agent#2`, an agent of the profile `ada`, at revision zero.
 pub fn state() -> protocol::State {
     serde_json::from_value(json!({
         "epoch": 1, "revision": 0, "chief": "chief", "confinement": {"kind": "sandbox", "name": "test"},
@@ -38,7 +38,7 @@ pub fn state() -> protocol::State {
 pub fn hamlet(id: &str, lead: u64) -> protocol::Hamlet {
     serde_json::from_value(json!({
         "id": id, "name": id, "folder": null, "before": [], "mode": "manual",
-        "modeWords": "Hires ask you before each edit and command.",
+        "modeWords": "Agents ask you before each edit and command.",
         "roads": [], "at": null, "lead": lead, "tier": 50, "chiefs": ["chief"],
         "budget": {
             "period": "day", "periodWords": "today", "gone": 0,
@@ -50,7 +50,7 @@ pub fn hamlet(id: &str, lead: u64) -> protocol::Hamlet {
         "limits": {
             "budget": {"period": "day", "cost": 5, "minutes": null},
             "road": {"price": 0.01, "most": 24, "growsOverDays": 7},
-            "reserved": {"hire": false, "roads": false, "end": false, "merge": false},
+            "reserved": {"add": false, "roads": false, "end": false, "merge": false},
             "model": null, "toldDays": 7, "protectedMinutes": 0,
             "asking": {"review": "remote", "questions": 3, "refusals": 3}
         }
@@ -71,11 +71,11 @@ pub fn hand(id: u64) -> protocol::Agent {
     })).unwrap()
 }
 
-/// The hire `hire#id` of the profile with its own id, in `hamlet`:
-/// its lead under the Hand, or a hire under the first lead.
+/// The agent `agent#id` of the profile with its own id, in `hamlet`:
+/// its lead under the Hand, or an agent under the first lead.
 pub fn agent(id: u64, hamlet: &str, lead: bool) -> protocol::Agent {
     serde_json::from_value(json!({
-        "id": id, "kind": "hire", "name": format!("hire#{id}"), "nickname": null,
+        "id": id, "kind": "hamlet", "name": format!("agent#{id}"), "nickname": null,
         "hamlet": hamlet, "profile": id,
         "parent": if lead { json!(1) } else { json!(2) },
         "pin": null, "purpose": "", "since": 0, "lead": lead,
@@ -88,17 +88,17 @@ pub fn agent(id: u64, hamlet: &str, lead: bool) -> protocol::Agent {
     })).unwrap()
 }
 
-/// A living profile of the chief's with `hires`.
+/// A living profile of the chief's with `agents`.
 pub fn profile(
     id: u64,
     name: &str,
-    hires: &[u64],
+    agents: &[u64],
 ) -> protocol::Profile {
     serde_json::from_value(json!({
         "id": id, "name": name, "chief": "chief", "since": 0,
         "arrival": "housed", "arrivalBy": null,
         "house": {"x": 40.0, "z": 0.0, "turn": 0.0},
-        "skills": [], "versions": [], "hires": hires
+        "skills": [], "versions": [], "agents": agents
     }))
     .unwrap()
 }
@@ -106,7 +106,7 @@ pub fn profile(
 /// An approval raised by the first hamlet's lead.
 pub fn wait(id: &str) -> protocol::Wait {
     serde_json::from_value(json!({
-        "id": id, "agent": 2, "by": "hire#2",
+        "id": id, "agent": 2, "by": "agent#2",
         "about": "pwd", "subject": "pwd", "change": null,
         "answers": ["allow", "always", "deny"], "since": 1000, "asked": 1,
         "chat": {"with": 2},

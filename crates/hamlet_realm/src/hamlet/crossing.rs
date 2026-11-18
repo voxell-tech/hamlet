@@ -1,4 +1,4 @@
-//! A hire that gets a house after the world was first seen crosses
+//! An agent that gets a house after the world was first seen crosses
 //! the sea to it: it walks from its profile's house in the city to
 //! the pier, sails to the hamlet's pier and walks to its porch, while
 //! its robot is away.
@@ -31,17 +31,17 @@ enum Stage {
     Ashore,
 }
 
-/// The figure of a hire on its way to its house.
+/// The figure of an agent on its way to its house.
 #[derive(Component, Debug)]
 pub(super) struct Voyage {
-    /// The hire's entity.
-    hire: Entity,
+    /// The agent's entity.
+    agent: Entity,
     /// The agent of the society whose robot is away.
     home: AgentId,
     stage: Stage,
 }
 
-/// Sends each hire housed after the first state to its house by
+/// Sends each agent housed after the first state to its house by
 /// way of the sea, starting from its profile's door or, when the
 /// profile has no house, from the pier.
 pub(super) fn board(
@@ -54,7 +54,7 @@ pub(super) fn board(
     seen: Option<Res<Seen>>,
     mut primed: Local<bool>,
     society: Res<Society>,
-    hires: Query<
+    agents: Query<
         (Entity, &Housed, Option<&OfProfile>),
         Added<Housed>,
     >,
@@ -72,11 +72,11 @@ pub(super) fn board(
     let Some(harbor) = harbor else {
         return;
     };
-    for (hire, housed, of) in &hires {
+    for (agent, housed, of) in &agents {
         // The lead's hall is founded with its hamlet.
         let in_hall = society
             .agent(housed.0)
-            .and_then(|agent| society.town(agent.town))
+            .and_then(|found| society.town(found.town))
             .is_some_and(|town| town.lead == housed.0);
         if in_hall {
             continue;
@@ -84,7 +84,7 @@ pub(super) fn board(
         let profile = of.and_then(|of| {
             profiles.iter().find(|profile| profile.0.id == of.0)
         });
-        // A blank hire is of no house in the city: it is at its own
+        // A blank agent is of no house in the city: it is at its own
         // at once.
         if profile.is_some_and(|s| s.0.arrival == Arrival::Apart) {
             continue;
@@ -118,7 +118,7 @@ pub(super) fn board(
         commands.entity(traveler).insert((
             Trip::journey(way, clock.t, &motion),
             Voyage {
-                hire,
+                agent,
                 home: housed.0,
                 stage: Stage::Pier,
             },
@@ -154,7 +154,7 @@ pub(super) fn cross(
     boats: Query<(&Boat, &Mesh3d, &MeshMaterial3d<StandardMaterial>)>,
     ferries: Query<&Trip, With<Ferry>>,
     robots: Query<(Entity, &Robot)>,
-    hires: Query<(), With<Housed>>,
+    agents: Query<(), With<Housed>>,
 ) {
     let now = clock.t;
     let water = land.set.land.water_y;
@@ -174,7 +174,7 @@ pub(super) fn cross(
             _ => None,
         };
         let lost = harbor.is_none()
-            || !hires.contains(voyage.hire)
+            || !agents.contains(voyage.agent)
             || ferry.is_some_and(|ferry| ferries.get(ferry).is_err());
         if lost {
             finish(&mut commands);

@@ -148,7 +148,7 @@ pub(crate) fn say_with(
             boundary: false,
         },
     )?;
-    crate::society::hires::take_purpose(cx, agent, text)?;
+    crate::society::hamlet_agents::take_purpose(cx, agent, text)?;
     Ok(Said {
         conversation,
         task,

@@ -23,7 +23,7 @@ use crate::clients::handlers::FromClient;
 use crate::core::Core;
 use crate::realm::change::Done;
 use crate::society::addresses::Reach;
-use crate::society::hires;
+use crate::society::hamlet_agents;
 use crate::society::refusal::Refusal;
 
 type Run = fn(&mut Core<'_, '_>, &Line) -> Answer;
@@ -268,7 +268,8 @@ fn line_of(
         .split_once(char::is_whitespace)
         .map_or((text, ""), |(name, rest)| (name, rest.trim()));
     let db = core.realm.store().connection();
-    let here = hires::find(db, agent)?.map(|hire| hire.hamlet);
+    let here = hamlet_agents::find(db, agent)?
+        .map(|hamlet_agent| hamlet_agent.hamlet);
     Ok(Some(Ok(Line {
         agent,
         here,

@@ -335,8 +335,8 @@ fn agent_row(
     with_cx(move |cx| {
         let who = match branch.kind {
             AgentKind::Hand => Glyph::Shield,
-            AgentKind::Hire if branch.lead => Glyph::Lead,
-            AgentKind::Hire => Glyph::Robot,
+            AgentKind::Hamlet if branch.lead => Glyph::Lead,
+            AgentKind::Hamlet => Glyph::Robot,
             AgentKind::Worker => Glyph::Chip,
         };
         let tone = if dim || branch.log.is_none() {

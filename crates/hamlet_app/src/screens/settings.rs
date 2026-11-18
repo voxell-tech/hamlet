@@ -1026,7 +1026,7 @@ mod tests {
         let mut app = settings_page(Pane::Agents);
         let grant = protocol::Grant {
             agent: Some(protocol::AgentId(2)),
-            name: "hire#2".into(),
+            name: "agent#2".into(),
             permission: protocol::Permission::Network,
             by: Some("chief".into()),
             source: protocol::GrantSource::Grant,
@@ -1050,7 +1050,7 @@ mod tests {
         assert_eq!(
             requests(&mut app),
             [serde_json::json!({
-                "type": "say", "to": 1, "text": "/revoke hire#2 network"
+                "type": "say", "to": 1, "text": "/revoke agent#2 network"
             })]
         );
     }
@@ -1067,7 +1067,7 @@ mod tests {
                 changes: vec![protocol::Update::Grants {
                     grants: vec![protocol::Grant {
                         agent: None,
-                        name: "hire#2".into(),
+                        name: "agent#2".into(),
                         permission: protocol::Permission::Network,
                         by: None,
                         source: protocol::GrantSource::Limits,

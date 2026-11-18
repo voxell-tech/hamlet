@@ -1,5 +1,5 @@
 //! The Hub's page of a profile: who it is, what it knows, its
-//! versions and hires, and what a chief can do with it.
+//! versions and agents, and what a chief can do with it.
 
 use bevy::ecs::component::Component;
 use bevy::ecs::entity::Entity;
@@ -82,18 +82,18 @@ struct First;
 #[derive(Component)]
 struct Second;
 
-/// Where `hire` stands: lead of its hamlet, or in it under its
+/// Where `agent` stands: lead of its hamlet, or in it under its
 /// parent.
-fn place_of(world: &World, hire: Entity) -> String {
+fn place_of(world: &World, agent: Entity) -> String {
     let hamlet = world
-        .get::<LivesIn>(hire)
+        .get::<LivesIn>(agent)
         .map(|lives| name_of(world, lives.0))
         .unwrap_or_default();
-    if world.get::<hamlet_client::realm::Lead>(hire).is_some() {
+    if world.get::<hamlet_client::realm::Lead>(agent).is_some() {
         return format!("lead of {hamlet}");
     }
     let parent = world
-        .get::<hamlet_client::realm::Parent>(hire)
+        .get::<hamlet_client::realm::Parent>(agent)
         .and_then(|parent| {
             hamlet_client::realm::agent(world, parent.0)
         })
@@ -104,9 +104,9 @@ fn place_of(world: &World, hire: Entity) -> String {
     }
 }
 
-/// A hire of the profile as the page shows it.
+/// An agent of the profile as the page shows it.
 #[derive(Clone, PartialEq)]
-struct HireShown {
+struct HamletAgentShown {
     entity: Entity,
     address: String,
     /// What it goes by, and where it stands in its hamlet.
@@ -115,32 +115,32 @@ struct HireShown {
     pin: Option<String>,
 }
 
-/// A profile and its hires as the page reads them.
+/// A profile and its agents as the page reads them.
 #[derive(Clone, PartialEq)]
 struct Shown {
     /// The profile's entity, for what acts on it in the world.
     entity: Entity,
     profile: protocol::Profile,
-    hires: Vec<HireShown>,
+    agents: Vec<HamletAgentShown>,
     allowed: Vec<&'static str>,
 }
 
 fn shown(world: &World, entity: Entity) -> Option<Shown> {
     let profile = world.get::<Profile>(entity)?.0.clone();
-    let hires = profile
-        .hires
+    let agents = profile
+        .agents
         .iter()
         .filter_map(|id| hamlet_client::realm::agent(world, *id))
-        .filter(|hire| {
-            hamlet_client::realm::id_of(world, *hire).is_some()
+        .filter(|agent| {
+            hamlet_client::realm::id_of(world, *agent).is_some()
         })
-        .map(|hire| {
-            let address = name_of(world, hire);
-            HireShown {
-                entity: hire,
-                called: hamlet_client::realm::shown_of(world, hire),
-                place: place_of(world, hire),
-                pin: world.get::<Pin>(hire).map(|pin| pin.0.clone()),
+        .map(|agent| {
+            let address = name_of(world, agent);
+            HamletAgentShown {
+                entity: agent,
+                called: hamlet_client::realm::shown_of(world, agent),
+                place: place_of(world, agent),
+                pin: world.get::<Pin>(agent).map(|pin| pin.0.clone()),
                 address,
             }
         })
@@ -152,7 +152,7 @@ fn shown(world: &World, entity: Entity) -> Option<Shown> {
     Some(Shown {
         entity,
         profile,
-        hires,
+        agents,
         allowed,
     })
 }
@@ -251,12 +251,12 @@ fn form(address: String, name: String, act: Act) -> AnyView {
             None,
         ),
         Act::Remove => (
-            "Archive it and end its hires.".to_string(),
+            "Archive it and end its agents.".to_string(),
             Some("why"),
             None,
         ),
         Act::Erase => (
-            "Erase it, its repository and its hires for good. \
+            "Erase it, its repository and its agents for good. \
              Nothing brings it back."
                 .to_string(),
             Some("type its name"),
@@ -389,7 +389,7 @@ fn standing(profile: &protocol::Profile) -> (&'static str, Tone) {
             ("Turned away at the harbor", Tone::Critical)
         }
         (None, protocol::Arrival::Apart) => {
-            ("A blank hire's own", Tone::Dim)
+            ("A blank agent's own", Tone::Dim)
         }
     }
 }
@@ -490,10 +490,12 @@ fn versions(shown: &Shown) -> AnyView {
     for version in shown.profile.versions.iter().rev() {
         let name = version.name.clone();
         let followers = shown
-            .hires
+            .agents
             .iter()
-            .filter(|hire| hire.pin.as_deref() == Some(name.as_str()))
-            .map(|hire| hire.called.clone())
+            .filter(|agent| {
+                agent.pin.as_deref() == Some(name.as_str())
+            })
+            .map(|agent| agent.called.clone())
             .collect::<Vec<_>>();
         let mut line = vec![
             label(name.clone()).bold(true).boxed(),
@@ -574,13 +576,13 @@ fn deed_menu(
     .boxed()
 }
 
-/// Its hires in their section, each led to and pinned to a version
+/// Its agents in their section, each led to and pinned to a version
 /// from here.
-fn hires(shown: &Shown) -> AnyView {
-    if shown.hires.is_empty() {
+fn agents(shown: &Shown) -> AnyView {
+    if shown.agents.is_empty() {
         return section_line(
-            Glyph::Hire,
-            "Hires",
+            Glyph::HamletAgent,
+            "Agents",
             dim("Nobody works as it now.").boxed(),
         );
     }
@@ -598,27 +600,27 @@ fn hires(shown: &Shown) -> AnyView {
             version => version.to_string(),
         })
         .collect::<Vec<_>>();
-    for shown_hire in &shown.hires {
-        let hire = shown_hire.entity;
-        let address = shown_hire.address.clone();
+    for shown_agent in &shown.agents {
+        let agent = shown_agent.entity;
+        let address = shown_agent.address.clone();
         let choices = names.clone();
         // The version it follows now, main when it is not pinned.
-        let now = shown_hire
+        let now = shown_agent
             .pin
             .as_ref()
             .and_then(|pin| choices.iter().position(|v| v == pin))
             .unwrap_or(0);
         let mut line = vec![
-            button(label(shown_hire.called.clone()).bold(true))
+            button(label(shown_agent.called.clone()).bold(true))
                 .padding(UiRect::all(px(0.0)))
                 .variant(Variant::Text)
                 .tooltip({
                     let address = address.clone();
                     move || note(address.clone())
                 })
-                .on_activate(move |world| talk_to(world, hire))
+                .on_activate(move |world| talk_to(world, agent))
                 .boxed(),
-            label(shown_hire.place.clone()).tone(Tone::Dim).boxed(),
+            label(shown_agent.place.clone()).tone(Tone::Dim).boxed(),
             frame().grow(1.0).boxed(),
         ];
         if pins {
@@ -629,7 +631,7 @@ fn hires(shown: &Shown) -> AnyView {
                     .tooltip(|| {
                         note(
                             "The version of what the profile knows \
-                             that this hire works from",
+                             that this agent works from",
                         )
                     })
                     .boxed(),
@@ -657,7 +659,12 @@ fn hires(shown: &Shown) -> AnyView {
             row(line).gap(8.0).align(AlignItems::Center).boxed(),
         );
     }
-    section(Glyph::Hire, "Hires", None, column(parts).gap(4.0))
+    section(
+        Glyph::HamletAgent,
+        "Agents",
+        None,
+        column(parts).gap(4.0),
+    )
 }
 
 /// What it knows, each part in its section: the character a chief may
@@ -683,8 +690,8 @@ fn knowledge(shown: &Shown) -> [AnyView; 3] {
     ]
 }
 
-/// What makes the button of a dream, which brings home what its hires
-/// learned, while the profile may have one.
+/// What makes the button of a dream, which brings home what its
+/// agents learned, while the profile may have one.
 fn dream(
     shown: &Shown,
 ) -> impl Fn() -> Option<AnyView> + Send + Sync + 'static {
@@ -696,15 +703,15 @@ fn dream(
         may.then(|| {
             action(
                 Glyph::Rename,
-                "Note what its hires learned",
+                "Note what its agents learned",
                 move |world| {
                     tell_hand(world, format!("/dream {address}"));
                 },
             )
             .tooltip(|| {
                 note(
-                    "Brings home what its hires learned, and tidies \
-                     its memory",
+                    "Brings home what its agents learned, and \
+                     tidies its memory",
                 )
             })
             .boxed()
@@ -790,7 +797,7 @@ fn careful(shown: &Shown) -> AnyView {
 }
 
 /// The profile's page: where it stands and what it is called, then a
-/// section each for its hires, what it knows, its versions and what
+/// section each for its agents, what it knows, its versions and what
 /// changes it for good.
 fn body(shown: &Shown) -> AnyView {
     let profile = shown.entity;
@@ -800,7 +807,7 @@ fn body(shown: &Shown) -> AnyView {
     let standing = label(stands).tone(tone);
     let parts = (
         arrival(shown),
-        hires(shown),
+        agents(shown),
         knowledge(shown),
         versions(shown),
         careful(shown),
@@ -808,7 +815,7 @@ fn body(shown: &Shown) -> AnyView {
     with_cx(move |cx| {
         let (
             head,
-            hires_part,
+            agents_part,
             [character_part, memory_part, skills_part],
             versions_part,
             careful_part,
@@ -843,7 +850,7 @@ fn body(shown: &Shown) -> AnyView {
                 head,
                 form_view(address, name.clone(), is_of_header),
                 column((
-                    hires_part,
+                    agents_part,
                     character_part,
                     memory_part,
                     skills_part,

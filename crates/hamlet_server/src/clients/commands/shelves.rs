@@ -1,6 +1,6 @@
 //! A chief's commands on skills and dreams: giving a skill to a
-//! profile, taking one off the library's shelves, and having a hire
-//! or a profile dream.
+//! profile, taking one off the library's shelves, and having an
+//! agent or a profile dream.
 
 use hamlet_store::ids::Actor;
 
@@ -22,7 +22,7 @@ pub(super) const SHELVES: &[Command] = &[
     Command {
         name: "dream",
         usage: "/dream <profile#id|address>",
-        does: "Have a hire bring its learning home, or a profile \
+        does: "Have an agent bring its learning home, or a profile \
                tidy",
         run: |core, line| {
             core.dream_command(line.here.as_ref(), &line.words())

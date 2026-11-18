@@ -1,4 +1,4 @@
-//! The commands that shape the society: hamlets, hires and profiles.
+//! The commands that shape the society: hamlets, agents and profiles.
 //! Each is a function of its own, named in [`SOCIETY`] beside how it
 //! is written.
 
@@ -9,8 +9,8 @@ use super::{Answer, Command, Line};
 use crate::core::Core;
 use crate::society::addresses::{self, Reach};
 use crate::society::agents::{self, AgentKind, Effort, EndHow};
+use crate::society::hamlet_agents::{self, ProfileChoice, Spec};
 use crate::society::hamlets::{self, Founding, Mode};
-use crate::society::hires::{self, Hiring, Spec};
 use crate::society::refusal::Refusal;
 use crate::society::{
     authority, city, record, roads, spend, workers,
@@ -19,7 +19,7 @@ use crate::society::{
 /// The word that stands in place of a profile for a blank agent.
 const BLANK: &str = "blank";
 
-/// The commands that shape the society: hamlets, hires and profiles.
+/// The commands that shape the society: hamlets, agents and profiles.
 pub(super) const SOCIETY: &[Command] = &[
     Command {
         name: "hamlets",
@@ -49,7 +49,7 @@ pub(super) const SOCIETY: &[Command] = &[
     Command {
         name: "remove-hamlet",
         usage: "/remove-hamlet <hamlet> [reason]",
-        does: "Remove a hamlet and end its hires",
+        does: "Remove a hamlet and end its agents",
         run: |core, line| hamlet_fate(core, line, Fate::Remove),
     },
     Command {
@@ -67,45 +67,45 @@ pub(super) const SOCIETY: &[Command] = &[
     Command {
         name: "tier",
         usage: "/tier <50|100|200|500>",
-        does: "Set how many hires this hamlet holds",
+        does: "Set how many agents this hamlet holds",
         run: tier,
     },
     Command {
         name: "lead",
         usage: "/lead <address> [reason]",
-        does: "Give this hamlet's office to a hire",
+        does: "Give this hamlet's office to an agent",
         run: lead,
     },
     Command {
-        name: "hire",
-        usage: "/hire <profile#id>[@<version>]|blank [in <hamlet>] \
-                [under <address>] [purpose]",
-        does: "Hire a profile into this hamlet, or a blank agent \
-               that is not a profile of the city",
-        run: hire,
+        name: "add-agent",
+        usage: "/add-agent <profile#id>[@<version>]|blank [in \
+                <hamlet>] [under <address>] [purpose]",
+        does: "Add an agent of a profile to this hamlet, or a blank \
+               agent that is not a profile of the city",
+        run: add_agent,
     },
     Command {
         name: "end",
         usage: "/end <address> [reason]",
-        does: "End a hire",
-        run: |core, line| hire_fate(core, line, Fate::Remove),
+        does: "End an agent",
+        run: |core, line| agent_fate(core, line, Fate::Remove),
     },
     Command {
         name: "restore",
         usage: "/restore <address> [reason]",
-        does: "Bring an ended hire back",
-        run: |core, line| hire_fate(core, line, Fate::Restore),
+        does: "Bring an ended agent back",
+        run: |core, line| agent_fate(core, line, Fate::Restore),
     },
     Command {
         name: "erase",
         usage: "/erase <address>",
-        does: "Erase an ended hire for good",
-        run: |core, line| hire_fate(core, line, Fate::Erase),
+        does: "Erase an ended agent for good",
+        run: |core, line| agent_fate(core, line, Fate::Erase),
     },
     Command {
         name: "merge",
         usage: "/merge <address> into <address> [reason]",
-        does: "Make one hire of two; /restore splits them again",
+        does: "Make one agent of two; /restore splits them again",
         run: merge,
     },
     Command {
@@ -130,26 +130,26 @@ pub(super) const SOCIETY: &[Command] = &[
     Command {
         name: "nickname",
         usage: "/nickname <address> [nickname]",
-        does: "Call a hire or a worker something in the world, or \
+        does: "Call an agent or a worker something in the world, or \
                by its name again",
         run: nickname,
     },
     Command {
         name: "tools",
         usage: "/tools <address> -<tool> +<tool>",
-        does: "Turn a hire's tools off or back on",
+        does: "Turn an agent's tools off or back on",
         run: tools,
     },
     Command {
         name: "allowance",
         usage: "/allowance <address> <dollars|none>",
-        does: "Give a hire an allowance for the period",
+        does: "Give an agent an allowance for the period",
         run: allowance,
     },
     Command {
         name: "road",
         usage: "/road <address> <address> [reason]",
-        does: "Lay a road between two hires",
+        does: "Lay a road between two agents",
         run: |core, line| road(core, line, Roadwork::Lay),
     },
     Command {
@@ -210,13 +210,13 @@ pub(super) const SOCIETY: &[Command] = &[
     Command {
         name: "remove-profile",
         usage: "/remove-profile <profile#id> [reason]",
-        does: "Archive a profile and end its hires",
+        does: "Archive a profile and end its agents",
         run: |core, line| profile_fate(core, line, Housing::Remove),
     },
     Command {
         name: "restore-profile",
         usage: "/restore-profile <profile#id> [reason]",
-        does: "Bring an archived profile back with its hires",
+        does: "Bring an archived profile back with its agents",
         run: |core, line| profile_fate(core, line, Housing::Restore),
     },
     Command {
@@ -245,7 +245,7 @@ pub(super) const SOCIETY: &[Command] = &[
     },
 ];
 
-/// The fate a command gives a hamlet or a hire that may end.
+/// The fate a command gives a hamlet or an agent that may end.
 #[derive(Clone, Copy, PartialEq)]
 enum Fate {
     /// It ends, or the hamlet is removed.
@@ -312,14 +312,14 @@ fn create_hamlet(core: &mut Core<'_, '_>, line: &Line) -> Answer {
     let chief = core.realm.chief();
     let words = line.words();
     // A lead not given is a blank agent named Lead.
-    let blank = || Hiring::Blank {
+    let blank = || ProfileChoice::Blank {
         name: String::new(),
         character: String::new(),
     };
     let (lead, name_at) = match words.first() {
         Some(&BLANK) => (blank(), 1),
         Some(profile) if is_profile(profile) => {
-            (found!(core.hiring(profile, chief)), 1)
+            (found!(core.profile_choice(profile, chief)), 1)
         }
         _ => (blank(), 0),
     };
@@ -337,7 +337,7 @@ fn create_hamlet(core: &mut Core<'_, '_>, line: &Line) -> Answer {
         "" => format!("Lead of {shown}."),
         given => given.to_owned(),
     };
-    let hired = found!(core.attempt(by(core), |cx, _| {
+    let added = found!(core.attempt(by(core), |cx, _| {
         hamlets::found(
             cx,
             Founding {
@@ -351,8 +351,8 @@ fn create_hamlet(core: &mut Core<'_, '_>, line: &Line) -> Answer {
     let db = core.realm.store().connection();
     Ok(Ok(format!(
         "The hamlet {shown} (`{}`) is created under its lead `{}`.",
-        hired.hamlet,
-        addresses::name_of(db, hired.agent)?
+        added.hamlet,
+        addresses::name_of(db, added.agent)?
     )))
 }
 
@@ -413,7 +413,7 @@ fn hamlet_fate(
     Ok(done.map(|()| match fate {
         Fate::Remove => {
             format!(
-                "The hamlet `{id}` was removed and its hires ended."
+                "The hamlet `{id}` was removed and its agents ended."
             )
         }
         Fate::Restore => format!("The hamlet `{id}` is restored."),
@@ -437,7 +437,7 @@ fn tier(core: &mut Core<'_, '_>, line: &Line) -> Answer {
         hamlets::set_tier(cx, &id, tier)
     })?;
     Ok(done.map(|()| {
-        format!("The hamlet `{id}` holds at most {tier} hires.")
+        format!("The hamlet `{id}` holds at most {tier} agents.")
     }))
 }
 
@@ -449,10 +449,10 @@ fn lead(core: &mut Core<'_, '_>, line: &Line) -> Answer {
         return usage(core, line);
     };
     found!(core.chief_of(&id));
-    let hire = found!(core.resolve(text, Some(&id), Reach::Living));
+    let agent = found!(core.resolve(text, Some(&id), Reach::Living));
     let reason = line.tail(1);
     let done = core.attempt(by(core), |cx, _| {
-        hires::set_lead(cx, &id, hire, &reason)
+        hamlet_agents::set_lead(cx, &id, agent, &reason)
     })?;
     Ok(
         done.map(|()| {
@@ -461,7 +461,7 @@ fn lead(core: &mut Core<'_, '_>, line: &Line) -> Answer {
     )
 }
 
-fn hire(core: &mut Core<'_, '_>, line: &Line) -> Answer {
+fn add_agent(core: &mut Core<'_, '_>, line: &Line) -> Answer {
     let chief = core.realm.chief();
     let words = line.words();
     let Some(profile) = words.first() else {
@@ -496,21 +496,21 @@ fn hire(core: &mut Core<'_, '_>, line: &Line) -> Answer {
             found!(hamlets::living(db, &hamlet)).lead
         }
     };
-    let hiring = if *profile == BLANK {
-        Hiring::Blank {
+    let choice = if *profile == BLANK {
+        ProfileChoice::Blank {
             name: String::new(),
             character: String::new(),
         }
     } else {
-        found!(core.hiring(profile, chief))
+        found!(core.profile_choice(profile, chief))
     };
-    let hired = found!(core.attempt(Actor::Chief(chief), |cx, _| {
-        hires::hire(
+    let added = found!(core.attempt(Actor::Chief(chief), |cx, _| {
+        hamlet_agents::add(
             cx,
             Spec {
                 hamlet: hamlet.clone(),
                 parent: Some(parent),
-                hiring,
+                profile: choice,
                 purpose,
                 reason: String::new(),
                 owner: chief,
@@ -519,12 +519,12 @@ fn hire(core: &mut Core<'_, '_>, line: &Line) -> Answer {
     }));
     let db = core.realm.store().connection();
     Ok(Ok(format!(
-        "`{}` is hired.",
-        addresses::name_of(db, hired.agent)?
+        "`{}` is added.",
+        addresses::name_of(db, added.agent)?
     )))
 }
 
-fn hire_fate(
+fn agent_fate(
     core: &mut Core<'_, '_>,
     line: &Line,
     fate: Fate,
@@ -537,34 +537,34 @@ fn hire_fate(
     } else {
         Reach::Kept
     };
-    let hire = found!(core.resolve(text, line.here.as_ref(), reach));
-    found!(core.directs(hire));
+    let agent = found!(core.resolve(text, line.here.as_ref(), reach));
+    found!(core.directs(agent));
     let reason = line.tail(1);
     let db = core.realm.store().connection();
-    // A merged hire comes back by splitting its merge.
+    // A merged agent comes back by splitting its merge.
     let merge = match fate {
         Fate::Restore => {
-            crate::society::merges::of_absorbed(db, hire)?
+            crate::society::merges::of_absorbed(db, agent)?
         }
         Fate::Remove | Fate::Erase => None,
     };
     let done =
         core.attempt(by(core), |cx, _| match (fate, &merge) {
             (Fate::Remove, _) => {
-                hires::end(cx, hire, EndHow::Ended, &reason)
+                hamlet_agents::end(cx, agent, EndHow::Ended, &reason)
             }
             (Fate::Restore, Some(merge)) => {
                 crate::society::merges::split(cx, merge.id, &reason)
             }
             (Fate::Restore, None) => {
-                hires::come_back(cx, hire, &reason)
+                hamlet_agents::come_back(cx, agent, &reason)
             }
-            (Fate::Erase, _) => hires::erase(cx, hire),
+            (Fate::Erase, _) => hamlet_agents::erase(cx, agent),
         })?;
     Ok(done.map(|()| match fate {
         Fate::Remove => format!("`{text}` was ended."),
         Fate::Restore if merge.is_some() => format!(
-            "`{text}` is back; what it brought to the hire it was \
+            "`{text}` is back; what it brought to the agent it was \
              merged into is taken out again."
         ),
         Fate::Restore => format!("`{text}` is back."),
@@ -583,8 +583,8 @@ fn merge(core: &mut Core<'_, '_>, line: &Line) -> Answer {
     let absorbed =
         found!(core.resolve(absorbed, here, Reach::Living));
     let kept = found!(core.resolve(kept, here, Reach::Living));
-    for hire in [absorbed, kept] {
-        found!(core.directs(hire));
+    for agent in [absorbed, kept] {
+        found!(core.directs(agent));
     }
     let reason = match line.tail(3) {
         reason if reason.is_empty() => {
@@ -606,13 +606,13 @@ fn model(core: &mut Core<'_, '_>, line: &Line) -> Answer {
     else {
         return usage(core, line);
     };
-    let hire =
+    let agent =
         found!(core.resolve(text, line.here.as_ref(), Reach::Living));
-    found!(core.steers(hire));
+    found!(core.steers(agent));
     let model = (*model != "none").then_some(*model);
     let reason = line.tail(2);
     let done = core.attempt(by(core), |cx, _| {
-        agents::set_model(cx, hire, model, &reason)
+        agents::set_model(cx, agent, model, &reason)
     })?;
     Ok(done.map(|()| {
         format!(
@@ -680,7 +680,7 @@ fn nickname(core: &mut Core<'_, '_>, line: &Line) -> Answer {
     };
     let agent =
         found!(core.resolve(text, line.here.as_ref(), Reach::Living));
-    // A worker is named by whoever may steer it, a hire by whoever
+    // A worker is named by whoever may steer it, an agent by whoever
     // may direct it.
     let worker = {
         let db = core.realm.store().connection();
@@ -697,7 +697,12 @@ fn nickname(core: &mut Core<'_, '_>, line: &Line) -> Answer {
         if worker {
             workers::set_nickname(cx, agent, given.as_deref())
         } else {
-            hires::set_nickname(cx, agent, given.as_deref(), "")
+            hamlet_agents::set_nickname(
+                cx,
+                agent,
+                given.as_deref(),
+                "",
+            )
         }
     })?;
     Ok(done.map(|()| match &given {
@@ -713,9 +718,9 @@ fn tools(core: &mut Core<'_, '_>, line: &Line) -> Answer {
     let Some(text) = words.first() else {
         return usage(core, line);
     };
-    let hire =
+    let agent =
         found!(core.resolve(text, line.here.as_ref(), Reach::Living));
-    found!(core.directs(hire));
+    found!(core.directs(agent));
     let marked = |mark: char| {
         words[1..]
             .iter()
@@ -726,7 +731,7 @@ fn tools(core: &mut Core<'_, '_>, line: &Line) -> Answer {
     let (off, on) = (marked('-'), marked('+'));
     if off.is_empty() && on.is_empty() {
         let db = core.realm.store().connection();
-        let kept = hires::tools_off(db, hire)?;
+        let kept = hamlet_agents::tools_off(db, agent)?;
         return Ok(Ok(if kept.is_empty() {
             format!("`{text}` has every tool.")
         } else {
@@ -734,7 +739,7 @@ fn tools(core: &mut Core<'_, '_>, line: &Line) -> Answer {
         }));
     }
     let done = core.attempt(by(core), |cx, _| {
-        hires::set_tools(cx, hire, &off, &on, "")
+        hamlet_agents::set_tools(cx, agent, &off, &on, "")
     })?;
     Ok(done.map(|()| format!("`{text}`'s tools are changed.")))
 }
@@ -745,9 +750,9 @@ fn allowance(core: &mut Core<'_, '_>, line: &Line) -> Answer {
     else {
         return usage(core, line);
     };
-    let hire =
+    let agent =
         found!(core.resolve(text, line.here.as_ref(), Reach::Living));
-    found!(core.directs(hire));
+    found!(core.directs(agent));
     let allowance = match *amount {
         "none" => None,
         amount => match amount.trim_start_matches('$').parse::<f64>()
@@ -759,7 +764,7 @@ fn allowance(core: &mut Core<'_, '_>, line: &Line) -> Answer {
         },
     };
     let done = core.attempt(by(core), |cx, _| {
-        hires::set_allowance(cx, hire, allowance, "")
+        hamlet_agents::set_allowance(cx, agent, allowance, "")
     })?;
     Ok(done.map(|()| match allowance {
         Some(micros) => {
@@ -772,7 +777,7 @@ fn allowance(core: &mut Core<'_, '_>, line: &Line) -> Answer {
     }))
 }
 
-/// Lays a road between two hires, or takes it up.
+/// Lays a road between two agents, or takes it up.
 fn road(
     core: &mut Core<'_, '_>,
     line: &Line,
@@ -983,7 +988,7 @@ fn profile_fate(
     })?;
     Ok(done.map(|()| match housing {
         Housing::Remove => {
-            format!("`{text}` left the city, with its hires.")
+            format!("`{text}` left the city, with its agents.")
         }
         Housing::Restore => format!("`{text}` is back in the city."),
         Housing::Welcome => {

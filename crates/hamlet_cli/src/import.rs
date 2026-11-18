@@ -1,6 +1,6 @@
 //! `hamlet import`: projects of other programs, on this machine or in
-//! a file they exported, each brought in as a hamlet with a hire for
-//! each of its conversations (C35).
+//! a file they exported, each brought in as a hamlet with an agent
+//! for each of its conversations (C35).
 
 use std::path::Path;
 use std::time::SystemTime;
@@ -89,7 +89,7 @@ pub fn list(
         file.push_str("--all ");
     }
     println!(
-        "Bring them in, each as a hamlet with a hire for each \
+        "Bring them in, each as a hamlet with an agent for each \
          conversation: hamlet import {file}<project>... or hamlet \
          import {file}--suggested for those marked *. Name \
          conversations by their ids, listed with --sessions, to \

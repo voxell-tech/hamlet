@@ -177,8 +177,8 @@ pub(crate) fn follow(
         && found.is_living()
         && !inputs::is_agent_busy(cx.db, agent)?
     {
-        jobs::add(cx, &Job::Commit { hire: agent })?;
-        jobs::add(cx, &Job::TakeIn { hire: agent })?;
+        jobs::add(cx, &Job::Commit { agent })?;
+        jobs::add(cx, &Job::TakeIn { agent })?;
     }
     Ok(followed)
 }

@@ -17,6 +17,31 @@ diesel::table! {
 }
 
 diesel::table! {
+    agent_merge (id) {
+        id -> BigInt,
+        kept -> BigInt,
+        absorbed -> BigInt,
+        at -> BigInt,
+        by -> Text,
+        reason -> Text,
+        merge_commit -> Nullable<Text>,
+        clashes -> Nullable<Text>,
+        split_at -> Nullable<BigInt>,
+        split_by -> Nullable<Text>,
+        split_commit -> Nullable<Text>,
+    }
+}
+
+diesel::table! {
+    agent_tool_off (agent, tool) {
+        agent -> BigInt,
+        tool -> Text,
+        at -> BigInt,
+        by -> Text,
+    }
+}
+
+diesel::table! {
     agreement (id) {
         id -> BigInt,
         a -> BigInt,
@@ -154,7 +179,7 @@ diesel::table! {
         id -> BigInt,
         kind -> Text,
         profile -> BigInt,
-        hire -> Nullable<BigInt>,
+        agent -> Nullable<BigInt>,
         ending -> Bool,
         conversation -> Nullable<BigInt>,
         task -> Nullable<BigInt>,
@@ -187,6 +212,25 @@ diesel::table! {
 }
 
 diesel::table! {
+    hamlet_agent (agent) {
+        agent -> BigInt,
+        hamlet -> Text,
+        profile -> BigInt,
+        parent -> Nullable<BigInt>,
+        purpose -> Text,
+        nickname -> Nullable<Text>,
+        pin -> Nullable<Text>,
+        base -> Nullable<Text>,
+        model -> Nullable<Text>,
+        model_by -> Nullable<Text>,
+        model_reason -> Nullable<Text>,
+        allowance -> Nullable<BigInt>,
+        allowance_by -> Nullable<Text>,
+        merged_into -> Nullable<BigInt>,
+    }
+}
+
+diesel::table! {
     hamlet_chief (hamlet, chief) {
         hamlet -> Text,
         chief -> BigInt,
@@ -206,50 +250,6 @@ diesel::table! {
         agent -> BigInt,
         profile -> BigInt,
         model -> Nullable<Text>,
-    }
-}
-
-diesel::table! {
-    hire (agent) {
-        agent -> BigInt,
-        hamlet -> Text,
-        profile -> BigInt,
-        parent -> Nullable<BigInt>,
-        purpose -> Text,
-        nickname -> Nullable<Text>,
-        pin -> Nullable<Text>,
-        base -> Nullable<Text>,
-        model -> Nullable<Text>,
-        model_by -> Nullable<Text>,
-        model_reason -> Nullable<Text>,
-        allowance -> Nullable<BigInt>,
-        allowance_by -> Nullable<Text>,
-        merged_into -> Nullable<BigInt>,
-    }
-}
-
-diesel::table! {
-    hire_merge (id) {
-        id -> BigInt,
-        kept -> BigInt,
-        absorbed -> BigInt,
-        at -> BigInt,
-        by -> Text,
-        reason -> Text,
-        merge_commit -> Nullable<Text>,
-        clashes -> Nullable<Text>,
-        split_at -> Nullable<BigInt>,
-        split_by -> Nullable<Text>,
-        split_commit -> Nullable<Text>,
-    }
-}
-
-diesel::table! {
-    hire_tool_off (hire, tool) {
-        hire -> BigInt,
-        tool -> Text,
-        at -> BigInt,
-        by -> Text,
     }
 }
 
@@ -593,6 +593,7 @@ diesel::table! {
     }
 }
 
+diesel::joinable!(agent_tool_off -> hamlet_agent (agent));
 diesel::joinable!(agreement -> hamlet (hamlet));
 diesel::joinable!(agreement -> road (road));
 diesel::joinable!(agreement -> task (task));
@@ -614,18 +615,17 @@ diesel::joinable!(decision -> profile (profile));
 diesel::joinable!(decision -> task (task));
 diesel::joinable!(document -> chief (chief));
 diesel::joinable!(dream -> conversation (conversation));
-diesel::joinable!(dream -> hire (hire));
+diesel::joinable!(dream -> hamlet_agent (agent));
 diesel::joinable!(dream -> profile (profile));
 diesel::joinable!(dream -> task (task));
+diesel::joinable!(hamlet_agent -> agent (agent));
+diesel::joinable!(hamlet_agent -> hamlet (hamlet));
+diesel::joinable!(hamlet_agent -> profile (profile));
 diesel::joinable!(hamlet_chief -> chief (chief));
 diesel::joinable!(hamlet_chief -> hamlet (hamlet));
 diesel::joinable!(hamlet_folder -> hamlet (hamlet));
 diesel::joinable!(hand -> agent (agent));
 diesel::joinable!(hand -> profile (profile));
-diesel::joinable!(hire -> agent (agent));
-diesel::joinable!(hire -> hamlet (hamlet));
-diesel::joinable!(hire -> profile (profile));
-diesel::joinable!(hire_tool_off -> hire (hire));
 diesel::joinable!(import -> agent (agent));
 diesel::joinable!(import -> chief (chief));
 diesel::joinable!(import -> conversation (conversation));
@@ -672,6 +672,8 @@ diesel::joinable!(worker -> hamlet (hamlet));
 
 diesel::allow_tables_to_appear_in_same_query!(
     agent,
+    agent_merge,
+    agent_tool_off,
     agreement,
     answer_fault,
     attempt,
@@ -684,12 +686,10 @@ diesel::allow_tables_to_appear_in_same_query!(
     document,
     dream,
     hamlet,
+    hamlet_agent,
     hamlet_chief,
     hamlet_folder,
     hand,
-    hire,
-    hire_merge,
-    hire_tool_off,
     import,
     input,
     item,

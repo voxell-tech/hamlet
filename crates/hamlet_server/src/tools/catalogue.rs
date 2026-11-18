@@ -21,9 +21,9 @@ pub(crate) enum Society {
     Object,
     RequestRoad,
     CreateProfile,
-    Hire,
-    EndHire,
-    MergeHires,
+    AddAgent,
+    EndAgent,
+    MergeAgents,
     SetModel,
     SetTools,
     SetAllowance,
@@ -46,8 +46,8 @@ pub(crate) enum Society {
 pub(crate) enum Offered {
     /// Every agent but a worker.
     Everyone,
-    /// Every hire: those under a parent.
-    Hires,
+    /// Every agent of a hamlet: those under a parent.
+    HamletAgents,
     /// Every parent over its own tree, and the Hand over all.
     Parents,
     /// A hamlet's lead, while there is another hamlet.
@@ -72,7 +72,7 @@ pub(crate) enum Reserve {
 /// An act a hamlet's limits may keep for its chief.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum Limit {
-    Hire,
+    Add,
     Roads,
     End,
     Merge,
@@ -82,7 +82,7 @@ impl Limit {
     /// True when `reserved` keeps it.
     pub fn is_kept(self, reserved: &Reserved) -> bool {
         match self {
-            Self::Hire => reserved.hire,
+            Self::Add => reserved.add,
             Self::Roads => reserved.roads,
             Self::End => reserved.end,
             Self::Merge => reserved.merge,
@@ -142,7 +142,9 @@ impl Facts {
 
 /// Every society tool, once.
 pub(crate) const FACTS: [Facts; 28] = {
-    use Offered::{Chats, Everyone, Hand, Hires, Leads, Parents};
+    use Offered::{
+        Chats, Everyone, HamletAgents, Hand, Leads, Parents,
+    };
     use Society as S;
     [
         facts(S::Tell, "tell", Everyone),
@@ -155,16 +157,16 @@ pub(crate) const FACTS: [Facts; 28] = {
         facts(S::AskChief, "ask_chief", Everyone),
         facts(S::ReadBudget, "read_budget", Everyone),
         facts(S::Object, "object", Chats),
-        facts(S::RequestRoad, "request_road", Hires)
+        facts(S::RequestRoad, "request_road", HamletAgents)
             .doing(Doing::Await),
         facts(S::CreateProfile, "create_profile", Parents)
             .doing(Doing::Think),
-        facts(S::Hire, "hire", Parents)
-            .reserved(Reserve::Limit(Limit::Hire))
+        facts(S::AddAgent, "add_agent", Parents)
+            .reserved(Reserve::Limit(Limit::Add))
             .doing(Doing::Think),
-        facts(S::EndHire, "end_hire", Parents)
+        facts(S::EndAgent, "end_agent", Parents)
             .reserved(Reserve::Limit(Limit::End)),
-        facts(S::MergeHires, "merge_hires", Parents)
+        facts(S::MergeAgents, "merge_agents", Parents)
             .reserved(Reserve::Limit(Limit::Merge)),
         facts(S::SetModel, "set_model", Parents),
         facts(S::SetTools, "set_tools", Parents),

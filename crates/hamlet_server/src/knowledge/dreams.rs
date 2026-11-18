@@ -1,6 +1,6 @@
 //! The repositories' side of a dream: a checkout of the profile's
-//! `main` the dream writes beside the hire's lodge, and at its end
-//! the profile's side committed to `main`, the hire's to its branch,
+//! `main` the dream writes beside the agent's lodge, and at its end
+//! the profile's side committed to `main`, the agent's to its branch,
 //! and the new `main` taken in.
 
 use std::path::PathBuf;
@@ -16,7 +16,7 @@ use super::{CHARACTER, branch, outside_git};
 use crate::realm::jobs::Job;
 use crate::realm::layout::Layout;
 use crate::society::dreams::{self, DreamKind, Outcome};
-use crate::society::{addresses, hires};
+use crate::society::{addresses, hamlet_agents};
 
 /// The checkout of the profile's `main` that dream `id` writes.
 pub(crate) fn checkout(layout: &Layout, id: DreamId) -> PathBuf {
@@ -27,8 +27,9 @@ pub(crate) fn checkout(layout: &Layout, id: DreamId) -> PathBuf {
         .join("main")
 }
 
-/// Readies dream `id`: the hire's lodge committed, and `main` checked
-/// out. `false` when a hire's branch holds nothing `main` lacks.
+/// Readies dream `id`: the agent's lodge committed, and `main`
+/// checked out. `false` when an agent's branch holds nothing `main`
+/// lacks.
 pub(crate) fn prepare(
     db: &mut Db,
     layout: &Layout,
@@ -38,9 +39,9 @@ pub(crate) fn prepare(
     let dream = dreams::get(db, id)?;
     let repo = Repository::open(&layout.repository(dream.profile))?;
     let main = repo.tip(MAIN)?.context("the profile has no main")?;
-    if let Some(hire) = dream.hire {
-        commit(db, layout, hire, at)?;
-        let Some(tip) = repo.tip(&branch(hire))? else {
+    if let Some(agent) = dream.agent {
+        commit(db, layout, agent, at)?;
+        let Some(tip) = repo.tip(&branch(agent))? else {
             return Ok(false);
         };
         if repo.merge_base(tip, main)? == Some(tip) {
@@ -59,8 +60,8 @@ pub(crate) fn prepare(
 }
 
 /// Ends dream `id`, once: what it left in its checkout becomes a
-/// commit on `main` and a hire's lodge a commit on its branch, which
-/// takes the new `main` in. `last` is how its turn ended.
+/// commit on `main` and an agent's lodge a commit on its branch,
+/// which takes the new `main` in. `last` is how its turn ended.
 pub(super) fn end(
     db: &mut Db,
     layout: &Layout,
@@ -89,10 +90,10 @@ pub(super) fn end(
         }
     }
     let author = format!("dream:{id}");
-    let message = match (dream.kind, dream.hire) {
-        (DreamKind::Hire, Some(hire)) => format!(
+    let message = match (dream.kind, dream.agent) {
+        (DreamKind::Agent, Some(agent)) => format!(
             "Dream of {}: {summary}",
-            addresses::name_of(db, hire)?
+            addresses::name_of(db, agent)?
         ),
         _ => format!("Dream: {summary}"),
     };
@@ -106,17 +107,17 @@ pub(super) fn end(
     )?;
     let main = after.filter(|tip| *tip != before);
     let mut branch_tip = None;
-    if let Some(hire) = dream.hire {
-        commit(db, layout, hire, at)?;
-        if hires::find(db, hire)?.is_some() {
-            super::run::run(db, layout, &Job::TakeIn { hire }, at)?;
+    if let Some(agent) = dream.agent {
+        commit(db, layout, agent, at)?;
+        if hamlet_agents::find(db, agent)?.is_some() {
+            super::run::run(db, layout, &Job::TakeIn { agent }, at)?;
         }
-        branch_tip = repo.tip(&branch(hire))?;
+        branch_tip = repo.tip(&branch(agent))?;
     }
     if main.is_some() {
-        for other in hires::living_of(db, dream.profile)? {
-            if Some(other.agent) != dream.hire {
-                let job = Job::TakeIn { hire: other.agent };
+        for other in hamlet_agents::living_of(db, dream.profile)? {
+            if Some(other.agent) != dream.agent {
+                let job = Job::TakeIn { agent: other.agent };
                 hamlet_store::job::add(
                     db,
                     job.kind(),

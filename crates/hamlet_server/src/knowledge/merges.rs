@@ -1,4 +1,4 @@
-//! The repositories' side of merging two hires and splitting them
+//! The repositories' side of merging two agents and splitting them
 //! again (H5).
 
 use std::collections::BTreeMap;
@@ -20,8 +20,8 @@ use crate::society::{addresses, merges};
 /// as `moved:<from>..<to>`.
 const MOVED: &str = "moved:";
 
-/// Brings what the absorbed hire of merge `id` learned into the kept
-/// hire's branch and lodge, once.
+/// Brings what the absorbed agent of merge `id` learned into the kept
+/// agent's branch and lodge, once.
 pub(super) fn merge(
     db: &mut Db,
     layout: &Layout,
@@ -37,7 +37,7 @@ pub(super) fn merge(
     let kept = lodging(db, layout, found.kept)?;
     let absorbed = lodging(db, layout, found.absorbed)?;
     // What it took in is put aside under a name a path can hold.
-    let from = format!("hire-{}", found.absorbed);
+    let from = format!("agent-{}", found.absorbed);
     let name = Actor::Realm.to_string();
     let author = Author { name: &name, at };
     let message = format!(
@@ -49,7 +49,7 @@ pub(super) fn merge(
     let kept_branch = branch(found.kept);
     let ours = repo
         .tip(&kept_branch)?
-        .context("the kept hire has no branch")?;
+        .context("the kept agent has no branch")?;
     let (mark, tip, clashes) = if kept.profile == absorbed.profile {
         match repo.tip(&branch(found.absorbed))? {
             Some(theirs) => {
@@ -88,7 +88,7 @@ pub(super) fn merge(
     move_inbox(&absorbed.path, &kept.path, &from)
 }
 
-/// The changes that bring what the hire on `theirs_branch` of
+/// The changes that bring what the agent on `theirs_branch` of
 /// `theirs` learned since it last took in its profile's `main` onto
 /// the kept tip `ours` of `repo`, and the paths that clashed. A file
 /// both changed is put aside as `<name>.from-<from>`, a skill as
@@ -185,8 +185,8 @@ fn move_inbox(
     Ok(())
 }
 
-/// Undoes merge `id` on the kept hire's branch, once, keeping what
-/// the kept hire changed since.
+/// Undoes merge `id` on the kept agent's branch, once, keeping what
+/// the kept agent changed since.
 pub(super) fn split(
     db: &mut Db,
     layout: &Layout,
@@ -250,7 +250,7 @@ fn undo_range(
     author: Author<'_>,
 ) -> Result<CommitId> {
     let tip =
-        repo.tip(branch)?.context("the kept hire has no branch")?;
+        repo.tip(branch)?.context("the kept agent has no branch")?;
     let now = repo
         .entries(tip)?
         .into_iter()

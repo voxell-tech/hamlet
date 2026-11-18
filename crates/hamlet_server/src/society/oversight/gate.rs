@@ -191,7 +191,8 @@ fn cut(text: &str) -> String {
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum Caller {
     Hand,
-    Hire,
+    /// An agent of a hamlet.
+    Hamlet,
     Worker,
 }
 
@@ -274,7 +275,7 @@ fn is_reserved(
     };
     match (caller, tool.facts().reserve) {
         (Caller::Hand, Reserve::Hand) => true,
-        (Caller::Hire, Reserve::Limit(limit)) => {
+        (Caller::Hamlet, Reserve::Limit(limit)) => {
             limit.is_kept(reserved)
         }
         _ => false,

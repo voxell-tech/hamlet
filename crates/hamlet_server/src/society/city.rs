@@ -13,7 +13,9 @@ use diesel::sql_types::Text;
 use hamlet_protocol::client::{Choice, HouseAt, Newcomers};
 use hamlet_store::Db;
 use hamlet_store::ids::{Actor, AgentId, ChiefId, ProfileId};
-use hamlet_store::schema::{agent, hamlet, hire, profile, wait};
+use hamlet_store::schema::{
+    agent, hamlet, hamlet_agent, profile, wait,
+};
 use serde::{Deserialize, Serialize};
 use serde_json::json;
 use strum::{Display, EnumString, IntoStaticStr};
@@ -24,7 +26,7 @@ use super::names::check_name;
 use super::oversight::{self, Raise, Ruling, WaitKind};
 use super::record::{self, Decision, DecisionKind};
 use super::refusal::Refusal;
-use super::{hand, hires};
+use super::{hamlet_agents, hand};
 use crate::realm::change::{Change, Done, done, refuse};
 use crate::realm::jobs::{self, Fork, Job};
 
@@ -57,7 +59,7 @@ pub(crate) const APART: f64 = HouseAt::APART;
 #[diesel(sql_type = Text)]
 pub(crate) enum ProfileKind {
     Profile,
-    /// The Hand's own knowledge, never hired or listed.
+    /// The Hand's own knowledge, never given an agent or listed.
     Hand,
 }
 hamlet_store::named_text!(ProfileKind);
@@ -89,7 +91,7 @@ pub(crate) enum Arrival {
     /// It was turned away, and waits at the harbor until a chief
     /// lets it in.
     Turned,
-    /// It is a blank hire's alone, and never of the city.
+    /// It is a blank agent's alone, and never of the city.
     Apart,
 }
 hamlet_store::named_text!(Arrival);
@@ -134,8 +136,9 @@ impl Profile {
             .then(|| Refusal::ProfileGone { name: self.label() })
     }
 
-    /// The refusal of a call that would hire, house or send to the
-    /// harbor a blank hire's profile, which is never of the city.
+    /// The refusal of a call that would add an agent of, house or
+    /// send to the harbor a blank agent's profile, which is never of
+    /// the city.
     pub fn apart(&self) -> Option<Refusal> {
         (self.arrival == Arrival::Apart)
             .then(|| Refusal::Apart { name: self.label() })
@@ -193,7 +196,7 @@ pub(crate) fn make(
     Ok(Ok(id))
 }
 
-/// Makes the profile of a blank hire, named `name`, for `chief`: one
+/// Makes the profile of a blank agent, named `name`, for `chief`: one
 /// apart from the city, with no house, that never waits at the
 /// harbor and is not listed with the city's profiles.
 pub(crate) fn make_apart(
@@ -512,8 +515,8 @@ pub(crate) fn rename(
             .detail(json!({ "name": name })),
     )?;
     cx.touched.profiles.insert(id);
-    for hire in hires::living_of(cx.db, id)? {
-        cx.touched.agents.insert(hire.agent);
+    for agent in hamlet_agents::living_of(cx.db, id)? {
+        cx.touched.agents.insert(agent.agent);
     }
     Ok(Ok(()))
 }
@@ -577,8 +580,8 @@ pub(crate) fn place(
     Ok(Ok(()))
 }
 
-/// Archives the profile `id`, ending its living hires first. Refused
-/// while one of its hires holds a hamlet's office.
+/// Archives the profile `id`, ending its living agents first. Refused
+/// while one of its agents holds a hamlet's office.
 pub(crate) fn archive(
     cx: &mut Change<'_>,
     id: ProfileId,
@@ -588,8 +591,13 @@ pub(crate) fn archive(
     if let Some(refusal) = profile.gone() {
         refuse!(refusal);
     }
-    for hire in hires::living_of(cx.db, id)? {
-        done!(hires::end(cx, hire.agent, EndHow::Profile, reason));
+    for agent in hamlet_agents::living_of(cx.db, id)? {
+        done!(hamlet_agents::end(
+            cx,
+            agent.agent,
+            EndHow::Profile,
+            reason
+        ));
     }
     diesel::update(profile::table.find(id))
         .set((
@@ -607,7 +615,7 @@ pub(crate) fn archive(
     Ok(Ok(()))
 }
 
-/// Brings back the archived profile `id`, with the hires its
+/// Brings back the archived profile `id`, with the agents its
 /// archiving ended in hamlets that still live.
 pub(crate) fn restore(
     cx: &mut Change<'_>,
@@ -632,18 +640,18 @@ pub(crate) fn restore(
             profile::left_reason.eq(None::<String>),
         ))
         .execute(cx.db)?;
-    let ended_with = hire::table
+    let ended_with = hamlet_agent::table
         .inner_join(agent::table)
         .inner_join(hamlet::table)
-        .filter(hire::profile.eq(id))
+        .filter(hamlet_agent::profile.eq(id))
         .filter(agent::ended_how.eq(EndHow::Profile))
         .filter(agent::erased.eq(false))
         .filter(hamlet::removed_at.is_null())
-        .order(hire::agent)
-        .select(hire::agent)
+        .order(hamlet_agent::agent)
+        .select(hamlet_agent::agent)
         .load(cx.db)?;
-    for hire in ended_with {
-        done!(hires::come_back(cx, hire, reason));
+    for agent in ended_with {
+        done!(hamlet_agents::come_back(cx, agent, reason));
     }
     record::keep(
         cx,
@@ -654,7 +662,7 @@ pub(crate) fn restore(
     Ok(Ok(()))
 }
 
-/// Erases the archived profile `id` for good, with every hire of it.
+/// Erases the archived profile `id` for good, with every agent of it.
 pub(crate) fn erase(cx: &mut Change<'_>, id: ProfileId) -> Done<()> {
     let profile = get(cx.db, id)?;
     if profile.erased {
@@ -667,14 +675,14 @@ pub(crate) fn erase(cx: &mut Change<'_>, id: ProfileId) -> Done<()> {
             name: profile.label()
         });
     }
-    let kept = hire::table
+    let kept = hamlet_agent::table
         .inner_join(agent::table)
-        .filter(hire::profile.eq(id))
+        .filter(hamlet_agent::profile.eq(id))
         .filter(agent::erased.eq(false))
-        .select(hire::agent)
+        .select(hamlet_agent::agent)
         .load(cx.db)?;
-    for hire in kept {
-        done!(hires::erase(cx, hire));
+    for agent in kept {
+        done!(hamlet_agents::erase(cx, agent));
     }
     diesel::update(profile::table.find(id))
         .set(profile::erased.eq(true))

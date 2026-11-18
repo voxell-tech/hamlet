@@ -161,27 +161,27 @@ impl Session {
         found.lead
     }
 
-    /// Has `parent` hire the profile called `profile`, made if the
-    /// city has none, and gives the new hire's id.
-    pub async fn hire(
+    /// Has `parent` add an agent of the profile called `profile`,
+    /// made if the city has none, and gives the new agent's id.
+    pub async fn add_agent(
         &mut self,
         parent: AgentId,
         profile: &str,
         purpose: &str,
     ) -> AgentId {
-        self.hired(parent, profile, "", purpose).await
+        self.added(parent, profile, "", purpose).await
     }
 
-    /// Has `parent` hire the profile called `profile` under the agent
-    /// at `under`, and gives the new hire's id.
-    pub async fn hire_under(
+    /// Has `parent` add an agent of the profile called `profile`
+    /// under the agent at `under`, and gives the new agent's id.
+    pub async fn add_agent_under(
         &mut self,
         parent: AgentId,
         profile: &str,
         under: &str,
         purpose: &str,
     ) -> AgentId {
-        self.hired(
+        self.added(
             parent,
             profile,
             &format!("under {under} "),
@@ -190,7 +190,7 @@ impl Session {
         .await
     }
 
-    async fn hired(
+    async fn added(
         &mut self,
         parent: AgentId,
         profile: &str,
@@ -205,7 +205,7 @@ impl Session {
             .into_iter()
             .find(|a| a.id == parent)
             .and_then(|a| a.hamlet);
-        let hires = move |c: &Client| {
+        let agents = move |c: &Client| {
             c.realm()
                 .agents
                 .into_iter()
@@ -216,23 +216,23 @@ impl Session {
                 })
                 .collect::<Vec<_>>()
         };
-        let before = hires(&self.chief).len();
+        let before = agents(&self.chief).len();
         self.chief
             .command(
                 parent,
                 &format!(
-                    "/hire profile#{} {under}{purpose}",
+                    "/add-agent profile#{} {under}{purpose}",
                     profile.0
                 ),
             )
             .await;
         self.chief
-            .until("the new hire", |c| hires(c).len() > before)
+            .until("the new agent", |c| agents(c).len() > before)
             .await;
-        hires(&self.chief)
+        agents(&self.chief)
             .into_iter()
             .max_by_key(|a| a.id)
-            .expect("the hire came")
+            .expect("the agent came")
             .id
     }
 }

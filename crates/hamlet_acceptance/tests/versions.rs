@@ -1,4 +1,4 @@
-//! A profile's history: versions named and listed, a hire pinned, a
+//! A profile's history: versions named and listed, an agent pinned, a
 //! commit reverted, a profile forked, and a file purged.
 
 use hamlet_acceptance::*;
@@ -18,7 +18,7 @@ async fn character(s: &mut Session, profile: ProfileId, text: &str) {
     assert_eq!(reply.kind, ReplyKind::Notice, "{}", reply.text);
 }
 
-/// Waits until the hire `agent` holds `text` as its character.
+/// Waits until `agent` holds `text` as its character.
 async fn wait_for_character(
     s: &mut Session,
     agent: AgentId,
@@ -31,7 +31,7 @@ async fn wait_for_character(
         }
     })
     .await
-    .expect("the hire takes the character in");
+    .expect("the agent takes the character in");
 }
 
 #[tokio::test]
@@ -71,14 +71,14 @@ async fn names_pins_reverts_and_forks_versions() {
     }
 
     wait_for_character(&mut s, docs, "Brave.").await;
-    // A pinned hire takes no later learning, until it follows main
+    // A pinned agent takes no later learning, until it follows main
     // again.
-    let said = s.chief.command(hand, "/pin hire#2 v1 steady").await;
+    let said = s.chief.command(hand, "/pin agent#2 v1 steady").await;
     assert_eq!(
         said,
-        "hire#2 (ada) takes v1 in once idle, and no later learning."
+        "agent#2 (ada) takes v1 in once idle, and no later learning."
     );
-    s.chief.refused(hand, "/pin hire#2 v9").await;
+    s.chief.refused(hand, "/pin agent#2 v9").await;
     character(&mut s, ada, "Careful.").await;
     assert_eq!(
         s.chief.papers(Keeper::Profile(ada)).await.character,
@@ -89,8 +89,8 @@ async fn names_pins_reverts_and_forks_versions() {
     assert!(prompt.contains("Brave."), "{prompt}");
     assert!(!prompt.contains("Careful."), "{prompt}");
     assert_eq!(
-        s.chief.command(hand, "/pin hire#2 main").await,
-        "hire#2 (ada) follows its profile's main again."
+        s.chief.command(hand, "/pin agent#2 main").await,
+        "agent#2 (ada) follows its profile's main again."
     );
     wait_for_character(&mut s, docs, "Careful.").await;
 

@@ -1,8 +1,8 @@
 //! The society: chiefs, the Hand, the city's profiles, hamlets with
-//! their trees of hires, workers, roads, and the record of decisions.
-//! It also holds what the realm spends (H8) and the oversight of
-//! agents by chiefs: what waits for a chief, and the gate that
-//! decides a call.
+//! their trees of agents, workers, roads, and the record of
+//! decisions. It also holds what the realm spends (H8) and the
+//! oversight of agents by chiefs: what waits for a chief, and the
+//! gate that decides a call.
 
 pub(crate) mod addresses;
 pub(crate) mod agents;
@@ -10,9 +10,9 @@ pub(crate) mod authority;
 pub(crate) mod chiefs;
 pub(crate) mod city;
 pub(crate) mod dreams;
+pub(crate) mod hamlet_agents;
 pub(crate) mod hamlets;
 pub(crate) mod hand;
-pub(crate) mod hires;
 pub(crate) mod library;
 pub(crate) mod limits;
 pub(crate) mod merges;

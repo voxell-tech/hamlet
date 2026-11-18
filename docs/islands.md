@@ -3,7 +3,7 @@
 The world is two islands with open water between them. The **city island**
 holds the Hand's tower, the Library, the Hearth and a house for each
 profile. The **hamlet island** holds the hamlets, each drawn as a group of
-its hires' houses joined by roads. A pier on each island faces the other,
+its agents' houses joined by roads. A pier on each island faces the other,
 with a boat moored at it and a dashed sea route between the two. The code is
 `hamlet_realm/src/generator/`, `hamlet_realm/src/city/` and
 `hamlet_realm/src/harbor.rs`. The generator names what it draws a hamlet
@@ -98,7 +98,7 @@ until a chief, or the Hand, lets it in, and then walks to its house.
 
 Each pier stands where its island's coast faces the other island
 (`Land::coast_toward_other`). The boats ride the swell on the processor
-(`harbor::bob`), so whoever stands in one rides with it. A new hire walks
+(`harbor::bob`), so whoever stands in one rides with it. A new agent walks
 from its profile's house to the city pier, crosses by boat and walks to
 its house in its hamlet. The HARBOR control glides the camera to the other
 pier.

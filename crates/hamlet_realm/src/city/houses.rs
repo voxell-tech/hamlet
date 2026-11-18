@@ -1,6 +1,6 @@
 //! The houses of the profiles in the city: one for each profile that
 //! has a spot, with its name over it, a glowing window for each of
-//! its hires that lives, and its windows shuttered once the profile
+//! its agents that lives, and its windows shuttered once the profile
 //! has left.
 
 use bevy::light::NotShadowCaster;
@@ -46,12 +46,15 @@ impl Home {
     }
 }
 
-/// The windows to glow for `hires`, those of them that live.
+/// The windows to glow for `agents`, those of them that live.
 fn glowing(
-    hires: &[hamlet_protocol::client::AgentId],
+    agents: &[hamlet_protocol::client::AgentId],
     living: &[u64],
 ) -> usize {
-    hires.iter().filter(|hire| living.contains(&hire.0)).count()
+    agents
+        .iter()
+        .filter(|agent| living.contains(&agent.0))
+        .count()
 }
 
 /// The house every profile with a spot has now.
@@ -73,7 +76,7 @@ pub(super) fn wanted(
                 glowing: if shut {
                     0
                 } else {
-                    glowing(&profile.0.hires, living)
+                    glowing(&profile.0.agents, living)
                 },
                 shut,
             })

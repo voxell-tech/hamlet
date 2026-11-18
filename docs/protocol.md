@@ -58,7 +58,7 @@ are in
 
 | Schema | Shape and meaning |
 |---|---|
-| `AgentId` | An integer naming one agent of the realm (the Hand, a hire or a worker), stable for as long as the agent exists. The server resolves typed addresses (`hand`, `lead@<hamlet>`, `hire#<id>`, `worker#<id>`) in chief commands; messages carry ids. |
+| `AgentId` | An integer naming one agent of the realm (the Hand, an agent of a hamlet or a worker), stable for as long as the agent exists. The server resolves typed addresses (`hand`, `lead@<hamlet>`, `agent#<id>`, `worker#<id>`) in chief commands; messages carry ids. |
 | `ProfileId` | An integer naming one profile of the city. Commands address a profile as `profile#<id>`; its name is a label that may change and repeat. |
 | `Keeper` | `{profile: ProfileId}` or `{agent: AgentId}`: whose knowledge a document is of, a profile's `main` or an agent's lodge. |
 | `ChatRef` | `{with: AgentId, past?: integer, from?: AgentId, kind?: "letters" \| "questions"}`. |
@@ -126,7 +126,7 @@ and watch failures can answer with `fault` (see [Errors](#errors)).
 | `rewind` (`Rewind`) | `chat: ChatRef`, `item: string` | Take back a chief input and what followed. `reply` with kind `rewound` returns its words; watchers get a reset and replacement transcript. Refused while work is running or queued. |
 | `new` (`New`) | `to: AgentId` | Start a new numbered chief conversation; the previous queue can finish. `reply`. |
 | `resume` (`Resume`) | `to: AgentId`, `number: integer` | Make that saved chief conversation current; `reply`. |
-| `import-project` (`ImportProject`) | `name: string`, `folder?: string`, `files: FileId[]` | Bring in a project of another program: a hamlet named `name` working on `folder`, founded unless one of the chief's already works on that folder, with a hire under its lead for each conversation. Each file is an `Imported` in JSON of at most 16 MiB, at most 50 of them and 128 MiB together, sent before with `put-file`, and becomes the first session of its hire's chat. A conversation the chief brought in before is left out, as is one the hamlet's tier has no room for. `reply` says what was made. |
+| `import-project` (`ImportProject`) | `name: string`, `folder?: string`, `files: FileId[]` | Bring in a project of another program: a hamlet named `name` working on `folder`, founded unless one of the chief's already works on that folder, with an agent under its lead for each conversation. Each file is an `Imported` in JSON of at most 16 MiB, at most 50 of them and 128 MiB together, sent before with `put-file`, and becomes the first session of its agent's chat. A conversation the chief brought in before is left out, as is one the hamlet's tier has no room for. `reply` says what was made. |
 | `retry` (`Retry`) | `to: AgentId` | Ask the agent to carry on; `reply`. |
 | `edit` (`Edit`) | `doc` and fields below | Edit a chief-owned document or model setting; `reply`. |
 | `open` (`Open`) | `chat: ChatRef`, `before?: string` | Watch and fetch a page; `transcript` with `to`, or `fault`. |
@@ -135,7 +135,7 @@ and watch failures can answer with `fault` (see [Errors](#errors)).
 | `check` (`Check`) | `what: "model"`, `model?: string` | Check that model, or the selected model; `reply`. |
 | `check` (`Check`) | `what: "connection"` | Check the configured model connection; `reply`. Connection state also changes through `change`. |
 | `read` (`Read`) | `what` and fields below | Fetch one document or list; `read` with `to`, or failure `reply`. |
-| `move-lodges` (`MoveLodges`) | none | Copy every hire's lodge from the workspace the server works in to the one chosen in Settings, replacing the lodges there; `reply` once done. Progress also changes through `change`. |
+| `move-lodges` (`MoveLodges`) | none | Copy every agent's lodge from the workspace the server works in to the one chosen in Settings, replacing the lodges there; `reply` once done. Progress also changes through `change`. |
 
 | `terminal` (`Terminal`) | `op` and fields below | Open, type into, resize, watch, rename or close a terminal. |
 
@@ -187,10 +187,10 @@ Each row is an `Edit` form with `type: "edit"` and `id`.
 |---|---|---|
 | `charter` | `text: string \| null` | Replace the charter; `null` restores the built-in charter. |
 | `character` | `profile: ProfileId`, `text: string` | Replace the profile's character, as a commit on its `main`. |
-| `memory` | `of: Keeper`, `path: string`, `text: string` | Replace a memory file of a profile's `main` or a hire's lodge, by its path under `memory/`; empty text removes it. |
+| `memory` | `of: Keeper`, `path: string`, `text: string` | Replace a memory file of a profile's `main` or an agent's lodge, by its path under `memory/`; empty text removes it. |
 | `limits` | `hamlet?: string`, `reason?: string`, `set: {section: string, key: string, value: unknown}` | Change one limit. The server checks the value. |
 | `limits` | `hamlet?: string`, `reason?: string`, `whole: object` | Replace the limits document, with defaults for omitted entries. |
-| `settings` | `set: {model?: string, reflectEvery?: integer, allowNet?: boolean, effort?: "off" \| "minimal" \| "low" \| "medium" \| "high" \| "xhigh" \| "max" \| null, newcomers?: "open" \| "chief" \| "hand", character?: string, endpoints?: Endpoint[], workspace?: {url: string, token: string} \| null}` | Change only the supplied settings. `effort` is how hard models think by default, the model's own for `null`; an agent's own effort, set with `/effort`, overrides it. `newcomers` says who lets a profile an agent made into the city: nobody needs to (`open`), a chief (`chief`, the default) or the Hand (`hand`). `character` is what a blank agent an agent hires starts from, at most 4000 characters. `workspace` chooses a remote workspace, or the local one for `null`; the server keeps it with its credentials and works in it from its next start. |
+| `settings` | `set: {model?: string, reflectEvery?: integer, allowNet?: boolean, effort?: "off" \| "minimal" \| "low" \| "medium" \| "high" \| "xhigh" \| "max" \| null, newcomers?: "open" \| "chief" \| "hand", character?: string, endpoints?: Endpoint[], workspace?: {url: string, token: string} \| null}` | Change only the supplied settings. `effort` is how hard models think by default, the model's own for `null`; an agent's own effort, set with `/effort`, overrides it. `newcomers` says who lets a profile an agent made into the city: nobody needs to (`open`), a chief (`chief`, the default) or the Hand (`hand`). `character` is what a blank agent an agent adds starts from, at most 4000 characters. `workspace` chooses a remote workspace, or the local one for `null`; the server keeps it with its credentials and works in it from its next start. |
 | `catalogue` | `model: string`, `set: {images?: ImageInput \| null, price?: Price \| null, note?: string}` | Change a catalogue entry; `price: null` clears its price override. `images` says the model takes images within those limits (`maxWidth?`, `maxHeight?`, `maxBytes?`, `perLine?`, none of them zero, the rest at their defaults); `images: null` clears it back to what the model's provider lists. |
 
 ### Read documents
@@ -203,7 +203,7 @@ Each row is a `Read` form with `type: "read"` and `id`.
 | `history` | `agent: AgentId` | `history: Past[]`: numbered chief conversations, with current flag, title, author, times, message and token counts. |
 | `models` | `refresh?: boolean` | `models: Listed[]`: name, `title` (what its provider calls it; empty when it gives no name), price, price source, context size, note, `efforts` (the efforts the model can be asked for, weakest first), `defaultEffort` (`null` while unknown), `fast` (whether its provider has a fast tier) and `images?` (what it takes of images: `maxWidth?`, `maxHeight?`, `maxBytes?` and `perLine?`; absent when it takes none). `refresh` refreshes discovery. |
 | `image` | `image: ImageId`, `size?: "original" \| "thumbnail"` | `image: {mime: string, data: string}`: the image's bytes in base64, as they were sent for `original` (the default), or a small copy for `thumbnail`. A refusal replies when the realm keeps no such image. |
-| `papers` | `of: Keeper`, `full?: boolean` | `papers: Papers`: character, memory files (`path`, `description`, `text`), the paths a hire's lodge `learned` against its profile, and skill names/descriptions. By default, character and memory texts are trimmed and cut to 6000 Unicode code points each; `full: true` returns them uncut. |
+| `papers` | `of: Keeper`, `full?: boolean` | `papers: Papers`: character, memory files (`path`, `description`, `text`), the paths an agent's lodge `learned` against its profile, and skill names/descriptions. By default, character and memory texts are trimmed and cut to 6000 Unicode code points each; `full: true` returns them uncut. |
 | `charter` | None | `charter: {text: string, own: boolean}`: text and whether the chief supplied it. |
 
 ### Login steps
@@ -252,8 +252,8 @@ the machine. It is discriminated by `kind`: `sandbox` with the sandbox's
 full reach and no enforced network switch, or `remote` when the workspace
 is another machine.
 
-`Agent` is a summary: `id`, `kind` (`hand`, `hire` or `worker`), `hamlet`, `profile`, `parent`, a hire's `pin` (the version of its profile it is held at, `null` while it follows `main`), the address, which is its `name` (`hand`, `hire#<id>`, `worker#<id>`), a hire's or a worker's `nickname` (`null` while a hire goes by its profile's name and a worker by its address), `purpose`, `model` (the one it runs now), `ownModel` (the one chosen for it, `null` while it follows its hamlet's or the realm's), `effort` (its own, `null` while it follows the realm's), `fast` (whether it asks for the provider's fast tier), `lead`, `busy` and
-`faulted` flags, `activity`, `saying`, `spent`, `since`, `skills`, a hire's `allowance` (dollars a budget period, left out while it has none), a hire's `toolsOff` (the built-in tools turned off for it, left out while none are), `consulting` and
+`Agent` is a summary: `id`, `kind` (`hand`, `hamlet` for an agent of a hamlet, or `worker`), `hamlet`, `profile`, `parent`, an agent's `pin` (the version of its profile it is held at, `null` while it follows `main`), the address, which is its `name` (`hand`, `agent#<id>`, `worker#<id>`), an agent's or a worker's `nickname` (`null` while an agent goes by its profile's name and a worker by its address), `purpose`, `model` (the one it runs now), `ownModel` (the one chosen for it, `null` while it follows its hamlet's or the realm's), `effort` (its own, `null` while it follows the realm's), `fast` (whether it asks for the provider's fast tier), `lead`, `busy` and
+`faulted` flags, `activity`, `saying`, `spent`, `since`, `skills`, an agent's `allowance` (dollars a budget period, left out while it has none), an agent's `toolsOff` (the built-in tools turned off for it, left out while none are), `consulting` and
 `conversations` (the peer conversations it holds), and `left?` once it has left. It contains no
 transcript. `Hamlet`, `Wait`, `Grant`, `SettingsView` and `ProviderView`
 are the complete views defined in `hamlet_protocol`. `SettingsView.workspace`
@@ -369,10 +369,10 @@ Every state and change carries the society and realm in full:
   peer conversations. `Agent.left` describes a departure, and only an agent
   that left has one.
 - `Hamlet.roads` carry road ends by `AgentId`, their kind and traffic.
-  `Hamlet.lead` is the hire at the root of its tree. `Hamlet.at` is the hamlet's position, or `null`
+  `Hamlet.lead` is the agent at the root of its tree. `Hamlet.at` is the hamlet's position, or `null`
   for a hamlet never set down, which stands on the first free site.
 - `Profile.arrival` is `housed`, `waiting` at the harbor, `turned`
-  away, or `apart`: a blank hire's own, which is not of the city and has
+  away, or `apart`: a blank agent's own, which is not of the city and has
   no house. `Profile.arrivalBy` names who last changed it, a chief or
   `hand`, and is `null` while it is as it was made. `Profile.house` is a housed profile's spot from the city's
   middle, `{x, z, turn}`, its door facing `turn` radians about the

@@ -172,7 +172,7 @@ pub(crate) fn send(
     diesel::update(message::table.find(id))
         .set(message::input.eq(&request))
         .execute(cx.db)?;
-    crate::society::hires::take_purpose(
+    crate::society::hamlet_agents::take_purpose(
         cx,
         send.receiver,
         send.text,

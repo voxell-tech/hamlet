@@ -12,7 +12,8 @@ use bevy::ecs::system::{Query, Res, SystemParam};
 use bevy::math::Vec3;
 use hamlet_client::chats::{Entry, Transcript};
 use hamlet_client::realm::{
-    Hire, Identity, Kind as AgentKind, Lead, LivesIn, Purpose, Shown,
+    HamletAgent, Identity, Kind as AgentKind, Lead, LivesIn, Purpose,
+    Shown,
 };
 use hamlet_protocol::client as protocol;
 use hamlet_realm::chief::{Chief, Look};
@@ -115,7 +116,7 @@ pub struct People<'w, 's> {
         's,
         (),
         (
-            With<Hire>,
+            With<HamletAgent>,
             Or<(
                 Changed<Name>,
                 Changed<Shown>,
@@ -143,13 +144,13 @@ impl People<'_, '_> {
             self.agents.get(agent).ok()?;
         let hand = kind
             .is_some_and(|kind| kind.0 == protocol::AgentKind::Hand);
-        // A hire not yet housed is drawn by its id.
-        let hire = id.filter(|_| {
+        // An agent of a hamlet not yet housed is drawn by its id.
+        let unhoused = id.filter(|_| {
             kind.is_some_and(|kind| {
-                kind.0 == protocol::AgentKind::Hire
+                kind.0 == protocol::AgentKind::Hamlet
             })
         });
-        let look = match (lead || hand, housed, hire) {
+        let look = match (lead || hand, housed, unhoused) {
             (true, ..) => keeper::Who::lead(),
             (_, Some(housed), _) => {
                 keeper::Who::agent(housed.0.0 * 7 + 3)

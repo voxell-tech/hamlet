@@ -9,7 +9,7 @@ use hamlet_store::ids::{
 use hamlet_store::schema::hamlet_chief;
 
 use super::agents::{self, AgentKind};
-use super::{chiefs, city, hamlets, hires, tree, workers};
+use super::{chiefs, city, hamlet_agents, hamlets, tree, workers};
 
 /// Whether `chief` is a chief of `hamlet` (C7).
 pub(crate) fn is_chief_of(
@@ -34,16 +34,16 @@ pub(crate) fn is_hand(db: &mut Db, actor: Actor) -> Result<bool> {
     })
 }
 
-/// Whether `actor` may direct the hire `id`: a chief of its hamlet,
-/// the Hand, or a hire above it in its tree.
+/// Whether `actor` may direct the agent `id` of a hamlet: a chief of
+/// its hamlet, the Hand, or an agent above it in its tree.
 pub(crate) fn may_direct(
     db: &mut Db,
     actor: Actor,
     id: AgentId,
 ) -> Result<bool> {
-    let hire = hires::get(db, id)?;
+    let hamlet = hamlet_agents::get(db, id)?.hamlet;
     Ok(match actor {
-        Actor::Chief(chief) => is_chief_of(db, chief, &hire.hamlet)?,
+        Actor::Chief(chief) => is_chief_of(db, chief, &hamlet)?,
         Actor::Agent(agent) => {
             is_hand(db, actor)? || tree::is_above(db, agent, id)?
         }
@@ -52,16 +52,16 @@ pub(crate) fn may_direct(
 }
 
 /// Whether `actor` may choose the model, effort and fast tier of the
-/// agent `id`: whoever may direct a hire; a chief for the Hand; for a
-/// worker, its starter, a chief of its hamlet, or the chief who
-/// started it, any chief when it belongs to none.
+/// agent `id`: whoever may direct it in a hamlet; a chief for the
+/// Hand; for a worker, its starter, a chief of its hamlet, or the
+/// chief who started it, any chief when it belongs to none.
 pub(crate) fn may_steer(
     db: &mut Db,
     actor: Actor,
     id: AgentId,
 ) -> Result<bool> {
     Ok(match agents::get(db, id)?.kind {
-        AgentKind::Hire => may_direct(db, actor, id)?,
+        AgentKind::Hamlet => may_direct(db, actor, id)?,
         AgentKind::Hand => {
             matches!(actor, Actor::Chief(_) | Actor::Realm)
         }
@@ -99,10 +99,10 @@ pub(crate) fn may_keep(
     })
 }
 
-/// Whether `actor` may hire the profile `id` into `hamlet`: a chief
-/// its own profile into its own hamlet, the Hand any, and a parent
-/// any profile of its hamlet's chiefs.
-pub(crate) fn may_hire(
+/// Whether `actor` may add an agent of the profile `id` to `hamlet`:
+/// a chief of its own profile to its own hamlet, the Hand of any, and
+/// a parent of any profile of its hamlet's chiefs.
+pub(crate) fn may_add(
     db: &mut Db,
     actor: Actor,
     id: ProfileId,

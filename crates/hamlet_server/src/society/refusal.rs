@@ -28,9 +28,9 @@ pub(crate) enum Refusal {
     HamletLiving { id: String },
     #[error("the hamlet `{id}` was erased")]
     HamletErased { id: String },
-    #[error("the hamlet `{id}` holds its most hires, {most}")]
+    #[error("the hamlet `{id}` holds its most agents, {most}")]
     HamletFull { id: String, most: i64 },
-    #[error("a hamlet's tier is 50, 100, 200 or 500 hires")]
+    #[error("a hamlet's tier is 50, 100, 200 or 500 agents")]
     BadTier,
     #[error("no profile has the address `{address}`")]
     NoProfile { address: String },
@@ -43,7 +43,7 @@ pub(crate) enum Refusal {
     #[error("the profile `{name}` was erased")]
     ProfileErased { name: String },
     #[error(
-        "`{name}` is a blank hire's own, not a profile of the city"
+        "`{name}` is a blank agent's own, not a profile of the city"
     )]
     Apart { name: String },
     #[error("the profile `{name}` lives in the city already")]
@@ -60,8 +60,8 @@ pub(crate) enum Refusal {
          city's middle"
     )]
     Crowded { name: String },
-    #[error("`{name}` still has hires that may come back: {hires}")]
-    ProfileHasHires { name: String, hires: String },
+    #[error("`{name}` still has agents that may come back: {agents}")]
+    ProfileHasAgents { name: String, agents: String },
     #[error("`{name}` has no version `{version}`")]
     NoVersion { name: String, version: String },
     #[error(
@@ -105,11 +105,11 @@ pub(crate) enum Refusal {
     OtherHamlet { name: String },
     #[error("no agent has the address `{address}`")]
     NoOne { address: String },
-    #[error("`{name}` is not a hire")]
-    NotHire { name: String },
+    #[error("`{name}` is not an agent of a hamlet")]
+    NotHamletAgent { name: String },
     #[error("`{address}` is not an address")]
     BadAddress { address: String },
-    #[error("a road needs two different hires")]
+    #[error("a road needs two different agents")]
     SameEnds,
     #[error("`{a}` and `{b}` already have a road")]
     RoadExists { a: String, b: String },
@@ -134,10 +134,10 @@ pub(crate) enum Refusal {
     )]
     ChiefChose { name: String },
     #[error(
-        "the hamlet `{id}` holds {count} hires, more than {tier}"
+        "the hamlet `{id}` holds {count} agents, more than {tier}"
     )]
     TierTooSmall { id: String, count: i64, tier: i64 },
-    #[error("a road joins hires only")]
+    #[error("a road joins agents of hamlets only")]
     RoadEnds,
     #[error("there is no past session {number} here")]
     NoSession { number: i64 },
@@ -269,8 +269,8 @@ pub(crate) enum Refusal {
         "There is no command /{name}; the client lists the commands."
     )]
     NoCommand { name: String },
-    #[error("Say this to a hamlet's lead or one of its hires.")]
-    SayToLeadOrHire,
+    #[error("Say this to a hamlet's lead or one of its agents.")]
+    SayToLeadOrAgent,
     #[error("Say what you need a skill for.")]
     NoSkillQuestion,
     #[error(
@@ -302,13 +302,13 @@ pub(crate) enum Refusal {
     RewindNotCurrent,
     #[error("A nickname is one line of at most {most} letters.")]
     BadNickname { most: usize },
-    #[error("Say which hamlet to hire into.")]
-    NoHamletToHireInto,
+    #[error("Say which hamlet to add an agent to.")]
+    NoHamletToAddTo,
     #[error(
-        "Give `profile` to hire one of the city, or `name` for a \
-         blank agent, not both."
+        "Give `profile` to add an agent of one in the city, or \
+         `name` for a blank agent, not both."
     )]
-    HireBoth,
+    AddBoth,
     #[error("Reflect after zero or more turns.")]
     BadReflectEvery,
     #[error("A blank profile needs a character to start from.")]

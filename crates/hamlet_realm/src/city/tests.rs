@@ -20,10 +20,11 @@ const TURN: f64 = 1.0;
 fn profile(
     id: u64,
     house: Option<(f64, f64)>,
-    hires: Vec<u64>,
+    agents: Vec<u64>,
     left: bool,
 ) -> Profile {
     Profile(protocol::Profile {
+        agents: agents.into_iter().map(protocol::AgentId).collect(),
         arrival: if house.is_some() {
             protocol::Arrival::Housed
         } else {
@@ -31,7 +32,6 @@ fn profile(
         },
         arrival_by: None,
         chief: String::new(),
-        hires: hires.into_iter().map(protocol::AgentId).collect(),
         house: house.map(|(x, z)| protocol::HouseAt {
             turn: TURN,
             x,
@@ -69,14 +69,14 @@ fn city() -> App {
 fn the_city_has_a_tower_and_a_house_for_each_profile_with_a_spot() {
     let mut app = city();
     let world = app.world_mut();
-    // One of its two hires lives.
+    // One of its two agents lives.
     world.spawn(Identity(protocol::AgentId(11)));
     world.spawn((
         Name::new("a"),
         profile(1, Some((60.0, 20.0)), vec![11, 12], false),
     ));
     // Without a spot it has no house, and one that left has its
-    // windows shuttered whoever it hired.
+    // windows shuttered whatever agents it had.
     world.spawn((Name::new("b"), profile(2, None, vec![], false)));
     world.spawn((
         Name::new("c"),

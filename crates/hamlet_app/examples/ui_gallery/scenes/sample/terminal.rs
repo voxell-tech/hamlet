@@ -139,7 +139,7 @@ pub(super) fn logs(state: &mut protocol::State) {
 }
 
 /// Adds the hamlets, the agents and the terminals to `state`: the
-/// lead of `home` with a hire under it, and a worker the hire
+/// lead of `home` with an agent under it, and a worker that agent
 /// started, so the list shows its tree.
 pub(super) fn state(state: &mut protocol::State, scene: Scene) {
     if !matches!(

@@ -445,15 +445,15 @@ fn parents() -> impl View {
         heading(Glyph::Lead, "Waits for you"),
         fine("What the parents may not do without asking you first."),
         line(
-            "Hire a profile",
-            switch("reserved", "hire", |l| l.reserved.hire).boxed(),
+            "Add an agent",
+            switch("reserved", "add", |l| l.reserved.add).boxed(),
         ),
         line(
-            "End a hire",
+            "End an agent",
             switch("reserved", "end", |l| l.reserved.end).boxed(),
         ),
         line(
-            "Merge hires",
+            "Merge agents",
             switch("reserved", "merge", |l| l.reserved.merge).boxed(),
         ),
         line(
@@ -479,9 +479,9 @@ fn parents() -> impl View {
             "Price of a road, in dollars",
             cost("road", "price", |l| Some(l.road.price)).boxed(),
         ),
-        heading(Glyph::Clock, "What hires are told"),
+        heading(Glyph::Clock, "What agents are told"),
         line(
-            "Days of decisions each hire is told",
+            "Days of decisions each agent is told",
             whole("", "toldDays", |l| l.told_days, 3650).boxed(),
         ),
         line(
@@ -728,8 +728,8 @@ impl Part {
             },
             Part::Parents => {
                 let kept = [
-                    (limits.reserved.hire, "hire"),
-                    (limits.reserved.end, "end a hire"),
+                    (limits.reserved.add, "add an agent"),
+                    (limits.reserved.end, "end an agent"),
                     (limits.reserved.merge, "merge"),
                     (limits.reserved.roads, "link agents"),
                 ]
@@ -764,7 +764,7 @@ impl Part {
             Part::Models => "Which models this hamlet may run.",
             Part::Parents => {
                 "What the parents may do without asking, and the \
-                 caps on hires and the links between agents."
+                 caps on agents and the links between them."
             }
         }
     }
@@ -955,7 +955,7 @@ mod tests {
     fn a_top_level_edit_keeps_the_other_received_limits_and_section_keys_are_camel_case()
      {
         let (mut app, _) = page(Part::Parents);
-        enter(&mut app, "Days of decisions each hire is told", "8");
+        enter(&mut app, "Days of decisions each agent is told", "8");
         let mut expected = serde_json::to_value(
             hamlet_testing::realm::hamlet("home", 2).limits,
         )

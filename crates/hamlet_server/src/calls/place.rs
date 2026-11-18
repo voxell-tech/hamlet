@@ -1,5 +1,5 @@
 //! An agent's workplace and the tools it is offered (H35): the Hand
-//! in its lodge, a hire in its lodge and its hamlet's folder, a
+//! in its lodge, an agent in its lodge and its hamlet's folder, a
 //! worker in its scratch folder and where its starter works.
 
 use std::path::PathBuf;
@@ -14,7 +14,7 @@ use crate::realm::layout::Layout;
 use crate::society::agents::{self, AgentKind};
 use crate::society::hamlets::{self, Mode};
 use crate::society::oversight::gate::Caller;
-use crate::society::{hires, workers};
+use crate::society::{hamlet_agents, workers};
 use crate::tools::builtin::Place;
 use crate::tools::catalogue::{Offered, Society};
 
@@ -51,18 +51,21 @@ pub(crate) fn of(
             hamlet: None,
             manual: false,
         },
-        AgentKind::Hire => {
-            let hire = hires::get(db, agent)?;
-            let (folder, manual) = folder(db, &hire.hamlet)?;
+        AgentKind::Hamlet => {
+            let hamlet_agent = hamlet_agents::get(db, agent)?;
+            let (folder, manual) = folder(db, &hamlet_agent.hamlet)?;
             Workplace {
-                caller: Caller::Hire,
+                caller: Caller::Hamlet,
                 place: Place {
-                    lodge: layout.lodge(&hire.hamlet, hire.agent),
+                    lodge: layout.lodge(
+                        &hamlet_agent.hamlet,
+                        hamlet_agent.agent,
+                    ),
                     folder,
                     realm: layout.root().to_owned(),
                     shared,
                 },
-                hamlet: Some(hire.hamlet),
+                hamlet: Some(hamlet_agent.hamlet),
                 manual,
             }
         }
@@ -72,12 +75,16 @@ pub(crate) fn of(
             let mut hamlet = worker.hamlet.clone();
             if let Some(starter) = worker.starter {
                 match agents::get(db, starter)?.kind {
-                    AgentKind::Hire => {
-                        let hire = hires::get(db, starter)?;
+                    AgentKind::Hamlet => {
+                        let starter =
+                            hamlet_agents::get(db, starter)?;
                         shared.push(
-                            layout.lodge(&hire.hamlet, hire.agent),
+                            layout.lodge(
+                                &starter.hamlet,
+                                starter.agent,
+                            ),
                         );
-                        hamlet = hamlet.or(Some(hire.hamlet));
+                        hamlet = hamlet.or(Some(starter.hamlet));
                     }
                     AgentKind::Hand => shared.push(layout.hand()),
                     AgentKind::Worker => {}
@@ -168,21 +175,21 @@ pub(crate) fn tools(
             only.extend(Society::offered(Offered::Hand));
             only
         }
-        AgentKind::Hire => {
-            let hire = hires::get(db, agent)?;
-            let off = hires::tools_off(db, agent)?;
+        AgentKind::Hamlet => {
+            let own = hamlet_agents::get(db, agent)?.hamlet;
+            let off = hamlet_agents::tools_off(db, agent)?;
             let mut only = built_in
                 .into_iter()
                 .filter(|name| !off.contains(name))
                 .collect::<Vec<_>>();
             only.extend(Society::offered(Offered::Everyone));
-            only.extend(Society::offered(Offered::Hires));
-            // Any hire can become a parent: the tree has no floor.
+            only.extend(Society::offered(Offered::HamletAgents));
+            // Any agent can become a parent: the tree has no floor.
             only.extend(Society::offered(Offered::Parents));
-            if hires::is_lead(db, agent)?
+            if hamlet_agents::is_lead(db, agent)?
                 && hamlets::all(db)?
                     .iter()
-                    .any(|h| h.is_living() && h.id != hire.hamlet)
+                    .any(|h| h.is_living() && h.id != own)
             {
                 only.extend(Society::offered(Offered::Leads));
             }

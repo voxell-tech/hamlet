@@ -19,7 +19,7 @@ use super::deed::Deed;
 use super::{close, restore, stop};
 use crate::screens::terminal::{Pins, pin};
 
-/// A hire of the hamlet that is not its lead and has not left, with
+/// An agent of the hamlet that is not its lead and has not left, with
 /// its name.
 fn plain_agent(
     world: &World,
@@ -29,7 +29,7 @@ fn plain_agent(
         return None;
     };
     let plain = world.get::<Kind>(agent).map(|kind| kind.0)
-        == Some(protocol::AgentKind::Hire)
+        == Some(protocol::AgentKind::Hamlet)
         && world.get::<Lead>(agent).is_none()
         && world.get::<Left>(agent).is_none();
     let name = agents::shown_of(world, agent);
@@ -61,16 +61,17 @@ fn asking(text: Label, deed: Deed, at: Vec2) -> AnyView {
         .boxed()
 }
 
-/// Hires a profile under `parent`, while it is a living hire.
-fn hire_under(world: &World, parent: Entity) -> Option<AnyView> {
-    let hire = world.get::<Kind>(parent).map(|kind| kind.0)
-        == Some(protocol::AgentKind::Hire);
-    (hire
+/// Adds an agent under `parent`, while it is a living agent of a
+/// hamlet.
+fn add_under(world: &World, parent: Entity) -> Option<AnyView> {
+    let of_hamlet = world.get::<Kind>(parent).map(|kind| kind.0)
+        == Some(protocol::AgentKind::Hamlet);
+    (of_hamlet
         && world.get::<Left>(parent).is_none()
-        && Deeds::is_allowed(world, "hire"))
+        && Deeds::is_allowed(world, "add-agent"))
     .then(|| {
-        item("Hire Under...".into(), move |world| {
-            super::ask_hire(world, parent);
+        item("Add Agent Under".into(), move |world| {
+            super::ask_add_agent(world, parent);
         })
     })
 }
@@ -79,11 +80,12 @@ fn focus(thing: Thing) -> AnyView {
     item("Focus".into(), move |w| focus_on(w, thing, false))
 }
 
-/// Builds a road from the hire `agent`, while it may have one.
+/// Builds a road from `agent`, an agent of a hamlet, while it may
+/// have one.
 fn road(world: &World, agent: Entity) -> Option<AnyView> {
-    let hire = world.get::<Kind>(agent).map(|kind| kind.0)
-        == Some(protocol::AgentKind::Hire);
-    (hire
+    let of_hamlet = world.get::<Kind>(agent).map(|kind| kind.0)
+        == Some(protocol::AgentKind::Hamlet);
+    (of_hamlet
         && world.get::<Left>(agent).is_none()
         && Deeds::is_allowed(world, "road"))
     .then(|| {
@@ -126,8 +128,8 @@ fn for_lead(world: &World) -> Vec<AnyView> {
         }
     })];
     if let Some(lead) = agents::first_lead(world) {
-        if let Some(hire) = hire_under(world, lead) {
-            items.insert(0, hire);
+        if let Some(add) = add_under(world, lead) {
+            items.insert(0, add);
         }
         items.extend(pin_bash(world, lead));
     }
@@ -154,7 +156,7 @@ fn for_agent(
     at: Vec2,
 ) -> Vec<AnyView> {
     let name = |agent: Entity| agents::shown_of(world, agent);
-    let mut items = Vec::from_iter(hire_under(world, agent));
+    let mut items = Vec::from_iter(add_under(world, agent));
     items.extend(road(world, agent));
     items.extend(pin_bash(world, agent));
     if world.get::<Busy>(agent).is_some() {
@@ -229,12 +231,13 @@ fn for_common(
         .get::<HamletId>(hamlet)
         .map(|id| id.0.clone())
         .unwrap_or_default();
-    // A hire under its lead, first, as what is done to it most.
+    // An agent added under its lead, first, as what is done to it
+    // most.
     let mut items = agents::lead_of(world, &id)
         .and_then(|lead| {
-            hire_under(world, lead).map(|_| {
-                item("Hire...".into(), move |world| {
-                    super::ask_hire(world, lead);
+            add_under(world, lead).map(|_| {
+                item("Add Agent".into(), move |world| {
+                    super::ask_add_agent(world, lead);
                 })
             })
         })

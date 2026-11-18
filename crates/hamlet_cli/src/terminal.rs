@@ -237,7 +237,7 @@ fn keeper(state: &State, whom: &str) -> Result<Keeper> {
 }
 
 /// The profile whose character `whom` names: a profile, or the
-/// profile a hire works as.
+/// profile an agent works as.
 fn profile(state: &State, whom: &str) -> Result<ProfileId> {
     match keeper(state, whom)? {
         Keeper::Profile(id) => Ok(id),

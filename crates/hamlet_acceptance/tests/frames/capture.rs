@@ -187,8 +187,8 @@ impl Capture {
         .await;
     }
 
-    /// Has the agent `parent` hire a new profile `name`.
-    pub async fn hire(
+    /// Has the agent `parent` add an agent of a new profile `name`.
+    pub async fn add_agent(
         &mut self,
         parent: u64,
         name: &str,
@@ -197,7 +197,7 @@ impl Capture {
         let profile = self.make(name).await;
         self.say(
             parent,
-            &format!("/hire profile#{profile} {purpose}"),
+            &format!("/add-agent profile#{profile} {purpose}"),
         )
         .await;
     }

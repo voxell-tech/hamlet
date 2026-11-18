@@ -1,5 +1,5 @@
-//! What agents know: profiles' repositories, the lodges hires and the
-//! Hand work in, and the jobs that keep them.
+//! What agents know: profiles' repositories, the lodges the agents
+//! of hamlets and the Hand work in, and the jobs that keep them.
 
 pub(crate) mod dreams;
 pub(crate) mod folder;
@@ -16,7 +16,7 @@ use hamlet_store::ids::{AgentId, ProfileId};
 
 use crate::realm::layout::Layout;
 use crate::society::agents::{self, AgentKind};
-use crate::society::{hand, hires};
+use crate::society::{hamlet_agents, hand};
 
 pub(crate) fn plugin(app: &mut bevy_app::App) {
     app.add_plugins(worker::plugin);
@@ -33,7 +33,7 @@ pub(crate) fn outside_git(path: &str) -> bool {
 
 /// The branch of an agent's lodge.
 pub(crate) fn branch(agent: AgentId) -> String {
-    format!("hires/{agent}")
+    format!("agents/{agent}")
 }
 
 /// Whose a lodge is, of which profile, and where it is.
@@ -46,7 +46,7 @@ pub(crate) struct Lodging {
     pub living: bool,
 }
 
-/// The lodge of the Hand or the hire `agent`.
+/// The lodge of the Hand or the agent `agent` of a hamlet.
 pub(crate) fn lodging(
     db: &mut Db,
     layout: &Layout,
@@ -61,13 +61,13 @@ pub(crate) fn lodging(
             pin: None,
             living: found.is_living(),
         }),
-        AgentKind::Hire => {
-            let hire = hires::get(db, agent)?;
+        AgentKind::Hamlet => {
+            let placed = hamlet_agents::get(db, agent)?;
             Ok(Lodging {
                 agent,
-                profile: hire.profile,
-                path: layout.lodge(&hire.hamlet, hire.agent),
-                pin: hire.pin,
+                profile: placed.profile,
+                path: layout.lodge(&placed.hamlet, placed.agent),
+                pin: placed.pin,
                 living: found.is_living(),
             })
         }

@@ -57,9 +57,9 @@ const HAND_STARTERS: &[&str] = &[
     "Set up a hamlet for a new project.",
 ];
 
-/// What can be said first to a hire, which works on its hamlet's
-/// folder.
-const HIRE_STARTERS: &[&str] = &[
+/// What can be said first to an agent of a hamlet, which works on its
+/// hamlet's folder.
+const AGENT_STARTERS: &[&str] = &[
     "What are you working on?",
     "Look through the folder and tell me what you see.",
     "What do you remember so far?",
@@ -74,7 +74,7 @@ fn starters(world: &World, agent: Entity) -> &'static [&'static str] {
     match world.get::<Kind>(agent).map(|kind| kind.0) {
         Some(protocol::AgentKind::Hand) => HAND_STARTERS,
         Some(protocol::AgentKind::Worker) => WORKER_STARTERS,
-        _ => HIRE_STARTERS,
+        _ => AGENT_STARTERS,
     }
 }
 

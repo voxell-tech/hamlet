@@ -1,4 +1,4 @@
-//! Dreams: a hire brings what it learned home to its profile's
+//! Dreams: an agent brings what it learned home to its profile's
 //! `main`, and a profile tidies it.
 
 use hamlet_acceptance::*;
@@ -11,10 +11,10 @@ fn note(description: &str) -> String {
 }
 
 #[tokio::test]
-async fn a_hire_dreams_what_it_learned_onto_its_profiles_main() {
+async fn an_agent_dreams_what_it_learned_onto_its_profiles_main() {
     let home = Home::new();
     // The first dream found nothing; this is the second, whose
-    // checkout of `main` the hire is told of.
+    // checkout of `main` the agent is told of.
     let shared = home.file("dreams/2/main/memory/shared.md");
     let mut s = Session::start_in(
         home,
@@ -25,7 +25,7 @@ async fn a_hire_dreams_what_it_learned_onto_its_profiles_main() {
                     "write",
                     json!({
                         "path": shared.to_str().unwrap(),
-                        "content": note("What every hire knows."),
+                        "content": note("What every agent knows."),
                     }),
                 ),
                 words("Brought one note home."),
@@ -39,9 +39,9 @@ async fn a_hire_dreams_what_it_learned_onto_its_profiles_main() {
     let ada = s.found("docs", "ada", "keep the docs").await;
     let profile = s.chief.profile("ada").unwrap().id;
 
-    // A hire that has learned nothing has nothing to dream about.
+    // An agent that has learned nothing has nothing to dream about.
     assert_eq!(
-        s.chief.command(hand, "/dream hire#2").await,
+        s.chief.command(hand, "/dream agent#2").await,
         "There is nothing to dream about."
     );
 
@@ -52,7 +52,7 @@ async fn a_hire_dreams_what_it_learned_onto_its_profiles_main() {
                 id,
                 of: Keeper::Agent(ada),
                 path: "own.md".into(),
-                text: note("Only this hire's."),
+                text: note("Only this agent's."),
             })
         })
         .await;
@@ -66,7 +66,7 @@ async fn a_hire_dreams_what_it_learned_onto_its_profiles_main() {
     );
 
     assert_eq!(
-        s.chief.command(hand, "/dream hire#2").await,
+        s.chief.command(hand, "/dream agent#2").await,
         "The dream began."
     );
     tokio::time::timeout(std::time::Duration::from_secs(20), async {
@@ -88,9 +88,9 @@ async fn a_hire_dreams_what_it_learned_onto_its_profiles_main() {
     assert_eq!(papers.memory[0].path, "shared.md");
     assert_eq!(
         papers.memory[0].description,
-        "What every hire knows."
+        "What every agent knows."
     );
-    // What only the hire needs stays in its lodge.
+    // What only the agent needs stays in its lodge.
     assert!(
         papers.memory.iter().all(|m| m.path != "own.md"),
         "{papers:?}"

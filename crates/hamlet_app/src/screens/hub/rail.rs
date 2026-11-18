@@ -1,6 +1,6 @@
 //! The Hub's rail: the realm as its chain of command. The realm and
 //! the Hand first, then what waits for the chief, then each hamlet as
-//! the tree of its hires under its lead, then the city's profiles,
+//! the tree of its agents under its lead, then the city's profiles,
 //! the library and those that left. A row keeps its place as its
 //! agent works and rests; only its mark changes.
 
@@ -86,7 +86,7 @@ const TITLE_SHOWN: usize = 56;
 const ROW: f32 = 32.0;
 
 /// The height of a worker's row and the side of its icon, smaller
-/// than a hire's, so the hires stand out of their workers.
+/// than an agent's, so the agents stand out of their workers.
 const WORKER_ROW: f32 = 26.0;
 const WORKER_ICON: f32 = 12.0;
 
@@ -157,7 +157,7 @@ pub struct Rail {
 /// and what waits, one at a time.
 #[derive(Resource, Clone, Copy, PartialEq, Eq, Debug, Default)]
 pub enum Tab {
-    /// The hamlets, each the tree under its lead, and the hires
+    /// The hamlets, each the tree under its lead, and the agents
     /// that left.
     #[default]
     Hamlets,
@@ -322,7 +322,7 @@ pub(super) enum Group {
     Top,
     Needs,
     Hamlet(Entity),
-    /// The hires under a parent, which fold into its row.
+    /// The agents under a parent, which fold into its row.
     Parent(Entity),
     /// The workers an agent started, or those a chief started in a
     /// hamlet, which fold into one row.
@@ -389,8 +389,8 @@ pub(super) struct Line {
     /// is folded.
     pub fold: Option<(Group, bool)>,
     /// Whether it is a worker's, or the row its group folds into:
-    /// one short line, lighter than a hire's, so the hires stand out
-    /// of their workers.
+    /// one short line, lighter than an agent's, so the agents stand
+    /// out of their workers.
     pub worker: bool,
 }
 
@@ -561,7 +561,7 @@ fn agents(world: &World) -> Vec<Agent> {
 }
 
 /// A place in a tree: an agent, or the workers one started, which
-/// fold into a row of their own under the hires beside them.
+/// fold into a row of their own under the agents beside them.
 enum Node<'a> {
     Agent(&'a Agent),
     Workers {
@@ -577,7 +577,7 @@ impl Agent {
 }
 
 /// `root` and everyone under it among `all`, each with its depth
-/// below `root`: hires by name, then the workers each agent started
+/// below `root`: agents by name, then the workers each agent started
 /// in a group under it.
 fn tree<'a>(
     root: &'a Agent,
@@ -601,10 +601,10 @@ fn tree<'a>(
             .filter(|other| other.parent == Some(agent.id))
             .collect::<Vec<_>>();
         under.sort_by_key(|other| other.called.to_lowercase());
-        let (workers, hires): (Vec<_>, Vec<_>) =
+        let (workers, agents): (Vec<_>, Vec<_>) =
             under.into_iter().partition(|other| other.is_worker());
         let depth = depth.saturating_add(1);
-        for child in hires {
+        for child in agents {
             walk(child, all, depth, seen, out);
         }
         if !workers.is_empty() {
@@ -717,8 +717,8 @@ fn workers_line(
 fn kind_glyph(agent: &Agent) -> Glyph {
     match agent.kind {
         protocol::AgentKind::Hand => Glyph::Tower,
-        protocol::AgentKind::Hire if agent.lead => Glyph::Lead,
-        protocol::AgentKind::Hire => Glyph::Hire,
+        protocol::AgentKind::Hamlet if agent.lead => Glyph::Lead,
+        protocol::AgentKind::Hamlet => Glyph::HamletAgent,
         protocol::AgentKind::Worker => Glyph::Worker,
     }
 }
@@ -991,15 +991,15 @@ fn society(world: &World, sections: &mut Vec<Section>) {
         });
         for (entity, profile) in found {
             let profile = &profile.0;
-            // Where it is hired, by hamlet.
+            // Where its agents work, by hamlet.
             let mut hamlets = profile
-                .hires
+                .agents
                 .iter()
-                .filter_map(|hire| {
-                    hamlet_client::realm::agent(world, *hire)
+                .filter_map(|agent| {
+                    hamlet_client::realm::agent(world, *agent)
                 })
-                .filter(|hire| world.get::<Left>(*hire).is_none())
-                .filter_map(|hire| world.get::<LivesIn>(hire))
+                .filter(|agent| world.get::<Left>(*agent).is_none())
+                .filter_map(|agent| world.get::<LivesIn>(agent))
                 .map(|lives| name_of(world, lives.0))
                 .collect::<Vec<_>>();
             hamlets.sort();
@@ -1023,12 +1023,12 @@ fn society(world: &World, sections: &mut Vec<Section>) {
                 (None, protocol::Arrival::Housed)
                     if hamlets.is_empty() =>
                 {
-                    ("Not hired".into(), None)
+                    ("Not at work".into(), None)
                 }
                 (None, protocol::Arrival::Housed) => {
                     (format!("In {}", hamlets.join(", ")), None)
                 }
-                // A blank hire's is not of the city: the hire is in
+                // A blank agent's is not of the city: the agent is in
                 // its hamlet's tree.
                 (None, protocol::Arrival::Apart) => continue,
             };
@@ -1087,7 +1087,7 @@ fn society(world: &World, sections: &mut Vec<Section>) {
             let mut line = page_line(
                 world,
                 Target::Gone(entity),
-                Glyph::Hire,
+                Glyph::HamletAgent,
                 &shown_of(world, entity),
                 match into {
                     Some(host) => {
@@ -1280,7 +1280,7 @@ pub(super) fn sections(world: &World) -> Vec<Section> {
             section.folded = false;
             section.lines.retain(|line| matches(line, &search));
         }
-        // Of those that left, the tab's own: hires on the hamlets',
+        // Of those that left, the tab's own: agents on the hamlets',
         // profiles on the city's.
         if section.group == Group::Left {
             section.lines.retain(|line| {
@@ -1751,8 +1751,8 @@ fn expanded(line: &Line, dimmed: bool) -> AnyView {
             match (group, shut) {
                 (Group::Workers(_), true) => "Show the workers",
                 (Group::Workers(_), false) => "Fold the workers",
-                (_, true) => "Show the hires under it",
-                (_, false) => "Fold the hires under it",
+                (_, true) => "Show the agents under it",
+                (_, false) => "Fold the agents under it",
             },
         ),
         None => frame().width(px(CHEVRON)).shrink(0.0).boxed(),
@@ -1861,7 +1861,7 @@ fn tip_of(line: &Line, address: String) -> Option<String> {
         Target::Agent(_) | Target::Gone(_) => match line.glyph {
             Glyph::Lead => Some(words::LEAD),
             Glyph::Worker => Some(words::WORKER),
-            _ => Some(words::HIRE),
+            _ => Some(words::AGENT),
         },
         Target::Fold(Group::Workers(_)) => Some(words::WORKER),
         Target::Profile(_) => Some(words::PROFILE),
@@ -2093,12 +2093,12 @@ mod tests {
     }
 
     #[test]
-    fn a_hire_keeps_its_place_in_its_hamlet_and_what_waits_is_on_top()
-    {
+    fn an_agent_keeps_its_place_in_its_hamlet_and_what_waits_is_on_top()
+     {
         let mut app = panel_app();
         app.add_plugins(plugin);
         app.update();
-        let ada = named(app.world_mut(), "hire#2").unwrap();
+        let ada = named(app.world_mut(), "agent#2").unwrap();
         let in_hamlet = |g: &Group| matches!(g, Group::Hamlet(_));
         assert_eq!(names(&app, in_hamlet), ["ada"]);
         assert!(

@@ -71,15 +71,15 @@ fn decree(world: &mut World, id: &str, text: String) {
     world.flush();
 }
 
-/// The tiers a hamlet may hold, in hires.
+/// The tiers a hamlet may hold, in agents.
 const TIERS: [&str; 4] = ["50", "100", "200", "500"];
 
-/// How many hires the hamlet `id` may hold, chosen from its tiers,
+/// How many agents the hamlet `id` may hold, chosen from its tiers,
 /// showing the one it holds now.
 fn size(hamlet: Entity, id: String) -> AnyView {
     let names = TIERS
         .iter()
-        .map(|tier| format!("{tier} hires"))
+        .map(|tier| format!("{tier} agents"))
         .collect::<Vec<_>>();
     row((
         label("Size").tone(Tone::Faint).wrap(false),
@@ -102,7 +102,7 @@ fn size(hamlet: Entity, id: String) -> AnyView {
                 }
             },
         )
-        .placeholder("Choose how many hires it holds"),
+        .placeholder("Choose how many agents it holds"),
     ))
     .gap(8.0)
     .align(AlignItems::Center)
@@ -145,7 +145,7 @@ const PAGES: [(Page, Glyph, &str); 3] = [
     (Page::History, Glyph::History, "History"),
 ];
 
-/// Everyone in `hamlet`, each pressed to talk to, its hires a step
+/// Everyone in `hamlet`, each pressed to talk to, its agents a step
 /// in from it as the rail shows them.
 fn list_of(hamlet: Entity) -> impl View {
     let people =
@@ -177,7 +177,7 @@ fn list_of(hamlet: Entity) -> impl View {
     .within(bare())
 }
 
-/// How far a hire stands in from its parent.
+/// How far an agent stands in from its parent.
 const STEP: f32 = 18.0;
 
 /// How far a row's icon stands in from its left edge.
@@ -191,9 +191,9 @@ struct Branch {
     /// For each level between the top and its parent's, whether a
     /// guide runs down it past this row.
     rails: Vec<bool>,
-    /// Whether it is the last of its parent's hires.
+    /// Whether it is the last of its parent's agents.
     last: bool,
-    /// Whether it has hires of its own under it.
+    /// Whether it has agents of its own under it.
     has_children: bool,
 }
 
@@ -296,7 +296,7 @@ fn lines(cx: &Cx, depth: usize, branch: &Branch) -> Vec<AnyView> {
         parts.push(over(from, elbow, to - from, Some(LINE)));
     }
     if branch.has_children {
-        // Down from under its icon to its first hire.
+        // Down from under its icon to its first agent.
         let top = elbow + ICON / 2.0 + 2.0;
         parts.push(over(under_icon(depth), top, LINE, None));
     }
@@ -319,7 +319,7 @@ fn person(row_of: &AgentRow, branch: Branch) -> AnyView {
     } else if row_of.worker {
         Glyph::Robot
     } else {
-        Glyph::Hire
+        Glyph::HamletAgent
     };
     let standing = row_of.standing;
     let (name, under, account, depth) = (
@@ -480,30 +480,30 @@ pub fn hamlet(hamlet: Entity) -> impl View {
                     facts,
                     has("move-hamlet"),
                     has("remove-hamlet"),
-                    (has("hire"), has("worker"), has("tier")),
+                    (has("add-agent"), has("worker"), has("tier")),
                 )
             })
     })
     .when(either(stale(), moved::<Deeds>()));
     let head = keyed(facts, move |facts| {
-        let Some((facts, carry, close, (hires, workers, tier))) =
+        let Some((facts, carry, close, (adds, workers, tier))) =
             facts
         else {
             return column(()).boxed();
         };
         let mut actions = Vec::new();
-        if *hires {
-            // Under its lead; under another hire from that hire's
+        if *adds {
+            // Under its lead; under another agent from that agent's
             // menu.
             let lead_of = facts.id.clone();
             actions.push(action(
                 Glyph::Profile,
-                "Hire a profile",
+                "Add Agent",
                 move |world| {
                     if let Some(lead) =
                         hamlet_client::realm::lead_of(world, &lead_of)
                     {
-                        world_menu::ask_hire(world, lead);
+                        world_menu::ask_add_agent(world, lead);
                     }
                 },
             ));
@@ -528,9 +528,9 @@ pub fn hamlet(hamlet: Entity) -> impl View {
             ));
         }
         // Its menu, as a right click on it opens.
-        if *hires || *close {
+        if *adds || *close {
             actions.push(more_button(
-                "Hire or close it down",
+                "Add agents or close it down",
                 move |world| {
                     world_menu::open_for(
                         world,

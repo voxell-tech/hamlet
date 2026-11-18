@@ -1,6 +1,6 @@
-//! A parent's review of a chief's instruction to a hire under it
-//! (H10): an errand run alongside the hire's work once, which may
-//! object for the chief to rule on; and the hold of the hire's next
+//! A parent's review of a chief's instruction to an agent under it
+//! (H10): an errand run alongside the agent's work once, which may
+//! object for the chief to rule on; and the hold of the agent's next
 //! model call while a chief considers an objection.
 
 use anyhow::Result;
@@ -15,7 +15,7 @@ use crate::conversations::{Conversation, Kind, inputs, models};
 use crate::core::Core;
 use crate::providers::{FAUX, is_local};
 use crate::society::limits::{self, Review};
-use crate::society::{addresses, hires};
+use crate::society::{addresses, hamlet_agents};
 
 /// The errand a parent's review is.
 pub(crate) const REVIEW: &str = "review";
@@ -64,24 +64,26 @@ impl Core<'_, '_> {
         if conversation.kind != Kind::Chat {
             return Ok(None);
         }
-        let Some(hire) = hires::find(db, conversation.agent)? else {
+        let Some(agent) =
+            hamlet_agents::find(db, conversation.agent)?
+        else {
             return Ok(None);
         };
-        let Some(parent) = hire.parent else {
+        let Some(parent) = agent.parent else {
             return Ok(None);
         };
         let begun =
             review::table.find(task).count().get_result::<i64>(db)?
                 > 0;
-        if begun || !self.is_reviewing(parent, &hire.hamlet)? {
+        if begun || !self.is_reviewing(parent, &agent.hamlet)? {
             return Ok(None);
         }
         let db = self.realm.store().connection();
-        let name = addresses::name_of(db, hire.agent)?;
+        let name = addresses::name_of(db, agent.agent)?;
         let parent_name = addresses::name_of(db, parent)?;
         let mut under = Vec::new();
         for each in crate::society::tree::under(db, parent)? {
-            let found = hires::get(db, each)?;
+            let found = hamlet_agents::get(db, each)?;
             under.push(format!(
                 "- {}: {}",
                 addresses::name_of(db, each)?,
@@ -89,14 +91,14 @@ impl Core<'_, '_> {
             ));
         }
         let instructions = format!(
-            "You are `{parent_name}`, the parent of `{name}`, hired \
+            "You are `{parent_name}`, the parent of `{name}`, added \
              to {}. A chief has just instructed `{name}` directly. \
              The work has begun already, and the chief always \
              decides. If the instruction is a mistake for the work \
              under you, answer `OBJECT: <reason>`. Otherwise answer \
-             `PASS`. Most instructions are fine.\n\n# The hires \
+             `PASS`. Most instructions are fine.\n\n# The agents \
              under you\n{}",
-            hire.purpose.trim_end_matches('.'),
+            agent.purpose.trim_end_matches('.'),
             under.join("\n")
         );
         let question = format!("{chief} told `{name}`: {text}");
@@ -128,7 +130,7 @@ impl Core<'_, '_> {
         Ok(None)
     }
 
-    /// Tells whether `parent` reviews instructions to its hires in
+    /// Tells whether `parent` reviews instructions to its agents in
     /// `hamlet`: always, never, or when its model is served from
     /// another machine.
     fn is_reviewing(

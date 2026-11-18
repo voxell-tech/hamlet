@@ -6,9 +6,9 @@ in [`hamlet.md`](hamlet.md).
 
 ## The agent and its lodge
 
-An agent is the Hand, a hire or a worker (H37, H40, H42).
+An agent is the Hand, an agent of a hamlet or a worker (H37, H40, H42).
 
-**C8.** The Hand and every hire work in a lodge of their own: a folder
+**C8.** The Hand and every agent of a hamlet work in a lodge of their own: a folder
 holding its memory (`memory/`), its skills (`skills/`, one folder each, with
 a `SKILL.md`) and an inbox (`inbox/`) for what a chief hands it. They are
 writable files. A lodge holds no character: the character is a file of the
@@ -17,10 +17,11 @@ all out of reach of file tools. A worker has no lodge, only a scratch folder
 that ends with it (H42).
 
 **C9.** An agent is identified by an id that is the same everywhere in the
-realm and is never given twice; a hire is addressed by it as `hire#<id>`. No
+realm and is never given twice; an agent of a hamlet is addressed by it as
+`agent#<id>`. No
 address, lookup or command finds an agent, a profile or a hamlet by a name.
 Ending, merging, restoring and setting a lead keep the id.
-A later hire of the same profile inherits nothing of the earlier one.
+A later agent of the same profile inherits nothing of the earlier one.
 
 **C10.** A profile is its id, addressed as `profile#<id>`. Its name is a
 label of one line, 1 to 40 characters with no colon, which may repeat and
@@ -92,7 +93,7 @@ the agent's commands terminal, which the chief can watch and nobody types into.
 A server an agent starts runs from `bash` with `&`, its output sent to a file the
 agent reads later; it is kept until the server stops.
 
-A parent can turn tools off for a hire under it (H41); the prompt names them. A
+A parent can turn tools off for an agent under it (H41); the prompt names them. A
 worker has only the built-in tools its starter gave it (H42). The society's
 tools, offered by role, are in [`hamlet.md`](hamlet.md).
 
@@ -153,7 +154,7 @@ runs as.
 
 A chief talks to, instructs, watches, stops, gives to and answers for only
 the agents of living hamlets it is chief of, and the Hand, which answers to
-every chief. Reading and editing a hire's papers or a hamlet's limits needs
+every chief. Reading and editing an agent's papers or a hamlet's limits needs
 the same authority; a profile's belongs to the chief it belongs to (H38). A
 removed hamlet's agents are out of reach until it is restored; a refused
 request says why it was removed and to restore it first. Requests naming a
@@ -248,7 +249,7 @@ the root of the git repository a conversation worked in, else its
 folder; linked worktrees, Downloads and the home folder are none. Each
 project becomes a hamlet named for it and working on its folder, or the
 chief's hamlet that works on it already, and each of its conversations
-brought in a hire under its lead, as the hamlet's tier has room, whose
+brought in an agent under its lead, as the hamlet's tier has room, whose
 chat begins with that conversation. A conversation is brought in once
 per chief. The window offers the projects once, when first-run setup
 ends on a realm with no hamlet, and again from Settings, each with its
@@ -290,7 +291,7 @@ call with its name, its arguments cut to 200 characters and, for an edit,
 the change, then the call's end with its exit code, its time and the first
 line of a failure, and the notices meant only for people. Letters,
 questions and replies show their writer by its address with its name beside
-it (`hire#3 (Mira)`), `hand`, or `worker#id`; once a hire is erased, as its
+it (`agent#3 (Mira)`), `hand`, or `worker#id`; once an agent is erased, as its
 address alone. They are shown as agents' words,
 never as a chief's words that can be taken back.
 

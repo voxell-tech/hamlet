@@ -24,7 +24,7 @@ use crate::society::limits::{
 };
 use crate::society::roads::{self, RoadKind, Way};
 use crate::society::{
-    addresses, chiefs, hand, hires, spend, workers,
+    addresses, chiefs, hamlet_agents, hand, spend, workers,
 };
 
 /// What composing the state reads besides the database.
@@ -132,18 +132,18 @@ fn agent_view(
             let profile = hand::profile(db)?;
             (None, Some(profile), None, String::new(), false)
         }
-        AgentKind::Hire => {
-            let hire = hires::get(db, id)?;
-            let lead = hires::is_lead(db, id)?;
-            let parent = match hire.parent {
+        AgentKind::Hamlet => {
+            let agent = hamlet_agents::get(db, id)?;
+            let lead = hamlet_agents::is_lead(db, id)?;
+            let parent = match agent.parent {
                 Some(parent) => Some(parent),
                 None => Some(hand::id(db)?),
             };
             (
-                Some(hire.hamlet.to_string()),
-                Some(hire.profile),
+                Some(agent.hamlet.to_string()),
+                Some(agent.profile),
                 parent,
-                hire.purpose,
+                agent.purpose,
                 lead && found.is_living(),
             )
         }
@@ -191,7 +191,7 @@ fn agent_view(
                 EndHow::Failed => protocol::LeftHow::Failed,
                 EndHow::Stopped => protocol::LeftHow::Stopped,
             },
-            into: hires::find(db, id)?
+            into: hamlet_agents::find(db, id)?
                 .and_then(|h| h.merged_into)
                 .map(wire_agent),
             reason: found.ended_reason.clone().unwrap_or_default(),
@@ -201,18 +201,19 @@ fn agent_view(
     };
     let own_model = match found.kind {
         AgentKind::Hand => hand::model(db)?,
-        AgentKind::Hire => hires::get(db, id)?.model,
+        AgentKind::Hamlet => hamlet_agents::get(db, id)?.model,
         AgentKind::Worker => workers::get(db, id)?.model,
     };
     let (pin, nickname, allowance, tools_off) = match found.kind {
-        AgentKind::Hire => {
-            let hire = hires::get(db, id)?;
+        AgentKind::Hamlet => {
+            let agent = hamlet_agents::get(db, id)?;
             (
-                hire.pin,
-                hire.nickname,
-                hire.allowance
+                agent.pin,
+                agent.nickname,
+                agent
+                    .allowance
                     .map(|micros| micros as f64 / 1_000_000.0),
-                hires::tools_off(db, id)?,
+                hamlet_agents::tools_off(db, id)?,
             )
         }
         AgentKind::Worker => {
@@ -252,7 +253,7 @@ fn agent_view(
         id: wire_agent(id),
         kind: match found.kind {
             AgentKind::Hand => protocol::AgentKind::Hand,
-            AgentKind::Hire => protocol::AgentKind::Hire,
+            AgentKind::Hamlet => protocol::AgentKind::Hamlet,
             AgentKind::Worker => protocol::AgentKind::Worker,
         },
         left,
@@ -340,11 +341,12 @@ fn hamlet_view(
 ) -> Result<protocol::Hamlet> {
     let own = limits::of(db, &place.id)?;
     let mut roads_shown = Vec::new();
-    let living = hires::living_in(db, &place.id)?;
+    let living = hamlet_agents::living_in(db, &place.id)?;
     let mut seen = std::collections::BTreeSet::new();
-    for hire in &living {
-        for (other, way) in roads::ways(db, hire.agent)? {
-            let pair = (hire.agent.min(other), hire.agent.max(other));
+    for agent in &living {
+        for (other, way) in roads::ways(db, agent.agent)? {
+            let pair =
+                (agent.agent.min(other), agent.agent.max(other));
             if !seen.insert(pair) {
                 continue;
             }
@@ -419,14 +421,14 @@ fn hamlet_view(
             Mode::Auto => protocol::HamletMode::Auto,
         },
         mode_words: match (place.mode, place.folder.is_some()) {
-            (_, false) => "Hires work in their lodges; no folder is \
-                           chosen."
+            (_, false) => "Agents work in their lodges; no folder \
+                           is chosen."
                 .into(),
-            (Mode::Manual, true) => "Hires wait for your approval \
+            (Mode::Manual, true) => "Agents wait for your approval \
                                      before each edit and command \
                                      in the folder."
                 .into(),
-            (Mode::Auto, true) => "Hires edit the folder and run \
+            (Mode::Auto, true) => "Agents edit the folder and run \
                                    commands without approval."
                 .into(),
         },
@@ -462,9 +464,9 @@ fn profile_view(
     layout: &Layout,
     profile: &Profile,
 ) -> Result<protocol::Profile> {
-    let mut hires_shown = Vec::new();
-    for hire in hires_of(db, profile)? {
-        hires_shown.push(wire_agent(hire));
+    let mut agents_shown = Vec::new();
+    for agent in agents_of(db, profile)? {
+        agents_shown.push(wire_agent(agent));
     }
     let (skills, versions) =
         match Repository::open(&layout.repository(profile.id)) {
@@ -509,6 +511,7 @@ fn profile_view(
         None => String::new(),
     };
     Ok(protocol::Profile {
+        agents: agents_shown,
         arrival: match profile.arrival {
             Arrival::Housed => protocol::Arrival::Housed,
             Arrival::Waiting => protocol::Arrival::Waiting,
@@ -520,7 +523,6 @@ fn profile_view(
             None => None,
         },
         chief,
-        hires: hires_shown,
         house: match (profile.house_x, profile.house_z) {
             (Some(x), Some(z)) => Some(protocol::HouseAt {
                 turn: profile.house_turn.unwrap_or_default(),
@@ -548,16 +550,16 @@ fn profile_view(
     })
 }
 
-/// The hires of `profile` not erased, living ones and ended ones that
-/// may come back.
-fn hires_of(db: &mut Db, profile: &Profile) -> Result<Vec<AgentId>> {
-    use hamlet_store::schema::hire;
-    Ok(hire::table
+/// The agents of `profile` not erased, living ones and ended ones
+/// that may come back.
+fn agents_of(db: &mut Db, profile: &Profile) -> Result<Vec<AgentId>> {
+    use hamlet_store::schema::hamlet_agent;
+    Ok(hamlet_agent::table
         .inner_join(agent::table)
-        .filter(hire::profile.eq(profile.id))
+        .filter(hamlet_agent::profile.eq(profile.id))
         .filter(agent::erased.eq(false))
-        .order(hire::agent)
-        .select(hire::agent)
+        .order(hamlet_agent::agent)
+        .select(hamlet_agent::agent)
         .load(db)?)
 }
 
@@ -613,8 +615,8 @@ pub(crate) fn hamlet_limits(own: &Limits) -> protocol::Limits {
         model: own.model.clone(),
         protected_minutes: own.protected_minutes,
         reserved: protocol::LimitsReserved {
+            add: own.reserved.add,
             end: own.reserved.end,
-            hire: own.reserved.hire,
             merge: own.reserved.merge,
             roads: own.reserved.roads,
         },

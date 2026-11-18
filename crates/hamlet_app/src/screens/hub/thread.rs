@@ -460,7 +460,7 @@ fn state(agent: Entity) -> impl View {
 }
 
 /// What is done to `agent` most, each a button of its own beside the
-/// tabs: a new session, a hire under it, a new name. The rest is in
+/// tabs: a new session, an agent under it, a new name. The rest is in
 /// the menu of the "..." after them.
 fn quick(world: &World, agent: Entity) -> Vec<AnyView> {
     let kind = world.get::<Kind>(agent).map(|kind| kind.0);
@@ -474,13 +474,13 @@ fn quick(world: &World, agent: Entity) -> Vec<AnyView> {
         },
     )];
     if living
-        && kind == Some(protocol::AgentKind::Hire)
-        && hamlet_client::realm::Deeds::is_allowed(world, "hire")
+        && kind == Some(protocol::AgentKind::Hamlet)
+        && hamlet_client::realm::Deeds::is_allowed(world, "add-agent")
     {
         buttons.push(icon_button(
             Glyph::Plus,
-            "Hire under it",
-            move |world| world_menu::ask_hire(world, agent),
+            "Add Agent Under It",
+            move |world| world_menu::ask_add_agent(world, agent),
         ));
     }
     buttons
@@ -507,7 +507,7 @@ fn header(agent: Entity) -> impl View {
                     return frame().boxed();
                 }
                 more_button(
-                    "Hiring, roads, merging and ending it",
+                    "Adding agents, roads, merging and ending it",
                     move |world| {
                         world_menu::open_for(world, thing);
                     },
@@ -909,7 +909,7 @@ const SOURCES: [(&str, &str); 10] = [
     ("skills", "Skills"),
     ("place", "Its place"),
     ("realm", "The realm"),
-    ("profiles", "Profiles it may hire"),
+    ("profiles", "Profiles it may add agents of"),
     ("errand", "Errand"),
 ];
 
@@ -1109,7 +1109,7 @@ mod tests {
         );
     }
 
-    /// The Hub on `hire#2`, with her details open.
+    /// The Hub on `agent#2`, with her details open.
     fn ada_app() -> App {
         let mut app = hub_app();
         let ada = crate::testing::seat_ada(&mut app);
@@ -1356,7 +1356,7 @@ mod tests {
             protocol::ServerMessage::State(state),
         );
         let agent =
-            hamlet_client::realm::named(app.world_mut(), "hire#3")
+            hamlet_client::realm::named(app.world_mut(), "agent#3")
                 .unwrap();
         let to = protocol::AgentId(3);
         let session = app
@@ -1371,7 +1371,7 @@ mod tests {
         let mut convo = app.world_mut().resource_mut::<Convo>();
         convo.agent = agent;
         convo.session = session;
-        convo.with = Some("hire#3".into());
+        convo.with = Some("agent#3".into());
         app.update();
     }
 
@@ -1446,8 +1446,8 @@ mod tests {
             names,
             [
                 "Session",
-                "Letters with hire#3",
-                "Questions with hire#3"
+                "Letters with agent#3",
+                "Questions with agent#3"
             ]
         );
         assert_eq!(now, 0);
@@ -1466,7 +1466,7 @@ mod tests {
             receive(
                 &mut app,
                 json!({"type":"transcript","chat":chat,"items":[
-                    {"id":"1:0","at":1,"kind":"user","text":"Question","author":"hire#3"},
+                    {"id":"1:0","at":1,"kind":"user","text":"Question","author":"agent#3"},
                     {"id":"2:0","at":2,"kind":"assistant","text":"Answer"}
                 ], "earlier":"1:0","last":null,"working":true,"pending":0,"usage":{
                     "input":0,"output":0,"cached":0,"calls":0,"lastInput":0,"reasoning":0,"unreported":0,"summary":"","micros":0,"ms":0

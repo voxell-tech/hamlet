@@ -3,11 +3,11 @@ use hamlet_git::{Author, Change as GitChange, MAIN, Repository};
 use super::{CHARACTER, branch, run};
 use crate::realm::jobs::Job;
 use crate::society::agents::EndHow;
-use crate::society::hires;
+use crate::society::hamlet_agents;
 use crate::testing::Realm;
 
 #[test]
-fn a_hire_learns_in_its_lodge_and_takes_in_its_profile() {
+fn an_agent_learns_in_its_lodge_and_takes_in_its_profile() {
     let mut realm = Realm::new();
     let layout = realm.layout();
     let lead = realm.found("docs", "ada");
@@ -54,7 +54,7 @@ fn a_hire_learns_in_its_lodge_and_takes_in_its_profile() {
     run::run(
         realm.db(),
         &layout,
-        &Job::TakeIn { hire: lead.agent },
+        &Job::TakeIn { agent: lead.agent },
         at,
     )
     .unwrap();
@@ -70,7 +70,7 @@ fn a_hire_learns_in_its_lodge_and_takes_in_its_profile() {
     );
     let main = repo.tip(MAIN).unwrap().unwrap();
     assert_eq!(
-        hires::get(realm.db(), lead.agent).unwrap().base,
+        hamlet_agents::get(realm.db(), lead.agent).unwrap().base,
         Some(main.to_string())
     );
     assert!(repo.read(main, "memory/notes.md").unwrap().is_none());
@@ -78,12 +78,12 @@ fn a_hire_learns_in_its_lodge_and_takes_in_its_profile() {
     let owner = realm.chief;
     let other = realm
         .chief(|cx| {
-            hires::hire(
+            hamlet_agents::add(
                 cx,
-                hires::Spec {
+                hamlet_agents::Spec {
                     hamlet: lead.hamlet.clone(),
                     parent: Some(lead.agent),
-                    hiring: hires::Hiring::Blank {
+                    profile: hamlet_agents::ProfileChoice::Blank {
                         name: "scout".into(),
                         character: String::new(),
                     },
@@ -97,10 +97,12 @@ fn a_hire_learns_in_its_lodge_and_takes_in_its_profile() {
     realm.work();
     realm
         .chief(|cx| {
-            hires::end(cx, other.agent, EndHow::Ended, "done")
+            hamlet_agents::end(cx, other.agent, EndHow::Ended, "done")
         })
         .unwrap();
-    realm.chief(|cx| hires::erase(cx, other.agent)).unwrap();
+    realm
+        .chief(|cx| hamlet_agents::erase(cx, other.agent))
+        .unwrap();
     realm.work();
     assert!(!layout.lodge(&other.hamlet, other.agent).exists());
     let theirs =
@@ -117,12 +119,12 @@ fn a_merge_keeps_both_sides_learning_and_a_split_takes_it_out() {
     let owner = realm.chief;
     let scout = realm
         .chief(|cx| {
-            hires::hire(
+            hamlet_agents::add(
                 cx,
-                hires::Spec {
+                hamlet_agents::Spec {
                     hamlet: docs.clone(),
                     parent: Some(lead.agent),
-                    hiring: hires::Hiring::Blank {
+                    profile: hamlet_agents::ProfileChoice::Blank {
                         name: "scout".into(),
                         character: String::new(),
                     },
@@ -161,7 +163,7 @@ fn a_merge_keeps_both_sides_learning_and_a_split_takes_it_out() {
         |path: &str| std::fs::read_to_string(kept.join(path)).ok();
     assert_eq!(read("memory/notes.md").as_deref(), Some("ada's"));
     assert_eq!(
-        read(&format!("memory/notes.md.from-hire-{}", scout.agent))
+        read(&format!("memory/notes.md.from-agent-{}", scout.agent))
             .as_deref(),
         Some("scout's"),
         "a clash is kept aside"
@@ -171,7 +173,7 @@ fn a_merge_keeps_both_sides_learning_and_a_split_takes_it_out() {
         Some("Scan.")
     );
     assert_eq!(
-        read(&format!("inbox/from-hire-{}/map.txt", scout.agent))
+        read(&format!("inbox/from-agent-{}/map.txt", scout.agent))
             .as_deref(),
         Some("a map")
     );
@@ -192,7 +194,7 @@ fn a_merge_keeps_both_sides_learning_and_a_split_takes_it_out() {
     realm.work();
     assert_eq!(read("memory/notes.md").as_deref(), Some("ada's"));
     assert_eq!(
-        read(&format!("memory/notes.md.from-hire-{}", scout.agent)),
+        read(&format!("memory/notes.md.from-agent-{}", scout.agent)),
         None
     );
     assert_eq!(read("skills/scan/SKILL.md"), None);

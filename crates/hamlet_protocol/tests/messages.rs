@@ -472,7 +472,7 @@ fn limits_wire() -> Value {
     json!({
         "budget": {"period": "day", "cost": 5.0, "minutes": null},
         "road": {"price": 0.01, "most": 24, "growsOverDays": 7},
-        "reserved": {"hire": false, "roads": true, "end": false, "merge": true},
+        "reserved": {"add": false, "roads": true, "end": false, "merge": true},
         "model": null, "toldDays": 7, "protectedMinutes": 0,
         "asking": {"review": "remote", "questions": 3, "refusals": 3}
     })
@@ -507,7 +507,7 @@ fn hand_wire() -> Value {
 
 fn agent_wire() -> Value {
     json!({
-        "id": 2, "kind": "hire", "name": "hire#2", "nickname": "Fen", "hamlet": "home", "profile": 1,
+        "id": 2, "kind": "hamlet", "name": "agent#2", "nickname": "Fen", "hamlet": "home", "profile": 1,
         "parent": 1, "pin": "v1", "purpose": "Help the chief",
         "since": 1700000000000_i64, "lead": true, "model": "faux/test",
         "ownModel": "faux/test", "effort": "xhigh", "fast": true,
@@ -523,7 +523,7 @@ fn profile_wire() -> Value {
     json!({
         "id": 1, "name": "founder", "chief": "chief", "since": 0,
         "arrival": "waiting", "arrivalBy": "chief", "house": null,
-        "skills": ["release"], "versions": [{"at": 5, "name": "v1", "note": "First"}], "hires": [2]
+        "skills": ["release"], "versions": [{"at": 5, "name": "v1", "note": "First"}], "agents": [2]
     })
 }
 
@@ -537,7 +537,7 @@ fn change_wire() -> Value {
 
 fn wait_wire() -> Value {
     json!({
-        "id": "wait-1", "by": "hire#2", "agent": 2,
+        "id": "wait-1", "by": "agent#2", "agent": 2,
         "about": "NOTES.md", "subject": "NOTES.md", "change": change_wire(),
         "answers": ["allow", "always", "deny", "go", "withdraw", "reply", "dismiss"],
         "since": 1700000000000_u64, "asked": 1, "chat": {"with": 2},
@@ -547,7 +547,7 @@ fn wait_wire() -> Value {
 
 fn grants_wire() -> Value {
     json!([
-        {"agent": 2, "name": "hire#2", "permission": "network", "by": "chief", "source": "grant"},
+        {"agent": 2, "name": "agent#2", "permission": "network", "by": "chief", "source": "grant"},
         {"agent": null, "name": "all", "permission": "unconfined", "by": null, "source": "limits"}
     ])
 }
@@ -600,10 +600,10 @@ fn state_and_every_update_keep_the_servers_ready_made_values() {
     };
     assert_eq!(state.hand, AgentId(1));
     assert_eq!(state.agents[0].kind, AgentKind::Hand);
-    assert_eq!(state.agents[1].name, "hire#2");
+    assert_eq!(state.agents[1].name, "agent#2");
     assert_eq!(state.agents[1].activity.doing, Doing::ReadFile);
     assert_eq!(state.hamlets[0].lead, AgentId(2));
-    assert_eq!(state.profiles[0].hires, [AgentId(2)]);
+    assert_eq!(state.profiles[0].agents, [AgentId(2)]);
     assert_eq!(
         state.hamlets[0].budget.remains.as_deref(),
         Some("$3.75 left")

@@ -94,7 +94,7 @@ fn recorded_approvals_join_the_founders_needs_until_closed() {
         "../../hamlet_protocol/frames/approval.jsonl"
     )) {
         receive(world, message);
-        let Some(founder) = named(world, "hire#2") else {
+        let Some(founder) = named(world, "agent#2") else {
             continue;
         };
         let open = world
@@ -174,8 +174,8 @@ fn snapshots_reconcile_by_identity_across_epochs_and_changes_only_advance_the_se
     first.agents.push(agent(3, "other", true));
     first.waits = vec![wait("kept"), wait("gone")];
     receive(world, protocol::ServerMessage::State(first.clone()));
-    let founder = named(world, "hire#2").unwrap();
-    let scout = named(world, "hire#3").unwrap();
+    let founder = named(world, "agent#2").unwrap();
+    let scout = named(world, "agent#3").unwrap();
     let home = world.get::<LivesIn>(founder).unwrap().0;
     let other = world.get::<LivesIn>(scout).unwrap().0;
     let wait_ids = world

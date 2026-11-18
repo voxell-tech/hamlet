@@ -58,7 +58,7 @@ integer_id!(
     ProfileId
 );
 integer_id!(
-    /// A row of `agent`: the Hand, a hire or a worker.
+    /// A row of `agent`: the Hand, an agent of a hamlet or a worker.
     AgentId
 );
 integer_id!(
@@ -82,7 +82,7 @@ integer_id!(
     JobId
 );
 integer_id!(
-    /// A row of `hire_merge`.
+    /// A row of `agent_merge`.
     MergeId
 );
 integer_id!(

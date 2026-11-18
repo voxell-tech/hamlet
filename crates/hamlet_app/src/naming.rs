@@ -70,7 +70,7 @@ pub(crate) fn plugin(app: &mut App) {
 /// What is renamed, and the command that renames it.
 enum Named {
     Hamlet(String),
-    /// A hire or a worker, by its address.
+    /// An agent or a worker, by its address.
     Agent(String),
     Profile(protocol::ProfileId),
 }
@@ -100,7 +100,7 @@ pub(crate) fn may_rename(world: &World, named: Entity) -> bool {
     self::named(world, named).is_some()
 }
 
-/// Gives `named` the name `typed`. A hire or a worker left with no
+/// Gives `named` the name `typed`. An agent or a worker left with no
 /// name goes by its own again; a hamlet or a profile needs one.
 fn commit(world: &mut World, named: Entity, typed: &str) {
     let typed = typed.trim();

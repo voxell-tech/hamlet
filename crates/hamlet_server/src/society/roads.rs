@@ -15,7 +15,7 @@ use strum::{Display, EnumString, IntoStaticStr};
 
 use super::addresses::name_of;
 use super::agents::{self, AgentKind};
-use super::hires::{self, Hire};
+use super::hamlet_agents::{self, HamletAgent};
 use super::record::{self, Decision, DecisionKind};
 use super::refusal::Refusal;
 use super::{hamlets, limits, tree};
@@ -40,9 +40,9 @@ use crate::realm::change::{Change, Done, done, refuse};
 #[strum(serialize_all = "kebab-case")]
 #[diesel(sql_type = Text)]
 pub(crate) enum RoadKind {
-    /// Between two hires of a hamlet.
+    /// Between two agents of a hamlet.
     Laid,
-    /// Between hires of two hamlets, once both leads agreed.
+    /// Between agents of two hamlets, once both leads agreed.
     Agreed,
 }
 hamlet_store::named_text!(RoadKind);
@@ -88,18 +88,21 @@ pub(crate) fn way(
         return Ok(None);
     }
     match (one.kind, other.kind) {
-        (AgentKind::Hand, AgentKind::Hire)
-        | (AgentKind::Hire, AgentKind::Hand) => {
-            let hire = if one.kind == AgentKind::Hire {
+        (AgentKind::Hand, AgentKind::Hamlet)
+        | (AgentKind::Hamlet, AgentKind::Hand) => {
+            let agent = if one.kind == AgentKind::Hamlet {
                 from
             } else {
                 to
             };
-            let hire = hires::get(db, hire)?;
-            Ok(is_lead(db, &hire)?.then_some(Way::Tree))
+            let agent = hamlet_agents::get(db, agent)?;
+            Ok(is_lead(db, &agent)?.then_some(Way::Tree))
         }
-        (AgentKind::Hire, AgentKind::Hire) => {
-            let (a, b) = (hires::get(db, from)?, hires::get(db, to)?);
+        (AgentKind::Hamlet, AgentKind::Hamlet) => {
+            let (a, b) = (
+                hamlet_agents::get(db, from)?,
+                hamlet_agents::get(db, to)?,
+            );
             if a.parent == Some(to) || b.parent == Some(from) {
                 return Ok(Some(Way::Tree));
             }
@@ -120,10 +123,10 @@ pub(crate) fn way(
     }
 }
 
-fn is_lead(db: &mut Db, hire: &Hire) -> Result<bool> {
-    Ok(hire.parent.is_none()
-        && hamlets::get(db, &hire.hamlet)?.is_living()
-        && tree::lead(db, &hire.hamlet)? == hire.agent)
+fn is_lead(db: &mut Db, agent: &HamletAgent) -> Result<bool> {
+    Ok(agent.parent.is_none()
+        && hamlets::get(db, &agent.hamlet)?.is_living()
+        && tree::lead(db, &agent.hamlet)? == agent.agent)
 }
 
 /// Every agent `id` reaches, and how.
@@ -142,16 +145,16 @@ pub(crate) fn ways(
                 out.push((lead, Way::Tree));
             }
         }
-        AgentKind::Hire => {
-            let hire = hires::get(db, id)?;
-            match hire.parent {
+        AgentKind::Hamlet => {
+            let agent = hamlet_agents::get(db, id)?;
+            match agent.parent {
                 Some(parent) => out.push((parent, Way::Tree)),
                 None => out.push((super::hand::id(db)?, Way::Tree)),
             }
             for child in tree::children(db, Some(id))? {
                 out.push((child, Way::Tree));
             }
-            if hire.parent.is_none() {
+            if agent.parent.is_none() {
                 for lead in tree::children(db, None)? {
                     if lead != id {
                         out.push((lead, Way::Leads));
@@ -197,9 +200,9 @@ pub(crate) fn laid_in(
     db: &mut Db,
     hamlet: &HamletId,
 ) -> Result<Vec<Road>> {
-    let living = hires::living_in(db, hamlet)?
+    let living = hamlet_agents::living_in(db, hamlet)?
         .into_iter()
-        .map(|hire| hire.agent)
+        .map(|agent| agent.agent)
         .collect::<Vec<_>>();
     Ok(road::table
         .filter(road::kind.eq(RoadKind::Laid))
@@ -209,8 +212,8 @@ pub(crate) fn laid_in(
         .load(db)?)
 }
 
-/// Lays a road between two living hires of one hamlet, charged to the
-/// hamlet and to `task` (H3).
+/// Lays a road between two living agents of one hamlet, charged to
+/// the hamlet and to `task` (H3).
 pub(crate) fn lay(
     cx: &mut Change<'_>,
     a: AgentId,
@@ -221,13 +224,14 @@ pub(crate) fn lay(
     if a == b {
         refuse!(Refusal::SameEnds);
     }
-    let (Some(one), Some(other)) =
-        (hires::find(cx.db, a)?, hires::find(cx.db, b)?)
-    else {
+    let (Some(one), Some(other)) = (
+        hamlet_agents::find(cx.db, a)?,
+        hamlet_agents::find(cx.db, b)?,
+    ) else {
         refuse!(Refusal::RoadEnds);
     };
     for id in [a, b] {
-        done!(hires::require_living(cx.db, id));
+        done!(hamlet_agents::require_living(cx.db, id));
     }
     if one.hamlet != other.hamlet {
         refuse!(Refusal::OtherHamlet {
@@ -331,7 +335,7 @@ pub(crate) fn take_up(
             road::up_reason.eq(reason),
         ))
         .execute(cx.db)?;
-    let hamlet = hires::get(cx.db, a)?.hamlet;
+    let hamlet = hamlet_agents::get(cx.db, a)?.hamlet;
     record::keep(
         cx,
         Decision::new(DecisionKind::Unroad, reason)
@@ -351,7 +355,7 @@ pub(crate) enum Agreed {
     Laid(RoadId),
 }
 
-/// Keeps the agreement of `lead` to a road between hires `a` and `b`
+/// Keeps the agreement of `lead` to a road between agents `a` and `b`
 /// of different hamlets, one of them its own, and lays the road once
 /// the other hamlet's lead agreed too (H14).
 pub(crate) fn agree(
@@ -365,18 +369,19 @@ pub(crate) fn agree(
     if !limits::realm(cx.db)?.roads_between {
         refuse!(Refusal::NoRoadsBetween);
     }
-    let (Some(one), Some(other)) =
-        (hires::find(cx.db, a)?, hires::find(cx.db, b)?)
-    else {
+    let (Some(one), Some(other)) = (
+        hamlet_agents::find(cx.db, a)?,
+        hamlet_agents::find(cx.db, b)?,
+    ) else {
         refuse!(Refusal::RoadEnds);
     };
     for id in [a, b] {
-        done!(hires::require_living(cx.db, id));
+        done!(hamlet_agents::require_living(cx.db, id));
     }
     if one.hamlet == other.hamlet {
         refuse!(Refusal::SameHamlet);
     }
-    let Some(own) = hires::find(cx.db, lead)?.filter(|m| {
+    let Some(own) = hamlet_agents::find(cx.db, lead)?.filter(|m| {
         m.hamlet == one.hamlet || m.hamlet == other.hamlet
     }) else {
         refuse!(Refusal::NotLead);

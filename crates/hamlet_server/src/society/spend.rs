@@ -15,7 +15,7 @@ use hamlet_store::schema::{
 use crate::app::clock;
 use crate::society::agents::AgentKind;
 use crate::society::limits::{self, Budget, Micros, Period};
-use crate::society::{agents, hires, tree, workers};
+use crate::society::{agents, hamlet_agents, tree, workers};
 
 /// Spend in money, model time and tokens.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
@@ -248,9 +248,9 @@ pub(crate) fn stopped(
         let mut under = tree::under(db, holder)?;
         under.push(holder);
         let mut ids = under.clone();
-        for hire in &under {
+        for each in &under {
             ids.extend(
-                workers::of_agent(db, *hire)?.iter().map(|w| w.agent),
+                workers::of_agent(db, *each)?.iter().map(|w| w.agent),
             );
         }
         let spent = of_agents(db, &ids, start)?;
@@ -279,17 +279,17 @@ fn allowances(
             None => return Ok(Vec::new()),
         },
         AgentKind::Hand => return Ok(Vec::new()),
-        AgentKind::Hire => agent,
+        AgentKind::Hamlet => agent,
     };
     let mut out = Vec::new();
     loop {
-        let Some(hire) = hires::find(db, at)? else {
+        let Some(found) = hamlet_agents::find(db, at)? else {
             break;
         };
-        if let Some(allowance) = hire.allowance {
+        if let Some(allowance) = found.allowance {
             out.push((at, allowance));
         }
-        match hire.parent {
+        match found.parent {
             Some(parent) => at = parent,
             None => break,
         }

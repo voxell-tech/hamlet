@@ -100,11 +100,11 @@ async fn a_letter_copies_the_files_it_names_into_the_receivers_inbox()
                     ),
                     call(
                         "tell",
-                        json!({"to": "hire#3", "text": "See attached.", "paths": ["out"]}),
+                        json!({"to": "agent#3", "text": "See attached.", "paths": ["out"]}),
                     ),
                     call(
                         "tell",
-                        json!({"to": "hire#3", "text": "Escape.", "paths": [secret]}),
+                        json!({"to": "agent#3", "text": "Escape.", "paths": [secret]}),
                     ),
                     words("Sent."),
                 ],
@@ -114,14 +114,14 @@ async fn a_letter_copies_the_files_it_names_into_the_receivers_inbox()
     )
     .await;
     let ada = s.found("docs", "ada", "keep the docs").await;
-    let cy = s.hire(ada, "cy", "dig").await;
+    let cy = s.add_agent(ada, "cy", "dig").await;
     let now = chat(ada);
     s.chief.open(&now).await;
 
     s.chief.tell(ada, "Send cy the report.").await;
     s.chief.shows(&now, "Sent.").await;
     let inbox = s.home.file(&format!(
-        "hamlets/{}/3/inbox/from-hire-2",
+        "hamlets/{}/3/inbox/from-agent-2",
         s.chief.hamlet_id("docs")
     ));
     assert_eq!(
@@ -160,12 +160,12 @@ async fn a_letter_over_the_cap_waits_for_a_chief_and_a_refusal_is_told()
                     call("bash", json!({"command": make})),
                     call(
                         "tell",
-                        json!({"to": "hire#3", "text": "Everything.", "paths": ["big"]}),
+                        json!({"to": "agent#3", "text": "Everything.", "paths": ["big"]}),
                     ),
                     words("Sent."),
                     call(
                         "tell",
-                        json!({"to": "hire#3", "text": "Again.", "paths": ["big"]}),
+                        json!({"to": "agent#3", "text": "Again.", "paths": ["big"]}),
                     ),
                     words("Refused."),
                 ],
@@ -174,11 +174,11 @@ async fn a_letter_over_the_cap_waits_for_a_chief_and_a_refusal_is_told()
     )
     .await;
     let ada = s.found("docs", "ada", "keep the docs").await;
-    s.hire(ada, "cy", "dig").await;
+    s.add_agent(ada, "cy", "dig").await;
     let now = chat(ada);
     s.chief.open(&now).await;
     let inbox = format!(
-        "hamlets/{}/3/inbox/from-hire-2/big",
+        "hamlets/{}/3/inbox/from-agent-2/big",
         s.chief.hamlet_id("docs")
     );
 

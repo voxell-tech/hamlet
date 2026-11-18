@@ -21,7 +21,7 @@ pub(crate) fn make(
     diesel::insert_into(hand::table)
         .values((hand::agent.eq(agent), hand::profile.eq(profile)))
         .execute(cx.db)?;
-    jobs::add(cx, &Job::Lodge { hire: agent })?;
+    jobs::add(cx, &Job::Lodge { agent })?;
     Ok(agent)
 }
 

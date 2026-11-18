@@ -8,7 +8,7 @@ use hamlet_store::ids::{AgentId, ChiefId, HamletId};
 use hamlet_store::schema::{agent, worker};
 
 use super::agents::{self, AgentKind, EndHow};
-use super::hires;
+use super::hamlet_agents;
 use super::refusal::Refusal;
 use crate::realm::change::{Change, Done, done, refuse};
 
@@ -70,13 +70,13 @@ pub(crate) fn start(
         Starter::Agent(starter) => {
             let found = agents::get(cx.db, starter)?;
             if !found.is_living() {
-                refuse!(hires::left(cx.db, starter)?);
+                refuse!(hamlet_agents::left(cx.db, starter)?);
             }
             match found.kind {
                 AgentKind::Worker => refuse!(Refusal::Worker),
                 AgentKind::Hand => None,
-                AgentKind::Hire => {
-                    Some(hires::get(cx.db, starter)?.hamlet)
+                AgentKind::Hamlet => {
+                    Some(hamlet_agents::get(cx.db, starter)?.hamlet)
                 }
             }
         }
@@ -131,8 +131,8 @@ pub(crate) fn set_nickname(
     nickname: Option<&str>,
 ) -> Done<()> {
     get(cx.db, id)?;
-    done!(hires::require_living(cx.db, id));
-    let nickname = match hires::check_nickname(nickname) {
+    done!(hamlet_agents::require_living(cx.db, id));
+    let nickname = match hamlet_agents::check_nickname(nickname) {
         Ok(nickname) => nickname,
         Err(refusal) => refuse!(refusal),
     };

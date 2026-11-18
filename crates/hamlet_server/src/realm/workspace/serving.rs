@@ -27,7 +27,7 @@ use crate::knowledge::worker::RepositoryWriteLock;
 use crate::realm::Realm;
 use crate::realm::jobs::Job;
 use crate::society::refusal::Refusal;
-use crate::society::{agents, hamlets, hires};
+use crate::society::{agents, hamlet_agents, hamlets};
 use crate::tools::builtin::Network;
 use crate::tools::hamlet_of;
 
@@ -229,7 +229,7 @@ impl Core<'_, '_> {
         let mut lodged = vec![crate::society::hand::id(db)?];
         lodged.extend(agents::living(db)?.into_iter().filter(
             |agent| {
-                hires::find(db, *agent)
+                hamlet_agents::find(db, *agent)
                     .is_ok_and(|found| found.is_some())
             },
         ));

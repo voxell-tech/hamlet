@@ -26,7 +26,7 @@ use crate::core::{Core, Live};
 use crate::realm::change::Done;
 use crate::society::agents::{self, AgentKind, Effort};
 use crate::society::refusal::Refusal;
-use crate::society::{authority, hires, workers};
+use crate::society::{authority, hamlet_agents, workers};
 
 /// The most transcript entries one page holds.
 const PAGE: usize = 100;
@@ -353,8 +353,8 @@ impl Core<'_, '_> {
     }
 
     /// Refuses unless this server's chief may reach `agent` (C7): the
-    /// Hand, a hire of one of its hamlets, or a worker started by it
-    /// or in its hamlets.
+    /// Hand, an agent of one of its hamlets, or a worker started by
+    /// it or in its hamlets.
     pub(crate) fn reaches(&mut self, agent: AgentId) -> Done<()> {
         let chief = self.realm.chief();
         let db = self.realm.store().connection();
@@ -365,9 +365,9 @@ impl Core<'_, '_> {
         };
         let allowed = match found.kind {
             AgentKind::Hand => true,
-            AgentKind::Hire => {
-                let hire = hires::get(db, agent)?;
-                authority::is_chief_of(db, chief, &hire.hamlet)?
+            AgentKind::Hamlet => {
+                let hamlet = hamlet_agents::get(db, agent)?.hamlet;
+                authority::is_chief_of(db, chief, &hamlet)?
             }
             AgentKind::Worker => {
                 let worker = workers::get(db, agent)?;

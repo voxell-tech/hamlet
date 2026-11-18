@@ -48,24 +48,24 @@ jobs! {
         character: String,
         fork: Option<Fork>,
     },
-    /// Starts a hire's branch when it has none, and checks out its
+    /// Starts an agent's branch when it has none, and checks out its
     /// lodge.
-    Lodge("lodge") { hire: AgentId },
-    /// Commits a hire's lodge to its branch.
-    Commit("commit") { hire: AgentId },
-    /// Takes `main`, or the hire's pin, into an idle hire's branch
+    Lodge("lodge") { agent: AgentId },
+    /// Commits an agent's lodge to its branch.
+    Commit("commit") { agent: AgentId },
+    /// Takes `main`, or the agent's pin, into an idle agent's branch
     /// and its lodge.
-    TakeIn("take-in") { hire: AgentId },
-    /// Deletes an erased hire's lodge and branch.
-    EraseHire("erase-hire") { hire: AgentId },
+    TakeIn("take-in") { agent: AgentId },
+    /// Deletes an erased agent's lodge and branch.
+    EraseAgent("erase-agent") { agent: AgentId },
     /// Deletes an erased profile's repository.
     EraseProfile("erase-profile") { profile: ProfileId },
     /// Deletes the folder of an erased hamlet's lodges.
     EraseHamlet("erase-hamlet") { hamlet: HamletId },
-    /// Brings what a merged hire learned into the kept hire's branch
-    /// and lodge, with its inbox.
+    /// Brings what a merged agent learned into the kept agent's
+    /// branch and lodge, with its inbox.
     Merge("merge") { merge: MergeId },
-    /// Undoes a merge's commit on the kept hire's branch.
+    /// Undoes a merge's commit on the kept agent's branch.
     Split("split") { merge: MergeId },
     /// Puts a skill the librarian took on the shelves, and takes it
     /// out of the lodge it was offered from.
@@ -92,10 +92,10 @@ impl Job {
         let of = match self {
             Self::Plant { profile, .. }
             | Self::EraseProfile { profile } => profile.to_string(),
-            Self::Lodge { hire }
-            | Self::Commit { hire }
-            | Self::TakeIn { hire }
-            | Self::EraseHire { hire } => hire.to_string(),
+            Self::Lodge { agent }
+            | Self::Commit { agent }
+            | Self::TakeIn { agent }
+            | Self::EraseAgent { agent } => agent.to_string(),
             Self::EraseHamlet { hamlet } => hamlet.to_string(),
             Self::Merge { merge } | Self::Split { merge } => {
                 merge.to_string()
@@ -110,8 +110,8 @@ impl Job {
     /// each must be sent.
     pub fn lodges(&self, db: &mut Db) -> Vec<AgentId> {
         match self {
-            Self::Lodge { hire } | Self::TakeIn { hire } => {
-                vec![*hire]
+            Self::Lodge { agent } | Self::TakeIn { agent } => {
+                vec![*agent]
             }
             Self::Merge { merge } | Self::Split { merge } => {
                 crate::society::merges::get(db, *merge)
@@ -121,7 +121,7 @@ impl Job {
             Self::DreamEnd { dream, .. } => {
                 crate::society::dreams::get(db, *dream)
                     .ok()
-                    .and_then(|found| found.hire)
+                    .and_then(|found| found.agent)
                     .into_iter()
                     .collect()
             }
@@ -134,7 +134,7 @@ impl Job {
             // change no living lodge.
             Self::Commit { .. }
             | Self::Plant { .. }
-            | Self::EraseHire { .. }
+            | Self::EraseAgent { .. }
             | Self::EraseProfile { .. }
             | Self::EraseHamlet { .. } => Vec::new(),
         }
