@@ -26,8 +26,8 @@ use hamlet_messages::workspace::{
 };
 
 use super::{
-    Callee, MAYOR, Realm, THREE, charge, hamlet_with, hire,
-    made_until, may_spend, standing, tell, to, tool, until,
+    Callee, MAYOR, Realm, THREE, charge, error_code, hamlet_with,
+    hire, made_until, may_spend, standing, tell, to, tool, until,
 };
 
 fn errand(n: u32) -> AgentNumber {
@@ -326,13 +326,21 @@ async fn an_errand_done_twice_ends_once() {
         )
         .await
         .unwrap();
-    let by_a_hire = realm.tool(MAYOR, &done(pass())).await;
 
     assert_eq!(
         outcome(&realm, 0).await,
         (Some("answered".to_owned()), Some("PASS".to_owned()))
     );
-    assert!(by_a_hire.is_err(), "only an errand ends an errand");
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn an_errand_done_from_an_agent_that_is_no_errand_is_refused_as_a_wrong_caller()
+ {
+    let (realm, _) = hamlet_with(0).await;
+
+    let by_a_hire = realm.tool(MAYOR, &answered()).await;
+
+    assert_eq!(error_code(by_a_hire), "message.wrong_caller");
 }
 
 #[tokio::test(flavor = "multi_thread")]
@@ -410,6 +418,21 @@ async fn an_ended_errand_spends_no_more() {
             })
         }
     );
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn an_errand_reads_its_copies_until_it_is_done() {
+    let (realm, _) = hamlet_with(0).await;
+    let task = standing(&realm, MAYOR);
+    seed(&realm, 0, &task, 1_000).await;
+    made_until(&realm, errand(0)).await;
+
+    let living = realm.tool(errand(0), &ReadCopies::default()).await;
+    realm.tool(errand(0), &answered()).await.unwrap();
+    let ended = realm.tool(errand(0), &ReadCopies::default()).await;
+
+    assert!(living.is_ok(), "{living:?}");
+    assert_eq!(error_code(ended), "message.wrong_caller");
 }
 
 #[tokio::test(flavor = "multi_thread")]

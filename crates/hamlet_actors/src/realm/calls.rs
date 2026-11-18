@@ -12,18 +12,18 @@ use hamlet_messages::realm::world::WaitId;
 use hamlet_messages::workspace::AgentNumber;
 use serde::{Deserialize, Serialize};
 
-use super::change::Affected;
-use super::lanes::Queued;
+use super::change::{Affected, Rows};
+use super::lanes::{self, Queued};
 use super::oversight::asking;
-use super::peer::When;
+use super::peer::{self, When};
 use super::tasks::TaskId;
 use super::{
-    Realm, documents, letters, place, reach, reviews, steps, waits,
-    workers,
+    Realm, documents, letters, place, reach, reviews, steps, tree,
+    waits, workers,
 };
 
 /// A call that carries an act's content.
-#[derive(Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 pub(super) enum Delivery {
     /// An input carried whole: a chief's line, or a notice with no
     /// row of its own.
@@ -46,6 +46,17 @@ pub(super) enum Delivery {
     Held(TaskId),
     /// The line a review kept on the task `0`, to its hire.
     Kept(TaskId),
+    /// The notice that tells a parcel's sender why it was not sent.
+    ParcelRefused { to: AgentNumber, submit: Submit },
+}
+
+impl Delivery {
+    /// Whether the realm makes it again after a failure in passing:
+    /// the chief was told its line was taken, or the sender its
+    /// parcel was sent, so no repeat of theirs carries it.
+    fn owed(&self) -> bool {
+        matches!(self, Self::Kept(_) | Self::ParcelRefused { .. })
+    }
 }
 
 #[derive(Debug, Default, PartialEq)]
@@ -138,19 +149,6 @@ pub(super) async fn deliver_all(
     }
 }
 
-/// [`deliver_all`] after an answer, as a task's future. Its type is
-/// named, so a commit that sets it off may be made by a delivery.
-pub(super) fn deliver_later(
-    realm: Arc<Realm>,
-    ctx: Ctx<Realm>,
-    deliveries: Vec<Queued>,
-) -> BoxFuture<'static, ()> {
-    Box::pin(async move {
-        deliver_all(&realm, &ctx, deliveries, When::AfterAnswer)
-            .await;
-    })
-}
-
 async fn deliver(
     realm: &Arc<Realm>,
     ctx: &Ctx<Realm>,
@@ -158,9 +156,50 @@ async fn deliver(
     when: When,
 ) -> Result<()> {
     turn.come().await;
+    let owed = delivery.owed().then(|| delivery.clone());
+    let delivered = make(realm, ctx, delivery, when).await;
+    if let (Err(error), Some(owed)) = (&delivered, owed)
+        && !peer::refused(error)
+    {
+        ctx.register_task(again(realm.clone(), ctx.clone(), owed));
+    }
+    delivered
+}
+
+/// Makes `delivery`, which failed in passing, again on the steps'
+/// schedule until it is taken, its callee refuses it, its receiver
+/// has left or the realm stops. An agent takes a repeated input once.
+async fn again(
+    realm: Arc<Realm>,
+    ctx: Ctx<Realm>,
+    delivery: Delivery,
+) {
+    let (realm, ctx) = (&realm, &ctx);
+    steps::retried(ctx, Some(steps::FIRST_RETRY), move || {
+        let delivery = delivery.clone();
+        async move {
+            let rows = Rows::outside(ctx)?;
+            for agent in lanes::receivers(&rows, &delivery).await? {
+                if tree::left(&rows, agent).await?.is_some() {
+                    return Ok(());
+                }
+            }
+            make(realm, ctx, delivery, When::AfterAnswer).await
+        }
+    })
+    .await;
+}
+
+async fn make(
+    realm: &Arc<Realm>,
+    ctx: &Ctx<Realm>,
+    delivery: Delivery,
+    when: When,
+) -> Result<()> {
     let shown = format!("{delivery:?}");
     let delivered = match delivery {
-        Delivery::Line { to, submit } => {
+        Delivery::Line { to, submit }
+        | Delivery::ParcelRefused { to, submit } => {
             realm.peers.call(&Agent(to), &submit, when).await
         }
         Delivery::Letter(_) | Delivery::Answer(_) => {
@@ -207,16 +246,20 @@ async fn push(
     }
 }
 
-/// The work after an answer: the pushes in their order, then the
-/// deliveries.
-pub(super) async fn after_answer(
+/// The work after an answer, as a task's future: the pushes in their
+/// order, then the deliveries. Its type is named, so a commit that
+/// sets it off may be made by a delivery.
+pub(super) fn after_answer(
     realm: Arc<Realm>,
     ctx: Ctx<Realm>,
     deliveries: Vec<Queued>,
     pushes: Vec<Push>,
-) {
-    push_all(&realm, &ctx, pushes).await;
-    deliver_all(&realm, &ctx, deliveries, When::AfterAnswer).await;
+) -> BoxFuture<'static, ()> {
+    Box::pin(async move {
+        push_all(&realm, &ctx, pushes).await;
+        deliver_all(&realm, &ctx, deliveries, When::AfterAnswer)
+            .await;
+    })
 }
 
 pub(super) async fn push_all(

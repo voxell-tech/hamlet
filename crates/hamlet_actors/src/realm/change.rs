@@ -477,10 +477,11 @@ impl Transaction {
         let (pushes, lined) =
             self.commit_lined(realm, write, Calls::none()).await?;
         if !lined.after_answer.is_empty() {
-            ctx.register_task(calls::deliver_later(
+            ctx.register_task(calls::after_answer(
                 realm.clone(),
                 ctx.clone(),
                 lined.after_answer,
+                Vec::new(),
             ));
         }
         Ok(pushes)

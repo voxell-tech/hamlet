@@ -231,7 +231,7 @@ impl Cx<'_> {
 
 /// The first wait before a step that failed in passing is run again,
 /// doubled after each failure up to [`LAST_RETRY`].
-const FIRST_RETRY: Duration = Duration::from_secs(1);
+pub(super) const FIRST_RETRY: Duration = Duration::from_secs(1);
 
 const LAST_RETRY: Duration = Duration::from_secs(60);
 
@@ -239,27 +239,52 @@ const LAST_RETRY: Duration = Duration::from_secs(60);
 /// again while the realm runs; one that fails for good ends its row
 /// as a failure of its kind.
 async fn drive(realm: Arc<Realm>, ctx: Ctx<Realm>, row: StepId) {
-    let mut retry = FIRST_RETRY;
+    let (realm, ctx) = (&realm, &ctx);
+    let walked = retried(ctx, None, move || async move {
+        let walked = walk_row(realm, ctx, row).await;
+        if let Err(error) = &walked {
+            tracing::warn!(?row, "a step failed: {error:#}");
+        }
+        walked
+    })
+    .await;
+    if walked.is_some()
+        && let Err(error) = end_failed(realm, ctx, row).await
+    {
+        tracing::warn!(?row, "ending a failed row: {error:#}");
+    }
+}
+
+/// Runs `attempt`, after `wait` when one is given, and again after
+/// each failure in passing, waiting [`FIRST_RETRY`] doubled after
+/// each up to [`LAST_RETRY`], until it is done or the realm stops.
+/// Returns the failure that is the callee's own, which ends it.
+pub(super) async fn retried<F>(
+    ctx: &Ctx<Realm>,
+    mut wait: Option<Duration>,
+    mut attempt: impl FnMut() -> F,
+) -> Option<anyhow::Error>
+where
+    F: Future<Output = Result<()>>,
+{
+    let stopping = ctx.abort_signal();
     loop {
-        let Err(error) = walk_row(&realm, &ctx, row).await else {
-            return;
-        };
-        tracing::warn!(?row, "a step failed: {error:#}");
-        if peer::refused(&error) {
-            if let Err(error) = end_failed(&realm, &ctx, row).await {
-                tracing::warn!(
-                    ?row,
-                    "ending a failed row: {error:#}"
-                );
+        if let Some(wait) = wait {
+            tokio::select! {
+                () = stopping.cancelled() => return None,
+                () = tokio::time::sleep(wait) => {}
             }
-            return;
         }
-        let stopping = ctx.abort_signal();
-        tokio::select! {
-            () = stopping.cancelled() => return,
-            () = tokio::time::sleep(retry) => {}
+        let Err(error) = attempt().await else {
+            return None;
+        };
+        if peer::refused(&error) {
+            return Some(error);
         }
-        retry = (retry * 2).min(LAST_RETRY);
+        wait =
+            Some(wait.map_or(FIRST_RETRY, |wait| {
+                (wait * 2).min(LAST_RETRY)
+            }));
     }
 }
 
@@ -286,7 +311,7 @@ async fn end_failed(
             (errands::failed(&rows, row.n).await?, Calls::none())
         }
         Kind::Review => (reviews::failed(row.n)?, Calls::none()),
-        Kind::Parcel => (parcels::failed(row.n)?, Calls::none()),
+        Kind::Parcel => parcels::failed(&rows, row.n).await?,
     };
     if changes.is_empty() {
         return Ok(());
