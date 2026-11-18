@@ -30,8 +30,8 @@ and open-source forever.
   A hire works on a branch of its own, and what it learns is merged into
   its scholar's `main`. Tag versions, pin a hire to one, revert or fork a
   scholar.
-- **Hamlets that run themselves**: A hamlet's mayor hires, leads and lays
-  the roads its agents' letters and questions travel along. Leads review
+- **Hamlets that run themselves**: A hamlet's lead hires, directs and lays
+  the roads its agents' letters and questions travel along. Parents review
   their hires' work.
 - **Agents that grow**: An agent starts with a sandboxed shell, a file
   editor and its memory, and writes its own skills. A librarian shelves
@@ -59,7 +59,7 @@ Hamlet's words in one minute:
 | **Hand** | Your own agent, always there, above every hamlet. |
 | **Scholar** | Who an agent is: a git repository of its character, memory and skills. |
 | **Hamlet** | Hires of scholars with a budget and, optionally, a folder to work in. |
-| **Mayor** | The hire that leads a hamlet. |
+| **Lead** | The hire that leads a hamlet. |
 | **Road** | A path between two agents that their letters travel along. |
 
 The shortest path to seeing it work:

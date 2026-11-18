@@ -1,4 +1,4 @@
-//! The Hand: the realm's own agent, above every mayor.
+//! The Hand: the realm's own agent, above every lead.
 
 use anyhow::Result;
 use diesel::prelude::*;

@@ -40,7 +40,7 @@ fn name(world: &World, agent: Entity) -> Option<String> {
         .map(|name| name.as_str().to_string())
 }
 
-/// A chief's command sent to the mayor of `agent`'s hamlet, or to the
+/// A chief's command sent to the lead of `agent`'s hamlet, or to the
 /// Hand when it has none.
 pub fn decree(world: &mut World, agent: Entity, text: String) {
     let hamlet = agents::hamlet_of(world, agent).map(str::to_owned);

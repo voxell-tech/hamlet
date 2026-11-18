@@ -6,7 +6,7 @@ use std::path::{Path, PathBuf};
 
 use anyhow::{Context, Result, bail};
 use hamlet_protocol::client::{transcript, *};
-use hamlet_protocol::{HAND, MAYOR};
+use hamlet_protocol::{HAND, LEAD};
 use tokio::io::{AsyncBufReadExt, BufReader};
 
 use crate::client::{self, Client, ServerAddress};
@@ -21,17 +21,14 @@ fn chat_ref(with: AgentId) -> ChatRef {
     }
 }
 
-/// The living agent `to` addresses: `hand`, `mayor@<hamlet>`,
+/// The living agent `to` addresses: `hand`, `lead@<hamlet>`,
 /// `hire#<id>` or `worker#<id>`.
 pub(crate) fn resolve(state: &State, to: &str) -> Result<AgentId> {
     if to == HAND {
         return Ok(state.hand);
     }
-    anyhow::ensure!(
-        to != MAYOR,
-        "mayor needs a hamlet: mayor@<hamlet>"
-    );
-    if let Some(hamlet) = to.strip_prefix("mayor@") {
+    anyhow::ensure!(to != LEAD, "lead needs a hamlet: lead@<hamlet>");
+    if let Some(hamlet) = to.strip_prefix("lead@") {
         let found = state
             .hamlets
             .iter()
@@ -39,7 +36,7 @@ pub(crate) fn resolve(state: &State, to: &str) -> Result<AgentId> {
             .with_context(|| {
                 format!("no hamlet has the id `{hamlet}`")
             })?;
-        return Ok(found.mayor);
+        return Ok(found.lead);
     }
     state
         .agents
@@ -52,7 +49,7 @@ pub(crate) fn resolve(state: &State, to: &str) -> Result<AgentId> {
         .map(|agent| agent.id)
         .with_context(|| {
             format!(
-                "no agent is at `{to}`; use hand, mayor@<hamlet>, \
+                "no agent is at `{to}`; use hand, lead@<hamlet>, \
                  hire#<id> or worker#<id>"
             )
         })
@@ -250,7 +247,7 @@ impl Session {
                 }
                 let whom = match command {
                     "/agent" => "agent ",
-                    "/hamlet" => "mayor of ",
+                    "/hamlet" => "lead of ",
                     _ => "",
                 };
                 let name =
@@ -500,7 +497,7 @@ fn switch(
         .iter()
         .find(|h| h.id == name || h.name == name)
         .with_context(|| format!("no hamlet named `{name}`"))?;
-    Ok(hamlet.mayor)
+    Ok(hamlet.lead)
 }
 
 fn prompt(screen: &mut Screen, interactive: bool) -> Result<()> {

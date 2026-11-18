@@ -1,5 +1,5 @@
 //! What agents do in the society with their tools: the Hand's and a
-//! lead's, letters and questions, workers, and the acts a chief
+//! parent's, letters and questions, workers, and the acts a chief
 //! keeps for itself.
 
 use hamlet_acceptance::*;
@@ -57,7 +57,7 @@ async fn the_hand_makes_a_scholar_founds_a_hamlet_and_hires_into_it()
             .filled_from(NAMES),
             words("Hired."),
             call(
-                "seat_mayor",
+                "set_lead",
                 json!({"hire": "hire#3", "reason": "cy leads now"}),
             ),
             words("Seated."),
@@ -84,7 +84,7 @@ async fn the_hand_makes_a_scholar_founds_a_hamlet_and_hires_into_it()
 
     s.chief.tell(hand, "Seat cy.").await;
     s.chief.shows(&now, "Seated.").await;
-    assert_eq!(s.chief.hamlet("bog").unwrap().mayor, cy);
+    assert_eq!(s.chief.hamlet("bog").unwrap().lead, cy);
     assert_eq!(s.chief.agent("hire#2").unwrap().parent, Some(cy));
     assert!(
         failures(&s.chief, &now).iter().all(|(_, f)| f.is_none())
@@ -92,7 +92,7 @@ async fn the_hand_makes_a_scholar_founds_a_hamlet_and_hires_into_it()
 }
 
 #[tokio::test]
-async fn a_lead_runs_the_hires_under_it_and_nothing_beyond_them() {
+async fn a_parent_runs_the_hires_under_it_and_nothing_beyond_them() {
     let mut s = Session::start(Faux::new().agent(
         2,
         [
@@ -148,15 +148,15 @@ async fn a_lead_runs_the_hires_under_it_and_nothing_beyond_them() {
                 ),
             ])
             .filled_from(NAMES),
-            words("Led."),
+            words("Parented."),
         ],
     ))
     .await;
     let ada = s.found("docs", "ada", "keep the docs").await;
     let now = chat(ada);
     s.chief.open(&now).await;
-    s.chief.tell(ada, "Lead.").await;
-    s.chief.shows(&now, "Led.").await;
+    s.chief.tell(ada, "Parent.").await;
+    s.chief.shows(&now, "Parented.").await;
 
     let cy = s.chief.agent("hire#3").unwrap();
     assert_eq!((cy.kind, cy.parent), (AgentKind::Hire, Some(ada)));
@@ -227,7 +227,7 @@ async fn a_lead_runs_the_hires_under_it_and_nothing_beyond_them() {
         );
     }
 
-    // The Hand's tools and other hamlets' agents are not a lead's.
+    // The Hand's tools and other hamlets' agents are not a parent's.
     let outcome = failures(&s.chief, &now)
         .into_iter()
         .filter(|(_, failure)| failure.is_some())
@@ -444,7 +444,7 @@ async fn what_the_hand_reserves_for_a_chief_waits_for_one() {
 }
 
 #[tokio::test]
-async fn two_mayors_agree_a_road_between_their_hamlets() {
+async fn two_leads_agree_a_road_between_their_hamlets() {
     let mut s = Session::start(
         Faux::new()
             .agent(
@@ -482,15 +482,15 @@ async fn two_mayors_agree_a_road_between_their_hamlets() {
     s.chief.open(&chat(bo)).await;
     s.chief.tell(ada, "Agree the road.").await;
     s.chief.shows(&chat(ada), "Agreed.").await;
-    assert!(!agreed(&s.chief), "one mayor alone opens no road");
+    assert!(!agreed(&s.chief), "one lead alone opens no road");
     s.chief.tell(bo, "Agree the road.").await;
     s.chief.shows(&chat(bo), "Agreed too.").await;
     s.chief.until("the road opens", agreed).await;
 }
 
 #[tokio::test]
-async fn a_mayors_blank_hire_stays_out_of_the_city_and_the_harbor() {
-    // The mayor, agent 2, hires a blank agent.
+async fn a_leads_blank_hire_stays_out_of_the_city_and_the_harbor() {
+    // The lead, agent 2, hires a blank agent.
     let mut s = Session::start(Faux::new().agent(
         2,
         [

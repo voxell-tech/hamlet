@@ -388,11 +388,11 @@ mod tests {
     fn a_hamlets_list_and_default_keep_the_rest_of_its_received_limits()
      {
         let mut app = with_catalogue();
-        let mayor =
-            hamlet_client::realm::first_mayor(app.world()).unwrap();
+        let lead =
+            hamlet_client::realm::first_lead(app.world()).unwrap();
         let hamlet = app
             .world()
-            .get::<hamlet_client::realm::LivesIn>(mayor)
+            .get::<hamlet_client::realm::LivesIn>(lead)
             .unwrap()
             .0;
         mount::<HamletTheme>(app.world_mut(), of_hamlet(hamlet));

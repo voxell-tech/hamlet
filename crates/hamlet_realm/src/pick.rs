@@ -105,9 +105,9 @@ pub struct PickSettings {
 /// A thing in the world that can be pointed at.
 #[derive(Component, Clone, Copy, PartialEq, Eq, Debug)]
 pub enum Thing {
-    /// The mayor.
+    /// The lead.
     Keeper,
-    /// An agent besides the mayor: the entity that carries its
+    /// An agent besides the lead: the entity that carries its
     /// `Name`.
     Agent(Entity),
     /// The house of that agent.
@@ -115,7 +115,7 @@ pub enum Thing {
     /// The remains of the house of an agent that was removed or
     /// merged.
     Ruin(Entity),
-    /// The mayor's house.
+    /// The lead's house.
     Cottage,
     /// A hamlet's common: the entity that carries the hamlet's
     /// `Name`.
@@ -152,7 +152,7 @@ impl Thing {
             Err(_) => String::new(),
         };
         match self {
-            Thing::Keeper => "The Mayor".into(),
+            Thing::Keeper => "The Lead".into(),
             Thing::Agent(agent) => named(agent),
             Thing::House(agent) => {
                 format!("{}'s House", named(agent))
@@ -160,7 +160,7 @@ impl Thing {
             Thing::Ruin(agent) => {
                 format!("{}'s Ruin", named(agent))
             }
-            Thing::Cottage => "The Mayor's House".into(),
+            Thing::Cottage => "The Lead's House".into(),
             Thing::Common(hamlet) => {
                 format!("The Common of {}", named(hamlet))
             }
@@ -204,7 +204,7 @@ impl Thing {
     /// The few words shown over it all the time, when it is `Named`.
     fn sign(self, names: &Names) -> String {
         match self {
-            Thing::Cottage => "Mayor".into(),
+            Thing::Cottage => "Lead".into(),
             Thing::House(agent) | Thing::Ruin(agent) => {
                 Thing::Agent(agent).name(names)
             }

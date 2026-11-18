@@ -1,6 +1,6 @@
 //! Who an agent is and where (C11, H17): its office, the hires above
 //! and under it, its roads, what it may not use, how its hamlet was
-//! run lately, and for the Hand and mayors the other hamlets.
+//! run lately, and for the Hand and leads the other hamlets.
 
 use anyhow::Result;
 use hamlet_store::Db;
@@ -24,20 +24,20 @@ const MESSAGES: &str =
      agent's. Each lodge is closed to other agents: put what they \
      need in your message.";
 
-/// A lead's part: what it may do over the hires under it.
-const LEAD: &str =
-    "You lead the hires under you. `hire` brings a scholar of the \
-     city in under you or under a hire of your tree, and \
-     `create_scholar` makes a new scholar to hire. Hire when a kind \
-     of work will come back and deserves its own memory; do small \
-     one-off things yourself, or with `start_worker`. Check the \
-     hires below for one that fits before hiring. `lay_road` lets \
-     two hires under you write to each other directly; `end_hire` \
-     ends one nobody needs and `merge_hires` makes one hire of two \
-     whose work overlaps: the kept hire takes what the other \
-     learned, its roads and its hires. `set_model`, `set_tools` and \
-     `set_allowance` shape a hire under you, and `nickname` names \
-     it in the world.";
+/// A parent's part: what it may do over the hires under it.
+const PARENT: &str =
+    "You are the parent of the hires under you. `hire` brings a \
+     scholar of the city in under you or under a hire of your tree, \
+     and `create_scholar` makes a new scholar to hire. Hire when a \
+     kind of work will come back and deserves its own memory; do \
+     small one-off things yourself, or with `start_worker`. Check \
+     the hires below for one that fits before hiring. `lay_road` \
+     lets two hires under you write to each other directly; \
+     `end_hire` ends one nobody needs and `merge_hires` makes one \
+     hire of two whose work overlaps: the kept hire takes what the \
+     other learned, its roads and its hires. `set_model`, \
+     `set_tools` and `set_allowance` shape a hire under you, and \
+     `nickname` names it in the world.";
 
 /// How an agent takes a chief's instruction.
 const OBJECT: &str =
@@ -46,7 +46,7 @@ const OBJECT: &str =
      for the chief's ruling before doing anything. If the chief \
      says go on, do it and do not object again. You may not refuse.";
 
-/// What a lead is told of a chief's instructions to its hires.
+/// What a parent is told of a chief's instructions to its hires.
 const TOLD: &str = "A chief can instruct the hires under you \
                     directly. You may tell the chief if you think \
                     one was a mistake, but you may not undo it or \
@@ -68,14 +68,14 @@ pub(super) fn place(
     match agents::get(db, id)?.kind {
         AgentKind::Hand => lines.push(
             "You are the Hand of this realm: the chiefs' own agent. \
-             You found hamlets (`found_hamlet`) and seat their \
-             mayors (`seat_mayor`), make scholars \
-             (`create_scholar`) and hire them into any hamlet, and \
-             lead every hire. You read any hamlet's record \
-             (`read_record`) and any scholar (`read_scholar`). What \
-             you do to what a chief owns, removing a hamlet or \
-             changing, tagging or reverting a scholar, waits for a \
-             chief first. Each mayor answers to you."
+             You found hamlets (`found_hamlet`) and set their leads \
+             (`set_lead`), make scholars (`create_scholar`) and \
+             hire them into any hamlet, and are the parent of every \
+             hire. You read any hamlet's record (`read_record`) and \
+             any scholar (`read_scholar`). What you do to what a \
+             chief owns, removing a hamlet or changing, tagging or \
+             reverting a scholar, waits for a chief first. Each \
+             lead answers to you."
                 .into(),
         ),
         AgentKind::Worker => {
@@ -101,7 +101,7 @@ pub(super) fn place(
         for (other, way) in ways {
             let how = match way {
                 Way::Tree => "",
-                Way::Mayors => " (a fellow mayor)",
+                Way::Leads => " (a fellow lead)",
                 Way::Road(_) => " (by road)",
             };
             lines.push(format!(
@@ -149,21 +149,21 @@ fn hire(
             found.hamlet
         )
     });
-    let mayor = hires::is_mayor(db, id)?;
+    let lead = hires::is_lead(db, id)?;
     match found.parent {
         Some(parent) => lines.push(format!(
             "You answer to `{}`.",
             addresses::name_of(db, parent)?
         )),
-        None if mayor => lines.push(format!(
-            "You are the mayor of `{}`, and answer to the Hand.",
+        None if lead => lines.push(format!(
+            "You are the lead of `{}`, and answer to the Hand.",
             found.hamlet
         )),
         None => {}
     }
     let own = limits::of(db, &found.hamlet)?;
-    // Any hire can come to lead.
-    lines.push(LEAD.into());
+    // Any hire can become a parent.
+    lines.push(PARENT.into());
     let under = tree::under(db, id)?;
     if !under.is_empty() {
         lines.push("Hires under you:".into());
@@ -179,7 +179,7 @@ fn hire(
     let off = hires::tools_off(db, id)?;
     if !off.is_empty() {
         lines.push(format!(
-            "Your lead turned these tools off for you: {}.",
+            "Your parent turned these tools off for you: {}.",
             off.join(", ")
         ));
     }
@@ -218,7 +218,7 @@ fn hire(
     Ok(())
 }
 
-/// The other hamlets, for the Hand and for mayors.
+/// The other hamlets, for the Hand and for leads.
 pub(super) fn realm(
     db: &mut Db,
     id: AgentId,
@@ -226,7 +226,7 @@ pub(super) fn realm(
     let found = agents::get(db, id)?;
     let own = match found.kind {
         AgentKind::Hand => None,
-        AgentKind::Hire if hires::is_mayor(db, id)? => {
+        AgentKind::Hire if hires::is_lead(db, id)? => {
             Some(hires::get(db, id)?.hamlet)
         }
         _ => return Ok(None),
@@ -238,10 +238,10 @@ pub(super) fn realm(
         }
         let count = hires::count_living(db, &hamlet.id)?;
         lines.push(format!(
-            "- {} (`{}`): mayor `{}`, {count} hires",
+            "- {} (`{}`): lead `{}`, {count} hires",
             hamlet.name,
             hamlet.id,
-            addresses::name_of(db, hamlet.mayor)?
+            addresses::name_of(db, hamlet.lead)?
         ));
     }
     if lines.is_empty() {
@@ -259,7 +259,7 @@ pub(super) fn realm(
         None => "# The realm\nThe hamlets:",
         Some(_) => {
             "# The realm\nThe other hamlets. With `agree_road`, two \
-             mayors open a road between a hire of each, once both \
+             leads open a road between a hire of each, once both \
              agree:"
         }
     };
@@ -267,7 +267,7 @@ pub(super) fn realm(
 }
 
 /// The scholars of the city that `id` may hire, for the Hand and for
-/// hires that lead: what `hire` takes as `scholar`.
+/// hires that are parents: what `hire` takes as `scholar`.
 pub(super) fn scholars(
     db: &mut Db,
     id: AgentId,

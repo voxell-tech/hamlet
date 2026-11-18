@@ -78,8 +78,8 @@ pub(crate) fn merge(
             name: super::addresses::name_of(cx.db, absorbed)?
         });
     }
-    if hires::is_mayor(cx.db, absorbed)? {
-        refuse!(Refusal::EndingMayor);
+    if hires::is_lead(cx.db, absorbed)? {
+        refuse!(Refusal::EndingLead);
     }
     for id in [kept, absorbed] {
         done!(hires::unprotected(cx, id));

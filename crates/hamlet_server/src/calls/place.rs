@@ -164,7 +164,7 @@ pub(crate) fn tools(
         AgentKind::Hand => {
             let mut only = built_in;
             only.extend(Society::offered(Offered::Everyone));
-            only.extend(Society::offered(Offered::Leads));
+            only.extend(Society::offered(Offered::Parents));
             only.extend(Society::offered(Offered::Hand));
             only
         }
@@ -177,14 +177,14 @@ pub(crate) fn tools(
                 .collect::<Vec<_>>();
             only.extend(Society::offered(Offered::Everyone));
             only.extend(Society::offered(Offered::Hires));
-            // Any hire can come to lead: the tree has no floor.
-            only.extend(Society::offered(Offered::Leads));
-            if hires::is_mayor(db, agent)?
+            // Any hire can become a parent: the tree has no floor.
+            only.extend(Society::offered(Offered::Parents));
+            if hires::is_lead(db, agent)?
                 && hamlets::all(db)?
                     .iter()
                     .any(|h| h.is_living() && h.id != hire.hamlet)
             {
-                only.extend(Society::offered(Offered::Mayors));
+                only.extend(Society::offered(Offered::Leads));
             }
             only
         }

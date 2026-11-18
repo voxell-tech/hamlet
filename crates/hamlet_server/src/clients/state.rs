@@ -127,14 +127,14 @@ fn agent_view(
 ) -> Result<protocol::Agent> {
     let id = found.id;
     let name = addresses::address_of(db, id)?;
-    let (hamlet, scholar, parent, purpose, mayor) = match found.kind {
+    let (hamlet, scholar, parent, purpose, lead) = match found.kind {
         AgentKind::Hand => {
             let scholar = hand::scholar(db)?;
             (None, Some(scholar), None, String::new(), false)
         }
         AgentKind::Hire => {
             let hire = hires::get(db, id)?;
-            let mayor = hires::is_mayor(db, id)?;
+            let lead = hires::is_lead(db, id)?;
             let parent = match hire.parent {
                 Some(parent) => Some(parent),
                 None => Some(hand::id(db)?),
@@ -144,7 +144,7 @@ fn agent_view(
                 Some(hire.scholar),
                 parent,
                 hire.purpose,
-                mayor && found.is_living(),
+                lead && found.is_living(),
             )
         }
         AgentKind::Worker => {
@@ -256,7 +256,7 @@ fn agent_view(
             AgentKind::Worker => protocol::AgentKind::Worker,
         },
         left,
-        mayor,
+        lead,
         model,
         name,
         nickname,
@@ -350,7 +350,7 @@ fn hamlet_view(
             }
             let kind = match way {
                 Way::Tree => protocol::RoadKind::Tree,
-                Way::Mayors => protocol::RoadKind::Mayors,
+                Way::Leads => protocol::RoadKind::Leads,
                 Way::Road(_) => {
                     let found = roads::open(db, pair.0, pair.1)?;
                     match found.map(|r| r.kind) {
@@ -413,7 +413,7 @@ fn hamlet_view(
         folder: place.folder.clone(),
         id: place.id.to_string(),
         limits: hamlet_limits(&own),
-        mayor: wire_agent(place.mayor),
+        lead: wire_agent(place.lead),
         mode: match place.mode {
             Mode::Manual => protocol::HamletMode::Manual,
             Mode::Auto => protocol::HamletMode::Auto,

@@ -1,5 +1,5 @@
 //! Roads, along which agents send letters and questions (H3, H14,
-//! H30): the tree's, the mayors', and those laid or agreed.
+//! H30): the tree's, the leads', and those laid or agreed.
 
 use anyhow::Result;
 use diesel::deserialize::FromSqlRow;
@@ -42,7 +42,7 @@ use crate::realm::change::{Change, Done, done, refuse};
 pub(crate) enum RoadKind {
     /// Between two hires of a hamlet.
     Laid,
-    /// Between hires of two hamlets, once both mayors agreed.
+    /// Between hires of two hamlets, once both leads agreed.
     Agreed,
 }
 hamlet_store::named_text!(RoadKind);
@@ -50,10 +50,10 @@ hamlet_store::named_text!(RoadKind);
 /// How two agents are joined.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum Way {
-    /// A parent and its child, or the Hand and a mayor.
+    /// A parent and its child, or the Hand and a lead.
     Tree,
-    /// Two mayors.
-    Mayors,
+    /// Two leads.
+    Leads,
     Road(RoadId),
 }
 
@@ -96,15 +96,15 @@ pub(crate) fn way(
                 to
             };
             let hire = hires::get(db, hire)?;
-            Ok(is_mayor(db, &hire)?.then_some(Way::Tree))
+            Ok(is_lead(db, &hire)?.then_some(Way::Tree))
         }
         (AgentKind::Hire, AgentKind::Hire) => {
             let (a, b) = (hires::get(db, from)?, hires::get(db, to)?);
             if a.parent == Some(to) || b.parent == Some(from) {
                 return Ok(Some(Way::Tree));
             }
-            if is_mayor(db, &a)? && is_mayor(db, &b)? {
-                return Ok(Some(Way::Mayors));
+            if is_lead(db, &a)? && is_lead(db, &b)? {
+                return Ok(Some(Way::Leads));
             }
             let Some(found) = open(db, from, to)? else {
                 return Ok(None);
@@ -120,10 +120,10 @@ pub(crate) fn way(
     }
 }
 
-fn is_mayor(db: &mut Db, hire: &Hire) -> Result<bool> {
+fn is_lead(db: &mut Db, hire: &Hire) -> Result<bool> {
     Ok(hire.parent.is_none()
         && hamlets::get(db, &hire.hamlet)?.is_living()
-        && tree::mayor(db, &hire.hamlet)? == hire.agent)
+        && tree::lead(db, &hire.hamlet)? == hire.agent)
 }
 
 /// Every agent `id` reaches, and how.
@@ -138,8 +138,8 @@ pub(crate) fn ways(
     let mut out = Vec::new();
     match found.kind {
         AgentKind::Hand => {
-            for mayor in tree::children(db, None)? {
-                out.push((mayor, Way::Tree));
+            for lead in tree::children(db, None)? {
+                out.push((lead, Way::Tree));
             }
         }
         AgentKind::Hire => {
@@ -152,9 +152,9 @@ pub(crate) fn ways(
                 out.push((child, Way::Tree));
             }
             if hire.parent.is_none() {
-                for mayor in tree::children(db, None)? {
-                    if mayor != id {
-                        out.push((mayor, Way::Mayors));
+                for lead in tree::children(db, None)? {
+                    if lead != id {
+                        out.push((lead, Way::Leads));
                     }
                 }
             }
@@ -343,20 +343,20 @@ pub(crate) fn take_up(
     Ok(Ok(()))
 }
 
-/// What a mayor's agreement to a road between hamlets came to.
+/// What a lead's agreement to a road between hamlets came to.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum Agreed {
-    /// The other hamlet's mayor has not agreed yet.
+    /// The other hamlet's lead has not agreed yet.
     Waiting,
     Laid(RoadId),
 }
 
-/// Keeps the agreement of `mayor` to a road between hires `a` and `b`
+/// Keeps the agreement of `lead` to a road between hires `a` and `b`
 /// of different hamlets, one of them its own, and lays the road once
-/// the other hamlet's mayor agreed too (H14).
+/// the other hamlet's lead agreed too (H14).
 pub(crate) fn agree(
     cx: &mut Change<'_>,
-    mayor: AgentId,
+    lead: AgentId,
     a: AgentId,
     b: AgentId,
     reason: &str,
@@ -376,13 +376,13 @@ pub(crate) fn agree(
     if one.hamlet == other.hamlet {
         refuse!(Refusal::SameHamlet);
     }
-    let Some(own) = hires::find(cx.db, mayor)?.filter(|m| {
+    let Some(own) = hires::find(cx.db, lead)?.filter(|m| {
         m.hamlet == one.hamlet || m.hamlet == other.hamlet
     }) else {
-        refuse!(Refusal::NotMayor);
+        refuse!(Refusal::NotLead);
     };
-    if tree::mayor(cx.db, &own.hamlet)? != mayor {
-        refuse!(Refusal::NotMayor);
+    if tree::lead(cx.db, &own.hamlet)? != lead {
+        refuse!(Refusal::NotLead);
     }
     if way(cx.db, a, b)?.is_some() {
         refuse!(Refusal::RoadExists {
@@ -396,7 +396,7 @@ pub(crate) fn agree(
             agreement::a.eq(low),
             agreement::b.eq(high),
             agreement::hamlet.eq(&own.hamlet),
-            agreement::mayor.eq(mayor),
+            agreement::lead.eq(lead),
             agreement::at.eq(cx.at),
             agreement::reason.eq(reason),
             agreement::task.eq(task),

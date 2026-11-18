@@ -58,7 +58,7 @@ are in
 
 | Schema | Shape and meaning |
 |---|---|
-| `AgentId` | An integer naming one agent of the realm (the Hand, a hire or a worker), stable for as long as the agent exists. The server resolves typed addresses (`hand`, `mayor@<hamlet>`, `hire#<id>`, `worker#<id>`) in chief commands; messages carry ids. |
+| `AgentId` | An integer naming one agent of the realm (the Hand, a hire or a worker), stable for as long as the agent exists. The server resolves typed addresses (`hand`, `lead@<hamlet>`, `hire#<id>`, `worker#<id>`) in chief commands; messages carry ids. |
 | `ScholarId` | An integer naming one scholar of the city. Commands address a scholar as `scholar#<id>`; its name is a label that may change and repeat. |
 | `Keeper` | `{scholar: ScholarId}` or `{agent: AgentId}`: whose knowledge a document is of, a scholar's `main` or an agent's lodge. |
 | `ChatRef` | `{with: AgentId, past?: integer, from?: AgentId, kind?: "letters" \| "questions"}`. |
@@ -126,7 +126,7 @@ and watch failures can answer with `fault` (see [Errors](#errors)).
 | `rewind` (`Rewind`) | `chat: ChatRef`, `item: string` | Take back a chief input and what followed. `reply` with kind `rewound` returns its words; watchers get a reset and replacement transcript. Refused while work is running or queued. |
 | `new` (`New`) | `to: AgentId` | Start a new numbered chief conversation; the previous queue can finish. `reply`. |
 | `resume` (`Resume`) | `to: AgentId`, `number: integer` | Make that saved chief conversation current; `reply`. |
-| `import-project` (`ImportProject`) | `name: string`, `folder?: string`, `files: FileId[]` | Bring in a project of another program: a hamlet named `name` working on `folder`, founded unless one of the chief's already works on that folder, with a hire under its mayor for each conversation. Each file is an `Imported` in JSON of at most 16 MiB, at most 50 of them and 128 MiB together, sent before with `put-file`, and becomes the first session of its hire's chat. A conversation the chief brought in before is left out, as is one the hamlet's tier has no room for. `reply` says what was made. |
+| `import-project` (`ImportProject`) | `name: string`, `folder?: string`, `files: FileId[]` | Bring in a project of another program: a hamlet named `name` working on `folder`, founded unless one of the chief's already works on that folder, with a hire under its lead for each conversation. Each file is an `Imported` in JSON of at most 16 MiB, at most 50 of them and 128 MiB together, sent before with `put-file`, and becomes the first session of its hire's chat. A conversation the chief brought in before is left out, as is one the hamlet's tier has no room for. `reply` says what was made. |
 | `retry` (`Retry`) | `to: AgentId` | Ask the agent to carry on; `reply`. |
 | `edit` (`Edit`) | `doc` and fields below | Edit a chief-owned document or model setting; `reply`. |
 | `open` (`Open`) | `chat: ChatRef`, `before?: string` | Watch and fetch a page; `transcript` with `to`, or `fault`. |
@@ -252,7 +252,7 @@ the machine. It is discriminated by `kind`: `sandbox` with the sandbox's
 full reach and no enforced network switch, or `remote` when the workspace
 is another machine.
 
-`Agent` is a summary: `id`, `kind` (`hand`, `hire` or `worker`), `hamlet`, `scholar`, `parent`, a hire's `pin` (the version of its scholar it is held at, `null` while it follows `main`), the address, which is its `name` (`hand`, `hire#<id>`, `worker#<id>`), a hire's or a worker's `nickname` (`null` while a hire goes by its scholar's name and a worker by its address), `purpose`, `model` (the one it runs now), `ownModel` (the one chosen for it, `null` while it follows its hamlet's or the realm's), `effort` (its own, `null` while it follows the realm's), `fast` (whether it asks for the provider's fast tier), `mayor`, `busy` and
+`Agent` is a summary: `id`, `kind` (`hand`, `hire` or `worker`), `hamlet`, `scholar`, `parent`, a hire's `pin` (the version of its scholar it is held at, `null` while it follows `main`), the address, which is its `name` (`hand`, `hire#<id>`, `worker#<id>`), a hire's or a worker's `nickname` (`null` while a hire goes by its scholar's name and a worker by its address), `purpose`, `model` (the one it runs now), `ownModel` (the one chosen for it, `null` while it follows its hamlet's or the realm's), `effort` (its own, `null` while it follows the realm's), `fast` (whether it asks for the provider's fast tier), `lead`, `busy` and
 `faulted` flags, `activity`, `saying`, `spent`, `since`, `skills`, a hire's `allowance` (dollars a budget period, left out while it has none), a hire's `toolsOff` (the built-in tools turned off for it, left out while none are), `consulting` and
 `conversations` (the peer conversations it holds), and `left?` once it has left. It contains no
 transcript. `Hamlet`, `Wait`, `Grant`, `SettingsView` and `ProviderView`
@@ -369,7 +369,7 @@ Every state and change carries the society and realm in full:
   peer conversations. `Agent.left` describes a departure, and only an agent
   that left has one.
 - `Hamlet.roads` carry road ends by `AgentId`, their kind and traffic.
-  `Hamlet.mayor` is the hire at the root of its tree. `Hamlet.at` is the hamlet's position, or `null`
+  `Hamlet.lead` is the hire at the root of its tree. `Hamlet.at` is the hamlet's position, or `null`
   for a hamlet never set down, which stands on the first free site.
 - `Scholar.arrival` is `housed`, `waiting` at the harbor, `turned`
   away, or `apart`: a blank hire's own, which is not of the city and has

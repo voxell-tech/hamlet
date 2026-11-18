@@ -10,11 +10,11 @@ library, dreams, and what waits for a chief. One agent on its own is in
 **H23. Rule one.** A chief can overrule anything in its hamlets: stop any
 or all of their agents, end and restore their hires or the hamlets
 themselves, take back any permission, and bring back the hire ended last.
-A chief overrules the Hand, leads and mayors alike.
+A chief overrules the Hand, parents and leads alike.
 
 **H22.** A chief's limits bound a hamlet, and only a human changes them;
 every check reads them as they are now. They can reserve to a chief what a
-lead may otherwise do alone: hiring, laying and taking up roads, ending hires
+parent may otherwise do alone: hiring, laying and taking up roads, ending hires
 and merging them. A reserved act waits for a chief (H11). The realm has
 limits of its own: whether roads may be agreed between hamlets, and the
 budget of the Hand and of the workers started outside a hamlet (H8).
@@ -28,7 +28,7 @@ chief is talking to.
 
 | Command | Does |
 |---|---|
-| `/hand`, `/hamlet <hamlet>`, `/agent <address>` | Talk to the Hand, to a hamlet's mayor, or to an agent |
+| `/hand`, `/hamlet <hamlet>`, `/agent <address>` | Talk to the Hand, to a hamlet's lead, or to an agent |
 | `/to <address> <instruction>` | Instruct an agent directly |
 | `/new` | Move at once to a new conversation while the old one finishes its queue (C24) |
 | `/resume [n]` | List earlier conversations, or go back to one by its stable number (C24) |
@@ -36,11 +36,11 @@ chief is talking to.
 | `/stop [address\|all]` | Stop an agent's work, or all agents' (H23) |
 | `/queue`, `/allow`, `/always`, `/deny`, `/go`, `/withdraw`, `/reply`, `/dismiss` | Answer what waits (H11, H10) |
 | `/grants`, `/revoke <address> <network\|unconfined>` | The lasting permissions, and taking one back |
-| `/hamlets`, `/create-hamlet [scholar#id\|blank] <name>[: purpose]` | List hamlets with their ids, or create one named `<name>` with a scholar as its mayor, a blank agent named Mayor by default (H6, H36) |
+| `/hamlets`, `/create-hamlet [scholar#id\|blank] <name>[: purpose]` | List hamlets with their ids, or create one named `<name>` with a scholar as its lead, a blank agent named Lead by default (H6, H36) |
 | `/name-hamlet <hamlet> <name>`, `/move-hamlet <hamlet> <x> <z>` | Give a hamlet another name to be shown by, or set it down elsewhere on the hamlet island (H32) |
 | `/remove-hamlet <hamlet> [reason]`, `/restore-hamlet <hamlet> [reason]`, `/erase-hamlet <hamlet>` | Remove, restore or permanently erase a hamlet (H19, H20) |
 | `/tier <50\|100\|200\|500>` | Set how many hires the hamlet holds (H40) |
-| `/mayor <address> [reason]` | Give the hamlet's office to another hire (H18) |
+| `/lead <address> [reason]` | Give the hamlet's office to another hire (H18) |
 | `/hire <scholar#id>[@<version>]\|blank [in <hamlet>] [under <address>] [purpose]` | Hire a scholar into the hamlet, or a blank agent (H40) |
 | `/end <address> [reason]`, `/merge <address> into <address> [reason]` | End a hire, or make one of two (H5) |
 | `/restore <address> [reason]`, `/erase <address>` | Bring an ended hire back, or split a merged one out again, or erase it for good (H20) |
@@ -72,9 +72,9 @@ empty city and no hamlet.
 - The Hand has a scholar of its own, never hired or listed in the city,
   whose character starts from the app's default for it, and a lodge. A chief
   edits its character as any scholar's.
-- Every chief talks to the Hand first. It has a road to each mayor and to no
+- Every chief talks to the Hand first. It has a road to each lead and to no
   other hire.
-- It can do in any hamlet what a lead can (H41), and found hamlets (H6), give
+- It can do in any hamlet what a parent can (H41), and found hamlets (H6), give
   a hamlet's office to another hire (H18), remove a hamlet (H19), read a
   hamlet's record, and read and change scholars (H38, H39).
 - Its changes to a scholar's `main` and its removal of a hamlet are reserved:
@@ -109,14 +109,14 @@ skills/<name>/SKILL.md    one folder per skill, with its files
   one line, 1 to 40 characters with no colon, that may repeat and that a
   chief changes with `/name-scholar`, which the record keeps.
 - A chief makes one (`/scholar new <name>[: <character>]`), or the Hand or a
-  lead does (`create_scholar`). It starts with one commit holding its
+  parent does (`create_scholar`). It starts with one commit holding its
   character and an empty `memory/`. One a chief or the Hand makes has a
-  house in the city at once; one a lead makes may wait at the harbor
+  house in the city at once; one a parent makes may wait at the harbor
   (H45).
 - A blank agent is a hire that is not of a scholar of the city: `/hire
   blank`, `hire` with no scholar, or a hamlet founded with no scholar named.
   It is a scholar of its own all the same, made for that hire alone, from
-  the realm's default character for one an agent makes, and named Mayor, or
+  the realm's default character for one an agent makes, and named Lead, or
   Hire and its number, unless a name is given. It has no house,
   never waits at the harbor, is not listed with the city's scholars and is
   not hired again.
@@ -132,7 +132,7 @@ skills/<name>/SKILL.md    one folder per skill, with its files
   hires its archiving ended in hamlets that still live. Erasing deletes its
   repository, its archived hires and their lodges, and cannot be undone.
 
-**H45.** A scholar a lead makes is a newcomer, which the realm's
+**H45.** A scholar a parent makes is a newcomer, which the realm's
 `newcomers` setting lets into the city:
 
 - `open`: it moves in at once.
@@ -168,7 +168,7 @@ scholar's history:
 
 ## Hamlets and hires
 
-**H6.** A chief, or the Hand, can found a hamlet. A hamlet has a mayor, a
+**H6.** A chief, or the Hand, can found a hamlet. A hamlet has a lead, a
 hire made when it is founded, who answers to the Hand: the chief names an
 existing scholar of its own, one at a version, or none for a blank agent
 (H38). A hamlet
@@ -182,21 +182,21 @@ also always has a name, given when it is founded: a label that may repeat and
 never finds the hamlet, and the only thing the window shows it by. Its spend
 and records belong only to it.
 
-**H27.** The mayor is the hire at the root of a hamlet's tree, and the address
-`mayor` reaches whoever holds the office. The mayor is the lead of the whole
+**H27.** The lead is the hire at the root of a hamlet's tree, and the address
+`lead` reaches whoever holds the office. The lead is the parent of the whole
 hamlet (H41). It cannot be ended, merged away or archived with its scholar
 until the office is given to another hire.
 
-**H18.** A chief, or the Hand, can give the mayor's office to another hire of
-the hamlet. The new mayor takes the root; the old mayor, and the old mayor's
+**H18.** A chief, or the Hand, can give the lead's office to another hire of
+the hamlet. The new lead takes the root; the old lead, and the old lead's
 hires, go under it.
 
 **H40.** A hire is a scholar working in a hamlet, for a purpose, with a
 branch of its scholar's repository and a lodge of its own (C8).
 
 - **Hiring.** A chief hires its own scholar into a hamlet it is chief of. The
-  Hand hires any chief's scholar, and a lead any scholar of its hamlet's
-  chiefs. A lead says what the hire is for; a chief may leave the purpose
+  Hand hires any chief's scholar, and a parent any scholar of its hamlet's
+  chiefs. A parent says what the hire is for; a chief may leave the purpose
   out, and the hire takes the first line of the first message it is given
   as its purpose. A hamlet holds at most its tier of living hires, the
   whole tree counted, workers not.
@@ -215,22 +215,22 @@ branch of its scholar's repository and a lodge of its own (C8).
   and branch stay until erased. Its hires go to its parent.
 - **Restoring** it brings it back under the same id and number, when its
   scholar lives, its hamlet lives and holds fewer than its tier. Its parent is
-  its old parent when that lives, else the mayor.
+  its old parent when that lives, else the lead.
 - **Erasing** an ended hire deletes its lodge and branch; the record keeps its
   number.
 
-**H41.** The hires of a hamlet form a tree under its mayor, as deep as its
-leads make it. A hire with hires under it is a lead.
+**H41.** The hires of a hamlet form a tree under its lead, as deep as its
+parents make it. A hire with hires under it is a parent.
 
-- A lead has the mayor's powers over the hires under it, and only those: to
+- A parent has the lead's powers over the hires under it, and only those: to
   hire under itself or under a hire of its tree, make scholars, end hires,
   merge them, choose their models, turn their tools off, give them
   allowances, and lay and take up roads among them. Every hire has these
-  tools (H35), so any hire can come to lead.
-- The Hand is above every mayor, and a chief overrules anything (H23).
+  tools (H35), so any hire can become a parent.
+- The Hand is above every lead, and a chief overrules anything (H23).
 - A hire has a road to its parent and to each of its hires while they live
   (H3).
-- A chief's instruction to a hire is reviewed by its lead (H10).
+- A chief's instruction to a hire is reviewed by its parent (H10).
 
 **H42.** A worker is an agent started for one task, a child of whoever started
 it, which ends when the task is answered.
@@ -251,14 +251,14 @@ it, which ends when the task is answered.
 - It is not counted among a hamlet's hires, and has no branch, lodge,
   memory or roads.
 
-**H17.** Every decision of a chief, the Hand or a lead is kept in the hamlet's
+**H17.** Every decision of a chief, the Hand or a parent is kept in the hamlet's
 record with its reason, when one was given, and a chief can read the record in
 words. Each agent
 is told the decisions of the last [7] days that touched its hamlet, at most
-twelve, and a lead is told a chief's recent instructions to the hires under
+twelve, and a parent is told a chief's recent instructions to the hires under
 it.
 
-**H5.** A lead, or a chief, can end a hire or merge one into another of the
+**H5.** A parent, or a chief, can end a hire or merge one into another of the
 same hamlet at once, subject to the chief's limits (H22) and tasks (H7). A
 reason may be given, and the record keeps it; none is needed, here or for any
 other decision.
@@ -272,7 +272,7 @@ branch, a clashing file kept aside as `<name>.from-<absorbed>` and a clashing
 skill as `<skill>-from-<absorbed>`. The absorbed hire is archived as merged.
 No model rewrites memory at a merge; a dream tidies it later (H43).
 
-**H7.** A hire working on a chief's task cannot be ended or merged by a lead
+**H7.** A hire working on a chief's task cannot be ended or merged by a parent
 until it has answered, nor for [0] minutes after.
 
 **H20.** A chief can bring back what left: an ended hire, a merged hire split
@@ -290,8 +290,8 @@ and why. What it waited for lapses and what it was granted is taken back; if
 it comes back, it asks again.
 
 **H29.** An agent runs the model chosen for it, by a chief or, for a hire, by
-a lead, else its hamlet's own model, else the realm's default. Every model of
-every configured provider may be chosen. A lead may not change a chief's
+a parent, else its hamlet's own model, else the realm's default. Every model of
+every configured provider may be chosen. A parent may not change a chief's
 choice. A hire's choice is kept in the record with its reason. A worker runs
 its starter's model unless it was given one.
 
@@ -307,17 +307,17 @@ faster, dearer tier where it has one; it is off unless turned on.
 **H3.** Agents reach each other along roads, of four kinds:
 
 - **Tree roads**: a hire to its parent and to each of its hires, and the Hand
-  to each mayor.
-- **Mayors' roads**: between each two mayors.
-- **Laid roads**: between two hires of one hamlet, laid by a lead over both,
+  to each lead.
+- **Leads' roads**: between each two leads.
+- **Laid roads**: between two hires of one hamlet, laid by a parent over both,
   or by a chief. Each costs the hamlet [$0.01], up to the most the limits
   allow [24] in a hamlet, and is charged to the task that laid it; a chief's
   road has no task. What a road cost is not given back.
-- **Agreed roads**: between hires of different hamlets, once both mayors
+- **Agreed roads**: between hires of different hamlets, once both leads
   agree (`agree_road`), and only while the realm allows roads between
   hamlets [yes].
 
-A road nobody used for [7] days is shown grown over. A chief or a lead can take
+A road nobody used for [7] days is shown grown over. A chief or a parent can take
 up a laid or agreed road. Roads of a hire that was merged go to the hire that
 absorbed it, and are not charged again.
 
@@ -345,7 +345,7 @@ it, and the sender is told of a refusal. No send holds more than [256 MiB] in
 one file, [1 GiB] or [10000 files] in all. A remote workspace gives at most 4
 MiB of a file at once, so a sender working there sends no larger file.
 
-A hire can ask its lead for a road to another hire of its hamlet
+A hire can ask its parent for a road to another hire of its hamlet
 (`request_road`).
 
 **H31.** While another agent waits on an agent's reply, that agent cannot
@@ -354,7 +354,7 @@ listening.
 
 **H12.** Every message a chief sends starts a task, and the task follows
 every message and turn it causes, in every agent it reaches. A retry, a
-reflection, a librarian's call, a lead's review, a dream and a worker start a
+reflection, a librarian's call, a parent's review, a dream and a worker start a
 task of their own. A task has no caps of its own: what it spends counts
 against its hamlet's budget (H8).
 
@@ -378,12 +378,12 @@ spend with `read_budget`: its hamlet's or the realm's spend against the
 budget, its own and its allowance. A chief can start the period again from
 nothing spent. No summary starts once the budget has run out.
 
-**H44.** A lead or a chief can give a hire an allowance for the period. Before
+**H44.** A parent or a chief can give a hire an allowance for the period. Before
 a model call, what the hire and everything under it have spent must be within
-its own allowance and that of every lead above it. A worker counts as its
+its own allowance and that of every parent above it. A worker counts as its
 starter.
 
-**H46.** A chief of its hamlet, the Hand or a lead above it can give a hire
+**H46.** A chief of its hamlet, the Hand or a parent above it can give a hire
 a nickname of at most 24 letters, kept in the record. The world shows a hire
 by its nickname, else by its scholar's name; the window keeps its
 address. A chief can nickname a worker too, which is shown by its address
@@ -416,19 +416,19 @@ costing at most a cap [$0.20].
 
 **H14.** Between hamlets:
 
-- There is a road between each two mayors from the start.
-- Hires of different hamlets have a road once both mayors agree to it
+- There is a road between each two leads from the start.
+- Hires of different hamlets have a road once both leads agree to it
   (`agree_road`), and only while the realm allows such roads [yes].
 - A scholar's name is a label and need not be unique (C10). An agent is
-  reached by an address: `hand`; `mayor`, which is the local office, and
-  `mayor@<hamlet id>`; `hire#<id>`; and `worker#<id>`. A scholar is
+  reached by an address: `hand`; `lead`, which is the local office, and
+  `lead@<hamlet id>`; `hire#<id>`; and `worker#<id>`. A scholar is
   `scholar#<id>`. No name finds an agent or a scholar. Wherever an agent is
   shown, its address comes first and its name beside it, as
   `hire#3 (Mira)`.
 - A message between hamlets is paid for by the sender's hamlet.
 
 The chiefs of each hamlet concerned are told, in their conversation with its
-mayor, when a hamlet is founded or removed, its mayor changes, or a road
+lead, when a hamlet is founded or removed, its lead changes, or a road
 between hamlets is agreed.
 
 **H19.** A chief, or the Hand on a chief's order, can remove a hamlet. Its
@@ -481,7 +481,7 @@ approval are refused without asking.
   Its whole task is held, including the work of other agents it reached,
   until the chief says go ahead or takes the instruction back. Taking it
   back stops the task's work; after a go ahead it may not refuse.
-- When a chief instructs a hire directly, its lead is told and [for a model
+- When a chief instructs a hire directly, its parent is told and [for a model
   served from another machine] reviews the instruction in one model call
   beside the work, charged to its task, in which it may object by answering
   `OBJECT: <reason>`, or answer `pass`.
@@ -503,9 +503,9 @@ the tools in its own row:
 |---|---|
 | Every agent but a worker | `tell`, `ask` (H30), `start_worker` (H42), `submit_skill`, `ask_librarian` (H33), `ask_chief` (H10), `read_budget` (H8) |
 | Every hire | `request_road` |
-| A lead, and the Hand | `create_scholar`, `hire`, `end_hire`, `merge_hires`, `set_model`, `set_tools`, `set_allowance`, `nickname`, `lay_road`, `take_up_road` |
-| A mayor, when other hamlets live | `agree_road` |
-| The Hand | `found_hamlet`, `seat_mayor`, `remove_hamlet`, `read_record`, `read_scholar`, `edit_scholar`, `tag`, `revert` |
+| A parent, and the Hand | `create_scholar`, `hire`, `end_hire`, `merge_hires`, `set_model`, `set_tools`, `set_allowance`, `nickname`, `lay_road`, `take_up_road` |
+| A lead, when other hamlets live | `agree_road` |
+| The Hand | `found_hamlet`, `set_lead`, `remove_hamlet`, `read_record`, `read_scholar`, `edit_scholar`, `tag`, `revert` |
 | Every agent but a worker, in a chief conversation | `object` (H10) |
 | A worker | None of the society's |
 | A dream | None of the society's |
@@ -514,13 +514,13 @@ the tools in its own row:
 The offered tools follow the agent's current role when the tree or the realm
 changes. A tool called by the wrong role refuses in words. Offering `object`
 does not grant another objection, and `ask_chief` refuses when no chief
-oversees the task (H10). A lead's review objects in its answer, not through a
+oversees the task (H10). A parent's review objects in its answer, not through a
 tool.
 
 ## Retired
 
 These requirements are gone with the things they were about, and their IDs
 are not used again: **H13** (votes), and with it the rules of ballots, the
-pass fraction and the hearing of a mayor. What H18, H19, H14 and H6 said
+pass fraction and the hearing of a lead. What H18, H19, H14 and H6 said
 about votes, about hamlets asking for another's removal, and about moving an
 agent to another hamlet (`agree_move`) is gone from them.

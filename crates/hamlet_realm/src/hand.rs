@@ -17,7 +17,7 @@ use std::path::PathBuf;
 use bevy::picking::hover::HoverMap;
 use bevy::prelude::*;
 use bevy::window::FileDragAndDrop;
-use hamlet_client::realm::Mayor;
+use hamlet_client::realm::Lead;
 
 pub use self::greet::greet;
 use self::lift::Fall;
@@ -422,7 +422,7 @@ fn met(
     thing: Thing,
     boxes: &Query<(Entity, &Thing, &ChildOf)>,
     robots: &Query<&Robot>,
-    agents: &Query<(Entity, &Housed, Has<Mayor>)>,
+    agents: &Query<(Entity, &Housed, Has<Lead>)>,
 ) -> Option<(Entity, Option<Entity>)> {
     let robot_for = |agent: Entity| {
         let (_, housed, _) = agents.get(agent).ok()?;

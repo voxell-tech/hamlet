@@ -98,7 +98,7 @@ pub enum Glyph {
     /// An arrow to the left: back to where this was reached from.
     Back,
     /// A crown.
-    Mayor,
+    Lead,
     /// A house.
     Hamlet,
     /// A flame.
@@ -266,7 +266,7 @@ impl Glyph {
         Glyph::Check,
         Glyph::CheckAll,
         Glyph::Back,
-        Glyph::Mayor,
+        Glyph::Lead,
         Glyph::Hamlet,
         Glyph::Hearth,
         Glyph::Talk,
@@ -374,7 +374,7 @@ impl Glyph {
                 Line(3.0, 8.0, 13.0, 8.0),
                 Path(&[[7.0, 4.0], [3.0, 8.0], [7.0, 12.0]]),
             ],
-            Glyph::Mayor => &[Loop(&[
+            Glyph::Lead => &[Loop(&[
                 [3.5, 12.5],
                 [2.5, 5.5],
                 [5.75, 8.5],

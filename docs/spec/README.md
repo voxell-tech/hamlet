@@ -38,6 +38,6 @@ jobs, versions in semver), **S29** (images and files kept once by hash) and **S3
 (a model's image capability and limits). In `core.md`: **C33** (images
 and files attached to a line) and **C34** (the read tool shows an image). In
 `hamlet.md`: **H37** (the Hand), **H38** (the city),
-**H39** (versions), **H40** (hires), **H41** (the tree and leads), **H42**
+**H39** (versions), **H40** (hires), **H41** (the tree and parents), **H42**
 (workers), **H43** (dreams), **H44** (allowances) and **H45**
 (newcomers at the harbor).

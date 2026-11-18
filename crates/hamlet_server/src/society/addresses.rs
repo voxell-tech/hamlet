@@ -1,4 +1,4 @@
-//! Addresses: how chiefs and agents name the Hand, mayors, hires,
+//! Addresses: how chiefs and agents name the Hand, leads, hires,
 //! workers and scholars, by ids and never by a scholar's name (C30,
 //! H14).
 
@@ -20,8 +20,8 @@ use crate::realm::change::{Done, done, refuse};
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) enum Address {
     Hand,
-    /// A hamlet's mayor, or the speaker's own.
-    Mayor {
+    /// A hamlet's lead, or the speaker's own.
+    Lead {
         hamlet: Option<HamletId>,
     },
     Hire(AgentId),
@@ -32,10 +32,10 @@ impl fmt::Display for Address {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             Self::Hand => f.write_str("hand"),
-            Self::Mayor { hamlet: None } => f.write_str("mayor"),
-            Self::Mayor {
+            Self::Lead { hamlet: None } => f.write_str("lead"),
+            Self::Lead {
                 hamlet: Some(hamlet),
-            } => write!(f, "mayor@{hamlet}"),
+            } => write!(f, "lead@{hamlet}"),
             Self::Hire(id) => write!(f, "hire#{id}"),
             Self::Worker(id) => write!(f, "worker#{id}"),
         }
@@ -50,7 +50,7 @@ pub(crate) enum Reach {
     Kept,
 }
 
-/// Reads an address: `hand`, `mayor`, `mayor@<hamlet>`, `hire#<id>`
+/// Reads an address: `hand`, `lead`, `lead@<hamlet>`, `hire#<id>`
 /// or `worker#<id>`.
 pub(crate) fn parse(text: &str) -> Result<Address, Refusal> {
     let text = text.trim();
@@ -60,11 +60,11 @@ pub(crate) fn parse(text: &str) -> Result<Address, Refusal> {
     if text == "hand" {
         return Ok(Address::Hand);
     }
-    if text == "mayor" {
-        return Ok(Address::Mayor { hamlet: None });
+    if text == "lead" {
+        return Ok(Address::Lead { hamlet: None });
     }
-    if let Some(hamlet) = text.strip_prefix("mayor@") {
-        return Ok(Address::Mayor {
+    if let Some(hamlet) = text.strip_prefix("lead@") {
+        return Ok(Address::Lead {
             hamlet: Some(hamlet_id(hamlet).ok_or_else(bad)?),
         });
     }
@@ -107,12 +107,12 @@ pub(crate) fn resolve(
     };
     match address {
         Address::Hand => Ok(Ok(hand::id(db)?)),
-        Address::Mayor { hamlet } => {
+        Address::Lead { hamlet } => {
             let Some(hamlet) = hamlet.as_ref().or(here) else {
                 refuse!(none());
             };
             done!(hamlets::living(db, hamlet));
-            Ok(Ok(tree::mayor(db, hamlet)?))
+            Ok(Ok(tree::lead(db, hamlet)?))
         }
         Address::Worker(id) => {
             let found = agents::find(db, *id)?;

@@ -58,7 +58,7 @@ const SESSIONS: &[Command] = &[
     Command {
         name: "hamlet",
         usage: "/hamlet <hamlet>",
-        does: "Talk to a hamlet's mayor",
+        does: "Talk to a hamlet's lead",
         run: choose_in_client,
     },
     Command {

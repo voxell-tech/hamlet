@@ -335,7 +335,7 @@ fn agent_row(
     with_cx(move |cx| {
         let who = match branch.kind {
             AgentKind::Hand => Glyph::Shield,
-            AgentKind::Hire if branch.mayor => Glyph::Mayor,
+            AgentKind::Hire if branch.lead => Glyph::Lead,
             AgentKind::Hire => Glyph::Robot,
             AgentKind::Worker => Glyph::Chip,
         };
@@ -408,7 +408,7 @@ mod tests {
                 address: format!("a{key}"),
                 name: Some(name.into()),
                 kind: AgentKind::Worker,
-                mayor: false,
+                lead: false,
                 log: None,
                 held: 0,
             }),

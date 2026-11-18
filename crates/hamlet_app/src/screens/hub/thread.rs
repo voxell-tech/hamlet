@@ -303,7 +303,7 @@ fn called(world: &World, agent: Entity) -> String {
 }
 
 /// The steps above `agent` in the chain of command, `Realm / hamlet /
-/// mayor / lead /`, each leading to its page or its thread.
+/// lead / parent /`, each leading to its page or its thread.
 fn above(world: &World, agent: Entity) -> Vec<AnyView> {
     let hamlet = world.get::<LivesIn>(agent).map(|l| l.0);
     let mut parts = vec![
@@ -320,8 +320,8 @@ fn above(world: &World, agent: Entity) -> Vec<AnyView> {
         );
         parts.push(crumb_slash().boxed());
     }
-    // The leads above it in its hamlet, the mayor first.
-    let mut leads = Vec::new();
+    // The parents above it in its hamlet, the lead first.
+    let mut parents = Vec::new();
     let mut at = agent;
     while let Some(parent) =
         world.get::<Parent>(at).and_then(|parent| {
@@ -329,19 +329,19 @@ fn above(world: &World, agent: Entity) -> Vec<AnyView> {
         })
     {
         let same = world.get::<LivesIn>(parent).map(|l| l.0);
-        if leads.contains(&parent)
+        if parents.contains(&parent)
             || hamlet.is_none()
             || same != hamlet
         {
             break;
         }
-        leads.insert(0, parent);
+        parents.insert(0, parent);
         at = parent;
     }
-    for lead in leads {
+    for ancestor in parents {
         parts.push(
-            crumb(called(world, lead), move |world| {
-                crate::convo::talk_to(world, lead);
+            crumb(called(world, ancestor), move |world| {
+                crate::convo::talk_to(world, ancestor);
             })
             .boxed(),
         );

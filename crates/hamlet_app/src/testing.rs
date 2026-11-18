@@ -64,7 +64,7 @@ pub(crate) fn panel_app() -> App {
     app
 }
 
-/// Points the chat at the fixture's mayor `hire#2`, who lives in
+/// Points the chat at the fixture's lead `hire#2`, who lives in
 /// the first hamlet, and returns it.
 /// Points the chat at the Hand and returns it.
 pub(crate) fn seat_hand(app: &mut App) -> Entity {

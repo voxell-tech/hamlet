@@ -14,11 +14,11 @@ pub struct Limits {
     /// The hamlet's own model, else the realm's.
     #[serde(deserialize_with = "Option::deserialize")]
     pub model: Option<String>,
-    /// How long after a chief's task a lead may not end or merge the
-    /// hire (H7).
+    /// How long after a chief's task a parent may not end or merge
+    /// the hire (H7).
     #[serde(rename = "protectedMinutes")]
     pub protected_minutes: i64,
-    /// The leads' acts that wait for a chief.
+    /// The parents' acts that wait for a chief.
     pub reserved: LimitsReserved,
     pub road: LimitsRoad,
     /// How many days of decisions each hire is told (H17).
@@ -35,7 +35,7 @@ pub struct RealmLimits {
     /// The Hand's budget, and that of the workers started outside a
     /// hamlet.
     pub budget: LimitsBudget,
-    /// Whether mayors may agree roads between their hamlets.
+    /// Whether leads may agree roads between their hamlets.
     #[serde(rename = "roadsBetween")]
     pub roads_between: bool,
 }
@@ -50,7 +50,7 @@ pub struct LimitsAsking {
     pub review: LimitsReview,
 }
 
-/// When a lead reviews a chief's instruction to a hire under it
+/// When a parent reviews a chief's instruction to a hire under it
 /// (H10).
 #[derive(
     Clone,
@@ -65,7 +65,7 @@ pub struct LimitsAsking {
 pub enum LimitsReview {
     #[serde(rename = "always")]
     Always,
-    /// When the lead's model is served from another machine.
+    /// When the parent's model is served from another machine.
     #[serde(rename = "remote")]
     Remote,
     #[serde(rename = "never")]
@@ -85,7 +85,7 @@ pub struct LimitsBudget {
     pub period: Period,
 }
 
-/// The leads' acts a chief keeps for itself, so they wait for a
+/// The parents' acts a chief keeps for itself, so they wait for a
 /// chief.
 #[derive(
     Clone, Debug, PartialEq, Serialize, Deserialize, JsonSchema,

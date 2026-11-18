@@ -116,7 +116,7 @@ pub(super) fn setup(world: &mut World, scene: Scene) -> Transcript {
                 .expect("a local link");
             // The chat finds its paths in the agent's hamlet's work
             // folder.
-            let agent = realm::first_mayor(world).expect("the mayor");
+            let agent = realm::first_lead(world).expect("the lead");
             let hamlet =
                 world.get::<LivesIn>(agent).expect("a hamlet").0;
             world

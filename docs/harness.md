@@ -25,7 +25,7 @@ store (ADR 0012).
   versions than it began with is refused.
 - A conversation has a kind, which the server tells the runtime when it
   creates it: `chat`, `letters`, `questions`, `worker`, `errand` or `dream`.
-  A one-off conversation, such as the librarian's answer or a lead's review,
+  A one-off conversation, such as the librarian's answer or a parent's review,
   is an errand: a conversation like any other, bound to a runtime. The agent
   it is for is named by its id.
 

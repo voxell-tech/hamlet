@@ -307,10 +307,10 @@ pub(crate) fn send(
     true
 }
 
-/// A chief's command about a hamlet, addressed to its mayor.
+/// A chief's command about a hamlet, addressed to its lead.
 pub(crate) fn decree(world: &mut World, hamlet: &str, text: String) {
-    if let Some(mayor) = agents::mayor_of(world, hamlet) {
-        command_to(world, mayor, text);
+    if let Some(lead) = agents::lead_of(world, hamlet) {
+        command_to(world, lead, text);
     }
 }
 

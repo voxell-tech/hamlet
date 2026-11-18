@@ -161,7 +161,7 @@ async fn starts_at_another_hamlet_and_switches_agents_and_hamlets() {
     let home = s.home.path();
     let chat = Cli::run(
         home,
-        &["chat", "--to", &format!("mayor@{mill}")],
+        &["chat", "--to", &format!("lead@{mill}")],
         &format!("Mill?\n/hamlet {docs}\nDocs?\n/hand\nHand?\n"),
         &[],
     )

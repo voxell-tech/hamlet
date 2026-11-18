@@ -1,4 +1,4 @@
-//! Hamlets: each with a mayor, a tree of hires, a folder it works on
+//! Hamlets: each with a lead, a tree of hires, a folder it works on
 //! and the chief's limits.
 
 use anyhow::{Context, Result};
@@ -62,7 +62,7 @@ pub(crate) struct Hamlet {
     pub name: String,
     pub founded_at: i64,
     pub founded_by: Actor,
-    pub mayor: AgentId,
+    pub lead: AgentId,
     pub folder: Option<String>,
     pub mode: Mode,
     pub tier: i64,
@@ -88,11 +88,11 @@ pub(crate) struct Founding {
     pub name: String,
     /// The chief it answers to.
     pub chief: ChiefId,
-    pub mayor: Hiring,
+    pub lead: Hiring,
     pub purpose: String,
 }
 
-/// Founds a hamlet with its mayor, who answers to the Hand (H6).
+/// Founds a hamlet with its lead, who answers to the Hand (H6).
 pub(crate) fn found(
     cx: &mut Change<'_>,
     founding: Founding,
@@ -105,7 +105,7 @@ pub(crate) fn found(
         refuse!(Refusal::NoPurpose);
     }
     let id = new_hamlet_id();
-    // The mayor is set once its hire is made; the key is checked at
+    // The lead is set once its hire is made; the key is checked at
     // the commit.
     diesel::insert_into(hamlet::table)
         .values((
@@ -113,7 +113,7 @@ pub(crate) fn found(
             hamlet::name.eq(&name),
             hamlet::founded_at.eq(cx.at),
             hamlet::founded_by.eq(cx.actor),
-            hamlet::mayor.eq(AgentId(0)),
+            hamlet::lead.eq(AgentId(0)),
             hamlet::limits
                 .eq(serde_json::to_string(&Limits::default())?),
         ))
@@ -129,14 +129,14 @@ pub(crate) fn found(
         Spec {
             hamlet: id.clone(),
             parent: None,
-            hiring: founding.mayor,
+            hiring: founding.lead,
             purpose: founding.purpose.clone(),
             reason: String::new(),
             owner: founding.chief,
         }
     ));
     diesel::update(hamlet::table.find(&id))
-        .set(hamlet::mayor.eq(hired.agent))
+        .set(hamlet::lead.eq(hired.agent))
         .execute(cx.db)?;
     record::keep(
         cx,

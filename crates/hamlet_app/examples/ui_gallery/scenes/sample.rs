@@ -133,8 +133,7 @@ pub(super) fn setup(world: &mut World) {
     if let Scene::ProviderSearch(words) = scene {
         hamlet_app::welcome::search(world, words);
     }
-    let agent =
-        realm::first_mayor(world).expect("the received mayor");
+    let agent = realm::first_lead(world).expect("the received lead");
     let to = protocol::AgentId(2);
     let talk = chat::setup(world, scene);
     let usage = serde_json::json!({

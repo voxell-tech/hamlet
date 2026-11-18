@@ -4,7 +4,7 @@ use super::pose::dice;
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum Hat {
-    /// The mayor's brass dome, with a pennant.
+    /// The lead's brass dome, with a pennant.
     Dome,
     Cap,
     Cone,
@@ -54,7 +54,7 @@ impl Paint {
 /// The mark on a robot's chest plate.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum Emblem {
-    /// The mayor's.
+    /// The lead's.
     Keyhole,
     Dot,
     Bars,
@@ -83,18 +83,18 @@ pub struct Who {
     pub emblem: Emblem,
     pub size: f32,
     /// Wears the cream mantle and flies a pennant.
-    pub mayor: bool,
+    pub lead: bool,
 }
 
 impl Who {
-    pub fn mayor() -> Self {
+    pub fn lead() -> Self {
         Self {
             seed: 0,
             hat: Hat::Dome,
             paint: Paint::Wood,
             emblem: Emblem::Keyhole,
             size: 1.12,
-            mayor: true,
+            lead: true,
         }
     }
 
@@ -110,7 +110,7 @@ impl Who {
             paint: Paint::ALL[pick(22, Paint::ALL.len())],
             emblem: Emblem::COMMON[pick(23, Emblem::COMMON.len())],
             size: 0.84 + 0.18 * dice(24, seed),
-            mayor: false,
+            lead: false,
         }
     }
 }

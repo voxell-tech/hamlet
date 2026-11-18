@@ -136,7 +136,7 @@ fn raise(
             ChildOf(body),
         ))
         .id();
-    if who.mayor {
+    if who.lead {
         commands.spawn((
             Mesh3d(kit.mantle.clone()),
             MeshMaterial3d(kit.matte.clone()),
@@ -184,7 +184,7 @@ fn raise(
         Vec3::Y * HAT_AT,
         [(&worn.0, paint), (&worn.1, &kit.brass)],
     );
-    let flag = who.mayor.then(|| {
+    let flag = who.lead.then(|| {
         commands
             .spawn((
                 Mesh3d(kit.pennant.clone()),

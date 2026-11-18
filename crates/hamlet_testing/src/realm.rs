@@ -8,7 +8,7 @@ use tokio::net::TcpListener;
 use tokio::runtime::Handle;
 use tokio_tungstenite::tungstenite::Message;
 
-/// A realm with its Hand and a first hamlet `home` under the mayor
+/// A realm with its Hand and a first hamlet `home` under the lead
 /// `hire#2`, a hire of the scholar `ada`, at revision zero.
 pub fn state() -> protocol::State {
     serde_json::from_value(json!({
@@ -33,13 +33,13 @@ pub fn state() -> protocol::State {
     })).unwrap()
 }
 
-/// A hamlet with the default limits and no folder, under the mayor
-/// `mayor`.
-pub fn hamlet(id: &str, mayor: u64) -> protocol::Hamlet {
+/// A hamlet with the default limits and no folder, under the lead
+/// `lead`.
+pub fn hamlet(id: &str, lead: u64) -> protocol::Hamlet {
     serde_json::from_value(json!({
         "id": id, "name": id, "folder": null, "before": [], "mode": "manual",
         "modeWords": "Hires ask you before each edit and command.",
-        "roads": [], "at": null, "mayor": mayor, "tier": 50, "chiefs": ["chief"],
+        "roads": [], "at": null, "lead": lead, "tier": 50, "chiefs": ["chief"],
         "budget": {
             "period": "day", "periodWords": "today", "gone": 0,
             "spent": {"tokens": 0, "micros": 0, "ms": 0},
@@ -61,7 +61,7 @@ pub fn hamlet(id: &str, mayor: u64) -> protocol::Hamlet {
 pub fn hand(id: u64) -> protocol::Agent {
     serde_json::from_value(json!({
         "id": id, "kind": "hand", "name": "hand", "nickname": null, "hamlet": null,
-        "scholar": null, "parent": null, "pin": null, "purpose": "", "since": 0, "mayor": false,
+        "scholar": null, "parent": null, "pin": null, "purpose": "", "since": 0, "lead": false,
         "model": "faux::faux-1", "ownModel": null, "effort": null, "fast": false,
         "busy": false, "faulted": false,
         "activity": {"doing": "rest", "doingWords": "At rest", "step": 0, "failures": 0},
@@ -72,13 +72,13 @@ pub fn hand(id: u64) -> protocol::Agent {
 }
 
 /// The hire `hire#id` of the scholar with its own id, in `hamlet`:
-/// its mayor under the Hand, or a hire under the first mayor.
-pub fn agent(id: u64, hamlet: &str, mayor: bool) -> protocol::Agent {
+/// its lead under the Hand, or a hire under the first lead.
+pub fn agent(id: u64, hamlet: &str, lead: bool) -> protocol::Agent {
     serde_json::from_value(json!({
         "id": id, "kind": "hire", "name": format!("hire#{id}"), "nickname": null,
         "hamlet": hamlet, "scholar": id,
-        "parent": if mayor { json!(1) } else { json!(2) },
-        "pin": null, "purpose": "", "since": 0, "mayor": mayor,
+        "parent": if lead { json!(1) } else { json!(2) },
+        "pin": null, "purpose": "", "since": 0, "lead": lead,
         "model": "faux::faux-1", "ownModel": null, "effort": null, "fast": false,
         "busy": false, "faulted": false,
         "activity": {"doing": "rest", "doingWords": "At rest", "step": 0, "failures": 0},
@@ -103,7 +103,7 @@ pub fn scholar(
     .unwrap()
 }
 
-/// An approval raised by the first hamlet's mayor.
+/// An approval raised by the first hamlet's lead.
 pub fn wait(id: &str) -> protocol::Wait {
     serde_json::from_value(json!({
         "id": id, "agent": 2, "by": "hire#2",

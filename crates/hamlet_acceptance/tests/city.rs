@@ -32,23 +32,23 @@ async fn founds_a_hamlet_under_a_new_scholar_then_an_existing_one() {
     let ada = s.found("docs", "ada", "keep the docs").await;
     let realm = s.chief.realm();
     let hamlet = s.chief.hamlet("docs").unwrap();
-    assert_eq!(hamlet.mayor, ada);
+    assert_eq!(hamlet.lead, ada);
     assert_eq!(hamlet.chiefs, ["chief"]);
     assert_eq!(hamlet.mode, HamletMode::Manual);
-    let mayor = s.chief.agent("hire#2").unwrap();
-    assert!(mayor.mayor);
-    assert_eq!(mayor.kind, AgentKind::Hire);
-    assert_eq!(mayor.parent, Some(hand));
-    assert_eq!(mayor.purpose, "keep the docs");
+    let lead = s.chief.agent("hire#2").unwrap();
+    assert!(lead.lead);
+    assert_eq!(lead.kind, AgentKind::Hire);
+    assert_eq!(lead.parent, Some(hand));
+    assert_eq!(lead.purpose, "keep the docs");
     let scholar = s.chief.scholar("ada").unwrap();
     assert_eq!(scholar.hires, [ada]);
-    assert_eq!(mayor.scholar, Some(scholar.id));
+    assert_eq!(lead.scholar, Some(scholar.id));
     assert!(hamlet.roads.iter().any(|r| {
         r.kind == RoadKind::Tree && r.a == hand && r.b == ada
     }));
     assert_eq!(realm.scholars.len(), 1);
 
-    // The same scholar may mayor a second hamlet.
+    // The same scholar may lead a second hamlet.
     let second = s.found("mill", "ada", "grind").await;
     assert_ne!(second, ada);
     assert_eq!(s.chief.scholar("ada").unwrap().hires.len(), 2);
@@ -98,9 +98,9 @@ async fn hires_form_a_tree_and_ending_one_can_be_undone() {
     assert_eq!(s.chief.agent("hire#5").unwrap().id, eve);
     assert_eq!(s.chief.agent("hire#5").unwrap().parent, Some(deep));
 
-    // A mayor cannot be ended, and a lead's hires move up.
+    // A lead cannot be ended, and a parent's hires move up.
     let reply = s.chief.refused(ada, "/end hire#2 no").await;
-    assert!(reply.contains("seat another mayor first"), "{reply}");
+    assert!(reply.contains("set another lead first"), "{reply}");
     s.chief.command(ada, "/end hire#4 restructure").await;
     let ended = s.chief.agent("hire#4").unwrap();
     let left = ended.left.unwrap();
@@ -259,15 +259,15 @@ async fn a_chief_runs_a_hamlet_by_commands() {
                 .all(|r| r.kind != RoadKind::Laid)
         })
         .await;
-    // The mayor's office passes to another hire.
-    s.chief.command(ada, "/mayor hire#3 handing over").await;
+    // The lead's office passes to another hire.
+    s.chief.command(ada, "/lead hire#3 handing over").await;
     s.chief
-        .until("bob mayor", |c| {
-            c.hamlet("The Docs").unwrap().mayor == bob
+        .until("bob lead", |c| {
+            c.hamlet("The Docs").unwrap().lead == bob
         })
         .await;
-    assert!(s.chief.agent("hire#3").unwrap().mayor);
-    assert!(!s.chief.agent("hire#2").unwrap().mayor);
+    assert!(s.chief.agent("hire#3").unwrap().lead);
+    assert!(!s.chief.agent("hire#2").unwrap().lead);
     assert_eq!(s.chief.agent("hire#2").unwrap().parent, Some(bob));
 
     // Removing a hamlet ends its hires; restoring brings them back.

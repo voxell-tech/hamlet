@@ -187,16 +187,19 @@ impl Capture {
         .await;
     }
 
-    /// Has the agent `lead` hire a new scholar `name`.
+    /// Has the agent `parent` hire a new scholar `name`.
     pub async fn hire(
         &mut self,
-        lead: u64,
+        parent: u64,
         name: &str,
         purpose: &str,
     ) {
         let scholar = self.make(name).await;
-        self.say(lead, &format!("/hire scholar#{scholar} {purpose}"))
-            .await;
+        self.say(
+            parent,
+            &format!("/hire scholar#{scholar} {purpose}"),
+        )
+        .await;
     }
 
     /// Watches the chief's current chat with `agent`.

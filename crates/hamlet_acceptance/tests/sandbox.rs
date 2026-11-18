@@ -21,7 +21,7 @@ async fn confines_reads_writes_and_the_lodge_with_and_without_a_folder()
         let secret = home.side().join("secret");
         fs::create_dir(&work).unwrap();
         fs::write(&secret, "outside-canary").unwrap();
-        // The mayor's lodge, in a hamlet whose id is made once it
+        // The lead's lodge, in a hamlet whose id is made once it
         // is founded.
         let lodge = home.file("hamlets/{{docs}}/2");
         let attempts = [

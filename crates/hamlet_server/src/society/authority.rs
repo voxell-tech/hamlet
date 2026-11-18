@@ -34,9 +34,9 @@ pub(crate) fn is_hand(db: &mut Db, actor: Actor) -> Result<bool> {
     })
 }
 
-/// Whether `actor` may lead the hire `id`: a chief of its hamlet, the
-/// Hand, or a hire above it in its tree.
-pub(crate) fn may_lead(
+/// Whether `actor` may direct the hire `id`: a chief of its hamlet,
+/// the Hand, or a hire above it in its tree.
+pub(crate) fn may_direct(
     db: &mut Db,
     actor: Actor,
     id: AgentId,
@@ -52,7 +52,7 @@ pub(crate) fn may_lead(
 }
 
 /// Whether `actor` may choose the model, effort and fast tier of the
-/// agent `id`: whoever may lead a hire; a chief for the Hand; for a
+/// agent `id`: whoever may direct a hire; a chief for the Hand; for a
 /// worker, its starter, a chief of its hamlet, or the chief who
 /// started it, any chief when it belongs to none.
 pub(crate) fn may_steer(
@@ -61,7 +61,7 @@ pub(crate) fn may_steer(
     id: AgentId,
 ) -> Result<bool> {
     Ok(match agents::get(db, id)?.kind {
-        AgentKind::Hire => may_lead(db, actor, id)?,
+        AgentKind::Hire => may_direct(db, actor, id)?,
         AgentKind::Hand => {
             matches!(actor, Actor::Chief(_) | Actor::Realm)
         }
@@ -100,8 +100,8 @@ pub(crate) fn may_keep(
 }
 
 /// Whether `actor` may hire the scholar `id` into `hamlet`: a chief
-/// its own scholar into its own hamlet, the Hand any, and a lead any
-/// scholar of its hamlet's chiefs.
+/// its own scholar into its own hamlet, the Hand any, and a parent
+/// any scholar of its hamlet's chiefs.
 pub(crate) fn may_hire(
     db: &mut Db,
     actor: Actor,

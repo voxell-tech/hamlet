@@ -14,9 +14,9 @@ sections; the pi harness asks for them before each request.
 | The character | `CHARACTER.md` at the tip of the hire's branch (the Hand's, at its scholar's), at most 4000 characters | A chief |
 | The memory | The files at the root of the lodge's `memory/`, at most 8000 characters in all, then each folder's `description:` from its `MEMORY.md` | The agent |
 | The skills | The lodge's skills, then the library's, with descriptions and how to run them | The agent; the librarian |
-| The place | Who the agent is, whom it answers to, the hires under it, the roads it can write along, the tools its lead turned off, and how its hamlet was run lately | The record |
-| The realm | For the Hand and mayors, the other hamlets, their mayors and hires; a realm with none says so and that a chief or the Hand can found one | The realm's record |
-| The scholars | For the Hand and a lead, the living scholars it may hire, each as `scholar#<id> (<name>)`, since no name finds one | The city |
+| The place | Who the agent is, whom it answers to, the hires under it, the roads it can write along, the tools its parent turned off, and how its hamlet was run lately | The record |
+| The realm | For the Hand and leads, the other hamlets, their leads and hires; a realm with none says so and that a chief or the Hand can found one | The realm's record |
+| The scholars | For the Hand and a parent, the living scholars it may hire, each as `scholar#<id> (<name>)`, since no name finds one | The city |
 
 `crates/hamlet_server/src/conversations/prompt.rs` composes the sections;
 `conversations/prompt/place.rs` renders the place and the realm. The parts are built
@@ -27,7 +27,7 @@ an agent reads what it may spend with the `read_budget` tool.
 A worker's prompt is the charter, the machine, the project and its place. It
 has no character, memory or skills of its own. An errand is a one-off
 conversation of its own: the librarian's answer, the librarian's judging of a
-skill and a lead's review of an instruction use only their supplied
+skill and a parent's review of an instruction use only their supplied
 instructions, and have no tools. A dream uses its own instructions and has the
 built-in tools alone.
 
@@ -40,7 +40,7 @@ TO THE DEFAULT clears the chief's replacement after asking first.
 A character is a file, `CHARACTER.md`, in the scholar's repository. A hire's
 lodge is checked out without it, so no tool can write it, and a file by that
 name written there is never committed. A chief edits it on the scholar's
-`main`; a lead gives one only when it makes a scholar with `create_scholar`. A
+`main`; a parent gives one only when it makes a scholar with `create_scholar`. A
 hire's prompt reads it at the tip of its own branch, which began at `main` or
 at its pin.
 

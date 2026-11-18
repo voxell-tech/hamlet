@@ -11,11 +11,11 @@ pub(crate) const HAND: &str =
 pub(crate) const HAMLET: &str =
     "A team of agents that works on one folder of yours.";
 
-pub(crate) const MAYOR: &str =
-    "The hamlet's lead agent, the one you talk to first.";
+pub(crate) const LEAD: &str =
+    "The hamlet's top agent, the one you talk to first.";
 
 pub(crate) const HIRE: &str =
-    "An agent working in a hamlet, under its mayor or another hire.";
+    "An agent working in a hamlet, under its lead or another hire.";
 
 pub(crate) const WORKER: &str =
     "A helper started for one task. It ends with its answer.";
@@ -41,16 +41,17 @@ pub(crate) const LEFT: &str =
     "Agents and scholars that left. They can be brought back.";
 
 pub(crate) const LIMITS: &str = "What the hamlet may spend, and \
-                                 what its leads must ask you first.";
+                                 what its parents must ask you \
+                                 first.";
 
 pub(crate) const AGENTS: &str = "Everyone working in the hamlet.";
 
-/// A hire or mayor that is no scholar of the city.
+/// A hire or lead that is no scholar of the city.
 pub(crate) const BLANK: &str = "A fresh agent made for this job \
                                 alone. What it learns stays with \
                                 the job.";
 
-/// A scholar as a hire or a mayor.
+/// A scholar as a hire or a lead.
 pub(crate) const HIRED_SCHOLAR: &str = "Brings its memory and \
                                         skills to the job, and can \
                                         take home what it learns.";

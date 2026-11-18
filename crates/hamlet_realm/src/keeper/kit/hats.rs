@@ -7,7 +7,7 @@ use crate::keeper::Hat;
 use crate::meshes::Meshing;
 use crate::palette::Palette;
 
-/// The top of the mayor's spire, above the hat's base.
+/// The top of the lead's spire, above the hat's base.
 pub(in crate::keeper) const SPIRE: f32 = 0.44;
 
 /// A flat ring of brim from radius `a` out to `b`.

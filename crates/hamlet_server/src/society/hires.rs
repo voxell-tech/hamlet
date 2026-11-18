@@ -42,7 +42,7 @@ pub(crate) struct Hire {
 pub(crate) enum Hiring {
     /// A blank agent: a scholar made for this hire alone, apart from
     /// the city, so it has no house and never waits at the harbor.
-    /// With no name it is named for its place: Mayor, or Hire and
+    /// With no name it is named for its place: Lead, or Hire and
     /// its number.
     Blank { name: String, character: String },
     /// A living scholar, at its `main` or pinned to a version.
@@ -56,7 +56,7 @@ pub(crate) enum Hiring {
 #[derive(Clone, Debug)]
 pub(crate) struct Spec {
     pub hamlet: HamletId,
-    /// The hire it answers to; `None` makes the hamlet's mayor.
+    /// The hire it answers to; `None` makes the hamlet's lead.
     pub parent: Option<AgentId>,
     pub hiring: Hiring,
     pub purpose: String,
@@ -74,7 +74,7 @@ pub(crate) struct Hired {
 }
 
 /// Hires a scholar into a hamlet under a parent. With no parent, the
-/// hire is the mayor of a hamlet being founded.
+/// hire is the lead of a hamlet being founded.
 pub(crate) fn hire(cx: &mut Change<'_>, spec: Spec) -> Done<Hired> {
     let place = hamlets::get(cx.db, &spec.hamlet)?;
     if !place.is_living() {
@@ -100,7 +100,7 @@ pub(crate) fn hire(cx: &mut Change<'_>, spec: Spec) -> Done<Hired> {
     let (scholar, pin, new) = match spec.hiring {
         Hiring::Blank { name, character } => {
             let name = match name.trim() {
-                "" if spec.parent.is_none() => "Mayor".to_owned(),
+                "" if spec.parent.is_none() => "Lead".to_owned(),
                 // Counted among every hire the hamlet has had, so the
                 // name is not one a living hire of it goes by.
                 "" => {
@@ -243,9 +243,9 @@ pub(crate) fn count_living(
 }
 
 /// True when `id` holds its hamlet's office.
-pub(crate) fn is_mayor(db: &mut Db, id: AgentId) -> Result<bool> {
+pub(crate) fn is_lead(db: &mut Db, id: AgentId) -> Result<bool> {
     let hire = get(db, id)?;
-    Ok(tree::mayor(db, &hire.hamlet)? == id)
+    Ok(tree::lead(db, &hire.hamlet)? == id)
 }
 
 /// The refusal of a call that names the ended hire `id`.
@@ -281,8 +281,8 @@ pub(crate) fn end(
     let hire = get(cx.db, id)?;
     done!(require_living(cx.db, id));
     if how != EndHow::Hamlet {
-        if is_mayor(cx.db, id)? {
-            refuse!(Refusal::EndingMayor);
+        if is_lead(cx.db, id)? {
+            refuse!(Refusal::EndingLead);
         }
         done!(unprotected(cx, id));
         let children = tree::children(cx.db, Some(id))?;
@@ -329,7 +329,7 @@ pub(crate) fn unprotected(
     Ok(Ok(()))
 }
 
-/// Brings back the ended hire `id` under its old parent, or the mayor
+/// Brings back the ended hire `id` under its old parent, or the lead
 /// when that has gone.
 pub(crate) fn come_back(
     cx: &mut Change<'_>,
@@ -357,7 +357,7 @@ pub(crate) fn come_back(
             most: place.tier,
         });
     }
-    let mayor = tree::mayor(cx.db, &hire.hamlet)?;
+    let lead = tree::lead(cx.db, &hire.hamlet)?;
     let parent = match hire.parent {
         Some(parent)
             if parent != id
@@ -365,7 +365,7 @@ pub(crate) fn come_back(
         {
             parent
         }
-        _ => mayor,
+        _ => lead,
     };
     diesel::update(hire::table.find(id))
         .set((
@@ -407,9 +407,9 @@ pub(crate) fn erase(cx: &mut Change<'_>, id: AgentId) -> Done<()> {
     Ok(Ok(()))
 }
 
-/// Gives the office of `hamlet` to its hire `id`. The old mayor and
+/// Gives the office of `hamlet` to its hire `id`. The old lead and
 /// its children go under the new one.
-pub(crate) fn seat(
+pub(crate) fn set_lead(
     cx: &mut Change<'_>,
     hamlet_id: &HamletId,
     id: AgentId,
@@ -422,9 +422,9 @@ pub(crate) fn seat(
         });
     }
     done!(require_living(cx.db, id));
-    let old = tree::mayor(cx.db, hamlet_id)?;
+    let old = tree::lead(cx.db, hamlet_id)?;
     if old == id {
-        refuse!(Refusal::AlreadyMayor {
+        refuse!(Refusal::AlreadyLead {
             name: super::addresses::name_of(cx.db, id)?
         });
     }
@@ -442,7 +442,7 @@ pub(crate) fn seat(
         .set(hire::parent.eq(None::<AgentId>))
         .execute(cx.db)?;
     diesel::update(hamlet::table.find(hamlet_id))
-        .set(hamlet::mayor.eq(id))
+        .set(hamlet::lead.eq(id))
         .execute(cx.db)?;
     record::keep(
         cx,
@@ -458,7 +458,7 @@ pub(crate) fn seat(
 }
 
 /// Chooses the model of the living hire `id`, or its hamlet's when
-/// `None` (H29). A lead may not change a chief's choice.
+/// `None` (H29). A parent may not change a chief's choice.
 pub(crate) fn set_model(
     cx: &mut Change<'_>,
     id: AgentId,

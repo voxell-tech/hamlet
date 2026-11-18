@@ -184,7 +184,7 @@ pub enum Scene {
     Field,
     /// A long chat with a turn's steps unfolded.
     Chat,
-    /// An agent's chat with the chief, the mayor and another agent
+    /// An agent's chat with the chief, the lead and another agent
     /// in it.
     Group,
     /// A chat with links of every kind in it, the pointer on one.

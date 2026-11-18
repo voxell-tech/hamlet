@@ -47,7 +47,7 @@ pub(super) struct HouseRecipe {
     pub agent: AgentId,
     pub site: usize,
     pub hall: bool,
-    pub mayor: bool,
+    pub lead: bool,
     /// Its remains, if its agent is archived.
     pub remains: Option<Remains>,
     pub wings: u8,
@@ -59,7 +59,7 @@ pub(super) struct HouseBuilt {
     /// The window panes and where the door lantern hangs. Only a
     /// house that is lived in has them.
     pub fittings: Option<(Mesh, Vec3)>,
-    /// The point the mayor's banner hangs from, and its colours.
+    /// The point the lead's banner hangs from, and its colours.
     pub banner: Option<(Vec3, [Vec3; 2])>,
     pub cost: Cost,
 }
@@ -84,7 +84,7 @@ fn build_house(land: &Land, recipe: HouseRecipe) -> HouseBuilt {
         recipe.agent,
         &TownStyle::of(land, recipe.site),
         recipe.hall,
-        if recipe.mayor {
+        if recipe.lead {
             house::Banner::Flown
         } else {
             house::Banner::None

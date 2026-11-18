@@ -70,7 +70,7 @@ pub(super) fn setup(world: &mut World, scene: Scene) {
     let mut next = 10;
     // The scholar of each hire has the hire's id.
     let mut scholars = vec![(2, "ada")];
-    for (id, title, mayor, others) in [
+    for (id, title, lead, others) in [
         (
             "home",
             "Pear Tree Hollow",
@@ -106,19 +106,19 @@ pub(super) fn setup(world: &mut World, scene: Scene) {
             state
                 .agents
                 .push(hamlet_testing::realm::agent(first, id, true));
-            scholars.push((first, mayor));
+            scholars.push((first, lead));
             next += 1;
         }
-        // In the hollow scout is a lead, with pip and wren under it;
-        // elsewhere every hire is under the mayor.
-        let lead = next;
+        // In the hollow scout is a parent, with pip and wren under
+        // it; elsewhere every hire is under the lead.
+        let parent = next;
         for (number, name) in (1..).zip(others) {
             let mut agent =
                 hamlet_testing::realm::agent(next, id, false);
             scholars.push((next, name));
             agent.parent = Some(protocol::AgentId(
                 if id == "home" && number > 1 {
-                    lead
+                    parent
                 } else {
                     first
                 },
@@ -262,7 +262,7 @@ pub(super) fn setup(world: &mut World, scene: Scene) {
     }));
     world.insert_resource(hamlet_app::overview::Annals::received(
         first,
-        "The mayor created scout to read the orchard's records. The \
+        "The lead created scout to read the orchard's records. The \
          chief restored smith, whose house and notes returned."
             .into(),
     ));
@@ -326,22 +326,22 @@ fn busy_realm(state: &mut protocol::State) {
         hand.activity.doing_words = "Founding a hamlet".into();
         hand.busy = true;
     }
-    let Some(lead) = state
+    let Some(parent) = state
         .agents
         .iter_mut()
         .find(|agent| agent.name == "hire#11")
     else {
         return;
     };
-    lead.busy = true;
-    lead.activity.doing = protocol::Doing::Await;
-    lead.activity.doing_words = "Waiting for a worker".into();
-    let lead = lead.id;
+    parent.busy = true;
+    parent.activity.doing = protocol::Doing::Await;
+    parent.activity.doing_words = "Waiting for a worker".into();
+    let parent = parent.id;
     let mut worker = hamlet_testing::realm::agent(40, "home", false);
     worker.kind = protocol::AgentKind::Worker;
     worker.name = "worker#40".into();
     worker.scholar = None;
-    worker.parent = Some(lead);
+    worker.parent = Some(parent);
     worker.busy = true;
     worker.purpose = "Count the pears in row four.".into();
     worker.activity.doing_words =
@@ -358,7 +358,7 @@ fn busy_realm(state: &mut protocol::State) {
     }
 }
 
-/// The hire merged into the hamlet's lead in the merged scene.
+/// The hire merged into its parent in the merged scene.
 const MERGED: u64 = 12;
 
 /// Makes one hire work, one stop on a fault and one wait, beside the
@@ -382,7 +382,7 @@ fn more_states(state: &mut protocol::State) {
     set("hire#15", &mut |agent| agent.faulted = true);
 }
 
-/// Merges the third hire of the hollow into its lead, and ends a
+/// Merges the third hire of the hollow into its parent, and ends a
 /// hire of the mill, so the rail lists both as gone.
 fn merge_away(state: &mut protocol::State) {
     let left = |how: &str, into: Option<u64>, words: &str| {

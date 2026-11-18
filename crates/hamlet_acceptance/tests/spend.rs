@@ -68,7 +68,7 @@ async fn the_realms_budget_stops_the_hand_until_it_starts_again() {
 }
 
 #[tokio::test]
-async fn a_hires_allowance_stops_its_calls_and_a_lead_may_set_it() {
+async fn a_hires_allowance_stops_its_calls_and_a_parent_may_set_it() {
     let mut endpoint = Endpoint::start().await;
     endpoint.enqueue([words_of("Noted.")]);
     let mut s = Session::with_endpoint(&endpoint).await;
@@ -89,7 +89,7 @@ async fn a_hires_allowance_stops_its_calls_and_a_lead_may_set_it() {
     s.chief.tell(cy, "Say more.").await;
     let notice = last_notice(&mut s.chief, &now, "allowance").await;
     assert!(
-        notice.contains("Its lead or a chief can raise it"),
+        notice.contains("Its parent or a chief can raise it"),
         "{notice}"
     );
     assert_eq!(endpoint.completions(1).await.len(), 1);

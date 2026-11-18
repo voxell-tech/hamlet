@@ -261,8 +261,9 @@ pub(crate) fn rule(
     }
 }
 
-/// A society act the chief keeps for itself (H22): a lead's acts its
-/// hamlet's limits reserve, and the Hand's acts on what chiefs own.
+/// A society act the chief keeps for itself (H22): a parent's acts
+/// its hamlet's limits reserve, and the Hand's acts on what chiefs
+/// own.
 fn is_reserved(
     call: &Call,
     caller: Caller,

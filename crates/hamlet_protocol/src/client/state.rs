@@ -237,11 +237,11 @@ pub struct Agent {
     pub hamlet: Option<String>,
     pub id: AgentId,
     pub kind: AgentKind,
+    pub lead: bool,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[serde(deserialize_with = "crate::client::present")]
     #[schemars(with = "Left")]
     pub left: Option<Left>,
-    pub mayor: bool,
     /// The model it runs now.
     pub model: String,
     /// Its address: `hand`, `hire#id` or `worker#id`.
@@ -256,8 +256,9 @@ pub struct Agent {
     #[serde(rename = "ownModel")]
     #[serde(deserialize_with = "Option::deserialize")]
     pub own_model: Option<String>,
-    /// The agent it answers to: a hire's lead, the Hand for a mayor,
-    /// a worker's starter. None for the Hand, or a chief's worker.
+    /// The agent it answers to: a hire's parent, the Hand for a
+    /// lead, a worker's starter. None for the Hand, or a chief's
+    /// worker.
     #[serde(deserialize_with = "Option::deserialize")]
     pub parent: Option<AgentId>,
     /// The version of its scholar a hire is pinned to; none while it
@@ -542,7 +543,7 @@ pub struct Left {
     JsonSchema,
 )]
 pub enum LeftHow {
-    /// A lead or a chief ended the hire.
+    /// A parent or a chief ended the hire.
     #[serde(rename = "ended")]
     Ended,
     #[serde(rename = "merged")]
@@ -576,9 +577,9 @@ pub struct Hamlet {
     #[serde(deserialize_with = "Option::deserialize")]
     pub folder: Option<String>,
     pub id: String,
-    pub limits: Limits,
     /// The hire at the root of its tree.
-    pub mayor: AgentId,
+    pub lead: AgentId,
+    pub limits: Limits,
     pub mode: HamletMode,
     #[serde(rename = "modeWords")]
     pub mode_words: String,
@@ -645,12 +646,12 @@ pub struct Road {
     JsonSchema,
 )]
 pub enum RoadKind {
-    /// A hire and its lead, or the Hand and a mayor.
+    /// A hire and its parent, or the Hand and a lead.
     #[serde(rename = "tree")]
     Tree,
-    /// Two mayors.
-    #[serde(rename = "mayors")]
-    Mayors,
+    /// Two leads.
+    #[serde(rename = "leads")]
+    Leads,
     /// Laid between two hires of a hamlet.
     #[serde(rename = "laid")]
     Laid,
@@ -809,9 +810,9 @@ mod tests {
         state.apply(&Update::Agent {
             agent: guest.clone(),
         });
-        let mayor = state.agents[1].clone();
+        let lead = state.agents[1].clone();
         let scout = ours(realm::agent(3, "home", false));
-        assert_eq!(state.agents, [hand, mayor, scout, guest]);
+        assert_eq!(state.agents, [hand, lead, scout, guest]);
     }
 
     #[test]

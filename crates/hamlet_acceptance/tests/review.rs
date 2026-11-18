@@ -1,4 +1,4 @@
-//! A lead's review of a chief's line to a hire under it, and a
+//! A parent's review of a chief's line to a hire under it, and a
 //! chief's workers.
 
 use hamlet_acceptance::*;
@@ -7,7 +7,7 @@ use hamlet_testing::words;
 use serde_json::json;
 
 #[tokio::test]
-async fn a_lead_reviews_a_chiefs_line_to_its_hire_and_may_object() {
+async fn a_parent_reviews_a_chiefs_line_to_its_hire_and_may_object() {
     let mut s = Session::start(
         Faux::new()
             .agent(
@@ -37,7 +37,7 @@ async fn a_lead_reviews_a_chiefs_line_to_its_hire_and_may_object() {
     let now = chat(bob);
     s.chief.open(&now).await;
 
-    // A line the lead passes is simply done.
+    // A line the parent passes is simply done.
     s.chief.tell(bob, "Plain line.").await;
     s.chief.shows(&now, "Plain done.").await;
     assert!(s.chief.waits().is_empty());
@@ -47,7 +47,7 @@ async fn a_lead_reviews_a_chiefs_line_to_its_hire_and_may_object() {
     s.chief.tell(bob, "Odd line.").await;
     let objection = s
         .chief
-        .wait_for("the lead's objection", |w| {
+        .wait_for("the parent's objection", |w| {
             matches!(w.detail, WaitDetail::Objection {})
         })
         .await;
@@ -65,7 +65,7 @@ async fn a_lead_reviews_a_chiefs_line_to_its_hire_and_may_object() {
 }
 
 #[tokio::test]
-async fn a_lead_does_not_review_unless_the_limits_say_so() {
+async fn a_parent_does_not_review_unless_the_limits_say_so() {
     let mut s = Session::start(
         Faux::new()
             .agent(3, [words("Done.")])

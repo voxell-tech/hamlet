@@ -3,7 +3,7 @@
 use bevy::picking::Pickable;
 use bevy::picking::hover::HoverMap;
 use bevy::prelude::*;
-use hamlet_client::realm::{self, Mayor, Road, RoadsFrom, RoadsTo};
+use hamlet_client::realm::{self, Lead, Road, RoadsFrom, RoadsTo};
 
 use super::{
     Hand, Held, Mood, PlaySettings, Wish, is_free, liftable, met,
@@ -106,7 +106,7 @@ pub(super) fn carry(
     mut taken: ResMut<Taken>,
     boxes: Query<(Entity, &Thing, &ChildOf)>,
     plain: Query<&Robot>,
-    agents: Query<(Entity, &Housed, Has<Mayor>)>,
+    agents: Query<(Entity, &Housed, Has<Lead>)>,
     roads: Query<&Road>,
     ends: Query<(Option<&RoadsFrom>, Option<&RoadsTo>)>,
     mut robots: Query<(&Robot, &mut Transform, &mut Mood)>,
@@ -141,7 +141,7 @@ pub(super) fn carry(
     let me = agents
         .iter()
         .find(|(_, housed, _)| housed.0 == of.agent)
-        .map(|(agent, _, mayor)| (agent, mayor));
+        .map(|(agent, _, lead)| (agent, lead));
     if !lifted && dragged && !released {
         hand.held = Some(Held {
             robot,
@@ -198,7 +198,7 @@ pub(super) fn carry(
             to: here.xz(),
             meets: None,
         };
-        if let (Some((other, their)), Some((me, mayor))) = (other, me)
+        if let (Some((other, their)), Some((me, lead))) = (other, me)
         {
             let known = ends.get(me).is_ok_and(|(from, to)| {
                 realm::roads(from, to).any(|road| {
@@ -207,8 +207,8 @@ pub(super) fn carry(
                         .is_ok_and(|road| road.has_end(other))
                 })
             });
-            let office = mayor
-                || agents.get(other).is_ok_and(|(.., mayor)| mayor);
+            let office = lead
+                || agents.get(other).is_ok_and(|(.., lead)| lead);
             if !known && !office {
                 wishes.write(Wish::Road { a: me, b: other });
             }

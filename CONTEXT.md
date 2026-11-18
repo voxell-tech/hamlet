@@ -19,7 +19,7 @@ An AI worker the server runs: the Hand, a hire or a worker.
 _Avoid_: citizen, resident, bot
 
 **Hand**:
-The chiefs' own agent. It is always there, sits above every mayor, and
+The chiefs' own agent. It is always there, sits above every lead, and
 founds hamlets and looks after scholars when a chief asks. Its reserved
 acts wait for a chief.
 _Avoid_: assistant, root agent, admin agent
@@ -33,18 +33,18 @@ _Avoid_: persona, profile, template, house
 
 **Hire**:
 A scholar working in a hamlet, on a branch of its own and in a lodge, for a
-purpose a chief may leave out. Hires form a tree under the mayor.
+purpose a chief may leave out. Hires form a tree under the lead.
 _Avoid_: member, employee, citizen
 
 **Blank agent**:
-A hire, the mayor included, that is not of a scholar of the city: its
+A hire, the lead included, that is not of a scholar of the city: its
 scholar is made for it alone, has no house, never waits at the harbor and
 is not listed with the city's scholars.
 _Avoid_: blank scholar, temp hire
 
 **Address**:
 How a chief or an agent names an agent or a scholar, by ids and never by a
-name: `hand`, `mayor@<hamlet>` (by the hamlet's id), `hire#<id>`,
+name: `hand`, `lead@<hamlet>` (by the hamlet's id), `hire#<id>`,
 `worker#<id>`, `scholar#<id>`. Wherever an agent is shown, its address comes
 first and its name beside it.
 _Avoid_: handle, username
@@ -58,20 +58,20 @@ hamlet's id is a UUID no one reads.
 
 **Nickname**:
 What a hire or a worker is called in the world, given by a chief, or for a
-hire by the Hand or a lead above it. Its address, `hire#<id>` or
+hire by the Hand or a parent above it. Its address, `hire#<id>` or
 `worker#<id>`, stays the same.
 _Avoid_: alias
 
-**Mayor**:
-The hire at the top of a hamlet's tree: the one the chief talks to first.
-Given to another hire with `/mayor`.
-_Avoid_: orchestrator, main agent
-
 **Lead**:
-A hire with hires under it, or the Hand. It has the mayor's powers over its
+The hire at the top of a hamlet's tree: the one the chief talks to first.
+Given to another hire with `/lead`.
+_Avoid_: mayor, orchestrator, main agent
+
+**Parent**:
+A hire with hires under it, or the Hand. It has the lead's powers over its
 subtree: hiring, ending, merging, choosing models and tools, setting
 allowances and laying roads.
-_Avoid_: manager, supervisor
+_Avoid_: lead (the top of a hamlet), manager, supervisor
 
 **Worker**:
 An agent started for one task by another agent or a chief. A child of its
@@ -81,14 +81,14 @@ _Avoid_: subagent, helper, runtime
 
 **Errand**:
 A one-off conversation that is not an agent's: the librarian's answer or a
-lead's review.
+parent's review.
 _Avoid_: job (a job is the server's outbox)
 
 ### Scholars and their memory
 
 **Character**:
 `CHARACTER.md` in a scholar's repository: who it is. Edited by a chief or
-given when a lead makes the scholar.
+given when a parent makes the scholar.
 
 **Memory**:
 The files under a scholar's `memory/`. Files at its root are in every
@@ -147,12 +147,12 @@ The pier on each island, with a boat between them. A newcomer waits at the
 city's until it is let into the city.
 
 **Newcomer**:
-A scholar a lead made, waiting at the harbor until a chief or the Hand lets
+A scholar a parent made, waiting at the harbor until a chief or the Hand lets
 it into the city, as the realm's `newcomers` setting says.
 _Avoid_: applicant, guest
 
 **Hamlet**:
-A group of hires under one mayor, with its own record, limits and the
+A group of hires under one lead, with its own record, limits and the
 folder it works on. A new realm has none. A chief creates one with
 `/create-hamlet`; the Hand founds one with its tool.
 _Avoid_: team, project, town
@@ -216,7 +216,7 @@ _Avoid_: task (a task is an agent's work)
 
 **Road**:
 A link between two agents along which they send letters. Its kind is tree
-(a hire and its lead, or the Hand and a mayor), mayors', laid (between two
+(a hire and its parent, or the Hand and a lead), leads', laid (between two
 hires of a hamlet) or agreed (between hires of two hamlets).
 
 **Letter**:
@@ -260,12 +260,12 @@ An answer saying why an action cannot be carried out.
 ### Records and the library
 
 **Record**:
-A hamlet's account of its hires, departures, roads and mayor's office, and
+A hamlet's account of its hires, departures, roads and lead's office, and
 the decisions that changed them. `/history` and the window's History
 show it.
 
 **Decision**:
-A choice by a mayor or a chief, kept in the record with its reason.
+A choice by a lead or a chief, kept in the record with its reason.
 
 **Library**:
 The skills shared by every agent of the realm.

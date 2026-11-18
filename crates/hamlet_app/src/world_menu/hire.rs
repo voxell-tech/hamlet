@@ -1,5 +1,5 @@
-//! The form an agent is hired with, under a lead: a blank agent or a
-//! scholar of the city found by a search, and folded under them the
+//! The form an agent is hired with, under a parent: a blank agent or
+//! a scholar of the city found by a search, and folded under them the
 //! version and what it is hired to do, which may be left out.
 
 use bevy::ecs::entity::Entity;
@@ -222,9 +222,9 @@ fn list() -> impl View {
     .within(column(()))
 }
 
-/// The chief's command that hires the one chosen under `lead`, a
+/// The chief's command that hires the one chosen under `parent`, a
 /// blank agent while none is, with its purpose if one is given.
-fn command(world: &World, lead: Entity) -> String {
+fn command(world: &World, parent: Entity) -> String {
     let hiring = world.resource::<Hiring>();
     let hired = match hiring.chosen {
         Some(scholar) => {
@@ -237,7 +237,7 @@ fn command(world: &World, lead: Entity) -> String {
         }
         None => "blank".into(),
     };
-    let under = agents::name_of(world, lead);
+    let under = agents::name_of(world, parent);
     let command = format!(
         "/hire {hired} under {under} {}",
         hiring.purpose.trim()
@@ -245,28 +245,28 @@ fn command(world: &World, lead: Entity) -> String {
     command.trim_end().to_string()
 }
 
-/// Hires the one the form chose under `lead`.
-pub(super) fn submit(world: &mut World, lead: Entity) {
+/// Hires the one the form chose under `parent`.
+pub(super) fn submit(world: &mut World, parent: Entity) {
     if !Deeds::is_allowed(world, "hire")
-        || world.get_entity(lead).is_err()
+        || world.get_entity(parent).is_err()
     {
         return;
     }
-    let command = command(world, lead);
+    let command = command(world, parent);
     close(world);
     *world.resource_mut::<Hiring>() = Hiring::default();
-    orders::decree(world, lead, command);
+    orders::decree(world, parent, command);
 }
 
-/// The form an agent is hired under `lead` with.
-pub(super) fn hire(lead: Entity, at: Vec2) -> impl View {
+/// The form an agent is hired under `parent` with.
+pub(super) fn hire(parent: Entity, at: Vec2) -> impl View {
     built(move |cx| {
         if !Deeds::is_allowed(cx.world, "hire")
-            || cx.world.get_entity(lead).is_err()
+            || cx.world.get_entity(parent).is_err()
         {
             return cx.build(frame());
         }
-        let under = agents::shown_of(cx.world, lead);
+        let under = agents::shown_of(cx.world, parent);
         let (gap, between, padding, heading) = {
             let theme = cx.theme();
             (
@@ -321,7 +321,7 @@ pub(super) fn hire(lead: Entity, at: Vec2) -> impl View {
             row((
                 lettered("Hire")
                     .variant(Variant::Primary)
-                    .on_activate(move |world| submit(world, lead)),
+                    .on_activate(move |world| submit(world, parent)),
                 lettered("Cancel")
                     .rules(styles::button)
                     .on_activate(close),
@@ -350,7 +350,7 @@ mod tests {
     use crate::testing::{panel_app, press};
 
     #[test]
-    fn a_scholar_chosen_from_the_list_is_hired_under_the_lead() {
+    fn a_scholar_chosen_from_the_list_is_hired_under_the_parent() {
         let mut app = panel_app();
         app.add_plugins(super::super::plugin)
             .add_observer(crate::chat::decreed)

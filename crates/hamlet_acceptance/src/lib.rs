@@ -115,7 +115,7 @@ impl Session {
 
     /// Founds the hamlet named `hamlet` under the scholar called
     /// `scholar`, made if the city has none, keeps its id in
-    /// [`NAMES`] and gives the mayor's id.
+    /// [`NAMES`] and gives the lead's id.
     pub async fn found(
         &mut self,
         hamlet: &str,
@@ -137,7 +137,7 @@ impl Session {
     }
 
     /// Waits for the hamlet named `hamlet`, keeps its id in
-    /// [`NAMES`] for the faux script, and gives its mayor's id.
+    /// [`NAMES`] for the faux script, and gives its lead's id.
     pub async fn named(&mut self, hamlet: &str) -> AgentId {
         self.chief
             .until(&format!("{hamlet} in the realm"), |c| {
@@ -158,36 +158,41 @@ impl Session {
         names.insert(hamlet.into(), found.id.into());
         std::fs::write(&file, serde_json::to_vec(&names).unwrap())
             .unwrap();
-        found.mayor
+        found.lead
     }
 
-    /// Has `lead` hire the scholar called `scholar`, made if the
+    /// Has `parent` hire the scholar called `scholar`, made if the
     /// city has none, and gives the new hire's id.
     pub async fn hire(
         &mut self,
-        lead: AgentId,
+        parent: AgentId,
         scholar: &str,
         purpose: &str,
     ) -> AgentId {
-        self.hired(lead, scholar, "", purpose).await
+        self.hired(parent, scholar, "", purpose).await
     }
 
-    /// Has `lead` hire the scholar called `scholar` under the agent
+    /// Has `parent` hire the scholar called `scholar` under the agent
     /// at `under`, and gives the new hire's id.
     pub async fn hire_under(
         &mut self,
-        lead: AgentId,
+        parent: AgentId,
         scholar: &str,
         under: &str,
         purpose: &str,
     ) -> AgentId {
-        self.hired(lead, scholar, &format!("under {under} "), purpose)
-            .await
+        self.hired(
+            parent,
+            scholar,
+            &format!("under {under} "),
+            purpose,
+        )
+        .await
     }
 
     async fn hired(
         &mut self,
-        lead: AgentId,
+        parent: AgentId,
         scholar: &str,
         under: &str,
         purpose: &str,
@@ -198,7 +203,7 @@ impl Session {
             .realm()
             .agents
             .into_iter()
-            .find(|a| a.id == lead)
+            .find(|a| a.id == parent)
             .and_then(|a| a.hamlet);
         let hires = move |c: &Client| {
             c.realm()
@@ -214,7 +219,7 @@ impl Session {
         let before = hires(&self.chief).len();
         self.chief
             .command(
-                lead,
+                parent,
                 &format!(
                     "/hire scholar#{} {under}{purpose}",
                     scholar.0

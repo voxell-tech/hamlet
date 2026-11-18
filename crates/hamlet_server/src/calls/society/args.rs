@@ -15,8 +15,8 @@ use serde_json::Value;
 use crate::society::refusal::Refusal;
 use crate::tools::catalogue::{FACTS, Society};
 
-const ADDRESS: &str = "An agent's address: `hand`, `mayor`, \
-                       `mayor@<hamlet id>`, `hire#<id>` or \
+const ADDRESS: &str = "An agent's address: `hand`, `lead`, \
+                       `lead@<hamlet id>`, `hire#<id>` or \
                        `worker#<id>`.";
 const REASON: &str =
     "Why, in a sentence, if it helps; the record keeps it.";
@@ -104,8 +104,8 @@ pub(crate) struct Object {
     pub reason: String,
 }
 
-/// Request from your lead a road to an agent of your hamlet you need
-/// to reach.
+/// Request from your parent a road to an agent of your hamlet you
+/// need to reach.
 #[derive(Deserialize, JsonSchema)]
 pub(crate) struct RequestRoad {
     #[schemars(description = ADDRESS)]
@@ -254,8 +254,8 @@ pub(crate) struct TakeUpRoad {
     pub reason: String,
 }
 
-/// As a mayor, agree a road between a hire of your hamlet and one of
-/// another. It opens once both mayors agree.
+/// As a lead, agree a road between a hire of your hamlet and one of
+/// another. It opens once both leads agree.
 #[derive(Deserialize, JsonSchema)]
 pub(crate) struct AgreeRoad {
     #[schemars(description = ADDRESS)]
@@ -267,14 +267,14 @@ pub(crate) struct AgreeRoad {
     pub reason: String,
 }
 
-/// Found a hamlet with a scholar as its mayor, or a blank agent when
+/// Found a hamlet with a scholar as its lead, or a blank agent when
 /// `scholar` is left out.
 #[derive(Deserialize, JsonSchema)]
 pub(crate) struct FoundHamlet {
     /// The name it is shown by: one line, up to 40 characters, no
     /// colon. Its id is made for it.
     pub name: String,
-    /// The address, `scholar#<id>`, of the scholar its mayor is a
+    /// The address, `scholar#<id>`, of the scholar its lead is a
     /// hire of.
     #[serde(default)]
     pub scholar: String,
@@ -282,9 +282,9 @@ pub(crate) struct FoundHamlet {
     pub purpose: String,
 }
 
-/// Seat a hire as its hamlet's mayor.
+/// Make a hire its hamlet's lead.
 #[derive(Deserialize, JsonSchema)]
-pub(crate) struct SeatMayor {
+pub(crate) struct SetLead {
     #[schemars(description = ADDRESS)]
     pub hire: String,
     #[serde(default)]
@@ -424,7 +424,7 @@ called!(
     TakeUpRoad,
     AgreeRoad,
     FoundHamlet,
-    SeatMayor,
+    SetLead,
     RemoveHamlet,
     ReadRecord,
     ReadScholar,

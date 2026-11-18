@@ -104,19 +104,19 @@ impl Realm {
         self.by(chief, make)
     }
 
-    /// Founds a hamlet named `name` under a new mayor named `mayor`;
-    /// the mayor's `hamlet` is its id.
-    pub fn found(&mut self, name: &str, mayor: &str) -> Hired {
+    /// Founds a hamlet named `name` under a new lead named `lead`;
+    /// the lead's `hamlet` is its id.
+    pub fn found(&mut self, name: &str, lead: &str) -> Hired {
         let chief = self.chief;
-        let (name, mayor) = (name.to_owned(), mayor.to_owned());
+        let (name, lead) = (name.to_owned(), lead.to_owned());
         self.chief(|cx| {
             hamlets::found(
                 cx,
                 Founding {
                     name,
                     chief,
-                    mayor: Hiring::Blank {
-                        name: mayor,
+                    lead: Hiring::Blank {
+                        name: lead,
                         character: "Careful.".into(),
                     },
                     purpose: "Build it".into(),

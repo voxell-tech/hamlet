@@ -283,7 +283,7 @@ fn streamed_words_only_change_saying_and_keep_relationship_order() {
         .agents
         .push(hamlet_testing::realm::agent(3, "home", false));
     receive(world, protocol::ServerMessage::State(state.clone()));
-    let founder = mayor_of(world, "home").unwrap();
+    let founder = lead_of(world, "home").unwrap();
     let home = world.get::<LivesIn>(founder).unwrap().0;
     let before = world
         .get::<Agents>(home)
@@ -326,7 +326,7 @@ fn streamed_words_only_change_saying_and_keep_relationship_order() {
                 Changed<Works>,
                 Changed<Bylaws>,
                 Changed<Treasury>,
-                Changed<Mayor>
+                Changed<Lead>
             )>>()
             .iter(world)
             .count(),

@@ -23,7 +23,7 @@ pub(crate) struct Limits {
     pub told_days: i64,
     pub asking: ChiefQuestions,
     /// How long after a chief's task a hire may not be ended or
-    /// merged by a lead (H7).
+    /// merged by a parent (H7).
     pub protected_minutes: i64,
 }
 
@@ -125,8 +125,8 @@ impl Default for RoadRules {
     }
 }
 
-/// The leads' acts a chief keeps for itself, so they wait for a chief
-/// (H22).
+/// The parents' acts a chief keeps for itself, so they wait for a
+/// chief (H22).
 #[derive(
     Clone, Debug, Default, PartialEq, Serialize, Deserialize,
 )]
@@ -158,7 +158,7 @@ impl Default for ChiefQuestions {
     }
 }
 
-/// When a lead reviews a chief's instruction to a hire under it
+/// When a parent reviews a chief's instruction to a hire under it
 /// (H10).
 #[derive(
     Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize,
@@ -166,7 +166,7 @@ impl Default for ChiefQuestions {
 #[serde(rename_all = "camelCase")]
 pub(crate) enum Review {
     Always,
-    /// When the lead's model is served from another machine.
+    /// When the parent's model is served from another machine.
     Remote,
     Never,
 }
@@ -175,7 +175,7 @@ pub(crate) enum Review {
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(default, rename_all = "camelCase")]
 pub(crate) struct RealmLimits {
-    /// Whether mayors may agree roads between their hamlets.
+    /// Whether leads may agree roads between their hamlets.
     pub roads_between: bool,
     /// The budget of the Hand and of the workers it and the chiefs
     /// start outside a hamlet.

@@ -237,7 +237,7 @@ mod tests {
         use bevy_fynix::views::label;
         use hamlet_client::Tokio;
         use hamlet_client::connection::Wake;
-        use hamlet_client::realm::{first_mayor, hamlet, name_of};
+        use hamlet_client::realm::{first_lead, hamlet, name_of};
         use hamlet_protocol::client as protocol;
         use hamlet_protocol::client::discovery::ServerAddress;
 
@@ -270,7 +270,7 @@ mod tests {
         bevy_fynix::mount::<HamletTheme>(
             app.world_mut(),
             label(roll::rolled(|world| {
-                first_mayor(world)
+                first_lead(world)
                     .map(|agent| name_of(world, agent))
                     .unwrap_or_default()
             })),

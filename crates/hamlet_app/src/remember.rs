@@ -187,8 +187,8 @@ impl Remembered {
 #[derive(Serialize, Deserialize, Clone, PartialEq, Debug)]
 #[serde(tag = "what", content = "of", rename_all = "lowercase")]
 pub enum Chosen {
-    /// The first hamlet's mayor, and its hall.
-    Mayor,
+    /// The first hamlet's lead, and its hall.
+    Lead,
     Hall,
     /// An agent and its house, by the agent's address.
     Agent(String),
@@ -230,7 +230,7 @@ impl Chosen {
             names.get(of).ok().map(|name| name.as_str().to_string())
         };
         Some(match thing {
-            Thing::Keeper => Chosen::Mayor,
+            Thing::Keeper => Chosen::Lead,
             Thing::Cottage => Chosen::Hall,
             Thing::Agent(agent) => Chosen::Agent(name(agent)?),
             Thing::House(agent) => Chosen::House(name(agent)?),
@@ -263,7 +263,7 @@ impl Chosen {
                 .map(|(agent, ..)| agent)
         };
         Some(match self {
-            Chosen::Mayor => Thing::Keeper,
+            Chosen::Lead => Thing::Keeper,
             Chosen::Hall => Thing::Cottage,
             Chosen::Agent(name) => {
                 Thing::Agent(agent(world, name, false)?)

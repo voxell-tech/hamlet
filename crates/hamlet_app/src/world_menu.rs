@@ -118,7 +118,7 @@ pub(crate) enum Open {
     Founding(Vec2),
     /// The form a scholar is made in the city with.
     NewScholar(Vec2),
-    /// The form a scholar is hired under a lead with.
+    /// The form a scholar is hired under a parent with.
     Hire(Entity, Vec2),
     /// The form a road from an agent is built with.
     Road(Entity, Vec2),
@@ -146,7 +146,7 @@ fn submit(world: &mut World) {
         Open::Question(deed, _) => deed::answer(world, &deed),
         Open::Founding(_) => founding::submit(world),
         Open::NewScholar(_) => new_scholar::submit(world),
-        Open::Hire(lead, _) => hire::submit(world, lead),
+        Open::Hire(parent, _) => hire::submit(world, parent),
         _ => {}
     }
 }
@@ -331,10 +331,10 @@ pub(crate) fn open_for(world: &mut World, thing: Thing) {
     *world.resource_mut::<Open>() = Open::Menu(thing, at);
 }
 
-/// Opens the menu of `agent` at `at`, the mayor's if it is the first.
+/// Opens the menu of `agent` at `at`, the lead's if it is the first.
 pub fn open_agent(world: &mut World, agent: Entity, at: Vec2) {
     let thing =
-        if hamlet_client::realm::first_mayor(world) == Some(agent) {
+        if hamlet_client::realm::first_lead(world) == Some(agent) {
             Thing::Keeper
         } else {
             Thing::Agent(agent)
@@ -366,14 +366,14 @@ pub(crate) fn ask_new_scholar(world: &mut World) {
     *world.resource_mut::<Open>() = Open::NewScholar(at);
 }
 
-/// Opens the form a scholar is hired under `lead` with, at the
+/// Opens the form a scholar is hired under `parent` with, at the
 /// pointer.
-pub(crate) fn ask_hire(world: &mut World, lead: Entity) {
+pub(crate) fn ask_hire(world: &mut World, parent: Entity) {
     if !Deeds::is_allowed(world, "hire") {
         return;
     }
     let at = pointer(world);
-    *world.resource_mut::<Open>() = Open::Hire(lead, at);
+    *world.resource_mut::<Open>() = Open::Hire(parent, at);
 }
 
 /// Opens the form a road from `agent` is built with, at the pointer.
@@ -476,7 +476,7 @@ fn menus() -> AnyView {
             Open::NewScholar(at) => {
                 new_scholar::new_scholar(at).boxed()
             }
-            Open::Hire(lead, at) => hire::hire(lead, at).boxed(),
+            Open::Hire(parent, at) => hire::hire(parent, at).boxed(),
             Open::Road(agent, at) => road::road(agent, at).boxed(),
             Open::Model(agent) => model::picker(agent).boxed(),
         },
@@ -574,7 +574,7 @@ mod tests {
     }
 
     #[test]
-    fn roads_are_offered_only_when_supported_and_sent_to_the_mayor() {
+    fn roads_are_offered_only_when_supported_and_sent_to_the_lead() {
         let mut state = realm::state();
         state.agents.extend([
             realm::agent(3, "home", false),
@@ -591,7 +591,7 @@ mod tests {
         let shown = words(&mut app);
         for absent in [
             "End hire#3...",
-            "Make hire#3 Mayor...",
+            "Make hire#3 Lead...",
             "Merge hire#3 into hire#4...",
         ] {
             assert!(
@@ -617,11 +617,11 @@ mod tests {
     }
 
     #[test]
-    fn the_first_mayors_menu_stops_it() {
+    fn the_first_leads_menu_stops_it() {
         let mut app = app(realm::state());
 
         open(&mut app, Open::Menu(Thing::Keeper, Vec2::ZERO));
-        press(&mut app, "Stop the Mayor");
+        press(&mut app, "Stop the Lead");
         let messages = sent(&mut app);
         let [protocol::ClientMessage::Stop(stop)] = &messages[..]
         else {

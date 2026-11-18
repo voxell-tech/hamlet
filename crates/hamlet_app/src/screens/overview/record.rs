@@ -7,8 +7,8 @@ use bevy_fynix::{ViewExt, derived, every_frame, keyed};
 use hamlet_client::messages::{Reconnected, Response};
 use hamlet_client::outbox::Outbox;
 use hamlet_client::realm::{
-    self as agents, Agents, Bylaws, Deeds, HamletId, Identity, Lived,
-    LivesIn, Mayor, Seen, Treasury, Works,
+    self as agents, Agents, Bylaws, Deeds, HamletId, Identity, Lead,
+    Lived, LivesIn, Seen, Treasury, Works,
 };
 use hamlet_protocol::client as protocol;
 use hamlet_ui::AnyView;
@@ -70,8 +70,8 @@ fn request(world: &mut World, hamlet: Entity, opening: bool) {
     {
         return;
     }
-    let Some(to) = agents::mayor_of(world, &name)
-        .and_then(|mayor| agents::id_of(world, mayor))
+    let Some(to) = agents::lead_of(world, &name)
+        .and_then(|lead| agents::id_of(world, lead))
     else {
         return;
     };
@@ -135,7 +135,7 @@ fn refresh(world: &mut World) {
     let agents = world
         .query_filtered::<&LivesIn, (
             With<Identity>,
-            Or<(Changed<Name>, Changed<Lived>, Changed<Mayor>)>,
+            Or<(Changed<Name>, Changed<Lived>, Changed<Lead>)>,
         )>()
         .iter(world)
         .map(|l| l.0)
@@ -203,7 +203,7 @@ mod tests {
     use crate::testing::{panel_app, words};
 
     #[test]
-    fn the_record_reply_comes_from_the_server_and_commands_reach_its_mayor()
+    fn the_record_reply_comes_from_the_server_and_commands_reach_its_lead()
      {
         let mut app = panel_app();
         app.add_plugins(crate::overview::plugin);
@@ -217,7 +217,7 @@ mod tests {
             protocol::ServerMessage::State(state.clone()),
         );
         let hamlet =
-            hamlet_client::realm::first_mayor(app.world()).unwrap();
+            hamlet_client::realm::first_lead(app.world()).unwrap();
         let hamlet = app.world().get::<LivesIn>(hamlet).unwrap().0;
         bevy_fynix::mount::<hamlet_ui::theme::HamletTheme>(
             app.world_mut(),
@@ -270,8 +270,8 @@ mod tests {
         );
         app.update();
         assert_eq!(app.world().resource::<Outbox>().iter().filter(|m| matches!(m, protocol::ClientMessage::Say(s) if s.text == "/history")).count(), 2);
-        state.agents[1].mayor = false;
-        state.agents[2].mayor = true;
+        state.agents[1].lead = false;
+        state.agents[2].lead = true;
         hamlet_client::receive(
             app.world_mut(),
             protocol::ServerMessage::Change(protocol::Changes {
@@ -299,7 +299,7 @@ mod tests {
             protocol::ServerMessage::State(state.clone()),
         );
         let agent =
-            hamlet_client::realm::first_mayor(app.world()).unwrap();
+            hamlet_client::realm::first_lead(app.world()).unwrap();
         let hamlet = app.world().get::<LivesIn>(agent).unwrap().0;
         bevy_fynix::mount::<hamlet_ui::theme::HamletTheme>(
             app.world_mut(),

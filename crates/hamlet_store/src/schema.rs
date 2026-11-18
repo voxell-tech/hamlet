@@ -22,7 +22,7 @@ diesel::table! {
         a -> BigInt,
         b -> BigInt,
         hamlet -> Text,
-        mayor -> BigInt,
+        lead -> BigInt,
         at -> BigInt,
         reason -> Text,
         task -> Nullable<BigInt>,
@@ -172,7 +172,7 @@ diesel::table! {
         name -> Text,
         founded_at -> BigInt,
         founded_by -> Text,
-        mayor -> BigInt,
+        lead -> BigInt,
         folder -> Nullable<Text>,
         mode -> Text,
         tier -> BigInt,
@@ -401,7 +401,7 @@ diesel::table! {
 diesel::table! {
     review (task) {
         task -> BigInt,
-        lead -> BigInt,
+        parent -> BigInt,
         conversation -> Nullable<BigInt>,
         outcome -> Nullable<Text>,
         at -> BigInt,
@@ -642,7 +642,7 @@ diesel::joinable!(permission_grant -> agent (agent));
 diesel::joinable!(permission_grant -> chief (chief));
 diesel::joinable!(reflection -> conversation (conversation));
 diesel::joinable!(reflection -> task (task));
-diesel::joinable!(review -> agent (lead));
+diesel::joinable!(review -> agent (parent));
 diesel::joinable!(review -> conversation (conversation));
 diesel::joinable!(review -> task (task));
 diesel::joinable!(road -> task (task));

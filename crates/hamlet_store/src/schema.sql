@@ -68,14 +68,14 @@ CREATE INDEX scholar_chief ON scholar(chief);
 -- Hamlets
 
 -- A hamlet: a UUID made when it is founded, and the name it is shown
--- by. Its mayor is the root of its tree of hires. Its limits are the
+-- by. Its lead is the root of its tree of hires. Its limits are the
 -- chief's document for it.
 CREATE TABLE hamlet (
     id TEXT PRIMARY KEY,
     name TEXT NOT NULL CHECK (length(trim(name)) > 0),
     founded_at INTEGER NOT NULL,
     founded_by TEXT NOT NULL,
-    mayor INTEGER NOT NULL
+    lead INTEGER NOT NULL
         REFERENCES hire(agent) DEFERRABLE INITIALLY DEFERRED,
     folder TEXT,
     mode TEXT NOT NULL DEFAULT 'manual' CHECK (mode IN ('manual', 'auto')),
@@ -163,7 +163,7 @@ CREATE TABLE hire (
 CREATE INDEX hire_scholar ON hire(scholar);
 CREATE INDEX hire_parent ON hire(parent);
 
--- A built-in or society tool a lead turned off for a hire.
+-- A built-in or society tool a parent turned off for a hire.
 CREATE TABLE hire_tool_off (
     hire INTEGER NOT NULL REFERENCES hire(agent),
     tool TEXT NOT NULL,
@@ -214,14 +214,14 @@ CREATE TABLE road (
 CREATE UNIQUE INDEX road_open ON road(a, b) WHERE up_at IS NULL;
 CREATE INDEX road_b ON road(b);
 
--- One mayor's agreement to a road between hamlets. The road is laid
--- when both mayors agree.
+-- One lead's agreement to a road between hamlets. The road is laid
+-- when both leads agree.
 CREATE TABLE agreement (
     id INTEGER PRIMARY KEY,
     a INTEGER NOT NULL REFERENCES hire(agent),
     b INTEGER NOT NULL REFERENCES hire(agent),
     hamlet TEXT NOT NULL REFERENCES hamlet(id),
-    mayor INTEGER NOT NULL REFERENCES hire(agent),
+    lead INTEGER NOT NULL REFERENCES hire(agent),
     at INTEGER NOT NULL,
     reason TEXT NOT NULL,
     task INTEGER REFERENCES task(id),
@@ -244,7 +244,7 @@ CREATE INDEX road_charge_hamlet ON road_charge(hamlet, at);
 
 -- The record
 
--- A decision of a chief, the Hand or a lead, kept with its reason
+-- A decision of a chief, the Hand or a parent, kept with its reason
 -- (H17).
 CREATE TABLE decision (
     id INTEGER PRIMARY KEY,
@@ -526,7 +526,7 @@ CREATE INDEX message_pair ON message(sender, receiver, at);
 CREATE INDEX message_receiver ON message(receiver, at);
 
 -- An objection to a chief's instruction (H10), one per task: by the
--- instructed agent, or by its lead's review.
+-- instructed agent, or by its parent's review.
 CREATE TABLE objection (
     task INTEGER PRIMARY KEY REFERENCES task(id),
     agent INTEGER NOT NULL REFERENCES agent(id),
@@ -538,10 +538,10 @@ CREATE TABLE objection (
     ruled_at INTEGER
 ) STRICT;
 
--- A lead's review of a chief's instruction to a hire under it.
+-- A parent's review of a chief's instruction to a hire under it.
 CREATE TABLE review (
     task INTEGER PRIMARY KEY REFERENCES task(id),
-    lead INTEGER NOT NULL REFERENCES agent(id),
+    parent INTEGER NOT NULL REFERENCES agent(id),
     conversation INTEGER REFERENCES conversation(id),
     outcome TEXT CHECK (outcome IS NULL OR outcome IN
         ('pass', 'object', 'skipped', 'failed')),

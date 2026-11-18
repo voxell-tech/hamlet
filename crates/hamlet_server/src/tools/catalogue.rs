@@ -32,7 +32,7 @@ pub(crate) enum Society {
     TakeUpRoad,
     AgreeRoad,
     FoundHamlet,
-    SeatMayor,
+    SetLead,
     RemoveHamlet,
     ReadRecord,
     ReadScholar,
@@ -46,12 +46,12 @@ pub(crate) enum Society {
 pub(crate) enum Offered {
     /// Every agent but a worker.
     Everyone,
-    /// Every hire: those under a lead.
+    /// Every hire: those under a parent.
     Hires,
-    /// Every lead over its own tree, and the Hand over all.
+    /// Every parent over its own tree, and the Hand over all.
+    Parents,
+    /// A hamlet's lead, while there is another hamlet.
     Leads,
-    /// A hamlet's mayor, while there is another hamlet.
-    Mayors,
     /// Every agent but a worker, in a chief's chat.
     Chats,
     /// The Hand alone.
@@ -65,7 +65,7 @@ pub(crate) enum Reserve {
     Free,
     /// The Hand's, on what chiefs own.
     Hand,
-    /// A lead's, when its hamlet's limits keep this.
+    /// A parent's, when its hamlet's limits keep this.
     Limit(Limit),
 }
 
@@ -142,7 +142,7 @@ impl Facts {
 
 /// Every society tool, once.
 pub(crate) const FACTS: [Facts; 28] = {
-    use Offered::{Chats, Everyone, Hand, Hires, Leads, Mayors};
+    use Offered::{Chats, Everyone, Hand, Hires, Leads, Parents};
     use Society as S;
     [
         facts(S::Tell, "tell", Everyone),
@@ -157,26 +157,26 @@ pub(crate) const FACTS: [Facts; 28] = {
         facts(S::Object, "object", Chats),
         facts(S::RequestRoad, "request_road", Hires)
             .doing(Doing::Await),
-        facts(S::CreateScholar, "create_scholar", Leads)
+        facts(S::CreateScholar, "create_scholar", Parents)
             .doing(Doing::Think),
-        facts(S::Hire, "hire", Leads)
+        facts(S::Hire, "hire", Parents)
             .reserved(Reserve::Limit(Limit::Hire))
             .doing(Doing::Think),
-        facts(S::EndHire, "end_hire", Leads)
+        facts(S::EndHire, "end_hire", Parents)
             .reserved(Reserve::Limit(Limit::End)),
-        facts(S::MergeHires, "merge_hires", Leads)
+        facts(S::MergeHires, "merge_hires", Parents)
             .reserved(Reserve::Limit(Limit::Merge)),
-        facts(S::SetModel, "set_model", Leads),
-        facts(S::SetTools, "set_tools", Leads),
-        facts(S::SetAllowance, "set_allowance", Leads),
-        facts(S::Nickname, "nickname", Leads),
-        facts(S::LayRoad, "lay_road", Leads)
+        facts(S::SetModel, "set_model", Parents),
+        facts(S::SetTools, "set_tools", Parents),
+        facts(S::SetAllowance, "set_allowance", Parents),
+        facts(S::Nickname, "nickname", Parents),
+        facts(S::LayRoad, "lay_road", Parents)
             .reserved(Reserve::Limit(Limit::Roads)),
-        facts(S::TakeUpRoad, "take_up_road", Leads)
+        facts(S::TakeUpRoad, "take_up_road", Parents)
             .reserved(Reserve::Limit(Limit::Roads)),
-        facts(S::AgreeRoad, "agree_road", Mayors).doing(Doing::Await),
+        facts(S::AgreeRoad, "agree_road", Leads).doing(Doing::Await),
         facts(S::FoundHamlet, "found_hamlet", Hand),
-        facts(S::SeatMayor, "seat_mayor", Hand),
+        facts(S::SetLead, "set_lead", Hand),
         facts(S::RemoveHamlet, "remove_hamlet", Hand)
             .reserved(Reserve::Hand),
         facts(S::ReadRecord, "read_record", Hand),

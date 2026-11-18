@@ -117,7 +117,7 @@ pub(super) struct Branch {
     /// Its name, when it has one besides its address.
     pub(super) name: Option<String>,
     pub(super) kind: AgentKind,
-    pub(super) mayor: bool,
+    pub(super) lead: bool,
     /// The log of the commands it ran, which the list shows once the
     /// agent is pinned.
     pub(super) log: Option<Item>,
@@ -165,7 +165,7 @@ pub(super) struct Owner {
     pub(super) kind: AgentKind,
     pub(super) parent: Option<AgentId>,
     pub(super) hamlet: Option<String>,
-    pub(super) mayor: bool,
+    pub(super) lead: bool,
     pub(super) address: String,
     pub(super) name: String,
 }
@@ -267,14 +267,14 @@ fn owner(world: &World, agent: AgentId) -> Option<Owner> {
             .get::<realm::LivesIn>(entity)
             .and_then(|lives| world.get::<realm::HamletId>(lives.0))
             .map(|hamlet| hamlet.0.clone()),
-        mayor: world.get::<realm::Mayor>(entity).is_some(),
+        lead: world.get::<realm::Lead>(entity).is_some(),
         address,
         name,
     })
 }
 
-/// The agent a tree puts `owner` under: a hire's lead or a worker's
-/// starter. A mayor heads its hamlet's tree, though it answers to
+/// The agent a tree puts `owner` under: a hire's parent or a worker's
+/// starter. A lead heads its hamlet's tree, though it answers to
 /// the Hand.
 fn above(
     owner: &Owner,
@@ -412,7 +412,7 @@ pub(super) fn tree(
 }
 
 /// `agents` in the order a tree shows them: a chief's workers, then
-/// the mayor, then hires in the order they came, then workers; or,
+/// the lead, then hires in the order they came, then workers; or,
 /// below an agent, its hires before its workers.
 fn ordered(
     agents: BTreeSet<AgentId>,
@@ -424,7 +424,7 @@ fn ordered(
         let found = owners.get(agent);
         let rank = match found {
             Some(o) if o.kind == AgentKind::Worker && top => 0,
-            Some(o) if o.mayor => 1,
+            Some(o) if o.lead => 1,
             Some(o) if o.kind == AgentKind::Worker => 3,
             _ => 2,
         };
@@ -465,7 +465,7 @@ fn branch(
             address,
             name,
             kind: found.map_or(AgentKind::Worker, |o| o.kind),
-            mayor: found.is_some_and(|o| o.mayor),
+            lead: found.is_some_and(|o| o.lead),
             log: logs.into_iter().next().map(|mut log| {
                 log.item.crumbs = crumbs.clone();
                 log.item
@@ -1182,7 +1182,7 @@ mod tests {
             )
         };
         // The chief's come first in a hamlet, then the workers a
-        // chief started, then the mayor's tree: each agent's
+        // chief started, then the lead's tree: each agent's
         // shells, then the agents under it, one with no terminal of
         // its own still shown above those that have. An agent's
         // commands are its log, not a row.

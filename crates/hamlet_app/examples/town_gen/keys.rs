@@ -76,7 +76,7 @@ pub fn keys(
     let others = agents
         .iter()
         .copied()
-        .filter(|&id| id != town.mayor)
+        .filter(|&id| id != town.lead)
         .collect::<Vec<_>>();
     let local = world
         .roads

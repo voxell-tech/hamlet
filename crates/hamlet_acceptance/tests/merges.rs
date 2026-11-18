@@ -65,7 +65,7 @@ async fn merging_brings_a_hires_learning_and_restoring_splits_it() {
             .contains(&"memory/tools.md".into())
     );
 
-    // The mayor cannot be absorbed, and a hire joins only a hire.
+    // The lead cannot be absorbed, and a hire joins only a hire.
     s.chief.refused(ada, "/merge hire#2 into hire#3").await;
     s.chief.refused(ada, "/merge hire#3 into hire#11").await;
 }

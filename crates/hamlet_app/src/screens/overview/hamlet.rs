@@ -177,7 +177,7 @@ fn list_of(hamlet: Entity) -> impl View {
     .within(bare())
 }
 
-/// How far a hire stands in from its lead.
+/// How far a hire stands in from its parent.
 const STEP: f32 = 18.0;
 
 /// How far a row's icon stands in from its left edge.
@@ -188,13 +188,13 @@ const TOP: f32 = 4.0;
 
 /// The tree's lines in front of one agent's row.
 struct Branch {
-    /// For each level between the top and its lead's, whether a
+    /// For each level between the top and its parent's, whether a
     /// guide runs down it past this row.
     rails: Vec<bool>,
-    /// Whether it is the last of its lead's hires.
+    /// Whether it is the last of its parent's hires.
     last: bool,
     /// Whether it has hires of its own under it.
-    leads: bool,
+    has_children: bool,
 }
 
 /// The lines in front of each of `rows`, which are in the tree's
@@ -214,18 +214,22 @@ fn branches(rows: &[&AgentRow]) -> Vec<Branch> {
                 more.get(1..depth).unwrap_or_default().to_vec();
             more.resize(depth + 1, false);
             more[depth] = !last;
-            let leads = rows
+            let has_children = rows
                 .get(at + 1)
                 .is_some_and(|next| next.depth > depth);
-            Branch { rails, last, leads }
+            Branch {
+                rails,
+                last,
+                has_children,
+            }
         })
         .collect()
 }
 
 /// The lines in front of a row at `depth`: a guide down each level
-/// above its lead's that has more rows after it, then an elbow from
-/// its lead to its icon, running on down while its lead has more.
-/// Each line runs under the icon of the lead it comes from.
+/// above its parent's that has more rows after it, then an elbow from
+/// its parent to its icon, running on down while its parent has more.
+/// Each line runs under the icon of the parent it comes from.
 fn lines(cx: &Cx, depth: usize, branch: &Branch) -> Vec<AnyView> {
     let colour = cx.theme().palette.gold_6;
     let shown = |on: bool| if on { colour } else { Color::NONE };
@@ -291,7 +295,7 @@ fn lines(cx: &Cx, depth: usize, branch: &Branch) -> Vec<AnyView> {
         let to = depth as f32 * STEP + INSET - 2.0;
         parts.push(over(from, elbow, to - from, Some(LINE)));
     }
-    if branch.leads {
+    if branch.has_children {
         // Down from under its icon to its first hire.
         let top = elbow + ICON / 2.0 + 2.0;
         parts.push(over(under_icon(depth), top, LINE, None));
@@ -310,8 +314,8 @@ fn person(row_of: &AgentRow, branch: Branch) -> AnyView {
     } else {
         Thing::Agent(agent)
     };
-    let kind = if row_of.mayor {
-        Glyph::Mayor
+    let kind = if row_of.lead {
+        Glyph::Lead
     } else if row_of.worker {
         Glyph::Robot
     } else {
@@ -489,19 +493,17 @@ pub fn hamlet(hamlet: Entity) -> impl View {
         };
         let mut actions = Vec::new();
         if *hires {
-            // Under its mayor; under another hire from that hire's
+            // Under its lead; under another hire from that hire's
             // menu.
-            let mayor_of = facts.id.clone();
+            let lead_of = facts.id.clone();
             actions.push(action(
                 Glyph::Scholar,
                 "Hire a scholar",
                 move |world| {
-                    if let Some(mayor) =
-                        hamlet_client::realm::mayor_of(
-                            world, &mayor_of,
-                        )
+                    if let Some(lead) =
+                        hamlet_client::realm::lead_of(world, &lead_of)
                     {
-                        world_menu::ask_hire(world, mayor);
+                        world_menu::ask_hire(world, lead);
                     }
                 },
             ));

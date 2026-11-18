@@ -53,7 +53,7 @@ impl Core<'_, '_> {
         )
     }
 
-    /// Requests a road from the caller's lead, as a letter to it.
+    /// Requests a road from the caller's parent, as a letter to it.
     pub(in crate::calls) fn request_road(
         &mut self,
         call: &Call<'_>,
@@ -66,7 +66,7 @@ impl Core<'_, '_> {
             Err(refusal) => return Ok(Step::of(Err(refusal))),
         };
         let db = self.realm.store().connection();
-        let lead = match hires::find(db, sender)? {
+        let parent = match hires::find(db, sender)? {
             Some(hire) => match hire.parent {
                 Some(parent) => parent,
                 None => crate::society::hand::id(db)?,
@@ -79,8 +79,8 @@ impl Core<'_, '_> {
         self.deliver(
             call,
             MessageKind::Letter,
-            lead,
-            "lead",
+            parent,
+            "parent",
             &words,
             &[],
         )

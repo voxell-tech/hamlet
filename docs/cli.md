@@ -45,7 +45,7 @@ starts only the window.
 | `hamlet stop` | Stops the realm's server and waits for it to close in order |
 | `hamlet status` | Reports whether the realm's server runs, with its address, process ID, start time and log path |
 | `hamlet server [--port <n>] [--faux <script.json>] [--insecure]` | Starts a server on a realm; a faux script answers offline for tests and demos |
-| `hamlet chat [--to <hand\|hire#<id>\|mayor@<hamlet>>] [--attach <path>]...` | Chats with the Hand or the named agent and answers what waits, in the terminal; each `--attach` (an image, a file or a folder) goes with the first line |
+| `hamlet chat [--to <hand\|hire#<id>\|lead@<hamlet>>] [--attach <path>]...` | Chats with the Hand or the named agent and answers what waits, in the terminal; each `--attach` (an image, a file or a folder) goes with the first line |
 | `hamlet dev [--port <n>] [--faux <script.json>] [--home <dir>] [--insecure] [--hot]` | Serves a scratch realm on a free port unless given one, and opens its window; `--hot` builds a window that reloads saved shaders and tuning files |
 | `hamlet window` | Opens a window connected to a running server |
 | `hamlet import [--file <export>] [--all] [--sessions]` | Lists the projects other programs worked on in the last 30 days, or ever with `--all`, the suggested ones marked `*`, and with `--sessions` each one's conversations by id, newest first: Claude Code's conversations under `CLAUDE_CONFIG_DIR` or `~/.claude`, Codex's under `CODEX_HOME` or `~/.codex`, pi's under `PI_CODING_AGENT_SESSION_DIR`, `PI_CODING_AGENT_DIR` or `~/.pi/agent`. With `--file`, those of a ChatGPT or Claude export, its zip or its `conversations.json` |
@@ -83,8 +83,8 @@ The server advertises its supported deeds in the state it sends, and
 versions of a scholar, the library, the record, the budget and what waits.
 The server parses commands; the terminal handles only `/hand`, `/hamlet` and
 `/agent` as address changes, and `/attach`. `/hand` talks to the Hand,
-`/hamlet <hamlet>` to that hamlet's mayor, and `/agent` finds an agent
-anywhere in the realm by its address (`hand`, `hire#<id>`, `mayor@<hamlet>`,
+`/hamlet <hamlet>` to that hamlet's lead, and `/agent` finds an agent
+anywhere in the realm by its address (`hand`, `hire#<id>`, `lead@<hamlet>`,
 `worker#<id>`). The CLI replaces its realm view on whole states as well as
 applying changes. See [`society.md`](society.md) for the society and realm's
 surface, and the command table in [`spec/hamlet.md`](spec/hamlet.md#chiefs).

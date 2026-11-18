@@ -58,7 +58,7 @@ fn town_view(
 
 fn shot_list(land: &Land) -> Vec<Shot> {
     let mut shots = Vec::new();
-    let mayor = |w: &Society, t: usize| w.towns[t].mayor;
+    let lead = |w: &Society, t: usize| w.towns[t].lead;
 
     let fresh = society(land, &[0], 0);
     shots.push(Shot {
@@ -105,7 +105,7 @@ fn shot_list(land: &Land) -> Vec<Shot> {
     grown.set_state(AgentId(5), KeeperState::Waiting);
     grown.set_state(AgentId(16), KeeperState::Fault);
     let walker = AgentId(9);
-    let trip = (Pair::new(walker, mayor(&grown, 0)), walker, 0.4);
+    let trip = (Pair::new(walker, lead(&grown, 0)), walker, 0.4);
     for (name, night) in
         [("05-grown-town-day", false), ("06-grown-town-night", true)]
     {
@@ -121,7 +121,7 @@ fn shot_list(land: &Land) -> Vec<Shot> {
 
     // One town with a road of each level side by side.
     let mut levels = society(land, &[8], 0);
-    let chief = mayor(&levels, 0);
+    let chief = lead(&levels, 0);
     for (id, level) in [
         (1, RoadLevel::Overgrown),
         (2, RoadLevel::Dirt),

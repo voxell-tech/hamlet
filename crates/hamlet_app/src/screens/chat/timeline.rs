@@ -12,7 +12,7 @@ use bevy::ecs::system::{Query, Res, SystemParam};
 use bevy::math::Vec3;
 use hamlet_client::chats::{Entry, Transcript};
 use hamlet_client::realm::{
-    Hire, Identity, Kind as AgentKind, LivesIn, Mayor, Purpose, Shown,
+    Hire, Identity, Kind as AgentKind, Lead, LivesIn, Purpose, Shown,
 };
 use hamlet_protocol::client as protocol;
 use hamlet_realm::chief::{Chief, Look};
@@ -29,7 +29,7 @@ pub(super) enum Kind {
     /// The chief at this window.
     Me,
     Chief,
-    Mayor,
+    Lead,
     /// The realm's own agent.
     Hand,
     #[default]
@@ -99,7 +99,7 @@ pub struct People<'w, 's> {
             Entity,
             &'static Name,
             Option<&'static Identity>,
-            Has<Mayor>,
+            Has<Lead>,
             Option<&'static Purpose>,
             Option<&'static LivesIn>,
             Option<&'static Housed>,
@@ -122,7 +122,7 @@ pub struct People<'w, 's> {
                 Changed<Purpose>,
                 Changed<Housed>,
                 Changed<LivesIn>,
-                Added<Mayor>,
+                Added<Lead>,
             )>,
         ),
     >,
@@ -139,7 +139,7 @@ impl People<'_, '_> {
     }
 
     fn agent(&self, agent: Entity) -> Option<Who> {
-        let (_, name, id, mayor, purpose, _, housed, kind, shown) =
+        let (_, name, id, lead, purpose, _, housed, kind, shown) =
             self.agents.get(agent).ok()?;
         let hand = kind
             .is_some_and(|kind| kind.0 == protocol::AgentKind::Hand);
@@ -149,8 +149,8 @@ impl People<'_, '_> {
                 kind.0 == protocol::AgentKind::Hire
             })
         });
-        let look = match (mayor || hand, housed, hire) {
-            (true, ..) => keeper::Who::mayor(),
+        let look = match (lead || hand, housed, hire) {
+            (true, ..) => keeper::Who::lead(),
             (_, Some(housed), _) => {
                 keeper::Who::agent(housed.0.0 * 7 + 3)
             }
@@ -172,14 +172,14 @@ impl People<'_, '_> {
             },
             tag: if hand {
                 "Hand".to_string()
-            } else if mayor {
-                "Mayor".to_string()
+            } else if lead {
+                "Lead".to_string()
             } else {
                 tag_of(purpose.map_or("", |p| p.0.as_str()))
             },
-            kind: match (hand, mayor) {
+            kind: match (hand, lead) {
                 (true, _) => Kind::Hand,
-                (_, true) => Kind::Mayor,
+                (_, true) => Kind::Lead,
                 _ => Kind::Agent,
             },
             paint: Self::shown(paints[look.paint as usize]),

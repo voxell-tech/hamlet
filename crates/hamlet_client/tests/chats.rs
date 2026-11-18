@@ -241,7 +241,7 @@ fn earlier_requests_one_page_and_prepends_it_to_the_received_transcript()
 #[test]
 fn chats_follow_their_agent_as_it_leaves_and_comes_back() {
     use hamlet_client::chats::{Conversations, TalksTo};
-    use hamlet_client::realm::mayor_of;
+    use hamlet_client::realm::lead_of;
     use hamlet_testing::realm::state;
     let mut app = app();
     let chat = app.world_mut().spawn(Chat(chat_with(2))).id();
@@ -253,7 +253,7 @@ fn chats_follow_their_agent_as_it_leaves_and_comes_back() {
         protocol::ServerMessage::State(realm.clone()),
     );
     app.update();
-    let ada = mayor_of(app.world_mut(), "home").unwrap();
+    let ada = lead_of(app.world_mut(), "home").unwrap();
     assert_eq!(app.world().get::<TalksTo>(chat).unwrap().0, ada);
     assert_eq!(
         app.world()

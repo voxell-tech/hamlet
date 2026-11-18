@@ -178,12 +178,11 @@ pub(crate) fn follow_selection(world: &mut World) {
     }
     let showing = match selected.0 {
         Some(Thing::Keeper | Thing::Cottage) => {
-            let Some(mayor) =
-                hamlet_client::realm::first_mayor(world)
+            let Some(lead) = hamlet_client::realm::first_lead(world)
             else {
                 return;
             };
-            seat_if_new(world, mayor);
+            seat_if_new(world, lead);
             Showing::Thread
         }
         Some(Thing::Agent(agent) | Thing::House(agent)) => {

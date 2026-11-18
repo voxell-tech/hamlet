@@ -180,7 +180,7 @@ impl Core<'_, '_> {
                 Ok(agent) => agent,
                 Err(refusal) => return Ok(Err(refusal)),
             };
-            if let Err(refusal) = self.leads(agent)? {
+            if let Err(refusal) = self.directs(agent)? {
                 return Ok(Err(refusal));
             }
             let db = self.realm.store().connection();

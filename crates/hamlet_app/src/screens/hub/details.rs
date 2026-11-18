@@ -1,5 +1,5 @@
 //! The details sheet beside a thread: what only it shows of the
-//! agent. Its kind, scholar, lead and hires are in the path and the
+//! agent. Its kind, scholar, parent and hires are in the path and the
 //! rail, its model in the composer and its sessions and side chats in
 //! the session menu, so they are not repeated here.
 

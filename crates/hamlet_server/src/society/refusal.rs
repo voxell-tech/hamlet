@@ -79,10 +79,10 @@ pub(crate) enum Refusal {
     NotChief { hamlet: String },
     #[error("only `{owner}`'s chief may do that")]
     NotOwner { owner: String },
-    #[error("only a lead of `{name}` may do that")]
-    NotLead { name: String },
-    #[error("only a mayor may do that")]
-    NotMayor,
+    #[error("only a parent of `{name}` may do that")]
+    NotParent { name: String },
+    #[error("only a lead may do that")]
+    NotLead,
     #[error("a worker cannot do that")]
     Worker,
     #[error("`{name}` has left: {how}")]
@@ -91,15 +91,16 @@ pub(crate) enum Refusal {
     NotLeft { name: String },
     #[error("`{name}` was erased")]
     Erased { name: String },
-    #[error("a mayor cannot be ended; seat another mayor first")]
-    EndingMayor,
+    #[error("a lead cannot be ended; set another lead first")]
+    EndingLead,
     #[error(
-        "`{name}` is on a chief's task; a lead may end or merge it \
-         once it has answered and its protected minutes have passed"
+        "`{name}` is on a chief's task; a parent may end or merge \
+         it once it has answered and its protected minutes have \
+         passed"
     )]
     OnChiefsTask { name: String },
-    #[error("`{name}` is already the mayor")]
-    AlreadyMayor { name: String },
+    #[error("`{name}` is already the lead")]
+    AlreadyLead { name: String },
     #[error("`{name}` is in another hamlet")]
     OtherHamlet { name: String },
     #[error("no agent has the address `{address}`")]
@@ -268,8 +269,8 @@ pub(crate) enum Refusal {
         "There is no command /{name}; the client lists the commands."
     )]
     NoCommand { name: String },
-    #[error("Say this to a hamlet's mayor or one of its hires.")]
-    SayToMayorOrHire,
+    #[error("Say this to a hamlet's lead or one of its hires.")]
+    SayToLeadOrHire,
     #[error("Say what you need a skill for.")]
     NoSkillQuestion,
     #[error(
@@ -323,7 +324,7 @@ pub(crate) enum Refusal {
     #[error("Say what to send.")]
     NothingToSend,
     #[error(
-        "You have no road to {other}. Request one from your lead \
+        "You have no road to {other}. Request one from your parent \
          with request_road."
     )]
     NoRoadTo { other: String },

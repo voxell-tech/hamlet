@@ -7,7 +7,7 @@ use bevy_ecs::prelude::*;
 use bevy_ecs::system::SystemParam;
 use bevy_ecs::world::DeferredWorld;
 use hamlet_protocol::client as protocol;
-pub use hamlet_protocol::{HAND, MAYOR};
+pub use hamlet_protocol::{HAND, LEAD};
 
 use crate::index::{self, Index};
 
@@ -180,7 +180,7 @@ pub struct Agents(Vec<Entity>);
 /// The agent holding its hamlet's office.
 #[derive(Component, Clone, Copy, Debug)]
 #[component(on_insert = index::file_agent, on_discard = index::unseat)]
-pub struct Mayor;
+pub struct Lead;
 
 /// An agent with running or queued work.
 #[derive(Component, Clone, Copy, Debug)]
@@ -394,7 +394,7 @@ pub fn register(world: &mut World) {
     world.register_component::<Lived>();
     world.register_component::<LivesIn>();
     world.register_component::<Agents>();
-    world.register_component::<Mayor>();
+    world.register_component::<Lead>();
     world.register_component::<Busy>();
     world.register_component::<Faulted>();
     world.register_component::<Activity>();
@@ -433,16 +433,16 @@ pub fn scholar_address(id: protocol::ScholarId) -> String {
     format!("scholar#{}", id.0)
 }
 
-/// Lookups of living agents and mayors for systems.
+/// Lookups of living agents and leads for systems.
 #[derive(SystemParam)]
 pub struct Roster<'w, 's> {
     index: Res<'w, Index>,
     hand: Option<Res<'w, HandId>>,
-    mayors: Query<
+    leads: Query<
         'w,
         's,
         (Entity, &'static Identity),
-        (With<Mayor>, Without<Left>),
+        (With<Lead>, Without<Left>),
     >,
 }
 
@@ -457,14 +457,14 @@ impl Roster<'_, '_> {
         self.index.agent(self.hand.as_ref()?.0)
     }
 
-    /// The current mayor of the hamlet with the id `name`.
-    pub fn mayor_of(&self, name: &str) -> Option<Entity> {
-        self.index.mayor_of(name)
+    /// The current lead of the hamlet with the id `name`.
+    pub fn lead_of(&self, name: &str) -> Option<Entity> {
+        self.index.lead_of(name)
     }
 
-    /// The living mayor that came first, whose hall is the oldest.
-    pub fn first_mayor(&self) -> Option<Entity> {
-        self.mayors
+    /// The living lead that came first, whose hall is the oldest.
+    pub fn first_lead(&self) -> Option<Entity> {
+        self.leads
             .iter()
             .min_by_key(|(_, identity)| identity.0)
             .map(|(entity, _)| entity)
@@ -482,19 +482,19 @@ pub fn hand(world: &World) -> Option<Entity> {
     world.get_resource::<Index>()?.agent(hand)
 }
 
-/// The current mayor of the named hamlet.
-pub fn mayor_of(world: &World, name: &str) -> Option<Entity> {
-    world.get_resource::<Index>()?.mayor_of(name)
+/// The current lead of the named hamlet.
+pub fn lead_of(world: &World, name: &str) -> Option<Entity> {
+    world.get_resource::<Index>()?.lead_of(name)
 }
 
-/// The living mayor that came first, whose hall is the oldest.
-pub fn first_mayor(world: &World) -> Option<Entity> {
-    let mut mayors = world
+/// The living lead that came first, whose hall is the oldest.
+pub fn first_lead(world: &World) -> Option<Entity> {
+    let mut leads = world
         .try_query_filtered::<(Entity, &Identity), (
-            With<Mayor>,
+            With<Lead>,
             Without<Left>,
         )>()?;
-    mayors
+    leads
         .iter(world)
         .min_by_key(|(_, identity)| identity.0)
         .map(|(entity, _)| entity)
@@ -793,7 +793,7 @@ fn upsert_agent(
             thought: value.saying.thought,
         },
     );
-    flag(&mut agent, value.mayor, Mayor);
+    flag(&mut agent, value.lead, Lead);
     flag(&mut agent, value.busy, Busy);
     flag(&mut agent, value.faulted, Faulted);
 

@@ -16,8 +16,8 @@ use hamlet_store::ids::{
 
 use self::args::{
     AgreeRoad, Called, CreateScholar, EndHire, FoundHamlet, Hire,
-    MergeHires, Nickname, ReadRecord, RemoveHamlet, SeatMayor,
-    SetAllowance, SetModel, SetTools,
+    MergeHires, Nickname, ReadRecord, RemoveHamlet, SetAllowance,
+    SetLead, SetModel, SetTools,
 };
 use super::looks::Look;
 use super::{Call, refused, said};
@@ -128,7 +128,7 @@ impl Core<'_, '_> {
             }
             Called::Hire(args) => self.hire_tool(call, here, args),
             Called::EndHire(EndHire { hire, reason }) => {
-                let hire = done!(self.led(call, &hire, here));
+                let hire = done!(self.child(call, &hire, here));
                 let name = self.name(hire)?;
                 self.carry(call, |cx, _| {
                     Ok(hires::end(cx, hire, EndHow::Ended, &reason)?
@@ -140,7 +140,7 @@ impl Core<'_, '_> {
                 model,
                 reason,
             }) => {
-                let hire = done!(self.led(call, &hire, here));
+                let hire = done!(self.child(call, &hire, here));
                 let model = (!model.is_empty()).then_some(model);
                 let name = self.name(hire)?;
                 let words = format!(
@@ -163,7 +163,7 @@ impl Core<'_, '_> {
                 on,
                 reason,
             }) => {
-                let hire = done!(self.led(call, &hire, here));
+                let hire = done!(self.child(call, &hire, here));
                 let name = self.name(hire)?;
                 self.carry(call, |cx, _| {
                     Ok(hires::set_tools(
@@ -179,7 +179,7 @@ impl Core<'_, '_> {
                 dollars,
                 reason,
             }) => {
-                let hire = done!(self.led(call, &hire, here));
+                let hire = done!(self.child(call, &hire, here));
                 let allowance = dollars.map(micros);
                 let name = self.name(hire)?;
                 self.carry(call, |cx, _| {
@@ -196,7 +196,7 @@ impl Core<'_, '_> {
                 nickname,
                 reason,
             }) => {
-                let hire = done!(self.led(call, &hire, here));
+                let hire = done!(self.child(call, &hire, here));
                 let given =
                     (!nickname.is_empty()).then_some(nickname);
                 let name = self.name(hire)?;
@@ -217,8 +217,8 @@ impl Core<'_, '_> {
                 })
             }
             Called::LayRoad(args::LayRoad { a, b, reason }) => {
-                let a = done!(self.led(call, &a, here));
-                let b = done!(self.led(call, &b, here));
+                let a = done!(self.child(call, &a, here));
+                let b = done!(self.child(call, &b, here));
                 let (one, other) = (self.name(a)?, self.name(b)?);
                 let task = self.task_of(call)?;
                 self.carry(call, |cx, _| {
@@ -233,8 +233,8 @@ impl Core<'_, '_> {
                 })
             }
             Called::TakeUpRoad(args::TakeUpRoad { a, b, reason }) => {
-                let a = done!(self.led(call, &a, here));
-                let b = done!(self.led(call, &b, here));
+                let a = done!(self.child(call, &a, here));
+                let b = done!(self.child(call, &b, here));
                 let (one, other) = (self.name(a)?, self.name(b)?);
                 self.carry(call, |cx, _| {
                     Ok(roads::take_up(cx, a, b, &reason)?.map(|()| {
@@ -250,8 +250,9 @@ impl Core<'_, '_> {
                 into,
                 reason,
             }) => {
-                let absorbed = done!(self.led(call, &absorbed, here));
-                let kept = done!(self.led(call, &into, here));
+                let absorbed =
+                    done!(self.child(call, &absorbed, here));
+                let kept = done!(self.child(call, &into, here));
                 let (one, other) =
                     (self.name(absorbed)?, self.name(kept)?);
                 self.carry(call, |cx, _| {
@@ -278,7 +279,7 @@ impl Core<'_, '_> {
                     None,
                     overseer,
                 )?;
-                let mayor = if scholar.is_empty() {
+                let lead = if scholar.is_empty() {
                     Hiring::Blank {
                         name: String::new(),
                         character: self
@@ -294,7 +295,7 @@ impl Core<'_, '_> {
                     let founding = Founding {
                         name: name.clone(),
                         chief,
-                        mayor,
+                        lead,
                         purpose,
                     };
                     let hired = done!(hamlets::found(cx, founding));
@@ -304,7 +305,7 @@ impl Core<'_, '_> {
                     )))
                 })
             }
-            Called::SeatMayor(SeatMayor { hire, reason }) => {
+            Called::SetLead(SetLead { hire, reason }) => {
                 let hire = done!(self.named(&hire, here));
                 let db = self.realm.store().connection();
                 let Some(found) = hires::find(db, hire)? else {
@@ -314,14 +315,12 @@ impl Core<'_, '_> {
                 let hamlet = found.hamlet;
                 let name = self.name(hire)?;
                 self.carry(call, |cx, _| {
-                    Ok(hires::seat(cx, &hamlet, hire, &reason)?.map(
-                        |()| {
+                    Ok(hires::set_lead(cx, &hamlet, hire, &reason)?
+                        .map(|()| {
                             format!(
-                                "{name} is the mayor of {hamlet} \
-                                 now."
+                                "{name} is the lead of {hamlet} now."
                             )
-                        },
-                    ))
+                        }))
                 })
             }
             Called::RemoveHamlet(RemoveHamlet { hamlet, reason }) => {
@@ -448,8 +447,8 @@ impl Core<'_, '_> {
         addresses::resolve(db, &address, here, Reach::Living)
     }
 
-    /// The hire at `address`, which `call`'s agent leads.
-    fn led(
+    /// The hire at `address`, which `call`'s agent is a parent of.
+    fn child(
         &mut self,
         call: &Call<'_>,
         address: &str,
@@ -463,10 +462,10 @@ impl Core<'_, '_> {
             refuse!(Refusal::NotHire { name });
         }
         if hire == caller
-            || !authority::may_lead(db, Actor::Agent(caller), hire)?
+            || !authority::may_direct(db, Actor::Agent(caller), hire)?
         {
             let name = addresses::name_of(db, hire)?;
-            refuse!(Refusal::NotLead { name });
+            refuse!(Refusal::NotParent { name });
         }
         Ok(Ok(hire))
     }
@@ -505,7 +504,7 @@ impl Core<'_, '_> {
                         id: hamlet.to_string(),
                     });
                 }
-                crate::society::tree::mayor(db, &hamlet)?
+                crate::society::tree::lead(db, &hamlet)?
             } else {
                 agent
             }
@@ -513,14 +512,14 @@ impl Core<'_, '_> {
             let found = done!(self.named(&under, Some(&hamlet)));
             let db = self.realm.store().connection();
             if found != agent
-                && !authority::may_lead(
+                && !authority::may_direct(
                     db,
                     Actor::Agent(agent),
                     found,
                 )?
             {
                 let name = addresses::name_of(db, found)?;
-                refuse!(Refusal::NotLead { name });
+                refuse!(Refusal::NotParent { name });
             }
             found
         };
@@ -588,8 +587,8 @@ impl Core<'_, '_> {
         } = args;
         let agent = call.conversation.agent;
         let db = self.realm.store().connection();
-        if !hires::is_mayor(db, agent)? {
-            refuse!(Refusal::NotMayor);
+        if !hires::is_lead(db, agent)? {
+            refuse!(Refusal::NotLead);
         }
         let mine = done!(self.named(&mine, here));
         let theirs = done!(self.named(&theirs, None));
@@ -603,7 +602,7 @@ impl Core<'_, '_> {
                     ),
                     roads::Agreed::Waiting => format!(
                         "You agree a road between {one} and \
-                         {other}; it opens once the other mayor \
+                         {other}; it opens once the other lead \
                          agrees."
                     ),
                 }))

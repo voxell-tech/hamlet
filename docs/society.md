@@ -9,7 +9,7 @@ client protocol; it reads no records from the realm's disk. The glossary is
 ## The Hand and the city
 
 A realm is made with the Hand, an agent of its own that is always there
-and sits above every mayor. It has a lodge, `hand/`, and a scholar that no
+and sits above every lead. It has a lodge, `hand/`, and a scholar that no
 chief hires out; its character starts from `crates/hamlet_server/assets/hand.md`. It is the agent
 `hamlet chat` talks to unless told otherwise, and a new realm has no hamlet,
 so a chief asks the Hand, or types `/create-hamlet`, to make the first. Its changes to
@@ -18,9 +18,9 @@ reserved act does.
 
 The city holds the scholars. A scholar is a git repository
 (`scholars/<id>.git`) with a character, memory and skills, and a house in the
-city. A chief makes one with `/scholar new <name>[: <character>]`, a lead
+city. A chief makes one with `/scholar new <name>[: <character>]`, a parent
 with `create_scholar`, or with `hire` given a new name, which makes a blank
-scholar from the realm's default character (Settings); one a lead or the Hand
+scholar from the realm's default character (Settings); one a parent or the Hand
 makes belongs to the chief whose task the turn works on. A scholar is its id:
 its address is `scholar#<id>`. Its name is a label of one line, 1 to 40
 characters with no colon, which may repeat and which `/name-scholar
@@ -33,7 +33,7 @@ The server sets each new house down itself, at the first free spot on a
 spiral out from the city's middle, its door toward the middle
 (`society/city.rs`); `/move-house <scholar#id> <x> <z> [degrees]` sets it down
 elsewhere, on a spot clear of the middle and of every house. One a chief or
-the Hand makes moves in at once. One a lead makes is a newcomer, which the
+the Hand makes moves in at once. One a parent makes is a newcomer, which the
 `newcomers` setting lets in (H45): at once (`open`); after a chief welcomes
 it from a petition (`chief`, the default); or as the Hand judges it in an
 errand (`hand`, `calls/society/welcome.rs`). A newcomer waits at the
@@ -51,8 +51,8 @@ chief's behalf, each waiting for the chief.
 ## Hamlets, hires and the tree
 
 `/create-hamlet [scholar#id|blank] <name>[: purpose]` creates a hamlet named
-`<name>`. Its mayor is a hire of an existing scholar, or a blank agent named
-Mayor when none is named; with no purpose it is there to run the hamlet. A
+`<name>`. Its lead is a hire of an existing scholar, or a blank agent named
+Lead when none is named; with no purpose it is there to run the hamlet. A
 hamlet's id is a UUID made when it is created, never reused, even after
 erasure; commands name a hamlet by it, and `/hamlets` lists each with its id.
 Its name is a label that may repeat and may hold spaces but no colon, and is
@@ -69,25 +69,25 @@ hire a chief makes without a purpose takes the first line of the first message
 it is given, from the chief or by letter, as its purpose. An agent always says
 what it hires for.
 
-An address names an agent by ids and never by a name: `hand`, `mayor@<hamlet>`
-(the mayor of the hamlet with that id), `hire#<id>` and `worker#<id>`. A
+An address names an agent by ids and never by a name: `hand`, `lead@<hamlet>`
+(the lead of the hamlet with that id), `hire#<id>` and `worker#<id>`. A
 scholar is `scholar#<id>`. Wherever an agent is shown to an agent or a chief,
 a prompt, a notice, a letter's header or a tool's result, its address comes
 first and its name beside it, as `hire#3 (Mira)`: a hire's nickname, else its
 scholar's name.
-Hands and leads see the scholars they may hire in their prompts, as
+The Hand and parents see the scholars they may hire in their prompts, as
 `scholar#<id> (<name>)`, since a name finds nothing.
 
 A hire's branch and lodge are its own. Its tools write the lodge, a turn that
 changed it is committed to the branch, and the diff against `main` is what it
 learned, which the Hub shows under a hire's memory. The hires of a hamlet form a tree under
-the mayor, as deep as its leads make it. A hire with hires under it is a
-lead, with the mayor's powers over its subtree: it hires, creates scholars,
+the lead, as deep as its parents make it. A hire with hires under it is a
+parent, with the lead's powers over its subtree: it hires, creates scholars,
 ends and merges hires, chooses their models, turns tools off and sets
 allowances (`set_model`, `set_tools`, `set_allowance`), gives them nicknames
 the world shows them by (`nickname`, or a chief's `/nickname`), and lays and
-takes up roads among them. The mayor can be given to another hire with `/mayor`; the
-old mayor and its hires go under the new one.
+takes up roads among them. The lead's office can be given to another hire with `/lead`; the
+old lead and its hires go under the new one.
 
 A worker is started for one task by any agent but a worker (`start_worker`)
 or by a chief (`/worker`). It is a child of its starter, has the built-in
@@ -99,10 +99,10 @@ conversation.
 ## Roads and letters
 
 Tree roads join a hire to its parent and its hires, and the Hand to each
-mayor; mayors have roads to each other; a lead or a chief lays a road between
+lead; leads have roads to each other; a parent or a chief lays a road between
 two hires of one hamlet, which costs the hamlet and the task that laid it. A
-hire asks its lead for one with `request_road`. Hires of different hamlets
-have a road once both mayors call `agree_road`, while the realm's limits allow
+hire asks its parent for one with `request_road`. Hires of different hamlets
+have a road once both leads call `agree_road`, while the realm's limits allow
 it.
 
 `tell` sends a letter without waiting; `ask` waits for the answer. Either can
@@ -122,7 +122,7 @@ chief. See [`chat.md`](chat.md) for paging and watches.
 
 `/end` ends a hire: its turns stop, its waits lapse, its grants are taken
 back, its lodge is committed one last time and archived, and its hires go to
-its parent. The mayor cannot be ended; give the office away first. A lead,
+its parent. The lead cannot be ended; give the office away first. A parent,
 the Hand included, may not end or merge a hire on a chief's task (H7): while
 an input of that task is still to end in its conversations, or until the
 hamlet's `protectedMinutes` have passed since the chief's instruction was
@@ -164,7 +164,7 @@ by the server.
 
 A chief's instruction is recorded before it starts. In a chief conversation an
 agent may object once and wait for go or withdraw. When a chief instructs a
-hire directly, its lead's review, as the limits set, runs beside the work and
+hire directly, its parent's review, as the limits set, runs beside the work and
 may raise its own objection. An agent overseen by a chief can ask a question
 and wait for reply or dismiss. These waits appear in the Hub and survive a
 server restart. Tool calls wait too (H11): the network, manual-mode edits and
@@ -175,9 +175,9 @@ Answering allows once, for the session, or always; `/grants` lists and
 ## Several hamlets
 
 Another hamlet's hire is reached by its `hire#<id>` like any other,
-`mayor@<hamlet>` addresses the mayor of the hamlet with that id, and
+`lead@<hamlet>` addresses the lead of the hamlet with that id, and
 `/hamlet <hamlet>` switches the terminal to it. `/agent <address>` finds any agent of the realm.
-A mayor sees the other hamlets in its prompt.
+A lead sees the other hamlets in its prompt.
 
 Removed hamlets retain their lodges and records and appear under CLOSED DOWN
 in the overview. RESTORE brings one back. DELETE FOR GOOD asks first and

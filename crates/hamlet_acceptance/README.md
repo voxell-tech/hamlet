@@ -50,7 +50,7 @@ Stdin is closed; stdout and stderr go to a log shown on failure.
 `Faux` writes the JSON the server's faux model reads:
 
 - `agents`: answers by agent id, as in `Faux::agent(2, [...])`. The Hand
-  is 1; the first mayor is 2.
+  is 1; the first lead is 2.
 - `kinds`: answers by conversation kind (`worker`, `errand`, `letters`,
   `questions`, `dream`), as in `Faux::kind("dream", [...])`.
 - `responses`: answers for everyone else.
@@ -73,7 +73,7 @@ endpoint, which bills a fixed price per answer.
 | `city` | The empty realm, founding hamlets, the hire tree, removing, restoring and erasing scholars and hamlets, hamlet administration. |
 | `chats` | Answers, sessions, `/new`, `/resume`, `/retry`, `/stop`, `Rewind`, history, reflection. |
 | `oversight` | Network approvals and grants, manual and auto modes, `ask_chief`, objections. |
-| `society` | The Hand's and a lead's tools, tell and ask, workers, reserved acts, roads. |
+| `society` | The Hand's and a parent's tools, tell and ask, workers, reserved acts, roads. |
 | `files` | Files on a line saved in the inbox and named in its item, files sent with `tell`, and a send over the cap held for a chief. |
 | `images` | Images on a line uploaded in parts, kept once by hash, carried by the line's item and read back by id. |
 | `documents` | Charter, character, memory, limits, settings, catalogue, and the prompt that follows them. |
@@ -85,7 +85,7 @@ endpoint, which bills a fixed price per answer.
 | `versions` | `/tag`, `/versions`, `/pin`, `/revert`, `/fork` and `/purge`. |
 | `merges` | `/merge` and the split by `/restore`. |
 | `library` | `submit_skill` judged by the librarian, `ask_librarian` and `/unshelve`. |
-| `review` | A lead's review of a chief's line to a hire, and a chief's `/worker`. |
+| `review` | A parent's review of a chief's line to a hire, and a chief's `/worker`. |
 | `dreams` | `/dream` of a hire and of a scholar. |
 | `cli` | `hamlet chat`, `hamlet edit`, switching agents, approvals across a crash, and the bare, dev and insecure commands. |
 

@@ -1,6 +1,6 @@
 //! The Hub's rail: the realm as its chain of command. The realm and
 //! the Hand first, then what waits for the chief, then each hamlet as
-//! the tree of its hires under its mayor, then the city's scholars,
+//! the tree of its hires under its lead, then the city's scholars,
 //! the library and those that left. A row keeps its place as its
 //! agent works and rests; only its mark changes.
 
@@ -34,8 +34,8 @@ use bevy_fynix::{
 };
 use hamlet_client::chats::{Entry, Transcript};
 use hamlet_client::realm::{
-    Activity, Busy, HamletId, Identity, Kind, Left, Lived, LivesIn,
-    Mayor, MergedInto, Parent, Purpose, Scholar, Shown, Skills,
+    Activity, Busy, HamletId, Identity, Kind, Lead, Left, Lived,
+    LivesIn, MergedInto, Parent, Purpose, Scholar, Shown, Skills,
     name_of, shown_of,
 };
 use hamlet_client::waits::Waiting;
@@ -157,7 +157,7 @@ pub struct Rail {
 /// and what waits, one at a time.
 #[derive(Resource, Clone, Copy, PartialEq, Eq, Debug, Default)]
 pub enum Tab {
-    /// The hamlets, each the tree under its mayor, and the hires
+    /// The hamlets, each the tree under its lead, and the hires
     /// that left.
     #[default]
     Hamlets,
@@ -322,8 +322,8 @@ pub(super) enum Group {
     Top,
     Needs,
     Hamlet(Entity),
-    /// The hires under a lead, which fold into its row.
-    Lead(Entity),
+    /// The hires under a parent, which fold into its row.
+    Parent(Entity),
     /// The workers an agent started, or those a chief started in a
     /// hamlet, which fold into one row.
     Workers(Entity),
@@ -385,8 +385,8 @@ pub(super) struct Line {
     /// of the agent there carries on past this row.
     pub rails: Vec<bool>,
     pub current: bool,
-    /// For a lead: the fold of the rows under it, and whether it is
-    /// folded.
+    /// For a parent: the fold of the rows under it, and whether it
+    /// is folded.
     pub fold: Option<(Group, bool)>,
     /// Whether it is a worker's, or the row its group folds into:
     /// one short line, lighter than a hire's, so the hires stand out
@@ -417,7 +417,7 @@ struct Agent {
     kind: protocol::AgentKind,
     parent: Option<protocol::AgentId>,
     hamlet: Option<Entity>,
-    mayor: bool,
+    lead: bool,
     mark: Option<Standing>,
     /// Its address, and what it goes by: its nickname, or its
     /// scholar's name.
@@ -522,7 +522,7 @@ fn agents(world: &World) -> Vec<Agent> {
         Option<&LivesIn>,
         &Lived,
         Option<&Shown>,
-        (Has<Mayor>, Has<Left>),
+        (Has<Lead>, Has<Left>),
     )>() else {
         return Vec::new();
     };
@@ -538,7 +538,7 @@ fn agents(world: &World) -> Vec<Agent> {
                 lives,
                 lived,
                 shown,
-                (mayor, _),
+                (lead, _),
             )| {
                 let address = name_of(world, entity);
                 let (title, last) = under_name(world, entity);
@@ -548,7 +548,7 @@ fn agents(world: &World) -> Vec<Agent> {
                     kind: kind.0,
                     parent: parent.map(|parent| parent.0),
                     hamlet: lives.map(|lives| lives.0),
-                    mayor,
+                    lead,
                     mark: Some(Standing::of(world, entity)),
                     called: called(&address, shown),
                     address,
@@ -717,7 +717,7 @@ fn workers_line(
 fn kind_glyph(agent: &Agent) -> Glyph {
     match agent.kind {
         protocol::AgentKind::Hand => Glyph::Tower,
-        protocol::AgentKind::Hire if agent.mayor => Glyph::Mayor,
+        protocol::AgentKind::Hire if agent.lead => Glyph::Lead,
         protocol::AgentKind::Hire => Glyph::Hire,
         protocol::AgentKind::Worker => Glyph::Worker,
     }
@@ -782,11 +782,11 @@ fn agent_line(
     }
 }
 
-/// Lets each lead in `lines` stand for the rows set in under it:
+/// Lets each parent in `lines` stand for the rows set in under it:
 /// while folded they are left out and its mark becomes the most
 /// pressing of theirs. What waits under it is still in the rows of
 /// what needs the chief.
-fn fold_leads(lines: Vec<Line>, folded: &[Group]) -> Vec<Line> {
+fn fold_parents(lines: Vec<Line>, folded: &[Group]) -> Vec<Line> {
     let mut lines = lines;
     for at in 0..lines.len() {
         let depth = lines[at].depth;
@@ -801,9 +801,9 @@ fn fold_leads(lines: Vec<Line>, folded: &[Group]) -> Vec<Line> {
             continue;
         }
         let range = &lines[at + 1..at + 1 + under];
-        let group = Group::Lead(agent);
+        let group = Group::Parent(agent);
         let shut = folded.contains(&group);
-        // Open, each row shows its own state; folded, the lead
+        // Open, each row shows its own state; folded, the parent
         // stands for all of them.
         let mark = Some(Standing::of_all(
             std::iter::once(lines[at].mark)
@@ -816,7 +816,7 @@ fn fold_leads(lines: Vec<Line>, folded: &[Group]) -> Vec<Line> {
             line.mark = mark;
         }
     }
-    // Leave out what folded leads hold.
+    // Leave out what folded parents hold.
     let mut kept = Vec::with_capacity(lines.len());
     let mut hidden_below: Option<u8> = None;
     for line in lines {
@@ -1206,7 +1206,7 @@ pub(super) fn sections(world: &World) -> Vec<Section> {
         current: false,
     });
 
-    // Each hamlet as the tree under its mayor.
+    // Each hamlet as the tree under its lead.
     for (hamlet, name) in hamlet_names(world) {
         let here = all
             .iter()
@@ -1221,9 +1221,8 @@ pub(super) fn sections(world: &World) -> Vec<Section> {
                 })
             })
             .collect::<Vec<_>>();
-        roots.sort_by_key(|agent| {
-            (!agent.mayor, agent.called.clone())
-        });
+        roots
+            .sort_by_key(|agent| (!agent.lead, agent.called.clone()));
         // The workers a chief started in the hamlet answer to no one
         // in it, and fold into one row after its tree.
         let (chiefs, roots): (Vec<_>, Vec<_>) =
@@ -1247,9 +1246,9 @@ pub(super) fn sections(world: &World) -> Vec<Section> {
         let mark = Some(Standing::of_all(
             lines.iter().filter_map(|line| line.mark),
         ));
-        // A search finds rows a lead would fold away.
+        // A search finds rows a parent would fold away.
         if search.is_empty() {
-            lines = fold_leads(lines, &folded);
+            lines = fold_parents(lines, &folded);
         }
         sections.push(Section {
             group,
@@ -1296,7 +1295,7 @@ pub(super) fn sections(world: &World) -> Vec<Section> {
             Group::Top
             | Group::Needs
             | Group::Left
-            | Group::Lead(_)
+            | Group::Parent(_)
             | Group::Workers(_) => true,
             Group::Hamlet(hamlet) => {
                 tab == Tab::Hamlets
@@ -1742,8 +1741,9 @@ fn expanded(line: &Line, dimmed: bool) -> AnyView {
         Some(tip) => shown.tooltip(move || note(tip.clone())).boxed(),
         None => shown.boxed(),
     };
-    // The chevron of a lead, outside the row's press so that folding
-    // does not open the thread, then the step in of a row under one.
+    // The chevron of a parent, outside the row's press so that
+    // folding does not open the thread, then the step in of a row
+    // under one.
     let fold = match line.fold {
         Some((group, shut)) => chevron(
             group,
@@ -1771,7 +1771,7 @@ fn expanded(line: &Line, dimmed: bool) -> AnyView {
 
 /// The tree's lines over a row, on a grid of [`STEP_IN`]: for each
 /// level above it, the guide of an agent that has more under it after
-/// this row, then the elbow from its own lead, which runs on down
+/// this row, then the elbow from its own parent, which runs on down
 /// while more follow. Every guide runs under the middle of its
 /// agent's chevron, so the tree lines up however deep it goes, and
 /// an elbow stops short of the row it leads to. A row of `one_line`
@@ -1783,7 +1783,7 @@ fn tree_lines(line: &Line, one_line: bool) -> Vec<AnyView> {
     // Where the guide of the agent at `level` runs.
     let guide =
         |level: usize| level as f32 * STEP_IN + CHEVRON / 2.0 - 0.5;
-    let lead = usize::from(line.depth) - 1;
+    let parent = usize::from(line.depth) - 1;
     // Where the elbow meets the row, and where it stops.
     let elbow = ROW_DOWN
         + if one_line {
@@ -1822,15 +1822,15 @@ fn tree_lines(line: &Line, one_line: bool) -> Vec<AnyView> {
         .filter(|(_, on)| **on)
         .map(|(level, _)| over(guide(level), 0.0, 1.0, None))
         .collect::<Vec<_>>();
-    // The elbow from its lead, stopping short of its own chevron, or
-    // of the row's edge where it has no chevron, so it never runs
+    // The elbow from its parent, stopping short of its own chevron,
+    // or of the row's edge where it has no chevron, so it never runs
     // into the row.
     let start = f32::from(line.depth) * STEP_IN;
     let end = match line.fold {
         Some(_) => start - GAP,
         None => start + CHEVRON - GAP,
     };
-    let x = guide(lead);
+    let x = guide(parent);
     lines.push(over(x, 0.0, 1.0, Some(elbow + 1.0)));
     lines.push(over(x, elbow, end - x, Some(1.0)));
     if !line.last {
@@ -1847,7 +1847,7 @@ fn group_meaning(group: Group) -> Option<&'static str> {
         Group::City => Some(words::CITY),
         Group::Harbor => Some(words::HARBOR),
         Group::Left => Some(words::LEFT),
-        Group::Top | Group::Lead(_) | Group::Workers(_) => None,
+        Group::Top | Group::Parent(_) | Group::Workers(_) => None,
     }
 }
 
@@ -1859,7 +1859,7 @@ fn tip_of(line: &Line, address: String) -> Option<String> {
         Target::Library => Some(words::LIBRARY),
         Target::Hand => Some(words::HAND),
         Target::Agent(_) | Target::Gone(_) => match line.glyph {
-            Glyph::Mayor => Some(words::MAYOR),
+            Glyph::Lead => Some(words::LEAD),
             Glyph::Worker => Some(words::WORKER),
             _ => Some(words::HIRE),
         },

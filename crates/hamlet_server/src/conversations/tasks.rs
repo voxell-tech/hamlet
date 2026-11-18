@@ -134,10 +134,10 @@ pub(crate) fn instructions(
         .load(db)?)
 }
 
-/// Whether a lead may not end or merge `hire` at `at` (H7): an input
-/// of a chief's task is still to end in one of its conversations, or
-/// a chief's instruction it worked on is unanswered or was answered
-/// less than `minutes` ago.
+/// Whether a parent may not end or merge `hire` at `at` (H7): an
+/// input of a chief's task is still to end in one of its
+/// conversations, or a chief's instruction it worked on is unanswered
+/// or was answered less than `minutes` ago.
 pub(crate) fn protects(
     db: &mut Db,
     hire: AgentId,

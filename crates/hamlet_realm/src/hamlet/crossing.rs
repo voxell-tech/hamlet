@@ -73,11 +73,11 @@ pub(super) fn board(
         return;
     };
     for (hire, housed, of) in &hires {
-        // The mayor's hall is founded with its hamlet.
+        // The lead's hall is founded with its hamlet.
         let in_hall = society
             .agent(housed.0)
             .and_then(|agent| society.town(agent.town))
-            .is_some_and(|town| town.mayor == housed.0);
+            .is_some_and(|town| town.lead == housed.0);
         if in_hall {
             continue;
         }

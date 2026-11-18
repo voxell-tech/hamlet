@@ -47,8 +47,8 @@ pub(crate) enum Deed {
     Unshelve(String),
     /// Puts the open conversation away and starts another.
     NewSession,
-    /// Makes this agent the mayor of its hamlet.
-    Mayor(Entity),
+    /// Makes this agent the lead of its hamlet.
+    Lead(Entity),
     /// Takes the open conversation back to just before the message
     /// `entry` of it.
     Rewind {
@@ -112,8 +112,8 @@ impl Deed {
                 let text = format!("/erase {}", name(*agent));
                 orders::decree(world, *agent, text);
             }
-            Deed::Mayor(agent) => {
-                let text = with(format!("/mayor {}", name(*agent)));
+            Deed::Lead(agent) => {
+                let text = with(format!("/lead {}", name(*agent)));
                 orders::decree(world, *agent, text);
             }
             // The hamlets and the library are the realm's, and the
@@ -149,7 +149,7 @@ impl Deed {
             self,
             Deed::End(_)
                 | Deed::Merge { .. }
-                | Deed::Mayor(_)
+                | Deed::Lead(_)
                 | Deed::Close(_)
         )
     }
@@ -161,7 +161,7 @@ impl Deed {
             Self::Close(_) => "remove-hamlet",
             Self::Erase(_) => "erase",
             Self::Unshelve(_) => "unshelve",
-            Self::Mayor(_) => "mayor",
+            Self::Lead(_) => "lead",
             Self::NewSession
             | Self::DefaultCharter
             | Self::MoveLodges
@@ -189,8 +189,8 @@ impl Deed {
                 format!("Take {} out of the library?", skill)
             }
             Deed::NewSession => "Start a new session?".to_string(),
-            Deed::Mayor(agent) => {
-                format!("Make {} mayor?", name(agent))
+            Deed::Lead(agent) => {
+                format!("Make {} lead?", name(agent))
             }
             Deed::Rewind { .. } => "Rewind to here?".to_string(),
             Deed::DefaultCharter => {
@@ -236,8 +236,8 @@ impl Deed {
                 "{skill} is deleted from the library for every \
                  hamlet. This cannot be undone."
             ),
-            Deed::Mayor(agent) => format!(
-                "{} runs the hamlet from now on, and today's mayor \
+            Deed::Lead(agent) => format!(
+                "{} runs the hamlet from now on, and today's lead \
                  becomes one of its agents.",
                 name(agent)
             ),
@@ -268,7 +268,7 @@ impl Deed {
             Deed::Erase(_) => "Delete",
             Deed::Unshelve(_) => "Take out",
             Deed::NewSession => "New session",
-            Deed::Mayor(_) => "Make mayor",
+            Deed::Lead(_) => "Make lead",
             Deed::Rewind { .. } => "Rewind",
             Deed::DefaultCharter => "Use the default",
             Deed::MoveLodges => "Replace them",
@@ -292,7 +292,7 @@ impl Deed {
             Deed::Erase(_)
             | Deed::Unshelve(_)
             | Deed::NewSession
-            | Deed::Mayor(_)
+            | Deed::Lead(_)
             | Deed::Rewind { .. }
             | Deed::DefaultCharter
             | Deed::MoveLodges => Vec::new(),
@@ -426,7 +426,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn a_deed_goes_to_the_mayor_of_the_agents_received_hamlet() {
+    fn a_deed_goes_to_the_lead_of_the_agents_received_hamlet() {
         let mut app = crate::testing::panel_app();
         app.add_plugins(chat::plugin);
         let mut state = hamlet_testing::realm::state();

@@ -198,7 +198,7 @@ impl Core<'_, '_> {
             Ok(hire) => hire,
             Err(refusal) => return Ok(Err(refusal)),
         };
-        if let Err(refusal) = self.leads(hire)? {
+        if let Err(refusal) = self.directs(hire)? {
             return Ok(Err(refusal));
         }
         let layout = self.realm.layout().clone();

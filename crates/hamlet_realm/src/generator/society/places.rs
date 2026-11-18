@@ -199,8 +199,8 @@ impl Society {
         })
     }
 
-    /// Founds a town with a mayor on the first free site, and lays
-    /// a road from the new mayor to every other mayor. There is
+    /// Founds a town with a lead on the first free site, and lays
+    /// a road from the new lead to every other lead. There is
     /// always a site: when all the land has are taken, it readies
     /// one more, further out.
     pub fn found_town(&mut self, land: &mut Land) -> TownId {
@@ -273,12 +273,12 @@ impl Society {
     fn found_on(&mut self, land: &mut Land, site: usize) -> TownId {
         let id = TownId(self.next_town);
         self.next_town += 1;
-        let mayor = self.spawn_agent(id, HALL_PLOT);
+        let lead = self.spawn_agent(id, HALL_PLOT);
         let others =
-            self.towns.iter().map(|t| t.mayor).collect::<Vec<_>>();
-        self.towns.push(Town { id, site, mayor });
+            self.towns.iter().map(|t| t.lead).collect::<Vec<_>>();
+        self.towns.push(Town { id, site, lead });
         for other in others {
-            self.add_road(mayor, other);
+            self.add_road(lead, other);
         }
         land.settle(&self.settled());
         id

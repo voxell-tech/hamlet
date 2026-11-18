@@ -153,10 +153,10 @@ fn seat_as(
     convo.with = with;
 }
 
-/// The house of `agent` in the world: the hall for the first mayor,
+/// The house of `agent` in the world: the hall for the first lead,
 /// else its own.
 pub(crate) fn home_of(world: &World, agent: Entity) -> Thing {
-    if agents::first_mayor(world) == Some(agent) {
+    if agents::first_lead(world) == Some(agent) {
         Thing::Cottage
     } else {
         Thing::House(agent)
@@ -169,7 +169,7 @@ pub(crate) fn talk_to(world: &mut World, agent: Entity) {
     if seat(world, agent) == Seating::Unaddressed {
         return;
     }
-    let hall = agents::first_mayor(world) == Some(agent);
+    let hall = agents::first_lead(world) == Some(agent);
     let selected =
         world.get_resource::<Selected>().map(|selected| selected.0);
     let same = match selected {

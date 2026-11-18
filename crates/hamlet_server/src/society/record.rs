@@ -1,4 +1,4 @@
-//! The record: every decision of a chief, the Hand or a lead, with
+//! The record: every decision of a chief, the Hand or a parent, with
 //! its reason (H17).
 
 use anyhow::Result;

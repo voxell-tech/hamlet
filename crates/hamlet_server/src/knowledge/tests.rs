@@ -10,9 +10,9 @@ use crate::testing::Realm;
 fn a_hire_learns_in_its_lodge_and_takes_in_its_scholar() {
     let mut realm = Realm::new();
     let layout = realm.layout();
-    let mayor = realm.found("docs", "ada");
+    let lead = realm.found("docs", "ada");
     realm.work();
-    let lodge = layout.lodge(&mayor.hamlet, mayor.agent);
+    let lodge = layout.lodge(&lead.hamlet, lead.agent);
     assert!(lodge.is_dir());
     assert!(layout.hand().is_dir());
     assert!(
@@ -26,11 +26,11 @@ fn a_hire_learns_in_its_lodge_and_takes_in_its_scholar() {
     std::fs::create_dir_all(lodge.join("inbox")).unwrap();
     std::fs::write(lodge.join("inbox/file.bin"), "big").unwrap();
     let at = realm.at;
-    let learned = run::commit(realm.db(), &layout, mayor.agent, at)
+    let learned = run::commit(realm.db(), &layout, lead.agent, at)
         .unwrap()
         .expect("the lodge changed");
     let repo =
-        Repository::open(&layout.repository(mayor.scholar)).unwrap();
+        Repository::open(&layout.repository(lead.scholar)).unwrap();
     assert_eq!(
         repo.read(learned, CHARACTER).unwrap().as_deref(),
         Some(&b"Careful."[..]),
@@ -54,7 +54,7 @@ fn a_hire_learns_in_its_lodge_and_takes_in_its_scholar() {
     run::run(
         realm.db(),
         &layout,
-        &Job::TakeIn { hire: mayor.agent },
+        &Job::TakeIn { hire: lead.agent },
         at,
     )
     .unwrap();
@@ -70,7 +70,7 @@ fn a_hire_learns_in_its_lodge_and_takes_in_its_scholar() {
     );
     let main = repo.tip(MAIN).unwrap().unwrap();
     assert_eq!(
-        hires::get(realm.db(), mayor.agent).unwrap().base,
+        hires::get(realm.db(), lead.agent).unwrap().base,
         Some(main.to_string())
     );
     assert!(repo.read(main, "memory/notes.md").unwrap().is_none());
@@ -81,8 +81,8 @@ fn a_hire_learns_in_its_lodge_and_takes_in_its_scholar() {
             hires::hire(
                 cx,
                 hires::Spec {
-                    hamlet: mayor.hamlet.clone(),
-                    parent: Some(mayor.agent),
+                    hamlet: lead.hamlet.clone(),
+                    parent: Some(lead.agent),
                     hiring: hires::Hiring::Blank {
                         name: "scout".into(),
                         character: String::new(),
@@ -112,8 +112,8 @@ fn a_hire_learns_in_its_lodge_and_takes_in_its_scholar() {
 fn a_merge_keeps_both_sides_learning_and_a_split_takes_it_out() {
     let mut realm = Realm::new();
     let layout = realm.layout();
-    let mayor = realm.found("docs", "ada");
-    let docs = mayor.hamlet.clone();
+    let lead = realm.found("docs", "ada");
+    let docs = lead.hamlet.clone();
     let owner = realm.chief;
     let scout = realm
         .chief(|cx| {
@@ -121,7 +121,7 @@ fn a_merge_keeps_both_sides_learning_and_a_split_takes_it_out() {
                 cx,
                 hires::Spec {
                     hamlet: docs.clone(),
-                    parent: Some(mayor.agent),
+                    parent: Some(lead.agent),
                     hiring: hires::Hiring::Blank {
                         name: "scout".into(),
                         character: String::new(),
@@ -134,7 +134,7 @@ fn a_merge_keeps_both_sides_learning_and_a_split_takes_it_out() {
         })
         .unwrap();
     realm.work();
-    let kept = layout.lodge(&docs, mayor.agent);
+    let kept = layout.lodge(&docs, lead.agent);
     let absorbed = layout.lodge(&docs, scout.agent);
     let write = |at: &std::path::Path, path: &str, text: &str| {
         let path = at.join(path);
@@ -150,7 +150,7 @@ fn a_merge_keeps_both_sides_learning_and_a_split_takes_it_out() {
         .chief(|cx| {
             crate::society::merges::merge(
                 cx,
-                mayor.agent,
+                lead.agent,
                 scout.agent,
                 "one is enough",
             )

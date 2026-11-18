@@ -97,7 +97,7 @@ pub(crate) fn bring_in_project(
                 && hamlets::chiefs(cx.db, &hamlet.id)?
                     .contains(&chief)
             {
-                working = Some((hamlet.id, hamlet.mayor));
+                working = Some((hamlet.id, hamlet.lead));
                 break;
             }
         }
@@ -110,17 +110,17 @@ pub(crate) fn bring_in_project(
         return Ok(Err(Refusal::BroughtInBefore));
     }
     let founded = working.is_none();
-    let (hamlet, mayor) = match working {
+    let (hamlet, lead) = match working {
         Some(working) => working,
         None => {
             let name = label(project.name, "Project");
             let hired = done!(hamlets::found(
                 cx,
                 Founding {
-                    purpose: format!("Mayor of {name}."),
+                    purpose: format!("Lead of {name}."),
                     name,
                     chief,
-                    mayor: Hiring::Blank {
+                    lead: Hiring::Blank {
                         name: String::new(),
                         character: String::new(),
                     },
@@ -157,7 +157,7 @@ pub(crate) fn bring_in_project(
             cx,
             Spec {
                 hamlet: hamlet.clone(),
-                parent: Some(mayor),
+                parent: Some(lead),
                 hiring: Hiring::Blank {
                     name: label(&imported.title, ""),
                     character: String::new(),

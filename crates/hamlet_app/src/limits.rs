@@ -438,12 +438,12 @@ fn budget(hamlet: Entity) -> impl View {
     ))
 }
 
-/// The leads' acts a chief keeps for itself, and the caps on the
+/// The parents' acts a chief keeps for itself, and the caps on the
 /// tree and its roads.
-fn leads() -> impl View {
+fn parents() -> impl View {
     group((
-        heading(Glyph::Mayor, "Waits for you"),
-        fine("What the leads may not do without asking you first."),
+        heading(Glyph::Lead, "Waits for you"),
+        fine("What the parents may not do without asking you first."),
         line(
             "Hire a scholar",
             switch("reserved", "hire", |l| l.reserved.hire).boxed(),
@@ -497,7 +497,7 @@ fn leads() -> impl View {
     ))
 }
 
-/// The realm's own limits: the Hand's budget and whether mayors may
+/// The realm's own limits: the Hand's budget and whether leads may
 /// agree roads between their hamlets.
 pub fn realm() -> AnyView {
     let period = control("budget", "period", || {
@@ -559,7 +559,7 @@ pub fn realm() -> AnyView {
         heading(Glyph::Globe, "The realm"),
         line("The Hand's budget starts again every", period),
         spend,
-        line("Mayors may agree roads between hamlets", roads),
+        line("Leads may agree roads between hamlets", roads),
     ))
     .boxed()
 }
@@ -638,7 +638,7 @@ pub fn panel(hamlet: Entity) -> AnyView {
                 Part::Models => {
                     crate::models::of_hamlet(hamlet).boxed()
                 }
-                Part::Front | Part::Leads => leads().boxed(),
+                Part::Front | Part::Parents => parents().boxed(),
             };
             parts((
                 breadcrumb(
@@ -676,19 +676,19 @@ pub enum Part {
     Front,
     Budget,
     Models,
-    Leads,
+    Parents,
 }
 
 impl Part {
     const PAGES: [Part; 3] =
-        [Part::Budget, Part::Models, Part::Leads];
+        [Part::Budget, Part::Models, Part::Parents];
 
     fn title(self) -> &'static str {
         match self {
             Part::Front => "Limits",
             Part::Budget => "Budget",
             Part::Models => "Models",
-            Part::Leads => "Leads and roads",
+            Part::Parents => "Parents and roads",
         }
     }
 
@@ -697,7 +697,7 @@ impl Part {
             Part::Front => Glyph::Book,
             Part::Budget => Glyph::Meter,
             Part::Models => Glyph::Chip,
-            Part::Leads => Glyph::Mayor,
+            Part::Parents => Glyph::Lead,
         }
     }
 
@@ -726,7 +726,7 @@ impl Part {
                 }
                 None => "Runs the realm's default model".to_string(),
             },
-            Part::Leads => {
+            Part::Parents => {
                 let kept = [
                     (limits.reserved.hire, "hire"),
                     (limits.reserved.end, "end a hire"),
@@ -739,13 +739,13 @@ impl Part {
                 .collect::<Vec<_>>();
                 let asks = match kept.split_last() {
                     None => {
-                        "Leads act without asking you".to_string()
+                        "Parents act without asking you".to_string()
                     }
                     Some((last, [])) => {
-                        format!("Leads ask you before they {last}")
+                        format!("Parents ask you before they {last}")
                     }
                     Some((last, rest)) => format!(
-                        "Leads ask you before they {} or {last}",
+                        "Parents ask you before they {} or {last}",
                         rest.join(", ")
                     ),
                 };
@@ -762,9 +762,9 @@ impl Part {
             Part::Front => "",
             Part::Budget => "What the hamlet may spend in a period.",
             Part::Models => "Which models this hamlet may run.",
-            Part::Leads => {
-                "What the leads may do without asking, and the caps \
-                 on hires and the links between agents."
+            Part::Parents => {
+                "What the parents may do without asking, and the \
+                 caps on hires and the links between agents."
             }
         }
     }
@@ -954,7 +954,7 @@ mod tests {
     #[test]
     fn a_top_level_edit_keeps_the_other_received_limits_and_section_keys_are_camel_case()
      {
-        let (mut app, _) = page(Part::Leads);
+        let (mut app, _) = page(Part::Parents);
         enter(&mut app, "Days of decisions each hire is told", "8");
         let mut expected = serde_json::to_value(
             hamlet_testing::realm::hamlet("home", 2).limits,
@@ -980,7 +980,7 @@ mod tests {
             edits(&app)[0]["set"],
             json!({"section": "budget", "key": "period", "value": "month"})
         );
-        *app.world_mut().resource_mut::<Part>() = Part::Leads;
+        *app.world_mut().resource_mut::<Part>() = Part::Parents;
         app.update();
         enter(&mut app, "Price of a road, in dollars", "0");
         assert_eq!(

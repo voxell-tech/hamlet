@@ -31,7 +31,7 @@ pub(super) const SOCIETY: &[Command] = &[
         name: "create-hamlet",
         usage: "/create-hamlet [scholar#id|blank] <name>[: purpose]",
         does: "Create a hamlet named <name> under a scholar as its \
-               mayor, or a blank agent named Mayor if none is given",
+               lead, or a blank agent named Lead if none is given",
         run: create_hamlet,
     },
     Command {
@@ -71,10 +71,10 @@ pub(super) const SOCIETY: &[Command] = &[
         run: tier,
     },
     Command {
-        name: "mayor",
-        usage: "/mayor <address> [reason]",
+        name: "lead",
+        usage: "/lead <address> [reason]",
         does: "Give this hamlet's office to a hire",
-        run: mayor,
+        run: lead,
     },
     Command {
         name: "hire",
@@ -311,12 +311,12 @@ fn list_hamlets(core: &mut Core<'_, '_>, _: &Line) -> Answer {
 fn create_hamlet(core: &mut Core<'_, '_>, line: &Line) -> Answer {
     let chief = core.realm.chief();
     let words = line.words();
-    // A mayor not given is a blank agent named Mayor.
+    // A lead not given is a blank agent named Lead.
     let blank = || Hiring::Blank {
         name: String::new(),
         character: String::new(),
     };
-    let (mayor, name_at) = match words.first() {
+    let (lead, name_at) = match words.first() {
         Some(&BLANK) => (blank(), 1),
         Some(scholar) if is_scholar(scholar) => {
             (found!(core.hiring(scholar, chief)), 1)
@@ -334,7 +334,7 @@ fn create_hamlet(core: &mut Core<'_, '_>, line: &Line) -> Answer {
         return usage(core, line);
     }
     let purpose = match purpose.trim() {
-        "" => format!("Mayor of {shown}."),
+        "" => format!("Lead of {shown}."),
         given => given.to_owned(),
     };
     let hired = found!(core.attempt(by(core), |cx, _| {
@@ -343,14 +343,14 @@ fn create_hamlet(core: &mut Core<'_, '_>, line: &Line) -> Answer {
             Founding {
                 name: shown.clone(),
                 chief,
-                mayor,
+                lead,
                 purpose,
             },
         )
     }));
     let db = core.realm.store().connection();
     Ok(Ok(format!(
-        "The hamlet {shown} (`{}`) is created under its mayor `{}`.",
+        "The hamlet {shown} (`{}`) is created under its lead `{}`.",
         hired.hamlet,
         addresses::name_of(db, hired.agent)?
     )))
@@ -441,7 +441,7 @@ fn tier(core: &mut Core<'_, '_>, line: &Line) -> Answer {
     }))
 }
 
-fn mayor(core: &mut Core<'_, '_>, line: &Line) -> Answer {
+fn lead(core: &mut Core<'_, '_>, line: &Line) -> Answer {
     let Some(id) = line.here.clone() else {
         return Ok(Err(core.no_hamlet()));
     };
@@ -452,7 +452,7 @@ fn mayor(core: &mut Core<'_, '_>, line: &Line) -> Answer {
     let hire = found!(core.resolve(text, Some(&id), Reach::Living));
     let reason = line.tail(1);
     let done = core.attempt(by(core), |cx, _| {
-        hires::seat(cx, &id, hire, &reason)
+        hires::set_lead(cx, &id, hire, &reason)
     })?;
     Ok(
         done.map(|()| {
@@ -493,7 +493,7 @@ fn hire(core: &mut Core<'_, '_>, line: &Line) -> Answer {
         Some(parent) => parent,
         None => {
             let db = core.realm.store().connection();
-            found!(hamlets::living(db, &hamlet)).mayor
+            found!(hamlets::living(db, &hamlet)).lead
         }
     };
     let hiring = if *scholar == BLANK {
@@ -538,7 +538,7 @@ fn hire_fate(
         Reach::Kept
     };
     let hire = found!(core.resolve(text, line.here.as_ref(), reach));
-    found!(core.leads(hire));
+    found!(core.directs(hire));
     let reason = line.tail(1);
     let db = core.realm.store().connection();
     // A merged hire comes back by splitting its merge.
@@ -584,7 +584,7 @@ fn merge(core: &mut Core<'_, '_>, line: &Line) -> Answer {
         found!(core.resolve(absorbed, here, Reach::Living));
     let kept = found!(core.resolve(kept, here, Reach::Living));
     for hire in [absorbed, kept] {
-        found!(core.leads(hire));
+        found!(core.directs(hire));
     }
     let reason = match line.tail(3) {
         reason if reason.is_empty() => {
@@ -680,7 +680,8 @@ fn nickname(core: &mut Core<'_, '_>, line: &Line) -> Answer {
     };
     let agent =
         found!(core.resolve(text, line.here.as_ref(), Reach::Living));
-    // A worker is named by whoever may steer it, a hire by its leads.
+    // A worker is named by whoever may steer it, a hire by whoever
+    // may direct it.
     let worker = {
         let db = core.realm.store().connection();
         agents::get(db, agent)?.kind == AgentKind::Worker
@@ -688,7 +689,7 @@ fn nickname(core: &mut Core<'_, '_>, line: &Line) -> Answer {
     if worker {
         found!(core.steers(agent));
     } else {
-        found!(core.leads(agent));
+        found!(core.directs(agent));
     }
     let nickname = line.tail(1);
     let given = (!nickname.is_empty()).then_some(nickname);
@@ -714,7 +715,7 @@ fn tools(core: &mut Core<'_, '_>, line: &Line) -> Answer {
     };
     let hire =
         found!(core.resolve(text, line.here.as_ref(), Reach::Living));
-    found!(core.leads(hire));
+    found!(core.directs(hire));
     let marked = |mark: char| {
         words[1..]
             .iter()
@@ -746,7 +747,7 @@ fn allowance(core: &mut Core<'_, '_>, line: &Line) -> Answer {
     };
     let hire =
         found!(core.resolve(text, line.here.as_ref(), Reach::Living));
-    found!(core.leads(hire));
+    found!(core.directs(hire));
     let allowance = match *amount {
         "none" => None,
         amount => match amount.trim_start_matches('$').parse::<f64>()
@@ -785,7 +786,7 @@ fn road(
     let a = found!(core.resolve(a, here, Reach::Living));
     let b = found!(core.resolve(b, here, Reach::Living));
     for end in [a, b] {
-        found!(core.leads(end));
+        found!(core.directs(end));
     }
     let reason = line.tail(2);
     match work {

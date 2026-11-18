@@ -11,7 +11,7 @@ use bevy_fynix::views::{
     BehaviorExt, FrameProps, button, column, row,
 };
 use hamlet_client::realm::{
-    Account, HamletId, Identity, Kind, Left, LivesIn, Mayor,
+    Account, HamletId, Identity, Kind, Lead, Left, LivesIn,
     MergedInto, OwnModel, Parent, Treasury,
 };
 use hamlet_protocol::client::{AgentId, AgentKind};
@@ -92,7 +92,7 @@ pub(super) struct AgentRow {
     pub id: AgentId,
     /// What it is shown by.
     pub name: String,
-    pub mayor: bool,
+    pub lead: bool,
     pub worker: bool,
     /// What its row says under its name, or the way it left.
     pub under: String,
@@ -100,7 +100,7 @@ pub(super) struct AgentRow {
     pub gone: bool,
     /// Its own model and what it spent, where it has either.
     pub account: String,
-    /// How many leads there are between it and the top of its
+    /// How many parents there are between it and the top of its
     /// hamlet's tree.
     pub depth: usize,
 }
@@ -111,13 +111,13 @@ type Told<'a> = (
     Option<&'a OwnModel>,
     Option<&'a Account>,
     Option<&'a MergedInto>,
-    (Has<Mayor>, Has<Left>),
+    (Has<Lead>, Has<Left>),
     &'a Identity,
     Option<&'a Parent>,
     &'a Kind,
 );
 
-/// `rows` in the order of their tree: each lead followed by its
+/// `rows` in the order of their tree: each parent followed by its
 /// hires, the living before those that are gone.
 fn in_tree(
     rows: Vec<AgentRow>,
@@ -168,7 +168,7 @@ fn in_tree(
         below.reverse();
         pending.extend(below);
     }
-    // Whatever no lead reaches goes last.
+    // Whatever no parent reaches goes last.
     for row in rows {
         if !ordered.iter().any(|done| done.agent == row.agent) {
             ordered.push(row);
@@ -177,7 +177,7 @@ fn in_tree(
     ordered
 }
 
-/// Everyone of `hamlet`, or of every hamlet: the mayor, the living
+/// Everyone of `hamlet`, or of every hamlet: the lead, the living
 /// hires in the order they came and the workers after them, then
 /// those that are gone.
 pub(super) fn agent_rows(
@@ -201,7 +201,7 @@ pub(super) fn agent_rows(
                 own,
                 account,
                 into,
-                (mayor, gone),
+                (lead, gone),
                 id,
                 parent,
                 kind,
@@ -234,7 +234,7 @@ pub(super) fn agent_rows(
                     agent,
                     id: id.0,
                     name: named(agent),
-                    mayor,
+                    lead,
                     worker: kind.0 == AgentKind::Worker,
                     under,
                     standing: Standing::of(world, agent),
@@ -245,9 +245,7 @@ pub(super) fn agent_rows(
             },
         )
         .collect::<Vec<_>>();
-    rows.sort_by_key(|row| {
-        (row.gone, !row.mayor, row.worker, row.id)
-    });
+    rows.sort_by_key(|row| (row.gone, !row.lead, row.worker, row.id));
     let (gone, living) = rows.into_iter().partition(|row| row.gone);
     let mut rows = in_tree(living, &parents, &ids);
     rows.extend(in_tree(gone, &parents, &ids));

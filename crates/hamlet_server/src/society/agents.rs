@@ -64,7 +64,7 @@ hamlet_store::named_text!(AgentKind);
 #[strum(serialize_all = "kebab-case")]
 #[diesel(sql_type = Text)]
 pub(crate) enum EndHow {
-    /// A lead or a chief ended the hire.
+    /// A parent or a chief ended the hire.
     Ended,
     /// The hire was merged into another.
     Merged,
@@ -263,8 +263,8 @@ pub(crate) fn set_fast(
 }
 
 /// Chooses the model of the living agent `id`, or lets it follow its
-/// hamlet's or the realm's default when `None` (H29). A lead may not
-/// change a chief's choice for a hire.
+/// hamlet's or the realm's default when `None` (H29). A parent may
+/// not change a chief's choice for a hire.
 pub(crate) fn set_model(
     cx: &mut Change<'_>,
     id: AgentId,

@@ -3,7 +3,7 @@ use bevy_ecs::prelude::*;
 use hamlet_client::chats::Chat;
 use hamlet_client::messages::*;
 use hamlet_client::outbox::Outbox;
-use hamlet_client::realm::mayor_of;
+use hamlet_client::realm::lead_of;
 use hamlet_client::waits::{Choice, Waiting};
 use hamlet_client::{ClientPlugin, receive};
 use hamlet_protocol::client as protocol;
@@ -26,7 +26,7 @@ fn chief_messages_become_requests_with_fresh_uuid_ids_and_wire_ids() {
     let mut initial = state();
     initial.waits.push(wait("held"));
     receive(world, protocol::ServerMessage::State(initial));
-    let ada_entity = mayor_of(world, "home").unwrap();
+    let ada_entity = lead_of(world, "home").unwrap();
     let wait =
         world.query::<(Entity, &Waiting)>().single(world).unwrap().0;
     let reference = protocol::ChatRef {

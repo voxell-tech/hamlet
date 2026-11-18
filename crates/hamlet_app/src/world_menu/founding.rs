@@ -1,6 +1,6 @@
 //! The form a hamlet is founded with: its name and the folder it
-//! works on, and folded under them its mayor and what it is for,
-//! which may be left out. Once founded, its mayor's chat opens.
+//! works on, and folded under them its lead and what it is for,
+//! which may be left out. Once founded, its lead's chat opens.
 
 use std::path::PathBuf;
 
@@ -42,13 +42,13 @@ use crate::{chat, words};
 const WAIT: f64 = 60.0;
 
 /// The name of a hamlet being founded, the folder it works on, the
-/// scholar that is its mayor, and its purpose.
+/// scholar that is its lead, and its purpose.
 #[derive(Resource, Default, Clone, PartialEq)]
 pub(crate) struct Founding {
     name: String,
     folder: Option<PathBuf>,
     /// A blank agent while None.
-    mayor: Option<protocol::ScholarId>,
+    lead: Option<protocol::ScholarId>,
     purpose: String,
     /// Whether what may be left out is shown.
     more: bool,
@@ -88,19 +88,19 @@ impl Founding {
     fn command(&self) -> Option<String> {
         let name = self.name();
         let purpose = self.purpose.trim();
-        // A blank mayor is said, so a name that starts with a word
-        // the command reads as a mayor stays whole.
-        let mayor = self
-            .mayor
+        // A blank lead is said, so a name that starts with a word
+        // the command reads as a lead stays whole.
+        let lead = self
+            .lead
             .map_or_else(|| "blank".to_string(), scholar_address);
         (!name.is_empty()).then(|| match purpose {
-            "" => format!("/create-hamlet {mayor} {name}"),
-            _ => format!("/create-hamlet {mayor} {name}: {purpose}"),
+            "" => format!("/create-hamlet {lead} {name}"),
+            _ => format!("/create-hamlet {lead} {name}: {purpose}"),
         })
     }
 }
 
-/// The scholars of the city that can be the mayor: living ones, by
+/// The scholars of the city that can be the lead: living ones, by
 /// name.
 fn candidates(world: &World) -> Vec<(protocol::ScholarId, String)> {
     let Some(mut scholars) = world.try_query::<&Scholar>() else {
@@ -118,11 +118,11 @@ fn candidates(world: &World) -> Vec<(protocol::ScholarId, String)> {
     found
 }
 
-/// Who is to be the mayor: a blank agent, or one of the scholars.
-fn mayor() -> impl View {
+/// Who is to be the lead: a blank agent, or one of the scholars.
+fn lead() -> impl View {
     keyed(
         derived(|world: &World| {
-            (candidates(world), world.resource::<Founding>().mayor)
+            (candidates(world), world.resource::<Founding>().lead)
         })
         .when(every_frame()),
         |(found, chosen)| {
@@ -135,20 +135,20 @@ fn mayor() -> impl View {
                 })
                 .map_or(0, |at| at + 1);
             let found = found.clone();
-            // What it is to have a blank agent or a scholar as mayor.
+            // What it is to have a blank agent or a scholar as lead.
             let meaning = match chosen {
                 Some(_) => words::HIRED_SCHOLAR,
                 None => words::BLANK,
             };
             hamlet_ui::styles::close((
-                section("Its mayor"),
+                section("Its lead"),
                 description(meaning),
                 dropdown(
                     shown,
                     at,
                     Glyph::Chevron.image(ICON),
                     move |world, picked| {
-                        world.resource_mut::<Founding>().mayor =
+                        world.resource_mut::<Founding>().lead =
                             picked
                                 .checked_sub(1)
                                 .and_then(|at| found.get(at))
@@ -221,7 +221,7 @@ pub(crate) fn chosen(
 }
 
 /// Once the hamlet founded from the form is there, points it at its
-/// folder and opens its mayor's chat.
+/// folder and opens its lead's chat.
 pub(crate) fn open_founded(world: &mut World) {
     let Some((name, before, _, until)) =
         &world.resource::<Awaited>().0
@@ -238,7 +238,7 @@ pub(crate) fn open_founded(world: &mut World) {
     else {
         return;
     };
-    let Some(mayor) = realm::mayor_of(world, &id) else {
+    let Some(lead) = realm::lead_of(world, &id) else {
         return;
     };
     let Some((_, _, folder, _)) =
@@ -253,7 +253,7 @@ pub(crate) fn open_founded(world: &mut World) {
             format!("/folder {}", folder.display()),
         );
     }
-    crate::convo::seat(world, mayor);
+    crate::convo::seat(world, lead);
     show(world, Showing::Thread);
 }
 
@@ -312,7 +312,7 @@ pub(super) fn founding(at: Vec2) -> impl View {
             label("Create a hamlet").size(heading).bold(true),
             description(
                 "It is built on the next free ground and gets its \
-                 own mayor.",
+                 own lead.",
             ),
             asks_first::<Founding>(
                 "Its name",
@@ -331,7 +331,7 @@ pub(super) fn founding(at: Vec2) -> impl View {
                 |f| f.more = !f.more,
                 || {
                     column((
-                        mayor(),
+                        lead(),
                         asks::<Founding>(
                             "What it is for",
                             |f| &f.purpose,
@@ -391,7 +391,7 @@ mod tests {
         app.insert_resource(Founding {
             name: "mill".into(),
             folder: None,
-            mayor: Some(protocol::ScholarId(2)),
+            lead: Some(protocol::ScholarId(2)),
             purpose: "Grinds flour".into(),
             more: false,
         });

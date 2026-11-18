@@ -137,7 +137,7 @@ line that names the message it answers, its words as a JSON string, and
 the words of the reply after a blank line:
 
 ```
-(Replying to Mayor: "Paper or ebook?\nBoth ship soon.")
+(Replying to Lead: "Paper or ebook?\nBoth ship soon.")
 
 Paper.
 ```

@@ -19,7 +19,7 @@ const USAGE: &str = "usage: hamlet [--insecure]
        hamlet dev [--port <n>] [--faux <script.json>] [--home <dir>] \
                      [--insecure] [--hot]
        hamlet window
-       hamlet chat [--to <hand|hire#<id>|mayor@<hamlet>>] [--attach \
+       hamlet chat [--to <hand|hire#<id>|lead@<hamlet>>] [--attach \
                      <path>]...
        hamlet import [--file <export>] [--all] [--sessions | \
                      --suggested | <project or conversation id>...]

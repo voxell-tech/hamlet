@@ -82,23 +82,24 @@ struct First;
 #[derive(Component)]
 struct Second;
 
-/// Where `hire` stands: mayor of its hamlet, or in it under its lead.
+/// Where `hire` stands: lead of its hamlet, or in it under its
+/// parent.
 fn place_of(world: &World, hire: Entity) -> String {
     let hamlet = world
         .get::<LivesIn>(hire)
         .map(|lives| name_of(world, lives.0))
         .unwrap_or_default();
-    if world.get::<hamlet_client::realm::Mayor>(hire).is_some() {
-        return format!("mayor of {hamlet}");
+    if world.get::<hamlet_client::realm::Lead>(hire).is_some() {
+        return format!("lead of {hamlet}");
     }
-    let lead = world
+    let parent = world
         .get::<hamlet_client::realm::Parent>(hire)
         .and_then(|parent| {
             hamlet_client::realm::agent(world, parent.0)
         })
-        .map(|lead| hamlet_client::realm::shown_of(world, lead));
-    match lead {
-        Some(lead) => format!("in {hamlet}, under {lead}"),
+        .map(|parent| hamlet_client::realm::shown_of(world, parent));
+    match parent {
+        Some(parent) => format!("in {hamlet}, under {parent}"),
         None => format!("in {hamlet}"),
     }
 }

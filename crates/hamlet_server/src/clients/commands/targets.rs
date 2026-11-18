@@ -149,15 +149,15 @@ impl Core<'_, '_> {
         Ok(Ok(()))
     }
 
-    /// Refuses unless this server's chief leads the hire `hire`.
-    pub(crate) fn leads(&mut self, hire: AgentId) -> Done<()> {
+    /// Refuses unless this server's chief may direct the hire `hire`.
+    pub(crate) fn directs(&mut self, hire: AgentId) -> Done<()> {
         let chief = self.realm.chief();
         let db = self.realm.store().connection();
         if agents::get(db, hire)?.kind != AgentKind::Hire {
             let name = addresses::name_of(db, hire)?;
             return Ok(Err(Refusal::NotHire { name }));
         }
-        if !authority::may_lead(db, Actor::Chief(chief), hire)? {
+        if !authority::may_direct(db, Actor::Chief(chief), hire)? {
             let name = addresses::name_of(db, hire)?;
             return Ok(Err(Refusal::NotYours { name }));
         }
@@ -177,6 +177,6 @@ impl Core<'_, '_> {
     }
 
     pub(super) fn no_hamlet(&self) -> Refusal {
-        Refusal::SayToMayorOrHire
+        Refusal::SayToLeadOrHire
     }
 }

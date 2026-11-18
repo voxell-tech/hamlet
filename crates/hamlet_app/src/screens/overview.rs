@@ -454,7 +454,7 @@ struct HamletCard {
     hamlet: Entity,
     title: String,
     standing: (Glyph, String, StatusKind),
-    mayor: Option<String>,
+    lead: Option<String>,
     account: String,
     spent: Option<rows::Meter>,
 }
@@ -474,10 +474,10 @@ fn hamlet_cards(world: &World) -> Vec<HamletCard> {
                     .filter(|row| row.standing == standing)
                     .count()
             };
-            let mayor = living
+            let lead = living
                 .iter()
-                .find(|row| row.mayor)
-                .map(|row| format!("Mayor: {}", row.name));
+                .find(|row| row.lead)
+                .map(|row| format!("Lead: {}", row.name));
             HamletCard {
                 hamlet: facts.hamlet,
                 title: facts.title,
@@ -486,7 +486,7 @@ fn hamlet_cards(world: &World) -> Vec<HamletCard> {
                     how_many(Standing::Works),
                     how_many(Standing::Waits),
                 ),
-                mayor,
+                lead,
                 // A card shows its budget only once something is
                 // spent.
                 account: match world.get::<Treasury>(facts.hamlet) {
@@ -514,7 +514,7 @@ fn hamlets() -> AnyView {
         parts.extend(cards.iter().cloned().map(|card| {
             let hamlet = card.hamlet;
             let mut lines = Vec::from_iter(
-                card.mayor.map(|mayor| note(mayor).boxed()),
+                card.lead.map(|lead| note(lead).boxed()),
             );
             if !card.account.is_empty() {
                 lines.push(budget(card.account, card.spent));

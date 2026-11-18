@@ -30,7 +30,7 @@ async fn a_wait_and_its_held_call_survive_a_crash() {
         .command(hand, "/create-hamlet docs: keep the docs")
         .await;
     chief
-        .until("the mayor", |c| c.agent("hire#2").is_some())
+        .until("the lead", |c| c.agent("hire#2").is_some())
         .await;
     let ada = chief.id("hire#2");
     let now = chat(ada);
@@ -102,12 +102,12 @@ async fn the_realm_comes_back_as_it_was_after_a_stop() {
         after
             .hamlets
             .iter()
-            .map(|h| (&h.id, h.tier, h.mayor))
+            .map(|h| (&h.id, h.tier, h.lead))
             .collect::<Vec<_>>(),
         before
             .hamlets
             .iter()
-            .map(|h| (&h.id, h.tier, h.mayor))
+            .map(|h| (&h.id, h.tier, h.lead))
             .collect::<Vec<_>>()
     );
     assert_eq!(chief.hamlet("docs").unwrap().limits.road.most, 5);

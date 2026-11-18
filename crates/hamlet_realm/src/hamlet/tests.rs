@@ -1,7 +1,7 @@
 use bevy::prelude::*;
 use hamlet_client::realm::{
     Activity, Busy, Carried, Doing, HamletId, Hire, Identity, Kind,
-    Left, Lived, LivesIn, Mayor, MergedInto, Road, RoadUse, Spot,
+    Lead, Left, Lived, LivesIn, MergedInto, Road, RoadUse, Spot,
     Traffic,
 };
 use hamlet_client::{ClientPlugin, receive};
@@ -27,7 +27,7 @@ use crate::{Clock, Stage};
 const HOME: &str = "home";
 
 /// The id of a test hire, by the order the tests count it in: 0 is
-/// the fixture's mayor, the rest are made by [`hire`].
+/// the fixture's lead, the rest are made by [`hire`].
 fn id_of(number: u64) -> protocol::AgentId {
     protocol::AgentId(if number == 0 { 2 } else { 1000 + number })
 }
@@ -103,27 +103,27 @@ fn a_hamlet_that_is_removed_takes_its_town_with_it() {
     assert!(society.roads.is_empty());
 }
 
-/// A hamlet with its first mayor in office.
+/// A hamlet with its first lead in office.
 fn settle(app: &mut App, name: &str) -> Entity {
     if app
         .world()
         .contains_resource::<hamlet_client::realm::Seen>()
     {
-        // The mayors take the ids after the Hand's and the first
-        // mayor's.
+        // The leads take the ids after the Hand's and the first
+        // lead's.
         let world = app.world_mut();
-        let mayor =
+        let lead =
             world.query::<&HamletId>().iter(world).count() as u64 + 2;
         receive_change(
             app,
             protocol::Update::Hamlet {
-                hamlet: realm::hamlet(name, mayor),
+                hamlet: realm::hamlet(name, lead),
             },
         );
         receive_change(
             app,
             protocol::Update::Agent {
-                agent: realm::agent(mayor, name, true),
+                agent: realm::agent(lead, name, true),
             },
         );
     } else {
@@ -231,22 +231,22 @@ fn the_world_shows_who_left_and_who_came_back() {
 }
 
 #[test]
-fn a_new_mayor_trades_houses_with_the_one_before() {
+fn a_new_lead_trades_houses_with_the_one_before() {
     let (mut app, hamlet) = app();
     tell(&mut app, hamlet, &[1, 2], &[]);
     let (hall, home) =
         (agent(&mut app, 0).plot, agent(&mut app, 2).plot);
     let (founder, two) =
         (entity(&mut app, 0).unwrap(), entity(&mut app, 2).unwrap());
-    app.world_mut().entity_mut(founder).remove::<Mayor>();
-    app.world_mut().entity_mut(two).insert(Mayor);
+    app.world_mut().entity_mut(founder).remove::<Lead>();
+    app.world_mut().entity_mut(two).insert(Lead);
     app.update();
     assert_eq!(agent(&mut app, 2).plot, hall);
     assert_eq!(agent(&mut app, 0).plot, home);
     let town = app.world().get::<Sited>(hamlet).unwrap().0;
-    let mayor =
-        app.world().resource::<Society>().town(town).unwrap().mayor;
-    assert_eq!(mayor, agent(&mut app, 2).id);
+    let lead =
+        app.world().resource::<Society>().town(town).unwrap().lead;
+    assert_eq!(lead, agent(&mut app, 2).id);
 }
 
 #[test]
@@ -391,21 +391,21 @@ fn several_hamlets_are_towns_with_roads_between() {
         let id = app.world().get::<Housed>(agent).unwrap().0;
         app.world().resource::<Society>().agent(id).unwrap().clone()
     };
-    let mayor = entity(&mut app, 0).unwrap();
-    let (here, there) = (housed(&app, mayor), housed(&app, miller));
+    let lead = entity(&mut app, 0).unwrap();
+    let (here, there) = (housed(&app, lead), housed(&app, miller));
     assert_ne!(here.town, there.town);
-    // Each first mayor has its town's hall.
+    // Each first lead has its town's hall.
     let society = app.world().resource::<Society>();
-    assert_eq!(society.town(there.town).unwrap().mayor, there.id);
+    assert_eq!(society.town(there.town).unwrap().lead, there.id);
 
-    // A road between the mayors crosses the towns.
-    let ends = if mayor <= miller {
-        (mayor, miller)
+    // A road between the leads crosses the towns.
+    let ends = if lead <= miller {
+        (lead, miller)
     } else {
-        (miller, mayor)
+        (miller, lead)
     };
     let traffic = Traffic {
-        kind: protocol::RoadKind::Mayors,
+        kind: protocol::RoadKind::Leads,
         level: RoadUse::Dirt,
         messages: 0,
         last_from: None,
@@ -569,7 +569,7 @@ fn a_received_realm_houses_the_founder_in_its_hall() {
     let founder = society.agent(housed).unwrap();
     assert_eq!(society.towns.len(), 1);
     assert_eq!(society.agents.len(), 3);
-    assert_eq!(society.towns[0].mayor, founder.id);
+    assert_eq!(society.towns[0].lead, founder.id);
     assert_eq!(founder.plot, 0);
     assert_eq!(founder.state, KeeperState::Rest);
 }

@@ -182,7 +182,7 @@ server, and opens a window. Closing the window or terminal stops no agent.
 | `stop` | Stops the realm's server and waits for it to close in order |
 | `status` | Reports whether the realm's server runs |
 | `server [--port <n>] [--faux <script.json>]` | Serves the realm; stopping it closes in order, and a second stop signal exits at once |
-| `chat [--to <hand\|hire#id\|mayor@hamlet>]` | Chats with the Hand or the named agent and answers what waits, with no window; end of input waits for that client's submissions and leaves the server running |
+| `chat [--to <hand\|hire#id\|lead@hamlet>]` | Chats with the Hand or the named agent and answers what waits, with no window; end of input waits for that client's submissions and leaves the server running |
 | `dev [--port <n>] [--faux <script.json>] [--home <dir>] [--hot]` | Builds the checkout's server and window unless `HAMLET_SERVER_BIN` and `HAMLET_APP` select them respectively, serves a scratch realm and opens its window; closing the window leaves the server running, and stopping the command closes both in order; `--hot` builds a window that reloads saved shaders and tuning files |
 | `window` | Opens a window connected to a running server |
 | `edit <charter\|limits\|settings>` (`limits --hamlet <id>` for a hamlet's), `edit character <scholar#id>`, `edit memory <scholar#id\|hire#id> [path]` | Opens the chief's document in `$EDITOR` and saves it through the server |

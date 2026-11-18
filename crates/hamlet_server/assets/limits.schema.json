@@ -12,7 +12,7 @@
     "model",
     "pinned",
     "efforts",
-    "mayor",
+    "lead",
     "leaving",
     "asking",
     "permissions"
@@ -84,7 +84,7 @@
       "required": [
         "most",
         "roadsBetween",
-        "removalMayors"
+        "removalLeads"
       ],
       "properties": {
         "most": {
@@ -97,7 +97,7 @@
           "type": "boolean",
           "default": true
         },
-        "removalMayors": {
+        "removalLeads": {
           "type": "integer",
           "minimum": 0,
           "maximum": 9007199254740991,
@@ -312,7 +312,7 @@
       },
       "default": {}
     },
-    "mayor": {
+    "lead": {
       "type": "object",
       "required": [
         "createAgents",
@@ -374,12 +374,12 @@
     "asking": {
       "type": "object",
       "required": [
-        "mayorReview",
+        "leadReview",
         "refusals",
         "questions"
       ],
       "properties": {
-        "mayorReview": {
+        "leadReview": {
           "anyOf": [
             {
               "type": "string",

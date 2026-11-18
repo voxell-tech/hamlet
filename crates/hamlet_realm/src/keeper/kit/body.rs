@@ -1,4 +1,4 @@
-//! The parts every robot has, and the mayor's dress.
+//! The parts every robot has, and the lead's dress.
 
 use bevy::prelude::*;
 
@@ -299,7 +299,7 @@ pub(super) fn lamp(pal: &Palette) -> Meshing {
     meshing
 }
 
-/// The mayor's short cape, over the shoulders of the body.
+/// The lead's short cape, over the shoulders of the body.
 pub(super) fn mantle(pal: &Palette) -> Meshing {
     let mut meshing = Meshing::new();
     let cloth = pal.mantle;
@@ -325,7 +325,7 @@ pub(super) fn mantle(pal: &Palette) -> Meshing {
     meshing
 }
 
-/// The mayor's pennant, streaming back from the origin. Both faces
+/// The lead's pennant, streaming back from the origin. Both faces
 /// are drawn.
 pub(super) fn pennant(pal: &Palette) -> Meshing {
     let mut meshing = Meshing::new();

@@ -145,7 +145,7 @@ async fn a_manual_hamlet_asks_before_it_edits_or_runs_in_its_folder()
     let edited = folder.join("notes.txt");
     let ran_file = folder.join("ran");
     let home = Home::new();
-    // The mayor's lodge, in a hamlet whose id is made once it is
+    // The lead's lodge, in a hamlet whose id is made once it is
     // founded.
     let lodge_file = home.file("hamlets/{{docs}}/2/lodge-file");
     let mut s = Session::start_in(

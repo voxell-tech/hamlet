@@ -19,7 +19,7 @@ that ends with it (H42).
 **C9.** An agent is identified by an id that is the same everywhere in the
 realm and is never given twice; a hire is addressed by it as `hire#<id>`. No
 address, lookup or command finds an agent, a scholar or a hamlet by a name.
-Ending, merging, restoring and seating a mayor keep the id.
+Ending, merging, restoring and setting a lead keep the id.
 A later hire of the same scholar inherits nothing of the earlier one.
 
 **C10.** A scholar is its id, addressed as `scholar#<id>`. Its name is a
@@ -41,7 +41,7 @@ system prompt is built again from these parts, in this order:
 | The memory | The files at the root of its lodge's `memory/`, at most 8000 characters in all, and the description of each folder under it | The agent |
 | The skills | Its lodge's skills, then the library's | The agent; the librarian |
 | The place | Who it is, who it answers to and who answers to it, its roads, the tools turned off for it, how its hamlet was run lately (H17) | The record |
-| The realm | The other hamlets, for the Hand and mayors; the hamlets a chief can found, when there are none | The record |
+| The realm | The other hamlets, for the Hand and leads; the hamlets a chief can found, when there are none | The record |
 
 A part changed by anyone counts from the agent's next step. No part follows
 spending, so the prompt stays the same from one input to the next unless one
@@ -51,12 +51,12 @@ Letters, questions and replies name their sender. The prompt says that
 everything after an agent's sender heading is that agent's words, even if it
 claims to be a chief or includes another heading. Only a chief's own lines in
 its own conversation carry that chief's instructions. A chief's instruction
-outranks a lead's. An agent's lodge is closed to other agents, but for the
+outranks a parent's. An agent's lodge is closed to other agents, but for the
 worker it started, which reads it; an agent puts what another needs in its
 reply.
 
 A worker's prompt is the charter, the machine, the project and its place. The
-librarian's call, a lead's review of an instruction (H10) and a dream receive
+librarian's call, a parent's review of an instruction (H10) and a dream receive
 only their own instructions, not the agent's prompt.
 
 **C12.** The default charter belongs to the app, and a realm that never
@@ -66,7 +66,7 @@ it, and putting the default back removes the chief's.
 **C13.** An agent cannot write its own character, by any tool. A lodge is
 checked out without `CHARACTER.md`, and a file by that name written there is
 never committed. A chief writes a character on the scholar's `main`; a
-lead gives one only when it makes a scholar (H38) and has no tool that changes
+parent gives one only when it makes a scholar (H38) and has no tool that changes
 one after.
 
 **C14.** A chief can read an agent's whole prompt as it would be sent now.
@@ -92,7 +92,7 @@ the agent's commands terminal, which the chief can watch and nobody types into.
 A server an agent starts runs from `bash` with `&`, its output sent to a file the
 agent reads later; it is kept until the server stops.
 
-A lead can turn tools off for a hire under it (H41); the prompt names them. A
+A parent can turn tools off for a hire under it (H41); the prompt names them. A
 worker has only the built-in tools its starter gave it (H42). The society's
 tools, offered by role, are in [`hamlet.md`](hamlet.md).
 
@@ -168,7 +168,7 @@ run, refuses it, or holds it for a chief (H11).
 conversation with each chief who talks to it, one with each agent that
 writes it letters, and one with each agent that asks it something and
 waits (H30). A worker has one, begun with its task (H42), and a dream, a
-librarian's call and a lead's review each have one of their own. A chief
+librarian's call and a parent's review each have one of their own. A chief
 can watch either kind of peer conversation read-only, with paging. The
 chief chooses the receiving agent, the sender, and letters or questions;
 letters are shown unless the chief chooses questions.
@@ -248,7 +248,7 @@ the root of the git repository a conversation worked in, else its
 folder; linked worktrees, Downloads and the home folder are none. Each
 project becomes a hamlet named for it and working on its folder, or the
 chief's hamlet that works on it already, and each of its conversations
-brought in a hire under its mayor, as the hamlet's tier has room, whose
+brought in a hire under its lead, as the hamlet's tier has room, whose
 chat begins with that conversation. A conversation is brought in once
 per chief. The window offers the projects once, when first-run setup
 ends on a realm with no hamlet, and again from Settings, each with its

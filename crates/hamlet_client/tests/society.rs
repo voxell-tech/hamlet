@@ -45,7 +45,7 @@ fn departures_resolve_later_merge_hosts_and_restores_keep_identity() {
         how: protocol::LeftHow::Merged,
         into: Some(protocol::AgentId(5)),
         at: 3000,
-        by: "mayor".into(),
+        by: "lead".into(),
         reason: "together".into(),
         words: "Talk to keeper".into(),
     });
@@ -267,8 +267,8 @@ fn the_hand_scholars_and_workers_are_agents_and_scholars_of_their_own()
         world.get::<Scholar>(ada).unwrap().0.hires,
         [protocol::AgentId(2)]
     );
-    let mayor = mayor_of(world, "home").unwrap();
-    assert!(world.get::<Hire>(mayor).is_some());
+    let lead = lead_of(world, "home").unwrap();
+    assert!(world.get::<Hire>(lead).is_some());
     assert!(world.get::<Hire>(worker).is_none());
     state.revision = 1;
     state.scholars.clear();

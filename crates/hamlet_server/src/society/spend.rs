@@ -244,9 +244,9 @@ pub(crate) fn stopped(
         )));
     }
     let start = period_start(budget.period, at)?;
-    for (lead, allowance) in allowances(db, agent)? {
-        let mut under = tree::under(db, lead)?;
-        under.push(lead);
+    for (holder, allowance) in allowances(db, agent)? {
+        let mut under = tree::under(db, holder)?;
+        under.push(holder);
         let mut ids = under.clone();
         for hire in &under {
             ids.extend(
@@ -255,10 +255,11 @@ pub(crate) fn stopped(
         }
         let spent = of_agents(db, &ids, start)?;
         if spent.micros >= allowance {
-            let name = crate::society::addresses::name_of(db, lead)?;
+            let name =
+                crate::society::addresses::name_of(db, holder)?;
             return Ok(Some(format!(
-                "`{name}`'s allowance of {} is spent. Its lead or a \
-                 chief can raise it.",
+                "`{name}`'s allowance of {} is spent. Its parent or \
+                 a chief can raise it.",
                 money(allowance)
             )));
         }
@@ -267,7 +268,7 @@ pub(crate) fn stopped(
 }
 
 /// The allowances bounding what `agent` spends: its own and every
-/// lead's above it; a worker counts as its starter.
+/// parent's above it; a worker counts as its starter.
 fn allowances(
     db: &mut Db,
     agent: AgentId,

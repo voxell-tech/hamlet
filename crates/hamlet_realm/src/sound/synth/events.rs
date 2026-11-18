@@ -264,8 +264,8 @@ fn restored() -> Vec<f32> {
     finish(out, 0.32, false)
 }
 
-/// A new mayor: tines up the home chord, and a bell on top.
-fn mayor() -> Vec<f32> {
+/// A new lead: tines up the home chord, and a bell on top.
+fn lead() -> Vec<f32> {
     let mut out = empty(1.6);
     for (k, note) in [62.0, 69.0, 74.0, 78.0].into_iter().enumerate()
     {
@@ -387,7 +387,7 @@ pub(super) fn make(sound: Sound) -> Option<Vec<f32>> {
         Sound::Born => born(),
         Sound::Gone => gone(),
         Sound::Restored => restored(),
-        Sound::Mayor => mayor(),
+        Sound::Lead => lead(),
         Sound::Founded => founded(),
         Sound::Allowed => allowed(),
         Sound::Denied => denied(),

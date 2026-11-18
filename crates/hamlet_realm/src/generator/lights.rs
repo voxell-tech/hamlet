@@ -58,7 +58,7 @@ pub(super) fn light_roads(
         let Some(town) = society.town(agent.town) else {
             continue;
         };
-        let pair = Pair::new(agent.id, town.mayor);
+        let pair = Pair::new(agent.id, town.lead);
         let Some(road) = drawn.roads.get(&pair) else {
             continue;
         };
