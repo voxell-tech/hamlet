@@ -5,11 +5,7 @@ use std::f32::consts::TAU;
 use bevy::color::Color;
 use bevy::ecs::component::Component;
 use bevy::ecs::entity::Entity;
-use bevy::ecs::hierarchy::Children;
-use bevy::ecs::query::With;
-use bevy::ecs::resource::Resource;
 use bevy::ecs::world::World;
-use bevy::text::EditableText;
 use bevy::ui::{
     AlignItems, AngularColorStop, BorderGradient, ConicGradient,
     JustifyContent, PositionType, UiPosition, UiRect, Val, px,
@@ -20,7 +16,7 @@ use bevy_fynix::views::{
     dropdown, frame, label, row,
 };
 use bevy_fynix::{
-    ScopedExt, ViewExt, derived, every_frame, keyed, resource, style,
+    ScopedExt, ViewExt, component, derived, every_frame, keyed, style,
 };
 use hamlet_client::realm::{Actions, Works};
 use hamlet_realm::orders::Decree;
@@ -42,24 +38,10 @@ use hamlet_ui::{AnyView, Cx, View, with_cx};
 use super::heading;
 use super::record::record_of;
 use super::rows::{AgentRow, Meter, agent_rows, hamlet_rows, stale};
-use crate::convo::talk_to;
 use crate::forms::{self, Asking};
+use crate::hub::Showing;
 use crate::roll::{either, moved};
 use crate::{profile_tag, words, world_menu};
-
-/// The words typed in the field under a root marked `M`.
-pub(crate) fn typed<M: Component>(world: &mut World) -> String {
-    let roots = world
-        .query_filtered::<&Children, With<M>>()
-        .iter(world)
-        .flat_map(|children| children.iter().copied())
-        .collect::<Vec<_>>();
-    roots
-        .into_iter()
-        .find_map(|child| world.get::<EditableText>(child))
-        .map(|text| text.value().to_string())
-        .unwrap_or_default()
-}
 
 /// Gives the chief's command `text` to the hamlet `id`.
 fn decree(world: &mut World, id: &str, text: String) {
@@ -129,7 +111,7 @@ fn worker_form(hamlet: Entity, id: String) -> AnyView {
 }
 
 /// The page of a hamlet that is shown.
-#[derive(Resource, Default, Clone, Copy, PartialEq, Eq)]
+#[derive(Component, Default, Clone, Copy, PartialEq, Eq)]
 pub enum Page {
     #[default]
     Agents,
@@ -137,18 +119,30 @@ pub enum Page {
     History,
 }
 
-const PAGES: [(Page, Glyph, &str); 3] = [
-    (Page::Agents, Glyph::Robot, "Agents"),
-    (Page::Limits, Glyph::Book, "Limits"),
-    (Page::History, Glyph::History, "History"),
-];
+/// The tabs of `hub`'s hamlet pages.
+fn pages_of(
+    hub: Entity,
+) -> [((Entity, Page), Glyph, &'static str); 3] {
+    [
+        ((hub, Page::Agents), Glyph::Robot, "Agents"),
+        ((hub, Page::Limits), Glyph::Book, "Limits"),
+        ((hub, Page::History), Glyph::History, "History"),
+    ]
+}
 
-/// Everyone in `hamlet` as a tree, each pressed to talk to.
-fn list_of(hamlet: Entity) -> impl View {
+/// Turns `hub`'s hamlet page to `page`.
+fn turn_to(world: &mut World, hub: Entity, page: Page) {
+    if let Some(mut now) = world.get_mut::<Page>(hub) {
+        *now = page;
+    }
+}
+
+/// Everyone in `hamlet` as a tree, each pressed to talk to in `hub`.
+fn list_of(hub: Entity, hamlet: Entity) -> impl View {
     let people =
         derived(move |world: &World| agent_rows(world, Some(hamlet)))
             .when(stale());
-    keyed(people, |rows| {
+    keyed(people, move |rows| {
         let tree = |gone: bool| {
             let rows = rows
                 .iter()
@@ -157,7 +151,7 @@ fn list_of(hamlet: Entity) -> impl View {
             branches(&rows)
                 .into_iter()
                 .zip(rows)
-                .map(|(branch, row)| person(row, branch))
+                .map(|(branch, row)| person(hub, row, branch))
                 .collect::<Vec<_>>()
         };
         let (living, gone) = (tree(false), tree(true));
@@ -294,8 +288,8 @@ fn lines(cx: &Cx, depth: usize, branch: &Branch) -> Vec<AnyView> {
     parts
 }
 
-/// One agent as a row of the list.
-fn person(row_of: &AgentRow, branch: Branch) -> AnyView {
+/// One agent as a row of the list in `hub`.
+fn person(hub: Entity, row_of: &AgentRow, branch: Branch) -> AnyView {
     let agent = row_of.agent;
     let gone = row_of.gone;
     let thing = if gone {
@@ -373,9 +367,14 @@ fn person(row_of: &AgentRow, branch: Branch) -> AnyView {
             .tagged(world_menu::Asks(thing))
             .on_activate(move |world| {
                 if gone {
-                    select(world, Some(thing));
+                    crate::hub::show(
+                        world,
+                        hub,
+                        Showing::Gone(agent),
+                    );
+                    crate::hub::look_at(world, hub, thing);
                 } else {
-                    talk_to(world, agent);
+                    crate::hub::talk_in(world, hub, agent);
                 }
             })
             .boxed(),
@@ -463,8 +462,9 @@ pub(super) fn budget(words: String, spent: Option<Meter>) -> AnyView {
     .boxed()
 }
 
-/// One hamlet: what it is, what can be done to it, and its pages.
-pub fn hamlet(hamlet: Entity) -> impl View {
+/// One hamlet in `hub`: what it is, what can be done to it, and its
+/// pages.
+pub fn hamlet(hub: Entity, hamlet: Entity) -> impl View {
     let facts = derived(move |world: &World| {
         hamlet_rows(world)
             .into_iter()
@@ -536,9 +536,11 @@ pub fn hamlet(hamlet: Entity) -> impl View {
         }
         // A double click on its name renames it.
         let path = crumbs(vec![
-            crumb("Realm", |world| {
-                select(world, None);
-                crate::hub::show(world, crate::hub::Showing::Realm);
+            crumb("Realm", move |world| {
+                if crate::hub::is_following(world, hub) {
+                    select(world, None);
+                }
+                crate::hub::show(world, hub, Showing::Realm);
             })
             .boxed(),
             crumb_slash().boxed(),
@@ -552,8 +554,8 @@ pub fn hamlet(hamlet: Entity) -> impl View {
                 .justify(JustifyContent::FlexStart)
                 .rules(views::tint)
                 .tooltip(|| note("Change the budget"))
-                .on_activate(|world| {
-                    *world.resource_mut::<Page>() = Page::Limits;
+                .on_activate(move |world| {
+                    turn_to(world, hub, Page::Limits);
                     *world.resource_mut::<crate::limits::Part>() =
                         crate::limits::Part::Budget;
                 });
@@ -575,22 +577,22 @@ pub fn hamlet(hamlet: Entity) -> impl View {
     })
     .within(bare());
     let pages = tabs::tipped_strip(
-        &PAGES,
+        &pages_of(hub),
         &[words::AGENTS, words::LIMITS, words::HISTORY],
         Spread::Shared,
-        |world, page| {
-            *world.resource_mut::<Page>() = page;
-        },
+        |world, (hub, page)| turn_to(world, hub, page),
     );
-    let page =
-        keyed(resource::<Page, _>(|page| *page), move |page| {
-            match page {
-                Page::Agents => list_of(hamlet).boxed(),
-                Page::Limits => crate::limits::panel(hamlet),
-                Page::History => record_of(hamlet).boxed(),
-            }
-        })
-        .within(bare());
+    let page = keyed(
+        component::<Page, _>(hub, |page| {
+            page.copied().unwrap_or_default()
+        }),
+        move |page| match page {
+            Page::Agents => list_of(hub, hamlet).boxed(),
+            Page::Limits => crate::limits::panel(hamlet),
+            Page::History => record_of(hamlet).boxed(),
+        },
+    )
+    .within(bare());
     with_cx(move |cx| {
         column((head, pages, scroll_area((page,))))
             .fills_height()

@@ -1,7 +1,7 @@
 //! The panels' sounds that no single button makes, as [`Cue`]s.
 
 use bevy::app::{App, Update};
-use bevy::ecs::change_detection::DetectChanges;
+use bevy::ecs::change_detection::{DetectChanges, Ref};
 use bevy::ecs::message::{MessageReader, MessageWriter};
 use bevy::ecs::observer::On;
 use bevy::ecs::query::{Added, With};
@@ -105,14 +105,14 @@ struct Docked {
     let_go: f32,
     /// A tab has been in front.
     tabs: bool,
-    showing: Option<Showing>,
 }
 
-/// A tab brought to the front, and a panel taken and let go.
+/// A tab brought to the front, a Hub turned to another page, and a
+/// panel taken and let go.
 fn tabs(
     time: Res<Time>,
     drag: Res<DockDrag>,
-    showing: Res<Showing>,
+    showing: Query<Ref<Showing>>,
     fronted: Query<(), (Added<ActiveTab>, With<DockTab>)>,
     fronts: Query<(), With<ActiveTab>>,
     mut docked: Local<Docked>,
@@ -130,8 +130,9 @@ fn tabs(
     // A docked panel's tabs and the first tabs were not chosen by
     // hand.
     let by_hand = docked.tabs && now - docked.let_go > 0.4;
-    let chosen = docked.showing.replace(*showing);
-    let turned = chosen.is_some_and(|was| was != *showing);
+    let turned = showing
+        .iter()
+        .any(|showing| showing.is_changed() && !showing.is_added());
     if !fronted.is_empty() && by_hand || turned {
         write(&mut cues, &mut turn, Sound::Tab);
     }

@@ -4,6 +4,7 @@
 //! that lists them all.
 
 use bevy::app::{App, Update};
+use bevy::ecs::change_detection::Mut;
 use bevy::ecs::component::Component;
 use bevy::ecs::entity::Entity;
 use bevy::ecs::hierarchy::Children;
@@ -99,22 +100,22 @@ pub enum Spread {
 /// A strip of `tabs`, each pressed to `choose` its value and laid
 /// out as `spread` says. The tabs are built once and marked as the
 /// value changes, so that a press moves nothing.
-pub fn strip<R: Resource + Copy>(
+pub fn strip<R: Copy + Send + Sync + 'static>(
     tabs: &[(R, Glyph, &'static str)],
     spread: Spread,
     choose: fn(&mut World, R),
-) -> impl View {
+) -> impl View + use<R> {
     tipped_strip(tabs, &[], spread, choose)
 }
 
 /// A [`strip`] whose tabs say `tips`, in their order, under the
 /// pointer.
-pub fn tipped_strip<R: Resource + Copy>(
+pub fn tipped_strip<R: Copy + Send + Sync + 'static>(
     tabs: &[(R, Glyph, &'static str)],
     tips: &[&'static str],
     spread: Spread,
     choose: fn(&mut World, R),
-) -> impl View {
+) -> impl View + use<R> {
     let grow = match spread {
         Spread::Shared => 1.0,
         Spread::Packed => 0.0,
@@ -208,17 +209,45 @@ pub fn fit(
 pub fn mark<R: Resource + Copy + PartialEq>(
     mut commands: Commands,
     shown: Res<R>,
-    mut tabs: Query<(Entity, &TabOf<R>, &mut Underglow, Has<Shown>)>,
+    mut tabs: Query<(Entity, &TabOf<R>, Mut<Underglow>, Has<Shown>)>,
 ) {
-    for (tab, of, mut light, marked) in &mut tabs {
+    for (tab, of, light, marked) in &mut tabs {
         let on = of.0 == *shown;
-        if light.held != on {
-            light.held = on;
-        }
-        if on && !marked {
-            commands.entity(tab).try_insert(Shown);
-        } else if !on && marked {
-            commands.entity(tab).try_remove::<Shown>();
-        }
+        light_tab(&mut commands, (tab, light, marked), on);
+    }
+}
+
+/// Marks the tab of the value of `C` on the entity each tab's value
+/// names, as a strip of `(entity, value)` tabs chooses it.
+pub fn mark_on<C: Component + Copy + PartialEq>(
+    mut commands: Commands,
+    owners: Query<&C>,
+    mut tabs: Query<(
+        Entity,
+        &TabOf<(Entity, C)>,
+        Mut<Underglow>,
+        Has<Shown>,
+    )>,
+) {
+    for (tab, of, light, marked) in &mut tabs {
+        let (owner, value) = of.0;
+        let on = owners.get(owner).is_ok_and(|shown| *shown == value);
+        light_tab(&mut commands, (tab, light, marked), on);
+    }
+}
+
+/// Lights the tab, and marks it [`Shown`], while `on`.
+fn light_tab(
+    commands: &mut Commands,
+    (tab, mut light, marked): (Entity, Mut<Underglow>, bool),
+    on: bool,
+) {
+    if light.held != on {
+        light.held = on;
+    }
+    if on && !marked {
+        commands.entity(tab).try_insert(Shown);
+    } else if !on && marked {
+        commands.entity(tab).try_remove::<Shown>();
     }
 }

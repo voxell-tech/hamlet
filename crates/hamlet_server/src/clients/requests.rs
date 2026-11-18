@@ -597,10 +597,23 @@ impl Core<'_, '_> {
         // What each agent does: a working conversation's activity,
         // else one whose last turn failed.
         let mut activity = BTreeMap::<AgentId, Activity>::new();
-        for live in self.live.values() {
+        for (&conversation, live) in self.live.iter() {
             let shown = &live.activity;
             if !shown.working && !shown.faulted {
                 continue;
+            }
+            // A failed chat is shown only while it is the agent's
+            // chat: a rewind moves the chat to a fork and leaves the
+            // failure behind.
+            if !shown.working {
+                let db = self.realm.store().connection();
+                let kept = conversations::get(db, conversation)?;
+                if kept.kind == conversations::Kind::Chat
+                    && chats::of(db, live.agent)?
+                        != Some(conversation)
+                {
+                    continue;
+                }
             }
             let held = activity.get(&live.agent);
             if held.is_none_or(|held| shown.working && !held.working)

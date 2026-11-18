@@ -6,15 +6,15 @@ use std::collections::VecDeque;
 use std::path::{Path, PathBuf};
 
 use bevy::app::{App, PreUpdate};
-use bevy::ecs::resource::Resource;
+use bevy::ecs::component::Component;
+use bevy::ecs::entity::Entity;
 use bevy::ecs::schedule::IntoScheduleConfigs;
 use bevy::ecs::world::World;
 use hamlet_client::realm::{LivesIn, Works};
 use hamlet_protocol::signs::{self, Sign};
 
-use super::{Entry, Pick, Source, field, follow};
+use super::{ChatField, Entry, Pick, Source, field, follow};
 use crate::PanelSystems;
-use crate::convo::Convo;
 
 /// The most files and folders read from a hamlet's folder.
 const MOST: usize = 5000;
@@ -23,7 +23,7 @@ const MOST: usize = 5000;
 const SKIPPED: [&str; 3] = ["target", "node_modules", "dist"];
 
 pub(super) fn plugin(app: &mut App) {
-    app.init_resource::<Index>().add_systems(
+    app.add_systems(
         PreUpdate,
         index.before(follow).in_set(PanelSystems::Bind),
     );
@@ -35,8 +35,10 @@ impl Source for Files {
     const SIGN: Sign = Sign::File;
     const LISTS: &str = "files";
 
-    fn entries(world: &World, rest: &str) -> Vec<Entry> {
-        let index = world.resource::<Index>();
+    fn entries(world: &World, hub: Entity, rest: &str) -> Vec<Entry> {
+        let Some(index) = world.get::<Index>(hub) else {
+            return Vec::new();
+        };
         let Some(folder) = &index.folder else {
             return Vec::new();
         };
@@ -69,18 +71,45 @@ impl Source for Files {
     }
 }
 
-/// The files and folders of the folder last read, relative to it.
-#[derive(Resource, Default)]
+/// The files and folders of the folder a Hub last read, relative to
+/// it.
+#[derive(Component, Default)]
 struct Index {
+    /// The hamlet's folder as the realm names it, when it was read.
+    named: Option<PathBuf>,
+    /// That folder, while it is on this machine.
     folder: Option<PathBuf>,
     paths: Vec<PathBuf>,
     /// The start of the word it was read for.
     word: Option<usize>,
+    /// How many times it was read, which a list shown from it is
+    /// made again for.
+    reads: u64,
 }
 
-/// Reads the hamlet's folder again each time a word of `#` starts.
+/// How many times `hub`'s folder was read, so a list of its files is
+/// made again once it is read anew.
+pub(super) fn reads(world: &World, hub: Entity) -> u64 {
+    world.get::<Index>(hub).map_or(0, |index| index.reads)
+}
+
+/// Reads the hamlet's folder again for a Hub each time a word of `#`
+/// starts in its field.
 fn index(world: &mut World) {
-    let word = field::with_field(world, |field| {
+    let mut fields = world.query::<&ChatField>();
+    let mut hubs =
+        fields.iter(world).map(|field| field.0).collect::<Vec<_>>();
+    hubs.sort();
+    hubs.dedup();
+    for hub in hubs {
+        index_in(world, hub);
+    }
+}
+
+/// Reads the hamlet's folder again for `hub` when a word of `#`
+/// starts in its field.
+fn index_in(world: &mut World, hub: Entity) {
+    let word = field::with_field(world, hub, |field| {
         let caret = field.caret()?;
         let text = field.plain().text;
         signs::at_caret(&text, caret)
@@ -88,23 +117,32 @@ fn index(world: &mut World) {
             .map(|token| token.start)
     })
     .flatten();
-    if word.is_none() || word == world.resource::<Index>().word {
-        world.resource_mut::<Index>().word = word;
+    // Read again, too, once the chat is with an agent of another
+    // hamlet.
+    let named = word.and_then(|_| hamlet_folder(world, hub));
+    let Ok(mut held) = world.get_entity_mut(hub) else {
+        return;
+    };
+    let mut was = held.entry::<Index>().or_default().into_mut();
+    if word.is_none() || (word == was.word && named == was.named) {
+        was.word = word;
         return;
     }
-    let folder =
-        hamlet_folder(world).filter(|folder| folder.is_dir());
+    let reads = was.reads + 1;
+    let folder = named.clone().filter(|folder| folder.is_dir());
     let paths = folder.as_deref().map(read).unwrap_or_default();
-    *world.resource_mut::<Index>() = Index {
+    world.entity_mut(hub).insert(Index {
+        named,
         folder,
         paths,
         word,
-    };
+        reads,
+    });
 }
 
-/// The folder of the hamlet of the agent the chat is with.
-fn hamlet_folder(world: &World) -> Option<PathBuf> {
-    let agent = world.get_resource::<Convo>()?.agent;
+/// The folder of the hamlet of the agent `hub`'s chat is with.
+fn hamlet_folder(world: &World, hub: Entity) -> Option<PathBuf> {
+    let agent = crate::convo::of(world, hub)?.agent;
     let hamlet = world.get::<LivesIn>(agent)?.0;
     world
         .get::<Works>(hamlet)?

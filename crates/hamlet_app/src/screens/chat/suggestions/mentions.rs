@@ -12,7 +12,6 @@ use hamlet_client::realm::{
 use hamlet_protocol::signs::Sign;
 
 use super::{Entry, Pick, Source};
-use crate::convo::Convo;
 
 pub(super) struct Mentions;
 
@@ -20,9 +19,9 @@ impl Source for Mentions {
     const SIGN: Sign = Sign::Mention;
     const LISTS: &str = "agents";
 
-    fn entries(world: &World, rest: &str) -> Vec<Entry> {
+    fn entries(world: &World, hub: Entity, rest: &str) -> Vec<Entry> {
         let Some(agent) =
-            world.get_resource::<Convo>().map(|convo| convo.agent)
+            crate::convo::of(world, hub).map(|convo| convo.agent)
         else {
             return Vec::new();
         };

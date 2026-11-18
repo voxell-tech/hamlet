@@ -17,8 +17,8 @@ use bevy::ecs::system::{Commands, Local, Query, Res, ResMut};
 use bevy::ecs::world::World;
 use bevy::text::{Justify, LineBreak, TextLayout};
 use bevy::ui::{
-    AlignItems, ComputedNode, JustifyContent, ScrollPosition, UiRect,
-    percent, px,
+    AlignItems, ComputedNode, JustifyContent, Overflow,
+    ScrollPosition, UiRect, Val, percent, px,
 };
 use bevy_fynix::tokens::Tone;
 use bevy_fynix::views::{
@@ -26,7 +26,8 @@ use bevy_fynix::views::{
     frame, label, overlay, row, virtual_list,
 };
 use bevy_fynix::{
-    ScopedExt, ViewExt, derived, each, every_frame, keyed, resource,
+    ScopedExt, Signal, ViewExt, component, derived, each,
+    every_frame, keyed,
 };
 use hamlet_client::chats::{self, Entry, Transcript};
 use hamlet_client::messages::Response;
@@ -41,7 +42,7 @@ use hamlet_ui::widgets::icons::{Glyph, glyph};
 use hamlet_ui::widgets::shimmer::shimmer;
 use hamlet_ui::{AnyView, Cx, View, with_cx};
 
-use super::entry::entry_view;
+use super::entry::{Fold, entry_view};
 use super::timeline::{Line, People, Who, timeline};
 use super::{AwayFromEnd, ChatScroll, bubble};
 use crate::convo::Convo;
@@ -71,9 +72,7 @@ const WORKER_STARTERS: &[&str] =
     &["How far along are you?", "What have you found so far?"];
 
 pub(super) fn plugin(app: &mut App) {
-    app.init_resource::<Reading>()
-        .init_resource::<MergedLines>()
-        .add_observer(page_received);
+    app.add_observer(page_received);
 }
 
 fn starters(world: &World, agent: Entity) -> &'static [&'static str] {
@@ -88,12 +87,16 @@ fn starters(world: &World, agent: Entity) -> &'static [&'static str] {
 const LANDING: u8 = 3;
 
 /// Where the chief left a chat.
-#[derive(Component, Clone)]
+#[derive(Clone)]
 pub(super) enum Place {
     End,
     /// With this row the first shown.
     Row(RowKey),
 }
+
+/// Where the chief left each chat a Hub showed.
+#[derive(Component, Default)]
+pub(super) struct ChatPlaces(pub(super) HashMap<Entity, Place>);
 
 /// The conversation the chat's list shows.
 #[derive(Component)]
@@ -103,14 +106,16 @@ pub struct Shows {
     landing: u8,
 }
 
-/// Keeps where the chat's list is as where its conversation was left.
+/// Keeps where each Hub's chat list is as where its conversation was
+/// left.
 pub(super) fn remember_place(
-    lines: Res<Lines>,
-    mut places: Query<&mut Place>,
-    mut lists: Query<(&VirtualList, &mut Shows), With<ChatScroll>>,
-    mut commands: Commands,
+    mut hubs: Query<(&Lines, &mut ChatPlaces)>,
+    mut lists: Query<(&ChatScroll, &VirtualList, &mut Shows)>,
 ) {
-    for (list, mut shows) in &mut lists {
+    for (scroll, list, mut shows) in &mut lists {
+        let Ok((lines, mut places)) = hubs.get_mut(scroll.0) else {
+            continue;
+        };
         if shows.landing > 0 {
             shows.landing -= 1;
             continue;
@@ -125,32 +130,26 @@ pub(super) fn remember_place(
                 None => continue,
             },
         };
-        match places.get_mut(shows.chat) {
-            Ok(mut kept) => *kept = place,
-            Err(_) => {
-                commands.entity(shows.chat).try_insert(place);
-            }
-        }
+        places.0.insert(shows.chat, place);
     }
 }
 
-/// Puts the chat's list where its conversation was left.
+/// Puts each Hub's chat list where its conversation was left.
 pub(super) fn restore_place(
     mut commands: Commands,
-    convo: Res<Convo>,
-    lines: Res<Lines>,
-    places: Query<&Place>,
-    mut lists: Query<
-        (
-            Entity,
-            &mut VirtualList,
-            &mut Visibility,
-            Option<&mut Shows>,
-        ),
-        With<ChatScroll>,
-    >,
+    hubs: Query<(&Convo, &Lines, &ChatPlaces)>,
+    mut lists: Query<(
+        Entity,
+        &ChatScroll,
+        &mut VirtualList,
+        &mut Visibility,
+        Option<&mut Shows>,
+    )>,
 ) {
-    for (list, mut state, mut seen, shows) in &mut lists {
+    for (list, scroll, mut state, mut seen, shows) in &mut lists {
+        let Ok((convo, lines, places)) = hubs.get(scroll.0) else {
+            continue;
+        };
         if shows
             .as_ref()
             .is_some_and(|shows| shows.chat == convo.chat)
@@ -163,9 +162,9 @@ pub(super) fn restore_place(
             let count = state.count();
             state.splice(0, count, lines.rows.len());
         }
-        let row = match places.get(convo.chat) {
-            Ok(Place::Row(key)) => lines.places.get(key).copied(),
-            Ok(Place::End) | Err(_) => None,
+        let row = match places.0.get(&convo.chat) {
+            Some(Place::Row(key)) => lines.places.get(key).copied(),
+            Some(Place::End) | None => None,
         };
         let last = state.count().saturating_sub(1);
         state.scroll_to(row.unwrap_or(last));
@@ -184,33 +183,48 @@ pub(super) fn restore_place(
 
 fn page_received(
     response: On<Response>,
-    mut reading: ResMut<Reading>,
+    mut readings: Query<&mut Reading>,
     mut requests: ResMut<super::Requests>,
 ) {
-    let Some((id, reference)) = &reading.page else {
-        return;
-    };
-    if id != &response.to {
-        if matches!(&response.message, protocol::ServerMessage::Transcript(page) if page.chat == *reference)
-        {
-            requests.0.remove(id);
-            *reading = Reading::default();
+    for mut reading in &mut readings {
+        let Some((id, reference)) = &reading.page else {
+            continue;
+        };
+        if id != &response.to {
+            if matches!(&response.message, protocol::ServerMessage::Transcript(page) if page.chat == *reference)
+            {
+                requests.0.remove(id);
+                *reading = Reading::default();
+            }
+            continue;
         }
-        return;
-    }
-    if matches!(
-        response.message,
-        protocol::ServerMessage::Transcript(_)
-            | protocol::ServerMessage::Reply(_)
-            | protocol::ServerMessage::Fault(_)
-    ) {
-        reading.page = None;
+        if matches!(
+            response.message,
+            protocol::ServerMessage::Transcript(_)
+                | protocol::ServerMessage::Reply(_)
+                | protocol::ServerMessage::Fault(_)
+        ) {
+            reading.page = None;
+        }
     }
 }
 
-/// Folds that are open, by their conversation and first entry.
+/// The turns that are open, by their Hub, conversation and first
+/// entry.
 #[derive(Resource, Default)]
-pub struct Unfolded(pub Vec<(Entity, String)>);
+pub struct Unfolded(pub Vec<Fold>);
+
+impl Unfolded {
+    /// The turns open in `hub`, by their conversation and first
+    /// entry.
+    fn of(&self, hub: Entity) -> Vec<(Entity, String)> {
+        self.0
+            .iter()
+            .filter(|(of, ..)| *of == hub)
+            .map(|(_, chat, first)| (*chat, first.clone()))
+            .collect()
+    }
+}
 
 /// A row of a conversation.
 #[derive(Clone, PartialEq, Debug)]
@@ -504,8 +518,20 @@ pub(super) fn lasted(ms: u64) -> String {
     }
 }
 
-/// The steps of a turn under its header, as board `B` holds them.
+/// What `read` gives of the rows `hub`'s board `B` holds.
+fn board<B: Board, T: Default + Send + Sync + 'static>(
+    hub: Entity,
+    read: impl Fn(&Lines) -> T + Send + Sync + 'static,
+) -> Signal<T> {
+    component::<B, _>(hub, move |board| {
+        board.map(|board| read(board.lines())).unwrap_or_default()
+    })
+}
+
+/// The steps of a turn under its header, as `hub`'s board `B` holds
+/// them.
 pub(super) fn fold_view<B: Board>(
+    hub: Entity,
     key: RowKey,
     chat: Entity,
     first: String,
@@ -515,20 +541,23 @@ pub(super) fn fold_view<B: Board>(
     let running_key = key.clone();
     let head_key = key.clone();
     let head = keyed(
-        resource::<B, _>(move |b| b.lines().is_running(&running_key)),
+        board::<B, _>(hub, move |l| l.is_running(&running_key)),
         move |running| match running {
-            true => working::<B>(head_key.clone()).boxed(),
-            false => {
-                worked::<B>(head_key.clone(), chat, first.clone())
-                    .boxed()
-            }
+            true => working::<B>(hub, head_key.clone()).boxed(),
+            false => worked::<B>(
+                hub,
+                head_key.clone(),
+                chat,
+                first.clone(),
+            )
+            .boxed(),
         },
     )
     .within(row(()).width(percent(100.0)));
     let inside = each(
-        resource::<B, _>(move |b| b.lines().shown(&key)),
+        board::<B, _>(hub, move |l| l.shown(&key)),
         |id: &String| id.clone(),
-        move |id| step_view(chat, id.clone()),
+        move |id| step_view(hub, chat, id.clone()),
     )
     .within(column(()).width(percent(100.0)).min_width(px(0.0)));
     with_cx(move |cx| {
@@ -545,7 +574,7 @@ pub(super) fn fold_view<B: Board>(
     })
 }
 
-fn step_view(chat: Entity, id: String) -> AnyView {
+fn step_view(hub: Entity, chat: Entity, id: String) -> AnyView {
     AnyView::new(move |cx: &mut Cx| {
         let line = cx
             .world
@@ -553,19 +582,19 @@ fn step_view(chat: Entity, id: String) -> AnyView {
             .and_then(|t| t.item(&id))
             .is_some_and(|item| is_card(&item.entry));
         match line {
-            true => cx.build(super::card::view(chat, id.clone())),
-            false => cx.build(entry_view(chat, id.clone())),
+            true => {
+                cx.build(super::card::view(hub, chat, id.clone()))
+            }
+            false => cx.build(entry_view(hub, chat, id.clone())),
         }
     })
 }
 
 /// The header of a turn that runs: "Working for 13s" or "Thinking".
-fn working<B: Board>(key: RowKey) -> impl View {
+fn working<B: Board>(hub: Entity, key: RowKey) -> impl View {
     let thinking_key = key.clone();
     let word = keyed(
-        resource::<B, _>(move |b| {
-            b.lines().is_thinking(&thinking_key)
-        }),
+        board::<B, _>(hub, move |l| l.is_thinking(&thinking_key)),
         |thinking| {
             shimmer(if *thinking { "Thinking" } else { "Working" })
                 .rules(small_rules)
@@ -574,7 +603,9 @@ fn working<B: Board>(key: RowKey) -> impl View {
     )
     .within(row(()));
     let since = derived(move |world: &World| {
-        let start = world.resource::<B>().lines().start(&key);
+        let start = world
+            .get::<B>(hub)
+            .and_then(|board| board.lines().start(&key));
         match start {
             Some(start) if start > 0 => format!(
                 " for {}",
@@ -593,13 +624,14 @@ fn working<B: Board>(key: RowKey) -> impl View {
 
 /// The header of a turn that ended: "Worked for 2m 49s".
 fn worked<B: Board>(
+    hub: Entity,
     key: RowKey,
     chat: Entity,
     first: String,
 ) -> impl View {
     let (turn_key, failed_key) = (key.clone(), key.clone());
     let failed = keyed(
-        resource::<B, _>(move |b| b.lines().failed(&failed_key)),
+        board::<B, _>(hub, move |l| l.failed(&failed_key)),
         |failed| match failed {
             0 => frame().boxed(),
             n => label(format!(" · {n} failed"))
@@ -611,17 +643,14 @@ fn worked<B: Board>(
     )
     .within(row(()));
     let words = row((
-        glyph(Glyph::Chevron, 10.0).rotation(resource::<B, _>(
-            move |b| {
-                if b.lines().is_open(&turn_key) {
-                    180.0
-                } else {
-                    90.0
-                }
+        glyph(Glyph::Chevron, 10.0).rotation(board::<B, _>(
+            hub,
+            move |l| {
+                if l.is_open(&turn_key) { 180.0 } else { 90.0 }
             },
         )),
         row((
-            label(resource::<B, _>(move |b| b.lines().heading(&key)))
+            label(board::<B, _>(hub, move |l| l.heading(&key)))
                 .wrap(false)
                 .rules(small_rules),
             failed,
@@ -634,7 +663,7 @@ fn worked<B: Board>(
         .rules(text_button)
         .on_activate(move |world| {
             let unfolded = &mut world.resource_mut::<Unfolded>().0;
-            let fold = (chat, first.clone());
+            let fold = (hub, chat, first.clone());
             match unfolded.iter().position(|open| *open == fold) {
                 Some(at) => {
                     unfolded.remove(at);
@@ -673,8 +702,8 @@ impl Line {
     }
 }
 
-/// The rows of the chat.
-#[derive(Resource, Default, PartialEq)]
+/// The rows of a Hub's chat.
+#[derive(Component, Default, PartialEq)]
 pub struct Lines {
     rows: Vec<Line>,
     places: HashMap<RowKey, usize>,
@@ -685,8 +714,8 @@ pub struct Lines {
     cast: Vec<Who>,
 }
 
-/// A resource holding rows the chat draws.
-pub(crate) trait Board: Resource {
+/// A Hub's component holding rows its chat draws.
+pub(crate) trait Board: Component {
     fn lines(&self) -> &Lines;
 }
 
@@ -782,13 +811,14 @@ impl Lines {
 /// Rows of a merged conversation added each time more is asked for.
 const MERGED_PAGE: usize = 40;
 
-/// An agent's conversation merged into the chat, open under its row.
-#[derive(Resource, Default)]
+/// An agent's conversation merged into a Hub's chat, open under its
+/// row.
+#[derive(Component, Default)]
 pub struct MergedLines {
     /// The row it is open under.
     under: Option<(Entity, String)>,
-    /// The chat watched for it, and whether only for this.
-    holder: Option<(Entity, bool)>,
+    /// The chat watched for it.
+    holder: Option<Entity>,
     agent: Option<(Entity, String)>,
     /// Rows built, counted from the end.
     reach: usize,
@@ -810,7 +840,7 @@ impl MergedLines {
     /// Whether it is open under a row of `chat`, or watched in it.
     pub(super) fn is_in(&self, chat: Entity) -> bool {
         self.under.as_ref().is_some_and(|(of, _)| *of == chat)
-            || self.holder.is_some_and(|(holder, _)| holder == chat)
+            || self.holder == Some(chat)
     }
 
     pub(super) fn is_open(&self, chat: Entity, id: &str) -> bool {
@@ -820,47 +850,72 @@ impl MergedLines {
     }
 }
 
-/// Opens agent `from`'s conversation under row `id` of `chat`.
+/// Opens agent `from`'s conversation under row `id` of `chat`, in
+/// `hub`.
 pub(crate) fn open_merged(
     world: &mut World,
+    hub: Entity,
     chat: Entity,
     id: String,
     from: protocol::AgentId,
     name: String,
 ) {
-    close_merged(world);
+    close_merged(world, hub);
     let reference = protocol::ChatRef { with: from };
     let holder = match chats::find(world, &reference) {
-        Some(kept) => (kept, false),
-        None => (world.spawn(chats::Chat(reference)).id(), true),
+        Some(kept) => kept,
+        None => world.spawn((chats::Chat(reference), ForMerged)).id(),
     };
     let agent = hamlet_client::realm::agent(world, from)
         .unwrap_or(Entity::PLACEHOLDER);
-    *world.resource_mut::<MergedLines>() = MergedLines {
+    world.entity_mut(hub).insert(MergedLines {
         under: Some((chat, id)),
         holder: Some(holder),
         agent: Some((agent, name)),
         reach: MERGED_PAGE,
         lines: Lines::default(),
-    };
+    });
 }
 
-/// Shuts the merged conversation that is open.
-pub(crate) fn close_merged(world: &mut World) {
-    let merged =
-        std::mem::take(&mut *world.resource_mut::<MergedLines>());
-    // The holder may be the chat that is gone.
-    if let Some((holder, true)) = merged.holder
-        && let Ok(holder) = world.get_entity_mut(holder)
-    {
-        holder.despawn();
+/// A chat watched only for the merged conversations open on it.
+#[derive(Component)]
+struct ForMerged;
+
+/// Keeps `chat` once no merged conversation is open on it.
+pub(crate) fn keep_merged(world: &mut World, chat: Entity) {
+    if world.get::<ForMerged>(chat).is_some() {
+        world.entity_mut(chat).remove::<ForMerged>();
     }
 }
 
-/// Builds a page more of the merged conversation.
-pub(crate) fn merged_earlier(world: &mut World) {
-    let mut merged = world.resource_mut::<MergedLines>();
-    let Some((holder, _)) = merged.holder else {
+/// Shuts the merged conversation open in `hub`, and lets its chat go
+/// once no Hub has it open.
+pub(crate) fn close_merged(world: &mut World, hub: Entity) {
+    let Some(mut open) = world.get_mut::<MergedLines>(hub) else {
+        return;
+    };
+    let Some(holder) = std::mem::take(&mut *open).holder else {
+        return;
+    };
+    // The holder may be the chat that is gone.
+    if world.get::<ForMerged>(holder).is_none() {
+        return;
+    }
+    let open = world
+        .query::<&MergedLines>()
+        .iter(world)
+        .any(|other| other.holder == Some(holder));
+    if !open {
+        world.despawn(holder);
+    }
+}
+
+/// Builds a page more of the merged conversation open in `hub`.
+pub(crate) fn merged_earlier(world: &mut World, hub: Entity) {
+    let Some(mut merged) = world.get_mut::<MergedLines>(hub) else {
+        return;
+    };
+    let Some(holder) = merged.holder else {
         return;
     };
     let all_built = merged.lines.earlier == 0;
@@ -870,88 +925,127 @@ pub(crate) fn merged_earlier(world: &mut World) {
     }
 }
 
-/// The rows of the merged conversation that is open.
-pub fn fold_merged(
-    convo: Res<Convo>,
-    unfolded: Res<Unfolded>,
-    transcripts: Query<Ref<Transcript>>,
-    people: People,
-    mut merged: ResMut<MergedLines>,
-) {
-    let holder = merged.holder.map(|(holder, _)| holder);
-    let said = holder.and_then(|at| transcripts.get(at).ok());
-    let moved = merged.is_changed()
-        || convo.is_changed()
-        || unfolded.is_changed()
-        || people.has_moved()
-        || said.as_ref().is_some_and(DetectChanges::is_changed);
-    let (Some(holder), Some(said), Some((agent, name)), true) =
-        (holder, said, merged.agent.clone(), moved)
-    else {
-        return;
-    };
-    let (rows, cast) = timeline(
-        &convo,
-        (agent, Some(name.as_str())),
-        holder,
-        &said,
-        &unfolded.0,
-        &people,
-    );
-    let earlier = rows.len().saturating_sub(merged.reach);
-    let mut now = Lines::of(rows[earlier..].to_vec(), earlier, cast);
-    now.more |= said.earlier().is_some();
-    if merged.lines != now {
-        merged.lines = now;
+/// The turns each Hub had open when its rows were last built.
+type Opened = HashMap<Entity, Vec<(Entity, String)>>;
+
+/// Whether the turns open in `hub` changed since `seen` was told, so
+/// a fold in one Hub builds no other Hub's rows again.
+fn folds_moved(
+    unfolded: &Res<Unfolded>,
+    seen: &mut Opened,
+    hub: Entity,
+) -> bool {
+    if !unfolded.is_changed() && seen.contains_key(&hub) {
+        return false;
     }
+    let now = unfolded.of(hub);
+    if seen.get(&hub) == Some(&now) {
+        return false;
+    }
+    seen.insert(hub, now);
+    true
 }
 
-/// The chat's rows, spliced into its list so the others keep their
-/// place.
-pub fn fold_lines(
-    convo: Res<Convo>,
+/// The rows of the merged conversation open in each Hub.
+pub fn fold_merged(
     unfolded: Res<Unfolded>,
     transcripts: Query<Ref<Transcript>>,
     people: People,
-    mut lines: ResMut<Lines>,
-    mut lists: Query<&mut VirtualList, With<ChatScroll>>,
-    mut from: Local<Option<(Entity, usize, u64, bool)>>,
+    mut hubs: Query<(Entity, Ref<Convo>, &mut MergedLines)>,
+    mut seen: Local<Opened>,
 ) {
-    let Ok(transcript) = transcripts.get(convo.chat) else {
-        return;
-    };
-    // Whether a turn runs changes no shape.
-    let now_from = Some((
-        convo.chat,
-        transcript.items().len(),
-        transcript.shape(),
-        transcript.is_answering(),
-    ));
-    if !convo.is_changed()
-        && !unfolded.is_changed()
-        && !people.has_moved()
-        && *from == now_from
-    {
-        return;
+    let me = people.me();
+    for (hub, convo, mut merged) in &mut hubs {
+        let holder = merged.holder;
+        let said = holder.and_then(|at| transcripts.get(at).ok());
+        let folded = folds_moved(&unfolded, &mut seen, hub);
+        let moved = merged.is_changed()
+            || convo.is_changed()
+            || folded
+            || people.has_moved()
+            || said.as_ref().is_some_and(DetectChanges::is_changed);
+        let (Some(holder), Some(said), Some((agent, name)), true) =
+            (holder, said, merged.agent.clone(), moved)
+        else {
+            continue;
+        };
+        let (rows, cast) = timeline(
+            &me,
+            (agent, Some(name.as_str())),
+            holder,
+            &said,
+            &unfolded.of(hub),
+            &people,
+        );
+        let earlier = rows.len().saturating_sub(merged.reach);
+        let mut now =
+            Lines::of(rows[earlier..].to_vec(), earlier, cast);
+        now.more |= said.earlier().is_some();
+        if merged.lines != now {
+            merged.lines = now;
+        }
     }
-    *from = now_from;
-    let (rows, cast) = timeline(
-        &convo,
-        (convo.agent, convo.with.as_deref()),
-        convo.chat,
-        &transcript,
-        &unfolded.0,
-        &people,
-    );
-    let mut now = Lines::of(rows, 0, cast);
-    now.more |= transcript.earlier().is_some();
-    if *lines == now {
-        return;
+    seen.retain(|hub, _| hubs.contains(*hub));
+}
+
+/// What a Hub's rows were last built from: its chat, the count of
+/// its entries, their shape, and whether a turn ran.
+type Built = (Entity, usize, u64, bool);
+
+/// Each Hub's chat rows, spliced into its list so the others keep
+/// their place.
+pub fn fold_lines(
+    unfolded: Res<Unfolded>,
+    transcripts: Query<Ref<Transcript>>,
+    people: People,
+    mut hubs: Query<(Entity, Ref<Convo>, &mut Lines)>,
+    mut lists: Query<(&ChatScroll, &mut VirtualList)>,
+    mut from: Local<HashMap<Entity, Built>>,
+    mut seen: Local<Opened>,
+) {
+    let me = people.me();
+    for (hub, convo, mut lines) in &mut hubs {
+        let folded = folds_moved(&unfolded, &mut seen, hub);
+        let Ok(transcript) = transcripts.get(convo.chat) else {
+            continue;
+        };
+        // Whether a turn runs changes no shape.
+        let now_from = (
+            convo.chat,
+            transcript.items().len(),
+            transcript.shape(),
+            transcript.is_answering(),
+        );
+        if !convo.is_changed()
+            && !folded
+            && !people.has_moved()
+            && from.get(&hub) == Some(&now_from)
+        {
+            continue;
+        }
+        from.insert(hub, now_from);
+        let (rows, cast) = timeline(
+            &me,
+            (convo.agent, convo.with.as_deref()),
+            convo.chat,
+            &transcript,
+            &unfolded.of(hub),
+            &people,
+        );
+        let mut now = Lines::of(rows, 0, cast);
+        now.more |= transcript.earlier().is_some();
+        if *lines == now {
+            continue;
+        }
+        for (scroll, mut list) in &mut lists {
+            if scroll.0 == hub {
+                splice(&mut list, &lines.rows, &now.rows);
+            }
+        }
+        *lines = now;
     }
-    for mut list in &mut lists {
-        splice(&mut list, &lines.rows, &now.rows);
-    }
-    *lines = now;
+    from.retain(|hub, _| hubs.contains(*hub));
+    seen.retain(|hub, _| hubs.contains(*hub));
 }
 
 /// Tells `list` which rows changed between `was` and `now`.
@@ -975,28 +1069,28 @@ fn splice(list: &mut VirtualList, was: &[Line], now: &[Line]) {
     }
 }
 
-/// The earlier page being received.
-#[derive(Resource, Default)]
+/// The earlier page a Hub's chat is receiving.
+#[derive(Component, Default)]
 pub struct Reading {
     page: Option<(protocol::RequestId, protocol::ChatRef)>,
     at_top: bool,
 }
 
-/// Asks for earlier rows once the chat is at its top or all fits.
+/// Asks for earlier rows once a Hub's chat is at its top or all fits.
 pub fn ask_earlier(
     mut commands: Commands,
-    convo: Res<Convo>,
     transcripts: Query<&Transcript>,
-    scrolls: Query<
-        (&ComputedNode, &ScrollPosition),
-        With<ChatScroll>,
-    >,
-    mut reading: ResMut<Reading>,
+    scrolls: Query<(&ChatScroll, &ComputedNode, &ScrollPosition)>,
+    mut hubs: Query<(Ref<Convo>, &mut Reading)>,
 ) {
-    if convo.is_changed() {
-        *reading = Reading::default();
-    }
-    for (node, at) in &scrolls {
+    for (scroll, node, at) in &scrolls {
+        let hub = scroll.0;
+        let Ok((convo, mut reading)) = hubs.get_mut(hub) else {
+            continue;
+        };
+        if convo.is_changed() {
+            *reading = Reading::default();
+        }
         let furthest = super::furthest(node);
         // Reaching the top again asks again.
         if furthest == 0.0 || at.y > 1.0 {
@@ -1025,10 +1119,13 @@ pub fn ask_earlier(
                 };
                 let id = chats::earlier(world, chat);
                 if let Some(id) = &id {
-                    super::rejected(world, id.clone());
+                    super::rejected(world, hub, id.clone());
                 }
-                world.resource_mut::<Reading>().page =
-                    id.map(|id| (id, reference));
+                if let Some(mut reading) =
+                    world.get_mut::<Reading>(hub)
+                {
+                    reading.page = id.map(|id| (id, reference));
+                }
             });
         }
     }
@@ -1037,24 +1134,28 @@ pub fn ask_earlier(
 /// The room between two rows of one run.
 const GAP: f32 = 2.0;
 
-/// The chat with whoever `Convo` points at.
-pub fn transcript() -> impl View {
+/// The chat of `hub` with whoever its `Convo` points at.
+pub fn transcript(hub: Entity) -> impl View {
     let said = virtual_list(
-        resource::<Lines, _>(|l| l.rows.len()),
+        component::<Lines, _>(hub, |l| l.map_or(0, |l| l.rows.len())),
         ROW_ESTIMATE,
-        chat_row,
+        move |slot| chat_row(hub, slot),
     )
     .follow_bottom(true)
-    .tagged(ChatScroll)
+    .tagged(ChatScroll(hub))
     .tagged(FileDrop)
     // Shown once put where its chat was left.
     .tagged(Visibility::Hidden);
     let back = each(
-        resource::<AwayFromEnd, _>(|away| {
-            if away.0 { vec![()] } else { Vec::new() }
+        component::<AwayFromEnd, _>(hub, |away| {
+            if away.is_some_and(|away| away.0) {
+                vec![()]
+            } else {
+                Vec::new()
+            }
         }),
         |_: &()| 0u8,
-        |_| {
+        move |_| {
             button(hamlet_ui::styles::raised(glyph(
                 Glyph::ToEnd,
                 hamlet_ui::styles::ICON,
@@ -1062,7 +1163,7 @@ pub fn transcript() -> impl View {
             .padding(UiRect::all(px(8.0)))
             .variant(hamlet_ui::widgets::effects::Variant::Text)
             .tip("Scroll to the latest")
-            .on_activate(super::to_end)
+            .on_activate(move |world| super::to_end(world, hub))
             .boxed()
         },
     )
@@ -1070,17 +1171,18 @@ pub fn transcript() -> impl View {
     let corner = overlay((back,))
         .justify(JustifyContent::FlexEnd)
         .align(AlignItems::FlexEnd);
-    column((faded(said), quiet(), corner)).fills_height()
+    column((faded(said), quiet(hub), corner)).fills_height()
 }
 
-/// The greeting and starters over an empty chat.
-fn quiet() -> impl View {
+/// The greeting and starters over `hub`'s chat while it is empty.
+fn quiet(hub: Entity) -> impl View {
     let empty = each(
-        derived(|world: &World| {
-            let lines = world.resource::<Lines>();
-            let convo = world.resource::<Convo>();
+        derived(move |world: &World| {
+            let Some(lines) = world.get::<Lines>(hub) else {
+                return Vec::new();
+            };
             // No starter is offered while nothing could answer it.
-            let own = !super::without_model(world);
+            let own = !super::without_model(world, hub);
             match (
                 lines.rows.is_empty() && !lines.more,
                 lines.cast.first(),
@@ -1088,7 +1190,10 @@ fn quiet() -> impl View {
                 (true, Some(agent)) => vec![(
                     agent.name.clone(),
                     own,
-                    starters(world, convo.agent),
+                    starters(
+                        world,
+                        crate::convo::agent_of(world, hub),
+                    ),
                 )],
                 _ => Vec::new(),
             }
@@ -1097,7 +1202,7 @@ fn quiet() -> impl View {
         |shown: &(String, bool, &'static [&'static str])| {
             shown.clone()
         },
-        |(name, own, starters)| {
+        move |(name, own, starters)| {
             let (name, own, starters) =
                 (name.clone(), *own, *starters);
             with_cx(move |cx| {
@@ -1107,10 +1212,11 @@ fn quiet() -> impl View {
                     .filter(|_| own)
                     .map(|said| {
                         lettered(*said)
-                            .rules(hamlet_ui::styles::button)
+                            .rules(hamlet_ui::styles::quiet_button)
                             .on_activate(move |world| {
                                 super::field::set(
                                     world,
+                                    hub,
                                     vec![super::Piece::Text(
                                         said.to_string(),
                                     )],
@@ -1122,7 +1228,8 @@ fn quiet() -> impl View {
                 column((
                     label(format!("Say hello to {name}"))
                         .size(theme.text.heading)
-                        .bold(true),
+                        .bold(true)
+                        .tone(Tone::Dim),
                     column(starters)
                         .gap(theme.space.gap)
                         .align(AlignItems::Center),
@@ -1135,21 +1242,25 @@ fn quiet() -> impl View {
                 .gap(theme.space.section)
                 .align(AlignItems::Center)
                 .padding(UiRect::all(px(theme.space.section)))
+                // Centred while it fits; taller than the chat, it
+                // keeps its top and is cut at the bottom.
+                .margin(UiRect::vertical(Val::Auto))
             })
             .boxed()
         },
     );
     overlay((empty,))
         .justify(JustifyContent::Center)
-        .align(AlignItems::Center)
+        .align(AlignItems::FlexStart)
+        .overflow(Overflow::clip())
 }
 
-/// The merged conversation's rows.
-pub(super) fn merged_rows() -> impl View {
+/// The rows of the merged conversation open in `hub`.
+pub(super) fn merged_rows(hub: Entity) -> impl View {
     each(
-        resource::<MergedLines, _>(|m| m.lines.rows.clone()),
+        board::<MergedLines, _>(hub, |lines| lines.rows.clone()),
         |line: &Line| line.key(),
-        bubble::line_view::<MergedLines>,
+        move |line| bubble::line_view::<MergedLines>(hub, line),
     )
     .within(
         column(())
@@ -1159,31 +1270,30 @@ pub(super) fn merged_rows() -> impl View {
     )
 }
 
-/// The row `slot` shows, built again only when it shows another.
-fn chat_row(slot: RowSlot) -> AnyView {
+/// The row of `hub`'s chat `slot` shows, built again only when it
+/// shows another.
+fn chat_row(hub: Entity, slot: RowSlot) -> AnyView {
     let index = slot.index();
     let mut moved = slot.index();
-    let mut changed = resource::<Lines, _>(|_| ());
+    let mut changed = component::<Lines, _>(hub, |_| ());
     let key = derived(move |world: &World| {
-        let lines = world.resource::<Lines>();
+        let lines = world.get::<Lines>(hub)?;
         lines.rows.get(index.get(world)).map(Line::key)
     })
     .when(move |world: &World| {
         // Both checks run, as each takes in what it saw.
         moved.changed(world) | changed.changed(world)
     });
-    keyed(key, |key: &Option<RowKey>| {
+    keyed(key, move |key: &Option<RowKey>| {
         let key = key.clone();
         AnyView::new(move |cx: &mut Cx| {
             let line = key
                 .as_ref()
-                .and_then(|key| {
-                    cx.world.resource::<Lines>().line(key)
-                })
+                .and_then(|key| cx.world.get::<Lines>(hub)?.line(key))
                 .cloned();
             match line {
                 Some(line) => cx.build(
-                    column((bubble::line_view::<Lines>(&line),))
+                    column((bubble::line_view::<Lines>(hub, &line),))
                         .padding(UiRect::top(px(GAP)))
                         .width(percent(100.0))
                         .min_width(px(LEAST)),

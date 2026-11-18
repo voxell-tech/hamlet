@@ -14,9 +14,8 @@ use hamlet_client::realm::{
 use hamlet_realm::pick::{Selected, Thing, select};
 use hamlet_ui::theme::StatusKind;
 
-use super::{Showing, show};
+use super::{Showing, show, talk_in};
 use crate::PanelSystems;
-use crate::convo::talk_to;
 use crate::toasts::Toasts;
 
 pub(super) fn plugin(app: &mut App) {
@@ -127,9 +126,20 @@ fn expect(world: &mut World, of: Erased, name: String) {
     erasures.0.push(Erasure { of, name, after });
 }
 
-/// The entity the Hub's page is of.
-fn shown_entity(world: &World) -> Option<Entity> {
-    match *world.get_resource::<Showing>()? {
+/// The Hubs and the entity each one's page is of.
+fn shown_entities(world: &World) -> Vec<(Entity, Entity)> {
+    let Some(mut hubs) = world.try_query::<(Entity, &Showing)>()
+    else {
+        return Vec::new();
+    };
+    hubs.iter(world)
+        .filter_map(|(hub, showing)| Some((hub, of(*showing)?)))
+        .collect()
+}
+
+/// The entity a page is of.
+fn of(showing: Showing) -> Option<Entity> {
+    match showing {
         Showing::Profile(of)
         | Showing::Hamlet(of)
         | Showing::Gone(of)
@@ -156,8 +166,9 @@ fn entity_of(thing: Thing) -> Option<Entity> {
 
 fn is_unsettled(world: &World) -> bool {
     !world.resource::<Erasures>().0.is_empty()
-        || shown_entity(world)
-            .is_some_and(|shown| world.get_entity(shown).is_err())
+        || shown_entities(world)
+            .into_iter()
+            .any(|(_, shown)| world.get_entity(shown).is_err())
 }
 
 /// Settles the erasures made and leaves a page whose subject is gone.
@@ -180,8 +191,10 @@ fn settle(world: &mut World) {
     for at in made.into_iter().rev() {
         let erasure = world.resource_mut::<Erasures>().0.remove(at);
         if let Erased::Entity(entity) = erasure.of {
-            if shown_entity(world) == Some(entity) {
-                land(world, erasure.after);
+            for (hub, shown) in shown_entities(world) {
+                if shown == entity {
+                    land(world, hub, erasure.after);
+                }
             }
             let selected = world
                 .get_resource::<Selected>()
@@ -202,32 +215,32 @@ fn settle(world: &mut World) {
         }
     }
     // Gone for another reason, as erased by another client.
-    if let Some(shown) = shown_entity(world)
-        && world.get_entity(shown).is_err()
-    {
-        land(world, Landing::Page(Showing::Realm));
+    for (hub, shown) in shown_entities(world) {
+        if world.get_entity(shown).is_err() {
+            land(world, hub, Landing::Page(Showing::Realm));
+        }
     }
 }
 
-/// Turns the Hub to `after`, else to the realm's page.
-fn land(world: &mut World, after: Landing) {
+/// Turns `hub` to `after`, else to the realm's page.
+fn land(world: &mut World, hub: Entity, after: Landing) {
     match after {
         Landing::Thread(parent)
             if world.get::<Kind>(parent).is_some()
                 && world.get::<Left>(parent).is_none() =>
         {
-            talk_to(world, parent);
+            talk_in(world, hub, parent);
         }
         Landing::Page(Showing::Hamlet(hamlet))
             if world.get_entity(hamlet).is_ok() =>
         {
-            show(world, Showing::Hamlet(hamlet));
+            show(world, hub, Showing::Hamlet(hamlet));
         }
         Landing::Page(
             showing @ (Showing::Realm | Showing::Library),
         ) => {
-            show(world, showing);
+            show(world, hub, showing);
         }
-        _ => show(world, Showing::Realm),
+        _ => show(world, hub, Showing::Realm),
     }
 }

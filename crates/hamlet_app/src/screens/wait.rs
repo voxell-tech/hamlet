@@ -3,6 +3,7 @@
 use std::collections::HashSet;
 
 use bevy::app::{App, PreUpdate};
+use bevy::ecs::component::Component;
 use bevy::ecs::entity::Entity;
 use bevy::ecs::lifecycle::RemovedComponents;
 use bevy::ecs::observer::On;
@@ -17,7 +18,7 @@ use bevy_fynix::views::{
     BehaviorExt, FrameProps, TooltipExt, column, frame, label, row,
     scroll,
 };
-use bevy_fynix::{ViewExt, derived, each, keyed, resource};
+use bevy_fynix::{ViewExt, component, derived, each, keyed};
 use hamlet_client::chats::{Chat, Entry, Transcript};
 use hamlet_client::messages::Answer;
 use hamlet_client::waits::{Choice, ChoiceExt, RaisedBy, Waiting};
@@ -38,7 +39,6 @@ use hamlet_ui::{AnyView, Cx, View, with_cx};
 
 use crate::age::Age;
 use crate::convo::{Convo, talk_at};
-use crate::dock::{HUB, show_tab};
 use crate::hub::{Sheet, Showing};
 use crate::roll::{either, moved};
 use crate::standing::Standing;
@@ -54,7 +54,6 @@ const TALLEST: f32 = 45.0;
 pub fn plugin(app: &mut App) {
     app.init_resource::<Queue>()
         .init_resource::<Unfolded>()
-        .init_resource::<ChatWaits>()
         .add_observer(tag_answered)
         .add_observer(tag_opened)
         .add_systems(
@@ -81,8 +80,9 @@ impl Queue {
 #[derive(Resource, Default)]
 struct Unfolded(HashSet<Entity>);
 
-/// What the open chat's agent waits on from the chief, oldest first.
-#[derive(Resource, Default, PartialEq)]
+/// What the agent of a Hub's chat waits on from the chief, oldest
+/// first.
+#[derive(Component, Default, PartialEq)]
 pub(crate) struct ChatWaits {
     waits: Vec<Entity>,
     /// The one turned to, else the oldest is shown.
@@ -170,47 +170,67 @@ fn keep_queue(
     }
 }
 
-/// Keeps [`ChatWaits`] in step with the chat.
+/// Keeps each Hub's [`ChatWaits`] in step with its chat.
 pub(crate) fn follow(
-    convo: Res<Convo>,
     chats: Query<&Chat>,
     waiting: Query<(Entity, &Waiting, Option<&RaisedBy>)>,
-    mut chat_waits: ResMut<ChatWaits>,
+    mut hubs: Query<(&Convo, &mut ChatWaits)>,
 ) {
-    let chat = chats.get(convo.chat).ok().map(|chat| &chat.0);
-    let mut found = waiting
-        .iter()
-        .filter(|(_, waits, by)| {
-            (waits.chat.is_some() && waits.chat.as_ref() == chat)
-                || by.is_some_and(|by| by.0 == convo.agent)
-        })
-        .map(|(wait, waits, _)| {
-            (waits.since, waits.id.as_str(), wait)
-        })
-        .collect::<Vec<_>>();
-    found.sort();
-    let waits =
-        found.into_iter().map(|(.., wait)| wait).collect::<Vec<_>>();
-    let shown =
-        chat_waits.shown.filter(|shown| waits.contains(shown));
-    if chat_waits.waits != waits || chat_waits.shown != shown {
-        *chat_waits = ChatWaits { waits, shown };
+    for (convo, mut chat_waits) in &mut hubs {
+        let chat = chats.get(convo.chat).ok().map(|chat| &chat.0);
+        let mut found = waiting
+            .iter()
+            .filter(|(_, waits, by)| {
+                (waits.chat.is_some() && waits.chat.as_ref() == chat)
+                    || by.is_some_and(|by| by.0 == convo.agent)
+            })
+            .map(|(wait, waits, _)| {
+                (waits.since, waits.id.as_str(), wait)
+            })
+            .collect::<Vec<_>>();
+        found.sort();
+        let waits = found
+            .into_iter()
+            .map(|(.., wait)| wait)
+            .collect::<Vec<_>>();
+        let shown =
+            chat_waits.shown.filter(|shown| waits.contains(shown));
+        if chat_waits.waits != waits || chat_waits.shown != shown {
+            *chat_waits = ChatWaits { waits, shown };
+        }
     }
 }
 
-/// Shows the wait at `at` over the message bar.
-fn turn(world: &mut World, at: usize) {
-    let mut chat_waits = world.resource_mut::<ChatWaits>();
+/// Shows the wait at `at` over `hub`'s message bar.
+fn turn(world: &mut World, hub: Entity, at: usize) {
+    let Some(mut chat_waits) = world.get_mut::<ChatWaits>(hub) else {
+        return;
+    };
     if let Some(&wait) = chat_waits.waits.get(at) {
         chat_waits.shown = Some(wait);
     }
 }
 
-/// Sends the chief's answer to `need`, or opens its chat for a reply.
-fn answer(world: &mut World, need: &Need, choice: Choice) {
+/// Sends the chief's answer to `need`, or opens its chat for a reply:
+/// in `hub` when the card is in one, else in the following Hub.
+fn answer(
+    world: &mut World,
+    hub: Option<Entity>,
+    need: &Need,
+    choice: Choice,
+) {
     if choice == Choice::Reply {
         if let Some(chat) = &need.chat {
-            talk_at(world, chat.with);
+            match hub {
+                Some(hub) => {
+                    if let Some(agent) =
+                        hamlet_client::realm::agent(world, chat.with)
+                    {
+                        crate::hub::talk_in(world, hub, agent);
+                    }
+                }
+                None => talk_at(world, chat.with),
+            }
         }
         return;
     }
@@ -265,22 +285,29 @@ pub(crate) fn open(world: &mut World, wait: Entity) {
         _ => None,
     };
     let asker = hamlet_client::realm::named(world, &waiting.by);
-    show_tab(world, HUB);
+    let Some(hub) = crate::hub::bring_following(world) else {
+        return;
+    };
     match (profile, asker) {
         (Some(profile), _) => {
-            crate::hub::show(world, Showing::Profile(profile));
+            crate::hub::show(world, hub, Showing::Profile(profile));
         }
         (None, Some(agent)) => {
             crate::convo::talk_to(world, agent);
-            world.insert_resource(Sheet::Chat);
-            world.resource_mut::<ChatWaits>().shown = Some(wait);
+            world.entity_mut(hub).insert(Sheet::Chat);
+            if let Some(mut chat_waits) =
+                world.get_mut::<ChatWaits>(hub)
+            {
+                chat_waits.shown = Some(wait);
+            }
         }
-        (None, None) => crate::hub::show(world, Showing::Realm),
+        (None, None) => crate::hub::show(world, hub, Showing::Realm),
     }
 }
 
-/// The buttons of the answers `need` takes.
-pub(crate) fn answers(need: &Need) -> AnyView {
+/// The buttons of the answers `need` takes, on a card in `hub` or
+/// outside any.
+pub(crate) fn answers(hub: Option<Entity>, need: &Need) -> AnyView {
     let (refusing, agreeing): (Vec<usize>, Vec<usize>) =
         (0..need.answers.len()).partition(|&at| {
             matches!(
@@ -288,16 +315,20 @@ pub(crate) fn answers(need: &Need) -> AnyView {
                 Choice::Deny | Choice::Withdraw | Choice::Dismiss
             )
         });
-    let mut parts: Vec<AnyView> =
-        refusing.into_iter().map(|at| button(need, at)).collect();
-    let agreeing: Vec<AnyView> =
-        agreeing.into_iter().map(|at| button(need, at)).collect();
+    let mut parts: Vec<AnyView> = refusing
+        .into_iter()
+        .map(|at| button(hub, need, at))
+        .collect();
+    let agreeing: Vec<AnyView> = agreeing
+        .into_iter()
+        .map(|at| button(hub, need, at))
+        .collect();
     parts.push(buttons(agreeing).boxed());
     buttons(parts).boxed()
 }
 
 /// The button for the answer at `at` of `need`, or nothing.
-fn button(need: &Need, at: usize) -> AnyView {
+fn button(hub: Option<Entity>, need: &Need, at: usize) -> AnyView {
     let Some(choice) = need.answers.get(at).cloned() else {
         return frame().boxed();
     };
@@ -327,7 +358,7 @@ fn button(need: &Need, at: usize) -> AnyView {
     let button = marked_wrapping(which, text)
         .variant(variant)
         .on_activate(move |world| {
-            answer(world, &need, choice.clone());
+            answer(world, hub, &need, choice.clone());
         });
     match scope {
         Some(words) => {
@@ -497,8 +528,9 @@ fn brief(need: &Need, asked: &Questions) -> AnyView {
     .boxed()
 }
 
-/// The card of `need` in full, `tail` at the end of its head.
-fn strip(need: &Need, tail: AnyView) -> AnyView {
+/// The card of `need` in full, `tail` at the end of its head, in
+/// `hub`, else the placeholder outside any.
+fn strip(hub: Entity, need: &Need, tail: AnyView) -> AnyView {
     let need = need.clone();
     AnyView::new(move |cx: &mut Cx| {
         let questions = match &need.detail {
@@ -510,6 +542,7 @@ fn strip(need: &Need, tail: AnyView) -> AnyView {
                 asking::card(need.entity, asked.clone()).boxed()
             }
             (None, Some((chat, id, change))) => chat::change_view(
+                hub,
                 chat,
                 id,
                 change,
@@ -540,7 +573,10 @@ fn strip(need: &Need, tail: AnyView) -> AnyView {
         // A form has its own answers.
         let answers = match questions {
             Some(_) => frame().boxed(),
-            None => answers(&need),
+            None => answers(
+                (hub != Entity::PLACEHOLDER).then_some(hub),
+                &need,
+            ),
         };
         let profile = match &need.detail {
             WaitDetail::Newcomer { profile } => {
@@ -606,7 +642,9 @@ pub fn waiting() -> impl View {
                 (WaitDetail::Question { questions }, false) => {
                     brief(need, questions)
                 }
-                _ => strip(need, frame().boxed()),
+                _ => {
+                    strip(Entity::PLACEHOLDER, need, frame().boxed())
+                }
             },
         )
         .within(column(()).gap(space.gap))
@@ -614,15 +652,18 @@ pub fn waiting() -> impl View {
 }
 
 /// What the agent of the open chat waits on from the chief, in full.
-pub fn in_chat() -> impl View {
+pub fn in_chat(hub: Entity) -> impl View {
     let shown =
-        resource::<ChatWaits, _>(|chat_waits| {
-            match chat_waits.waits.is_empty() {
-                true => Display::None,
-                false => Display::Flex,
-            }
+        component::<ChatWaits, _>(hub, |chat_waits| match chat_waits
+            .is_none_or(|waits| waits.waits.is_empty())
+        {
+            true => Display::None,
+            false => Display::Flex,
         });
-    keyed(resource::<ChatWaits, _>(ChatWaits::on_show), |&on_show| {
+    let on_show = component::<ChatWaits, _>(hub, |chat_waits| {
+        chat_waits.and_then(ChatWaits::on_show)
+    });
+    keyed(on_show, move |&on_show| {
         let Some((wait, at, count)) = on_show else {
             return frame().boxed();
         };
@@ -632,9 +673,12 @@ pub fn in_chat() -> impl View {
             };
             let tail = match count {
                 1 => frame().boxed(),
-                _ => asking::pager(at, count, turn).boxed(),
+                _ => asking::pager(at, count, move |world, at| {
+                    turn(world, hub, at);
+                })
+                .boxed(),
             };
-            let card = strip(&Need::of(wait, waiting), tail);
+            let card = strip(hub, &Need::of(wait, waiting), tail);
             cx.build(scroll((card,)))
         })
     })

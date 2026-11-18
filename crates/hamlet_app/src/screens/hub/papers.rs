@@ -1,8 +1,11 @@
-//! The papers of whoever the Hub shows, and its document requests.
+//! The papers of whoever each Hub shows, and its document requests.
 
 use std::collections::HashMap;
 
+use bevy::ecs::component::Component;
+use bevy::ecs::entity::Entity;
 use bevy::ecs::observer::On;
+use bevy::ecs::query::With;
 use bevy::ecs::resource::Resource;
 use bevy::ecs::system::Commands;
 use bevy::ecs::world::World;
@@ -13,15 +16,14 @@ use hamlet_client::realm::{OfProfile, Profile, id_of};
 use hamlet_desktop::editor::{Edit, Edited};
 use hamlet_protocol::client as protocol;
 
-use super::Showing;
 use super::thread::Briefing;
-use crate::convo::Convo;
+use super::{Hub, Showing};
 
 /// The text a new memory file starts with in the editor.
 const NEW_FILE: &str = "---\ndescription: \n---\n\n";
 
-/// The memory, character and skills of whoever the Hub shows.
-#[derive(Resource, Default, PartialEq)]
+/// The memory, character and skills of whoever a Hub shows.
+#[derive(Component, Default, PartialEq)]
 pub struct Papers {
     pub(super) memory: Vec<protocol::MemoryFile>,
     /// The paths its worktree changed against its profile.
@@ -31,12 +33,19 @@ pub struct Papers {
     pub(super) failed: Option<String>,
 }
 
-#[derive(Resource, Default)]
-pub(super) struct Requests {
-    selected: Option<protocol::Keeper>,
+/// Whose papers a Hub last asked for, and its latest reads of them
+/// and of its agent's prompt.
+#[derive(Component, Default)]
+pub(super) struct Asked {
+    keeper: Option<protocol::Keeper>,
     papers: Option<RequestId>,
     prompt: Option<RequestId>,
-    pending: HashMap<RequestId, Request>,
+}
+
+#[derive(Resource, Default)]
+pub(super) struct Requests {
+    /// Each request waiting for its reply, with the Hub that asked.
+    pending: HashMap<RequestId, (Entity, Request)>,
     documents: Vec<Document>,
 }
 
@@ -50,7 +59,8 @@ enum Target {
 struct Document {
     key: String,
     target: Target,
-    /// Whose papers the Hub showed when it was opened.
+    /// The Hub it was opened from, and whose papers it showed then.
+    hub: Entity,
     shown: protocol::Keeper,
     latest: Option<RequestId>,
 }
@@ -64,122 +74,191 @@ enum Request {
     Remove(protocol::Keeper),
 }
 
-pub(super) fn selected(world: &World) -> Option<protocol::AgentId> {
-    id_of(world, world.resource::<Convo>().agent)
+/// Gives `hub` the papers it shows and its reads of them.
+pub(super) fn equip(world: &mut World, hub: Entity) {
+    world.entity_mut(hub).insert((
+        Papers::default(),
+        Asked::default(),
+        Briefing::default(),
+        super::memory::Opened::default(),
+    ));
 }
 
-/// Whose papers the Hub shows: a profile's, else the chat agent's.
-pub(super) fn keeper(world: &World) -> Option<protocol::Keeper> {
-    if let Some(&Showing::Profile(profile)) =
-        world.get_resource::<Showing>()
+fn hubs(world: &mut World) -> Vec<Entity> {
+    world
+        .query_filtered::<Entity, With<Hub>>()
+        .iter(world)
+        .collect()
+}
+
+/// The agent of `hub`'s chat, whose papers it reads.
+fn agent(world: &World, hub: Entity) -> Entity {
+    crate::convo::agent_of(world, hub)
+}
+
+/// The id of the agent of `hub`'s chat.
+pub(super) fn selected(
+    world: &World,
+    hub: Entity,
+) -> Option<protocol::AgentId> {
+    id_of(world, agent(world, hub))
+}
+
+/// Whose papers `hub` shows: a profile's, else its chat agent's.
+fn keeper(world: &World, hub: Entity) -> Option<protocol::Keeper> {
+    if let Some(Showing::Profile(profile)) =
+        super::showing(world, hub)
     {
         let id = world.get::<Profile>(profile)?.0.id;
         return Some(protocol::Keeper::Profile(id));
     }
-    selected(world).map(protocol::Keeper::Agent)
+    selected(world, hub).map(protocol::Keeper::Agent)
 }
 
-fn read(world: &mut World, of: protocol::Keeper) {
-    let id = world.resource_mut::<Outbox>().send(|id| {
+/// Sends `message` for `hub` and waits for its reply as `request`.
+fn ask(
+    world: &mut World,
+    hub: Entity,
+    request: Request,
+    message: impl FnOnce(RequestId) -> protocol::ClientMessage,
+) -> RequestId {
+    let id = world.resource_mut::<Outbox>().send(message);
+    world
+        .resource_mut::<Requests>()
+        .pending
+        .insert(id.clone(), (hub, request));
+    id
+}
+
+fn read(world: &mut World, hub: Entity, of: protocol::Keeper) {
+    let id = ask(world, hub, Request::Papers(of), |id| {
         protocol::ClientMessage::Read(protocol::Read::Papers {
             id,
             of,
             full: None,
         })
     });
-    let mut requests = world.resource_mut::<Requests>();
-    requests.papers = Some(id.clone());
-    requests.pending.insert(id, Request::Papers(of));
+    if let Some(mut asked) = world.get_mut::<Asked>(hub) {
+        asked.papers = Some(id);
+    }
 }
 
-/// The papers read for a newly shown agent or profile.
+/// Reads `of`'s papers again in every Hub that shows them, after a
+/// change made from any one of them.
+fn read_everywhere(world: &mut World, of: protocol::Keeper) {
+    for hub in hubs(world) {
+        if keeper(world, hub) == Some(of) {
+            read(world, hub, of);
+        }
+    }
+}
+
+/// Reads the papers of each Hub's newly shown agent or profile.
 pub fn keep_papers(world: &mut World) {
-    let wanted = keeper(world);
-    if world.resource::<Requests>().selected == wanted {
-        return;
-    }
-    world.resource_mut::<Requests>().selected = wanted;
-    *world.resource_mut::<Papers>() = Papers::default();
-    if let Some(of) = wanted {
-        read(world, of);
+    for hub in hubs(world) {
+        let wanted = keeper(world, hub);
+        let Some(mut asked) = world.get_mut::<Asked>(hub) else {
+            continue;
+        };
+        if asked.keeper == wanted {
+            continue;
+        }
+        asked.keeper = wanted;
+        world.entity_mut(hub).insert(Papers::default());
+        if let Some(of) = wanted {
+            read(world, hub, of);
+        }
     }
 }
 
-pub(super) fn prompt(world: &mut World) {
-    let Some(agent) = selected(world) else {
+/// Reads the whole prompt of `agent` for `hub`.
+pub(super) fn prompt(world: &mut World, hub: Entity, agent: Entity) {
+    let Some(agent) = id_of(world, agent) else {
         return;
     };
-    let id = world.resource_mut::<Outbox>().send(|id| {
+    let id = ask(world, hub, Request::Prompt(agent), |id| {
         protocol::ClientMessage::Read(protocol::Read::Prompt {
             id,
             agent,
         })
     });
-    let mut requests = world.resource_mut::<Requests>();
-    requests.prompt = Some(id.clone());
-    requests.pending.insert(id, Request::Prompt(agent));
+    if let Some(mut asked) = world.get_mut::<Asked>(hub) {
+        asked.prompt = Some(id);
+    }
 }
 
-/// The profile whose character the Hub shows.
+/// The profile whose character `hub` shows.
 fn profile_shown(
     world: &World,
+    hub: Entity,
     of: protocol::Keeper,
 ) -> Option<protocol::ProfileId> {
     match of {
         protocol::Keeper::Profile(profile) => Some(profile),
         // The Hand is no agent of a profile: it has no character.
-        protocol::Keeper::Agent(_) => world
-            .get::<OfProfile>(world.resource::<Convo>().agent)
-            .map(|of| of.0),
+        protocol::Keeper::Agent(_) => {
+            world.get::<OfProfile>(agent(world, hub)).map(|of| of.0)
+        }
     }
 }
 
-/// Reads the whole of `target`, to open it in the editor.
-fn read_whole(world: &mut World, target: Target) {
-    let Some(of) = keeper(world) else {
+/// Says why the last change to `hub`'s papers failed, or nothing.
+fn fail(world: &mut World, hub: Entity, failed: Option<String>) {
+    if let Some(mut papers) = world.get_mut::<Papers>(hub) {
+        papers.failed = failed;
+    }
+}
+
+/// Reads the whole of `target` for `hub`, to open it in the editor.
+fn read_whole(world: &mut World, hub: Entity, target: Target) {
+    let Some(of) = keeper(world, hub) else {
         return;
     };
-    world.resource_mut::<Papers>().failed = None;
-    let id = world.resource_mut::<Outbox>().send(|id| {
+    fail(world, hub, None);
+    ask(world, hub, Request::Whole(of, target), |id| {
         protocol::ClientMessage::Read(protocol::Read::Papers {
             id,
             of,
             full: Some(true),
         })
     });
-    world
-        .resource_mut::<Requests>()
-        .pending
-        .insert(id, Request::Whole(of, target));
 }
 
-pub(super) fn edit_character(world: &mut World) {
-    let Some(of) = keeper(world) else {
+/// Opens the character `hub` shows in the editor.
+pub(super) fn edit_character(world: &mut World, hub: Entity) {
+    let Some(of) = keeper(world, hub) else {
         return;
     };
-    match profile_shown(world, of) {
+    match profile_shown(world, hub, of) {
         Some(profile) => {
-            read_whole(world, Target::Character(profile));
+            read_whole(world, hub, Target::Character(profile));
         }
-        None => {
-            world.resource_mut::<Papers>().failed = Some(
+        None => fail(
+            world,
+            hub,
+            Some(
                 "This agent has no profile, so no character to edit."
                     .into(),
-            );
-        }
+            ),
+        ),
     }
 }
 
-/// Opens the memory file `path` in the editor.
-pub(super) fn edit_memory(world: &mut World, path: String) {
-    let Some(of) = keeper(world) else {
+/// Opens the memory file `path` `hub` shows in the editor.
+pub(super) fn edit_memory(
+    world: &mut World,
+    hub: Entity,
+    path: String,
+) {
+    let Some(of) = keeper(world, hub) else {
         return;
     };
-    read_whole(world, Target::Memory(of, path));
+    read_whole(world, hub, Target::Memory(of, path));
 }
 
-/// Opens a new memory file named `name` in the editor.
-pub(super) fn add_memory(world: &mut World, name: &str) {
+/// Opens a new memory file named `name` in the editor, in the memory
+/// `hub` shows.
+pub(super) fn add_memory(world: &mut World, hub: Entity, name: &str) {
     let name = name.trim().trim_start_matches('/');
     if name.is_empty() {
         return;
@@ -189,24 +268,29 @@ pub(super) fn add_memory(world: &mut World, name: &str) {
     } else {
         format!("{name}.md")
     };
-    let Some(of) = keeper(world) else {
+    let Some(of) = keeper(world, hub) else {
         return;
     };
     open_document(
         world,
+        hub,
         of,
         Target::Memory(of, path),
         NEW_FILE.to_string(),
     );
 }
 
-/// Removes the memory file `path`: an empty text does.
-pub(super) fn remove_memory(world: &mut World, path: String) {
-    let Some(of) = keeper(world) else {
+/// Removes the memory file `path` `hub` shows: an empty text does.
+pub(super) fn remove_memory(
+    world: &mut World,
+    hub: Entity,
+    path: String,
+) {
+    let Some(of) = keeper(world, hub) else {
         return;
     };
-    world.resource_mut::<Papers>().failed = None;
-    let id = world.resource_mut::<Outbox>().send(|id| {
+    fail(world, hub, None);
+    let id = ask(world, hub, Request::Remove(of), |id| {
         protocol::ClientMessage::Edit(protocol::Edit::Memory {
             id,
             of,
@@ -214,16 +298,14 @@ pub(super) fn remove_memory(world: &mut World, path: String) {
             text: String::new(),
         })
     });
-    crate::saving::track(world, id.clone());
-    world
-        .resource_mut::<Requests>()
-        .pending
-        .insert(id, Request::Remove(of));
+    crate::saving::track(world, id);
 }
 
-/// Opens `text` in the editor as the document of `target`.
+/// Opens `text` in the editor as the document of `target`, from
+/// `hub`.
 fn open_document(
     world: &mut World,
+    hub: Entity,
     shown: protocol::Keeper,
     target: Target,
     text: String,
@@ -231,10 +313,13 @@ fn open_document(
     let mut requests = world.resource_mut::<Requests>();
     let key = match requests
         .documents
-        .iter()
+        .iter_mut()
         .find(|doc| doc.target == target)
     {
-        Some(doc) => doc.key.clone(),
+        Some(doc) => {
+            (doc.hub, doc.shown) = (hub, shown);
+            doc.key.clone()
+        }
         None => {
             let key = format!(
                 "{}-{}",
@@ -247,6 +332,7 @@ fn open_document(
             requests.documents.push(Document {
                 key: key.clone(),
                 target,
+                hub,
                 shown,
                 latest: None,
             });
@@ -264,11 +350,11 @@ pub(super) fn edited(saved: On<Edited>, mut commands: Commands) {
             .documents
             .iter()
             .find(|doc| doc.key == saved.key)
-            .map(|doc| (doc.target.clone(), doc.shown));
-        let Some((target, of)) = document else {
+            .map(|doc| (doc.target.clone(), doc.hub, doc.shown));
+        let Some((target, hub, of)) = document else {
             return;
         };
-        let id = world.resource_mut::<Outbox>().send(|id| {
+        let id = ask(world, hub, Request::Save(of), |id| {
             protocol::ClientMessage::Edit(match target {
                 Target::Character(profile) => {
                     protocol::Edit::Character {
@@ -287,13 +373,13 @@ pub(super) fn edited(saved: On<Edited>, mut commands: Commands) {
         });
         crate::saving::track(world, id.clone());
         let mut requests = world.resource_mut::<Requests>();
-        requests
+        if let Some(doc) = requests
             .documents
             .iter_mut()
             .find(|doc| doc.key == saved.key)
-            .unwrap()
-            .latest = Some(id.clone());
-        requests.pending.insert(id, Request::Save(of));
+        {
+            doc.latest = Some(id);
+        }
     });
 }
 
@@ -311,10 +397,19 @@ fn failure(message: &protocol::ServerMessage) -> Option<String> {
     }
 }
 
+/// Whether `message` says a change was made.
+fn is_done(message: &protocol::ServerMessage) -> bool {
+    matches!(
+        message,
+        protocol::ServerMessage::Reply(reply)
+            if reply.kind == protocol::ReplyKind::Notice
+    )
+}
+
 pub(super) fn response(reply: On<Response>, mut commands: Commands) {
     let reply = reply.event().clone();
     commands.queue(move |world: &mut World| {
-        let Some(request) = world
+        let Some((hub, request)) = world
             .resource_mut::<Requests>()
             .pending
             .remove(&reply.to)
@@ -322,19 +417,26 @@ pub(super) fn response(reply: On<Response>, mut commands: Commands) {
             return;
         };
         let failed = failure(&reply.message);
+        let asked =
+            |world: &World,
+             read: fn(&Asked) -> &Option<RequestId>| {
+                world.get::<Asked>(hub).is_some_and(|asked| {
+                    read(asked).as_ref() == Some(&reply.to)
+                })
+            };
         match request {
             Request::Papers(of) => {
-                if keeper(world) != Some(of)
-                    || world.resource::<Requests>().papers.as_ref()
-                        != Some(&reply.to)
+                if keeper(world, hub) != Some(of)
+                    || !asked(world, |asked| &asked.papers)
                 {
                     return;
                 }
                 if let protocol::ServerMessage::Read(
                     protocol::ReadResult::Papers { papers, .. },
                 ) = reply.message
+                    && let Some(mut shown) =
+                        world.get_mut::<Papers>(hub)
                 {
-                    let mut shown = world.resource_mut::<Papers>();
                     shown.memory = papers.memory;
                     shown.learned = papers.learned;
                     shown.character = papers.character;
@@ -346,17 +448,23 @@ pub(super) fn response(reply: On<Response>, mut commands: Commands) {
                 }
             }
             Request::Prompt(agent) => {
-                if selected(world) != Some(agent)
-                    || world.resource::<Requests>().prompt.as_ref()
-                        != Some(&reply.to)
+                if selected(world, hub) != Some(agent)
+                    || !asked(world, |asked| &asked.prompt)
                 {
                     return;
                 }
-                let mut briefing = world.resource_mut::<Briefing>();
+                let Some(mut briefing) =
+                    world.get_mut::<Briefing>(hub)
+                else {
+                    return;
+                };
                 match (reply.message, failed) {
                     (
                         protocol::ServerMessage::Read(
-                            protocol::ReadResult::Prompt { prompt, .. },
+                            protocol::ReadResult::Prompt {
+                                prompt,
+                                ..
+                            },
                         ),
                         _,
                     ) => briefing.prompt = prompt,
@@ -366,9 +474,8 @@ pub(super) fn response(reply: On<Response>, mut commands: Commands) {
             }
             Request::Whole(of, target) => {
                 if let Some(failed) = failed {
-                    if keeper(world) == Some(of) {
-                        world.resource_mut::<Papers>().failed =
-                            Some(failed);
+                    if keeper(world, hub) == Some(of) {
+                        fail(world, hub, Some(failed));
                     }
                     return;
                 }
@@ -387,7 +494,7 @@ pub(super) fn response(reply: On<Response>, mut commands: Commands) {
                         .map(|file| file.text),
                 };
                 if let Some(text) = text {
-                    open_document(world, of, target, text);
+                    open_document(world, hub, of, target, text);
                 }
             }
             Request::Save(of) => {
@@ -395,40 +502,47 @@ pub(super) fn response(reply: On<Response>, mut commands: Commands) {
                     .resource::<Requests>()
                     .documents
                     .iter()
-                    .any(|doc| doc.latest.as_ref() == Some(&reply.to));
-                if latest && keeper(world) == Some(of) {
-                    world.resource_mut::<Papers>().failed = failed;
-                    if matches!(reply.message, protocol::ServerMessage::Reply(ref reply) if reply.kind == protocol::ReplyKind::Notice) {
-                        read(world, of);
-                    }
+                    .any(|doc| {
+                        doc.latest.as_ref() == Some(&reply.to)
+                    });
+                if !latest {
+                    return;
+                }
+                if keeper(world, hub) == Some(of) {
+                    fail(world, hub, failed);
+                }
+                if is_done(&reply.message) {
+                    read_everywhere(world, of);
                 }
             }
             Request::Remove(of) => {
-                if keeper(world) != Some(of) {
-                    return;
+                if keeper(world, hub) == Some(of) {
+                    fail(world, hub, failed);
                 }
-                world.resource_mut::<Papers>().failed = failed;
-                if matches!(reply.message, protocol::ServerMessage::Reply(ref reply) if reply.kind == protocol::ReplyKind::Notice) {
-                    read(world, of);
+                if is_done(&reply.message) {
+                    read_everywhere(world, of);
                 }
             }
         }
     });
 }
 
+/// Reads again the papers a Hub shows when its agent's turn ends.
 pub(super) fn papers_on_job(
     job: On<JobFinished>,
     mut commands: Commands,
 ) {
     let chat = job.chat;
     commands.queue(move |world: &mut World| {
-        let convo = world.resource::<Convo>();
-        let ours = chat == convo.chat
-            || world
+        for hub in hubs(world) {
+            let agent = agent(world, hub);
+            let ours = world
                 .get::<TalksTo>(chat)
-                .is_some_and(|to| to.0 == convo.agent);
-        if ours && let Some(of) = keeper(world) {
-            read(world, of);
+                .is_some_and(|to| to.0 == agent)
+                || crate::convo::chat_of(world, hub) == chat;
+            if ours && let Some(of) = keeper(world, hub) {
+                read(world, hub, of);
+            }
         }
     });
 }

@@ -161,8 +161,8 @@ struct Spot {
 pub struct Selecting {
     /// The area, or the text node, the words are selected in.
     area: Option<Entity>,
-    /// The message of the chat they are in.
-    quote: Option<(Entity, String)>,
+    /// The message they are in, and the Hub and chat it is in.
+    quote: Option<Quotable>,
     anchor: Option<Spot>,
     focus: Option<Spot>,
     grain: Grain,
@@ -182,9 +182,10 @@ impl Selecting {
     }
 }
 
-/// On a row of the chat whose words can be quoted.
-#[derive(Component, Clone, Debug)]
+/// On a row of a Hub's chat whose words can be quoted.
+#[derive(Component, Clone, PartialEq, Eq, Debug)]
 pub struct Quotable {
+    pub hub: Entity,
     pub chat: Entity,
     pub entry: String,
 }
@@ -654,7 +655,7 @@ fn press(
     let spot = texts.place(&nodes, press.pointer.position, grain);
     let quote = area
         .and_then(|_| chain.iter().find_map(|e| rows.get(*e).ok()))
-        .map(|row| (row.chat, row.entry.clone()));
+        .cloned();
     *selecting = Selecting {
         area: Some(scope),
         quote,
@@ -773,21 +774,17 @@ fn keys(
     }
 }
 
-/// Lets go of the chat's selection once it is with another agent.
-fn forget(
-    convo: Option<Res<Convo>>,
-    mut with: Local<Option<Entity>>,
-    mut selecting: ResMut<Selecting>,
-) {
-    let Some(convo) = convo else {
-        return;
-    };
-    if with.is_some_and(|was| was != convo.agent)
-        && selecting.quote.is_some()
-    {
+/// Lets go of a chat's selection once its Hub shows that chat no
+/// more.
+fn forget(convos: Query<&Convo>, mut selecting: ResMut<Selecting>) {
+    let gone = selecting.quote.as_ref().is_some_and(|quote| {
+        !convos
+            .get(quote.hub)
+            .is_ok_and(|convo| convo.chat == quote.chat)
+    });
+    if gone {
         selecting.clear();
     }
-    *with = Some(convo.agent);
 }
 
 /// Highlights the selection, keeps its words and places the quote
@@ -806,14 +803,12 @@ fn light(
     mut shown: Local<Vec<Rect>>,
     mut selecting: ResMut<Selecting>,
 ) {
-    // The area, found again in its message if that was built anew.
+    // The area, found again in its message if that was built anew in
+    // the same Hub.
     let area =
         selecting.area.filter(|a| alive.contains(*a)).or_else(|| {
-            let (chat, id) = selecting.quote.as_ref()?;
-            let row = rows
-                .iter()
-                .find(|(_, r)| r.chat == *chat && &r.entry == id)?
-                .0;
+            let quote = selecting.quote.as_ref()?;
+            let row = rows.iter().find(|(_, r)| *r == quote)?.0;
             texts
                 .children
                 .iter_descendants(row)
@@ -928,10 +923,20 @@ fn light(
 
 /// Quotes what is selected in the field, and lets the selection go.
 fn quote_chosen(world: &mut World) {
+    let selecting = world.resource::<Selecting>();
+    let (area, quoted) =
+        (selecting.area, selecting.quote.as_ref().map(|q| q.hub));
+    let hub = quoted
+        .or_else(|| {
+            area.and_then(|area| crate::hub::holding(world, area))
+        })
+        .or_else(|| crate::hub::active(world));
     let chosen =
         std::mem::take(&mut world.resource_mut::<Selecting>().chosen);
     world.resource_mut::<Selecting>().clear();
-    chat::quote_in_field(world, &chosen);
+    if let Some(hub) = hub {
+        chat::quote_in_field(world, hub, &chosen);
+    }
 }
 
 /// The quote button under the end of a message's selection.

@@ -145,7 +145,6 @@ mod tests {
     use protocol::TranscriptOperation as Op;
 
     use super::*;
-    use crate::convo::Convo;
     use crate::screens::chat::{plugin, transcript};
 
     const REPLY: &str =
@@ -223,12 +222,13 @@ mod tests {
                 ..Default::default()
             },
         ));
-        let chat = app.world().resource::<Convo>().chat;
+        let hub = crate::testing::hub(&mut app);
+        let chat = crate::testing::convo(&app).chat;
         let reference =
             app.world().get::<Chat>(chat).unwrap().0.clone();
         let chat_view = bevy_fynix::mount::<HamletTheme>(
             app.world_mut(),
-            transcript(),
+            transcript(hub),
         );
         let room = app
             .world_mut()

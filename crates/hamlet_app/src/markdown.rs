@@ -267,7 +267,6 @@ mod tests {
         );
         app.add_plugins((
             crate::panel_sets,
-            crate::convo::plugin,
             crate::roll::plugin,
             crate::links::plugin,
         ));

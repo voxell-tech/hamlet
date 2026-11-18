@@ -10,6 +10,7 @@ use bevy::ecs::change_detection::{DetectChanges, DetectChangesMut};
 use bevy::ecs::component::Component;
 use bevy::ecs::entity::Entity;
 use bevy::ecs::hierarchy::{ChildOf, Children};
+use bevy::ecs::lifecycle::Remove;
 use bevy::ecs::message::MessageReader;
 use bevy::ecs::observer::On;
 use bevy::ecs::query::With;
@@ -36,7 +37,9 @@ use bevy_fynix::views::{
     Atom, BehaviorExt, FrameProps, Piece, RichField, Span,
     TooltipExt, button, column, label, rich, row,
 };
-use bevy_fynix::{ScopedExt, ViewExt, derived, keyed, resource};
+use bevy_fynix::{
+    ScopedExt, ViewExt, derived, every_frame, keyed, resource,
+};
 use hamlet_client::files::{
     FilesForget, FilesKept, FilesRejected, Gather, Gathered,
     UploadFiles,
@@ -62,11 +65,11 @@ use tokio::sync::mpsc::{
     UnboundedReceiver, UnboundedSender, unbounded_channel,
 };
 
-use super::{ChatField, Draft};
-use crate::convo::Convo;
+use super::ChatField;
+use crate::convo;
 use crate::models::Shelf;
 use crate::pictures::{Drawn, Pictures, Source, State, want};
-use crate::roll::{agents_moved, either, moved};
+use crate::roll::{either, moved};
 use crate::screens::viewer;
 
 /// How high Bevy lays out a line of text, in its font size.
@@ -98,6 +101,7 @@ pub(super) fn plugin(app: &mut App) {
         .add_observer(paste)
         .add_observer(pasted)
         .add_observer(open_original)
+        .add_observer(hub_gone)
         .add_systems(
             Update,
             (
@@ -121,10 +125,34 @@ pub(super) enum Sight {
     Blind,
 }
 
-/// The [`Sight`] of the open chat's model; an unlisted one sees.
-pub(super) fn sight(world: &World) -> Sight {
-    let model = world
-        .get_resource::<Convo>()
+/// The Hub what comes from outside one is attached in: the one under
+/// the pointer, else the one last pressed or typed in.
+fn receiver(world: &World) -> Option<Entity> {
+    crate::hub::under_pointer(world)
+        .or_else(|| crate::hub::active(world))
+}
+
+/// The draft attachments go with: a Hub's, for one of its chats.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub(super) struct Owner {
+    pub hub: Entity,
+    pub chat: Entity,
+}
+
+impl Owner {
+    /// The draft of the chat `hub` shows.
+    pub(super) fn of(world: &World, hub: Entity) -> Self {
+        Owner {
+            hub,
+            chat: convo::chat_of(world, hub),
+        }
+    }
+}
+
+/// The [`Sight`] of the model of `hub`'s chat; an unlisted one sees.
+pub(super) fn sight(world: &World, hub: Option<Entity>) -> Sight {
+    let model = hub
+        .and_then(|hub| convo::of(world, hub))
         .and_then(|convo| world.get::<Account>(convo.agent))
         .map(|account| account.model.as_str())
         .unwrap_or_default();
@@ -147,8 +175,8 @@ pub(super) fn sight(world: &World) -> Sight {
 /// An image on its way to the next line.
 struct Attachment {
     key: u64,
-    /// The conversation whose draft it is attached to.
-    owner: Entity,
+    /// The draft it is attached to.
+    owner: Owner,
     name: String,
     /// The bytes of its file, once they are read.
     size: Option<u64>,
@@ -170,8 +198,8 @@ enum Progress {
 /// A file or a folder on its way to the next line.
 struct Parcel {
     key: u64,
-    /// The conversation whose draft it is attached to.
-    owner: Entity,
+    /// The draft it is attached to.
+    owner: Owner,
     name: String,
     folder: bool,
     /// Links and the like inside it that are left out.
@@ -209,8 +237,8 @@ enum Dragging {
     Other,
 }
 
-/// What the chats' drafts carry, and a drag over the window.
-#[derive(Resource)]
+/// What the Hubs' drafts carry, and a drag over the window.
+#[derive(Resource, Default)]
 pub struct Attached {
     list: Vec<Attachment>,
     parcels: Vec<Parcel>,
@@ -218,49 +246,51 @@ pub struct Attached {
     /// The parcels let go before they were kept.
     forget: Vec<u64>,
     dragging: Dragging,
-    /// The conversation whose draft is in the field.
-    shown: Entity,
-}
-
-impl Default for Attached {
-    fn default() -> Self {
-        Attached {
-            list: Vec::new(),
-            parcels: Vec::new(),
-            next: 0,
-            forget: Vec::new(),
-            dragging: Dragging::default(),
-            shown: Entity::PLACEHOLDER,
-        }
-    }
 }
 
 /// The byte of the line's text each attachment sits at, by its key.
 pub(crate) type Places = HashMap<u64, u64>;
 
 impl Attached {
-    /// Makes the draft of `chat` the one in the field.
-    pub(super) fn show(&mut self, chat: Entity) {
-        self.shown = chat;
+    fn images_of(
+        &self,
+        owner: Owner,
+    ) -> impl Iterator<Item = &Attachment> {
+        self.list.iter().filter(move |image| image.owner == owner)
     }
 
-    fn images(&self) -> impl Iterator<Item = &Attachment> {
-        self.list.iter().filter(|image| image.owner == self.shown)
-    }
-
-    fn shown_parcels(&self) -> impl Iterator<Item = &Parcel> {
+    fn parcels_of(
+        &self,
+        owner: Owner,
+    ) -> impl Iterator<Item = &Parcel> {
         self.parcels
             .iter()
-            .filter(|parcel| parcel.owner == self.shown)
+            .filter(move |parcel| parcel.owner == owner)
     }
 
-    /// The line's images and files at `places`, once all are kept.
+    /// The Hub whose draft the attachment `key` is in.
+    fn hub_of(&self, key: u64) -> Option<Entity> {
+        let image = self.list.iter().find(|image| image.key == key);
+        let owner = match image {
+            Some(image) => image.owner,
+            None => {
+                self.parcels
+                    .iter()
+                    .find(|parcel| parcel.key == key)?
+                    .owner
+            }
+        };
+        Some(owner.hub)
+    }
+
+    /// `owner`'s images and files at `places`, once all are kept.
     pub(super) fn ready(
         &self,
+        owner: Owner,
         places: &Places,
     ) -> Option<(Vec<AttachedImage>, Vec<AttachedFile>)> {
         let images = self
-            .images()
+            .images_of(owner)
             .map(|attachment| match &attachment.progress {
                 Progress::Kept(image) => Some(AttachedImage {
                     at: places.get(&attachment.key).copied(),
@@ -270,7 +300,7 @@ impl Attached {
             })
             .collect::<Option<Vec<_>>>()?;
         let mut files = Vec::new();
-        for parcel in self.shown_parcels() {
+        for parcel in self.parcels_of(owner) {
             match &parcel.load {
                 Load::Kept(kept) => {
                     files.extend(kept.iter().map(|file| {
@@ -287,13 +317,10 @@ impl Attached {
     }
 
     /// The files and bytes attached to `owner`'s draft.
-    fn counted(&self, owner: Entity) -> (usize, u64) {
-        let parcels = self
-            .parcels
-            .iter()
-            .filter(|parcel| parcel.owner == owner);
-        parcels.fold((0, 0), |(files, bytes), parcel| {
-            match &parcel.load {
+    fn counted(&self, owner: Owner) -> (usize, u64) {
+        self.parcels_of(owner).fold(
+            (0, 0),
+            |(files, bytes), parcel| match &parcel.load {
                 Load::Held {
                     files: more,
                     bytes: size,
@@ -311,17 +338,21 @@ impl Attached {
                             .sum::<u64>(),
                 ),
                 Load::Reading | Load::Rejected(_) => (files, bytes),
-            }
-        })
+            },
+        )
     }
 
-    /// Lets the images and files of the shown draft go.
-    pub(super) fn clear(&mut self) {
-        let shown = self.shown;
-        self.list.retain(|image| image.owner != shown);
+    /// Lets the images and files of `owner`'s draft go.
+    pub(super) fn clear(&mut self, owner: Owner) {
+        self.release(|of| of == owner);
+    }
+
+    /// Lets the images and files of the drafts `mine` picks go.
+    fn release(&mut self, mine: impl Fn(Owner) -> bool) {
+        self.list.retain(|image| !mine(image.owner));
         let mut unfinished = Vec::new();
         self.parcels.retain(|parcel| {
-            let mine = parcel.owner == shown;
+            let mine = mine(parcel.owner);
             if mine && !matches!(parcel.load, Load::Kept(_)) {
                 unfinished.push(parcel.key);
             }
@@ -330,16 +361,17 @@ impl Attached {
         self.forget.extend(unfinished);
     }
 
-    /// Attaches `images` and `files` again and gives `words` with
-    /// their chips.
+    /// Attaches `images` and `files` to `owner`'s draft again and
+    /// gives `words` with their chips.
     pub(super) fn give_back(
         &mut self,
+        owner: Owner,
         images: &[AttachedImage],
         files: &[AttachedFile],
         words: &str,
         shift: usize,
     ) -> Vec<Piece> {
-        self.clear();
+        self.clear(owner);
         let place = |at: Option<u64>| {
             at.and_then(|at| usize::try_from(at).ok())
                 .and_then(|at| at.checked_sub(shift))
@@ -354,7 +386,7 @@ impl Attached {
             self.next += 1;
             self.list.push(Attachment {
                 key,
-                owner: self.shown,
+                owner,
                 name: "Image".into(),
                 size: None,
                 shown: Some(Source::Image(image.id.clone())),
@@ -370,7 +402,7 @@ impl Attached {
             chips.push((place(kept[0].at), key));
             self.parcels.push(Parcel {
                 key,
-                owner: self.shown,
+                owner,
                 name,
                 folder: kept
                     .iter()
@@ -468,12 +500,12 @@ impl Attached {
         })
     }
 
-    /// Notes the field's chips and lets go of those taken out.
-    fn follow(&mut self, seen: &HashSet<u64>) {
-        let shown = self.shown;
+    /// Notes the chips of `owner`'s field and lets go of those taken
+    /// out.
+    fn follow(&mut self, owner: Owner, seen: &HashSet<u64>) {
         let mut gone = Vec::new();
         self.list.retain_mut(|image| {
-            if image.owner != shown {
+            if image.owner != owner {
                 return true;
             }
             let here = seen.contains(&image.key);
@@ -481,7 +513,7 @@ impl Attached {
             here || !image.placed
         });
         self.parcels.retain_mut(|parcel| {
-            if parcel.owner != shown {
+            if parcel.owner != owner {
                 return true;
             }
             let here = seen.contains(&parcel.key);
@@ -495,13 +527,18 @@ impl Attached {
         self.forget.extend(gone);
     }
 
-    /// Whether the chips the field holds differ from those noted.
-    fn is_out_of_step(&self, seen: &HashSet<u64>) -> bool {
+    /// Whether the chips `owner`'s field holds differ from those
+    /// noted.
+    fn is_out_of_step(
+        &self,
+        owner: Owner,
+        seen: &HashSet<u64>,
+    ) -> bool {
         let noted = self
-            .images()
+            .images_of(owner)
             .map(|image| (image.key, image.placed))
             .chain(
-                self.shown_parcels()
+                self.parcels_of(owner)
                     .map(|parcel| (parcel.key, parcel.placed)),
             );
         noted
@@ -516,8 +553,13 @@ pub(super) fn is_attachment(atom: &Atom) -> bool {
     atom.key().parse::<u64>().is_ok()
 }
 
-/// Keeps what is attached in step with the chips among `pieces`.
-pub(super) fn reconcile(world: &mut World, pieces: &[Piece]) {
+/// Keeps what is attached in `hub` in step with the chips among
+/// `pieces`.
+pub(super) fn reconcile(
+    world: &mut World,
+    hub: Entity,
+    pieces: &[Piece],
+) {
     let seen = pieces
         .iter()
         .filter_map(|piece| match piece {
@@ -525,9 +567,19 @@ pub(super) fn reconcile(world: &mut World, pieces: &[Piece]) {
             Piece::Text(_) => None,
         })
         .collect::<HashSet<_>>();
-    if world.resource::<Attached>().is_out_of_step(&seen) {
-        world.resource_mut::<Attached>().follow(&seen);
+    let owner = Owner::of(world, hub);
+    if world.resource::<Attached>().is_out_of_step(owner, &seen) {
+        world.resource_mut::<Attached>().follow(owner, &seen);
     }
+}
+
+/// Lets go of what the drafts of a Hub that is gone carry.
+fn hub_gone(
+    gone: On<Remove<crate::hub::Hub>>,
+    mut attached: ResMut<Attached>,
+) {
+    let hub = gone.entity;
+    attached.release(|owner| owner.hub == hub);
 }
 
 /// Takes the attachment `key` and its chip off the line.
@@ -556,13 +608,19 @@ fn chip_atom(key: u64, name: &str) -> Atom {
     })
 }
 
-/// Puts the chip of the attachment `key` at the caret.
-fn put_chip(world: &mut World, key: u64) {
+/// Puts the chip of the attachment `key` at the caret of `hub`'s
+/// field, or at the end of the draft of its chat while no field is
+/// shown, so the chip and the attachment stay together.
+fn put_chip(world: &mut World, hub: Entity, key: u64) {
     let name = world.resource::<Attached>().name_of(key);
-    let mut fields =
-        world.query_filtered::<&mut RichField, With<ChatField>>();
-    if let Some(mut field) = fields.iter_mut(world).next() {
+    let put = super::field::with_field(world, hub, |mut field| {
         field.insert_atom(chip_atom(key, &name));
+    });
+    if put.is_none() {
+        let chat = convo::chat_of(world, hub);
+        let mut draft = super::field::draft_of(world, hub, chat);
+        draft.push(Piece::Atom(chip_atom(key, &name)));
+        super::field::give_draft(world, hub, chat, draft);
     }
 }
 
@@ -611,10 +669,15 @@ fn read(path: &std::path::Path) -> Result<Vec<u8>, String> {
     std::fs::read(path).map_err(|error| error.to_string())
 }
 
-/// Attaches `incoming` to the next line.
-pub(super) fn attach(world: &mut World, incoming: Vec<Incoming>) {
-    let sight = sight(world);
-    world.resource_mut::<Draft>().notice.clear();
+/// Attaches `incoming` to the next line in `hub`.
+pub(super) fn attach(
+    world: &mut World,
+    hub: Entity,
+    incoming: Vec<Incoming>,
+) {
+    let sight = sight(world, Some(hub));
+    let owner = Owner::of(world, hub);
+    super::tell(world, Some(hub), "");
     for item in incoming {
         let image = match &item {
             Incoming::File(path) => {
@@ -624,22 +687,30 @@ pub(super) fn attach(world: &mut World, incoming: Vec<Incoming>) {
         };
         if !image {
             if let Incoming::File(path) = item {
-                parcel(world, path);
+                parcel(world, hub, path);
             }
             continue;
         }
         let Sight::Sees(most) = sight else {
-            world.resource_mut::<Draft>().notice =
-                "This model cannot see images.".into();
+            super::tell(
+                world,
+                Some(hub),
+                "This model cannot see images.",
+            );
             continue;
         };
-        if world.resource::<Attached>().images().count() >= most {
-            world.resource_mut::<Draft>().notice =
-                format!("A line takes at most {most} images.");
+        if world.resource::<Attached>().images_of(owner).count()
+            >= most
+        {
+            super::tell(
+                world,
+                Some(hub),
+                &format!("A line takes at most {most} images."),
+            );
             continue;
         }
         let mut attached = world.resource_mut::<Attached>();
-        let (key, owner) = (attached.next, attached.shown);
+        let key = attached.next;
         attached.next += 1;
         match item {
             Incoming::File(path) => {
@@ -652,7 +723,7 @@ pub(super) fn attach(world: &mut World, incoming: Vec<Incoming>) {
                     progress: Progress::Sending,
                     placed: false,
                 });
-                put_chip(world, key);
+                put_chip(world, hub, key);
                 // The small picture is read from the file as it is.
                 want(world, &Source::File(path.clone()));
                 let tx = world.resource::<Reads>().tx.clone();
@@ -680,7 +751,7 @@ pub(super) fn attach(world: &mut World, incoming: Vec<Incoming>) {
                     progress,
                     placed: false,
                 });
-                put_chip(world, key);
+                put_chip(world, hub, key);
                 if sends {
                     world.trigger(Upload { key, bytes });
                 }
@@ -696,12 +767,14 @@ fn file_name(path: &std::path::Path) -> String {
         .to_owned()
 }
 
-/// Attaches the file or folder at `path`, which the client counts.
-fn parcel(world: &mut World, path: PathBuf) {
+/// Attaches the file or folder at `path` in `hub`, which the client
+/// counts.
+fn parcel(world: &mut World, hub: Entity, path: PathBuf) {
     let name = file_name(&path);
     let folder = path.is_dir();
+    let owner = Owner::of(world, hub);
     let mut attached = world.resource_mut::<Attached>();
-    let (key, owner) = (attached.next, attached.shown);
+    let key = attached.next;
     attached.next += 1;
     attached.parcels.push(Parcel {
         key,
@@ -712,7 +785,7 @@ fn parcel(world: &mut World, path: PathBuf) {
         load: Load::Reading,
         placed: false,
     });
-    put_chip(world, key);
+    put_chip(world, hub, key);
     world.trigger(Gather {
         key,
         paths: vec![path],
@@ -851,21 +924,51 @@ fn rejected(
     }
 }
 
+/// One request of a Hub to the dialog or the clipboard, for the chat
+/// it showed, which answers it alone. It is the request's asker, and
+/// goes with its Hub.
+#[derive(Component)]
+struct Asking {
+    hub: Entity,
+    chat: Entity,
+}
+
+/// A request of `hub` for files, for the chat it shows: the asker to
+/// send.
+fn ask(world: &mut World, hub: Entity) -> Entity {
+    let chat = convo::chat_of(world, hub);
+    world.spawn((Asking { hub, chat }, ChildOf(hub))).id()
+}
+
+/// The Hub the request `asker` was made in, when it still shows the
+/// chat it was made for. The request is answered either way.
+fn asking(world: &mut World, asker: Entity) -> Option<Entity> {
+    let &Asking { hub, chat } = world.get::<Asking>(asker)?;
+    world.despawn(asker);
+    (convo::chat_of(world, hub) == chat).then_some(hub)
+}
+
+/// A request to the dialog, which says nothing when it is closed
+/// with nothing chosen, or refused while another is open.
+#[derive(Component)]
+struct ToDialog;
+
 /// Attaches the files and folders the dialog gave the chat.
-fn chosen(
-    chosen: On<Chosen>,
-    convo: Res<Convo>,
-    mut commands: Commands,
-) {
-    if chosen.asker != convo.chat {
-        return;
-    }
-    let paths = chosen.paths.clone();
+fn chosen(chosen: On<Chosen>, mut commands: Commands) {
+    let (asker, paths) = (chosen.asker, chosen.paths.clone());
     commands.queue(move |world: &mut World| {
-        attach(
-            world,
-            paths.into_iter().map(Incoming::File).collect(),
-        );
+        if let Some(hub) = asking(world, asker) {
+            let incoming = paths.into_iter().map(Incoming::File);
+            attach(world, hub, incoming.collect());
+        }
+        // One dialog is open at a time: any other request to it was
+        // closed or refused, and is never answered.
+        let mut unanswered =
+            world.query_filtered::<Entity, With<ToDialog>>();
+        let unanswered = unanswered.iter(world).collect::<Vec<_>>();
+        for request in unanswered {
+            world.despawn(request);
+        }
     });
 }
 
@@ -873,8 +976,7 @@ fn chosen(
 fn paste(
     key: On<FocusedInput<KeyboardInput>>,
     keys: Res<ButtonInput<KeyCode>>,
-    convo: Res<Convo>,
-    fields: Query<(), With<ChatField>>,
+    fields: Query<&ChatField>,
     mut commands: Commands,
 ) {
     let held = match cfg!(target_os = "macos") {
@@ -884,27 +986,33 @@ fn paste(
     if !key.input.state.is_pressed()
         || key.input.key_code != KeyCode::KeyV
         || !keys.any_pressed(held)
-        || !fields.contains(key.focused_entity)
     {
         return;
     }
-    commands.trigger(Paste { asker: convo.chat });
+    let Ok(&ChatField(hub)) = fields.get(key.focused_entity) else {
+        return;
+    };
+    commands.queue(move |world: &mut World| {
+        let asker = ask(world, hub);
+        world.trigger(Paste { asker });
+    });
 }
 
-/// Attaches what the clipboard held.
-fn pasted(
-    pasted: On<Pasted>,
-    convo: Res<Convo>,
-    mut commands: Commands,
-) {
-    if pasted.asker != convo.chat {
-        return;
-    }
+/// Attaches what the clipboard held, and ends the request, held
+/// nothing or not.
+fn pasted(pasted: On<Pasted>, mut commands: Commands) {
     let files = pasted.files.iter().cloned().map(Incoming::File);
     let pictures =
         pasted.pictures.iter().cloned().map(Incoming::Picture);
     let incoming = files.chain(pictures).collect::<Vec<_>>();
-    commands.queue(move |world: &mut World| attach(world, incoming));
+    let asker = pasted.asker;
+    commands.queue(move |world: &mut World| {
+        if let Some(hub) = asking(world, asker)
+            && !incoming.is_empty()
+        {
+            attach(world, hub, incoming);
+        }
+    });
 }
 
 /// Follows the drag of files and folders over the window.
@@ -939,8 +1047,11 @@ fn dropped(
         .map(|dropped| Incoming::File(dropped.path.clone()))
         .collect::<Vec<_>>();
     if !incoming.is_empty() {
-        commands
-            .queue(move |world: &mut World| attach(world, incoming));
+        commands.queue(move |world: &mut World| {
+            if let Some(hub) = receiver(world) {
+                attach(world, hub, incoming);
+            }
+        });
     }
 }
 
@@ -1264,15 +1375,12 @@ fn chip(
 /// The chip of the attachment `key` in the composer.
 fn composer_chip(key: u64) -> AnyView {
     let seen = derived(move |world: &World| {
-        world
-            .resource::<Attached>()
-            .face(key)
-            .map(|face| (face, sight(world)))
+        world.resource::<Attached>().face(key).map(|face| {
+            let hub = world.resource::<Attached>().hub_of(key);
+            (face, sight(world, hub))
+        })
     })
-    .when(either(
-        either(moved::<Attached>(), moved::<Shelf>()),
-        either(agents_moved(), moved::<Convo>()),
-    ));
+    .when(every_frame());
     keyed(seen, move |seen| match seen {
         None => bare().boxed(),
         Some((face, sight)) => {
@@ -1384,11 +1492,13 @@ pub(super) fn after_words(
     .tagged(Wraps)
 }
 
-/// A row over the field for each file held back by the cap.
-pub(super) fn holds() -> impl View {
-    let held = resource::<Attached, _>(|attached| {
-        attached
-            .shown_parcels()
+/// A row over `hub`'s field for each file held back by the cap.
+pub(super) fn holds(hub: Entity) -> impl View {
+    let held = derived(move |world: &World| {
+        let owner = Owner::of(world, hub);
+        world
+            .resource::<Attached>()
+            .parcels_of(owner)
             .filter_map(|parcel| match parcel.load {
                 Load::Held { files, bytes } => {
                     Some((parcel.key, over(files, bytes)))
@@ -1396,7 +1506,8 @@ pub(super) fn holds() -> impl View {
                 _ => None,
             })
             .collect::<Vec<_>>()
-    });
+    })
+    .when(either(moved::<Attached>(), every_frame()));
     keyed(held, |held| {
         let rows = held
             .iter()
@@ -1423,31 +1534,41 @@ pub(super) fn holds() -> impl View {
     .within(bare())
 }
 
-/// Opens the dialog `what` is chosen in, for the open chat.
-pub(crate) fn choose(world: &mut World, what: What) {
-    let asker = world.resource::<Convo>().chat;
+/// Opens the dialog `what` is chosen in, for `hub`'s chat.
+pub(crate) fn choose(world: &mut World, hub: Entity, what: What) {
+    crate::hub::activate(world, hub);
+    let asker = ask(world, hub);
+    world.entity_mut(asker).insert(ToDialog);
     world.trigger(Choose { asker, what });
 }
 
-pub(crate) fn sees_images(world: &World) -> bool {
-    matches!(sight(world), Sight::Sees(_))
+pub(crate) fn sees_images(world: &World, hub: Entity) -> bool {
+    matches!(sight(world, Some(hub)), Sight::Sees(_))
 }
 
-/// A control that opens the dialog `what` is chosen in.
-fn chooser(which: Glyph, tip: &'static str, what: What) -> AnyView {
-    super::tool_button(which, tip, move |world| choose(world, what))
+/// A control that opens the dialog `what` is chosen in for `hub`.
+fn chooser(
+    hub: Entity,
+    which: Glyph,
+    tip: &'static str,
+    what: What,
+) -> AnyView {
+    super::tool_button(which, tip, move |world| {
+        choose(world, hub, what);
+    })
 }
 
-/// The composer's buttons that open the attach dialogs.
-pub(crate) fn control() -> impl View {
-    let sees = derived(|world: &World| sight(world)).when(either(
-        either(agents_moved(), moved::<Shelf>()),
-        moved::<Convo>(),
-    ));
-    let images = keyed(sees, |sight| match sight {
-        Sight::Sees(_) => {
-            chooser(Glyph::Picture, "Attach images", What::Images)
-        }
+/// The buttons of `hub`'s composer that open the attach dialogs.
+pub(crate) fn control(hub: Entity) -> impl View {
+    let sees = derived(move |world: &World| sight(world, Some(hub)))
+        .when(every_frame());
+    let images = keyed(sees, move |sight| match sight {
+        Sight::Sees(_) => chooser(
+            hub,
+            Glyph::Picture,
+            "Attach images",
+            What::Images,
+        ),
         Sight::Blind => with_cx(|cx| {
             let side = cx.theme().space.row;
             column((glyph(Glyph::Picture, ICON).tone(Tone::Faint),))
@@ -1463,27 +1584,31 @@ pub(crate) fn control() -> impl View {
     with_cx(move |cx| {
         row((
             images,
-            chooser(Glyph::Notes, "Attach files", What::Files),
-            chooser(Glyph::Folder, "Attach a folder", What::Folders),
+            chooser(hub, Glyph::Notes, "Attach files", What::Files),
+            chooser(
+                hub,
+                Glyph::Folder,
+                "Attach a folder",
+                What::Folders,
+            ),
         ))
         .gap(super::TOOL_GAP * cx.theme().space.gap)
         .align(AlignItems::Center)
     })
 }
 
-/// The indicator shown while files are dragged over the window.
-pub(super) fn indicator() -> impl View {
-    let drag = derived(|world: &World| {
+/// The indicator shown in `hub` while files are dragged over the
+/// window, if they would drop there.
+pub(super) fn indicator(hub: Entity) -> impl View {
+    let drag = derived(move |world: &World| {
         let dragging = world
             .get_resource::<Attached>()
             .map_or(Dragging::Nothing, |attached| attached.dragging);
-        (dragging != Dragging::Nothing)
-            .then(|| (dragging, sight(world)))
+        (dragging != Dragging::Nothing
+            && receiver(world) == Some(hub))
+        .then(|| (dragging, sight(world, Some(hub))))
     })
-    .when(either(
-        either(moved::<Attached>(), moved::<Shelf>()),
-        either(agents_moved(), moved::<Convo>()),
-    ));
+    .when(every_frame());
     keyed(drag, |drag| match drag {
         None => bare().boxed(),
         Some((dragging, sight)) => {
@@ -1516,6 +1641,11 @@ pub(super) fn indicator() -> impl View {
 mod tests {
     use super::*;
 
+    const OWNER: Owner = Owner {
+        hub: Entity::PLACEHOLDER,
+        chat: Entity::PLACEHOLDER,
+    };
+
     #[test]
     fn a_rewound_line_gives_its_chips_back_at_their_places() {
         let mut attached = Attached::default();
@@ -1526,6 +1656,7 @@ mod tests {
             id: image,
         };
         let pieces = attached.give_back(
+            OWNER,
             std::slice::from_ref(&placed),
             &[],
             "abcdef",
@@ -1541,12 +1672,12 @@ mod tests {
         assert_eq!(chip.text(), "Image");
         let key = chip.key().parse::<u64>().unwrap();
         assert_eq!(
-            attached.ready(&Places::from([(key, 13)])),
+            attached.ready(OWNER, &Places::from([(key, 13)])),
             Some((vec![placed], Vec::new()))
         );
-        attached.give_back(&[], &[], "", 0);
+        attached.give_back(OWNER, &[], &[], "", 0);
         assert_eq!(
-            attached.ready(&Places::new()),
+            attached.ready(OWNER, &Places::new()),
             Some((Vec::new(), Vec::new()))
         );
     }
@@ -1555,16 +1686,22 @@ mod tests {
     fn a_chip_taken_out_of_the_field_lets_its_image_go_once_seen() {
         let mut attached = Attached::default();
         let image = ImageId::try_from("b".repeat(64)).unwrap();
-        attached.give_back(&[AttachedImage::last(image)], &[], "", 0);
+        attached.give_back(
+            OWNER,
+            &[AttachedImage::last(image)],
+            &[],
+            "",
+            0,
+        );
         let key = attached.list[0].key;
         // Until its chip is seen in the field, it is kept.
         let nothing = HashSet::new();
-        assert!(!attached.is_out_of_step(&nothing));
+        assert!(!attached.is_out_of_step(OWNER, &nothing));
         let seen = HashSet::from([key]);
-        assert!(attached.is_out_of_step(&seen));
-        attached.follow(&seen);
-        assert!(attached.is_out_of_step(&nothing));
-        attached.follow(&nothing);
+        assert!(attached.is_out_of_step(OWNER, &seen));
+        attached.follow(OWNER, &seen);
+        assert!(attached.is_out_of_step(OWNER, &nothing));
+        attached.follow(OWNER, &nothing);
         assert!(attached.list.is_empty());
     }
 }

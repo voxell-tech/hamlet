@@ -24,9 +24,9 @@ use bevy::picking::events::{
 };
 use bevy::picking::pointer::PointerButton;
 use bevy::text::{
-    DEFAULT_FONT_DATA, EditableText, Font, FontCx, FontSize,
-    FontSource, FontVariationTag, FontVariations, FontWeight,
-    GenericFontFamily, LetterSpacing, TextFont,
+    EditableText, Font, FontCx, FontSize, FontSource,
+    FontVariationTag, FontVariations, FontWeight, GenericFontFamily,
+    LetterSpacing, TextFont,
 };
 use bevy::ui::widget::Text;
 use bevy::ui::{
@@ -44,7 +44,7 @@ use bevy_fynix::tokens::{TextTokens, Tone};
 use bevy_fynix::views::RichField;
 use hamlet_assets::File;
 use hamlet_assets::fonts::{
-    FRAUNCES, INTER, JETBRAINS_MONO, TWEMOJI,
+    FRAUNCES, INTER, JETBRAINS_MONO, TWEMOJI, ZERO_X_PROTO,
 };
 
 use crate::theme::Themed;
@@ -115,7 +115,7 @@ pub fn install_fonts(world: &mut World) {
         Font::from_bytes(INTER.bytes.to_vec()),
     );
     let mono =
-        fonts.add(Font::from_bytes(DEFAULT_FONT_DATA.to_vec()));
+        fonts.add(Font::from_bytes(ZERO_X_PROTO.bytes.to_vec()));
     let display =
         fonts.add(Font::from_bytes(FRAUNCES.bytes.to_vec()));
     let terminal =

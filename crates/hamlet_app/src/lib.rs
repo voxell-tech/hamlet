@@ -95,7 +95,6 @@ impl Plugin for UiPlugin {
     fn build(&self, app: &mut App) {
         app.add_plugins((
             panel_sets,
-            convo::plugin,
             FynixPlugin::<HamletTheme>::default(),
             DockPlugin::<HamletTheme>::default(),
             (

@@ -5,10 +5,11 @@ use bevy::ecs::world::World;
 use bevy::ui::{AlignItems, Overflow, UiRect, percent, px};
 use bevy_fynix::tokens::Tone;
 use bevy_fynix::views::{
-    BehaviorExt, FrameProps, button, column, frame, ghost, label, row,
+    BehaviorExt, FrameProps, button, column, frame, label, row,
 };
 use bevy_fynix::{
-    ScopedExt, ViewExt, derived, every_frame, keyed, resource,
+    ScopedExt, ViewExt, component, derived, every_frame, keyed,
+    resource,
 };
 use hamlet_client::chats::{Entry, Transcript};
 use hamlet_client::realm::{self as agents, Left};
@@ -21,19 +22,18 @@ use hamlet_ui::widgets::ellipsis::one_line;
 use hamlet_ui::widgets::icons::{Glyph, glyph};
 use hamlet_ui::{AnyView, Cx, View, with_cx};
 
-use super::entry::{OpenTools, toggle};
+use super::entry::{Fold, OpenTools, toggle};
 use super::lines::{
     INSET, MergedLines, close_merged, merged_earlier, merged_rows,
     open_merged,
 };
-use crate::convo::Convo;
 use crate::markdown;
 
 /// How far in the line under a chevron is, and what it holds past it.
 const GUIDE: f32 = 4.0;
 
-/// The card of the entry `id` of `chat`.
-pub(super) fn view(chat: Entity, id: String) -> AnyView {
+/// The card of the entry `id` of `chat`, in `hub`.
+pub(super) fn view(hub: Entity, chat: Entity, id: String) -> AnyView {
     AnyView::new(move |cx: &mut Cx| {
         let entry = cx
             .world
@@ -41,15 +41,17 @@ pub(super) fn view(chat: Entity, id: String) -> AnyView {
             .and_then(|t| t.item(&id))
             .map(|item| item.entry.clone());
         match entry {
-            Some(Entry::Summary(_)) => cx.build(summary(chat, id)),
+            Some(Entry::Summary(_)) => {
+                cx.build(summary(hub, chat, id))
+            }
             Some(Entry::Merged { from, name }) => {
-                cx.build(merged(chat, id, from, name))
+                cx.build(merged(hub, chat, id, from, name))
             }
             Some(Entry::Event(happened)) => cx.build(event(happened)),
             Some(Entry::Tool {
                 call: protocol::ToolCall::Worker { task },
                 ..
-            }) => cx.build(worker(chat, id, task)),
+            }) => cx.build(worker(hub, chat, id, task)),
             _ => cx.build(frame()),
         }
     })
@@ -88,7 +90,7 @@ fn held(inside: impl View + 'static) -> impl View {
     })
 }
 
-fn is_open(world: &World, key: &(Entity, String)) -> bool {
+fn is_open(world: &World, key: &Fold) -> bool {
     world
         .get_resource::<OpenTools>()
         .is_some_and(|open| open.0.contains(key))
@@ -136,8 +138,8 @@ fn line_words(mark: Glyph, words: String) -> impl View {
 }
 
 /// "Context compacted", which opens to the summary.
-fn summary(chat: Entity, id: String) -> impl View {
-    let key = (chat, id.clone());
+fn summary(hub: Entity, chat: Entity, id: String) -> impl View {
+    let key = (hub, chat, id.clone());
     let (turned, pressed) = (key.clone(), key.clone());
     let head = button(
         row((
@@ -202,7 +204,7 @@ fn changed(from: &str, to: &str) -> String {
 
 /// Who made a change: "you" for the chief at this window.
 fn who(world: &World, by: &str) -> String {
-    match by == world.resource::<Convo>().name {
+    match by == crate::convo::chief_name(world) {
         true => "you".to_string(),
         false => by.to_string(),
     }
@@ -278,8 +280,9 @@ fn event(event: protocol::ItemEvent) -> impl View {
     })
 }
 
-/// A merged agent's line, which opens to its conversation.
+/// A merged agent's line, which opens to its conversation in `hub`.
 fn merged(
+    hub: Entity,
     chat: Entity,
     id: String,
     from: Option<protocol::AgentId>,
@@ -288,7 +291,7 @@ fn merged(
     let (turned, pressed, shown) = (id.clone(), id.clone(), id);
     let open = move |world: &World, id: &str| {
         world
-            .get_resource::<MergedLines>()
+            .get::<MergedLines>(hub)
             .is_some_and(|merged| merged.is_open(chat, id))
     };
     let words = format!("Merged {name} into this chat");
@@ -304,14 +307,15 @@ fn merged(
     .rules(text_button)
     .on_activate(move |world| {
         if open(world, &pressed) {
-            close_merged(world);
+            close_merged(world, hub);
             return;
         }
         // Opened only from the chat itself.
-        let own = world.resource::<Convo>().chat == chat;
+        let own = crate::convo::chat_of(world, hub) == chat;
         if let (Some(from), true) = (from, own) {
             open_merged(
                 world,
+                hub,
                 chat,
                 pressed.clone(),
                 from,
@@ -322,9 +326,11 @@ fn merged(
     let body = keyed(
         derived(move |world: &World| open(world, &shown))
             .when(every_frame()),
-        |open| match open {
-            true => held(column((earlier(), merged_rows())).gap(6.0))
-                .boxed(),
+        move |open| match open {
+            true => held(
+                column((earlier(hub), merged_rows(hub))).gap(6.0),
+            )
+            .boxed(),
             false => frame().boxed(),
         },
     )
@@ -332,12 +338,17 @@ fn merged(
     between(head.boxed(), body.boxed())
 }
 
-/// The way to earlier rows of the merged conversation.
-fn earlier() -> impl View {
+/// The way to earlier rows of the merged conversation open in `hub`.
+fn earlier(hub: Entity) -> impl View {
     keyed(
-        resource::<MergedLines, _>(MergedLines::has_earlier),
-        |earlier| match earlier {
-            true => command("Earlier", merged_earlier).boxed(),
+        component::<MergedLines, _>(hub, |merged| {
+            merged.is_some_and(MergedLines::has_earlier)
+        }),
+        move |earlier| match earlier {
+            true => command("Earlier", move |world| {
+                merged_earlier(world, hub);
+            })
+            .boxed(),
             false => frame().boxed(),
         },
     )
@@ -399,8 +410,13 @@ fn work(
 }
 
 /// A worker started on `task`, which opens to the task and answer.
-fn worker(chat: Entity, id: String, task: String) -> impl View {
-    let key = (chat, id.clone());
+fn worker(
+    hub: Entity,
+    chat: Entity,
+    id: String,
+    task: String,
+) -> impl View {
+    let key = (hub, chat, id.clone());
     let (turned, pressed) = (key.clone(), key.clone());
     let stands = {
         let id = id.clone();
@@ -448,12 +464,12 @@ fn worker(chat: Entity, id: String, task: String) -> impl View {
         .width(percent(100.0))
         .min_width(px(0.0))
         .padding(UiRect::axes(px(INSET), px(2.0)))
-        .rules(ghost)
+        .rules(text_button)
         .on_activate(move |world| toggle(world, pressed.clone()))
     });
     let body = keyed(
         derived(move |world: &World| {
-            is_open(world, &key).then(|| work(world, chat, &key.1))
+            is_open(world, &key).then(|| work(world, chat, &key.2))
         })
         .when(every_frame()),
         move |stands| {
@@ -479,7 +495,9 @@ fn worker(chat: Entity, id: String, task: String) -> impl View {
                             if let Some(agent) =
                                 agents::agent(world, worker)
                             {
-                                crate::convo::talk_to(world, agent);
+                                crate::hub::talk_in(
+                                    world, hub, agent,
+                                );
                             }
                         },
                     ),))

@@ -51,28 +51,47 @@ pub(crate) fn panel_app() -> App {
         app.world_mut(),
         protocol::ServerMessage::State(hamlet_testing::realm::state()),
     );
-    app.add_plugins((
-        crate::convo::plugin,
-        crate::roll::plugin,
-        crate::asking::plugin,
-    ));
+    app.add_plugins((crate::roll::plugin, crate::asking::plugin));
     app.init_resource::<DockTree>()
         .init_resource::<crate::select::Selecting>()
         .add_message::<ThemeChanged>();
+    hub(&mut app);
     app
+}
+
+/// The first Hub in a dock of its own, following the world's
+/// selection.
+pub(crate) fn hub(app: &mut App) -> Entity {
+    let world = app.world_mut();
+    world.get_resource_or_init::<DockTree>().set_root_leaf(
+        bevy_fynix::dock::DockLeaf::new(
+            "side",
+            bevy_fynix::dock::DockAreaStyle::TabBar,
+        )
+        .with_windows(vec![crate::dock::HUB.into()]),
+    );
+    crate::hub::first(world)
+}
+
+/// The chat of the first Hub.
+pub(crate) fn convo(app: &App) -> &crate::convo::Convo {
+    let hub = crate::hub::following(app.world()).unwrap();
+    app.world().get::<crate::convo::Convo>(hub).unwrap()
 }
 
 pub(crate) fn seat_hand(app: &mut App) -> Entity {
     let hand =
         hamlet_client::realm::named(app.world_mut(), "hand").unwrap();
-    crate::convo::seat(app.world_mut(), hand);
+    let hub = hub(app);
+    crate::convo::seat(app.world_mut(), hub, hand);
     hand
 }
 
 pub(crate) fn seat_ada(app: &mut App) -> Entity {
     let ada = hamlet_client::realm::named(app.world_mut(), "agent#2")
         .unwrap();
-    crate::convo::seat(app.world_mut(), ada);
+    let hub = hub(app);
+    crate::convo::seat(app.world_mut(), hub, ada);
     ada
 }
 
@@ -146,6 +165,7 @@ pub(crate) fn keeping(app: &mut App, folder: PathBuf) {
         .init_resource::<crate::screens::terminal::Shown>()
         .init_resource::<crate::screens::terminal::Folds>()
         .init_resource::<crate::screens::terminal::Pins>()
+        .init_resource::<crate::hub::CollapsedRails>()
         .add_systems(Update, desk::capture)
         .add_plugins(crate::remember::plugin);
 }

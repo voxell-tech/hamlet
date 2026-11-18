@@ -53,8 +53,7 @@ use self::list::Listed;
 pub use self::pick::{open_menu, pin, show_menu};
 pub use self::screen::Canvas;
 use crate::dock::{
-    PanelAppExt, flush_panel, number, on_a_desk, open_another,
-    show_tab,
+    PanelAppExt, flush_panel, number, on_a_desk, show_tab,
 };
 
 /// The size a terminal opens at before its canvas has been measured.
@@ -700,13 +699,6 @@ fn actions(panel: &PanelId, hidden: bool) -> Vec<AnyView> {
         }
     }));
     presses
-}
-
-/// Opens another Terminal panel beside `beside`.
-pub(crate) fn new_panel(world: &mut World, beside: &PanelId) {
-    if let Some(id) = open_another(world, PANEL, &beside.0) {
-        world.resource_mut::<Handing>().0 = Some(PanelId(id));
-    }
 }
 
 /// A small press of `which`, named by a tooltip.

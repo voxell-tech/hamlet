@@ -1,6 +1,7 @@
 //! The page of an agent that is gone, and of the library.
 
 use bevy::ecs::entity::Entity;
+use bevy::ecs::world::World;
 use bevy::ui::AlignItems;
 use bevy_fynix::views::{BehaviorExt, FrameProps, column, row};
 use hamlet_client::realm::{LivesIn, MergedInto, Purpose};
@@ -15,12 +16,12 @@ use hamlet_ui::widgets::platform::Wraps;
 use hamlet_ui::{View, built, with_cx};
 
 use super::thread::dim;
-use super::{Showing, show};
+use super::{Showing, look_at, show};
 use crate::lists;
 use crate::world_menu::{self, Action};
 
-/// The page of an agent that is gone, with the way back.
-pub(super) fn ruin(agent: Entity) -> impl View {
+/// The page in `hub` of an agent that is gone, with the way back.
+pub(super) fn ruin(hub: Entity, agent: Entity) -> impl View {
     built(move |cx| {
         let named = |agent: Entity| {
             hamlet_client::realm::shown_of(cx.world, agent)
@@ -47,10 +48,12 @@ pub(super) fn ruin(agent: Entity) -> impl View {
         }
         let crumb =
             breadcrumb(trail, name.clone(), move |world, at| {
-                let place = hamlet.filter(|_| at == 1);
-                select(world, place.map(Thing::Common));
-                if place.is_none() {
-                    show(world, Showing::Realm);
+                match hamlet.filter(|_| at == 1) {
+                    Some(hamlet) => {
+                        show(world, hub, Showing::Hamlet(hamlet));
+                        look_at(world, hub, Thing::Common(hamlet));
+                    }
+                    None => to_realm(world, hub),
                 }
             });
         let section = cx.theme().space.section;
@@ -91,17 +94,23 @@ pub(super) fn ruin(agent: Entity) -> impl View {
     })
 }
 
-/// The library's page.
-pub(super) fn library() -> impl View {
-    with_cx(|cx| {
+/// Turns `hub` to the realm's page, choosing nothing in the world
+/// when it follows the selection.
+fn to_realm(world: &mut World, hub: Entity) {
+    if super::is_following(world, hub) {
+        select(world, None);
+    }
+    show(world, hub, Showing::Realm);
+}
+
+/// The library's page in `hub`.
+pub(super) fn library(hub: Entity) -> impl View {
+    with_cx(move |cx| {
         column((
             breadcrumb(
                 vec!["Realm".into()],
                 "The library",
-                |world, _| {
-                    select(world, None);
-                    show(world, Showing::Realm);
-                },
+                move |world, _| to_realm(world, hub),
             ),
             // Wraps when the panel is narrow.
             buttons(vec![action(Glyph::Move, "Move", |world| {

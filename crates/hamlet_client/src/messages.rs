@@ -243,6 +243,8 @@ pub struct JobFinished {
 pub struct Rewound {
     #[event_target]
     pub chat: Entity,
+    /// The rewind this answers.
+    pub request: RequestId,
     pub text: String,
     pub images: Vec<protocol::AttachedImage>,
     pub files: Vec<protocol::AttachedFile>,
@@ -326,6 +328,7 @@ pub(crate) fn receive(
         {
             world.trigger(Rewound {
                 chat,
+                request: to.to_owned(),
                 text: reply.text.clone(),
                 images: reply.images.clone(),
                 files: reply.files.clone(),

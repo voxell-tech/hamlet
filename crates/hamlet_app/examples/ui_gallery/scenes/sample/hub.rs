@@ -1,5 +1,6 @@
 //! The memory, character and prompt gallery scenes.
 
+use bevy::ecs::entity::Entity;
 use bevy::ecs::world::World;
 use hamlet_app::Convo;
 use hamlet_app::hub::{self, Showing};
@@ -15,9 +16,11 @@ pub(super) fn setup(world: &mut World, scene: Scene) {
     ) {
         keep_notes(world);
         // The thread with its details open beside it.
-        world.insert_resource(Showing::Thread);
-        world.insert_resource(hub::Sheet::Details);
-        let agent = world.resource::<Convo>().agent;
+        let first = hub::first(world);
+        world
+            .entity_mut(first)
+            .insert((Showing::Thread, hub::Sheet::Details));
+        let agent = agent(world);
         world.entity_mut(agent).insert((
             hamlet_client::realm::Allowance(5.0),
             hamlet_client::realm::ToolsOff(vec!["bash".into()]),
@@ -43,10 +46,10 @@ pub(super) fn setup(world: &mut World, scene: Scene) {
             | Scene::Field
             | Scene::Code
     ) {
-        world.insert_resource(Showing::Thread);
+        show(world, Showing::Thread);
     }
     if scene == Scene::HubMenu {
-        let agent = world.resource::<Convo>().agent;
+        let agent = agent(world);
         hamlet_app::world_menu::open_agent(
             world,
             agent,
@@ -65,19 +68,22 @@ pub(super) fn setup(world: &mut World, scene: Scene) {
             protocol::ProfileId(2),
         )
         .expect("the received profile");
-        world.insert_resource(Showing::Profile(profile));
         // As the hub turns its rail to a profile's page.
-        world.insert_resource(hub::RailTab::City);
+        let first = hub::first(world);
+        world
+            .entity_mut(first)
+            .insert((Showing::Profile(profile), hub::RailTab::City));
         keep_notes(world);
     }
     if scene == Scene::Prompt {
-        let agent = world.resource::<Convo>().agent;
+        let agent = agent(world);
         let section =
             |name: &str, text: &str| protocol::PromptSection {
                 name: name.into(),
                 text: text.into(),
             };
-        world.insert_resource(hub::Briefing {
+        let first = hub::first(world);
+        world.entity_mut(first).insert(hub::Briefing {
             agent: Some(agent),
             prompt: vec![
                 section(
@@ -107,8 +113,22 @@ pub(super) fn setup(world: &mut World, scene: Scene) {
             ],
             ..Default::default()
         });
-        world.insert_resource(Showing::Prompt);
+        show(world, Showing::Prompt);
     }
+}
+
+/// The agent the first Hub's chat is with.
+pub(super) fn agent(world: &mut World) -> Entity {
+    let first = hub::first(world);
+    world
+        .get::<Convo>(first)
+        .map_or(Entity::PLACEHOLDER, |convo| convo.agent)
+}
+
+/// Turns the first Hub to `showing`.
+pub(super) fn show(world: &mut World, showing: Showing) {
+    let first = hub::first(world);
+    world.entity_mut(first).insert(showing);
 }
 
 /// A catalogue of a few models over several providers.
@@ -205,7 +225,7 @@ pub(super) fn catalogue() -> Vec<protocol::Listed> {
 fn offer_models(world: &mut World) {
     world.resource_mut::<hamlet_app::models::Shelf>().models =
         catalogue();
-    let agent = world.resource::<Convo>().agent;
+    let agent = agent(world);
     if let Some(mut account) =
         world.get_mut::<hamlet_client::realm::Account>(agent)
     {

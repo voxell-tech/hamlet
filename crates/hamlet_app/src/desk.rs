@@ -102,6 +102,10 @@ pub(crate) enum Part {
 pub(crate) struct Desk {
     pub(crate) name: String,
     pub(crate) dock: Vec<Part>,
+    /// The panel id of its Hub that follows the selection; its first
+    /// Hub when none is chosen.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub(crate) following: Option<String>,
 }
 
 /// The chief's desks, and the one shown. There is always at least
@@ -128,6 +132,7 @@ impl Desks {
             list: vec![Desk {
                 name: FIRST.into(),
                 dock,
+                following: None,
             }],
         }
     }
@@ -139,6 +144,22 @@ impl Desks {
     /// The index of the desk shown.
     pub(crate) fn shown(&self) -> usize {
         self.shown
+    }
+
+    /// The panel id of the shown desk's Hub that follows the
+    /// selection, if one is chosen.
+    pub(crate) fn following(&self) -> Option<&str> {
+        self.list.get(self.shown)?.following.as_deref()
+    }
+
+    /// Makes the shown desk's Hub `id` the one that follows the
+    /// selection.
+    pub(crate) fn follow(&mut self, id: &str) {
+        if let Some(desk) = self.list.get_mut(self.shown)
+            && desk.following.as_deref() != Some(id)
+        {
+            desk.following = Some(id.to_owned());
+        }
     }
 
     /// Shows the desk at `at`, if there is one.
@@ -169,6 +190,7 @@ impl Desks {
         self.list.push(Desk {
             name,
             dock: Vec::new(),
+            following: None,
         });
     }
 
@@ -249,6 +271,18 @@ impl Desks {
         self.list.iter().enumerate().any(|(at, desk)| {
             Some(at) != besides
                 && desk.name.eq_ignore_ascii_case(name)
+        })
+    }
+
+    /// Whether a desk lays out the panel `id`, as it was last shown.
+    pub(crate) fn holds(&self, id: &str) -> bool {
+        self.list.iter().any(|desk| {
+            desk.dock.iter().any(|part| match part {
+                Part::Tabs { tabs, .. } => {
+                    tabs.iter().any(|t| t == id)
+                }
+                Part::Split { .. } => false,
+            })
         })
     }
 

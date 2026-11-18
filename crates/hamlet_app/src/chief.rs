@@ -7,10 +7,9 @@ use bevy::color::{Alpha, Color};
 use bevy::ecs::change_detection::{DetectChanges, Ref};
 use bevy::ecs::entity::Entity;
 use bevy::ecs::name::Name;
-use bevy::ecs::observer::On;
 use bevy::ecs::query::With;
 use bevy::ecs::schedule::IntoScheduleConfigs;
-use bevy::ecs::schedule::common_conditions::resource_changed;
+use bevy::ecs::schedule::common_conditions::resource_exists_and_changed;
 use bevy::ecs::system::{Query, Res, ResMut};
 use bevy::ecs::world::World;
 use bevy::math::Vec3;
@@ -27,8 +26,7 @@ use bevy_fynix::{
     ScopedExt, ViewExt, component, derived, keyed, style,
 };
 use hamlet_client::ViewFolder;
-use hamlet_client::messages::ChiefMessage;
-use hamlet_client::realm::Identity;
+use hamlet_client::realm::Chief as SignedIn;
 use hamlet_realm::chief::{
     self, Beside, Chief, Cloak, Hat, Holds, Kept, Light, Look, Player,
 };
@@ -49,13 +47,13 @@ use hamlet_ui::{AnyView, Cx, View, with_cx};
 use self::portrait::{Portrait, Sitter};
 use crate::PanelSystems;
 use crate::convo::Convo;
+use crate::hub::Following;
 use crate::roll::{agents_moved, either, moved};
 
 mod portrait;
 
 pub(crate) fn plugin(app: &mut App) {
     app.add_plugins(portrait::plugin)
-        .add_observer(spoke)
         .add_systems(Startup, enter)
         // The chief enters under the name just followed, and is there
         // before the mascot is sent, which moves only when the chat
@@ -63,8 +61,7 @@ pub(crate) fn plugin(app: &mut App) {
         .add_systems(
             PreUpdate,
             enter
-                .run_if(resource_changed::<Convo>)
-                .after(crate::convo::chief_name)
+                .run_if(resource_exists_and_changed::<SignedIn>)
                 .before(accompany)
                 .in_set(PanelSystems::Follow),
         )
@@ -74,7 +71,7 @@ pub(crate) fn plugin(app: &mut App) {
 /// Brings the chief this window belongs to into the world, with the
 /// look that was kept for them.
 pub(crate) fn enter(world: &mut World) {
-    let name = world.resource::<Convo>().name.clone();
+    let name = crate::convo::chief_name(world);
     if name.is_empty() {
         return;
     }
@@ -105,7 +102,7 @@ pub(crate) fn carry_home(world: &mut World) {
 /// Selects the place of the chief this window belongs to, and
 /// brings it into view.
 pub(crate) fn go_home(world: &mut World) {
-    let name = world.resource::<Convo>().name.clone();
+    let name = crate::convo::chief_name(world);
     let Some(chief) = chief::named(world, &name) else {
         return;
     };
@@ -130,15 +127,22 @@ fn company(selected: Option<Thing>, agent: Entity) -> Option<Entity> {
     }
 }
 
-/// Sends the mascot to whoever the chat is pointed at, and home when
-/// nobody is selected.
+/// Sends the mascot to whoever the following Hub's chat is pointed
+/// at, and home when nobody is selected.
 pub(crate) fn accompany(
-    convo: Res<Convo>,
+    convo: Query<Ref<Convo>, With<Following>>,
+    me: Option<Res<SignedIn>>,
     selected: Res<Selected>,
     libraries: Query<Entity, With<Library>>,
     mut chiefs: Query<(&Chief, &mut Beside)>,
 ) {
-    if !convo.is_changed() && !selected.is_changed() {
+    let (Some(convo), Some(me)) = (convo.iter().next(), me) else {
+        return;
+    };
+    // A chief who just signed in joins the selection; with nothing
+    // selected, the mascot stays where a message sent it.
+    let arrived = me.is_changed() && selected.0.is_some();
+    if !convo.is_changed() && !selected.is_changed() && !arrived {
         return;
     }
     // To the library when that is what was chosen.
@@ -147,28 +151,27 @@ pub(crate) fn accompany(
         chosen => company(chosen, convo.agent),
     };
     for (chief, mut beside) in &mut chiefs {
-        if chief.name == convo.name && beside.0 != with {
+        if chief.name == me.0 && beside.0 != with {
             beside.0 = with;
         }
     }
 }
 
-/// A message sent with nobody selected brings the mascot from home
-/// to whoever it was sent to.
-pub(crate) fn spoke(
-    message: On<ChiefMessage>,
-    convo: Res<Convo>,
-    identities: Query<&Identity>,
-    mut chiefs: Query<(&Chief, &mut Beside)>,
-) {
-    if identities.get(convo.agent).map(|identity| identity.0)
-        != Ok(message.to)
-    {
+/// A message sent from the following Hub's field with nobody selected
+/// brings the mascot from home to `agent`, whom it was sent to.
+pub(crate) fn spoke(world: &mut World, hub: Entity, agent: Entity) {
+    if !crate::hub::is_following(world, hub) {
         return;
     }
-    for (chief, mut beside) in &mut chiefs {
-        if chief.name == convo.name && beside.0.is_none() {
-            beside.0 = Some(convo.agent);
+    let Some(me) =
+        world.get_resource::<SignedIn>().map(|me| me.0.clone())
+    else {
+        return;
+    };
+    let mut chiefs = world.query::<(&Chief, &mut Beside)>();
+    for (chief, mut beside) in chiefs.iter_mut(world) {
+        if chief.name == me && beside.0.is_none() {
+            beside.0 = Some(agent);
         }
     }
 }
@@ -496,7 +499,7 @@ mod tests {
             .insert_resource(ViewFolder(view.to_path_buf()))
             .init_resource::<Kept>()
             .init_resource::<Stood>()
-            .add_plugins((crate::convo::plugin, plugin));
+            .add_plugins(plugin);
         app.update();
         assert!(chief::named(app.world_mut(), "").is_none());
         let mut state = hamlet_testing::realm::state();
@@ -523,13 +526,11 @@ mod tests {
         library.write_at(&Stood::file(&dir.join("view"))).unwrap();
         let make = || {
             let mut app = App::new();
-            let agent = app.world_mut().spawn(Name::new("ada")).id();
-            let chat = app.world_mut().spawn_empty().id();
             app.insert_resource(ViewFolder(dir.join("view")))
                 .insert_resource(
                     Kept::read(&dir.join("view")).unwrap(),
                 )
-                .insert_resource(Convo::of(chat, agent, "wren", None))
+                .insert_resource(SignedIn("wren".into()))
                 .init_resource::<Stood>()
                 .add_plugins(plugin);
             app

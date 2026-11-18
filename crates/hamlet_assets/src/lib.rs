@@ -82,6 +82,9 @@ pub mod fonts {
     /// JetBrains Mono (SIL Open Font License), for terminals.
     pub const JETBRAINS_MONO: File =
         file!("fonts/JetBrainsMonoVariable.ttf");
+    /// 0xProto (SIL Open Font License), for code, commands and
+    /// errors in the interface.
+    pub const ZERO_X_PROTO: File = file!("fonts/0xProto-Regular.ttf");
 }
 
 impl File {

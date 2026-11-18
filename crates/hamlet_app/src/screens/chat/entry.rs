@@ -7,7 +7,7 @@ use bevy::ui::{AlignItems, Overflow, UiRect, percent, px};
 use bevy_fynix::tokens::Tone;
 use bevy_fynix::views::{
     BehaviorExt, FrameProps, TooltipExt, button, column, frame,
-    ghost, label, row,
+    label, row,
 };
 use bevy_fynix::{
     ScopedExt, ViewExt, component, derived, every_frame, keyed,
@@ -31,7 +31,6 @@ use hamlet_ui::{AnyView, Cx, View, with_cx};
 
 use super::change::{counted, diff};
 use super::lines::INSET;
-use crate::convo::Convo;
 use crate::markdown;
 
 fn clip(s: &str, max: usize) -> String {
@@ -107,12 +106,16 @@ pub(super) fn status(chat: Entity, id: String) -> impl View {
     )
 }
 
-/// The tool calls and cards opened, by their conversation and entry.
+/// What opens in a Hub's chat: the Hub, the conversation, and the
+/// entry or part it is known by.
+pub type Fold = (Entity, Entity, String);
+
+/// The tool calls and cards opened, by their `Fold`.
 #[derive(Resource, Default)]
-pub struct OpenTools(pub Vec<(Entity, String)>);
+pub struct OpenTools(pub Vec<Fold>);
 
 /// Opens the tool call or card `key`, or shuts it while it is open.
-pub(super) fn toggle(world: &mut World, key: (Entity, String)) {
+pub(super) fn toggle(world: &mut World, key: Fold) {
     let open = &mut world.resource_mut::<OpenTools>().0;
     match open.iter().position(|one| *one == key) {
         Some(at) => {
@@ -332,8 +335,8 @@ fn step_line(step: &Step) -> AnyView {
 }
 
 /// A tool call as one quiet line that opens to all of it.
-fn step_row(chat: Entity, id: String) -> impl View {
-    let key = (chat, id.clone());
+fn step_row(hub: Entity, chat: Entity, id: String) -> impl View {
+    let key = (hub, chat, id.clone());
     let is_open = {
         let key = key.clone();
         move |open: &OpenTools| open.0.contains(&key)
@@ -354,7 +357,7 @@ fn step_row(chat: Entity, id: String) -> impl View {
         .width(percent(100.0))
         .min_width(px(0.0))
         .padding(UiRect::axes(px(INSET), px(2.0)))
-        .rules(ghost)
+        .rules(text_button)
         .on_activate(move |world| toggle(world, key.clone()));
     let read = {
         let id = id.clone();
@@ -425,7 +428,7 @@ fn step_row(chat: Entity, id: String) -> impl View {
                     ..
                 }) = entry
                 {
-                    parts.push(diff(chat, id.clone(), change));
+                    parts.push(diff(hub, chat, id.clone(), change));
                 }
                 let theme = cx.theme();
                 cx.build(
@@ -486,7 +489,7 @@ fn is_thinking(transcript: &Transcript, id: &str) -> bool {
 }
 
 /// The model's thinking: its last words, then how long it took.
-fn reasoning_row(chat: Entity, id: String) -> impl View {
+fn reasoning_row(hub: Entity, chat: Entity, id: String) -> impl View {
     let read_id = id.clone();
     let stands = component::<Transcript, _>(chat, move |t| {
         t.map(|t| (is_thinking(t, &read_id), thought(t, &read_id)))
@@ -517,7 +520,7 @@ fn reasoning_row(chat: Entity, id: String) -> impl View {
                 .padding(UiRect::axes(px(INSET), px(2.0)))
                 .boxed()
             }
-            false => thought_row(chat, id, *took).boxed(),
+            false => thought_row(hub, chat, id, *took).boxed(),
         }
     })
     .within(column(()).width(percent(100.0)).min_width(px(0.0)))
@@ -525,11 +528,12 @@ fn reasoning_row(chat: Entity, id: String) -> impl View {
 
 /// "Thought for 6s", which opens to what the model thought.
 fn thought_row(
+    hub: Entity,
     chat: Entity,
     id: String,
     took: Option<u64>,
 ) -> impl View {
-    let key = (chat, id.clone());
+    let key = (hub, chat, id.clone());
     let (turned, pressed) = (key.clone(), key.clone());
     let words = match took.filter(|ms| *ms >= 1000) {
         Some(ms) => {
@@ -605,18 +609,20 @@ fn failed(why: String) -> impl View {
     })
 }
 
-pub(crate) fn entry_view(chat: Entity, id: String) -> AnyView {
+pub(crate) fn entry_view(
+    hub: Entity,
+    chat: Entity,
+    id: String,
+) -> AnyView {
     AnyView::new(move |cx: &mut Cx| {
         let kind = cx
             .world
             .get::<Transcript>(chat)
             .and_then(|t| t.item(&id).map(|item| &item.entry))
             .cloned();
-        let convo = cx.world.resource::<Convo>();
+        let me = crate::convo::chief_name(cx.world);
         let chief = match &kind {
-            Some(Entry::Chief { name, .. })
-                if *name == convo.name =>
-            {
+            Some(Entry::Chief { name, .. }) if *name == me => {
                 "You".to_string()
             }
             Some(Entry::Chief { name, .. }) => name.clone(),
@@ -650,13 +656,15 @@ pub(crate) fn entry_view(chat: Entity, id: String) -> AnyView {
             .padding(UiRect::axes(px(INSET), px(2.0)))
             .boxed(),
             Some(Entry::Reasoning(_)) => {
-                reasoning_row(chat, id).boxed()
+                reasoning_row(hub, chat, id).boxed()
             }
             Some(Entry::Tool {
                 call: ToolCall::Worker { .. },
                 ..
-            }) => super::card::view(chat, id),
-            Some(Entry::Tool { .. }) => step_row(chat, id).boxed(),
+            }) => super::card::view(hub, chat, id),
+            Some(Entry::Tool { .. }) => {
+                step_row(hub, chat, id).boxed()
+            }
             Some(Entry::Error(_)) => column((
                 label(text(|e| match e {
                     Entry::Error(s) => format!(

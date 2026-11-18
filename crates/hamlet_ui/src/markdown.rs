@@ -14,6 +14,7 @@ use std::path::PathBuf;
 
 use bevy::app::App;
 use bevy::ecs::component::Component;
+use bevy::ecs::entity::Entity;
 use bevy::ecs::resource::Resource;
 use bevy::ecs::world::World;
 use bevy_fynix::views::Atom;
@@ -128,12 +129,15 @@ pub enum Anchor {
 #[derive(Component)]
 pub struct Area;
 
-/// The file a path written in a document names, if any. The app
+/// The file a path written in a document names, if any, from the
+/// node the document is drawn under or the chat it is of, if any,
+/// and the path. The app
 /// moves `generation` on when the answers may have changed, and the
 /// links are found again.
 #[derive(Resource, Clone, Copy)]
 pub struct PathLinks {
-    pub resolve: fn(&mut World, &str) -> Option<PathBuf>,
+    pub resolve:
+        fn(&mut World, Option<Entity>, &str) -> Option<PathBuf>,
     pub generation: u64,
 }
 

@@ -351,9 +351,13 @@ A theme's light or dark palette. Lamplight is Hamlet's dark variant.
 _Avoid_: flavor
 
 **Hub**:
-The panel of the realm's agents: a rail of them by what they are doing,
+A panel of the realm's agents: a rail of them by what they are doing,
 and beside it a thread, a profile, a hamlet, the library or the page of
-every hamlet and the Hand.
+every hamlet and the Hand. A desk can hold several, each with a chat
+of its own. One Hub of each
+desk follows the world's selection, and it is where toasts, menus and
+links open what they name; the others change only by their own rail
+and pages. A collapsed rail is a strip of its rows' icons.
 _Avoid_: inspector, sidebar
 
 **Toast**:

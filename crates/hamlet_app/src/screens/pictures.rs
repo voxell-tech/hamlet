@@ -10,6 +10,7 @@ use std::time::SystemTime;
 use bevy::app::{App, Update};
 use bevy::asset::{Assets, Handle, RenderAssetUsages};
 use bevy::ecs::component::Component;
+use bevy::ecs::entity::Entity;
 use bevy::ecs::lifecycle::{Add, Remove};
 use bevy::ecs::observer::On;
 use bevy::ecs::resource::Resource;
@@ -333,9 +334,11 @@ fn is_picture_file(file: &Path) -> bool {
         })
 }
 
-/// The place the picture written as `target` comes from, if any.
+/// The place the picture written as `target`, drawn `under` a node,
+/// comes from, if any.
 pub(crate) fn find(
     world: &mut World,
+    under: Option<Entity>,
     target: &Target,
 ) -> Option<Source> {
     match target {
@@ -343,7 +346,7 @@ pub(crate) fn find(
             host(address).map(|_| Source::Web(address.clone()))
         }
         Target::Path(path) => {
-            let file = seek(world, path)
+            let file = seek(world, under, path)
                 .filter(|file| is_picture_file(file))?;
             let bounds = bounds(&settings(world));
             world
@@ -565,7 +568,7 @@ mod tests {
                 true => Target::Web(written.to_string()),
                 false => Target::Path(written.to_string()),
             };
-            find(&mut world, &target)
+            find(&mut world, None, &target)
         };
         let pear = Source::File(
             folder.canonicalize().unwrap().join("pear.PNG"),

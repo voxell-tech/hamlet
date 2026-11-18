@@ -29,18 +29,21 @@ use hamlet_realm::{North, chief};
 use hamlet_vfx::wind::WindChoice;
 use serde::{Deserialize, Serialize};
 
-use crate::PanelSystems;
 use crate::appearance::{Appearance, Pick, Zoom};
-use crate::convo::Convo;
 use crate::desk::{self, Desks, Part};
 use crate::roll::Roll;
 use crate::screens::terminal;
 use crate::world_menu::{Favorites, LastSide};
 use crate::world_view::{NorthTarget, TimeOfDay};
+use crate::{PanelSystems, hub};
 
 /// Seconds a change waits before it is written, so that dragging a
 /// divider writes once.
 const SETTLE: f32 = 0.8;
+
+/// The seconds before a view that could not be written is tried
+/// again.
+const RETRY: f32 = 5.0;
 
 /// The time a remembered selection is looked for before it is given
 /// up: an agent removed since never comes. Longer than the first
@@ -151,6 +154,9 @@ pub struct View {
     /// The agents whose bash logs the Terminal panels list.
     #[serde(default)]
     terminal_pins: BTreeSet<String>,
+    /// The Hub panels whose rails are collapsed.
+    #[serde(default)]
+    collapsed_rails: BTreeSet<String>,
 }
 
 /// The view kept in the window's folder, as read at launch; none
@@ -276,7 +282,7 @@ impl Chosen {
                 hamlet_client::realm::hamlet(world, name)?,
             ),
             Chosen::Chief | Chosen::Hearth => {
-                let name = world.resource::<Convo>().name.clone();
+                let name = crate::convo::chief_name(world);
                 let chief = chief::named(world, &name)?;
                 match self {
                     Chosen::Chief => Thing::Chief(chief),
@@ -353,6 +359,7 @@ pub fn restore(world: &mut World) {
     world.insert_resource(terminal::Restoring(view.terminals));
     world.insert_resource(terminal::Folds(view.terminal_folds));
     world.insert_resource(terminal::Pins(view.terminal_pins));
+    world.insert_resource(hub::CollapsedRails(view.collapsed_rails));
 }
 
 /// Puts back the kept appearance and zoom.
@@ -405,12 +412,13 @@ pub fn keep(
         Res<terminal::Folds>,
         Res<terminal::Pins>,
     ),
-    (fog, far, wind, appearance, zoom): (
+    (fog, far, wind, appearance, zoom, rails): (
         Res<VolumetricFogSettings>,
         Res<DistanceFogSettings>,
         Res<WindChoice>,
         Res<Appearance>,
         Res<Zoom>,
+        Res<hub::CollapsedRails>,
     ),
     mut written: Local<Option<View>>,
     mut due: Local<Option<f32>>,
@@ -433,6 +441,7 @@ pub fn keep(
         || terminals.is_changed()
         || folds.is_changed()
         || pins.is_changed()
+        || rails.is_changed()
     {
         *due = Some(now + SETTLE);
     }
@@ -464,16 +473,25 @@ pub fn keep(
         terminals: terminals.0.clone(),
         terminal_folds: folds.0.clone(),
         terminal_pins: pins.0.clone(),
+        collapsed_rails: rails.0.clone(),
     };
     if written.as_ref() == Some(&view) {
         return;
     }
-    if let Ok(text) = toml::to_string(&view)
-        && std::fs::create_dir_all(&folder.0).is_ok()
-    {
-        let _ = std::fs::write(file(&folder.0), text);
+    let saved = toml::to_string(&view).is_ok_and(|text| {
+        std::fs::create_dir_all(&folder.0).is_ok()
+            && std::fs::write(file(&folder.0), text).is_ok()
+    });
+    match saved {
+        true => *written = Some(view),
+        // Tried again a while later, as the folder may come back. A
+        // failed write may have cut the file short, so what it held
+        // is no longer known.
+        false => {
+            *written = None;
+            *due = Some(now + RETRY);
+        }
     }
-    *written = Some(view);
 }
 
 #[cfg(test)]
@@ -530,6 +548,7 @@ mod tests {
                 BTreeSet::from(["home".into(), "agent#3".into()]),
             )]),
             terminal_pins: BTreeSet::from(["agent#2".into()]),
+            collapsed_rails: BTreeSet::from(["hub".into()]),
         }
     }
 

@@ -7,7 +7,7 @@ use bevy::app::{App, PreUpdate};
 use bevy::ecs::entity::Entity;
 use bevy::ecs::message::MessageWriter;
 use bevy::ecs::observer::On;
-use bevy::ecs::query::With;
+use bevy::ecs::query::{Changed, With};
 use bevy::ecs::resource::Resource;
 use bevy::ecs::schedule::common_conditions::resource_changed;
 use bevy::ecs::schedule::{IntoScheduleConfigs, SystemCondition};
@@ -15,6 +15,7 @@ use bevy::ecs::system::{Local, Query, Res, ResMut};
 use bevy::ecs::world::World;
 use bevy::picking::events::{PointerClick, PointerPress};
 use bevy::picking::pointer::PointerButton;
+use hamlet_client::chats::TalksTo;
 use hamlet_client::messages::JobFinished;
 use hamlet_client::realm::{LivesIn, RealmFolder, Works};
 use hamlet_desktop::open;
@@ -42,10 +43,7 @@ pub fn plugin(app: &mut App) {
         .add_systems(
             PreUpdate,
             (
-                turn.run_if(
-                    resource_changed::<Convo>
-                        .or_eager(hamlets_turned),
-                ),
+                turn.run_if(chats_turned.or_eager(hamlets_turned)),
                 roots_moved.run_if(resource_changed::<Roots>),
             )
                 .chain()
@@ -59,13 +57,14 @@ fn roots_moved(mut links: ResMut<PathLinks>) {
     links.generation = links.generation.wrapping_add(1);
 }
 
-/// The local folders used to resolve relative paths in the chat.
+/// The local folders used to resolve relative paths in the Hubs'
+/// chats.
 #[derive(Resource, Default, Clone, PartialEq, Eq, Debug)]
 pub struct Roots {
     folders: Vec<PathBuf>,
-    /// The chat whose agent they are the folders of.
-    of: Option<Entity>,
-    folder: Option<String>,
+    /// The work folders of the hamlets of the Hubs' chat agents, as
+    /// the realm names them.
+    named: Vec<String>,
 }
 
 impl Roots {
@@ -83,42 +82,90 @@ impl Roots {
     }
 }
 
-/// The file each path in the chat names under [`Roots`], once looked
-/// for.
+/// The file each path in a chat names, by the work folder it was
+/// looked for under, else [`Roots`], once looked for; and the realm's
+/// folder, whose files are never linked.
 #[derive(Resource, Default)]
-struct Found(HashMap<String, Option<PathBuf>>, Option<PathBuf>);
+struct Found(
+    HashMap<(Option<String>, String), Option<PathBuf>>,
+    Option<PathBuf>,
+);
 
-/// The local work folder of the selected agent's hamlet.
+/// The work folder of the hamlet of the agent `hub`'s chat is with,
+/// as the realm names it.
+fn work_folder(world: &World, hub: Entity) -> Option<String> {
+    folder_of(world, crate::convo::agent_of(world, hub))
+}
+
+/// The local work folder of `agent`'s hamlet.
+fn folder_of(world: &World, agent: Entity) -> Option<String> {
+    let hamlet = world.get::<LivesIn>(agent)?.0;
+    world.get::<Works>(hamlet)?.folder.clone()
+}
+
+/// The work folder a path drawn `under` is of: a chat's own, or that
+/// of the chat in the Hub holding the node. `None` outside both.
+fn base(world: &World, under: Entity) -> Option<Option<String>> {
+    if let Some(to) = world.get::<TalksTo>(under) {
+        return Some(folder_of(world, to.0));
+    }
+    let hub = crate::hub::holding(world, under)?;
+    Some(work_folder(world, hub))
+}
+
+/// The local work folders of the hamlets of the agents the Hubs'
+/// chats are with, changed only when those folders do, so a chat
+/// that moves to another agent of the same hamlets draws no link
+/// again.
 fn turn(world: &mut World) {
-    let Some(convo) = world.get_resource::<Convo>() else {
-        return;
-    };
-    let chat = convo.chat;
-    let folder = world
-        .get::<LivesIn>(convo.agent)
-        .and_then(|lives| world.get::<Works>(lives.0))
-        .and_then(|works| works.folder.clone());
-    if world.get_resource::<Roots>().is_some_and(|roots| {
-        roots.of == Some(chat) && roots.folder == folder
-    }) {
+    let mut named = world
+        .try_query::<&Convo>()
+        .map(|mut convos| {
+            convos
+                .iter(world)
+                .filter_map(|convo| {
+                    let hamlet = world.get::<LivesIn>(convo.agent)?.0;
+                    world.get::<Works>(hamlet)?.folder.clone()
+                })
+                .collect::<Vec<_>>()
+        })
+        .unwrap_or_default();
+    named.sort();
+    named.dedup();
+    if world
+        .get_resource::<Roots>()
+        .is_some_and(|roots| roots.named == named)
+    {
         return;
     }
     let roots = Roots {
-        of: Some(chat),
-        folder: folder.clone(),
-        ..Roots::new(folder.into_iter().map(PathBuf::from))
+        named: named.clone(),
+        ..Roots::new(named.into_iter().map(PathBuf::from))
     };
     world.insert_resource(roots);
     world.get_resource_or_init::<Found>().0.clear();
 }
 
-/// The file `written` names, looked for once and remembered.
+/// The file `written` names, drawn `under` a node or for a chat,
+/// looked for once and remembered. For a chat, or in a Hub, a
+/// relative path is of that chat's work folder; elsewhere, of any
+/// Hub's.
 pub(crate) fn seek(
     world: &mut World,
+    under: Option<Entity>,
     written: &str,
 ) -> Option<PathBuf> {
     // The chat may be drawn for another agent before `turn` runs.
     turn(world);
+    let base = under.and_then(|node| base(world, node));
+    // A chat with no work folder links no relative path.
+    if base.as_ref().is_some_and(Option::is_none)
+        && !Path::new(written).is_absolute()
+    {
+        return None;
+    }
+    let own = base.flatten();
+    let key = (own.clone(), written.to_string());
     let kept = world
         .get_resource::<RealmFolder>()
         .map(|folder| PathBuf::from(&folder.0))
@@ -130,13 +177,16 @@ pub(crate) fn seek(
     }
     let known = world
         .get_resource::<Found>()
-        .and_then(|found| found.0.get(written));
+        .and_then(|found| found.0.get(&key));
     if let Some(known) = known {
         return known.clone();
     }
     let path = Path::new(written);
     let file = if path.is_absolute() {
         path.canonicalize().ok()
+    } else if let Some(own) = &own {
+        let folders = Roots::new([PathBuf::from(own)]).folders;
+        open::locate(written, &folders)
     } else {
         world
             .get_resource::<Roots>()
@@ -149,7 +199,7 @@ pub(crate) fn seek(
     if found.0.len() >= REMEMBERED {
         found.0.clear();
     }
-    found.0.insert(written.to_string(), file.clone());
+    found.0.insert(key, file.clone());
     file
 }
 
@@ -188,6 +238,11 @@ fn follow(
     }
 }
 
+/// Whether a Hub's chat changed.
+fn chats_turned(convos: Query<(), Changed<Convo>>) -> bool {
+    !convos.is_empty()
+}
+
 fn hamlets_turned(
     roll: Option<Res<Roll>>,
     mut seen: Local<Option<u64>>,
@@ -222,7 +277,7 @@ mod tests {
         app.world_mut()
             .insert_resource(Roots::new([home.to_path_buf()]));
         assert!(
-            seek(app.world_mut(), private.to_str().unwrap())
+            seek(app.world_mut(), None, private.to_str().unwrap())
                 .is_some()
         );
         let mut state =
@@ -236,14 +291,14 @@ mod tests {
             ),
         );
         assert_eq!(
-            seek(app.world_mut(), private.to_str().unwrap()),
+            seek(app.world_mut(), None, private.to_str().unwrap()),
             None
         );
         assert_eq!(
-            seek(app.world_mut(), "houses/home/1/plan.md"),
+            seek(app.world_mut(), None, "houses/home/1/plan.md"),
             None
         );
-        assert!(seek(app.world_mut(), "public.md").is_some());
+        assert!(seek(app.world_mut(), None, "public.md").is_some());
         #[cfg(unix)]
         {
             std::os::unix::fs::symlink(
@@ -252,7 +307,11 @@ mod tests {
             )
             .unwrap();
             assert_eq!(
-                seek(app.world_mut(), "shortcut/home/1/plan.md"),
+                seek(
+                    app.world_mut(),
+                    None,
+                    "shortcut/home/1/plan.md"
+                ),
                 None
             );
         }

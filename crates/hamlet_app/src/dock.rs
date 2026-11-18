@@ -176,14 +176,27 @@ pub fn register_numbered(world: &mut World) {
     }
 }
 
-/// Forgets the numbered panels the dock no longer holds, so the
-/// dock's add menu offers only the first of each.
+/// Forgets the numbered panels the dock no longer holds, and keeps
+/// one of each not in the dock, so the dock's add menu always offers
+/// one more: the first, else a free copy.
 fn prune_numbered(world: &mut World) {
     let firsts = world
         .resource::<Numbered>()
         .0
         .iter()
         .map(|(first, _)| first.clone())
+        .collect::<Vec<_>>();
+    // A spare copy of each numbered panel that is docked, for the
+    // add menu to open.
+    let spares = firsts
+        .iter()
+        .filter(|first| {
+            world
+                .resource::<DockTree>()
+                .find_leaf_with_window(first)
+                .is_some()
+        })
+        .map(|first| free_copy(world, first))
         .collect::<Vec<_>>();
     let gone = {
         let tree = world.resource::<DockTree>();
@@ -195,6 +208,7 @@ fn prune_numbered(world: &mut World) {
                 firsts.iter().any(|first| number(first, id).is_some())
             })
             .filter(|id| tree.find_leaf_with_window(id).is_none())
+            .filter(|id| !spares.iter().any(|spare| spare == id))
             .map(str::to_owned)
             .collect::<Vec<_>>()
     };
@@ -203,6 +217,30 @@ fn prune_numbered(world: &mut World) {
     for id in gone {
         registry.unregister(&id);
     }
+    for spare in spares {
+        let known = world
+            .resource::<DockRegistry<HamletTheme>>()
+            .iter()
+            .any(|(id, _)| id == spare);
+        if !known {
+            register(world, &spare);
+        }
+    }
+}
+
+/// The id of a copy of the numbered panel `first` that neither the
+/// dock nor a desk holds.
+fn free_copy(world: &World, first: &str) -> String {
+    (2u32..)
+        .map(|n| format!("{first}-{n}"))
+        .find(|id| {
+            world
+                .resource::<DockTree>()
+                .find_leaf_with_window(id)
+                .is_none()
+                && !on_a_desk(world, id)
+        })
+        .unwrap_or_default()
 }
 
 /// Registers the numbered panel `id`, unless it is or it is not one.
@@ -228,13 +266,7 @@ pub(crate) fn open_numbered(
     first: &str,
     target: DropTarget,
 ) -> Option<String> {
-    let id = (2u32..).map(|n| format!("{first}-{n}")).find(|id| {
-        world
-            .resource::<DockTree>()
-            .find_leaf_with_window(id)
-            .is_none()
-            && !on_a_desk(world, id)
-    })?;
+    let id = free_copy(world, first);
     register(world, &id);
     let mut tree = world.resource_mut::<DockTree>();
     let placed = match target {
@@ -257,31 +289,6 @@ pub(crate) fn open_numbered(
         return None;
     }
     Some(id)
-}
-
-/// Opens another of the numbered panel `first` beside the panel
-/// `beside`, or beside the first area when it is not in the dock,
-/// and gives its id.
-pub(crate) fn open_another(
-    world: &mut World,
-    first: &str,
-    beside: &str,
-) -> Option<String> {
-    let leaf = {
-        let tree = world.resource::<DockTree>();
-        tree.find_leaf_with_window(beside).or_else(|| {
-            let root = tree.root?;
-            tree.leaves_under(root).first().map(|(leaf, _)| *leaf)
-        })?
-    };
-    open_numbered(
-        world,
-        first,
-        DropTarget::Edge {
-            leaf,
-            edge: Edge::Right,
-        },
-    )
 }
 
 /// A dock panel's contents.
@@ -430,6 +437,18 @@ pub(crate) fn is_stale(
     tabs.into_iter().any(|tab| GONE.contains(&tab.as_str()))
 }
 
+/// Whether the panel `id`'s tab is in front in the desk shown.
+pub(crate) fn is_in_front(tree: &DockTree, id: &str) -> bool {
+    let Some(leaf) = tree.find_leaf_with_window(id) else {
+        return false;
+    };
+    let front = tree.active(leaf);
+    tree.leaf(leaf).is_some_and(|l| {
+        l.tabs()
+            .any(|(window, tab)| window == id && Some(tab) == front)
+    })
+}
+
 /// Brings a panel's tab to the front, or opens it in the first area
 /// when the desk shown does not have it.
 pub(crate) fn show_tab(world: &mut World, id: &str) {
@@ -533,9 +552,10 @@ mod tests {
             known(&app, "terminal-2") && known(&app, "terminal-4")
         );
         // Out of the dock, a panel leaves the add menu; the first
-        // stays.
+        // stays, and the menu offers a copy no desk holds.
         assert!(!known(&app, "terminal-3"));
         assert!(known(&app, "terminal"));
+        assert!(known(&app, "terminal-6"));
     }
 
     #[test]

@@ -5,9 +5,8 @@ use bevy::ecs::component::Component;
 use bevy::ecs::entity::Entity;
 use bevy::ecs::hierarchy::{ChildOf, Children};
 use bevy::ecs::query::{Has, With, Without};
-use bevy::ecs::resource::Resource;
 use bevy::ecs::schedule::IntoScheduleConfigs;
-use bevy::ecs::system::{Commands, Query, Res, ResMut};
+use bevy::ecs::system::{Commands, Query, Res};
 use bevy::ecs::world::World;
 use bevy::ui::{
     AlignItems, ComputedNode, Node, Overflow, UiRect, UiSystems, Val,
@@ -20,7 +19,7 @@ use bevy_fynix::views::{
 };
 use bevy_fynix::{
     ScopedExt, Signal, ViewExt, component, derived, every_frame,
-    keyed, resource, style,
+    keyed, style,
 };
 use hamlet_client::messages::Compact;
 use hamlet_client::realm::{
@@ -29,7 +28,7 @@ use hamlet_client::realm::{
 };
 use hamlet_desktop::choose::What;
 use hamlet_protocol::client as protocol;
-use hamlet_realm::pick::{Thing, select};
+use hamlet_realm::pick::Thing;
 use hamlet_ui::kinds::card;
 use hamlet_ui::styles::{
     Fills, ICON, Looks, Tipped, action, bare, card_name, choice,
@@ -45,7 +44,7 @@ use hamlet_ui::widgets::icons::{Glyph, glyph};
 use hamlet_ui::widgets::tabs::{self, Spread};
 use hamlet_ui::{AnyView, Cx, View, built, with_cx};
 
-use super::{Showing, details, show};
+use super::{Showing, details, look_at, show};
 use crate::convo::Convo;
 use crate::overview::tell;
 use crate::profile_tag::{ProfileTag, learned_mark, learned_words};
@@ -55,27 +54,31 @@ use crate::standing::Standing;
 use crate::world_menu::ChipName;
 use crate::{chat, words, world_menu};
 
-/// The tabs between a thread's chat and its details.
-const SHEETS: [(Sheet, Glyph, &str); 2] = [
-    (Sheet::Chat, Glyph::Talk, "Chat"),
-    (Sheet::Details, Glyph::Sliders, "Details"),
-];
+/// The tabs between the chat and the details of `hub`'s thread.
+fn sheets_of(
+    hub: Entity,
+) -> [((Entity, Sheet), Glyph, &'static str); 2] {
+    [
+        ((hub, Sheet::Chat), Glyph::Talk, "Chat"),
+        ((hub, Sheet::Details), Glyph::Sliders, "Details"),
+    ]
+}
 
 pub(super) fn plugin(app: &mut App) {
     app.add_systems(Update, mark_open_chips)
         .add_systems(PostUpdate, crowd.after(UiSystems::Layout));
 }
 
-/// What the thread's page shows.
-#[derive(Resource, Clone, Copy, Default, PartialEq, Eq, Debug)]
+/// What a Hub's thread page shows.
+#[derive(Component, Clone, Copy, Default, PartialEq, Eq, Debug)]
 pub enum Sheet {
     #[default]
     Chat,
     Details,
 }
 
-/// The system prompt of an agent, as it was last read for the chief.
-#[derive(Resource, Default, PartialEq)]
+/// The system prompt of an agent, as it was last read for a Hub.
+#[derive(Component, Default, PartialEq)]
 pub struct Briefing {
     pub agent: Option<Entity>,
     pub prompt: Vec<protocol::PromptSection>,
@@ -125,18 +128,19 @@ fn called(world: &World, agent: Entity) -> String {
     shown_of(world, agent)
 }
 
-/// The steps above `agent` in the chain of command.
-fn above(world: &World, agent: Entity) -> Vec<AnyView> {
+/// The steps above `agent` in the chain of command, in `hub`.
+fn above(world: &World, hub: Entity, agent: Entity) -> Vec<AnyView> {
     let hamlet = world.get::<LivesIn>(agent).map(|l| l.0);
     let mut parts = vec![
-        crumb("Realm", |world| show(world, Showing::Realm)).boxed(),
+        crumb("Realm", move |world| show(world, hub, Showing::Realm))
+            .boxed(),
         crumb_slash().boxed(),
     ];
     if let Some(hamlet) = hamlet {
         parts.push(
             crumb(name_of(world, hamlet), move |world| {
-                select(world, Some(Thing::Common(hamlet)));
-                show(world, Showing::Hamlet(hamlet));
+                look_at(world, hub, Thing::Common(hamlet));
+                show(world, hub, Showing::Hamlet(hamlet));
             })
             .boxed(),
         );
@@ -162,7 +166,7 @@ fn above(world: &World, agent: Entity) -> Vec<AnyView> {
     for ancestor in parents {
         parts.push(
             crumb(called(world, ancestor), move |world| {
-                crate::convo::talk_to(world, ancestor);
+                super::talk_in(world, hub, ancestor);
             })
             .boxed(),
         );
@@ -171,18 +175,22 @@ fn above(world: &World, agent: Entity) -> Vec<AnyView> {
     parts
 }
 
-/// The path to the thread, then the page `under` it, if any.
-fn path(agent: Entity, under: Option<&'static str>) -> impl View {
+/// The path to `hub`'s thread, then the page `under` it, if any.
+fn path(
+    hub: Entity,
+    agent: Entity,
+    under: Option<&'static str>,
+) -> impl View {
     built(move |cx| {
         let world = &*cx.world;
-        let mut parts = above(world, agent);
+        let mut parts = above(world, hub, agent);
         let name = called(world, agent);
         parts.push(match under {
             None => crate::naming::name_crumb(agent, name),
-            Some(_) => {
-                crumb(name, |world| show(world, Showing::Thread))
-                    .boxed()
-            }
+            Some(_) => crumb(name, move |world| {
+                show(world, hub, Showing::Thread);
+            })
+            .boxed(),
         });
         if under.is_none()
             && let Some(tag) = ProfileTag::of(world, agent)
@@ -285,7 +293,7 @@ fn quick(world: &World, agent: Entity) -> Vec<AnyView> {
     buttons
 }
 
-fn header(agent: Entity) -> impl View {
+fn header(hub: Entity, agent: Entity) -> impl View {
     built(move |cx| {
         // Gone while empty.
         let thing = if cx.world.get::<Kind>(agent).map(|kind| kind.0)
@@ -321,7 +329,7 @@ fn header(agent: Entity) -> impl View {
         cx.build(
             column((
                 row((
-                    path(agent, None)
+                    path(hub, agent, None)
                         .tooltip(move || note(address.clone())),
                     state(agent),
                 ))
@@ -330,10 +338,14 @@ fn header(agent: Entity) -> impl View {
                 .min_width(px(0.0)),
                 row((
                     column((tabs::strip(
-                        &SHEETS,
+                        &sheets_of(hub),
                         Spread::Packed,
-                        |world, sheet| {
-                            *world.resource_mut::<Sheet>() = sheet;
+                        |world, (hub, sheet)| {
+                            if let Some(mut now) =
+                                world.get_mut::<Sheet>(hub)
+                            {
+                                *now = sheet;
+                            }
                         },
                     ),))
                     .grow(1.0)
@@ -522,7 +534,7 @@ const ROUND: f32 = 30.0;
 struct Stopping;
 
 /// Send, or Stop while the agent works.
-fn send_or_stop(agent: Entity) -> impl View {
+fn send_or_stop(hub: Entity, agent: Entity) -> impl View {
     keyed(
         derived(move |world: &World| {
             world.get::<Busy>(agent).is_some()
@@ -550,14 +562,16 @@ fn send_or_stop(agent: Entity) -> impl View {
                     .tip("Stop")
                     .on_activate(move |world| {
                         let request = world_menu::stop(world, agent);
-                        chat::replied(world, request);
+                        chat::replied(world, hub, request);
                     })
                     .boxed()
             } else {
                 round(glyph(Glyph::Send, 16.0).boxed())
                     .variant(Variant::Primary)
                     .tip("Send")
-                    .on_activate(chat::send_typed)
+                    .on_activate(move |world| {
+                        chat::send_typed(world, hub);
+                    })
                     .boxed()
             }
         },
@@ -565,10 +579,14 @@ fn send_or_stop(agent: Entity) -> impl View {
     .within(bare())
 }
 
-/// The button that compacts the agent's conversation.
-fn compact(agent: Entity) -> impl View {
+/// The button that compacts the agent's conversation, its answer
+/// shown in `hub`.
+fn compact(hub: Entity, agent: Entity) -> impl View {
     keyed(
-        derived(chat::without_model).when(every_frame()),
+        derived(move |world: &World| {
+            chat::has_no_model(world, agent)
+        })
+        .when(every_frame()),
         move |&none| {
             if none {
                 return frame().boxed();
@@ -576,7 +594,11 @@ fn compact(agent: Entity) -> impl View {
             chat::tool_button(
                 Glyph::Notes,
                 "Compact now: summarize the earlier messages",
-                move |world| compact_now(world, agent),
+                move |world| {
+                    if let Some(request) = compact_now(world, agent) {
+                        chat::asked_in(world, request, hub);
+                    }
+                },
             )
         },
     )
@@ -584,13 +606,17 @@ fn compact(agent: Entity) -> impl View {
 }
 
 /// Summarizes the earlier part of `agent`'s conversation now.
-pub(crate) fn compact_now(world: &mut World, agent: Entity) {
-    if let Some(to) = id_of(world, agent) {
-        world.trigger(Compact {
-            request: protocol::RequestId::new(),
-            to,
-        });
-    }
+pub(crate) fn compact_now(
+    world: &mut World,
+    agent: Entity,
+) -> Option<protocol::RequestId> {
+    let to = id_of(world, agent)?;
+    let request = protocol::RequestId::new();
+    world.trigger(Compact {
+        request: request.clone(),
+        to,
+    });
+    Some(request)
 }
 
 /// The least width of the model's name before the toolbar folds.
@@ -637,29 +663,33 @@ impl ToolbarAction {
         }
     }
 
-    fn run(self, world: &mut World, agent: Entity) {
+    fn run(self, world: &mut World, hub: Entity, agent: Entity) {
         match self {
             ToolbarAction::Images => {
-                chat::attach::choose(world, What::Images);
+                chat::attach::choose(world, hub, What::Images);
             }
             ToolbarAction::Files => {
-                chat::attach::choose(world, What::Files);
+                chat::attach::choose(world, hub, What::Files);
             }
             ToolbarAction::Folder => {
-                chat::attach::choose(world, What::Folders);
+                chat::attach::choose(world, hub, What::Folders);
             }
-            ToolbarAction::Compact => compact_now(world, agent),
+            ToolbarAction::Compact => {
+                if let Some(request) = compact_now(world, agent) {
+                    chat::asked_in(world, request, hub);
+                }
+            }
         }
     }
 }
 
 /// The "More" button that holds the toolbar's icon buttons.
-fn more(agent: Entity) -> impl View {
+fn more(hub: Entity, agent: Entity) -> impl View {
     keyed(
-        derived(|world: &World| {
+        derived(move |world: &World| {
             (
-                chat::attach::sees_images(world),
-                !chat::without_model(world),
+                chat::attach::sees_images(world, hub),
+                !chat::has_no_model(world, agent),
             )
         })
         .when(every_frame()),
@@ -680,7 +710,7 @@ fn more(agent: Entity) -> impl View {
                 let actions = actions.clone();
                 menu_button("", words.clone(), move |world, at| {
                     if let Some(action) = actions.get(at) {
-                        action.run(world, agent);
+                        action.run(world, hub, agent);
                     }
                 })
                 .icon(Glyph::More.image(ICON))
@@ -781,8 +811,8 @@ fn crowd(
     }
 }
 
-/// The composer's toolbar, under its field.
-fn chips(agent: Entity) -> impl View {
+/// The toolbar of `hub`'s composer, under its field.
+fn chips(hub: Entity, agent: Entity) -> impl View {
     AnyView::new(move |cx: &mut Cx| {
         let gap = chat::TOOL_GAP * cx.theme().space.gap;
         let bar = cx.build(
@@ -798,13 +828,14 @@ fn chips(agent: Entity) -> impl View {
                 })
             }),
             move |&folded| match folded {
-                true => more(agent).boxed(),
-                false => {
-                    row((chat::attach::control(), compact(agent)))
-                        .gap(gap)
-                        .align(AlignItems::Center)
-                        .boxed()
-                }
+                true => more(hub, agent).boxed(),
+                false => row((
+                    chat::attach::control(hub),
+                    compact(hub, agent),
+                ))
+                .gap(gap)
+                .align(AlignItems::Center)
+                .boxed(),
             },
         )
         .within(bare().shrink(0.0));
@@ -815,7 +846,7 @@ fn chips(agent: Entity) -> impl View {
                     row((mode_chip(agent, bar),)).shrink(0.0),
                     frame().grow(1.0),
                     tools,
-                    row((send_or_stop(agent),)).shrink(0.0),
+                    row((send_or_stop(hub, agent),)).shrink(0.0),
                 ))
                 .gap(gap)
                 .align(AlignItems::Center)
@@ -831,7 +862,10 @@ fn chips(agent: Entity) -> impl View {
 /// The chip of the agent's model, or the way to set one up.
 fn model_or_setup(agent: Entity) -> impl View {
     keyed(
-        derived(chat::without_model).when(every_frame()),
+        derived(move |world: &World| {
+            chat::has_no_model(world, agent)
+        })
+        .when(every_frame()),
         move |&none| {
             if !none {
                 return model_chip(agent).boxed();
@@ -857,21 +891,26 @@ fn model_or_setup(agent: Entity) -> impl View {
     .within(bare().shrink(0.0))
 }
 
-/// The chat shown and the agent it is with.
-fn seated() -> Signal<(Entity, Entity)> {
-    resource::<Convo, _>(|convo| (convo.chat, convo.agent))
+/// The chat `hub` shows and the agent it is with.
+fn seated(hub: Entity) -> Signal<(Entity, Entity)> {
+    component::<Convo, _>(hub, |convo| {
+        convo
+            .map_or((Entity::PLACEHOLDER, Entity::PLACEHOLDER), |c| {
+                (c.chat, c.agent)
+            })
+    })
 }
 
-/// The transcript, what waits on the chief, and the composer.
-fn talk() -> AnyView {
-    let bar = keyed(seated(), |&(_, agent)| {
-        chat::message_bar(chips(agent)).boxed()
+/// `hub`'s transcript, what waits on the chief, and the composer.
+fn talk(hub: Entity) -> AnyView {
+    let bar = keyed(seated(hub), move |&(_, agent)| {
+        chat::message_bar(hub, chips(hub, agent)).boxed()
     })
     .within(bare());
     with_cx(move |cx| {
         let space = &cx.theme().space;
         let (gap, widest) = (space.gap, px(space.thread_width));
-        column((chat::transcript(), wait::in_chat(), bar))
+        column((chat::transcript(hub), wait::in_chat(hub), bar))
             .fills_height()
             .gap(gap)
             .width(percent(100.0))
@@ -881,19 +920,23 @@ fn talk() -> AnyView {
     .boxed()
 }
 
-/// The thread of the agent the chat is with.
-pub(super) fn living() -> impl View {
-    let about = keyed(seated(), |&(_, agent)| header(agent).boxed())
-        .within(bare());
+/// `hub`'s thread with the agent the chat is with.
+pub(super) fn living(hub: Entity) -> impl View {
+    let about = keyed(seated(hub), move |&(_, agent)| {
+        header(hub, agent).boxed()
+    })
+    .within(bare());
     let body = keyed(
-        resource::<Sheet, _>(|sheet| *sheet == Sheet::Details),
-        |open| match open {
-            true => keyed(seated(), |&(_, agent)| {
-                details::sheet(agent).boxed()
+        component::<Sheet, _>(hub, |sheet| {
+            sheet == Some(&Sheet::Details)
+        }),
+        move |open| match open {
+            true => keyed(seated(hub), move |&(_, agent)| {
+                details::sheet(hub, agent).boxed()
             })
             .within(filling())
             .boxed(),
-            false => talk(),
+            false => talk(hub),
         },
     )
     .within(filling());
@@ -904,44 +947,53 @@ pub(super) fn living() -> impl View {
     })
 }
 
-/// Reads the chat agent's prompt and turns the page to it.
-pub(crate) fn show_prompt(world: &mut World) {
-    let convo = world.resource::<Convo>();
-    let agent = convo.agent;
-    *world.resource_mut::<Briefing>() = Briefing {
-        agent: Some(agent),
-        ..Briefing::default()
-    };
-    super::papers::prompt(world);
-    show(world, Showing::Prompt);
+/// Reads the prompt of `hub`'s chat agent and turns `hub`'s page to
+/// it.
+pub(crate) fn show_prompt(world: &mut World, hub: Entity) {
+    brief(world, hub);
+    show(world, hub, Showing::Prompt);
 }
 
-/// Leaves the prompt of an agent the chat is no longer with.
+/// Reads the prompt of `hub`'s chat agent for its Prompt page.
+pub(super) fn brief(world: &mut World, hub: Entity) {
+    let agent = crate::convo::agent_of(world, hub);
+    world.entity_mut(hub).insert(Briefing {
+        agent: Some(agent),
+        ..Briefing::default()
+    });
+    super::papers::prompt(world, hub, agent);
+}
+
+/// Leaves the prompt of an agent a Hub's chat is no longer with.
 pub(super) fn leave_prompt(
-    convo: Res<Convo>,
-    briefing: Res<Briefing>,
-    mut showing: ResMut<Showing>,
+    mut hubs: Query<(&Convo, &Briefing, &mut Showing)>,
 ) {
-    if *showing == Showing::Prompt
-        && briefing.agent != Some(convo.agent)
-    {
-        *showing = Showing::Thread;
+    for (convo, briefing, mut showing) in &mut hubs {
+        if *showing == Showing::Prompt
+            && briefing.agent != Some(convo.agent)
+        {
+            *showing = Showing::Thread;
+        }
     }
 }
 
-/// The prompt's page about the agent the chat is with.
-fn aside(body: impl View + 'static) -> impl View {
-    let head =
-        keyed(resource::<Convo, _>(|convo| convo.agent), |agent| {
-            let name = with_cx(|cx| {
-                row((title("Prompt"), frame().grow(1.0), copy()))
+/// The prompt's page in `hub` about the agent its chat is with.
+fn aside(hub: Entity, body: impl View + 'static) -> impl View {
+    let head = keyed(
+        component::<Convo, _>(hub, |convo| {
+            convo.map_or(Entity::PLACEHOLDER, |convo| convo.agent)
+        }),
+        move |agent| {
+            let name = with_cx(move |cx| {
+                row((title("Prompt"), frame().grow(1.0), copy(hub)))
                     .gap(cx.theme().space.gap)
                     .align(AlignItems::Center)
                     .width(percent(100.0))
             });
-            page_head(path(*agent, Some("Prompt")), name).boxed()
-        })
-        .within(bare());
+            page_head(path(hub, *agent, Some("Prompt")), name).boxed()
+        },
+    )
+    .within(bare());
     with_cx(move |cx| {
         column((head, body))
             .fills_height()
@@ -971,16 +1023,24 @@ fn source(name: &str) -> &str {
         .map_or(name, |(_, heading)| heading)
 }
 
-/// Puts the whole prompt on the clipboard.
-fn copy_prompt(world: &mut World) {
-    let text = world.resource::<Briefing>().whole();
+/// Puts the whole prompt `hub` shows on the clipboard.
+fn copy_prompt(world: &mut World, hub: Entity) {
+    let Some(text) = world.get::<Briefing>(hub).map(Briefing::whole)
+    else {
+        return;
+    };
     let Some(mut clipboard) =
         world.get_resource_mut::<bevy::clipboard::Clipboard>()
     else {
         return;
     };
     match clipboard.set_text(text) {
-        Ok(()) => world.resource_mut::<Briefing>().copied = true,
+        Ok(()) => {
+            if let Some(mut briefing) = world.get_mut::<Briefing>(hub)
+            {
+                briefing.copied = true;
+            }
+        }
         Err(e) => {
             bevy::log::warn!("could not copy the prompt: {e:?}");
         }
@@ -1035,33 +1095,38 @@ fn prompt_sections(
     .boxed()
 }
 
-/// The way to copy the prompt, once it is read.
-fn copy() -> impl View {
+/// The way to copy the prompt `hub` shows, once it is read.
+fn copy(hub: Entity) -> impl View {
     keyed(
-        resource::<Briefing, _>(|b| (b.prompt.is_empty(), b.copied)),
-        |(empty, copied)| match (empty, copied) {
-            (true, _) => frame().boxed(),
-            (false, true) => {
-                action(Glyph::Check, "Copied", copy_prompt)
-            }
-            (false, false) => {
-                action(Glyph::Notes, "Copy", copy_prompt)
+        component::<Briefing, _>(hub, |b| {
+            b.map_or((true, false), |b| {
+                (b.prompt.is_empty(), b.copied)
+            })
+        }),
+        move |(empty, copied)| {
+            let copy =
+                move |world: &mut World| copy_prompt(world, hub);
+            match (empty, copied) {
+                (true, _) => frame().boxed(),
+                (false, true) => action(Glyph::Check, "Copied", copy),
+                (false, false) => action(Glyph::Notes, "Copy", copy),
             }
         },
     )
     .within(bare())
 }
 
-/// The whole of the agent's prompt, part by part.
-pub(super) fn prompt_page() -> impl View {
+/// The whole of the agent's prompt, part by part, in `hub`.
+pub(super) fn prompt_page(hub: Entity) -> impl View {
     let shown = keyed(
-        resource::<Briefing, _>(|b| {
-            (b.prompt.clone(), b.failed.clone())
+        component::<Briefing, _>(hub, |b| {
+            b.map(|b| (b.prompt.clone(), b.failed.clone()))
+                .unwrap_or_default()
         }),
         |(prompt, failed)| prompt_sections(prompt, failed.as_deref()),
     )
     .within(bare());
-    aside(scroll_area((shown,)))
+    aside(hub, scroll_area((shown,)))
 }
 
 #[cfg(test)]
@@ -1082,21 +1147,23 @@ mod tests {
         app
     }
 
-    fn ada_app() -> App {
+    fn ada_app() -> (App, Entity) {
         let mut app = hub_app();
         let ada = crate::testing::seat_ada(&mut app);
         app.insert_resource(hamlet_realm::pick::Selected(Some(
             Thing::Agent(ada),
-        )))
-        .insert_resource(Showing::Thread)
-        .insert_resource(Sheet::Details);
+        )));
+        let hub = crate::testing::hub(&mut app);
+        app.world_mut()
+            .entity_mut(hub)
+            .insert((Showing::Thread, Sheet::Details));
         app.update();
         bevy_fynix::mount::<HamletTheme>(
             app.world_mut(),
-            crate::hub::screen(),
+            super::super::screen(hub),
         );
         app.update();
-        app
+        (app, hub)
     }
 
     fn request(app: &App, what: &str) -> serde_json::Value {
@@ -1134,7 +1201,7 @@ mod tests {
         use serde_json::json;
         #[derive(Resource, Default)]
         struct Edits(Vec<Edit>);
-        let mut app = ada_app();
+        let (mut app, hub) = ada_app();
         app.init_resource::<Edits>().add_observer(
             |edit: On<Edit>, mut edits: ResMut<Edits>| {
                 edits.0.push(edit.event().clone());
@@ -1183,6 +1250,7 @@ mod tests {
         // A memory file is removed by sending no text.
         super::super::papers::edit_memory(
             app.world_mut(),
+            hub,
             "farm/pears.md".into(),
         );
         let read = request(&app, "papers");
@@ -1211,6 +1279,7 @@ mod tests {
         assert_eq!(sent["text"], "Ripe pears");
         super::super::papers::remove_memory(
             app.world_mut(),
+            hub,
             "farm/pears.md".into(),
         );
         let removal = app
@@ -1242,19 +1311,21 @@ mod tests {
             .world_mut()
             .spawn(Chat(protocol::ChatRef { with: to }))
             .id();
-        let mut convo = app.world_mut().resource_mut::<Convo>();
-        convo.agent = agent;
-        convo.chat = chat;
-        convo.with = Some("agent#3".into());
+        let hub = crate::testing::hub(app);
+        app.world_mut().entity_mut(hub).insert(Convo {
+            chat,
+            agent,
+            with: Some("agent#3".into()),
+        });
         app.update();
     }
 
     #[test]
     fn late_reads_cannot_fill_the_next_agents_pages() {
         use serde_json::json;
-        let mut app = ada_app();
+        let (mut app, hub) = ada_app();
         let papers = request(&app, "papers");
-        show_prompt(app.world_mut());
+        show_prompt(app.world_mut(), hub);
         let prompt = request(&app, "prompt");
         select_scout(&mut app);
         let scout = request(&app, "papers");
@@ -1273,7 +1344,7 @@ mod tests {
         );
         // The prompt page is left for the thread of the next agent.
         assert_eq!(
-            *app.world().resource::<Showing>(),
+            *app.world().get::<Showing>(hub).unwrap(),
             Showing::Thread
         );
         assert!(has_span(&mut app, "Scout character"));
@@ -1282,6 +1353,12 @@ mod tests {
         app.update();
         assert!(has_span(&mut app, "Scout notes"));
         assert!(!has_span(&mut app, "Wrong notes"));
-        assert!(app.world().resource::<Briefing>().prompt.is_empty());
+        assert!(
+            app.world()
+                .get::<Briefing>(hub)
+                .unwrap()
+                .prompt
+                .is_empty()
+        );
     }
 }
