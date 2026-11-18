@@ -125,7 +125,7 @@ pub(crate) struct Need {
 impl Need {
     pub(crate) fn of(entity: Entity, waiting: &Waiting) -> Self {
         let waited =
-            Age::of(crate::status::now_ms(), waiting.since).short();
+            Age::of(crate::clock::now_ms(), waiting.since).short();
         Self {
             entity,
             detail: waiting.detail.clone(),

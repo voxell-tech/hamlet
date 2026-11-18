@@ -5,6 +5,7 @@ pub mod appearance;
 pub mod asking;
 mod chief;
 pub mod chrome;
+mod clock;
 mod convo;
 pub mod cursor;
 pub mod desk;
@@ -31,7 +32,6 @@ pub mod screens;
 pub mod select;
 mod sounds;
 mod standing;
-mod status;
 #[cfg(test)]
 mod testing;
 pub mod toasts;
@@ -65,7 +65,6 @@ pub use self::root::layout;
 pub use self::screens::{
     chat, hub, links, overview, pictures, settings, terminal, wait,
 };
-pub use self::status::Bar;
 pub use self::window::window_plugin;
 
 /// The panels' steps before fynix mounts the views.
@@ -108,7 +107,6 @@ impl Plugin for UiPlugin {
                 secret::plugin,
                 chrome::plugin,
                 menu::plugin,
-                status::plugin,
                 remember::plugin,
                 desk::plugin,
             ),

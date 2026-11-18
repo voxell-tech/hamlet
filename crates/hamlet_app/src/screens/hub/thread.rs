@@ -1079,7 +1079,6 @@ mod tests {
             crate::hub::plugin,
             wait::plugin,
         ));
-        app.init_resource::<crate::status::Bar>();
         app
     }
 

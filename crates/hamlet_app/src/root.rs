@@ -31,7 +31,6 @@ use hamlet_ui::widgets::icons::Glyph;
 use hamlet_ui::widgets::platform::Glow;
 use hamlet_ui::{Cx, View, built};
 
-use crate::status::status_bar;
 use crate::{chrome, desk, hover, menu, welcome, world_menu};
 
 pub(crate) fn plugin(app: &mut App) {
@@ -156,11 +155,9 @@ fn root() -> impl View {
 pub fn layout(cx: &Cx) -> impl View {
     column((
         toolbar(cx),
-        // First run covers the status bar but not the window's
-        // buttons.
+        // First run covers the panels but not the window's buttons.
         column((
             dock::<HamletTheme>(),
-            status_bar(),
             welcome::view(),
             welcome::projects::view(),
         ))

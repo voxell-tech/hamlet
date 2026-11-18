@@ -17,10 +17,9 @@ use bevy::math::Rect;
 use bevy::picking::PickingSettings;
 use bevy::window::WindowTheme;
 use bevy_fynix::dock::DockPlugin;
-use bevy_fynix::tokens::Tone;
 use bevy_fynix::{AnyView, Bevy, FynixPlugin};
 use hamlet_app::appearance::{Appearance, Zoom};
-use hamlet_app::{Bar, Roll, asking, chrome, menu, select, welcome};
+use hamlet_app::{Roll, asking, chrome, menu, select, welcome};
 use hamlet_assets::Tuning;
 use hamlet_desktop::color_scheme::ColorScheme;
 use hamlet_realm::sound::{Cue, SoundSettings};
@@ -59,16 +58,6 @@ impl Plugin for GalleryPlugin {
             .insert_resource(PickingSettings {
                 is_hover_enabled: false,
                 ..PickingSettings::default()
-            })
-            .insert_resource(Bar {
-                running: "Idle".into(),
-                running_tone: Tone::Dim,
-                model: "hearth-large".into(),
-                link: "Connected, 1 model".into(),
-                link_tone: Tone::Dim,
-                usage: "12.4k tokens".into(),
-                budget: "$1.20 of $20.00".into(),
-                ..Bar::default()
             })
             .init_resource::<Roll>()
             .init_resource::<SoundSettings>()

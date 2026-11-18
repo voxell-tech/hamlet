@@ -59,10 +59,10 @@ use hamlet_ui::{AnyView, Cx, View, with_cx};
 
 use super::{Showing, show};
 use crate::age::Age;
+use crate::clock::now_ms;
 use crate::convo::{Convo, talk_to, talk_to_hand};
 use crate::profile_tag::{self, ProfileTag};
 use crate::standing::{Standing, need_you};
-use crate::status::now_ms;
 use crate::words;
 use crate::world_menu::Asks;
 
@@ -2298,7 +2298,7 @@ mod tests {
         app.update();
         assert_eq!(names(&app, |g| *g == Group::Needs), ["ada"]);
         // One row for who asks, counted as every wait, as the
-        // realm's page and the status bar count them.
+        // realm's page counts them.
         let needs = sections(app.world())
             .into_iter()
             .find(|section| section.group == Group::Needs)
