@@ -131,7 +131,7 @@ pub(crate) struct Facts {
     pub offered: Offered,
     pub reserve: Reserve,
     /// Its agent's doing while it runs, when that says more than
-    /// that a tool runs.
+    /// that it thinks.
     pub doing: Option<Doing>,
     /// True when a call cut off by a crash may run again when called
     /// again: its change is kept with its answer, or what it began

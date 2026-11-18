@@ -179,16 +179,19 @@ fn file_name(path: &str) -> String {
         .to_string()
 }
 
-/// `to` with its agent's name, as `agent#4 (Mira)`.
+/// `to` with its agent's name, as `agent#4 (Mira)`. A call still
+/// running has no `agent` yet, so its address finds it.
 fn whom(
     world: &World,
     to: &str,
     agent: Option<hamlet_protocol::client::AgentId>,
 ) -> String {
-    let shown = agent
-        .and_then(|agent| hamlet_client::realm::agent(world, agent))
-        .map(|agent| shown_of(world, agent))
-        .filter(|shown| !shown.is_empty() && shown != to);
+    let shown = match agent {
+        Some(agent) => hamlet_client::realm::agent(world, agent),
+        None => hamlet_client::realm::named(world, to),
+    }
+    .map(|agent| shown_of(world, agent))
+    .filter(|shown| !shown.is_empty() && shown != to);
     match shown {
         Some(shown) => format!("{to} ({shown})"),
         None => to.to_string(),

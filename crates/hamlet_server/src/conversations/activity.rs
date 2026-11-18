@@ -272,8 +272,10 @@ fn doing_of(
                 Doing::Run
             }
         }
-        _ => Society::named(name)
-            .and_then(|tool| tool.facts().doing.clone())
-            .unwrap_or(Doing::Custom),
+        // A society tool with no doing of its own is the agent's
+        // thinking at work, not a tool added by hand.
+        _ => Society::named(name).map_or(Doing::Custom, |tool| {
+            tool.facts().doing.clone().unwrap_or(Doing::Think)
+        }),
     }
 }
