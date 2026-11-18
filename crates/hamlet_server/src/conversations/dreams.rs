@@ -16,7 +16,7 @@ use crate::conversations::{self, Begin, Kind, models};
 use crate::core::Core;
 use crate::realm::change::Done;
 use crate::society::dreams::{self, DreamKind, Outcome};
-use crate::society::refusal::Refusal;
+use crate::society::rejection::Rejection;
 use crate::society::{addresses, agents, city, hamlet_agents, hand};
 use crate::{knowledge, runtimes};
 
@@ -148,21 +148,21 @@ impl Core<'_, '_> {
         words: &[&str],
     ) -> Done<String> {
         let [target] = words else {
-            return Ok(Err(Refusal::DreamUsage));
+            return Ok(Err(Rejection::DreamUsage));
         };
         let db = self.realm.store().connection();
         if dreams::running(db)?.is_some() {
-            return Ok(Err(Refusal::DreamRunning));
+            return Ok(Err(Rejection::DreamRunning));
         }
         let dreamer = if target.starts_with("profile#") {
             let found = match addresses::parse_profile(target) {
                 Ok(id) => city::living(db, id)?,
-                Err(refusal) => return Ok(Err(refusal)),
+                Err(rejection) => return Ok(Err(rejection)),
             };
             match found {
                 Some(found) => Dreamer::Profile(found.id),
                 None => {
-                    return Ok(Err(Refusal::NoProfile {
+                    return Ok(Err(Rejection::NoProfile {
                         address: (*target).into(),
                     }));
                 }
@@ -170,7 +170,7 @@ impl Core<'_, '_> {
         } else {
             let address = match addresses::parse(target) {
                 Ok(address) => address,
-                Err(refusal) => return Ok(Err(refusal)),
+                Err(rejection) => return Ok(Err(rejection)),
             };
             let agent = match addresses::resolve(
                 db,
@@ -179,10 +179,10 @@ impl Core<'_, '_> {
                 addresses::Reach::Kept,
             )? {
                 Ok(agent) => agent,
-                Err(refusal) => return Ok(Err(refusal)),
+                Err(rejection) => return Ok(Err(rejection)),
             };
-            if let Err(refusal) = self.directs(agent)? {
-                return Ok(Err(refusal));
+            if let Err(rejection) = self.directs(agent)? {
+                return Ok(Err(rejection));
             }
             let db = self.realm.store().connection();
             let ending = !agents::get(db, agent)?.is_living();

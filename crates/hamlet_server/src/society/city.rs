@@ -25,9 +25,9 @@ use super::agents::EndHow;
 use super::names::check_name;
 use super::oversight::{self, Raise, Ruling, WaitKind};
 use super::record::{self, Decision, DecisionKind};
-use super::refusal::Refusal;
+use super::rejection::Rejection;
 use super::{hamlet_agents, hand};
-use crate::realm::change::{Change, Done, done, refuse};
+use crate::realm::change::{Change, Done, done, reject};
 use crate::realm::jobs::{self, Fork, Job};
 
 /// The most characters a character may have (C11, C13).
@@ -129,19 +129,19 @@ impl Profile {
         format!("{} ({})", profile_address(self.id), self.name)
     }
 
-    /// The refusal of a call that names this profile when it has left
-    /// the city or is the Hand's.
-    pub fn gone(&self) -> Option<Refusal> {
+    /// The rejection of a call that names this profile when it has
+    /// left the city or is the Hand's.
+    pub fn gone(&self) -> Option<Rejection> {
         (!self.is_living() || self.kind != ProfileKind::Profile)
-            .then(|| Refusal::ProfileGone { name: self.label() })
+            .then(|| Rejection::ProfileGone { name: self.label() })
     }
 
-    /// The refusal of a call that would add an agent of, house or
+    /// The rejection of a call that would add an agent of, house or
     /// send to the harbor a blank agent's profile, which is never of
     /// the city.
-    pub fn apart(&self) -> Option<Refusal> {
+    pub fn apart(&self) -> Option<Rejection> {
         (self.arrival == Arrival::Apart)
-            .then(|| Refusal::Apart { name: self.label() })
+            .then(|| Rejection::Apart { name: self.label() })
     }
 }
 
@@ -227,10 +227,10 @@ fn insert(
 ) -> Done<ProfileId> {
     let name = match check_name(name) {
         Ok(name) => name,
-        Err(refusal) => refuse!(refusal),
+        Err(rejection) => reject!(rejection),
     };
     if character.chars().count() > CHARACTER_MOST {
-        refuse!(Refusal::LongCharacter);
+        reject!(Rejection::LongCharacter);
     }
     let id = diesel::insert_into(profile::table)
         .values((
@@ -365,12 +365,13 @@ pub(crate) fn welcome(
     reason: &str,
 ) -> Done<()> {
     let profile = get(cx.db, id)?;
-    if let Some(refusal) = profile.gone().or_else(|| profile.apart())
+    if let Some(rejection) =
+        profile.gone().or_else(|| profile.apart())
     {
-        refuse!(refusal);
+        reject!(rejection);
     }
     if profile.arrival == Arrival::Housed {
-        refuse!(Refusal::Housed {
+        reject!(Rejection::Housed {
             name: profile.label()
         });
     }
@@ -391,12 +392,13 @@ pub(crate) fn turn_away(
     reason: &str,
 ) -> Done<()> {
     let profile = get(cx.db, id)?;
-    if let Some(refusal) = profile.gone().or_else(|| profile.apart())
+    if let Some(rejection) =
+        profile.gone().or_else(|| profile.apart())
     {
-        refuse!(refusal);
+        reject!(rejection);
     }
     if profile.arrival == Arrival::Turned {
-        refuse!(Refusal::TurnedAway {
+        reject!(Rejection::TurnedAway {
             name: profile.label()
         });
     }
@@ -498,12 +500,12 @@ pub(crate) fn rename(
     name: &str,
 ) -> Done<()> {
     let profile = get(cx.db, id)?;
-    if let Some(refusal) = profile.gone() {
-        refuse!(refusal);
+    if let Some(rejection) = profile.gone() {
+        reject!(rejection);
     }
     let name = match check_name(name) {
         Ok(name) => name,
-        Err(refusal) => refuse!(refusal),
+        Err(rejection) => reject!(rejection),
     };
     diesel::update(profile::table.find(id))
         .set(profile::name.eq(name))
@@ -541,12 +543,13 @@ pub(crate) fn place(
     turn: Option<f64>,
 ) -> Done<()> {
     let profile = get(cx.db, id)?;
-    if let Some(refusal) = profile.gone().or_else(|| profile.apart())
+    if let Some(rejection) =
+        profile.gone().or_else(|| profile.apart())
     {
-        refuse!(refusal);
+        reject!(rejection);
     }
     if profile.arrival != Arrival::Housed {
-        refuse!(Refusal::AtHarbor {
+        reject!(Rejection::AtHarbor {
             name: profile.label()
         });
     }
@@ -554,13 +557,13 @@ pub(crate) fn place(
         && z.is_finite()
         && turn.is_none_or(f64::is_finite))
     {
-        refuse!(Refusal::BadAddress {
+        reject!(Rejection::BadAddress {
             address: format!("{x}, {z}")
         });
     }
     let taken = houses(cx.db, Some(id))?;
     if !is_clear(&taken, x, z) {
-        refuse!(Refusal::Crowded {
+        reject!(Rejection::Crowded {
             name: profile.label()
         });
     }
@@ -580,16 +583,16 @@ pub(crate) fn place(
     Ok(Ok(()))
 }
 
-/// Archives the profile `id`, ending its living agents first. Refused
-/// while one of its agents holds a hamlet's office.
+/// Archives the profile `id`, ending its living agents first.
+/// Rejected while one of its agents holds a hamlet's office.
 pub(crate) fn archive(
     cx: &mut Change<'_>,
     id: ProfileId,
     reason: &str,
 ) -> Done<()> {
     let profile = get(cx.db, id)?;
-    if let Some(refusal) = profile.gone() {
-        refuse!(refusal);
+    if let Some(rejection) = profile.gone() {
+        reject!(rejection);
     }
     for agent in hamlet_agents::living_of(cx.db, id)? {
         done!(hamlet_agents::end(
@@ -624,12 +627,12 @@ pub(crate) fn restore(
 ) -> Done<()> {
     let profile = get(cx.db, id)?;
     if profile.erased {
-        refuse!(Refusal::ProfileErased {
+        reject!(Rejection::ProfileErased {
             name: profile.label()
         });
     }
     if profile.is_living() {
-        refuse!(Refusal::ProfileLiving {
+        reject!(Rejection::ProfileLiving {
             name: profile.label()
         });
     }
@@ -666,12 +669,12 @@ pub(crate) fn restore(
 pub(crate) fn erase(cx: &mut Change<'_>, id: ProfileId) -> Done<()> {
     let profile = get(cx.db, id)?;
     if profile.erased {
-        refuse!(Refusal::ProfileErased {
+        reject!(Rejection::ProfileErased {
             name: profile.label()
         });
     }
     if profile.is_living() {
-        refuse!(Refusal::ProfileLiving {
+        reject!(Rejection::ProfileLiving {
             name: profile.label()
         });
     }

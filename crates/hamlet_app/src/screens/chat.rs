@@ -322,7 +322,7 @@ pub(crate) fn command(world: &mut World, text: String) {
 }
 
 /// Sends a command the window made, not one typed in a chat, so its
-/// refusal is toasted rather than said only in a chat.
+/// rejection is toasted rather than said only in a chat.
 fn command_to(world: &mut World, agent: Entity, text: String) {
     if let Some(to) = agents::id_of(world, agent) {
         world.trigger(ChiefMessage::words(to, text));
@@ -844,7 +844,7 @@ mod tests {
     }
 
     #[test]
-    fn refusals_of_chat_requests_show_and_sound_but_panel_replies_do_not()
+    fn rejections_of_chat_requests_show_and_sound_but_panel_replies_do_not()
      {
         use hamlet_client::messages::Rewind;
         use hamlet_client::outbox::Outbox;

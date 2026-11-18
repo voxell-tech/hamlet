@@ -82,7 +82,7 @@ async fn the_librarian_judges_offers_and_answers_questions() {
     assert!(!s.home.file("library/shout").exists());
 
     // The offer of a name the library has, and a name that is no
-    // folder, are refused without asking the librarian.
+    // folder, are rejected without asking the librarian.
     let failures = tool_answers(&s.chief, &now);
     assert!(
         failures.iter().filter(|f| !f.is_empty()).count() >= 2,
@@ -103,5 +103,5 @@ async fn the_librarian_judges_offers_and_answers_questions() {
             !shelved(c).contains(&"greet".to_string())
         })
         .await;
-    s.chief.refused(hand, "/unshelve greet").await;
+    s.chief.rejected(hand, "/unshelve greet").await;
 }

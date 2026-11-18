@@ -316,7 +316,7 @@ fn unlimited<R: Resource>(
 
 /// The dollars of [`spending`], named `says`, while there is a limit.
 /// Its field is given `R`'s value at each change of `R`, so an edit
-/// the server refused shows what it holds again.
+/// the server rejected shows what it holds again.
 fn dollars<R: Resource>(
     says: &'static str,
     read: fn(&R) -> Option<f64>,
@@ -904,7 +904,8 @@ mod tests {
         );
     }
     #[test]
-    fn a_refused_edit_restores_the_received_value_beside_its_words() {
+    fn a_rejected_edit_restores_the_received_value_beside_its_words()
+    {
         use hamlet_protocol::client as protocol;
 
         use crate::testing::words;
@@ -917,7 +918,7 @@ mod tests {
             protocol::ServerMessage::Reply(protocol::Reply {
                 to,
                 kind: protocol::ReplyKind::Error,
-                text: "The daily cost was refused.".into(),
+                text: "The daily cost was rejected.".into(),
                 upload: None,
                 image: None,
                 images: Vec::new(),
@@ -929,7 +930,7 @@ mod tests {
         assert!(
             words(&mut app)
                 .iter()
-                .any(|word| word == "The daily cost was refused.")
+                .any(|word| word == "The daily cost was rejected.")
         );
         let field = input(&mut app, "May spend, in dollars");
         assert_eq!(

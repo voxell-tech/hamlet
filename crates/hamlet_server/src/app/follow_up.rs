@@ -44,7 +44,7 @@ use crate::realm::settings::EffectiveSettings;
 use crate::runtimes::Runtimes;
 use crate::runtimes::reconciliation::{self, ImageFitting};
 use crate::society::agents;
-use crate::society::refusal::Refusal;
+use crate::society::rejection::Rejection;
 use crate::{FollowUpSystems, SendSystems, conversations};
 
 pub(crate) fn plugin(app: &mut App) {
@@ -309,7 +309,7 @@ fn send_owed_replies(
         connections.settle(ended.conversation, &ended.request)
     {
         let answer =
-            check::reply(&id, Ok::<_, Refusal>(String::new()));
+            check::reply(&id, Ok::<_, Rejection>(String::new()));
         connections.send(client, answer);
     }
 }

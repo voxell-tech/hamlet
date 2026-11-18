@@ -19,9 +19,9 @@ use super::addresses::name_of;
 use super::agents::{self, AgentKind};
 use super::hamlet_agents::{self, HamletAgent};
 use super::record::{self, Decision, DecisionKind};
-use super::refusal::Refusal;
+use super::rejection::Rejection;
 use super::{hamlets, limits, tree};
-use crate::realm::change::{Change, Done, done, refuse};
+use crate::realm::change::{Change, Done, done, reject};
 
 #[derive(
     Clone,
@@ -225,31 +225,31 @@ pub(crate) fn open(
     task: Option<TaskId>,
 ) -> Done<ChannelId> {
     if a == b {
-        refuse!(Refusal::SameEnds);
+        reject!(Rejection::SameEnds);
     }
     let (Some(one), Some(other)) = (
         hamlet_agents::find(cx.db, a)?,
         hamlet_agents::find(cx.db, b)?,
     ) else {
-        refuse!(Refusal::ChannelEnds);
+        reject!(Rejection::ChannelEnds);
     };
     for id in [a, b] {
         done!(hamlet_agents::require_living(cx.db, id));
     }
     if one.hamlet != other.hamlet {
-        refuse!(Refusal::OtherHamlet {
+        reject!(Rejection::OtherHamlet {
             name: name_of(cx.db, b)?
         });
     }
     if way(cx.db, a, b)?.is_some() {
-        refuse!(Refusal::ChannelExists {
+        reject!(Rejection::ChannelExists {
             a: name_of(cx.db, a)?,
             b: name_of(cx.db, b)?,
         });
     }
     let rules = limits::of(cx.db, &one.hamlet)?.channel;
     if opened_in(cx.db, &one.hamlet)?.len() as i64 >= rules.most {
-        refuse!(Refusal::TooManyChannels {
+        reject!(Rejection::TooManyChannels {
             hamlet: one.hamlet.to_string(),
             most: rules.most,
         });
@@ -326,7 +326,7 @@ pub(crate) fn close(
     reason: &str,
 ) -> Done<()> {
     let Some(found) = between(cx.db, a, b)? else {
-        refuse!(Refusal::NoChannel {
+        reject!(Rejection::NoChannel {
             a: name_of(cx.db, a)?,
             b: name_of(cx.db, b)?,
         });
@@ -370,30 +370,30 @@ pub(crate) fn agree(
     task: Option<TaskId>,
 ) -> Done<Agreed> {
     if !limits::realm(cx.db)?.channels_between {
-        refuse!(Refusal::NoChannelsBetween);
+        reject!(Rejection::NoChannelsBetween);
     }
     let (Some(one), Some(other)) = (
         hamlet_agents::find(cx.db, a)?,
         hamlet_agents::find(cx.db, b)?,
     ) else {
-        refuse!(Refusal::ChannelEnds);
+        reject!(Rejection::ChannelEnds);
     };
     for id in [a, b] {
         done!(hamlet_agents::require_living(cx.db, id));
     }
     if one.hamlet == other.hamlet {
-        refuse!(Refusal::SameHamlet);
+        reject!(Rejection::SameHamlet);
     }
     let Some(own) = hamlet_agents::find(cx.db, lead)?.filter(|m| {
         m.hamlet == one.hamlet || m.hamlet == other.hamlet
     }) else {
-        refuse!(Refusal::NotLead);
+        reject!(Rejection::NotLead);
     };
     if tree::lead(cx.db, &own.hamlet)? != lead {
-        refuse!(Refusal::NotLead);
+        reject!(Rejection::NotLead);
     }
     if way(cx.db, a, b)?.is_some() {
-        refuse!(Refusal::ChannelExists {
+        reject!(Rejection::ChannelExists {
             a: name_of(cx.db, a)?,
             b: name_of(cx.db, b)?,
         });

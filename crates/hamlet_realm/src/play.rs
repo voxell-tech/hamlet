@@ -1,4 +1,4 @@
-//! The deeds of a chief's hand on the world, told as they happen.
+//! The actions of a chief's hand on the world, told as they happen.
 
 use bevy::prelude::*;
 

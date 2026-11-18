@@ -12,7 +12,7 @@ use crate::knowledge::folder::Folder;
 use crate::realm::change::Done;
 use crate::realm::jobs::Fork;
 use crate::society::addresses::{self, Reach};
-use crate::society::refusal::Refusal;
+use crate::society::rejection::Rejection;
 use crate::society::{authority, city, hamlet_agents, names};
 
 /// The commands about a profile's versions.
@@ -68,11 +68,11 @@ impl Core<'_, '_> {
         let chief = self.realm.chief();
         let id = match self.profile_at(text, ProfileReach::Living)? {
             Ok(id) => id,
-            Err(refusal) => return Ok(Err(refusal)),
+            Err(rejection) => return Ok(Err(rejection)),
         };
         let db = self.realm.store().connection();
         if !authority::may_keep(db, Actor::Chief(chief), id)? {
-            return Ok(Err(Refusal::ProfileNotOwn {
+            return Ok(Err(Rejection::ProfileNotOwn {
                 name: addresses::profile_name_of(db, id)?,
             }));
         }
@@ -87,27 +87,27 @@ impl Core<'_, '_> {
 
     pub(super) fn tag(&mut self, words: &[&str]) -> Done<String> {
         let [profile, version, note @ ..] = words else {
-            return Ok(Err(self.deeds.usage("tag")));
+            return Ok(Err(self.actions.usage("tag")));
         };
         let (profile, at) = profile
             .split_once('@')
             .map_or((*profile, None), |(s, a)| (s, Some(a)));
-        if let Err(refusal) = names::check_version(version) {
-            return Ok(Err(refusal));
+        if let Err(rejection) = names::check_version(version) {
+            return Ok(Err(rejection));
         }
         let (id, repo) = match self.chiefs_profile(profile)? {
             Ok(found) => found,
-            Err(refusal) => return Ok(Err(refusal)),
+            Err(rejection) => return Ok(Err(rejection)),
         };
         if *version == MAIN || repo.resolve(version)?.is_some() {
-            return Ok(Err(Refusal::VersionTaken {
+            return Ok(Err(Rejection::VersionTaken {
                 version: (*version).into(),
             }));
         }
         let commit =
             match commit_of(&repo, profile, at.unwrap_or(MAIN))? {
                 Ok(commit) => commit,
-                Err(refusal) => return Ok(Err(refusal)),
+                Err(rejection) => return Ok(Err(rejection)),
             };
         let by = self.author();
         let writing = self.writing.clone();
@@ -135,11 +135,11 @@ impl Core<'_, '_> {
         words: &[&str],
     ) -> Done<String> {
         let [profile] = words else {
-            return Ok(Err(self.deeds.usage("versions")));
+            return Ok(Err(self.actions.usage("versions")));
         };
         let (_, repo) = match self.chiefs_profile(profile)? {
             Ok(found) => found,
-            Err(refusal) => return Ok(Err(refusal)),
+            Err(rejection) => return Ok(Err(rejection)),
         };
         let mut lines = Vec::new();
         let versions = repo.versions()?;
@@ -182,11 +182,11 @@ impl Core<'_, '_> {
         words: &[&str],
     ) -> Done<String> {
         let [address, version, reason @ ..] = words else {
-            return Ok(Err(self.deeds.usage("pin")));
+            return Ok(Err(self.actions.usage("pin")));
         };
         let parsed = match addresses::parse(address) {
             Ok(parsed) => parsed,
-            Err(refusal) => return Ok(Err(refusal)),
+            Err(rejection) => return Ok(Err(rejection)),
         };
         let db = self.realm.store().connection();
         let agent = match addresses::resolve(
@@ -196,10 +196,10 @@ impl Core<'_, '_> {
             Reach::Living,
         )? {
             Ok(agent) => agent,
-            Err(refusal) => return Ok(Err(refusal)),
+            Err(rejection) => return Ok(Err(rejection)),
         };
-        if let Err(refusal) = self.directs(agent)? {
-            return Ok(Err(refusal));
+        if let Err(rejection) = self.directs(agent)? {
+            return Ok(Err(rejection));
         }
         let layout = self.realm.layout().clone();
         let db = self.realm.store().connection();
@@ -210,7 +210,7 @@ impl Core<'_, '_> {
         if let Some(version) = target
             && repo.resolve(version)?.is_none()
         {
-            return Ok(Err(Refusal::NoVersion {
+            return Ok(Err(Rejection::NoVersion {
                 name: addresses::profile_name_of(db, found.profile)?,
                 version: version.into(),
             }));
@@ -234,15 +234,15 @@ impl Core<'_, '_> {
 
     pub(super) fn revert(&mut self, words: &[&str]) -> Done<String> {
         let [profile, which, reason @ ..] = words else {
-            return Ok(Err(self.deeds.usage("revert")));
+            return Ok(Err(self.actions.usage("revert")));
         };
         let (id, repo) = match self.chiefs_profile(profile)? {
             Ok(found) => found,
-            Err(refusal) => return Ok(Err(refusal)),
+            Err(rejection) => return Ok(Err(rejection)),
         };
         let commit = match commit_of(&repo, profile, which)? {
             Ok(commit) => commit,
-            Err(refusal) => return Ok(Err(refusal)),
+            Err(rejection) => return Ok(Err(rejection)),
         };
         let by = Actor::Chief(self.realm.chief());
         let author = by.to_string();
@@ -281,18 +281,18 @@ impl Core<'_, '_> {
 
     pub(super) fn fork(&mut self, words: &[&str]) -> Done<String> {
         let [from, name @ ..] = words else {
-            return Ok(Err(self.deeds.usage("fork")));
+            return Ok(Err(self.actions.usage("fork")));
         };
         let (profile, at) = from
             .split_once('@')
             .map_or((*from, MAIN), |(s, a)| (s, a));
         let (id, repo) = match self.chiefs_profile(profile)? {
             Ok(found) => found,
-            Err(refusal) => return Ok(Err(refusal)),
+            Err(rejection) => return Ok(Err(rejection)),
         };
         let commit = match commit_of(&repo, profile, at)? {
             Ok(commit) => commit,
-            Err(refusal) => return Ok(Err(refusal)),
+            Err(rejection) => return Ok(Err(rejection)),
         };
         let chief = self.realm.chief();
         let name = name.join(" ");
@@ -325,17 +325,17 @@ impl Core<'_, '_> {
     /// worktree of the profile's agents.
     pub(super) fn purge(&mut self, words: &[&str]) -> Done<String> {
         let [profile, path] = words else {
-            return Ok(Err(self.deeds.usage("purge")));
+            return Ok(Err(self.actions.usage("purge")));
         };
         let path = path.trim_matches('/');
         if path.is_empty()
             || path.split('/').any(|part| part == ".." || part == ".")
         {
-            return Ok(Err(Refusal::NoFile { path: path.into() }));
+            return Ok(Err(Rejection::NoFile { path: path.into() }));
         }
         let (id, _) = match self.chiefs_profile(profile)? {
             Ok(found) => found,
-            Err(refusal) => return Ok(Err(refusal)),
+            Err(rejection) => return Ok(Err(rejection)),
         };
         let layout = self.realm.layout().clone();
         let writing = self.writing.clone();
@@ -382,7 +382,7 @@ fn commit_of(
 ) -> Done<CommitId> {
     Ok(match repo.resolve(which)? {
         Some(commit) => Ok(commit),
-        None => Err(Refusal::NoVersion {
+        None => Err(Rejection::NoVersion {
             name: profile.into(),
             version: which.into(),
         }),

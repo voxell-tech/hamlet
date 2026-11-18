@@ -1,4 +1,4 @@
-//! The reasons the society refuses a change, in words a chief or an
+//! The reasons the society rejects a change, in words a chief or an
 //! agent reads.
 
 use serde::{Deserialize, Serialize};
@@ -14,7 +14,7 @@ use serde::{Deserialize, Serialize};
     thiserror::Error,
 )]
 #[serde(tag = "reason", rename_all = "kebab-case")]
-pub(crate) enum Refusal {
+pub(crate) enum Rejection {
     #[error(
         "`{name}` is not a name: use one line of 1 to 40 characters \
          with no colon"

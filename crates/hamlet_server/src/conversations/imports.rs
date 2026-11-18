@@ -23,7 +23,7 @@ use crate::society::chiefs;
 use crate::society::hamlet_agents::{self, ProfileChoice, Spec};
 use crate::society::hamlets::{self, Founding};
 use crate::society::names::NAME_LENGTH;
-use crate::society::refusal::Refusal;
+use crate::society::rejection::Rejection;
 
 /// A project to bring in.
 pub(crate) struct Project<'a> {
@@ -107,7 +107,7 @@ pub(crate) fn bring_in_project(
         fresh += usize::from(!is_brought_in(cx.db, chief, imported)?);
     }
     if fresh == 0 {
-        return Ok(Err(Refusal::BroughtInBefore));
+        return Ok(Err(Rejection::BroughtInBefore));
     }
     let founded = working.is_none();
     let (hamlet, lead) = match working {
@@ -266,17 +266,17 @@ fn begin(
 pub(crate) fn read(
     files: &Files,
     id: &FileId,
-) -> Result<std::result::Result<Imported, Refusal>> {
+) -> Result<std::result::Result<Imported, Rejection>> {
     let Some(size) = files.size(id) else {
-        return Ok(Err(Refusal::ConversationNotSent));
+        return Ok(Err(Rejection::ConversationNotSent));
     };
     if size > Imported::MOST_BYTES {
-        return Ok(Err(Refusal::ConversationTooBig {
+        return Ok(Err(Rejection::ConversationTooBig {
             most: Imported::MOST_BYTES >> 20,
         }));
     }
     let bytes = files.read(id)?.context("a sent file went away")?;
-    let unfit = || Refusal::NotAConversation;
+    let unfit = || Rejection::NotAConversation;
     let Ok(value) = serde_json::from_slice::<Value>(&bytes) else {
         return Ok(Err(unfit()));
     };

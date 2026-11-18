@@ -12,7 +12,7 @@ use super::environment::Reach;
 use crate::attachments::images::store::Images;
 use crate::attachments::inbox::Inbox;
 use crate::realm::change::Done;
-use crate::society::refusal::Refusal;
+use crate::society::rejection::Rejection;
 
 /// The most entries, files or not, that one send visits.
 const VISITED: usize = 50_000;
@@ -40,8 +40,8 @@ struct Piece {
     path: String,
 }
 
-fn unreadable(path: &str, error: &FileError) -> Refusal {
-    Refusal::FileUnreadable {
+fn unreadable(path: &str, error: &FileError) -> Rejection {
+    Rejection::FileUnreadable {
         path: path.into(),
         message: error.message.clone(),
     }
@@ -57,7 +57,7 @@ pub(super) async fn run(
 ) -> Done<Sent> {
     let found = match find(env, paths, most_file).await {
         Ok(found) => found,
-        Err(refusal) => return Ok(Err(refusal)),
+        Err(rejection) => return Ok(Err(rejection)),
     };
     let mut sent = Sent {
         files: found.pieces.len(),
@@ -76,8 +76,8 @@ pub(super) async fn run(
                 return Ok(Err(unreadable(&piece.name, &error)));
             }
         };
-        if let Err(refusal) = to.inbox.put(&piece.name, &bytes)? {
-            return Ok(Err(refusal));
+        if let Err(rejection) = to.inbox.put(&piece.name, &bytes)? {
+            return Ok(Err(rejection));
         }
         if ImageInput::is_image_file(Path::new(&piece.name))
             && let Ok((id, _)) = images.keep(&bytes)?
@@ -98,7 +98,7 @@ async fn find(
     env: &mut impl Reach,
     paths: &[String],
     most_file: u64,
-) -> Result<Found, Refusal> {
+) -> Result<Found, Rejection> {
     let mut found = Found {
         pieces: Vec::new(),
         bytes: 0,
@@ -115,12 +115,12 @@ async fn find(
             .await
             .map_err(|error| unreadable(given, &error))?;
         if info.kind == FileKind::Symlink {
-            return Err(Refusal::FileIsLink {
+            return Err(Rejection::FileIsLink {
                 path: given.clone(),
             });
         }
         if info.name.is_empty() {
-            return Err(Refusal::NoNameToSend {
+            return Err(Rejection::NoNameToSend {
                 path: given.clone(),
             });
         }
@@ -128,22 +128,22 @@ async fn find(
         while let Some((name, full, info)) = stack.pop() {
             visited += 1;
             if visited > VISITED {
-                return Err(Refusal::TooManyToLookThrough);
+                return Err(Rejection::TooManyToLookThrough);
             }
             if TreePath::parse(&name).is_err() {
-                return Err(Refusal::NotFileName { name });
+                return Err(Rejection::NotFileName { name });
             }
             match info.kind {
                 FileKind::File => {
                     if info.size > most_file {
-                        return Err(Refusal::FileOverSendLimit {
+                        return Err(Rejection::FileOverSendLimit {
                             name,
                             most: AttachedFile::size_words(most_file),
                         });
                     }
                     found.bytes += info.size;
                     if found.bytes > AttachedFile::MOST_BYTES {
-                        return Err(Refusal::SendOverBytes {
+                        return Err(Rejection::SendOverBytes {
                             most: AttachedFile::size_words(
                                 AttachedFile::MOST_BYTES,
                             ),
@@ -151,7 +151,7 @@ async fn find(
                     }
                     if found.pieces.len() >= AttachedFile::MOST_FILES
                     {
-                        return Err(Refusal::SendOverFiles {
+                        return Err(Rejection::SendOverFiles {
                             most: AttachedFile::MOST_FILES,
                         });
                     }
@@ -181,7 +181,7 @@ async fn find(
         }
     }
     if found.pieces.is_empty() {
-        return Err(Refusal::NoFilesInPaths);
+        return Err(Rejection::NoFilesInPaths);
     }
     Ok(found)
 }

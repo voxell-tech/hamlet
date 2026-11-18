@@ -15,7 +15,7 @@ use bevy_fynix::{
     Bevy, ScopedExt, ViewExt, ViewSeq, derived, every_frame, keyed,
 };
 use hamlet_client::realm::{
-    Account, Allowance, Bylaws, Channel, Deeds, Kind, LivesIn,
+    Account, Actions, Allowance, Bylaws, Channel, Kind, LivesIn,
     Profile, ToolsOff, channels_of, id_of, name_of, shown_of,
 };
 use hamlet_protocol::client as protocol;
@@ -89,7 +89,7 @@ fn facts(world: &World, agent: Entity) -> Facts {
         pin: world
             .get::<hamlet_client::realm::Pin>(agent)
             .map(|pin| pin.0.clone()),
-        versions: Deeds::is_allowed(world, "pin")
+        versions: Actions::is_allowed(world, "pin")
             .then(|| versions_of(world, agent))
             .flatten(),
         address: name_of(world, agent),
@@ -398,8 +398,8 @@ fn facts_sections(
 ) -> impl View {
     keyed(
         derived(move |world: &World| {
-            let channels = Deeds::is_allowed(world, "channel")
-                || Deeds::is_allowed(world, "unchannel");
+            let channels = Actions::is_allowed(world, "channel")
+                || Actions::is_allowed(world, "unchannel");
             (facts(world, agent), channels)
         })
         .when(every_frame()),

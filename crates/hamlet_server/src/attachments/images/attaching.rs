@@ -14,7 +14,7 @@ use crate::attachments::inbox::INBOX;
 use crate::conversations::models;
 use crate::core::{Core, UnpushedWorktree};
 use crate::realm::workspace::worktrees::WORKTREE;
-use crate::society::refusal::Refusal;
+use crate::society::rejection::Rejection;
 
 impl Core<'_, '_> {
     /// The images `images` and the files `files` of the line `text`
@@ -27,21 +27,21 @@ impl Core<'_, '_> {
         text: &str,
         images: &[AttachedImage],
         files: &[AttachedFile],
-    ) -> Result<std::result::Result<Attached, Refusal>> {
+    ) -> Result<std::result::Result<Attached, Rejection>> {
         let places = images
             .iter()
             .filter_map(|image| image.at)
             .chain(files.iter().filter_map(|file| file.at));
         for at in places {
             if !is_place(text, at) {
-                return Ok(Err(Refusal::BadAttachmentPlace {
+                return Ok(Err(Rejection::BadAttachmentPlace {
                     at,
                     bytes: text.len(),
                 }));
             }
         }
-        if let Err(refusal) = self.check_files(files) {
-            return Ok(Err(refusal));
+        if let Err(rejection) = self.check_files(files) {
+            return Ok(Err(rejection));
         }
         let mut images = images.to_vec();
         images.sort_by_key(|image| image.at.unwrap_or(u64::MAX));
@@ -49,7 +49,7 @@ impl Core<'_, '_> {
         files.sort_by_key(|file| file.at.unwrap_or(u64::MAX));
         let mut attached = match self.attach_images(agent, &images)? {
             Ok(attached) => attached,
-            Err(refusal) => return Ok(Err(refusal)),
+            Err(rejection) => return Ok(Err(rejection)),
         };
         if files.is_empty() {
             return Ok(Ok(attached));
@@ -58,14 +58,14 @@ impl Core<'_, '_> {
         let mut inbox = self.open_inbox(agent, INBOX)?;
         for file in &files {
             let Some(bytes) = kept.read(&file.id)? else {
-                return Ok(Err(Refusal::FileNotSent {
+                return Ok(Err(Rejection::FileNotSent {
                     name: file.name.clone(),
                 }));
             };
-            if let Err(refusal) =
+            if let Err(rejection) =
                 inbox.put_at(&file.name, &bytes, file.at)?
             {
-                return Ok(Err(refusal));
+                return Ok(Err(rejection));
             }
         }
         attached
@@ -82,7 +82,7 @@ impl Core<'_, '_> {
         &mut self,
         agent: AgentId,
         images: &[AttachedImage],
-    ) -> Result<std::result::Result<Attached, Refusal>> {
+    ) -> Result<std::result::Result<Attached, Rejection>> {
         if images.is_empty() {
             return Ok(Ok(Attached::default()));
         }
@@ -96,11 +96,11 @@ impl Core<'_, '_> {
         .model;
         let named = format!("{}::{}", model.provider, model.id);
         let Some(takes) = self.providers.images(db, &model)? else {
-            return Ok(Err(Refusal::NoImages { model: named }));
+            return Ok(Err(Rejection::NoImages { model: named }));
         };
         let most = Limits::of(&takes).per_line;
         if images.len() > most as usize {
-            return Ok(Err(Refusal::TooManyImages {
+            return Ok(Err(Rejection::TooManyImages {
                 model: named,
                 most,
             }));
@@ -121,7 +121,7 @@ impl Core<'_, '_> {
         let mut attached = Attached::default();
         for (index, image) in images.iter().enumerate() {
             let Some(stored) = kept.find(&image.id)? else {
-                return Ok(Err(Refusal::NoImage {
+                return Ok(Err(Rejection::NoImage {
                     image: image.id.to_string(),
                 }));
             };

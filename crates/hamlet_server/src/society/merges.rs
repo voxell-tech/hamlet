@@ -13,9 +13,9 @@ use serde_json::json;
 use super::agents::{self, EndHow};
 use super::channels::{self, ChannelKind};
 use super::record::{self, Decision, DecisionKind};
-use super::refusal::Refusal;
+use super::rejection::Rejection;
 use super::{hamlet_agents, tree};
-use crate::realm::change::{Change, Done, done, refuse};
+use crate::realm::change::{Change, Done, done, reject};
 use crate::realm::jobs::{self, Job};
 
 /// A merge as it is kept.
@@ -67,7 +67,7 @@ pub(crate) fn merge(
     reason: &str,
 ) -> Done<MergeId> {
     if kept == absorbed {
-        refuse!(Refusal::SameEnds);
+        reject!(Rejection::SameEnds);
     }
     let (one, other) = (
         hamlet_agents::get(cx.db, kept)?,
@@ -77,12 +77,12 @@ pub(crate) fn merge(
         done!(hamlet_agents::require_living(cx.db, id));
     }
     if one.hamlet != other.hamlet {
-        refuse!(Refusal::OtherHamlet {
+        reject!(Rejection::OtherHamlet {
             name: super::addresses::name_of(cx.db, absorbed)?
         });
     }
     if hamlet_agents::is_lead(cx.db, absorbed)? {
-        refuse!(Refusal::EndingLead);
+        reject!(Rejection::EndingLead);
     }
     for id in [kept, absorbed] {
         done!(hamlet_agents::unprotected(cx, id));
@@ -197,7 +197,7 @@ pub(crate) fn split(
 ) -> Done<()> {
     let found = get(cx.db, id)?;
     if found.split_at.is_some() {
-        refuse!(Refusal::AlreadySplit);
+        reject!(Rejection::AlreadySplit);
     }
     done!(hamlet_agents::come_back(cx, found.absorbed, reason));
     diesel::update(agent_merge::table.find(id))

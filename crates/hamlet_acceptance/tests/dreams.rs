@@ -98,11 +98,11 @@ async fn an_agent_dreams_what_it_learned_onto_its_profiles_main() {
 }
 
 #[tokio::test]
-async fn refuses_a_dream_of_someone_unknown() {
+async fn rejects_a_dream_of_someone_unknown() {
     let mut s = Session::start(Faux::new()).await;
     let hand = s.hand();
-    s.chief.refused(hand, "/dream").await;
-    s.chief.refused(hand, "/dream profile#999").await;
+    s.chief.rejected(hand, "/dream").await;
+    s.chief.rejected(hand, "/dream profile#999").await;
 }
 
 #[tokio::test]

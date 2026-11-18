@@ -18,18 +18,18 @@ use crate::core::{Core, UnpushedWorktree};
 use crate::knowledge::folder::Folder;
 use crate::knowledge::library::field;
 use crate::knowledge::{self, CHARACTER, outside_git};
-use crate::realm::change::{Done, done, refuse};
+use crate::realm::change::{Done, done, reject};
 use crate::realm::jobs::{self, Job};
 use crate::society::agents::Effort;
 use crate::society::city::{self, CHARACTER_MOST};
 use crate::society::limits::{self, Limits, RealmLimits};
-use crate::society::refusal::Refusal;
+use crate::society::rejection::Rejection;
 use crate::society::spend::micros;
 use crate::society::{authority, hamlet_agents, hamlets};
 
-/// Refuses a memory path that is not a plain relative path under
+/// Rejects a memory path that is not a plain relative path under
 /// `memory/`.
-fn memory_path(path: &str) -> Result<String, Refusal> {
+fn memory_path(path: &str) -> Result<String, Rejection> {
     let path = path.trim().trim_start_matches("memory/");
     let plain = !path.is_empty()
         && !path.starts_with('/')
@@ -39,7 +39,7 @@ fn memory_path(path: &str) -> Result<String, Refusal> {
     if plain {
         Ok(format!("memory/{path}"))
     } else {
-        Err(Refusal::NoFile { path: path.into() })
+        Err(Rejection::NoFile { path: path.into() })
     }
 }
 
@@ -65,7 +65,7 @@ impl Core<'_, '_> {
             Edit::Memory { of, path, text, .. } => {
                 let path = match memory_path(&path) {
                     Ok(path) => path,
-                    Err(refusal) => refuse!(refusal),
+                    Err(rejection) => reject!(rejection),
                 };
                 match of {
                     Keeper::Profile(profile) => {
@@ -151,7 +151,7 @@ impl Core<'_, '_> {
         text: String,
     ) -> Done<String> {
         if text.chars().count() > CHARACTER_MOST {
-            refuse!(Refusal::LongCharacter);
+            reject!(Rejection::LongCharacter);
         }
         done!(self.keeps(profile));
         let by = Actor::Chief(self.realm.chief());
@@ -241,7 +241,7 @@ impl Core<'_, '_> {
         }
         if let Some(every) = set.reflect_every {
             let Ok(every) = u64::try_from(every) else {
-                refuse!(Refusal::BadReflectEvery);
+                reject!(Rejection::BadReflectEvery);
             };
             settings.reflect_every = every;
         }
@@ -256,10 +256,10 @@ impl Core<'_, '_> {
         }
         if let Some(character) = set.character {
             if character.trim().is_empty() {
-                refuse!(Refusal::NoCharacter);
+                reject!(Rejection::NoCharacter);
             }
             if character.chars().count() > CHARACTER_MOST {
-                refuse!(Refusal::LongCharacter);
+                reject!(Rejection::LongCharacter);
             }
             settings.character = character;
         }
@@ -273,7 +273,7 @@ impl Core<'_, '_> {
                 })
                 .collect::<Vec<_>>();
             if let Some(why) = endpoint_fault(&endpoints) {
-                refuse!(Refusal::BadEndpoint { why });
+                reject!(Rejection::BadEndpoint { why });
             }
             removed = settings
                 .endpoints
@@ -296,7 +296,7 @@ impl Core<'_, '_> {
                 if let Some(why) =
                     endpoint_fault(std::slice::from_ref(&address))
                 {
-                    refuse!(Refusal::BadEndpoint { why });
+                    reject!(Rejection::BadEndpoint { why });
                 }
                 Some(Some(
                     crate::realm::credentials::WorkspaceAddress {
@@ -338,10 +338,12 @@ impl Core<'_, '_> {
             LimitsOwner::Hamlet(hamlet) => {
                 let id = super::state::hamlet_id(&hamlet);
                 if hamlets::find(db, &id)?.is_none() {
-                    return Ok(Err(Refusal::NoHamlet { id: hamlet }));
+                    return Ok(Err(Rejection::NoHamlet {
+                        id: hamlet,
+                    }));
                 }
                 if !authority::is_chief_of(db, chief, &id)? {
-                    return Ok(Err(Refusal::NotChief { hamlet }));
+                    return Ok(Err(Rejection::NotChief { hamlet }));
                 }
                 let current = super::state::hamlet_limits(
                     &limits::of(db, &id)?,
@@ -350,11 +352,11 @@ impl Core<'_, '_> {
                 let Ok(edited) = serde_json::from_value::<
                     protocol::Limits,
                 >(edited) else {
-                    return Ok(Err(Refusal::LimitsUnfit));
+                    return Ok(Err(Rejection::LimitsUnfit));
                 };
                 let own = limits_of(&edited);
                 if let Some(why) = own.fault() {
-                    return Ok(Err(Refusal::BadLimits { why }));
+                    return Ok(Err(Rejection::BadLimits { why }));
                 }
                 let done = self
                     .attempt(Actor::Chief(chief), |cx, _| {
@@ -371,14 +373,14 @@ impl Core<'_, '_> {
                 let Ok(edited) = serde_json::from_value::<
                     protocol::RealmLimits,
                 >(edited) else {
-                    return Ok(Err(Refusal::LimitsUnfit));
+                    return Ok(Err(Rejection::LimitsUnfit));
                 };
                 let own = RealmLimits {
                     channels_between: edited.channels_between,
                     budget: budget_of(&edited.budget),
                 };
                 if let Some(why) = own.budget.fault() {
-                    return Ok(Err(Refusal::BadLimits { why }));
+                    return Ok(Err(Rejection::BadLimits { why }));
                 }
                 diesel::replace_into(document::table)
                     .values((
@@ -447,22 +449,22 @@ impl Core<'_, '_> {
         Ok(())
     }
 
-    /// Refuses unless this server's chief keeps `profile`.
+    /// Rejects unless this server's chief keeps `profile`.
     fn keeps(&mut self, profile: ProfileId) -> Done<()> {
         let chief = self.realm.chief();
         let db = self.realm.store().connection();
         let Some(found) = city::find(db, profile)? else {
-            return Ok(Err(Refusal::NoProfile {
+            return Ok(Err(Rejection::NoProfile {
                 address: format!("profile#{profile}"),
             }));
         };
         if !found.is_living() {
-            return Ok(Err(Refusal::ProfileGone {
+            return Ok(Err(Rejection::ProfileGone {
                 name: found.label(),
             }));
         }
         if !authority::may_keep(db, Actor::Chief(chief), profile)? {
-            return Ok(Err(Refusal::NotOwner {
+            return Ok(Err(Rejection::NotOwner {
                 owner: found.label(),
             }));
         }
@@ -503,9 +505,9 @@ impl Core<'_, '_> {
             }
             Read::Prompt { agent, id } => {
                 let agent = AgentId(i64::try_from(agent.0)?);
-                if let Err(refusal) = self.reaches(agent)? {
+                if let Err(rejection) = self.reaches(agent)? {
                     return self
-                        .answer(client, reply(&id, Err(refusal)));
+                        .answer(client, reply(&id, Err(rejection)));
                 }
                 let conversation = self
                     .change(Actor::Chief(chief), |cx, env| {
@@ -529,9 +531,9 @@ impl Core<'_, '_> {
             }
             Read::History { agent, id } => {
                 let agent = AgentId(i64::try_from(agent.0)?);
-                if let Err(refusal) = self.reaches(agent)? {
+                if let Err(rejection) = self.reaches(agent)? {
                     return self
-                        .answer(client, reply(&id, Err(refusal)));
+                        .answer(client, reply(&id, Err(rejection)));
                 }
                 let history = self.pasts(agent)?;
                 ServerMessage::Read(ReadResult::History {
@@ -547,7 +549,7 @@ impl Core<'_, '_> {
                         to: id,
                     })
                 }
-                Err(refusal) => reply(&id, Err(refusal)),
+                Err(rejection) => reply(&id, Err(rejection)),
             },
         };
         self.answer(client, message)
@@ -567,7 +569,7 @@ impl Core<'_, '_> {
                 let Ok(worktree) =
                     knowledge::worktree(db, &layout, agent)
                 else {
-                    return Ok(Err(Refusal::NoOne {
+                    return Ok(Err(Rejection::NoOne {
                         address: agent.to_string(),
                     }));
                 };

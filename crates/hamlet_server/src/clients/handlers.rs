@@ -23,7 +23,7 @@ use super::connection::Event;
 use super::{Clients, Connections};
 use crate::app::input::{AddHandler, InputOrigin};
 use crate::core::Core;
-use crate::society::refusal::Refusal;
+use crate::society::rejection::Rejection;
 
 pub(crate) fn plugin(app: &mut App) {
     app.add_message::<ClientEvent>()
@@ -295,10 +295,10 @@ fn open(
          }| {
             let conversation = match core.watch_target(&open.chat)? {
                 Ok(conversation) => conversation,
-                Err(refusal) => {
+                Err(rejection) => {
                     core.answer(
                         client,
-                        reply(&open.id, Err(refusal)),
+                        reply(&open.id, Err(rejection)),
                     )?;
                     return Ok(());
                 }
@@ -342,7 +342,7 @@ fn new(
             let words = core.new_session(agent)?;
             core.answer(
                 client,
-                reply(&new.id, Ok::<_, Refusal>(words)),
+                reply(&new.id, Ok::<_, Rejection>(words)),
             )?;
             Ok(())
         },
@@ -432,7 +432,7 @@ fn stop(
             let words = core.stop_turns(&targets)?;
             core.answer(
                 client,
-                reply(&stop.id, Ok::<_, Refusal>(words)),
+                reply(&stop.id, Ok::<_, Rejection>(words)),
             )?;
             Ok(())
         },
@@ -543,7 +543,10 @@ fn rewind(
             {
                 core.answer(
                     client,
-                    reply(&rewind.id, Err(Refusal::RewindNotCurrent)),
+                    reply(
+                        &rewind.id,
+                        Err(Rejection::RewindNotCurrent),
+                    ),
                 )?;
                 return Ok(());
             }
@@ -568,7 +571,7 @@ fn rewind(
                         upload: None,
                     })
                 }
-                Err(refusal) => reply(&rewind.id, Err(refusal)),
+                Err(rejection) => reply(&rewind.id, Err(rejection)),
             };
             core.answer(client, answer)?;
             Ok(())

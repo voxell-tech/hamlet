@@ -77,9 +77,9 @@ async fn files_on_a_line_are_saved_in_the_inbox_and_named_in_its_item()
         name: "ghost.txt".into(),
         size: 1,
     };
-    let refused =
+    let rejected =
         s.chief.say_files(hand, "Nope.", vec![unsent]).await;
-    assert_eq!(refused.kind, ReplyKind::Error);
+    assert_eq!(rejected.kind, ReplyKind::Error);
 }
 
 #[tokio::test]
@@ -253,9 +253,9 @@ async fn a_file_mid_line_has_its_caption_in_place_for_the_model() {
         "{asked}"
     );
 
-    // A place inside a character is refused.
+    // A place inside a character is rejected.
     let mut inside = attached(&kept, "b.txt", 3);
     inside.at = Some(1);
-    let refused = s.chief.say_files(hand, "é", vec![inside]).await;
-    assert_eq!(refused.kind, ReplyKind::Error);
+    let rejected = s.chief.say_files(hand, "é", vec![inside]).await;
+    assert_eq!(rejected.kind, ReplyKind::Error);
 }

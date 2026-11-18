@@ -7,7 +7,8 @@ use bevy_fynix::ViewExt;
 use bevy_fynix::tokens::Tone;
 use bevy_fynix::views::{BehaviorExt, Label, label, menu_item};
 use hamlet_client::realm::{
-    self as agents, Busy, Deeds, HamletId, Identity, Kind, Lead, Left,
+    self as agents, Actions, Busy, HamletId, Identity, Kind, Lead,
+    Left,
 };
 use hamlet_protocol::client as protocol;
 use hamlet_realm::generator::society::Ground;
@@ -15,7 +16,7 @@ use hamlet_realm::pick::{Also, Selected, Thing, focus_on, select};
 use hamlet_realm::{moving, orders};
 use hamlet_ui::AnyView;
 
-use super::deed::Deed;
+use super::action::Action;
 use super::{close, restore, stop};
 use crate::screens::terminal::{Pins, pin};
 
@@ -48,13 +49,13 @@ pub(super) fn item(
         .boxed()
 }
 
-/// An item that asks before it does `deed`.
-fn asking(text: Label, deed: Deed, at: Vec2) -> AnyView {
+/// An item that asks before it does `action`.
+fn asking(text: Label, action: Action, at: Vec2) -> AnyView {
     menu_item(text.wrap(false))
         .on_activate(move |world| {
             super::ask_against(
                 world,
-                deed.clone(),
+                action.clone(),
                 Rect::from_corners(at, at),
             );
         })
@@ -68,7 +69,7 @@ fn add_under(world: &World, parent: Entity) -> Option<AnyView> {
         == Some(protocol::AgentKind::Hamlet);
     (of_hamlet
         && world.get::<Left>(parent).is_none()
-        && Deeds::is_allowed(world, "add-agent"))
+        && Actions::is_allowed(world, "add-agent"))
     .then(|| {
         item("Add Agent Under".into(), move |world| {
             super::ask_add_agent(world, parent);
@@ -87,7 +88,7 @@ fn channel(world: &World, agent: Entity) -> Option<AnyView> {
         == Some(protocol::AgentKind::Hamlet);
     (of_hamlet
         && world.get::<Left>(agent).is_none()
-        && Deeds::is_allowed(world, "channel"))
+        && Actions::is_allowed(world, "channel"))
     .then(|| {
         item("Open a Channel...".into(), move |world| {
             super::ask_channel(world, agent);
@@ -137,7 +138,7 @@ fn for_lead(world: &World) -> Vec<AnyView> {
 }
 
 fn for_ruin(world: &World, agent: Entity) -> Vec<AnyView> {
-    if Deeds::is_allowed(world, "restore") {
+    if Actions::is_allowed(world, "restore") {
         vec![item(
             format!("Restore {}", agents::shown_of(world, agent)),
             move |world| restore(world, agent),
@@ -180,13 +181,13 @@ fn for_agent(
         .find(|(other, _)| *other != agent);
     // Its channels are opened and closed in its details.
     if let Some((them, other)) =
-        other.filter(|_| Deeds::is_allowed(world, "merge"))
+        other.filter(|_| Actions::is_allowed(world, "merge"))
     {
-        let into_me = Deed::Merge {
+        let into_me = Action::Merge {
             absorbed: them,
             kept: agent,
         };
-        let into_other = Deed::Merge {
+        let into_other = Action::Merge {
             absorbed: agent,
             kept: them,
         };
@@ -201,17 +202,17 @@ fn for_agent(
             at,
         ));
     }
-    if Deeds::is_allowed(world, "lead") {
+    if Actions::is_allowed(world, "lead") {
         items.push(asking(
             label(format!("Make {me} Lead...")),
-            Deed::Lead(agent),
+            Action::Lead(agent),
             at,
         ));
     }
-    if Deeds::is_allowed(world, "end") {
+    if Actions::is_allowed(world, "end") {
         items.push(asking(
             label(format!("End {me}...")),
-            Deed::End(agent),
+            Action::End(agent),
             at,
         ));
     }
@@ -247,11 +248,11 @@ fn for_common(
         crate::reference::copy_hamlet(world, hamlet);
     }));
     // Last, and red, as nothing done to it is harder to undo.
-    if !id.is_empty() && Deeds::is_allowed(world, "remove-hamlet") {
+    if !id.is_empty() && Actions::is_allowed(world, "remove-hamlet") {
         items.push(asking(
             label(format!("Close Down {name}..."))
                 .tone(Tone::Critical),
-            Deed::Close(id),
+            Action::Close(id),
             at,
         ));
     }
@@ -336,7 +337,7 @@ pub(super) fn items(
             let housed = world
                 .get::<hamlet_client::realm::Profile>(profile)
                 .is_some_and(|s| s.0.house.is_some());
-            if housed && Deeds::is_allowed(world, "move-house") {
+            if housed && Actions::is_allowed(world, "move-house") {
                 items.push(item("Move House".into(), move |w| {
                     orders::carry_house(w, profile);
                 }));

@@ -9,7 +9,7 @@
 use std::path::PathBuf;
 
 use anyhow::{Result, bail};
-use hamlet_cli::process::{self, Action, Isolation};
+use hamlet_cli::process::{self, Isolation, ServiceAction};
 use hamlet_cli::{chat, terminal};
 
 const USAGE: &str = "usage: hamlet [--insecure]
@@ -55,7 +55,7 @@ Use Node from harnesses/pi/.nvmrc and npm ci --prefix harnesses/pi \
 
 enum Command {
     Help,
-    Service(Action),
+    Service(ServiceAction),
     Server {
         port: u16,
         faux: Option<String>,
@@ -95,7 +95,7 @@ fn parse(args: &[String]) -> Result<Command> {
         return Ok(Command::Help);
     }
     let Some(name) = args.first() else {
-        return Ok(Command::Service(Action::Start(
+        return Ok(Command::Service(ServiceAction::Start(
             Isolation::Sandboxed,
         )));
     };
@@ -108,15 +108,15 @@ fn parse(args: &[String]) -> Result<Command> {
             if let Some(arg) = rest.first() {
                 return Err(unknown(arg));
             }
-            Ok(Command::Service(Action::Start(insecure()?)))
+            Ok(Command::Service(ServiceAction::Start(insecure()?)))
         }
         "stop" | "status" | "window" => {
             if let Some(arg) = rest.first() {
                 return Err(unknown(arg));
             }
             Ok(match name.as_str() {
-                "stop" => Command::Service(Action::Stop),
-                "status" => Command::Service(Action::Status),
+                "stop" => Command::Service(ServiceAction::Stop),
+                "status" => Command::Service(ServiceAction::Status),
                 _ => Command::Window,
             })
         }

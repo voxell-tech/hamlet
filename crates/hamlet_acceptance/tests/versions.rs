@@ -67,7 +67,7 @@ async fn names_pins_reverts_and_forks_versions() {
         format!("/tag {at} main"),
         "/tag profile#999 v2".to_string(),
     ] {
-        s.chief.refused(hand, &line).await;
+        s.chief.rejected(hand, &line).await;
     }
 
     wait_for_character(&mut s, docs, "Brave.").await;
@@ -78,7 +78,7 @@ async fn names_pins_reverts_and_forks_versions() {
         said,
         "agent#2 (ada) takes v1 in once idle, and no later learning."
     );
-    s.chief.refused(hand, "/pin agent#2 v9").await;
+    s.chief.rejected(hand, "/pin agent#2 v9").await;
     character(&mut s, ada, "Careful.").await;
     assert_eq!(
         s.chief.papers(Keeper::Profile(ada)).await.character,
@@ -113,7 +113,7 @@ async fn names_pins_reverts_and_forks_versions() {
         s.chief.command(hand, &format!("/fork {at}@v1 bo")).await,
         "Forked profile#2 (ada) at v1 as bo."
     );
-    s.chief.refused(hand, &format!("/fork {at}@v9 cy")).await;
+    s.chief.rejected(hand, &format!("/fork {at}@v9 cy")).await;
     let bo = s.chief.profile("bo").unwrap().id;
     assert_eq!(
         s.chief.papers(Keeper::Profile(bo)).await.character,
@@ -171,6 +171,6 @@ async fn purges_a_file_from_every_commit_and_worktree() {
         format!("/purge {at} ../x"),
         "/purge profile#999 a.md".to_string(),
     ] {
-        s.chief.refused(hand, &line).await;
+        s.chief.rejected(hand, &line).await;
     }
 }

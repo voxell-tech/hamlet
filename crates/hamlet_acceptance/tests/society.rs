@@ -237,7 +237,7 @@ async fn a_parent_runs_the_agents_under_it_and_nothing_beyond_them() {
 }
 
 #[tokio::test]
-async fn letters_and_questions_go_along_channels_and_a_question_back_is_refused()
+async fn letters_and_questions_go_along_channels_and_a_question_back_is_rejected()
  {
     let mut s = Session::start(
         Faux::new()
@@ -311,7 +311,7 @@ async fn letters_and_questions_go_along_channels_and_a_question_back_is_refused(
     let back = failures(&s.chief, &questions);
     assert_eq!(back.len(), 1);
     assert_eq!(back[0].0, "ask");
-    assert!(back[0].1.is_some(), "asking back is refused: {back:?}");
+    assert!(back[0].1.is_some(), "asking back is rejected: {back:?}");
     let cy = s.chief.agent("agent#3").unwrap();
     let kinds = cy
         .conversations

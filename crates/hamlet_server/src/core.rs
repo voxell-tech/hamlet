@@ -25,7 +25,7 @@ use crate::attachments::files::FileUpload;
 use crate::attachments::images::uploads::ImageUpload;
 use crate::calls::looks::LookFindings;
 use crate::calls::tool_runs::ToolRuns;
-use crate::clients::commands::Deeds;
+use crate::clients::commands::Actions;
 use crate::clients::connection::UploadOf;
 use crate::clients::fold::Fold;
 use crate::clients::{Clients, Connections, ConversationWatcher};
@@ -185,7 +185,7 @@ pub(crate) struct Core<'w, 's> {
     /// The runtimes' inputs that ended, followed once kept.
     pub ended: MessageWriter<'w, InputEnded>,
     /// The chief's commands.
-    pub deeds: Res<'w, Deeds>,
+    pub actions: Res<'w, Actions>,
     /// The input's spawns and despawns, applied after it.
     pub commands: Commands<'w, 's>,
     pub uploads: Uploads<'w, 's>,
@@ -244,8 +244,8 @@ impl Core<'_, '_> {
         Ok(made)
     }
 
-    /// Makes a change by `actor` that may be refused, leaving nothing
-    /// of it when it is.
+    /// Makes a change by `actor` that may be rejected, leaving
+    /// nothing of it when it is.
     pub fn attempt<T>(
         &mut self,
         actor: Actor,

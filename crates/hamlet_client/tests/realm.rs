@@ -40,8 +40,10 @@ fn recorded_hello_fills_the_realm_and_the_servers_words() {
     assert_eq!(world.resource::<Confinement>().0, confinement);
     assert_eq!(world.resource::<Settings>().0.model, model);
     assert!(world.resource::<Grants>().0.is_empty());
-    assert!(world.resource::<Deeds>().is_supported("stop"));
-    assert!(world.resource::<Deeds>().is_supported("create-hamlet"));
+    assert!(world.resource::<Actions>().is_supported("stop"));
+    assert!(
+        world.resource::<Actions>().is_supported("create-hamlet")
+    );
     assert_eq!(
         id_of(world, hand),
         Some(world.resource::<HandId>().0)

@@ -111,7 +111,7 @@ async fn edits_the_charter_character_and_memory_and_the_prompt_follows()
     assert!(charter.text.contains("`bash`"), "{}", charter.text);
 
     // An empty text removes a memory file; a path outside memory/ is
-    // refused.
+    // rejected.
     edit(&mut s.chief, |id| Edit::Memory {
         id,
         of: Keeper::Profile(profile),
@@ -137,7 +137,7 @@ async fn edits_the_charter_character_and_memory_and_the_prompt_follows()
 }
 
 #[tokio::test]
-async fn edits_limits_one_key_or_whole_and_refuses_misshapen_ones() {
+async fn edits_limits_one_key_or_whole_and_rejects_misshapen_ones() {
     let mut s = Session::start(Faux::new()).await;
     s.found("docs", "ada", "keep the docs").await;
     let docs = s.chief.hamlet_id("docs");
@@ -207,7 +207,7 @@ async fn edits_limits_one_key_or_whole_and_refuses_misshapen_ones() {
         !s.chief.messages()[before..]
             .iter()
             .any(|m| matches!(m, ServerMessage::Change(_))),
-        "a refused edit changes nothing"
+        "a rejected edit changes nothing"
     );
 
     let before = s.chief.messages().len();
@@ -226,7 +226,7 @@ async fn edits_limits_one_key_or_whole_and_refuses_misshapen_ones() {
         !s.chief.messages()[before..]
             .iter()
             .any(|m| matches!(m, ServerMessage::Change(_))),
-        "a refused limit changes nothing"
+        "a rejected limit changes nothing"
     );
 
     // The realm has limits of its own.
@@ -249,7 +249,7 @@ async fn edits_limits_one_key_or_whole_and_refuses_misshapen_ones() {
 }
 
 #[tokio::test]
-async fn edits_settings_and_refuses_bad_ones() {
+async fn edits_settings_and_rejects_bad_ones() {
     let mut s = Session::start(Faux::new()).await;
     let reply = edit(&mut s.chief, |id| Edit::Settings {
         id,

@@ -9,7 +9,7 @@ use hamlet_store::ids::{Actor, TaskId, WaitId};
 use hamlet_store::schema::{objection, wait};
 
 use super::society::args::{Called, Object};
-use super::{Answer, Call, held, refused, said};
+use super::{Answer, Call, held, rejected, said};
 use crate::conversations::marks::Mark;
 use crate::conversations::{inputs, tasks};
 use crate::core::Core;
@@ -122,7 +122,7 @@ impl Core<'_, '_> {
         call: &Call<'_>,
     ) -> Result<std::result::Result<Outcome, Answer>> {
         let Some(task) = self.instruction(call)? else {
-            return Ok(Ok(refused(
+            return Ok(Ok(rejected(
                 "Only a chief's instruction can be objected to, in \
                  the turn that works on it.",
             )));
@@ -164,12 +164,12 @@ impl Core<'_, '_> {
             match Called::read(Society::Object, call.arguments) {
                 Ok(Called::Object(Object { reason })) => reason,
                 Ok(_) => String::new(),
-                Err(refusal) => {
-                    return Ok(Ok(refused(refusal.to_string())));
+                Err(rejection) => {
+                    return Ok(Ok(rejected(rejection.to_string())));
                 }
             };
         if reason.is_empty() {
-            return Ok(Ok(refused("Say why you object.")));
+            return Ok(Ok(rejected("Say why you object.")));
         }
         let instruction =
             tasks::get(db, task)?.text.unwrap_or_default();

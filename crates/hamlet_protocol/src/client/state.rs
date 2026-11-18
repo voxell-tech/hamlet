@@ -14,13 +14,13 @@ use crate::client::{
 )]
 #[serde(deny_unknown_fields)]
 pub struct State {
+    pub actions: Vec<Action>,
     /// The Hand, every agent of a hamlet and every worker, living
     /// and ended.
     pub agents: Vec<Agent>,
     pub chief: String,
     pub closed: Vec<ClosedHamlet>,
     pub confinement: Confinement,
-    pub deeds: Vec<Deed>,
     pub epoch: i64,
     pub grants: Vec<Grant>,
     pub hamlets: Vec<Hamlet>,
@@ -704,7 +704,7 @@ pub enum GrantSource {
     Clone, Debug, PartialEq, Serialize, Deserialize, JsonSchema,
 )]
 #[serde(deny_unknown_fields)]
-pub struct Deed {
+pub struct Action {
     pub description: String,
     pub name: String,
     pub usage: String,

@@ -470,12 +470,15 @@ fn quick(world: &World, agent: Entity) -> Vec<AnyView> {
         "Start a new session",
         move |world| {
             crate::convo::talk_to(world, agent);
-            world_menu::ask(world, world_menu::Deed::NewSession);
+            world_menu::ask(world, world_menu::Action::NewSession);
         },
     )];
     if living
         && kind == Some(protocol::AgentKind::Hamlet)
-        && hamlet_client::realm::Deeds::is_allowed(world, "add-agent")
+        && hamlet_client::realm::Actions::is_allowed(
+            world,
+            "add-agent",
+        )
     {
         buttons.push(icon_button(
             Glyph::Plus,
@@ -1293,12 +1296,12 @@ mod tests {
         assert_eq!(sent["text"], "Saved character");
         receive(
             &mut app,
-            json!({"type": "reply", "to": sent["id"], "kind": "error", "text": "Character refused"}),
+            json!({"type": "reply", "to": sent["id"], "kind": "error", "text": "Character rejected"}),
         );
         assert!(
             words(&mut app)
                 .iter()
-                .any(|text| text == "Character refused")
+                .any(|text| text == "Character rejected")
         );
         // A memory file of the agent's worktree is edited the same
         // way, and removed by sending no text.

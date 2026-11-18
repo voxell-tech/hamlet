@@ -29,7 +29,7 @@ pub fn state() -> protocol::State {
             "budget": {"period": "day", "cost": 5, "minutes": null}
         },
         "realm": "/tmp/hamlet-test", "library": [], "closed": [],
-        "deeds": [], "terminals": []
+        "actions": [], "terminals": []
     })).unwrap()
 }
 
@@ -131,11 +131,11 @@ pub fn channel(
     }
 }
 
-/// The advertised deeds named `names`.
-pub fn deeds(names: &[&str]) -> Vec<protocol::Deed> {
+/// The advertised actions named `names`.
+pub fn actions(names: &[&str]) -> Vec<protocol::Action> {
     names
         .iter()
-        .map(|name| protocol::Deed {
+        .map(|name| protocol::Action {
             name: (*name).into(),
             usage: String::new(),
             description: String::new(),

@@ -17,7 +17,7 @@ use protocol::{ImportProject, Imported};
 use tokio::sync::oneshot;
 
 use crate::files::{
-    FilesForget, FilesKept, FilesRefused, Gather, Gathered,
+    FilesForget, FilesKept, FilesRejected, Gather, Gathered,
     UploadFiles, off_frame,
 };
 use crate::messages::{Reconnected, Response};
@@ -33,7 +33,7 @@ pub(crate) fn plugin(app: &mut App) {
         .add_observer(bring_in)
         .add_observer(gathered)
         .add_observer(kept)
-        .add_observer(refused)
+        .add_observer(rejected)
         .add_observer(answered)
         .add_observer(lost)
         .add_systems(Update, collect.run_if(waiting));
@@ -395,11 +395,11 @@ fn kept(kept: On<FilesKept>, mut commands: Commands) {
     });
 }
 
-fn refused(refused: On<FilesRefused>, mut commands: Commands) {
-    if refused.key != KEY {
+fn rejected(rejected: On<FilesRejected>, mut commands: Commands) {
+    if rejected.key != KEY {
         return;
     }
-    let why = refused.text.clone();
+    let why = rejected.text.clone();
     commands.queue(move |world: &mut World| failed(world, why));
 }
 

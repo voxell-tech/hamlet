@@ -17,7 +17,7 @@ use crate::society::oversight::gate::{self, TurnGate};
 use crate::society::oversight::{
     self, Danger, Ruling, Wait, WaitKind,
 };
-use crate::society::refusal::Refusal;
+use crate::society::rejection::Rejection;
 
 /// The fault in a chief's choice that cannot answer a wait so.
 #[derive(Debug, thiserror::Error)]
@@ -220,28 +220,28 @@ impl Core<'_, '_> {
         choice: &Choice,
         text: Option<&str>,
         picks: Option<&[Pick]>,
-    ) -> Result<std::result::Result<String, Refusal>> {
+    ) -> Result<std::result::Result<String, Rejection>> {
         let chief = self.realm.chief();
         let Ok(number) = id.trim_start_matches('#').parse::<i64>()
         else {
-            return Ok(Err(Refusal::NoWait));
+            return Ok(Err(Rejection::NoWait));
         };
         let db = self.realm.store().connection();
         let Some(wait) = oversight::find(db, WaitId(number))?
             .filter(|wait| wait.open)
         else {
-            return Ok(Err(Refusal::NoWait));
+            return Ok(Err(Rejection::NoWait));
         };
         if let Some(agent) = wait.agent
-            && let Err(refusal) = self.reaches(agent)?
+            && let Err(rejection) = self.reaches(agent)?
         {
-            return Ok(Err(refusal));
+            return Ok(Err(rejection));
         }
         let text =
             match words(&wait, choice, text.unwrap_or(""), picks)? {
                 Ok(text) => text,
                 Err(why) => {
-                    return Ok(Err(Refusal::WaitUnanswerable {
+                    return Ok(Err(Rejection::WaitUnanswerable {
                         why: why.to_string(),
                     }));
                 }
@@ -271,7 +271,7 @@ impl Core<'_, '_> {
             Ok(true)
         })?;
         if !settled {
-            return Ok(Err(Refusal::NoWait));
+            return Ok(Err(Rejection::NoWait));
         }
         for ruled in ruled {
             self.wake_call(&ruled.call.runtime, &ruled.call.key);

@@ -561,7 +561,7 @@ fn new_and_resumed_conversations_keep_their_received_number() {
 }
 
 #[test]
-fn a_refused_page_can_be_requested_again() {
+fn a_rejected_page_can_be_requested_again() {
     use hamlet_client::chats::earlier;
     let mut app = app();
     let chat = app

@@ -15,7 +15,7 @@ use crate::core::Core;
 use crate::realm::change::Done;
 use crate::society::addresses::{self, Reach};
 use crate::society::oversight::{self, gate};
-use crate::society::refusal::Refusal;
+use crate::society::rejection::Rejection;
 
 /// The commands that oversee the agents' work.
 pub(super) const OVERSIGHT: &[Command] = &[
@@ -208,14 +208,14 @@ impl Core<'_, '_> {
         let (Some(address), Some(permission)) =
             (words.next(), words.next())
         else {
-            return Ok(Err(self.deeds.usage("revoke")));
+            return Ok(Err(self.actions.usage("revoke")));
         };
         let Some(permission) = gate::permission(permission) else {
-            return Ok(Err(self.deeds.usage("revoke")));
+            return Ok(Err(self.actions.usage("revoke")));
         };
         let address = match addresses::parse(address) {
             Ok(address) => address,
-            Err(refusal) => return Ok(Err(refusal)),
+            Err(rejection) => return Ok(Err(rejection)),
         };
         let db = self.realm.store().connection();
         let target = match addresses::resolve(
@@ -225,10 +225,10 @@ impl Core<'_, '_> {
             Reach::Kept,
         )? {
             Ok(target) => target,
-            Err(refusal) => return Ok(Err(refusal)),
+            Err(rejection) => return Ok(Err(rejection)),
         };
-        if let Err(refusal) = self.reaches(target)? {
-            return Ok(Err(refusal));
+        if let Err(rejection) = self.reaches(target)? {
+            return Ok(Err(rejection));
         }
         let chief = self.realm.chief();
         let db = self.realm.store().connection();
@@ -267,15 +267,15 @@ impl Core<'_, '_> {
         let Some((address, text)) =
             rest.split_once(char::is_whitespace)
         else {
-            return Ok(Err(self.deeds.usage("to")));
+            return Ok(Err(self.actions.usage("to")));
         };
         let text = text.trim();
         if text.is_empty() {
-            return Ok(Err(self.deeds.usage("to")));
+            return Ok(Err(self.actions.usage("to")));
         }
         let address = match addresses::parse(address) {
             Ok(address) => address,
-            Err(refusal) => return Ok(Err(refusal)),
+            Err(rejection) => return Ok(Err(rejection)),
         };
         let db = self.realm.store().connection();
         let target = match addresses::resolve(
@@ -285,10 +285,10 @@ impl Core<'_, '_> {
             Reach::Living,
         )? {
             Ok(target) => target,
-            Err(refusal) => return Ok(Err(refusal)),
+            Err(rejection) => return Ok(Err(rejection)),
         };
-        if let Err(refusal) = self.reaches(target)? {
-            return Ok(Err(refusal));
+        if let Err(rejection) = self.reaches(target)? {
+            return Ok(Err(rejection));
         }
         let chief = self.realm.chief();
         let line = self.credentials.scrub_text(text);
@@ -323,7 +323,7 @@ impl Core<'_, '_> {
         brief: &str,
     ) -> Done<String> {
         if brief.is_empty() {
-            return Ok(Err(self.deeds.usage("worker")));
+            return Ok(Err(self.actions.usage("worker")));
         }
         let chief = self.realm.chief();
         let db = self.realm.store().connection();
@@ -347,7 +347,7 @@ impl Core<'_, '_> {
                 },
             )? {
                 Ok(id) => id,
-                Err(refusal) => return Ok(Err(refusal)),
+                Err(rejection) => return Ok(Err(rejection)),
             };
             // A worker no model can run would never start.
             if !crate::conversations::models::has_model(
@@ -356,7 +356,7 @@ impl Core<'_, '_> {
                 &env.overrides,
                 id,
             )? {
-                return Ok(Err(Refusal::NoModelSetUp));
+                return Ok(Err(Rejection::NoModelSetUp));
             }
             crate::conversations::briefs::give(
                 cx,

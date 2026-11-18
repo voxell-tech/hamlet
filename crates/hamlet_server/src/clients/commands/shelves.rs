@@ -9,7 +9,7 @@ use crate::core::Core;
 use crate::knowledge::library;
 use crate::realm::change::Done;
 use crate::society::library::{self as shelf, Event, EventKind};
-use crate::society::refusal::Refusal;
+use crate::society::rejection::Rejection;
 
 /// The commands about the library's shelves and dreams.
 pub(super) const SHELVES: &[Command] = &[
@@ -36,7 +36,7 @@ impl Core<'_, '_> {
         words: &[&str],
     ) -> Done<String> {
         let [skill, reason @ ..] = words else {
-            return Ok(Err(self.deeds.usage("unshelve")));
+            return Ok(Err(self.actions.usage("unshelve")));
         };
         let reason = reason.join(" ");
         let chief = self.realm.chief();
@@ -54,7 +54,7 @@ impl Core<'_, '_> {
             library::unshelve(&layout, skill, &message, &by, at)?;
         drop(held);
         let Some(commit) = unshelved else {
-            return Ok(Err(Refusal::NoSkill {
+            return Ok(Err(Rejection::NoSkill {
                 name: (*skill).into(),
             }));
         };

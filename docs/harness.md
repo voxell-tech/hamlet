@@ -55,10 +55,10 @@ connections.
 2. The runtime says `hello`: the protocol versions it speaks, its adapter and
    harness versions, the runtime ID its store records, whether the store
    was created, opened or is missing, and its capabilities.
-3. The server refuses a protocol version it does not speak, a missing store, a
+3. The server rejects a protocol version it does not speak, a missing store, a
    store that records another runtime or none, versions other than those
    the runtime began with, and a runtime that lacks a needed capability.
-   The refusal is in words for a chief, never a fallback, and a refused
+   The rejection is in words for a chief, never a fallback, and a rejected
    runtime is not started again.
 4. Otherwise the server answers `welcome` with the tools the runtime's
    conversations may offer and each bound conversation's context window,
@@ -117,7 +117,7 @@ for it.
 ## Capabilities
 
 A runtime declares what it can do in its `hello`. What Hamlet never gives
-up is not optional: a runtime that lacks it is refused (S24).
+up is not optional: a runtime that lacks it is rejected (S24).
 
 | Capability | Promises | Needed |
 |---|---|---|

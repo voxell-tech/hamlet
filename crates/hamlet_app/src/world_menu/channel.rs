@@ -12,7 +12,7 @@ use bevy_fynix::views::{
 };
 use bevy_fynix::{ScopedExt, ViewExt, derived, every_frame, keyed};
 use hamlet_client::realm::{
-    self as agents, Deeds, Kind, Left, channel_between,
+    self as agents, Actions, Kind, Left, channel_between,
 };
 use hamlet_protocol::client as protocol;
 use hamlet_realm::orders;
@@ -110,7 +110,7 @@ fn list(agent: Entity) -> impl View {
 /// The form a channel from `agent` is opened with.
 pub(super) fn channel(agent: Entity, at: Vec2) -> impl View {
     built(move |cx| {
-        if !Deeds::is_allowed(cx.world, "channel")
+        if !Actions::is_allowed(cx.world, "channel")
             || cx.world.get_entity(agent).is_err()
         {
             return cx.build(frame());

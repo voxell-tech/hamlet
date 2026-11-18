@@ -20,15 +20,15 @@ use self::args::{
     SetAllowance, SetLead, SetModel, SetTools,
 };
 use super::looks::Look;
-use super::{Call, refused, said};
+use super::{Call, rejected, said};
 use crate::core::Core;
-use crate::realm::change::{Change, Done, done, refuse};
+use crate::realm::change::{Change, Done, done, reject};
 use crate::realm::settings::EffectiveSettings;
 use crate::society::addresses::{self, Reach};
 use crate::society::agents::{self, AgentKind, EndHow};
 use crate::society::hamlet_agents::{self, ProfileChoice, Spec};
 use crate::society::hamlets::{self, Founding};
-use crate::society::refusal::Refusal;
+use crate::society::rejection::Rejection;
 use crate::society::spend::{self, micros, money};
 use crate::society::{authority, channels, city, limits, record};
 use crate::tools::builtin::Outcome;
@@ -44,10 +44,12 @@ pub(super) enum Step {
 }
 
 impl Step {
-    fn of(result: Result<String, Refusal>) -> Self {
+    fn of(result: Result<String, Rejection>) -> Self {
         match result {
             Ok(words) => Self::Done(said(words)),
-            Err(refusal) => Self::Done(refused(refusal.to_string())),
+            Err(rejection) => {
+                Self::Done(rejected(rejection.to_string()))
+            }
         }
     }
 }
@@ -62,7 +64,7 @@ impl Core<'_, '_> {
     ) -> Result<Step> {
         let called = match Called::read(tool, call.arguments) {
             Ok(called) => called,
-            Err(refusal) => return Ok(Step::of(Err(refusal))),
+            Err(rejection) => return Ok(Step::of(Err(rejection))),
         };
         match called {
             Called::Tell(args) => self.tell(call, args),
@@ -348,7 +350,7 @@ impl Core<'_, '_> {
                     hamlet_agents::find(db, hamlet_agent)?
                 else {
                     let name = addresses::name_of(db, hamlet_agent)?;
-                    refuse!(Refusal::NotHamletAgent { name });
+                    reject!(Rejection::NotHamletAgent { name });
                 };
                 let hamlet = found.hamlet;
                 let name = self.name(hamlet_agent)?;
@@ -379,7 +381,9 @@ impl Core<'_, '_> {
                 let id = HamletId(hamlet);
                 let db = self.realm.store().connection();
                 if hamlets::find(db, &id)?.is_none() {
-                    refuse!(Refusal::NoHamlet { id: id.to_string() });
+                    reject!(Rejection::NoHamlet {
+                        id: id.to_string()
+                    });
                 }
                 Ok(Ok(record::lines(db, &id, 0)?))
             }
@@ -392,7 +396,7 @@ impl Core<'_, '_> {
             | Called::StartWorker(_)
             | Called::SubmitSkill(_)
             | Called::AskLibrarian(_) => {
-                Ok(Err(Refusal::Unsupported {
+                Ok(Err(Rejection::Unsupported {
                     what: format!("the tool {}", call.tool),
                 }))
             }
@@ -482,7 +486,7 @@ impl Core<'_, '_> {
     ) -> Done<AgentId> {
         let address = match addresses::parse(address) {
             Ok(address) => address,
-            Err(refusal) => refuse!(refusal),
+            Err(rejection) => reject!(rejection),
         };
         let db = self.realm.store().connection();
         addresses::resolve(db, &address, here, Reach::Living)
@@ -501,7 +505,7 @@ impl Core<'_, '_> {
         let db = self.realm.store().connection();
         if agents::get(db, agent)?.kind != AgentKind::Hamlet {
             let name = addresses::name_of(db, agent)?;
-            refuse!(Refusal::NotHamletAgent { name });
+            reject!(Rejection::NotHamletAgent { name });
         }
         if agent == caller
             || !authority::may_direct(
@@ -511,7 +515,7 @@ impl Core<'_, '_> {
             )?
         {
             let name = addresses::name_of(db, agent)?;
-            refuse!(Refusal::NotParent { name });
+            reject!(Rejection::NotParent { name });
         }
         Ok(Ok(agent))
     }
@@ -540,13 +544,13 @@ impl Core<'_, '_> {
         let hamlet = match (here, named_hamlet.is_empty()) {
             (Some(here), _) => here.clone(),
             (None, false) => HamletId(named_hamlet),
-            (None, true) => refuse!(Refusal::NoHamletToAddTo),
+            (None, true) => reject!(Rejection::NoHamletToAddTo),
         };
         let parent = if under.is_empty() {
             let db = self.realm.store().connection();
             if agents::get(db, agent)?.kind == AgentKind::Hand {
                 if hamlets::find(db, &hamlet)?.is_none() {
-                    refuse!(Refusal::NoHamlet {
+                    reject!(Rejection::NoHamlet {
                         id: hamlet.to_string(),
                     });
                 }
@@ -565,7 +569,7 @@ impl Core<'_, '_> {
                 )?
             {
                 let name = addresses::name_of(db, found)?;
-                refuse!(Refusal::NotParent { name });
+                reject!(Rejection::NotParent { name });
             }
             found
         };
@@ -576,7 +580,7 @@ impl Core<'_, '_> {
                 name: blank,
                 character: self.env.settings.character.clone(),
             },
-            (false, false) => refuse!(Refusal::AddBoth),
+            (false, false) => reject!(Rejection::AddBoth),
         };
         let task = self.task_of(call)?;
         let db = self.realm.store().connection();
@@ -589,7 +593,7 @@ impl Core<'_, '_> {
             )?
         {
             let name = city::get(db, *profile)?.label();
-            refuse!(Refusal::ProfileNotOwn { name });
+            reject!(Rejection::ProfileNotOwn { name });
         }
         let overseer = task_chief(db, task)?;
         let owner = authority::owner_for(
@@ -601,7 +605,7 @@ impl Core<'_, '_> {
         // An agent says what it adds an agent for; only a chief may
         // leave it to the new agent's first message.
         if purpose.is_empty() {
-            refuse!(Refusal::NoPurpose);
+            reject!(Rejection::NoPurpose);
         }
         self.carry(call, |cx, _| {
             let added = done!(hamlet_agents::add(
@@ -634,7 +638,7 @@ impl Core<'_, '_> {
         let agent = call.conversation.agent;
         let db = self.realm.store().connection();
         if !hamlet_agents::is_lead(db, agent)? {
-            refuse!(Refusal::NotLead);
+            reject!(Rejection::NotLead);
         }
         let mine = done!(self.named(&mine, here));
         let theirs = done!(self.named(&theirs, None));

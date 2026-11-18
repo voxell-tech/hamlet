@@ -83,7 +83,7 @@ pub fn plugin(app: &mut App) {
         .init_resource::<Decreed>()
         .add_observer(answered)
         .add_observer(failed)
-        .add_observer(refused)
+        .add_observer(rejected)
         .add_systems(
             PreUpdate,
             (raise, judged, keep, settle)
@@ -390,13 +390,13 @@ fn failed(
 }
 
 /// The commands the window made, from the world, a form or a button
-/// rather than typed in a chat, whose refusal would otherwise be said
-/// only in the chat they went to.
+/// rather than typed in a chat, whose rejection would otherwise be
+/// said only in the chat they went to.
 #[derive(Resource, Default)]
 pub(crate) struct Decreed(HashSet<RequestId>);
 
 /// Watches the command just queued, the last thing sent, so that its
-/// refusal is toasted.
+/// rejection is toasted.
 pub(crate) fn watch_last(world: &mut World) {
     let last = world.resource::<Outbox>().iter().last().and_then(
         |message| match message {
@@ -412,8 +412,8 @@ pub(crate) fn watch_last(world: &mut World) {
     }
 }
 
-/// A command given from the world that the server refused.
-fn refused(
+/// A command given from the world that the server rejected.
+fn rejected(
     response: On<Response>,
     time: Res<Time>,
     mut decreed: ResMut<Decreed>,
@@ -1239,7 +1239,7 @@ mod tests {
     }
 
     #[test]
-    fn a_command_from_the_world_that_is_refused_toasts() {
+    fn a_command_from_the_world_that_is_rejected_toasts() {
         let mut app = panel_app();
         app.add_plugins(plugin).add_observer(chat::decreed);
         app.world_mut().trigger(hamlet_realm::orders::Decree {
@@ -1259,14 +1259,14 @@ mod tests {
         let [say] = &said[..] else {
             panic!("one command: {said:?}");
         };
-        let refusal = serde_json::from_value(serde_json::json!({
+        let rejection = serde_json::from_value(serde_json::json!({
             "type": "reply",
             "to": say.id,
             "kind": "error",
             "text": "the house would stand on another",
         }))
         .unwrap();
-        hamlet_client::receive(app.world_mut(), refusal);
+        hamlet_client::receive(app.world_mut(), rejection);
         let shown = &app.world().resource::<Toasts>().shown;
         assert!(matches!(
             &shown[..],

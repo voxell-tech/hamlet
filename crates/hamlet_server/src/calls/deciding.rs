@@ -150,7 +150,7 @@ impl Core<'_, '_> {
         tool: Society,
         args: serde_json::Value,
     ) -> Classified {
-        // Arguments that do not fit are refused once the call runs.
+        // Arguments that do not fit are rejected once the call runs.
         let paths = match Called::read(tool, call.arguments) {
             Ok(
                 Called::Tell(Tell { paths, .. })
@@ -183,8 +183,8 @@ impl Core<'_, '_> {
                 files,
                 bytes,
             }),
-            Err(refusal) => {
-                Err(self.block(call, refusal.to_string())?)
+            Err(rejection) => {
+                Err(self.block(call, rejection.to_string())?)
             }
         })
     }

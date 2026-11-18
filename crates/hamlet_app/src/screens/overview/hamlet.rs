@@ -23,7 +23,7 @@ use bevy_fynix::views::{
 use bevy_fynix::{
     ScopedExt, ViewExt, derived, every_frame, keyed, resource, style,
 };
-use hamlet_client::realm::{Deeds, Works};
+use hamlet_client::realm::{Actions, Works};
 use hamlet_realm::orders::Decree;
 use hamlet_realm::pick::{Thing, select};
 use hamlet_ui::styles::{
@@ -475,7 +475,8 @@ pub fn hamlet(hamlet: Entity) -> impl View {
             .into_iter()
             .find(|row| row.hamlet == hamlet)
             .map(|facts| {
-                let has = |deed| Deeds::is_allowed(world, deed);
+                let has =
+                    |command| Actions::is_allowed(world, command);
                 (
                     facts,
                     has("move-hamlet"),
@@ -484,7 +485,7 @@ pub fn hamlet(hamlet: Entity) -> impl View {
                 )
             })
     })
-    .when(either(stale(), moved::<Deeds>()));
+    .when(either(stale(), moved::<Actions>()));
     let head = keyed(facts, move |facts| {
         let Some((facts, carry, close, (adds, workers, tier))) =
             facts

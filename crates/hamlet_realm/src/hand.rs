@@ -165,7 +165,7 @@ pub struct PlaySettings {
     pub heart_time: f32,
 }
 
-/// A deed the chief asked of the server by hand.
+/// An action the chief asked of the server by hand.
 #[derive(Message, Clone, Debug, PartialEq)]
 pub enum Wish {
     /// A channel between two agents.

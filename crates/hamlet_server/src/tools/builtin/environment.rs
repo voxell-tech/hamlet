@@ -41,7 +41,7 @@ pub(super) trait Reach {
         &mut self,
         path: &str,
     ) -> Result<Vec<u8>, FileError>;
-    /// The text of a file, refused unless it is UTF-8.
+    /// The text of a file, rejected unless it is UTF-8.
     async fn read_text(
         &mut self,
         path: &str,
@@ -369,7 +369,7 @@ fn malformed() -> FileError {
     }
 }
 
-/// What `stat` saw of a remote path, refused unless its name is one.
+/// What `stat` saw of a remote path, rejected unless its name is one.
 fn checked(
     stat: hamlet_workspace_wire::Stat,
 ) -> Result<FileInfo, FileError> {

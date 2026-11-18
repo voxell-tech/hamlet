@@ -96,7 +96,7 @@ async fn sessions_are_numbered_and_come_back() {
         s.chief.command(hand, "/resume 1").await,
         "Back in session 1."
     );
-    s.chief.refused(hand, "/resume 9").await;
+    s.chief.rejected(hand, "/resume 9").await;
 }
 
 #[tokio::test]

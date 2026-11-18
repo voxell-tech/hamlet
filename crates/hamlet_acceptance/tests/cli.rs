@@ -265,7 +265,7 @@ async fn asks_for_approvals_and_keeps_them_across_a_crash() {
 }
 
 #[tokio::test]
-async fn edits_limits_in_editor_and_reports_a_refusal() {
+async fn edits_limits_in_editor_and_reports_a_rejection() {
     let mut s = Session::start(Faux::new()).await;
     s.found("docs", "ada", "keep the docs").await;
     let docs = s.chief.hamlet_id("docs");
@@ -299,9 +299,9 @@ async fn edits_limits_in_editor_and_reports_a_refusal() {
         realm.seen()
     );
     let broken = editor(&s, "broken", "echo '{' > \"$1\"");
-    let refused =
+    let rejected =
         edit(&s, &["limits", "--hamlet", &docs], &broken).await;
-    assert_eq!(refused.code(), Some(1), "{refused:?}");
+    assert_eq!(rejected.code(), Some(1), "{rejected:?}");
     assert_eq!(
         s.chief.hamlet("docs").unwrap().limits.budget.cost,
         Some(8.0)

@@ -242,13 +242,15 @@ _Avoid_: permission, whitelist
 **Trust**:
 A grant for the rest of a session.
 
-### Deeds and answers
+### Actions and rejections
 
-**Deed**:
-An action a chief asks the realm to carry out, advertised by the server.
+**Action**:
+Something a chief asks the realm to carry out, advertised by the server.
+_Avoid_: deed, operation
 
-**Refusal**:
+**Rejection**:
 An answer saying why an action cannot be carried out.
+_Avoid_: refusal, denial
 
 ### Records and the library
 

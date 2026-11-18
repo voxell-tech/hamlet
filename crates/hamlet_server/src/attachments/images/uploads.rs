@@ -15,7 +15,7 @@ use crate::app::tasks::BackgroundResult;
 use crate::clients::check::{failed, fault, reply};
 use crate::clients::connection::UploadOf;
 use crate::core::Core;
-use crate::society::refusal::Refusal;
+use crate::society::rejection::Rejection;
 
 /// The most images one connection sends at once.
 const MOST_UPLOADS: usize = 32;
@@ -40,7 +40,7 @@ impl Core<'_, '_> {
     ) -> ServerMessage {
         let PutImage { id, size } = put;
         let Some(connection) = self.connections.entity(client) else {
-            return reply(&id, Err(Refusal::ConnectionClosing));
+            return reply(&id, Err(Rejection::ConnectionClosing));
         };
         let sending = self
             .uploads
@@ -48,17 +48,17 @@ impl Core<'_, '_> {
             .iter()
             .filter(|(_, of, _)| of.0 == connection)
             .count();
-        let refusal = if size == 0 {
-            Some(Refusal::ImageEmpty)
+        let rejection = if size == 0 {
+            Some(Rejection::ImageEmpty)
         } else if size > MOST_BYTES as u64 {
-            Some(Refusal::ImageTooBig)
+            Some(Rejection::ImageTooBig)
         } else if sending >= MOST_UPLOADS {
-            Some(Refusal::TooManyImagesSent)
+            Some(Rejection::TooManyImagesSent)
         } else {
             None
         };
-        if let Some(refusal) = refusal {
-            return reply(&id, Err(refusal));
+        if let Some(rejection) = rejection {
+            return reply(&id, Err(rejection));
         }
         let upload = uuid::Uuid::new_v4().simple().to_string();
         self.commands.spawn((
@@ -71,7 +71,7 @@ impl Core<'_, '_> {
         ));
         let mut answer = reply(
             &id,
-            Ok::<_, Refusal>("Ready for the image.".into()),
+            Ok::<_, Rejection>("Ready for the image.".into()),
         );
         if let ServerMessage::Reply(answer) = &mut answer {
             answer.upload = Some(upload);
@@ -85,7 +85,8 @@ impl Core<'_, '_> {
         client: u64,
         part: PutImagePart,
     ) -> Result<ServerMessage> {
-        let refuse = |refusal: Refusal| reply(&part.id, Err(refusal));
+        let reject =
+            |rejection: Rejection| reply(&part.id, Err(rejection));
         let connection = self.connections.entity(client);
         let Some((entity, _, mut sending)) =
             self.uploads.images.iter_mut().find(
@@ -95,27 +96,27 @@ impl Core<'_, '_> {
                 },
             )
         else {
-            return Ok(refuse(Refusal::NoImageUpload));
+            return Ok(reject(Rejection::NoImageUpload));
         };
         let Ok(bytes) = base64::engine::general_purpose::STANDARD
             .decode(&part.data)
         else {
-            return Ok(refuse(Refusal::NotBase64));
+            return Ok(reject(Rejection::NotBase64));
         };
         let received = sending.bytes.len() as u64;
         if part.offset != received {
-            return Ok(refuse(Refusal::ImageContinuesAt {
+            return Ok(reject(Rejection::ImageContinuesAt {
                 received,
             }));
         }
         if received + bytes.len() as u64 > sending.size {
-            return Ok(refuse(Refusal::ImageLongerThanDeclared));
+            return Ok(reject(Rejection::ImageLongerThanDeclared));
         }
         sending.bytes.extend_from_slice(&bytes);
         if (sending.bytes.len() as u64) < sending.size {
             return Ok(reply(
                 &part.id,
-                Ok::<_, Refusal>("Received the image part.".into()),
+                Ok::<_, Rejection>("Received the image part.".into()),
             ));
         }
         let whole = std::mem::take(&mut sending.bytes);
@@ -125,14 +126,14 @@ impl Core<'_, '_> {
             Ok((image, _)) => {
                 let mut answer = reply(
                     &part.id,
-                    Ok::<_, Refusal>("Kept the image.".into()),
+                    Ok::<_, Rejection>("Kept the image.".into()),
                 );
                 if let ServerMessage::Reply(answer) = &mut answer {
                     answer.image = Some(image);
                 }
                 answer
             }
-            Err(unusable) => refuse(Refusal::ImageUnusable {
+            Err(unusable) => reject(Rejection::ImageUnusable {
                 why: capitalised(&unusable.to_string()),
             }),
         })
@@ -172,7 +173,7 @@ impl Core<'_, '_> {
                 }
                 Ok(Ok(None)) => reply(
                     &id,
-                    Err(Refusal::NoImage {
+                    Err(Rejection::NoImage {
                         image: image.to_string(),
                     }),
                 ),

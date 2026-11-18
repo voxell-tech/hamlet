@@ -450,7 +450,7 @@ pub(crate) fn changes(
 ) -> Option<Vec<Update>> {
     let whole = old.closed != new.closed
         || old.library != new.library
-        || old.deeds != new.deeds
+        || old.actions != new.actions
         || old.hand != new.hand
         || old.limits != new.limits
         || old.confinement != new.confinement

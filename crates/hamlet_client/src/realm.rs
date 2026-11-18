@@ -311,29 +311,29 @@ pub struct Providers(pub Vec<protocol::ProviderView>);
 #[derive(Resource, Clone, Debug, Default, PartialEq)]
 pub struct Grants(pub Vec<protocol::Grant>);
 
-/// The names of the chief's deeds supported by the server.
+/// The names of the chief's actions supported by the server.
 #[derive(Resource, Clone, Debug, Default, PartialEq)]
-pub struct Deeds(pub Vec<String>);
+pub struct Actions(pub Vec<String>);
 
-impl Deeds {
-    /// Membership in the server's supported deeds.
+impl Actions {
+    /// Membership in the server's supported actions.
     pub fn is_supported(&self, name: &str) -> bool {
-        self.0.iter().any(|deed| deed == name)
+        self.0.iter().any(|action| action == name)
     }
 
-    /// Whether the server supports the deed `name`, as `world` last
+    /// Whether the server supports the action `name`, as `world` last
     /// heard: never before its state is received.
     pub fn is_allowed(world: &World, name: &str) -> bool {
         world
-            .get_resource::<Deeds>()
-            .is_some_and(|deeds| deeds.is_supported(name))
+            .get_resource::<Actions>()
+            .is_some_and(|actions| actions.is_supported(name))
     }
 }
 
-/// The chief's deeds supported by the server, each with how its
+/// The chief's actions supported by the server, each with how its
 /// command is typed and what it does.
 #[derive(Resource, Clone, Debug, Default, PartialEq)]
-pub struct DeedUsage(pub Vec<protocol::Deed>);
+pub struct ActionUsage(pub Vec<protocol::Action>);
 
 /// The last applied server epoch and revision.
 #[derive(Resource, Clone, Copy, Debug, PartialEq, Eq)]
@@ -595,15 +595,15 @@ pub(crate) fn state(world: &mut World, state: protocol::State) {
     replace(world, Grants(state.grants));
     replace(
         world,
-        Deeds(
+        Actions(
             state
-                .deeds
+                .actions
                 .iter()
-                .map(|deed| deed.name.clone())
+                .map(|action| action.name.clone())
                 .collect(),
         ),
     );
-    replace(world, DeedUsage(state.deeds));
+    replace(world, ActionUsage(state.actions));
     world.insert_resource(Seen {
         epoch: state.epoch,
         revision: state.revision,

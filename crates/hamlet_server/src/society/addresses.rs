@@ -12,9 +12,9 @@ use hamlet_store::schema::{agent, hamlet_agent, profile, worker};
 
 use super::agents::{self, AgentKind};
 use super::names::hamlet_id;
-use super::refusal::Refusal;
+use super::rejection::Rejection;
 use super::{chiefs, hamlets, hand, tree};
-use crate::realm::change::{Done, done, refuse};
+use crate::realm::change::{Done, done, reject};
 
 /// A name for an agent.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -52,9 +52,9 @@ pub(crate) enum Reach {
 
 /// Reads an address: `hand`, `lead`, `lead@<hamlet>`, `agent#<id>`
 /// or `worker#<id>`.
-pub(crate) fn parse(text: &str) -> Result<Address, Refusal> {
+pub(crate) fn parse(text: &str) -> Result<Address, Rejection> {
     let text = text.trim();
-    let bad = || Refusal::BadAddress {
+    let bad = || Rejection::BadAddress {
         address: text.into(),
     };
     if text == "hand" {
@@ -80,12 +80,12 @@ pub(crate) fn parse(text: &str) -> Result<Address, Refusal> {
 /// Reads a profile's address, `profile#<id>`.
 pub(crate) fn parse_profile(
     text: &str,
-) -> Result<ProfileId, Refusal> {
+) -> Result<ProfileId, Rejection> {
     let text = text.trim();
     text.strip_prefix("profile#")
         .and_then(|id| id.parse::<i64>().ok())
         .map(ProfileId)
-        .ok_or_else(|| Refusal::BadAddress {
+        .ok_or_else(|| Rejection::BadAddress {
             address: text.into(),
         })
 }
@@ -102,14 +102,14 @@ pub(crate) fn resolve(
     here: Option<&HamletId>,
     reach: Reach,
 ) -> Done<AgentId> {
-    let none = || Refusal::NoOne {
+    let none = || Rejection::NoOne {
         address: address.to_string(),
     };
     match address {
         Address::Hand => Ok(Ok(hand::id(db)?)),
         Address::Lead { hamlet } => {
             let Some(hamlet) = hamlet.as_ref().or(here) else {
-                refuse!(none());
+                reject!(none());
             };
             done!(hamlets::living(db, hamlet));
             Ok(Ok(tree::lead(db, hamlet)?))
@@ -124,7 +124,7 @@ pub(crate) fn resolve(
                 {
                     Ok(Ok(*id))
                 }
-                _ => refuse!(none()),
+                _ => reject!(none()),
             }
         }
         Address::Agent(id) => {
@@ -142,7 +142,7 @@ pub(crate) fn resolve(
             }
             match query.first::<AgentId>(db).optional()? {
                 Some(found) => Ok(Ok(found)),
-                None => refuse!(none()),
+                None => reject!(none()),
             }
         }
     }

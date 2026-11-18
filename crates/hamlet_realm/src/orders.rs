@@ -1,10 +1,10 @@
-//! The chief's deeds by hand, carried to the server as commands, and
-//! the moves of what the hand set down.
+//! The chief's actions by hand, carried to the server as commands,
+//! and the moves of what the hand set down.
 
 use bevy::prelude::*;
 use hamlet_client::ViewFolder;
 use hamlet_client::realm::{
-    self as agents, Deeds, HamletId, Profile,
+    self as agents, Actions, HamletId, Profile,
 };
 
 use crate::chief::{Kept, Player, Stands};
@@ -50,7 +50,7 @@ pub fn decree(world: &mut World, agent: Entity, text: String) {
 
 /// Opens a channel between two agents at the chief's word.
 fn channel(world: &mut World, a: Entity, b: Entity) {
-    if !Deeds::is_allowed(world, "channel") {
+    if !Actions::is_allowed(world, "channel") {
         return;
     }
     if let (Some(a_name), Some(b_name)) =
@@ -62,7 +62,7 @@ fn channel(world: &mut World, a: Entity, b: Entity) {
 
 /// Closes the channel between two agents at the chief's word.
 pub fn part(world: &mut World, a: Entity, b: Entity) {
-    if !Deeds::is_allowed(world, "unchannel") {
+    if !Actions::is_allowed(world, "unchannel") {
         return;
     }
     if let (Some(a_name), Some(b_name)) =
@@ -81,7 +81,7 @@ pub fn introduce(world: &mut World, a: Entity, b: Entity) {
 /// Takes the town of `hamlet` in hand, to be set down with a click
 /// on the ground.
 pub fn carry(world: &mut World, hamlet: Entity) {
-    if !Deeds::is_allowed(world, "move-hamlet") {
+    if !Actions::is_allowed(world, "move-hamlet") {
         return;
     }
     if let Some(town) = town_of(world, hamlet) {
@@ -92,7 +92,7 @@ pub fn carry(world: &mut World, hamlet: Entity) {
 /// Takes the house of `profile` in hand, to be set down with a click
 /// on the ground.
 pub fn carry_house(world: &mut World, profile: Entity) {
-    if !Deeds::is_allowed(world, "move-house") {
+    if !Actions::is_allowed(world, "move-house") {
         return;
     }
     if let Some(profile) = world.get::<Profile>(profile) {
@@ -106,7 +106,7 @@ pub fn carry_house(world: &mut World, profile: Entity) {
 fn set_down(world: &mut World, set: SetDown) {
     match set.place {
         Ground::Town(town) => {
-            if !Deeds::is_allowed(world, "move-hamlet") {
+            if !Actions::is_allowed(world, "move-hamlet") {
                 return;
             }
             let Some(hamlet) = hamlet_of(world, town) else {
@@ -146,7 +146,7 @@ fn set_down(world: &mut World, set: SetDown) {
             world.resource_mut::<Stood>().0 = Some(set.to);
         }
         Ground::House(id) => {
-            if !Deeds::is_allowed(world, "move-house") {
+            if !Actions::is_allowed(world, "move-house") {
                 return;
             }
             let turn = world

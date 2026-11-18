@@ -572,7 +572,7 @@ fn state_wire() -> Value {
         "hamlets": [hamlet_wire()], "agents": [hand_wire(), agent_wire()], "waits": [wait_wire()],
         "grants": grants_wire(), "settings": settings_wire(), "providers": providers_wire(),
         "realm": "/home/chief/.hamlet", "hand": 1, "profiles": [profile_wire()], "limits": {"channelsBetween": true, "budget": {"period": "day", "cost": 5.0, "minutes": null}}, "library": [], "closed": [],
-        "deeds": [{"name": "mode", "usage": "<manual|auto>", "description": "Whether agents ask before they change the folder"}],
+        "actions": [{"name": "mode", "usage": "<manual|auto>", "description": "Whether agents ask before they change the folder"}],
         "terminals": [terminal_wire()]
     })
 }

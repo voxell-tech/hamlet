@@ -149,7 +149,7 @@ async fn a_command_writes_only_in_its_house_and_reaches_the_network_only_with_le
         json!({"command": outside}),
     )
     .await;
-    let refused = call(
+    let rejected = call(
         &place,
         Network::Closed,
         "bash",
@@ -163,17 +163,17 @@ async fn a_command_writes_only_in_its_house_and_reaches_the_network_only_with_le
         fs::read_to_string(place.worktree.join("note.txt")).unwrap(),
         "kept\n"
     );
-    assert!(refused.error);
-    assert!(refused.text.ends_with(
+    assert!(rejected.error);
+    assert!(rejected.text.ends_with(
         "\n[The sandbox lets a command write only inside the \
          workspace, which is its working directory. Use a relative \
          path there, not /tmp or another folder.]"
     ));
     assert_eq!(
-        refused.diagnostics[0].message,
+        rejected.diagnostics[0].message,
         "Command exited with code 1"
     );
-    assert_eq!(refused.details.unwrap()["exitCode"], json!(1));
+    assert_eq!(rejected.details.unwrap()["exitCode"], json!(1));
     assert!(away.error);
     assert!(!elsewhere.join("x").exists());
 
@@ -374,8 +374,8 @@ async fn writes_and_edits_nothing_out_of_reach() {
     let full = write(format!("{}/x", text(&elsewhere))).await;
     let linked = write("out/sub/x".into()).await;
 
-    for refused in [&up, &full, &linked] {
-        assert!(refused.error);
+    for rejected in [&up, &full, &linked] {
+        assert!(rejected.error);
     }
     assert_eq!(
         full.diagnostics[0].message,

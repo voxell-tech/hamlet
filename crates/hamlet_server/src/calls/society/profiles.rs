@@ -14,7 +14,7 @@ use crate::core::Core;
 use crate::knowledge::CHARACTER;
 use crate::realm::change::{Done, done};
 use crate::society::city::{self, CHARACTER_MOST};
-use crate::society::refusal::Refusal;
+use crate::society::rejection::Rejection;
 use crate::society::{addresses, authority, names};
 
 /// The most of a file `read_profile` gives.
@@ -31,18 +31,18 @@ impl Core<'_, '_> {
         let address = address.to_owned();
         let id = match addresses::parse_profile(&address) {
             Ok(id) => id,
-            Err(refusal) => return Ok(Err(refusal)),
+            Err(rejection) => return Ok(Err(rejection)),
         };
         let db = self.realm.store().connection();
         let Some(found) = city::living(db, id)? else {
-            return Ok(Err(Refusal::NoProfile { address }));
+            return Ok(Err(Rejection::NoProfile { address }));
         };
         if !authority::may_keep(
             db,
             Actor::Agent(call.conversation.agent),
             found.id,
         )? {
-            return Ok(Err(Refusal::ProfileNotOwn {
+            return Ok(Err(Rejection::ProfileNotOwn {
                 name: found.label(),
             }));
         }
@@ -63,7 +63,7 @@ impl Core<'_, '_> {
         let wanted = if version.is_empty() { MAIN } else { version };
         Ok(match repo.resolve(wanted)? {
             Some(commit) => Ok(commit),
-            None => Err(Refusal::NoVersion {
+            None => Err(Rejection::NoVersion {
                 name: name.into(),
                 version: wanted.into(),
             }),
@@ -109,7 +109,7 @@ impl Core<'_, '_> {
                 }
                 Ok(words)
             }
-            None => Err(Refusal::NoFile { path }),
+            None => Err(Rejection::NoFile { path }),
         })
     }
 
@@ -129,12 +129,12 @@ impl Core<'_, '_> {
             || path.starts_with('/')
             || path.split('/').any(|part| part == "..")
         {
-            return Ok(Err(Refusal::NoFile { path }));
+            return Ok(Err(Rejection::NoFile { path }));
         }
         if path == CHARACTER
             && content.chars().count() > CHARACTER_MOST
         {
-            return Ok(Err(Refusal::LongCharacter));
+            return Ok(Err(Rejection::LongCharacter));
         }
         let change = if content.is_empty() {
             GitChange::Remove { path: path.clone() }
@@ -170,14 +170,14 @@ impl Core<'_, '_> {
         } = args;
         let profile = done!(self.kept_profile(call, &name));
         let repo = self.repository(profile)?;
-        if let Err(refusal) = names::check_version(&tag) {
-            return Ok(Err(refusal));
+        if let Err(rejection) = names::check_version(&tag) {
+            return Ok(Err(rejection));
         }
         if tag == MAIN || repo.resolve(&tag)?.is_some() {
-            return Ok(Err(Refusal::VersionTaken { version: tag }));
+            return Ok(Err(Rejection::VersionTaken { version: tag }));
         }
         let Some(at) = repo.tip(MAIN)? else {
-            return Ok(Err(Refusal::NoVersion {
+            return Ok(Err(Rejection::NoVersion {
                 name,
                 version: MAIN.into(),
             }));

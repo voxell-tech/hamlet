@@ -390,7 +390,7 @@ pub fn open_menu() -> impl View {
         bevy_fynix::derived(|world: &World| {
             (
                 world.resource::<OpenMenu>().0,
-                hamlet_client::realm::Deeds::is_allowed(
+                hamlet_client::realm::Actions::is_allowed(
                     world,
                     "create-hamlet",
                 ),
@@ -400,7 +400,7 @@ pub fn open_menu() -> impl View {
         .when(crate::roll::either(
             crate::roll::either(
                 crate::roll::moved::<OpenMenu>(),
-                crate::roll::moved::<hamlet_client::realm::Deeds>(),
+                crate::roll::moved::<hamlet_client::realm::Actions>(),
             ),
             crate::roll::moved::<Updates>(),
         )),
@@ -448,7 +448,7 @@ mod tests {
         assert!(!shown.contains("Run in Background"));
         assert!(!shown.contains("Quit Hamlet"));
         assert!(!shown.contains("Create a Hamlet..."));
-        app.insert_resource(hamlet_client::realm::Deeds(vec![
+        app.insert_resource(hamlet_client::realm::Actions(vec![
             "create-hamlet".into(),
         ]));
         app.update();

@@ -1,5 +1,5 @@
 //! How a runtime introduces itself and the server takes it on or
-//! refuses it.
+//! rejects it.
 
 use std::collections::BTreeMap;
 
@@ -43,7 +43,7 @@ pub enum HelloStore {
     Missing,
 }
 
-/// A thing a runtime can do; the server refuses a runtime that lacks
+/// A thing a runtime can do; the server rejects a runtime that lacks
 /// one Hamlet needs.
 #[derive(
     Clone, Debug, PartialEq, Serialize, Deserialize, JsonSchema,
@@ -88,7 +88,7 @@ pub struct Welcome {
     Clone, Debug, PartialEq, Serialize, Deserialize, JsonSchema,
 )]
 #[serde(deny_unknown_fields)]
-pub struct Refused {
+pub struct Rejected {
     #[schemars(length(min = 1))]
     pub id: String,
     #[schemars(length(min = 1))]

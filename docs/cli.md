@@ -78,7 +78,7 @@ runs in then ends pi and every command with it.
 
 ## Typed commands
 
-The server advertises its supported deeds in the state it sends, and
+The server advertises its supported actions in the state it sends, and
 `clients/commands.rs` carries them out: hamlets and agents, the tree and its channels,
 versions of a profile, the library, the record, the budget and what waits.
 The server parses commands; the terminal handles only `/hand`, `/hamlet` and

@@ -11,7 +11,7 @@ use crate::society::addresses::{self, Reach};
 use crate::society::agents::{self, AgentKind, Effort, EndHow};
 use crate::society::hamlet_agents::{self, ProfileChoice, Spec};
 use crate::society::hamlets::{self, Founding, Mode};
-use crate::society::refusal::Refusal;
+use crate::society::rejection::Rejection;
 use crate::society::{
     authority, channels, city, record, spend, workers,
 };
@@ -278,17 +278,17 @@ fn by(core: &Core<'_, '_>) -> Actor {
     Actor::Chief(core.realm.chief())
 }
 
-/// The usage of `line`'s command, as its refusal.
+/// The usage of `line`'s command, as its rejection.
 fn usage(core: &Core<'_, '_>, line: &Line) -> Answer {
-    Ok(Err(core.deeds.usage(&line.name)))
+    Ok(Err(core.actions.usage(&line.name)))
 }
 
-/// Refuses as it is, or goes on with what was found.
+/// Rejects as it is, or goes on with what was found.
 macro_rules! found {
     ($result:expr) => {
         match $result? {
             Ok(found) => found,
-            Err(refusal) => return Ok(Err(refusal)),
+            Err(rejection) => return Ok(Err(rejection)),
         }
     };
 }
@@ -818,7 +818,7 @@ fn folder(core: &mut Core<'_, '_>, line: &Line) -> Answer {
     if let Some(folder) = &folder
         && !std::path::Path::new(folder).is_dir()
     {
-        return Ok(Err(Refusal::NoFile {
+        return Ok(Err(Rejection::NoFile {
             path: folder.clone(),
         }));
     }
@@ -927,7 +927,7 @@ fn name_profile(core: &mut Core<'_, '_>, line: &Line) -> Answer {
     let by = by(core);
     let db = core.realm.store().connection();
     if !authority::may_keep(db, by, profile)? {
-        return Ok(Err(Refusal::NotOwner {
+        return Ok(Err(Rejection::NotOwner {
             owner: addresses::profile_name_of(db, profile)?,
         }));
     }
@@ -949,14 +949,14 @@ fn kept_profile(
 ) -> crate::realm::change::Done<(hamlet_store::ids::ProfileId, String)>
 {
     let Some(text) = line.words().first().copied() else {
-        return Ok(Err(core.deeds.usage(&line.name)));
+        return Ok(Err(core.actions.usage(&line.name)));
     };
     let profile = found!(core.profile_at(text, reach));
     let by = by(core);
     let db = core.realm.store().connection();
     let shown = addresses::profile_name_of(db, profile)?;
     if !authority::may_keep(db, by, profile)? {
-        return Ok(Err(Refusal::NotOwner { owner: shown }));
+        return Ok(Err(Rejection::NotOwner { owner: shown }));
     }
     Ok(Ok((profile, shown)))
 }

@@ -9,8 +9,8 @@ use hamlet_store::schema::{agent, worker};
 
 use super::agents::{self, AgentKind, EndHow};
 use super::hamlet_agents;
-use super::refusal::Refusal;
-use crate::realm::change::{Change, Done, done, refuse};
+use super::rejection::Rejection;
+use crate::realm::change::{Change, Done, done, reject};
 
 /// Who starts a worker.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -64,16 +64,16 @@ pub(crate) fn start(
     start: Start,
 ) -> Done<AgentId> {
     if start.brief.trim().is_empty() {
-        refuse!(Refusal::NoBrief);
+        reject!(Rejection::NoBrief);
     }
     let hamlet = match start.starter {
         Starter::Agent(starter) => {
             let found = agents::get(cx.db, starter)?;
             if !found.is_living() {
-                refuse!(hamlet_agents::left(cx.db, starter)?);
+                reject!(hamlet_agents::left(cx.db, starter)?);
             }
             match found.kind {
-                AgentKind::Worker => refuse!(Refusal::Worker),
+                AgentKind::Worker => reject!(Rejection::Worker),
                 AgentKind::Hand => None,
                 AgentKind::Hamlet => {
                     Some(hamlet_agents::get(cx.db, starter)?.hamlet)
@@ -134,7 +134,7 @@ pub(crate) fn set_name(
     done!(hamlet_agents::require_living(cx.db, id));
     let name = match hamlet_agents::check_name(name) {
         Ok(name) => name,
-        Err(refusal) => refuse!(refusal),
+        Err(rejection) => reject!(rejection),
     };
     diesel::update(worker::table.find(id))
         .set(worker::name.eq(name))

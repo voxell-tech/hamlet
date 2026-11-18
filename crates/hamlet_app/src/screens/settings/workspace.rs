@@ -28,7 +28,7 @@ use super::{Pane, alone, field};
 use crate::PanelSystems;
 use crate::overview::heading;
 use crate::secret::secret_field;
-use crate::world_menu::{self, Deed};
+use crate::world_menu::{self, Action};
 
 pub(super) fn plugin(app: &mut App) {
     app.init_resource::<Draft>()
@@ -58,7 +58,7 @@ struct Draft {
     saved: bool,
     /// The move of the worktrees asked for and not yet answered.
     moving: Option<protocol::RequestId>,
-    refusal: String,
+    rejection: String,
 }
 
 /// Starts the draft from the chosen workspace each time the page
@@ -104,7 +104,7 @@ fn save(world: &mut World) {
     let mut draft = world.resource_mut::<Draft>();
     draft.saving = Some(id);
     draft.saved = false;
-    draft.refusal.clear();
+    draft.rejection.clear();
 }
 
 /// Asks the server to copy the worktrees to the saved workspace. The
@@ -117,7 +117,7 @@ pub(crate) fn move_worktrees(world: &mut World) {
     });
     let mut draft = world.resource_mut::<Draft>();
     draft.moving = Some(id);
-    draft.refusal.clear();
+    draft.rejection.clear();
 }
 
 fn answered(response: On<Response>, mut draft: ResMut<Draft>) {
@@ -127,10 +127,10 @@ fn answered(response: On<Response>, mut draft: ResMut<Draft>) {
             protocol::ServerMessage::Reply(reply)
                 if reply.kind == protocol::ReplyKind::Error =>
             {
-                draft.refusal.clone_from(&reply.text);
+                draft.rejection.clone_from(&reply.text);
             }
             protocol::ServerMessage::Fault(fault) => {
-                draft.refusal.clone_from(&fault.text);
+                draft.rejection.clone_from(&fault.text);
             }
             _ => {}
         }
@@ -143,10 +143,10 @@ fn answered(response: On<Response>, mut draft: ResMut<Draft>) {
         protocol::ServerMessage::Reply(reply)
             if reply.kind == protocol::ReplyKind::Error =>
         {
-            draft.refusal.clone_from(&reply.text);
+            draft.rejection.clone_from(&reply.text);
         }
         protocol::ServerMessage::Fault(fault) => {
-            draft.refusal.clone_from(&fault.text);
+            draft.rejection.clone_from(&fault.text);
         }
         protocol::ServerMessage::Reply(_) => {
             draft.token.clear();
@@ -179,7 +179,7 @@ fn move_of(
 }
 
 /// What moving the worktrees does, how far it has come or how it
-/// ended. A failure is the refusal's to tell.
+/// ended. A failure is the rejection's to tell.
 fn progress(settings: &Settings) -> String {
     use protocol::SettingsViewWorkspaceMoveState as State;
     if !is_waiting_for_restart(settings) {
@@ -223,7 +223,7 @@ fn moving() -> AnyView {
         |offered| {
             if *offered {
                 bad_action(Glyph::Send, "Move worktrees", |world| {
-                    world_menu::ask(world, Deed::MoveWorktrees);
+                    world_menu::ask(world, Action::MoveWorktrees);
                 })
             } else {
                 frame().boxed()
@@ -297,7 +297,7 @@ pub(super) fn page() -> impl View {
             note(resource::<Settings, _>(pending)),
         )),
         moved(),
-        label(resource::<Draft, _>(|draft| draft.refusal.clone()))
+        label(resource::<Draft, _>(|draft| draft.rejection.clone()))
             .tone(Tone::Critical),
     ))
 }
@@ -540,7 +540,7 @@ mod tests {
     }
 
     #[test]
-    fn worktrees_move_to_the_saved_workspace_with_their_progress_and_refusal_shown()
+    fn worktrees_move_to_the_saved_workspace_with_their_progress_and_rejection_shown()
      {
         use protocol::SettingsViewWorkspaceMoveState as State;
         let url = Some("https://workspace.example");

@@ -52,8 +52,8 @@ pub(super) fn gist(text: &str, most: usize) -> Option<String> {
     Some(format!("{kept}..."))
 }
 
-/// The deed of an agent at work, for a thought with no words.
-pub(super) fn deed(doing: Doing) -> Option<&'static str> {
+/// The action of an agent at work, for a thought with no words.
+pub(super) fn action(doing: Doing) -> Option<&'static str> {
     Some(match doing {
         Doing::Unknown | Doing::Think => return None,
         Doing::Read(Paper::File) => "Reading a file",

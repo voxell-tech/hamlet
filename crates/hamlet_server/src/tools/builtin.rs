@@ -35,7 +35,7 @@ use self::parcel::{Sent, To};
 use self::shell::{Dialect, Shells};
 use crate::attachments::images::Limits;
 use crate::realm::change::Done;
-use crate::society::refusal::Refusal;
+use crate::society::rejection::Rejection;
 
 const FILE_TOOLS: [&str; 5] =
     ["read", "write", "edit", "search", "find"];
@@ -447,7 +447,7 @@ impl ToolSession {
                     Ok(env) => env,
                     Err(unopened) => {
                         return Ok(Err(
-                            Refusal::WorkspaceNotOpened {
+                            Rejection::WorkspaceNotOpened {
                                 error: unopened.to_string(),
                             },
                         ));
@@ -717,8 +717,8 @@ fn firsts(
     ])
 }
 
-/// The arguments of a call, refused as pi refuses ones that break the
-/// tool's parameters.
+/// The arguments of a call, rejected as pi rejects ones that break
+/// the tool's parameters.
 struct Arguments<'a> {
     tool: &'a str,
     map: &'a Map<String, Value>,

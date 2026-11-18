@@ -27,7 +27,7 @@ use bevy_fynix::views::{
 };
 use bevy_fynix::{ScopedExt, ViewExt, derived, every_frame, keyed};
 use hamlet_client::realm::{
-    self as agents, Deeds, HamletId, Kind, Left, Profile,
+    self as agents, Actions, HamletId, Kind, Left, Profile,
     profile_address,
 };
 use hamlet_protocol::client as protocol;
@@ -80,18 +80,18 @@ enum Named {
 /// archived.
 fn named(world: &World, named: Entity) -> Option<Named> {
     if let Some(id) = world.get::<HamletId>(named) {
-        return Deeds::is_allowed(world, "name-hamlet")
+        return Actions::is_allowed(world, "name-hamlet")
             .then(|| Named::Hamlet(id.0.clone()));
     }
     if let Some(profile) = world.get::<Profile>(named) {
         return (profile.0.left.is_none()
-            && Deeds::is_allowed(world, "name-profile"))
+            && Actions::is_allowed(world, "name-profile"))
         .then_some(Named::Profile(profile.0.id));
     }
     let kind = world.get::<Kind>(named)?.0;
     (kind != protocol::AgentKind::Hand
         && world.get::<Left>(named).is_none()
-        && Deeds::is_allowed(world, "name-agent"))
+        && Actions::is_allowed(world, "name-agent"))
     .then(|| Named::Agent(agents::name_of(world, named)))
 }
 

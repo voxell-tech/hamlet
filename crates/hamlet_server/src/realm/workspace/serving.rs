@@ -26,7 +26,7 @@ use crate::knowledge;
 use crate::knowledge::worker::RepositoryWriteLock;
 use crate::realm::Realm;
 use crate::realm::jobs::Job;
-use crate::society::refusal::Refusal;
+use crate::society::rejection::Rejection;
 use crate::society::{agents, hamlet_agents, hamlets};
 use crate::tools::builtin::Network;
 use crate::tools::hamlet_of;
@@ -223,7 +223,7 @@ impl Core<'_, '_> {
         else {
             return self.answer(
                 client,
-                reply(id, Err(Refusal::NoWorkspaceChosen)),
+                reply(id, Err(Rejection::NoWorkspaceChosen)),
             );
         };
         let transport = Transport::new(chosen)?;
@@ -284,7 +284,7 @@ impl Core<'_, '_> {
             let last = progress(of, of, stage);
             let answer = match failed {
                 None => Ok(last.text.clone()),
-                Some(error) => Err(Refusal::MoveFailed { error }),
+                Some(error) => Err(Rejection::MoveFailed { error }),
             };
             report.send(BackgroundResult::Moving {
                 progress: last,

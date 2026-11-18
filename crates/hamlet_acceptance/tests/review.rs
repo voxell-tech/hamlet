@@ -90,7 +90,7 @@ async fn a_chief_starts_a_worker_and_reads_its_answer() {
     )
     .await;
     let ada = s.found("docs", "ada", "keep the docs").await;
-    s.chief.refused(ada, "/worker").await;
+    s.chief.rejected(ada, "/worker").await;
     let said = s.chief.command(ada, "/worker count the files").await;
     assert!(said.starts_with("Started worker#3;"), "{said}");
     let worker = s.chief.id("worker#3");

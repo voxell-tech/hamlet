@@ -251,7 +251,7 @@ fn a_town_is_not_set_down_on_water_or_on_another_place() {
     let town = TownId(0);
     let site = s.town(town).unwrap().site;
     let stood = land.sites.clone();
-    let refused = |s: &mut Society, land: &mut Land, to, why| {
+    let rejected = |s: &mut Society, land: &mut Land, to, why| {
         assert_eq!(s.move_town(land, town, to), Err(why));
         assert_eq!(land.sites, stood);
     };
@@ -263,10 +263,10 @@ fn a_town_is_not_set_down_on_water_or_on_another_place() {
         })
         .find(|&p| land.river_dist(p) < 1.0)
         .unwrap();
-    refused(&mut s, &mut land, river, Unfit::Water);
+    rejected(&mut s, &mut land, river, Unfit::Water);
 
     let there = land.sites[s.town(other).unwrap().site].at;
-    refused(
+    rejected(
         &mut s,
         &mut land,
         there + Vec2::new(20.0, 5.0),
@@ -280,7 +280,7 @@ fn a_town_is_not_set_down_on_water_or_on_another_place() {
         })
         .find(|&p| land.mound(p) > 0.5)
         .unwrap();
-    refused(&mut s, &mut land, peak, Unfit::Steep);
+    rejected(&mut s, &mut land, peak, Unfit::Steep);
 
     // Nor on ground something else holds, and nothing is
     // founded there.
@@ -290,7 +290,7 @@ fn a_town_is_not_set_down_on_water_or_on_another_place() {
         at: to + Vec2::new(10.0, 0.0),
         radius: 12.0,
     });
-    refused(&mut s, &mut land, to, Unfit::Crowded);
+    rejected(&mut s, &mut land, to, Unfit::Crowded);
     // A town stays on the hamlet island, and the Hearth in the city.
     assert_eq!(
         s.fits(&land, Ground::Chief, there),

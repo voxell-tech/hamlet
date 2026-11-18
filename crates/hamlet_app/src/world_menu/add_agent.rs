@@ -13,7 +13,7 @@ use bevy_fynix::views::{
     frame, label, popup, row, text_field,
 };
 use bevy_fynix::{ScopedExt, ViewExt, derived, every_frame, keyed};
-use hamlet_client::realm::{self as agents, Deeds, Profile};
+use hamlet_client::realm::{self as agents, Actions, Profile};
 use hamlet_protocol::client as protocol;
 use hamlet_realm::orders;
 use hamlet_ui::styles::{
@@ -248,7 +248,7 @@ fn command(world: &World, parent: Entity) -> String {
 
 /// Adds an agent of the one the form chose under `parent`.
 pub(super) fn submit(world: &mut World, parent: Entity) {
-    if !Deeds::is_allowed(world, "add-agent")
+    if !Actions::is_allowed(world, "add-agent")
         || world.get_entity(parent).is_err()
     {
         return;
@@ -262,7 +262,7 @@ pub(super) fn submit(world: &mut World, parent: Entity) {
 /// The form an agent is added under `parent` with.
 pub(super) fn form(parent: Entity, at: Vec2) -> impl View {
     built(move |cx| {
-        if !Deeds::is_allowed(cx.world, "add-agent")
+        if !Actions::is_allowed(cx.world, "add-agent")
             || cx.world.get_entity(parent).is_err()
         {
             return cx.build(frame());
@@ -358,7 +358,7 @@ mod tests {
             .init_resource::<hamlet_realm::pick::Asked>()
             .init_resource::<hamlet_realm::pick::AskedGround>();
         let mut state = realm::state();
-        state.deeds = realm::deeds(&["add-agent"]);
+        state.actions = realm::actions(&["add-agent"]);
         hamlet_client::receive(
             app.world_mut(),
             protocol::ServerMessage::State(state),

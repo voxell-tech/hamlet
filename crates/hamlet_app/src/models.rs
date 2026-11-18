@@ -362,7 +362,7 @@ mod tests {
     }
 
     #[test]
-    fn allowance_refresh_and_a_refused_catalogue_edit_go_through_the_server()
+    fn allowance_refresh_and_a_rejected_catalogue_edit_go_through_the_server()
      {
         let mut app = with_catalogue();
         mount::<HamletTheme>(app.world_mut(), shelf());
@@ -404,10 +404,10 @@ mod tests {
         assert_eq!(edit["whole"]["budget"]["cost"], 5.0);
         incoming(
             &mut app,
-            json!({"type":"reply", "to":edit["id"], "kind":"error", "text":"This model was refused."}),
+            json!({"type":"reply", "to":edit["id"], "kind":"error", "text":"This model was rejected."}),
         );
         assert!(
-            all_words(&mut app).contains("This model was refused.")
+            all_words(&mut app).contains("This model was rejected.")
         );
     }
     #[test]

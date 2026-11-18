@@ -27,8 +27,8 @@ async fn an_uploaded_image_goes_with_a_line_and_is_read_back_by_id() {
     let again = s.chief.put_image(&png, png.len()).await;
     assert_eq!(again.image.as_ref(), Some(&image));
 
-    let refused = s.chief.put_image(b"not an image", 64).await;
-    assert_eq!(refused.kind, ReplyKind::Error);
+    let rejected = s.chief.put_image(b"not an image", 64).await;
+    assert_eq!(rejected.kind, ReplyKind::Error);
 
     let said = s
         .chief

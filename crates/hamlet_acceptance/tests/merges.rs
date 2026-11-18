@@ -67,6 +67,6 @@ async fn merging_brings_an_agents_learning_and_restoring_splits_it() {
 
     // The lead cannot be absorbed, and an agent of a hamlet joins
     // only another.
-    s.chief.refused(ada, "/merge agent#2 into agent#3").await;
-    s.chief.refused(ada, "/merge agent#3 into agent#11").await;
+    s.chief.rejected(ada, "/merge agent#2 into agent#3").await;
+    s.chief.rejected(ada, "/merge agent#3 into agent#11").await;
 }

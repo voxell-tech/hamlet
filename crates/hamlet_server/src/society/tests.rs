@@ -5,7 +5,7 @@ use super::agents::{self, Effort, EndHow};
 use super::channels::{self, Agreed, Way};
 use super::hamlet_agents::{self, NewAgent, ProfileChoice, Spec};
 use super::hamlets::{self, Founding};
-use super::refusal::Refusal;
+use super::rejection::Rejection;
 use super::workers::{self, Start, Starter};
 use super::{authority, chiefs, city, merges, tree};
 use crate::conversations::{chats, models};
@@ -32,7 +32,7 @@ fn add(
     hamlet: &HamletId,
     parent: AgentId,
     profile: ProfileChoice,
-) -> Result<NewAgent, Refusal> {
+) -> Result<NewAgent, Rejection> {
     let (owner, hamlet) = (realm.chief, hamlet.clone());
     realm.chief(|cx| {
         hamlet_agents::add(
@@ -74,7 +74,7 @@ fn find(
     realm: &mut Realm,
     text: &str,
     here: Option<&HamletId>,
-) -> Result<AgentId, Refusal> {
+) -> Result<AgentId, Rejection> {
     let address = addresses::parse(text)?;
     addresses::resolve(realm.db(), &address, here, Reach::Living)
         .unwrap()
@@ -114,17 +114,17 @@ fn an_agent_is_addressed_by_its_id_never_by_name() {
     );
     assert!(matches!(
         find(&mut realm, "scout", Some(&docs)),
-        Err(Refusal::BadAddress { .. })
+        Err(Rejection::BadAddress { .. })
     ));
     assert!(matches!(
         find(&mut realm, "agent#999", None),
-        Err(Refusal::NoOne { .. })
+        Err(Rejection::NoOne { .. })
     ));
     // The Hand is no agent of a hamlet.
     let hand = format!("agent#{}", realm.hand);
     assert!(matches!(
         find(&mut realm, &hand, None),
-        Err(Refusal::NoOne { .. })
+        Err(Rejection::NoOne { .. })
     ));
     assert_eq!(
         find(&mut realm, &format!("lead@{docs}"), None),
@@ -132,7 +132,7 @@ fn an_agent_is_addressed_by_its_id_never_by_name() {
     );
     assert!(matches!(
         find(&mut realm, "lead@docs", None),
-        Err(Refusal::BadAddress { .. })
+        Err(Rejection::BadAddress { .. })
     ));
     assert_eq!(find(&mut realm, "hand", None), Ok(realm.hand));
     // A name is a label: it may repeat, and a profile's is its id.
@@ -162,7 +162,7 @@ fn a_profile_is_renamed_without_changing_its_address() {
     );
     assert!(matches!(
         realm.chief(|cx| city::rename(cx, lead.profile, "a: b")),
-        Err(Refusal::BadName { .. })
+        Err(Rejection::BadName { .. })
     ));
 }
 
@@ -181,7 +181,7 @@ fn the_tree_heals_when_a_parent_ends() {
             EndHow::Ended,
             "done"
         )),
-        Err(Refusal::EndingLead)
+        Err(Rejection::EndingLead)
     );
     realm
         .chief(|cx| {
@@ -235,14 +235,14 @@ fn a_removed_hamlet_comes_back_whole_only_while_its_profiles_live() {
     }
     assert!(matches!(
         find(&mut realm, &format!("agent#{}", scout.agent), None),
-        Err(Refusal::NoOne { .. })
+        Err(Rejection::NoOne { .. })
     ));
     realm
         .chief(|cx| city::archive(cx, scout.profile, "retired"))
         .unwrap();
     assert!(matches!(
         realm.chief(|cx| hamlets::restore(cx, &docs, "again")),
-        Err(Refusal::ProfileGone { .. })
+        Err(Rejection::ProfileGone { .. })
     ));
     realm
         .chief(|cx| city::restore(cx, scout.profile, "back"))
@@ -297,13 +297,13 @@ fn a_hamlet_must_have_a_name() {
                     purpose: "Build it".into(),
                 }
             )),
-            Err(Refusal::BadName { .. })
+            Err(Rejection::BadName { .. })
         ));
     }
     let docs = realm.found("docs", "ada").hamlet;
     assert!(matches!(
         realm.chief(|cx| hamlets::rename(cx, &docs, " ")),
-        Err(Refusal::BadName { .. })
+        Err(Rejection::BadName { .. })
     ));
     realm
         .chief(|cx| hamlets::rename(cx, &docs, "Docs site"))
@@ -333,7 +333,7 @@ fn a_profile_leaves_with_its_agents_and_comes_back_with_them() {
     let ada = hamlet_agents::get(realm.db(), lead).unwrap().profile;
     assert_eq!(
         realm.chief(|cx| city::archive(cx, ada, "retired")),
-        Err(Refusal::EndingLead),
+        Err(Rejection::EndingLead),
         "a lead's profile stays while it holds the office"
     );
     realm
@@ -391,7 +391,7 @@ fn channels_follow_the_tree_and_join_hamlets_once_both_leads_agree() {
     );
     assert!(matches!(
         realm.chief(|cx| channels::open(cx, scout, far, "x", None)),
-        Err(Refusal::OtherHamlet { .. })
+        Err(Rejection::OtherHamlet { .. })
     ));
     let first = realm
         .by(Actor::Agent(ada), |cx| {
@@ -439,7 +439,7 @@ fn a_worker_starts_no_worker_and_works_where_its_starter_does() {
         realm.by(Actor::Agent(worker), |cx| {
             workers::start(cx, start(Starter::Agent(worker)))
         }),
-        Err(Refusal::Worker)
+        Err(Rejection::Worker)
     );
     let hand = realm.hand;
     let by_hand = realm
@@ -555,7 +555,7 @@ fn a_parent_leaves_an_agent_on_a_chiefs_task_alone() {
         })
         .unwrap();
     // Unanswered, the chief's line keeps it from its parent.
-    let protected = Err(Refusal::OnChiefsTask {
+    let protected = Err(Rejection::OnChiefsTask {
         name: format!("agent#{bo} (bo)"),
     });
     let ended = realm.by(Actor::Agent(lead), |cx| {

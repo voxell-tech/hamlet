@@ -32,7 +32,7 @@ pub(crate) fn plugin(app: &mut App) {
     world.register_component::<TerminalScreen>();
     app.init_resource::<Opening>()
         .add_observer(rewatch)
-        .add_observer(refused);
+        .add_observer(rejected);
 }
 
 /// A terminal's server id.
@@ -408,8 +408,8 @@ fn rewatch(
     }
 }
 
-/// Forgets an open the server refused.
-fn refused(response: On<Response>, mut opening: ResMut<Opening>) {
+/// Forgets an open the server rejected.
+fn rejected(response: On<Response>, mut opening: ResMut<Opening>) {
     if matches!(
         &response.message,
         protocol::ServerMessage::Reply(reply)

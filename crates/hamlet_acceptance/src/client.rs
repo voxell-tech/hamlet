@@ -242,7 +242,7 @@ impl Client {
     }
 
     /// Uploads an image in parts of `part` bytes. Gives the first
-    /// refusal, else the reply that names the kept image.
+    /// rejection, else the reply that names the kept image.
     pub async fn put_image(
         &mut self,
         bytes: &[u8],
@@ -318,7 +318,7 @@ impl Client {
     }
 
     /// Uploads a file in parts of `part` bytes. Gives the first
-    /// refusal, else the reply that names the kept file.
+    /// rejection, else the reply that names the kept file.
     pub async fn put_file(
         &mut self,
         bytes: &[u8],
@@ -477,7 +477,7 @@ impl Client {
 
     /// Changes one limit of the hamlet named `hamlet`, or the
     /// realm's. A name no hamlet has goes as the id, for the server
-    /// to refuse.
+    /// to reject.
     pub async fn limit(
         &mut self,
         hamlet: Option<&str>,
@@ -572,7 +572,7 @@ impl Client {
     }
 
     /// Sends a typed command and gives the notice that answers it,
-    /// failing on a refusal.
+    /// failing on a rejection.
     pub async fn command(
         &mut self,
         to: AgentId,
@@ -582,14 +582,14 @@ impl Client {
         assert_eq!(
             reply.kind,
             ReplyKind::Notice,
-            "{text} was refused: {}",
+            "{text} was rejected: {}",
             reply.text
         );
         reply.text
     }
 
-    /// Sends a typed command and gives the refusal that answers it.
-    pub async fn refused(
+    /// Sends a typed command and gives the rejection that answers it.
+    pub async fn rejected(
         &mut self,
         to: AgentId,
         text: &str,
@@ -598,7 +598,7 @@ impl Client {
         assert_eq!(
             reply.kind,
             ReplyKind::Error,
-            "{text} was not refused: {}",
+            "{text} was not rejected: {}",
             reply.text
         );
         reply.text

@@ -8,7 +8,7 @@ use crate::realm::change::{Change, Done, run};
 use crate::realm::layout::Layout;
 use crate::society::hamlet_agents::{NewAgent, ProfileChoice};
 use crate::society::hamlets::{self, Founding};
-use crate::society::refusal::Refusal;
+use crate::society::rejection::Rejection;
 use crate::society::{chiefs, hand};
 
 /// A PNG of `width` by `height` pixels.
@@ -86,7 +86,7 @@ impl Realm {
         &mut self,
         actor: Actor,
         make: impl FnOnce(&mut Change<'_>) -> Done<T>,
-    ) -> Result<T, Refusal> {
+    ) -> Result<T, Rejection> {
         self.at += 1000;
         let at = self.at;
         let mut tx = self.store.immediate().unwrap();
@@ -99,7 +99,7 @@ impl Realm {
     pub fn chief<T>(
         &mut self,
         make: impl FnOnce(&mut Change<'_>) -> Done<T>,
-    ) -> Result<T, Refusal> {
+    ) -> Result<T, Rejection> {
         let chief = Actor::Chief(self.chief);
         self.by(chief, make)
     }

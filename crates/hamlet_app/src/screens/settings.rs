@@ -49,7 +49,7 @@ use crate::appearance::Appearance;
 use crate::dock::{PanelAppExt, panel};
 use crate::roll::{either, moved};
 use crate::root::Lasting;
-use crate::world_menu::{self, Deed};
+use crate::world_menu::{self, Action};
 
 pub fn plugin(app: &mut App) {
     app.add_panel(
@@ -696,7 +696,9 @@ fn charter_page() -> impl View {
             actions.push(action(
                 Glyph::Restore,
                 "Back to the default",
-                |world| world_menu::ask(world, Deed::DefaultCharter),
+                |world| {
+                    world_menu::ask(world, Action::DefaultCharter);
+                },
             ));
         }
         buttons(actions).boxed()
@@ -1140,7 +1142,7 @@ mod tests {
     struct Edits(Vec<Edit>);
 
     #[test]
-    fn charter_edit_saves_and_confirmed_reset_go_to_the_server_and_refusals_stay_by_the_buttons()
+    fn charter_edit_saves_and_confirmed_reset_go_to_the_server_and_rejections_stay_by_the_buttons()
      {
         use hamlet_desktop::editor::{Edit, Edited};
         let mut app = settings_page(Pane::Charter);
@@ -1215,7 +1217,7 @@ mod tests {
             protocol::ServerMessage::Reply(protocol::Reply {
                 to: id,
                 kind: protocol::ReplyKind::Error,
-                text: "The charter was refused.".into(),
+                text: "The charter was rejected.".into(),
                 upload: None,
                 image: None,
                 images: Vec::new(),
@@ -1227,7 +1229,7 @@ mod tests {
         assert!(
             words_and_spans(&mut app)
                 .iter()
-                .any(|text| text == "The charter was refused.")
+                .any(|text| text == "The charter was rejected.")
         );
 
         app.init_resource::<world_menu::Open>();
@@ -1307,11 +1309,11 @@ mod tests {
         assert!(
             !shown
                 .iter()
-                .any(|text| text == "The charter was refused.")
+                .any(|text| text == "The charter was rejected.")
         );
     }
     #[test]
-    fn reconnecting_reads_the_open_charter_again_and_shows_a_read_refusal()
+    fn reconnecting_reads_the_open_charter_again_and_shows_a_read_rejection()
      {
         let mut app = settings_page(Pane::Charter);
         requests(&mut app);

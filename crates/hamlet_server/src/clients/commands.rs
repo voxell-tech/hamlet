@@ -24,7 +24,7 @@ use crate::core::Core;
 use crate::realm::change::Done;
 use crate::society::addresses::Reach;
 use crate::society::hamlet_agents;
-use crate::society::refusal::Refusal;
+use crate::society::rejection::Rejection;
 
 type Run = fn(&mut Core<'_, '_>, &Line) -> Answer;
 
@@ -115,26 +115,26 @@ impl Line {
     }
 }
 
-/// A command's answer: words for the chief, or a refusal.
+/// A command's answer: words for the chief, or a rejection.
 pub(crate) type Answer = Done<String>;
 
-/// Every command, as the deeds a client lists in this order, with the
-/// system that runs it. A command is added with its usage and its
+/// Every command, as the actions a client lists in this order, with
+/// the system that runs it. A command is added with its usage and its
 /// function in one row, so the list and what runs cannot drift.
 #[derive(Resource, Default)]
-pub(crate) struct Deeds(
+pub(crate) struct Actions(
     Vec<(&'static Command, SystemId<In<Line>, Answer>)>,
 );
 
-impl Deeds {
+impl Actions {
     /// The commands a client may offer.
-    pub fn listed(&self) -> Vec<protocol::Deed> {
+    pub fn listed(&self) -> Vec<protocol::Action> {
         self.0
             .iter()
-            .map(|(command, _)| protocol::Deed {
+            .map(|(command, _)| protocol::Action {
                 description: command.does.into(),
                 name: command.name.into(),
-                // A deed's usage is what follows its name.
+                // An action's usage is what follows its name.
                 usage: command
                     .usage
                     .strip_prefix('/')
@@ -146,14 +146,14 @@ impl Deeds {
             .collect()
     }
 
-    /// The usage of command `name`, as a refusal.
-    pub fn usage(&self, name: &str) -> Refusal {
+    /// The usage of command `name`, as a rejection.
+    pub fn usage(&self, name: &str) -> Rejection {
         let usage = self
             .0
             .iter()
             .find(|(command, _)| command.name == name)
             .map_or("", |(command, _)| command.usage);
-        Refusal::CommandUsage {
+        Rejection::CommandUsage {
             usage: usage.into(),
         }
     }
@@ -191,13 +191,13 @@ impl AddCommands for App {
                     run(&mut core, &line)
                 },
             );
-            let mut deeds = world.get_resource_or_init::<Deeds>();
+            let mut actions = world.get_resource_or_init::<Actions>();
             assert!(
-                deeds.system(command.name).is_none(),
+                actions.system(command.name).is_none(),
                 "the command /{} is added twice",
                 command.name
             );
-            deeds.0.push((command, system));
+            actions.0.push((command, system));
         }
         self
     }
@@ -233,14 +233,15 @@ fn run(
         .map_err(|error| anyhow!("{error}"))??;
     let answer = match line {
         None => return Ok(()),
-        Some(Err(refusal)) => Err(refusal),
+        Some(Err(rejection)) => Err(rejection),
         Some(Ok(line)) => {
-            let found = world.resource::<Deeds>().system(&line.name);
+            let found =
+                world.resource::<Actions>().system(&line.name);
             match found {
                 Some(system) => world
                     .run_system_with(system, line)
                     .map_err(|error| anyhow!("{error}"))??,
-                None => Err(Refusal::NoCommand { name: line.name }),
+                None => Err(Rejection::NoCommand { name: line.name }),
             }
         }
     };
@@ -256,12 +257,12 @@ fn run(
 fn line_of(
     In((client, say)): In<(u64, protocol::Say)>,
     mut core: Core,
-) -> Result<Option<Result<Line, Refusal>>> {
+) -> Result<Option<Result<Line, Rejection>>> {
     let Some(agent) = core.reached(client, &say.id, say.to.0)? else {
         return Ok(None);
     };
     if !say.images.is_empty() || !say.files.is_empty() {
-        return Ok(Some(Err(Refusal::CommandAttachments)));
+        return Ok(Some(Err(Rejection::CommandAttachments)));
     }
     let text = say.text.trim().trim_start_matches('/');
     let (name, rest) = text
@@ -283,7 +284,7 @@ fn answered(
     In((client, id, answer)): In<(
         u64,
         protocol::RequestId,
-        Result<String, Refusal>,
+        Result<String, Rejection>,
     )>,
     mut core: Core,
 ) -> Result<()> {
@@ -335,7 +336,7 @@ fn stop(core: &mut Core<'_, '_>, line: &Line) -> Answer {
                 Reach::Living,
             )? {
                 Ok(found) => vec![found],
-                Err(refusal) => return Ok(Err(refusal)),
+                Err(rejection) => return Ok(Err(rejection)),
             }
         }
     };

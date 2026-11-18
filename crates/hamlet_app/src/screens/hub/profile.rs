@@ -15,7 +15,7 @@ use bevy_fynix::{
     ScopedExt, ViewExt, derived, every_frame, keyed, resource,
 };
 use hamlet_client::realm::{
-    Deeds, LivesIn, Pin, Profile, name_of, profile_address,
+    Actions, LivesIn, Pin, Profile, name_of, profile_address,
 };
 use hamlet_protocol::client as protocol;
 use hamlet_ui::styles::{
@@ -35,9 +35,9 @@ use crate::overview::typed;
 use crate::standing::Standing;
 use crate::{chat, world_menu};
 
-/// The deeds a profile's page offers, in the names the server
+/// The actions a profile's page offers, in the names the server
 /// advertises them by.
-const DEEDS: [&str; 13] = [
+const ACTIONS: [&str; 13] = [
     "name-profile",
     "welcome",
     "turn-away",
@@ -145,9 +145,9 @@ fn shown(world: &World, entity: Entity) -> Option<Shown> {
             }
         })
         .collect();
-    let allowed = DEEDS
+    let allowed = ACTIONS
         .into_iter()
-        .filter(|deed| Deeds::is_allowed(world, deed))
+        .filter(|name| Actions::is_allowed(world, name))
         .collect();
     Some(Shown {
         entity,
@@ -224,7 +224,7 @@ fn field<M: Component>(marker: M) -> impl View {
         .tagged(marker)
 }
 
-/// The fields and buttons of the deed being asked for.
+/// The fields and buttons of the action being asked for.
 fn form(address: String, name: String, act: Act) -> AnyView {
     let (words, first, second) = match &act {
         Act::Tag => (
@@ -330,7 +330,7 @@ fn form(address: String, name: String, act: Act) -> AnyView {
     .boxed()
 }
 
-/// The form of the deed asked for, where `here` says it belongs to
+/// The form of the action asked for, where `here` says it belongs to
 /// the part of the page this stands in.
 fn form_view(
     address: String,
@@ -394,11 +394,11 @@ fn standing(profile: &protocol::Profile) -> (&'static str, Tone) {
     }
 }
 
-/// The deeds under its name: what changes where it stands short of
+/// The actions under its name: what changes where it stands short of
 /// sending it away. A double click on its name renames it.
 fn arrival(shown: &Shown) -> AnyView {
     let address = profile_address(shown.profile.id);
-    let can = |deed| shown.allowed.contains(&deed);
+    let can = |name| shown.allowed.contains(&name);
     let mut buttons_row = Vec::new();
     if shown.profile.left.is_none() && can("fork") {
         buttons_row.push(
@@ -478,7 +478,7 @@ fn arrival(shown: &Shown) -> AnyView {
 /// The versions in their section, each with what can be done from it,
 /// and the form of what was asked for from them.
 fn versions(shown: &Shown) -> AnyView {
-    let can = |deed| shown.allowed.contains(&deed);
+    let can = |name| shown.allowed.contains(&name);
     let address = profile_address(shown.profile.id);
     let profile = shown.profile.name.clone();
     let mut parts = Vec::new();
@@ -512,23 +512,23 @@ fn versions(shown: &Shown) -> AnyView {
             );
         }
         line.push(frame().grow(1.0).boxed());
-        let mut deeds = Vec::new();
+        let mut actions = Vec::new();
         if can("fork") {
-            deeds.push((
+            actions.push((
                 format!("Make a new profile from {name}"),
                 Act::Fork(Some(name.clone())),
             ));
         }
         if can("revert") {
-            deeds.push((
+            actions.push((
                 format!("Undo the change saved as {name}"),
                 Act::Revert(name.clone()),
             ));
         }
-        if !deeds.is_empty() {
-            line.push(deed_menu(
+        if !actions.is_empty() {
+            line.push(action_menu(
                 "What can be done from this version",
-                deeds,
+                actions,
             ));
         }
         parts.push(
@@ -550,13 +550,13 @@ fn versions(shown: &Shown) -> AnyView {
     section(Glyph::History, "Versions", None, column(parts).gap(4.0))
 }
 
-/// The "..." button that opens each of `deeds`, named in full, with
+/// The "..." button that opens each of `actions`, named in full, with
 /// what it asks for, and `tip` under the pointer.
-fn deed_menu(
+fn action_menu(
     tip: &'static str,
-    deeds: Vec<(String, Act)>,
+    actions: Vec<(String, Act)>,
 ) -> AnyView {
-    let (words, acts): (Vec<_>, Vec<_>) = deeds.into_iter().unzip();
+    let (words, acts): (Vec<_>, Vec<_>) = actions.into_iter().unzip();
     with_cx(move |cx| {
         let theme = cx.theme();
         let acts = acts.clone();
@@ -730,7 +730,7 @@ fn file_menu(shown: &Shown) -> memory::FileMenu {
 /// The menu of the memory file at `path`, which takes it out of the
 /// profile's whole history.
 fn erase_menu(path: &str) -> AnyView {
-    deed_menu(
+    action_menu(
         "What can be done to this file",
         vec![(
             "Erase from every version".to_string(),
@@ -745,7 +745,7 @@ fn erase_menu(path: &str) -> AnyView {
 fn careful(shown: &Shown) -> AnyView {
     let name = shown.profile.name.clone();
     let address = profile_address(shown.profile.id);
-    let can = |deed| shown.allowed.contains(&deed);
+    let can = |name| shown.allowed.contains(&name);
     let living = shown.profile.left.is_none();
     let mut acts = Vec::new();
     if living
@@ -867,8 +867,8 @@ fn body(shown: &Shown) -> AnyView {
     .boxed()
 }
 
-/// Does the deed the form of the profile shown asks for, as its first
-/// button does.
+/// Does the action the form of the profile shown asks for, as its
+/// first button does.
 pub(super) fn submit(world: &mut World) {
     let Some(Showing::Profile(profile)) =
         world.get_resource::<Showing>().copied()
@@ -885,7 +885,7 @@ pub(super) fn submit(world: &mut World) {
     run(world, &address, &shown.profile.name, &act);
 }
 
-/// Whether a deed of the profile shown waits for its words.
+/// Whether an action of the profile shown waits for its words.
 pub(super) fn asking(world: &World) -> bool {
     world.resource::<Form>().act.is_some()
         && matches!(

@@ -12,7 +12,7 @@ use crate::realm::change::Done;
 use crate::society::addresses::{self, Reach};
 use crate::society::agents::{self, AgentKind};
 use crate::society::hamlet_agents::ProfileChoice;
-use crate::society::refusal::Refusal;
+use crate::society::rejection::Rejection;
 use crate::society::{authority, city, hamlets};
 
 /// The profiles an address may name.
@@ -39,11 +39,11 @@ impl Core<'_, '_> {
     ) -> Done<ProfileChoice> {
         let (profile, version) = match self.profile_pinned(text)? {
             Ok(found) => found,
-            Err(refusal) => return Ok(Err(refusal)),
+            Err(rejection) => return Ok(Err(rejection)),
         };
         let db = self.realm.store().connection();
         if city::get(db, profile)?.chief != Some(chief) {
-            return Ok(Err(Refusal::ProfileNotOwn {
+            return Ok(Err(Rejection::ProfileNotOwn {
                 name: addresses::profile_name_of(db, profile)?,
             }));
         }
@@ -82,7 +82,7 @@ impl Core<'_, '_> {
             .and_then(|repo| repo.resolve(version).ok().flatten());
             if found.is_none() || version == hamlet_git::MAIN {
                 let db = self.realm.store().connection();
-                return Ok(Err(Refusal::NoVersion {
+                return Ok(Err(Rejection::NoVersion {
                     name: addresses::profile_name_of(db, profile)?,
                     version: version.clone(),
                 }));
@@ -103,7 +103,7 @@ impl Core<'_, '_> {
     ) -> Done<AgentId> {
         let address = match addresses::parse(text) {
             Ok(address) => address,
-            Err(refusal) => return Ok(Err(refusal)),
+            Err(rejection) => return Ok(Err(rejection)),
         };
         let db = self.realm.store().connection();
         addresses::resolve(db, &address, here, reach)
@@ -117,7 +117,7 @@ impl Core<'_, '_> {
     ) -> Done<ProfileId> {
         let id = match addresses::parse_profile(text) {
             Ok(id) => id,
-            Err(refusal) => return Ok(Err(refusal)),
+            Err(rejection) => return Ok(Err(rejection)),
         };
         let db = self.realm.store().connection();
         let found = city::find(db, id)?.filter(|found| {
@@ -126,58 +126,58 @@ impl Core<'_, '_> {
         });
         Ok(match found {
             Some(found) => Ok(found.id),
-            None => Err(Refusal::NoProfile {
+            None => Err(Rejection::NoProfile {
                 address: text.into(),
             }),
         })
     }
 
-    /// Refuses unless this server's chief is a chief of `hamlet`.
+    /// Rejects unless this server's chief is a chief of `hamlet`.
     pub(super) fn chief_of(&mut self, hamlet: &HamletId) -> Done<()> {
         let chief = self.realm.chief();
         let db = self.realm.store().connection();
         if hamlets::find(db, hamlet)?.is_none() {
-            return Ok(Err(Refusal::NoHamlet {
+            return Ok(Err(Rejection::NoHamlet {
                 id: hamlet.to_string(),
             }));
         }
         if !authority::is_chief_of(db, chief, hamlet)? {
-            return Ok(Err(Refusal::NotChief {
+            return Ok(Err(Rejection::NotChief {
                 hamlet: hamlet.to_string(),
             }));
         }
         Ok(Ok(()))
     }
 
-    /// Refuses unless this server's chief may direct the agent of a
+    /// Rejects unless this server's chief may direct the agent of a
     /// hamlet `agent`.
     pub(crate) fn directs(&mut self, agent: AgentId) -> Done<()> {
         let chief = self.realm.chief();
         let db = self.realm.store().connection();
         if agents::get(db, agent)?.kind != AgentKind::Hamlet {
             let name = addresses::name_of(db, agent)?;
-            return Ok(Err(Refusal::NotHamletAgent { name }));
+            return Ok(Err(Rejection::NotHamletAgent { name }));
         }
         if !authority::may_direct(db, Actor::Chief(chief), agent)? {
             let name = addresses::name_of(db, agent)?;
-            return Ok(Err(Refusal::NotYours { name }));
+            return Ok(Err(Rejection::NotYours { name }));
         }
         Ok(Ok(()))
     }
 
-    /// Refuses unless this server's chief may choose the model,
+    /// Rejects unless this server's chief may choose the model,
     /// effort and fast tier of `agent`.
     pub(super) fn steers(&mut self, agent: AgentId) -> Done<()> {
         let chief = self.realm.chief();
         let db = self.realm.store().connection();
         if !authority::may_steer(db, Actor::Chief(chief), agent)? {
             let name = addresses::name_of(db, agent)?;
-            return Ok(Err(Refusal::NotYours { name }));
+            return Ok(Err(Rejection::NotYours { name }));
         }
         Ok(Ok(()))
     }
 
-    pub(super) fn no_hamlet(&self) -> Refusal {
-        Refusal::SayToLeadOrAgent
+    pub(super) fn no_hamlet(&self) -> Rejection {
+        Rejection::SayToLeadOrAgent
     }
 }

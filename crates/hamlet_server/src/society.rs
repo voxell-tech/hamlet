@@ -20,7 +20,7 @@ pub(crate) mod merges;
 pub(crate) mod names;
 pub(crate) mod oversight;
 pub(crate) mod record;
-pub(crate) mod refusal;
+pub(crate) mod rejection;
 pub(crate) mod spend;
 #[cfg(test)]
 mod tests;

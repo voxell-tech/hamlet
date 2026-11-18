@@ -44,7 +44,7 @@ pub enum RealmSystems {
     /// The pointer's place over the world, which the chief's hand
     /// acts on.
     Aim,
-    /// The chief's deeds on what was aimed: the hand, the things
+    /// The chief's actions on what was aimed: the hand, the things
     /// carried, the clockworks, the mascot and the library.
     Act,
     /// The client's hamlets, agents and channels drawn in the

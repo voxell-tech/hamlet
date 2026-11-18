@@ -22,7 +22,7 @@ use bevy_fynix::{
     ScopedExt, ViewExt, derived, every_frame, keyed, resource,
 };
 use hamlet_client::realm::{
-    self, Deeds, HamletId, Profile, profile_address,
+    self, Actions, HamletId, Profile, profile_address,
 };
 use hamlet_desktop::folder::{ChooseFolder, FolderChosen};
 use hamlet_protocol::client as protocol;
@@ -164,7 +164,7 @@ fn lead() -> impl View {
 
 /// Founds the hamlet the form holds, once it is named.
 pub(super) fn submit(world: &mut World) {
-    if !Deeds::is_allowed(world, "create-hamlet") {
+    if !Actions::is_allowed(world, "create-hamlet") {
         return;
     }
     let founding = world.resource::<Founding>().clone();
@@ -296,7 +296,7 @@ fn folder() -> impl View {
 /// The form a hamlet is founded with.
 pub(super) fn founding(at: Vec2) -> impl View {
     built(move |cx| {
-        if !Deeds::is_allowed(cx.world, "create-hamlet") {
+        if !Actions::is_allowed(cx.world, "create-hamlet") {
             return cx.build(frame());
         }
         let (gap, between, padding, heading) = {
@@ -378,7 +378,7 @@ mod tests {
             .init_resource::<hamlet_realm::pick::Asked>()
             .init_resource::<hamlet_realm::pick::AskedGround>();
         let mut state = realm::state();
-        state.deeds = realm::deeds(&["create-hamlet"]);
+        state.actions = realm::actions(&["create-hamlet"]);
         state.agents.push(realm::agent(3, "home", false));
         hamlet_client::receive(
             app.world_mut(),

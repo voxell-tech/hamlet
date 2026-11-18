@@ -129,10 +129,10 @@ function sort(
         case "answered":
             return { request: message };
         case "welcome":
-        case "refused":
+        case "rejected":
         case "allowed":
         case "waiting":
-        case "refusal":
+        case "rejection":
         case "result":
         case "allowance":
         case "stopped":

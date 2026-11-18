@@ -73,7 +73,7 @@ async fn founds_a_hamlet_under_a_new_profile_then_an_existing_one() {
         .await;
     let reply = s
         .chief
-        .refused(
+        .rejected(
             hand,
             &format!("/create-hamlet {profile} : nameless"),
         )
@@ -91,7 +91,7 @@ async fn agents_form_a_tree_and_ending_one_can_be_undone() {
     // The same profile twice is two agents, told apart by id.
     let deep = s.add_agent(ada, "ada", "more words").await;
     assert_eq!(s.chief.agent("agent#4").unwrap().id, deep);
-    let reply = s.chief.refused(ada, "/end ada gone").await;
+    let reply = s.chief.rejected(ada, "/end ada gone").await;
     assert!(reply.contains("is not an address"), "{reply}");
 
     let eve =
@@ -100,7 +100,7 @@ async fn agents_form_a_tree_and_ending_one_can_be_undone() {
     assert_eq!(s.chief.agent("agent#5").unwrap().parent, Some(deep));
 
     // A lead cannot be ended, and a parent's agents move up.
-    let reply = s.chief.refused(ada, "/end agent#2 no").await;
+    let reply = s.chief.rejected(ada, "/end agent#2 no").await;
     assert!(reply.contains("set another lead first"), "{reply}");
     s.chief.command(ada, "/end agent#4 restructure").await;
     let ended = s.chief.agent("agent#4").unwrap();
@@ -122,7 +122,7 @@ async fn agents_form_a_tree_and_ending_one_can_be_undone() {
     assert_eq!(s.chief.id("agent#3"), bob);
 
     // Only an ended agent is erased.
-    s.chief.refused(ada, "/erase agent#5").await;
+    s.chief.rejected(ada, "/erase agent#5").await;
     s.chief.command(ada, "/restore agent#4").await;
     assert!(s.chief.agent("agent#4").unwrap().left.is_none());
     s.chief.command(ada, "/end agent#5 x").await;
@@ -154,7 +154,8 @@ async fn the_city_keeps_profiles_until_they_are_erased() {
         realm.profiles.iter().filter(|s| s.name == name).count()
     };
     assert_eq!((named("ada"), named("Sam the Elder")), (2, 1));
-    let reply = s.chief.refused(hand, "/profile new : no name").await;
+    let reply =
+        s.chief.rejected(hand, "/profile new : no name").await;
     assert!(reply.contains("1 to 40 characters"), "{reply}");
 
     // Adding an agent of a profile of the city, then removing the
@@ -193,7 +194,7 @@ async fn the_city_keeps_profiles_until_they_are_erased() {
 
     // A profile must be removed before it is erased.
     s.chief
-        .refused(hand, &format!("/erase-profile {sam}"))
+        .rejected(hand, &format!("/erase-profile {sam}"))
         .await;
     s.chief
         .command(hand, &format!("/remove-profile {sam} again"))
@@ -235,8 +236,9 @@ async fn a_chief_runs_a_hamlet_by_commands() {
             })
         })
         .await;
-    s.chief.refused(ada, "/tier 7").await;
-    let reply = s.chief.refused(ada, "/folder /no/such/folder").await;
+    s.chief.rejected(ada, "/tier 7").await;
+    let reply =
+        s.chief.rejected(ada, "/folder /no/such/folder").await;
     assert!(reply.contains("/no/such/folder"), "{reply}");
     s.chief.command(ada, "/folder none").await;
 

@@ -71,11 +71,11 @@ pub async fn run(
         "hamlet: Ctrl-D quits after your lines are answered; Ctrl-C \
          quits at once and stops no agent"
     );
-    for deed in &state.deeds {
+    for action in &state.actions {
         eprintln!(
             "  /{}: {}",
-            format!("{} {}", deed.name, deed.usage).trim_end(),
-            deed.description
+            format!("{} {}", action.name, action.usage).trim_end(),
+            action.description
         );
     }
     if state.settings.unset {
@@ -162,7 +162,7 @@ struct Session {
 }
 
 impl Session {
-    /// Opens `chat`, ending the chat if the server refuses.
+    /// Opens `chat`, ending the chat if the server rejects.
     async fn open(
         &mut self,
         id: RequestId,

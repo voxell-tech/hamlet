@@ -12,7 +12,7 @@ use serde::Deserialize;
 use serde::de::DeserializeOwned;
 use serde_json::Value;
 
-use crate::society::refusal::Refusal;
+use crate::society::rejection::Rejection;
 use crate::tools::catalogue::{FACTS, Society};
 
 const ADDRESS: &str = "An agent's address: `hand`, `lead`, \
@@ -43,7 +43,7 @@ pub(crate) struct Tell {
 
 /// Put a question to an agent you have a channel to and wait for
 /// its answer. Put only what you need; a question to someone waiting
-/// on you is refused.
+/// on you is rejected.
 #[derive(Deserialize, JsonSchema)]
 pub(crate) struct Ask {
     #[schemars(description = ADDRESS)]
@@ -92,7 +92,7 @@ pub(crate) struct AskLibrarian {
 
 /// Read what you may spend: your hamlet's or the realm's spend this
 /// period against its budget, your own, your allowance and your
-/// task's cap. A call over any of them is refused.
+/// task's cap. A call over any of them is rejected.
 #[derive(Deserialize, JsonSchema)]
 pub(crate) struct ReadBudget {}
 
@@ -371,18 +371,18 @@ macro_rules! called {
         }
 
         impl Called {
-            /// Reads the call of `tool` with `arguments`, refusing
+            /// Reads the call of `tool` with `arguments`, rejecting
             /// arguments that do not fit it.
             pub fn read(
                 tool: Society,
                 arguments: &BTreeMap<String, Value>,
-            ) -> Result<Self, Refusal> {
+            ) -> Result<Self, Rejection> {
                 let given = given(arguments);
                 match tool {
                     $(Society::$tool => {
                         Ok(Self::$tool(parse(tool, given)?))
                     })*
-                    Society::AskChief => Err(Refusal::Unsupported {
+                    Society::AskChief => Err(Rejection::Unsupported {
                         what: format!("the tool {}", tool.name()),
                     }),
                 }
@@ -463,9 +463,9 @@ fn given(arguments: &BTreeMap<String, Value>) -> Value {
 fn parse<A: DeserializeOwned>(
     tool: Society,
     given: Value,
-) -> Result<A, Refusal> {
+) -> Result<A, Rejection> {
     serde_json::from_value(given).map_err(|error| {
-        Refusal::ArgumentsUnfit {
+        Rejection::ArgumentsUnfit {
             tool: tool.name().into(),
             error: error.to_string(),
         }

@@ -17,7 +17,7 @@ use super::specs::{is_offered, unavailable};
 use super::tool_runs::tool_run;
 use super::{
     Answer, CONFLICT, Call, CallOutcome, Decision, Reply, held,
-    place, refused, society,
+    place, rejected, society,
 };
 use crate::attachments::images::Limits;
 use crate::conversations::{Kind, models};
@@ -117,7 +117,7 @@ impl Core<'_, '_> {
                     Some(Answer::Result(outcome))
                 }
                 Marked::Conflict => {
-                    Some(Answer::Refusal(CONFLICT.into()))
+                    Some(Answer::Rejection(CONFLICT.into()))
                 }
                 Marked::Unmarked => None,
             },
@@ -152,7 +152,7 @@ impl Core<'_, '_> {
             });
         }
         if self.is_withdrawn(call)? {
-            return Ok(CallOutcome::Done(refused(held::WITHDRAWN)));
+            return Ok(CallOutcome::Done(rejected(held::WITHDRAWN)));
         }
         if self.is_objecting(call)? {
             return Ok(CallOutcome::Answer(Answer::Waiting(
@@ -165,7 +165,7 @@ impl Core<'_, '_> {
                 CallOutcome::Later
             }
             Decision::Block(words) => {
-                CallOutcome::Answer(Answer::Refusal(words))
+                CallOutcome::Answer(Answer::Rejection(words))
             }
             Decision::Wait(words) => {
                 CallOutcome::Answer(Answer::Waiting(words.into()))
@@ -201,7 +201,7 @@ impl Core<'_, '_> {
 
     /// Runs the built-in or added tool of `call` with the network
     /// `net`, after marking it begun when it may not run again. Gives
-    /// the outcome of a call refused before it runs.
+    /// the outcome of a call rejected before it runs.
     fn run_tool(
         &mut self,
         call: &Call<'_>,
@@ -215,8 +215,9 @@ impl Core<'_, '_> {
         let agent = call.conversation.agent;
         let at =
             place::of_conversation(db, &layout, &call.conversation)?;
-        if let Some(refusal) = character_refusal(&at.place, call) {
-            return Ok(Some(refused(refusal)));
+        if let Some(rejection) = character_rejection(&at.place, call)
+        {
+            return Ok(Some(rejected(rejection)));
         }
         if once {
             marker::begin(
@@ -265,7 +266,7 @@ impl Core<'_, '_> {
                 if let Some(worktree) = &worktree
                     && let Err(error) = worktree.in_step().await
                 {
-                    return refused(
+                    return rejected(
                         hamlet_sandbox::scrub::scrub_text(
                             &secrets,
                             &format!(
@@ -382,9 +383,9 @@ impl Core<'_, '_> {
     }
 }
 
-/// The refusal of a write or edit of `CHARACTER.md` at the worktree's
-/// root, which is the profile's own.
-fn character_refusal(
+/// The rejection of a write or edit of `CHARACTER.md` at the
+/// worktree's root, which is the profile's own.
+fn character_rejection(
     place: &crate::tools::builtin::Place,
     call: &Call<'_>,
 ) -> Option<String> {

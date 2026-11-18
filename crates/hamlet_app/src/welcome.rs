@@ -991,7 +991,7 @@ mod server_tests {
     }
 
     #[test]
-    fn completed_login_moves_to_its_own_models_and_a_refused_edit_stays_open()
+    fn completed_login_moves_to_its_own_models_and_a_rejected_edit_stays_open()
      {
         let mut app = welcome_app();
         connect(&mut app, true);

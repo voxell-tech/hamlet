@@ -24,7 +24,8 @@ use bevy_fynix::{
 };
 use hamlet_client::messages::Veto;
 use hamlet_client::realm::{
-    Busy, Closed, Deeds, HamletId, Identity, Left, Profile, Treasury,
+    Actions, Busy, Closed, HamletId, Identity, Left, Profile,
+    Treasury,
 };
 use hamlet_client::waits::Waiting;
 use hamlet_protocol::client as protocol;
@@ -574,10 +575,10 @@ fn closed() -> AnyView {
             (
                 world.resource::<Closed>().0.clone(),
                 world
-                    .resource::<Deeds>()
+                    .resource::<Actions>()
                     .is_supported("restore-hamlet"),
                 world
-                    .resource::<Deeds>()
+                    .resource::<Actions>()
                     .is_supported("erase-hamlet"),
                 world.resource::<Erasing>().0.clone(),
             )
@@ -598,7 +599,7 @@ fn closed() -> AnyView {
                         "Restore",
                         move |world| {
                             if world
-                                .resource::<Deeds>()
+                                .resource::<Actions>()
                                 .is_supported("restore-hamlet")
                             {
                                 world.resource_mut::<Erasing>().0 =
@@ -656,7 +657,7 @@ fn closed() -> AnyView {
                                             .resource_mut::<Erasing>()
                                             .0 = None;
                                         if world
-                                            .resource::<Deeds>()
+                                            .resource::<Actions>()
                                             .is_supported(
                                                 "erase-hamlet",
                                             )
@@ -727,7 +728,7 @@ mod tests {
         let mut app = panel_app();
         app.add_plugins(plugin);
         let mut state = hamlet_testing::realm::state();
-        state.deeds = hamlet_testing::realm::deeds(&[
+        state.actions = hamlet_testing::realm::actions(&[
             "restore-hamlet",
             "erase-hamlet",
         ]);
@@ -760,7 +761,7 @@ mod tests {
         );
         press(&mut app, "Delete");
         assert!(app.world().resource::<Outbox>().iter().any(|m| matches!(m, protocol::ClientMessage::Say(s) if s.text == "/erase-hamlet mill" && s.to == protocol::AgentId(1))));
-        app.world_mut().resource_mut::<Deeds>().0.clear();
+        app.world_mut().resource_mut::<Actions>().0.clear();
         app.update();
         let shown = words(&mut app);
         assert!(
@@ -777,7 +778,7 @@ mod tests {
         let mut app = panel_app();
         app.add_plugins(plugin);
         let mut state = hamlet_testing::realm::state();
-        state.deeds = hamlet_testing::realm::deeds(&[
+        state.actions = hamlet_testing::realm::actions(&[
             "restore-hamlet",
             "erase-hamlet",
         ]);

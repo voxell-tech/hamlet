@@ -48,7 +48,7 @@ conversations with other agents and the workers it started. Choosing a
 sender's letters or questions opens a reference with `from` and `kind`;
 without a kind the server selects letters. These watches have paging and
 live updates, but no input field, stop control or rewind. The first entry
-returns to the chief's own conversation. The server also refuses edits of
+returns to the chief's own conversation. The server also rejects edits of
 peer conversations.
 
 A peer input carries `author`, its sender's address, rather than `chief`.
@@ -196,7 +196,7 @@ its words go back in the field to be changed and sent again.
 that message and keeps its stable conversation number. The client sends
 `rewind` with the chat reference and the item's string ID. A `rewound`
 reply gives the words back; a reset followed by a transcript replaces the
-shown items. The server refuses a rewind while work is running or queued
+shown items. The server rejects a rewind while work is running or queued
 and closes waits raised by the part taken back.
 
 **What is not undone.** Files changed, commands run, memory, skills, files
@@ -267,7 +267,7 @@ choose them. A paste takes image files copied in a file manager, or a picture
 such as a screenshot; words on the clipboard are pasted as words. Each image
 is uploaded at once, shown as a chip in the field, and sent with the line,
 which may hold only images. A line waits for every image to be kept; the chip
-of one the server refused is marked, and says why in its tooltip, until it is
+of one the server rejected is marked, and says why in its tooltip, until it is
 taken out. Files are read off the frame, and one over 20 MiB is refused
 unread.
 
@@ -297,9 +297,9 @@ places the ones its `@path` tokens name.
 A model that takes no images has the button greyed out, and a drag over
 the window says it cannot be dropped; a paste or drop is refused the same way.
 The chip of an image already in the field when the model is changed is greyed
-out with a tooltip that says so, and the server refuses the line (S30).
+out with a tooltip that says so, and the server rejects the line (S30).
 The catalogue entry of the agent's model tells which: a model the catalogue
-does not list is taken to see, and the server refuses what it cannot (S30).
+does not list is taken to see, and the server rejects what it cannot (S30).
 The number of images a line takes is the model's limit. A chief says that a
 model of a custom endpoint takes images, and within what limits, in the model
 catalogue in Settings, or with `hamlet models images`.

@@ -15,9 +15,9 @@ use serde_json::json;
 use super::agents::{self, AgentKind, EndHow};
 use super::limits::{self, Micros};
 use super::record::{self, Decision, DecisionKind};
-use super::refusal::Refusal;
+use super::rejection::Rejection;
 use super::{city, hamlets, tree};
-use crate::realm::change::{Change, Done, done, refuse};
+use crate::realm::change::{Change, Done, done, reject};
 use crate::realm::jobs::{self, Job};
 
 #[derive(Clone, Debug, PartialEq, Queryable, Selectable)]
@@ -80,12 +80,12 @@ pub(crate) struct NewAgent {
 pub(crate) fn add(cx: &mut Change<'_>, spec: Spec) -> Done<NewAgent> {
     let place = hamlets::get(cx.db, &spec.hamlet)?;
     if !place.is_living() {
-        refuse!(Refusal::HamletRemoved {
+        reject!(Rejection::HamletRemoved {
             id: spec.hamlet.to_string()
         });
     }
     if count_living(cx.db, &spec.hamlet)? >= place.tier {
-        refuse!(Refusal::HamletFull {
+        reject!(Rejection::HamletFull {
             id: spec.hamlet.to_string(),
             most: place.tier,
         });
@@ -93,7 +93,7 @@ pub(crate) fn add(cx: &mut Change<'_>, spec: Spec) -> Done<NewAgent> {
     if let Some(parent) = spec.parent {
         let above = get(cx.db, parent)?;
         if above.hamlet != spec.hamlet {
-            refuse!(Refusal::OtherHamlet {
+            reject!(Rejection::OtherHamlet {
                 name: super::addresses::name_of(cx.db, parent)?
             });
         }
@@ -121,10 +121,10 @@ pub(crate) fn add(cx: &mut Change<'_>, spec: Spec) -> Done<NewAgent> {
         }
         ProfileChoice::Existing { profile, pin } => {
             let found = city::get(cx.db, profile)?;
-            if let Some(refusal) =
+            if let Some(rejection) =
                 found.gone().or_else(|| found.apart())
             {
-                refuse!(refusal);
+                reject!(rejection);
             }
             (profile, pin, false)
         }
@@ -254,24 +254,24 @@ pub(crate) fn is_lead(db: &mut Db, id: AgentId) -> Result<bool> {
     Ok(tree::lead(db, &agent.hamlet)? == id)
 }
 
-/// The refusal of a call that names the ended agent `id`.
-pub(crate) fn left(db: &mut Db, id: AgentId) -> Result<Refusal> {
+/// The rejection of a call that names the ended agent `id`.
+pub(crate) fn left(db: &mut Db, id: AgentId) -> Result<Rejection> {
     let agent = agents::get(db, id)?;
     let name = super::addresses::name_of(db, id)?;
     Ok(match agent.ended_how {
-        _ if agent.erased => Refusal::Erased { name },
-        Some(how) => Refusal::Left {
+        _ if agent.erased => Rejection::Erased { name },
+        Some(how) => Rejection::Left {
             name,
             how: how.words().into(),
         },
-        None => Refusal::NotLeft { name },
+        None => Rejection::NotLeft { name },
     })
 }
 
-/// Refuses the agent `id` unless it is living, saying how it left.
+/// Rejects the agent `id` unless it is living, saying how it left.
 pub(crate) fn require_living(db: &mut Db, id: AgentId) -> Done<()> {
     if !agents::get(db, id)?.is_living() {
-        refuse!(left(db, id)?);
+        reject!(left(db, id)?);
     }
     Ok(Ok(()))
 }
@@ -289,7 +289,7 @@ pub(crate) fn end(
     done!(require_living(cx.db, id));
     if how != EndHow::Hamlet {
         if is_lead(cx.db, id)? {
-            refuse!(Refusal::EndingLead);
+            reject!(Rejection::EndingLead);
         }
         done!(unprotected(cx, id));
         let children = tree::children(cx.db, Some(id))?;
@@ -316,7 +316,7 @@ pub(crate) fn end(
     Ok(Ok(()))
 }
 
-/// Refuses an agent that would end or merge `agent` while it is on a
+/// Rejects an agent that would end or merge `agent` while it is on a
 /// chief's task (H7); a chief may.
 pub(crate) fn unprotected(
     cx: &mut Change<'_>,
@@ -330,7 +330,7 @@ pub(crate) fn unprotected(
     if crate::conversations::tasks::protects(
         cx.db, agent, cx.at, minutes,
     )? {
-        refuse!(Refusal::OnChiefsTask {
+        reject!(Rejection::OnChiefsTask {
             name: super::addresses::name_of(cx.db, agent)?,
         });
     }
@@ -347,20 +347,20 @@ pub(crate) fn come_back(
     let agent = get(cx.db, id)?;
     let ended = agents::get(cx.db, id)?;
     if ended.is_living() || ended.erased {
-        refuse!(left(cx.db, id)?);
+        reject!(left(cx.db, id)?);
     }
     let place = hamlets::get(cx.db, &agent.hamlet)?;
     if !place.is_living() {
-        refuse!(Refusal::HamletRemoved {
+        reject!(Rejection::HamletRemoved {
             id: agent.hamlet.to_string()
         });
     }
     let profile = city::get(cx.db, agent.profile)?;
-    if let Some(refusal) = profile.gone() {
-        refuse!(refusal);
+    if let Some(rejection) = profile.gone() {
+        reject!(rejection);
     }
     if count_living(cx.db, &agent.hamlet)? >= place.tier {
-        refuse!(Refusal::HamletFull {
+        reject!(Rejection::HamletFull {
             id: agent.hamlet.to_string(),
             most: place.tier,
         });
@@ -400,7 +400,7 @@ pub(crate) fn erase(cx: &mut Change<'_>, id: AgentId) -> Done<()> {
     let agent = get(cx.db, id)?;
     let ended = agents::get(cx.db, id)?;
     if ended.is_living() || ended.erased {
-        refuse!(left(cx.db, id)?);
+        reject!(left(cx.db, id)?);
     }
     agents::erase(cx, id)?;
     jobs::add(cx, &Job::EraseAgent { agent: id })?;
@@ -425,14 +425,14 @@ pub(crate) fn set_lead(
 ) -> Done<()> {
     let agent = get(cx.db, id)?;
     if &agent.hamlet != hamlet_id {
-        refuse!(Refusal::OtherHamlet {
+        reject!(Rejection::OtherHamlet {
             name: super::addresses::name_of(cx.db, id)?
         });
     }
     done!(require_living(cx.db, id));
     let old = tree::lead(cx.db, hamlet_id)?;
     if old == id {
-        refuse!(Refusal::AlreadyLead {
+        reject!(Rejection::AlreadyLead {
             name: super::addresses::name_of(cx.db, id)?
         });
     }
@@ -481,7 +481,7 @@ pub(crate) fn set_model(
     if matches!(agent.model_by, Some(Actor::Chief(_)))
         && !matches!(cx.actor, Actor::Chief(_))
     {
-        refuse!(Refusal::ChiefChose {
+        reject!(Rejection::ChiefChose {
             name: super::addresses::name_of(cx.db, id)?
         });
     }
@@ -610,18 +610,18 @@ pub(crate) fn set_pin(
 /// The most letters the name of an agent or a worker has.
 pub(crate) const NAME_LETTERS: usize = 24;
 
-/// `name` trimmed, none when it is empty, or the refusal of one that
-/// is too long or more than one line.
+/// `name` trimmed, none when it is empty, or the rejection of one
+/// that is too long or more than one line.
 pub(crate) fn check_name(
     name: Option<&str>,
-) -> Result<Option<&str>, Refusal> {
+) -> Result<Option<&str>, Rejection> {
     let name = name.map(str::trim).filter(|n| !n.is_empty());
     match name {
         Some(name)
             if name.chars().count() > NAME_LETTERS
                 || name.contains(char::is_control) =>
         {
-            Err(Refusal::BadAgentName { most: NAME_LETTERS })
+            Err(Rejection::BadAgentName { most: NAME_LETTERS })
         }
         _ => Ok(name),
     }
@@ -639,7 +639,7 @@ pub(crate) fn set_name(
     done!(require_living(cx.db, id));
     let name = match check_name(name) {
         Ok(name) => name,
-        Err(refusal) => refuse!(refusal),
+        Err(rejection) => reject!(rejection),
     };
     diesel::update(hamlet_agent::table.find(id))
         .set(hamlet_agent::name.eq(name))

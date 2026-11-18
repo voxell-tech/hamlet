@@ -2,9 +2,9 @@
 //! and the question before anything that ends an agent or closes a
 //! hamlet.
 
+mod action;
 mod add_agent;
 mod channel;
-mod deed;
 mod founding;
 mod items;
 mod model;
@@ -39,14 +39,14 @@ use bevy_fynix::{
     ScopedExt, ViewExt, derived, every_frame, keyed, resource,
 };
 use hamlet_client::messages::Veto;
-use hamlet_client::realm::{self as agents, Deeds};
+use hamlet_client::realm::{self as agents, Actions};
 use hamlet_realm::orders;
 use hamlet_realm::pick::{Asked, AskedGround, Thing};
 use hamlet_ui::widgets::icons::{Glyph, glyph};
 use hamlet_ui::widgets::keys::Keys;
 use hamlet_ui::{AnyView, Cx, View, with_cx};
 
-pub(crate) use self::deed::{Deed, question};
+pub(crate) use self::action::{Action, question};
 pub(crate) use self::founding::Founding;
 pub use self::model::{
     Favorites, LastSide, open as open_model, search as search_models,
@@ -75,7 +75,7 @@ pub fn plugin(app: &mut App) {
         .init_resource::<new_profile::Making>()
         .init_resource::<add_agent::AgentForm>()
         .init_resource::<channel::Channeling>()
-        .init_resource::<deed::Reason>()
+        .init_resource::<action::Reason>()
         .add_command(submit, &SUBMIT_KEYS)
         .add_observer(ask_of_row)
         .add_systems(
@@ -110,8 +110,8 @@ pub(crate) enum Open {
     #[default]
     Nothing,
     Menu(Thing, Vec2),
-    /// The question before a deed, against what it was asked from.
-    Question(Deed, Rect),
+    /// The question before an action, against what it was asked from.
+    Question(Action, Rect),
     /// The menu of the bare ground.
     Ground(Vec2),
     /// The form a hamlet is founded with.
@@ -139,11 +139,11 @@ impl Open {
     }
 }
 
-/// Sends the form that is open, or does the deed its question asks
+/// Sends the form that is open, or does the action its question asks
 /// about, as its first button does.
 fn submit(world: &mut World) {
     match world.resource::<Open>().clone() {
-        Open::Question(deed, _) => deed::answer(world, &deed),
+        Open::Question(action, _) => action::answer(world, &action),
         Open::Founding(_) => founding::submit(world),
         Open::NewProfile(_) => new_profile::submit(world),
         Open::AddAgent(parent, _) => add_agent::submit(world, parent),
@@ -349,7 +349,7 @@ pub(crate) fn has_items(world: &World, thing: Thing) -> bool {
 
 /// Opens the form a hamlet is founded with, at the pointer.
 pub(crate) fn ask_found(world: &mut World) {
-    if !Deeds::is_allowed(world, "create-hamlet") {
+    if !Actions::is_allowed(world, "create-hamlet") {
         return;
     }
     let at = pointer(world);
@@ -359,7 +359,7 @@ pub(crate) fn ask_found(world: &mut World) {
 /// Opens the form a profile is made in the city with, at the
 /// pointer.
 pub(crate) fn ask_new_profile(world: &mut World) {
-    if !Deeds::is_allowed(world, "profile") {
+    if !Actions::is_allowed(world, "profile") {
         return;
     }
     let at = pointer(world);
@@ -369,7 +369,7 @@ pub(crate) fn ask_new_profile(world: &mut World) {
 /// Opens the form an agent is added under `parent` with, at the
 /// pointer.
 pub(crate) fn ask_add_agent(world: &mut World, parent: Entity) {
-    if !Deeds::is_allowed(world, "add-agent") {
+    if !Actions::is_allowed(world, "add-agent") {
         return;
     }
     let at = pointer(world);
@@ -379,7 +379,7 @@ pub(crate) fn ask_add_agent(world: &mut World, parent: Entity) {
 /// Opens the form a channel from `agent` is opened with, at the
 /// pointer.
 pub(crate) fn ask_channel(world: &mut World, agent: Entity) {
-    if !Deeds::is_allowed(world, "channel") {
+    if !Actions::is_allowed(world, "channel") {
         return;
     }
     let at = pointer(world);
@@ -391,29 +391,30 @@ pub(crate) fn ask_model(world: &mut World, agent: Entity) {
     model::open(world, agent);
 }
 
-/// Asks before `deed` is done, at the pointer.
-pub(crate) fn ask(world: &mut World, deed: Deed) {
+/// Asks before `action` is done, at the pointer.
+pub(crate) fn ask(world: &mut World, action: Action) {
     let at = pointer(world);
-    ask_against(world, deed, Rect::from_corners(at, at));
+    ask_against(world, action, Rect::from_corners(at, at));
 }
 
-/// Asks before `deed` is done, against `anchor` in the window.
+/// Asks before `action` is done, against `anchor` in the window.
 pub(crate) fn ask_against(
     world: &mut World,
-    deed: Deed,
+    action: Action,
     anchor: Rect,
 ) {
     // A reason typed for an earlier question is not this one's.
-    if let Some(mut reason) = world.get_resource_mut::<deed::Reason>()
+    if let Some(mut reason) =
+        world.get_resource_mut::<action::Reason>()
     {
-        *reason = deed::Reason::default();
+        *reason = action::Reason::default();
     }
-    *world.resource_mut::<Open>() = Open::Question(deed, anchor);
+    *world.resource_mut::<Open>() = Open::Question(action, anchor);
 }
 
 /// Brings back `agent`, which was removed or merged away.
 pub(super) fn restore(world: &mut World, agent: Entity) {
-    if !Deeds::is_allowed(world, "restore") {
+    if !Actions::is_allowed(world, "restore") {
         return;
     }
     let text = format!("/restore {}", agents::name_of(world, agent));
@@ -440,8 +441,8 @@ fn menus() -> AnyView {
             (
                 world.resource::<Open>().clone(),
                 world
-                    .get_resource::<Deeds>()
-                    .map(|deeds| deeds.0.clone()),
+                    .get_resource::<Actions>()
+                    .map(|actions| actions.0.clone()),
             )
         })
         .when(every_frame()),
@@ -456,11 +457,11 @@ fn menus() -> AnyView {
                     cx.build(menu(at, items))
                 })
             }
-            Open::Question(deed, anchor) => {
-                question(deed, anchor).boxed()
+            Open::Question(action, anchor) => {
+                question(action, anchor).boxed()
             }
             Open::Ground(at) => AnyView::new(move |cx: &mut Cx| {
-                if !Deeds::is_allowed(cx.world, "create-hamlet") {
+                if !Actions::is_allowed(cx.world, "create-hamlet") {
                     return cx.build(frame());
                 }
                 let found = menu_item(
@@ -534,9 +535,9 @@ mod tests {
     }
 
     #[test]
-    fn ground_and_town_offer_only_received_deeds() {
+    fn ground_and_town_offer_only_received_actions() {
         let mut state = realm::state();
-        state.deeds = realm::deeds(&["new", "stop"]);
+        state.actions = realm::actions(&["new", "stop"]);
         let mut app = app(state.clone());
         app.world_mut().resource_mut::<AskedGround>().0 =
             Some(Vec2::ZERO);
@@ -558,8 +559,8 @@ mod tests {
                 .any(|text| text == "Close Down home...")
         );
 
-        state.deeds =
-            realm::deeds(&["create-hamlet", "remove-hamlet"]);
+        state.actions =
+            realm::actions(&["create-hamlet", "remove-hamlet"]);
         hamlet_client::receive(
             app.world_mut(),
             protocol::ServerMessage::State(state),
@@ -605,7 +606,7 @@ mod tests {
                 "unsupported: {absent}"
             );
         }
-        state.deeds = realm::deeds(&["channel"]);
+        state.actions = realm::actions(&["channel"]);
         hamlet_client::receive(
             app.world_mut(),
             protocol::ServerMessage::State(state),

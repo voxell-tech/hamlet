@@ -14,7 +14,7 @@ use super::captions::Caption;
 use crate::core::{Core, UnpushedWorktree};
 use crate::knowledge::folder::Folder;
 use crate::realm::workspace::worktrees::WORKTREE;
-use crate::society::refusal::Refusal;
+use crate::society::rejection::Rejection;
 
 /// The folder of a worktree that holds what was sent to its agent.
 pub(crate) const INBOX: &str = "inbox";
@@ -91,7 +91,7 @@ impl Inbox {
         &mut self,
         name: &str,
         bytes: &[u8],
-    ) -> Result<std::result::Result<(), Refusal>> {
+    ) -> Result<std::result::Result<(), Rejection>> {
         self.put_at(name, bytes, None)
     }
 
@@ -101,9 +101,9 @@ impl Inbox {
         name: &str,
         bytes: &[u8],
         at: Option<u64>,
-    ) -> Result<std::result::Result<(), Refusal>> {
+    ) -> Result<std::result::Result<(), Rejection>> {
         if TreePath::parse(name).is_err() {
-            return Ok(Err(Refusal::NotFileName {
+            return Ok(Err(Rejection::NotFileName {
                 name: name.into(),
             }));
         }

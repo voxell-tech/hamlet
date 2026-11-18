@@ -31,7 +31,7 @@ pub(super) fn setup(world: &mut World, scene: Scene) {
     }
     let mut state = hamlet_testing::realm::state();
     state.chief = "chief".into();
-    state.deeds = hamlet_testing::realm::deeds(&[
+    state.actions = hamlet_testing::realm::actions(&[
         "history",
         "restore-hamlet",
         "erase-hamlet",
@@ -51,7 +51,7 @@ pub(super) fn setup(world: &mut World, scene: Scene) {
     // A hamlet's page as its chief sees it, with what can be done to
     // the hamlet.
     if matches!(scene, Scene::Hamlet | Scene::Bylaws) {
-        state.deeds.extend(hamlet_testing::realm::deeds(&[
+        state.actions.extend(hamlet_testing::realm::actions(&[
             "add-agent",
             "worker",
             "name-hamlet",

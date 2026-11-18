@@ -9,7 +9,7 @@ use bevy_fynix::views::{
     BehaviorExt, FrameProps, column, frame, label, popup, row,
 };
 use bevy_fynix::{ScopedExt, ViewExt};
-use hamlet_client::realm::Deeds;
+use hamlet_client::realm::Actions;
 use hamlet_ui::styles::{Looks, button, description, lettered};
 use hamlet_ui::widgets::effects::Variant;
 use hamlet_ui::{AnyView, View, built};
@@ -43,7 +43,7 @@ impl Making {
 
 /// Makes the profile the form holds, once it is named.
 pub(super) fn submit(world: &mut World) {
-    if !Deeds::is_allowed(world, "profile") {
+    if !Actions::is_allowed(world, "profile") {
         return;
     }
     let Some(command) = world.resource::<Making>().command() else {
@@ -57,7 +57,7 @@ pub(super) fn submit(world: &mut World) {
 /// The form a profile is made with.
 pub(super) fn new_profile(at: Vec2) -> impl View {
     built(move |cx| {
-        if !Deeds::is_allowed(cx.world, "profile") {
+        if !Actions::is_allowed(cx.world, "profile") {
             return cx.build(frame());
         }
         let (gap, between, padding, heading) = {

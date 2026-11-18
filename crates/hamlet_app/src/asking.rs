@@ -25,7 +25,7 @@ use bevy_fynix::{
 use hamlet_client::chats::Chat;
 use hamlet_client::messages::{Answer, Answered};
 use hamlet_client::waits::{
-    Asks, Choice, RaisedBy, Refused, Waiting,
+    Asks, Choice, RaisedBy, Rejected, Waiting,
 };
 use hamlet_protocol::client::{Offer, Pick, Questions};
 use hamlet_ui::styles::{
@@ -459,16 +459,16 @@ pub fn card(card: Entity, asked: Questions) -> impl View {
         move |at| page(card, &asked, *at),
     )
     .within(bare());
-    // The server checks the answers; its refusal stays until the
+    // The server checks the answers; its rejection stays until the
     // next.
     #[expect(
         clippy::redundant_closure_for_method_calls,
         reason = "Option::cloned is not general over the lifetime"
     )]
-    let refused = keyed(
-        component::<Refused, _>(card, |refused| refused.cloned()),
-        |refused| match refused {
-            Some(Refused(text)) => label(text.clone())
+    let rejected = keyed(
+        component::<Rejected, _>(card, |rejected| rejected.cloned()),
+        |rejected| match rejected {
+            Some(Rejected(text)) => label(text.clone())
                 .tone(Tone::Critical)
                 .rules(small_rules)
                 .boxed(),
@@ -477,7 +477,7 @@ pub fn card(card: Entity, asked: Questions) -> impl View {
     )
     .within(bare());
     with_cx(move |cx| {
-        column((message, pages, refused)).gap(cx.theme().space.gap)
+        column((message, pages, rejected)).gap(cx.theme().space.gap)
     })
 }
 

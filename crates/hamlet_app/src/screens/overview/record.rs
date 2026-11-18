@@ -7,8 +7,8 @@ use bevy_fynix::{ViewExt, derived, every_frame, keyed};
 use hamlet_client::messages::{Reconnected, Response};
 use hamlet_client::outbox::Outbox;
 use hamlet_client::realm::{
-    self as agents, Agents, Bylaws, Deeds, HamletId, Identity, Lead,
-    Lived, LivesIn, Seen, Treasury, Works,
+    self as agents, Actions, Agents, Bylaws, HamletId, Identity,
+    Lead, Lived, LivesIn, Seen, Treasury, Works,
 };
 use hamlet_protocol::client as protocol;
 use hamlet_ui::AnyView;
@@ -54,7 +54,7 @@ impl Annals {
 struct RecordPanel(Entity);
 
 fn request(world: &mut World, hamlet: Entity, opening: bool) {
-    if !world.resource::<Deeds>().is_supported("history") {
+    if !world.resource::<Actions>().is_supported("history") {
         return;
     }
     let Some(name) =
@@ -108,7 +108,8 @@ fn answered(response: On<Response>, mut annals: ResMut<Annals>) {
 }
 
 fn refresh(world: &mut World) {
-    let available = world.resource::<Deeds>().is_supported("history");
+    let available =
+        world.resource::<Actions>().is_supported("history");
     let mut annals = world.resource_mut::<Annals>();
     let force = annals.reconnect || (available && !annals.available);
     annals.available = available;
@@ -164,7 +165,7 @@ pub(super) fn record_of(hamlet: Entity) -> AnyView {
             } else {
                 String::new()
             },
-            world.resource::<Deeds>().is_supported("history"),
+            world.resource::<Actions>().is_supported("history"),
         )
     })
     .when(every_frame());
@@ -208,7 +209,7 @@ mod tests {
         let mut app = panel_app();
         app.add_plugins(crate::overview::plugin);
         let mut state = hamlet_testing::realm::state();
-        state.deeds = hamlet_testing::realm::deeds(&["history"]);
+        state.actions = hamlet_testing::realm::actions(&["history"]);
         state
             .agents
             .push(hamlet_testing::realm::agent(3, "home", false));
@@ -293,7 +294,7 @@ mod tests {
         let mut app = panel_app();
         app.add_plugins(crate::overview::plugin);
         let mut state = hamlet_testing::realm::state();
-        state.deeds = hamlet_testing::realm::deeds(&["history"]);
+        state.actions = hamlet_testing::realm::actions(&["history"]);
         hamlet_client::receive(
             app.world_mut(),
             protocol::ServerMessage::State(state.clone()),
@@ -357,7 +358,7 @@ mod tests {
         assert!(
             words(&mut app).contains(&"The record recovered".into())
         );
-        state.deeds = hamlet_testing::realm::deeds(&[]);
+        state.actions = hamlet_testing::realm::actions(&[]);
         hamlet_client::receive(
             app.world_mut(),
             protocol::ServerMessage::State(state.clone()),
@@ -367,7 +368,7 @@ mod tests {
             .resource_mut::<Outbox>()
             .drain()
             .for_each(drop);
-        state.deeds = hamlet_testing::realm::deeds(&["history"]);
+        state.actions = hamlet_testing::realm::actions(&["history"]);
         hamlet_client::receive(
             app.world_mut(),
             protocol::ServerMessage::State(state),

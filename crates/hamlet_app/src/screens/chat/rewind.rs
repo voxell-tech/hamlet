@@ -32,7 +32,7 @@ use super::bubble::Bubble;
 use super::field::set;
 use super::reply::{Replying, unreplied};
 use crate::convo::Convo;
-use crate::world_menu::{self, Deed, Open};
+use crate::world_menu::{self, Action, Open};
 
 /// The room of a mark about its picture, and the room it takes
 /// beside its message.
@@ -108,12 +108,12 @@ pub fn ask(world: &mut World, session: Entity, entry: &str) {
             )
         })
         .unwrap_or_default();
-    let deed = Deed::Rewind {
+    let action = Action::Rewind {
         session,
         entry: entry.to_string(),
         at,
     };
-    world_menu::ask_against(world, deed, anchor);
+    world_menu::ask_against(world, action, anchor);
 }
 
 /// The message of `session` a rewind is asked about, and when it was
@@ -121,7 +121,7 @@ pub fn ask(world: &mut World, session: Entity, entry: &str) {
 fn asked(open: &Open, session: Entity) -> Option<(&str, u64)> {
     match open {
         Open::Question(
-            Deed::Rewind {
+            Action::Rewind {
                 session: of,
                 entry,
                 at,

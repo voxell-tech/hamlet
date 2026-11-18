@@ -61,7 +61,7 @@ chief is talking to.
 | `/unshelve <skill> [reason]` | Take a skill out of the library (H33) |
 
 The server advertises its supported command names. The window offers only
-the deeds it advertises.
+the actions it advertises.
 
 ## The Hand
 
