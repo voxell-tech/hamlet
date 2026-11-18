@@ -474,20 +474,20 @@ const WRITTEN: readonly Written[] = [
         task: "task-1",
         tool: ["tell", { to: "mayor", text: "The tests pass" }],
         answers: { realm: { tell: () => answer("realm/tell.done") } },
-        own: ["call"],
+        own: ["call", "conversation"],
     },
     {
         fixture: "realm/tell.no_task",
         tool: ["tell", { to: "hand", text: "The tests pass" }],
         answers: { realm: { tell: () => answer("realm/tell.done") } },
-        own: ["call"],
+        own: ["call", "conversation"],
     },
     {
         fixture: "realm/ask",
         task: "task-1",
         tool: ["ask", { to: "hire#12", question: "Which tests fail?" }],
         answers: { realm: { ask: () => answer("realm/ask.done") } },
-        own: ["call", "act.conversation"],
+        own: ["call", "conversation", "act.conversation"],
     },
     {
         fixture: "realm/request_road",
@@ -499,7 +499,7 @@ const WRITTEN: readonly Written[] = [
         answers: {
             realm: { request_road: () => answer("realm/request_road.done") },
         },
-        own: ["call"],
+        own: ["call", "conversation"],
     },
     {
         fixture: "realm/request_road.no_why",
@@ -507,13 +507,13 @@ const WRITTEN: readonly Written[] = [
         answers: {
             realm: { request_road: () => answer("realm/request_road.done") },
         },
-        own: ["call"],
+        own: ["call", "conversation"],
     },
     {
         fixture: "realm/found",
         tool: ["found_hamlet", { name: "Harbor", purpose: "Run the release" }],
         answers: { realm: { found: () => answer("realm/found.founded") } },
-        own: ["call"],
+        own: ["call", "conversation"],
         // The tool has no tier to choose: a hamlet an agent founds has
         // today's default, 50. The fixture's 500 is a chief's choice.
         constant: { "act.tier": "fifty" },
@@ -522,25 +522,32 @@ const WRITTEN: readonly Written[] = [
         fixture: "realm/hire",
         tool: ["hire", { purpose: "Check the links", under: "hire#12" }],
         answers: { realm: { hire: () => answer("realm/hire.hired") } },
-        own: ["call"],
+        own: ["call", "conversation"],
+    },
+    {
+        fixture: "realm/hire.in_a_turn",
+        task: "standing-12",
+        tool: ["hire", { purpose: "Check the links" }],
+        answers: { realm: { hire: () => answer("realm/hire.hired") } },
+        own: ["call", "conversation"],
     },
     {
         fixture: "realm/end",
         tool: ["end_hire", { hire: "hire#12" }],
         answers: { realm: { end: () => answer("realm/end.done") } },
-        own: ["call"],
+        own: ["call", "conversation"],
     },
     {
         fixture: "realm/seat",
         tool: ["seat_mayor", { hire: "hire#13" }],
         answers: { realm: { seat: () => answer("realm/seat.done") } },
-        own: ["call"],
+        own: ["call", "conversation"],
     },
     {
         fixture: "realm/lay_road",
         tool: ["lay_road", { a: "hire#12", b: "hire#13" }],
         answers: { realm: { lay_road: () => answer("realm/lay_road.done") } },
-        own: ["call"],
+        own: ["call", "conversation"],
     },
     {
         fixture: "realm/take_up_road",
@@ -548,7 +555,7 @@ const WRITTEN: readonly Written[] = [
         answers: {
             realm: { take_up_road: () => answer("realm/take_up_road.done") },
         },
-        own: ["call"],
+        own: ["call", "conversation"],
     },
     {
         fixture: "realm/set_tools",
@@ -556,7 +563,7 @@ const WRITTEN: readonly Written[] = [
         answers: {
             realm: { set_tools: () => answer("realm/set_tools.done") },
         },
-        own: ["call"],
+        own: ["call", "conversation"],
     },
     // Sent at the first wake, which holds no copy yet.
     { fixture: "realm/read_copies.none" },
@@ -824,7 +831,12 @@ for (const row of WRITTEN) {
                 `${path} has the agent's form: ${String(value)}`,
             );
             const theirs = field(expected[0], path);
-            mine.holder[mine.key] = theirs.holder[theirs.key];
+            // A fixture that leaves the field out shows a call without it.
+            if (theirs.key in theirs.holder) {
+                mine.holder[mine.key] = theirs.holder[theirs.key];
+            } else {
+                delete mine.holder[mine.key];
+            }
         }
         for (const [path, value] of Object.entries(row.constant ?? {})) {
             const mine = field(args[0], path);
@@ -1432,10 +1444,6 @@ const NOT_THE_AGENTS: readonly (readonly [RegExp, string])[] = [
     [
         /^realm\/(agree_road|ask_chief|object|start_worker|read_budget|read_record|set_allowance|set_model|set_nickname|fetch_part)\./,
         "an agent's call of the realm, which this agent does not make",
-    ],
-    [
-        /^realm\/hire\.in_a_turn\.args$/,
-        "a hire with the task and conversation of the turn that asks, which this agent does not write: it sends the call and the act only",
     ],
     [
         /^agent\/submit\.(letter|question)\.files\.args$/,

@@ -380,25 +380,22 @@ const WORKSPACE_STAMPS: {
     cancel: "read",
 };
 
-const ACT_STAMPS: {
-    readonly [N in SocietyTool]: {
-        /** The turn's task goes on the call. */
-        readonly task: boolean;
-        readonly conversation: "conversation" extends keyof SocietyActs[N]["act"]
-            ? true
-            : false;
-    };
+/** Whether an act carries the calling turn's conversation in itself. */
+const OWN_CONVERSATION: {
+    readonly [N in SocietyTool]: "conversation" extends keyof SocietyActs[N]["act"]
+        ? true
+        : false;
 } = {
-    found: { task: false, conversation: false },
-    hire: { task: false, conversation: false },
-    end: { task: false, conversation: false },
-    seat: { task: false, conversation: false },
-    tell: { task: true, conversation: false },
-    ask: { task: true, conversation: true },
-    lay_road: { task: false, conversation: false },
-    take_up_road: { task: false, conversation: false },
-    request_road: { task: true, conversation: false },
-    set_tools: { task: false, conversation: false },
+    found: false,
+    hire: false,
+    end: false,
+    seat: false,
+    tell: false,
+    ask: true,
+    lay_road: false,
+    take_up_road: false,
+    request_road: false,
+    set_tools: false,
 };
 
 type WorkspaceTool = Exclude<keyof WorkspaceActions, "list_tools" | "cancel">;
@@ -476,32 +473,34 @@ async function stamped(
     name: string,
     message: object,
 ): Promise<{ readonly message: object; readonly changes: boolean }> {
+    if (
+        to.kind === WORKSPACE.kind &&
+        WORKSPACE_STAMPS[name as WorkspaceTool] !== "change"
+    ) {
+        return { message, changes: false };
+    }
     const call = callOf(api);
     const conversation = refOf(api.conversationId);
-    const task = async () =>
-        carried((await peers.turns.of(api.conversationId)).task);
+    const task = carried((await peers.turns.of(api.conversationId)).task);
     if (to.kind === WORKSPACE.kind) {
-        if (WORKSPACE_STAMPS[name as WorkspaceTool] !== "change") {
-            return { message, changes: false };
-        }
-        const realmTask = await task();
         return {
             message: {
                 ...message,
                 call,
                 conversation,
-                ...(realmTask === undefined ? {} : { realm_task: realmTask }),
+                ...(task === undefined ? {} : { realm_task: task }),
             },
             changes: true,
         };
     }
-    const wants = ACT_STAMPS[name as SocietyTool];
-    const callTask = wants.task ? await task() : undefined;
     return {
         message: {
             call,
-            ...(callTask === undefined ? {} : { task: callTask }),
-            act: wants.conversation ? { ...message, conversation } : message,
+            ...(task === undefined ? {} : { task }),
+            conversation,
+            act: OWN_CONVERSATION[name as SocietyTool]
+                ? { ...message, conversation }
+                : message,
         },
         changes: true,
     };

@@ -234,7 +234,7 @@ const DROPPED: Record<string, readonly string[]> = {
     set_tools: ["reason"],
 };
 
-test("tell carries t<task id> and the turn's task, and a refusal's words are the tool's result", async (t) => {
+test("tell carries t<task id>, the turn's task and its conversation, and a refusal's words are the tool's result", async (t) => {
     const { calls, sent } = fakeCalls({
         realm: {
             tell: (message) =>
@@ -267,14 +267,19 @@ test("tell carries t<task id> and the turn's task, and a refusal's words are the
     assert.equal(tells.length, 2);
     const [first] = tells;
     assert.ok(first);
-    const call = (first.message as { call: string }).call;
+    const { call, conversation } = first.message as {
+        call: string;
+        conversation: string;
+    };
     assert.match(call, /^t[1-9][0-9]*$/);
+    assert.match(conversation, /^[1-9][0-9]*$/);
     assert.deepEqual(first, {
         to: "realm/local",
         name: "tell",
         message: {
             call,
             task: "task-1",
+            conversation,
             act: { to: { type: "mayor" }, text: "The tests pass" },
         },
         deadlineMs: 10_000,
