@@ -373,8 +373,10 @@ where
         let name = <Tool<T> as Action>::NAME;
         let by = sender(&ctx, &hand)?;
         let ByHand(tool) = hand;
-        let id = marker::Id::Call(tool.call);
-        act::run(&self, &ctx, by, Some(id), name, tool.act).await
+        let id = marker::Id::Call(tool.call.clone());
+        let key = marker::Key::of(&by, id, name, &tool)?;
+        act::run_keyed(&self, &ctx, by, Some(key), name, tool.act)
+            .await
     }
 }
 

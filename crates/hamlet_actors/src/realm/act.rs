@@ -121,6 +121,23 @@ where
     let key = id
         .map(|id| marker::Key::of(&by, id, name, &act))
         .transpose()?;
+    run_keyed(realm, ctx, by, key, name, act).await
+}
+
+/// Runs `act` recorded under `key`, whose digest covers the whole
+/// call that carried it.
+pub(super) async fn run_keyed<By, A>(
+    realm: &Arc<Realm>,
+    ctx: &Ctx<Realm>,
+    by: By,
+    key: Option<marker::Key>,
+    name: &'static str,
+    act: A,
+) -> Result<A::Output>
+where
+    By: Witness,
+    A: Act<By> + Serialize,
+{
     let stood = exec(
         realm,
         ctx,
