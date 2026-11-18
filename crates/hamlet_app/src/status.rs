@@ -8,7 +8,7 @@ use bevy::ecs::change_detection::{DetectChanges, Ref};
 use bevy::ecs::resource::Resource;
 use bevy::ecs::schedule::IntoScheduleConfigs;
 use bevy::ecs::system::{Query, Res, ResMut};
-use bevy::ui::{AlignItems, Overflow, UiRect, px};
+use bevy::ui::{AlignItems, UiRect, px};
 use bevy_fynix::tokens::Tone;
 use bevy_fynix::views::{
     FrameProps, TooltipExt, column, frame, icon, label, row,
@@ -27,7 +27,6 @@ use hamlet_ui::{AnyView, View, built, with_cx};
 
 use crate::PanelSystems;
 use crate::convo::Convo;
-use crate::links::Aimed;
 use crate::standing::Standing;
 
 pub(crate) fn plugin(app: &mut App) {
@@ -309,18 +308,6 @@ fn spent() -> impl View {
     .within(row(()).gap(0.0))
 }
 
-/// The place the link under the pointer leads, in the room between
-/// the bar's two ends.
-fn aimed() -> impl View {
-    row((label(resource::<Aimed, _>(|aimed| aimed.address.clone()))
-        .wrap(false)
-        .tone(Tone::Accent)
-        .rules(small_rules),))
-    .grow(1.0)
-    .min_width(px(0.0))
-    .overflow(Overflow::clip())
-}
-
 /// The bar along the foot of the window.
 pub fn status_bar() -> impl View {
     built(|cx| {
@@ -332,7 +319,8 @@ pub fn status_bar() -> impl View {
                 row((
                     setup(),
                     spent(),
-                    aimed(),
+                    // The room between the bar's two ends.
+                    row(()).grow(1.0),
                     pair(
                         with_cx(|cx| {
                             let side = cx.theme().space.status_icon;

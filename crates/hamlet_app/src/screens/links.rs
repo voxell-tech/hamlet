@@ -6,7 +6,6 @@ use std::path::{Path, PathBuf};
 
 use bevy::app::{App, PreUpdate};
 use bevy::ecs::entity::Entity;
-use bevy::ecs::lifecycle::Remove;
 use bevy::ecs::message::MessageWriter;
 use bevy::ecs::observer::On;
 use bevy::ecs::query::With;
@@ -15,9 +14,7 @@ use bevy::ecs::schedule::common_conditions::resource_changed;
 use bevy::ecs::schedule::{IntoScheduleConfigs, SystemCondition};
 use bevy::ecs::system::{Local, Query, Res, ResMut};
 use bevy::ecs::world::World;
-use bevy::picking::events::{
-    PointerClick, PointerOut, PointerOver, PointerPress,
-};
+use bevy::picking::events::{PointerClick, PointerPress};
 use bevy::picking::pointer::PointerButton;
 use hamlet_client::messages::JobFinished;
 use hamlet_client::realm::{LivesIn, RealmFolder, Works};
@@ -32,19 +29,14 @@ use crate::{PanelSystems, sounds};
 /// The most paths whose files are remembered.
 const REMEMBERED: usize = 4096;
 
-/// Follows the pointer onto the links of the chat and opens the one
-/// that is clicked.
+/// Opens the link of the chat that is clicked.
 pub fn plugin(app: &mut App) {
     app.init_resource::<Roots>()
         .init_resource::<Found>()
-        .init_resource::<Aimed>()
         .insert_resource(PathLinks {
             resolve: seek,
             generation: 0,
         })
-        .add_observer(aim)
-        .add_observer(aim_off)
-        .add_observer(aim_gone)
         .add_observer(tap)
         .add_observer(follow)
         .add_observer(forget)
@@ -162,64 +154,6 @@ pub(crate) fn seek(
     }
     found.0.insert(written.to_string(), file.clone());
     file
-}
-
-/// The link under the pointer.
-#[derive(Resource, Default, PartialEq, Eq, Debug)]
-pub struct Aimed {
-    span: Option<Entity>,
-    /// The place it leads, in full. Empty when the pointer is on no
-    /// link.
-    pub address: String,
-}
-
-impl Aimed {
-    /// A pointer that rests on a link to `address`.
-    pub fn at(address: &str) -> Self {
-        Aimed {
-            span: None,
-            address: address.to_string(),
-        }
-    }
-}
-
-fn aim(
-    over: On<PointerOver>,
-    anchors: Query<&Anchor>,
-    mut aimed: ResMut<Aimed>,
-) {
-    let Ok(anchor) = anchors.get(over.entity) else {
-        return;
-    };
-    let address = match anchor {
-        Anchor::Web(address) => address.clone(),
-        Anchor::File(path) => match open::way(path) {
-            open::Way::Open => path.display().to_string(),
-            open::Way::Reveal => {
-                format!("{} (shown in its folder)", path.display())
-            }
-        },
-    };
-    *aimed = Aimed {
-        span: Some(over.entity),
-        address,
-    };
-}
-
-fn leave(aimed: &mut ResMut<Aimed>, span: Entity) {
-    if aimed.span == Some(span) {
-        **aimed = Aimed::default();
-    }
-}
-
-fn aim_off(out: On<PointerOut>, mut aimed: ResMut<Aimed>) {
-    leave(&mut aimed, out.entity);
-}
-
-/// A link that is drawn again under the pointer goes with no word of
-/// the pointer leaving it.
-fn aim_gone(gone: On<Remove<Anchor>>, mut aimed: ResMut<Aimed>) {
-    leave(&mut aimed, gone.entity);
 }
 
 fn tap(

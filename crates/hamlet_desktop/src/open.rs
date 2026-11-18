@@ -16,7 +16,7 @@ const RUNS: [&str; 34] = [
 
 /// The way a file is shown.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
-pub enum Way {
+enum Way {
     /// By the program the system keeps for its kind.
     Open,
     /// In its folder, unopened.
@@ -72,7 +72,7 @@ fn is_executable(_: &Path) -> bool {
 
 /// The way `path` is shown: a file the system would run is only
 /// revealed.
-pub fn way(path: &Path) -> Way {
+fn way(path: &Path) -> Way {
     let listed = path
         .extension()
         .and_then(|ending| ending.to_str())
