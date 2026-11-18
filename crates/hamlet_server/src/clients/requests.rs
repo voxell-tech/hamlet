@@ -321,7 +321,8 @@ impl Core<'_, '_> {
             }
             Ok(stopped)
         })?;
-        Ok(format!("Stopped {stopped} running turns."))
+        let turns = if stopped == 1 { "turn" } else { "turns" };
+        Ok(format!("Stopped {stopped} running {turns}."))
     }
 
     /// Rewinds `agent`'s conversation to before the chief's line

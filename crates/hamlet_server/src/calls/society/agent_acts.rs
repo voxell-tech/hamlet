@@ -203,8 +203,11 @@ impl Core<'_, '_> {
                 let working = self.working()?;
                 self.carry(call, |cx, _| {
                     let stopped = chats::stop(cx, agent, &working)?;
+                    let turns =
+                        if stopped == 1 { "turn" } else { "turns" };
                     Ok(Ok(format!(
-                        "Stopped {stopped} running turns of {name}."
+                        "Stopped {stopped} running {turns} of \
+                         {name}."
                     )))
                 })
             }
@@ -271,7 +274,8 @@ impl Core<'_, '_> {
             for agent in others {
                 stopped += chats::stop(cx, agent, &working)?;
             }
-            Ok(Ok(format!("Stopped {stopped} running turns.")))
+            let turns = if stopped == 1 { "turn" } else { "turns" };
+            Ok(Ok(format!("Stopped {stopped} running {turns}.")))
         })
     }
 

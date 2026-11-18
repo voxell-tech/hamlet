@@ -114,7 +114,7 @@ async fn stop_ends_a_running_turn() {
     s.chief.until("work", |c| c.is_working(&now)).await;
     assert_eq!(
         s.chief.command(hand, "/stop").await,
-        "Stopped 1 running turns."
+        "Stopped 1 running turn."
     );
     s.chief.until("rest", |c| !c.is_working(&now)).await;
     assert!(!s.chief.texts(&now).contains(&"Slow.".into()));
