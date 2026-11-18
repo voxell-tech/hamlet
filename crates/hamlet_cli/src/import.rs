@@ -60,10 +60,7 @@ pub fn list(
     }
     for project in &projects {
         let mark = if project.is_suggested() { "*" } else { " " };
-        let day = chrono::DateTime::<chrono::Local>::from(
-            project.modified(),
-        )
-        .format("%Y-%m-%d");
+        let day = local(project.modified(), "%Y-%m-%d");
         let count = project.conversations.len();
         println!(
             "{mark} {}  {count} conversation{}  {day}",
@@ -77,10 +74,7 @@ pub fn list(
             continue;
         }
         for found in &project.conversations {
-            let at = chrono::DateTime::<chrono::Local>::from(
-                found.modified,
-            )
-            .format("%Y-%m-%d %H:%M");
+            let at = local(found.modified, "%Y-%m-%d %H:%M");
             println!(
                 "      {}  {at}  {}",
                 found.session, found.title
@@ -102,6 +96,13 @@ pub fn list(
          bring in those alone."
     );
     Ok(())
+}
+
+/// `at` in the local time zone, written as `format` says.
+fn local(at: SystemTime, format: &str) -> String {
+    jiff::Zoned::try_from(at)
+        .map(|at| at.strftime(format).to_string())
+        .unwrap_or_default()
 }
 
 /// Brings in the projects `chosen` of the export `file`, or of this

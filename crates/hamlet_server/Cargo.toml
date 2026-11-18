@@ -36,11 +36,11 @@ bevy_derive.workspace = true
 bevy_ecs.workspace = true
 bevy_log.workspace = true
 bevy_state.workspace = true
-chrono.workspace = true
 diesel.workspace = true
 futures.workspace = true
 image.workspace = true
 interprocess.workspace = true
+jiff.workspace = true
 jsonschema = { version = "0.33", default-features = false }
 notify.workspace = true
 regex.workspace = true

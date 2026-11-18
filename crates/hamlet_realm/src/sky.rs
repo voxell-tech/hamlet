@@ -25,7 +25,6 @@ use bevy::render::render_resource::{
     Extent3d, TextureDimension, TextureFormat,
 };
 use bevy::render::view::{ColorGrading, ColorGradingGlobal};
-use chrono::Timelike;
 use hamlet_assets::tint;
 use hamlet_vfx::inlay::{self, EMBER, InlayPlugin};
 
@@ -689,8 +688,8 @@ fn key_light(
 }
 
 fn wall_hour() -> f32 {
-    let now = chrono::Local::now();
-    now.hour() as f32 + now.minute() as f32 / 60.0
+    let now = jiff::Zoned::now();
+    f32::from(now.hour()) + f32::from(now.minute()) / 60.0
 }
 
 /// Works out the hour and its look, and moves [`DayPart`] with it.

@@ -17,7 +17,6 @@ use bevy_fynix::{
     ScopedExt, StateExt, ViewExt, derived, each, every_frame, keyed,
     resource, style,
 };
-use chrono::Datelike;
 use hamlet_client::chats::{Chat, TalksTo, Transcript};
 use hamlet_client::messages::{ChiefMessage, JobFinished, Response};
 use hamlet_client::outbox::{Outbox, RequestId};
@@ -95,9 +94,11 @@ enum Day {
 impl Day {
     /// The day of `then` at `now`, both in milliseconds since 1970.
     fn of(now: i64, then: i64) -> Self {
-        match (local(now).date_naive() - local(then).date_naive())
-            .num_days()
-        {
+        let days = local(now)
+            .date()
+            .since(local(then).date())
+            .map_or(0, |span| span.get_days());
+        match days {
             ..=0 => Self::Today,
             1 => Self::Yesterday,
             2..7 => Self::PastWeek,
@@ -116,10 +117,10 @@ impl Day {
 }
 
 /// `ms` since 1970 in the local time zone.
-fn local(ms: i64) -> chrono::DateTime<chrono::Local> {
-    chrono::DateTime::from_timestamp_millis(ms)
+fn local(ms: i64) -> jiff::Zoned {
+    jiff::Timestamp::from_millisecond(ms)
         .unwrap_or_default()
-        .with_timezone(&chrono::Local)
+        .to_zoned(jiff::tz::TimeZone::system())
 }
 
 #[derive(Resource, Default)]
@@ -156,9 +157,9 @@ fn detail(past: &Past, chief: &str) -> String {
         Day::Today => {
             Age::of(now as u64, past.modified.max(0) as u64).ago()
         }
-        Day::Yesterday => at.format("%H:%M").to_string(),
-        Day::PastWeek => at.format("%a %H:%M").to_string(),
-        Day::Earlier => dated(at, now),
+        Day::Yesterday => at.strftime("%H:%M").to_string(),
+        Day::PastWeek => at.strftime("%a %H:%M").to_string(),
+        Day::Earlier => dated(&at, now),
     };
     let mut parts = vec![when];
     parts.extend(counts(past, chief));
@@ -167,10 +168,10 @@ fn detail(past: &Past, chief: &str) -> String {
 
 /// The date of `at`, with its year when that is not the year of
 /// `now`.
-fn dated(at: chrono::DateTime<chrono::Local>, now: i64) -> String {
+fn dated(at: &jiff::Zoned, now: i64) -> String {
     match at.year() == local(now).year() {
-        true => at.format("%-d %b").to_string(),
-        false => at.format("%-d %b %Y").to_string(),
+        true => at.strftime("%-d %b").to_string(),
+        false => at.strftime("%-d %b %Y").to_string(),
     }
 }
 
@@ -183,9 +184,9 @@ fn last_used(past: &Past) -> String {
         day @ (Day::Today | Day::Yesterday) => {
             day.heading().to_string()
         }
-        Day::PastWeek | Day::Earlier => dated(at, now),
+        Day::PastWeek | Day::Earlier => dated(&at, now),
     };
-    format!("{day}, {}", at.format("%H:%M"))
+    format!("{day}, {}", at.strftime("%H:%M"))
 }
 
 impl History {
@@ -645,7 +646,7 @@ mod tests {
         assert_eq!(read["agent"], json!(1));
         bevy_fynix::mount::<HamletTheme>(app.world_mut(), screen());
         app.update();
-        let now = chrono::Utc::now().timestamp_millis();
+        let now = jiff::Timestamp::now().as_millisecond();
         hamlet_client::receive(app.world_mut(), serde_json::from_value(json!({"type": "read", "to": read["id"], "history": [
             {"number": 2, "current": true, "title": "Plant pears", "by": "alice", "began": now, "modified": now, "messages": 3, "tokens": 1200},
             {"number": 1, "current": false, "title": "Count hives", "by": "bob", "began": now - 300000, "modified": now - 300000, "messages": 2, "tokens": 800}

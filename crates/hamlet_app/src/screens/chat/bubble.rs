@@ -143,11 +143,12 @@ fn kept_room(
 
 /// The hour and minute of `at`, in milliseconds since 1970.
 fn hour(at: u64) -> String {
-    chrono::DateTime::from_timestamp_millis(at as i64)
+    jiff::Timestamp::from_millisecond(at as i64)
+        .ok()
         .filter(|_| at > 0)
         .map(|at| {
-            at.with_timezone(&chrono::Local)
-                .format("%H:%M")
+            at.to_zoned(jiff::tz::TimeZone::system())
+                .strftime("%H:%M")
                 .to_string()
         })
         .unwrap_or_default()

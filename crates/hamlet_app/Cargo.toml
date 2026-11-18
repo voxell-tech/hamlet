@@ -35,8 +35,8 @@ anyhow.workspace = true
 bevy = { workspace = true, features = ["2d", "3d", "ui", "mesh_picking", "default_platform", "system_clipboard", "bevy_audio", "bevy_dev_tools", "debug", "serialize", "bevy_clipboard", "bevy_winit", "custom_cursor"] }
 bevy_app.workspace = true
 bevy_fynix.workspace = true
-chrono.workspace = true
 image.workspace = true
+jiff.workspace = true
 parley.workspace = true
 pulldown-cmark.workspace = true
 reqwest.workspace = true

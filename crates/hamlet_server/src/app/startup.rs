@@ -248,8 +248,8 @@ fn publish_address(
     let url = format!("ws://{}", listening.address);
     let confinement = core.confinement();
     let layout = core.realm.layout().clone();
-    let started = chrono::Utc::now()
-        .to_rfc3339_opts(chrono::SecondsFormat::Millis, true);
+    // RFC 3339 in UTC, to the millisecond.
+    let started = format!("{:.3}", jiff::Timestamp::now());
     let address = json!({
         "url": url,
         "pid": std::process::id(),
