@@ -331,14 +331,14 @@ export function agentModels(
         model: Model<Api>,
         options: ModelsSimpleStreamOptions | undefined,
     ): Promise<[Model<Api>, ModelsSimpleStreamOptions]> => {
-        const key = keys.of(model.provider);
+        const signal = options?.signal;
+        // A stop does not wait for a refresh or the first load, which go on.
+        const stoppable = <T>(waited: Promise<T>): Promise<T> =>
+            signal === undefined ? waited : raceWithAbortSignal(waited, signal);
         const [{ model: choice }, given] = await Promise.all([
             copies(),
-            // A stop does not wait for a refresh, which goes on.
-            options?.signal === undefined
-                ? key
-                : raceWithAbortSignal(key, options.signal),
-            secretsLoaded(peers.reach),
+            stoppable(keys.of(model.provider)),
+            stoppable(secretsLoaded(peers.reach)),
         ]);
         const chosen = choice !== undefined && nameOf(model) === choice.model;
         const made: ModelsSimpleStreamOptions = {

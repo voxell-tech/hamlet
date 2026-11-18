@@ -66,8 +66,6 @@ export function reflection(
         hooks: [
             hook(GenerationTask, {
                 afterRun: async (_run, api) => {
-                    const { answered, asked } = await owed(api.conversationId);
-                    if (asked || answered === 0) return undefined;
                     const now = await chief();
                     const left =
                         now !== undefined && now !== api.conversationId;
@@ -75,9 +73,10 @@ export function reflection(
                         every ??
                         (await copies()).settings?.reflect_every ??
                         EVERY;
-                    if (!left && (after === 0 || answered < after)) {
-                        return undefined;
-                    }
+                    if (!left && after === 0) return undefined;
+                    const { answered, asked } = await owed(api.conversationId);
+                    if (asked || answered === 0) return undefined;
+                    if (!left && answered < after) return undefined;
                     await withHarness((harness, context) =>
                         ask(harness, peers, api.conversationId, context),
                     );

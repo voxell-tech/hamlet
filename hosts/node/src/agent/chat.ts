@@ -46,7 +46,8 @@ export function askedBy<N extends keyof ClientActions>(
     const read = readClient[action];
     const askedOf = async (c: AgentCall, ...raw: unknown[]) => {
         if (c.caller !== "client") throw wrongCaller(action, c.caller);
-        await secretsLoaded(generationOf(c).peers.reach);
+        // A stop reads nothing, so it does not wait on the realm.
+        if (action !== "stop") await secretsLoaded(generationOf(c).peers.reach);
         return handle(c, ...read(raw));
     };
     return askedOf as unknown as ChatHandlers[N];

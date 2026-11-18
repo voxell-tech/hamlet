@@ -274,6 +274,7 @@ fn tool<T>(act: T) -> Tool<T> {
 fn paid<T>(act: T) -> Tool<T> {
     Tool {
         task: task(),
+        conversation: Some(ConversationId("c1".into())),
         ..tool(act)
     }
 }
