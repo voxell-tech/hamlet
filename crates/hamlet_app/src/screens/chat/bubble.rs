@@ -15,19 +15,22 @@ use bevy::ui::{
 use bevy_fynix::patch::Paint;
 use bevy_fynix::tokens::Tone;
 use bevy_fynix::views::{
-    BehaviorExt, FrameProps, column, frame, label, row,
+    BehaviorExt, FrameProps, button, column, frame, label, row,
 };
-use bevy_fynix::{ScopedExt, ViewExt, Visual, component};
+use bevy_fynix::{
+    ScopedExt, ViewExt, Visual, component, keyed, resource,
+};
 use hamlet_client::chats::{Entry, Transcript};
 use hamlet_protocol::client::ItemMessage;
 use hamlet_ui::markdown::{Area, Block, Kind as Shape, Span, Style};
-use hamlet_ui::styles::{note, small_rules};
+use hamlet_ui::styles::{note, small_rules, text_button};
 use hamlet_ui::theme::contrast::{self, TEXT};
 use hamlet_ui::theme::{Palette, StatusKind};
+use hamlet_ui::widgets::ellipsis::{cut, one_line};
 use hamlet_ui::widgets::icons::{Glyph, glyph};
 use hamlet_ui::{AnyView, Cx, View, with_cx};
 
-use super::entry::entry_view;
+use super::entry::{OpenTools, entry_view, toggle};
 use super::lines::{Board, INSET, Row, fold_view};
 use super::reply::{self, Replies};
 use super::rewind::{self, Rewinds};
@@ -606,9 +609,25 @@ fn written(chat: Entity, id: String, name: String) -> AnyView {
     })
 }
 
+/// The letters of a message's first line its folded card lays out,
+/// which its line cuts again to the room it has.
+const PREVIEW: usize = 200;
+
+/// The first line of `text` that says something, without the marks
+/// that start a heading or a quote.
+fn first_line(text: &str) -> String {
+    let line = text
+        .lines()
+        .map(|line| line.trim().trim_start_matches(['#', '>']).trim())
+        .find(|line| !line.is_empty())
+        .unwrap_or_default();
+    cut(line, PREVIEW)
+}
+
 /// A message from another agent: a compact card headed by what it is
-/// and its sender's chip, "Request from hire#3 (Mira)", its words
-/// under that. An error response is edged in red.
+/// and its sender's chip, "Request from hire#3 (Mira)", and the first
+/// line of its words, which a press opens to all of them. An error
+/// response is edged in red.
 fn message(chat: Entity, id: String) -> AnyView {
     AnyView::new(move |cx: &mut Cx| {
         let item = cx
@@ -616,8 +635,12 @@ fn message(chat: Entity, id: String) -> AnyView {
             .get::<Transcript>(chat)
             .and_then(|t| t.item(&id))
             .cloned();
-        let Some(Entry::Agent { name, message, .. }) =
-            item.as_ref().map(|item| &item.entry)
+        let Some(Entry::Agent {
+            name,
+            message,
+            text,
+            ..
+        }) = item.as_ref().map(|item| &item.entry)
         else {
             return cx.build(frame());
         };
@@ -643,20 +666,79 @@ fn message(chat: Entity, id: String) -> AnyView {
             hamlet_ui::markdown::is_address_in(cx.world),
         )
         .unwrap_or_else(|| label(heading).bold(true).boxed());
-        let head = row((head,)).rules(small_rules);
-        let words = column((hamlet_ui::markdown::document(
-            markdown::entry(chat, id.clone()),
-            Tone::Body,
-        ),))
-        .min_width(px(0.0))
-        .max_width(percent(100.0));
-        let words = match replies {
-            true => words.tagged(Area).boxed(),
-            false => words.boxed(),
+        // Kept by its entry, so it stays open or folded as the chat
+        // is built again.
+        let key = (chat, id.clone());
+        let is_open = {
+            let key = key.clone();
+            move |open: &OpenTools| open.0.contains(&key)
         };
+        let first = first_line(text);
+        let preview =
+            keyed(resource::<OpenTools, _>(is_open.clone()), {
+                move |open| match open {
+                    true => frame().boxed(),
+                    false => one_line(label(first.clone()).tone(
+                        match failed {
+                            true => Tone::Critical,
+                            false => Tone::Dim,
+                        },
+                    ))
+                    .boxed(),
+                }
+            })
+            .within(
+                row(())
+                    .grow(1.0)
+                    .min_width(px(0.0))
+                    .overflow(Overflow::clip_x()),
+            );
         let gap = cx.theme().space.gap;
-        let card = hamlet_ui::kinds::card((head, words))
+        let turned = is_open.clone();
+        let head = button(
+            row((
+                glyph(Glyph::Chevron, 10.0).tone(Tone::Dim).rotation(
+                    resource::<OpenTools, _>(move |open| {
+                        if turned(open) { 180.0 } else { 90.0 }
+                    }),
+                ),
+                row((head,)).shrink(0.0),
+                preview,
+            ))
             .gap(gap / 2.0)
+            .align(AlignItems::Center)
+            .width(percent(100.0))
+            .min_width(px(0.0))
+            .rules(small_rules),
+        )
+        .width(percent(100.0))
+        .min_width(px(0.0))
+        .padding(UiRect::all(px(0.0)))
+        .rules(text_button)
+        .on_activate(move |world| toggle(world, key.clone()));
+        let said = id.clone();
+        let body =
+            keyed(resource::<OpenTools, _>(is_open), move |open| {
+                if !*open {
+                    return frame().boxed();
+                }
+                let words = column((hamlet_ui::markdown::document(
+                    markdown::entry(chat, said.clone()),
+                    Tone::Body,
+                ),))
+                .min_width(px(0.0))
+                .max_width(percent(100.0))
+                .padding(UiRect::top(px(gap / 2.0)));
+                match replies {
+                    true => words.tagged(Area).boxed(),
+                    false => words.boxed(),
+                }
+            })
+            .within(
+                column(()).width(percent(100.0)).min_width(px(0.0)),
+            );
+        let card = hamlet_ui::kinds::card((head, body))
+            .gap(0.0)
             .grow(1.0)
             .min_width(px(0.0));
         let card = match failed {

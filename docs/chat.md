@@ -33,8 +33,10 @@ address with its name and its id, rather than `chief`, and `message`,
 whether it is a notification, a request, a response or an error response.
 The client keeps it as that agent's words, never drawn as the chief's own:
 a compact card across the chat headed by what it is and its sender's chip,
-"Request from hire#3 (Mira)", its words under that (`bubble.rs`,
-`message`). The model reads it under a heading in brackets that names it,
+"Request from hire#3 (Mira)", folded to that line and the first line of
+its words, cut where it does not fit. A press, or Enter on it, opens it to
+all of its words, and it stays open or folded by its entry as the chat is
+built again (`bubble.rs`, `message`). The model reads it under a heading in brackets that names it,
 as `[A notification from hire#3 (Mira)]` or
 `[A request from hire#3 (Mira); your final answer goes back to it as the response]`;
 the transcript shows the words alone. A society call's tool row names the
@@ -44,8 +46,8 @@ to its words.
 
 An error response, from a request that failed, is written into the
 sender's conversation without starting a turn. Its card is edged in red,
-and reads "It could not answer: " and the cause in plain words, never a
-code such as `no_model`.
+folded or open, its first line red too, and reads "It could not answer: "
+and the cause in plain words, never a code such as `no_model`.
 
 **Queued lines.** An input that waits for its turn shows at once as one of
 the last items, with `queued`, in the order its turn will run: the chief's
