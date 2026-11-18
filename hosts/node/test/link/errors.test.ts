@@ -73,7 +73,7 @@ test(
             const demo = startDemo(dir);
             await demo.ask("make 1");
             const read = answer(
-                await demo.ask("tell 1 ask realm local secrets"),
+                await demo.ask("tell 1 ask realm local heard 1"),
                 "agent/1/ask",
             );
             await stopped(demo, await nodePid(demo, 1));
@@ -81,9 +81,9 @@ test(
                 error: {
                     group: "message",
                     code: "wrong_caller",
-                    message: "agent/1 may not send 'secrets'.",
+                    message: "agent/1 may not send 'heard'.",
                     metadata: {
-                        action: "secrets",
+                        action: "heard",
                         caller: { actor: { kind: "agent", key: "1" } },
                     },
                 },

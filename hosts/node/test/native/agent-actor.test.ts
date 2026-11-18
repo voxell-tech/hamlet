@@ -68,6 +68,7 @@ const realm = actor({
         send,
         may_spend: () => ({ type: "done" }),
         charge: () => null,
+        secrets: () => ({ version: 1, values: [] }),
     },
 });
 
