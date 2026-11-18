@@ -10,7 +10,7 @@ use bevy::ui::{
 use bevy_fynix::tokens::{TextTokens, Tone};
 use bevy_fynix::views::{
     BehaviorExt, FrameProps, TooltipExt, button, column, frame,
-    ghost, label, row,
+    label, row,
 };
 use bevy_fynix::{ScopedExt, ViewExt, component, keyed, resource};
 use hamlet_client::chats::{Entry, Transcript};
@@ -19,7 +19,7 @@ use hamlet_protocol::client::{
 };
 use hamlet_ui::kinds::inset;
 use hamlet_ui::markdown::{Anchor, Area, PathLinks};
-use hamlet_ui::styles::{bare, note, small_rules};
+use hamlet_ui::styles::{bare, note, small_rules, text_button};
 use hamlet_ui::widgets::ellipsis::{Keep, one_line};
 use hamlet_ui::widgets::icons::{Glyph, glyph};
 use hamlet_ui::widgets::platform::MonoText;
@@ -280,7 +280,7 @@ pub(crate) fn change_view(
     )
     .padding(UiRect::axes(px(INSET), px(4.0)))
     .shrink(0.0)
-    .rules(ghost)
+    .rules(text_button)
     .on_activate(move |world| {
         flip(
             &mut world.resource_mut::<Changes>().shut,
@@ -438,7 +438,7 @@ fn lines_view(key: Fold, change: &Change, extent: Extent) -> AnyView {
                 .justify(JustifyContent::FlexStart)
                 .padding(UiRect::axes(px(FOLD_PAD), px(2.0)))
                 .radius(0.0)
-                .rules(ghost)
+                .rules(text_button)
                 .on_activate(move |world| {
                     flip(
                         &mut world.resource_mut::<Changes>().whole,

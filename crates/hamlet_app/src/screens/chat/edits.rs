@@ -1,17 +1,19 @@
 //! The files a turn changed, as a card that opens to their tree.
 
 use bevy::ecs::entity::Entity;
-use bevy::ui::{AlignItems, Overflow, UiRect, percent, px};
+use bevy::ui::{
+    AlignItems, JustifyContent, Overflow, UiRect, percent, px,
+};
 use bevy_fynix::tokens::Tone;
 use bevy_fynix::views::{
     BehaviorExt, FrameProps, TooltipExt, button, column, frame,
-    ghost, label, row,
+    label, row,
 };
 use bevy_fynix::{ScopedExt, ViewExt, keyed, resource};
 use hamlet_client::chats::{Entry, Transcript};
 use hamlet_protocol::client::Change;
 use hamlet_ui::kinds::card;
-use hamlet_ui::styles::{note, small_rules};
+use hamlet_ui::styles::{note, small_rules, text_button};
 use hamlet_ui::widgets::ellipsis::{Keep, one_line};
 use hamlet_ui::widgets::icons::{Glyph, glyph};
 use hamlet_ui::{AnyView, Cx, View, with_cx};
@@ -152,7 +154,8 @@ pub(super) fn view(
             .gap(cx.theme().space.gap / 2.0)
             .align(AlignItems::Center),
         )
-        .rules(ghost)
+        .justify(JustifyContent::FlexStart)
+        .rules(text_button)
         .on_activate(move |world| toggle(world, pressed.clone()));
         let tree = std::sync::Arc::new(
             files
@@ -251,7 +254,8 @@ fn file_row(
         .gap(6.0)
         .align(AlignItems::Center),
     )
-    .rules(ghost)
+    .justify(JustifyContent::FlexStart)
+    .rules(text_button)
     .tooltip(move || note(whole.clone()))
     .on_activate(move |world| toggle(world, pressed.clone()));
     let edits = file.edits.clone();

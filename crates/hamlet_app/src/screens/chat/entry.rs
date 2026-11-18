@@ -7,7 +7,7 @@ use bevy::ui::{AlignItems, Overflow, UiRect, percent, px};
 use bevy_fynix::tokens::Tone;
 use bevy_fynix::views::{
     BehaviorExt, FrameProps, TooltipExt, button, column, frame,
-    ghost, label, row,
+    label, row,
 };
 use bevy_fynix::{
     ScopedExt, ViewExt, component, derived, every_frame, keyed,
@@ -357,7 +357,7 @@ fn step_row(hub: Entity, chat: Entity, id: String) -> impl View {
         .width(percent(100.0))
         .min_width(px(0.0))
         .padding(UiRect::axes(px(INSET), px(2.0)))
-        .rules(ghost)
+        .rules(text_button)
         .on_activate(move |world| toggle(world, key.clone()));
     let read = {
         let id = id.clone();

@@ -5,7 +5,7 @@ use bevy::ecs::world::World;
 use bevy::ui::{AlignItems, Overflow, UiRect, percent, px};
 use bevy_fynix::tokens::Tone;
 use bevy_fynix::views::{
-    BehaviorExt, FrameProps, button, column, frame, ghost, label, row,
+    BehaviorExt, FrameProps, button, column, frame, label, row,
 };
 use bevy_fynix::{
     ScopedExt, ViewExt, component, derived, every_frame, keyed,
@@ -464,7 +464,7 @@ fn worker(
         .width(percent(100.0))
         .min_width(px(0.0))
         .padding(UiRect::axes(px(INSET), px(2.0)))
-        .rules(ghost)
+        .rules(text_button)
         .on_activate(move |world| toggle(world, pressed.clone()))
     });
     let body = keyed(
