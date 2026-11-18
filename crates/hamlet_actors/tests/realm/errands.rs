@@ -85,6 +85,7 @@ async fn an_errand_is_a_numbered_agent_outside_the_tree() {
                 folder: None,
             },
             brief: Some(brief()),
+            copies: Default::default(),
         }
     );
     let world = realm.ask(&ReadWorld).await.unwrap();
@@ -153,7 +154,6 @@ async fn an_errand_is_refused_every_society_tool() {
                 to: to(MAYOR),
                 text: "how?".to_owned(),
                 conversation: conversation(),
-                task: None,
                 paths: Vec::new(),
             },
         )
@@ -187,7 +187,6 @@ async fn an_errand_is_refused_every_society_tool() {
             RequestRoad {
                 to: to(MAYOR),
                 why: None,
-                task: None,
             },
         )
         .await;

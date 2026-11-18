@@ -4,8 +4,9 @@
 
 use hamlet_messages::agent::chat::{
     Began, ChangeLine, ChatEvent, ChatFile, ChatImage, ChatItem,
-    ChatOp, ChatPage, ChatRef, ChatTool, Count, History, LineMark,
-    Login, LoginAnswer, NewSession, Prompt, ReadChat, ReadHistory,
+    ChatOp, ChatPage, ChatRef, ChatTool, Check, Checked, Count,
+    History, LineMark, ListedModel, Login, LoginAnswer, ModelList,
+    NewSession, Prompt, ReadChat, ReadHistory, ReadModels,
     ReadPrompt, Reflect, Reflecting, Resume, ResumeAnswer,
     ResumeRefusal, Retry, RetryRefusal, Rewind, RewindAnswer,
     RewindRefusal, Session, Stop, Stopped, ToolChange, Usage,
@@ -37,6 +38,7 @@ pub fn enums() -> Vec<Cases> {
         tagged::<RewindRefusal>(),
         tagged::<ChatOp>(),
         tagged::<LoginAnswer>(),
+        tagged::<Checked>(),
         tagged::<CredentialAnswer>(),
         tagged::<CredentialRefusal>(),
         tagged::<Kept>(),
@@ -345,8 +347,62 @@ fn the_clients_calls(fixtures: &mut Fixtures) {
                 words: "the code expired".into(),
             },
         ),
+        ("not_the_hand", LoginAnswer::NotTheHand),
     ] {
         fixtures.answer(&format!("agent/login.{arm}"), &answer);
+    }
+    fixtures.args("agent/read_models", &ReadModels);
+    fixtures.answer(
+        "agent/read_models",
+        &ModelList {
+            models: vec![
+                ListedModel {
+                    name: "anthropic::claude-sonnet-4-5".into(),
+                    title: "Claude Sonnet 4.5".into(),
+                    context: 200_000,
+                    price: Some(Price {
+                        input: 3.0,
+                        output: 15.0,
+                        cache_read: 0.3,
+                        cache_write: 3.75,
+                    }),
+                },
+                ListedModel {
+                    name: "local::small".into(),
+                    title: "Small".into(),
+                    context: 8192,
+                    price: None,
+                },
+            ],
+        },
+    );
+    fixtures.args(
+        "agent/check",
+        &Check {
+            model: "anthropic::claude-sonnet-4-5".into(),
+        },
+    );
+    for (arm, answer) in [
+        (
+            "answered",
+            Checked::Answered {
+                words: "Hello.".into(),
+            },
+        ),
+        (
+            "failed",
+            Checked::Failed {
+                words: "the provider answered 401".into(),
+            },
+        ),
+        (
+            "refused",
+            Checked::Refused {
+                words: "no model is named `nope`".into(),
+            },
+        ),
+    ] {
+        fixtures.answer(&format!("agent/check.{arm}"), &answer);
     }
 }
 

@@ -848,7 +848,6 @@ fn tell(to: Named, text: &str) -> Tell {
     Tell {
         to,
         text: text.to_owned(),
-        task: None,
         paths: Vec::new(),
     }
 }
@@ -907,6 +906,14 @@ fn tool<T>(call: &str, act: T) -> Tool<T> {
         task: None,
         conversation: None,
         act,
+    }
+}
+
+/// `act` called in a turn on `task`.
+fn paid<T>(call: &str, task: &RealmTask, act: T) -> Tool<T> {
+    Tool {
+        task: Some(task.clone()),
+        ..tool(call, act)
     }
 }
 

@@ -382,9 +382,8 @@ const WORKSPACE_STAMPS: {
 
 const ACT_STAMPS: {
     readonly [N in SocietyTool]: {
-        readonly task: "task" extends keyof SocietyActs[N]["act"]
-            ? true
-            : false;
+        /** The turn's task goes on the call. */
+        readonly task: boolean;
         readonly conversation: "conversation" extends keyof SocietyActs[N]["act"]
             ? true
             : false;
@@ -497,15 +496,12 @@ async function stamped(
         };
     }
     const wants = ACT_STAMPS[name as SocietyTool];
-    const actTask = wants.task ? await task() : undefined;
+    const callTask = wants.task ? await task() : undefined;
     return {
         message: {
             call,
-            act: {
-                ...message,
-                ...(wants.conversation ? { conversation } : {}),
-                ...(actTask === undefined ? {} : { task: actTask }),
-            },
+            ...(callTask === undefined ? {} : { task: callTask }),
+            act: wants.conversation ? { ...message, conversation } : message,
         },
         changes: true,
     };

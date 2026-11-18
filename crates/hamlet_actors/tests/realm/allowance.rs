@@ -339,7 +339,15 @@ async fn read_budget_shows_what_may_spend_used() {
 async fn a_retry_opens_a_task_of_its_own() {
     let (realm, hamlet) = hamlet_with(2).await;
     let opened = async |agent: AgentNumber, turn: TaskTurn| {
-        let answer = realm.tool(agent, &OpenTask { turn }).await;
+        let answer = realm
+            .tool(
+                agent,
+                &OpenTask {
+                    request: RequestId::new(),
+                    turn,
+                },
+            )
+            .await;
         match answer.unwrap() {
             TaskOpened::Opened { task } => task,
             refused @ TaskOpened::Refused { .. } => {
@@ -366,6 +374,7 @@ async fn a_retry_opens_a_task_of_its_own() {
     let hand_may = may_spend(&realm, Hand::NUMBER, &reflection).await;
     end(&realm, FOUR).await;
     let retry_four = OpenTask {
+        request: RequestId::new(),
         turn: TaskTurn::Retry,
     };
     let left = realm.tool(FOUR, &retry_four).await.unwrap();

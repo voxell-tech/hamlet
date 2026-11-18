@@ -316,6 +316,7 @@ pub(super) async fn run(
                         .collect(),
                     model: None,
                 }),
+                copies: Default::default(),
             };
             cx.peers().create(&Agent(agent), &input).await?;
         }

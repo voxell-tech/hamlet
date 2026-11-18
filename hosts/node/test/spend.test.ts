@@ -414,6 +414,7 @@ test("two agents share one model access, and each asks and is charged as itself"
             kind: "hire",
             task: "standing-8",
             place: { version: 1, lead: 7, hires: [], roads: [], tools_off: [] },
+            copies: {},
         },
         responses: [fauxAssistantMessage("eight")],
     });

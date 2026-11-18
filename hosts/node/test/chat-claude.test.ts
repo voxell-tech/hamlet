@@ -293,7 +293,7 @@ test("a claude turn runs through the fake program", async (t) => {
     const [started] = answers;
     assert.deepEqual(started, {
         type: "step",
-        login: started?.login,
+        login: started && "login" in started ? started.login : undefined,
         step: {
             url: "https://claude.ai/oauth/authorize?fake=1",
             instructions:
@@ -468,7 +468,10 @@ test("a failed sign-in's words hold none of the program's tokens", async (t) => 
         start: { provider: "claude", method: "subscription" },
     });
     const failed = await ask({
-        reply: { login: String(started.login), value: "" },
+        reply: {
+            login: "login" in started ? started.login : "",
+            value: "",
+        },
     });
     assert.equal(failed.type, "failed");
     assert.match(

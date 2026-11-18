@@ -152,6 +152,7 @@ async fn a_worker_answers_its_starter_once_and_ends() {
                 tools: Vec::new(),
                 model: None,
             }),
+            copies: Default::default(),
         }
     );
     let reach = reach_until(&realm, FOUR, "is a worker's", |reach| {
@@ -654,6 +655,7 @@ async fn a_worker_pays_where_its_starter_works() {
         .tool(
             FOUR,
             &OpenTask {
+                request: RequestId::new(),
                 turn: TaskTurn::Reflection,
             },
         )

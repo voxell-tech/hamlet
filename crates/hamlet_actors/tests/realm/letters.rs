@@ -14,7 +14,7 @@ use hamlet_protocol::client::RequestId;
 
 use super::{
     Callee, FOUR, MAYOR, Realm, Seen, THREE, error_code, found,
-    founded, hamlet_with, hires, purpose_of, say, seen_submits,
+    founded, hamlet_with, hires, paid, purpose_of, say, seen_submits,
     standing, tell, to, tool, words,
 };
 
@@ -30,13 +30,7 @@ async fn a_repeated_tell_keeps_one_letter() {
     // is a reused id.
     let (realm, _) = hamlet_with(1).await;
     let task = standing(&realm, MAYOR);
-    let sent = tool(
-        "t1",
-        Tell {
-            task: Some(task.clone()),
-            ..tell(to(THREE), "hi")
-        },
-    );
+    let sent = paid("t1", &task, tell(to(THREE), "hi"));
     let changed = tool(
         "t1",
         Tell {
@@ -153,7 +147,6 @@ async fn a_letter_or_a_question_as_the_first_message_gives_the_purpose()
         to: to(THREE),
         text: "Mind the barn?\nsoon".to_owned(),
         conversation: ConversationId("c1".to_owned()),
-        task: None,
         paths: Vec::new(),
     };
 
@@ -302,10 +295,10 @@ async fn an_answer_reaches_the_asker_once() {
         to: to(THREE),
         text: "why?".to_owned(),
         conversation: conversation.clone(),
-        task: Some(task.clone()),
         paths: Vec::new(),
     };
-    let asked = realm.tool(MAYOR, &tool("a1", ask)).await.unwrap();
+    let asked =
+        realm.tool(MAYOR, &paid("a1", &task, ask)).await.unwrap();
     let question = seen_submits(&realm, THREE, 1).await.remove(0);
     let Input::Question {
         letter,

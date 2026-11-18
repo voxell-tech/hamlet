@@ -191,6 +191,7 @@ test("a relative path starts from the project", {
                 tools_off: [],
                 folder: "/work",
             },
+            copies: {},
         },
         responses: [
             toolCall("read", { path: "notes.md" }, "c1"),

@@ -340,6 +340,7 @@ pub(in crate::realm) async fn run(
                 task: errand.task.on_the_wire(),
                 place: outside(),
                 brief: Some(brief(&rows, n).await?),
+                copies: Default::default(),
             };
             cx.peers().create(&Agent(n.agent()), &input).await?;
         }

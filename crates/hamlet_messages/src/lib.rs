@@ -14,8 +14,8 @@
 //! - An integer that a TypeScript writer sends is a `u32`, which a
 //!   JavaScript number holds exactly.
 //! - A list holds maps, numbers or an enum's names, never free text.
-//!   [`realm::SecretList`] is the one exception, and only Rust reads
-//!   it.
+//!   [`realm::SecretList`] is the one exception: only a scrub reads
+//!   it, and nothing logs or stores it.
 //! - An answer's arm that holds a typed reason holds its words too,
 //!   written by [`worded`] and ignored when read.
 //! - A union of families is untagged, and no two of its families

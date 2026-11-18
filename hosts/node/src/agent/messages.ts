@@ -255,6 +255,10 @@ export type Tier = "fifty" | "hundred" | "two_hundred" | "five_hundred";
 
 export interface Tool<Act> {
     readonly call: CallId;
+    /** The realm's task of the calling turn. */
+    readonly task?: RealmTask;
+    /** The calling turn's conversation. */
+    readonly conversation?: ConversationRef;
     readonly act: Act;
 }
 
@@ -302,11 +306,7 @@ export interface SocietyActs {
     };
     seat: { act: { readonly hire: Named }; answer: Done };
     tell: {
-        act: {
-            readonly to: Named;
-            readonly text: string;
-            readonly task?: RealmTask;
-        };
+        act: { readonly to: Named; readonly text: string };
         answer: Done;
     };
     ask: {
@@ -314,7 +314,6 @@ export interface SocietyActs {
             readonly to: Named;
             readonly text: string;
             readonly conversation: ConversationRef;
-            readonly task?: RealmTask;
         };
         answer: Done;
     };
@@ -330,7 +329,6 @@ export interface SocietyActs {
         act: {
             readonly to: Named;
             readonly why?: string;
-            readonly task?: RealmTask;
         };
         answer: Done;
     };
@@ -399,6 +397,8 @@ export interface Lapse {
 }
 
 export interface OpenTask {
+    /** A repeat carries the same id. */
+    readonly request: string;
     readonly turn: "retry" | "reflection";
 }
 
@@ -412,6 +412,12 @@ export interface ReadCopies {
     readonly character?: number;
     readonly model?: number;
     readonly settings?: number;
+}
+
+/** The realm's secrets in force, which only a scrub reads. */
+export interface SecretList {
+    readonly version: number;
+    readonly values: readonly string[];
 }
 
 export type Ended =
@@ -436,6 +442,7 @@ export type RealmActions = {
     lapse(message: Lapse): null;
     open_task(message: OpenTask): TaskOpened;
     read_copies(message: ReadCopies): Copies;
+    secrets(): SecretList;
     worker_done(message: TurnEnded): null;
     errand_done(message: TurnEnded): null;
 };
@@ -524,6 +531,8 @@ export interface AgentInput {
     readonly task: RealmTask;
     readonly place: Place;
     readonly brief?: Brief;
+    /** Every part the realm holds for the agent, at its version. */
+    readonly copies: Copies;
 }
 
 /** The one turn a worker or an errand runs when it is created. */
@@ -784,7 +793,9 @@ export type LoginAnswer =
           readonly type: "failed";
           readonly login: string;
           readonly words: string;
-      };
+      }
+    /** The agent is not the Hand, which alone signs in. */
+    | { readonly type: "not_the_hand" };
 
 export type ResumeAnswer =
     | { readonly type: "back"; readonly number: number }
@@ -811,6 +822,28 @@ export type RewindAnswer =
           | { readonly type: "not_current" }
           | { readonly type: "working" }
       >;
+
+/** A model the listing holds, named as the catalogue names it. */
+export interface ListedModel {
+    readonly name: string;
+    readonly title: string;
+    readonly context: number;
+    readonly price?: Price;
+}
+
+export interface ModelList {
+    readonly models: readonly ListedModel[];
+}
+
+export interface Check {
+    readonly model: string;
+}
+
+/** As today's check answers: the model's hello, its failure, or a refusal of the name. */
+export interface Checked {
+    readonly type: "answered" | "failed" | "refused";
+    readonly words: string;
+}
 
 /** A client's calls of an agent, each answered with a value. */
 export interface ClientActions {
@@ -944,14 +977,16 @@ export const read: {
                 task: str(),
                 place: PLACE,
                 brief: opt(BRIEF),
+                copies: COPIES_SHAPE,
             },
             OPEN,
         ),
-        ({ kind, task, place, brief }) => ({
+        ({ kind, task, place, brief, copies }) => ({
             kind,
             task,
             place: placeOf(place),
             ...(brief === undefined ? {} : { brief: briefOf(brief) }),
+            copies: copiesOf(copies),
         }),
     ),
     submit: reader(

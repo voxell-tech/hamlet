@@ -19,7 +19,7 @@ use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
 
 use crate::address::{Agent, Realm, Workspace};
-use crate::sender::Client;
+use crate::sender::{Client, Scrubber};
 use crate::workspace::files::EditDiff;
 use crate::workspace::reach::{Need, SecretsVersion};
 use crate::workspace::{
@@ -28,7 +28,7 @@ use crate::workspace::{
 use crate::{Message, worded};
 
 /// Asks the realm for its list of secrets in force. Called by the
-/// workspace, which holds the answer in memory only.
+/// workspace and by an agent, which hold the answer in memory only.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Secrets;
 
@@ -39,11 +39,12 @@ impl Action for Secrets {
 
 impl Message for Secrets {
     type To = Realm;
-    type From = Workspace;
+    type From = Scrubber;
 }
 
 /// The realm's secrets of one version: the values the workspace takes
-/// out of everything it hands to an agent.
+/// out of everything it hands to an agent, and an agent out of what a
+/// client or a model reads.
 #[derive(Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct SecretList {
     pub version: SecretsVersion,
@@ -109,7 +110,8 @@ pub struct Asked<T> {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Tool<T> {
     pub call: CallId,
-    /// The realm's task of the calling turn, as the turn carried it.
+    /// The realm's task of the calling turn, as the turn carried it:
+    /// it pays for a letter's turn and names a reserved act's wait.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub task: Option<RealmTask>,
     /// The calling turn's conversation.
@@ -288,8 +290,8 @@ pub enum Standing {
     NotAMember,
 }
 
-/// Why a caller's tool does not run now: a lead turned it off (C16),
-/// a chief must allow it, or a chief's refusals refuse it (H11).
+/// Why a caller's tool does not run now: a chief must allow it, or a
+/// chief's refusals refuse it (H11).
 #[derive(
     Clone,
     Debug,
@@ -301,8 +303,6 @@ pub enum Standing {
 )]
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum Gate {
-    #[error("your lead turned off the tool `{tool}` for you")]
-    ToolOff { tool: SocietyTool },
     /// The realm keeps the request for a chief: it runs if one
     /// allows it, and the caller is told.
     #[error(
@@ -745,10 +745,6 @@ pub enum OnlyAHire {
 pub struct Tell {
     pub to: Named,
     pub text: String,
-    /// The task of the input the sender's turn works on, which pays
-    /// for the receiver's turn; absent for a turn that has none.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub task: Option<RealmTask>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub paths: Vec<Enclosed>,
 }
@@ -772,8 +768,6 @@ pub struct Ask {
     pub to: Named,
     pub text: String,
     pub conversation: ConversationId,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub task: Option<RealmTask>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub paths: Vec<Enclosed>,
 }
@@ -998,8 +992,6 @@ pub struct RequestRoad {
     pub to: Named,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub why: Option<String>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub task: Option<RealmTask>,
 }
 
 impl ToolCall for RequestRoad {

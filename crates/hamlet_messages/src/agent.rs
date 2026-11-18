@@ -10,6 +10,7 @@ use hamlet_actor::Action;
 use hamlet_protocol::client::{AttachedFile, AttachedImage};
 use serde::{Deserialize, Serialize};
 
+use self::copies::Copies;
 use crate::Message;
 use crate::address::{Agent, Realm, Workspace};
 use crate::realm::parcels::ParcelFile;
@@ -60,7 +61,7 @@ pub enum AgentKind {
 }
 
 /// The input `agent/<n>` is created with.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct AgentInput {
     pub kind: AgentKind,
     /// The task that pays for a turn no chief's line started.
@@ -68,6 +69,8 @@ pub struct AgentInput {
     pub place: Place,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub brief: Option<Brief>,
+    /// Every part the realm holds for the agent, at its version.
+    pub copies: Copies,
 }
 
 /// The one turn a worker or an errand runs when it is created.

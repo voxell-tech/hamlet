@@ -99,17 +99,21 @@ function loopback(answer: FauxResponseFactory) {
 
 let requests = 0;
 
+/** The Hand's answers: it is never refused as not the Hand. */
+type HandAnswer = Exclude<LoginAnswer, { readonly type: "not_the_hand" }>;
+
 function client(agent: Woken, given: SignIns) {
     const login = chatActions({ ...agent.config, signIns: given }).login;
-    const answers: LoginAnswer[] = [];
+    const answers: HandAnswer[] = [];
     let last: Login | undefined;
-    const send = async (message: Login): Promise<LoginAnswer> => {
+    const send = async (message: Login): Promise<HandAnswer> => {
         last = message;
         const answer = await login(agent.by(from.client), message);
-        answers.push(answer);
-        return answer;
+        assert.notEqual(answer.type, "not_the_hand");
+        answers.push(answer as HandAnswer);
+        return answer as HandAnswer;
     };
-    const call = (form: Omit<Login, "id">): Promise<LoginAnswer> => {
+    const call = (form: Omit<Login, "id">): Promise<HandAnswer> => {
         requests += 1;
         const id = `00000000-0000-4000-8000-${String(requests).padStart(12, "0")}`;
         return send({ id, ...form } as Login);
@@ -224,6 +228,7 @@ test("a hire signs no one in: sign-in is the Hand's alone", async (t) => {
             kind: "hire",
             task: "standing-9",
             place: { version: 1, lead: 1, hires: [], roads: [], tools_off: [] },
+            copies: {},
         },
         models: loopback(() => fauxAssistantMessage("Hello.")),
     });

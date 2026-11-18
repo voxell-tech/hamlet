@@ -122,6 +122,7 @@ async fn a_hire_goes_live_through_its_steps() {
                     folder: None,
                 },
                 brief: None,
+                copies: Default::default(),
             }],
             fills: vec![Fill {
                 profile: BLANK,

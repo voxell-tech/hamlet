@@ -1,6 +1,7 @@
 //! The realm's calls about spending (H8).
 
 use hamlet_actor::Action;
+use hamlet_protocol::client::RequestId;
 use serde::{Deserialize, Serialize};
 
 use super::oversight::Hold;
@@ -192,9 +193,10 @@ impl ChiefRequest for ResetBudget {
 }
 
 /// Opens a task of the caller's own for a turn no line or letter
-/// started (H12).
+/// started (H12). A repeat carries the same `request`.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct OpenTask {
+    pub request: RequestId,
     pub turn: TaskTurn,
 }
 

@@ -92,6 +92,7 @@ const HIRE: AgentInput = {
         tools_off: [{ name: "end_hire" }],
         folder: "/work",
     },
+    copies: {},
 };
 
 async function readPrompt(agent: Woken): Promise<string> {

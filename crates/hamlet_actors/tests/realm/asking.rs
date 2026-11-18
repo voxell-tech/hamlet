@@ -8,7 +8,7 @@ use hamlet_messages::realm::oversight::{
     ObjectRefusal, Offer, Question,
 };
 use hamlet_messages::realm::{
-    AgentRefusal, Ask, Done, LetterId, Reply, Tell,
+    AgentRefusal, Ask, Done, LetterId, Reply, Tell, Tool,
 };
 use hamlet_messages::sender::Hand;
 use hamlet_messages::workspace::{
@@ -17,8 +17,8 @@ use hamlet_messages::workspace::{
 use hamlet_protocol::client::{Choice, Pick, RequestId};
 
 use super::{
-    FOUR, MAYOR, Realm, THREE, answer, hamlet_with, say, standing,
-    submits_to, tell, to, tool, until, words,
+    FOUR, MAYOR, Realm, THREE, answer, hamlet_with, paid, say,
+    standing, submits_to, tell, to, tool, until, words,
 };
 
 fn conversation() -> ConversationId {
@@ -180,10 +180,10 @@ async fn the_mayor_asks_three(
         to: to(THREE),
         text: "Which file?".to_owned(),
         conversation: ConversationId("mayor".to_owned()),
-        task: Some(task.clone()),
         paths: Vec::new(),
     };
-    let asked = realm.tool(MAYOR, &tool("q1", ask)).await.unwrap();
+    let asked =
+        realm.tool(MAYOR, &paid("q1", task, ask)).await.unwrap();
     assert_eq!(asked, Done::Done);
     let question = || {
         submits_to(realm, THREE).into_iter().find_map(|submit| {
@@ -197,11 +197,13 @@ async fn the_mayor_asks_three(
     question().unwrap()
 }
 
-pub(super) fn on(task: &RealmTask, text: &str) -> Tell {
-    Tell {
-        task: Some(task.clone()),
-        ..tell(to(THREE), text)
-    }
+/// A letter to 3 in a turn on `task`.
+pub(super) fn on(
+    call: &str,
+    task: &RealmTask,
+    text: &str,
+) -> Tool<Tell> {
+    paid(call, task, tell(to(THREE), text))
 }
 
 #[tokio::test(flavor = "multi_thread")]
@@ -333,6 +335,7 @@ async fn ask_chief_needs_a_chief_and_stops_at_the_hamlets_count() {
         .tool(
             Hand::NUMBER,
             &OpenTask {
+                request: RequestId::new(),
                 turn: TaskTurn::Retry,
             },
         )
@@ -439,11 +442,11 @@ async fn an_objection_holds_spending_and_letters_until_go() {
         may_spend(&realm, THREE, &standing(&realm, THREE)).await;
     let mayors = standing(&realm, MAYOR);
     realm
-        .tool(MAYOR, &tool("t1", on(&task, "the file is in /tmp")))
+        .tool(MAYOR, &on("t1", &task, "the file is in /tmp"))
         .await
         .unwrap();
     realm
-        .tool(MAYOR, &tool("t2", on(&mayors, "lunch at noon")))
+        .tool(MAYOR, &on("t2", &mayors, "lunch at noon"))
         .await
         .unwrap();
     let reply = Reply {
@@ -506,11 +509,11 @@ async fn withdraw_drops_only_that_tasks_letters() {
         assert_eq!(objected, Done::Done);
     }
     realm
-        .tool(MAYOR, &tool("t1", on(&first, "for the first")))
+        .tool(MAYOR, &on("t1", &first, "for the first"))
         .await
         .unwrap();
     realm
-        .tool(MAYOR, &tool("t2", on(&second, "for the second")))
+        .tool(MAYOR, &on("t2", &second, "for the second"))
         .await
         .unwrap();
     let before = submits_to(&realm, THREE).len();
@@ -553,10 +556,7 @@ async fn an_objection_survives_a_restart() {
         .tool(THREE, &tool("o1", objection(&task, "no")))
         .await
         .unwrap();
-    realm
-        .tool(MAYOR, &tool("t1", on(&task, "kept")))
-        .await
-        .unwrap();
+    realm.tool(MAYOR, &on("t1", &task, "kept")).await.unwrap();
     let before = submits_to(&realm, THREE).len();
 
     let realm = realm.restart().await;
@@ -670,12 +670,12 @@ async fn a_withdrawn_task_spends_nothing_and_its_letters_are_dropped()
     let three = may_spend(&realm, THREE, &task).await;
     let mayor = may_spend(&realm, MAYOR, &task).await;
     let dropped = realm
-        .tool(MAYOR, &tool("t1", on(&task, "too late")))
+        .tool(MAYOR, &on("t1", &task, "too late"))
         .await
         .unwrap();
     let mayors = standing(&realm, MAYOR);
     realm
-        .tool(MAYOR, &tool("t2", on(&mayors, "lunch at noon")))
+        .tool(MAYOR, &on("t2", &mayors, "lunch at noon"))
         .await
         .unwrap();
     held_rows(&realm).await;
@@ -707,10 +707,7 @@ async fn a_lapsed_objection_drops_its_held_letters() {
             .tool(THREE, &tool("o1", objection(&task, "no")))
             .await
             .unwrap();
-        realm
-            .tool(MAYOR, &tool("t1", on(&task, "held")))
-            .await
-            .unwrap();
+        realm.tool(MAYOR, &on("t1", &task, "held")).await.unwrap();
         let wait = open_waits(&realm, THREE).await[0].0.to_string();
         let before = submits_to(&realm, THREE).len();
 
@@ -720,10 +717,7 @@ async fn a_lapsed_objection_drops_its_held_letters() {
         };
         realm.tool(THREE, &lapse).await.unwrap();
         let spending = may_spend(&realm, THREE, &task).await;
-        realm
-            .tool(MAYOR, &tool("t2", on(&task, "after")))
-            .await
-            .unwrap();
+        realm.tool(MAYOR, &on("t2", &task, "after")).await.unwrap();
         let go = realm.ask(&answer(&wait, Choice::Go, None)).await;
         let held = held_rows(&realm).await;
 

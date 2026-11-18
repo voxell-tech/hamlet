@@ -8,14 +8,14 @@ use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
 
 use anyhow::{Context as _, Result, bail};
 use hamlet_actor::{Ctx, Handler};
-use hamlet_messages::address::{Agent, Workspace};
+use hamlet_messages::address::Agent;
 use hamlet_messages::realm::documents::RemoteWorkspace;
 use hamlet_messages::realm::models::{
     Credential, CredentialAnswer, CredentialRefusal, KeepCredential,
     Kept, OauthLogin,
 };
 use hamlet_messages::realm::{SecretList, Secrets};
-use hamlet_messages::sender::sender;
+use hamlet_messages::sender::{Scrubber, sender};
 use hamlet_messages::workspace::reach::SecretsVersion;
 use hamlet_os::fs::{Directory, LastLink, Mode, Name, Open, Replace};
 use serde::{Deserialize, Serialize};
@@ -302,10 +302,10 @@ fn write_whole(folder: &Path, stored: &Stored) -> Result<()> {
     Ok(written?)
 }
 
-impl Look<Workspace> for Secrets {
+impl Look<Scrubber> for Secrets {
     type Output = SecretList;
 
-    fn look(&self, _by: &Workspace, realm: &Realm) -> SecretList {
+    fn look(&self, _by: &Scrubber, realm: &Realm) -> SecretList {
         let held = realm.secrets.held();
         let mut values = held
             .stored

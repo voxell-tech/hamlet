@@ -19,7 +19,7 @@ use hamlet_messages::realm::parcels::{
     PartRefusal, part_start,
 };
 use hamlet_messages::realm::world::WaitKind;
-use hamlet_messages::realm::{Done, Enclosed, Tell};
+use hamlet_messages::realm::{Done, Enclosed};
 use hamlet_messages::sender::Hand;
 use hamlet_messages::workspace::refusal::{PathRefusal, ToRead};
 use hamlet_messages::workspace::{
@@ -730,14 +730,12 @@ async fn sends_on(
     task: &RealmTask,
     paths: &[&str],
 ) {
-    let sent = Tell {
-        paths: paths
-            .iter()
-            .map(|path| Enclosed { path: path.into() })
-            .collect(),
-        ..on(task, "On the task.")
-    };
-    let answer = realm.tool(MAYOR, &tool(call, sent)).await.unwrap();
+    let mut sent = on(call, task, "On the task.");
+    sent.act.paths = paths
+        .iter()
+        .map(|path| Enclosed { path: path.into() })
+        .collect();
+    let answer = realm.tool(MAYOR, &sent).await.unwrap();
     assert_eq!(answer, Done::Done, "tell answers at once");
 }
 

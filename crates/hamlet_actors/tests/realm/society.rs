@@ -330,7 +330,6 @@ async fn a_request_road_with_no_reason_writes_todays_words() {
     let request = |to: AgentNumber, why: Option<&str>| RequestRoad {
         to: self::to(to),
         why: why.map(str::to_owned),
-        task: None,
     };
 
     let bare = realm
@@ -382,7 +381,6 @@ async fn a_request_road_to_an_ended_agent_is_refused() {
                 RequestRoad {
                     to: to(FOUR),
                     why: Some("notes".to_owned()),
-                    task: None,
                 },
             ),
         )

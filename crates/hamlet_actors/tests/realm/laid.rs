@@ -24,7 +24,6 @@ fn request_road(to: AgentNumber) -> RequestRoad {
     RequestRoad {
         to: self::to(to),
         why: Some("to report the well".to_owned()),
-        task: None,
     }
 }
 
@@ -295,7 +294,6 @@ async fn a_road_is_asked_for_by_a_letter_to_the_lead() {
     let request = |to: Named| RequestRoad {
         to,
         why: Some("to share the notes".to_owned()),
-        task: None,
     };
     let ask = async |by, call, to| {
         realm.tool(by, &tool(call, request(to))).await.unwrap()

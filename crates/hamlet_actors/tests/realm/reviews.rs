@@ -12,7 +12,7 @@ use hamlet_messages::realm::oversight::{Object, ObjectRefusal};
 use hamlet_messages::realm::workers::{Ended, ErrandDone};
 use hamlet_messages::realm::{
     AgentRefusal, Asked, Done, End, HamletId, Limit, Refusable as _,
-    Review, SetLimits, Tell,
+    Review, SetLimits,
 };
 use hamlet_messages::sender::Hand;
 use hamlet_messages::workspace::{
@@ -23,7 +23,7 @@ use hamlet_protocol::client::{Choice, RequestId};
 use super::chiefs::chief;
 use super::{
     Callee, FOUR, MAYOR, Realm, Seen, THREE, answer, founded, hires,
-    say, submits_to, tell, to, tool, until,
+    paid, say, submits_to, tell, to, tool, until,
 };
 
 /// A hamlet whose mayor leads 3 and 4, where a review lasts at most
@@ -641,12 +641,10 @@ async fn a_failed_line_on_go_still_gives_the_held_letters() {
     let told = realm
         .tool(
             MAYOR,
-            &tool(
+            &paid(
                 "t1",
-                Tell {
-                    task: Some(RealmTask(task)),
-                    ..tell(to(FOUR), "Wait for the chief.")
-                },
+                &RealmTask(task),
+                tell(to(FOUR), "Wait for the chief."),
             ),
         )
         .await

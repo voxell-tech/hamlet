@@ -6,6 +6,7 @@
  * admits it once.
  */
 
+import { randomUUID } from "node:crypto";
 import type { Context } from "@earendil-works/chord/context";
 import type { AssistantMessage } from "@earendil-works/pi-ai";
 import {
@@ -282,7 +283,10 @@ function admission(
  */
 async function opened(peers: Peers): Promise<RealmTask | undefined> {
     try {
-        const answer = await peers.reach.open_task({ turn: "reflection" });
+        const answer = await peers.reach.open_task({
+            request: randomUUID(),
+            turn: "reflection",
+        });
         if (answer.type === "opened") return answer.task;
         peers.report("a reflection's task was refused", answer.words);
     } catch (error) {

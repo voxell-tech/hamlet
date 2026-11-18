@@ -16,7 +16,7 @@ use hamlet_messages::workspace::{
 };
 use serde::{Deserialize, Serialize};
 
-use super::act::{Act, Decided, Decision};
+use super::act::{Act, Decided, Decision, Paid, ToolAct};
 use super::calls::{Calls, Delivery, Made};
 use super::change::{self, Affected, Rows, Writer, number};
 use super::oversight::asking;
@@ -431,7 +431,7 @@ impl Written<'_> {
     }
 }
 
-impl Act<Agent> for Tell {
+impl Act<Agent> for Paid<Tell> {
     type Output = Sent;
     type Loaded = Letter;
     type Done = Route;
@@ -444,9 +444,9 @@ impl Act<Agent> for Tell {
         Letter::load(
             rows,
             by,
-            &self.to,
+            &self.act.to,
             self.task.as_ref(),
-            &self.paths,
+            &self.act.paths,
         )
         .await
     }
@@ -458,7 +458,7 @@ impl Act<Agent> for Tell {
     ) -> Decision<Route, Sent> {
         let written = Written {
             kind: Kind::Letter,
-            text: &self.text,
+            text: &self.act.text,
             task: self.task.as_ref(),
             conversation: None,
         };
@@ -474,7 +474,15 @@ impl Act<Agent> for Tell {
     }
 }
 
-impl Act<Agent> for Ask {
+impl ToolAct for Tell {
+    type Run = Paid<Tell>;
+
+    fn run(self, task: Option<RealmTask>) -> Paid<Tell> {
+        Paid { task, act: self }
+    }
+}
+
+impl Act<Agent> for Paid<Ask> {
     type Output = Sent;
     type Loaded = Letter;
     type Done = Route;
@@ -487,9 +495,9 @@ impl Act<Agent> for Ask {
         Letter::load(
             rows,
             by,
-            &self.to,
+            &self.act.to,
             self.task.as_ref(),
-            &self.paths,
+            &self.act.paths,
         )
         .await
     }
@@ -501,9 +509,9 @@ impl Act<Agent> for Ask {
     ) -> Decision<Route, Sent> {
         let written = Written {
             kind: Kind::Question,
-            text: &self.text,
+            text: &self.act.text,
             task: self.task.as_ref(),
-            conversation: Some(&self.conversation),
+            conversation: Some(&self.act.conversation),
         };
         written.decide(letter)
     }
@@ -514,6 +522,14 @@ impl Act<Agent> for Ask {
 
     fn answer(&self, _route: Route, _made: &Made) -> Sent {
         Done::Done
+    }
+}
+
+impl ToolAct for Ask {
+    type Run = Paid<Ask>;
+
+    fn run(self, task: Option<RealmTask>) -> Paid<Ask> {
+        Paid { task, act: self }
     }
 }
 
@@ -614,7 +630,6 @@ mod tests {
                 agent: AgentNumber(to),
             },
             text: "hi".into(),
-            task: None,
             paths: Vec::new(),
         }
     }
@@ -637,7 +652,11 @@ mod tests {
             parcel: None,
         };
         assert_eq!(
-            tell(4).decide(&sender(), letter),
+            Paid {
+                task: None,
+                act: tell(4)
+            }
+            .decide(&sender(), letter),
             Decision::Answer(Done::Refused {
                 why: AgentRefusal::Act(LetterRefusal::NoRoad {
                     to: AgentNumber(4)
@@ -667,12 +686,14 @@ mod tests {
             },
             text: "Why the well?".into(),
             conversation: ConversationId("c".into()),
-            task: None,
             paths: Vec::new(),
         };
 
-        let Decision::Change(decided) = ask.decide(&sender(), letter)
-        else {
+        let Decision::Change(decided) = Paid {
+            task: None,
+            act: ask,
+        }
+        .decide(&sender(), letter) else {
             panic!("3 asks its hire 4");
         };
         assert!(
@@ -702,7 +723,7 @@ mod tests {
             parcel: None,
         };
         assert!(matches!(
-            tell(4).decide(&sender(), letter),
+            Paid { task: None, act: tell(4) }.decide(&sender(), letter),
             Decision::WaitFor { row, .. } if row == hire::row(AgentNumber(4))
         ));
     }

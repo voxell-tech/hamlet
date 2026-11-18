@@ -14,10 +14,10 @@ use hamlet_messages::realm::{
     TakeUpRoad,
 };
 use hamlet_messages::sender::Hand;
-use hamlet_messages::workspace::AgentNumber;
+use hamlet_messages::workspace::{AgentNumber, RealmTask};
 use serde::{Deserialize, Serialize};
 
-use super::act::{Act, Decided, Decision};
+use super::act::{Act, Decided, Decision, Paid, ToolAct};
 use super::callers::Lead;
 use super::calls::{Calls, Delivery, Made};
 use super::change::{self, Affected, At, Rows, Writer, number};
@@ -428,7 +428,7 @@ pub(super) struct Asking {
     letter: LetterId,
 }
 
-impl Act<Agent> for RequestRoad {
+impl Act<Agent> for Paid<RequestRoad> {
     type Output = Done<AgentRefusal<RequestRoadRefusal>>;
     type Loaded = Asking;
     type Done = LetterId;
@@ -438,7 +438,7 @@ impl Act<Agent> for RequestRoad {
         by: &Agent,
         rows: &Rows<'_>,
     ) -> Result<Asking> {
-        let ends = roads::ends(rows, by, &self.to).await?;
+        let ends = roads::ends(rows, by, &self.act.to).await?;
         let lead = ends
             .from
             .lead
@@ -480,7 +480,7 @@ impl Act<Agent> for RequestRoad {
             .filter(|(to, _)| !matches!(to.status, Status::Ended(_)))
         else {
             return refuse(RequestRoadRefusal::NoSuchAgent {
-                address: self.to.to_string(),
+                address: self.act.to.to_string(),
             });
         };
         let Some(lead) = lead else {
@@ -498,7 +498,7 @@ impl Act<Agent> for RequestRoad {
         }
         let text = format!(
             "I ask for a road to {name}: {}",
-            self.why.as_deref().unwrap_or_default().trim()
+            self.act.why.as_deref().unwrap_or_default().trim()
         );
         let written = letters::Written {
             kind: letters::Kind::Letter,
@@ -519,5 +519,13 @@ impl Act<Agent> for RequestRoad {
         _made: &Made,
     ) -> Self::Output {
         Done::Done
+    }
+}
+
+impl ToolAct for RequestRoad {
+    type Run = Paid<RequestRoad>;
+
+    fn run(self, task: Option<RealmTask>) -> Paid<RequestRoad> {
+        Paid { task, act: self }
     }
 }

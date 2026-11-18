@@ -64,6 +64,22 @@ impl Sender for Client {
     }
 }
 
+/// A workspace or an agent: an actor that takes the realm's secrets
+/// out of what it hands on.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Scrubber {
+    Workspace,
+    Agent(Agent),
+}
+
+impl Sender for Scrubber {
+    fn of(caller: Option<&Caller>) -> Option<Self> {
+        Workspace::of(caller)
+            .map(|_| Self::Workspace)
+            .or_else(|| Agent::of(caller).map(Self::Agent))
+    }
+}
+
 /// The Hand: the agent that founds hamlets and seats mayors (H6,
 /// H18).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]

@@ -33,15 +33,14 @@ use hamlet_messages::realm::workers::{
     WorkerDone, WorkerRefusal,
 };
 use hamlet_messages::realm::world::Spend;
-use hamlet_messages::realm::{
-    HamletRefusal, HowEnded, OnlyAHire, SocietyTool,
-};
+use hamlet_messages::realm::{HamletRefusal, HowEnded, OnlyAHire};
 use hamlet_messages::workspace::reach::Mode;
 use hamlet_messages::workspace::{AgentNumber, ConversationId};
 use hamlet_protocol::Effort;
 
 use super::super::Fixtures;
 use super::super::cases::{Cases, Union, named, tagged};
+use super::super::profile::request;
 use super::{
     HIRE, WHY, agent_refusal, answers, asked, by_a_lead, by_an_agent,
     done, hamlet, hire, lead_refusal, left, named_tool,
@@ -157,7 +156,10 @@ fn the_oversight(fixtures: &mut Fixtures) {
     ] {
         fixtures.args(
             &format!("realm/open_task.{case}"),
-            &OpenTask { turn },
+            &OpenTask {
+                request: request(),
+                turn,
+            },
         );
     }
     fixtures.answer(
@@ -223,35 +225,23 @@ fn the_questions_and_the_objections(fixtures: &mut Fixtures) {
     done(
         fixtures,
         "realm/ask_chief",
-        by_an_agent(
-            SocietyTool::AskChief,
-            vec![
-                ("no_chief", AskChiefRefusal::NoChief),
-                ("too_many", AskChiefRefusal::TooMany { most: 3 }),
-                (
-                    "too_many.once",
-                    AskChiefRefusal::TooMany { most: 1 },
-                ),
-                ("no_questions", AskChiefRefusal::NoQuestions),
-                (
-                    "too_many_questions",
-                    AskChiefRefusal::TooManyQuestions,
-                ),
-                ("blank", AskChiefRefusal::Blank { question: 2 }),
-                ("crowded", AskChiefRefusal::Crowded { question: 1 }),
-                (
-                    "untitled",
-                    AskChiefRefusal::Untitled { question: 1 },
-                ),
-                (
-                    "twice",
-                    AskChiefRefusal::Twice {
-                        question: 1,
-                        title: "Oats".into(),
-                    },
-                ),
-            ],
-        ),
+        by_an_agent(vec![
+            ("no_chief", AskChiefRefusal::NoChief),
+            ("too_many", AskChiefRefusal::TooMany { most: 3 }),
+            ("too_many.once", AskChiefRefusal::TooMany { most: 1 }),
+            ("no_questions", AskChiefRefusal::NoQuestions),
+            ("too_many_questions", AskChiefRefusal::TooManyQuestions),
+            ("blank", AskChiefRefusal::Blank { question: 2 }),
+            ("crowded", AskChiefRefusal::Crowded { question: 1 }),
+            ("untitled", AskChiefRefusal::Untitled { question: 1 }),
+            (
+                "twice",
+                AskChiefRefusal::Twice {
+                    question: 1,
+                    title: "Oats".into(),
+                },
+            ),
+        ]),
     );
     fixtures.args(
         "realm/object",
@@ -264,14 +254,11 @@ fn the_questions_and_the_objections(fixtures: &mut Fixtures) {
     done(
         fixtures,
         "realm/object",
-        by_an_agent(
-            SocietyTool::Object,
-            vec![
-                ("not_a_chiefs_line", ObjectRefusal::NotAChiefsLine),
-                ("no_reason", ObjectRefusal::NoReason),
-                ("already_held", ObjectRefusal::AlreadyHeld),
-            ],
-        ),
+        by_an_agent(vec![
+            ("not_a_chiefs_line", ObjectRefusal::NotAChiefsLine),
+            ("no_reason", ObjectRefusal::NoReason),
+            ("already_held", ObjectRefusal::AlreadyHeld),
+        ]),
     );
 }
 
@@ -321,10 +308,10 @@ fn the_budget_read(fixtures: &mut Fixtures) {
                 },
             ),
         ],
-        by_an_agent(
-            SocietyTool::ReadBudget,
-            vec![("no_such_task", ReadBudgetRefusal::NoSuchTask)],
-        ),
+        by_an_agent(vec![(
+            "no_such_task",
+            ReadBudgetRefusal::NoSuchTask,
+        )]),
     );
 }
 
@@ -387,7 +374,7 @@ fn the_workers(fixtures: &mut Fixtures) {
         fixtures,
         "realm/start_worker",
         started(),
-        by_an_agent(SocietyTool::StartWorker, worker_refusals()),
+        by_an_agent(worker_refusals()),
     );
     let ended = || {
         [
@@ -470,7 +457,7 @@ fn the_workers(fixtures: &mut Fixtures) {
     done(
         fixtures,
         "realm/set_allowance",
-        by_a_lead(SocietyTool::SetAllowance, allowance_refusals()),
+        by_a_lead(allowance_refusals()),
     );
 }
 
@@ -693,11 +680,8 @@ fn the_choices(fixtures: &mut Fixtures) {
             why: Some(WHY.into()),
         }),
     );
-    for (name, tool) in [
-        ("realm/set_nickname", SocietyTool::SetNickname),
-        ("realm/set_model", SocietyTool::SetModel),
-    ] {
-        done(fixtures, name, by_a_lead(tool, refusals()));
+    for name in ["realm/set_nickname", "realm/set_model"] {
+        done(fixtures, name, by_a_lead(refusals()));
     }
 }
 

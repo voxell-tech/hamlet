@@ -196,11 +196,11 @@ const ACT_FIELDS = {
     hire: ["hamlet", "under", "profile", "purpose"],
     end: ["hire", "why"],
     seat: ["hire"],
-    tell: ["to", "text", "task"],
-    ask: ["to", "text", "conversation", "task"],
+    tell: ["to", "text"],
+    ask: ["to", "text", "conversation"],
     lay_road: ["a", "b"],
     take_up_road: ["a", "b"],
-    request_road: ["to", "why", "task"],
+    request_road: ["to", "why"],
     set_tools: ["hire", "off", "on"],
 } as const satisfies {
     readonly [N in SocietyTool]: readonly (keyof SocietyActs[N]["act"])[];
@@ -274,11 +274,8 @@ test("tell carries t<task id> and the turn's task, and a refusal's words are the
         name: "tell",
         message: {
             call,
-            act: {
-                to: { type: "mayor" },
-                text: "The tests pass",
-                task: "task-1",
-            },
+            task: "task-1",
+            act: { to: { type: "mayor" }, text: "The tests pass" },
         },
         deadlineMs: 10_000,
     });
@@ -492,7 +489,7 @@ test("an input that arrives while the agent is busy waits, then has its own turn
 
     assert.deepEqual(
         named(sent, "tell").map(
-            (call) => (call.message as { act: { task?: string } }).act.task,
+            (call) => (call.message as { task?: string }).task,
         ),
         ["task-1", "task-2"],
     );
@@ -592,6 +589,15 @@ test("every one of today's parameters leaves as a field of its act, but those th
     const four = { type: "agent", agent: 4 };
     const [ask] = acts(sent, "ask") as { conversation: string }[];
     assert.deepEqual(
+        ["tell", "ask", "request_road"].flatMap((name) =>
+            named(sent, name).map(
+                (call) => (call.message as { task?: string }).task,
+            ),
+        ),
+        Array(6).fill("task-1"),
+        "a letter's call carries the turn's task",
+    );
+    assert.deepEqual(
         {
             tell: acts(sent, "tell"),
             ask: acts(sent, "ask"),
@@ -605,21 +611,13 @@ test("every one of today's parameters leaves as a field of its act, but those th
             set_tools: acts(sent, "set_tools"),
         },
         {
-            tell: Array(2).fill({
-                to: { type: "mayor" },
-                text: "Done.",
-                task: "task-1",
-            }),
+            tell: Array(2).fill({ to: { type: "mayor" }, text: "Done." }),
             ask: Array(2).fill({
                 to: { type: "hand" },
                 text: "Why?",
                 conversation: ask?.conversation,
-                task: "task-1",
             }),
-            request_road: [
-                { to: four, why: "We share a file.", task: "task-1" },
-                { to: four, task: "task-1" },
-            ],
+            request_road: [{ to: four, why: "We share a file." }, { to: four }],
             found: [
                 { name: "Mill", tier: "fifty", purpose: "Grind", mayor: 2 },
             ],

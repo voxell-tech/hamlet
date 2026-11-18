@@ -176,7 +176,12 @@ test("a place keeps only the fields the agent knows, also one a newer realm send
     };
     const agent = await wakeAgent(t, {
         calls,
-        input: { kind: "hand", task: "standing", place: newer as never },
+        input: {
+            kind: "hand",
+            task: "standing",
+            place: newer as never,
+            copies: {},
+        },
     });
     const kept = async () =>
         JSON.parse(

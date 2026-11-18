@@ -1063,7 +1063,6 @@ mod tests {
                     agent: AgentNumber(2),
                 },
                 text: text.to_owned(),
-                task: None,
                 paths: Vec::new(),
             },
         }

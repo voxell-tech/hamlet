@@ -9,11 +9,13 @@ use hamlet_messages::realm::{
     Asked, ChiefRequest, Gate, LeadRefusal, Rank, Refusable,
     Standing, Tool, ToolCall,
 };
-use hamlet_messages::sender::{Client, Hand, Sender, sender};
+use hamlet_messages::sender::{
+    Client, Hand, Scrubber, Sender, sender,
+};
 use hamlet_messages::workspace::AgentNumber;
 use serde::{Deserialize, Serialize};
 
-use super::act::{self, Act, Look};
+use super::act::{self, Act, Look, ToolAct};
 use super::change::Rows;
 use super::tree::{self, Lineage};
 use super::workers::errands;
@@ -48,6 +50,15 @@ impl Witness for Hand {
 impl Witness for Workspace {
     fn name(&self) -> String {
         "workspace/local".to_owned()
+    }
+}
+
+impl Witness for Scrubber {
+    fn name(&self) -> String {
+        match self {
+            Self::Workspace => Workspace.name(),
+            Self::Agent(agent) => agent.name(),
+        }
     }
 }
 
@@ -267,7 +278,7 @@ where
 
 impl<T> Handler<Tool<T>> for Realm
 where
-    T: ToolCall + Act<Agent, Output = <T as ToolCall>::Answer>,
+    T: ToolAct,
     <T::Answer as Refusable>::Why: From<Standing> + From<Gate>,
 {
     async fn handle(
@@ -277,8 +288,7 @@ where
     ) -> Result<<T as ToolCall>::Answer> {
         let name = <Tool<T> as Action>::NAME;
         let by = sender(&ctx, &tool)?;
-        let ran = act::run_tool(&self, &ctx, by, name, T::TOOL, tool)
-            .await?;
+        let ran = act::run_tool(&self, &ctx, by, name, tool).await?;
         Ok(to_tool(ran))
     }
 }

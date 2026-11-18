@@ -167,6 +167,9 @@ function ownForms(
             Number.isInteger(value) &&
             (value as number) >= 0 &&
             (value as number) <= U32_MAX,
+        request: (value) =>
+            typeof value === "string" &&
+            /^[0-9a-f]{8}(-[0-9a-f]{4}){3}-[0-9a-f]{12}$/.test(value),
     };
 }
 
@@ -349,7 +352,7 @@ async function signedIn(t: TestContext, calls: Calls): Promise<Woken> {
             reply: { login: answered.login, value: KEY },
         });
     }
-    assert.deepEqual(answered, { type: "done", login: answered.login });
+    assert.ok(answered.type === "done", JSON.stringify(answered));
     return agent;
 }
 
@@ -680,6 +683,7 @@ const WRITTEN: readonly Written[] = [
             return agent;
         },
         answers: COMMANDED,
+        own: ["request"],
     },
     {
         fixture: "realm/open_task.reflection",
@@ -694,6 +698,7 @@ const WRITTEN: readonly Written[] = [
             return agent;
         },
         answers: COMMANDED,
+        own: ["request"],
     },
     {
         fixture: "realm/credential",
@@ -1409,8 +1414,20 @@ const NOT_THE_AGENTS: readonly (readonly [RegExp, string])[] = [
         "the input a profile is created with",
     ],
     [
-        /^stored\//,
-        "a row the workspace, a profile, the library or the host keeps in its own file",
+        /^stored\/(end\.change\.changed|end\.change\.changed\.diff|end\.change\.failed|end\.change\.not_run|end\.change_not_run|end\.change_not_run\.chief_refused|end\.change_not_run\.chief_refused\.no_reason|end\.change_not_run\.lapsed|end\.change_not_run\.lapsed\.stopped|end\.change_not_run\.reach_needs|end\.change_not_run\.reach_refuses\.agent_filesystem|end\.change_not_run\.reach_refuses\.no_reach|end\.change_not_run\.reach_refuses\.outside_reach|end\.change_not_run\.reach_refuses\.project_in_realm|end\.command|end\.command\.cancelled|end\.command\.cut|end\.command\.cut_off|end\.command\.failed|end\.command\.timed_out|end\.run_not_run|end\.run_not_run\.chief_refused|end\.run_not_run\.chief_refused\.no_reason|end\.run_not_run\.lapsed|end\.run_not_run\.lapsed\.stopped|end\.run_not_run\.reach_needs|end\.run_not_run\.reach_refuses\.no_reach|end\.run_not_run\.reach_refuses\.project_in_realm|end\.run_not_run\.tool_arguments|end\.run_not_run\.tool_not_found|hashed\.absent|hashed\.sha256|needs|needs\.edit|reach\.agent|reach\.agent\.auto|reach\.ended|reach\.worker|reach\.worker\.started|request\.edit_file|request\.run|request\.run\.tool|request\.write_file)$/,
+        "a row the workspace keeps in its own file",
+    ],
+    [
+        /^stored\/(profile\.edit\.done|profile\.edit\.refused\.character_too_long|profile\.edit\.refused\.not_a_path|profile\.edit\.refused\.withheld|profile\.end_dream\.dreamt|profile\.end_dream\.dreamt\.main_unchanged|profile\.end_dream\.nothing|profile\.erase\.done|profile\.erase\.refused\.dreaming|profile\.input\.character|profile\.input\.fork|profile\.pin\.follows_main|profile\.pin\.pinned|profile\.pin\.refused\.no_hire|profile\.pin\.refused\.no_version|profile\.purge\.purged|profile\.purge\.refused\.dreaming|profile\.purge\.refused\.not_a_path|profile\.revert\.refused\.no_commit|profile\.revert\.refused\.no_version|profile\.revert\.refused\.not_on_main|profile\.revert\.reverted|profile\.revert\.unchanged|profile\.save\.kept|profile\.save\.refused\.commit_gone|profile\.save\.refused\.not_a_path|profile\.save\.refused\.part_too_large|profile\.save\.refused\.withheld|profile\.save\.saved|profile\.tag\.refused\.bad_name|profile\.tag\.refused\.no_such_commit|profile\.tag\.refused\.taken|profile\.tag\.tagged)$/,
+        "a row a profile keeps in its own file",
+    ],
+    [
+        /^stored\/(library\.offer\.kept|library\.offer\.more|library\.offer\.refused\.already_shelved|library\.offer\.refused\.being_judged|library\.offer\.refused\.no_front_matter|library\.offer\.refused\.not_a_path|library\.offer\.refused\.not_a_skill_name|library\.offer\.refused\.part_too_large|library\.offer\.refused\.skill_too_large|library\.unshelve\.done|library\.unshelve\.refused\.no_such_skill|library\.verdict\.done|library\.verdict\.refused\.judged|library\.verdict\.refused\.no_such_offer)$/,
+        "a row the library keeps in its own file",
+    ],
+    [
+        /^agent\/(read_models|check)(\..+)?\.(args|answer)$/,
+        "a client's call the agent does not take yet",
     ],
     [
         /^realm\/(agree_road|ask_chief|object|start_worker|read_budget|read_record|set_allowance|set_model|set_nickname|fetch_part)\./,

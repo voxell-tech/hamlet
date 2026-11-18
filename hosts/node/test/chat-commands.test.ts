@@ -13,7 +13,12 @@ import type {
     HarnessSettings,
 } from "@earendil-works/pi-durable";
 import type { Calls } from "../src/actor/actor/mod.ts";
-import type { Finished, Input, ReadAnswer } from "../src/agent/messages.ts";
+import type {
+    Finished,
+    Input,
+    OpenTask,
+    ReadAnswer,
+} from "../src/agent/messages.ts";
 import { conversationOfChat } from "../src/agent/sessions.ts";
 import {
     fakeCalls,
@@ -403,9 +408,7 @@ test("a repeated retry runs once", async (t) => {
     assert.ok(named(sent, "open_task").length > 0);
     assert.ok(
         named(sent, "open_task").every(
-            (call) =>
-                JSON.stringify(call.message) ===
-                JSON.stringify({ turn: "retry" }),
+            (call) => (call.message as OpenTask).turn === "retry",
         ),
     );
     assert.deepEqual(named(sent, "may_spend").at(-1)?.message, {

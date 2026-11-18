@@ -4,8 +4,10 @@ use std::sync::Arc;
 
 use anyhow::{Result, bail};
 use hamlet_actor::Ctx;
+use hamlet_messages::address::Agent;
 use hamlet_messages::realm::world::WaitId;
-use hamlet_messages::realm::{Gate, SocietyTool, Tool};
+use hamlet_messages::realm::{Gate, Tool, ToolCall};
+use hamlet_messages::workspace::RealmTask;
 use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
 
@@ -132,24 +134,20 @@ where
 
 /// Runs a society tool: refused by the caller's standing, then kept
 /// for a chief when the limits reserve it for one, then the act.
-pub(super) async fn run_tool<By, A>(
+pub(super) async fn run_tool<T: ToolAct>(
     realm: &Arc<Realm>,
     ctx: &Ctx<Realm>,
-    by: By,
+    by: Agent,
     name: &'static str,
-    society: SocietyTool,
-    tool: Tool<A>,
-) -> Result<Result<A::Output, Stood>>
-where
-    By: Member,
-    A: Act<By> + Serialize,
-{
+    tool: Tool<T>,
+) -> Result<Result<<T::Run as Act<Agent>>::Output, Stood>> {
     let Tool {
         call,
         task,
         conversation,
         act,
     } = tool;
+    let act = act.run(task.clone());
     exec(
         realm,
         ctx,
@@ -157,13 +155,13 @@ where
         Some(marker::Id::Call(call)),
         name,
         act,
-        async move |by: &By, rows: &Rows<'_>, act: &A| {
+        async move |by: &Agent, rows: &Rows<'_>, act: &T::Run| {
             if let Some(stood) = by.standing(rows).await? {
                 return Ok(Some(Barred::Stood(stood)));
             }
             let kept = reserved::reserve(
                 rows,
-                society,
+                T::TOOL,
                 by.agent(),
                 task.as_ref(),
                 conversation.as_ref(),
@@ -178,6 +176,32 @@ where
         |wait| Ok(Stood::Gate(Gate::Reserved { wait })),
     )
     .await
+}
+
+/// A society tool's act as the realm runs it, given the calling
+/// turn's task.
+pub(super) trait ToolAct: ToolCall {
+    type Run: Act<Agent, Output = Self::Answer> + Serialize;
+
+    fn run(self, task: Option<RealmTask>) -> Self::Run;
+}
+
+impl<T> ToolAct for T
+where
+    T: ToolCall + Act<Agent, Output = T::Answer> + Serialize,
+{
+    type Run = T;
+
+    fn run(self, _task: Option<RealmTask>) -> T {
+        self
+    }
+}
+
+/// An act that the calling turn's task pays for.
+#[derive(Serialize)]
+pub(super) struct Paid<A> {
+    pub task: Option<RealmTask>,
+    pub act: A,
 }
 
 /// What a caller meets before its act is loaded.

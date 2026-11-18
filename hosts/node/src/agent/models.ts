@@ -33,9 +33,11 @@ import { type AgentContext, generationOf } from "./actor.ts";
 import { PROVIDER as CLAUDE } from "./claude.ts";
 import type { ReadCopies } from "./copies.ts";
 import {
+    type Checked,
     type CredentialAnswer,
     type Effort,
     type Kept,
+    type ListedModel,
     type OauthLogin,
     type Price,
     u32,
@@ -553,14 +555,6 @@ function fastened(
     };
 }
 
-/** A model the listing holds, named as the catalogue names it. */
-export interface ListedModel {
-    readonly name: string;
-    readonly title: string;
-    readonly context: number;
-    readonly price?: Price;
-}
-
 export function modelList(listed: Models): ListedModel[] {
     return listed.getModels().map((model) => {
         const cost = listedCost(model);
@@ -580,12 +574,6 @@ export function modelList(listed: Models): ListedModel[] {
                   }),
         };
     });
-}
-
-/** As today's check answers: the model's hello, its failure, or a refusal of the name. */
-export interface Checked {
-    readonly type: "answered" | "failed" | "refused";
-    readonly words: string;
 }
 
 /**

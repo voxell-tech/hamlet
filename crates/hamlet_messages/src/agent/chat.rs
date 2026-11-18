@@ -7,6 +7,7 @@ use serde::de::Error as _;
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 
 use crate::address::Agent;
+use crate::agent::copies::Price;
 use crate::bytes::Sha256;
 use crate::realm::Done;
 use crate::sender::Client;
@@ -432,4 +433,45 @@ pub enum LoginAnswer {
         login: String,
         words: String,
     },
+    /// The agent is not the Hand, which alone signs in.
+    NotTheHand,
+}
+
+/// Reads the models the agent's listing holds.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ReadModels;
+from_client!(ReadModels, "read_models", ModelList);
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct ModelList {
+    pub models: Vec<ListedModel>,
+}
+
+/// A model the listing holds, named as the catalogue names it.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct ListedModel {
+    /// `provider::model`.
+    pub name: String,
+    pub title: String,
+    /// Its context window, in tokens.
+    pub context: u32,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub price: Option<Price>,
+}
+
+/// Asks `model` for a hello. It is neither admitted to a conversation
+/// nor charged, and a repeat asks again.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Check {
+    pub model: String,
+}
+from_client!(Check, "check", Checked);
+
+/// The model's hello, its failure, or a refusal of its name.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(tag = "type", rename_all = "snake_case")]
+pub enum Checked {
+    Answered { words: String },
+    Failed { words: String },
+    Refused { words: String },
 }

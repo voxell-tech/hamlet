@@ -2,6 +2,7 @@
  * The chief's commands to an agent: what each changes and how it is
  * refused.
  */
+import { randomUUID } from "node:crypto";
 import type { Context } from "@earendil-works/chord/context";
 import type { AssistantMessage } from "@earendil-works/pi-ai";
 import {
@@ -201,7 +202,10 @@ export async function retry(
         if (why === "admitted") return { type: "done" };
         if (why !== undefined) return retryRefused(why);
         const begun = generation.stopsBegun;
-        const opened = await peers.reach.open_task({ turn: "retry" });
+        const opened = await peers.reach.open_task({
+            request: randomUUID(),
+            turn: "retry",
+        });
         if (opened.type === "refused") throw new Error(opened.words);
         if (generation.stopsBegun !== begun) return { type: "done" };
         await submittedTo(

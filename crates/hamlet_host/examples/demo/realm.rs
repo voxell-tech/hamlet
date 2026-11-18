@@ -1685,15 +1685,14 @@ async fn as_agent(
             let mut tell = Tell {
                 to: named(to)?,
                 text: String::new(),
-                task: None,
                 paths: Vec::new(),
             };
+            let mut task = None;
             let mut text = words;
             while let [word, rest @ ..] = text {
                 match word.split_once('=') {
-                    Some(("task", task)) => {
-                        tell.task =
-                            Some(task_word(host, task).await?);
+                    Some(("task", word)) => {
+                        task = Some(task_word(host, word).await?);
                     }
                     Some(("paths", paths)) => {
                         tell.paths = paths
@@ -1708,9 +1707,11 @@ async fn as_agent(
                 text = rest;
             }
             tell.text = text.join(" ");
-            match forward(host, me, Peer::Realm, &tool(call, tell))
-                .await?
-            {
+            let tool = Tool {
+                task,
+                ..tool(call, tell)
+            };
+            match forward(host, me, Peer::Realm, &tool).await? {
                 Done::Done => writeln!(out, "sent/{call} 1")?,
                 Done::Refused { why } => refused(call, &why)?,
             }
@@ -1903,7 +1904,6 @@ async fn as_agent(
                 to: named(to)?,
                 text: text.join(" "),
                 conversation: ConversationId(CONVERSATION.to_owned()),
-                task: None,
                 paths: Vec::new(),
             };
             match forward(host, me, Peer::Realm, &tool(call, ask))
@@ -2207,7 +2207,6 @@ async fn tell(
     let tell = Tell {
         to,
         text,
-        task: None,
         paths: Vec::new(),
     };
     forward(host, me, Peer::Realm, &tool(call, tell)).await

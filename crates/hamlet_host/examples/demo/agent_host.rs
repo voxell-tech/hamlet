@@ -602,6 +602,7 @@ async fn make(host: &Host, n: AgentNumber) -> Result<()> {
             folder: None,
         },
         brief: None,
+        copies: Default::default(),
     };
     // The agent asks the workspace for its tools when it wakes.
     host.get_or_start(&address::Workspace.address()?).await?;

@@ -82,6 +82,7 @@ const HAND: AgentInput = {
     kind: "hand",
     task: "standing-1",
     place: { version: 1, hires: [], roads: [], tools_off: [] },
+    copies: {},
 };
 
 function line(id: string, text: string): Submit {

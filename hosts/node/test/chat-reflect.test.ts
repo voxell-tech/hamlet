@@ -137,8 +137,10 @@ test("A5: the Hand reflects every few answered turns", async (t) => {
     assert.deepEqual((await said(agent)).slice(-2), ["three", "C."]);
     assert.equal((await reflections(agent)).length, 1);
     assert.deepEqual(
-        named(sent, "open_task").map((call) => call.message),
-        [{ turn: "reflection" }],
+        named(sent, "open_task").map(
+            (call) => (call.message as Parameters<OpenTask>[0]).turn,
+        ),
+        ["reflection"],
     );
 });
 

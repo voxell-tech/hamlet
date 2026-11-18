@@ -194,10 +194,9 @@ fn done<W>(
 
 /// The refusals of an agent's act.
 fn by_an_agent<R>(
-    tool: SocietyTool,
     acts: Vec<(&'static str, R)>,
 ) -> Vec<(&'static str, AgentRefusal<R>)> {
-    callers(tool)
+    callers()
         .into_iter()
         .chain(
             acts.into_iter()
@@ -208,10 +207,9 @@ fn by_an_agent<R>(
 
 /// The refusals of an agent's act that needs a lead's powers.
 fn by_a_lead<R>(
-    tool: SocietyTool,
     acts: Vec<(&'static str, R)>,
 ) -> Vec<(&'static str, LeadRefusal<R>)> {
-    callers(tool)
+    callers()
         .into_iter()
         .chain([(
             "not_a_lead",
@@ -225,13 +223,11 @@ fn by_a_lead<R>(
 }
 
 /// The refusals of the calling agent itself.
-fn callers<U: From<Standing> + From<Gate>>(
-    tool: SocietyTool,
-) -> [(&'static str, U); 6] {
+fn callers<U: From<Standing> + From<Gate>>() -> [(&'static str, U); 5]
+{
     [
         ("you_left", you_left().into()),
         ("not_a_member", Standing::NotAMember.into()),
-        ("tool_off", Gate::ToolOff { tool }.into()),
         ("reserved", Gate::Reserved { wait: WaitId(4) }.into()),
         (
             "already_refused",
@@ -271,6 +267,14 @@ fn tool<T>(act: T) -> Tool<T> {
         task: None,
         conversation: None,
         act,
+    }
+}
+
+/// `act` called in a turn on a task.
+fn paid<T>(act: T) -> Tool<T> {
+    Tool {
+        task: task(),
+        ..tool(act)
     }
 }
 
@@ -446,7 +450,6 @@ fn the_founding_and_the_hires(fixtures: &mut Fixtures) {
         "realm/hire",
         [("hired", HireAnswer::Hired { agent: HIRE })],
         by_a_lead(
-            SocietyTool::Hire,
             hire_refusals()
                 .into_iter()
                 .chain([("no_purpose", HireRefusal::NoPurpose)])
@@ -490,11 +493,7 @@ fn the_founding_and_the_hires(fixtures: &mut Fixtures) {
         ]
     };
     done(fixtures, "realm/chief_end", end_refusals());
-    done(
-        fixtures,
-        "realm/end",
-        by_a_lead(SocietyTool::End, end_refusals()),
-    );
+    done(fixtures, "realm/end", by_a_lead(end_refusals()));
     fixtures.args(
         "realm/chief_seat",
         &asked(Seat {
@@ -526,19 +525,17 @@ fn the_founding_and_the_hires(fixtures: &mut Fixtures) {
 fn the_letters(fixtures: &mut Fixtures) {
     fixtures.args(
         "realm/tell",
-        &tool(Tell {
+        &paid(Tell {
             to: Named::Mayor,
             text: "The tests pass".into(),
-            task: task(),
             paths: Vec::new(),
         }),
     );
     fixtures.args(
         "realm/tell.paths",
-        &tool(Tell {
+        &paid(Tell {
             to: Named::Mayor,
             text: "The report".into(),
-            task: task(),
             paths: vec![
                 Enclosed {
                     path: "/work/report.md".into(),
@@ -554,27 +551,24 @@ fn the_letters(fixtures: &mut Fixtures) {
         &tool(Tell {
             to: Named::Hand,
             text: "The tests pass".into(),
-            task: None,
             paths: Vec::new(),
         }),
     );
     fixtures.args(
         "realm/ask",
-        &tool(Ask {
+        &paid(Ask {
             to: hire(),
             text: "Which tests fail?".into(),
             conversation: ConversationId("c1".into()),
-            task: task(),
             paths: Vec::new(),
         }),
     );
     fixtures.args(
         "realm/ask.paths",
-        &tool(Ask {
+        &paid(Ask {
             to: hire(),
             text: "Is this plan right?".into(),
             conversation: ConversationId("c1".into()),
-            task: task(),
             paths: vec![Enclosed {
                 path: "/work/plan.md".into(),
             }],
@@ -601,16 +595,8 @@ fn the_letters(fixtures: &mut Fixtures) {
             ),
         ]
     };
-    done(
-        fixtures,
-        "realm/tell",
-        by_an_agent(SocietyTool::Tell, letter_refusals()),
-    );
-    done(
-        fixtures,
-        "realm/ask",
-        by_an_agent(SocietyTool::Ask, letter_refusals()),
-    );
+    done(fixtures, "realm/tell", by_an_agent(letter_refusals()));
+    done(fixtures, "realm/ask", by_an_agent(letter_refusals()));
     fixtures.args(
         "realm/reply",
         &Reply {
@@ -734,11 +720,7 @@ fn the_roads_and_the_tools(fixtures: &mut Fixtures) {
         ]
     };
     done(fixtures, "realm/chief_lay_road", lay_refusals());
-    done(
-        fixtures,
-        "realm/lay_road",
-        by_a_lead(SocietyTool::LayRoad, lay_refusals()),
-    );
+    done(fixtures, "realm/lay_road", by_a_lead(lay_refusals()));
     fixtures.args(
         "realm/agree_road",
         &tool(AgreeRoad {
@@ -761,28 +743,25 @@ fn the_roads_and_the_tools(fixtures: &mut Fixtures) {
         fixtures,
         "realm/agree_road",
         [("waiting", Agreed::Waiting), ("laid", Agreed::Laid)],
-        by_an_agent(
-            SocietyTool::AgreeRoad,
-            vec![
-                ("not_a_mayor", AgreeRefusal::NotAMayor),
-                (
-                    "no_such_agent",
-                    AgreeRefusal::NoSuchAgent {
-                        address: "hire#9".into(),
-                    },
-                ),
-                ("no_roads_between", AgreeRefusal::NoRoadsBetween),
-                ("not_hires", AgreeRefusal::NotHires),
-                ("same_hamlet", AgreeRefusal::SameHamlet),
-                (
-                    "road_exists",
-                    AgreeRefusal::RoadExists {
-                        a: HIRE,
-                        b: AgentNumber(31),
-                    },
-                ),
-            ],
-        ),
+        by_an_agent(vec![
+            ("not_a_mayor", AgreeRefusal::NotAMayor),
+            (
+                "no_such_agent",
+                AgreeRefusal::NoSuchAgent {
+                    address: "hire#9".into(),
+                },
+            ),
+            ("no_roads_between", AgreeRefusal::NoRoadsBetween),
+            ("not_hires", AgreeRefusal::NotHires),
+            ("same_hamlet", AgreeRefusal::SameHamlet),
+            (
+                "road_exists",
+                AgreeRefusal::RoadExists {
+                    a: HIRE,
+                    b: AgentNumber(31),
+                },
+            ),
+        ]),
     );
     let take_up = || TakeUpRoad {
         a: hire(),
@@ -813,16 +792,15 @@ fn the_roads_and_the_tools(fixtures: &mut Fixtures) {
     done(
         fixtures,
         "realm/take_up_road",
-        by_a_lead(SocietyTool::TakeUpRoad, take_up_refusals()),
+        by_a_lead(take_up_refusals()),
     );
     fixtures.args(
         "realm/request_road",
-        &tool(RequestRoad {
+        &paid(RequestRoad {
             to: Named::Agent {
                 agent: AgentNumber(13),
             },
             why: Some("To ask about the tests".into()),
-            task: task(),
         }),
     );
     fixtures.args(
@@ -830,28 +808,24 @@ fn the_roads_and_the_tools(fixtures: &mut Fixtures) {
         &tool(RequestRoad {
             to: Named::Mayor,
             why: None,
-            task: None,
         }),
     );
     done(
         fixtures,
         "realm/request_road",
-        by_an_agent(
-            SocietyTool::RequestRoad,
-            vec![
-                (
-                    "no_such_agent",
-                    RequestRoadRefusal::NoSuchAgent {
-                        address: "hire#9".into(),
-                    },
-                ),
-                ("no_lead", RequestRoadRefusal::NoLead),
-                (
-                    "still_hiring",
-                    RequestRoadRefusal::StillHiring { lead: HIRE },
-                ),
-            ],
-        ),
+        by_an_agent(vec![
+            (
+                "no_such_agent",
+                RequestRoadRefusal::NoSuchAgent {
+                    address: "hire#9".into(),
+                },
+            ),
+            ("no_lead", RequestRoadRefusal::NoLead),
+            (
+                "still_hiring",
+                RequestRoadRefusal::StillHiring { lead: HIRE },
+            ),
+        ]),
     );
     fixtures.args(
         "realm/chief_set_tools",
@@ -881,11 +855,7 @@ fn the_roads_and_the_tools(fixtures: &mut Fixtures) {
         }),
     );
     done(fixtures, "realm/chief_set_tools", only_a_hire());
-    done(
-        fixtures,
-        "realm/set_tools",
-        by_a_lead(SocietyTool::SetTools, only_a_hire()),
-    );
+    done(fixtures, "realm/set_tools", by_a_lead(only_a_hire()));
 }
 
 fn the_limits_and_the_spending(fixtures: &mut Fixtures) {
@@ -1392,6 +1362,7 @@ fn the_calls_to_agents_and_profiles(fixtures: &mut Fixtures) {
                 task: standing_task(),
                 place,
                 brief: None,
+                copies: Default::default(),
             },
         );
     }
@@ -1426,6 +1397,7 @@ fn the_calls_to_agents_and_profiles(fixtures: &mut Fixtures) {
                 task: standing_task(),
                 place: hands_place(),
                 brief: Some(brief),
+                copies: Default::default(),
             },
         );
     }
