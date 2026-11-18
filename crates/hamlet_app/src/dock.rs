@@ -176,8 +176,9 @@ pub fn register_numbered(world: &mut World) {
     }
 }
 
-/// Forgets the numbered panels the dock no longer holds, so the
-/// dock's add menu offers only the first of each.
+/// Forgets the numbered panels the dock no longer holds, and keeps
+/// one of each not in the dock, so the dock's add menu always offers
+/// one more: the first, else a free copy.
 fn prune_numbered(world: &mut World) {
     let firsts = world
         .resource::<Numbered>()
@@ -203,6 +204,31 @@ fn prune_numbered(world: &mut World) {
     for id in gone {
         registry.unregister(&id);
     }
+    for first in firsts {
+        let docked = world
+            .resource::<DockTree>()
+            .find_leaf_with_window(&first)
+            .is_some();
+        if docked {
+            let spare = free_copy(world, &first);
+            register(world, &spare);
+        }
+    }
+}
+
+/// The id of a copy of the numbered panel `first` that neither the
+/// dock nor a desk holds.
+fn free_copy(world: &World, first: &str) -> String {
+    (2u32..)
+        .map(|n| format!("{first}-{n}"))
+        .find(|id| {
+            world
+                .resource::<DockTree>()
+                .find_leaf_with_window(id)
+                .is_none()
+                && !on_a_desk(world, id)
+        })
+        .unwrap_or_default()
 }
 
 /// Registers the numbered panel `id`, unless it is or it is not one.
@@ -228,13 +254,7 @@ pub(crate) fn open_numbered(
     first: &str,
     target: DropTarget,
 ) -> Option<String> {
-    let id = (2u32..).map(|n| format!("{first}-{n}")).find(|id| {
-        world
-            .resource::<DockTree>()
-            .find_leaf_with_window(id)
-            .is_none()
-            && !on_a_desk(world, id)
-    })?;
+    let id = free_copy(world, first);
     register(world, &id);
     let mut tree = world.resource_mut::<DockTree>();
     let placed = match target {
@@ -257,31 +277,6 @@ pub(crate) fn open_numbered(
         return None;
     }
     Some(id)
-}
-
-/// Opens another of the numbered panel `first` beside the panel
-/// `beside`, or beside the first area when it is not in the dock,
-/// and gives its id.
-pub(crate) fn open_another(
-    world: &mut World,
-    first: &str,
-    beside: &str,
-) -> Option<String> {
-    let leaf = {
-        let tree = world.resource::<DockTree>();
-        tree.find_leaf_with_window(beside).or_else(|| {
-            let root = tree.root?;
-            tree.leaves_under(root).first().map(|(leaf, _)| *leaf)
-        })?
-    };
-    open_numbered(
-        world,
-        first,
-        DropTarget::Edge {
-            leaf,
-            edge: Edge::Right,
-        },
-    )
 }
 
 /// A dock panel's contents.
@@ -533,9 +528,10 @@ mod tests {
             known(&app, "terminal-2") && known(&app, "terminal-4")
         );
         // Out of the dock, a panel leaves the add menu; the first
-        // stays.
+        // stays, and the menu offers a copy no desk holds.
         assert!(!known(&app, "terminal-3"));
         assert!(known(&app, "terminal"));
+        assert!(known(&app, "terminal-6"));
     }
 
     #[test]

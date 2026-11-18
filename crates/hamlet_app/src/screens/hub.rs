@@ -49,7 +49,7 @@ pub use self::thread::{Briefing, Sheet};
 use crate::convo::{Convo, seat};
 use crate::desk::Desks;
 use crate::dock::{
-    HUB, PanelAppExt, highlight_panel, number, open_another, show_tab,
+    HUB, PanelAppExt, highlight_panel, number, show_tab,
 };
 use crate::overview;
 
@@ -205,16 +205,6 @@ pub(crate) fn follow(world: &mut World, hub: Entity) {
     // It shows what is selected now.
     if let Some(mut selected) = world.get_resource_mut::<Selected>() {
         selected.set_changed();
-    }
-}
-
-/// Opens another Hub beside the following one.
-pub(crate) fn new_hub(world: &mut World) {
-    let beside = following(world)
-        .and_then(|hub| world.get::<Hub>(hub))
-        .map_or_else(|| HUB.to_owned(), |hub| hub.0.clone());
-    if open_another(world, HUB, &beside).is_some() {
-        let _ = world.run_system_cached(keep_hubs);
     }
 }
 
