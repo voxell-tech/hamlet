@@ -52,6 +52,8 @@ mod allowance;
 mod asking;
 #[path = "realm/budget.rs"]
 mod budget;
+#[path = "realm/callers.rs"]
+mod callers;
 #[path = "realm/chiefs.rs"]
 mod chiefs;
 #[path = "realm/choices.rs"]
@@ -80,6 +82,8 @@ mod parcels;
 mod places;
 #[path = "realm/record.rs"]
 mod record;
+#[path = "realm/repeats.rs"]
+mod repeats;
 #[path = "realm/reserved.rs"]
 mod reserved;
 #[path = "realm/reviews.rs"]

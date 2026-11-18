@@ -173,10 +173,15 @@ async fn a_worker_answers_its_starter_once_and_ends() {
         "{reach:?}"
     );
 
-    let done = answered("Counted: 3 files.");
-    realm.tool(FOUR, &done).await.unwrap();
+    realm
+        .tool(FOUR, &answered("Counted: 3 files."))
+        .await
+        .unwrap();
     seen_submits(&realm, THREE, 1).await;
-    realm.tool(FOUR, &done).await.unwrap();
+    realm
+        .tool(FOUR, &answered("Counted: 4 files."))
+        .await
+        .unwrap();
     settled().await;
 
     assert_eq!(
