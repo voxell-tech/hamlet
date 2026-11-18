@@ -445,7 +445,7 @@ fn agents() -> impl View {
     ))
 }
 
-/// The permissions agents were given for good from a petition, each
+/// The permissions agents were given for good from a wait, each
 /// to be taken back.
 fn permissions() -> AnyView {
     let held = derived(|world: &World| {
@@ -481,8 +481,7 @@ fn permissions() -> AnyView {
     keyed(held, |held| {
         if held.is_empty() {
             return description(
-                "None yet. Choosing Allow always on a petition adds \
-                 one.",
+                "None yet. Choosing Allow always on a wait adds one.",
             )
             .boxed();
         }

@@ -46,7 +46,7 @@ use crate::convo::Convo;
 use crate::history::History;
 use crate::overview::tell;
 use crate::roll::rolled;
-use crate::screens::petition::{self, Need};
+use crate::screens::wait::{self, Need};
 use crate::standing::Standing;
 use crate::{chat, words, world_menu};
 
@@ -410,7 +410,7 @@ fn waits(agent: Entity) -> impl View {
                         match cx.world.get::<Waiting>(wait) {
                             Some(waiting) => {
                                 let need = Need::of(wait, waiting);
-                                cx.build(petition::strip(&need))
+                                cx.build(wait::strip(&need))
                             }
                             None => cx.build(frame()),
                         }

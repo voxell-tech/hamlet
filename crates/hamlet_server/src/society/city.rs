@@ -418,7 +418,7 @@ pub(crate) fn turn_away(
     Ok(Ok(()))
 }
 
-/// Ends the open petition about the newcomer `id`, as `ruling`.
+/// Ends the open wait about the newcomer `id`, as `ruling`.
 fn settle_newcomer(
     cx: &mut Change<'_>,
     id: ProfileId,

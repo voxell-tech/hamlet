@@ -168,7 +168,7 @@ where a signal reads from. The pattern that fits:
 > `PartialEq` resource only when it differs, and the view binds to that
 > resource.
 
-`Lines`, `Bar`, `Card`, `Roll`, `petition::Queue` and
+`Lines`, `Bar`, `Card`, `Roll`, `wait::Queue` and
 `hub::Papers` are built this way. A signal on `every_frame()` does
 its whole read each frame, and a dock tab that is not in front still runs
 its signals. A read that has no resource of its own takes its check from

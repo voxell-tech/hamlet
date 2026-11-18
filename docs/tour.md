@@ -261,7 +261,7 @@ built-in ones.
 | Terminals: the chief's shells, the agents' commands logs, the panel | `hamlet_server/src/terminals.rs`, `terminals/`; `hamlet_os/src/process/pty.rs`; `hamlet_protocol/src/screen.rs` (resizing a screen, both ends); `hamlet_client/src/terminals.rs`; `hamlet_app/src/screens/terminal.rs`, `screens/terminal/`; [`sandbox.md`](sandbox.md#terminals) |
 | A panel or right-click menu | `hamlet_app/src/screens/`, `world_menu/items.rs` |
 | The Hub: its rail, a thread, its details sheet, profile and hamlet pages | `hamlet_app/src/screens/hub.rs`, `hub/` (`rail.rs`, `thread.rs`, `details.rs`, `profile.rs`) |
-| Toasts that answer petitions in place | `hamlet_app/src/toasts.rs` |
+| Toasts that answer waits in place | `hamlet_app/src/toasts.rs` |
 | The starting desk | `hamlet_app/src/dock.rs` |
 | The two islands, where the hamlet island lies | `hamlet_realm/src/generator/land.rs`, `land/`; [`islands.md`](islands.md) |
 | The city: the Hand's tower, profiles' houses, newcomers | `hamlet_realm/src/city.rs`, `city/`; the spots in `hamlet_server/src/society/city.rs` |

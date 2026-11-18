@@ -162,7 +162,7 @@ pub(super) fn setup(world: &mut World, scene: Scene) {
     burr.house = None;
     state.profiles.extend([moss, burr]);
     if scene != Scene::Toasts {
-        // The chief holds the door, so moss waits on a petition
+        // The chief holds the door, so moss is a wait
         // raised by scout, who made it.
         let mut wait = hamlet_testing::realm::wait("moss");
         wait.agent = Some(protocol::AgentId(10));
@@ -187,7 +187,7 @@ pub(super) fn setup(world: &mut World, scene: Scene) {
     }
     if scene == Scene::Toasts {
         // The Hand holds the door. Once the realm is on show it
-        // lets moss in and an agent raises a petition.
+        // lets moss in and an agent raises a wait.
         state.settings.newcomers = protocol::Newcomers::Hand;
         let mut next = state.clone();
         next.revision += 1;

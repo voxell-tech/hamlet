@@ -49,8 +49,8 @@ pub use self::hamlet::{Page, hamlet};
 pub use self::record::Annals;
 pub(crate) use self::rows::standing;
 use self::rows::{agent_rows, hamlet_rows, pressable, stale};
-use crate::petition::Queue;
 use crate::standing::{Standing, need_you};
+use crate::wait::Queue;
 use crate::{chat, words, world_menu};
 
 pub fn plugin(app: &mut App) {
@@ -378,7 +378,7 @@ fn today() -> AnyView {
                     waits.glyph(),
                     need_you(today.needs),
                     waits.tone(),
-                    "Petitions waiting for your answer",
+                    "Waits for your answer",
                 ),
                 figure(
                     today.working,
@@ -434,7 +434,7 @@ fn needs() -> AnyView {
     })
     .within(bare());
     with_cx(move |cx| {
-        column((head, crate::petition::waiting()))
+        column((head, crate::wait::waiting()))
             .gap(cx.theme().space.gap)
             // Out of the page while nothing waits, its gap with it.
             .display(resource::<Queue, _>(|queue| {

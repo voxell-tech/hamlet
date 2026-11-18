@@ -65,8 +65,7 @@ pub use self::remember::Remembered;
 pub use self::roll::Roll;
 pub use self::root::layout;
 pub use self::screens::{
-    chat, hub, links, overview, petition, pictures, settings,
-    terminal,
+    chat, hub, links, overview, pictures, settings, terminal, wait,
 };
 pub use self::status::Bar;
 pub use self::window::window_plugin;

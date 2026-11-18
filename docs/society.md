@@ -35,7 +35,7 @@ spiral out from the city's middle, its door toward the middle
 elsewhere, on a spot clear of the middle and of every house. One a chief or
 the Hand makes moves in at once. One a parent makes is a newcomer, which the
 `newcomers` setting lets in (H45): at once (`open`); after a chief welcomes
-it from a petition (`chief`, the default); or as the Hand judges it in an
+it from a wait (`chief`, the default); or as the Hand judges it in an
 errand (`hand`, `calls/society/welcome.rs`). A newcomer waits at the
 harbor, its agents working all the while. `/welcome` lets a profile at the
 harbor in and `/turn-away` sends one back, undoing the Hand's verdicts.

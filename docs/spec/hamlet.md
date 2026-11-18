@@ -138,7 +138,7 @@ skills/<name>/SKILL.md    one folder per skill, with its files
 `newcomers` setting lets into the city:
 
 - `open`: it moves in at once.
-- `chief` [the default]: it waits at the city's harbor, and a petition asks
+- `chief` [the default]: it waits at the city's harbor, and a wait asks
   a chief to welcome it, or to leave it there for later.
 - `hand`: the Hand judges it in one call with no tools, given the city's
   profiles and the newcomer's character, and lets it in or turns it away

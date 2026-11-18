@@ -50,7 +50,7 @@ use hamlet_ui::{AnyView, Cx, View, kinds, rules, with_cx};
 
 use crate::convo::Convo;
 use crate::hub::Showing;
-use crate::screens::petition::{Need, answers};
+use crate::screens::wait::{Need, answers};
 use crate::standing::Standing;
 use crate::updates::{self, Offer, Ready};
 use crate::{PanelSystems, chat};
@@ -165,7 +165,7 @@ struct Toast {
 #[derive(Clone, PartialEq, Debug)]
 enum What {
     /// A new wait, with the answers it takes.
-    Petition(Entity),
+    Wait(Entity),
     /// Something that happened, which nothing answers.
     Notice {
         kind: StatusKind,
@@ -288,7 +288,7 @@ fn raise(
     }
     let now = time.elapsed_secs();
     for entity in &waits {
-        toasts.push(What::Petition(entity), now);
+        toasts.push(What::Wait(entity), now);
     }
     for (name, shown, kind, departure) in &answered {
         let name = shown.map_or(name.as_str(), |shown| &shown.0);
@@ -307,7 +307,7 @@ fn raise(
     }
     for (agent, name, shown) in &failing {
         let name = shown.map_or(name.as_str(), |shown| &shown.0);
-        // A fault the chief is asked about is a petition already.
+        // A fault the chief is asked about is a wait already.
         let asked = waiting.iter().any(|(wait, by)| {
             by.is_some_and(|by| by.0 == agent)
                 && matches!(wait.detail, WaitDetail::Fault {})
@@ -444,9 +444,7 @@ fn refused(
 /// An answer from a toast or anywhere else takes its toast away.
 fn answered(answer: On<Answer>, mut toasts: ResMut<Toasts>) {
     let wait = answer.wait;
-    toasts
-        .shown
-        .retain(|toast| toast.what != What::Petition(wait));
+    toasts.shown.retain(|toast| toast.what != What::Wait(wait));
 }
 
 /// Opens the stack and keeps its toasts while the pointer is on it,
@@ -483,7 +481,7 @@ fn keep(
         toast.opacity > 0.0
             && match &toast.what {
                 // Its chat, open, shows it in full.
-                What::Petition(wait) => {
+                What::Wait(wait) => {
                     waiting.get(*wait).is_ok_and(|by| {
                         by.is_none_or(|by| Some(by.0) != chatting)
                     })
@@ -644,7 +642,7 @@ fn card(toast: &Toast) -> AnyView {
     let (id, what) = (toast.id, toast.what.clone());
     AnyView::new(move |cx: &mut Cx| {
         let (mark, head, from, kind, line, answers) = match &what {
-            What::Petition(wait) => {
+            What::Wait(wait) => {
                 let Some(waiting) = cx.world.get::<Waiting>(*wait)
                 else {
                     return cx.build(column(()));
@@ -842,7 +840,7 @@ fn behind(toasts: &Toasts, id: u64) -> String {
 }
 
 /// `content`, a part of the words of the toast of `what`: a
-/// petition's opens it where it is answered. Pressing a toast leaves
+/// wait's opens it where it is answered. Pressing a toast leaves
 /// it on show; only its close takes it away.
 fn opening(what: What, content: impl View) -> impl View {
     button(row((content,)))
@@ -850,8 +848,8 @@ fn opening(what: What, content: impl View) -> impl View {
         .min_width(px(0.0))
         .rules(opener)
         .on_activate(move |world| {
-            if let What::Petition(wait) = &what {
-                crate::petition::open(world, *wait);
+            if let What::Wait(wait) = &what {
+                crate::wait::open(world, *wait);
             }
         })
 }
@@ -887,7 +885,7 @@ fn fading(id: u64) -> impl FnOnce(&mut Cx) + Send + Sync + 'static {
     }
 }
 
-/// Takes every toast away. Petitions stay among the waits, and a
+/// Takes every toast away. Waits stay among the waits, and a
 /// closed update is not offered again while the window is open.
 fn dismiss_all(world: &mut World) {
     let update =
@@ -927,7 +925,7 @@ pub(crate) fn unopened(world: &mut World, address: &str) {
 }
 
 /// Takes toast `id` away, and no other, though another says the same.
-/// A petition stays among the waits, and a closed update is not
+/// A wait stays among the waits, and a closed update is not
 /// offered again while the window is open.
 fn dismiss(world: &mut World, id: u64) {
     let version = world
@@ -960,7 +958,7 @@ mod tests {
     use super::*;
     use crate::testing::{panel_app, press, words};
 
-    fn app_with_a_petition() -> App {
+    fn app_with_a_wait() -> App {
         let mut app = panel_app();
         app.add_plugins(plugin);
         // What waits at the first state is not new.
@@ -984,8 +982,8 @@ mod tests {
     }
 
     #[test]
-    fn a_new_petition_toasts_and_is_answered_in_place() {
-        let mut app = app_with_a_petition();
+    fn a_new_wait_toasts_and_is_answered_in_place() {
+        let mut app = app_with_a_wait();
         assert_eq!(app.world().resource::<Toasts>().shown.len(), 1);
         let shown = words(&mut app);
         assert!(shown.iter().any(|text| text == "ada"), "{shown:?}");
@@ -1046,7 +1044,7 @@ mod tests {
 
     #[test]
     fn a_toast_stays_under_the_pointer_and_fades_otherwise() {
-        let mut app = app_with_a_petition();
+        let mut app = app_with_a_wait();
         let step = Duration::from_secs_f32(STAYS + 2.0);
         app.insert_resource(TimeUpdateStrategy::ManualDuration(step));
         app.world_mut()

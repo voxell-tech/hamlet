@@ -1,7 +1,7 @@
 //! The questions an agent asks the chief, drawn as one card: a
 //! question at a time with its options as a list and a line for words
 //! of the chief's own, and the answers sent once each question has
-//! one. The card is in the petition; the chat points to it.
+//! one. The card is in the wait; the chat points to it.
 
 use std::collections::HashMap;
 
@@ -482,7 +482,7 @@ pub fn card(card: Entity, asked: Questions) -> impl View {
 }
 
 /// A line over the field pointing to the question the agent of the
-/// open chat waits on, which is answered in its petition.
+/// open chat waits on, which is answered in its wait.
 pub fn in_chat() -> impl View {
     keyed(resource::<OpenQuestion, _>(|o| o.0.clone()), |open| {
         let Some((entity, asked)) = open.clone() else {
@@ -512,7 +512,7 @@ pub fn in_chat() -> impl View {
                 .grow(1.0)
                 .min_width(px(0.0)),
                 action(Glyph::Talk, "Answer", move |world| {
-                    crate::petition::open(world, entity);
+                    crate::wait::open(world, entity);
                 }),
             ))
             .gap(space.gap)
@@ -537,10 +537,10 @@ mod tests {
     use crate::testing::{panel_app, press, words};
 
     #[test]
-    fn the_chat_points_to_its_oldest_question_which_its_petition_answers()
-     {
+    fn the_chat_points_to_its_oldest_question_which_its_wait_answers()
+    {
         let mut app = panel_app();
-        app.add_plugins(crate::petition::plugin);
+        app.add_plugins(crate::wait::plugin);
         let session = app.world().resource::<Convo>().session;
         let chat =
             app.world().get::<Chat>(session).unwrap().0.clone();
@@ -593,11 +593,11 @@ mod tests {
             app.world_mut(),
             protocol::ServerMessage::State(state),
         );
-        // Its own Answer only opens the petition.
+        // Its own Answer only opens the wait.
         app.world_mut().despawn(line);
         bevy_fynix::mount::<HamletTheme>(
             app.world_mut(),
-            crate::petition::waiting(),
+            crate::wait::waiting(),
         );
         app.update();
         press(&mut app, "Answer");

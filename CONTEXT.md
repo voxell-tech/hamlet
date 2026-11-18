@@ -230,13 +230,9 @@ _Avoid_: job, ticket
 **Wait**:
 A question or act held until a chief answers: a question, an objection, a
 tool call that needs a grant, a newcomer to welcome. Waits survive a
-restart.
-_Avoid_: pending item, approval request
-
-**Petition**:
-A wait as the window shows it to a chief: in full, with the answers it
-takes, in the thread of the agent that asks and on a toast.
-_Avoid_: ticket, request
+restart. The window shows one in full, with the answers it takes, in the
+thread of the agent that asks and on a toast.
+_Avoid_: petition, pending item, approval request
 
 **Grant**:
 A chief's allowing of an act that waits: once, for the session (trust), or
@@ -316,7 +312,7 @@ _Avoid_: inspector, sidebar
 
 **Toast**:
 A card in a corner of the window that tells of something new, and
-answers a petition in place.
+answers a wait in place.
 _Avoid_: notification, popup
 
 **Town**:
