@@ -20,7 +20,7 @@ use std::process::{ExitStatus, Stdio};
 
 use tokio::process::{Child, ChildStderr, ChildStdout};
 use windows_sys::Win32::Foundation::{
-    DUPLICATE_SAME_ACCESS, DuplicateHandle,
+    DUPLICATE_SAME_ACCESS, DuplicateHandle, WAIT_OBJECT_0,
 };
 use windows_sys::Win32::System::Diagnostics::ToolHelp::{
     CreateToolhelp32Snapshot, TH32CS_SNAPTHREAD, THREADENTRY32,
@@ -457,6 +457,17 @@ pub(crate) fn take_ends(preamble: &Preamble) -> io::Result<Ends> {
         input: input.into(),
         output: output.into(),
     })
+}
+
+/// A process this one may not open reads as ended.
+pub(crate) fn has_ended(pid: u32) -> io::Result<bool> {
+    let Some(process) = waitable(pid) else {
+        return Ok(true);
+    };
+    // SAFETY: the call only reads the handle.
+    let waited =
+        unsafe { WaitForSingleObject(process.as_raw_handle(), 0) };
+    Ok(waited == WAIT_OBJECT_0)
 }
 
 pub(crate) fn end_now() -> ! {

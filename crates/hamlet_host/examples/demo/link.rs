@@ -68,12 +68,12 @@ const MAIN: &str = concat!(
     "/../../hosts/node/src/main.ts"
 );
 
-const READY_WAIT: Duration = Duration::from_secs(20);
+pub const READY_WAIT: Duration = Duration::from_secs(20);
 
 const HEARD_POLL: Duration = Duration::from_millis(25);
 
-/// The Node host of a demo.
-pub struct Link {
+/// The Node child of a demo's host.
+pub struct NodeHost {
     supervisor: Supervisor,
 }
 
@@ -84,10 +84,32 @@ pub fn open(
     home: &Path,
     factories: HashMap<String, ActorFactory>,
     options: HostOptions,
-) -> Result<(Host, Link)> {
+) -> Result<(Host, NodeHost)> {
+    let args = NODE_KINDS
+        .iter()
+        .flat_map(|kind| ["--kind".to_owned(), (*kind).to_owned()])
+        .collect();
+    let options = HostOptions {
+        routes: routes(),
+        ..options
+    };
+    start(home, factories, options, MAIN, args, NODE_KINDS)
+}
+
+/// Opens the folder `home` as [`Host::open_with`] does, with `kinds`
+/// in a Node child that runs the script `entry` with `args`. The
+/// program is `HAMLET_NODE`, or `node`.
+pub fn start(
+    home: &Path,
+    factories: HashMap<String, ActorFactory>,
+    options: HostOptions,
+    entry: &str,
+    args: Vec<String>,
+    kinds: &[&str],
+) -> Result<(Host, NodeHost)> {
     ensure!(
-        Path::new(MAIN).is_file(),
-        "no Node host entry at {MAIN}"
+        Path::new(entry).is_file(),
+        "no Node host entry at {entry}"
     );
     let node = std::env::var("HAMLET_NODE")
         .unwrap_or_else(|_| "node".to_owned());
@@ -95,25 +117,16 @@ pub fn open(
     let mut argv = vec![
         node,
         "--disable-warning=ExperimentalWarning".to_owned(),
-        MAIN.to_owned(),
+        entry.to_owned(),
     ];
-    for kind in NODE_KINDS {
-        argv.extend(["--kind".to_owned(), (*kind).to_owned()]);
-    }
+    argv.extend(args);
     let child = ChildOptions {
         argv,
-        kinds: NODE_KINDS
-            .iter()
-            .map(|kind| (*kind).to_owned())
-            .collect(),
-    };
-    let options = HostOptions {
-        routes: routes(),
-        ..options
+        kinds: kinds.iter().map(|kind| (*kind).to_owned()).collect(),
     };
     let (host, supervisor) =
         child::open(home, factories, options, child)?;
-    Ok((host, Link { supervisor }))
+    Ok((host, NodeHost { supervisor }))
 }
 
 fn routes() -> Routes {
@@ -133,7 +146,7 @@ fn routes() -> Routes {
     ])
 }
 
-impl Link {
+impl NodeHost {
     /// Waits until the Node host is ready, at most [`READY_WAIT`].
     pub async fn ready(&self) -> Result<()> {
         let mut state = self.supervisor.state();
@@ -162,12 +175,16 @@ pub async fn run(
     command: &str,
     words: &[String],
 ) -> Result<()> {
-    let link = demo.link.as_ref().with_context(|| {
-        format!(
-            "`{command}` needs a Node host: start the demo with \
-             --link"
-        )
-    })?;
+    let link = demo
+        .node
+        .as_ref()
+        .filter(|_| !demo.realm_actor)
+        .with_context(|| {
+            format!(
+                "`{command}` needs the Node host of demo.ts: start \
+                 the demo with --link and not --realm-actor"
+            )
+        })?;
     match (command, words) {
         ("link", []) => {
             link.ready().await?;

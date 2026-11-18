@@ -1,87 +1,62 @@
 //! The real agent, `agent/<n>` of hosts/node/src/agent/actor.ts, in a
-//! Node child running hosts/node/src/agent/demo-host.ts, against the
-//! stand-in realm of demo/stand_in_realm.rs and the real workspace.
-//! A demo started with `--link` runs it in place of demo/link.rs's
-//! Node host when `HAMLET_DEMO_AGENT` is `pi`.
+//! Node child running hosts/node/src/agent/demo-host.ts, for a demo
+//! started with `--realm-actor`, and the `pi` commands that reach it.
 //!
 //! ```text
-//! demo --link pi make <n>     make agent <n>, and set its reach so
-//!                             its commands run in its filesystem
-//! demo --link pi say <n> [--id <id>] <words>...
-//!                             give agent <n> a chief's line, under
-//!                             the input id <id>, a new one by
-//!                             default; a word `own:<path>` is
-//!                             <path> in agent <n>'s filesystem
-//! demo --link pi place <n> <version> [lead=<a>] [hires=<a>,...]
-//!     [roads=<a>,...] [off=<tool>,...]
-//!                             send agent <n> its place
-//! demo --link pi fill <n> <profile-id> <branch>
-//!                             fill agent <n>'s filesystem
-//! demo --link pi refuse on|off
-//!                             refuse every model request, or stop
-//! demo --link pi die-in-tell  have the next new `tell` kill the Node
-//!                             host once the realm has kept it
-//! demo --link pi recorded     list what the realm keeps
-//! demo --link pi charges <n> <at-least> <within-ms>
-//!                             wait until the realm has kept
-//!                             <at-least> charges of agent <n>, and
-//!                             no agent has called it for a second
-//! demo --link pi conversation <n>
-//!                             print agent <n>'s conversations
-//! demo --link pi pid          print the Node host's process id
-//! demo --link pi copies <n> <json>
-//!                             keep the copies <json> for agent <n>
-//!                             and push them to it, as the realm
-//! demo --link pi file <n> <path> <from>
+//! demo --realm-actor pi die-after <action>
+//!                             have the Node host kill itself once
+//!                             the realm answers an agent's next call
+//!                             of <action>, before the agent reads
+//!                             the answer
+//! demo --realm-actor pi conversation <n>
+//!                             print agent <n>'s entries
+//! demo --realm-actor pi pid   print the Node host's process id
+//! demo --realm-actor pi file <n> <path> <from>
 //!                             copy the file <from> to <path> in
 //!                             agent <n>'s filesystem
-//! demo --link pi new <n>      begin a new session, as a client
-//! demo --link pi resume <n> <session>
+//! demo --realm-actor pi new <n>
+//!                             begin a new session, as a client
+//! demo --realm-actor pi resume <n> <session>
 //!                             go back to session <session>
-//! demo --link pi retry <n>    carry on the last turn
-//! demo --link pi stop <n>     stop agent <n>'s turns
-//! demo --link pi rewind <n> <item>
+//! demo --realm-actor pi retry <n>
+//!                             carry on the last turn
+//! demo --realm-actor pi stop <n>
+//!                             stop agent <n>'s turns
+//! demo --realm-actor pi rewind <n> <item>
 //!                             take the current session back to
 //!                             before the chief's line <item>
-//! demo --link pi chat <n> [past=<session>] [from=<a>]
+//! demo --realm-actor pi chat <n> [past=<session>] [from=<a>]
 //!     [kind=letters|questions] [before=<item>]
 //!                             read a page of a chat of agent <n>
-//! demo --link pi history <n>  list agent <n>'s sessions
-//! demo --link pi prompt <n>   read agent <n>'s prompt
-//! demo --link pi reflect <n>  ask agent <n> to reflect now
-//! demo --link pi login start <provider> key|subscription
-//! demo --link pi login reply <login> <value>
-//! demo --link pi login cancel <login>
+//! demo --realm-actor pi history <n>
+//!                             list agent <n>'s sessions
+//! demo --realm-actor pi prompt <n>
+//!                             read agent <n>'s prompt
+//! demo --realm-actor pi reflect <n>
+//!                             ask agent <n> to reflect now
+//! demo --realm-actor pi login start <provider> key|subscription
+//! demo --realm-actor pi login reply <login> <value>
+//! demo --realm-actor pi login cancel <login>
 //!                             a step of a sign-in, on agent 1
-//! demo --link pi follow <n>   follow agent <n>'s chat as a client
-//! demo --link pi answered <verb> <n> [<words>...]
+//! demo --realm-actor pi follow <n>
+//!                             follow agent <n>'s chat as a client
+//! demo --realm-actor pi answered <verb> <n> [<words>...]
 //!                             call agent <n> as `pi <verb>` does,
 //!                             for a reader of counts
 //! ```
 //!
-//! `make` prints `agent/<n> 1` when it made the agent and `agent/<n>
-//! 0` when there was one. `say`, `place` and `fill` print
-//! `said/<n> 1`, `placed/<n> <version>` and `filled/<n> 1` once the
-//! agent took the message: a line's turn goes on after. `refuse`
-//! prints `refuse/spending 1` or `0`, and `die-in-tell` prints
-//! `die/tell 1`. `recorded` prints `calls/<action> <n>` for each
-//! action of the realm the agents called, repeats included,
-//! `acts/<action> <n>` for the society acts it keeps,
-//! `charges/<agent> <n>` for the charges it keeps of each agent, and
-//! `recorded/replies <n>` and `recorded/waits <n>`. `charges` prints
-//! `charges/<n> <count>`, also when <within-ms> passed first: the
-//! agent ends a turn soon after the charge of its last model request,
-//! and calls no one about it. It never calls the agent.
-//! `conversation` prints one line per entry, read from the agent's
-//! file, which the agent holds while it runs: run it once the agent
-//! is not running, as in a demo of its own. `pid` prints `node/pid
-//! <pid>`. `copies` prints `copies/<n> 1` once the agent took them,
+//! `die-after` prints `die/<action> 1`. `conversation` prints one
+//! line per entry, `<conversation>/<entry> <role>: <words>`, read
+//! through the agent while it runs. `pid` prints `node/pid <pid>`,
 //! and `file` `file/<n> <bytes>`.
 //!
-//! `new` to `login` call the agent as a client does, each under a new
-//! request id, and print `<verb>/<n> <answer>`, the answer as JSON on
-//! one line, or `<verb>/<n> {"error":{"group":..,"code":..,
-//! "message":..,"metadata":..}}` when the agent failed the call.
+//! `new` to `login` call the agent as a client does and print
+//! `<verb>/<n> <answer>`, the answer as JSON on one line, or
+//! `<verb>/<n> {"error":{"group":..,"code":..,"message":..,
+//! "metadata":..}}` when the agent failed the call. Each goes under a
+//! new request id, or with `--id <word>` before its other words under
+//! the request id the word stands for, as `demo realm say` makes it,
+//! so that two calls with one word are one request and its repeat.
 //! `answered` prints `<verb>/<n> 1` in place of an answer and
 //! `<verb>/<n> 0` in place of a refusal or a failure, as the kill kit
 //! reads a line. `follow` is `demo watch <n> chat`: it prints
@@ -90,20 +65,18 @@
 //!
 //! With `HAMLET_DEMO_FAUX` naming a faux script, the Node host's
 //! model answers from it, as hosts/node/src/agent/demo-host.ts says.
-//! The Node host is started with only `HAMLET_HOME` and `PATH`, so
-//! the demo hands it the script's path. With `HAMLET_DEMO_SIGN_IN`
+//! The demo hands it the script's path. With `HAMLET_DEMO_SIGN_IN`
 //! set to `1`, it also lists two providers to sign in to, on
 //! loopback, as demo-host.ts says.
-//!
-//! `pi` commands need this mode: in any other they fail at once.
 
+use std::collections::HashMap;
 use std::path::{Path, PathBuf};
-use std::time::{Duration, SystemTime, UNIX_EPOCH};
+use std::time::Duration;
 
-use anyhow::{Context, Result, anyhow, bail, ensure};
+use anyhow::{Context, Result, bail, ensure};
+use hamlet_actor::Action;
 use hamlet_actor::action::encode_positional;
-use hamlet_actors::workspace;
-use hamlet_host::child::{self, ChildOptions, LinkState, Supervisor};
+use hamlet_actor_core::ActorFactory;
 use hamlet_host::route::{CallerKind, Routes};
 use hamlet_host::{Host, HostOptions};
 use hamlet_messages::Message;
@@ -112,37 +85,19 @@ use hamlet_messages::agent::chat::{
     Login, NewSession, ReadChat, ReadHistory, ReadPrompt, Reflect,
     Resume, Retry, Rewind, Stop,
 };
-use hamlet_messages::agent::copies::Copies;
-use hamlet_messages::agent::{
-    AgentInput, AgentKind, Fill, Input, InputId, Place, PlaceVersion,
-    Submit,
-};
-use hamlet_messages::realm::{ProfileId, ToolName};
 use hamlet_messages::sender::Client;
-use hamlet_messages::workspace::reach::{
-    Footing, Reach, SecretsVersion,
-};
-use hamlet_messages::workspace::{
-    AgentNumber, ReachVersion, RealmTask, SetReach,
-};
+use hamlet_messages::workspace::{AgentNumber, RealmTask};
 use hamlet_protocol::client::{
     self as protocol, AgentId, ChatRef, ChatRefKind, LoginMethod,
     LoginReply, LoginStart, RequestId,
 };
-use rusqlite::{Connection, OpenFlags};
-use serde::Serialize;
 use serde::de::DeserializeOwned;
+use serde::{Deserialize, Serialize};
 use tokio::time::Instant;
 
 use crate::Demo;
-use crate::command::{actor_error, number};
-use crate::link::{agent, non_link_failure};
-use crate::realm::ask;
-use crate::stand_in_realm::{
-    self, Grant, PushCopies, Recorded, Records, Send, Set, Switch,
-};
-
-const CHOOSE: (&str, &str) = ("HAMLET_DEMO_AGENT", "pi");
+use crate::link::{self, NodeHost, non_link_failure};
+use crate::realm_actor::request_id;
 
 const FAUX: &str = "HAMLET_DEMO_FAUX";
 
@@ -157,52 +112,26 @@ const ENTRY: &str = concat!(
 /// The same file as `PID_FILE` of hosts/node/src/agent/demo-host.ts.
 const PID_FILE: &str = "demo-node.pid";
 
-const READY_WAIT: Duration = Duration::from_secs(20);
-
 const POLL: Duration = Duration::from_millis(25);
-
-/// How long the realm's records stay unchanged before `charges`
-/// reads them as settled.
-const QUIET: Duration = Duration::from_secs(1);
 
 /// Longer than `login.ts`'s 25 s `STEP_WAIT_MS`, which a sign-in's
 /// step waits for its provider.
 const ASK_WITHIN: Duration = Duration::from_secs(60);
 
+/// Longer than `FORWARD_MS` of demo-host.ts, the deadline of the call
+/// a `forward` makes.
+const AT_AGENT_WITHIN: Duration = Duration::from_secs(30);
+
 const HAND: AgentNumber = AgentNumber(1);
 
-pub fn chosen() -> Result<bool> {
-    let (name, value) = CHOOSE;
-    match std::env::var(name) {
-        Ok(set) if set == value => Ok(true),
-        Ok(set) => bail!(
-            "{name} is `{set}`; the one agent it names is `{value}`"
-        ),
-        Err(_) => Ok(false),
-    }
-}
-
-pub struct PiHost {
-    supervisor: Supervisor,
-    home: PathBuf,
-}
-
+/// Opens `home` as [`Host::open_with`] does, with `factories`, the
+/// agent in a Node child, and a route table of what each kind calls.
 pub fn open(
     home: &Path,
+    factories: HashMap<String, ActorFactory>,
     options: HostOptions,
-) -> Result<(Host, PiHost)> {
-    ensure!(
-        Path::new(ENTRY).is_file(),
-        "no Node host entry at {ENTRY}"
-    );
-    let node = std::env::var("HAMLET_NODE")
-        .unwrap_or_else(|_| "node".to_owned());
-    // Node before 24.3 warns at each start that it strips types.
-    let mut argv = vec![
-        node,
-        "--disable-warning=ExperimentalWarning".to_owned(),
-        ENTRY.to_owned(),
-    ];
+) -> Result<(Host, NodeHost)> {
+    let mut args = Vec::new();
     if let Some(script) = std::env::var_os(FAUX) {
         let script =
             std::fs::canonicalize(&script).with_context(|| {
@@ -214,142 +143,80 @@ pub fn open(
         let script = script
             .to_str()
             .with_context(|| format!("{FAUX}'s path is not UTF-8"))?;
-        argv.extend(["--faux".to_owned(), script.to_owned()]);
+        args.extend(["--faux".to_owned(), script.to_owned()]);
     }
     let (name, value) = SIGN_IN;
     if std::env::var(name).is_ok_and(|set| set == value) {
-        argv.push("--sign-in".to_owned());
+        args.push("--sign-in".to_owned());
     }
-    let child = ChildOptions {
-        argv,
-        kinds: vec![address::Agent::KIND.to_owned()],
-    };
-    let factories = [
-        (address::Realm::KIND.to_owned(), stand_in_realm::factory()),
-        (address::Workspace::KIND.to_owned(), workspace::factory()),
-    ]
-    .into();
     let options = HostOptions {
         routes: routes(),
         ..options
     };
-    let (host, supervisor) =
-        child::open(home, factories, options, child)?;
-    Ok((
-        host,
-        PiHost {
-            supervisor,
-            home: home.to_owned(),
-        },
-    ))
+    link::start(
+        home,
+        factories,
+        options,
+        ENTRY,
+        args,
+        &[address::Agent::KIND],
+    )
 }
 
 fn routes() -> Routes {
     let kind = |party: &str| CallerKind::Actor(party.to_owned());
+    let peers = [address::Realm::KIND, address::Agent::KIND];
     Routes::only(&[
-        (
-            CallerKind::Client,
-            &[address::Realm::KIND, address::Agent::KIND],
-        ),
+        (CallerKind::Client, &peers),
         (
             kind(address::Realm::KIND),
-            &[address::Agent::KIND, address::Workspace::KIND],
+            &[
+                address::Agent::KIND,
+                address::Workspace::KIND,
+                address::Profile::KIND,
+                address::Library::KIND,
+            ],
         ),
         (
             kind(address::Agent::KIND),
-            &[address::Realm::KIND, address::Workspace::KIND],
+            &[
+                address::Realm::KIND,
+                address::Workspace::KIND,
+                address::Profile::KIND,
+                address::Library::KIND,
+            ],
         ),
-        (
-            kind(address::Workspace::KIND),
-            &[address::Realm::KIND, address::Agent::KIND],
-        ),
+        (kind(address::Workspace::KIND), &peers),
+        (kind(address::Profile::KIND), &peers),
+        (kind(address::Library::KIND), &peers),
     ])
 }
 
-impl PiHost {
-    pub async fn ready(&self) -> Result<()> {
-        let mut state = self.supervisor.state();
-        tokio::time::timeout(
-            READY_WAIT,
-            state.wait_for(|now| *now == LinkState::Ready),
-        )
-        .await
-        .map_err(|_| {
-            anyhow!(
-                "the Node host was not ready within {} s: it and \
-                 its supervisor say why above",
-                READY_WAIT.as_secs()
-            )
-        })??;
-        Ok(())
-    }
-
-    pub async fn shutdown(self) {
-        self.supervisor.shutdown().await;
-    }
-}
-
 pub async fn run(demo: &Demo, words: &[String]) -> Result<()> {
-    let (name, value) = CHOOSE;
-    let pi = demo.pi.as_ref().with_context(|| {
-        format!(
-            "`pi` needs the real agent: start the demo with --link \
-             and {name}={value}"
-        )
-    })?;
+    let node =
+        demo.node.as_ref().filter(|_| demo.realm_actor).context(
+            "`pi` needs the real agent: start the demo with \
+             --realm-actor",
+        )?;
     let host = &demo.host;
     let words: Vec<&str> = words.iter().map(String::as_str).collect();
     match words.as_slice() {
-        ["make", n] => make(host, number_of(n)?).await,
-        ["say", n, rest @ ..] => {
-            say(pi, host, number_of(n)?, rest).await
+        ["die-after", action] => {
+            at_agent(host, HAND, &DieAfter((*action).to_owned()))
+                .await?;
+            print(&format!("die/{action} 1"))
         }
-        ["place", n, version, rest @ ..] => {
-            place(host, number_of(n)?, version, rest).await
+        ["conversation", n] => {
+            conversation(host, number_of(n)?).await
         }
-        ["fill", n, profile, branch] => {
-            let n = number_of(n)?;
-            let profile = profile.parse().with_context(|| {
-                format!("the profile id {profile} is no number")
-            })?;
-            let fill = Fill {
-                profile: ProfileId(profile),
-                branch: (*branch).to_owned(),
-            };
-            send(host, n, &fill).await?;
-            print(&format!("filled/{} 1", n.0))
-        }
-        ["refuse", on @ ("on" | "off")] => {
-            let on = *on == "on";
-            set(host, Switch::RefuseSpending, on).await?;
-            print(&format!("refuse/spending {}", u8::from(on)))
-        }
-        ["die-in-tell"] => {
-            set(host, Switch::DieInTell, true).await?;
-            print("die/tell 1")
-        }
-        ["recorded"] => recorded(host).await,
-        ["charges", n, at_least, within] => {
-            charges(host, number_of(n)?, at_least, within).await
-        }
-        ["conversation", n] => conversation(pi, number_of(n)?),
         ["pid"] => {
-            pi.ready().await?;
-            let pid = live_pid(&pi.home, READY_WAIT).await?;
+            node.ready().await?;
+            let pid = live_pid(&demo.home, link::READY_WAIT).await?;
             print(&format!("node/pid {pid}"))
-        }
-        ["copies", n, json @ ..] => {
-            let n = number_of(n)?;
-            let copies: Copies = serde_json::from_str(
-                &json.join(" "),
-            )
-            .context("the copies are not JSON of their message")?;
-            ask(host, &PushCopies { to: n, copies }).await?;
-            print(&format!("copies/{} 1", n.0))
         }
         ["file", n, path, from] => {
             let n = number_of(n)?;
-            let to = own_folder(&pi.home, n)?.join(path);
+            let to = own_folder(&demo.home, n)?.join(path);
             if let Some(folder) = to.parent() {
                 std::fs::create_dir_all(folder)?;
             }
@@ -388,18 +255,30 @@ pub async fn run(demo: &Demo, words: &[String]) -> Result<()> {
 }
 
 const USAGE: &str =
-    "demo --link pi make <n> | say <n> [--id <id>] <words>... | \
-     place <n> <version> [lead=<a>] [hires=<a>,...] [roads=<a>,...] \
-     [off=<tool>,...] | fill <n> <profile-id> <branch> | refuse \
-     on|off | die-in-tell | recorded | charges <n> <at-least> \
-     <within-ms> | conversation <n> | pid | copies <n> <json> | \
-     file <n> <path> <from> | new <n> | resume <n> <session> | \
-     retry <n> | stop <n> | rewind <n> <item> | chat <n> \
+    "demo --realm-actor pi die-after <action> | conversation <n> | \
+     pid | file <n> <path> <from> | new <n> | resume <n> <session> \
+     | retry <n> | stop <n> | rewind <n> <item> | chat <n> \
      [past=<session>] [from=<a>] [kind=letters|questions] \
      [before=<item>] | history <n> | prompt <n> | reflect <n> | \
      login start <provider> key|subscription | login reply <login> \
      <value> | login cancel <login> | follow <n> | answered <verb> \
-     <n> [<words>...]";
+     <n> [<words>...]; a client verb takes --id <word> before its \
+     other words";
+
+/// The request id `--id <word>` names at the head of `words`, or a
+/// new one, and the words after it.
+fn id_of<'a, 'b>(
+    words: &'a [&'b str],
+) -> Result<(RequestId, &'a [&'b str])> {
+    match words {
+        ["--id", word, rest @ ..] => Ok((
+            RequestId::try_from(request_id(word))
+                .context("a request id made from a word is a UUID")?,
+            rest,
+        )),
+        rest => Ok((RequestId::new(), rest)),
+    }
+}
 
 async fn client(
     host: &Host,
@@ -407,20 +286,16 @@ async fn client(
     n: AgentNumber,
     words: &[&str],
 ) -> Result<serde_json::Value> {
-    let id = RequestId::new;
     let to = AgentId(u64::from(n.0));
+    let (id, words) = id_of(words)?;
     match (verb, words) {
         ("new", []) => {
-            asked(
-                host,
-                n,
-                &NewSession(protocol::New { id: id(), to }),
-            )
-            .await
+            asked(host, n, &NewSession(protocol::New { id, to }))
+                .await
         }
         ("resume", [number]) => {
             let resume = protocol::Resume {
-                id: id(),
+                id,
                 number: number.parse().with_context(|| {
                     format!("`{number}` is no session's number")
                 })?,
@@ -429,31 +304,26 @@ async fn client(
             asked(host, n, &Resume(resume)).await
         }
         ("retry", []) => {
-            asked(host, n, &Retry(protocol::Retry { id: id(), to }))
-                .await
+            asked(host, n, &Retry(protocol::Retry { id, to })).await
         }
         ("stop", []) => {
             let stop = protocol::Stop {
                 agent: Some(to),
-                id: id(),
+                id,
             };
             asked(host, n, &Stop(stop)).await
         }
         ("rewind", [item]) => {
             let rewind = protocol::Rewind {
                 chat: chat_of(to, &[])?.0,
-                id: id(),
+                id,
                 item: (*item).to_owned(),
             };
             asked(host, n, &Rewind(rewind)).await
         }
         ("chat", words) => {
             let (chat, before) = chat_of(to, words)?;
-            let open = protocol::Open {
-                before,
-                chat,
-                id: id(),
-            };
+            let open = protocol::Open { before, chat, id };
             asked(host, n, &ReadChat(open)).await
         }
         ("history", []) => asked(host, n, &ReadHistory).await,
@@ -503,7 +373,7 @@ async fn login(
     host: &Host,
     words: &[&str],
 ) -> Result<serde_json::Value> {
-    let id = RequestId::new();
+    let (id, words) = id_of(words)?;
     let login = match words {
         ["start", provider, method] => protocol::Login::Start {
             id,
@@ -585,247 +455,135 @@ fn number_of(word: &str) -> Result<AgentNumber> {
     })?))
 }
 
-async fn make(host: &Host, n: AgentNumber) -> Result<()> {
-    let input = AgentInput {
-        kind: if n.0 == 1 {
-            AgentKind::Hand
-        } else {
-            AgentKind::Hire
-        },
-        task: RealmTask(format!("standing-{}", n.0)),
-        place: Place {
-            version: PlaceVersion(1),
-            lead: None,
-            hires: Vec::new(),
-            roads: Vec::new(),
-            tools_off: Vec::new(),
-            folder: None,
-        },
-        brief: None,
-        copies: Default::default(),
-    };
-    // The agent asks the workspace for its tools when it wakes.
-    host.get_or_start(&address::Workspace.address()?).await?;
-    let mut bytes = Vec::new();
-    ciborium::into_writer(&input, &mut bytes)?;
-    let made =
-        match host.create(&agent(&n.0.to_string())?, bytes).await {
-            Ok(()) => 1,
-            Err(error)
-                if actor_error(&error).is_some_and(|found| {
-                    found.group() == "actor"
-                        && found.code() == "duplicate_key"
-                }) =>
-            {
-                0
-            }
-            Err(error) => return Err(error),
-        };
-    ask(
-        host,
-        &Grant(SetReach {
-            agent: n,
-            version: ReachVersion(1),
-            reach: Reach::Agent(Footing {
-                project: None,
-                network: false,
-                trust: Vec::new(),
-                secrets: SecretsVersion(1),
-            }),
-        }),
-    )
-    .await?;
-    print(&format!("agent/{} {made}", n.0))
-}
-
-async fn say(
-    pi: &PiHost,
-    host: &Host,
-    n: AgentNumber,
-    words: &[&str],
-) -> Result<()> {
-    let (id, words) = match words {
-        ["--id", id, rest @ ..] => ((*id).to_owned(), rest),
-        rest => {
-            let now = SystemTime::now().duration_since(UNIX_EPOCH)?;
-            (format!("line-{}", now.as_nanos()), rest)
-        }
-    };
-    ensure!(!words.is_empty(), "say what?");
-    let own = own_folder(&pi.home, n)?;
-    let text = words
-        .iter()
-        .map(|word| match word.strip_prefix("own:") {
-            Some(path) => format!("{}/{path}", own.display()),
-            None => (*word).to_owned(),
-        })
-        .collect::<Vec<_>>()
-        .join(" ");
-    let submit = Submit {
-        task: Some(RealmTask(id.clone())),
-        id: InputId(id),
-        input: Input::Line {
-            text,
-            images: Vec::new(),
-            files: Vec::new(),
-            note: None,
-        },
-    };
-    send(host, n, &submit).await?;
-    print(&format!("said/{} 1", n.0))
-}
-
-async fn place(
-    host: &Host,
-    n: AgentNumber,
-    version: &str,
-    words: &[&str],
-) -> Result<()> {
-    let numbers = |list: &str| -> Result<Vec<AgentNumber>> {
-        list.split(',').map(number_of).collect()
-    };
-    let mut place = Place {
-        version: PlaceVersion(version.parse()?),
-        lead: None,
-        hires: Vec::new(),
-        roads: Vec::new(),
-        tools_off: Vec::new(),
-        folder: None,
-    };
-    for word in words {
-        match word.split_once('=') {
-            Some(("lead", lead)) => {
-                place.lead = Some(number_of(lead)?);
-            }
-            Some(("hires", list)) => place.hires = numbers(list)?,
-            Some(("roads", list)) => place.roads = numbers(list)?,
-            Some(("off", list)) => {
-                place.tools_off = list
-                    .split(',')
-                    .map(|name| ToolName {
-                        name: name.to_owned(),
-                    })
-                    .collect();
-            }
-            _ => bail!("`{word}` is not a part of a place"),
-        }
-    }
-    send(host, n, &place).await?;
-    print(&format!("placed/{} {}", n.0, place.version.0))
-}
-
-async fn send<M>(
-    host: &Host,
-    n: AgentNumber,
-    message: &M,
-) -> Result<()>
-where
-    M: Message<To = address::Agent, From = address::Realm>,
-{
-    ask(
-        host,
-        &Send {
-            to: n,
-            name: M::NAME.to_owned(),
-            args: encode_positional(message)?,
-        },
-    )
-    .await
-}
-
-async fn set(host: &Host, switch: Switch, on: bool) -> Result<()> {
-    ask(host, &Set { switch, on }).await
-}
-
-async fn recorded(host: &Host) -> Result<()> {
-    let records = ask(host, &Recorded).await?;
-    for (action, n) in &records.calls {
-        print(&format!("calls/{action} {n}"))?;
-    }
-    for (action, n) in &records.acts {
-        print(&format!("acts/{action} {n}"))?;
-    }
-    for (agent, n) in &records.charges {
-        print(&format!("charges/{agent} {n}"))?;
-    }
-    print(&format!("recorded/replies {}", records.replies))?;
-    print(&format!("recorded/waits {}", records.waits))
-}
-
 /// The folder of agent `n`'s filesystem, as the Node host names it.
-fn own_folder(home: &Path, n: AgentNumber) -> Result<PathBuf> {
+pub fn own_folder(home: &Path, n: AgentNumber) -> Result<PathBuf> {
     Ok(std::fs::canonicalize(home)?
         .join("actors")
         .join("agent")
         .join(format!("{}.fs", n.0)))
 }
 
-async fn charges(
+/// Has agent `me` send `message` to `to` as itself, and answers the
+/// answer.
+pub async fn forward<M: Message>(
     host: &Host,
-    n: AgentNumber,
-    at_least: &str,
-    within: &str,
-) -> Result<()> {
-    let at_least = number(Some(&at_least.to_owned()))?;
-    let until = Instant::now()
-        + Duration::from_millis(number(Some(&within.to_owned()))?);
-    let of = |records: &Records| {
-        records.charges.get(&n.0.to_string()).copied().unwrap_or(0)
-    };
-    let mut seen = ask(host, &Recorded).await?;
-    let mut since = Instant::now();
-    loop {
-        let now = Instant::now();
-        if now >= until
-            || (of(&seen) >= at_least && now - since >= QUIET)
-        {
-            return print(&format!("charges/{} {}", n.0, of(&seen)));
-        }
-        tokio::time::sleep(POLL).await;
-        let records = ask(host, &Recorded).await?;
-        if records != seen {
-            seen = records;
-            since = Instant::now();
-        }
-    }
+    me: AgentNumber,
+    to: &M::To,
+    message: &M,
+) -> Result<M::Output> {
+    let to = to.address()?;
+    let args = ciborium::from_reader(
+        encode_positional(message)?.as_slice(),
+    )?;
+    let forward = Forward(
+        Target {
+            kind: to.kind().to_owned(),
+            key: to.key().to_owned(),
+        },
+        M::NAME.to_owned(),
+        args,
+    );
+    let answer = at_agent(host, me, &forward).await?;
+    Ok(serde_json::from_value(answer)?)
 }
 
-fn conversation(pi: &PiHost, n: AgentNumber) -> Result<()> {
-    let path = pi
-        .home
-        .join("actors")
-        .join("agent")
-        .join(format!("{}.sqlite", n.0));
-    let file = Connection::open_with_flags(
-        &path,
-        OpenFlags::SQLITE_OPEN_READ_ONLY,
-    )
-    .with_context(|| format!("open {}", path.display()))?;
-    let mut entries = file
-        .prepare(
-            "SELECT conversation_id, id, record FROM pi_entries \
-             ORDER BY id",
+/// The inputs agent `me` took into its transcript, oldest first.
+pub async fn taken(host: &Host, me: AgentNumber) -> Result<Holding> {
+    at_agent(host, me, &Taken).await
+}
+
+/// Calls agent `me`'s demo-only `action` as the program.
+async fn at_agent<A: Action>(
+    host: &Host,
+    me: AgentNumber,
+    action: &A,
+) -> Result<A::Output> {
+    let reply = host
+        .call(
+            &address::Agent(me).address()?,
+            A::NAME,
+            encode_positional(action)?,
+            AT_AGENT_WITHIN,
         )
-        .with_context(|| {
-            format!(
-                "read the entries of {}; an agent that runs holds \
-                 its file, so read it once agent {} does not, as in \
-                 a demo of its own",
-                path.display(),
-                n.0
-            )
-        })?;
-    let rows = entries.query_map([], |row| {
-        Ok((
-            row.get::<_, i64>(0)?,
-            row.get::<_, i64>(1)?,
-            row.get::<_, String>(2)?,
-        ))
-    })?;
-    for row in rows {
-        let (conversation, id, record) = row?;
-        if let Some(shown) = entry(&serde_json::from_str(&record)?) {
-            print(&format!("{conversation}/{id} {shown}"))?;
+        .await?;
+    Ok(ciborium::from_reader(reply.as_slice())?)
+}
+
+/// The demo-only `forward` of demo-host.ts: its target, the action's
+/// name and the action's positional arguments.
+#[derive(Serialize, Deserialize)]
+struct Forward(Target, String, serde_json::Value);
+
+#[derive(Serialize, Deserialize)]
+struct Target {
+    kind: String,
+    key: String,
+}
+
+impl Action for Forward {
+    type Output = serde_json::Value;
+    const NAME: &'static str = "forward";
+}
+
+#[derive(Serialize, Deserialize)]
+struct Taken;
+
+impl Action for Taken {
+    type Output = Holding;
+    const NAME: &'static str = "taken";
+}
+
+/// What `taken` of demo-host.ts answers.
+#[derive(Serialize, Deserialize)]
+pub struct Holding {
+    pub standing: RealmTask,
+    pub inputs: Vec<Input>,
+}
+
+/// An input in an agent's transcript.
+#[derive(Serialize, Deserialize)]
+pub struct Input {
+    /// Its entry's id.
+    pub taken: i64,
+    /// As `line` or `letter`.
+    pub kind: String,
+    pub task: Option<RealmTask>,
+    /// The letter a question asks in.
+    pub question: Option<u32>,
+}
+
+#[derive(Serialize, Deserialize)]
+struct Entries;
+
+impl Action for Entries {
+    type Output = Vec<Entry>;
+    const NAME: &'static str = "entries";
+}
+
+#[derive(Serialize, Deserialize)]
+struct Entry {
+    conversation: i64,
+    id: i64,
+    record: String,
+}
+
+#[derive(Serialize, Deserialize)]
+struct DieAfter(String);
+
+impl Action for DieAfter {
+    type Output = ();
+    const NAME: &'static str = "die_after";
+}
+
+async fn conversation(host: &Host, n: AgentNumber) -> Result<()> {
+    for row in at_agent(host, n, &Entries).await? {
+        if let Some(shown) =
+            entry(&serde_json::from_str(&row.record)?)
+        {
+            print(&format!(
+                "{}/{} {shown}",
+                row.conversation, row.id
+            ))?;
         }
     }
     Ok(())
@@ -881,7 +639,7 @@ async fn live_pid(home: &Path, within: Duration) -> Result<u32> {
     let until = Instant::now() + within;
     loop {
         let pid = node_pid(home)?;
-        if !has_ended(pid)? {
+        if !hamlet_os::process::has_ended(pid)? {
             return Ok(pid);
         }
         ensure!(
@@ -901,55 +659,4 @@ fn node_pid(home: &Path) -> Result<u32> {
     text.trim()
         .parse()
         .with_context(|| format!("{} holds no pid", path.display()))
-}
-
-pub async fn kill_node_host(
-    home: &Path,
-    within: Duration,
-) -> Result<()> {
-    let pid = node_pid(home)?;
-    tracing::info!(pid, "killing the Node host");
-    signal(pid, "-KILL")?;
-    let until = Instant::now() + within;
-    while !has_ended(pid)? {
-        ensure!(
-            Instant::now() < until,
-            "the Node host {pid} did not end within {} s of its kill",
-            within.as_secs()
-        );
-        tokio::time::sleep(POLL).await;
-    }
-    Ok(())
-}
-
-/// Answers whether `kill` said it was sent.
-#[cfg(unix)]
-fn signal(pid: u32, flag: &str) -> Result<bool> {
-    Ok(std::process::Command::new("kill")
-        .args([flag, &pid.to_string()])
-        .stderr(std::process::Stdio::null())
-        .status()
-        .context("run kill")?
-        .success())
-}
-
-#[cfg(not(unix))]
-fn signal(_pid: u32, _flag: &str) -> Result<bool> {
-    bail!("the demo signals the Node host only on Unix")
-}
-
-/// On Linux, a process that is dead and waits to be collected has
-/// ended too.
-fn has_ended(pid: u32) -> Result<bool> {
-    #[cfg(target_os = "linux")]
-    if let Ok(stat) =
-        std::fs::read_to_string(format!("/proc/{pid}/stat"))
-    {
-        // The state follows the command's name, which is in
-        // parentheses and may hold any character.
-        return Ok(stat.rsplit_once(')').is_some_and(|(_, rest)| {
-            rest.trim_start().starts_with('Z')
-        }));
-    }
-    Ok(!signal(pid, "-0")?)
 }

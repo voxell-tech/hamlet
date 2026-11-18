@@ -14,17 +14,12 @@ import {
     type Calls,
 } from "../../src/actor/actor/mod.ts";
 import type { JsonCompatValue } from "../../src/actor/common/encoding.ts";
-import { RegistryConfigSchema } from "../../src/actor/registry/config/index.ts";
-import {
-    buildNativeRegistry,
-    callNative,
-    callThrough,
-} from "../../src/actor/registry/native.ts";
-import { encodeCborCompat } from "../../src/actor/serde.ts";
 
 type Kinds = Readonly<Record<string, AnyActorDefinition>>;
 
 export interface LocalHost<K extends Kinds> extends Calls {
+    /** The actors the host started at once: an alarm was due, or a kill cut off their run. */
+    readonly due: readonly string[];
     at<N extends Extract<keyof K, string>>(
         kind: N,
         key: string,
@@ -34,16 +29,33 @@ export interface LocalHost<K extends Kinds> extends Calls {
     shutdown(): Promise<void>;
 }
 
+/**
+ * Starts `kinds` on the native module's host in this process, each actor in
+ * its own file at `actors/<kind>/<key>.sqlite` under `dir`. Needs the native
+ * module built and copied beside its loader in `crates/hamlet_actor_node`.
+ */
 export async function startLocalHost<K extends Kinds>(
     dir: string,
     kinds: K,
 ): Promise<LocalHost<K>> {
+    // Loaded here, not at the top: the layer's registry is large, and every
+    // test that starts no host, kill children included, would load it.
+    const [
+        { RegistryConfigSchema },
+        { buildNativeRegistry, callNative, callThrough },
+        { encodeCborCompat },
+    ] = await Promise.all([
+        import("../../src/actor/registry/config/index.ts"),
+        import("../../src/actor/registry/native.ts"),
+        import("../../src/actor/serde.ts"),
+    ]);
     const { registry } = await buildNativeRegistry(
         RegistryConfigSchema.parse({ use: kinds }),
     );
     const native = registry as unknown as CoreRegistry;
-    await callNative(() => native.start(dir));
+    const due = await callNative(() => native.start(dir));
     return {
+        due,
         at: (kind, key) => Address.of(kind, key),
         create: async (to, input = null) => {
             await callNative(() =>

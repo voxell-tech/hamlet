@@ -27,7 +27,7 @@ export function example(name: string): string {
     );
 }
 
-/** A Rust demo host with its Node host, driven through `demo --link serve`. */
+/** A Rust demo host with its Node host, driven through `demo serve`. */
 export interface Demo {
     /** The demo host's process id. */
     readonly pid: number;
@@ -43,11 +43,14 @@ export interface Demo {
 }
 
 /**
- * Starts `demo --link serve` on the realm folder `dir`, with the Node that
+ * Starts `demo <flags> serve` on the realm folder `dir`, with the Node that
  * runs this test as its Node host's program.
  */
-export function startDemo(dir: string): Demo {
-    const child = spawn(example("demo"), ["--link", "serve"], {
+export function startDemo(
+    dir: string,
+    flags: readonly string[] = ["--link"],
+): Demo {
+    const child = spawn(example("demo"), [...flags, "serve"], {
         env: {
             PATH: process.env.PATH,
             HAMLET_HOME: dir,

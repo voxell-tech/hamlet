@@ -264,6 +264,12 @@ pub fn is_executable(path: &str) -> bool {
     sys::is_executable(path)
 }
 
+/// Whether the process `pid` has ended: no process has the id, or on
+/// Linux the one that has it is dead and waits to be collected.
+pub fn has_ended(pid: u32) -> io::Result<bool> {
+    sys::has_ended(pid)
+}
+
 /// Kills this process at once.
 pub fn end_now() -> ! {
     sys::end_now()
