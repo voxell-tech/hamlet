@@ -16,7 +16,11 @@ pub struct Scenario {
     pub about: &'static str,
     pub demo: Demo,
     /// Lines `demo serve` runs before the kill. Each waits for its
-    /// reply, which acknowledges it.
+    /// reply, which acknowledges it. Under [`Demo::RealmActor`], a
+    /// line `until <n> <count> <words ...>` is the kit's own: it
+    /// waits until agent `<n>`'s conversation, as `pi conversation
+    /// <n>` prints it, holds `<count>` entries whose words begin
+    /// with `<words>`.
     pub setup: &'static [&'static str],
     /// The line the kill follows.
     pub trigger: &'static str,
@@ -31,9 +35,10 @@ pub struct Scenario {
     /// Node host are down. The first restart must start after it.
     pub due: Option<Probe>,
     /// Lines the first and the second restart's `demo serve` run
-    /// after it boots. After [`Kill::NodeHost`] the first restart is
-    /// the Rust host's own, of its Node host: the demo host that
-    /// ran the trigger runs these lines.
+    /// after it boots, `until` lines among them as in `setup`. After
+    /// [`Kill::NodeHost`] the first restart is the Rust host's own,
+    /// of its Node host: the demo host that ran the trigger runs
+    /// these lines.
     pub restart: [&'static [&'static str]; 2],
     /// Values read from the actor files once each restart exited.
     pub probes: &'static [Probe],
@@ -52,9 +57,27 @@ pub enum Demo {
     /// host has, and that each start has a Node host of its own and
     /// no other child when that value comes.
     Linked { pid: &'static str },
-    /// `demo --realm-actor serve`: the realm actor with stand-in
-    /// agents.
-    RealmActor,
+    /// `demo --realm-actor serve`: the realm actor, and the real
+    /// agent in a Node host, the Rust host's child, checked as
+    /// [`Demo::Linked`] by [`NODE_PID`]. The model answers from the
+    /// faux script `faux` when given.
+    RealmActor { faux: Option<&'static str> },
+}
+
+/// `pi pid`'s value under `--realm-actor`: the Node host's process
+/// id.
+pub const NODE_PID: &str = "node/pid";
+
+impl Demo {
+    /// The value that holds the Node host's process id, for a demo
+    /// with a Node host.
+    pub fn node_pid(&self) -> Option<&'static str> {
+        match self {
+            Self::Local => None,
+            Self::Linked { pid } => Some(pid),
+            Self::RealmActor { .. } => Some(NODE_PID),
+        }
+    }
 }
 
 /// When the kit kills the host, once the trigger was sent and, for a
@@ -69,7 +92,10 @@ pub enum Kill {
     /// The trigger's own action kills the Node host it runs in, at a
     /// step the action names. The kit kills nothing: it waits for
     /// that Node host to end. The demo host stays up, and its
-    /// supervisor starts the next Node host.
+    /// supervisor starts the next Node host. The first restart's
+    /// lines begin with `pi pid` twice: the first can answer as soon
+    /// as the next Node host has started, before its link is up, and
+    /// the second waits for the link.
     NodeHost,
 }
 
@@ -97,6 +123,14 @@ pub enum Read {
 pub struct Expect {
     pub value: &'static str,
     pub is: Is,
+}
+
+/// A value a restart must show as `n`.
+pub const fn exactly(value: &'static str, n: i64) -> Expect {
+    Expect {
+        value,
+        is: Is::Exactly(n),
+    }
 }
 
 pub enum Is {
