@@ -138,7 +138,8 @@ export type AgentDefinition = ActorDefinition<
 >;
 
 interface Offer {
-    readonly builtIn: (extension: Extension) => Extension;
+    /** Whether the built-in or hand tool `name` is offered. */
+    readonly builtIn: (name: string) => boolean;
     /** Whether the society's tools, the timers and reflection are offered. */
     readonly society: boolean;
 }
@@ -147,7 +148,8 @@ interface Offer {
  * What an agent of its kind is offered, as today decides it
  * (`crates/hamlet_server/src/calls/place.rs:176-242`): an errand no tool
  * (`undefined`), a worker the built-in tools its brief names, or all of them
- * when it names none, and a Hand or a hire every tool.
+ * when it names none, and a Hand or a hire every tool but the built-in and
+ * hand tools its lead turned off.
  */
 function offerOf(row: Row): Offer | undefined {
     switch (row.kind) {
@@ -156,37 +158,50 @@ function offerOf(row: Row): Offer | undefined {
         case "worker": {
             const given = new Set(row.brief?.tools?.map(({ name }) => name));
             return {
-                builtIn: (extension) =>
-                    given.size === 0
-                        ? extension
-                        : {
-                              ...extension,
-                              tools: (extension.tools ?? []).filter((tool) =>
-                                  given.has(tool.name),
-                              ),
-                          },
+                builtIn: (name) => given.size === 0 || given.has(name),
                 society: false,
             };
         }
         case "hand":
-        case "hire":
-            return { builtIn: (extension) => extension, society: true };
+        case "hire": {
+            const off = new Set(row.toolsOff.map(({ name }) => name));
+            return { builtIn: (name) => !off.has(name), society: true };
+        }
     }
+}
+
+/**
+ * The built-in and hand tools as listed, each installed with only the tools
+ * `offer` offers. A place that changes `offer` installs them again.
+ */
+interface BuiltIns {
+    readonly listed: Extension[];
+    offer: Offer;
+}
+
+function offered(extension: Extension, offer: Offer): Extension {
+    return {
+        ...extension,
+        tools: (extension.tools ?? []).filter((tool) =>
+            offer.builtIn(tool.name),
+        ),
+    };
 }
 
 /** Their order decides only the order the tools are offered in. */
 function parts(
-    row: Row,
+    builtIns: BuiltIns | undefined,
     peers: Peers,
     prompt: PromptSources,
     withHarness: WithHarness,
     tell: TellFailed,
     failed: FailedTurns,
 ): Extension[] {
-    const offer = offerOf(row);
-    if (offer === undefined) return [promptPart(prompt)];
-    const builtIn = [offer.builtIn(workspaceTools(peers)), ownFiles(peers)];
-    if (!offer.society) {
+    if (builtIns === undefined) return [promptPart(prompt)];
+    const builtIn = builtIns.listed.map((extension) =>
+        offered(extension, builtIns.offer),
+    );
+    if (!builtIns.offer.society) {
         return [
             promptPart(prompt),
             cutOffRule(tell),
@@ -200,7 +215,7 @@ function parts(
         cutOffRule(tell),
         failed.extension,
         ...builtIn,
-        society(peers, row.toolsOff),
+        society(peers),
         timers(),
     ];
 }
@@ -397,6 +412,8 @@ export interface Generation {
      */
     readonly inTurn: <T>(work: () => Promise<T>) => Promise<T>;
     stopsBegun: number;
+    /** Absent for an errand, which is offered no tool. */
+    readonly builtIns?: BuiltIns;
 }
 
 const AGENT: unique symbol = Symbol.for("@hamlet/agent");
@@ -429,7 +446,19 @@ async function wake(c: AgentContext, config: AgentConfig): Promise<void> {
     };
     const tell = tellingFailed(peers, row.standingTask, () => current(c.db));
     const failed = failedTurns(peers, withHarness, tell);
-    for (const part of parts(row, peers, prompt, withHarness, tell, failed)) {
+    const offer = offerOf(row);
+    const builtIns: BuiltIns | undefined =
+        offer === undefined
+            ? undefined
+            : { listed: [workspaceTools(peers), ownFiles(peers)], offer };
+    for (const part of parts(
+        builtIns,
+        peers,
+        prompt,
+        withHarness,
+        tell,
+        failed,
+    )) {
         registry.install(part);
     }
     const options: PiOptions = {
@@ -460,16 +489,19 @@ async function wake(c: AgentContext, config: AgentConfig): Promise<void> {
         following: follow,
         inTurn: oneAfterAnother(),
         stopsBegun: 0,
+        ...(builtIns === undefined ? {} : { builtIns }),
     };
     watching(c, follow);
     // Not awaited, so a slow workspace does not hold `submit` past the
     // realm's deadline. Begun
     // before the open, since an action that reopens a harness the open
     // left closed builds it from the same registry.
-    const offer = offerOf(row);
-    if (offer !== undefined) {
+    if (builtIns !== undefined) {
         void handTools(peers).then(
-            (extension) => registry.install(offer.builtIn(extension)),
+            (extension) => {
+                builtIns.listed.push(extension);
+                registry.install(offered(extension, builtIns.offer));
+            },
             (error: unknown) =>
                 peers.report("the hand tools were not listed", error),
         );
@@ -720,11 +752,16 @@ async function place(c: AgentCall, message: Place): Promise<void> {
         rest,
         version,
     );
-    if (kept.changes === 0 || offerOf(await rowAt(c))?.society !== true) return;
-    const { registry, peers } = generationOf(c);
-    // Installing it again replaces it, so the tools turned off leave the next
-    // request.
-    registry.install(society(peers, message.tools_off));
+    const { registry, builtIns } = generationOf(c);
+    if (kept.changes === 0 || builtIns === undefined) return;
+    const offer = offerOf(await rowAt(c));
+    if (offer === undefined) return;
+    builtIns.offer = offer;
+    // Installing one again replaces it, so the next request offers what the
+    // place says.
+    for (const extension of builtIns.listed) {
+        registry.install(offered(extension, offer));
+    }
 }
 
 async function fill(

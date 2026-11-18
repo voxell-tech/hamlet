@@ -132,15 +132,9 @@ function withNamed<K extends string, Act>(
     return build(out);
 }
 
-function actsOf(given: readonly string[] | undefined): ToolName[] | Invalid {
-    const acts: ToolName[] = [];
-    for (const name of given ?? []) {
-        const act = ACT_OF.get(name);
-        if (act === undefined)
-            return { invalid: `\`${name}\` is not a society tool.` };
-        acts.push({ name: act });
-    }
-    return acts;
+/** A society tool by its act, as `ToolName` names it, and any other as given. */
+function toolNamesOf(given: readonly string[] | undefined): ToolName[] {
+    return (given ?? []).map((name) => ({ name: ACT_OF.get(name) ?? name }));
 }
 
 /** Today's names and words for the model, word for word. */
@@ -311,10 +305,8 @@ const TOOLS: { readonly [N in SocietyTool]: Definition<N> } = {
             "hire",
         ]),
         act: (args: { hire: string; off?: string[]; on?: string[] }) => {
-            const off = actsOf(args.off);
-            if ("invalid" in off) return off;
-            const on = actsOf(args.on);
-            if ("invalid" in on) return on;
+            const off = toolNamesOf(args.off);
+            const on = toolNamesOf(args.on);
             return withNamed({ hire: args.hire }, ({ hire }) => ({
                 hire,
                 ...(off.length === 0 ? {} : { off }),
@@ -328,6 +320,11 @@ const TOOLS: { readonly [N in SocietyTool]: Definition<N> } = {
 const ACT_OF: ReadonlyMap<string, SocietyTool> = new Map(
     (Object.keys(TOOLS) as SocietyTool[]).map((act) => [TOOLS[act].name, act]),
 );
+
+/** The name the model calls a tool by, for a `ToolName`. */
+export function calledAs({ name }: ToolName): string {
+    return Object.hasOwn(TOOLS, name) ? TOOLS[name as SocietyTool].name : name;
+}
 
 function societyTool<N extends SocietyTool>(
     peers: Peers,
@@ -358,12 +355,13 @@ function societyTool<N extends SocietyTool>(
     });
 }
 
-export function society(peers: Peers, off: readonly ToolName[]): Extension {
+/** As today, a society tool is offered whatever a lead turned off. */
+export function society(peers: Peers): Extension {
     return defineExtension({
         name: "hamlet.society",
-        tools: (Object.keys(TOOLS) as SocietyTool[])
-            .filter((act) => !off.some(({ name }) => name === act))
-            .map((act) => societyTool(peers, act)),
+        tools: (Object.keys(TOOLS) as SocietyTool[]).map((act) =>
+            societyTool(peers, act),
+        ),
         hooks: [
             hook(GenerationTask, {
                 onYield: (answer, api) => reply(peers, answer, api),

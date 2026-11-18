@@ -962,7 +962,7 @@ for (const input of CREATED) {
     });
 }
 
-test("agent/place.args keeps every tool's name and the folder, and turns off only the society tools named", async (t) => {
+test("agent/place.args keeps every tool's name and the folder, and turns off only the built-in tools named", async (t) => {
     const { calls } = fakeCalls({});
     const agent = await wakeAgent(t, { calls, input: HAND });
     const [place] = fixture("agent/place.args") as unknown[];
@@ -971,10 +971,7 @@ test("agent/place.args keeps every tool's name and the folder, and turns off onl
         "SELECT tools_off, place FROM agent",
     );
     const root = await (await agent.harness()).root(context);
-    const offered = async () =>
-        (await root.agent(context)).tools.map((tool) => tool.name);
-    await until(async () => (await offered()).includes("bash"));
-    const names = await offered();
+    const names = (await root.agent(context)).tools.map((tool) => tool.name);
     await agent.stop();
 
     assert.deepEqual(JSON.parse(row?.tools_off ?? ""), [
@@ -985,8 +982,11 @@ test("agent/place.args keeps every tool's name and the folder, and turns off onl
         (JSON.parse(row?.place ?? "") as { folder?: unknown }).folder,
         "/work/orchard",
     );
-    assert.ok(!names.includes("found_hamlet"), names.join());
-    assert.ok(names.includes("hire") && names.includes("bash"), names.join());
+    assert.ok(!names.includes("bash"), names.join());
+    assert.ok(
+        names.includes("found_hamlet") && names.includes("read"),
+        names.join(),
+    );
 });
 
 const ANSWERED_BY_TOOLS = [

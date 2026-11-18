@@ -17,6 +17,7 @@ import { type AgentContext, numberOf } from "./actor.ts";
 import type { ReadCopies } from "./copies.ts";
 import type { AgentFilesystem, FileEntry } from "./filesystem.ts";
 import type { AgentInput, Place, ReadAnswer } from "./messages.ts";
+import { calledAs } from "./society.ts";
 import { type Peers, readFile } from "./turn.ts";
 
 /** Characters of the memory's root files together, and of the project's instructions, a prompt shows. */
@@ -286,7 +287,7 @@ async function place(sources: PromptSources): Promise<string> {
         }
         lines.push(LEAD);
         if (place.tools_off.length > 0) {
-            const off = place.tools_off.map((tool) => tool.name).join(", ");
+            const off = place.tools_off.map(calledAs).join(", ");
             lines.push(`Your lead turned these tools off for you: ${off}.`);
         }
     }
