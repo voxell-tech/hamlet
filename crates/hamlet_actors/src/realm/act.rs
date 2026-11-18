@@ -14,6 +14,7 @@ use serde::{Deserialize, Serialize};
 use super::callers::{Member, Stood, Witness};
 use super::calls::{self, Calls, Made, Push};
 use super::change::{self, Change, Rows};
+use super::lanes::Lined;
 use super::oversight::reserved::{self, Kept};
 use super::peer::When;
 use super::{Realm, marker, record, steps};
@@ -249,7 +250,7 @@ where
 {
     hamlet_host::fault::point(&format!("called/{name}"));
     let mut waited = false;
-    let (done, pushes) = loop {
+    let (done, pushes, lined) = loop {
         #[cfg(feature = "faults")]
         assert!(
             std::env::var("HAMLET_REALM_PANIC").as_deref()
@@ -287,7 +288,12 @@ where
             Read::Repeat {
                 done: Ran::Act(done),
                 pushes,
-            } => break (done, pushes),
+            } => {
+                let calls = act.deliveries(&by, &done);
+                let lined =
+                    realm.lanes.line(&tx.rows(), calls).await?;
+                break (done, pushes, lined);
+            }
             Read::Repeat {
                 done: Ran::Reserved(wait),
                 pushes,
@@ -321,7 +327,12 @@ where
         };
         match decision {
             Decision::Answer(output) => return Ok(Ok(output)),
-            Decision::Again(done) => break (done, Vec::new()),
+            Decision::Again(done) => {
+                let calls = act.deliveries(&by, &done);
+                let lined =
+                    realm.lanes.line(&tx.rows(), calls).await?;
+                break (done, Vec::new(), lined);
+            }
             Decision::WaitFor { row, refusal } => {
                 if waited {
                     return Ok(Ok(refusal));
@@ -334,8 +345,9 @@ where
             }
             Decision::Change(decided) => {
                 let ran = Ran::Act(&decided.done);
-                let pushes = tx
-                    .commit(
+                let calls = act.deliveries(&by, &decided.done);
+                let (pushes, lined) = tx
+                    .commit_lined(
                         realm,
                         change::Write {
                             changes: decided.changes,
@@ -344,20 +356,24 @@ where
                                 .as_ref()
                                 .map(|key| (key, &ran)),
                         },
+                        calls,
                     )
                     .await?;
                 hamlet_host::fault::point(&format!(
                     "committed/{name}"
                 ));
-                break (decided.done, pushes);
+                break (decided.done, pushes, lined);
             }
         }
     };
-    let calls = act.deliveries(&by, &done);
+    let Lined {
+        before_answer,
+        after_answer,
+    } = lined;
     let made = calls::deliver_all(
         realm,
         ctx,
-        calls.before_answer,
+        before_answer,
         When::BeforeAnswer,
     )
     .await;
@@ -365,7 +381,7 @@ where
     ctx.register_task(calls::after_answer(
         realm.clone(),
         ctx.clone(),
-        calls.after_answer,
+        after_answer,
         pushes,
     ));
     Ok(Ok(answer))

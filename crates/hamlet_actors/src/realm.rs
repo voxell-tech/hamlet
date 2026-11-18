@@ -10,6 +10,7 @@ mod chiefs;
 mod documents;
 mod hire;
 mod laid;
+mod lanes;
 mod letters;
 mod marker;
 mod oversight;
@@ -124,6 +125,7 @@ struct Realm {
     world: world::Held,
     secrets: secrets::Held,
     drives: steps::Drives,
+    lanes: lanes::Lanes,
     hiring_wait: Duration,
 }
 
@@ -212,6 +214,7 @@ impl Actor for Realm {
             peers: peer::Peers::new(host),
             world: world::Held::load(ctx).await?,
             drives: steps::Drives::default(),
+            lanes: lanes::Lanes::default(),
         })
     }
 

@@ -11,8 +11,9 @@ use hamlet_messages::workspace::AgentNumber;
 use serde::Serialize;
 use serde::de::DeserializeOwned;
 
-use super::calls::Push;
+use super::calls::{Calls, Push};
 use super::chiefs::hamlet;
+use super::lanes::Lined;
 use super::oversight::asking;
 use super::tree::choices;
 use super::workers::errands;
@@ -467,6 +468,19 @@ impl Transaction {
         realm: &Arc<Realm>,
         write: Write<'_, D>,
     ) -> Result<Vec<Push>> {
+        let (pushes, _) =
+            self.commit_lined(realm, write, Calls::none()).await?;
+        Ok(pushes)
+    }
+
+    /// Commits `write` and lines up `calls` in the lanes of the
+    /// agents they reach.
+    pub async fn commit_lined<D: Serialize>(
+        self,
+        realm: &Arc<Realm>,
+        write: Write<'_, D>,
+        calls: Calls,
+    ) -> Result<(Vec<Push>, Lined)> {
         let writer = Writer {
             statements: &self.statements,
             at: self.at,
@@ -555,6 +569,7 @@ impl Transaction {
         }
         .await;
         let (affected, revision, mut pushes) = written?;
+        let lined = realm.lanes.line(&self.rows(), calls).await?;
         let reserved = realm.drives.reserve(&affected.begun, &self);
         let Self {
             statements,
@@ -568,7 +583,7 @@ impl Transaction {
         if let Some(revision) = revision {
             realm.world.refresh(&ctx, revision, &affected).await;
         }
-        Ok(pushes)
+        Ok((pushes, lined))
     }
 }
 

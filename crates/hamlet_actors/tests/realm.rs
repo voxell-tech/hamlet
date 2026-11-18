@@ -136,6 +136,9 @@ struct Seen {
     held: watch::Sender<HashSet<Callee>>,
     /// The calls that wait while the test holds their callee.
     waiting: Mutex<HashSet<(Callee, AgentNumber)>>,
+    /// The callees held for their next call alone, and whether that
+    /// call came.
+    alone: Mutex<HashMap<Callee, bool>>,
 }
 
 impl Seen {
@@ -147,13 +150,20 @@ impl Seen {
         agent: AgentNumber,
     ) -> anyhow::Result<()> {
         let mut held = self.held.subscribe();
-        if held.borrow().contains(&callee) {
-            self.waiting.lock().unwrap().insert((callee, agent));
+        let passes = match self.alone.lock().unwrap().get_mut(&callee)
+        {
+            Some(came) => std::mem::replace(came, true),
+            None => false,
+        };
+        if !passes {
+            if held.borrow().contains(&callee) {
+                self.waiting.lock().unwrap().insert((callee, agent));
+            }
+            let released =
+                held.wait_for(|held| !held.contains(&callee)).await;
+            self.waiting.lock().unwrap().remove(&(callee, agent));
+            released?;
         }
-        let released =
-            held.wait_for(|held| !held.contains(&callee)).await;
-        self.waiting.lock().unwrap().remove(&(callee, agent));
-        released?;
         if self.failing.lock().unwrap().remove(&(callee, agent)) {
             bail!(
                 "the stand-in fails {callee:?} of {} once",
@@ -181,7 +191,15 @@ impl Seen {
         });
     }
 
+    /// Holds the next call of `callee` until `release`; the calls
+    /// after it pass.
+    fn hold_next(&self, callee: Callee) {
+        self.alone.lock().unwrap().insert(callee, false);
+        self.hold(callee);
+    }
+
     fn release(&self, callee: Callee) {
+        self.alone.lock().unwrap().remove(&callee);
         self.held.send_modify(|held| {
             held.remove(&callee);
         });

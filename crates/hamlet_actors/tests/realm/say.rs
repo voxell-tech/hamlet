@@ -8,8 +8,8 @@ use hamlet_messages::workspace::AgentNumber;
 use hamlet_protocol::client::RequestId;
 
 use super::{
-    Callee, MAYOR, Realm, Seen, error_code, founded, hamlet_with,
-    say, submits_to, until,
+    Callee, FOUR, MAYOR, Realm, Seen, THREE, error_code, founded,
+    hamlet_with, say, submits_to, until,
 };
 
 async fn mayor_held_at_its_branch(realm: &Realm) {
@@ -17,7 +17,7 @@ async fn mayor_held_at_its_branch(realm: &Realm) {
     realm.seen.hold(Callee::Branch);
     founded(realm).await;
     until("the mayor's drive waits on the held branch", || {
-        realm.seen.held.receiver_count() > 0
+        realm.seen.is_waiting(Callee::Branch, MAYOR)
     })
     .await;
 }
@@ -137,5 +137,119 @@ async fn a_line_to_no_agent_names_its_address() {
         panic!("a line to no agent is refused: {said:?}");
     };
     assert_eq!(why.to_string(), "no agent has the address `9`");
+    realm.host.shutdown().await.unwrap();
+}
+
+/// The first line's delivery is held at the agent while the second
+/// is said. The test looks for the second line at the agent for
+/// 500 ms, over a hundred times what a delivery that is not held
+/// takes here; the order it asserts holds however long that look
+/// lasts.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_chiefs_two_lines_to_one_agent_reach_it_in_the_order_said()
+{
+    let (realm, _) = hamlet_with(1).await;
+    let (first, second) = (RequestId::new(), RequestId::new());
+    realm.seen.hold_next(Callee::Submit);
+
+    let (dig, rest) = (
+        say(&first, THREE, "dig the well"),
+        say(&second, THREE, "then rest"),
+    );
+    let said_first = realm.ask(&dig);
+    let then_second = async {
+        until("the first line waits at the agent", || {
+            realm.seen.is_waiting(Callee::Submit, THREE)
+        })
+        .await;
+        let said_second = realm.ask(&rest);
+        let looked = async {
+            let _ = tokio::time::timeout(
+                Duration::from_millis(500),
+                until("the second line reaches the agent", || {
+                    !submits_to(&realm, THREE).is_empty()
+                }),
+            )
+            .await;
+            realm.seen.release(Callee::Submit);
+        };
+        tokio::join!(said_second, looked).0
+    };
+    let (first_said, second_said) =
+        tokio::join!(said_first, then_second);
+
+    assert!(
+        matches!(first_said.unwrap(), SayAnswer::Taken { .. }),
+        "the first line was not taken"
+    );
+    assert!(
+        matches!(second_said.unwrap(), SayAnswer::Taken { .. }),
+        "the second line was not taken"
+    );
+    let ids = submits_to(&realm, THREE)
+        .into_iter()
+        .map(|submit| submit.id)
+        .collect::<Vec<_>>();
+    assert_eq!(
+        ids,
+        [first, second].map(|id| InputId(id.as_str().to_owned()))
+    );
+    realm.host.shutdown().await.unwrap();
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn a_line_held_at_one_agent_does_not_hold_a_line_to_another() {
+    let (realm, _) = hamlet_with(2).await;
+    realm.seen.hold_next(Callee::Submit);
+    let held = say(&RequestId::new(), THREE, "dig the well");
+    let other = say(&RequestId::new(), FOUR, "fetch water");
+
+    let said_held = realm.ask(&held);
+    let said_other = async {
+        until("the line to hire 3 waits at it", || {
+            realm.seen.is_waiting(Callee::Submit, THREE)
+        })
+        .await;
+        let said = realm.ask(&other).await;
+        let reached = (
+            submits_to(&realm, THREE).len(),
+            submits_to(&realm, FOUR).len(),
+        );
+        realm.seen.release(Callee::Submit);
+        (said, reached)
+    };
+    let (said_held, (said_other, reached)) =
+        tokio::join!(said_held, said_other);
+
+    assert!(matches!(said_other.unwrap(), SayAnswer::Taken { .. }));
+    assert_eq!(reached, (0, 1));
+    assert!(matches!(said_held.unwrap(), SayAnswer::Taken { .. }));
+    realm.host.shutdown().await.unwrap();
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn a_line_that_fails_to_reach_an_agent_lets_the_next_one_through()
+ {
+    let (realm, _) = hamlet_with(1).await;
+    realm.seen.fail_once(Callee::Submit, THREE);
+    let next = RequestId::new();
+
+    let failed = realm
+        .ask(&say(&RequestId::new(), THREE, "dig the well"))
+        .await
+        .unwrap();
+    let taken =
+        realm.ask(&say(&next, THREE, "then rest")).await.unwrap();
+
+    assert!(
+        matches!(failed, SayAnswer::NotTaken { .. }),
+        "{failed:?}"
+    );
+    assert!(matches!(taken, SayAnswer::Taken { .. }), "{taken:?}");
+    let ids = submits_to(&realm, THREE)
+        .into_iter()
+        .map(|submit| submit.id)
+        .collect::<Vec<_>>();
+    assert_eq!(ids, [InputId(next.as_str().to_owned())]);
     realm.host.shutdown().await.unwrap();
 }
