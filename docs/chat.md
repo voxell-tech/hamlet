@@ -220,11 +220,19 @@ the agent, or the scholar's page.
 - An address that names no living agent or no scholar the window has
   stays plain words. Nothing in a fenced code block is a chip.
 
-While an answer still grows, the addresses in it are words in the link's
-colour, not chips: Bevy lays a growing line out again at other widths as
-it measures, and a chip placed from one of those layouts would move with
-each word. They become chips once the answer is whole, in one swap
-(`unsettle` in `hamlet_ui/src/markdown/draw.rs`).
+While an answer still grows, even with lines queued after it, the
+addresses in it are words in the link's colour, not chips: Bevy lays a
+growing line out again at other widths as it measures, and a chip placed
+from one of those layouts would move with each word. They become chips
+once the answer is whole, in one swap (`unsettle` in
+`hamlet_ui/src/markdown/draw.rs`). A chip is drawn where its line holds
+its place in the frame the line is laid out, and a line with a chip of
+words not drawn before stays hidden until the chip has its size in it
+(`hamlet_ui/src/markdown/chips.rs`).
+
+A table's columns are each as wide as their longest word or chip, and
+share the rest of the chat's width in proportion to their widest cell,
+so the words in a cell wrap inside it.
 
 The chips are drawn again when an agent comes, leaves, is renamed or
 takes a mayor's office. The charter tells agents that an address they
