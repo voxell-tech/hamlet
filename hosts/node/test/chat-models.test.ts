@@ -79,7 +79,31 @@ function partlyPriced(): Model<Api> {
     } as unknown as Model<Api>;
 }
 
-function loopback(models: readonly Model<Api>[] = []) {
+function failingWith(
+    failing: (key: string | undefined) => Error | undefined,
+    stream: StreamFunction<string, SimpleStreamOptions>,
+): StreamFunction<string, SimpleStreamOptions> {
+    return (model, transcript, options) => {
+        const error = failing(options?.apiKey);
+        if (error === undefined) return stream(model, transcript, options);
+        const thrown = async () => {
+            throw error;
+        };
+        return {
+            [Symbol.asyncIterator]: () => ({ next: thrown }),
+            result: thrown,
+        } as unknown as ReturnType<typeof stream>;
+    };
+}
+
+/**
+ * A faux provider; `failing` gives the error its stream throws for a
+ * request's key, or nothing to answer.
+ */
+function loopback(
+    models: readonly Model<Api>[] = [],
+    failing: (key: string | undefined) => Error | undefined = () => undefined,
+) {
     const core = createFauxCore({
         provider: "loopback",
         models: [
@@ -95,8 +119,8 @@ function loopback(models: readonly Model<Api>[] = []) {
         id: "loopback",
         models: [...core.models, ...models],
         api: {
-            stream: priced(core.stream),
-            streamSimple: priced(core.streamSimple),
+            stream: failingWith(failing, priced(core.stream)),
+            streamSimple: failingWith(failing, priced(core.streamSimple)),
         },
         auth: {
             apiKey: {
@@ -445,29 +469,12 @@ test("the model list names each listed model with its window and price", () => {
     );
 });
 
-function breaking(listed: Models, broken: () => boolean): Models {
-    return new Proxy(listed, {
-        get(target, name, receiver) {
-            const value: unknown = Reflect.get(target, name, receiver);
-            if (typeof value !== "function") return value;
-            if (name !== "streamSimple") return value.bind(target);
-            return (...args: Parameters<Models["streamSimple"]>) => {
-                if (!broken()) return target.streamSimple(...args);
-                const thrown = async () => {
-                    throw new Error(`the stream broke on ${args[2]?.apiKey}`);
-                };
-                return {
-                    [Symbol.asyncIterator]: () => ({ next: thrown }),
-                    result: thrown,
-                } as unknown as ReturnType<Models["streamSimple"]>;
-            };
-        },
-    });
-}
-
 test("a key is in no database, log, error or event", async (t) => {
     const { calls, sent } = signedIn();
-    const second = loopback();
+    let breakNext = false;
+    const second = loopback([], (key) =>
+        breakNext ? new Error(`the stream broke on ${key}`) : undefined,
+    );
     const keysSeen: (string | undefined)[] = [];
     second.core.setResponses([
         (_transcript, options) => {
@@ -480,11 +487,7 @@ test("a key is in no database, log, error or event", async (t) => {
                 errorMessage: `the model will not take ${options?.apiKey}`,
             }),
     ]);
-    let breakNext = false;
-    const agent = await wakeAgent(t, {
-        calls,
-        models: (models) => breaking(second.add(models), () => breakNext),
-    });
+    const agent = await wakeAgent(t, { calls, models: second.add });
     await agent.actions.copies(
         agent.by(from.realm),
         choosing(1, { model: "loopback::large" }),
@@ -824,21 +827,10 @@ test("a request with no key from the realm fails and uses no other key", async (
 
 test("a check whose request throws answers scrubbed failed words", async () => {
     const { listed } = listing();
-    const throwing = new Proxy(listed, {
-        get(target, name, receiver) {
-            if (name === "completeSimple") {
-                return async (
-                    ...[, , options]: Parameters<Models["completeSimple"]>
-                ) => {
-                    throw new Error(
-                        `401 Incorrect API key provided: ${options?.apiKey}`,
-                    );
-                };
-            }
-            const value: unknown = Reflect.get(target, name, receiver);
-            return typeof value === "function" ? value.bind(target) : value;
-        },
-    });
+    const throwing = loopback(
+        [],
+        (key) => new Error(`401 Incorrect API key provided: ${key}`),
+    ).add(createModels());
     const keys = keysOf(recordingRealm().realm, () => {});
 
     assert.deepEqual(await checkModel(throwing, keys, "loopback::large"), {
@@ -854,33 +846,21 @@ test("a check whose request throws answers scrubbed failed words", async () => {
     assert.match(refused.words, /Sign in to loopback first\./);
 });
 
-test("an agent's request that throws with the key throws it scrubbed", async () => {
-    const { listed } = listing();
-    const throwing = new Proxy(listed, {
-        get(target, name, receiver) {
-            if (name === "completeSimple") {
-                return async (
-                    ...[, , options]: Parameters<Models["completeSimple"]>
-                ) => {
-                    throw new Error(`refused ${options?.apiKey}`);
-                };
-            }
-            const value: unknown = Reflect.get(target, name, receiver);
-            return typeof value === "function" ? value.bind(target) : value;
-        },
-    });
+test("an agent's request that fails with the key fails with it scrubbed", async () => {
+    const throwing = loopback([], (key) => new Error(`refused ${key}`)).add(
+        createModels(),
+    );
     const peers = {
         reach: recordingRealm().realm,
         report: () => {},
     } as unknown as Peers;
     const models = agentModels(throwing, async () => ({}), peers);
-    const model = listed.getModel("loopback", "large");
+    const model = throwing.getModel("loopback", "large");
     assert.ok(model !== undefined);
 
-    await assert.rejects(
-        models.completeSimple(model, { messages: [] }),
-        (error: Error) => error.message === "refused [REDACTED]",
-    );
+    const answer = await models.completeSimple(model, { messages: [] });
+    assert.equal(answer.stopReason, "error");
+    assert.equal(answer.errorMessage, "refused [REDACTED]");
 });
 
 test("requests at once ask the realm for a key once", async () => {
@@ -910,8 +890,104 @@ test("requests at once ask the realm for a key once", async () => {
     gate = Promise.withResolvers<void>();
     const granted = both();
     gate.resolve();
-    assert.deepEqual(await Promise.all(granted), [KEY, KEY]);
+    assert.deepEqual(await Promise.all(granted), [
+        { apiKey: KEY },
+        { apiKey: KEY },
+    ]);
     assert.equal(asked, 2, "a refusal is asked again");
+});
+
+test("a key of settings alone serves a request with its settings and no key", async () => {
+    const core = createFauxCore({
+        provider: "profiled",
+        models: [{ id: "large", name: "Large" }],
+    });
+    const seen: unknown[] = [];
+    core.setResponses([
+        (_transcript, options) => {
+            seen.push({ apiKey: options?.apiKey, env: options?.env });
+            return fauxAssistantMessage("Hello");
+        },
+    ]);
+    const listed = createModels();
+    (listed as MutableModels).setProvider(
+        createProvider({
+            id: "profiled",
+            models: core.models,
+            api: { stream: core.stream, streamSimple: core.streamSimple },
+            auth: {
+                apiKey: {
+                    name: "a profile",
+                    // As pi-ai's Bedrock: a profile in the settings signs in.
+                    resolve: async ({ ctx, credential }) =>
+                        (credential?.env?.PROFILE ??
+                            (await ctx.env("PROFILE"))) === undefined
+                            ? undefined
+                            : { auth: {} },
+                },
+            },
+        }),
+    );
+    const env = { PROFILE: "work" };
+    const keys = keysOf(
+        { credential: async () => ({ type: "key", key: "", env }) },
+        () => {},
+    );
+
+    assert.deepEqual(await checkModel(listed, keys, "profiled::large"), {
+        type: "answered",
+        words: "Hello",
+    });
+    assert.deepStrictEqual(seen, [{ apiKey: undefined, env }]);
+});
+
+test("a request reads nothing of the host's environment", async (t) => {
+    const name = "HAMLET_TEST_HOST_TOKEN";
+    process.env[name] = "host-made-up-token";
+    t.after(() => {
+        delete process.env[name];
+    });
+    const core = createFauxCore({
+        provider: "hosted",
+        models: [{ id: "large", name: "Large" }],
+    });
+    const seen: unknown[] = [];
+    core.setResponses([
+        (_transcript, options) => {
+            seen.push(options?.apiKey);
+            return fauxAssistantMessage("Hello");
+        },
+    ]);
+    const listed = createModels();
+    (listed as MutableModels).setProvider(
+        createProvider({
+            id: "hosted",
+            models: core.models,
+            api: { stream: core.stream, streamSimple: core.streamSimple },
+            auth: {
+                apiKey: {
+                    name: "a token",
+                    // As pi-ai's Bedrock: a token in the environment comes first.
+                    resolve: async ({ ctx }) => ({
+                        auth: { apiKey: (await ctx.env(name)) ?? "none" },
+                    }),
+                },
+            },
+        }),
+    );
+    const keys = keysOf(
+        {
+            credential: async () => ({
+                type: "key",
+                key: "",
+                env: { PROFILE: "work" },
+            }),
+        },
+        () => {},
+    );
+
+    await checkModel(listed, keys, "hosted::large");
+    assert.deepStrictEqual(seen, ["none"]);
 });
 
 async function currentSession(agent: Woken) {

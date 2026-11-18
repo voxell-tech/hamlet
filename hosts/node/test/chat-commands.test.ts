@@ -18,6 +18,7 @@ import type {
     Input,
     OpenTask,
     ReadAnswer,
+    TaskOpened,
 } from "../src/agent/messages.ts";
 import { REFLECT } from "../src/agent/reflect.ts";
 import { conversationOfChat } from "../src/agent/sessions.ts";
@@ -466,38 +467,128 @@ test("a stopped turn carries on by retry", async (t) => {
     ]);
 });
 
-test("a stop that arrives while a retry opens its task wins: the retry admits nothing", async (t) => {
-    const opening = Promise.withResolvers<{ type: "opened"; task: string }>();
+/** A realm whose `open_task` waits for the test, and says when it is asked. */
+function heldOpening() {
+    const answer = Promise.withResolvers<TaskOpened>();
     const asked = Promise.withResolvers<void>();
-    const { calls } = fakes({
-        realm: {
-            open_task: () => {
-                asked.resolve();
-                return opening.promise;
-            },
+    return {
+        open_task: () => {
+            asked.resolve();
+            return answer.promise;
         },
-    });
+        asked: asked.promise,
+        answer,
+    };
+}
+
+test("a stop sent while a retry opens its task waits for it, then stops the retry's turn", async (t) => {
+    const opening = heldOpening();
+    const { calls, sent } = fakes({ realm: opening });
+    const slow = held();
     const agent = await wake(
         t,
         calls,
-        [failure("The model failed."), fauxAssistantMessage("Carried on.")],
+        [failure("The model failed."), slow.step],
         NO_RETRIES,
     );
     await told(agent, "Go");
     const client = agent.by(from.client);
     const retrying = agent.actions.retry(client, { id: "retry-1", to: 7 });
-    await asked.promise;
+    await opening.asked;
 
-    assert.deepEqual(await agent.actions.stop(client, { id: "stop-1" }), {
-        turns: 0,
-    });
-    opening.resolve({ type: "opened", task: "task-retry" });
+    const stopping = agent.actions.stop(client, { id: "stop-1" });
+    opening.answer.resolve({ type: "opened", task: "task-retry" });
+
     assert.deepEqual(await retrying, { type: "done" });
+    assert.deepEqual(await stopping, { turns: 1 });
     await agent.idle();
-
-    assert.equal(agent.faux.state.callCount, 1);
-    assert.ok(!(await said(agent, await now(agent))).includes("Carried on."));
+    assert.equal(named(sent, "open_task").length, 1);
+    assert.equal(
+        (await said(agent, await now(agent))).at(-1),
+        "Carry on from where you stopped.",
+        "the retry's turn was stopped before any answer",
+    );
 });
+
+test("a stop sent after two retries waits for the second, then stops its turn", async (t) => {
+    const first = Promise.withResolvers<TaskOpened>();
+    const asked = Promise.withResolvers<void>();
+    const answers = [first.promise];
+    const { calls, sent } = fakes({
+        realm: {
+            open_task: () => {
+                asked.resolve();
+                return (
+                    answers.shift() ?? { type: "opened", task: "task-retry" }
+                );
+            },
+        },
+    });
+    const slow = held();
+    const agent = await wake(
+        t,
+        calls,
+        [failure("The model failed."), slow.step],
+        NO_RETRIES,
+    );
+    await told(agent, "Go");
+    const client = agent.by(from.client);
+    const refusedRetry = agent.actions
+        .retry(client, { id: "retry-1", to: 7 })
+        .catch((error: unknown) => error);
+    await asked.promise;
+    const retried = agent.actions.retry(client, { id: "retry-2", to: 7 });
+
+    const stopping = agent.actions.stop(client, { id: "stop-1" });
+    first.resolve({
+        type: "refused",
+        why: { type: "you_left" },
+        words: "you left",
+    } as TaskOpened);
+
+    assert.ok(await refusedRetry);
+    assert.deepEqual(await retried, { type: "done" });
+    assert.deepEqual(await stopping, { turns: 1 });
+    await agent.idle();
+    assert.equal(named(sent, "open_task").length, 2);
+});
+
+for (const [why, fails] of [
+    [
+        "refused",
+        (opening: ReturnType<typeof heldOpening>) =>
+            opening.answer.resolve({
+                type: "refused",
+                why: { type: "you_left" },
+                words: "you left",
+            } as TaskOpened),
+    ],
+    [
+        "not answered",
+        (opening: ReturnType<typeof heldOpening>) =>
+            opening.answer.reject(new Error("the realm did not answer")),
+    ],
+] as const) {
+    test(`a retry whose task is ${why} lets a stop sent meanwhile answer`, async (t) => {
+        const opening = heldOpening();
+        const agent = await wake(
+            t,
+            fakes({ realm: opening }).calls,
+            [failure("The model failed.")],
+            NO_RETRIES,
+        );
+        await told(agent, "Go");
+        const client = agent.by(from.client);
+        const retrying = agent.actions.retry(client, { id: "retry-1", to: 7 });
+        await opening.asked;
+
+        const stopping = agent.actions.stop(client, { id: "stop-1" });
+        fails(opening);
+
+        await assert.rejects(retrying);
+        assert.deepEqual(await stopping, { turns: 0 });
+    });
+}
 
 test("a retry cut off by a kill opens its task again under the client's request", async (t) => {
     let hangs = true;

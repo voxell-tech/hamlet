@@ -3,7 +3,8 @@ use hamlet_messages::realm::budget::{
 };
 use hamlet_messages::realm::documents::ReadCopies;
 use hamlet_messages::realm::models::{
-    Cause, Credential, KeepCredential, Kept, OauthLogin, TurnFailed,
+    Cause, Credential, KeepCredential, Kept, OauthLogin, Settings,
+    TurnFailed,
 };
 use hamlet_messages::realm::workers::{
     Ended, StartWorker, Started, WorkerDone,
@@ -38,6 +39,7 @@ fn oauth(access: &str) -> Kept {
 fn plain(key: &str) -> Kept {
     Kept::Key {
         key: key.to_owned(),
+        env: Settings::new(),
     }
 }
 

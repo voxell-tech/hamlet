@@ -18,7 +18,7 @@ use hamlet_messages::bytes::Sha256;
 use hamlet_messages::realm::Done;
 use hamlet_messages::realm::models::{
     Cause, Credential, CredentialAnswer, CredentialRefusal,
-    KeepCredential, Kept, OauthLogin, TurnFailed,
+    KeepCredential, Kept, OauthLogin, Settings, TurnFailed,
 };
 use hamlet_messages::workspace::{
     AgentNumber, ConversationId, RealmTask,
@@ -559,6 +559,11 @@ fn the_calls_about_the_model(fixtures: &mut Fixtures) {
         expires: 1_763_203_600,
         extra: Some("{\"account\":\"a1\"}".into()),
     };
+    let settings = || {
+        [("ACCOUNT_ID", "acc-1"), ("GATEWAY_ID", "gateway-1")]
+            .map(|(name, value)| (name.into(), value.into()))
+            .into()
+    };
     fixtures.args(
         "realm/credential",
         &Credential {
@@ -570,6 +575,14 @@ fn the_calls_about_the_model(fixtures: &mut Fixtures) {
             "key",
             CredentialAnswer::Key {
                 key: "sk-test".into(),
+                env: Settings::new(),
+            },
+        ),
+        (
+            "key.settings",
+            CredentialAnswer::Key {
+                key: "sk-test".into(),
+                env: settings(),
             },
         ),
         ("oauth", CredentialAnswer::Oauth { login: login() }),
@@ -589,6 +602,14 @@ fn the_calls_about_the_model(fixtures: &mut Fixtures) {
             "key",
             Kept::Key {
                 key: "sk-test".into(),
+                env: Settings::new(),
+            },
+        ),
+        (
+            "key.settings",
+            Kept::Key {
+                key: "sk-test".into(),
+                env: settings(),
             },
         ),
         ("oauth", Kept::Oauth { login: login() }),

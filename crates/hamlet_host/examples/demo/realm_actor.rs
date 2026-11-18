@@ -792,7 +792,10 @@ async fn as_agent(
         [verb, provider, key] if verb == "keep-credential" => {
             let keep = KeepCredential {
                 provider: provider.clone(),
-                value: models::Kept::Key { key: key.clone() },
+                value: models::Kept::Key {
+                    key: key.clone(),
+                    env: Default::default(),
+                },
             };
             forward(host, AgentNumber(me), &address::Realm, &keep)
                 .await?;

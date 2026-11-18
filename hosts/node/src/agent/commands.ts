@@ -54,9 +54,11 @@ type Answer<N extends keyof ClientActions> = Promise<
  * cut off before them sends them.
  */
 export async function stop(c: AgentCall): Answer<"stop"> {
-    const generation = generationOf(c);
-    const { options, peers } = generation;
-    generation.stopsBegun += 1;
+    const { options, peers, retrying } = generationOf(c);
+    // Today runs a chief's commands to one agent one after another
+    // (`crates/hamlet_server/src/commands.rs`), so a retry under way is
+    // stopped too.
+    await retrying;
     const stopped = await withHarness(c, options, async (harness, context) => {
         const each = await Promise.all(
             (await conversationsOf(harness, context)).map(async (id) => {
@@ -189,37 +191,48 @@ export async function retry(
     c: AgentCall,
     message: Retry,
 ): Promise<RetryAnswer> {
-    const requestId = `retry:${message.id}`;
     const generation = generationOf(c);
-    const { options, peers, inTurn } = generation;
-    return inTurn(async () => {
-        const conversation = await chiefSession(c);
-        const why = await withHarness(c, options, (harness, context) =>
-            refusedRetry(harness, conversation, requestId, context),
-        );
-        if (why === "admitted") return { type: "done" };
-        if (why !== undefined) return retryRefused(why);
-        const begun = generation.stopsBegun;
-        // The client's request, so a repeat after a kill opens no second task.
-        const opened = await peers.reach.open_task({
-            request: message.id,
-            turn: "retry",
-        });
-        if (opened.type === "refused") throw refused(opened.words);
-        if (generation.stopsBegun !== begun) return { type: "done" };
-        await submittedTo(
-            c,
-            conversation,
-            draftOf({
-                kind: "retry",
-                id: requestId,
-                // As `crates/hamlet_server/src/talk/chats.rs` words it.
-                content: "Carry on from where you stopped.",
-                task: opened.task,
-            }),
-        );
-        return { type: "done" };
+    const answered = generation.inTurn(() => retried(c, message));
+    // Set while the retry is still queued, so a stop sent after it waits
+    // for it and for every retry queued before it.
+    const settled = answered.then(
+        () => undefined,
+        () => undefined,
+    );
+    generation.retrying = settled;
+    void settled.then(() => {
+        if (generation.retrying === settled) generation.retrying = undefined;
     });
+    return answered;
+}
+
+async function retried(c: AgentCall, message: Retry): Promise<RetryAnswer> {
+    const requestId = `retry:${message.id}`;
+    const { options, peers } = generationOf(c);
+    const conversation = await chiefSession(c);
+    const why = await withHarness(c, options, (harness, context) =>
+        refusedRetry(harness, conversation, requestId, context),
+    );
+    if (why === "admitted") return { type: "done" };
+    if (why !== undefined) return retryRefused(why);
+    // The client's request, so a repeat after a kill opens no second task.
+    const opened = await peers.reach.open_task({
+        request: message.id,
+        turn: "retry",
+    });
+    if (opened.type === "refused") throw refused(opened.words);
+    await submittedTo(
+        c,
+        conversation,
+        draftOf({
+            kind: "retry",
+            id: requestId,
+            // As `crates/hamlet_server/src/talk/chats.rs` words it.
+            content: "Carry on from where you stopped.",
+            task: opened.task,
+        }),
+    );
+    return { type: "done" };
 }
 
 type RetryRefusal = "running" | "answered";

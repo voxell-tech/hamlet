@@ -369,7 +369,12 @@ export interface OauthLogin {
 }
 
 export type Kept =
-    | { readonly type: "key"; readonly key: string }
+    | {
+          readonly type: "key";
+          readonly key: string;
+          /** The key's settings, left out when it has none; not secrets. */
+          readonly env?: Readonly<Record<string, string>>;
+      }
     | { readonly type: "oauth"; readonly login: OauthLogin };
 
 export type CredentialAnswer =

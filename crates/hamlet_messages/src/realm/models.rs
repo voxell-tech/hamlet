@@ -1,6 +1,8 @@
 //! The agent's calls to the realm about its model: a provider's
 //! credential, and a turn the model or the budget ended.
 
+use std::collections::BTreeMap;
+
 use hamlet_actor::Action;
 use serde::{Deserialize, Serialize};
 
@@ -30,6 +32,8 @@ impl Message for Credential {
 pub enum CredentialAnswer {
     Key {
         key: String,
+        #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+        env: Settings,
     },
     Oauth {
         login: OauthLogin,
@@ -77,9 +81,19 @@ pub struct KeepCredential {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum Kept {
-    Key { key: String },
-    Oauth { login: OauthLogin },
+    Key {
+        key: String,
+        #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+        env: Settings,
+    },
+    Oauth {
+        login: OauthLogin,
+    },
 }
+
+/// A key's settings by name, such as the account a provider bills, as
+/// pi-ai keeps them beside the key. They are not secrets.
+pub type Settings = BTreeMap<String, String>;
 
 impl Action for KeepCredential {
     type Output = ();

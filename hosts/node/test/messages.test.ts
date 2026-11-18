@@ -11,6 +11,7 @@ import {
     fauxAssistantMessage,
     type Models,
     type MutableModels,
+    type ProviderEnv,
 } from "@earendil-works/pi-ai";
 import { ActorError, type Calls } from "../src/actor/actor/mod.ts";
 import { decodeCborCompat, decodeCborJsonCompat } from "../src/actor/serde.ts";
@@ -23,6 +24,7 @@ import {
     type Copies,
     type CredentialAnswer,
     type Done,
+    type Kept,
     type OauthLogin,
     REALM,
     readClient,
@@ -285,14 +287,29 @@ async function stopped(t: TestContext, calls: Calls): Promise<Woken> {
 /** The realm's login in the fixtures, which expired long ago. */
 const LOGIN = (answer("realm/credential.oauth") as { login: OauthLogin }).login;
 
-/** A stand-in for the provider the credential fixtures name, so no request leaves the host. */
-function anthropic(keysSeen: (string | undefined)[]) {
+/** The settings of the key in the fixtures with settings. */
+const SETTINGS = (
+    answer("realm/credential.key.settings") as { env: ProviderEnv }
+).env;
+
+/**
+ * A stand-in for the provider the credential fixtures name, so no request
+ * leaves the host. Its key sign-in gives `settings` with the key.
+ */
+function anthropic(
+    keysSeen: (string | undefined)[],
+    {
+        settings,
+        envsSeen,
+    }: { settings?: ProviderEnv; envsSeen?: unknown[] } = {},
+) {
     const core = createFauxCore({
         provider: "anthropic",
         models: [{ id: "claude-opus", name: "Claude Opus" }],
     });
     const answered: FauxResponseFactory = (_transcript, options) => {
         keysSeen.push(options?.apiKey);
+        envsSeen?.push(options?.env);
         return fauxAssistantMessage(LAST_WORDS);
     };
     core.setResponses([answered, answered]);
@@ -309,6 +326,7 @@ function anthropic(keysSeen: (string | undefined)[]) {
                         type: "secret",
                         message: "Paste your key.",
                     }),
+                    ...(settings === undefined ? {} : { env: settings }),
                 }),
                 resolve: async ({ credential }) =>
                     credential?.key === undefined
@@ -355,12 +373,12 @@ async function onAnthropic(
     return agent;
 }
 
-async function signedIn(t: TestContext, calls: Calls): Promise<Woken> {
-    const agent = await wakeAgent(t, {
-        calls,
-        input: HAND,
-        models: anthropic([]),
-    });
+async function signedIn(
+    t: TestContext,
+    calls: Calls,
+    models = anthropic([]),
+): Promise<Woken> {
+    const agent = await wakeAgent(t, { calls, input: HAND, models });
     const { login } = chatActions({
         ...agent.config,
         signIns: signIns(agent.config.models),
@@ -727,7 +745,15 @@ const WRITTEN: readonly Written[] = [
     },
     {
         fixture: "realm/keep_credential.key",
-        drive: signedIn,
+        drive: (t, calls) => signedIn(t, calls),
+        answers: {
+            realm: { keep_credential: () => answer("realm/keep_credential") },
+        },
+    },
+    {
+        fixture: "realm/keep_credential.key.settings",
+        drive: (t, calls) =>
+            signedIn(t, calls, anthropic([], { settings: SETTINGS })),
         answers: {
             realm: { keep_credential: () => answer("realm/keep_credential") },
         },
@@ -1125,6 +1151,41 @@ for (const name of answersTo("realm/reply")) {
         );
     });
 }
+
+test("a key signed in with settings reaches the model call with them after a restart, read from the realm", async (t) => {
+    let kept: Kept | undefined;
+    const { calls, sent } = fakeCalls({
+        realm: {
+            keep_credential: (message) => {
+                kept = (message as { value: Kept }).value;
+                return answer("realm/keep_credential");
+            },
+            credential: () =>
+                kept ?? answer("realm/credential.refused.not_signed_in"),
+        },
+    });
+    const keysSeen: (string | undefined)[] = [];
+    const envsSeen: unknown[] = [];
+    const first = await signedIn(
+        t,
+        calls,
+        anthropic(keysSeen, { settings: SETTINGS, envsSeen }),
+    );
+    assert.deepStrictEqual(kept, answer("realm/credential.key.settings"));
+    await first.stop();
+    const asked = named(sent, "credential").length;
+
+    const agent = await first.again();
+    t.after(() => agent.stop());
+    await agent.actions.copies(agent.by(from.realm), {
+        model: { version: 1, value: { model: "anthropic::claude-opus" } },
+    });
+    await say(agent, "Go.");
+
+    assert.ok(named(sent, "credential").length > asked, "the realm was asked");
+    assert.deepEqual(keysSeen, [KEY]);
+    assert.deepStrictEqual(envsSeen, [SETTINGS]);
+});
 
 test("realm/credential.refused.not_signed_in.answer fails the turn with its words, and no request is made", async (t) => {
     const given = answer("realm/credential.refused.not_signed_in") as Extract<

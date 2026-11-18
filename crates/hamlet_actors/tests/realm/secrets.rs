@@ -8,7 +8,7 @@ use hamlet_messages::realm::documents::{
 };
 use hamlet_messages::realm::models::{
     Credential, CredentialAnswer, CredentialRefusal, KeepCredential,
-    Kept, OauthLogin,
+    Kept, OauthLogin, Settings,
 };
 use hamlet_messages::realm::{Done, SecretList, Secrets};
 use hamlet_messages::sender::Hand;
@@ -32,7 +32,14 @@ fn stored(realm: &Realm) -> Value {
 fn key(key: &str) -> Kept {
     Kept::Key {
         key: key.to_owned(),
+        env: Settings::new(),
     }
+}
+
+fn settings() -> Settings {
+    [("ACCOUNT_ID", "acc-1"), ("GATEWAY_ID", "gateway-1")]
+        .map(|(name, value)| (name.to_owned(), value.to_owned()))
+        .into()
 }
 
 fn login(access: &str) -> OauthLogin {
@@ -227,7 +234,8 @@ async fn a_credential_is_given_only_to_an_agent() {
     assert_eq!(
         given,
         CredentialAnswer::Key {
-            key: "sk-a".to_owned()
+            key: "sk-a".to_owned(),
+            env: Settings::new(),
         }
     );
     assert_eq!(
@@ -242,6 +250,75 @@ async fn a_credential_is_given_only_to_an_agent() {
     assert!(
         realm.call_as_workspace(&asked).await.is_err(),
         "the workspace is refused"
+    );
+    realm.host.shutdown().await.unwrap();
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn a_key_is_kept_and_given_back_with_its_settings() {
+    let realm = Realm::start().await;
+    let with_settings = Kept::Key {
+        key: "sk-a".to_owned(),
+        env: settings(),
+    };
+    keep(&realm, "cloudflare", with_settings).await;
+    let realm = realm.restart().await;
+
+    let given = credential(&realm, Hand::NUMBER, "cloudflare").await;
+    let list: SecretList =
+        realm.call_as_workspace(&Secrets).await.unwrap();
+
+    assert_eq!(
+        given,
+        CredentialAnswer::Key {
+            key: "sk-a".to_owned(),
+            env: settings(),
+        }
+    );
+    assert_eq!(
+        stored(&realm)["models"]["cloudflare"],
+        json!({
+            "type": "api_key",
+            "key": "sk-a",
+            "env": { "ACCOUNT_ID": "acc-1", "GATEWAY_ID": "gateway-1" },
+        })
+    );
+    assert!(list.values.iter().any(|held| held == "sk-a"));
+    for setting in ["acc-1", "gateway-1"] {
+        assert!(
+            !list.values.iter().any(|held| held == setting),
+            "a setting is not a secret"
+        );
+    }
+    realm.host.shutdown().await.unwrap();
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn a_stored_key_of_settings_alone_reads_with_an_empty_key() {
+    let mut file = todays_file();
+    file["models"]["bedrock"] = json!({ "type": "api_key", "env": { "AWS_PROFILE": "work" } });
+    file["models"]["blank"] = json!({ "type": "api_key" });
+    let realm = moved_over(Realm::start().await, &file).await;
+
+    let given = credential(&realm, Hand::NUMBER, "bedrock").await;
+    let blank = credential(&realm, Hand::NUMBER, "blank").await;
+
+    assert_eq!(
+        given,
+        CredentialAnswer::Key {
+            key: String::new(),
+            env: [("AWS_PROFILE".to_owned(), "work".to_owned())]
+                .into(),
+        }
+    );
+    assert_eq!(
+        blank,
+        CredentialAnswer::Refused {
+            why: CredentialRefusal::NotSignedIn {
+                provider: "blank".to_owned()
+            }
+        },
+        "a key of neither a key nor settings is none"
     );
     realm.host.shutdown().await.unwrap();
 }
@@ -268,7 +345,8 @@ async fn a_file_from_todays_server_reads_as_an_agent_keeps_it() {
     assert_eq!(
         api_key,
         CredentialAnswer::Key {
-            key: "sk-today".to_owned()
+            key: "sk-today".to_owned(),
+            env: Settings::new(),
         }
     );
     realm.host.shutdown().await.unwrap();
@@ -501,7 +579,8 @@ async fn a_removed_endpoint_forgets_its_key() {
     assert_eq!(
         credential(&realm, Hand::NUMBER, "kept").await,
         CredentialAnswer::Key {
-            key: "sk-kept".to_owned()
+            key: "sk-kept".to_owned(),
+            env: Settings::new(),
         }
     );
     assert_eq!(stored(&realm)["models"].get("mine"), None);

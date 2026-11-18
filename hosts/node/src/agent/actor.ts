@@ -413,7 +413,11 @@ export interface Generation {
      * current session and then writes by it runs here.
      */
     readonly inTurn: <T>(work: () => Promise<T>) => Promise<T>;
-    stopsBegun: number;
+    /**
+     * Settles once the last retry sent, queued or under way, is admitted
+     * or has failed. A stop waits for it, so it stops the retry's turn too.
+     */
+    retrying: Promise<void> | undefined;
     /** Absent for an errand, which is offered no tool. */
     readonly builtIns?: BuiltIns;
 }
@@ -492,7 +496,7 @@ async function wake(c: AgentContext, config: AgentConfig): Promise<void> {
         copies,
         following: follow,
         inTurn: oneAfterAnother(),
-        stopsBegun: 0,
+        retrying: undefined,
         ...(builtIns === undefined ? {} : { builtIns }),
     };
     watching(c, follow);

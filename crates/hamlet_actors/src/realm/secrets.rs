@@ -12,7 +12,7 @@ use hamlet_messages::address::Agent;
 use hamlet_messages::realm::documents::RemoteWorkspace;
 use hamlet_messages::realm::models::{
     Credential, CredentialAnswer, CredentialRefusal, KeepCredential,
-    Kept, OauthLogin,
+    Kept, OauthLogin, Settings,
 };
 use hamlet_messages::realm::{SecretList, Secrets};
 use hamlet_messages::sender::{Hand, Scrubber, sender};
@@ -144,23 +144,33 @@ impl Held {
         self.held().stored.version
     }
 
-    fn keep(&self, keep: &KeepCredential) -> Result<()> {
+    /// Keeps `keep` as `by` sent it. A caller other than the Hand may
+    /// only replace its provider's OAuth login with another, and is
+    /// refused as a wrong caller otherwise.
+    fn keep(&self, keep: &KeepCredential, by: Agent) -> Result<()> {
         let value = saved(&keep.value)?;
         self.change(|stored| {
             let models = &mut stored.models;
-            let value = match models.get(&keep.provider) {
+            let before = models.get(&keep.provider);
+            let refreshes = matches!(keep.value, Kept::Oauth { .. })
+                && before
+                    .is_some_and(|before| before["type"] == "oauth");
+            if by.0 != Hand::NUMBER && !refreshes {
+                callers::refuse(KeepCredential::NAME, by)?;
+            }
+            let value = match before {
                 Some(before) => unchanged_expiry(before, value),
                 None => value,
             };
             let before = models.insert(keep.provider.clone(), value);
             let value = &models[&keep.provider];
-            (before.as_ref() != Some(value)).then(|| {
+            Ok((before.as_ref() != Some(value)).then(|| {
                 before
                     .iter()
                     .flat_map(secrets)
                     .map(str::to_owned)
                     .collect()
-            })
+            }))
         })
     }
 
@@ -183,18 +193,6 @@ impl Held {
         }
     }
 
-    /// Whether `keep` is an OAuth login in place of the stored login
-    /// of its provider.
-    fn refreshes(&self, keep: &KeepCredential) -> bool {
-        matches!(keep.value, Kept::Oauth { .. })
-            && self
-                .held()
-                .stored
-                .models
-                .get(&keep.provider)
-                .is_some_and(|stored| stored["type"] == "oauth")
-    }
-
     /// Keeps `workspace` as the chosen one; `None` takes it away.
     pub fn choose_workspace(
         &self,
@@ -203,12 +201,12 @@ impl Held {
         self.change(|stored| {
             let before =
                 std::mem::replace(&mut stored.workspace, workspace);
-            (before != stored.workspace).then(|| {
+            Ok((before != stored.workspace).then(|| {
                 before
                     .map(|before| before.token)
                     .into_iter()
                     .collect()
-            })
+            }))
         })
     }
 
@@ -218,27 +216,27 @@ impl Held {
                 .iter()
                 .filter_map(|provider| stored.models.remove(provider))
                 .collect::<Vec<_>>();
-            (!dropped.is_empty()).then(|| {
+            Ok((!dropped.is_empty()).then(|| {
                 dropped
                     .iter()
                     .flat_map(secrets)
                     .map(str::to_owned)
                     .collect()
-            })
+            }))
         })
     }
 
     /// Writes the file whole with what `change` makes of it, then
     /// holds it. `change` answers the values it replaced, or `None`
-    /// when it changed nothing, which keeps the version. The caller
-    /// makes changes one at a time.
+    /// when it changed nothing, which keeps the version; an error
+    /// writes nothing. The caller makes changes one at a time.
     fn change(
         &self,
-        change: impl FnOnce(&mut Stored) -> Option<Vec<String>>,
+        change: impl FnOnce(&mut Stored) -> Result<Option<Vec<String>>>,
     ) -> Result<()> {
         let mut held = self.held();
         let mut stored = held.stored.clone();
-        let retired = change(&mut stored);
+        let retired = change(&mut stored)?;
         if retired.is_some() {
             stored.version = SecretsVersion(stored.version.0 + 1);
         }
@@ -268,9 +266,25 @@ fn unchanged_expiry(before: &Value, mut kept: Value) -> Value {
 /// The credential as the agent reads it; `None` for one it cannot.
 fn given(value: &Value) -> Option<CredentialAnswer> {
     match value["type"].as_str()? {
-        "api_key" => Some(CredentialAnswer::Key {
-            key: value["key"].as_str()?.to_owned(),
-        }),
+        "api_key" => {
+            let env: Settings = match value.get("env") {
+                Some(env) => {
+                    serde_json::from_value(env.clone()).ok()?
+                }
+                None => Settings::new(),
+            };
+            let key = match value["key"].as_str() {
+                Some(key) => key,
+                // A key of settings alone has none, as pi-ai keeps
+                // it.
+                None if !env.is_empty() => "",
+                None => return None,
+            };
+            Some(CredentialAnswer::Key {
+                key: key.to_owned(),
+                env,
+            })
+        }
         "oauth" => {
             let mut extra = value.as_object()?.clone();
             extra.retain(|field, _| {
@@ -297,7 +311,12 @@ fn given(value: &Value) -> Option<CredentialAnswer> {
 /// beside the others, its expiry in milliseconds.
 fn saved(kept: &Kept) -> Result<Value> {
     Ok(match kept {
-        Kept::Key { key } => json!({ "type": "api_key", "key": key }),
+        Kept::Key { key, env } if env.is_empty() => {
+            json!({ "type": "api_key", "key": key })
+        }
+        Kept::Key { key, env } => {
+            json!({ "type": "api_key", "key": key, "env": env })
+        }
         Kept::Oauth { login } => {
             let mut fields = match &login.extra {
                 Some(extra) => match serde_json::from_str(extra)? {
@@ -390,12 +409,9 @@ impl Handler<KeepCredential> for Realm {
             &[Life::Living],
         )
         .await?;
-        if by.0 != Hand::NUMBER && !self.secrets.refreshes(&keep) {
-            return callers::refuse(KeepCredential::NAME, by);
-        }
         let tx = change::Transaction::begin(&ctx).await?;
         let raises = raises(&tx.rows()).await?;
-        self.secrets.keep(&keep)?;
+        self.secrets.keep(&keep, by)?;
         commit(&self, &ctx, tx, raises).await
     }
 }
@@ -453,18 +469,60 @@ mod tests {
 
         let held =
             Held::load(&folder, Some(token.to_owned())).unwrap();
-        held.keep(&KeepCredential {
-            provider: "anthropic".to_owned(),
-            value: Kept::Key {
-                key: "sk-made-up".to_owned(),
+        held.keep(
+            &KeepCredential {
+                provider: "anthropic".to_owned(),
+                value: Kept::Key {
+                    key: "sk-made-up".to_owned(),
+                    env: Settings::new(),
+                },
             },
-        })
+            Agent(Hand::NUMBER),
+        )
         .unwrap();
         let file =
             std::fs::read_to_string(folder.join(FILE)).unwrap();
 
         assert!(held.list().values.contains(&token.to_owned()));
         assert!(!file.contains(token));
+    }
+
+    /// A hire's refresh that reaches the file just after the Hand's
+    /// key, as one sent while the Hand signs in does.
+    #[test]
+    fn a_hires_refresh_after_the_hands_key_is_refused_and_the_key_stays()
+     {
+        let folder = hamlet_testing::Scratch::new("secrets-race");
+        let held = Held::load(&folder, None).unwrap();
+        let keep = |value| KeepCredential {
+            provider: "chatgpt".to_owned(),
+            value,
+        };
+        let login = |access: &str| Kept::Oauth {
+            login: OauthLogin {
+                access: access.to_owned(),
+                refresh: format!("{access}-refresh"),
+                expires: 1_700_000_000,
+                extra: None,
+            },
+        };
+        let hand = Agent(Hand::NUMBER);
+        held.keep(&keep(login("one")), hand).unwrap();
+        held.keep(
+            &keep(Kept::Key {
+                key: "sk-made-up".to_owned(),
+                env: Settings::new(),
+            }),
+            hand,
+        )
+        .unwrap();
+        let before = std::fs::read(folder.join(FILE)).unwrap();
+
+        let refreshed = held.keep(&keep(login("two")), Agent(HIRE));
+
+        assert!(refreshed.is_err(), "the refresh is refused");
+        assert_eq!(std::fs::read(folder.join(FILE)).unwrap(), before);
+        assert!(!held.list().values.contains(&"two".to_owned()));
     }
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
@@ -492,9 +550,14 @@ mod tests {
                 provider: "p".to_owned(),
                 value: Kept::Key {
                     key: format!("k{n}"),
+                    env: Settings::new(),
                 },
             };
-            started.realm.secrets.keep(&keep).unwrap();
+            started
+                .realm
+                .secrets
+                .keep(&keep, Agent(Hand::NUMBER))
+                .unwrap();
             commit(&started.realm, &started.ctx, tx, raises)
                 .await
                 .unwrap();
