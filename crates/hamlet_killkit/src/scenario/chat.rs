@@ -1,58 +1,38 @@
 //! The agent's chat features across a kill: a compaction, `/new` and
-//! `/retry`. Each scenario's first line is a `pi` command, which
-//! fails unless `HAMLET_DEMO_AGENT` is `pi`.
-//!
-//! `chat-compact` needs `HAMLET_DEMO_FAUX` to name a file that holds
-//! this faux script. Its model's window makes the third long line's
-//! turn compact. Its answers are short, so the summary is too, and a
-//! restarted Node host, which begins the script again, answers the
-//! restarts' lines with the first two.
-//!
-//! ```json
-//! {
-//!   "models": [{ "id": "faux-compact", "window": 16000 }],
-//!   "responses": [
-//!     "Noted.",
-//!     "Noted.",
-//!     "Summary: the chief said two long lines of filler.",
-//!     { "calls": [{ "name": "tell",
-//!       "arguments": { "to": "hire#2", "text": "after the summary" } }] }
-//!   ]
-//! }
-//! ```
+//! `/retry`, on the real agent against the realm actor.
 
-use super::{Demo, Expect, Is, Kill, Probe, Read, Scenario};
+use super::agent::{TELL_RESULTS, TELLS_CUT_OFF, hand};
+use super::realm::{HAND_CHARGES, MAYOR_LINE_TASKS};
+use super::{Demo, Expect, Is, Kill, Probe, Read, Scenario, exactly};
 
-const NODE_PID: &str = "node/pid";
+/// `chat-compact`'s faux script. Its model's window makes the third
+/// long line's turn compact. Its answers are short, so the summary is
+/// too, and a restarted Node host, which begins the script again,
+/// answers the restarts' requests with the first steps.
+const COMPACT_SCRIPT: &str = r#"{
+  "models": [{ "id": "faux-compact", "window": 16000 }],
+  "responses": [
+    "Noted.",
+    "Noted.",
+    "Summary: the chief said two long lines of filler.",
+    { "calls": [{ "name": "tell",
+      "arguments": { "to": "hire#2", "text": "after the summary" } }] }
+  ]
+}"#;
 
-const fn agent(name: &'static str, sql: &'static str) -> Probe {
-    Probe {
-        name,
-        file: "actors/agent/1.sqlite",
-        read: Read::Sql(sql),
-    }
-}
-
-const fn exactly(value: &'static str, n: i64) -> Expect {
-    Expect {
-        value,
-        is: Is::Exactly(n),
-    }
-}
-
-const COMPACTIONS: Probe = agent(
+const COMPACTIONS: Probe = hand(
     "agent.compactions",
     "SELECT COUNT(*) FROM pi_entries WHERE record ->> '$.kind' = \
      'pi.compaction'",
 );
 
-const LINES: Probe = agent(
+const LINES: Probe = hand(
     "agent.lines",
     "SELECT COUNT(*) FROM pi_entries WHERE record ->> '$.kind' = \
      'hamlet.line'",
 );
 
-const ANSWERS: Probe = agent(
+const ANSWERS: Probe = hand(
     "agent.answers",
     "SELECT COUNT(*) FROM pi_entries WHERE record ->> '$.kind' = \
      'pi.assistant'",
@@ -60,9 +40,9 @@ const ANSWERS: Probe = agent(
 
 /// Answers after the summary, in the conversation it summarised,
 /// whose request held the summary and the two long lines it kept:
-/// about 25,500 tokens with the prompt's 2,900. The first long line
-/// too would make it about 36,700.
-const ANSWERS_ON_SUMMARY: Probe = agent(
+/// about 26,100 tokens with the prompt's 3,500. The first long line
+/// too would make it about 37,400.
+const ANSWERS_ON_SUMMARY: Probe = hand(
     "agent.answers_on_summary",
     "SELECT COUNT(*) FROM pi_entries AS answer JOIN pi_entries AS \
      summary ON summary.conversation_id = answer.conversation_id \
@@ -72,35 +52,19 @@ const ANSWERS_ON_SUMMARY: Probe = agent(
      '$.model[0].usage.totalTokens' BETWEEN 20000 AND 30000",
 );
 
-const TELL_RESULTS: Probe = agent(
-    "agent.tell_results",
-    "SELECT COUNT(*) FROM pi_entries WHERE record ->> '$.kind' = \
-     'pi.tool-result' AND record ->> '$.model[0].toolName' = 'tell'",
-);
-
-/// A `tell` result the model was told was interrupted: a repeat the
-/// realm refused, rather than answered from what it kept.
-const TELLS_CUT_OFF: Probe = agent(
-    "agent.tells_cut_off",
-    "SELECT COUNT(*) FROM pi_entries WHERE record ->> '$.kind' = \
-     'pi.tool-result' AND record ->> '$.model[0].toolName' = 'tell' \
-     AND record ->> '$.data.diagnostics[0].code' = \
-     'tool_interrupted'",
-);
-
-const SESSIONS: Probe = agent(
+const SESSIONS: Probe = hand(
     "agent.sessions",
     "SELECT COUNT(*) FROM chat WHERE kind = 'chief'",
 );
 
-const NEW_NOTICES: Probe = agent(
+const NEW_NOTICES: Probe = hand(
     "agent.new_notices",
     "SELECT COUNT(*) FROM pi_entries WHERE record ->> '$.kind' = \
      'hamlet.notice' AND record ->> '$.data.text' = 'Started a new \
      session.'",
 );
 
-const LINES_IN_NEW: Probe = agent(
+const LINES_IN_NEW: Probe = hand(
     "agent.lines_in_new",
     "SELECT COUNT(*) FROM pi_entries JOIN chat ON chat.conversation \
      = pi_entries.conversation_id WHERE chat.kind = 'chief' AND \
@@ -108,7 +72,7 @@ const LINES_IN_NEW: Probe = agent(
      = 'hamlet.line'",
 );
 
-const ANSWERS_IN_NEW: Probe = agent(
+const ANSWERS_IN_NEW: Probe = hand(
     "agent.answers_in_new",
     "SELECT COUNT(*) FROM pi_entries JOIN chat ON chat.conversation \
      = pi_entries.conversation_id WHERE chat.kind = 'chief' AND \
@@ -116,60 +80,95 @@ const ANSWERS_IN_NEW: Probe = agent(
      = 'pi.assistant'",
 );
 
-const RETRIES: Probe = agent(
+/// The reflections the session `/new` left asked for.
+const REFLECTIONS: Probe = hand(
+    "agent.reflections",
+    "SELECT COUNT(*) FROM pi_entries WHERE record ->> '$.kind' = \
+     'hamlet.reflection'",
+);
+
+const fn mayor(name: &'static str, sql: &'static str) -> Probe {
+    Probe {
+        name,
+        file: "actors/agent/2.sqlite",
+        read: Read::Sql(sql),
+    }
+}
+
+const RETRIES: Probe = mayor(
     "agent.retries",
     "SELECT COUNT(*) FROM pi_entries WHERE record ->> '$.kind' = \
      'hamlet.retry'",
 );
 
-const RETRIES_ANSWERED: Probe = agent(
+const RETRIES_ANSWERED: Probe = mayor(
     "agent.retries_answered",
     "SELECT COUNT(*) FROM pi_entries WHERE record ->> '$.kind' = \
      'pi.assistant' AND record ->> '$.model[0].content[0].text' = \
      'Heard: Carry on from where you stopped.'",
 );
 
+const MAYOR_CHARGES: Probe = Probe {
+    name: "realm.charges/2",
+    file: "actors/realm/local.sqlite",
+    read: Read::Sql("SELECT COUNT(*) FROM charge WHERE agent = 2"),
+};
+
+/// The tasks the realm opened for a retry.
+const RETRY_TASKS: Probe = Probe {
+    name: "realm.retry_tasks",
+    file: "actors/realm/local.sqlite",
+    read: Read::Sql(
+        "SELECT COUNT(*) FROM task WHERE origin = 'retry'",
+    ),
+};
+
 /// Charged: 3 long lines, the summary, the post-tell request, a line
 /// per restart. Answered: all but the summary, 2 before it.
 const fn compacted_once(n: i64) -> [Expect; 9] {
     [
-        exactly("charges/1", 5 + n),
-        exactly("calls/tell", 2),
-        exactly("acts/tell", 1),
+        exactly("took/2/letter", 1),
+        exactly("realm.charges/1", 5 + n),
         exactly("agent.compactions", 1),
         exactly("agent.lines", 3 + n),
         exactly("agent.answers", 4 + n),
         exactly("agent.answers_on_summary", 2 + n),
         exactly("agent.tell_results", 1),
         exactly("agent.tells_cut_off", 0),
+        exactly("agent.reflections", 0),
     ]
 }
 
-/// After restart `n`, each saying one line in the new session.
-const fn new_once(n: i64) -> [Expect; 6] {
+/// After restart `n`, each saying one line in the new session: the
+/// line before `/new`, the reflection it asked of the session it
+/// left, and a line per restart.
+const fn new_once(n: i64) -> [Expect; 7] {
     [
-        exactly("charges/1", 1 + n),
-        exactly("calls/lapse", 1),
+        exactly("realm.charges/1", 2 + n),
+        exactly("agent.reflections", 1),
         exactly("agent.sessions", 2),
         exactly("agent.new_notices", 1),
         exactly("agent.lines_in_new", n),
         exactly("agent.answers_in_new", n),
+        Expect {
+            value: "new/1",
+            is: Is::Absent,
+        },
     ]
 }
 
-/// The cut-off retry's `open_task` and the one of the retry the
-/// first restart asks again.
+/// The retry the first restart asks again, answered once.
 const fn retried_once(again: Is) -> [Expect; 6] {
     [
         Expect {
-            value: "retry/1",
+            value: "retry/2",
             is: again,
         },
-        exactly("calls/open_task", 2),
-        exactly("calls/turn_failed", 1),
-        exactly("charges/1", 1),
+        exactly("realm.retry_tasks", 1),
+        exactly("realm.charges/2", 1),
         exactly("agent.retries", 1),
         exactly("agent.retries_answered", 1),
+        exactly("realm.line_tasks/2", 1),
     ]
 }
 
@@ -202,29 +201,32 @@ const fn text(line: &'static [u8]) -> &'static str {
     }
 }
 
-const FIRST: &str = text(&long_line("pi say 1 first: "));
-const SECOND: &str = text(&long_line("pi say 1 second: "));
-const THIRD: &str = text(&long_line("pi say 1 third: "));
+const FIRST: &str = text(&long_line("realm say 1 l1 first: "));
+const SECOND: &str = text(&long_line("realm say 1 l2 second: "));
+const THIRD: &str = text(&long_line("realm say 1 l3 third: "));
 
 pub const SCENARIOS: &[Scenario] = &[
     Scenario {
         name: "chat-compact",
-        about: "with HAMLET_DEMO_FAUX naming the faux script of \
-                chat.rs, the agent's third long line compacts its \
-                conversation, and the stand-in realm kills the Node \
-                host once it kept the tell the model asks for after \
-                the summary; the next Node host's start resumes the \
-                turn at the cut-off tell, the conversation goes on \
-                after its one summary, and no entry is kept twice",
-        demo: Demo::Linked { pid: NODE_PID },
+        about: "the agent's third long line compacts its \
+                conversation, and the Node host kills itself once \
+                the realm answered the tell the model asks for \
+                after the summary; the next Node host's start \
+                resumes the turn at the cut-off tell, the \
+                conversation goes on after its one summary, and no \
+                entry is kept twice",
+        demo: Demo::RealmActor {
+            faux: Some(COMPACT_SCRIPT),
+        },
         setup: &[
-            "pi make 1",
+            "realm found h1",
+            "realm live 2",
             "pi pid",
-            "pi die-in-tell",
+            "pi die-after tell",
             FIRST,
-            "pi charges 1 1 20000",
+            "until 1 1 assistant: Noted.",
             SECOND,
-            "pi charges 1 2 20000",
+            "until 1 2 assistant: Noted.",
         ],
         trigger: THIRD,
         trigger_replies: true,
@@ -233,66 +235,75 @@ pub const SCENARIOS: &[Scenario] = &[
         due: None,
         restart: [
             &[
+                "pi pid",
+                "pi pid",
                 // The next Node host's answer after the tell's
-                // result.
-                "pi charges 1 5 30000",
-                "pi say 1 after",
-                "pi charges 1 6 30000",
-                "pi recorded",
+                // result, and the mayor's to the letter.
+                "until 1 3 assistant: Noted.",
+                "agent 2 await letter 1",
+                "until 2 1 assistant: Noted.",
+                "realm say 1 a1 after",
+                "until 1 1 assistant: Summary:",
                 "pi pid",
             ],
             &[
-                "pi say 1 once more",
-                "pi charges 1 7 30000",
-                "pi recorded",
+                "pi pid",
+                "agent 2 await letter 1",
+                "realm say 1 a2 once more",
+                "until 1 4 assistant: Noted.",
                 "pi pid",
             ],
         ],
         probes: &[
+            HAND_CHARGES,
             COMPACTIONS,
             LINES,
             ANSWERS,
             ANSWERS_ON_SUMMARY,
             TELL_RESULTS,
             TELLS_CUT_OFF,
+            REFLECTIONS,
         ],
         expect: [&compacted_once(1), &compacted_once(2)],
     },
     Scenario {
         name: "chat-new",
-        about: "kill the demo host inside the agent's /new, once \
-                the new session and its notice are kept, as it \
-                tells the realm the session it left has ended; \
-                nothing asks /new again, and after each restart the \
-                agent has two sessions, the notice once, and the \
-                restart's line answered in the new session",
-        demo: Demo::Linked { pid: NODE_PID },
+        about: "kill the demo host once the agent's /new kept the \
+                new session and its notice, as the reflection it \
+                asks of the session it left opens its task; nothing \
+                asks /new again, and after each restart the agent \
+                has two sessions, the notice once, one reflection, \
+                and the restart's line answered in the new session",
+        demo: Demo::RealmActor { faux: None },
         setup: &[
-            "pi make 1",
+            "realm live 1",
             "pi pid",
-            "pi say 1 hello",
-            "pi charges 1 1 20000",
+            "realm say 1 s1 hello",
+            "until 1 1 assistant: Heard: hello",
         ],
         trigger: "pi new 1",
         trigger_replies: false,
-        kill: Kill::Fault("called/lapse"),
+        kill: Kill::Fault("called/open_task"),
         down_ms: 0,
         due: None,
         restart: [
             &[
-                "pi say 1 again",
-                "pi charges 1 2 30000",
-                "pi recorded",
+                "pi pid",
+                "until 1 1 assistant: Heard: Reflection",
+                "realm say 1 s2 again",
+                "until 1 1 assistant: Heard: again",
                 "pi pid",
             ],
             &[
-                "pi say 1 once more",
-                "pi charges 1 3 30000",
-                "pi recorded",
+                "pi pid",
+                "realm say 1 s3 once more",
+                "until 1 1 assistant: Heard: once more",
                 "pi pid",
             ],
         ],
         probes: &[
+            HAND_CHARGES,
+            REFLECTIONS,
             SESSIONS,
             NEW_NOTICES,
             LINES_IN_NEW,
@@ -302,39 +313,44 @@ pub const SCENARIOS: &[Scenario] = &[
     },
     Scenario {
         name: "chat-retry",
-        about: "kill the demo host inside the agent's /retry of a \
-                turn the realm's budget failed, while it waits for \
-                the realm's open_task; nothing makes the call again \
-                and no retry input is kept, the chief's /retry at \
-                the first restart is admitted, and after each \
-                restart the agent holds one retry input and its \
-                answer",
-        demo: Demo::Linked { pid: NODE_PID },
+        about: "kill the demo host inside the mayor's /retry of a \
+                turn its hamlet's spent budget failed, while it \
+                waits for the realm's open_task; nothing makes the \
+                call again and no retry input is kept, the chief's \
+                /retry at the first restart is admitted, and after \
+                each restart the mayor holds one retry input and \
+                its answer",
+        demo: Demo::RealmActor { faux: None },
         setup: &[
-            "pi make 1",
+            "realm found h1",
+            "realm live 2",
             "pi pid",
-            "pi refuse on",
-            "pi say 1 hello",
-            // No charge comes: this waits out its 10 s, far past the
-            // refused turn's failure.
-            "pi charges 1 1 10000",
-            "pi refuse off",
+            "realm budget h1 0",
+            "realm say 2 s1 hello",
+            "until 2 1 assistant: failed:",
+            "realm budget h1 1000000",
         ],
-        trigger: "pi retry 1",
+        trigger: "pi retry 2",
         trigger_replies: false,
         kill: Kill::Fault("called/open_task"),
         down_ms: 0,
         due: None,
         restart: [
             &[
-                "pi answered retry 1",
-                "pi charges 1 1 30000",
-                "pi recorded",
+                "pi pid",
+                "pi answered retry 2",
+                "until 2 1 assistant: Heard: Carry on",
                 "pi pid",
             ],
-            &["pi charges 1 1 3000", "pi recorded", "pi pid"],
+            &["pi pid", "pi pid"],
         ],
-        probes: &[RETRIES, RETRIES_ANSWERED],
+        probes: &[
+            RETRIES,
+            RETRIES_ANSWERED,
+            MAYOR_CHARGES,
+            RETRY_TASKS,
+            MAYOR_LINE_TASKS,
+        ],
         expect: [
             &retried_once(Is::Exactly(1)),
             &retried_once(Is::Absent),

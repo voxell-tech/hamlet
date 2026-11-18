@@ -3,11 +3,12 @@
 //! host, kills it with SIGKILL at the scenario's fault point or at a
 //! random time, or has the Node host kill itself at a step of an
 //! action, restarts twice, and prints one line with the state before
-//! the kill and after each restart. It exits non-zero when any run
-//! fails its scenario.
+//! the kill and after each restart. With no scenario named, it runs
+//! every one in turn. It exits non-zero when any run fails its
+//! scenario.
 //!
 //! ```text
-//! hamlet_killkit <scenario> [--runs <n>] [--demo <path>] [--keep]
+//! hamlet_killkit [<scenario>] [--runs <n>] [--demo <path>] [--keep]
 //! hamlet_killkit --list
 //! ```
 //!
@@ -52,13 +53,13 @@ fn main() -> ExitCode {
 }
 
 struct Options {
-    scenario: &'static Scenario,
+    scenarios: Vec<&'static Scenario>,
     runs: u32,
     demo: PathBuf,
     keep: bool,
 }
 
-/// Runs the scenario the arguments name. Returns whether every run
+/// Runs the scenarios the arguments name. Returns whether every run
 /// passed.
 fn run() -> Result<bool> {
     let mut out = std::io::stdout();
@@ -76,40 +77,58 @@ fn run() -> Result<bool> {
     );
     let parent = std::env::temp_dir().join("hamlet-killkit");
     private_dir(&parent)?;
+    let mut every = true;
+    for scenario in &options.scenarios {
+        every &= run_scenario(scenario, &options, &parent, &mut out)?;
+    }
+    Ok(every)
+}
+
+/// Runs `scenario` as many times as `options` says, each in a folder
+/// of its own under `parent`. Returns whether every run passed.
+fn run_scenario(
+    scenario: &Scenario,
+    options: &Options,
+    parent: &Path,
+    out: &mut impl Write,
+) -> Result<bool> {
     let base = fresh_dir(
-        &parent,
-        &format!("{}-{}", options.scenario.name, std::process::id()),
+        parent,
+        &format!("{}-{}", scenario.name, std::process::id()),
     )?;
     let mut passed = 0;
     for n in 1..=options.runs {
         let dir = base.join(format!("run-{n}"));
-        let line =
-            match run_once(options.scenario, &options.demo, &dir) {
-                Ok(report) => {
-                    let failures = report.failures(options.scenario);
-                    let verdict = if failures.is_empty() {
-                        passed += 1;
-                        "pass".to_owned()
-                    } else {
-                        format!("FAIL ({})", failures.join("; "))
-                    };
-                    if failures.is_empty() && !options.keep {
-                        std::fs::remove_dir_all(&dir).with_context(
-                            || format!("remove {}", dir.display()),
-                        )?;
-                    }
-                    format!("{verdict} | {}", report.describe())
+        let line = match run_once(scenario, &options.demo, &dir) {
+            Ok(report) => {
+                let failures = report.failures(scenario);
+                let verdict = if failures.is_empty() {
+                    passed += 1;
+                    "pass".to_owned()
+                } else {
+                    format!("FAIL ({})", failures.join("; "))
+                };
+                if failures.is_empty() && !options.keep {
+                    std::fs::remove_dir_all(&dir).with_context(
+                        || format!("remove {}", dir.display()),
+                    )?;
                 }
-                Err(error) => {
-                    format!("FAIL ({error:#}) | {}", dir.display())
-                }
-            };
-        writeln!(out, "run {n}/{}: {line}", options.runs)?;
+                format!("{verdict} | {}", report.describe())
+            }
+            Err(error) => {
+                format!("FAIL ({error:#}) | {}", dir.display())
+            }
+        };
+        writeln!(
+            out,
+            "{} run {n}/{}: {line}",
+            scenario.name, options.runs
+        )?;
     }
     writeln!(
         out,
         "{}: {passed} of {} runs passed",
-        options.scenario.name, options.runs
+        scenario.name, options.runs
     )?;
     // Kept runs stay inside the kit's folder, which then is not
     // empty and stays too.
@@ -148,16 +167,16 @@ fn options(
             other => bail!("unknown argument `{other}`"),
         }
     }
-    let name = name.context(
-        "name a scenario, or pass --list to see them: \
-         hamlet_killkit <scenario> [--runs <n>] [--demo <path>] \
-         [--keep]",
-    )?;
-    let scenario = scenario::all()
-        .find(|scenario| scenario.name == name)
-        .ok_or_else(|| {
-            anyhow!("no scenario `{name}`; --list lists them")
-        })?;
+    let scenarios = match name {
+        None => scenario::all().collect(),
+        Some(name) => vec![
+            scenario::all()
+                .find(|scenario| scenario.name == name)
+                .ok_or_else(|| {
+                    anyhow!("no scenario `{name}`; --list lists them")
+                })?,
+        ],
+    };
     let demo = match demo {
         Some(demo) => demo,
         None => std::env::current_exe()?
@@ -167,7 +186,7 @@ fn options(
             .join(format!("demo{}", std::env::consts::EXE_SUFFIX)),
     };
     Ok(Some(Options {
-        scenario,
+        scenarios,
         runs,
         demo,
         keep,
@@ -309,27 +328,50 @@ fn run_once(
         Kill::Fault(point) => Some((point, faults.as_path())),
         Kill::After { .. } | Kill::NodeHost => None,
     };
-    let mut host = Host::start(
-        demo,
-        &scenario.demo,
-        &home,
-        fault,
-        &dir.join("host.log"),
-    )?;
+    let faux = match scenario.demo {
+        Demo::RealmActor { faux: Some(script) } => {
+            let path = dir.join("faux.json");
+            std::fs::write(&path, script).with_context(|| {
+                format!("write {}", path.display())
+            })?;
+            Some(path)
+        }
+        _ => None,
+    };
+    let start = |fault, log: &str| {
+        Host::start(
+            demo,
+            &scenario.demo,
+            &home,
+            fault,
+            faux.as_deref(),
+            &dir.join(log),
+        )
+    };
+    let mut host = start(fault, "host.log")?;
     let mut acked = BTreeMap::new();
     for line in scenario.setup {
-        host.send(line)?;
-        let (actor, count) = host.reply()?;
-        acked.insert(actor, count);
+        let replies = match Until::parse(line)? {
+            Some(until) => host.until(&until)?,
+            None => {
+                host.send(line)?;
+                vec![host.next_line()?]
+            }
+        };
+        for reply in replies {
+            let (actor, count) = parse_reply(&reply)?;
+            acked.insert(actor, count);
+        }
     }
-    let node = match scenario.demo {
-        Demo::Local | Demo::RealmActor => None,
-        Demo::Linked { pid } => Some(node_pid(&acked, pid)?),
-    };
+    let node = scenario
+        .demo
+        .node_pid()
+        .map(|pid| node_pid(&acked, pid))
+        .transpose()?;
     host.send(scenario.trigger)?;
     let sent = Instant::now();
     if scenario.trigger_replies {
-        let (actor, count) = host.reply()?;
+        let (actor, count) = parse_reply(&host.next_line()?)?;
         acked.insert(actor, count);
     }
     let mut surviving = None;
@@ -350,7 +392,7 @@ fn run_once(
             format!("the Node host at the trigger's step (pid {pid})")
         }
         (Kill::NodeHost, None) => {
-            bail!("a scenario that kills the Node host is linked")
+            bail!("a scenario that kills the Node host has one")
         }
     };
     if let (Some(pid), None) = (node, &surviving)
@@ -399,24 +441,20 @@ fn run_once(
     for (n, lines) in (1..).zip(scenario.restart) {
         let mut host = match surviving.take() {
             Some(host) => host,
-            None => Host::start(
-                demo,
-                &scenario.demo,
-                &home,
-                None,
-                &dir.join(format!("restart-{n}.log")),
-            )?,
+            None => start(None, &format!("restart-{n}.log"))?,
         };
+        let mut printed = Vec::new();
         for line in lines {
-            host.send(line)?;
-        }
-        let (mut printed, children) = match scenario.demo {
-            Demo::Local | Demo::RealmActor => {
-                (Vec::new(), Vec::new())
+            match Until::parse(line)? {
+                Some(until) => printed.extend(host.until(&until)?),
+                None => host.send(line)?,
             }
-            Demo::Linked { pid } => {
-                let printed = host.lines_through(pid)?;
-                (printed, children(host.child.id())?)
+        }
+        let children = match scenario.demo.node_pid() {
+            None => Vec::new(),
+            Some(pid) => {
+                printed.extend(host.lines_through(pid)?);
+                children(host.child.id())?
             }
         };
         printed.extend(host.finish()?);
@@ -437,7 +475,7 @@ fn run_once(
             };
             restart.insert(name, count);
         }
-        if let Demo::Linked { pid } = scenario.demo {
+        if let Some(pid) = scenario.demo.node_pid() {
             let pid = node_pid(&restart, pid)?;
             ensure!(
                 !nodes.contains(&pid),
@@ -553,6 +591,56 @@ fn error_code(line: &str) -> Option<&str> {
     (plain(group) && plain(name)).then_some(code)
 }
 
+/// A line the kit runs itself: `until <n> <count> <words ...>`.
+struct Until<'a> {
+    agent: &'a str,
+    count: usize,
+    words: String,
+}
+
+impl<'a> Until<'a> {
+    /// The wait `line` names, or none for a line of the demo's.
+    fn parse(line: &'a str) -> Result<Option<Self>> {
+        let mut words = line.split_whitespace();
+        if words.next() != Some("until") {
+            return Ok(None);
+        }
+        let (Some(agent), Some(count)) = (words.next(), words.next())
+        else {
+            bail!("`{line}` is not `until <n> <count> <words ...>`");
+        };
+        let count = count.parse().with_context(|| {
+            format!("`{count}` in `{line}` is no count")
+        })?;
+        Ok(Some(Self {
+            agent,
+            count,
+            words: words.collect::<Vec<_>>().join(" "),
+        }))
+    }
+
+    /// How many of the entries among `lines` begin with the words.
+    fn held(&self, lines: &[String]) -> usize {
+        lines
+            .iter()
+            .filter_map(|line| entry_words(line))
+            .filter(|shown| shown.starts_with(&self.words))
+            .count()
+    }
+}
+
+/// The words of `<conversation>/<entry> <words>`, the line `pi
+/// conversation` prints for an entry.
+fn entry_words(line: &str) -> Option<&str> {
+    let (at, words) = line.split_once(' ')?;
+    let (conversation, entry) = at.split_once('/')?;
+    let number = |part: &str| {
+        !part.is_empty()
+            && part.bytes().all(|byte| byte.is_ascii_digit())
+    };
+    (number(conversation) && number(entry)).then_some(words)
+}
+
 fn node_pid(
     values: &BTreeMap<String, i64>,
     name: &str,
@@ -567,7 +655,9 @@ fn node_pid(
 fn ended_within(pid: u32, within: Duration) -> Result<bool> {
     let deadline = Instant::now() + within;
     loop {
-        if has_ended(pid)? {
+        if hamlet_os::process::has_ended(pid)
+            .with_context(|| format!("read the state of {pid}"))?
+        {
             return Ok(true);
         }
         if Instant::now() >= deadline {
@@ -575,32 +665,6 @@ fn ended_within(pid: u32, within: Duration) -> Result<bool> {
         }
         std::thread::sleep(Duration::from_millis(10));
     }
-}
-
-/// Whether the process `pid` has ended: no process has the id, or
-/// the one that has it is dead and waits for its parent to collect
-/// it.
-#[cfg(target_os = "linux")]
-fn has_ended(pid: u32) -> Result<bool> {
-    match std::fs::read_to_string(format!("/proc/{pid}/stat")) {
-        Ok(stat) => Ok(stat_field(&stat, 0)
-            .is_some_and(|state| state.starts_with('Z'))),
-        Err(error)
-            if error.kind() == std::io::ErrorKind::NotFound =>
-        {
-            Ok(true)
-        }
-        Err(error) => Err(error)
-            .with_context(|| format!("read the state of {pid}")),
-    }
-}
-
-#[cfg(not(target_os = "linux"))]
-fn has_ended(_pid: u32) -> Result<bool> {
-    bail!(
-        "the kit tells that a Node host has ended only on Linux, \
-         from /proc"
-    )
 }
 
 #[cfg(target_os = "linux")]
@@ -620,19 +684,19 @@ fn children(parent: u32) -> Result<Vec<u32>> {
         else {
             continue;
         };
-        if stat_field(&stat, 1) == Some(&parent.to_string()) {
+        if parent_of(&stat) == Some(&parent.to_string()) {
             children.push(pid);
         }
     }
     Ok(children)
 }
 
-/// The field `n` of a process's `/proc/<pid>/stat` after the
-/// command's name, which is in parentheses and may hold any
-/// character: 0 is the state, 1 the parent's id.
+/// The parent's id in a process's `/proc/<pid>/stat`, the second
+/// field after the command's name, which is in parentheses and may
+/// hold any character.
 #[cfg(target_os = "linux")]
-fn stat_field(stat: &str, n: usize) -> Option<&str> {
-    stat.rsplit_once(')')?.1.split_whitespace().nth(n)
+fn parent_of(stat: &str) -> Option<&str> {
+    stat.rsplit_once(')')?.1.split_whitespace().nth(1)
 }
 
 #[cfg(not(target_os = "linux"))]
@@ -667,14 +731,37 @@ struct Host {
     lines: mpsc::Receiver<String>,
 }
 
+/// The variables a demo host reads that only a scenario sets.
+const SCENARIO_ENV: &[&str] = &[
+    "HAMLET_FAULT",
+    "HAMLET_FAULT_DIR",
+    "HAMLET_DEMO_FAUX",
+    "HAMLET_DEMO_SIGN_IN",
+    "HAMLET_REFLECT_EVERY",
+    "HAMLET_CLAUDE_EXECUTABLE",
+    "HAMLET_REALM_PANIC",
+];
+
+/// How often [`Host::until`] reads the conversation it waits on.
+const POLL: Duration = Duration::from_millis(100);
+
+/// The line [`Host::until`] sends after `pi conversation`: one read
+/// of the realm's world, which needs no Node host. It prints `read/1
+/// <us>` and then `reads/longest <us>`, which no scenario's line
+/// does.
+const UNTIL_END: (&str, &str) = ("realm reads 1 0", "reads/longest");
+
 impl Host {
     /// Starts `demo serve` on `home` as `how` says, stopping at
-    /// `fault` when given, with its standard error in `log`.
+    /// `fault` and its model answering from the script at `faux` when
+    /// given, with its standard error in `log` and a copy of what it
+    /// prints beside it, in `log` with the extension `out`.
     fn start(
         demo: &Path,
         how: &Demo,
         home: &Path,
         fault: Option<(&str, &Path)>,
+        faux: Option<&Path>,
         log: &Path,
     ) -> Result<Self> {
         let mut command = Command::new(demo);
@@ -683,14 +770,16 @@ impl Host {
             Demo::Linked { .. } => {
                 command.arg("--link");
             }
-            Demo::RealmActor => {
+            Demo::RealmActor { .. } => {
                 command.arg("--realm-actor");
             }
+        }
+        for name in SCENARIO_ENV {
+            command.env_remove(name);
         }
         command
             .arg("serve")
             .env("HAMLET_HOME", home)
-            .env_remove("HAMLET_FAULT")
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())
             .stderr(std::fs::File::create(log)?);
@@ -699,14 +788,20 @@ impl Host {
                 .env("HAMLET_FAULT", point)
                 .env("HAMLET_FAULT_DIR", dir);
         }
+        if let Some(faux) = faux {
+            command.env("HAMLET_DEMO_FAUX", faux);
+        }
         let mut child = command
             .spawn()
             .with_context(|| format!("start {}", demo.display()))?;
         let stdout = child.stdout.take().context("no stdout")?;
+        let mut printed =
+            std::fs::File::create(log.with_extension("out"))?;
         let (tx, lines) = mpsc::channel();
         std::thread::spawn(move || {
             for line in BufReader::new(stdout).lines() {
                 let Ok(line) = line else { return };
+                let _ = writeln!(printed, "{line}");
                 if tx.send(line).is_err() {
                     return;
                 }
@@ -745,13 +840,41 @@ impl Host {
         }
     }
 
-    /// The next reply, as an actor and its count.
-    fn reply(&self) -> Result<(String, i64)> {
-        let line = self
-            .lines
+    fn next_line(&self) -> Result<String> {
+        self.lines
             .recv_timeout(PATIENCE)
-            .context("no reply from the host")?;
-        parse_reply(&line)
+            .context("no reply from the host")
+    }
+
+    /// Reads the conversation `until` names until it holds the
+    /// entries `until` waits for. Returns the other lines the host
+    /// printed meanwhile.
+    fn until(&mut self, until: &Until) -> Result<Vec<String>> {
+        let deadline = Instant::now() + PATIENCE;
+        let mut printed = Vec::new();
+        loop {
+            self.send(&format!("pi conversation {}", until.agent))?;
+            self.send(UNTIL_END.0)?;
+            let mut lines = self.lines_through(UNTIL_END.1)?;
+            lines.truncate(lines.len().saturating_sub(2));
+            let held = until.held(&lines);
+            printed.extend(
+                lines
+                    .into_iter()
+                    .filter(|line| entry_words(line).is_none()),
+            );
+            if held >= until.count {
+                return Ok(printed);
+            }
+            ensure!(
+                Instant::now() < deadline,
+                "agent {} held {held} of {} entries that begin `{}`",
+                until.agent,
+                until.count,
+                until.words
+            );
+            std::thread::sleep(POLL);
+        }
     }
 
     /// Waits for the host to stop at its fault point, then kills it
@@ -859,6 +982,60 @@ mod tests {
     }
 
     #[test]
+    fn naming_no_scenario_runs_every_one() {
+        let every = options(args(&["--runs", "2"])).unwrap().unwrap();
+        assert_eq!(every.scenarios.len(), scenario::all().count());
+        assert_eq!(every.runs, 2);
+        let named = options(args(&["chat-new"])).unwrap().unwrap();
+        assert_eq!(named.scenarios.len(), 1);
+        assert_eq!(named.scenarios[0].name, "chat-new");
+    }
+
+    #[test]
+    fn a_wait_counts_the_entries_that_begin_with_its_words() {
+        let until = Until::parse("until 2 3 assistant: Heard: hi")
+            .unwrap()
+            .unwrap();
+        assert_eq!((until.agent, until.count), ("2", 3));
+        let printed = [
+            "1/7 line: hi",
+            "1/11 assistant: Heard: hi there",
+            "1/12 assistant: Heard: hi",
+            "1/13 assistant: [tell {}] Heard: hi",
+            "took/2/line 1",
+            "1/14 assistant: Heard: him",
+        ]
+        .map(str::to_owned);
+        assert_eq!(until.held(&printed), 3);
+        assert!(Until::parse("realm say 1 s1 hi").unwrap().is_none());
+        assert!(Until::parse("until 2").is_err());
+        assert!(Until::parse("until 2 x Heard:").is_err());
+    }
+
+    #[test]
+    fn every_wait_of_a_row_is_well_formed_and_asks_the_real_agent() {
+        for scenario in scenario::all() {
+            let lines = scenario
+                .setup
+                .iter()
+                .chain(scenario.restart.iter().copied().flatten());
+            for line in lines {
+                if let Some(until) = Until::parse(line).unwrap() {
+                    assert!(
+                        matches!(
+                            scenario.demo,
+                            Demo::RealmActor { .. }
+                        ),
+                        "{}: {line}",
+                        scenario.name
+                    );
+                    assert!(until.count > 0, "{}", scenario.name);
+                }
+            }
+        }
+    }
+
+    #[test]
     fn a_kit_folder_is_never_one_that_exists() {
         let parent = std::env::temp_dir().join(format!(
             "hamlet-killkit-test-{}",
@@ -949,14 +1126,23 @@ mod tests {
     }
 
     #[test]
-    fn a_scenario_that_kills_the_node_host_is_linked() {
+    fn a_scenario_that_kills_the_node_host_has_one_and_waits_for_the_next()
+     {
         for scenario in scenario::all() {
             if let Kill::NodeHost = scenario.kill {
                 assert!(
-                    matches!(scenario.demo, Demo::Linked { .. }),
+                    scenario.demo.node_pid().is_some(),
                     "{}",
                     scenario.name
                 );
+                if let Demo::RealmActor { .. } = scenario.demo {
+                    assert!(
+                        scenario.restart[0]
+                            .starts_with(&["pi pid"; 2]),
+                        "{}",
+                        scenario.name
+                    );
+                }
             }
         }
     }
@@ -992,22 +1178,5 @@ mod tests {
             child.wait().unwrap();
         }
         assert!(children(u32::MAX).unwrap().is_empty());
-    }
-
-    #[cfg(target_os = "linux")]
-    #[test]
-    fn a_process_has_ended_once_it_is_dead_also_before_it_is_collected()
-     {
-        assert!(!has_ended(std::process::id()).unwrap());
-        let mut child =
-            Command::new(std::env::current_exe().unwrap())
-                .arg("--list")
-                .stdout(Stdio::null())
-                .spawn()
-                .unwrap();
-        let pid = child.id();
-        assert!(ended_within(pid, PATIENCE).unwrap());
-        child.wait().unwrap();
-        assert!(has_ended(pid).unwrap());
     }
 }
