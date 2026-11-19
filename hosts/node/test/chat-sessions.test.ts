@@ -10,6 +10,7 @@ import {
     fakeCalls,
     from,
     named,
+    until,
     type Woken,
     wakeAgent,
 } from "./agent-testing.ts";
@@ -306,6 +307,12 @@ test("two /new with one id at once leave one new session", async (t) => {
     ]);
 
     assert.deepEqual(answers, [{ number: 2 }, { number: 2 }]);
+    await until(
+        async () =>
+            holding((await chats(agent)).all, "Started a new session.").length >
+            0,
+    );
+    await agent.idle();
     const { all } = await chats(agent);
     assert.equal(all.size, 2);
     assert.equal(holding(all, "Started a new session.").length, 1);

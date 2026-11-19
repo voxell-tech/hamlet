@@ -516,6 +516,58 @@ test("a client following the chief's chat reads again after /new", async (t) => 
     ]);
 });
 
+// As today's `/new` (`crates/hamlet_server/src/commands.rs`), whose
+// watch of the current chat names session 1 from its first page: the chief
+// is answered once the new session has begun, and the reflection of the
+// session left is written before the new session's notice.
+test("/new answers before the session left reflects, and its notice comes after the reflection", async (t) => {
+    const asked = Promise.withResolvers<void>();
+    const opened = Promise.withResolvers<void>();
+    const agent = await wakeAgent(t, {
+        calls: fakeCalls({
+            realm: {
+                open_task: async () => {
+                    asked.resolve();
+                    await opened.promise;
+                    throw new Error(
+                        "the reflection runs under the standing task",
+                    );
+                },
+            },
+        }).calls,
+        files: fakeFiles({}),
+        responses: reflecting(["One.", "Two."]),
+    });
+    t.after(() => agent.stop());
+    assert.equal((await read(agent, CHIEF)).session, 1);
+    await sender(agent)(line("a"));
+
+    assert.deepEqual(
+        await agent.actions.new_session(agent.by(from.client), {
+            id: "new-1",
+            to: 7,
+        }),
+        { number: 2 },
+    );
+    await asked.promise;
+    assert.deepEqual(shown((await read(agent, CHIEF)).items), []);
+    opened.resolve();
+    await until(async () =>
+        shown((await read(agent, CHIEF)).items).includes(
+            "notice: Started a new session.",
+        ),
+    );
+    await agent.idle();
+
+    const [notice] = (await read(agent, CHIEF)).items;
+    const reflection = (await read(agent, { with: 7, past: 1 })).items.find(
+        (item) => item.text === "reflection",
+    );
+    const entry = (item: ChatItem | undefined) =>
+        Number(item?.id.split(":")[0]);
+    assert.ok(entry(reflection) < entry(notice), "the reflection comes first");
+});
+
 test("a page read after the wake could not open the harness is followed", async (t) => {
     const first = await wake(t, [
         fauxAssistantMessage("One."),

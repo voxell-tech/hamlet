@@ -125,21 +125,26 @@ export async function newSession(
     c: AgentCall,
     message: NewSession,
 ): Answer<"new_session"> {
-    const { number, left } = await generationOf(c).inTurn(async () => {
-        const begun = await begin(c, message.id);
-        // As `crates/hamlet_server/src/talk/chats.rs` writes it.
-        await noticed(
-            c,
-            begun.to,
-            `new:${message.id}`,
-            "Started a new session.",
+    const generation = generationOf(c);
+    const { number, to, left } = await generation.inTurn(() =>
+        begin(c, message.id),
+    );
+    // As today (`crates/hamlet_server/src/commands.rs`), the chief is
+    // answered once the session has begun; then the session left reflects
+    // and the new one tells it began, in that order (`talk/chats.rs`).
+    // Each is admitted once, so a repeat asks both again. As today, the
+    // session left keeps what it waits for.
+    void generation
+        .inTurn(async () => {
+            if (left !== undefined) await reflectOnLeaving(c, left);
+            await noticed(c, to, `new:${message.id}`, "Started a new session.");
+        })
+        .catch((error: unknown) =>
+            generation.peers.report(
+                "a new session's notice was not written",
+                error,
+            ),
         );
-        return begun;
-    });
-    // As today, the session left keeps what it waits for. A repeat asks its
-    // reflection again: a kill may have cut the first off after the session
-    // began.
-    if (left !== undefined) await reflectOnLeaving(c, left);
     return { number };
 }
 

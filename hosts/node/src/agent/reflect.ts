@@ -20,6 +20,7 @@ import {
     type Harness,
     hook,
     LiveDoc,
+    type TaskId,
     type Tx,
 } from "@earendil-works/pi-durable";
 import { withHarness } from "../pi/runtime.ts";
@@ -27,7 +28,13 @@ import { type AgentCall, generationOf } from "./actor.ts";
 import { isShortCutOff, stands } from "./compaction.ts";
 import type { ReadCopies } from "./copies.ts";
 import type { RealmTask } from "./messages.ts";
-import { cutOff, draftOf, type Peers, type WithHarness } from "./turn.ts";
+import {
+    cutOff,
+    draftOf,
+    isBusy,
+    type Peers,
+    type WithHarness,
+} from "./turn.ts";
 
 /** As `crates/hamlet_server/src/talk/reflections.rs:18-24` asks it. */
 export const REFLECT =
@@ -90,16 +97,28 @@ export function reflection(
 /**
  * Asks the reflection a session owes as a chief leaves it, by `/new` or
  * `/resume`, whatever `reflect_every` is. A turn still running then asks
- * its own when it answers.
+ * its own when it answers. An idle session takes its reflection before
+ * this ends, so what the chief's move writes next comes after it, as
+ * today keeps the reflection first; a busy one takes it when its run ends.
  */
 export async function reflectOnLeaving(
     c: AgentCall,
     conversation: ConversationId,
 ): Promise<void> {
-    const { answered } = await owedOf((use) =>
-        withHarness(c, generationOf(c).options, use),
-    )(conversation);
-    if (answered >= 1) await reflectIn(c, conversation);
+    const { peers, options } = generationOf(c);
+    const { answered } = await owedOf((use) => withHarness(c, options, use))(
+        conversation,
+    );
+    if (answered < 1) return;
+    await withHarness(c, options, async (harness, context) => {
+        const task = await ask(harness, peers, conversation, context);
+        if (
+            task !== "already" &&
+            !(await isBusy(harness, conversation, context))
+        ) {
+            await harness.waitForTask(task, context);
+        }
+    });
 }
 
 /**
@@ -107,14 +126,15 @@ export async function reflectOnLeaving(
  * keeps the request a repeat after a kill asks the realm under. `already`
  * when one is owed or running.
  */
-export function reflectIn(
+export async function reflectIn(
     c: AgentCall,
     conversation: ConversationId,
 ): Promise<"asked" | "already"> {
     const { peers, options } = generationOf(c);
-    return withHarness(c, options, (harness, context) =>
+    const task = await withHarness(c, options, (harness, context) =>
         ask(harness, peers, conversation, context),
     );
+    return task === "already" ? task : "asked";
 }
 
 function ask(
@@ -122,11 +142,11 @@ function ask(
     peers: Peers,
     conversation: ConversationId,
     context: Context,
-): Promise<"asked" | "already"> {
+): Promise<TaskId<null> | "already"> {
     return harness.commit(async (tx) => {
         const { k, asked } = await lastAsked(tx, conversation);
         if (asked) return "already";
-        await tx.createTask(
+        return tx.createTask(
             reflectTask(peers),
             { k },
             {
@@ -134,7 +154,6 @@ function ask(
                 conversationId: conversation,
             },
         );
-        return "asked";
     }, context);
 }
 
