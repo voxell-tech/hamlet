@@ -21,14 +21,17 @@ import { LOOKED } from "./filesystem.ts";
 import type { OfferAnswer } from "./messages/library.ts";
 import type { Piece, Revision } from "./messages/profile.ts";
 import {
+    type ChiefQuestion,
     type Named,
     REALM,
     type SocietyActs,
     type SocietyTool,
+    type Spend,
     type Tier,
     type ToolName,
 } from "./messages/realm.ts";
-import { type ProfileId, U32_MAX } from "./messages/shared.ts";
+import { type ProfileId, type Refused, U32_MAX } from "./messages/shared.ts";
+import { money } from "./transcript.ts";
 import {
     type ActOf,
     callOf,
@@ -65,6 +68,8 @@ interface Definition<N extends SocietyTool> {
         answer: Granted<SocietyActs[N]["answer"]>,
         args: never,
     ) => string;
+    /** Today's words for a refusal today gives as a plain result. */
+    readonly plain?: (why: Refused["why"]) => string | undefined;
 }
 
 /** Today's words for an address (`crates/hamlet_server/src/calls/society.rs`). */
@@ -87,6 +92,19 @@ const object = (properties: object, required: readonly string[]) => ({
     required,
 });
 const names = { type: "array", items: { type: "string" } };
+
+/** Today's words for a call a chief must allow first (`crates/hamlet_server/src/calls.rs`). */
+const WAITING = "This call waits for a chief's answer.";
+
+/** As today's `ask_chief` limits (`crates/hamlet_server/src/talk/asking.rs`). */
+const MOST_QUESTIONS = 10;
+const MOST_OPTIONS = 6;
+
+/** The model's `reason`, as an act's `why`. */
+function why(reason: string | undefined): { why?: string } {
+    const given = present(reason);
+    return given === undefined ? {} : { why: given };
+}
 
 /**
  * Read as today's server reads it (an `i64`), or `undefined` when the act's
@@ -245,9 +263,14 @@ const TOOLS: { readonly [N in SocietyTool]: Definition<N> } = {
             { to: address, text: string("The letter."), paths: PATHS },
             ["to", "text"],
         ),
-        act: (args: { to: string; text: string }) =>
-            withNamed({ to: args.to }, ({ to }) => ({ to, text: args.text })),
-        said: () => "Sent.",
+        act: (args: { to: string; text: string; paths?: string[] }) =>
+            withNamed({ to: args.to }, ({ to }) => ({
+                to,
+                text: args.text,
+                ...enclosed(args.paths),
+            })),
+        // As `sent` (`crates/hamlet_server/src/calls/society/letters.rs`).
+        said: (answer) => `Sent to ${answer.to.name}.`,
     },
     ask: {
         name: "ask",
@@ -257,12 +280,13 @@ const TOOLS: { readonly [N in SocietyTool]: Definition<N> } = {
             { to: address, question: string("The question."), paths: PATHS },
             ["to", "question"],
         ),
-        act: (args: { to: string; question: string }) =>
+        act: (args: { to: string; question: string; paths?: string[] }) =>
             withNamed({ to: args.to }, ({ to }) => ({
                 to,
                 text: args.question,
+                ...enclosed(args.paths),
             })),
-        said: () => "Asked. The answer arrives as a new input.",
+        said: (answer) => `Waiting for ${answer.on.name}'s answer.`,
     },
     request_road: {
         name: "request_road",
@@ -488,15 +512,19 @@ const TOOLS: { readonly [N in SocietyTool]: Definition<N> } = {
                 ...(mayor === undefined ? {} : { mayor }),
             };
         },
-        said: (answer) =>
-            `Founded the hamlet \`${answer.hamlet}\`. Its mayor, \`hire#${answer.mayor}\`, is still being hired.`,
+        // As `found_hamlet` (`crates/hamlet_server/src/calls/society.rs`).
+        said: (answer, args: { name: string }) =>
+            `Founded ${args.name.trim()} (\`${answer.hamlet}\`).`,
     },
     seat: {
         name: "seat_mayor",
         description: "Seat a hire as its hamlet's mayor.",
         parameters: object({ hire: address, reason }, ["hire"]),
-        act: (args: { hire: string }) =>
-            withNamed({ hire: args.hire }, ({ hire }) => ({ hire })),
+        act: (args: { hire: string; reason?: string }) =>
+            withNamed({ hire: args.hire }, ({ hire }) => ({
+                hire,
+                ...why(args.reason),
+            })),
         said: () => "Seated.",
     },
     hire: {
@@ -542,46 +570,54 @@ const TOOLS: { readonly [N in SocietyTool]: Definition<N> } = {
             const profile = profileOf(pinned);
             if (typeof profile === "object") return profile;
             const hamlet = present(args.hamlet);
+            const name = present(args.name);
             return {
                 purpose: args.purpose,
                 ...(hamlet === undefined ? {} : { hamlet }),
+                ...(name === undefined ? {} : { name }),
                 ...(profile === undefined ? {} : { profile }),
                 ...(version === undefined ? {} : { version }),
                 ...(under === undefined ? {} : { under }),
             };
         },
-        said: (answer) =>
-            `Hired \`hire#${answer.agent.agent}\`. It is still being hired.`,
+        // As `hire_tool` (`crates/hamlet_server/src/calls/society.rs`).
+        said: (answer) => `Hired ${answer.agent.name}.`,
     },
     end: {
         name: "end_hire",
         description: "End a hire under you. Its work stays in its scholar.",
         parameters: object({ hire: address, reason }, ["hire"]),
-        act: (args: { hire: string; reason?: string }) => {
-            const why = present(args.reason);
-            return withNamed({ hire: args.hire }, ({ hire }) => ({
+        act: (args: { hire: string; reason?: string }) =>
+            withNamed({ hire: args.hire }, ({ hire }) => ({
                 hire,
-                ...(why === undefined ? {} : { why }),
-            }));
-        },
-        said: () => "Ended.",
+                ...why(args.reason),
+            })),
+        said: (answer) => `Ended ${answer.agent.name}.`,
     },
     lay_road: {
         name: "lay_road",
         description:
             "Lay a road between two hires under you, so they can write and ask each other.",
         parameters: object({ a: address, b: address, reason }, ["a", "b"]),
-        act: (args: { a: string; b: string }) =>
-            withNamed({ a: args.a, b: args.b }, (road) => road),
-        said: () => "The road is laid.",
+        act: (args: { a: string; b: string; reason?: string }) =>
+            withNamed({ a: args.a, b: args.b }, (road) => ({
+                ...road,
+                ...why(args.reason),
+            })),
+        said: (answer) =>
+            `Laid a road between ${answer.a.name} and ${answer.b.name}.`,
     },
     take_up_road: {
         name: "take_up_road",
         description: "Take up a road you laid between two hires under you.",
         parameters: object({ a: address, b: address, reason }, ["a", "b"]),
-        act: (args: { a: string; b: string }) =>
-            withNamed({ a: args.a, b: args.b }, (road) => road),
-        said: () => "The road is taken up.",
+        act: (args: { a: string; b: string; reason?: string }) =>
+            withNamed({ a: args.a, b: args.b }, (road) => ({
+                ...road,
+                ...why(args.reason),
+            })),
+        said: (answer) =>
+            `Took up the road between ${answer.a.name} and ${answer.b.name}.`,
     },
     set_tools: {
         name: "set_tools",
@@ -589,18 +625,327 @@ const TOOLS: { readonly [N in SocietyTool]: Definition<N> } = {
         parameters: object({ hire: address, off: names, on: names, reason }, [
             "hire",
         ]),
-        act: (args: { hire: string; off?: string[]; on?: string[] }) => {
+        act: (args: {
+            hire: string;
+            off?: string[];
+            on?: string[];
+            reason?: string;
+        }) => {
             const off = toolNamesOf(args.off);
             const on = toolNamesOf(args.on);
             return withNamed({ hire: args.hire }, ({ hire }) => ({
                 hire,
                 ...(off.length === 0 ? {} : { off }),
                 ...(on.length === 0 ? {} : { on }),
+                ...why(args.reason),
             }));
         },
-        said: () => "Set.",
+        said: (answer) => `Changed the tools of ${answer.agent.name}.`,
+    },
+    ask_chief: {
+        name: "ask_chief",
+        description:
+            "Ask the chief a question you cannot go on without. Waits for the answer, so ask only when no agent and no file can tell you. Use object to argue against an instruction.",
+        parameters: {
+            type: "object",
+            properties: {
+                message: { type: "string" },
+                questions: {
+                    type: "array",
+                    minItems: 1,
+                    maxItems: MOST_QUESTIONS,
+                    items: {
+                        type: "object",
+                        properties: {
+                            question: { type: "string" },
+                            description: { type: "string" },
+                            options: {
+                                type: "array",
+                                maxItems: MOST_OPTIONS,
+                                items: {
+                                    anyOf: [
+                                        { type: "string" },
+                                        {
+                                            type: "object",
+                                            properties: {
+                                                title: { type: "string" },
+                                                description: { type: "string" },
+                                            },
+                                            required: ["title"],
+                                        },
+                                    ],
+                                },
+                            },
+                            text_input: {
+                                type: "boolean",
+                                description:
+                                    "Allow custom words. Defaults to true.",
+                            },
+                        },
+                        required: ["question"],
+                    },
+                },
+            },
+            required: ["questions"],
+        },
+        act: (args: { message?: string; questions: AskedQuestion[] }) => {
+            const message = present(args.message);
+            return {
+                ...(message === undefined ? {} : { message }),
+                questions: args.questions.map(questionOf),
+            };
+        },
+        said: () => WAITING,
+        // As `ask_chief` (`crates/hamlet_server/src/calls.rs`).
+        plain: (why) => {
+            if (why.type === "no_chief") {
+                return "No chief oversees this turn; go on with what you know.";
+            }
+            if (
+                why.type !== "too_many" ||
+                !("most" in why) ||
+                typeof why.most !== "number"
+            ) {
+                return undefined;
+            }
+            const { most } = why;
+            const times = most === 1 ? "once" : `${most} times`;
+            return `You have asked the chief ${times} this turn; go on with what you know.`;
+        },
+    },
+    object: {
+        name: "object",
+        description:
+            "Object to the chief's instruction you are working on, with your reason. The chief rules: go on, or withdraw it.",
+        parameters: object(
+            { reason: string("Why the instruction should not be done.") },
+            ["reason"],
+        ),
+        act: (args: { reason: string }) => ({ reason: args.reason }),
+        // `OBJECTING` (`crates/hamlet_server/src/calls/objections.rs`).
+        said: () => "The chief is considering an objection.",
+    },
+    start_worker: {
+        name: "start_worker",
+        description:
+            "Start a worker on a task: a helper with your tools that works in a scratch folder and where you work, then answers once. With `wait`, you wait for its answer; without, the answer comes to you as a reply.",
+        parameters: object(
+            {
+                task: string("What the worker is to do, and what to answer."),
+                tools: {
+                    type: "array",
+                    items: { type: "string" },
+                    description:
+                        "Your built-in tools it may use; all of them when left out.",
+                },
+                wait: { type: "boolean", description: "Wait for its answer." },
+            },
+            ["task"],
+        ),
+        act: (args: { task: string; tools?: string[] }) => {
+            const tools = (args.tools ?? []).map((name) => ({ name }));
+            return {
+                brief: args.task.trim(),
+                ...(tools.length === 0 ? {} : { tools }),
+            };
+        },
+        // As `worked` (`crates/hamlet_server/src/calls/society/letters.rs`).
+        said: (answer) =>
+            `Started ${answer.worker.name}; its answer comes to you as a reply.`,
+    },
+    set_allowance: {
+        name: "set_allowance",
+        description:
+            "Give a hire under you an allowance in dollars for the budget's period, or none.",
+        parameters: object(
+            { hire: address, dollars: { type: "number" }, reason },
+            ["hire"],
+        ),
+        act: (args: { hire: string; dollars?: number; reason?: string }) =>
+            withNamed({ hire: args.hire }, ({ hire }) => ({
+                hire,
+                ...(args.dollars === undefined
+                    ? {}
+                    : { micros: microsOf(args.dollars) }),
+                ...why(args.reason),
+            })),
+        said: (answer) => `Set the allowance of ${answer.agent.name}.`,
+    },
+    read_budget: {
+        name: "read_budget",
+        description:
+            "Read what you may spend: your hamlet's or the realm's spend this period against its budget, your own, your allowance and your task's cap. A call over any of them is refused.",
+        parameters: object({}, []),
+        act: () => ({}),
+        said: budgetWords,
+    },
+    agree_road: {
+        name: "agree_road",
+        description:
+            "As a mayor, agree a road between a hire of your hamlet and one of another. It opens once both mayors agree.",
+        parameters: object({ mine: address, theirs: address, reason }, [
+            "mine",
+            "theirs",
+        ]),
+        act: (args: { mine: string; theirs: string; reason?: string }) =>
+            withNamed({ mine: args.mine, theirs: args.theirs }, (road) => ({
+                ...road,
+                ...why(args.reason),
+            })),
+        // As `agree_road` (`crates/hamlet_server/src/calls/society.rs`).
+        said: ({ type, mine, theirs }) =>
+            type === "laid"
+                ? `The road between ${mine.name} and ${theirs.name} is open.`
+                : `You agree a road between ${mine.name} and ${theirs.name}; it opens once the other mayor agrees.`,
+    },
+    set_nickname: {
+        name: "nickname",
+        description:
+            "Give a hire under you a short nickname it is shown by in the world; leave out `nickname` for its own name.",
+        parameters: object(
+            { hire: address, nickname: string("At most 24 letters."), reason },
+            ["hire"],
+        ),
+        act: (args: { hire: string; nickname?: string; reason?: string }) => {
+            const name = present(args.nickname);
+            return withNamed({ hire: args.hire }, ({ hire }) => ({
+                hire,
+                ...(name === undefined ? {} : { name }),
+                ...why(args.reason),
+            }));
+        },
+        // As `nickname` (`crates/hamlet_server/src/calls/society.rs`).
+        said: (answer, args: { nickname?: string }) => {
+            const nickname = present(args.nickname);
+            return nickname === undefined
+                ? `${answer.agent.name} goes by its name again.`
+                : `${answer.agent.name} is called ${nickname} now.`;
+        },
+    },
+    set_model: {
+        name: "set_model",
+        description:
+            "Choose the model a hire under you runs; leave out `model` for its hamlet's.",
+        parameters: object(
+            {
+                hire: address,
+                model: string("The model, as `provider::id`."),
+                reason,
+            },
+            ["hire"],
+        ),
+        act: (args: { hire: string; model?: string; reason?: string }) => {
+            const model = present(args.model);
+            return withNamed({ hire: args.hire }, ({ hire }) => ({
+                of: { type: "hire" as const, hire },
+                ...(model === undefined ? {} : { model }),
+                ...why(args.reason),
+            }));
+        },
+        // As `set_model` (`crates/hamlet_server/src/calls/society.rs`).
+        said: (answer, args: { model?: string }) =>
+            `${answer.agent.name} runs ${present(args.model) ?? "its hamlet's model"} now.`,
+    },
+    read_record: {
+        name: "read_record",
+        description: "Read a hamlet's record: every decision with its reason.",
+        parameters: object({ hamlet: string("The hamlet's id.") }, ["hamlet"]),
+        act: (args: { hamlet: string }) => ({ hamlet: args.hamlet.trim() }),
+        // As `lines` (`crates/hamlet_server/src/society/record.rs`).
+        said: (answer) =>
+            answer.lines.length === 0
+                ? "Nothing is decided yet."
+                : answer.lines.map(({ text }) => text).join("\n"),
     },
 };
+
+/** A question as the model asks it: an option is a title, or a title and a description. */
+interface AskedQuestion {
+    readonly question: string;
+    readonly description?: string;
+    readonly options?: readonly (
+        | string
+        | { readonly title: string; readonly description?: string }
+    )[];
+    readonly text_input?: boolean;
+}
+
+/** As today reads one (`crates/hamlet_server/src/talk/asking.rs`): words are allowed unless turned off. */
+function questionOf(asked: AskedQuestion): ChiefQuestion {
+    const options = (asked.options ?? []).map((option) =>
+        typeof option === "string" ? { title: option } : option,
+    );
+    return {
+        question: asked.question,
+        ...(asked.description === undefined
+            ? {}
+            : { description: asked.description }),
+        ...(options.length === 0 ? {} : { options }),
+        text_input: asked.text_input ?? true,
+    };
+}
+
+/** As `micros` (`crates/hamlet_server/src/spend.rs`): dollars to the nearest millionth. */
+function microsOf(dollars: number): string {
+    return `${Math.max(0, Math.round(dollars * 1_000_000))}`;
+}
+
+/** As `duration` (`crates/hamlet_server/src/spend.rs`). */
+function duration(ms: number): string {
+    const seconds = Math.floor(ms / 1000);
+    if (seconds < 60) return `${seconds}s`;
+    if (seconds < 3600) return `${Math.floor(seconds / 60)}m`;
+    const minutes = `${Math.floor((seconds % 3600) / 60)}`.padStart(2, "0");
+    return `${Math.floor(seconds / 3600)}h ${minutes}m`;
+}
+
+/**
+ * As `budget` (`crates/hamlet_server/src/calls/society.rs`), with
+ * the summary of `report` (`crates/hamlet_server/src/spend.rs`): the
+ * cap nearest its end, or the money spent when there is none.
+ */
+function budgetWords(
+    answer: Granted<SocietyActs["read_budget"]["answer"]>,
+): string {
+    const { spend } = answer;
+    const whose = spend.payer.type === "hamlet" ? "Hamlet" : "Realm";
+    const period = answer.period === "day" ? "today" : "this month";
+    const lines = [`${whose} ${period}: ${nearest(spend)}`];
+    lines.push(`Your spend this period: ${money(answer.own_micros)}.`);
+    if (answer.allowance_micros !== undefined) {
+        lines.push(
+            `Your allowance, with what everything under you spends: ${money(answer.allowance_micros)}.`,
+        );
+    }
+    return lines.join("\n");
+}
+
+function nearest(spend: Spend): string {
+    const caps = [
+        [spend.spent_micros, spend.budget_micros, money],
+        [spend.spent_ms, spend.budget_ms, duration],
+    ] as const;
+    let shown: string | undefined;
+    let most = -1;
+    for (const [spent, cap, show] of caps) {
+        if (cap === undefined) continue;
+        // A later cap wins a tie, as Rust's `max_by` keeps the last.
+        const used = spent / Math.max(cap, 1);
+        if (used >= most) {
+            most = used;
+            shown = `${show(spent)} of ${show(cap)}`;
+        }
+    }
+    return shown ?? money(spend.spent_micros);
+}
+
+/** The model's `paths`, as the files a letter sends. */
+function enclosed(paths: readonly string[] | undefined): {
+    paths?: { path: string }[];
+} {
+    const given = (paths ?? []).map((path) => ({ path }));
+    return given.length === 0 ? {} : { paths: given };
+}
 
 const ACT_OF: ReadonlyMap<string, SocietyTool> = new Map(
     (Object.keys(TOOLS) as SocietyTool[]).map((act) => [TOOLS[act].name, act]),
@@ -644,18 +989,70 @@ function societyTool<N extends SocietyTool>(
                     );
                 },
                 definition.name,
+                ({ why }) => {
+                    // Today holds such a call until a chief rules, and the
+                    // ruling arrives as a notice.
+                    const text =
+                        why.type === "reserved"
+                            ? WAITING
+                            : definition.plain?.(why);
+                    return text === undefined ? undefined : words(text);
+                },
             );
         },
     });
 }
 
+/** Every agent's but a worker's (`crates/hamlet_server/src/calls/place.rs`). */
+const EVERYONE: readonly SocietyTool[] = [
+    "tell",
+    "ask",
+    "start_worker",
+    "submit_skill",
+    "ask_librarian",
+    "ask_chief",
+    "read_budget",
+    "object",
+];
+
+/** A lead's over its own tree, which the Hand has over all. */
+const LEADS: readonly SocietyTool[] = [
+    "create_profile",
+    "hire",
+    "end",
+    "set_model",
+    "set_tools",
+    "set_allowance",
+    "set_nickname",
+    "lay_road",
+    "take_up_road",
+];
+
+/**
+ * The society tools of the Hand and of a hire, as today offers them in a
+ * chief's chat. A hire is offered `agree_road`, which the realm refuses
+ * unless it is a mayor.
+ */
+const OFFERED: Readonly<Record<"hand" | "hire", readonly SocietyTool[]>> = {
+    hand: [
+        ...EVERYONE,
+        ...LEADS,
+        "found",
+        "seat",
+        "read_record",
+        "read_profile",
+        "edit_profile",
+        "tag",
+        "revert",
+    ],
+    hire: [...EVERYONE, "request_road", ...LEADS, "agree_road"],
+};
+
 /** As today, a society tool is offered whatever a lead turned off. */
-export function society(peers: Peers): Extension {
+export function society(peers: Peers, kind: "hand" | "hire"): Extension {
     return defineExtension({
         name: "hamlet.society",
-        tools: (Object.keys(TOOLS) as SocietyTool[]).map((act) =>
-            societyTool(peers, act),
-        ),
+        tools: OFFERED[kind].map((act) => societyTool(peers, act)),
         hooks: [
             hook(GenerationTask, {
                 onYield: (answer, api) => reply(peers, answer, api),

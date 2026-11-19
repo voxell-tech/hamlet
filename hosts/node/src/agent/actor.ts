@@ -151,8 +151,8 @@ export type AgentDefinition = ActorDefinition<
 interface Offer {
     /** Whether the built-in or hand tool `name` is offered. */
     readonly builtIn: (name: string) => boolean;
-    /** Whether the society's tools, the timers and reflection are offered. */
-    readonly society: boolean;
+    /** Whose society tools are offered, with the timers and reflection; absent offers none. */
+    readonly society?: "hand" | "hire";
 }
 
 /**
@@ -168,15 +168,12 @@ function offerOf(row: Row): Offer | undefined {
             return undefined;
         case "worker": {
             const given = new Set(row.brief?.tools?.map(({ name }) => name));
-            return {
-                builtIn: (name) => given.size === 0 || given.has(name),
-                society: false,
-            };
+            return { builtIn: (name) => given.size === 0 || given.has(name) };
         }
         case "hand":
         case "hire": {
             const off = new Set(row.toolsOff.map(({ name }) => name));
-            return { builtIn: (name) => !off.has(name), society: true };
+            return { builtIn: (name) => !off.has(name), society: row.kind };
         }
     }
 }
@@ -214,7 +211,8 @@ function parts(
     const builtIn = builtIns.listed.map((extension) =>
         offered(extension, builtIns.offer),
     );
-    if (!builtIns.offer.society) {
+    const { society: kind } = builtIns.offer;
+    if (kind === undefined) {
         return [
             promptPart(prompt),
             cutOffRule(tell),
@@ -228,7 +226,7 @@ function parts(
         cutOffRule(tell),
         failed.extension,
         ...builtIn,
-        society(peers),
+        society(peers, kind),
         timers(),
         saving(turnEnded),
     ];

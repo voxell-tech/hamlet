@@ -3,7 +3,7 @@
  * answers.
  */
 import { Address } from "../../actor/actor/mod.ts";
-import type { Copies } from "./agent.ts";
+import type { Copies, Count, Effort } from "./agent.ts";
 import type { OfferId } from "./library.ts";
 import type { CommitId, Path, Revision } from "./profile.ts";
 import type {
@@ -85,6 +85,35 @@ export type HireAnswer =
     | { readonly type: "hired"; readonly agent: AgentName }
     | Refused;
 
+/** A file or a folder a letter sends, in the sender's filesystem or its hamlet's folder. */
+export interface Enclosed {
+    readonly path: string;
+}
+
+/** A question to the chief; `text_input` lets the chief answer in words of its own. */
+export interface ChiefQuestion {
+    readonly question: string;
+    readonly description?: string;
+    readonly options?: readonly {
+        readonly title: string;
+        readonly description?: string;
+    }[];
+    readonly text_input: boolean;
+}
+
+export type Payer =
+    | { readonly type: "realm" }
+    | { readonly type: "hamlet"; readonly hamlet: HamletId };
+
+/** What a payer spent this period, against its budget's caps where it has them. */
+export interface Spend {
+    readonly payer: Payer;
+    readonly spent_micros: number;
+    readonly budget_micros?: number;
+    readonly spent_ms: number;
+    readonly budget_ms?: number;
+}
+
 export interface SocietyActs {
     found: {
         act: {
@@ -103,6 +132,8 @@ export interface SocietyActs {
             /** The profile's version the hire starts from; `main` when absent. */
             readonly version?: string;
             readonly purpose?: string;
+            /** A blank hire's name; absent with a profile. */
+            readonly name?: string;
         };
         answer: HireAnswer;
     };
@@ -110,9 +141,16 @@ export interface SocietyActs {
         act: { readonly hire: Named; readonly why?: string };
         answer: DoneTo;
     };
-    seat: { act: { readonly hire: Named }; answer: DoneTo };
+    seat: {
+        act: { readonly hire: Named; readonly why?: string };
+        answer: DoneTo;
+    };
     tell: {
-        act: { readonly to: Named; readonly text: string };
+        act: {
+            readonly to: Named;
+            readonly text: string;
+            readonly paths?: readonly Enclosed[];
+        };
         answer: Sent;
     };
     ask: {
@@ -120,15 +158,16 @@ export interface SocietyActs {
             readonly to: Named;
             readonly text: string;
             readonly conversation: ConversationRef;
+            readonly paths?: readonly Enclosed[];
         };
         answer: Waiting;
     };
     lay_road: {
-        act: { readonly a: Named; readonly b: Named };
+        act: { readonly a: Named; readonly b: Named; readonly why?: string };
         answer: RoadDone;
     };
     take_up_road: {
-        act: { readonly a: Named; readonly b: Named };
+        act: { readonly a: Named; readonly b: Named; readonly why?: string };
         answer: RoadDone;
     };
     request_road: {
@@ -143,8 +182,107 @@ export interface SocietyActs {
             readonly hire: Named;
             readonly off?: readonly ToolName[];
             readonly on?: readonly ToolName[];
+            readonly why?: string;
         };
         answer: DoneTo;
+    };
+    /** The chief's answer arrives later, as an input to `conversation`. */
+    ask_chief: {
+        act: {
+            readonly task: RealmTask;
+            readonly conversation: ConversationRef;
+            readonly message?: string;
+            readonly questions: readonly ChiefQuestion[];
+        };
+        answer: Done;
+    };
+    /** Holds the task until a chief says go or withdraw. */
+    object: {
+        act: {
+            readonly task: RealmTask;
+            readonly conversation: ConversationRef;
+            readonly reason: string;
+        };
+        answer: Done;
+    };
+    start_worker: {
+        act: {
+            readonly brief: string;
+            /** Empty for the starter's built-in tools. */
+            readonly tools?: readonly ToolName[];
+            readonly task?: RealmTask;
+            readonly hamlet?: HamletId;
+        };
+        answer:
+            | { readonly type: "started"; readonly worker: AgentName }
+            | Refused;
+    };
+    set_allowance: {
+        /** In millionths of a dollar; absent takes the allowance away. */
+        act: {
+            readonly hire: Named;
+            readonly micros?: Count;
+            readonly why?: string;
+        };
+        answer: DoneTo;
+    };
+    read_budget: {
+        /** Without `task`, the caller's own payer. */
+        act: { readonly task?: RealmTask };
+        answer:
+            | {
+                  readonly type: "budget";
+                  readonly spend: Spend;
+                  readonly period: "day" | "month";
+                  readonly own_micros: number;
+                  readonly allowance_micros?: number;
+              }
+            | Refused;
+    };
+    agree_road: {
+        act: {
+            readonly mine: Named;
+            readonly theirs: Named;
+            readonly why?: string;
+        };
+        answer:
+            | {
+                  readonly type: "waiting" | "laid";
+                  readonly mine: AgentName;
+                  readonly theirs: AgentName;
+              }
+            | Refused;
+    };
+    /** Without `name`, the hire goes by its own name again. */
+    set_nickname: {
+        act: {
+            readonly hire: Named;
+            readonly name?: string;
+            readonly why?: string;
+        };
+        answer: DoneTo;
+    };
+    set_model: {
+        act: {
+            readonly of:
+                | { readonly type: "hire"; readonly hire: Named }
+                | { readonly type: "hamlet"; readonly hamlet: HamletId };
+            readonly model?: string;
+            readonly effort?: Effort;
+            readonly fast?: boolean;
+            readonly why?: string;
+        };
+        answer: DoneTo;
+    };
+    /** Without `hamlet`, the realm's own record. */
+    read_record: {
+        act: { readonly hamlet?: HamletId };
+        answer:
+            | {
+                  readonly type: "read";
+                  readonly lines: readonly { readonly text: string }[];
+              }
+            | Refused;
     };
     create_profile: {
         /** Without a character, the profile starts from the realm's. */
@@ -244,6 +382,8 @@ export interface Charge {
     readonly task: RealmTask;
     readonly micros: number;
     readonly took_ms: number;
+    /** Its input and output tokens. */
+    readonly tokens?: number;
 }
 
 export interface OauthLogin {

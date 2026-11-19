@@ -396,7 +396,8 @@ test("a memory folder that cannot be listed leaves the memory out, as today, and
     await agent.stop();
 });
 
-const NAMED_NOT_OFFERED = [
+/** Tools of oversight and the city the prompt names. */
+const NAMED = [
     "object",
     "start_worker",
     "merge_hires",
@@ -406,9 +407,9 @@ const NAMED_NOT_OFFERED = [
     "read_record",
 ];
 
-test("every tool the prompt names is one the agent offers", {
-    todo: "the realm's tools of oversight and the city are not offered yet",
-}, async (t) => {
+const NAMED_NOT_OFFERED = ["merge_hires"];
+
+test("every tool the prompt names is one the agent offers, but merge_hires", async (t) => {
     const missing = new Set<string>();
     for (const input of [undefined, HIRE]) {
         const agent = await wakeAgent(t, {
@@ -421,11 +422,11 @@ test("every tool the prompt names is one the agent offers", {
             (tool) => tool.name,
         );
         await agent.stop();
-        for (const name of NAMED_NOT_OFFERED) {
+        for (const name of NAMED) {
             if (prompt.includes(`\`${name}\``) && !offered.includes(name)) {
                 missing.add(name);
             }
         }
     }
-    assert.deepEqual([...missing], []);
+    assert.deepEqual([...missing], NAMED_NOT_OFFERED);
 });

@@ -216,11 +216,17 @@ export function cappedFiles(files: Record<string, string>): AgentFilesystem {
 }
 
 /** The faux provider prices nothing. */
-export function priced(models: Models, dollars: number): Models {
+/** Each answer costs `dollars`, and uses `tokens` when they are given. */
+export function priced(
+    models: Models,
+    dollars: number,
+    tokens?: { readonly input: number; readonly output: number },
+): Models {
     const costing = (message: AssistantMessage): AssistantMessage => ({
         ...message,
         usage: {
             ...message.usage,
+            ...tokens,
             cost: { ...message.usage.cost, total: dollars },
         },
     });

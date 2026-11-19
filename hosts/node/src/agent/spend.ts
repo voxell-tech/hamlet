@@ -80,6 +80,7 @@ export function gated(models: Models, peers: Peers): Models {
                 task,
                 micros: u32(message.usage.cost.total * 1_000_000),
                 took_ms: u32(message.durationMs ?? Date.now() - started),
+                tokens: u32(message.usage.input + message.usage.output),
             });
         } catch (error) {
             peers.report("a model request's charge was not taken", error);
