@@ -163,26 +163,29 @@ impl Takes<Branch> for Profile {
         let Some(agent) = hire_of(&call.name) else {
             bail!("`{}` is not a hire's branch", call.name);
         };
-        call.once(move |unit| branch(unit, agent)).await
+        let own = call.owner().own.0;
+        call.once(move |unit| branch(unit, agent, own)).await
     }
 }
 
-/// Makes the branch at `main`'s tip with its `hire` row, or the half
-/// a run a kill cut off did not make.
+/// Makes the branch at the version `from` names, pinned to it, or at
+/// `main`'s tip, with its `hire` row, or the half a run a kill cut
+/// off did not make.
 fn branch(
     unit: Before<'_, Profile, Branch>,
     agent: AgentNumber,
+    own: ProfileId,
 ) -> Result<Ended<Branch>> {
-    let name = unit.message().name.clone();
+    let Branch { name, from } = unit.message().clone();
     let has_row = of(&unit.rows(Table(())), agent)?.is_some();
     let (tip, at, character) = {
         let git = unit.git()?;
-        let tip = git.tip(&name)?;
-        let at = match tip {
-            Some(tip) => tip,
-            None => git.tip(MAIN)?.context("a profile has a main")?,
+        let at = match start(git, from.as_ref(), own)? {
+            Ok(at) => at,
+            Err(why) => return unit.refuse(why),
         };
-        (tip, at, character_at(git, at)?.0)
+        let tip = git.tip(&name)?;
+        (tip, at, character_at(git, tip.unwrap_or(at))?.0)
     };
     if tip.is_some() && has_row {
         return unit.kept(Done::Done);
@@ -192,17 +195,54 @@ fn branch(
         writer.writes()?.branch(&name, at)?;
     }
     if !has_row {
+        let [pin, pin_commit] = pinned(from.as_ref(), at);
         writer.table(Table(())).execute(
-            "INSERT INTO hire (agent, branch, character, \
-             character_blob) VALUES (?1, ?2, 1, ?3)",
+            "INSERT INTO hire (agent, branch, pin, pin_commit, \
+             character, character_blob) VALUES (?1, ?2, ?3, ?4, 1, \
+             ?5)",
             vec![
                 BindParam::Integer(i64::from(agent.0)),
                 BindParam::Text(name),
+                pin,
+                pin_commit,
                 BindParam::Text(character),
             ],
         )?;
     }
     writer.kept(Done::Done)
+}
+
+/// The commit a hire made or pinned at `version` starts from, or
+/// `main`'s tip when `None`.
+fn start(
+    git: &Reads,
+    version: Option<&VersionName>,
+    own: ProfileId,
+) -> Result<Result<hamlet_git::CommitId, Missing>> {
+    let Some(version) = version else {
+        return Ok(Ok(git
+            .tip(MAIN)?
+            .context("a profile has a main")?));
+    };
+    Ok(version_at(git, version)?.ok_or_else(|| Missing::NoVersion {
+        profile: own,
+        version: version.clone(),
+    }))
+}
+
+/// The `pin` and `pin_commit` of a hire pinned to `version` at `at`,
+/// or of one that follows `main` when `None`.
+fn pinned(
+    version: Option<&VersionName>,
+    at: hamlet_git::CommitId,
+) -> [BindParam; 2] {
+    match version {
+        Some(version) => [
+            BindParam::Text(version.0.clone()),
+            BindParam::Text(at.to_string()),
+        ],
+        None => [BindParam::Null, BindParam::Null],
+    }
 }
 
 /// Takes `main` into the branch of each hire that follows it, the
@@ -249,30 +289,12 @@ fn pin(
     let Some(row) = of(&unit.rows(Table(())), hire)? else {
         return unit.refuse(NotAHire::NoHire { hire }.into());
     };
-    let at = match &to {
-        Some(version) => {
-            let Some(at) = version_at(unit.git()?, version)? else {
-                let version = version.clone();
-                let why = Missing::NoVersion {
-                    profile: own,
-                    version,
-                };
-                return unit.refuse(why.into());
-            };
-            at
-        }
-        None => {
-            unit.git()?.tip(MAIN)?.context("a profile has a main")?
-        }
+    let at = match start(unit.git()?, to.as_ref(), own)? {
+        Ok(at) => at,
+        Err(why) => return unit.refuse(why.into()),
     };
     let mut writer = unit.write();
-    let (pin, pin_commit) = match &to {
-        Some(version) => (
-            BindParam::Text(version.0.clone()),
-            BindParam::Text(at.to_string()),
-        ),
-        None => (BindParam::Null, BindParam::Null),
-    };
+    let [pin, pin_commit] = pinned(to.as_ref(), at);
     writer.table(Table(())).execute(
         "UPDATE hire SET pin = ?1, pin_commit = ?2 WHERE agent = ?3",
         vec![pin, pin_commit, BindParam::Integer(i64::from(hire.0))],
@@ -421,7 +443,7 @@ mod tests {
             from: None,
         };
         let unit = |unit: Before<'_, Profile, Branch>| {
-            branch(unit, AgentNumber(agent))
+            branch(unit, AgentNumber(agent), ProfileId(1))
         };
         profile.once(realm, asked, unit).unwrap().1
     }
