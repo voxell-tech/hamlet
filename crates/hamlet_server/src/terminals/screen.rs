@@ -23,6 +23,9 @@ pub(crate) struct Screen {
     replay: VecDeque<u8>,
     /// Its size where `replay` starts.
     start: Size,
+    /// Whether `replay` starts on the alternate screen, the request
+    /// that switched to it trimmed away.
+    start_alternate: bool,
     /// What the line being typed showed before typing began on it:
     /// the prompt. The line is found again by it, not by where it
     /// was, which scrolling and a full scrollback move.
@@ -95,6 +98,32 @@ fn cells(n: u16) -> std::num::NonZeroU16 {
     std::num::NonZeroU16::new(n).unwrap_or(std::num::NonZeroU16::MIN)
 }
 
+/// Whether the last request in `bytes` to switch screens went to the
+/// alternate one, none if it holds no request.
+fn alternate_after(bytes: &[u8]) -> Option<bool> {
+    let mut found = None;
+    let mut rest = bytes;
+    while let Some(at) = rest.windows(3).position(|w| w == b"\x1b[?")
+    {
+        rest = &rest[at + 3..];
+        let end = rest
+            .iter()
+            .position(|b| !b.is_ascii_digit() && *b != b';')
+            .unwrap_or(rest.len());
+        let Some(&last) = rest.get(end) else {
+            break;
+        };
+        if matches!(last, b'h' | b'l')
+            && rest[..end]
+                .split(|b| *b == b';')
+                .any(|n| matches!(n, b"47" | b"1047" | b"1049"))
+        {
+            found = Some(last == b'h');
+        }
+    }
+    found
+}
+
 /// The first row of the line `row` is part of, its rows before it
 /// wrapped into it.
 fn first_row(screen: &vt100::Screen, mut row: u16) -> u16 {
@@ -121,6 +150,7 @@ impl Screen {
             ),
             replay: VecDeque::new(),
             start: size,
+            start_alternate: false,
             typing: None,
             entered: None,
             last: None,
@@ -181,6 +211,9 @@ impl Screen {
             if let Some(size) = sized {
                 self.start = size;
             }
+            if let Some(alternate) = alternate_after(&dropped) {
+                self.start_alternate = alternate;
+            }
         }
         self.seq += 1;
         std::mem::take(&mut self.parser.callbacks_mut().answers)
@@ -190,6 +223,11 @@ impl Screen {
     /// size it was printed at.
     pub(super) fn replay(&self) -> Vec<u8> {
         let mut bytes = size_mark(self.start.cols, self.start.rows);
+        // A full-screen program's frames after the trim belong on its
+        // own screen, which the program leaves on quitting.
+        if self.start_alternate {
+            bytes.extend(b"\x1b[?1049h");
+        }
         bytes.extend(self.replay.iter());
         bytes
     }
@@ -416,6 +454,23 @@ mod tests {
             shown.contents(),
             screen.parser.screen().contents()
         );
+    }
+
+    #[test]
+    fn a_redraw_after_a_trimmed_full_screen_program_left_shows_no_leftovers()
+     {
+        let mut screen = Screen::new(Size { rows: 3, cols: 20 });
+        screen.take(b"$ hx\r\n\x1b[?1049h");
+        let frame = "\x1b[H\x1b[2Jframe\r\n".repeat(64);
+        for _ in 0..REPLAY / frame.len() + 2 {
+            screen.take(frame.as_bytes());
+        }
+        screen.take(b"\x1b[?1049l$ ");
+        let mut again = Screen::new(Size { rows: 3, cols: 20 });
+        again.restore(&screen.redraw());
+        // The trim lost the line before the program, not the
+        // program's screen onto the one it left.
+        assert_eq!(again.text(0), "$");
     }
 
     #[test]
