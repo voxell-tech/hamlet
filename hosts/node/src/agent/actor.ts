@@ -475,7 +475,10 @@ export interface Generation {
      * current session and then writes by it runs here.
      */
     readonly inTurn: <T>(work: () => Promise<T>) => Promise<T>;
-    /** Saves parcels one after another, so two never take one name. */
+    /**
+     * Admits letters and questions with files one after another, so two
+     * never take one name and a repeat finds the first admitted.
+     */
     readonly receiving: <T>(work: () => Promise<T>) => Promise<T>;
     /**
      * Settles once the last retry sent, queued or under way, is admitted
@@ -708,26 +711,30 @@ async function submit(c: AgentCall, message: Submit): Promise<void> {
                 throw new Error(`the agent has no conversation ${id}`);
             }
             const { input } = message;
+            const admitted = (captions: string) =>
+                conversation.submit(
+                    draftOf(
+                        admissionOf(message, captions),
+                        input.type === "line" ? "steer" : undefined,
+                    ),
+                    context,
+                );
             const files =
                 input.type === "letter" || input.type === "question"
                     ? (input.files ?? [])
                     : [];
-            // A repeat of a submit it took saves nothing again.
-            const captions =
-                files.length === 0 ||
-                (await harness.commit(
-                    (tx) => tx.submissionByRequest(id, message.id),
-                    context,
-                )) !== undefined
-                    ? ""
-                    : await receiving(() => received(peers, files, context));
-            await conversation.submit(
-                draftOf(
-                    admissionOf(message, captions),
-                    message.input.type === "line" ? "steer" : undefined,
-                ),
-                context,
-            );
+            if (files.length === 0) return admitted("");
+            await receiving(async () => {
+                // A repeat of a submit it took saves nothing again.
+                const again =
+                    (await harness.commit(
+                        (tx) => tx.submissionByRequest(id, message.id),
+                        context,
+                    )) !== undefined;
+                await admitted(
+                    again ? "" : await received(peers, files, context),
+                );
+            });
         });
     };
     await (BY_SESSION.has(message.input.type) ? inTurn(admit) : admit());

@@ -62,8 +62,10 @@ export async function received(
     /** Saves `sent`, or gives why it was not. */
     const save = async (sent: ParcelFile): Promise<unknown> => {
         const [from = "", top = "", ...rest] = sent.path.split("/");
-        const bytes = await fetched(peers, sent);
-        if (typeof bytes === "string") return bytes;
+        const bytes = await fetched(peers, sent).catch(
+            (error: unknown) => error,
+        );
+        if (!Buffer.isBuffer(bytes)) return bytes;
         const at = await savedAt(`${INBOX}/${from}`, top);
         const wrote = await peers.files.write(
             [at.path, ...rest].join("/"),

@@ -148,3 +148,65 @@ test("a file larger than 32 MiB is not fetched, and is reported", async (t) => {
     assert.equal(reported.length, 1);
     assert.match(reported[0] ?? "", /from-hire-12\/big\.bin/);
 });
+
+test("a part the realm does not answer leaves the file out, and the letter is still told", async (t) => {
+    const held: Record<string, string> = {};
+    const { words, reported } = await received(
+        t,
+        held,
+        () => {
+            throw new Error("the realm is gone");
+        },
+        [letter([file(0, "report.md", 3)])],
+    );
+
+    assert.deepEqual(words, ["The report"]);
+    assert.deepEqual(held, {});
+    assert.equal(reported.length, 1);
+    assert.match(
+        reported[0] ?? "",
+        /from-hire-12\/report\.md.*the realm is gone/,
+    );
+});
+
+test("a repeat that comes while the first is saved fetches and saves nothing", async (t) => {
+    const held: Record<string, string> = {};
+    const { calls, sent } = fakeCalls({
+        realm: { fetch_part: serving(["new"], 9) },
+    });
+    const agent = await wakeAgent(t, {
+        calls,
+        files: fakeFiles(held),
+        responses: [asked([], "Read.")],
+    });
+    const twice = letter([file(0, "report.md", 3)]);
+    await Promise.all([
+        agent.actions.submit(agent.by(from.realm), twice),
+        agent.actions.submit(agent.by(from.realm), twice),
+    ]);
+    await agent.idle();
+    await agent.stop();
+
+    assert.equal(named(sent, "fetch_part").length, 1);
+    assert.deepEqual(Object.keys(held), ["inbox/from-hire-12/report.md"]);
+});
+
+test("a question's files are told after its words, as a letter's are", async (t) => {
+    const held: Record<string, string> = {};
+    const { words } = await received(t, held, serving(["new"], 9), [
+        {
+            id: "input-1",
+            input: {
+                type: "question",
+                letter: 6,
+                from: { agent: 12, name: "Ada" },
+                text: "Is this plan right?",
+                files: [file(0, "plan.md", 3)],
+            },
+        },
+    ]);
+
+    assert.deepEqual(words, [
+        `Is this plan right?\n\n[File 1 of this message, 3 bytes, saved at ${INBOX}/plan.md]`,
+    ]);
+});
