@@ -311,23 +311,16 @@ async function refusedRetry(
     const live = await harness.snapshot(LiveDoc, conversation, context);
     if (live?.run !== undefined) return "running";
     if (live?.runFailure !== undefined) return undefined;
+    // As today, only a session whose last entry is an answer was answered;
+    // an answer with nothing in it failed its turn (C29).
     const kept = await harness.conversation(conversation, context);
-    let cursor: Cursor | undefined;
-    do {
-        const page = await kept?.entries({}, 100, cursor, context);
-        const answer = page?.items.find(
-            (entry) => entry.kind === "pi.assistant",
-        );
-        if (answer !== undefined) {
-            const message = answer.model?.[0] as AssistantMessage | undefined;
-            // An answer with nothing in it failed its turn (C29).
-            return message !== undefined && stands(message)
-                ? "answered"
-                : undefined;
-        }
-        cursor = page?.next;
-    } while (cursor !== undefined);
-    return undefined;
+    const [last] =
+        (await kept?.entries({}, 1, undefined, context))?.items ?? [];
+    const answer =
+        last?.kind === "pi.assistant"
+            ? (last.model?.[0] as AssistantMessage | undefined)
+            : undefined;
+    return answer !== undefined && stands(answer) ? "answered" : undefined;
 }
 
 /**
