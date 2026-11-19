@@ -1,5 +1,5 @@
-//! Finding a newer release in its signed manifest, and downloading
-//! the file this copy's kind of install takes.
+//! Finding a newer release in its channels' signed manifests, and
+//! downloading the file this copy's kind of install takes.
 
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
@@ -8,18 +8,31 @@ use std::time::Duration;
 use anyhow::{Context, Result, bail, ensure};
 use base64::Engine;
 use base64::engine::general_purpose::STANDARD;
-use hamlet_protocol::Version;
 use reqwest::Client;
 use ring::signature::{ED25519, UnparsedPublicKey};
 use serde::Deserialize;
 use sha2::{Digest, Sha256};
 use tokio::io::AsyncWriteExt;
 
-use crate::{Install, KEY};
+use crate::{Channel, Install, KEY, Version};
 
-/// The latest release's manifest. Its signature is beside it, at the
-/// same address with `.sig` added.
-pub const FEED: &str = "https://github.com/voxell-tech/hamlet/releases/latest/download/latest.json";
+/// The manifest of `channel`'s newest release. Its signature is
+/// beside it, at the same address with `.sig` added. GitHub's latest
+/// release is the newest that is not a pre-release; the others are
+/// kept on a release of their own, named for the channel.
+fn manifest_of(channel: Channel) -> &'static str {
+    match channel {
+        Channel::Stable => {
+            "https://github.com/voxell-tech/hamlet/releases/latest/download/latest.json"
+        }
+        Channel::Beta => {
+            "https://github.com/voxell-tech/hamlet/releases/download/beta/latest.json"
+        }
+        Channel::Nightly => {
+            "https://github.com/voxell-tech/hamlet/releases/download/nightly/latest.json"
+        }
+    }
+}
 
 /// The most a manifest or its signature may weigh.
 const MOST: usize = 1 << 20;
@@ -56,10 +69,10 @@ pub struct Found {
     pub asset: Option<Asset>,
 }
 
-/// Where releases are looked for, and the key their manifests are
+/// The manifests releases are looked for in, and the key they are
 /// signed with.
 pub struct Feed {
-    url: String,
+    urls: Vec<String>,
     key: Vec<u8>,
 }
 
@@ -77,8 +90,8 @@ pub fn client() -> reqwest::Result<Client> {
 }
 
 impl Feed {
-    /// The manifest at `url`, signed with the base64 `key`.
-    pub fn new(url: String, key: &str) -> Result<Self> {
+    /// The manifests at `urls`, signed with the base64 `key`.
+    pub fn new(urls: Vec<String>, key: &str) -> Result<Self> {
         let key = STANDARD
             .decode(key.trim())
             .context("The update key is not base64")?;
@@ -86,43 +99,63 @@ impl Feed {
             key.len() == 32,
             "The update key is not an Ed25519 key"
         );
-        Ok(Self { url, key })
+        Ok(Self { urls, key })
     }
 
-    /// This copy's feed: `HAMLET_UPDATE_FEED`, else [`FEED`]. None
-    /// when it does not update.
-    pub fn here() -> Option<Self> {
+    /// The feed of `channel`: its manifest and every steadier
+    /// channel's, or `HAMLET_UPDATE_FEED` alone. None when this copy
+    /// does not update.
+    pub fn of(channel: Channel) -> Option<Self> {
         if !crate::is_enabled() {
             return None;
         }
-        let url = std::env::var("HAMLET_UPDATE_FEED")
+        let urls = match std::env::var("HAMLET_UPDATE_FEED")
             .ok()
             .filter(|url| !url.is_empty())
-            .unwrap_or_else(|| FEED.into());
-        Self::new(url, KEY?).ok()
+        {
+            Some(url) => vec![url],
+            None => Channel::ALL
+                .into_iter()
+                .filter(|steadier| *steadier <= channel)
+                .map(|steadier| manifest_of(steadier).to_owned())
+                .collect(),
+        };
+        Self::new(urls, KEY?).ok()
     }
 
-    /// The release in the manifest, when its signature holds and it
-    /// is newer than `than`.
+    /// The newest release in the manifests, when it is newer than
+    /// `than`. A manifest that cannot be fetched, or whose signature
+    /// does not hold, is passed over; that is an error only when no
+    /// manifest can be read.
     pub async fn check(
         &self,
         client: &Client,
         install: &Install,
-        than: Version,
+        than: &Version,
     ) -> Result<Option<Found>> {
-        let manifest = fetch(client, &self.url).await?;
-        let signature =
-            fetch(client, &format!("{}.sig", self.url)).await?;
-        let signature = STANDARD
-            .decode(signature.trim_ascii())
-            .context("The manifest's signature is not base64")?;
-        UnparsedPublicKey::new(&ED25519, &self.key)
-            .verify(&manifest, &signature)
-            .ok()
-            .context("The manifest's signature does not hold")?;
-        let manifest = serde_json::from_slice::<Manifest>(&manifest)
-            .context("The manifest is not one Hamlet reads")?;
-        if manifest.version <= than {
+        let mut newest = None::<Manifest>;
+        let mut failed = None;
+        for url in &self.urls {
+            match self.read(client, url).await {
+                Ok(manifest) => {
+                    if newest
+                        .as_ref()
+                        .is_none_or(|n| manifest.version > n.version)
+                    {
+                        newest = Some(manifest);
+                    }
+                }
+                Err(error) => {
+                    failed.get_or_insert(error);
+                }
+            }
+        }
+        let manifest = match (newest, failed) {
+            (Some(manifest), _) => manifest,
+            (None, Some(error)) => return Err(error),
+            (None, None) => return Ok(None),
+        };
+        if manifest.version <= *than {
             return Ok(None);
         }
         let asset = install
@@ -134,6 +167,25 @@ impl Feed {
             page: manifest.page,
             asset,
         }))
+    }
+
+    /// The manifest at `url`, when its signature holds.
+    async fn read(
+        &self,
+        client: &Client,
+        url: &str,
+    ) -> Result<Manifest> {
+        let manifest = fetch(client, url).await?;
+        let signature = fetch(client, &format!("{url}.sig")).await?;
+        let signature = STANDARD
+            .decode(signature.trim_ascii())
+            .context("The manifest's signature is not base64")?;
+        UnparsedPublicKey::new(&ED25519, &self.key)
+            .verify(&manifest, &signature)
+            .ok()
+            .context("The manifest's signature does not hold")?;
+        serde_json::from_slice(&manifest)
+            .context("The manifest is not one Hamlet reads")
     }
 }
 
@@ -323,6 +375,9 @@ mod tests {
         );
         let signed = manifest("0.2.0", &deb);
         let signature = STANDARD.encode(pair.sign(&signed).as_ref());
+        let nightly = manifest("0.3.0-nightly.202611190930", &deb);
+        let nightly_signature =
+            STANDARD.encode(pair.sign(&nightly).as_ref());
         let mut forged = signed.clone();
         forged.extend_from_slice(b" ");
         let address = serve(vec![
@@ -331,48 +386,86 @@ mod tests {
                 "/latest.json.sig".into(),
                 signature.clone().into_bytes(),
             ),
+            ("/nightly.json".into(), nightly),
+            (
+                "/nightly.json.sig".into(),
+                nightly_signature.into_bytes(),
+            ),
             ("/forged.json".into(), forged),
             ("/forged.json.sig".into(), signature.into_bytes()),
         ])
         .await;
+        let at = |paths: &[&str]| {
+            paths
+                .iter()
+                .map(|path| format!("{address}{path}"))
+                .collect()
+        };
         let client = client().unwrap();
-        let feed =
-            Feed::new(format!("{address}/latest.json"), &public)
-                .unwrap();
-        let found = feed
-            .check(&client, &Install::Deb, Version::new(0, 1, 0))
-            .await
-            .unwrap()
-            .unwrap();
-        assert_eq!(found.version, Version::new(0, 2, 0));
+        let version = |text: &str| text.parse::<Version>().unwrap();
+        let check = async |urls, key: &str, install, than: &str| {
+            Feed::new(urls, key)
+                .unwrap()
+                .check(&client, &install, &version(than))
+                .await
+        };
+        // A missing channel is passed over.
+        let found = check(
+            at(&["/beta.json", "/latest.json"]),
+            &public,
+            Install::Deb,
+            "0.1.0",
+        )
+        .await
+        .unwrap()
+        .unwrap();
+        assert_eq!(found.version, version("0.2.0"));
         assert_eq!(found.asset, Some(deb));
-        let none = feed
-            .check(&client, &Install::Manual, Version::new(0, 1, 0))
-            .await;
+        let none = check(
+            at(&["/latest.json"]),
+            &public,
+            Install::Manual,
+            "0.1.0",
+        )
+        .await;
         assert_eq!(none.unwrap().unwrap().asset, None);
-        let same = feed
-            .check(&client, &Install::Deb, Version::new(0, 2, 0))
-            .await;
+        let same = check(
+            at(&["/latest.json"]),
+            &public,
+            Install::Deb,
+            "0.2.0",
+        )
+        .await;
         assert_eq!(same.unwrap(), None);
-        let forged =
-            Feed::new(format!("{address}/forged.json"), &public)
-                .unwrap();
-        assert!(
-            forged
-                .check(&client, &Install::Deb, Version::new(0, 1, 0))
-                .await
-                .is_err()
+        // The newest of the channels, by semver's order.
+        let newest = check(
+            at(&["/latest.json", "/nightly.json"]),
+            &public,
+            Install::Deb,
+            "0.3.0-nightly.202611180930",
+        )
+        .await;
+        assert_eq!(
+            newest.unwrap().unwrap().version,
+            version("0.3.0-nightly.202611190930")
         );
+        let forged = check(
+            at(&["/forged.json"]),
+            &public,
+            Install::Deb,
+            "0.1.0",
+        )
+        .await;
+        assert!(forged.is_err());
         let (_, other) = keys();
-        let stranger =
-            Feed::new(format!("{address}/latest.json"), &other)
-                .unwrap();
-        assert!(
-            stranger
-                .check(&client, &Install::Deb, Version::new(0, 1, 0))
-                .await
-                .is_err()
-        );
+        let stranger = check(
+            at(&["/latest.json"]),
+            &other,
+            Install::Deb,
+            "0.1.0",
+        )
+        .await;
+        assert!(stranger.is_err());
     }
 
     #[tokio::test]

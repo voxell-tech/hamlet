@@ -2,10 +2,18 @@
 # each, and what a chief installs without a terminal, a disk image, an
 # installer, a .deb and an .rpm.
 #
-# Runs when a version tag is pushed (v0.1.0) and when started by hand
-# from the Actions tab, and at no other time. A tag publishes a GitHub
-# release with them all. A run by hand only keeps them as the run's
-# artifacts.
+# Runs when a version tag is pushed, when CI passes on a push to main,
+# and when started by hand from the Actions tab. Each feeds a channel
+# installed copies update from (docs/releases.md#updates):
+#
+# - v0.2.0 publishes a stable release, the latest on GitHub.
+# - v0.2.0-beta.1 publishes a beta: a pre-release, whose manifest is
+#   also put on the release `beta`.
+# - Any other suffix, as v0.1.0-dev.1, publishes a pre-release that no
+#   channel offers.
+# - CI passing on main publishes a nightly to the release `nightly`,
+#   replacing the last one's files.
+# - A run by hand only keeps them as the run's artifacts.
 #
 # Signing waits on the repository's secrets, and is skipped without
 # them. macOS: APPLE_CERTIFICATE (a Developer ID Application .p12, in
@@ -17,20 +25,25 @@
 # TRUSTED_SIGNING_PROFILE.
 #
 # Updates wait on a key pair (docs/releases.md#updates): the variable
-# HAMLET_UPDATE_KEY, the public key in base64, is built into a tag's
-# programs, and the secret HAMLET_UPDATE_SIGNING_KEY, the private key
-# in PEM, signs the release's latest.json. Without them a release
-# neither looks for updates nor offers one.
+# HAMLET_UPDATE_KEY, the public key in base64, is built into a
+# published build's programs, and the secret HAMLET_UPDATE_SIGNING_KEY,
+# the private key in PEM, signs the release's latest.json. Without them
+# a release neither looks for updates nor offers one.
 name: Release
 
 on:
   push:
     tags: ["v*"]
+  workflow_run:
+    workflows: [CI]
+    types: [completed]
+    branches: [main]
   workflow_dispatch:
 
 permissions:
   contents: read
 
+# A nightly's ref is main, so a newer one cancels the last.
 concurrency:
   group: release-${{ github.ref }}
   cancel-in-progress: true
@@ -39,15 +52,81 @@ env:
   CARGO_TERM_COLOR: always
 
 jobs:
+  # What the run builds: the commit, its version, the channel its
+  # programs follow and the release it publishes to, none for a run by
+  # hand.
+  plan:
+    name: Plan
+    if: >-
+      github.event_name != 'workflow_run' ||
+      (github.event.workflow_run.conclusion == 'success' &&
+      github.event.workflow_run.event == 'push')
+    runs-on: ubuntu-latest
+    outputs:
+      sha: ${{ steps.plan.outputs.sha }}
+      version: ${{ steps.plan.outputs.version }}
+      semver: ${{ steps.plan.outputs.semver }}
+      channel: ${{ steps.plan.outputs.channel }}
+      release: ${{ steps.plan.outputs.release }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+          ref: ${{ github.event.workflow_run.head_sha || github.sha }}
+
+      - name: Plan
+        id: plan
+        shell: bash
+        env:
+          EVENT: ${{ github.event_name }}
+          REF_TYPE: ${{ github.ref_type }}
+          TAG: ${{ github.ref_name }}
+        run: |
+          set -eu
+          sha=$(git rev-parse HEAD)
+          cargo_version=$(sed -n '/^version = "/{s/^version = "\([^"]*\)".*/\1/p;q;}' Cargo.toml)
+          channel=
+          if [ "$EVENT" = workflow_run ]; then
+            # The commit's minute in UTC, one number so that semver
+            # orders nightlies by it.
+            stamp=$(TZ=UTC git log -1 --format=%cd --date=format-local:%Y%m%d%H%M)
+            version=v$cargo_version-nightly.$stamp
+            channel=nightly
+            release=nightly
+          elif [ "$REF_TYPE" = tag ]; then
+            version=$TAG
+            release=$TAG
+            case $TAG in
+              *-beta.*) channel=beta ;;
+              *-*) ;;
+              *) channel=stable ;;
+            esac
+          else
+            version=$sha
+            release=
+          fi
+          {
+            echo "sha=$sha"
+            echo "version=$version"
+            echo "semver=${version#v}"
+            echo "channel=$channel"
+            echo "release=$release"
+          } >> "$GITHUB_OUTPUT"
+
   build:
     name: ${{ matrix.name }}
+    needs: plan
     runs-on: ${{ matrix.os }}
     env:
       APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
       AZURE_CLIENT_ID: ${{ secrets.AZURE_CLIENT_ID }}
       TARGET: ${{ matrix.target }}
-      # Only a release looks for updates; a run by hand is a test.
-      HAMLET_UPDATE_KEY: ${{ github.ref_type == 'tag' && vars.HAMLET_UPDATE_KEY || '' }}
+      # Only a published build looks for updates; a run by hand is a
+      # test. Its version, pre-release and all, and its channel are
+      # built in.
+      HAMLET_UPDATE_KEY: ${{ needs.plan.outputs.release != '' && vars.HAMLET_UPDATE_KEY || '' }}
+      HAMLET_CHANNEL: ${{ needs.plan.outputs.channel }}
+      HAMLET_VERSION: ${{ needs.plan.outputs.release != '' && needs.plan.outputs.semver || '' }}
     strategy:
       fail-fast: false
       matrix:
@@ -68,6 +147,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           persist-credentials: false
+          ref: ${{ needs.plan.outputs.sha }}
           # vendor/fynix is a submodule.
           submodules: recursive
 
@@ -169,7 +249,7 @@ jobs:
           APPLE_ID: ${{ secrets.APPLE_ID }}
           APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
           APPLE_APP_PASSWORD: ${{ secrets.APPLE_APP_PASSWORD }}
-          VERSION: ${{ github.ref_type == 'tag' && github.ref_name || github.sha }}
+          VERSION: ${{ needs.plan.outputs.version }}
         run: .github/scripts/package.sh "$TARGET" "$VERSION"
 
       - name: Sign the installer on Windows
@@ -196,15 +276,23 @@ jobs:
 
   publish:
     name: Publish the release
-    if: github.ref_type == 'tag'
-    needs: build
+    if: needs.plan.outputs.release != ''
+    needs: [plan, build]
     runs-on: ubuntu-latest
     permissions:
       contents: write
+    env:
+      GH_TOKEN: ${{ github.token }}
+      REPO: ${{ github.repository }}
+      SHA: ${{ needs.plan.outputs.sha }}
+      VERSION: ${{ needs.plan.outputs.version }}
+      CHANNEL: ${{ needs.plan.outputs.channel }}
+      RELEASE: ${{ needs.plan.outputs.release }}
     steps:
       - uses: actions/checkout@v4
         with:
           persist-credentials: false
+          ref: ${{ needs.plan.outputs.sha }}
 
       - uses: actions/download-artifact@v4
         with:
@@ -213,13 +301,12 @@ jobs:
 
       # A release made by hand before the tag was built is added to,
       # and a file it already holds is replaced. A tag with a suffix,
-      # such as v0.1.0-dev.1, is a pre-release, which is never the
-      # latest release installed copies update to.
+      # such as v0.1.0-beta.1, is a pre-release, which is never the
+      # latest release stable copies update to.
       - name: Publish the release
+        if: needs.plan.outputs.channel != 'nightly'
         env:
-          GH_TOKEN: ${{ github.token }}
-          TAG: ${{ github.ref_name }}
-          REPO: ${{ github.repository }}
+          TAG: ${{ needs.plan.outputs.release }}
         run: |
           if gh release view "$TAG" --repo "$REPO" >/dev/null 2>&1; then
             gh release upload "$TAG" dist/* --repo "$REPO" --clobber
@@ -235,19 +322,46 @@ jobs:
               "${pre[@]}"
           fi
 
+      # The release `nightly` holds the newest nightly's files, its tag
+      # moved to the commit they were built from.
+      - name: Publish the nightly
+        if: needs.plan.outputs.channel == 'nightly'
+        run: |
+          .github/scripts/channel.sh nightly "$SHA" "Hamlet Nightly" "$REPO"
+          gh release upload nightly dist/* --repo "$REPO" --clobber
+          gh release edit nightly --repo "$REPO" \
+            --notes "Hamlet $VERSION, built from $SHA."
+
       # Last, so an installed Hamlet finds the update only once every
-      # file it names is there.
+      # file it names is there. A beta's manifest is also put on the
+      # release `beta`, where beta copies look for it.
       - name: Publish the update manifest
+        if: needs.plan.outputs.channel != ''
         env:
-          GH_TOKEN: ${{ github.token }}
-          TAG: ${{ github.ref_name }}
-          REPO: ${{ github.repository }}
           HAMLET_UPDATE_SIGNING_KEY: ${{ secrets.HAMLET_UPDATE_SIGNING_KEY }}
         run: |
           if [ -z "$HAMLET_UPDATE_SIGNING_KEY" ]; then
             echo "No HAMLET_UPDATE_SIGNING_KEY: the release offers no update."
             exit 0
           fi
-          .github/scripts/manifest.sh "$TAG" "$REPO"
-          gh release upload "$TAG" dist/latest.json dist/latest.json.sig \
+          .github/scripts/manifest.sh "$VERSION" "$REPO" "$RELEASE"
+          gh release upload "$RELEASE" dist/latest.json dist/latest.json.sig \
             --repo "$REPO" --clobber
+          if [ "$CHANNEL" = beta ]; then
+            .github/scripts/channel.sh beta "$SHA" "Hamlet Beta" "$REPO"
+            gh release upload beta dist/latest.json dist/latest.json.sig \
+              --repo "$REPO" --clobber
+          fi
+
+      # After the manifest, so a copy that read the last one can still
+      # download what it named.
+      - name: Remove the last nightly's files
+        if: needs.plan.outputs.channel == 'nightly'
+        run: |
+          gh release view nightly --repo "$REPO" --json assets \
+            --jq '.assets[].name' |
+            while IFS= read -r name; do
+              if [ ! -e "dist/$name" ]; then
+                gh release delete-asset nightly "$name" --repo "$REPO" --yes
+              fi
+            done

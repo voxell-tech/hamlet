@@ -1,11 +1,13 @@
 //! Hamlet updating itself from its releases
-//! (docs/releases.md#updates): how this copy was installed, where
-//! updates are kept, and putting one in place.
+//! (docs/releases.md#updates): this copy's version and channel, how
+//! it was installed, where updates are kept, and putting one in
+//! place.
 
 use std::fs;
 use std::path::{Path, PathBuf};
 
-use hamlet_protocol::Version;
+pub use semver::Version;
+use serde::{Deserialize, Serialize};
 
 mod apply;
 #[cfg(feature = "check")]
@@ -13,7 +15,7 @@ mod check;
 
 pub use apply::{Applied, apply};
 #[cfg(feature = "check")]
-pub use check::{Asset, FEED, Feed, Found, client, download};
+pub use check::{Asset, Feed, Found, client, download};
 
 /// The public key, in base64, that a release's manifest is signed
 /// with. Only a release build is given it; a copy without it never
@@ -23,11 +25,64 @@ pub const KEY: Option<&str> = match option_env!("HAMLET_UPDATE_KEY") {
     _ => None,
 };
 
-/// This copy's version.
+/// This copy's version: `HAMLET_VERSION` as the release workflow
+/// built it, with its pre-release, else the workspace's.
 pub fn current() -> Version {
-    env!("CARGO_PKG_VERSION")
-        .parse()
-        .expect("the workspace's version is semver")
+    let version = match option_env!("HAMLET_VERSION") {
+        Some(version) if !version.is_empty() => version,
+        _ => env!("CARGO_PKG_VERSION"),
+    };
+    version.parse().expect("Hamlet's version is semver")
+}
+
+/// The releases a copy follows. Each takes the newest release of its
+/// own and of every steadier channel, so a nightly takes a stable
+/// release that is newer than it.
+#[derive(
+    Clone,
+    Copy,
+    Debug,
+    Default,
+    PartialEq,
+    Eq,
+    PartialOrd,
+    Ord,
+    Serialize,
+    Deserialize,
+)]
+#[serde(rename_all = "lowercase")]
+pub enum Channel {
+    /// The releases tagged with a version alone, as `v0.2.0`.
+    #[default]
+    Stable,
+    /// Those tagged as a beta of one, as `v0.2.0-beta.1`.
+    Beta,
+    /// A build of every change to `main` that passes its checks.
+    Nightly,
+}
+
+impl Channel {
+    /// Every channel, the steadiest first.
+    pub const ALL: [Self; 3] =
+        [Self::Stable, Self::Beta, Self::Nightly];
+
+    /// The channel this copy was built for: `HAMLET_CHANNEL`, else
+    /// stable.
+    pub fn built() -> Self {
+        match option_env!("HAMLET_CHANNEL") {
+            Some("beta") => Self::Beta,
+            Some("nightly") => Self::Nightly,
+            _ => Self::Stable,
+        }
+    }
+
+    pub fn name(self) -> &'static str {
+        match self {
+            Self::Stable => "Stable",
+            Self::Beta => "Beta",
+            Self::Nightly => "Nightly",
+        }
+    }
 }
 
 /// Whether this copy looks for updates: a release, unless
@@ -139,7 +194,7 @@ fn note() -> Option<PathBuf> {
 
 /// Notes that an update to `version` is being put in place, so the
 /// next start can tell whether it took.
-pub fn attempting(version: Version) -> std::io::Result<()> {
+pub fn attempting(version: &Version) -> std::io::Result<()> {
     let Some(note) = note() else {
         return Ok(());
     };

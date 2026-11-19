@@ -280,7 +280,7 @@ enum Updating {
     /// A look the chief asked for is on its way.
     Checking,
     /// The release found, to take.
-    Ready(hamlet_protocol::Version),
+    Ready(hamlet_update::Version),
 }
 
 impl Updating {
@@ -288,7 +288,7 @@ impl Updating {
         let updates = world.resource::<Updates>();
         match (&updates.offer, updates.checking) {
             _ if !updates.looking => Self::Off,
-            (Some(offer), _) => Self::Ready(offer.version),
+            (Some(offer), _) => Self::Ready(offer.version.clone()),
             (None, true) => Self::Checking,
             (None, false) => Self::Check,
         }
