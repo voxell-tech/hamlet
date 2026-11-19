@@ -1,7 +1,7 @@
 //! The tools agents use the web with. Each acts on the agent's own
 //! page in a Web tab of the chief's window: the server asks the
 //! window the chief used last that draws Web panels, and waits for
-//! its answer (ADR 0015).
+//! its answer (ADR 0017).
 
 use std::collections::BTreeMap;
 use std::time::Duration;
