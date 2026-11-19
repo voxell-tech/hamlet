@@ -127,15 +127,31 @@ pub(super) enum Act {
     Unsupported(String),
 }
 
+/// The commands that answer a wait.
+const ANSWERS: [&str; 7] = [
+    "allow", "always", "deny", "go", "withdraw", "reply", "dismiss",
+];
+
+/// Whether `line` is a stop, or an answer that names its wait.
+pub(crate) fn is_at_once(line: &str) -> bool {
+    let (name, rest) = split(line);
+    name == "stop"
+        || (ANSWERS.contains(&name) && rest.starts_with('#'))
+}
+
+/// A command's name, and the rest of its line.
+fn split(line: &str) -> (&str, &str) {
+    let line = line.trim().trim_start_matches('/');
+    line.split_once(char::is_whitespace)
+        .map_or((line, ""), |(name, rest)| (name, rest.trim()))
+}
+
 /// Reads `line` as a command said in `here`.
 pub(super) fn parse(
     line: &str,
     here: Option<&HamletId>,
 ) -> Result<Act, Refusal> {
-    let line = line.trim().trim_start_matches('/');
-    let (name, rest) = line
-        .split_once(char::is_whitespace)
-        .map_or((line, ""), |(name, rest)| (name, rest.trim()));
+    let (name, rest) = split(line);
     let words = rest.split_whitespace().collect::<Vec<_>>();
     let tail =
         |from: usize| words.get(from..).unwrap_or_default().join(" ");
@@ -185,8 +201,7 @@ pub(super) fn parse(
             })
         }
         "queue" => Act::Queue,
-        "allow" | "always" | "deny" | "go" | "withdraw" | "reply"
-        | "dismiss" => answer(name, rest),
+        name if ANSWERS.contains(&name) => answer(name, rest),
         "grants" => Act::Grants,
         "revoke" => {
             let (Some(address), Some(word)) =

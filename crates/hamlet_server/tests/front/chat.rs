@@ -2,6 +2,7 @@
 //! of the chat a client follows, and who may answer a sign-in.
 
 use std::collections::HashSet;
+use std::time::{Duration, Instant};
 
 use hamlet_acceptance::{Client, chat, fold};
 use hamlet_protocol::client::{
@@ -12,7 +13,7 @@ use hamlet_protocol::client::{
 use hamlet_testing::{Scratch, Server};
 use serde_json::json;
 
-use super::{serve, serve_with};
+use super::{PATIENCE, serve, serve_with};
 
 /// What the faux model answers the first line it is given.
 const REPLY: &str = "The door carried this reply.";
@@ -166,6 +167,56 @@ async fn a_line_dropped_by_stop_is_answered() {
         (ReplyKind::Notice, ""),
         "a stopped line is answered with the empty notice"
     );
+    chief.close().await;
+    assert_eq!(server.stop().await, Some(0), "{}", server.log());
+}
+
+/// With the agents' Node host killed, a line waits for it to start
+/// again, about 3 s here; a `/stop` sent after the line waits for
+/// nothing and is answered first, within 1 s.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_stop_is_answered_while_a_line_waits_for_its_agent() {
+    let (mut server, home, _side) = serve(json!(["Back."])).await;
+    let mut chief = Client::join(&server).await;
+    let hand = chief.hand();
+    let pid = std::fs::read_to_string(home.join("demo-node.pid"))
+        .unwrap()
+        .trim()
+        .parse::<u32>()
+        .unwrap();
+    hamlet_testing::signals::kill(pid).unwrap();
+    let began = Instant::now();
+    while !hamlet_os::process::has_ended(pid).unwrap() {
+        assert!(
+            began.elapsed() < PATIENCE,
+            "the Node host never ended"
+        );
+        tokio::time::sleep(Duration::from_millis(10)).await;
+    }
+    let line = chief.tell(hand, "Are you there?").await;
+    let sent = Instant::now();
+    let stop = chief.tell(hand, "/stop").await;
+    let stopped = chief.reply(&stop).await;
+    let took = sent.elapsed();
+    assert_eq!(stopped.kind, ReplyKind::Notice, "{}", stopped.text);
+    let early = chief
+        .messages()
+        .iter()
+        .find(|message| message.to() == Some(&line));
+    assert!(
+        early.is_none(),
+        "the stop was answered after the line it was sent behind: \
+         {early:?}"
+    );
+    assert!(took < Duration::from_secs(1), "the stop took {took:?}");
+    chief.reply(&line).await;
+    chief.settle(Duration::from_millis(500)).await;
+    let replies = chief
+        .messages()
+        .iter()
+        .filter(|message| message.to() == Some(&line))
+        .count();
+    assert_eq!(replies, 1, "the line is answered once");
     chief.close().await;
     assert_eq!(server.stop().await, Some(0), "{}", server.log());
 }

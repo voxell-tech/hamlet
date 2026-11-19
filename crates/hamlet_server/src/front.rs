@@ -370,12 +370,20 @@ impl Door {
         }
     }
 
+    /// Serves `route` in its turn, or at once, as [`Route`] says.
     fn request(&mut self, client: u64, route: Route) {
         match route {
             Route::Now(answer) => self.answer(client, *answer),
             Route::Open(open) => self.hub.watch(client, open),
             Route::Close(chat) => self.hub.close(client, &chat),
-            Route::Command(asked) => self.command(client, asked),
+            Route::Command(asked) => {
+                let job = self.command(client, asked);
+                self.in_turn(client, job);
+            }
+            Route::AtOnce(asked) => {
+                let job = self.command(client, asked);
+                self.work.spawn(job);
+            }
             Route::Line(say, agent) => self.line(client, say, agent),
             Route::Call(call) => self.call(client, call),
             Route::SignIn(login) => self.sign_in(client, login),
@@ -474,11 +482,15 @@ impl Door {
         );
     }
 
-    /// Runs a chief's command or edit with the realm as it is now,
-    /// and sends its reply once what it changed is shown.
-    fn command(&mut self, client: u64, asked: Asked) {
+    /// Runs a chief's command, edit, answer or stop with the realm as
+    /// it is then, and sends its reply once what it changed is shown.
+    fn command(
+        &self,
+        client: u64,
+        asked: Asked,
+    ) -> impl Future<Output = ()> + Send + 'static {
         let asker = self.ask(client);
-        self.in_turn(client, async move {
+        async move {
             let ran = async {
                 let view =
                     view::read(&asker.calls, &asker.own).await?;
@@ -493,6 +505,14 @@ impl Door {
                         &asker.calls,
                         &view,
                         answer.clone(),
+                    )
+                    .await
+                    .map(Outcome::said),
+                    Asked::Stop(id, agent) => commands::stop_one(
+                        &asker.calls,
+                        &view,
+                        id,
+                        *agent,
                     )
                     .await
                     .map(Outcome::said),
@@ -521,7 +541,7 @@ impl Door {
                 Err(error) => failed(id, &error),
             };
             asker.send(message);
-        });
+        }
     }
 
     /// Takes a step of a sign-in: one its client starts, answers or

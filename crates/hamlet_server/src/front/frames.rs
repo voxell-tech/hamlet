@@ -6,8 +6,7 @@ use anyhow::{Result, bail};
 use hamlet_messages::agent::chat::{
     Began, ChatEvent, ChatFile, ChatImage, ChatItem, ChatOp,
     ChatPage, ChatRef, ChatTool, Checked, History, LineMark,
-    ModelList, Prompt, ResumeAnswer, RewindAnswer, Stopped,
-    ToolChange, Usage,
+    ModelList, Prompt, ResumeAnswer, RewindAnswer, ToolChange, Usage,
 };
 use hamlet_messages::realm::documents::CharterRead;
 use hamlet_protocol::client::{
@@ -19,7 +18,6 @@ use serde::Deserialize;
 use serde::de::DeserializeOwned;
 
 use super::view::Own;
-use super::words;
 use crate::clients::check::reply;
 use crate::society::refusal::Refusal;
 
@@ -96,17 +94,6 @@ fn worded<T: DeserializeOwned>(
 
 fn notice(id: &RequestId, words: String) -> ServerMessage {
     reply(id, Ok::<_, Refusal>(words))
-}
-
-/// The answer to a stop of one agent.
-pub(crate) fn stopped(
-    id: &RequestId,
-    answer: &[u8],
-    _: &Own,
-) -> Result<ServerMessage> {
-    worded(id, answer, |Stopped { turns }| {
-        Ok(notice(id, words::stopped_or_nothing(turns)))
-    })
 }
 
 pub(crate) fn began(
@@ -444,19 +431,6 @@ mod tests {
             panic!("a reply: {message:?}");
         };
         (reply.kind, reply.text)
-    }
-
-    #[test]
-    fn a_stop_says_how_many_turns_it_stopped() {
-        let id = RequestId::new();
-        let none =
-            stopped(&id, &bytes(&Stopped { turns: 0 }), &own());
-        assert_eq!(
-            words(none.unwrap()),
-            (ReplyKind::Notice, "Nothing was running.".to_owned())
-        );
-        let two = stopped(&id, &bytes(&Stopped { turns: 2 }), &own());
-        assert_eq!(words(two.unwrap()).1, "Stopped 2 running turns.");
     }
 
     #[test]

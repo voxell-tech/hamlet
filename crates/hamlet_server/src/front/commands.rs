@@ -1,7 +1,7 @@
 //! A chief's slash commands, each to one act of one actor or to the
 //! door's own words.
 
-mod parse;
+pub(super) mod parse;
 
 use std::fmt::Display;
 
@@ -9,7 +9,7 @@ use anyhow::Result;
 use hamlet_messages::address::{Agent, Realm};
 use hamlet_messages::agent::chat::{
     Count, NewSession, ReadHistory, Reflect, Reflecting, Resume,
-    ResumeAnswer, Retry, Stop,
+    ResumeAnswer, Retry,
 };
 use hamlet_messages::agent::copies::Price;
 use hamlet_messages::realm::budget::{Payer, ResetBudget};
@@ -501,7 +501,29 @@ async fn stop(
         agent: Some(view::wire(agent)),
         id: id.clone(),
     };
-    Ok(calls.call(&Agent(agent), &Stop(stop)).await?.turns)
+    calls.stop(agent, stop).await
+}
+
+/// Stops the running turns of the agent a client names by `agent`,
+/// in the words of a client's stop.
+pub(crate) async fn stop_one(
+    calls: &Calls,
+    view: &View,
+    id: &RequestId,
+    agent: protocol::AgentId,
+) -> Result<Result<String, Refusal>> {
+    let shown = super::route::number(agent).filter(|number| {
+        view.agent(*number).is_some_and(|seen| {
+            !matches!(seen.status, Status::Ended { .. })
+        })
+    });
+    let Some(number) = shown else {
+        return Ok(Err(Refusal::NoOne {
+            address: agent.0.to_string(),
+        }));
+    };
+    let turns = stop(calls, id, number).await?;
+    Ok(Ok(words::stopped_or_nothing(turns)))
 }
 
 /// Of the open waits, each a number and the agent that asked it, the

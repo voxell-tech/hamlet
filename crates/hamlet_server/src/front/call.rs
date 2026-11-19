@@ -11,8 +11,10 @@ use hamlet_actor_error::ActorError;
 use hamlet_host::{Address, Host, Subscription};
 use hamlet_messages::Message;
 use hamlet_messages::address::{self, Party};
+use hamlet_messages::agent::chat::{Stop, Stopped};
 use hamlet_messages::realm::client::{ReadWorld, Say, SayAnswer};
 use hamlet_messages::realm::world::{Seen, Status};
+use hamlet_messages::workspace::AgentNumber;
 use hamlet_protocol::client::{
     self as protocol, RequestId, ServerMessage,
 };
@@ -92,40 +94,74 @@ impl Calls {
         }
     }
 
+    /// Stops the running turns of `agent`, giving how many. It is
+    /// tried once: an agent the host cannot reach now, as while it
+    /// is being hired or its Node host starts again, runs no turn.
+    pub(crate) async fn stop(
+        &self,
+        agent: AgentNumber,
+        stop: protocol::Stop,
+    ) -> Result<u32> {
+        let answer = self
+            .host
+            .call_for_client(
+                &address::Agent(agent).address()?,
+                Stop::NAME,
+                encode_positional(&Stop(stop))?,
+                WITHIN,
+            )
+            .await;
+        match answer {
+            Ok(answer) => Ok(ciborium::from_reader::<Stopped, _>(
+                answer.as_slice(),
+            )?
+            .turns),
+            Err(error) if starting(&error) || lost(&error) => Ok(0),
+            Err(error) => Err(error),
+        }
+    }
+
     /// Calls the action `name` of the actor at `to` with `args`. An
     /// agent the realm shows that the host does not have yet, or has
-    /// not started, is called again until the call's deadline, as
-    /// while it is being hired; one the realm does not show is
-    /// refused as no one.
+    /// not started, or whose Node host is not up, is called again
+    /// until the call's deadline, as while it is being hired; one the
+    /// realm does not show is refused as no one.
     pub(crate) async fn send(
         &self,
         to: &Address,
         name: &str,
         args: Vec<u8>,
     ) -> Result<Vec<u8>> {
-        self.again(to, |left| {
+        self.again(to, starting, |left| {
             self.host.call_for_client(to, name, args.clone(), left)
         })
         .await
     }
 
     /// Subscribes to `event` of the actor at `to`, as a client, with
-    /// the tries of [`Calls::send`].
+    /// the tries of [`Calls::send`], and again when the Node host
+    /// went down before it was answered, since a subscribe changes
+    /// nothing.
     pub(crate) async fn subscribe(
         &self,
         to: &Address,
         event: &str,
     ) -> Result<Subscription> {
-        self.again(to, |_| self.host.subscribe_for_client(to, event))
-            .await
+        let retried =
+            |error: &anyhow::Error| starting(error) || lost(error);
+        self.again(to, retried, |_| {
+            self.host.subscribe_for_client(to, event)
+        })
+        .await
     }
 
     /// Runs `attempt` with the time left until the deadline, again
-    /// while it fails because an agent the realm shows is not there
-    /// or not started yet.
+    /// while it fails as `retried` says and the realm shows the agent
+    /// at `to`.
     async fn again<T, F>(
         &self,
         to: &Address,
+        retried: impl Fn(&anyhow::Error) -> bool,
         mut attempt: impl FnMut(Duration) -> F,
     ) -> Result<T>
     where
@@ -136,7 +172,7 @@ impl Calls {
         loop {
             let left = end.saturating_duration_since(Instant::now());
             match attempt(left).await {
-                Err(error) if starting(&error) && left > AGAIN => {}
+                Err(error) if retried(&error) && left > AGAIN => {}
                 done => return done,
             }
             let shown = match shown {
@@ -177,11 +213,21 @@ impl Calls {
 }
 
 /// Whether `error` says the actor called is not there or not started
-/// yet.
+/// yet, or its Node host is not up: the call was not made.
 fn starting(error: &anyhow::Error) -> bool {
     actor_error(error).is_some_and(|found| {
-        found.group() == "actor"
-            && matches!(found.code(), "not_found" | "not_ready")
+        matches!(
+            (found.group(), found.code()),
+            ("actor", "not_found" | "not_ready") | ("link", "down")
+        )
+    })
+}
+
+/// Whether `error` says the Node host went down before the call was
+/// answered.
+fn lost(error: &anyhow::Error) -> bool {
+    actor_error(error).is_some_and(|found| {
+        (found.group(), found.code()) == ("link", "lost")
     })
 }
 

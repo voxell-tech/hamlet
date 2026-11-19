@@ -9,7 +9,7 @@ use hamlet_messages::Message;
 use hamlet_messages::address::{self, Party};
 use hamlet_messages::agent::chat::{
     self, NewSession, ReadHistory, ReadModels, ReadPrompt, Resume,
-    Retry, Rewind, Stop,
+    Retry, Rewind,
 };
 use hamlet_messages::realm::documents::ReadCharter;
 use hamlet_messages::workspace::AgentNumber;
@@ -18,20 +18,29 @@ use hamlet_protocol::client::{
     ServerMessage,
 };
 
-use super::frames;
 use super::host::HAND;
 use super::view::Own;
+use super::{commands, frames};
 use crate::clients::check::{fault, reply};
 use crate::society::refusal::Refusal;
 
-/// What a client message becomes.
+/// What a client message becomes. The door serves a connection's
+/// lines, commands, edits, calls and its own answers in the order
+/// sent, each once the one before it is done, since each may act on
+/// what an earlier one changed. It serves the rest as soon as they
+/// come: a stop and an answer naming its wait, which act on what
+/// runs or waits now and must not wait behind it, and the watches of
+/// a chat and the steps of a sign-in, which no other request changes.
 pub(crate) enum Route {
-    /// Answered at once by the door, with no actor.
+    /// Answered by the door, with no actor.
     Now(Box<ServerMessage>),
     Open(protocol::Open),
     Close(protocol::ChatRef),
     /// A chief's command or edit, which `commands` answers.
     Command(Asked),
+    /// A stop, or an answer that names its wait, which `commands`
+    /// answers at once.
+    AtOnce(Asked),
     /// A chief's line, whose reply is owed until the agent's work on
     /// it ends.
     Line(protocol::Say, AgentNumber),
@@ -39,12 +48,14 @@ pub(crate) enum Route {
     SignIn(protocol::Login),
 }
 
-/// A chief's command, edit, answer to a wait or stop of every
-/// agent, answered by `commands`.
+/// A chief's command, edit, answer to a wait or stop, answered by
+/// `commands`.
 pub(crate) enum Asked {
     Command(protocol::Say),
     Edit(RequestId, protocol::Edit),
     Answer(protocol::Answer),
+    /// A stop of one agent.
+    Stop(RequestId, AgentId),
     StopAll(RequestId),
 }
 
@@ -52,7 +63,9 @@ impl Asked {
     pub(crate) fn id(&self) -> &RequestId {
         match self {
             Self::Command(say) => &say.id,
-            Self::Edit(id, _) | Self::StopAll(id) => id,
+            Self::Edit(id, _)
+            | Self::Stop(id, _)
+            | Self::StopAll(id) => id,
             Self::Answer(answer) => &answer.id,
         }
     }
@@ -96,7 +109,11 @@ pub(crate) fn route(message: ClientMessage) -> Result<Route> {
         ClientMessage::Say(say)
             if say.text.trim().starts_with('/') =>
         {
-            Route::Command(Asked::Command(say))
+            if commands::parse::is_at_once(&say.text) {
+                Route::AtOnce(Asked::Command(say))
+            } else {
+                Route::Command(Asked::Command(say))
+            }
         }
         ClientMessage::Say(say) => match number(say.to) {
             Some(agent) => Route::Line(say, agent),
@@ -109,18 +126,15 @@ pub(crate) fn route(message: ClientMessage) -> Result<Route> {
         ClientMessage::Open(open) => Route::Open(open),
         ClientMessage::Close(close) => Route::Close(close.chat),
         ClientMessage::Answer(answer) => {
-            Route::Command(Asked::Answer(answer))
+            Route::AtOnce(Asked::Answer(answer))
         }
         ClientMessage::Stop(protocol::Stop { agent: None, id }) => {
-            Route::Command(Asked::StopAll(id))
+            Route::AtOnce(Asked::StopAll(id))
         }
-        ClientMessage::Stop(stop) => {
-            let to = stop.agent.context("checked above")?;
-            let id = stop.id.clone();
-            agent_call(to, &id, Stop(stop), frames::stopped, |_| {
-                After::Show
-            })?
-        }
+        ClientMessage::Stop(protocol::Stop {
+            agent: Some(agent),
+            id,
+        }) => Route::AtOnce(Asked::Stop(id, agent)),
         ClientMessage::New(new) => {
             let (to, id) = (new.to, new.id.clone());
             agent_call(
@@ -316,28 +330,25 @@ mod tests {
     }
 
     #[test]
-    fn a_stop_with_no_agent_stops_every_agent() {
-        let id = RequestId::new();
-        let routed = route(ClientMessage::Stop(protocol::Stop {
-            agent: None,
-            id: id.clone(),
-        }))
-        .unwrap();
-        assert!(matches!(
-            routed,
-            Route::Command(Asked::StopAll(to)) if to == id
-        ));
-        let routed = route(ClientMessage::Stop(protocol::Stop {
-            agent: Some(AgentId(3)),
-            id,
-        }))
-        .unwrap();
-        let Route::Call(call) = routed else {
-            panic!("a stop of one agent is a call of it");
+    fn a_stop_and_an_answer_naming_its_wait_are_served_at_once() {
+        let at_once = |message| {
+            matches!(route(message).unwrap(), Route::AtOnce(_))
         };
-        assert_eq!(call.to.to_string(), "agent/3");
-        assert_eq!(call.action, "stop");
-        assert_eq!(call.after, After::Show);
+        for agent in [None, Some(AgentId(3))] {
+            assert!(at_once(ClientMessage::Stop(protocol::Stop {
+                agent,
+                id: RequestId::new(),
+            })));
+        }
+        for text in
+            ["/stop", " /stop all", "/stop hire#3", "/deny #4"]
+        {
+            assert!(at_once(say(text, 1)), "{text}");
+        }
+        for text in ["/deny", "/allow the oldest", "/name-hamlet h n"]
+        {
+            assert!(!at_once(say(text, 1)), "{text}");
+        }
     }
 
     #[test]
