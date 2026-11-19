@@ -656,6 +656,49 @@ async fn a_read_cuts_a_long_file_at_a_character_boundary() {
 }
 
 #[tokio::test(flavor = "multi_thread")]
+async fn a_read_names_a_branch_as_a_version_is_named() {
+    let dir = Scratch::new("profile-read-branch");
+    let host = hired(&dir, &[], Arc::default()).await;
+    let by = hamlet_git::Author {
+        name: "agent:7",
+        at: 5000,
+    };
+    repository(&dir, 1)
+        .commit("hires/7", &[write("memory/a.md", "a")], "saved", by)
+        .unwrap();
+    let branch = Revision::Version {
+        version: VersionName("hires/7".into()),
+    };
+
+    let at_branch =
+        call_as(&host, &realm(), &read(Some(branch), None)).await;
+
+    assert_eq!(
+        at_branch.unwrap(),
+        listed(&["CHARACTER.md", "memory/a.md"])
+    );
+    for name in ["no such", "../x", "a..b", ""] {
+        let named = Revision::Version {
+            version: VersionName(name.into()),
+        };
+        let refused =
+            call_as(&host, &realm(), &read(Some(named), None)).await;
+        assert_eq!(
+            refused.unwrap(),
+            ReadAnswer::Refused {
+                why: Missing::NoVersion {
+                    profile: ProfileId(1),
+                    version: VersionName(name.into())
+                }
+                .into()
+            },
+            "{name:?}"
+        );
+    }
+    host.shutdown().await.unwrap();
+}
+
+#[tokio::test(flavor = "multi_thread")]
 async fn a_read_is_refused_a_revision_or_a_path_the_profile_lacks() {
     let dir = Scratch::new("profile-read-refused");
     let host = made(&dir).await;

@@ -37,6 +37,7 @@ pub struct VersionName(pub String);
 pub enum Revision {
     /// `main`'s tip.
     Main,
+    /// A version, or a branch by its name.
     Version {
         version: VersionName,
     },

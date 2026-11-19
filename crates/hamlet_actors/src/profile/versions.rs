@@ -230,7 +230,9 @@ fn undone(
 }
 
 /// The commit `what` names, or the refusal of a version or a commit
-/// the profile does not have.
+/// the profile does not have. A name is a branch's before a
+/// version's, as today's `resolve` takes it
+/// (`crates/hamlet_git/src/lib.rs:270-286`).
 fn commit_of<W: From<Missing> + From<BadCommit>>(
     git: &Reads,
     what: &Revision,
@@ -240,11 +242,17 @@ fn commit_of<W: From<Missing> + From<BadCommit>>(
         Revision::Main => {
             Ok(git.tip(MAIN)?.context("a profile has a main")?)
         }
+        // A name git refuses as a branch's is no branch.
         Revision::Version { version } => {
-            hires::version_at(git, version)?.ok_or_else(|| {
-                let version = version.clone();
-                Missing::NoVersion { profile, version }.into()
-            })
+            match git.tip(&version.0).unwrap_or_default() {
+                Some(tip) => Ok(tip),
+                None => hires::version_at(git, version)?.ok_or_else(
+                    || {
+                        let version = version.clone();
+                        Missing::NoVersion { profile, version }.into()
+                    },
+                ),
+            }
         }
         Revision::Commit { commit } => {
             let at = git_commit(*commit)?;
