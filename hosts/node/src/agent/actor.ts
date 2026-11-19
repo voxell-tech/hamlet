@@ -56,6 +56,7 @@ import {
     type FailedTurns,
     failedTurns,
     type TellFailed,
+    type TurnEnded,
     tellingFailed,
 } from "./failed.ts";
 import type { AgentFilesystem } from "./filesystem.ts";
@@ -211,7 +212,7 @@ function offered(extension: Extension, offer: Offer): Extension {
 /** Their order decides only the order the tools are offered in. */
 function parts(
     builtIns: BuiltIns | undefined,
-    branch: Branch,
+    turnEnded: TurnEnded,
     peers: Peers,
     prompt: PromptSources,
     withHarness: WithHarness,
@@ -239,22 +240,18 @@ function parts(
         ...builtIn,
         society(peers),
         timers(),
-        saving(branch, peers),
+        saving(turnEnded),
     ];
 }
 
 /** A turn that answered saves the filesystem to the branch. */
-function saving(branch: Branch, peers: Peers): Extension {
+function saving(turnEnded: TurnEnded): Extension {
     return defineExtension({
         name: "hamlet.branch",
         hooks: [
             hook(GenerationTask, {
                 afterRun: async (_run, api) => {
-                    await branch
-                        .turnEnded(api.conversationId)
-                        .catch((error: unknown) =>
-                            peers.report("the filesystem was not saved", error),
-                        );
+                    await turnEnded(api.conversationId);
                     return undefined;
                 },
             }),
@@ -533,7 +530,13 @@ async function wake(c: AgentContext, config: AgentConfig): Promise<void> {
     };
     const chief = () => current(c.db);
     const tell = tellingFailed(peers, row.standingTask, chief);
-    const failed = failedTurns(peers, withHarness, tell);
+    const turnEnded = (conversation: ConversationId) =>
+        branch
+            .turnEnded(conversation)
+            .catch((error: unknown) =>
+                peers.report("the filesystem was not saved", error),
+            );
+    const failed = failedTurns(peers, withHarness, tell, turnEnded);
     const offer = offerOf(row);
     const builtIns: BuiltIns | undefined =
         offer === undefined
@@ -541,7 +544,7 @@ async function wake(c: AgentContext, config: AgentConfig): Promise<void> {
             : { listed: [workspaceTools(peers), ownFiles(peers)], offer };
     for (const part of parts(
         builtIns,
-        branch,
+        turnEnded,
         peers,
         prompt,
         withHarness,

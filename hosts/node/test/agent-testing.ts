@@ -490,6 +490,14 @@ export function within<T>(
     ]);
 }
 
+/** A model call that fails with `words`. */
+export function modelFailed(words: string): AssistantMessage {
+    return fauxAssistantMessage([], {
+        stopReason: "error",
+        errorMessage: words,
+    });
+}
+
 export function toolCall(
     name: string,
     args: Parameters<typeof fauxToolCall>[1],

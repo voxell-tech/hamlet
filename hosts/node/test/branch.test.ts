@@ -11,6 +11,7 @@ import {
     fakeCalls,
     fakeFiles,
     from,
+    modelFailed,
     named,
     type Sent,
     toolCall,
@@ -361,6 +362,52 @@ test("a move or a removal during a turn waits for the turn to end, and a removal
     assert.deepEqual(named(sent, "files").at(-1)?.message, { since: A });
     assert.equal(files["memory/password.md"], undefined);
     assert.deepEqual(saves(sent), []);
+    await agent.stop();
+});
+
+test("a move or a removal that waits for a turn that fails is done once the turn ends", async (t) => {
+    const told = Promise.withResolvers<{ type: "done" }>();
+    const asked = Promise.withResolvers<void>();
+    const { calls, sent } = fakeCalls({
+        profile: profileAnswering(part({ tip: A }), part({ tip: B })),
+        realm: {
+            tell: () => {
+                asked.resolve();
+                return told.promise;
+            },
+        },
+    });
+    const files: Record<string, string> = { "memory/password.md": "hunter2" };
+    const agent = await wakeAgent(t, {
+        calls,
+        files: fakeFiles(files),
+        responses: [
+            toolCall("tell", { to: "mayor", text: "Working." }),
+            modelFailed("the model failed"),
+        ],
+    });
+    await agent.actions.fill(agent.by(from.realm), { profile: 2 });
+    await agent.actions.submit(agent.by(from.realm), {
+        id: "line-1",
+        input: { type: "line", text: "Go." },
+    });
+    await asked.promise;
+    await agent.actions.moved(agent.by(from.profile(2)), { tip: B });
+    assert.equal(
+        await agent.actions.remove_path(agent.by(from.profile(2)), {
+            path: "memory/password.md",
+        }),
+        fixture("profile/remove_path.later.answer"),
+    );
+
+    told.resolve({ type: "done" });
+    await agent.idle();
+    await until(
+        () =>
+            files["memory/password.md"] === undefined &&
+            named(sent, "files").length === 2,
+    );
+    assert.deepEqual(named(sent, "files").at(-1)?.message, { since: A });
     await agent.stop();
 });
 

@@ -3,7 +3,6 @@ import { readdirSync } from "node:fs";
 import { type TestContext, test } from "node:test";
 import { isDeepStrictEqual } from "node:util";
 import {
-    type AssistantMessage,
     createFauxCore,
     createProvider,
     type FauxResponseFactory,
@@ -39,6 +38,7 @@ import {
     fakeCalls,
     fakeFiles,
     from,
+    modelFailed,
     named,
     priced,
     type Sent,
@@ -245,13 +245,6 @@ function newSession(agent: Woken) {
 
 function retry(agent: Woken) {
     return agent.actions.retry(agent.by(from.client), { id: uuid(6), to: 7 });
-}
-
-function modelFailed(words: string): AssistantMessage {
-    return fauxAssistantMessage([], {
-        stopReason: "error",
-        errorMessage: words,
-    });
 }
 
 async function failed(

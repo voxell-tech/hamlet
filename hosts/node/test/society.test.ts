@@ -1216,7 +1216,7 @@ async function resultTexts(agent: Woken): Promise<string[]> {
         .map((entry) => entry.text);
 }
 
-test("the profile tools' arguments leave as their acts: a scholar's address as its profile, `main`, a commit or a version as a revision, and an empty path as a listing", async (t) => {
+test("the profile tools' arguments leave as their acts: `scholar#<n>` as its profile, `main`, a commit or a version as a revision, and an empty path as a listing", async (t) => {
     const { calls, sent } = fakeCalls({
         realm: {
             create_profile: () => ({
