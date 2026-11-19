@@ -1,16 +1,14 @@
-//! The library actor, `library/local`, driven through the stand-ins
-//! of `demo/profile.rs` for the realm and the agents.
+//! The library's commands, for a demo started with `--realm-actor`:
+//! each reaches the real library, `library/local`, as a hire's own
+//! agent through its demo-only `forward`.
 //!
 //! ```text
-//! demo library list                   the list, as the realm reads it
 //! demo library shelves <agent>        the list, as agent <agent>
 //!                                     asks for it, listening after
 //! demo library offer <agent> <call> <skill> <folder>
 //!                                     offer the files under <folder>
 //!                                     as the skill <skill>, in parts,
 //!                                     as agent <agent>'s call <call>
-//! demo library verdict <offer> accept|refuse [<words ...>]
-//! demo library unshelve <skill>
 //! ```
 //!
 //! Each prints the answer as `<action> <answer>`; `offer` prints one
@@ -20,32 +18,29 @@ use std::path::Path;
 
 use anyhow::{Context, Result, bail};
 use hamlet_host::Host;
-use hamlet_messages::address::{self, Party};
 use hamlet_messages::bytes::Base64;
-use hamlet_messages::library::{
-    Offer, OfferId, ReadShelves, Shelves, Unshelve, Verdict,
-};
+use hamlet_messages::library::{Offer, Shelves};
 use hamlet_messages::profile::Piece;
 use hamlet_messages::workspace::CallId;
-use hamlet_messages::{MOST_PART, PIECE_FRAME};
+use hamlet_messages::{MOST_PART, PIECE_FRAME, address};
 
-use crate::profile::{CHIEF, agent_at, request_id, shown};
+use crate::agent_host::forward;
+use crate::profile::{agent, shown};
 
 pub async fn run(host: &Host, words: &[String]) -> Result<()> {
-    let library = address::Library.address()?;
-    let realm = address::Realm.address()?;
-    host.get_or_start(&library).await?;
     match words {
-        [command] if command == "list" => {
-            shown(host, &realm, &library, &ReadShelves).await
-        }
-        [command, agent] if command == "shelves" => {
+        [verb, me] if verb == "shelves" => {
             let shelves = Shelves { version_seen: None };
-            shown(host, &agent_at(agent)?, &library, &shelves).await
+            let list = forward(
+                host,
+                agent(me)?,
+                &address::Library,
+                &shelves,
+            )
+            .await?;
+            shown(verb, &list)
         }
-        [command, agent, call, skill, folder]
-            if command == "offer" =>
-        {
+        [verb, me, call, skill, folder] if verb == "offer" => {
             let parts = parts(Path::new(folder))?;
             let count = parts.len();
             for (part, files) in parts.into_iter().enumerate() {
@@ -57,34 +52,16 @@ pub async fn run(host: &Host, words: &[String]) -> Result<()> {
                     last: part + 1 == count,
                     files,
                 };
-                shown(host, &agent_at(agent)?, &library, &offer)
-                    .await?;
+                let kept = forward(
+                    host,
+                    agent(me)?,
+                    &address::Library,
+                    &offer,
+                )
+                .await?;
+                shown(verb, &kept)?;
             }
             Ok(())
-        }
-        [command, offer, verdict, words @ ..]
-            if command == "verdict" =>
-        {
-            let verdict = Verdict {
-                id: request_id()?,
-                offer: OfferId(offer.parse()?),
-                accepted: match verdict.as_str() {
-                    "accept" => true,
-                    "refuse" => false,
-                    _ => bail!("a verdict is accept or refuse"),
-                },
-                words: words.join(" "),
-            };
-            shown(host, &realm, &library, &verdict).await
-        }
-        [command, skill] if command == "unshelve" => {
-            let unshelve = Unshelve {
-                id: request_id()?,
-                skill: skill.clone(),
-                reason: None,
-                by: CHIEF,
-            };
-            shown(host, &realm, &library, &unshelve).await
         }
         _ => bail!("unknown library command: {}", words.join(" ")),
     }

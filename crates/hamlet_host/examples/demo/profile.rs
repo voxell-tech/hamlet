@@ -1,24 +1,19 @@
-//! The profile actor, `profile/<n>`, driven through stand-ins for the
-//! realm and the agents: each calls as itself what the command asks,
-//! and prints what the profile or the library tells it.
+//! A profile's commands, for a demo started with `--realm-actor`:
+//! each reaches the real profile `profile/<n>` through the realm, as
+//! the chief or as an agent's tool, or as a hire's own agent through
+//! its demo-only `forward`.
 //!
 //! ```text
-//! demo profile make <n> <character ...>
-//!                         create profile <n> with a first character
-//! demo profile <n> branch <hire>      make the branch hires/<hire>
+//! demo profile make <lead> <call> <name> [<character ...>]
+//!                         have agent <lead> create the profile
+//!                         <name>, as its call <call>
 //! demo profile <n> tag <version> [<note ...>]
-//! demo profile <n> versions
-//! demo profile <n> pin <hire> [<version>]
-//!                         pin a hire, or let it follow main
 //! demo profile <n> revert <version>   undo the one commit <version>
 //!                         names, with a commit on main
 //! demo profile <n> edit <path> <text ...>
 //! demo profile <n> purge <path>
-//! demo profile <n> papers
-//! demo profile <n> erase
-//! demo profile <n> dream <d> [<hire>] check main, and the hire's
-//!                         branch for a hire's dream, out for dream <d>
-//! demo profile <n> end <d> done|stopped [<summary ...>]
+//! demo profile <n> dream [<hire>]     dream over the profile, or
+//!                         over its hire <hire>
 //! demo profile <n>,<m> <command ...>
 //!                         run the command on two profiles at once,
 //!                         printing when each began and ended
@@ -30,77 +25,43 @@
 //!                         tip of its branch
 //! ```
 //!
-//! The realm calls as `realm/local` and a hire's agent as
-//! `agent/<hire>`, each led by its chief, chief 1. A command prints
-//! the answer as `<action> <answer>`, and `fill` prints `fill
-//! parts=<n> files=<n> largest=<bytes> tip=<commit>`, `largest` the
-//! largest answer as the host carried it. A stand-in prints `told
-//! <address> <action> <what>` for each call made to it, and answers a
-//! removal `removed`.
+//! `tag`, `revert`, `edit`, `purge` and `dream` ask as the chief.
+//! `make` prints `made/<call> <profile>`, or `refused/<call> 1` and
+//! logs why. Every other command prints the answer as `<verb>
+//! <answer>`, and `fill` prints `fill parts=<n> files=<n>
+//! largest=<bytes> tip=<commit>`, `largest` the largest part in CBOR.
 
 use std::fmt::Debug;
 use std::io::Write as _;
 use std::path::Path;
-use std::sync::Arc;
-use std::sync::atomic::{AtomicU64, Ordering};
-use std::time::{Duration, SystemTime, UNIX_EPOCH};
+use std::time::{SystemTime, UNIX_EPOCH};
 
 use anyhow::{Context, Result, bail};
-use hamlet_actor::{Action, Actor, Ctx, Handler, Registry};
-use hamlet_actor_core::{ActorConfig, ActorFactory};
-use hamlet_host::{Address, Caller, Host, HostRef};
-use hamlet_messages::address::{self, Party};
+use hamlet_host::Host;
+use hamlet_messages::address;
 use hamlet_messages::bytes::Base64;
-use hamlet_messages::library::{DropCopy, ShelvesChanged};
 use hamlet_messages::profile::{
-    Branch, By, DreamId, DreamOf, Edit, EndDream, Erase, FileChange,
-    Files, FilesAnswer, Moved, Papers, Piece, Pin, PrepareDream,
-    ProfileInput, Purge, Removal, RemovePath, Revert, Revision, Save,
-    Tag, VersionName, Versions,
+    FileChange, Files, FilesAnswer, Piece, Revision, Save,
+    VersionName,
 };
-use hamlet_messages::realm::ProfileId;
+use hamlet_messages::realm::profiles::{
+    CreateProfile, Dream, Dreamer, EditProfile, Made, PurgeProfile,
+    RevertProfile, TagProfile,
+};
+use hamlet_messages::realm::{ChiefRequest, ProfileId};
 use hamlet_messages::workspace::{AgentNumber, CallId};
-use serde::de::DeserializeOwned;
-use serde::{Deserialize, Serialize};
 
-pub const CHIEF: By = By::Chief { chief: 1 };
-
-const CALL_WITHIN: Duration = Duration::from_secs(60);
-
-pub fn stand_ins() -> Vec<(String, ActorFactory)> {
-    [address::Realm::KIND, address::Agent::KIND]
-        .into_iter()
-        .map(|kind| {
-            let mut registry = Registry::new();
-            registry.register_actor_with::<StandIn>(
-                kind,
-                ActorConfig::default(),
-            );
-            let factory = registry
-                .into_factories()
-                .remove(kind)
-                .expect("the kind just registered");
-            (kind.to_owned(), factory)
-        })
-        .collect()
-}
+use crate::agent_host::forward;
+use crate::realm_actor::{agent_number, refused, request, tool};
 
 pub async fn run(host: &Host, words: &[String]) -> Result<()> {
     let [first, rest @ ..] = words else {
-        bail!("usage: demo profile make <n> ... | <n> <command> ...");
+        bail!(
+            "usage: demo profile make <lead> ... | <n> <command> ..."
+        );
     };
     if first == "make" {
-        let [n, character @ ..] = rest else {
-            bail!("usage: demo profile make <n> <character ...>");
-        };
-        let input = ProfileInput::Character {
-            text: character.join(" "),
-        };
-        let mut bytes = Vec::new();
-        ciborium::into_writer(&input, &mut bytes)?;
-        host.create(&profile(n)?, bytes).await?;
-        writeln!(std::io::stdout(), "make {}", profile(n)?)?;
-        return Ok(());
+        return make(host, rest).await;
     }
     if let Some((one, other)) = first.split_once(',') {
         let (one, other) = tokio::join!(
@@ -109,12 +70,40 @@ pub async fn run(host: &Host, words: &[String]) -> Result<()> {
         );
         return one.and(other);
     }
-    on(host, &profile(first)?, rest).await
+    on(host, ProfileId(agent_number(first)?), rest).await
+}
+
+async fn make(host: &Host, words: &[String]) -> Result<()> {
+    let [lead, call, name, character @ ..] = words else {
+        bail!(
+            "usage: demo profile make <lead> <call> <name> \
+             [<character ...>]"
+        );
+    };
+    let create = CreateProfile {
+        name: name.clone(),
+        character: (!character.is_empty())
+            .then(|| character.join(" ")),
+    };
+    let made = forward(
+        host,
+        agent(lead)?,
+        &address::Realm,
+        &tool(call, create),
+    )
+    .await?;
+    match made {
+        Made::Made { profile, .. } => {
+            writeln!(std::io::stdout(), "made/{call} {}", profile.0)?;
+        }
+        Made::Refused { why } => refused(call, &why)?,
+    }
+    Ok(())
 }
 
 async fn timed(host: &Host, n: &str, words: &[String]) -> Result<()> {
     let began = micros()?;
-    let done = on(host, &profile(n)?, words).await;
+    let done = on(host, ProfileId(agent_number(n)?), words).await;
     writeln!(
         std::io::stdout(),
         "timed profile/{n} began={began} ended={}",
@@ -129,117 +118,66 @@ fn micros() -> Result<u128> {
 
 async fn on(
     host: &Host,
-    at: &Address,
+    profile: ProfileId,
     rest: &[String],
 ) -> Result<()> {
-    let at = at.clone();
-    let realm = address::Realm.address()?;
     match rest {
-        [command, hire] if command == "branch" => {
-            let name = format!("hires/{}", number(hire)?);
-            shown(host, &realm, &at, &Branch { name, from: None })
-                .await
-        }
-        [command, version, note @ ..] if command == "tag" => {
-            let tag = Tag {
-                id: request_id()?,
+        [verb, version, note @ ..] if verb == "tag" => {
+            let tag = TagProfile {
+                profile,
                 version: VersionName(version.clone()),
-                at: None,
                 note: note.join(" "),
-                by: CHIEF,
             };
-            shown(host, &realm, &at, &tag).await
+            as_chief(host, verb, tag).await
         }
-        [command] if command == "versions" => {
-            shown(host, &realm, &at, &Versions).await
-        }
-        [command, hire, to @ ..] if command == "pin" => {
-            let pin = Pin {
-                id: request_id()?,
-                hire: AgentNumber(number(hire)?),
-                to: to.first().map(|v| VersionName(v.clone())),
-                by: CHIEF,
-            };
-            shown(host, &realm, &at, &pin).await
-        }
-        [command, version] if command == "revert" => {
-            let revert = Revert {
-                id: request_id()?,
+        [verb, version] if verb == "revert" => {
+            let revert = RevertProfile {
+                profile,
                 what: Revision::Version {
                     version: VersionName(version.clone()),
                 },
                 reason: None,
-                by: CHIEF,
             };
-            shown(host, &realm, &at, &revert).await
+            as_chief(host, verb, revert).await
         }
-        [command, path, text @ ..] if command == "edit" => {
-            let edit = Edit {
-                id: request_id()?,
+        [verb, path, text @ ..] if verb == "edit" => {
+            let edit = EditProfile {
+                profile,
                 path: path.clone(),
                 text: text.join(" "),
                 message: None,
-                by: CHIEF,
             };
-            shown(host, &realm, &at, &edit).await
+            as_chief(host, verb, edit).await
         }
-        [command, path] if command == "purge" => {
-            let purge = Purge {
-                id: request_id()?,
+        [verb, path] if verb == "purge" => {
+            let purge = PurgeProfile {
+                profile,
                 path: path.clone(),
-                by: CHIEF,
             };
-            shown(host, &realm, &at, &purge).await
+            as_chief(host, verb, purge).await
         }
-        [command] if command == "papers" => {
-            shown(host, &realm, &at, &Papers).await
-        }
-        [command] if command == "erase" => {
-            let erase = Erase { id: request_id()? };
-            shown(host, &realm, &at, &erase).await
-        }
-        [command, dream, hire @ ..] if command == "dream" => {
+        [verb, hire @ ..] if verb == "dream" => {
             let of = match hire {
-                [] => DreamOf::Profile,
-                [hire] => DreamOf::Hire {
-                    agent: AgentNumber(number(hire)?),
-                },
-                _ => bail!(
-                    "usage: demo profile <n> dream <d> [<hire>]"
-                ),
+                [] => Dreamer::Profile { profile },
+                [hire] => Dreamer::Hire { hire: agent(hire)? },
+                _ => bail!("usage: demo profile <n> dream [<hire>]"),
             };
-            let prepare = PrepareDream {
-                dream: DreamId(number(dream)?),
-                of,
-            };
-            shown(host, &realm, &at, &prepare).await
+            as_chief(host, verb, Dream { of }).await
         }
-        [command, dream, end, summary @ ..] if command == "end" => {
-            let end = EndDream {
-                dream: DreamId(number(dream)?),
-                done: match end.as_str() {
-                    "done" => true,
-                    "stopped" => false,
-                    _ => bail!("a dream ends done or stopped"),
-                },
-                summary: summary.join(" "),
-            };
-            shown(host, &realm, &at, &end).await
+        [verb, hire, folder] if verb == "fill" => {
+            fill(host, agent(hire)?, profile, Path::new(folder)).await
         }
-        [command, hire, folder] if command == "fill" => {
-            fill(host, &agent_at(hire)?, &at, Path::new(folder)).await
-        }
-        [command, hire, path, text @ ..] if command == "save" => {
-            let agent = agent_at(hire)?;
+        [verb, hire, path, text @ ..] if verb == "save" => {
+            let hire = agent(hire)?;
+            let at = address::Profile(profile);
             let asked = Files {
                 since: None,
                 after: None,
             };
-            let bytes = carried(host, &agent, &at, &asked).await?;
             let FilesAnswer::Part { tip, .. } =
-                ciborium::from_reader(bytes.as_slice())?
+                forward(host, hire, &at, &asked).await?
             else {
-                bail!("hire {hire} has no files to save on");
+                bail!("hire {} has no files to save on", hire.0);
             };
             let save = Save {
                 call: CallId(format!("save-{}", micros()?)),
@@ -254,18 +192,27 @@ async fn on(
                     executable: false,
                 })],
             };
-            shown(host, &agent, &at, &save).await
+            shown(verb, &forward(host, hire, &at, &save).await?)
         }
         _ => bail!("unknown profile command: {}", rest.join(" ")),
     }
 }
 
+async fn as_chief<T>(host: &Host, verb: &str, act: T) -> Result<()>
+where
+    T: ChiefRequest,
+    T::Answer: Debug,
+{
+    shown(verb, &request(host, act).await?)
+}
+
 async fn fill(
     host: &Host,
-    agent: &Address,
-    at: &Address,
+    hire: AgentNumber,
+    profile: ProfileId,
     folder: &Path,
 ) -> Result<()> {
+    let at = address::Profile(profile);
     let (mut parts, mut files, mut largest) = (0, 0, 0);
     let mut after = None;
     loop {
@@ -273,11 +220,11 @@ async fn fill(
             since: None,
             after: after.take(),
         };
-        let bytes = carried(host, agent, at, &asked).await?;
+        let part = forward(host, hire, &at, &asked).await?;
+        let mut bytes = Vec::new();
+        ciborium::into_writer(&part, &mut bytes)?;
         largest = largest.max(bytes.len());
         parts += 1;
-        let part: FilesAnswer =
-            ciborium::from_reader(bytes.as_slice())?;
         let FilesAnswer::Part {
             tip,
             files: got,
@@ -316,175 +263,11 @@ async fn fill(
     }
 }
 
-pub async fn shown<A>(
-    host: &Host,
-    from: &Address,
-    to: &Address,
-    asked: &A,
-) -> Result<()>
-where
-    A: Action,
-    A::Output: DeserializeOwned + Debug,
-{
-    let bytes = carried(host, from, to, asked).await?;
-    let answer: A::Output = ciborium::from_reader(bytes.as_slice())?;
-    writeln!(std::io::stdout(), "{} {answer:?}", A::NAME)?;
+pub fn shown(verb: &str, answer: &impl Debug) -> Result<()> {
+    writeln!(std::io::stdout(), "{verb} {answer:?}")?;
     Ok(())
 }
 
-async fn carried<A: Action>(
-    host: &Host,
-    from: &Address,
-    to: &Address,
-    asked: &A,
-) -> Result<Vec<u8>> {
-    host.get_or_start(from).await?;
-    let forward = Forward {
-        to: to.to_string(),
-        name: A::NAME.to_owned(),
-        args: hamlet_actor::action::encode_positional(asked)?,
-    };
-    let reply = host
-        .call(
-            from,
-            Forward::NAME,
-            hamlet_actor::action::encode_positional(&forward)?,
-            CALL_WITHIN,
-        )
-        .await?;
-    Ok(ciborium::from_reader(reply.as_slice())?)
-}
-
-fn profile(word: &str) -> Result<Address> {
-    Ok(address::Profile(ProfileId(number(word)?)).address()?)
-}
-
-pub fn agent_at(word: &str) -> Result<Address> {
-    Ok(address::Agent(AgentNumber(number(word)?)).address()?)
-}
-
-fn number(word: &str) -> Result<u32> {
-    word.parse()
-        .with_context(|| format!("not a number: {word}"))
-}
-
-pub fn request_id<T: DeserializeOwned>() -> Result<T> {
-    static MADE: AtomicU64 = AtomicU64::new(0);
-    let now =
-        SystemTime::now().duration_since(UNIX_EPOCH)?.as_nanos();
-    let made = MADE.fetch_add(1, Ordering::Relaxed);
-    let text = format!(
-        "{:08x}-{:04x}-4{:03x}-8{:03x}-{:012x}",
-        (now >> 32) as u32,
-        (now >> 16) as u16,
-        (now & 0xfff) as u16,
-        made & 0xfff,
-        u64::from(std::process::id()) << 16 | (made >> 12) & 0xffff,
-    );
-    Ok(ciborium::Value::Text(text).deserialized()?)
-}
-
-struct StandIn;
-
-#[derive(Serialize, Deserialize)]
-struct Forward {
-    to: String,
-    name: String,
-    args: Vec<u8>,
-}
-
-impl Action for Forward {
-    type Output = Vec<u8>;
-    const NAME: &'static str = "forward";
-}
-
-#[async_trait::async_trait]
-impl Actor for StandIn {
-    type Input = ();
-    type Actions =
-        (Forward, Moved, RemovePath, ShelvesChanged, DropCopy);
-    type Events = ();
-    type ConnParams = Option<Caller>;
-    type Action = ();
-
-    async fn create(_: &Ctx<Self>) -> Result<Self> {
-        Ok(Self)
-    }
-}
-
-impl Handler<Forward> for StandIn {
-    async fn handle(
-        self: Arc<Self>,
-        ctx: Ctx<Self>,
-        forward: Forward,
-    ) -> Result<Vec<u8>> {
-        let (kind, key) = forward
-            .to
-            .split_once('/')
-            .context("an address is <kind>/<key>")?;
-        let to = Address::new(kind, key)?;
-        HostRef::of(ctx.inner())?
-            .call(&to, &forward.name, forward.args, CALL_WITHIN)
-            .await
-    }
-}
-
-fn told(
-    ctx: &Ctx<StandIn>,
-    action: &str,
-    what: &impl Debug,
-) -> Result<()> {
-    writeln!(
-        std::io::stdout(),
-        "told {} {action} {what:?}",
-        ctx.actor_id()
-    )?;
-    Ok(())
-}
-
-impl Handler<Moved> for StandIn {
-    async fn handle(
-        self: Arc<Self>,
-        ctx: Ctx<Self>,
-        moved: Moved,
-    ) -> Result<()> {
-        told(&ctx, Moved::NAME, &moved.tip.0.to_string())
-    }
-}
-
-impl Handler<RemovePath> for StandIn {
-    async fn handle(
-        self: Arc<Self>,
-        ctx: Ctx<Self>,
-        remove: RemovePath,
-    ) -> Result<Removal> {
-        told(&ctx, RemovePath::NAME, &remove.path)?;
-        Ok(Removal::Removed)
-    }
-}
-
-impl Handler<ShelvesChanged> for StandIn {
-    async fn handle(
-        self: Arc<Self>,
-        ctx: Ctx<Self>,
-        changed: ShelvesChanged,
-    ) -> Result<()> {
-        let names = changed
-            .list
-            .skills
-            .iter()
-            .map(|skill| skill.name.as_str())
-            .collect::<Vec<_>>();
-        told(&ctx, ShelvesChanged::NAME, &names)
-    }
-}
-
-impl Handler<DropCopy> for StandIn {
-    async fn handle(
-        self: Arc<Self>,
-        ctx: Ctx<Self>,
-        drop: DropCopy,
-    ) -> Result<()> {
-        told(&ctx, DropCopy::NAME, &drop.skill)
-    }
+pub fn agent(word: &str) -> Result<AgentNumber> {
+    Ok(AgentNumber(agent_number(word)?))
 }

@@ -1,14 +1,14 @@
 //! The realm actor, run by a demo started with `--realm-actor` beside
-//! the workspace, the library, the real agent in a Node child, and a
-//! stand-in profile `profile/<n>` that answers each branch done; and
-//! its commands, which drive the realm as the chief, and the agent as
-//! itself through the agent's demo-only `forward`:
+//! the workspace, the profiles, the library and the real agent in a
+//! Node child; and its commands, which drive the realm as the chief,
+//! and the agent as itself through the agent's demo-only `forward`:
 //!
 //! ```text
 //! demo realm found <name>
 //!                    found the hamlet <name> as the chief
-//! demo realm hire <lead> <call> <purpose ...>
-//!                    have agent <lead> hire, as its call <call>
+//! demo realm hire <lead> <call> [scholar#<n>[@<version>]] <purpose ...>
+//!                    have agent <lead> hire, as its call <call>, from
+//!                    the profile <n> at <version> when named
 //! demo realm say <n> <id> <text ...>
 //!                    say a line to agent <n> as the chief, under the
 //!                    request id the word <id> stands for; a word
@@ -120,19 +120,18 @@
 
 use std::io::Write;
 use std::path::Path;
-use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use anyhow::{Context, Result, bail, ensure};
-use hamlet_actor::{Action, Actor, Ctx, Handler, Registry};
-use hamlet_actor_core::{ActorConfig, ActorFactory};
+use hamlet_actor::Action;
+use hamlet_actor_core::ActorFactory;
 use hamlet_actors::realm;
-use hamlet_host::{Caller, Host};
+use hamlet_host::Host;
 use hamlet_messages::address::{self, Party};
 use hamlet_messages::agent::chat::Count;
 use hamlet_messages::agent::copies::{Copies, Price, Versioned};
-use hamlet_messages::profile::{Branch, Missing};
+use hamlet_messages::profile::VersionName;
 use hamlet_messages::realm::budget::{
     BudgetLimit, BudgetRead, Charge, MaySpend, Payer, ReadBudget,
 };
@@ -158,10 +157,9 @@ use hamlet_messages::realm::world::{
 use hamlet_messages::realm::{
     AgentRefusal, AgreeRoad, Agreed, Ask, ChiefRequest, Done,
     Enclosed, End, Found, FoundAnswer, HamletId, Hire, HireAnswer,
-    LayRoad, LetterId, LetterRefusal, Limit, Named, Reply, Review,
-    SetLimits, Tell, Tier, Tool,
+    LayRoad, LetterId, LetterRefusal, Limit, Named, ProfileId, Reply,
+    Review, SetLimits, Tell, Tier, Tool,
 };
-use hamlet_messages::sender::sender;
 use hamlet_messages::workspace::reach::Mode;
 use hamlet_messages::workspace::{
     AgentNumber, CallId, ConversationId, Exit, Program, RealmTask,
@@ -171,47 +169,9 @@ use hamlet_messages::workspace::{
 use crate::agent_host::{forward, own_folder, taken};
 use crate::command::{number, shown};
 
-/// The realm actor and the stand-in profile, by kind.
-pub fn kinds() -> [(String, ActorFactory); 2] {
-    let mut registry = Registry::new();
-    registry.register_actor_with::<StandInProfile>(
-        address::Profile::KIND,
-        ActorConfig::default(),
-    );
-    let profile = registry
-        .into_factories()
-        .remove(address::Profile::KIND)
-        .expect("the registry holds the kind it registered");
-    [
-        (address::Realm::KIND.to_owned(), realm::factory()),
-        (address::Profile::KIND.to_owned(), profile),
-    ]
-}
-
-struct StandInProfile;
-
-#[async_trait::async_trait]
-impl Actor for StandInProfile {
-    type Input = ();
-    type Actions = (Branch,);
-    type Events = ();
-    type ConnParams = Option<Caller>;
-    type Action = ();
-
-    async fn create(_: &Ctx<Self>) -> Result<Self> {
-        Ok(Self)
-    }
-}
-
-impl Handler<Branch> for StandInProfile {
-    async fn handle(
-        self: Arc<Self>,
-        ctx: Ctx<Self>,
-        branch: Branch,
-    ) -> Result<Done<Missing>> {
-        sender(&ctx, &branch)?;
-        Ok(Done::Done)
-    }
+/// The realm actor, by kind.
+pub fn kinds() -> [(String, ActorFactory); 1] {
+    [(address::Realm::KIND.to_owned(), realm::factory())]
 }
 
 const DRIVE_WITHIN: Duration = Duration::from_secs(20);
@@ -296,15 +256,22 @@ async fn as_chief(
                 FoundAnswer::Refused { why } => refused(name, &why)?,
             }
         }
-        [verb, lead, call, purpose @ ..]
-            if verb == "hire" && !purpose.is_empty() =>
+        [verb, lead, call, words @ ..]
+            if verb == "hire" && !words.is_empty() =>
         {
+            let (profile, version, purpose) = match words {
+                [from, purpose @ ..] if from.starts_with("scholar#") => {
+                    let (profile, version) = scholar(from)?;
+                    (Some(profile), version, purpose)
+                }
+                purpose => (None, None, purpose),
+            };
             let hire = Hire {
                 hamlet: None,
                 under: None,
-                profile: None,
-                version: None,
-                purpose: Some(purpose.join(" ")),
+                profile,
+                version,
+                purpose: (!purpose.is_empty()).then(|| purpose.join(" ")),
                 name: None,
             };
             let tool = tool(call, hire);
@@ -1024,7 +991,7 @@ struct Choice {
     wait: String,
 }
 
-async fn request<T: ChiefRequest>(
+pub async fn request<T: ChiefRequest>(
     host: &Host,
     act: T,
 ) -> Result<T::Answer> {
@@ -1209,7 +1176,7 @@ async fn task_or_standing(
     }
 }
 
-fn tool<T>(call: &str, act: T) -> Tool<T> {
+pub fn tool<T>(call: &str, act: T) -> Tool<T> {
     Tool {
         call: CallId(call.to_owned()),
         task: None,
@@ -1230,7 +1197,20 @@ fn named(word: &str) -> Result<Named> {
     })
 }
 
-fn agent_number(word: &str) -> Result<u32> {
+/// The profile and version of `scholar#<n>[@<version>]`.
+fn scholar(word: &str) -> Result<(ProfileId, Option<VersionName>)> {
+    let named =
+        word.strip_prefix("scholar#").context("a scholar#<n>")?;
+    let (n, version) = match named.split_once('@') {
+        Some((n, version)) => {
+            (n, Some(VersionName(version.to_owned())))
+        }
+        None => (named, None),
+    };
+    Ok((ProfileId(agent_number(n)?), version))
+}
+
+pub fn agent_number(word: &str) -> Result<u32> {
     Ok(u32::try_from(number(Some(&word.to_owned()))?)?)
 }
 
@@ -1271,7 +1251,10 @@ fn fresh_id() -> Result<String> {
     )))
 }
 
-fn refused(name: &str, why: &impl std::fmt::Display) -> Result<()> {
+pub fn refused(
+    name: &str,
+    why: &impl std::fmt::Display,
+) -> Result<()> {
     tracing::warn!(%why, "{name} was refused");
     writeln!(std::io::stdout(), "refused/{name} 1")?;
     Ok(())
