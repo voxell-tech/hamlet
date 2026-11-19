@@ -317,12 +317,23 @@ export function branchOf(
         return changes;
     };
 
+    const removeWaiting = async (): Promise<void> => {
+        for (const path of removals) {
+            removals.delete(path);
+            await removeNow(path).catch((error: unknown) =>
+                peers.report(`${path} was not removed after a turn`, error),
+            );
+        }
+    };
+
     /**
      * Sends what changed since the commit the filesystem holds, or, while a
      * save is unanswered, that save again under its call from the part whose
-     * answer was lost, then saves what changed since.
+     * answer was lost, then saves what changed since. `refilled` after a
+     * fill that a gone base made: the same refusal again is reported, and
+     * the next settle saves again.
      */
-    const save = async (): Promise<void> => {
+    const save = async (refilled = false): Promise<void> => {
         const resent = unanswered !== undefined;
         if (unanswered === undefined) {
             const row = await held();
@@ -351,10 +362,15 @@ export function branchOf(
             });
             if (answer.type === "refused") {
                 unanswered = undefined;
-                if (answer.why.type === "commit_gone") {
-                    return pull(sending.profile);
+                if (answer.why.type !== "commit_gone" || refilled) {
+                    throw new Error(answer.words);
                 }
-                throw new Error(answer.words);
+                // A purge rewrote the base. The fill keeps what the agent
+                // changed; what the purge asked to remove goes before the
+                // save on the new tip.
+                await pull(sending.profile);
+                await removeWaiting();
+                return save(true);
             }
             sending.next = part + 1;
         }
@@ -365,15 +381,6 @@ export function branchOf(
         }
         await pull(sending.profile, sending.base);
         if (resent) await save();
-    };
-
-    const removeWaiting = async (): Promise<void> => {
-        for (const path of removals) {
-            removals.delete(path);
-            await removeNow(path).catch((error: unknown) =>
-                peers.report(`${path} was not removed after a turn`, error),
-            );
-        }
     };
 
     /** Removes what waited, saves, and pulls a move that waited. */

@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { fauxAssistantMessage } from "@earendil-works/pi-ai";
+import type { SaveAnswer } from "../src/agent/messages.ts";
 import {
     cappedFiles,
     fakeCalls,
@@ -17,6 +18,7 @@ import {
     saves,
     say,
 } from "./branch-testing.ts";
+import { fixture } from "./testing.ts";
 
 test("a save whose walk stops at its cap saves what it walked, and reports that files past the cap were not saved", async (t) => {
     const { calls, sent } = fakeCalls({
@@ -136,5 +138,68 @@ test("a pull after a save writes over no file changed while the save was under w
     assert.deepEqual(saves(sent)[1]?.changes, [
         { type: "write", ...piece("notes.md", "Mine.") },
     ]);
+    await agent.stop();
+});
+
+test("a save refused because a purge rewrote its base fills again, keeps what the agent changed but the purge removed, and saves it on the new tip", async (t) => {
+    const C = "ef".repeat(20);
+    const D = "01".repeat(20);
+    const saving = Promise.withResolvers<void>();
+    const refused = Promise.withResolvers<SaveAnswer>();
+    const { calls, sent } = fakeCalls({
+        profile: {
+            ...profileAnswering(
+                part({
+                    tip: A,
+                    files: [
+                        piece("notes.md", "One."),
+                        piece("memory/password.md", "hunter2"),
+                    ],
+                }),
+                part({ tip: C, files: [piece("notes.md", "One.")] }),
+                part({ tip: D }),
+            ),
+            save: () => {
+                saving.resolve();
+                return saves(sent).length === 1
+                    ? refused.promise
+                    : { type: "saved", tip: D };
+            },
+        },
+    });
+    const files: Record<string, string> = {};
+    const agent = await wakeAgent(t, {
+        calls,
+        files: fakeFiles(files),
+        responses: [fauxAssistantMessage("Saved.")],
+    });
+    await agent.actions.fill(agent.by(from.realm), { profile: 2 });
+    files["notes.md"] = "Mine.";
+    files["memory/password.md"] = "hunter3";
+    await agent.actions.submit(agent.by(from.realm), {
+        id: "line-Go.",
+        input: { type: "line", text: "Go." },
+    });
+    await saving.promise;
+    assert.equal(
+        await agent.actions.remove_path(agent.by(from.profile(2)), {
+            path: "memory/password.md",
+        }),
+        fixture("profile/remove_path.later.answer"),
+    );
+    await agent.actions.moved(agent.by(from.profile(2)), { tip: C });
+    refused.resolve(
+        fixture("profile/save.refused.commit_gone.answer") as SaveAnswer,
+    );
+    await agent.idle();
+
+    assert.equal(files["notes.md"], "Mine.");
+    assert.equal(files["memory/password.md"], undefined);
+    const [, again] = saves(sent);
+    assert.equal(again?.base, C);
+    assert.deepEqual(again?.changes, [
+        { type: "write", ...piece("notes.md", "Mine.") },
+    ]);
+    assert.equal(saves(sent).length, 2);
     await agent.stop();
 });

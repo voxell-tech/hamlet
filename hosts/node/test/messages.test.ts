@@ -1407,7 +1407,7 @@ for (const name of answersTo("profile/files")) {
 }
 
 for (const name of answersTo("profile/save")) {
-    test(`${name} is read by a save: a gone commit is filled again from nothing, and another refusal is reported in its words`, async (t) => {
+    test(`${name} is read by a save: a gone commit is filled again and saved once more on its tip, and another refusal is reported in its words`, async (t) => {
         const given = fixture(name) as {
             type: string;
             why?: { type: string };
@@ -1435,10 +1435,11 @@ for (const name of answersTo("profile/save")) {
 
         assert.deepEqual(
             agent.reported,
-            given.type === "refused" && !gone
+            given.type === "refused"
                 ? [`the filesystem was not saved: ${given.words}`]
                 : [],
         );
+        assert.equal(named(sent, "save").length, gone ? 2 : 1);
         assert.deepEqual(
             named(sent, "files").map((call) => call.message),
             given.type !== "refused"
