@@ -8,7 +8,7 @@ use std::collections::BTreeMap;
 use std::io;
 use std::process::{ExitStatus, Stdio};
 
-use tokio::process::{ChildStderr, ChildStdout};
+use tokio::process::{ChildStderr, ChildStdin, ChildStdout};
 
 /// The resources one command may use.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -65,8 +65,33 @@ impl Tree {
                 "a command needs a program",
             ));
         }
-        let (group, stdout, stderr) = sys::spawn(command, limits)?;
+        let (group, _, stdout, stderr) = sys::spawn(command, limits)?;
         Ok((Self(Some(group)), stdout, stderr))
+    }
+
+    /// Starts `command` as [`Self::spawn`] does, with its input
+    /// piped to the returned writer.
+    pub fn spawn_piped(
+        command: Command<'_>,
+        limits: &Limits,
+    ) -> io::Result<(Self, ChildStdin, ChildStdout, ChildStderr)>
+    {
+        let command = Command {
+            stdin: Stdio::piped(),
+            ..command
+        };
+        if command.argv.is_empty() {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidInput,
+                "a command needs a program",
+            ));
+        }
+        let (group, stdin, stdout, stderr) =
+            sys::spawn(command, limits)?;
+        let stdin = stdin.ok_or_else(|| {
+            io::Error::other("the command has no input")
+        })?;
+        Ok((Self(Some(group)), stdin, stdout, stderr))
     }
 
     /// Kills every process of the tree now.

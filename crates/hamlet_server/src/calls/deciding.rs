@@ -117,7 +117,8 @@ impl Core<'_, '_> {
             .added
             .iter()
             .find(|manifest| manifest.spec.name == call.tool)
-            .map(crate::tools::custom::Manifest::has_net);
+            .map(crate::tools::custom::Manifest::has_net)
+            .or_else(|| self.tools.mcp.net_of(call.tool));
         let classified =
             gate::call_of(call.tool, &call.args(), added);
         match classified {

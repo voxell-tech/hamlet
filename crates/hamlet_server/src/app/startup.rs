@@ -35,6 +35,7 @@ use crate::society::agents;
 use crate::terminals::{Terminals, persistence};
 use crate::tools::builtin::shell::Shells;
 use crate::tools::custom::{self, AddedToolsWatch};
+use crate::tools::mcp::{self, ServersWatch};
 
 pub(crate) fn plugin(app: &mut App) {
     app.add_systems(
@@ -47,6 +48,7 @@ pub(crate) fn plugin(app: &mut App) {
             start_jobs_runner,
             open_harness,
             watch_added_tools,
+            watch_mcp_servers,
             open_terminals,
             open_clients,
             listen,
@@ -59,6 +61,7 @@ pub(crate) fn plugin(app: &mut App) {
             persistence::restore,
             start_runtimes,
             custom::reload,
+            mcp::follow_list,
             super::follow_up::narrow_tools_to_roles,
             start_providers,
             follow_unfollowed,
@@ -189,6 +192,24 @@ fn watch_added_tools(
             })
             .ok();
     commands.insert_resource(AddedToolsWatch(watching));
+}
+
+/// Watches the list of the MCP servers, so they follow it while the
+/// server runs.
+fn watch_mcp_servers(
+    realm: Res<Realm>,
+    inputs: Res<InputSender>,
+    mut commands: Commands,
+) {
+    let watching = mcp::watch(&realm.layout().mcp(), inputs.clone())
+        .inspect_err(|error| {
+            warn!(
+                "the MCP servers follow their list only at start: \
+                 {error}"
+            );
+        })
+        .ok();
+    commands.insert_resource(ServersWatch(watching));
 }
 
 /// Opens the realm's terminals, none yet.

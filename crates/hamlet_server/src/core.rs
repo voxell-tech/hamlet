@@ -44,6 +44,7 @@ use crate::runtimes::reconciliation::{self, ImageFitting};
 use crate::terminals::Terminals;
 use crate::tools::builtin::shell::Shells;
 use crate::tools::custom::Manifest;
+use crate::tools::mcp::Mcp;
 
 /// The live state no other area keeps.
 pub(crate) fn plugin(app: &mut bevy_app::App) {
@@ -52,6 +53,7 @@ pub(crate) fn plugin(app: &mut bevy_app::App) {
         .init_resource::<Leftovers>()
         .init_resource::<Added>()
         .init_resource::<ToolFaults>()
+        .init_resource::<Mcp>()
         .init_resource::<Catalogue>()
         .init_resource::<Worktrees>()
         .add_message::<UnpushedWorktree>()
@@ -90,14 +92,20 @@ pub(crate) struct Catalogue(pub Vec<ToolSpec>);
 
 impl Catalogue {
     /// Every tool a model may be offered: the built-in ones this
-    /// machine's `shells` run, the server's own, and the `added`
-    /// ones.
-    pub fn of(shells: &Shells, added: &[Manifest]) -> Vec<ToolSpec> {
+    /// machine's `shells` run, the server's own, the `added` ones
+    /// and those of the `mcp` servers.
+    pub fn of(
+        shells: &Shells,
+        added: &[Manifest],
+        mcp: &Mcp,
+    ) -> Vec<ToolSpec> {
         let mut catalogue = crate::tools::builtin::specs(shells);
         catalogue.extend(crate::calls::specs::specs());
         catalogue.extend(
             added.iter().map(|manifest| manifest.spec.clone()),
         );
+        // No other tool's name begins as an MCP tool's does.
+        catalogue.extend(mcp.specs());
         catalogue
     }
 
@@ -134,6 +142,7 @@ pub(crate) struct ModelTools<'w> {
     pub shells: Res<'w, Shells>,
     pub leftovers: Res<'w, Leftovers>,
     pub added: ResMut<'w, Added>,
+    pub mcp: ResMut<'w, Mcp>,
     pub faults: ResMut<'w, ToolFaults>,
     pub catalogue: ResMut<'w, Catalogue>,
 }
@@ -288,11 +297,18 @@ impl Core<'_, '_> {
     ) -> Result<Vec<runtime::Section>> {
         let layout = self.realm.layout().clone();
         let confinement = self.confinement();
+        let faults = self
+            .tools
+            .faults
+            .iter()
+            .cloned()
+            .chain(self.tools.mcp.faults())
+            .collect::<Vec<_>>();
         let cx = prompt::Context {
             layout: &layout,
             settings: &self.env.settings,
             confinement: &confinement,
-            faults: &self.tools.faults,
+            faults: &faults,
         };
         let db = self.realm.store().connection();
         let mut sections = prompt::sections(db, &cx, conversation)?;

@@ -18,10 +18,9 @@ use hamlet_protocol::runtime::{
 use hamlet_sandbox::{
     Env, ExecError, Launch, Leftovers, LimitError, Policy, Sandbox,
 };
-use notify::{RecommendedWatcher, RecursiveMode, Watcher};
+use notify::{RecommendedWatcher, RecursiveMode};
 use serde::Deserialize;
 use serde_json::{Map, Value, json};
-use tokio::sync::mpsc;
 
 use crate::app::follow_up::InputEffects;
 use crate::app::input::{AddHandler, InputSender};
@@ -88,10 +87,6 @@ pub(crate) struct AddedToolsWatch(
     pub  Option<RecommendedWatcher>,
 );
 
-/// The time the changes to the tools added by hand settle before they
-/// load again.
-const SETTLE: Duration = Duration::from_millis(200);
-
 /// Watches the folder of the tools added by hand, sending `inputs`
 /// [`AddedToolsChanged`] once what changed in it settles, so they
 /// load again while the server runs. The watch ends when the watcher
@@ -100,27 +95,13 @@ pub(crate) fn watch(
     folder: &Path,
     inputs: InputSender,
 ) -> notify::Result<RecommendedWatcher> {
-    let (changed, mut changes) = mpsc::unbounded_channel();
-    let mut watcher = notify::recommended_watcher(
-        move |event: notify::Result<notify::Event>| {
-            if event.is_ok_and(|event| !event.kind.is_access()) {
-                let _ = changed.send(());
-            }
-        },
-    )?;
-    watcher.watch(folder, RecursiveMode::Recursive)?;
-    tokio::spawn(async move {
-        while changes.recv().await.is_some() {
-            // A save is many changes: once they settle, one load
-            // takes them all.
-            tokio::time::sleep(SETTLE).await;
-            while changes.try_recv().is_ok() {}
-            if inputs.send(AddedToolsChanged).is_err() {
-                return;
-            }
-        }
-    });
-    Ok(watcher)
+    super::watch(
+        folder,
+        RecursiveMode::Recursive,
+        |_| true,
+        inputs,
+        || AddedToolsChanged,
+    )
 }
 
 /// Loads the tools added by hand again: the catalogue follows them,
@@ -136,9 +117,20 @@ pub(crate) fn reload(
     for fault in faults.iter().filter(|f| !tools.faults.contains(f)) {
         warn!("a tool added by hand did not load: {fault}");
     }
-    let catalogue = Catalogue::of(&tools.shells, &added);
     tools.added.0 = added;
     tools.faults.0 = faults;
+    refresh(&mut tools, &mut runtimes, &mut changed);
+}
+
+/// Offers the catalogue the tools now make, to each ready runtime
+/// when it changed.
+pub(crate) fn refresh(
+    tools: &mut ModelTools,
+    runtimes: &mut Runtimes,
+    changed: &mut InputEffects,
+) {
+    let catalogue =
+        Catalogue::of(&tools.shells, &tools.added, &tools.mcp);
     // The prompt names the tools that did not load.
     changed.state_changed_outside_change = true;
     if catalogue == tools.catalogue.0 {
@@ -200,7 +192,9 @@ pub(crate) fn load(root: &Path) -> (Vec<Manifest>, Vec<String>) {
                     .map_err(Unloaded::Unread)?;
             let manifest = parse(&data, &dir, root)?;
             let name = &manifest.spec.name;
-            if reserved.contains(name) {
+            if reserved.contains(name)
+                || name.starts_with(super::mcp::PREFIX)
+            {
                 return Err(Unloaded::Reserved(name.clone()));
             }
             if !names.insert(name.clone()) {

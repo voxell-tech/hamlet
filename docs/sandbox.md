@@ -13,7 +13,9 @@ allows its namespaces; the executable alone is not enough.
 `tools/builtin.rs` builds the policy from the server-owned `Place`: the
 agent's worktree (or a worker's scratch folder), the folder its hamlet
 works on, the realm's folder (never read), and what is only read: the
-library and the tools added by hand. Images and files saved with a line
+library and the tools added by hand. An MCP server runs under the policy
+its entry in `mcp/servers.json` declares, writing its own folder; see
+[the MCP servers](mcp.md). Images and files saved with a line
 are in the agent's own worktree under `inbox/`, so an agent reads only
 what was given to it. What another agent sends lands under
 `inbox/from-<sender>/`, read from the sender's own reach without

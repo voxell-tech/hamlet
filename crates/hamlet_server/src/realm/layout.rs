@@ -106,6 +106,12 @@ impl Layout {
         self.root.join("tools")
     }
 
+    /// The list of the MCP servers and the folder of each, outside
+    /// agents' reach (C36).
+    pub fn mcp(&self) -> PathBuf {
+        self.root.join("mcp")
+    }
+
     /// The images chiefs sent and those the agents read, each kept
     /// once under the hash of its bytes, out of agents' reach (S29).
     pub fn images(&self) -> PathBuf {

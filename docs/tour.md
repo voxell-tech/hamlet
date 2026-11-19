@@ -127,7 +127,7 @@ and serves the realm again.
 | `calls/` | What a runtime asks during a turn: permissions, execution once per key, tool runs, and the society's tools |
 | `clients/` | Connections, request handlers, the state and its changes, transcripts, documents and the chief's `/` commands |
 | `attachments/` | Images and files on a chief's line, and the inbox (C33, S29, H30) |
-| `tools/` | What agents' tools do: built-in, custom and the society's catalogue |
+| `tools/` | What agents' tools do: built-in, custom, MCP servers' and the society's catalogue |
 | `terminals/` | Shells on pseudo-terminals and each agent's commands terminal |
 | `providers/` | The model catalogue, provider requests and sign-ins |
 
@@ -156,6 +156,7 @@ Search the module names above first. The ones that are not obvious:
 | An address's form | `hamlet_protocol/src/address.rs` |
 | Who may do what | `hamlet_server/src/society/authority.rs` |
 | The database's tables | `hamlet_store/src/schema.sql`, then `cargo test -p hamlet_store` |
+| MCP servers | `hamlet_server/src/tools/mcp.rs` and `mcp/`; [`mcp.md`](mcp.md) |
 | Folder, mode or tool reach | `hamlet_server/src/calls/place.rs`, `tools/builtin/environment.rs`, `hamlet_sandbox`; [`sandbox.md`](sandbox.md) |
 | Terminals | `hamlet_server/src/terminals/`; [`sandbox.md`](sandbox.md#terminals) |
 | CLI process discovery | `hamlet_cli/src/process.rs`; [`cli.md`](cli.md) |

@@ -1,0 +1,647 @@
+//! MCP servers, whose tools agents are offered beside the built-in
+//! ones (C36, ADR 0017).
+//!
+//! `mcp/servers.json` in the realm lists the servers (`config`). Each
+//! runs under the sandbox for as long as it is listed, its client
+//! kept by `session`, and each tool it lists is offered as
+//! `mcp__<server>__<tool>`. A call runs once under its key after the
+//! gate has ruled on it, and `result` makes what the model is given.
+
+mod config;
+mod result;
+mod session;
+
+use std::collections::{BTreeMap, BTreeSet};
+use std::path::Path;
+use std::time::Duration;
+
+use bevy_app::App;
+use bevy_ecs::message::{Message, Messages};
+use bevy_ecs::resource::Resource;
+use bevy_ecs::system::{Res, ResMut};
+use hamlet_protocol::runtime::{ToolSpec, ToolSpecReplay};
+use hamlet_sandbox::Sandbox;
+use hamlet_sandbox::scrub::scrub_text;
+use notify::{RecommendedWatcher, RecursiveMode};
+use rmcp::model::CallToolRequestParams;
+use rmcp::service::ServiceError;
+use serde_json::{Map, Value};
+use sha2::{Digest, Sha256};
+use tokio::task::AbortHandle;
+use tokio::time::Instant;
+
+use self::config::Server;
+pub(crate) use self::session::Report;
+use self::session::{Launch, Peer, Status, Tool};
+use crate::app::follow_up::InputEffects;
+use crate::app::input::{AddHandler, InputSender};
+use crate::core::ModelTools;
+use crate::realm::Realm;
+use crate::realm::layout::Layout;
+use crate::runtimes::Runtimes;
+use crate::tools::builtin::{Network, Outcome, Sight};
+
+/// Every MCP tool's name begins so, and no other tool's does.
+pub(crate) const PREFIX: &str = "mcp__";
+
+/// The longest a tool's name is that a model takes.
+const NAME_LENGTH: usize = 64;
+
+/// The most tools of one server offered.
+const MOST_TOOLS: usize = 128;
+
+/// The longest description of a tool offered, in characters.
+const DESCRIPTION: usize = 4096;
+
+/// The longest schema of a tool's arguments offered, as JSON.
+const SCHEMA: usize = 16 * 1024;
+
+/// Takes in what the servers' sessions report, and follows their
+/// list.
+pub(crate) fn plugin(app: &mut App) {
+    app.add_handler::<Report, _>(take_in_reports)
+        .add_handler::<ServersChanged, _>(follow_list);
+}
+
+/// The list of the servers changed, and its changes settled.
+#[derive(Message)]
+pub(crate) struct ServersChanged;
+
+/// The watch on the list of the servers, which lasts as long as it is
+/// held; none when it could not begin.
+#[derive(Resource)]
+pub(crate) struct ServersWatch(
+    #[expect(dead_code, reason = "held, so the watch goes on")]
+    pub  Option<RecommendedWatcher>,
+);
+
+/// Watches the list of the servers in `folder`, sending `inputs`
+/// [`ServersChanged`] once a change settles. The watch ends when the
+/// watcher drops.
+pub(crate) fn watch(
+    folder: &Path,
+    inputs: InputSender,
+) -> notify::Result<RecommendedWatcher> {
+    std::fs::create_dir_all(folder).map_err(notify::Error::io)?;
+    super::watch(
+        folder,
+        RecursiveMode::NonRecursive,
+        |path| path.file_name() == Some(config::FILE.as_ref()),
+        inputs,
+        || ServersChanged,
+    )
+}
+
+/// Starts, restarts and stops the servers as their list now says.
+pub(crate) fn follow_list(
+    realm: Res<Realm>,
+    inputs: Res<InputSender>,
+    mut tools: ModelTools,
+    mut runtimes: Runtimes,
+    mut changed: ResMut<InputEffects>,
+) {
+    let sandbox = tools.sandbox.0;
+    tools.mcp.follow(realm.layout(), sandbox, &inputs);
+    super::custom::refresh(&mut tools, &mut runtimes, &mut changed);
+}
+
+/// Takes in the reports of the sessions; the catalogue and the
+/// prompts follow what they change.
+fn take_in_reports(
+    mut reports: ResMut<Messages<Report>>,
+    mut tools: ModelTools,
+    mut runtimes: Runtimes,
+    mut changed: ResMut<InputEffects>,
+) {
+    let before = (tools.mcp.specs(), tools.mcp.faults());
+    for report in reports.drain() {
+        tools.mcp.record(report);
+    }
+    if (tools.mcp.specs(), tools.mcp.faults()) != before {
+        super::custom::refresh(
+            &mut tools,
+            &mut runtimes,
+            &mut changed,
+        );
+    }
+}
+
+/// The MCP servers the chief lists, running or not.
+#[derive(Resource, Default)]
+pub(crate) struct Mcp {
+    running: BTreeMap<String, Running>,
+    /// What in the list does not load.
+    unloaded: Vec<String>,
+    /// The generation the latest session started with.
+    latest: u64,
+}
+
+/// A listed server, its session, and what it last listed.
+struct Running {
+    generation: u64,
+    server: Server,
+    session: AbortHandle,
+    standing: Standing,
+    /// Its tools as last listed, still offered while it starts again
+    /// so that a restart changes no agent's tools.
+    tools: Vec<Listed>,
+    /// The tools it lists that are left out, and why.
+    left_out: Vec<String>,
+    /// It listed its tools since it was listed.
+    listed: bool,
+}
+
+impl Drop for Running {
+    fn drop(&mut self) {
+        self.session.abort();
+    }
+}
+
+/// How a server is now.
+#[derive(Clone)]
+enum Standing {
+    Starting,
+    Up {
+        peer: Peer,
+        policy: String,
+        degraded: Value,
+    },
+    Down {
+        reason: String,
+        again: Instant,
+    },
+}
+
+/// A tool of a server, under the name a model calls it by.
+struct Listed {
+    spec: ToolSpec,
+    /// Its name on the server.
+    tool: String,
+}
+
+impl Mcp {
+    /// Starts the servers the list of the realm `layout` has that are
+    /// not running as it lists them, and stops those it no longer
+    /// lists. A list that cannot be read as a whole changes no
+    /// server, so that a half-saved file stops nothing.
+    fn follow(
+        &mut self,
+        layout: &Layout,
+        sandbox: Sandbox,
+        inputs: &InputSender,
+    ) {
+        let folder = layout.mcp();
+        let listed = match config::load(&folder) {
+            Ok(listed) => listed,
+            Err(unread) => {
+                let file = folder.join(config::FILE);
+                self.unloaded =
+                    vec![format!("{}: {unread}", file.display())];
+                return;
+            }
+        };
+        self.unloaded = listed.faults;
+        let servers = listed.servers;
+        self.running.retain(|name, running| {
+            servers.get(name).is_some_and(|server| {
+                server.is_same_process(&running.server)
+            })
+        });
+        for (name, server) in servers {
+            if let Some(running) = self.running.get_mut(&name) {
+                running.server = server;
+                continue;
+            }
+            let home = folder.join(&name);
+            let policy = match server.policy(layout, &home) {
+                Ok(policy) => policy,
+                Err(error) => {
+                    self.unloaded
+                        .push(format!("MCP server {name}: {error}"));
+                    continue;
+                }
+            };
+            self.latest += 1;
+            let session = session::start(
+                Launch {
+                    name: name.clone(),
+                    generation: self.latest,
+                    argv: server.command.clone(),
+                    policy,
+                    sandbox,
+                    home,
+                    secrets: server.secrets(),
+                },
+                inputs.clone(),
+            );
+            self.running.insert(
+                name,
+                Running {
+                    generation: self.latest,
+                    server,
+                    session,
+                    standing: Standing::Starting,
+                    tools: Vec::new(),
+                    left_out: Vec::new(),
+                    listed: false,
+                },
+            );
+        }
+    }
+
+    /// Keeps what the session of a server reported, unless a later
+    /// session replaced it.
+    fn record(&mut self, report: Report) {
+        let Some(running) = self.running.get_mut(&report.server)
+        else {
+            return;
+        };
+        if running.generation != report.generation {
+            return;
+        }
+        running.standing = match report.status {
+            Status::Up {
+                tools,
+                peer,
+                policy,
+                degraded,
+            } => {
+                (running.tools, running.left_out) =
+                    listed(&report.server, tools);
+                running.listed = true;
+                Standing::Up {
+                    peer,
+                    policy,
+                    degraded,
+                }
+            }
+            Status::Down { reason, again } => Standing::Down {
+                reason,
+                again: Instant::now() + again,
+            },
+        };
+    }
+
+    /// The tools offered.
+    pub(crate) fn specs(&self) -> Vec<ToolSpec> {
+        self.running
+            .values()
+            .flat_map(|running| &running.tools)
+            .map(|listed| listed.spec.clone())
+            .collect()
+    }
+
+    /// What in the list failed, for the prompts of the agents that
+    /// would have had its tools (C15). A server that stops after it
+    /// listed its tools is not named, so that a restart changes no
+    /// prompt; a call to it says why it failed.
+    pub(crate) fn faults(&self) -> Vec<String> {
+        let mut faults = self.unloaded.clone();
+        for (name, running) in &self.running {
+            if let Standing::Down { reason, .. } = &running.standing
+                && !running.listed
+            {
+                faults.push(format!(
+                    "MCP server {name} did not start, so its tools \
+                     are missing: {reason}"
+                ));
+            }
+            if !running.left_out.is_empty() {
+                faults.push(format!(
+                    "MCP server {name}: {}",
+                    running.left_out.join("; ")
+                ));
+            }
+        }
+        faults
+    }
+
+    /// Whether the server of the tool `name` reaches the network;
+    /// none when no MCP server offers it.
+    pub(crate) fn net_of(&self, name: &str) -> Option<bool> {
+        self.owner(name).map(|(_, running, _)| running.server.net)
+    }
+
+    /// How to call the tool `name`; none when no MCP server offers
+    /// it.
+    pub(crate) fn route(&self, name: &str) -> Option<Route> {
+        let (server, running, listed) = self.owner(name)?;
+        Some(Route {
+            server: server.to_owned(),
+            name: name.to_owned(),
+            tool: listed.tool.clone(),
+            parameters: serde_json::to_value(&listed.spec.parameters)
+                .unwrap_or_default(),
+            net: running.server.net,
+            timeout: running.server.timeout,
+            secrets: running.server.secrets(),
+            standing: running.standing.clone(),
+        })
+    }
+
+    /// The server that offers the tool `name`, and the tool.
+    fn owner(&self, name: &str) -> Option<(&str, &Running, &Listed)> {
+        self.running.iter().find_map(|(server, running)| {
+            running
+                .tools
+                .iter()
+                .find(|listed| listed.spec.name == name)
+                .map(|listed| (server.as_str(), running, listed))
+        })
+    }
+}
+
+/// The tools of `server` as models are offered them, and words for
+/// those left out.
+fn listed(
+    server: &str,
+    tools: Vec<Tool>,
+) -> (Vec<Listed>, Vec<String>) {
+    let mut names = BTreeSet::new();
+    let mut offered = Vec::new();
+    let mut uncompiled = Vec::new();
+    let mut more = 0;
+    for tool in tools {
+        if offered.len() == MOST_TOOLS {
+            more += 1;
+            continue;
+        }
+        // The prompt names a tool left out by the name a model would
+        // call it by, never by the server's own words.
+        let name = tool_name(server, &tool.name);
+        // Two tools that come to one name leave the later out.
+        if !names.insert(name.clone()) {
+            uncompiled.push(name);
+            continue;
+        }
+        let parameters = parameters(&tool.input_schema);
+        let fits = serde_json::to_string(&parameters)
+            .is_ok_and(|text| text.len() <= SCHEMA);
+        if !fits
+            || jsonschema::validator_for(&Value::Object(
+                parameters.clone(),
+            ))
+            .is_err()
+        {
+            uncompiled.push(name);
+            continue;
+        }
+        let description = tool
+            .description
+            .as_deref()
+            .or(tool.title.as_deref())
+            .unwrap_or_default()
+            .chars()
+            .take(DESCRIPTION)
+            .collect();
+        offered.push(Listed {
+            spec: ToolSpec {
+                name,
+                description,
+                parameters: parameters.into_iter().collect(),
+                // A server's word that a tool only reads is a hint
+                // from a program, so every call runs once at most.
+                replay: ToolSpecReplay::Unsafe,
+                retain: None,
+            },
+            tool: tool.name.into_owned(),
+        });
+    }
+    let mut left_out = Vec::new();
+    if !uncompiled.is_empty() {
+        left_out.push(format!(
+            "the tools {} are left out, as their arguments' schema \
+             does not compile or is too long, or their name is \
+             another's",
+            uncompiled.join(", ")
+        ));
+    }
+    if more > 0 {
+        left_out.push(format!(
+            "it lists {more} tools past {MOST_TOOLS}, which are \
+             left out"
+        ));
+    }
+    (offered, left_out)
+}
+
+/// A tool's schema of its arguments as a model is offered it: an
+/// object, with properties, even when the server says less.
+fn parameters(schema: &Map<String, Value>) -> Map<String, Value> {
+    let mut schema = schema.clone();
+    schema.entry("type").or_insert_with(|| "object".into());
+    if schema.get("type") == Some(&Value::String("object".into())) {
+        schema
+            .entry("properties")
+            .or_insert_with(|| Value::Object(Map::new()));
+    }
+    schema
+}
+
+/// The name a model calls `tool` of `server` by: letters, digits, `_`
+/// and `-`, at most 64 long, kept apart from others by a hash when
+/// shortened or changed.
+fn tool_name(server: &str, tool: &str) -> String {
+    let prefix = format!("{PREFIX}{server}__");
+    let clean = tool
+        .chars()
+        .map(|c| {
+            if c.is_ascii_alphanumeric() || c == '_' || c == '-' {
+                c
+            } else {
+                '_'
+            }
+        })
+        .collect::<String>();
+    if clean == tool && prefix.len() + clean.len() <= NAME_LENGTH {
+        return prefix + &clean;
+    }
+    let hash = Sha256::digest(tool.as_bytes())[..4]
+        .iter()
+        .map(|byte| format!("{byte:02x}"))
+        .collect::<String>();
+    let room = NAME_LENGTH - prefix.len() - hash.len() - 1;
+    let kept = clean.chars().take(room).collect::<String>();
+    format!("{prefix}{kept}_{hash}")
+}
+
+/// How to call one tool of a listed server.
+pub(crate) struct Route {
+    server: String,
+    /// The tool's name as models call it.
+    name: String,
+    /// Its name on the server.
+    tool: String,
+    /// The JSON Schema of its arguments.
+    parameters: Value,
+    net: bool,
+    timeout: Duration,
+    secrets: Vec<String>,
+    standing: Standing,
+}
+
+impl Route {
+    /// Calls the tool with `arguments`, allowed `network`, and gives
+    /// its result without `secrets` or the server's own, with the
+    /// images the model of `sight` takes.
+    pub(crate) async fn run(
+        self,
+        network: Network,
+        secrets: &[String],
+        arguments: Map<String, Value>,
+        sight: &Sight,
+    ) -> Outcome {
+        let secrets = secrets
+            .iter()
+            .chain(&self.secrets)
+            .cloned()
+            .collect::<Vec<_>>();
+        let server = &self.server;
+        let thrown = |code: &str, words: String| {
+            Outcome::thrown(code, scrub_text(&secrets, &words))
+        };
+        // A server runs with the reach its entry declares, never
+        // less; a call ruled to run without the network does not
+        // reach it.
+        if self.net && !network.is_open() {
+            return thrown(
+                "tool_error",
+                format!(
+                    "The MCP server {server} reaches the network, \
+                     and this call was allowed without it."
+                ),
+            );
+        }
+        let given = Value::Object(arguments);
+        let invalid = jsonschema::validator_for(&self.parameters)
+            .ok()
+            .and_then(|schema| {
+                schema
+                    .iter_errors(&given)
+                    .next()
+                    .map(|e| e.to_string())
+            });
+        if let Some(error) = invalid {
+            return thrown(
+                "validation_error",
+                format!(
+                    "Validation failed for tool {}: {error}",
+                    self.name
+                ),
+            );
+        }
+        let (peer, policy, degraded) = match self.standing {
+            Standing::Up {
+                peer,
+                policy,
+                degraded,
+            } => (peer, policy, degraded),
+            Standing::Starting => {
+                return thrown(
+                    "tool_error",
+                    format!("The MCP server {server} is starting."),
+                );
+            }
+            Standing::Down { reason, again } => {
+                let wait =
+                    again.saturating_duration_since(Instant::now());
+                let when = if wait.is_zero() {
+                    "It is starting again.".to_owned()
+                } else {
+                    format!("It starts again in {}.", seconds(wait))
+                };
+                return thrown(
+                    "tool_error",
+                    format!(
+                        "The MCP server {server} stopped: {reason}. \
+                         {when}"
+                    ),
+                );
+            }
+        };
+        let Value::Object(arguments) = given else {
+            unreachable!("the arguments were an object");
+        };
+        let call = peer.call_tool(
+            CallToolRequestParams::new(self.tool.clone())
+                .with_arguments(arguments),
+        );
+        // A call that outlasts its time, or whose turn is stopped, is
+        // dropped, which tells the server it was cancelled.
+        let mut outcome =
+            match tokio::time::timeout(self.timeout, call).await {
+                Ok(Ok(result)) => {
+                    result::outcome(result, &secrets, sight).await
+                }
+                Ok(Err(error)) => {
+                    thrown("tool_error", failure(server, error))
+                }
+                Err(_) => thrown(
+                    "tool_error",
+                    format!(
+                        "The MCP server {server} did not answer \
+                         within {} seconds, and the call was \
+                         cancelled.",
+                        self.timeout.as_secs()
+                    ),
+                ),
+            };
+        outcome.details.get_or_insert_with(Map::new).extend(
+            result::origin(server, &self.tool, &policy, &degraded),
+        );
+        outcome
+    }
+}
+
+/// `time` in whole seconds, rounded up, as words.
+fn seconds(time: Duration) -> String {
+    match time.as_secs() + u64::from(time.subsec_nanos() > 0) {
+        1 => "1 second".to_owned(),
+        seconds => format!("{seconds} seconds"),
+    }
+}
+
+/// The words of a call to `server` that failed with `error`.
+fn failure(server: &str, error: ServiceError) -> String {
+    match error {
+        ServiceError::McpError(error) => format!(
+            "The MCP server {server} refused the call: {}",
+            error.message
+        ),
+        ServiceError::TransportClosed
+        | ServiceError::TransportSend(_) => {
+            format!(
+                "The MCP server {server} stopped while the call ran."
+            )
+        }
+        ServiceError::UnexpectedResponse => format!(
+            "The MCP server {server} asked for an answer or began a \
+             task, and Hamlet answers a server nothing."
+        ),
+        error => format!(
+            "The call to the MCP server {server} failed: {error}"
+        ),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_tool_name_fits_what_models_take_and_stays_apart() {
+        assert_eq!(
+            tool_name("github", "create_issue"),
+            "mcp__github__create_issue"
+        );
+        let spaced = tool_name("github", "create issue");
+        let dotted = tool_name("github", "create.issue");
+        assert!(spaced.starts_with("mcp__github__create_issue_"));
+        assert_ne!(spaced, dotted);
+        let long = tool_name("github", &"x".repeat(100));
+        assert_eq!(long.len(), NAME_LENGTH);
+        assert!(long.bytes().all(|c| {
+            c.is_ascii_alphanumeric() || c == b'_' || c == b'-'
+        }));
+    }
+}

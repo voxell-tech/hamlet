@@ -12,7 +12,7 @@ use std::os::windows::io::{
 use std::process::{ExitStatus, Stdio};
 use std::{io, iter};
 
-use tokio::process::{Child, ChildStderr, ChildStdout};
+use tokio::process::{Child, ChildStderr, ChildStdin, ChildStdout};
 use windows_sys::Win32::System::Diagnostics::ToolHelp::{
     CreateToolhelp32Snapshot, TH32CS_SNAPTHREAD, THREADENTRY32,
     Thread32First, Thread32Next,
@@ -199,7 +199,8 @@ fn limits_of(
 pub(crate) fn spawn(
     command: Command<'_>,
     limits: &Limits,
-) -> io::Result<(Group, ChildStdout, ChildStderr)> {
+) -> io::Result<(Group, Option<ChildStdin>, ChildStdout, ChildStderr)>
+{
     let mut info = limits_of(
         JOB_OBJECT_LIMIT_PROCESS_TIME
             | JOB_OBJECT_LIMIT_ACTIVE_PROCESS
@@ -242,6 +243,7 @@ pub(crate) fn spawn(
     else {
         unreachable!("both outputs are piped");
     };
+    let stdin = leader.stdin.take();
     Ok((
         Group {
             job,
@@ -249,6 +251,7 @@ pub(crate) fn spawn(
             leader_id,
             _holds_id: holds_id,
         },
+        stdin,
         stdout,
         stderr,
     ))

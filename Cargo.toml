@@ -93,6 +93,9 @@ ring = "0.17"
 reqwest = { version = "0.12", default-features = false, features = ["json", "stream", "rustls-tls"] }
 # The model providers' marks, drawn from their SVGs. No text or fonts.
 resvg = { version = "0.48.1", default-features = false }
+# The client of the MCP servers a chief lists: the protocol over a
+# server's standard input and output, nothing more.
+rmcp = { version = "3.11", default-features = false, features = ["client", "transport-async-rw"] }
 rustix = "1"
 # Hamlet's own version, pre-releases included, as updates compare it.
 semver = { version = "1", features = ["serde"] }

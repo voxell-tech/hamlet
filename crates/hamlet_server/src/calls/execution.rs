@@ -198,9 +198,9 @@ impl Core<'_, '_> {
         })
     }
 
-    /// Runs the built-in or added tool of `call` with the network
-    /// `net`, after marking it begun when it may not run again. Gives
-    /// the outcome of a call rejected before it runs.
+    /// Runs the built-in, added or MCP tool of `call` with the
+    /// network `net`, after marking it begun when it may not run
+    /// again. Gives the outcome of a call rejected before it runs.
     fn run_tool(
         &mut self,
         call: &Call<'_>,
@@ -225,6 +225,29 @@ impl Core<'_, '_> {
                 &request,
                 crate::app::clock::now(),
             )?;
+        }
+        // An MCP server runs on this machine apart from the worktree,
+        // under the policy of its entry (C36).
+        if let Some(route) = self.tools.mcp.route(call.tool) {
+            let secrets = self.credentials.secrets();
+            let sight = self.sight_of(agent)?;
+            let arguments = call
+                .arguments
+                .clone()
+                .into_iter()
+                .collect::<Map<_, _>>();
+            let running = tool_run(
+                &self.inputs,
+                call.call.clone(),
+                call.conversation.id,
+                reply,
+                request,
+                async move {
+                    route.run(net, &secrets, arguments, &sight).await
+                },
+            );
+            self.commands.spawn(running);
+            return Ok(None);
         }
         // A shell call shows in its agent's commands terminal.
         let shown = match Dialect::of_tool(call.tool) {
