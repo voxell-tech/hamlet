@@ -291,7 +291,7 @@ impl Core<'_, '_> {
                 reason,
             }) => {
                 let hamlet_agent =
-                    done!(self.child(call, &address, here));
+                    done!(self.own_or_child(call, &address, here));
                 let given = (!typed.is_empty()).then_some(typed);
                 let name = self.name(hamlet_agent)?;
                 let words = match &given {
@@ -620,6 +620,27 @@ impl Core<'_, '_> {
         here: Option<&HamletId>,
     ) -> Done<AgentId> {
         self.child_within(call, address, here, Reach::Living)
+    }
+
+    /// The living agent of a hamlet at `address`, which is `call`'s
+    /// agent itself or one it is a parent of.
+    fn own_or_child(
+        &mut self,
+        call: &Call<'_>,
+        address: &str,
+        here: Option<&HamletId>,
+    ) -> Done<AgentId> {
+        let agent =
+            done!(self.named_within(address, here, Reach::Living));
+        if agent == call.conversation.agent {
+            let db = self.realm.store().connection();
+            if agents::get(db, agent)?.kind != AgentKind::Hamlet {
+                let name = addresses::name_of(db, agent)?;
+                reject!(Rejection::NotHamletAgent { name });
+            }
+            return Ok(Ok(agent));
+        }
+        Ok(self.require_child(call, agent)?.map(|()| agent))
     }
 
     /// The agent of a hamlet within `reach` at `address`, which
