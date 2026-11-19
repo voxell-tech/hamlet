@@ -220,12 +220,11 @@ impl Message for Place {
     type From = Realm;
 }
 
-/// Fills the agent's filesystem from `branch` of `profile`. An agent
-/// already filled answers the same.
+/// Fills the agent's filesystem from its branch of `profile`. An
+/// agent already filled answers the same.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Fill {
     pub profile: ProfileId,
-    pub branch: String,
 }
 
 impl Action for Fill {

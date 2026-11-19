@@ -1431,6 +1431,10 @@ const NOT_THE_AGENTS: readonly (readonly [RegExp, string])[] = [
         "an act that sends paths, which this agent does not write",
     ],
     [
+        /^realm\/hire\.at_a_version\.args$/,
+        "a hire at a version, which this agent does not write",
+    ],
+    [
         /^realm\/(seat|lay_road|take_up_road|set_tools)\.why\.args$/,
         "an act with its why, which this agent does not write",
     ],
@@ -1502,7 +1506,7 @@ const NOT_THE_AGENTS: readonly (readonly [RegExp, string])[] = [
         "a profile's call of an agent, an action this agent does not take",
     ],
     [
-        /^profile\/(branch|tag|pin|revert|purge|edit|prepare_dream|end_dream|versions|papers|erase)\./,
+        /^profile\/(branch|tag|pin|revert|purge|edit|prepare_dream|end_dream|versions|papers|read|erase)\./,
         "the realm's call of a profile",
     ],
     [
@@ -1526,7 +1530,7 @@ const NOT_THE_AGENTS: readonly (readonly [RegExp, string])[] = [
         "a /new, which leaves the waits of the session it left, as today's does",
     ],
     [
-        /^realm\/(agree_road|ask_chief|object|start_worker|read_budget|read_record|set_allowance|set_model|set_nickname|fetch_part)\./,
+        /^realm\/(agree_road|ask_chief|object|start_worker|read_budget|read_record|set_allowance|set_model|set_nickname|fetch_part|create_profile|read_profile|edit_profile|tag|revert|ask_librarian)\./,
         "an agent's call of the realm, which this agent does not make",
     ],
     [

@@ -115,7 +115,13 @@ fn limit(tool: SocietyTool) -> Option<fn(&Reserved) -> bool> {
         | SocietyTool::AgreeRoad
         | SocietyTool::SetNickname
         | SocietyTool::SetModel
-        | SocietyTool::ReadRecord => None,
+        | SocietyTool::ReadRecord
+        | SocietyTool::CreateProfile
+        | SocietyTool::ReadProfile
+        | SocietyTool::EditProfile
+        | SocietyTool::Tag
+        | SocietyTool::Revert
+        | SocietyTool::AskLibrarian => None,
     }
 }
 

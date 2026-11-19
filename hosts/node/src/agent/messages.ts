@@ -414,7 +414,6 @@ export type TaskOpened =
 /** The versions the agent holds; the realm answers the parts newer than these. */
 export interface ReadCopies {
     readonly charter?: number;
-    readonly character?: number;
     readonly model?: number;
     readonly settings?: number;
 }
@@ -527,7 +526,6 @@ export interface Place {
 
 export interface Fill {
     readonly profile: ProfileId;
-    readonly branch: string;
 }
 
 export interface AgentInput {
@@ -587,7 +585,6 @@ export interface AgentSettings {
 /** The parts the realm owns that the agent keeps a copy of. */
 export interface Copies {
     readonly charter?: Versioned<string>;
-    readonly character?: Versioned<string>;
     readonly model?: Versioned<ModelChoice>;
     readonly settings?: Versioned<AgentSettings>;
 }
@@ -930,7 +927,6 @@ function versioned<S extends Schema>(value: S) {
 const COPIES_SHAPE = obj(
     {
         charter: opt(versioned(str())),
-        character: opt(versioned(str())),
         model: opt(versioned(MODEL)),
         settings: opt(versioned(SETTINGS)),
     },
@@ -1014,7 +1010,7 @@ export const read: {
         (finished) => finished as unknown as Finished,
     ),
     place: reader(PLACE, placeOf),
-    fill: reader(obj({ profile: U32, branch: str() }, OPEN), (fill) => fill),
+    fill: reader(obj({ profile: U32 }, OPEN), (fill) => fill),
     copies: reader(COPIES_SHAPE, copiesOf),
 };
 
@@ -1148,7 +1144,6 @@ function copiesOf(raw: Static<typeof COPIES_SHAPE>): Copies {
     }));
     return {
         ...(raw.charter === undefined ? {} : { charter: raw.charter }),
-        ...(raw.character === undefined ? {} : { character: raw.character }),
         ...(model === undefined ? {} : { model }),
         ...(settings === undefined ? {} : { settings }),
     };

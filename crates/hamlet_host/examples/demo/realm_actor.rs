@@ -132,7 +132,7 @@ use hamlet_host::{Caller, Host};
 use hamlet_messages::address::{self, Party};
 use hamlet_messages::agent::chat::Count;
 use hamlet_messages::agent::copies::{Copies, Price, Versioned};
-use hamlet_messages::profile::Branch;
+use hamlet_messages::profile::{Branch, Missing};
 use hamlet_messages::realm::budget::{
     BudgetLimit, BudgetRead, Charge, MaySpend, Payer, ReadBudget,
 };
@@ -208,9 +208,9 @@ impl Handler<Branch> for StandInProfile {
         self: Arc<Self>,
         ctx: Ctx<Self>,
         branch: Branch,
-    ) -> Result<()> {
+    ) -> Result<Done<Missing>> {
         sender(&ctx, &branch)?;
-        Ok(())
+        Ok(Done::Done)
     }
 }
 
@@ -303,6 +303,7 @@ async fn as_chief(
                 hamlet: None,
                 under: None,
                 profile: None,
+                version: None,
                 purpose: Some(purpose.join(" ")),
                 name: None,
             };
@@ -1136,7 +1137,6 @@ async fn as_client<T: serde::de::DeserializeOwned>(
 async fn read_copies(host: &Host, me: u32) -> Result<Copies> {
     let have = ReadCopies {
         charter: None,
-        character: None,
         model: None,
         settings: None,
     };
@@ -1342,7 +1342,6 @@ fn copy_parts(copies: &Copies) -> Vec<(&'static str, u32, String)> {
     }
     [
         part("charter", copies.charter.as_ref()),
-        part("character", copies.character.as_ref()),
         part("model", copies.model.as_ref()),
         part("settings", copies.settings.as_ref()),
     ]

@@ -7,6 +7,7 @@ import {
 } from "@earendil-works/pi-ai";
 import { getCurrentSystemPrompt } from "@earendil-works/pi-ai/utils/transcript";
 import { FileError, ok } from "@earendil-works/pi-durable/env";
+import { keep } from "../src/agent/copies.ts";
 import type { AgentFilesystem, FileEntry } from "../src/agent/filesystem.ts";
 import type { AgentInput, Copies, ReadAnswer } from "../src/agent/messages.ts";
 import { renderPrompt } from "../src/agent/prompt.ts";
@@ -103,6 +104,14 @@ async function sendCopies(agent: Woken, copies: Copies): Promise<void> {
     await agent.actions.copies(agent.by(from.realm), copies);
 }
 
+async function keepCharacter(
+    agent: Woken,
+    version: number,
+    value: string,
+): Promise<void> {
+    await keep(agent.c, { character: { version, value } });
+}
+
 async function say(agent: Woken, text: string): Promise<void> {
     await agent.actions.submit(agent.by(from.realm), {
         id: `line-${text}`,
@@ -151,7 +160,7 @@ test("the prompt cuts each part at its limit", async (t) => {
         input: HIRE,
         files: listedFiles({ "memory/long.md": memory }),
     });
-    await sendCopies(agent, { character: { version: 1, value: character } });
+    await keepCharacter(agent, 1, character);
 
     const text = await readPrompt(agent);
 
@@ -197,9 +206,7 @@ test("the prompt cuts each part at its limit", async (t) => {
         ),
     );
 
-    await sendCopies(agent, {
-        character: { version: 2, value: "c".repeat(4000) },
-    });
+    await keepCharacter(agent, 2, "c".repeat(4000));
     assert.ok(
         (await readPrompt(agent)).includes(
             `# Your character\n${"c".repeat(4000)}\n\n# Your memory`,
@@ -261,10 +268,8 @@ test("read_prompt answers what the next request sends", async (t) => {
         }),
         responses: [record.step(fauxAssistantMessage("Hello."))],
     });
-    await sendCopies(agent, {
-        charter: { version: 1, value: "Be brief." },
-        character: { version: 1, value: "Calm." },
-    });
+    await sendCopies(agent, { charter: { version: 1, value: "Be brief." } });
+    await keepCharacter(agent, 1, "Calm.");
 
     const text = await readPrompt(agent);
     await say(agent, "Hi");

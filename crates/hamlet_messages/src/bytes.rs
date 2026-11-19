@@ -5,60 +5,80 @@ use base64::engine::general_purpose::STANDARD;
 use serde::de::Error as _;
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 
-/// A SHA-256, written as 64 lowercase hex characters.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
-pub struct Sha256(pub [u8; 32]);
+/// A hash of `$bytes` bytes, written as twice as many lowercase hex
+/// characters.
+macro_rules! hash {
+    ($(#[$doc:meta])* $name:ident, $bytes:literal, $refused:literal) => {
+        $(#[$doc])*
+        #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+        pub struct $name(pub [u8; $bytes]);
 
-impl std::fmt::Display for Sha256 {
-    fn fmt(
-        &self,
-        f: &mut std::fmt::Formatter<'_>,
-    ) -> std::fmt::Result {
-        self.0.iter().try_for_each(|byte| write!(f, "{byte:02x}"))
-    }
-}
-
-impl Serialize for Sha256 {
-    fn serialize<S: Serializer>(
-        &self,
-        to: S,
-    ) -> Result<S::Ok, S::Error> {
-        to.collect_str(self)
-    }
-}
-
-impl<'de> Deserialize<'de> for Sha256 {
-    fn deserialize<D: Deserializer<'de>>(
-        from: D,
-    ) -> Result<Self, D::Error> {
-        let text = String::deserialize(from)?;
-        let refused = || {
-            D::Error::custom(
-                "a SHA-256 is 64 lowercase hex characters",
-            )
-        };
-        let nibble = |digit: u8| match digit {
-            b'0'..=b'9' => Some(digit - b'0'),
-            b'a'..=b'f' => Some(digit - b'a' + 10),
-            _ => None,
-        };
-        if text.len() != 64 {
-            return Err(refused());
+        impl $name {
+            /// Reads its lowercase hex characters.
+            pub fn from_hex(text: &str) -> Option<Self> {
+                let nibble = |digit: u8| match digit {
+                    b'0'..=b'9' => Some(digit - b'0'),
+                    b'a'..=b'f' => Some(digit - b'a' + 10),
+                    _ => None,
+                };
+                if text.len() != 2 * $bytes {
+                    return None;
+                }
+                let mut hash = [0; $bytes];
+                for (byte, pair) in
+                    hash.iter_mut().zip(text.as_bytes().chunks(2))
+                {
+                    *byte = nibble(pair[0])? << 4 | nibble(pair[1])?;
+                }
+                Some(Self(hash))
+            }
         }
-        let mut hash = [0; 32];
-        for (byte, pair) in
-            hash.iter_mut().zip(text.as_bytes().chunks(2))
-        {
-            let (Some(high), Some(low)) =
-                (nibble(pair[0]), nibble(pair[1]))
-            else {
-                return Err(refused());
-            };
-            *byte = high << 4 | low;
+
+        impl std::fmt::Display for $name {
+            fn fmt(
+                &self,
+                f: &mut std::fmt::Formatter<'_>,
+            ) -> std::fmt::Result {
+                self.0
+                    .iter()
+                    .try_for_each(|byte| write!(f, "{byte:02x}"))
+            }
         }
-        Ok(Self(hash))
-    }
+
+        impl Serialize for $name {
+            fn serialize<S: Serializer>(
+                &self,
+                to: S,
+            ) -> Result<S::Ok, S::Error> {
+                to.collect_str(self)
+            }
+        }
+
+        impl<'de> Deserialize<'de> for $name {
+            fn deserialize<D: Deserializer<'de>>(
+                from: D,
+            ) -> Result<Self, D::Error> {
+                let text = String::deserialize(from)?;
+                Self::from_hex(&text)
+                    .ok_or_else(|| D::Error::custom($refused))
+            }
+        }
+    };
 }
+
+hash!(
+    /// A SHA-256, written as 64 lowercase hex characters.
+    Sha256,
+    32,
+    "a SHA-256 is 64 lowercase hex characters"
+);
+
+hash!(
+    /// A SHA-1, written as 40 lowercase hex characters.
+    Sha1,
+    20,
+    "a SHA-1 is 40 lowercase hex characters"
+);
 
 /// Bytes as standard base64 text with padding.
 #[derive(Clone, Debug, PartialEq, Eq)]

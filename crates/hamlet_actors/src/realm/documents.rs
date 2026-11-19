@@ -46,14 +46,13 @@ const CHARTER: &str =
 #[serde(rename_all = "snake_case")]
 pub(super) enum Part {
     Charter,
-    Character,
     Model,
     Settings,
 }
 
 impl Part {
-    const ALL: [Self; 4] =
-        [Self::Charter, Self::Character, Self::Model, Self::Settings];
+    const ALL: [Self; 3] =
+        [Self::Charter, Self::Model, Self::Settings];
 }
 
 /// The agents a moved part of the copies goes to.
@@ -319,7 +318,6 @@ async fn newer(
     for part in Part::ALL {
         let held = match part {
             Part::Charter => have.charter,
-            Part::Character => have.character,
             Part::Model => have.model,
             Part::Settings => have.settings,
         };
@@ -345,12 +343,6 @@ async fn fill(
             copies.charter = Some(Versioned {
                 version,
                 value: text.unwrap_or_else(|| CHARTER.to_owned()),
-            });
-        }
-        Part::Character => {
-            copies.character = Some(Versioned {
-                version,
-                value: settings::read(rows).await?.character,
             });
         }
         Part::Model => {

@@ -775,7 +775,7 @@ async function fill(
     config: AgentConfig,
     message: Fill,
 ): Promise<void> {
-    const wanted = JSON.stringify([message.profile, message.branch]);
+    const wanted = JSON.stringify(message.profile);
     const row = await c.db.get<{ filled: string | null }>(
         "SELECT filled FROM agent WHERE id = 1",
     );

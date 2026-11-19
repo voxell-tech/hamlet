@@ -69,7 +69,6 @@ impl Settings {
     /// The parts of the copies that differ from `before`'s.
     fn moved(&self, before: &Self) -> BTreeSet<Part> {
         [
-            (Part::Character, self.character != before.character),
             (
                 Part::Model,
                 (&self.model, self.effort)

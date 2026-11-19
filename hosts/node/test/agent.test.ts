@@ -106,7 +106,6 @@ test("a wrong caller is refused, and nothing is taken", async (t) => {
     await assert.rejects(
         agent.actions.fill(agent.by(from.workspace), {
             profile: 2,
-            branch: "hires/7",
         }),
         wrong,
     );
@@ -272,7 +271,6 @@ test("a fill with no profile to read writes nothing and answers", async (t) => {
     assert.equal(
         await agent.actions.fill(agent.by(from.realm), {
             profile: 2,
-            branch: "hires/7",
         }),
         null,
     );

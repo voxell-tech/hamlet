@@ -246,6 +246,7 @@ mod tests {
         vec![
             args(&Branch {
                 name: "hires/7".into(),
+                from: None,
             }),
             args(&Tag {
                 id: RequestId::new(),

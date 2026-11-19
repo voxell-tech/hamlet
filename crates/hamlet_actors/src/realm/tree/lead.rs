@@ -646,6 +646,7 @@ mod tests {
             hamlet: None,
             under: None,
             profile: None,
+            version: None,
             purpose: purpose.map(str::to_owned),
             name: None,
         }

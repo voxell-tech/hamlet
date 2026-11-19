@@ -137,7 +137,8 @@ async fn on(
     match rest {
         [command, hire] if command == "branch" => {
             let name = format!("hires/{}", number(hire)?);
-            shown(host, &realm, &at, &Branch { name }).await
+            shown(host, &realm, &at, &Branch { name, from: None })
+                .await
         }
         [command, version, note @ ..] if command == "tag" => {
             let tag = Tag {

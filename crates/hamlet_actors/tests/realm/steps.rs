@@ -113,12 +113,12 @@ async fn a_hire_goes_live_through_its_steps() {
         })
         .await;
 
-    let branch = "hires/2".to_owned();
     assert_eq!(
         seen,
         HireSeen {
             branches: vec![Branch {
-                name: branch.clone()
+                name: "hires/2".into(),
+                from: None,
             }],
             made: vec![AgentInput {
                 kind: AgentKind::Hire,
@@ -134,10 +134,7 @@ async fn a_hire_goes_live_through_its_steps() {
                 brief: None,
                 copies,
             }],
-            fills: vec![Fill {
-                profile: BLANK,
-                branch,
-            }],
+            fills: vec![Fill { profile: BLANK }],
             reaches: vec![SetReach {
                 agent: MAYOR,
                 version: ReachVersion(1),

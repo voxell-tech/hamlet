@@ -72,7 +72,10 @@ pub(super) async fn run(
         }
         Step::Branch => {
             let profile = tree::profile_of(&rows, agent).await?;
-            let named = Branch { name: branch(n) };
+            let named = Branch {
+                name: branch(n),
+                from: None,
+            };
             cx.peers()
                 .call(&Profile(profile), &named, When::AfterAnswer)
                 .await?;
@@ -92,7 +95,6 @@ pub(super) async fn run(
         Step::Fill => {
             let fill = Fill {
                 profile: tree::profile_of(&rows, agent).await?,
-                branch: branch(n),
             };
             cx.peers()
                 .call(&Agent(agent), &fill, When::AfterAnswer)

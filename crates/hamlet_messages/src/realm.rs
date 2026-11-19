@@ -8,6 +8,7 @@ pub mod hamlets;
 pub mod models;
 pub mod oversight;
 pub mod parcels;
+pub mod profiles;
 pub mod workers;
 pub mod world;
 
@@ -19,6 +20,7 @@ use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
 
 use crate::address::{Agent, Realm, Workspace};
+use crate::profile::VersionName;
 use crate::sender::{Client, Scrubber};
 use crate::workspace::files::EditDiff;
 use crate::workspace::reach::{Need, SecretsVersion};
@@ -220,6 +222,12 @@ pub enum SocietyTool {
     SetNickname,
     SetModel,
     ReadRecord,
+    CreateProfile,
+    ReadProfile,
+    EditProfile,
+    Tag,
+    Revert,
+    AskLibrarian,
 }
 
 impl SocietyTool {
@@ -245,6 +253,12 @@ impl SocietyTool {
             Self::SetNickname => "set_nickname",
             Self::SetModel => "set_model",
             Self::ReadRecord => "read_record",
+            Self::CreateProfile => "create_profile",
+            Self::ReadProfile => "read_profile",
+            Self::EditProfile => "edit_profile",
+            Self::Tag => "tag",
+            Self::Revert => "revert",
+            Self::AskLibrarian => "ask_librarian",
         }
     }
 }
@@ -577,7 +591,7 @@ pub enum FoundRefusal {
          with no colon"
     )]
     BadName { name: String },
-    #[error("there is no `profile#{}`", profile.0)]
+    #[error("no scholar has the address `scholar#{}`", profile.0)]
     NoSuchProfile { profile: ProfileId },
     #[error("say what it is for")]
     NoPurpose,
@@ -595,6 +609,10 @@ pub struct Hire {
     /// Absent makes a blank profile for the hire (H38).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub profile: Option<ProfileId>,
+    /// The profile's version the hire starts from and stays at;
+    /// absent, it follows `main`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub version: Option<VersionName>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub purpose: Option<String>,
     /// A blank hire's name; absent with a profile.
@@ -658,8 +676,13 @@ pub enum HireRefusal {
     LeadLeft { lead: AgentNumber, left: Left },
     #[error("the hamlet `{}` holds its most hires, {most}", hamlet.0)]
     Full { hamlet: HamletId, most: u32 },
-    #[error("there is no `profile#{}`", profile.0)]
+    #[error("no scholar has the address `scholar#{}`", profile.0)]
     NoSuchProfile { profile: ProfileId },
+    /// `label` is `scholar#<id> (<name>)`.
+    #[error(
+        "`{label}` is a blank hire's own, not a scholar of the city"
+    )]
+    Apart { label: String },
     #[error("say what it is for")]
     NoPurpose,
 }

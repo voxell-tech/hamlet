@@ -261,8 +261,6 @@ pub struct ReadCopies {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub charter: Option<CopyVersion>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub character: Option<CopyVersion>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub model: Option<CopyVersion>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub settings: Option<CopyVersion>,

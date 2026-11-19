@@ -20,7 +20,7 @@ use hamlet_messages::agent::copies::Copies;
 use hamlet_messages::agent::{
     AgentInput, Fill, Place, PlaceVersion, Submit,
 };
-use hamlet_messages::profile::Branch;
+use hamlet_messages::profile::{Branch, Missing};
 use hamlet_messages::realm::budget::{
     BudgetLimit, Charge, MaySpend, SpendRefusal,
 };
@@ -384,7 +384,7 @@ impl Handler<Branch> for ProfileStandIn {
         self: Arc<Self>,
         _: Ctx<Self>,
         branch: Branch,
-    ) -> anyhow::Result<()> {
+    ) -> anyhow::Result<Done<Missing>> {
         let agent = branch
             .name
             .strip_prefix("hires/")
@@ -396,7 +396,7 @@ impl Handler<Branch> for ProfileStandIn {
             .lock()
             .unwrap()
             .push((self.profile, branch));
-        Ok(())
+        Ok(Done::Done)
     }
 }
 
@@ -737,6 +737,7 @@ fn hire(under: Option<Named>) -> Hire {
         hamlet: None,
         under,
         profile: None,
+        version: None,
         purpose: Some("Check the links".to_owned()),
         name: None,
     }
@@ -1019,6 +1020,7 @@ async fn the_agent_and_profile_stand_ins_take_their_calls() {
     };
     let branch = Branch {
         name: "hires/2".into(),
+        from: None,
     };
 
     call(&host, &address::Agent(AgentNumber(2)), &place)

@@ -1,8 +1,8 @@
 /**
- * What the agent keeps of what the realm owns: the charter, its character,
- * its model and its settings, each with the version the realm gave it.
- * Only `keep` writes the table, and an older or equal version changes
- * nothing.
+ * What the agent keeps of what the realm owns, the charter, its model and
+ * its settings, and of what its profile owns, its character: each with the
+ * version its owner gave it. Only `keep` writes the table, and an older or
+ * equal version changes nothing.
  */
 import type { RawAccess } from "../actor/db/mod.ts";
 import type { AgentContext } from "./actor.ts";
@@ -11,6 +11,7 @@ import {
     type Copies,
     type ModelChoice,
     read,
+    type Versioned,
     type ReadCopies as Versions,
 } from "./messages.ts";
 import type { Peers } from "./turn.ts";
@@ -35,14 +36,17 @@ export interface Held {
     readonly settings?: AgentSettings;
 }
 
-export type Part = keyof Copies;
+/** What the agent keeps: the realm's copies, and the character its profile gives. */
+export type Kept = Copies & { readonly character?: Versioned<string> };
+
+export type Part = keyof Kept;
 
 export type ReadCopies = () => Promise<Held>;
 
 /** Keeps each part whose version is newer. */
 export async function keep(
     c: Pick<AgentContext, "db">,
-    message: Copies,
+    message: Kept,
 ): Promise<void> {
     for (const part of Object.keys(message) as Part[]) {
         const copy = message[part];
@@ -69,9 +73,10 @@ export function copiesOf(db: AgentContext["db"]): ReadCopies {
     };
 }
 
+/** The versions of the realm's parts held. */
 async function versionsOf(db: AgentContext["db"]): Promise<Versions> {
     const rows = await db.all<{ name: string; version: number }>(
-        "SELECT name, version FROM copy",
+        "SELECT name, version FROM copy WHERE name <> 'character'",
     );
     return Object.fromEntries(rows.map((row) => [row.name, row.version]));
 }

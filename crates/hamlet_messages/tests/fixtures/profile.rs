@@ -9,10 +9,11 @@ use hamlet_messages::profile::{
     EndDream, Erase, FileChange, Files, FilesAnswer, Gone, Missing,
     Moved, NotAHire, Paper, PaperList, Papers, Path, Piece, Pin,
     PinAnswer, PinRefusal, PrepareDream, Prepared, ProfileInput,
-    Protected, Purge, PurgeAnswer, PurgeRefusal, Removal, RemovePath,
-    Revert, RevertAnswer, RevertRefusal, Revision, Save, SaveAnswer,
-    SaveRefusal, Sha1, Tag, TagAnswer, TagRefusal, TooLarge, TooLong,
-    VersionList, VersionName, VersionSeen, Versions,
+    Protected, Purge, PurgeAnswer, PurgeRefusal, Read, ReadAnswer,
+    ReadFileRefusal, Removal, RemovePath, Revert, RevertAnswer,
+    RevertRefusal, Revision, Save, SaveAnswer, SaveRefusal, Sha1,
+    Tag, TagAnswer, TagRefusal, TooLarge, TooLong, VersionList,
+    VersionName, VersionSeen, Versions,
 };
 use hamlet_messages::realm::{Done, ProfileId, Refusable};
 use hamlet_messages::workspace::AgentNumber;
@@ -36,6 +37,7 @@ pub fn enums() -> Vec<Cases> {
         tagged::<DreamEnd>(),
         tagged::<FilesAnswer>(),
         tagged::<SaveAnswer>(),
+        tagged::<ReadAnswer>(),
         tagged::<TagRefusal>(),
         tagged::<BadPath>(),
         tagged::<Protected>(),
@@ -52,6 +54,11 @@ pub fn enums() -> Vec<Cases> {
 
 pub fn unions() -> Vec<Union> {
     vec![
+        union!(ReadFileRefusal {
+            Missing: Missing,
+            Commit: BadCommit,
+            Path: BadPath,
+        }),
         union!(PinRefusal {
             Missing: Missing,
             Hire: NotAHire,
@@ -81,6 +88,7 @@ pub fn unions() -> Vec<Union> {
 pub fn the_profiles_messages(fixtures: &mut Fixtures) {
     the_input(fixtures);
     the_versions(fixtures);
+    the_reads(fixtures);
     the_changes_of_main(fixtures);
     the_dreams(fixtures);
     the_files_of_a_hire(fixtures);
@@ -255,6 +263,72 @@ fn the_versions(fixtures: &mut Fixtures) {
     }
 }
 
+fn the_reads(fixtures: &mut Fixtures) {
+    fixtures.args(
+        "profile/read",
+        &Read {
+            at: None,
+            path: None,
+        },
+    );
+    fixtures.args(
+        "profile/read.file",
+        &Read {
+            at: Some(Revision::Commit {
+                commit: commit(0xab),
+            }),
+            path: Some("memory/tests.md".into()),
+        },
+    );
+    for (arm, answer) in [
+        (
+            "listed",
+            ReadAnswer::Listed {
+                paths: vec![Path {
+                    path: "memory/tests.md".into(),
+                }],
+            },
+        ),
+        (
+            "text",
+            ReadAnswer::Text {
+                text: "# Tests\n".into(),
+                cut: true,
+            },
+        ),
+        (
+            "refused.no_version",
+            ReadAnswer::refused(no_version().into()),
+        ),
+        (
+            "refused.no_commit",
+            ReadAnswer::refused(
+                BadCommit::NoCommit {
+                    profile: ProfileId(4),
+                    commit: commit(0xab),
+                }
+                .into(),
+            ),
+        ),
+        (
+            "refused.not_on_main",
+            ReadAnswer::refused(
+                BadCommit::NotOnMain {
+                    commit: commit(0xab),
+                }
+                .into(),
+            ),
+        ),
+        (
+            "refused.not_a_path",
+            ReadAnswer::refused(not_a_path().into()),
+        ),
+    ] {
+        let answer: ReadAnswer = answer;
+        fixtures.answer(&format!("profile/read.{arm}"), &answer);
+    }
+}
+
 fn the_changes_of_main(fixtures: &mut Fixtures) {
     fixtures.args(
         "profile/revert",
@@ -286,7 +360,7 @@ fn the_changes_of_main(fixtures: &mut Fixtures) {
                 }],
             },
         ),
-        ("unchanged", RevertAnswer::Unchanged),
+        ("unchanged", RevertAnswer::<RevertRefusal>::Unchanged),
         (
             "refused.no_version",
             RevertAnswer::refused(no_version().into()),

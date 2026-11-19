@@ -16,8 +16,6 @@ pub struct Copies {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub charter: Option<Versioned<String>>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub character: Option<Versioned<String>>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub model: Option<Versioned<ModelChoice>>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub settings: Option<Versioned<AgentSettings>>,

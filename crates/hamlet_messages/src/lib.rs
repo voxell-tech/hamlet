@@ -185,8 +185,36 @@ macro_rules! union {
     };
 }
 
-/// An answer: its arms, and `refused` with a `$why`.
+/// An answer: its arms, and `refused` with a `$why`. Written
+/// `Name<W = Why>`, the answer takes any refusal `W`, `Why` when left
+/// out.
 macro_rules! answer {
+    ($(#[$doc:meta])* $name:ident<W = $why:ty> { $($arms:tt)* }) => {
+        $(#[$doc])*
+        #[derive(
+            Clone, Debug, PartialEq, Eq, ::serde::Serialize,
+            ::serde::Deserialize,
+        )]
+        #[serde(
+            tag = "type",
+            rename_all = "snake_case",
+            bound(
+                serialize = "W: ::serde::Serialize + ::std::fmt::Display",
+                deserialize = "W: ::serde::Deserialize<'de>"
+            )
+        )]
+        pub enum $name<W = $why> {
+            $($arms)*
+            #[serde(serialize_with = "crate::worded")]
+            Refused { why: W },
+        }
+        impl<W> $crate::realm::Refusable for $name<W> {
+            type Why = W;
+            fn refused(why: W) -> Self {
+                Self::Refused { why }
+            }
+        }
+    };
     ($(#[$doc:meta])* $name:ident<$why:ty> { $($arms:tt)* }) => {
         $(#[$doc])*
         #[derive(

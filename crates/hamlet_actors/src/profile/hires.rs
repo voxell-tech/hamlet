@@ -10,7 +10,7 @@ use hamlet_messages::profile::{
     Branch, Character, Missing, Moved, NotAHire, Pin, PinAnswer,
     VersionName,
 };
-use hamlet_messages::realm::ProfileId;
+use hamlet_messages::realm::{Done, ProfileId};
 use hamlet_messages::workspace::AgentNumber;
 
 use super::{CHARACTER, Profile, commit_id};
@@ -185,7 +185,7 @@ fn branch(
         (tip, at, character_at(git, at)?.0)
     };
     if tip.is_some() && has_row {
-        return unit.kept(());
+        return unit.kept(Done::Done);
     }
     let writer = unit.write();
     if tip.is_none() {
@@ -202,7 +202,7 @@ fn branch(
             ],
         )?;
     }
-    writer.kept(())
+    writer.kept(Done::Done)
 }
 
 /// Takes `main` into the branch of each hire that follows it, the
@@ -418,6 +418,7 @@ mod tests {
         let realm = Caller::Actor(Realm.address().unwrap());
         let asked = Branch {
             name: format!("hires/{agent}"),
+            from: None,
         };
         let unit = |unit: Before<'_, Profile, Branch>| {
             branch(unit, AgentNumber(agent))
