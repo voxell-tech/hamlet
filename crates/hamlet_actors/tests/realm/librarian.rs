@@ -334,3 +334,44 @@ async fn an_offer_not_the_callers_own_or_not_held_is_not_judged() {
     assert!(super::made(&realm, errand(0)).is_none(), "no errand");
     realm.host.shutdown().await.unwrap();
 }
+
+/// The asker's agent fails the first notice of each as an actor not
+/// ready; the realm gives it again a second later.
+#[tokio::test(flavor = "multi_thread")]
+async fn the_librarians_answer_and_verdict_are_told_again_until_taken()
+ {
+    let (realm, _) = hamlet_with(1).await;
+    let task = standing(&realm, THREE);
+    let asked = realm
+        .tool(THREE, &in_conversation("a1", ask("Which skill digs?")))
+        .await
+        .unwrap();
+    let submitted = realm
+        .tool(THREE, &in_conversation("s1", submit(7, "well")))
+        .await
+        .unwrap();
+    assert_eq!((asked, submitted), (Done::Done, Done::Done));
+    made_until(&realm, errand(1)).await;
+
+    realm.seen.fail_once(Callee::Submit, THREE);
+    let said = Ended::Answered {
+        text: "Use dig.".to_owned(),
+    };
+    ended(&realm, 0, said).await;
+    let says = notice(0, "The librarian says: Use dig.", &task);
+    assert_eq!(
+        seen_submits(&realm, THREE, 1).await,
+        std::slice::from_ref(&says)
+    );
+
+    realm.seen.fail_once(Callee::Submit, THREE);
+    let judged = Ended::Answered {
+        text: "ACCEPT Clear and useful.".to_owned(),
+    };
+    ended(&realm, 1, judged).await;
+    assert_eq!(
+        seen_submits(&realm, THREE, 2).await,
+        [says, notice(1, TOOK, &task)]
+    );
+    realm.host.shutdown().await.unwrap();
+}
