@@ -28,10 +28,6 @@ pub(crate) struct Own {
 /// The realm as the door last read it, with the server's own fields.
 pub(crate) struct View {
     pub(crate) own: Arc<Own>,
-    #[expect(
-        dead_code,
-        reason = "the commands and the state read it"
-    )]
     pub(crate) world: Seen,
 }
 

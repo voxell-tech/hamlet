@@ -15,7 +15,6 @@ pub(crate) struct Outcome {
     pub(crate) reply: Result<String, Refusal>,
     /// The agent whose chat its watchers read again, as after
     /// `/new`.
-    #[expect(dead_code, reason = "the door's hub reads it")]
     pub(crate) reread: Option<AgentNumber>,
 }
 
