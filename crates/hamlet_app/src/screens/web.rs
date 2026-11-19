@@ -37,7 +37,8 @@ pub const FILES: &str = "files";
 
 pub fn plugin(app: &mut App) {
     app.init_resource::<Addresses>()
-        .init_resource::<AgentTabs>();
+        .init_resource::<AgentTabs>()
+        .init_resource::<Titles>();
     #[cfg(all(feature = "web", any(target_os = "macos", windows)))]
     {
         app.add_plugins((
@@ -69,6 +70,11 @@ pub fn plugin(app: &mut App) {
 /// it.
 #[derive(Resource, Default, Clone, PartialEq, Debug)]
 pub struct Addresses(pub BTreeMap<String, String>);
+
+/// The title of each Web panel's page, by panel id, as the view keeps
+/// it: its tab's name before the page loads again.
+#[derive(Resource, Default, Clone, PartialEq, Debug)]
+pub struct Titles(pub BTreeMap<String, String>);
 
 /// The Web panels that are agents' tabs, with the id of each one's
 /// agent, by panel id, as the view keeps them.
