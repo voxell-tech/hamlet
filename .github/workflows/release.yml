@@ -2,18 +2,22 @@
 # each, and what a chief installs without a terminal, a disk image, an
 # installer, a .deb and an .rpm.
 #
-# Runs when a version tag is pushed, when CI passes on a push to main,
-# and when started by hand from the Actions tab. Each feeds a channel
-# installed copies update from (docs/releases.md#updates):
+# Runs when a version tag is pushed, every hour, and when started by
+# hand from the Actions tab. Each feeds a channel installed copies
+# update from (docs/releases.md#updates):
 #
 # - v0.2.0 publishes a stable release, the latest on GitHub.
 # - v0.2.0-beta.1 publishes a beta: a pre-release, whose manifest is
 #   also put on the release `beta`.
 # - Any other suffix, as v0.1.0-dev.1, publishes a pre-release that no
 #   channel offers.
-# - CI passing on main publishes a nightly to the release `nightly`,
-#   replacing the last one's files.
-# - A run by hand only keeps them as the run's artifacts.
+# - The hourly run publishes a nightly to the release `nightly`,
+#   replacing the last one's files, when main has a newer commit that
+#   passed CI and the last nightly is NIGHTLY_HOURS old.
+# - A run by hand with `stable` releases the nightly's commit as
+#   Cargo.toml's version, so stable ships what nightly copies ran.
+# - A run by hand without it only keeps its files as the run's
+#   artifacts.
 #
 # Signing waits on the repository's secrets, and is skipped without
 # them. macOS: APPLE_CERTIFICATE (a Developer ID Application .p12, in
@@ -34,65 +38,150 @@ name: Release
 on:
   push:
     tags: ["v*"]
-  workflow_run:
-    workflows: [CI]
-    types: [completed]
-    branches: [main]
+  schedule:
+    # Away from minute zero, when GitHub's scheduled runs are busiest.
+    - cron: "23 * * * *"
   workflow_dispatch:
+    inputs:
+      stable:
+        description: Release the nightly's commit as stable
+        type: boolean
+        default: false
 
 permissions:
   contents: read
 
-# A nightly's ref is main, so a newer one cancels the last.
+# Nightlies run one at a time, so they publish in order. No running run
+# is cancelled: a nightly or a release stopped halfway leaves its
+# release with some of its files. A waiting run gives way to a newer
+# one of its group, which only drops a nightly or a run by hand that
+# publishes nothing: a stable release by hand has a group of its own.
 concurrency:
-  group: release-${{ github.ref }}
-  cancel-in-progress: true
+  group: >-
+    release-${{ github.event_name == 'schedule' && 'nightly' ||
+    inputs.stable && 'stable' || github.ref }}
+  cancel-in-progress: false
 
 env:
   CARGO_TERM_COLOR: always
+  # The least time between two nightlies, so nightly copies are not
+  # offered an update for every merge.
+  NIGHTLY_HOURS: 6
 
 jobs:
-  # What the run builds: the commit, its version, the channel its
-  # programs follow and the release it publishes to, none for a run by
-  # hand.
+  # Whether the run builds, and what: the commit, its version, the
+  # channel its programs follow and the release it publishes to, none
+  # for a run by hand without `stable`.
   plan:
     name: Plan
-    if: >-
-      github.event_name != 'workflow_run' ||
-      (github.event.workflow_run.conclusion == 'success' &&
-      github.event.workflow_run.event == 'push')
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      # To read CI's runs.
+      actions: read
     outputs:
+      build: ${{ steps.plan.outputs.build }}
       sha: ${{ steps.plan.outputs.sha }}
       version: ${{ steps.plan.outputs.version }}
       semver: ${{ steps.plan.outputs.semver }}
       channel: ${{ steps.plan.outputs.channel }}
       release: ${{ steps.plan.outputs.release }}
     steps:
+      # A nightly builds main's newest commit to pass CI on a push, once
+      # it is newer than the last nightly's and that one is old enough.
+      # A stable release builds the last nightly's commit.
+      - name: Choose the commit
+        id: commit
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          EVENT: ${{ github.event_name }}
+          STABLE: ${{ inputs.stable }}
+        run: |
+          set -euo pipefail
+          skip() {
+            echo "$1"
+            echo "build=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          }
+          if ! nightly=$(gh api "repos/$REPO/git/ref/tags/nightly" --jq .object.sha 2>/dev/null); then
+            nightly=
+          fi
+          if [ "$EVENT" = schedule ]; then
+            sha=$(gh api "repos/$REPO/actions/workflows/rust.yml/runs?branch=main&event=push&status=success&per_page=1" \
+              --jq '.workflow_runs[0].head_sha // empty')
+            [ -n "$sha" ] || skip "No commit on main has passed CI."
+            if [ -n "$nightly" ]; then
+              case $(gh api "repos/$REPO/compare/$nightly...$sha" --jq .status) in
+                ahead) ;;
+                identical) skip "The nightly is main's newest commit to pass CI." ;;
+                *) skip "::warning::$sha is not after the nightly's commit $nightly." ;;
+              esac
+              last=$(gh release view nightly --repo "$REPO" --json assets \
+                --jq '[.assets[].updatedAt] | max // empty')
+              if [ -n "$last" ] &&
+                (( $(date -u +%s) - $(date -u -d "$last" +%s) < NIGHTLY_HOURS * 3600 )); then
+                skip "The last nightly is under $NIGHTLY_HOURS hours old."
+              fi
+            fi
+          elif [ "$STABLE" = true ]; then
+            if [ -z "$nightly" ]; then
+              echo "::error::There is no nightly to release."
+              exit 1
+            fi
+            sha=$nightly
+          else
+            sha=$GITHUB_SHA
+          fi
+          {
+            echo "sha=$sha"
+            echo "build=true"
+          } >> "$GITHUB_OUTPUT"
+
       - uses: actions/checkout@v4
+        if: steps.commit.outputs.build == 'true'
         with:
           persist-credentials: false
-          ref: ${{ github.event.workflow_run.head_sha || github.sha }}
+          ref: ${{ steps.commit.outputs.sha }}
 
       - name: Plan
         id: plan
+        if: steps.commit.outputs.build == 'true'
         shell: bash
         env:
           EVENT: ${{ github.event_name }}
+          STABLE: ${{ inputs.stable }}
           REF_TYPE: ${{ github.ref_type }}
           TAG: ${{ github.ref_name }}
         run: |
           set -eu
           sha=$(git rev-parse HEAD)
           cargo_version=$(sed -n '/^version = "/{s/^version = "\([^"]*\)".*/\1/p;q;}' Cargo.toml)
+          released() {
+            git ls-remote --exit-code --tags origin "refs/tags/v$cargo_version" >/dev/null
+          }
           channel=
-          if [ "$EVENT" = workflow_run ]; then
-            # The commit's minute in UTC, one number so that semver
-            # orders nightlies by it.
-            stamp=$(TZ=UTC git log -1 --format=%cd --date=format-local:%Y%m%d%H%M)
-            version=v$cargo_version-nightly.$stamp
+          if [ "$EVENT" = schedule ]; then
+            # A nightly of a released version would sort below the
+            # release, so no nightly copy would take it.
+            if released; then
+              echo "::warning::v$cargo_version is released: raise the version in Cargo.toml for the next nightly."
+              echo "build=false" >> "$GITHUB_OUTPUT"
+              exit 0
+            fi
+            # The day in UTC and the run's number, which only grow, so
+            # semver orders nightlies as they were published.
+            version=v$cargo_version-nightly.$(date -u +%Y%m%d).$GITHUB_RUN_NUMBER
             channel=nightly
             release=nightly
+          elif [ "$STABLE" = true ]; then
+            if released; then
+              echo "::error::v$cargo_version is already released."
+              exit 1
+            fi
+            version=v$cargo_version
+            channel=stable
+            release=$version
           elif [ "$REF_TYPE" = tag ]; then
             version=$TAG
             release=$TAG
@@ -105,7 +194,16 @@ jobs:
             version=$sha
             release=
           fi
+          # The programs parse a published version as semver.
+          number='(0|[1-9][0-9]*)'
+          word='(0|[1-9][0-9]*|[0-9]*[a-zA-Z-][0-9a-zA-Z-]*)'
+          semver="^$number\.$number\.$number(-$word(\.$word)*)?(\+[0-9a-zA-Z-]+(\.[0-9a-zA-Z-]+)*)?$"
+          if [ -n "$release" ] && [[ ! ${version#v} =~ $semver ]]; then
+            echo "::error::${version#v} is not a semver version."
+            exit 1
+          fi
           {
+            echo "build=true"
             echo "sha=$sha"
             echo "version=$version"
             echo "semver=${version#v}"
@@ -116,6 +214,7 @@ jobs:
   build:
     name: ${{ matrix.name }}
     needs: plan
+    if: needs.plan.outputs.build == 'true'
     runs-on: ${{ matrix.os }}
     env:
       APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
@@ -279,6 +378,13 @@ jobs:
     if: needs.plan.outputs.release != ''
     needs: [plan, build]
     runs-on: ubuntu-latest
+    # One release publishes at a time, whatever its tag, so two cannot
+    # both read the same latest release and each make itself latest.
+    # Every waiting one is kept.
+    concurrency:
+      group: release-publish
+      cancel-in-progress: false
+      queue: max
     permissions:
       contents: write
     env:
@@ -302,24 +408,43 @@ jobs:
       # A release made by hand before the tag was built is added to,
       # and a file it already holds is replaced. A tag with a suffix,
       # such as v0.1.0-beta.1, is a pre-release, which is never the
-      # latest release stable copies update to.
+      # latest release stable copies update to, however it was made. A
+      # stable release is the latest unless a newer one is, as when an
+      # older release is published again. A stable release of the
+      # nightly's commit makes its tag there.
       - name: Publish the release
         if: needs.plan.outputs.channel != 'nightly'
         env:
           TAG: ${{ needs.plan.outputs.release }}
         run: |
+          # No latest release yet is a 404; any other failure stops the
+          # run rather than take the release for the first.
+          if ! latest=$(gh api "repos/$REPO/releases/latest" --jq .tag_name 2>latest.err); then
+            if ! grep -q 'HTTP 404' latest.err; then
+              cat latest.err >&2
+              exit 1
+            fi
+            latest=
+          fi
+          if [[ $TAG == *-* ]]; then
+            kind=(--prerelease --latest=false)
+          elif [ -n "$latest" ] && [ "$latest" != "$TAG" ] &&
+            [ "$(printf '%s\n' "$latest" "$TAG" | sort -V | tail -n 1)" = "$latest" ]; then
+            echo "::warning::$latest is newer, so it stays the latest release."
+            kind=(--prerelease=false --latest=false)
+          else
+            kind=(--prerelease=false --latest)
+          fi
           if gh release view "$TAG" --repo "$REPO" >/dev/null 2>&1; then
             gh release upload "$TAG" dist/* --repo "$REPO" --clobber
+            gh release edit "$TAG" --repo "$REPO" "${kind[@]}"
           else
-            pre=()
-            if [[ $TAG == *-* ]]; then
-              pre=(--prerelease)
-            fi
             gh release create "$TAG" dist/* \
               --repo "$REPO" \
+              --target "$SHA" \
               --title "Hamlet $TAG" \
               --generate-notes \
-              "${pre[@]}"
+              "${kind[@]}"
           fi
 
       # The release `nightly` holds the newest nightly's files, its tag

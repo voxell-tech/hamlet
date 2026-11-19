@@ -164,7 +164,7 @@ async fn keep_looking(
 ) {
     let mut wait = FIRST;
     loop {
-        let asked = tokio::select! {
+        let mut asked = tokio::select! {
             () = tokio::time::sleep(wait) => false,
             ask = asks.recv() => match ask {
                 Some(()) => true,
@@ -184,7 +184,9 @@ async fn keep_looking(
                 format!("{error:#}")
             });
         // What was asked during this look is answered by it.
-        while asks.try_recv().is_ok() {}
+        while asks.try_recv().is_ok() {
+            asked = true;
+        }
         let look = Look {
             found,
             channel: looked_in,
@@ -245,12 +247,16 @@ fn hear(
         asked,
     }) = looks.rx.try_recv()
     {
+        // A look in the channel left behind. What was asked of it is
+        // asked again of the channel followed.
+        if looked_in != channel.followed() {
+            if asked {
+                let _ = looks.asks.send(());
+            }
+            continue;
+        }
         if asked {
             updates.checking = false;
-        }
-        // A look in the channel left behind.
-        if looked_in != channel.followed() {
-            continue;
         }
         match found {
             Ok(Some(offer)) => {
@@ -283,12 +289,13 @@ fn hear(
 }
 
 /// Looks in the channel the chief picked, dropping what was found in
-/// the one before. A copy newer than the new channel's newest release
-/// waits for one newer still.
+/// the one before, its toasts too. A copy newer than the new
+/// channel's newest release waits for one newer still.
 fn follow(
     channel: Res<UpdateChannel>,
     looks: Option<Res<Looks>>,
     mut updates: ResMut<Updates>,
+    mut toasts: ResMut<Toasts>,
 ) {
     let Some(looks) = looks else {
         return;
@@ -302,6 +309,7 @@ fn follow(
     if moved {
         updates.offer = None;
         updates.declined = None;
+        toasts.withdraw_offers();
     }
 }
 
@@ -423,13 +431,14 @@ mod tests {
     use super::*;
     use crate::testing::{all_words, panel_app};
 
-    /// The window with toasts and a way to the looks, and the end of
-    /// it the looks would send on.
-    fn looking() -> (App, UnboundedSender<Look>) {
+    /// The window with toasts and a way to the looks, the end of it
+    /// the looks would send on, and the end the asks arrive at.
+    fn looking() -> (App, UnboundedSender<Look>, UnboundedReceiver<()>)
+    {
         let mut app = panel_app();
         app.add_plugins((crate::toasts::plugin, plugin));
         let (tx, rx) = unbounded_channel();
-        let (asks, _) = unbounded_channel();
+        let (asks, asked) = unbounded_channel();
         let (channel, _) = watch::channel(Channel::built());
         app.insert_resource(Looks { rx, asks, channel });
         app.world_mut().resource_mut::<Updates>().looking = true;
@@ -438,7 +447,7 @@ mod tests {
             crate::toasts::stack(),
         );
         app.update();
-        (app, tx)
+        (app, tx, asked)
     }
 
     fn offer() -> Offer {
@@ -462,7 +471,7 @@ mod tests {
 
     #[test]
     fn a_look_the_chief_asked_for_always_answers() {
-        let (mut app, tx) = looking();
+        let (mut app, tx, _asked) = looking();
         app.world_mut().resource_mut::<Updates>().checking = true;
         let send = |found, asked| {
             tx.send(look(found, asked)).unwrap();
@@ -487,7 +496,7 @@ mod tests {
 
     #[test]
     fn asking_again_offers_an_update_whose_toast_was_closed() {
-        let (mut app, tx) = looking();
+        let (mut app, tx, _asked) = looking();
         decline(app.world_mut(), offer().version);
         tx.send(look(Ok(Some(offer())), false)).unwrap();
         app.update();
@@ -505,18 +514,29 @@ mod tests {
 
     #[test]
     fn another_channel_drops_what_the_last_one_found() {
-        let (mut app, tx) = looking();
+        let (mut app, tx, mut asked) = looking();
         tx.send(look(Ok(Some(offer())), false)).unwrap();
         app.update();
+        app.update();
+        assert!(all_words(&mut app).contains("Hamlet 0.2.0 is out"));
         let other = Channel::ALL
             .into_iter()
             .find(|channel| *channel != Channel::built())
             .unwrap();
         app.world_mut().resource_mut::<UpdateChannel>().0 =
             Some(other);
-        // A look still on its way from the channel left behind.
-        tx.send(look(Ok(Some(offer())), false)).unwrap();
+        app.world_mut().resource_mut::<Updates>().checking = true;
+        // A look still on its way from the channel left behind, which
+        // the chief's check does not take as its answer, and asks
+        // again of the channel followed.
+        tx.send(look(Ok(Some(offer())), true)).unwrap();
         app.update();
-        assert_eq!(app.world().resource::<Updates>().offer, None);
+        app.update();
+        let updates = app.world().resource::<Updates>();
+        assert_eq!(updates.offer, None);
+        assert!(updates.checking);
+        assert!(!all_words(&mut app).contains("Hamlet 0.2.0 is out"));
+        assert!(asked.try_recv().is_ok());
+        assert!(asked.try_recv().is_err());
     }
 }

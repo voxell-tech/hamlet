@@ -375,7 +375,7 @@ mod tests {
         );
         let signed = manifest("0.2.0", &deb);
         let signature = STANDARD.encode(pair.sign(&signed).as_ref());
-        let nightly = manifest("0.3.0-nightly.202611190930", &deb);
+        let nightly = manifest("0.3.0-nightly.20261119.412", &deb);
         let nightly_signature =
             STANDARD.encode(pair.sign(&nightly).as_ref());
         let mut forged = signed.clone();
@@ -442,12 +442,12 @@ mod tests {
             at(&["/latest.json", "/nightly.json"]),
             &public,
             Install::Deb,
-            "0.3.0-nightly.202611180930",
+            "0.3.0-nightly.20261118.411",
         )
         .await;
         assert_eq!(
             newest.unwrap().unwrap().version,
-            version("0.3.0-nightly.202611190930")
+            version("0.3.0-nightly.20261119.412")
         );
         let forged = check(
             at(&["/forged.json"]),

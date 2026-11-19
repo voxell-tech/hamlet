@@ -83,7 +83,7 @@ A copy follows one of three channels:
 |---|---|---|
 | Stable | tags with a version alone, as `v0.2.0` | GitHub's latest release |
 | Beta | tags of a beta, as `v0.2.0-beta.1` | the release `beta` |
-| Nightly | every push to `main` that passes CI | the release `nightly` |
+| Nightly | `main`'s newest commit to pass CI, at most every six hours | the release `nightly` |
 
 A copy follows the channel it was built for, `HAMLET_CHANNEL`, until the
 chief picks another, which the window keeps in `view.toml`. It reads its
@@ -134,22 +134,39 @@ every installed Hamlet a program to run.
 
 ## Publishing
 
-The workflow runs for pushed `v*` tags, for CI passing on a push to
-`main`, and by hand, which uploads workflow artifacts and publishes no
-release. A tag must match the version in `Cargo.toml`'s
-`[workspace.package]`, or be a pre-release of it. A tag with a suffix
-makes a GitHub pre-release: `-beta.N` feeds the beta channel, and any
-other suffix, as `-dev.1`, no channel. A nightly's version is
-`Cargo.toml`'s with `-nightly.` and the commit's minute in UTC, as
-`0.1.0-nightly.202611190930`; its files replace the last nightly's on
-the release `nightly`, whose tag moves to its commit. `latest.json` is
-uploaded after the files, so installed copies find the update only once
-every file it names is there. Pushing a tag is a publishing action, not
-a local packaging check.
+The workflow runs for pushed `v*` tags, every hour, and by hand. Runs
+never cancel one another, and nightlies run one at a time.
 
-After a stable release, raise `Cargo.toml`'s version on `main` before
-the next nightly: until then nightlies are older than the release, and
-nightly copies stay on it.
+A tag must match the version in `Cargo.toml`'s `[workspace.package]`,
+or be a semver pre-release of it. A tag with a suffix makes a GitHub
+pre-release: `-beta.N` feeds the beta channel, and any other suffix,
+as `-dev.1`, no channel. A release published on GitHub with a new tag
+starts the same run, which adds the files to it and makes it a
+pre-release or the latest release by its tag.
+
+The hourly run publishes a nightly when `main` has a commit newer than
+the last nightly's that passed CI on a push, and the last nightly is
+six hours old (`NIGHTLY_HOURS`); it builds the newest such commit. A
+nightly's version is `Cargo.toml`'s with `-nightly.`, the day in UTC
+and the run's number, as `0.1.0-nightly.20261119.412`, so nightlies
+order as they were published. Its files replace the last nightly's on
+the release `nightly`, whose tag moves to its commit.
+
+A stable release is made by hand: run the workflow from the Actions tab
+with **stable** ticked. It builds the commit of the last nightly, which
+nightly copies have run, and releases it as `Cargo.toml`'s version
+there, tagging that commit. Pushing a `v0.2.0` tag also releases, from
+the tag's commit. A run by hand without **stable** only uploads
+workflow artifacts.
+
+`latest.json` is uploaded after the files, so installed copies find
+the update only once every file it names is there. Pushing a tag or
+running with **stable** is a publishing action, not a local packaging
+check.
+
+After a stable release, raise `Cargo.toml`'s version on `main`: a
+nightly of a released version would be older than the release, so no
+nightly is published until then, and each hourly run warns.
 
 Validate an extracted archive from outside the checkout on a fresh
 `HAMLET_HOME`. Never point release smoke tests at a personal realm.
