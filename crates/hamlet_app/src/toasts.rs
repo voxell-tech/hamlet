@@ -790,7 +790,7 @@ fn card(toast: &Toast) -> AnyView {
                 )
             }
             What::Update(offer) => {
-                let version = offer.version;
+                let version = &offer.version;
                 let (line, which, word) = match &offer.ready {
                     Ready::File(_) => (
                         "Restart to update. Agents pause while \
@@ -1043,7 +1043,7 @@ fn dismiss_all(world: &mut World) {
     let update =
         world.resource::<Toasts>().shown.iter().find_map(|toast| {
             match &toast.what {
-                What::Update(offer) => Some(offer.version),
+                What::Update(offer) => Some(offer.version.clone()),
                 _ => None,
             }
         });
@@ -1081,7 +1081,7 @@ fn dismiss(world: &mut World, id: u64) {
         .iter()
         .find(|toast| toast.id == id)
         .and_then(|toast| match &toast.what {
-            What::Update(offer) => Some(offer.version),
+            What::Update(offer) => Some(offer.version.clone()),
             _ => None,
         });
     if let Some(version) = version {

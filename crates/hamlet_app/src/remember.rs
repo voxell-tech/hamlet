@@ -26,6 +26,7 @@ use hamlet_realm::sky::{
 };
 use hamlet_realm::sound::SoundSettings;
 use hamlet_realm::{North, chief};
+use hamlet_update::Channel;
 use hamlet_vfx::wind::WindChoice;
 use serde::{Deserialize, Serialize};
 
@@ -33,6 +34,7 @@ use crate::appearance::{Appearance, Pick, Zoom};
 use crate::desk::{self, Desks, Part};
 use crate::roll::Roll;
 use crate::screens::terminal;
+use crate::updates::UpdateChannel;
 use crate::world_menu::{Favorites, LastSide};
 use crate::world_view::{NorthTarget, TimeOfDay};
 use crate::{PanelSystems, hub};
@@ -157,6 +159,13 @@ pub struct View {
     /// The Hub panels whose rails are collapsed.
     #[serde(default)]
     collapsed_rails: BTreeSet<String>,
+    /// The update channel as the chief picked it; none until a pick.
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "kept_or_designed"
+    )]
+    update_channel: Option<Channel>,
 }
 
 /// The view kept in the window's folder, as read at launch; none
@@ -183,6 +192,12 @@ impl Remembered {
         toml::from_str::<View>(&text)
             .map(|view| Self(Some(view)))
             .map_err(|e| chief::unparsed(&file, e.message()))
+    }
+
+    /// The update channel the chief picked, read before the first
+    /// look for an update.
+    pub(crate) fn update_channel(&self) -> Option<Channel> {
+        self.0.as_ref().and_then(|view| view.update_channel)
     }
 }
 
@@ -412,13 +427,14 @@ pub fn keep(
         Res<terminal::Folds>,
         Res<terminal::Pins>,
     ),
-    (fog, far, wind, appearance, zoom, rails): (
+    (fog, far, wind, appearance, zoom, rails, channel): (
         Res<VolumetricFogSettings>,
         Res<DistanceFogSettings>,
         Res<WindChoice>,
         Res<Appearance>,
         Res<Zoom>,
         Res<hub::CollapsedRails>,
+        Res<UpdateChannel>,
     ),
     mut written: Local<Option<View>>,
     mut due: Local<Option<f32>>,
@@ -442,6 +458,7 @@ pub fn keep(
         || folds.is_changed()
         || pins.is_changed()
         || rails.is_changed()
+        || channel.is_changed()
     {
         *due = Some(now + SETTLE);
     }
@@ -474,6 +491,7 @@ pub fn keep(
         terminal_folds: folds.0.clone(),
         terminal_pins: pins.0.clone(),
         collapsed_rails: rails.0.clone(),
+        update_channel: channel.0,
     };
     if written.as_ref() == Some(&view) {
         return;
@@ -549,6 +567,7 @@ mod tests {
             )]),
             terminal_pins: BTreeSet::from(["agent#2".into()]),
             collapsed_rails: BTreeSet::from(["hub".into()]),
+            update_channel: Some(Channel::Nightly),
         }
     }
 

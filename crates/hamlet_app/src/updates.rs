@@ -1,7 +1,8 @@
 //! Updates looked for while the window is open: shortly after it
-//! opens, every hour and when the chief asks from the Hamlet menu,
-//! downloaded, and offered in a toast that stays until the chief
-//! restarts or closes it, and in the menu (docs/releases.md#updates).
+//! opens, every hour, when the chief asks from the Hamlet menu and
+//! when the chief picks another channel, downloaded, and offered in a
+//! toast that stays until the chief restarts or closes it, and in the
+//! menu (docs/releases.md#updates).
 
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
@@ -11,18 +12,20 @@ use anyhow::{Context, Result};
 use bevy::app::{App, PreUpdate, Startup};
 use bevy::ecs::resource::Resource;
 use bevy::ecs::schedule::IntoScheduleConfigs;
+use bevy::ecs::schedule::common_conditions::resource_changed;
 use bevy::ecs::system::{Commands, Res, ResMut};
 use bevy::ecs::world::World;
 use bevy::time::Time;
 use hamlet_client::Tokio;
-use hamlet_protocol::Version;
 use hamlet_ui::theme::StatusKind;
-use hamlet_update::{Feed, Install};
+use hamlet_update::{Channel, Feed, Install, Version};
 use tokio::sync::mpsc::{
     UnboundedReceiver, UnboundedSender, unbounded_channel,
 };
+use tokio::sync::watch;
 
 use crate::PanelSystems;
+use crate::remember::Remembered;
 use crate::toasts::Toasts;
 
 /// The wait after the window opens before the first look, which
@@ -34,8 +37,26 @@ const EVERY: Duration = Duration::from_secs(60 * 60);
 
 pub fn plugin(app: &mut App) {
     app.init_resource::<Updates>()
+        .init_resource::<UpdateChannel>()
         .add_systems(Startup, begin)
-        .add_systems(PreUpdate, hear.in_set(PanelSystems::Bind));
+        .add_systems(
+            PreUpdate,
+            (follow.run_if(resource_changed::<UpdateChannel>), hear)
+                .chain()
+                .in_set(PanelSystems::Bind),
+        );
+}
+
+/// The channel the chief picked in the settings; none until a pick,
+/// while this copy follows the one it was built for.
+#[derive(Resource, Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub(crate) struct UpdateChannel(pub Option<Channel>);
+
+impl UpdateChannel {
+    /// The channel followed.
+    pub(crate) fn followed(self) -> Channel {
+        self.0.unwrap_or_else(Channel::built)
+    }
 }
 
 /// A newer Hamlet.
@@ -68,27 +89,37 @@ pub(crate) struct Updates {
     pub checking: bool,
 }
 
-/// The way to the looks: what they found, and a look asked for now.
+/// The way to the looks: what they found, a look asked for now, and
+/// the channel they look in.
 #[derive(Resource)]
 struct Looks {
     rx: UnboundedReceiver<Look>,
     asks: UnboundedSender<()>,
+    channel: watch::Sender<Channel>,
 }
 
-/// What a look found, and whether the chief asked for it.
+/// What a look found, the channel it looked in, and whether the
+/// chief asked for it.
 struct Look {
     found: Result<Option<Offer>, String>,
+    channel: Channel,
     asked: bool,
 }
 
-/// Says when the last update did not take, and starts looking.
+/// Puts back the kept channel, says when the last update did not
+/// take, and starts looking.
 fn begin(
     mut commands: Commands,
     mut updates: ResMut<Updates>,
+    mut channel: ResMut<UpdateChannel>,
+    remembered: Option<Res<Remembered>>,
     tokio: Option<Res<Tokio>>,
     time: Res<Time>,
     toasts: Option<ResMut<Toasts>>,
 ) {
+    if let Some(remembered) = remembered {
+        channel.0 = remembered.update_channel();
+    }
     if !hamlet_update::is_enabled() {
         return;
     }
@@ -105,23 +136,31 @@ fn begin(
             time.elapsed_secs(),
         );
     }
-    let (Some(tokio), Some(feed)) = (tokio, Feed::here()) else {
+    let Some(tokio) = tokio else {
         return;
     };
     let (tx, rx) = unbounded_channel();
     let (asks, asked) = unbounded_channel();
-    tokio.0.spawn(watch(feed, Install::here(), tx, asked));
-    commands.insert_resource(Looks { rx, asks });
+    let (picked, followed) = watch::channel(channel.followed());
+    tokio
+        .0
+        .spawn(keep_looking(Install::here(), tx, asked, followed));
+    commands.insert_resource(Looks {
+        rx,
+        asks,
+        channel: picked,
+    });
     updates.looking = true;
 }
 
 /// Looks for an update after [`FIRST`], then every [`EVERY`], and at
-/// once when asked, and sends what each look found.
-async fn watch(
-    feed: Feed,
+/// once when asked or when the channel changes, and sends what each
+/// look found.
+async fn keep_looking(
     install: Install,
     tx: UnboundedSender<Look>,
     mut asks: UnboundedReceiver<()>,
+    mut channel: watch::Receiver<Channel>,
 ) {
     let mut wait = FIRST;
     loop {
@@ -131,29 +170,45 @@ async fn watch(
                 Some(()) => true,
                 None => return,
             },
+            changed = channel.changed() => match changed {
+                Ok(()) => false,
+                Err(_) => return,
+            },
         };
-        let found = look(&feed, &install).await.map_err(|error| {
-            bevy::log::warn!("Cannot look for updates: {error:#}");
-            format!("{error:#}")
-        });
+        let looked_in = *channel.borrow_and_update();
+        let found =
+            look(looked_in, &install).await.map_err(|error| {
+                bevy::log::warn!(
+                    "Cannot look for updates: {error:#}"
+                );
+                format!("{error:#}")
+            });
         // What was asked during this look is answered by it.
         while asks.try_recv().is_ok() {}
-        if tx.send(Look { found, asked }).is_err() {
+        let look = Look {
+            found,
+            channel: looked_in,
+            asked,
+        };
+        if tx.send(look).is_err() {
             return;
         }
         wait = EVERY;
     }
 }
 
-/// A newer release, downloaded when this copy can put it in place.
+/// A newer release in `channel`, downloaded when this copy can put it
+/// in place.
 async fn look(
-    feed: &Feed,
+    channel: Channel,
     install: &Install,
 ) -> Result<Option<Offer>> {
+    let feed =
+        Feed::of(channel).context("This copy does not update")?;
     let client = hamlet_update::client()?;
     let client = &client;
     let Some(found) = feed
-        .check(client, install, hamlet_update::current())
+        .check(client, install, &hamlet_update::current())
         .await?
     else {
         return Ok(None);
@@ -176,6 +231,7 @@ async fn look(
 fn hear(
     time: Res<Time>,
     looks: Option<ResMut<Looks>>,
+    channel: Res<UpdateChannel>,
     mut updates: ResMut<Updates>,
     mut toasts: ResMut<Toasts>,
 ) {
@@ -183,9 +239,18 @@ fn hear(
         return;
     };
     let now = time.elapsed_secs();
-    while let Ok(Look { found, asked }) = looks.rx.try_recv() {
+    while let Ok(Look {
+        found,
+        channel: looked_in,
+        asked,
+    }) = looks.rx.try_recv()
+    {
         if asked {
             updates.checking = false;
+        }
+        // A look in the channel left behind.
+        if looked_in != channel.followed() {
+            continue;
         }
         match found {
             Ok(Some(offer)) => {
@@ -217,6 +282,29 @@ fn hear(
     }
 }
 
+/// Looks in the channel the chief picked, dropping what was found in
+/// the one before. A copy newer than the new channel's newest release
+/// waits for one newer still.
+fn follow(
+    channel: Res<UpdateChannel>,
+    looks: Option<Res<Looks>>,
+    mut updates: ResMut<Updates>,
+) {
+    let Some(looks) = looks else {
+        return;
+    };
+    let followed = channel.followed();
+    let moved = looks.channel.send_if_modified(|looked_in| {
+        let moved = *looked_in != followed;
+        *looked_in = followed;
+        moved
+    });
+    if moved {
+        updates.offer = None;
+        updates.declined = None;
+    }
+}
+
 /// Looks for an update now, for the Hamlet menu.
 pub(crate) fn check(world: &mut World) {
     let Some(looks) = world.get_resource::<Looks>() else {
@@ -233,7 +321,7 @@ pub(crate) fn check(world: &mut World) {
 pub(crate) fn take(world: &mut World, offer: &Offer) {
     match &offer.ready {
         Ready::File(file) => {
-            restart(world, offer.version, file.clone());
+            restart(world, offer.version.clone(), file.clone());
         }
         Ready::Page(page) => {
             if hamlet_desktop::open::browse(page)
@@ -323,7 +411,7 @@ fn hand_over(version: Version, file: &Path) -> Result<()> {
         &mut command,
         0,
     );
-    hamlet_update::attempting(version)?;
+    hamlet_update::attempting(&version)?;
     command.spawn().with_context(|| {
         format!("Cannot run {}", launcher.display())
     })?;
@@ -342,7 +430,8 @@ mod tests {
         app.add_plugins((crate::toasts::plugin, plugin));
         let (tx, rx) = unbounded_channel();
         let (asks, _) = unbounded_channel();
-        app.insert_resource(Looks { rx, asks });
+        let (channel, _) = watch::channel(Channel::built());
+        app.insert_resource(Looks { rx, asks, channel });
         app.world_mut().resource_mut::<Updates>().looking = true;
         bevy_fynix::mount::<hamlet_ui::theme::HamletTheme>(
             app.world_mut(),
@@ -359,12 +448,24 @@ mod tests {
         }
     }
 
+    /// A look in the channel this copy was built for.
+    fn look(
+        found: Result<Option<Offer>, String>,
+        asked: bool,
+    ) -> Look {
+        Look {
+            found,
+            channel: Channel::built(),
+            asked,
+        }
+    }
+
     #[test]
     fn a_look_the_chief_asked_for_always_answers() {
         let (mut app, tx) = looking();
         app.world_mut().resource_mut::<Updates>().checking = true;
         let send = |found, asked| {
-            tx.send(Look { found, asked }).unwrap();
+            tx.send(look(found, asked)).unwrap();
         };
         // The hourly looks say nothing unless they find something.
         send(Ok(None), false);
@@ -388,11 +489,7 @@ mod tests {
     fn asking_again_offers_an_update_whose_toast_was_closed() {
         let (mut app, tx) = looking();
         decline(app.world_mut(), offer().version);
-        tx.send(Look {
-            found: Ok(Some(offer())),
-            asked: false,
-        })
-        .unwrap();
+        tx.send(look(Ok(Some(offer())), false)).unwrap();
         app.update();
         // Kept for the menu, but not toasted again.
         assert_eq!(
@@ -400,13 +497,26 @@ mod tests {
             Some(offer())
         );
         assert!(!all_words(&mut app).contains("Hamlet 0.2.0 is out"));
-        tx.send(Look {
-            found: Ok(Some(offer())),
-            asked: true,
-        })
-        .unwrap();
+        tx.send(look(Ok(Some(offer())), true)).unwrap();
         app.update();
         app.update();
         assert!(all_words(&mut app).contains("Hamlet 0.2.0 is out"));
+    }
+
+    #[test]
+    fn another_channel_drops_what_the_last_one_found() {
+        let (mut app, tx) = looking();
+        tx.send(look(Ok(Some(offer())), false)).unwrap();
+        app.update();
+        let other = Channel::ALL
+            .into_iter()
+            .find(|channel| *channel != Channel::built())
+            .unwrap();
+        app.world_mut().resource_mut::<UpdateChannel>().0 =
+            Some(other);
+        // A look still on its way from the channel left behind.
+        tx.send(look(Ok(Some(offer())), false)).unwrap();
+        app.update();
+        assert_eq!(app.world().resource::<Updates>().offer, None);
     }
 }

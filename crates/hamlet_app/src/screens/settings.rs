@@ -2,6 +2,7 @@
 
 mod appearance;
 mod sight;
+mod updates;
 mod visits;
 pub(crate) mod workspace;
 
@@ -48,6 +49,7 @@ use crate::appearance::Appearance;
 use crate::dock::{PanelAppExt, panel};
 use crate::roll::{either, moved};
 use crate::root::Lasting;
+use crate::updates::UpdateChannel;
 use crate::world_menu::{self, Action};
 
 pub fn plugin(app: &mut App) {
@@ -102,10 +104,12 @@ pub enum Pane {
     Sight,
     /// Light, dark, or as the computer is set.
     Appearance,
+    /// This copy's version and the channel it updates from.
+    Updates,
 }
 
 impl Pane {
-    const PAGES: [Pane; 9] = [
+    const PAGES: [Pane; 10] = [
         Pane::Endpoints,
         Pane::Models,
         Pane::Agents,
@@ -115,6 +119,7 @@ impl Pane {
         Pane::Sound,
         Pane::Sight,
         Pane::Appearance,
+        Pane::Updates,
     ];
 
     fn title(self) -> &'static str {
@@ -129,6 +134,7 @@ impl Pane {
             Pane::Sound => "Sound",
             Pane::Sight => "Sight",
             Pane::Appearance => "Appearance",
+            Pane::Updates => "Updates",
         }
     }
 
@@ -144,6 +150,7 @@ impl Pane {
             Pane::Sound => Glyph::Speaker,
             Pane::Sight => Glyph::Sun,
             Pane::Appearance => Glyph::Eye,
+            Pane::Updates => Glyph::Rise,
         }
     }
 
@@ -202,6 +209,9 @@ impl Pane {
             }
             Pane::Appearance => shown::<Appearance>(|appearance| {
                 appearance.pick().mode.name().to_string()
+            }),
+            Pane::Updates => shown::<UpdateChannel>(|channel| {
+                channel.followed().name().to_string()
             }),
             Pane::Front | Pane::Realm => return None,
         })
@@ -889,6 +899,7 @@ fn parts_of(pane: Pane) -> (AnyView, AnyView) {
         Pane::Realm => crate::limits::realm().boxed(),
         Pane::Sight => sight::page().boxed(),
         Pane::Appearance => appearance::page().boxed(),
+        Pane::Updates => updates::page().boxed(),
         Pane::Front | Pane::Sound => sound().boxed(),
     };
     // The path names the page; the charter's state stands beside it.

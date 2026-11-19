@@ -4,15 +4,19 @@
 # (docs/releases.md#updates). Run after package.sh has made every
 # platform's files in dist/.
 #
-# Usage: manifest.sh <tag> <repository>
+# Usage: manifest.sh <version> <repository> [release]
+# `version` is the one package.sh was given, as v0.2.0 or
+# v0.2.0-nightly.202611190930. `release` is the GitHub release that
+# holds the files, the tag named `version` unless given.
 # HAMLET_UPDATE_SIGNING_KEY: the Ed25519 private key, in PEM, whose
 # public half release builds are given as HAMLET_UPDATE_KEY.
 set -euo pipefail
 
 tag=$1
 repository=$2
+release=${3:-$tag}
 version=${tag#v}
-base=https://github.com/$repository/releases/download/$tag
+base=https://github.com/$repository/releases/download/$release
 
 # A file of the release: where it is, its SHA-256 and its length.
 asset() {
@@ -24,11 +28,11 @@ asset() {
     '{url: $url, sha256: $sha256, size: $size}'
 }
 
-notes=$(gh release view "$tag" --repo "$repository" --json body --jq .body)
+notes=$(gh release view "$release" --repo "$repository" --json body --jq .body)
 jq -n \
   --arg version "$version" \
   --arg notes "$notes" \
-  --arg page "https://github.com/$repository/releases/tag/$tag" \
+  --arg page "https://github.com/$repository/releases/tag/$release" \
   --argjson macos "$(asset "dist/hamlet-$tag-aarch64-apple-darwin.zip")" \
   --argjson windows "$(asset "dist/Hamlet-$tag-Setup.exe")" \
   --argjson deb "$(asset "dist/hamlet_${version}_amd64.deb")" \
