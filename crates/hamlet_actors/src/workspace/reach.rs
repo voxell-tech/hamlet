@@ -309,23 +309,25 @@ pub fn gate(
     held: Option<SecretsVersion>,
     op: &Op<'_>,
 ) -> Gate {
-    let Some((reach, footing)) =
-        reach.and_then(|reach| Some((reach, reach.footing()?)))
+    let Some((reach, secrets)) =
+        reach.and_then(|reach| Some((reach, reach.secrets()?)))
     else {
         return Gate::Refuse(Refused::Reach(ReachRefusal::NoReach));
     };
-    let needs = match needs(home, agent, reach, footing, op) {
+    let needs = match needs(home, agent, reach, op) {
         Ok(needs) => needs,
         Err(refusal) => return Gate::Refuse(refusal),
     };
-    if held < Some(footing.secrets) {
-        Gate::NeedsSecrets(footing.secrets)
+    if held < Some(secrets) {
+        Gate::NeedsSecrets(secrets)
     } else if needs.is_empty() {
         Gate::Run {
             network: if matches!(
                 op,
                 Op::Command { .. } | Op::Tool { .. }
-            ) && footing.network
+            ) && reach
+                .footing()
+                .is_some_and(|footing| footing.network)
             {
                 Network::On
             } else {
@@ -338,15 +340,17 @@ pub fn gate(
 }
 
 /// The needs `op` waits for a chief to allow, in H11's order. `reach`
-/// is live, with `footing`.
+/// is live. A dream's errand waits for none.
 fn needs(
     home: &RealmFolder,
     agent: AgentNumber,
     reach: &Reach,
-    footing: &Footing,
     op: &Op<'_>,
 ) -> Result<Vec<Need>, Refused> {
-    if let Some(project) = &footing.project
+    let footing = reach.footing();
+    let project =
+        footing.and_then(|footing| footing.project.as_ref());
+    if let Some(project) = project
         && home.has_inside(&project.folder)
     {
         return Err(Refused::Reach(ReachRefusal::ProjectInRealm {
@@ -362,15 +366,19 @@ fn needs(
             conversation,
             script,
             network,
-        } => Ok(program_needs(
-            footing,
-            conversation,
-            network || is_networked(script),
-        )),
+        } => Ok(footing.map_or_else(Vec::new, |footing| {
+            program_needs(
+                footing,
+                conversation,
+                network || is_networked(script),
+            )
+        })),
         Op::Tool {
             conversation,
             network,
-        } => Ok(program_needs(footing, conversation, network)),
+        } => Ok(footing.map_or_else(Vec::new, |footing| {
+            program_needs(footing, conversation, network)
+        })),
         Op::Change { conversation, path } => {
             let path = normalized(path);
             if home.is_in_a_filesystem(&path) {
@@ -387,18 +395,19 @@ fn needs(
                     },
                 ));
             }
-            let in_manual_project =
-                footing.project.as_ref().is_some_and(|project| {
-                    project.mode == Mode::Manual
-                        && is_within(
-                            &real_path(&path),
-                            &real_path(&project.folder),
-                        )
-                });
+            let in_manual_project = project.is_some_and(|project| {
+                project.mode == Mode::Manual
+                    && is_within(
+                        &real_path(&path),
+                        &real_path(&project.folder),
+                    )
+            });
             Ok(
                 if in_manual_project
-                    && !trusts(footing, conversation, |trust| {
-                        trust.edits
+                    && !footing.is_some_and(|footing| {
+                        trusts(footing, conversation, |trust| {
+                            trust.edits
+                        })
                     })
                 {
                     vec![Need::Edit]
@@ -433,6 +442,9 @@ pub fn placement(
     reach: &Reach,
     purpose: Purpose,
 ) -> Option<Placement> {
+    if let Reach::Dream { folder, .. } = reach {
+        return Some(dream_placement(home, agent, folder));
+    }
     let footing = reach.footing()?;
     let mut ro =
         vec![home.library(), home.tools(), home.spill(agent)];
@@ -485,6 +497,26 @@ pub fn placement(
         .as_ref()
         .map_or(own, |project| project.folder.clone());
     Some(Placement { policy, cwd })
+}
+
+/// A dream's errand's policy: its folder to work in, the machine to
+/// read but the rest of the realm, and no network.
+fn dream_placement(
+    home: &RealmFolder,
+    agent: AgentNumber,
+    folder: &Path,
+) -> Placement {
+    Placement {
+        policy: Policy {
+            ro: vec![home.spill(agent)],
+            rw: vec![folder.to_owned()],
+            open: true,
+            hidden: vec![home.root().to_owned()],
+            env: host_env(),
+            ..Policy::default()
+        },
+        cwd: folder.to_owned(),
+    }
 }
 
 fn program_needs(

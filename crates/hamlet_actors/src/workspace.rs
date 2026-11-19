@@ -1076,7 +1076,7 @@ impl Handler<SetReach> for Workspace {
                     );
                 }
             }
-            Some(Reach::Agent(_)) | None => {}
+            Some(Reach::Agent(_) | Reach::Dream { .. }) | None => {}
         }
         Ok(InForce { version: in_force })
     }

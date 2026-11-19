@@ -1,3 +1,4 @@
+use std::sync::atomic::Ordering;
 use std::time::Duration;
 
 use hamlet_messages::profile::{
@@ -147,6 +148,7 @@ fn ended(dream: u32) -> EndDream {
 #[tokio::test(flavor = "multi_thread")]
 async fn a_hires_dream_checks_its_folders_out_then_ends() {
     let (realm, _) = hamlet_with(1).await;
+    realm.seen.nothing_to_dream.store(true, Ordering::SeqCst);
 
     let answer = chief(&realm, of_hire(THREE)).await;
 
@@ -170,6 +172,7 @@ async fn a_hires_dream_checks_its_folders_out_then_ends() {
 #[tokio::test(flavor = "multi_thread")]
 async fn one_dream_is_open_in_the_realm_at_a_time() {
     let (realm, _) = hamlet_with(1).await;
+    realm.seen.nothing_to_dream.store(true, Ordering::SeqCst);
     create(&realm, Hand::NUMBER, "c1", "Mason", None).await;
     realm.seen.hold(Callee::PrepareDream);
 
@@ -308,6 +311,7 @@ async fn a_purge_does_not_wait_on_a_dreams_preparation() {
 #[tokio::test(flavor = "multi_thread")]
 async fn a_dream_is_not_prepared_again_after_a_restart() {
     let (realm, _) = hamlet_with(0).await;
+    realm.seen.nothing_to_dream.store(true, Ordering::SeqCst);
     create(&realm, Hand::NUMBER, "c1", "Mason", None).await;
     realm.seen.hold(Callee::EndDream);
     assert_eq!(chief(&realm, of_profile(3)).await, Done::Done);

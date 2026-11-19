@@ -304,7 +304,11 @@ CREATE TABLE IF NOT EXISTS dream (
 	id INTEGER PRIMARY KEY,
 	profile INTEGER NOT NULL,
 	hire INTEGER,
-	at INTEGER NOT NULL) STRICT;
+	at INTEGER NOT NULL,
+	errand INTEGER,
+	folder TEXT,
+	done INTEGER,
+	summary TEXT) STRICT;
 
 -- librarian.rs
 CREATE TABLE IF NOT EXISTS librarian (

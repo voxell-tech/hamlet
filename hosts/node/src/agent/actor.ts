@@ -164,15 +164,19 @@ interface Offer {
 
 /**
  * What an agent of its kind is offered, as today decides it
- * (`crates/hamlet_server/src/calls/place.rs:176-242`): an errand no tool
- * (`undefined`), a worker the built-in tools its brief names, or all of them
- * when it names none, and a Hand or a hire every tool but the built-in and
- * hand tools its lead turned off.
+ * (`crates/hamlet_server/src/calls/place.rs:176-242`): an errand the built-in
+ * tools its brief names, or no tool (`undefined`) when it names none, a worker
+ * the built-in tools its brief names, or all of them when it names none, and a
+ * Hand or a hire every tool but the built-in and hand tools its lead turned
+ * off.
  */
 function offerOf(row: Row): Offer | undefined {
     switch (row.kind) {
-        case "errand":
-            return undefined;
+        case "errand": {
+            const given = new Set(row.brief?.tools?.map(({ name }) => name));
+            if (given.size === 0) return undefined;
+            return { builtIn: (name) => given.has(name), society: false };
+        }
         case "worker": {
             const given = new Set(row.brief?.tools?.map(({ name }) => name));
             return {
