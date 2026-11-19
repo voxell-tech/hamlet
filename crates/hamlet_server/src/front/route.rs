@@ -24,13 +24,10 @@ use super::{commands, frames, words};
 use crate::clients::check::{fault, reply};
 use crate::society::refusal::Refusal;
 
-/// What a client message becomes. The door serves a connection's
-/// lines, commands, edits, calls and its own answers in the order
-/// sent, each once the one before it is done, since each may act on
-/// what an earlier one changed. It serves the rest as soon as they
-/// come: a stop and an answer naming its wait, which act on what
-/// runs or waits now and must not wait behind it, and the watches of
-/// a chat and the steps of a sign-in, which no other request changes.
+/// What a client message becomes. A connection's lines, commands,
+/// edits, calls and the door's own answers are served in the order
+/// sent; a stop, an answer naming its wait, a watch of a chat and a
+/// sign-in's step are served as they come.
 pub(crate) enum Route {
     /// Answered by the door, with no actor.
     Now(Box<ServerMessage>),
@@ -186,8 +183,6 @@ pub(crate) fn route(message: ClientMessage) -> Result<Route> {
             frames::checked,
             After::Nothing,
         )?,
-        // The Node host's demo entry runs every agent on its faux
-        // model, which a model named in the check reaches.
         ClientMessage::Check(Check::Model { id, model: None }) => {
             Route::Now(Box::new(reply(
                 &id,

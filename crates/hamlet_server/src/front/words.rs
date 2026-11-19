@@ -48,8 +48,6 @@ pub(crate) const CHARTER_SAVED: &str = "The charter is saved.";
 
 pub(crate) const CATALOGUE_SAVED: &str = "Saved.";
 
-/// The answer to a check of the realm's model when every agent runs
-/// the faux one.
 pub(crate) const FAUX_MODELS: &str =
     "Every agent runs the faux model here.";
 

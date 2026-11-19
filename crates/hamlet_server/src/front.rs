@@ -83,9 +83,7 @@ impl Keys {
 
 /// Serves the realm at `options.home` from the actors until SIGTERM
 /// or Ctrl-C, then closes the clients, the Node host and the host,
-/// in that order. It publishes its address once the realm answers;
-/// a request that needs an agent before the Node host is up waits
-/// for it.
+/// in that order. It publishes its address once the realm answers.
 pub(crate) async fn serve(options: Options) -> Result<()> {
     let mut signals = Signals::new()?;
     hamlet_os::process::reap_with_server()?;
@@ -223,7 +221,7 @@ impl Door {
                 () = signals.next() => break Ok(()),
                 started = &mut agents, if starting => {
                     starting = false;
-                    started.map(|()| door.started())
+                    started.map(|()| door.show_everyone())
                 }
                 accepted = listener.accept() => {
                     if let Ok((stream, _)) = accepted {
@@ -253,9 +251,8 @@ impl Door {
         result
     }
 
-    /// Shows every client the realm once its agents started, since
-    /// the Hand going live changed it.
-    fn started(&mut self) {
+    /// Shows every client the realm.
+    fn show_everyone(&mut self) {
         let (calls, own) = (self.calls.clone(), self.own.clone());
         let frames = self.frames.clone();
         self.work.spawn(async move {
@@ -391,7 +388,6 @@ impl Door {
         }
     }
 
-    /// Serves `route` in its turn, or at once, as [`Route`] says.
     fn request(&mut self, client: u64, route: Route) {
         match route {
             Route::Now(answer) => self.answer(client, *answer),
@@ -503,8 +499,8 @@ impl Door {
         );
     }
 
-    /// Runs a chief's command, edit, answer or stop with the realm as
-    /// it is then, and sends its reply once what it changed is shown.
+    /// Runs `asked` with the realm as it is then, and sends its reply
+    /// once what it changed is shown.
     fn command(
         &self,
         client: u64,

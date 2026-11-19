@@ -140,8 +140,7 @@ impl Calls {
 
     /// Subscribes to `event` of the actor at `to`, as a client, with
     /// the tries of [`Calls::send`], and again when the Node host
-    /// went down before it was answered, since a subscribe changes
-    /// nothing.
+    /// went down before it was answered.
     pub(crate) async fn subscribe(
         &self,
         to: &Address,

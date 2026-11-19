@@ -172,9 +172,6 @@ async fn a_line_dropped_by_stop_is_answered() {
     assert_eq!(server.stop().await, Some(0), "{}", server.log());
 }
 
-/// With the agents' Node host killed, a line waits for it to start
-/// again, about 3 s here; a `/stop` sent after the line waits for
-/// nothing and is answered first, within 1 s.
 #[tokio::test(flavor = "multi_thread")]
 async fn a_stop_is_answered_while_a_line_waits_for_its_agent() {
     let (mut server, home, _side) =
@@ -224,8 +221,6 @@ async fn a_stop_is_answered_while_a_line_waits_for_its_agent() {
     assert_eq!(server.stop().await, Some(0), "{}", server.log());
 }
 
-/// After `/new`, and after the `new` message, the watcher of the
-/// chief's chat is sent the new session once.
 #[tokio::test(flavor = "multi_thread")]
 async fn a_new_session_is_shown_to_its_watcher_once() {
     let (mut server, _home, _side) = serve(json!(["Hello."])).await;

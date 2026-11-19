@@ -67,6 +67,14 @@ struct Watch {
     seen: Option<Mark>,
 }
 
+impl Watch {
+    /// Whether it was sent a page of its chat, but not the one at
+    /// `mark`.
+    fn is_behind(&self, mark: Mark) -> bool {
+        self.seen.is_some_and(|seen| seen != mark)
+    }
+}
+
 /// Where a change stands in the agent's changes.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 struct Mark {
@@ -472,17 +480,7 @@ impl Shared {
                 if found.watches[at].seen.is_none() {
                     found.watches.remove(at);
                 }
-                // A chat that is not there is refused with an error
-                // reply, and a page before an item it lacks with a
-                // fault; only a page asked before an item names one.
-                let refused =
-                    match (refused_words(&error), &open.before) {
-                        (Some(words), Some(_)) => {
-                            fault(Some(&open.id), words)
-                        }
-                        _ => failed(&open.id, &error),
-                    };
-                self.send(client, refused);
+                self.send(client, refused(&open, &error));
             }
         }
     }
@@ -626,11 +624,7 @@ impl Shared {
                 continue;
             };
             for watch in &mut found.watches {
-                // A watcher sent this page already holds it, since
-                // only a page moves `seen`.
-                if watch.chat == chat
-                    && watch.seen.is_some_and(|seen| seen != mark)
-                {
+                if watch.chat == chat && watch.is_behind(mark) {
                     watch.seen = Some(mark);
                     self.send(
                         watch.client,
@@ -671,6 +665,16 @@ impl Shared {
             )
             .await?;
         Ok(ciborium::from_reader(answer.as_slice())?)
+    }
+}
+
+/// The answer to `open`, whose page was refused with `error`: an
+/// error reply for a chat that is not there, a fault for a page
+/// before an item it lacks.
+fn refused(open: &Open, error: &anyhow::Error) -> ServerMessage {
+    match (refused_words(error), &open.before) {
+        (Some(words), Some(_)) => fault(Some(&open.id), words),
+        _ => failed(&open.id, error),
     }
 }
 

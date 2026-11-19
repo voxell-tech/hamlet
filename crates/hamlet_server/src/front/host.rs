@@ -100,8 +100,7 @@ pub(crate) fn open(
 }
 
 /// Starts the workspace, the Hand's profile, then the realm, which
-/// answers a client from then on. The agents follow with
-/// [`start_agents`].
+/// answers a client from then on.
 pub(crate) async fn start_realm(host: &Host) -> Result<()> {
     host.get_or_start(&address::Workspace.address()?).await?;
     make_hand_profile(host).await?;
@@ -110,8 +109,7 @@ pub(crate) async fn start_realm(host: &Host) -> Result<()> {
 }
 
 /// Once the Node host is ready and the realm shows the Hand live,
-/// starts every actor that was running, so no agent wakes before its
-/// realm.
+/// starts every actor that was running.
 pub(crate) async fn start_agents(
     host: &Host,
     supervisor: &Supervisor,

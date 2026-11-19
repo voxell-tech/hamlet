@@ -129,8 +129,6 @@ async fn each_client_is_shown_the_realm_moving_forward() {
     assert_eq!(server.stop().await, Some(0), "{}", server.log());
 }
 
-/// The Node host starts 3 s later here than it would alone: a hello
-/// is answered before it is up, and a line sent then waits for it.
 #[tokio::test(flavor = "multi_thread")]
 async fn a_client_is_served_before_the_node_host_is_up() {
     let slow = Scratch::new("front-slow-node");
