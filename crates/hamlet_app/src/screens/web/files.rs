@@ -117,9 +117,7 @@ fn heading(world: &World) -> Option<(String, Option<String>)> {
     let name = world.get::<Name>(hamlet)?.as_str().to_owned();
     let following = match world.resource::<Browsing>().0 {
         Some(_) => None,
-        None => world
-            .get_resource::<Convo>()
-            .and_then(|convo| convo.with.clone()),
+        None => chat(world).and_then(|convo| convo.with.clone()),
     };
     Some((name, following))
 }
@@ -381,9 +379,7 @@ fn listed(world: &World) -> Listed {
         .collect();
     Listed {
         following: world.resource::<Browsing>().0.is_none(),
-        agent: world
-            .get_resource::<Convo>()
-            .and_then(|convo| convo.with.clone()),
+        agent: chat(world).and_then(|convo| convo.with.clone()),
         shown: shown(world),
         hamlets,
     }
@@ -422,8 +418,7 @@ fn hamlets(world: &World) -> Vec<(Entity, String)> {
 fn shown(world: &World) -> Option<Entity> {
     let standing =
         |hamlet: &Entity| world.get::<HamletId>(*hamlet).is_some();
-    let chats = world
-        .get_resource::<Convo>()
+    let chats = chat(world)
         .and_then(|convo| world.get::<LivesIn>(convo.agent))
         .map(|lives| lives.0);
     world
@@ -434,20 +429,21 @@ fn shown(world: &World) -> Option<Entity> {
         .or_else(|| hamlets(world).first().map(|(hamlet, _)| *hamlet))
 }
 
+/// The chat the panel follows: that of the Hub the chief works in.
+fn chat(world: &World) -> Option<&Convo> {
+    world.get::<Convo>(crate::hub::active(world)?)
+}
+
 /// Forgets the hamlet chosen once the chat moves to another agent.
-fn follow_chat(
-    convo: Option<Res<Convo>>,
-    mut browsing: ResMut<Browsing>,
-    mut was: Local<Option<Entity>>,
-) {
-    let Some(convo) = convo else {
+fn follow_chat(world: &mut World, mut was: Local<Option<Entity>>) {
+    let Some(agent) = chat(world).map(|convo| convo.agent) else {
         return;
     };
-    if *was != Some(convo.agent) {
-        if was.is_some() && browsing.0.is_some() {
-            browsing.0 = None;
+    if *was != Some(agent) {
+        if was.is_some() && world.resource::<Browsing>().0.is_some() {
+            world.resource_mut::<Browsing>().0 = None;
         }
-        *was = Some(convo.agent);
+        *was = Some(agent);
     }
 }
 

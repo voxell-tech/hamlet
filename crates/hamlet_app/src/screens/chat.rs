@@ -1710,31 +1710,17 @@ mod tests {
 
     #[test]
     fn things_added_to_the_field_stand_apart_by_a_blank_line() {
-        use hamlet_client::chats::Transcript;
-
-        use crate::testing::panel_app;
-        let mut app = panel_app();
-        app.add_plugins(plugin);
-        let session = app.world().resource::<Convo>().session;
-        app.world_mut()
-            .entity_mut(session)
-            .insert(Transcript::default());
-        app.update();
-        bevy_fynix::mount::<HamletTheme>(
-            app.world_mut(),
-            column((
-                transcript(),
-                message_bar(bevy_fynix::views::frame()),
-            )),
-        );
-        app.update();
+        let mut app = sounding_chat();
+        let hub = hub(&app);
         add_to_field(
             app.world_mut(),
+            hub,
             "From `a.rs`, line 1:",
             Vec::new(),
         );
         add_to_field(
             app.world_mut(),
+            hub,
             "From `b.rs`, line 2:",
             Vec::new(),
         );
