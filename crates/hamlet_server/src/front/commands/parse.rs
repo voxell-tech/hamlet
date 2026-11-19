@@ -140,7 +140,6 @@ pub(crate) fn is_at_once(line: &str) -> bool {
         || (ANSWERS.contains(&name) && rest.starts_with('#'))
 }
 
-/// Whether `line` begins a new session.
 pub(crate) fn is_new(line: &str) -> bool {
     split(line).0 == "new"
 }
@@ -460,8 +459,6 @@ fn found(name: &str, words: &[&str]) -> Result<Act, Refusal> {
     }))
 }
 
-/// `/hire <scholar#id>[@<version>]|blank [in <hamlet>] [under
-/// <address>] [purpose]`, in `here` unless it names a hamlet.
 fn hire(
     name: &str,
     words: &[&str],

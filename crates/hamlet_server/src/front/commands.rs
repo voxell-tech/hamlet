@@ -43,8 +43,7 @@ use crate::society::refusal::Refusal;
 pub(crate) struct Outcome {
     /// The words of the command's reply, or of its refusal.
     pub(crate) reply: Result<String, Refusal>,
-    /// The agent whose chat its watchers read again, as after
-    /// `/resume`.
+    /// The agent whose chat its watchers read again.
     pub(crate) reread: Option<AgentNumber>,
 }
 

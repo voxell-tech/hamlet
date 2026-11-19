@@ -93,8 +93,6 @@ pub(crate) fn open(
     child::open(root, factories, options, child)
 }
 
-/// Starts the workspace and the library, then the realm, which
-/// answers a client from then on.
 pub(crate) async fn start_realm(host: &Host) -> Result<()> {
     host.get_or_start(&address::Workspace.address()?).await?;
     host.get_or_start(&address::Library.address()?).await?;

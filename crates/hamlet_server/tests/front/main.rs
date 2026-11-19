@@ -81,9 +81,7 @@ async fn until(
     }
 }
 
-/// The reply to the line `text` said to `agent`, said again while
-/// the realm refuses it as still being hired.
-async fn answered(
+async fn said_once_hired(
     chief: &mut Client,
     agent: AgentId,
     text: &str,

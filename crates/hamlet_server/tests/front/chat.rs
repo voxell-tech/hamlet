@@ -222,9 +222,6 @@ async fn a_stop_is_answered_while_a_line_waits_for_its_agent() {
 }
 
 #[tokio::test(flavor = "multi_thread")]
-/// After `/new`, and after the `new` message, a client following the
-/// chief's chat gets the reply, then the new session once, which
-/// holds its notice, as today: no turn resets the chat.
 async fn a_new_session_is_shown_to_its_watcher_once() {
     let (mut server, _home, _side) = serve(json!(["Hello."])).await;
     let mut chief = Client::join(&server).await;

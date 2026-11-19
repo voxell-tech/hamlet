@@ -12,7 +12,7 @@ use hamlet_protocol::client::{
 use hamlet_testing::Scratch;
 use serde_json::json;
 
-use super::{answered, look, serve, serve_with, until};
+use super::{look, said_once_hired, serve, serve_with, until};
 
 /// What the faux Hand says once it founded the hamlet.
 const FOUNDED: &str = "Docs is founded.";
@@ -69,9 +69,8 @@ async fn hello_shows_the_hand_and_its_hamlet() {
     assert_eq!(server.stop().await, Some(0), "{}", server.log());
 }
 
-/// Two chiefs rename one hamlet over and over at once, its mayor
-/// hired: each is shown the realm only ever moving forward, and last
-/// as it is.
+/// Two chiefs rename one hamlet over and over at once: each is shown
+/// the realm only ever moving forward, and last as it is.
 #[tokio::test(flavor = "multi_thread")]
 async fn each_client_is_shown_the_realm_moving_forward() {
     let (mut server, _home, _side) = serve(json!(["Here."])).await;
@@ -85,7 +84,7 @@ async fn each_client_is_shown_the_realm_moving_forward() {
     .await;
     let (hamlet, mayor) =
         (founded.hamlets[0].id.clone(), founded.hamlets[0].mayor);
-    answered(&mut one, mayor, "Are you hired?").await;
+    said_once_hired(&mut one, mayor, "Are you hired?").await;
     let mut sent = (Vec::new(), Vec::new());
     for n in 0..20 {
         for (chief, ids, tag) in [
@@ -165,8 +164,6 @@ async fn a_client_is_served_before_the_node_host_is_up() {
     assert_eq!(server.stop().await, Some(0), "{}", server.log());
 }
 
-/// On a new realm folder the realm makes the Hand's profile as it
-/// hires the Hand, and the Hand reads its library's shelves.
 #[tokio::test(flavor = "multi_thread")]
 async fn a_new_realm_starts_the_hand_and_its_library() {
     let (mut server, _home, _side) = serve(json!(["Here."])).await;

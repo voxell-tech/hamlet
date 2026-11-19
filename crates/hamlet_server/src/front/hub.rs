@@ -57,12 +57,10 @@ struct Followed {
     /// The last status of the chief's current chat: the change that
     /// told it, and whether the agent was idle.
     status: Option<(Mark, bool)>,
-    /// New sessions asked of the agent whose reply is not sent yet:
-    /// its chats are read again once each is.
-    beginning: u32,
-    /// Whether its chats were reset while a new session's reply was
-    /// not sent.
-    deferred: bool,
+    /// Resets of its chats held back from their watchers, as a new
+    /// session's reply is owed.
+    holds: u32,
+    reset_held: bool,
 }
 
 /// A chat a client watches.
@@ -283,21 +281,17 @@ impl Hub {
         let _ = found.jobs.send(Job::Look);
     }
 
-    /// Holds back a reset of `agent`'s chats from their watchers
-    /// until [`Hub::began`], as a new session is asked of it.
-    pub(crate) fn begin(&self, agent: AgentNumber) {
+    pub(crate) fn hold_resets(
+        &self,
+        agent: AgentNumber,
+    ) -> ResetsHeld {
         if let Some(found) = self.shared.followed().get_mut(&agent) {
-            found.beginning += 1;
+            found.holds += 1;
         }
-    }
-
-    /// Sends the watchers of `agent`'s chats what a reset held back
-    /// since [`Hub::begin`], once the new session's reply is sent.
-    pub(crate) async fn began(&self, agent: AgentNumber) {
-        if let Some(found) = self.shared.followed().get_mut(&agent) {
-            found.beginning = found.beginning.saturating_sub(1);
+        ResetsHeld {
+            hub: self.clone(),
+            agent,
         }
-        self.reread(agent).await;
     }
 
     /// Sends the watchers of `agent`'s current session that session
@@ -324,6 +318,26 @@ impl Hub {
     }
 }
 
+/// A hold on resets of an agent's chats, from [`Hub::hold_resets`].
+#[must_use]
+pub(crate) struct ResetsHeld {
+    hub: Hub,
+    agent: AgentNumber,
+}
+
+impl ResetsHeld {
+    /// Sends the agent's watchers its current session read again, and
+    /// every chat when a reset was held back.
+    pub(crate) async fn release(self) {
+        if let Some(found) =
+            self.hub.shared.followed().get_mut(&self.agent)
+        {
+            found.holds = found.holds.saturating_sub(1);
+        }
+        self.hub.reread(self.agent).await;
+    }
+}
+
 impl Shared {
     fn followed(
         &self,
@@ -347,8 +361,8 @@ impl Shared {
                 watches: Vec::new(),
                 owed: Vec::new(),
                 status: None,
-                beginning: 0,
-                deferred: false,
+                holds: 0,
+                reset_held: false,
             }
         })
     }
@@ -398,13 +412,13 @@ impl Shared {
                 item = subscription.next() => match item {
                     Ok(Item::Event(args)) => {
                         if self.event(agent, &args)
-                            && self.reads_again(agent)
+                            && !self.holds_reset(agent)
                         {
                             self.reread_all(agent, false).await;
                         }
                     }
                     Ok(Item::Gap) => {
-                        if self.reads_again(agent) {
+                        if !self.holds_reset(agent) {
                             self.reread_all(agent, false).await;
                         }
                     }
@@ -469,8 +483,8 @@ impl Shared {
                     .followed()
                     .get_mut(&agent)
                     .is_some_and(|found| {
-                        found.beginning == 0
-                            && std::mem::take(&mut found.deferred)
+                        found.holds == 0
+                            && std::mem::take(&mut found.reset_held)
                     });
                 self.reread_all(agent, !all).await;
                 let _ = told.send(());
@@ -523,23 +537,22 @@ impl Shared {
         }
     }
 
-    /// Whether `agent`'s chats are read again now. While a new
-    /// session's reply is not sent, they are read once it is.
-    fn reads_again(&self, agent: AgentNumber) -> bool {
+    /// Whether a reset of `agent`'s chats is held back now, and if so
+    /// keeps it for the hold's release.
+    fn holds_reset(&self, agent: AgentNumber) -> bool {
         match self.followed().get_mut(&agent) {
-            Some(found) if found.beginning > 0 => {
-                found.deferred = true;
-                false
+            Some(found) if found.holds > 0 => {
+                found.reset_held = true;
+                true
             }
-            _ => true,
+            _ => false,
         }
     }
 
     /// Takes in a change of `agent`'s chats: a turn to each watcher
     /// of its chat, and an idle status of the chief's current chat
     /// ends the work on the lines taken before it. `true` when the
-    /// agent says its chats must be read again, which its watchers
-    /// are sent as a page, as today, and not as a turn.
+    /// agent says its chats must be read again.
     fn event(&self, agent: AgentNumber, args: &[u8]) -> bool {
         let event =
             match ciborium::from_reader::<(ChatEvent,), _>(args) {

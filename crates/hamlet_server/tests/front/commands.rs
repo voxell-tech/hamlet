@@ -9,7 +9,7 @@ use hamlet_protocol::client::{
 use hamlet_testing::Server;
 use serde_json::json;
 
-use super::{answered, look, serve, until};
+use super::{look, said_once_hired, serve, until};
 
 /// Founds the hamlet `name` from the Hand and gives its mayor.
 async fn found(
@@ -255,9 +255,6 @@ async fn one_connections_commands_apply_in_order() {
     assert_eq!(named, "n19");
 }
 
-/// A chief hires a blank agent and a profile pinned to one of its
-/// versions; each goes live and answers a line. A version the profile
-/// lacks is refused in today's words.
 #[tokio::test(flavor = "multi_thread")]
 async fn a_hire_goes_live_and_answers_a_line() {
     let (mut server, _home, _side) = serve(json!([
@@ -316,7 +313,7 @@ async fn a_hire_goes_live_and_answers_a_line() {
         let watched = hamlet_acceptance::chat(agent);
         chief.open(&watched).await;
         let reply =
-            answered(&mut chief, agent, "Who is there?").await;
+            said_once_hired(&mut chief, agent, "Who is there?").await;
         assert_eq!(
             reply.kind,
             ReplyKind::Notice,

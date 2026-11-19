@@ -83,18 +83,14 @@ pub(crate) struct Call {
 pub(crate) type Words =
     fn(&RequestId, &[u8], &Own) -> Result<ServerMessage>;
 
-/// What the door does once a call is answered, around the answer's
-/// frame.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum After {
     Nothing,
     /// The realm may have changed: every client is shown it again.
     Show,
     /// As `Show`, and the agent's chat began again: the watchers of
-    /// its current session read it again before the answer is sent.
+    /// its current session read it again.
     Reread(AgentNumber),
-    /// As `Show`, and the agent began a new session: its watchers
-    /// read it after the answer is sent.
     Began(AgentNumber),
 }
 
