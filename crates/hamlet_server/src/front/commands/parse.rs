@@ -1,5 +1,4 @@
-//! A command's line read into the act it asks, by today's table and
-//! grammar.
+//! A command's line read into the act it asks.
 
 use std::path::PathBuf;
 
@@ -124,12 +123,11 @@ pub(super) enum Act {
     },
     Budget(Option<HamletId>),
     ResetBudget(Payer),
-    /// A command of the table this server does not do yet.
+    /// A command of the table this server does not do.
     Unsupported(String),
 }
 
-/// Reads `line` as a command said in `here`, by today's table and
-/// grammar.
+/// Reads `line` as a command said in `here`.
 pub(super) fn parse(
     line: &str,
     here: Option<&HamletId>,
@@ -479,8 +477,7 @@ fn hire(
     }))
 }
 
-/// The profile a scholar's address names. A pinned version waits for
-/// the profiles' versions.
+/// The profile a scholar's address names.
 fn profile(text: &str) -> Result<ProfileId, Refusal> {
     if text.contains('@') {
         return Err(Refusal::Unsupported {

@@ -256,7 +256,7 @@ fn call<M: Message>(
     }))
 }
 
-/// The answer to `message`, which this server does not serve yet.
+/// The answer to `message`, which this server does not serve.
 fn unsupported(message: &ClientMessage) -> Result<ServerMessage> {
     let what = serde_json::to_value(message)?["type"]
         .as_str()

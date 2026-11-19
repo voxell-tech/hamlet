@@ -1,12 +1,7 @@
 //! `hamlet_server --actors` served to a client: the realm and the
-//! agents run as actors, the agent in a Node child, behind today's
+//! agents run as actors, the agent in a Node child, behind the
 //! client protocol. Every server here starts that Node host, so the
 //! target needs Node and the `node-host` feature.
-//!
-//! Each wait waits for the thing itself. Their backstops are the
-//! fixtures': 30 s for a server to publish its address, 20 s for an
-//! answer or a chat's item, and 10 s for a server to stop. Each step
-//! takes well under a second here.
 
 #![cfg(unix)]
 

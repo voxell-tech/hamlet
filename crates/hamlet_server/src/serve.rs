@@ -103,7 +103,6 @@ fn with_actors() -> Result<bool> {
     Ok(true)
 }
 
-/// `--actors`, which only a Unix build takes.
 #[cfg(not(unix))]
 fn with_actors() -> Result<bool> {
     bail!("The actors do not run on this platform.")

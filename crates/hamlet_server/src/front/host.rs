@@ -31,7 +31,7 @@ const ENTRY: &str = concat!(
 );
 
 /// Set to `1`, the Node host lists two loopback providers to sign in
-/// to. It is for tests, until the product's Node entry exists.
+/// to, for tests.
 const SIGN_IN: &str = "HAMLET_DEMO_SIGN_IN";
 
 /// The longest the Node host may take to be ready.
@@ -50,9 +50,7 @@ const HAND_PROFILE: ProfileId = ProfileId(1);
 
 /// Opens the folder `root`, with the Node host's model answering
 /// from the script `faux` when given. The program is `HAMLET_NODE`,
-/// or `node`; with [`SIGN_IN`] set to `1`, it lists two loopback
-/// providers to sign in to. Shut the supervisor down first, then the
-/// host.
+/// or `node`. Shut the supervisor down first, then the host.
 pub(crate) fn open(
     root: &Path,
     sandbox: Sandbox,

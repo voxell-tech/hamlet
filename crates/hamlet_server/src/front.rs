@@ -64,8 +64,7 @@ type Frames = mpsc::UnboundedSender<(To, ServerMessage)>;
 /// connection sent before it.
 type Job = Pin<Box<dyn Future<Output = ()> + Send>>;
 
-/// The realm's credentials, which a key typed in a sign-in joins, so
-/// that no frame or log line carries it.
+/// The realm's credentials, which each key typed in a sign-in joins.
 #[derive(Clone)]
 struct Keys(Arc<RwLock<Credentials>>);
 
@@ -172,7 +171,6 @@ struct Door {
     events: mpsc::Sender<Event>,
     frames: Frames,
     closing: watch::Receiver<bool>,
-    /// The connections' tasks.
     connections: JoinSet<()>,
     /// The tasks that call the actors for the clients.
     work: JoinSet<()>,

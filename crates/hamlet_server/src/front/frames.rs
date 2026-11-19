@@ -1,6 +1,6 @@
 //! The actors' answers as the client protocol shows them: a page of
 //! a chat as a `Transcript`, an event as a `Turn`, and each answer to
-//! a client's request as its frame, in today's words.
+//! a client's request as its frame.
 
 use anyhow::{Result, bail};
 use hamlet_messages::agent::chat::{
@@ -359,7 +359,6 @@ fn file(file: ChatFile) -> Result<AttachedFile> {
 fn tool(tool: ChatTool) -> protocol::ItemTool {
     protocol::ItemTool {
         change: tool.change.map(change),
-        // The agent writes a negative exit code as its 32 bits.
         exit: tool.exit.map(|exit| i64::from(exit as i32)),
         failure: tool.failure,
         ms: tool.ms.map(u64::from),

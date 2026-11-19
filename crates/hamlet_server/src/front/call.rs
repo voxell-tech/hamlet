@@ -31,7 +31,7 @@ const WITHIN: Duration = Duration::from_secs(60);
 /// a line the realm did not take.
 const AGAIN: Duration = Duration::from_millis(50);
 
-/// Calls the actors as a client of the program.
+/// Calls the actors as a client.
 #[derive(Clone)]
 pub(crate) struct Calls {
     host: Host,

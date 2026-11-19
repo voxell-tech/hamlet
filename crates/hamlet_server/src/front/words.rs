@@ -1,5 +1,4 @@
-//! The words a chief reads that today's server writes inline from
-//! its own state, written here from the realm's world and the
+//! The words a chief reads, written from the realm's world and the
 //! actors' answers.
 
 use std::fmt::Display;

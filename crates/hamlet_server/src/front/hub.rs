@@ -331,7 +331,7 @@ impl Shared {
         );
     }
 
-    /// Answers `owed` with today's empty notice.
+    /// Answers `owed` with the empty notice.
     fn settle(&self, owed: &Owed) {
         self.send(owed.client, reply(&owed.id, Ok(String::new())));
     }

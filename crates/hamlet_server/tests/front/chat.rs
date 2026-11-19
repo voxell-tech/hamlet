@@ -89,7 +89,7 @@ async fn a_message_that_breaks_the_schema_is_refused_alone() {
 }
 
 /// Two lines sent back to back, as a piped `hamlet chat` sends them:
-/// each is answered with today's empty notice, and only once the
+/// each is answered with the empty notice, and only once the
 /// agent's answer to it is in the chat.
 #[tokio::test(flavor = "multi_thread")]
 async fn a_line_is_answered_when_its_turn_ends() {
@@ -233,8 +233,8 @@ async fn an_open_after_its_follow_ended_follows_again() {
     assert_eq!(server.stop().await, Some(0), "{}", server.log());
 }
 
-/// Each request the door answers from the actors, in today's words,
-/// with what changed shown to every client before the reply.
+/// Each request the door answers from the actors, with what changed
+/// shown to every client before the reply.
 #[tokio::test(flavor = "multi_thread")]
 async fn each_request_is_answered_in_todays_words() {
     let (mut server, _home, _side) =
