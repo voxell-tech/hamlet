@@ -379,7 +379,7 @@ export async function rewind(
             return made.id;
         });
         await moveTo(c, from, fork);
-        return { type: "rewound", text: found.text };
+        return found.rewound;
     });
 }
 
@@ -412,7 +412,13 @@ async function lineAt(
     conversation: ConversationId,
     at: EntryId,
     context: Context,
-): Promise<RewindRefusal | { text: string; before: EntryId | undefined }> {
+): Promise<
+    | RewindRefusal
+    | {
+          rewound: Extract<RewindAnswer, { type: "rewound" }>;
+          before: EntryId | undefined;
+      }
+> {
     if (
         (await isBusy(harness, conversation, context)) ||
         (await hasUnendedCall(harness, conversation, context))
@@ -424,7 +430,16 @@ async function lineAt(
     const [line, before] = page?.items ?? [];
     if (line?.id !== at) return "no_such_item";
     if (line.kind !== "hamlet.line") return "not_a_chief_line";
-    return { text: textOf(line), before: before?.id };
+    const { images, files } = (line.data ?? {}) as Kept;
+    return {
+        rewound: {
+            type: "rewound",
+            text: textOf(line),
+            ...(images === undefined ? {} : { images }),
+            ...(files === undefined ? {} : { files }),
+        },
+        before: before?.id,
+    };
 }
 
 async function hasUnendedCall(

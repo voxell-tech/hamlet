@@ -14,6 +14,7 @@ import {
     type ConversationId,
     type ConversationView,
     type Cursor,
+    type EntryId,
     type EntryRecord,
     type Harness,
     InboxDoc,
@@ -26,14 +27,14 @@ import {
 import { UserError } from "../actor/actor/mod.ts";
 import { piRuntime, withHarness } from "../pi/runtime.ts";
 import { type AgentCall, type AgentContext, generationOf } from "./actor.ts";
-import { clip, editOf } from "./change.ts";
+import { clip, editOf, madeOf } from "./change.ts";
 import type {
-    Author,
     ChatEvent,
     ChatItem,
     ChatOp,
     ChatPage,
     ChatRef,
+    ChatTool,
     ClientActions,
     ItemKind,
     Open,
@@ -297,6 +298,8 @@ function foldOf(
             },
             BACKGROUND_CONTEXT,
         );
+        const { before } = observation.value;
+        if (before !== undefined) await counted(at.harness, id, before, fold);
         if (at.made.has(id)) take(observation.value);
         else fold.view(observation.value);
         for (const view of early) take(view);
@@ -307,6 +310,27 @@ function foldOf(
     // A failed attach is tried again by the next read.
     made.catch(() => at.folds.delete(id));
     return made;
+}
+
+/** Counts into `fold` the answers of `id` up to `before`, which its view leaves out. */
+async function counted(
+    harness: Harness,
+    id: ConversationId,
+    before: EntryId,
+    fold: Fold,
+): Promise<void> {
+    const kept = await harness.conversation(id, BACKGROUND_CONTEXT);
+    let cursor: Cursor | undefined;
+    do {
+        const page = await kept?.entries(
+            { order: "ascending", maxEntryId: before },
+            500,
+            cursor,
+            BACKGROUND_CONTEXT,
+        );
+        for (const entry of page?.items ?? []) fold.counted(entry);
+        cursor = page?.next;
+    } while (cursor !== undefined);
 }
 
 async function sent(
@@ -467,6 +491,8 @@ interface Shown {
     readonly block: number;
     readonly item: ChatItem;
     readonly call?: string;
+    /** The change a write shows once it ends having made its file. */
+    readonly made?: ChatTool["change"];
 }
 
 /**
@@ -476,13 +502,14 @@ interface Shown {
  * watch holds no text for the whole wake.
  */
 class Fold {
-    readonly #calls = new Map<string, ChatItem>();
+    readonly #calls = new Map<string, Pick<Shown, "item" | "made">>();
     readonly #live = new Map<number, ChatItem>();
+    readonly #spent: Spent = { calls: 0, ms: 0 };
     #seen = -1;
     #lastInput = 0;
     working = false;
     pending = 0;
-    usage: Usage = usageOf(undefined, 0);
+    usage: Usage = usageOf(undefined, 0, this.#spent);
 
     streamed(): ChatItem[] {
         return [...this.#live.values()];
@@ -515,6 +542,7 @@ class Fold {
         const usage = usageOf(
             view.docs[UsageDoc.definition.kind] as UsageState | undefined,
             this.#lastInput,
+            this.#spent,
         );
         if (!isDeepStrictEqual(usage, this.usage)) {
             this.usage = usage;
@@ -525,10 +553,11 @@ class Fold {
 
     entry(entry: EntryRecord): ChatOp[] {
         this.#seen = Math.max(this.#seen, Number(entry.id));
+        this.counted(entry);
         if (entry.kind === "pi.tool-result") return this.#ended(entry);
         const answer = entry.kind === "pi.assistant";
-        const ops = itemsOf(entry).map(({ block, item, call }) => {
-            if (call !== undefined) this.#calls.set(call, item);
+        const ops = itemsOf(entry).map(({ block, item, call, made }) => {
+            if (call !== undefined) this.#calls.set(call, { item, made });
             return added(item, answer ? this.#live.get(block)?.id : undefined);
         });
         if (answer) {
@@ -539,14 +568,28 @@ class Fold {
         return ops;
     }
 
+    /** Counts a model call's answer into the chat's usage. */
+    counted(entry: EntryRecord): void {
+        if (entry.kind !== "pi.assistant") return;
+        const message = entry.model?.[0] as AssistantMessage | undefined;
+        this.#spent.calls += 1;
+        this.#spent.ms += message?.durationMs ?? 0;
+    }
+
     #ended(entry: EntryRecord): ChatOp[] {
         const result = entry.model?.[0] as ToolResultMessage | undefined;
-        const item =
+        const call =
             result === undefined
                 ? undefined
                 : this.#calls.get(result.toolCallId);
+        const item = call?.item;
         if (result === undefined || item?.tool === undefined) return [];
         this.#calls.delete(result.toolCallId);
+        const made =
+            (result.details as { created?: unknown } | undefined)?.created ===
+            true
+                ? call?.made
+                : undefined;
         const text = result.content
             .map((part) => (part.type === "text" ? part.text : ""))
             .join("");
@@ -560,6 +603,7 @@ class Fold {
                         ? {}
                         : { ms: u32(result.durationMs) }),
                     ...(result.isError ? { failure: failureOf(text) } : {}),
+                    ...(made === undefined ? {} : { change: made }),
                 },
             }),
         ];
@@ -663,8 +707,12 @@ function itemsOf(entry: EntryRecord): Shown[] {
         case "hamlet.cut-off":
             return [];
         case "hamlet.line": {
-            const line = one("user", textOf(entry), { rewindable: true });
-            const { note } = (entry.data ?? {}) as Kept;
+            const { note, images, files } = (entry.data ?? {}) as Kept;
+            const line = one("user", textOf(entry), {
+                rewindable: true,
+                ...(images === undefined ? {} : { images }),
+                ...(files === undefined ? {} : { files }),
+            });
             return note === undefined
                 ? line
                 : [
@@ -685,7 +733,9 @@ function itemsOf(entry: EntryRecord): Shown[] {
             return one(
                 "user",
                 textOf(entry),
-                from === undefined ? {} : { author: `worker#${from.agent}` },
+                from === undefined
+                    ? {}
+                    : { author: from.name ?? `worker#${from.agent}` },
             );
         }
         case "hamlet.letter":
@@ -695,7 +745,9 @@ function itemsOf(entry: EntryRecord): Shown[] {
             return one(
                 "user",
                 textOf(entry),
-                from === undefined ? {} : { author: authorOf(from) },
+                from === undefined
+                    ? {}
+                    : { author: from.name ?? `hire#${from.agent}` },
             );
         }
         default:
@@ -703,12 +755,6 @@ function itemsOf(entry: EntryRecord): Shown[] {
                 ? one("user", textOf(entry))
                 : [];
     }
-}
-
-/** As `crates/hamlet_server/src/society/addresses.rs`'s `name_of` shows a hire. */
-function authorOf(from: Author): string {
-    const address = `hire#${from.agent}`;
-    return from.name === undefined ? address : `${address} (${from.name})`;
 }
 
 function blocksOf(
@@ -720,9 +766,12 @@ function blocksOf(
     for (const [block, part] of content.entries()) {
         const item = { id: id(block), at };
         if (part.type === "toolCall") {
+            const made =
+                part.name === "write" ? madeOf(part.arguments) : undefined;
             shown.push({
                 block,
                 call: part.id,
+                ...(made === undefined ? {} : { made }),
                 item: {
                     ...item,
                     kind: "tool",
@@ -791,11 +840,18 @@ function failureOf(text: string): string {
     return line.startsWith("Error: ") ? line.slice(7) : line;
 }
 
-/**
- * The conversation's spend, from pi-durable's ledger. It counts no calls
- * and no time, which today's server read from its own records.
- */
-function usageOf(state: UsageState | undefined, lastInput: number): Usage {
+/** The model calls a chat's answers made, and the time they took. */
+interface Spent {
+    calls: number;
+    ms: number;
+}
+
+/** The conversation's spend, from pi-durable's ledger and its answers. */
+function usageOf(
+    state: UsageState | undefined,
+    lastInput: number,
+    spent: Spent,
+): Usage {
     let input = 0;
     let cached = 0;
     let output = 0;
@@ -810,13 +866,13 @@ function usageOf(state: UsageState | undefined, lastInput: number): Usage {
     }
     const micros = Math.round(dollars * 1_000_000);
     return {
-        calls: "0",
+        calls: `${spent.calls}`,
         unreported: "0",
         input: `${input}`,
         cached: `${cached}`,
         output: `${output}`,
         reasoning: `${reasoning}`,
-        ms: "0",
+        ms: `${spent.ms}`,
         micros: `${micros}`,
         last_input: `${lastInput}`,
         summary: `${input} in, ${output} out, ${money(micros)}`,
@@ -866,12 +922,7 @@ export async function readHistory(
                     context,
                 );
                 for (const entry of page.items) {
-                    for (const message of entry.model ?? []) {
-                        modified = Math.max(
-                            modified,
-                            Math.floor(message.timestamp / 1000),
-                        );
-                    }
+                    modified = Math.max(modified, timeOf(entry));
                     if (entry.kind === "hamlet.line") {
                         messages += 1;
                         const text = textOf(entry);

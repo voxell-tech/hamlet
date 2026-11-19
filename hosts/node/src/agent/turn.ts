@@ -19,7 +19,7 @@ import type {
     Calls,
 } from "../actor/actor/mod.ts";
 import type { AgentFilesystem } from "./filesystem.ts";
-import type { Author } from "./messages/agent.ts";
+import type { Author, ChatFile, ChatImage } from "./messages/agent.ts";
 import {
     LIBRARY,
     type Offer,
@@ -139,6 +139,9 @@ export type Admission = {
     readonly from?: Author;
     /** The note of the lead who reviewed a chief's line, at the end of its content. */
     readonly note?: string;
+    /** What a chief's line carried, as its item shows them. */
+    readonly images?: readonly ChatImage[];
+    readonly files?: readonly ChatFile[];
 } & (
     | { readonly kind: Exclude<InputKind, "question" | "cut-off"> }
     | {
@@ -171,6 +174,8 @@ export type Kept = {
     /** The compiler takes no interface as an entry's JSON data; a `Pick` of one it does. */
     from?: Pick<Author, keyof Author>;
     note?: string;
+    images?: Pick<ChatImage, keyof ChatImage>[];
+    files?: Pick<ChatFile, keyof ChatFile>[];
 };
 
 /**
@@ -188,6 +193,12 @@ export function draftOf(
             : {}),
         ...(admission.from === undefined ? {} : { from: admission.from }),
         ...(admission.note === undefined ? {} : { note: admission.note }),
+        ...(admission.images === undefined || admission.images.length === 0
+            ? {}
+            : { images: [...admission.images] }),
+        ...(admission.files === undefined || admission.files.length === 0
+            ? {}
+            : { files: [...admission.files] }),
     };
     return {
         type: "input",

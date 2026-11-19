@@ -203,8 +203,8 @@ class SignIn {
         const asking = this.#asking;
         if (asking === undefined || asking.step !== this.#given) return;
         this.#asking = undefined;
-        // As today (`crates/hamlet_server/src/providers.rs:572`), every
-        // answer: a step or a failure can quote it.
+        // Every answer, as today (`crates/hamlet_server/src/providers.rs`),
+        // since a later step or a failure can quote it.
         remember(value);
         asking.answer(value);
     }
