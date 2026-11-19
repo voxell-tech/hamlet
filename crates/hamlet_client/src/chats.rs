@@ -208,6 +208,8 @@ pub fn receive(world: &mut World, message: protocol::ServerMessage) {
                     Status {
                         pending: page.pending,
                         held: page.held,
+                        compacting: page.compacting,
+                        context: page.context,
                         last: page
                             .last
                             .as_ref()
@@ -232,6 +234,8 @@ pub fn receive(world: &mut World, message: protocol::ServerMessage) {
                     }
                     match operation {
                         protocol::TranscriptOperation::Status {
+                            compacting,
+                            context,
                             held,
                             working,
                             pending,
@@ -254,6 +258,8 @@ pub fn receive(world: &mut World, message: protocol::ServerMessage) {
                                 Status {
                                     pending: *pending,
                                     held: *held,
+                                    compacting: *compacting,
+                                    context: *context,
                                     last: last.as_ref().map(|last| {
                                         (last.at, last.what.clone())
                                     }),
@@ -626,6 +632,11 @@ pub struct Status {
     pub pending: u64,
     /// Whether a chief's stop holds the queued turns.
     pub held: bool,
+    /// Whether the earlier part of the conversation is being
+    /// summarized.
+    pub compacting: bool,
+    /// The tokens the model's context holds, as last measured.
+    pub context: Option<u64>,
     pub last: Option<(u64, String)>,
 }
 

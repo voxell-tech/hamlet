@@ -29,8 +29,13 @@ pub(crate) struct Fold {
     pub last: Option<LastActivity>,
     /// A chief's stop holds what waits.
     pub held: bool,
-    /// The `held` the last status carried.
-    held_sent: bool,
+    /// The earlier part of the conversation is being summarized.
+    pub compacting: bool,
+    /// The tokens the model's context holds, as last measured.
+    pub context: Option<u64>,
+    /// The `held`, `compacting` and `context` the last status
+    /// carried.
+    sent: (bool, bool, Option<u64>),
     /// An answer landed without some of what it showed being kept,
     /// which no operation takes away.
     pub stale: bool,
@@ -59,32 +64,32 @@ impl Fold {
         std::mem::take(&mut self.operations)
     }
 
-    /// Takes in what the conversation does now: whether it runs, how
-    /// many inputs wait, and the answer being written.
-    pub fn live(
-        &mut self,
-        running: bool,
-        pending: u64,
-        partial: Option<&runtime::Partial>,
-        secrets: &[String],
-    ) {
-        if let Some(partial) = partial {
+    /// Takes in what the conversation does now: whether it runs or
+    /// compacts, how many inputs wait, the answer being written and
+    /// the size of its context.
+    pub fn live(&mut self, live: &runtime::Live, secrets: &[String]) {
+        if let Some(partial) = &live.partial {
             self.partial(partial, secrets);
         }
+        self.compacting = live.compacting;
+        self.context = live.context;
         let lasts = self.lasts;
-        self.status(running, pending, lasts);
+        self.status(live.running, live.pending, lasts);
     }
 
     fn status(&mut self, running: bool, pending: u64, lasts: u64) {
+        let shown = (self.held, self.compacting, self.context);
         if running != self.working
             || pending != self.pending
             || lasts != self.lasts
-            || self.held != self.held_sent
+            || shown != self.sent
         {
             self.working = running;
             self.pending = pending;
-            self.held_sent = self.held;
+            self.sent = shown;
             self.operations.push(TranscriptOperation::Status {
+                compacting: self.compacting,
+                context: self.context,
                 held: self.held,
                 working: running,
                 pending,

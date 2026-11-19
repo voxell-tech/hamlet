@@ -249,14 +249,22 @@ fn live(
                 &runtime,
                 &running.conversation,
             )?;
+            // The size of a conversation at rest that is not in
+            // memory waits beside it, so no transcript is read for
+            // it.
+            let resting = !running.running
+                && running.pending == 0
+                && running.partial.is_none()
+                && !running.compacting;
+            if resting && !core.live.contains_key(&conversation.id) {
+                if let Some(context) = running.context {
+                    core.measured.insert(conversation.id, context);
+                }
+                return Ok(());
+            }
             let secrets = core.credentials.secrets();
             let live = core.live(conversation.id)?;
-            live.fold.live(
-                running.running,
-                running.pending,
-                running.partial.as_ref(),
-                &secrets,
-            );
+            live.fold.live(&running, &secrets);
             live.activity.live(
                 running.running,
                 running.pending,

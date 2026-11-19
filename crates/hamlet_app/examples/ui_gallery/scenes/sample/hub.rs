@@ -45,8 +45,13 @@ pub(super) fn setup(world: &mut World, scene: Scene) {
             | Scene::Quiet
             | Scene::Field
             | Scene::Code
+            | Scene::Context
+            | Scene::Compacting
     ) {
         show(world, Showing::Thread);
+    }
+    if matches!(scene, Scene::Context | Scene::Compacting) {
+        measure(world, scene == Scene::Compacting);
     }
     if scene == Scene::HubMenu {
         let agent = agent(world);
@@ -222,6 +227,43 @@ pub(super) fn catalogue() -> Vec<protocol::Listed> {
 
 /// That catalogue, and the popup of the seated agent's model open
 /// over its composer while it runs `openai::wren-large`.
+/// The first Hub's chat with most of a 200k context held, and
+/// `compacting` it.
+fn measure(world: &mut World, compacting: bool) {
+    world.resource_mut::<hamlet_app::models::Shelf>().models =
+        catalogue();
+    let agent = agent(world);
+    if let Some(mut account) =
+        world.get_mut::<hamlet_client::realm::Account>(agent)
+    {
+        account.model = "openai::wren-large".into();
+    }
+    let first = hub::first(world);
+    let Some(chat) =
+        world.get::<Convo>(first).map(|convo| convo.chat)
+    else {
+        return;
+    };
+    if let Some(mut status) =
+        world.get_mut::<hamlet_client::chats::Status>(chat)
+    {
+        status.context = Some(148_600);
+        status.compacting = compacting;
+    }
+}
+
+/// Opens the first Hub's context popup once its ring is laid out.
+pub(in crate::scenes) fn open_context(
+    world: &mut World,
+    mut update: bevy::ecs::system::Local<u32>,
+) {
+    *update += 1;
+    if *update == 30 {
+        let first = hub::first(world);
+        hub::open_context(world, first);
+    }
+}
+
 fn offer_models(world: &mut World) {
     world.resource_mut::<hamlet_app::models::Shelf>().models =
         catalogue();

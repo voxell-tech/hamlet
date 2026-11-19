@@ -218,7 +218,9 @@ first, then agents' messages as they came. Notices, a merge's input, an
 error response and compactions are not turns and go at once. Waiting
 inputs are the transcript's last items, with `queued`, in run order.
 `stop` holds the queue until the chief's next `say`, which runs first,
-or `resume`; `status` carries `held` meanwhile.
+or `resume`; `status` carries `held` meanwhile. It also carries
+`compacting` while the earlier messages are summarized, and `context`,
+the tokens the model's context held when last measured.
 
 Without a watch, conversation activity appears only through realm
 `change` messages (activity, saying, spend, busy). Turns of

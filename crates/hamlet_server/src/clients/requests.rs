@@ -451,6 +451,7 @@ impl Core<'_, '_> {
                 db,
                 conversation,
             )?);
+            fold.context = self.measured.remove(&conversation);
             fold.take();
             self.live.insert(
                 conversation,
@@ -503,6 +504,8 @@ impl Core<'_, '_> {
         let start = end.saturating_sub(PAGE);
         Ok(ServerMessage::Transcript(Transcript {
             chat: chat.clone(),
+            compacting: fold.compacting,
+            context: fold.context,
             earlier: (start > 0)
                 .then(|| fold.items[start].id.clone()),
             held: fold.held,

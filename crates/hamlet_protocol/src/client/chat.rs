@@ -140,6 +140,16 @@ pub struct Turn {
 #[serde(deny_unknown_fields)]
 pub struct Transcript {
     pub chat: ChatRef,
+    /// Whether the earlier part of the conversation is being
+    /// summarized.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub compacting: bool,
+    /// The tokens the model's context holds now, as last measured;
+    /// none while unknown.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[serde(deserialize_with = "crate::client::present")]
+    #[schemars(with = "u64")]
+    pub context: Option<u64>,
     #[serde(deserialize_with = "Option::deserialize")]
     pub earlier: Option<String>,
     /// Whether a chief's stop holds the queued turns.
@@ -194,6 +204,16 @@ pub enum TranscriptOperation {
     },
     #[serde(rename = "status")]
     Status {
+        /// Whether the earlier part of the conversation is being
+        /// summarized.
+        #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+        compacting: bool,
+        /// The tokens the model's context holds now, as last
+        /// measured; none while unknown.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        #[serde(deserialize_with = "crate::client::present")]
+        #[schemars(with = "u64")]
+        context: Option<u64>,
         /// Whether a chief's stop holds the queued turns.
         held: bool,
         #[serde(deserialize_with = "Option::deserialize")]

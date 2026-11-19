@@ -1,7 +1,7 @@
 //! The received realm shared by the gallery scenes.
 
 mod chat;
-mod hub;
+pub(super) mod hub;
 mod images;
 mod menu;
 mod needs;

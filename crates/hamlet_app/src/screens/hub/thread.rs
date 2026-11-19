@@ -9,12 +9,12 @@ use bevy::ecs::schedule::IntoScheduleConfigs;
 use bevy::ecs::system::{Commands, Query, Res};
 use bevy::ecs::world::World;
 use bevy::ui::{
-    AlignItems, ComputedNode, Node, Overflow, UiRect, UiSystems, Val,
-    percent, px,
+    AlignItems, ComputedNode, Node, Overflow, PositionType, UiRect,
+    UiSystems, Val, percent, px,
 };
 use bevy_fynix::tokens::Tone;
 use bevy_fynix::views::{
-    BehaviorExt, FrameProps, TooltipExt, button, column, frame,
+    BehaviorExt, FrameProps, TooltipExt, button, column, frame, icon,
     label, menu_button, row, scroll,
 };
 use bevy_fynix::{
@@ -40,12 +40,13 @@ use hamlet_ui::theme::{HamletTheme, Themed};
 use hamlet_ui::widgets::edges::faded;
 use hamlet_ui::widgets::effects::Variant;
 use hamlet_ui::widgets::ellipsis::one_line;
-use hamlet_ui::widgets::icons::{Glyph, glyph};
+use hamlet_ui::widgets::icons::{Glyph, glyph, share_ring};
 use hamlet_ui::widgets::tabs::{self, Spread};
 use hamlet_ui::{AnyView, Cx, View, built, with_cx};
 
 use super::{Showing, details, look_at, show};
 use crate::convo::Convo;
+use crate::menu::rect_of;
 use crate::overview::tell;
 use crate::profile_tag::{ProfileTag, learned_mark, learned_words};
 use crate::roll::rolled;
@@ -579,30 +580,100 @@ fn send_or_stop(hub: Entity, agent: Entity) -> impl View {
     .within(bare())
 }
 
-/// The button that compacts the agent's conversation, its answer
-/// shown in `hub`.
-fn compact(hub: Entity, agent: Entity) -> impl View {
-    keyed(
-        derived(move |world: &World| {
-            chat::has_no_model(world, agent)
+/// On the ring of how much of the context the chat of a Hub holds.
+#[derive(Component)]
+struct ContextRing(Entity);
+
+/// The ring of how much of the context the chat of `hub` holds,
+/// spinning while it is compacted; pressed, it tells more and offers
+/// to compact.
+fn context_ring(hub: Entity, agent: Entity) -> impl View {
+    let shown = derived(move |world: &World| {
+        (!chat::has_no_model(world, agent))
+            .then(|| world_menu::ContextUse::of(world, hub))
+    })
+    .when(every_frame());
+    keyed(shown, move |held| {
+        let Some(held) = *held else {
+            return frame().boxed();
+        };
+        let tip = match held.compacting {
+            true => "Compacting the earlier messages".to_string(),
+            false => format!("{}: {}", held.heading(), held.tokens()),
+        };
+        with_cx(move |cx| {
+            let side = cx.theme().space.row;
+            button(ring_face(held))
+                .width(px(side))
+                .height(px(side))
+                .padding(UiRect::all(px(0.0)))
+                .radius(side / 2.0)
+                .variant(Variant::Text)
+                .tagged(ContextRing(hub))
+                .tooltip({
+                    let tip = tip.clone();
+                    move || note(tip.clone())
+                })
+                .on_activate(move |world| open_context(world, hub))
         })
-        .when(every_frame()),
-        move |&none| {
-            if none {
-                return frame().boxed();
-            }
-            chat::tool_button(
-                Glyph::Notes,
-                "Compact now: summarize the earlier messages",
-                move |world| {
-                    if let Some(request) = compact_now(world, agent) {
-                        chat::asked_in(world, request, hub);
-                    }
-                },
-            )
+        .boxed()
+    })
+    .within(bare().shrink(0.0))
+}
+
+/// The face of the ring: the share held over the full ring, or a
+/// spinning ring while compacting.
+fn ring_face(held: world_menu::ContextUse) -> AnyView {
+    if held.compacting {
+        return glyph(Glyph::Progress, ICON)
+            .tone(Tone::Warning)
+            .boxed();
+    }
+    let share = held.share().unwrap_or(0.0);
+    with_cx(move |cx| {
+        let theme = cx.theme();
+        let track = icon(share_ring(1.0, ICON))
+            .size(ICON)
+            .tint(Some(world_menu::track(theme)));
+        let arc = icon(share_ring(share, ICON))
+            .size(ICON)
+            .tint(Some(world_menu::fill(held.tone(), theme)));
+        row((
+            track,
+            column((arc,))
+                .position(PositionType::Absolute)
+                .inset(UiRect::all(px(0.0))),
+        ))
+    })
+    .boxed()
+}
+
+/// Opens the popup of the context of `hub`'s chat over its ring.
+pub fn open_context(world: &mut World, hub: Entity) {
+    let ring = world.try_query::<(Entity, &ContextRing)>().and_then(
+        |mut rings| {
+            rings
+                .iter(world)
+                .find(|(_, of)| of.0 == hub)
+                .map(|(ring, _)| ring)
         },
-    )
-    .within(bare())
+    );
+    if let Some(anchor) = ring.and_then(|ring| rect_of(world, ring)) {
+        world_menu::show_context(world, hub, anchor);
+    }
+}
+
+/// Summarizes the earlier part of the conversation of the chat `hub`
+/// shows now.
+pub(crate) fn compact_in(world: &mut World, hub: Entity) {
+    let Some(agent) =
+        world.get::<Convo>(hub).map(|convo| convo.agent)
+    else {
+        return;
+    };
+    if let Some(request) = compact_now(world, agent) {
+        chat::asked_in(world, request, hub);
+    }
 }
 
 /// Summarizes the earlier part of `agent`'s conversation now.
@@ -650,7 +721,6 @@ enum ToolbarAction {
     Images,
     Files,
     Folder,
-    Compact,
 }
 
 impl ToolbarAction {
@@ -659,11 +729,10 @@ impl ToolbarAction {
             ToolbarAction::Images => "Attach Images",
             ToolbarAction::Files => "Attach Files",
             ToolbarAction::Folder => "Attach a Folder",
-            ToolbarAction::Compact => "Compact Now",
         }
     }
 
-    fn run(self, world: &mut World, hub: Entity, agent: Entity) {
+    fn run(self, world: &mut World, hub: Entity) {
         match self {
             ToolbarAction::Images => {
                 chat::attach::choose(world, hub, What::Images);
@@ -674,31 +743,22 @@ impl ToolbarAction {
             ToolbarAction::Folder => {
                 chat::attach::choose(world, hub, What::Folders);
             }
-            ToolbarAction::Compact => {
-                if let Some(request) = compact_now(world, agent) {
-                    chat::asked_in(world, request, hub);
-                }
-            }
         }
     }
 }
 
 /// The "More" button that holds the toolbar's icon buttons.
-fn more(hub: Entity, agent: Entity) -> impl View {
+fn more(hub: Entity) -> impl View {
     keyed(
         derived(move |world: &World| {
-            (
-                chat::attach::sees_images(world, hub),
-                !chat::has_no_model(world, agent),
-            )
+            chat::attach::sees_images(world, hub)
         })
         .when(every_frame()),
-        move |&(sees, model)| {
+        move |&sees| {
             let actions = [
                 (sees, ToolbarAction::Images),
                 (true, ToolbarAction::Files),
                 (true, ToolbarAction::Folder),
-                (model, ToolbarAction::Compact),
             ]
             .into_iter()
             .filter_map(|(shown, action)| shown.then_some(action))
@@ -710,7 +770,7 @@ fn more(hub: Entity, agent: Entity) -> impl View {
                 let actions = actions.clone();
                 menu_button("", words.clone(), move |world, at| {
                     if let Some(action) = actions.get(at) {
-                        action.run(world, hub, agent);
+                        action.run(world, hub);
                     }
                 })
                 .icon(Glyph::More.image(ICON))
@@ -740,7 +800,8 @@ fn crowd(
         node.size().x * node.inverse_scale_factor()
     };
     let gap = chat::TOOL_GAP * theme.space.gap;
-    let icons = 3.0 * (theme.space.row + gap);
+    // Three attach buttons fold into one "More".
+    let icons = 2.0 * (theme.space.row + gap);
     for (mut toolbar, node, inner) in &mut toolbars {
         let room = width(node);
         let Some(parts) =
@@ -828,14 +889,8 @@ fn chips(hub: Entity, agent: Entity) -> impl View {
                 })
             }),
             move |&folded| match folded {
-                true => more(hub, agent).boxed(),
-                false => row((
-                    chat::attach::control(hub),
-                    compact(hub, agent),
-                ))
-                .gap(gap)
-                .align(AlignItems::Center)
-                .boxed(),
+                true => more(hub).boxed(),
+                false => chat::attach::control(hub).boxed(),
             },
         )
         .within(bare().shrink(0.0));
@@ -846,6 +901,7 @@ fn chips(hub: Entity, agent: Entity) -> impl View {
                     row((mode_chip(agent, bar),)).shrink(0.0),
                     frame().grow(1.0),
                     tools,
+                    context_ring(hub, agent),
                     row((send_or_stop(hub, agent),)).shrink(0.0),
                 ))
                 .gap(gap)

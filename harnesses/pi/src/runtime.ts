@@ -35,6 +35,7 @@ import {
     type ServerRequest,
     unexpected,
 } from "./channel.ts";
+import { contextTokens } from "./context.ts";
 import { serverCredentials } from "./credentials.ts";
 import { entriesOf } from "./earlier.ts";
 import { hamletExtension, Waits } from "./extension.ts";
@@ -211,6 +212,10 @@ type Known = Bound & { key: string; sessionId: string };
 type Doing = {
     live?: LiveState | undefined;
     inbox?: InboxState | undefined;
+    /** The tokens its context holds, as last measured. */
+    context?: number;
+    /** Whether its context is being measured, and whether again after that. */
+    measuring?: "once" | "again" | undefined;
     told?: string;
 };
 
@@ -386,6 +391,7 @@ class Runtime {
         for (const [key, bound] of Object.entries(bindings?.byKey ?? {})) {
             const known = await this.#remember(key, bound, context);
             this.#window(known, windows[key]);
+            this.#measure(String(known.conversation));
         }
         this.#registry.install(this.#extension(tools));
         this.#harness.subscribeCommits(({ changes }) => {
@@ -415,6 +421,7 @@ class Runtime {
                     const held = this.#replaying.get(conversation);
                     if (held === undefined) this.#channel.send(kept);
                     else held.push(kept);
+                    this.#measure(conversation);
                 } else if (change.type === "submission") {
                     const { value } = change;
                     const conversation = String(value.conversationId);
@@ -490,11 +497,48 @@ class Runtime {
                 doing.inbox?.items.filter((item) => item.mode !== "write")
                     .length ?? 0,
             ...(partial === undefined ? {} : { partial }),
+            ...((doing.live?.compactions?.length ?? 0) > 0
+                ? { compacting: true }
+                : {}),
+            ...(doing.context === undefined ? {} : { context: doing.context }),
         };
         const told = JSON.stringify(live);
         if (doing.told === told) return;
         doing.told = told;
         this.#channel.send(live);
+    }
+
+    /** Measures the tokens `conversation`'s context holds and tells the server. */
+    #measure(conversation: string): void {
+        const doing = this.#doing.get(conversation) ?? {};
+        this.#doing.set(conversation, doing);
+        if (doing.measuring !== undefined) {
+            doing.measuring = "again";
+            return;
+        }
+        doing.measuring = "once";
+        void (async () => {
+            while (doing.measuring !== undefined) {
+                doing.measuring = "once";
+                const known = this.#known.get(conversation);
+                const handle =
+                    known === undefined
+                        ? undefined
+                        : await this.#harness.conversation(
+                              known.conversation,
+                              BACKGROUND_CONTEXT,
+                          );
+                if (handle !== undefined)
+                    doing.context = contextTokens(
+                        await handle.context(BACKGROUND_CONTEXT),
+                    );
+                if (doing.measuring === "once") doing.measuring = undefined;
+            }
+        })()
+            .catch(() => {
+                doing.measuring = undefined;
+            })
+            .finally(() => this.#tell(conversation));
     }
 
     /** The runtime's submission id of the input whose turn `conversation` runs now. */

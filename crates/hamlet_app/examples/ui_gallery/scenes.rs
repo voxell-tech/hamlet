@@ -86,6 +86,9 @@ impl Plugin for GalleryPlugin {
                 Update,
                 (
                     sample::overview::later,
+                    sample::hub::open_context.run_if(
+                        |scene: Res<Scene>| *scene == Scene::Context,
+                    ),
                     hold,
                     print,
                     (hold_message, ask_rewind).run_if(
@@ -251,6 +254,10 @@ pub enum Scene {
     Code,
     /// The status marks, pills, bars, chips and solid buttons.
     Status,
+    /// The popup of a chat's context, open over its ring.
+    Context,
+    /// A chat while its earlier messages are summarized.
+    Compacting,
 }
 
 impl Scene {
