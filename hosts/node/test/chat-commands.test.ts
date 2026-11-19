@@ -226,6 +226,37 @@ test("stop ends the run and drops the queue", async (t) => {
     assert.ok(!(await said(agent, letters)).some((t) => t.includes("Queued.")));
 });
 
+test("stop answers a queued question that its turn was stopped", async (t) => {
+    const { calls, sent } = fakes({
+        realm: { reply: () => ({ type: "done" }) },
+    });
+    const slow = held();
+    const agent = await wake(t, calls, [slow.step]);
+    const question = (letter: number, text: string) =>
+        submitted(agent, { type: "question", letter, from: ADA, text });
+    await question(1, "How?");
+    await slow.asked;
+    await question(2, "And why?");
+
+    assert.deepEqual(
+        await agent.actions.stop(agent.by(from.client), { id: "stop-1" }),
+        { turns: 1 },
+    );
+    await until(() => named(sent, "reply").length > 1);
+
+    const replies = named(sent, "reply").map(
+        (call) => call.message as { readonly question: number },
+    );
+    assert.deepEqual(
+        replies.sort((a, b) => a.question - b.question),
+        [1, 2].map((question) => ({
+            question,
+            text: "It could not answer: its turn was stopped",
+        })),
+    );
+    assert.equal(agent.faux.state.callCount, 1);
+});
+
 test("a repeated stop answers 0", async (t) => {
     const { calls, sent } = fakes();
     const slow = held();

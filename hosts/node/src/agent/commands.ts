@@ -9,15 +9,18 @@ import {
     type Cursor,
     type EntryId,
     type Harness,
+    InboxDoc,
     LiveDoc,
     type SubmissionDraft,
 } from "@earendil-works/pi-durable";
 import { withHarness } from "../pi/runtime.ts";
 import { type AgentCall, generationOf } from "./actor.ts";
 import { stands } from "./compaction.ts";
+import { couldNotAnswer } from "./failed.ts";
 import {
     type ClientActions,
     type LapseReason,
+    type LetterId,
     type NewSession,
     type Resume,
     type ResumeAnswer,
@@ -40,7 +43,14 @@ import {
 } from "./sessions.ts";
 import { timersEnded } from "./timers.ts";
 import { refused, textOf } from "./transcript.ts";
-import { callOf, conversationsOf, draftOf, isBusy, refOf } from "./turn.ts";
+import {
+    callOf,
+    conversationsOf,
+    draftOf,
+    isBusy,
+    type Kept,
+    refOf,
+} from "./turn.ts";
 import { endsLater } from "./workspace-tools.ts";
 
 type Answer<N extends keyof ClientActions> = Promise<
@@ -51,7 +61,9 @@ type Answer<N extends keyof ClientActions> = Promise<
  * Stops every run of the agent and drops what each had queued, then, as
  * today, cancels every call the agent has out and lapses all it was
  * trusted with. Both go out even when nothing ran, so the repeat of a stop
- * cut off before them sends them.
+ * cut off before them sends them. Each question dropped is answered that
+ * its turn was stopped, as today's follow answers it
+ * (`crates/hamlet_server/src/talk/follow.rs:70-84`).
  */
 export async function stop(c: AgentCall): Answer<"stop"> {
     const { options, peers, retrying } = generationOf(c);
@@ -63,15 +75,50 @@ export async function stop(c: AgentCall): Answer<"stop"> {
         const each = await Promise.all(
             (await conversationsOf(harness, context)).map(async (id) => {
                 if (!(await isBusy(harness, id, context))) return [];
+                const dropped = await droppedQuestions(harness, id, context);
                 await (await harness.conversation(id, context))?.abort(context);
-                return [id];
+                return [dropped];
             }),
         );
         return each.flat();
     });
     await peers.cancel({ which: { type: "all" } });
     await peers.reach.lapse({ why: "stopped" });
+    for (const question of stopped.flat()) {
+        await couldNotAnswer(
+            peers,
+            question,
+            "its turn was stopped",
+            undefined,
+        );
+    }
     return { turns: stopped.length };
+}
+
+/**
+ * Withdraws each input `conversation` has queued and gives the questions
+ * among them; one a run took first is left to that run's end.
+ */
+async function droppedQuestions(
+    harness: Harness,
+    conversation: ConversationId,
+    context: Context,
+): Promise<LetterId[]> {
+    const queued = await harness.snapshot(InboxDoc, conversation, context);
+    const questions: LetterId[] = [];
+    for (const item of queued?.items ?? []) {
+        if (item.mode === "write") continue;
+        const withdrawn = await harness.abortSubmission(
+            item.id,
+            context,
+            conversation,
+        );
+        const { question } = (item.entry?.data ?? {}) as Kept;
+        if (withdrawn === "aborted" && question !== undefined) {
+            questions.push(question);
+        }
+    }
+    return questions;
 }
 
 export async function newSession(

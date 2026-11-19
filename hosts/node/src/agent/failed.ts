@@ -82,7 +82,7 @@ export function tellingFailed(
     };
 }
 
-async function couldNotAnswer(
+export async function couldNotAnswer(
     peers: Peers,
     question: LetterId,
     words: string,
