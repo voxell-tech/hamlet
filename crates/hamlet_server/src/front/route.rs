@@ -20,7 +20,7 @@ use hamlet_protocol::client::{
 
 use super::host::HAND;
 use super::view::Own;
-use super::{commands, frames};
+use super::{commands, frames, words};
 use crate::clients::check::{fault, reply};
 use crate::society::refusal::Refusal;
 
@@ -186,6 +186,14 @@ pub(crate) fn route(message: ClientMessage) -> Result<Route> {
             frames::checked,
             After::Nothing,
         )?,
+        // The Node host's demo entry runs every agent on its faux
+        // model, which a model named in the check reaches.
+        ClientMessage::Check(Check::Model { id, model: None }) => {
+            Route::Now(Box::new(reply(
+                &id,
+                Ok(words::FAUX_MODELS.into()),
+            )))
+        }
         ClientMessage::Read(Read::Prompt { agent, id }) => {
             agent_call(
                 agent,

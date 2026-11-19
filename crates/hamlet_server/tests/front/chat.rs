@@ -310,6 +310,16 @@ async fn each_request_is_answered_in_todays_words() {
         })
         .await;
     assert_eq!(checked.kind, ReplyKind::Notice, "{}", checked.text);
+    let unnamed = chief
+        .request(|id| {
+            ClientMessage::Check(Check::Model { id, model: None })
+        })
+        .await;
+    assert_eq!(
+        (unnamed.kind, unnamed.text.as_str()),
+        (ReplyKind::Notice, "Every agent runs the faux model here."),
+        "the window's check of the realm's model"
+    );
     assert!(!chief.prompt(hand).await.is_empty(), "a prompt is read");
     let history = chief.history(hand).await;
     assert!(
