@@ -1690,12 +1690,12 @@ fn the_calls_to_agents_and_profiles(fixtures: &mut Fixtures) {
                 files: vec![
                     parcel_file(
                         0,
-                        "inbox/from-hire-12/report.md",
+                        "from-hire-12/report.md",
                         2_048,
                     ),
                     parcel_file(
                         1,
-                        "inbox/from-hire-12/figures/plot.png",
+                        "from-hire-12/figures/plot.png",
                         6 << 30,
                     ),
                 ],
@@ -1723,7 +1723,7 @@ fn the_calls_to_agents_and_profiles(fixtures: &mut Fixtures) {
                 text: "Is this plan right?".into(),
                 files: vec![parcel_file(
                     0,
-                    "inbox/from-hire-12/plan.md",
+                    "from-hire-12/plan.md",
                     512,
                 )],
             },
