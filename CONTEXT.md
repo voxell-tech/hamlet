@@ -8,209 +8,154 @@ shown as a world of hamlets.
 ### People
 
 **Chief**:
-A human a realm answers to. Instructs any of its agents, answers what
-waits for a chief, and can overrule anything. Never an agent.
+A human a realm answers to. Can overrule anything. Never an agent.
 _Avoid_: user, owner, admin
 
 ### Agents
 
 **Agent**:
-An AI the server runs. Most are a profile working in a hamlet, on a branch
-of its own and in a worktree, for a purpose a chief may leave out; a hamlet's
-agents form a tree under its lead. The Hand and workers are agents too.
+An AI the server runs. The Hand and workers are agents too.
 _Avoid_: hire, citizen, resident, bot, member, employee
 
 **Hand**:
-The chiefs' own agent. It is always there, sits above every lead, and
-founds hamlets and looks after profiles when a chief asks. Its reserved
-acts wait for a chief.
+The chiefs' own agent, above every lead.
 _Avoid_: assistant, root agent, admin agent
 
 **Profile**:
-Who an agent is when it is not at work: a git repository holding a
-character, memory and skills. Its `main` is what it knows. Many agents can
-be of one profile. A profile is its id, `profile#<id>`; its name is a label
-that a chief changes and that may repeat.
+Who an agent is: a git repository of a character, memory and skills.
+Named by id, `profile#<id>`.
 _Avoid_: scholar, persona, template, house
 
 **Blank agent**:
-An agent of a hamlet, the lead included, that is not of a profile of the
-city: its profile is made for it alone, has no house, never waits at the
-harbor and is not listed with the city's profiles.
+An agent of a hamlet whose profile is made for it alone, outside the
+city.
 _Avoid_: blank profile, temp agent
 
 **Address**:
-How a chief or an agent names an agent or a profile, by ids and never by a
-name: `hand`, `lead@<hamlet>` (by the hamlet's id), `agent#<id>`,
-`worker#<id>`, `profile#<id>`. Wherever an agent is shown, its address comes
-first and its name beside it. In the chat's field, `@` lists the other agents,
-those it has a channel to first, and the one picked is put in as its
-address's chip.
+How an agent or profile is named, by id and never by name: `hand`,
+`lead@<hamlet>`, `agent#<id>`, `worker#<id>`, `profile#<id>`.
 _Avoid_: handle, username
 
 **Name**:
-The words a profile, a hamlet, an agent or a worker is shown by. Metadata a
-chief changes and that may repeat; it never finds anything. Everyone but the
-Hand has one a chief can change. A profile and a hamlet always have one; a
-hamlet's id is a UUID no one reads. An agent or a worker has one only once
-it is given one, by a chief, or for an agent of a hamlet by the Hand or a
-parent above it; until then an agent goes by its profile's name and a worker
-by its address. Its address, `agent#<id>` or `worker#<id>`, stays the same.
+The changeable, repeatable label an entity is shown by. It never finds
+anything.
 _Avoid_: nickname, alias
 
 **Lead**:
-The agent at the top of a hamlet's tree: the one the chief talks to first.
-Given to another agent with `/lead`.
+The agent at the top of a hamlet's tree.
 _Avoid_: mayor, orchestrator, main agent
 
 **Parent**:
-An agent with agents under it, or the Hand. It has the lead's powers over
-its subtree: adding agents, ending, merging, choosing models and tools, setting
-allowances and opening channels.
+An agent with agents under it, or the Hand.
 _Avoid_: lead (the top of a hamlet), manager, supervisor
 
 **Worker**:
-An agent started for one task by another agent or a chief. A child of its
-starter, with a scratch folder and no society tools, which ends with its
-answer.
+An agent started for one task, which ends with its answer.
 _Avoid_: subagent, helper, runtime
 
 **Conversation**:
-What an agent's model reads and answers, kept by its harness. The Hand and
-each agent of a hamlet have one, which every input for it goes into, one turn at a
-time; a rewind makes a fork of it theirs. A worker, a dream and an errand
-have their own.
+What an agent's model reads and answers, kept by its harness.
 _Avoid_: session, chat history, thread (the Hub's thread is where one is
 shown)
 
 **Queued**:
-Said of an input its conversation has not taken up yet. A chief's lines
-and retries go ahead of messages from agents. A chief takes a queued line
-back with Withdraw.
+Said of an input its conversation has not taken up yet.
 _Avoid_: pending, backlog
 
 **Stopped**:
-Said of an agent a chief stopped: nothing queued for it starts until the
-chief sends it a line, which runs first, or resumes it.
+Said of an agent a chief stopped: nothing queued starts until resumed.
 _Avoid_: paused, frozen
 
 **Compaction**:
-A summary that stands for the earlier part of a conversation in the model's
-context, made when it fills or a chief asks (`/compact`). Every entry is
-kept.
+A summary standing for the earlier part of a conversation.
 _Avoid_: new session, reset, clearing
 
 **Errand**:
-A one-off conversation that is not an agent's: the librarian's answer or a
-parent's review.
+A one-off conversation not an agent's, such as a parent's review.
 _Avoid_: job (a job is the server's outbox)
 
 ### Profiles and their memory
 
 **Character**:
-`CHARACTER.md` in a profile's repository: who it is. Edited by a chief or
-given when a parent makes the profile.
+`CHARACTER.md` in a profile's repository.
 
 **Memory**:
-The files under a profile's `memory/`. Files at its root are in every
-prompt; each folder is described by its `MEMORY.md`.
+The files under a profile's `memory/`.
 _Avoid_: notes, `NOTES.md`
 
 **Version**:
-A tag on a profile's `main`. An agent can be added at one or pinned to one.
+A tag on a profile's `main`.
 _Avoid_: release (for a profile)
 
 **Pin**:
-Holding an agent at one version of its profile, so it does not take in `main`.
+Holding an agent at one version.
 
 **Worktree**:
-The checkout of an agent's branch where its tools work, without
-`CHARACTER.md`, plus an `inbox/` that is never committed. The Hand's is
-`hand/`. A folder of the realm, not the **Workspace** its tools run on,
-which may hold a copy of it.
+The checkout of an agent's branch, a folder of the realm. Not the
+**Workspace**.
 _Avoid_: lodge, house, home
 
 **Dream**:
-A task in which an agent brings what it learned home to its profile's `main`,
-or a profile tidies `main`. Scheduled dreams are off by default; the
-settings give their hours, cost cap and rests. One asked for runs anyway,
-one at a time.
+A task in which an agent brings what it learned to its profile's `main`.
 _Avoid_: sleep, sync
 
 **Merge**:
-Making one agent of two, in one hamlet: the kept agent takes the absorbed
-one's channels, agents, inbox, what it learned and its conversation.
-
-**Split**:
-Bringing a merged agent back out again, by undoing the merge's commit
-(`/restore`).
+Making one agent of two. **Split** undoes it (`/restore`).
 
 ### Places
 
 **Realm**:
-Everything one chief keeps: the Hand, the city, the hamlets, the library,
-the database and the credentials, in one folder (`HAMLET_HOME`).
+Everything one chief keeps, in one folder (`HAMLET_HOME`).
 _Avoid_: home, world, server
 
 **City**:
-Where the profiles live, apart from any hamlet, each in a house the server
-sets down. In the world it is the **city island**, with the Hand's tower,
-the Library and the chief's Hearth.
+Where the profiles live, apart from any hamlet. In the world, the **city
+island**.
 _Avoid_: town (for anything), guild
 
 **Hamlet island**:
-The island across the water where the hamlets stand.
+The island where the hamlets stand.
 _Avoid_: mainland, the world
 
 **Hearth**:
-A chief's own house on the city island, where the chief's mascot lives.
+A chief's own house on the city island.
 
 **Harbor**:
-The pier on each island, with a boat between them. A newcomer waits at the
-city's until it is let into the city.
+The pier on each island.
 
 **Newcomer**:
-A profile a parent made, waiting at the harbor until a chief or the Hand lets
-it into the city, as the realm's `newcomers` setting says.
+A profile a parent made, waiting at the harbor until let in.
 _Avoid_: applicant, guest
 
 **Hamlet**:
-A group of agents under one lead, with its own record, limits and the
-folder it works on. A new realm has none. A chief creates one with
-`/create-hamlet`; the Hand founds one with its tool.
+A group of agents under one lead, with its own record, limits and folder.
 _Avoid_: team, project, town
 
 **Workspace**:
-Where agents' tools run: this machine, or a remote one the chief chooses in
-Settings. Not an agent's **Worktree**, the folder its tools work in.
+Where agents' tools run: this machine, or a remote one. Not a
+**Worktree**.
 _Avoid_: sandbox, worktree
 
 **Sandbox**:
-What holds an agent's commands to the reach the spec gives them, on the
-server's own computer.
+What holds an agent's commands to the reach the spec gives them.
 _Avoid_: jail, container, workspace
 
 **Insecure mode**:
-A Windows server started with `--insecure`, whose agents' commands run
-without a sandbox and reach whatever the account running it can.
+A Windows server started with `--insecure`: commands run without a sandbox.
 _Avoid_: unconfined, no-sandbox mode, unsafe mode
 
 **Leftover**:
-A process an agent's command started that still runs after the command
-ended. Under bubblewrap there are none, since the sandbox ends with its
-command.
+A process an agent's command started that outlives the command.
 _Avoid_: orphan, survivor, lingering process, background job, daemon
 
 ### Running agents
 
 **Harness**:
-The kind of program an agent's conversations run in, apart from the server
-that keeps the realm's rules. Each agent has one for its new conversations.
+The kind of program an agent's conversations run in, apart from the server.
 _Avoid_: engine, backend
 
 **Runtime**:
-One running harness, with its own identity, version and store, serving the
-conversations bound to it. Several agents may share one.
+One running harness, serving the conversations bound to it.
 _Avoid_: worker, harness process
 
 **Client protocol**:
@@ -221,69 +166,53 @@ The messages the server exchanges with a runtime.
 _Avoid_: link, harness link
 
 **Binding**:
-The tie between a conversation and the runtime it began in, kept for as
-long as the conversation is.
+The tie between a conversation and the runtime it began in.
 
 **Marker**:
-What is kept of an operation's result together with the change it made,
-keyed by source and key, so asking for the operation again gives that
-result back.
+What is kept of an operation's result, keyed by source and key, so asking
+again gives it back.
 _Avoid_: receipt
 
 **Job**:
-A step the server has recorded to do after a change and runs on a thread of
-its own, so a crash loses none.
+A step the server has recorded to do after a change, so a crash loses none.
 _Avoid_: task (a task is an agent's work)
 
 ### Between agents
 
 **Channel**:
 A link between two agents along which they send notifications and
-requests. Its kind is tree (an agent and its parent, or the Hand and a
-lead), leads', opened (between two agents of a hamlet) or agreed (between
-agents of two hamlets). The world draws a channel as a road.
+requests. The world draws one as a road.
 _Avoid_: road, link
 
 **Notification**:
-A message one agent sends another along a channel (`notify`), taken up as
-a turn of the receiver's; no response is expected.
+A message along a channel (`notify`) that expects no response.
 _Avoid_: letter, mail, DM
 
 **Request**:
-A message one agent sends another along a channel that expects a response
-(`request`). The sender does not wait; the receiver's final answer comes
-back as the response.
+A message along a channel that expects a response (`request`).
 _Avoid_: question (a question is what an agent puts to a chief), ask
 
 **Response**:
-The answer to a request, or a worker's answer its starter did not wait
-for, taken up as a turn of the sender's. An error response, from a request
-that failed, starts no turn; the sender reads it on its next one.
+The answer to a request.
 _Avoid_: reply, answer (for one agent's to another)
 
 ### Work, waits and grants
 
 **Task**:
-A chief's instruction and everything done for it, which carries what it
-spends.
+A chief's instruction and everything done for it.
 _Avoid_: job, ticket
 
 **Wait**:
-A question or act held until a chief answers: an agent's questions to the
-chief (`request_chief`), an objection, a tool call that needs a grant, a
-newcomer to welcome, a fault. Waits survive a restart. The window shows one
-in full, with the answers it takes, in the thread of the agent that asks
-and on a toast.
+A question or act held until a chief answers. Waits survive a restart.
 _Avoid_: petition, pending item, approval request
 
 **Grant**:
-A chief's allowing of an act that waits: once, for the agent's conversation
-(a session grant), or for good.
+A chief's allowing of an act that waits: once, for the conversation, or
+for good.
 _Avoid_: permission, whitelist
 
 **Session grant**:
-A grant of an agent's edits or commands for the rest of its conversation.
-A rewind's fork has none yet.
+A grant for the rest of an agent's conversation.
 _Avoid_: trust
 
 ### Actions and rejections
@@ -299,70 +228,52 @@ _Avoid_: refusal, denial
 ### Records and the library
 
 **Record**:
-A hamlet's account of its agents, departures, channels and lead's office, and
-the decisions that changed them. `/history` and the window's History
-show it.
-
-**Decision**:
-A choice by a lead or a chief, kept in the record with its reason.
+A hamlet's account of its agents, channels and lead, with the
+**Decision**s (a lead's or chief's choice and its reason) that changed
+them.
 
 **Library**:
-The skills shared by every agent of the realm.
-
-**Librarian**:
-The judge of skills offered to the library, and the adviser on its shelves.
+The skills shared by every agent of the realm. The **Librarian** judges
+those offered to it.
 
 **Archive**:
-What is kept of agents and hamlets that left, so a chief can restore them.
+What is kept of agents and hamlets that left, so they can be restored.
 _Avoid_: trash, deleted agents
 
 **Terminal**:
-A shell on a pseudo-terminal the server runs, which the window shows. The
-chief opens their own, with no sandbox, and types into it; agents open
-none. Each agent has one read-only terminal of its commands, showing each
-command its shell tool runs and its output as they come; it closes when
-the agent ends.
+A shell on a pseudo-terminal the server runs, which the window shows.
 _Avoid_: console, tty, pane
 
 ### The window
 
 **Desk**:
-A named arrangement of the window's panels. A chief keeps several and shows
-one at a time.
+A named arrangement of the window's panels.
 _Avoid_: workspace, layout
 
 **Appearance**:
-How a chief has the window's panels drawn: a theme, and light, dark or as
-the computer's color scheme is. Picked on its Settings page and kept with
-the window, not the realm.
+A theme, and light, dark or the color scheme. Kept with the window.
 _Avoid_: look, skin
 
 **Color scheme**:
-Whether the computer is set light or dark, as its desktop says.
+Whether the computer is set light or dark.
 _Avoid_: system appearance
 
 **Theme**:
-A family of colours for the panels, one file under `assets/themes/`, with a
-light variant, a dark one or both.
+A family of colours for the panels, a file under `assets/themes/`.
 _Avoid_: skin
 
 **Variant**:
-A theme's light or dark palette. Lamplight is Hamlet's dark variant.
+A theme's light or dark palette.
 _Avoid_: flavor
 
 **Hub**:
-A panel of the realm's agents: a rail of them by what they are doing,
-and beside it a thread, a profile, a hamlet, the library or the page of
-every hamlet and the Hand. A desk can hold several, each with a chat
-of its own. One Hub of each
-desk follows the world's selection, and it is where toasts, menus and
-links open what they name; the others change only by their own rail
-and pages. A collapsed rail is a strip of its rows' icons.
+A panel of the realm's agents: a rail, and beside it a thread, profile,
+hamlet or the library. One Hub of each desk follows the world's selection
+and opens what toasts, menus and links name.
 _Avoid_: inspector, sidebar
 
 **Toast**:
-A card in a corner of the window that tells of something new, and
-answers a wait in place.
+A card in a corner of the window that tells of something new.
 _Avoid_: notification, popup
 
 **Town**:

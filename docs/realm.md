@@ -1,160 +1,105 @@
 # The realm
 
 The server keeps one realm, `~/.hamlet` unless `HAMLET_HOME` or
-`hamlet_server --home` selects another folder for it. Use a fresh scratch
-folder for development. `crates/hamlet_server/src/realm.rs` defines `Realm`
-and `realm/layout.rs` defines `Layout`. The server's chief is named by
-`HAMLET_USER`, else the account it runs as (`USER`, `USERNAME` or
-`LOGNAME`), else "chief".
+`hamlet_server --home` selects another folder. Use a fresh scratch folder
+for development. `Realm` is in `crates/hamlet_server/src/realm.rs` and
+`Layout`, the paths below, in `realm/layout.rs`.
 
 | Path under the realm | Owner and contents |
 |---|---|
-| `realm.sqlite`, its WAL and shared-memory files | `hamlet_store`'s `Store`: who exists and answers to whom, channels, the record, tasks and spend, conversations (`chat` names each agent's one) and their inputs, waits, grants and the session grants a chief gave each conversation, the chief's documents, markers and jobs |
+| `realm.sqlite` and its WAL files | `hamlet_store`'s `Store`: everything the realm knows |
 | `realm.id` | The identity also recorded in `realm.sqlite` |
-| `harnesses/<instance>/` | That runtime's own store: conversations, checkpoints, model responses and input admission |
-| `credentials.json` | Server-owned installation ID, connection token and provider credentials |
-| `models.json` | Server-owned fetched model listings; the chief's catalogue overrides live in the database |
+| `harnesses/<instance>/` | That runtime's own store |
+| `credentials.json` | Installation ID, connection token and provider credentials |
 | `server.json` | Running server's URL, PID, start time and confinement, never its token |
-| `server.log` | Detached server's output, written by the CLI's process launch |
 | `profiles/<id>.git/` | Each profile's repository, the Hand's included |
 | `hand/` | The Hand's worktree |
-| `hamlets/<hamlet id>/<agent id>/` | An agent's worktree: `memory/`, `skills/` and `inbox/`, a checkout of its branch |
+| `hamlets/<hamlet id>/<agent id>/` | An agent's worktree: `memory/`, `skills/` and `inbox/` |
 | `workers/<id>/` | A worker's scratch folder while it runs |
 | `library.git/`, `library/` | The library's repository, and its `main` checked out, read-only to agent tools |
-| `tools/` | Hand-added tool manifests and scripts, loaded again whenever they change |
-| `terminals/<id>.json` | Each terminal's view and its last output, kept across restarts, outside agents' reach |
-| `images/`, `files/` | The images chiefs sent and agents read, and the files chiefs sent, each kept once under the hash of its bytes, out of agents' reach |
+| `tools/` | Hand-added tool manifests and scripts, read once at server start |
+| `terminals/<id>.json` | Each terminal's view and last output, outside agents' reach |
+| `images/`, `files/` | What chiefs sent, kept once under the hash of its bytes, out of agents' reach |
 | `dreams/` | The checkout of a profile's `main` a dream writes, out of agents' reach |
 
-A new realm is made with its first chief and its Hand. It has no hamlet: a
-chief creates the first with `/create-hamlet`, or asks the Hand to. The library is
-made with the starter skills as its first commit.
-
-The server reads `tools/` once, when it starts, so a tool a chief puts there
-by hand reaches the agents at the next start.
+A new realm is made with its first chief and its Hand, and no hamlet.
+The server's chief is named by `HAMLET_USER`, else `USER`, `USERNAME` or
+`LOGNAME`, else "chief".
 
 ## Claim and storage
 
-`Realm::open` resolves the folder to its canonical path, and `realm/claim.rs` takes
-a local socket claim on that path, so a second server cannot open the same
-realm under another spelling. The claim outlives the open store and its
-harness processes.
+`Realm::open` takes a local socket claim on the folder's canonical path
+(`realm/claim.rs`), so a second server cannot open the same realm under
+another spelling.
 
-`Store::create` makes the schema in a new `realm.sqlite`, and `Store::open`
-refuses an existing one whose SQLite application ID is not its own or whose
-`realm.version` is not compatible with the schema's
+`Store::open` refuses a database whose SQLite application ID is not its
+own or whose `realm.version` is not compatible
 ([ADR 0013](adr/0013-every-protocol-and-the-realm-database-are-semver-at-0-1-0.md)).
-The schema has one version and no upgrades. `Realm::open` checks the
-`realm.id` and database identity pair. A missing or mismatched part is an
-error, not a reason to make a fresh database. Restore a complete matching
-backup: the database, `realm.id` and `profiles/` belong together.
+The schema has no upgrades. A missing or mismatched `realm.id` or
+database is an error, never a reason to make a fresh one. Restore a
+complete matching backup: the database, `realm.id` and `profiles/` belong
+together.
 
-Every change is one transaction, taken with the write lock from its start;
-the connection runs with WAL, full sync and foreign keys. A tool call is
-identified by its runtime and key, a client request by its chief and id; its
-marker is committed with the change and its charge, so a call asked for again
-gets the first result. A society call is safe to ask again for that reason:
-its answer is kept in its change's transaction, or what it began (a message, a
-worker, an errand) is found again by its call. A write of a profile's
-repository, a shell command or an edit is marked begun before it runs and,
-cut off by a crash, is answered as interrupted, never run twice. The files
-and repositories a change needs are made afterwards by jobs, kept in the
-same transaction and run again after a crash until they are done
+Every change is one transaction, taken with the write lock from its
+start. A tool call is identified by its runtime and key, a client request
+by its chief and id; its marker is committed with the change and its
+charge, so a call asked for again gets the first result. A write of a
+profile's repository, a shell command or an edit is marked begun before
+it runs and, cut off by a crash, is answered as interrupted, never run
+twice. The files and repositories a change needs are made afterwards by
+jobs, kept in the same transaction and run again after a crash until done
 ([ADR 0012](adr/0012-the-realm-is-a-database-of-tables-changed-in-transactions-with-a-jobs-outbox.md)).
 
-At start, after the claim and the checks, every job not done runs again, a
-turn that ended before the stop and was not followed yet is followed, the
-waits that were open wait again, and the runtimes are started and their
-conversations carry on.
-
-A client request or a runtime's line whose handling fails, a panic included,
-leaves its transaction rolled back and is answered with the failure: a
-`fault` to the client, an `error` to the runtime, which ends that turn with
-the server's words. The server goes on.
+A request or a runtime's line whose handling fails, a panic included,
+has its transaction rolled back and is answered with a `fault` to the
+client or an `error` to the runtime. The server goes on.
 
 ## Profiles and worktrees
 
-A profile's repository holds `CHARACTER.md`, `memory/` and `skills/`; `main`
-is what the profile knows, `agents/<agent id>` is an agent's branch, and a tag
-is a version
+A profile's repository holds `CHARACTER.md`, `memory/` and `skills/`;
+`main` is what the profile knows, `agents/<agent id>` is an agent's
+branch
 ([ADR 0011](adr/0011-profiles-are-git-repositories-agents-are-branches-worktrees-are-checkouts.md)).
-The server alone writes a repository, through `hamlet_git`. A worktree is the
-checkout of an agent's branch without `CHARACTER.md`, plus `inbox/`, which is
-never committed. After a turn that changed a worktree a `commit` job commits
-it to the branch, and when the agent is idle and `main` has moved a `take-in`
-job merges `main` into the branch and writes the merged files into the
-worktree, so a turn never sees `main` change under it. `knowledge.rs` names
-the branch and finds a worktree; `knowledge/run.rs` runs the jobs. The character is read from the
-branch's tip for the prompt, and edited on a profile's `main` through the
-protocol.
+The server alone writes a repository, through `hamlet_git`. A worktree is
+the checkout of an agent's branch without `CHARACTER.md`, plus `inbox/`,
+which is never committed. After a turn that changed a worktree a `commit`
+job commits it, and when the agent is idle and `main` has moved a
+`take-in` job merges `main` into the branch, so a turn never sees `main`
+change under it (`knowledge/run.rs`).
 
 ## Credentials and documents
 
-`credentials.json` is mode 0600 and replaced whole via a temporary file and
-rename. It holds `installationId`, `connection: {token}` and provider
-credentials. Provider attempts receive needed credentials over the runtime
-protocol in memory. Pi asks the server to scrub text before keeping provider
-snapshots or final answers; tool output and client messages are scrubbed too.
-`HAMLET_API_KEY` is an in-memory override for the settings' model's
-endpoint, not a file update.
+`credentials.json` is mode 0600 and replaced whole via a temporary file
+and rename. Provider attempts receive credentials over the runtime
+protocol in memory. Text is scrubbed of secrets before pi keeps it, in
+tool output and client messages, and in a failure's words before they are
+logged. `HAMLET_API_KEY` is an in-memory override, not a file update.
 
-ChatGPT and OpenRouter support subscription sign-in. ChatGPT credentials
-are separate from OpenAI API keys. The server serializes credential
-refreshes per provider and saves a rotation before acknowledging it.
-An already-started refresh can finish after its client disconnects;
-logout or a newer sign-in invalidates its result. Retired credentials and
-transient sign-in answers remain in memory for scrubbing, not on disk.
+Claude's login stays with Claude's own program, which pi runs; the
+server keeps only a mark of the sign-in. A rotated credential is saved
+before it is acknowledged. Retired credentials and transient sign-in
+answers stay in memory for scrubbing, never on disk.
 
-The database holds the chief's documents as rows of the `document` table: the
-charter, the settings, the model catalogue's overrides, the librarian's
-instructions and the realm's own limits. A hamlet's limits are a column of its
-row, so a limits edit is one change. A character is a file of its profile's
-`main`, and memory is files of a worktree or of `main`; the server opens them
-through directories it holds open, without following links.
-`HAMLET_MODEL`, `HAMLET_BASE_URL`, `HAMLET_REFLECT_EVERY` and `HAMLET_NET`
-override stored settings for this process. `HAMLET_MODEL` is the settings'
-model, so an agent's or hamlet's own choice still stands over it.
-`HAMLET_BASE_URL` is the address of that model's endpoint, which it adds
-when the settings have none of that name. A realm starts with no endpoint
-and no model. Setup is done once the chief picks a model; This computer
-adds Ollama's endpoint, `local` at `http://localhost:11434/v1`, when it is
-picked.
+The chief's documents (charter, settings, catalogue overrides, limits)
+are rows of the `document` table. Characters and memory are files; the
+server opens them through directories it holds open, without following
+links.
 
-The settings also hold when dreams run: whether they are on, the local hours
-they start in, and the most one may cost.
+`HAMLET_MODEL`, `HAMLET_BASE_URL`, `HAMLET_REFLECT_EVERY` and
+`HAMLET_NET` override stored settings for this process; an agent's or
+hamlet's own model choice still stands over `HAMLET_MODEL`.
 
 ## Starting and stopping
 
-`hamlet_server --home <folder> --port 0` publishes a free loopback address.
-`main` runs the Bevy app `create_app` makes (`lib.rs`), with
-`bevy_log`'s `LogPlugin`, whose runner, `app::runner::runner`, serves. The app's first update opens the realm and
-the rest in `PreStartup`, starts them in `Startup`, and only then
-publishes `server.json` (`app/startup.rs`). A stop signal takes the server
-through the `Serving` states, `Open`, `Closing` and `Stopping`, until the
-app exits (`app/shutdown.rs`); `clients/connection.rs` owns the sockets,
-`clients/requests.rs` authentication, and `clients/handlers.rs` the system
-that answers each request. `--faux` selects an offline
-response script, not a harness entry. `HAMLET_PI_HARNESS` selects that entry
-instead.
+`hamlet_server --home <folder> --port 0` publishes a free loopback
+address, and `server.json` only after the realm is open and started
+(`app/startup.rs`). `--faux` selects an offline response script;
+`HAMLET_PI_HARNESS` selects the harness entry.
 
 SIGTERM or the first SIGINT closes clients with code 1001, ends every
 sign-in, waits up to 15 s for a credential rotation begun, stops the
-runtimes and removes `server.json`; inputs keep running until then. A
-second SIGINT exits 130. Closing a client
-or window does not stop the server.
+runtimes and removes `server.json` (`app/shutdown.rs`). A second SIGINT
+exits 130. Closing a client or window does not stop the server.
 
-The server logs on stderr: readable lines in a terminal, else one JSON
-object per line, as in `server.log`. `RUST_LOG` selects what it logs,
-`info` and above unless it says otherwise. A failure's words have every
-secret the server knows taken out before they are logged. When the
-server cannot serve, its last line is `Error: ` and why, in plain text,
-which the CLI and the launcher show.
-
-## Starter skills
-
-`crates/hamlet_server/assets/starters/` supplies the embedded skills, built
-into the server by `knowledge/library.rs`. Beside them,
-`crates/hamlet_server/assets/charter.md` is the default charter and
-`crates/hamlet_server/assets/hand.md` the Hand's first character. The
-library's first commit holds the starters once; a skill taken out or
-changed later stays so.
+The server logs on stderr; `RUST_LOG` selects what. When it cannot
+serve, its last line is `Error: ` and why, in plain text.

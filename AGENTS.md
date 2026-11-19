@@ -2,29 +2,22 @@
 
 ## Must read
 
-- [`docs/README.md`](docs/README.md) is the index of the docs: where to
-  start and what each page explains.
-- [`docs/tour.md`](docs/tour.md) is the map: where everything is and where
-  to change what. Start there.
+- [`docs/README.md`](docs/README.md) indexes the docs.
+- [`docs/tour.md`](docs/tour.md) is the map of the code. Start there.
 - [Comment convention](docs/comment_convention.md)
 - [Code convention](docs/code_convention.md)
 - The design is in [`docs/spec/`](docs/spec/). Code refers to its
   requirements by ID (C1, H10, ...). Read it before non-trivial changes.
   Decisions that are hard to reverse are in [`docs/adr/`](docs/adr/).
-- [`CONTEXT.md`](CONTEXT.md) is the glossary: the words for Hamlet's
-  concepts, and the ones to avoid.
+- [`CONTEXT.md`](CONTEXT.md) is the glossary: Hamlet's words, and the ones
+  to avoid.
 - [`docs/islands.md`](docs/islands.md) before touching the ground, the
   islands, the sites, the harbor or `crates/hamlet_realm/src/moving.rs`.
-- What is known and deliberately left for later is kept outside this
-  repository, in `../hamlet_backlog/README.md` where that folder exists.
-  Check it before reporting something as a new problem, and add to it when
-  something is deferred. Outside `docs/spec/` and `docs/adr/`, `docs/`
-  is only for what exists: no progress notes, no screenshots.
-- Proposals, designs for what is not built and the research behind
-  them, are never in this repository. Write them in
-  `../hamlet_backlog/proposals/`, and nothing in the repository links to
-  them. When one is built, what exists is described in `docs/`, and a
-  decision that is hard to reverse becomes an ADR.
+- Deferred work is in `../hamlet_backlog/README.md` where that folder
+  exists: check it before reporting a new problem, and add to it when you
+  defer something. Proposals go in `../hamlet_backlog/proposals/`, never
+  in this repository. Outside `docs/spec/` and `docs/adr/`, `docs/` is
+  only for what exists: no progress notes, no screenshots.
 
 ## Branches
 
@@ -33,99 +26,64 @@ Prefix every branch with the name of the person it is for, as in
 
 ## Pull requests
 
-A pull request's description says only what changed. It has no
-section for what was left out, what was not tried or what comes next,
-and none that lists the checks that passed or the tests that were
-added: CI and the diff already show those. Say those things in chat
-with the owner instead, not in the pull request.
-
-When a change is easier seen than read, its pull request shows it:
-
-- **A diagram** of what changed, such as a new flow, protocol or
-  structure. Write it in Typst ([fletcher](https://typst.app/universe/package/fletcher)
-  or [cetz](https://typst.app/universe/package/cetz)) and compile it to
-  SVG with `typst compile diagram.typ diagram.svg`. Keep the `.typ`
-  outside the repository.
-- **Screenshots** of the window when its appearance changes, before and
-  after where it helps.
-
-With write access to the base repository, attach each file with `gh`
-2.99 or newer. It uploads the file to the pull request itself, so nothing
-is committed or pushed for it:
+- The description says only what changed: no section for what was left
+  out or comes next, and none listing checks or tests. Say those in chat.
+- Show what is easier seen than read: a diagram of a new flow or
+  structure (Typst, compiled with `typst compile diagram.typ
+  diagram.svg`, the `.typ` kept outside the repository), or screenshots
+  when the window's appearance changes.
+- Attach files with `gh` 2.99 or newer; the text after `#` is the alt
+  text. Never host an image on a branch, a gist, a release or another
+  site. Files are PNG, JPEG, GIF, WebP, SVG, MP4, MOV or WebM, up to
+  10 MB.
 
 ```sh
-gh pr create --attach './diagram.svg#What the diagram shows' ...
 gh pr edit 123 --attach './before.png#Before' --attach './after.png#After'
-gh pr comment 123 --attach './diagram.svg#What the diagram shows'
 ```
-
-Without write access, attach files through GitHub's web interface or ask
-a maintainer to attach them.
-
-For images, the text after `#` is the alt text; omit the `#` suffix for
-video attachments. A file the description already
-references, as `![Before](./before.png)`, takes that place; any other
-is added at the end. PNG, JPEG, GIF, WebP, SVG, MP4, MOV and WebM are
-accepted, up to 10 MB each. Never host an image on a branch, a gist, a
-release or another site.
 
 ## Running safely
 
-The Rust binaries are `hamlet` in `crates/hamlet_cli`, `hamlet_server` in
-`crates/hamlet_server`, and the window `hamlet_app` in `crates/hamlet_app`.
-Use the Node version in `harnesses/pi/.nvmrc` and install the harness with
-`npm ci --prefix harnesses/pi`. No global npm command is needed.
-For local work:
+- Run `hamlet` only with `HAMLET_HOME` set to a scratch folder, and stop
+  background servers with `HAMLET_HOME=<scratch> hamlet stop`. Bare
+  `hamlet` uses `~/.hamlet` and leaves a server running.
+- Run `hamlet_app` only through `hamlet dev`, or with `HAMLET_VIEW` set to
+  a scratch folder. Bare `hamlet` and `hamlet window` need both scratch
+  paths.
+- Stop `hamlet dev` with Ctrl-C.
 
 ```sh
 HAMLET_HOME=/tmp/hamlet-try cargo run -p hamlet_cli -- dev
 ```
 
-`dev` builds the checkout's server and window. `HAMLET_SERVER_BIN` and
-`HAMLET_APP` select existing binaries and skip their respective builds.
-Use `cargo run -p hamlet_cli -- <command>` for other commands, or install
-all three with `cargo xtask install`. That source install keeps using the
-checkout's pi package. Packaged archives include pi beside the binaries
-on Linux, or in `Contents/Resources/pi` in the macOS app.
-`HAMLET_PI_HARNESS` selects pi's `src/main.ts`; `HAMLET_NODE` selects Node.
-`HAMLET_SERVER` is a remote URL, never a server executable path.
-
-Bare `hamlet` uses `~/.hamlet` by default and leaves a server running in
-the background. Agents run `hamlet` only with `HAMLET_HOME` set to a scratch
-folder, and stop background servers with `HAMLET_HOME=<scratch> hamlet stop`.
-Run `hamlet_app` only through `hamlet dev`, which sets a scratch `HAMLET_VIEW`,
-or with `HAMLET_VIEW` set to a scratch folder yourself. Set both scratch
-paths for bare `hamlet` and for `hamlet window`. `HAMLET_APP` can name a
-window built outside the repository's `target/` folder.
-
-The server keeps the agents' files; the window keeps its size, layout and
-theme in `HAMLET_VIEW`, else the OS's config folder for Hamlet. Closing the
-window ends only its process; agents keep working on the server. Stop
-`hamlet dev` with Ctrl-C when done.
+- Install the harness with `npm ci --prefix harnesses/pi`, on the Node in
+  `harnesses/pi/.nvmrc`. Other commands run as
+  `cargo run -p hamlet_cli -- <command>`; env vars are in the
+  [README](README.md#environment-variables).
 
 ## Checks
 
-All four must be clean before a commit. `rust-toolchain.toml` names the
-latest stable toolchain plain `cargo` runs, no older than `rust-version`
-in `Cargo.toml` (`rustup update stable` if cargo says it is too old). Formatting needs a nightly, because
-`rustfmt.toml` uses unstable options: the latest one
-(`rustup update nightly`), which CI uses too. The workspace depends on
-`vendor/fynix`, a git submodule: clone with `--recurse-submodules` or
-run `git submodule update --init vendor/fynix` once; `cargo xtask`
-fetches it itself. Nothing inside it changes. `cargo xtask check` runs
-every check a commit needs, as nine steps in this order, each of which
-`cargo xtask <step>` runs alone and CI calls by name: `format`
-(rustfmt's check on the workspace and on xtask), `clippy` (with
-`-D warnings` on both), `cross` (clippy on `hamlet_os` for
-`x86_64-pc-windows-gnu`, the target `rust-toolchain.toml` installs, with
-no C compiler), `deny` (`cargo deny check`), `test`
-(`cargo build --all-targets`, then `cargo test`, doc tests included),
-`acceptance` and `harness` (the two suites below), `doc` (`cargo doc`
-with `-D warnings`) and `node` (pi's checks). `deny` needs cargo-deny:
-`cargo install --locked cargo-deny`. `deny.toml` holds the allowed
-licences and the ignored advisories, each with its reason. With `CI`
-set, as on GitHub, the steps pass `--locked` to cargo. `cargo xtask fmt`
-formats Rust and pi.
+All of these must be clean before a commit. `cargo xtask check` runs
+nine steps in this order, each also `cargo xtask <step>`, and CI calls
+them by name:
+
+1. `format`: rustfmt's check on the workspace and xtask. Needs the latest
+   nightly (`rustup update nightly`).
+2. `clippy`: `-D warnings` on both.
+3. `cross`: clippy on `hamlet_os` and `hamlet_testing` for
+   `x86_64-pc-windows-gnu`, with no C compiler.
+4. `deny`: `cargo deny check`. Needs `cargo install --locked cargo-deny`.
+5. `test`: `cargo build --all-targets`, then `cargo test`, doc tests
+   included.
+6. `acceptance`: the suite below.
+7. `harness`: the server's tests with the `harness` feature, below.
+8. `doc`: `cargo doc` with `-D warnings`.
+9. `node`: pi's checks, below.
+
+`cargo xtask fmt` formats Rust and pi. Plain `cargo` runs the stable
+toolchain `rust-toolchain.toml` names (`rustup update stable` if it is
+too old). With `CI` set, the steps pass `--locked`. `vendor/fynix` is a
+git submodule that nothing changes: `cargo xtask` fetches it, or run
+`git submodule update --init vendor/fynix` once.
 
 ```sh
 cargo +nightly fmt
@@ -134,27 +92,19 @@ cargo clippy --all-targets
 cargo test
 ```
 
-The root commands cover every crate. To work on one, add `-p <crate>`, for
-example `cargo test -p hamlet_server`.
+Add `-p <crate>` to work on one crate. Never run live-provider or
+remote-infrastructure tests unless the owner explicitly asks.
 
-Offline tests use faux models or loopback fixtures. Do not run live-provider
-or remote-infrastructure tests unless the owner explicitly asks.
-
-`harnesses/pi/` is a Node package. Run `npm ci` in it, then these checks
-with the Node version in `harnesses/pi/.nvmrc`. They must be clean before
-a commit too. `cargo xtask node` runs both; by hand, in that folder:
+pi's checks, after `npm ci` in `harnesses/pi/`:
 
 ```sh
 npm run check   # TypeScript and Biome
 npm test
 ```
 
-The acceptance suite in `crates/hamlet_acceptance` starts real server
-processes on scratch realms and drives them through the client protocol, so plain
-`cargo test` compiles none of it. It needs the built CLI and server,
-and `npm ci --prefix harnesses/pi`. It must be clean before a commit too. It never
-contacts a model server or the internet: models are faux, or a loopback
-fake of its own. `cargo xtask acceptance` runs it; by hand, at the root:
+The acceptance suite in `crates/hamlet_acceptance` runs real servers on
+scratch realms, so plain `cargo test` compiles none of it. It needs the
+built CLI and server and the pi install:
 
 ```sh
 cargo build -p hamlet_cli -p hamlet_server
@@ -162,52 +112,34 @@ cargo clippy -p hamlet_acceptance --all-targets --features acceptance
 cargo test -p hamlet_acceptance --features acceptance
 ```
 
-The server's tests that start pi serving a realm, crashes included, are
-its `crashes` target and its tests of the core, compiled only with the
-`harness` feature, so plain `cargo test` needs no Node. They need
-`npm ci --prefix harnesses/pi`, never contact a model server or the
-internet, and must be clean before a commit too. They build the server
-with fault points, so run them after the acceptance suite, which needs
-the plain one, as a command of their own. `cargo xtask harness` runs
-them; by hand, at the root:
+`HAMLET_CLI` selects a CLI binary outside `target/debug/hamlet`;
+`HAMLET_ACCEPTANCE_SERVER` an explicit server command.
+
+The server's `harness` tests start pi and build the server with fault
+points, so run them after the acceptance suite:
 
 ```sh
 cargo clippy -p hamlet_server --all-targets --features harness
 cargo test -p hamlet_server --features harness
 ```
 
-The runtime protocol, between the server and a harness runtime, is
-defined by the Rust types in `hamlet_protocol::runtime`, which a harness
-written in Rust uses directly. pi reads its types and checks from a schema
-generated from them: `cargo test -p hamlet_protocol` rewrites that schema
-when it is stale and fails, so commit the rewritten file.
+### Schemas and versions
 
-`HAMLET_CLI` selects a CLI binary outside `target/debug/hamlet` for the
-acceptance suite. `HAMLET_ACCEPTANCE_SERVER` selects an explicit server
-command; otherwise it tests the default `hamlet server` path.
+- The runtime protocol is the types in `hamlet_protocol::runtime`; pi
+  reads a schema generated from them. When it is stale,
+  `cargo test -p hamlet_protocol` rewrites it and fails: commit it.
+- The client protocol is the types in `hamlet_protocol::client`, whose
+  `#[schemars(...)]` attributes carry the limits serde cannot check; the
+  server checks every client message against the derived schema. Update
+  `docs/protocol.md` when it changes. When a message's shape or a type's
+  name changes, `cargo test -p hamlet_protocol` rewrites
+  `crates/hamlet_protocol/client_schema.fingerprint` and fails once:
+  commit it.
+- Every version stays at 0.1.0 until the first release.
 
-The client protocol, between the window or CLI and the server, is defined
-by the Rust types in `hamlet_protocol::client`, one module per area. Their
-`#[schemars(...)]` attributes carry the limits serde cannot check, such as
-a list's length; a rule a type can hold, such as `RequestId`'s UUID form,
-is in the type. The server checks every client message against the
-schema derived from them. Update `docs/protocol.md` when the protocol
-changes. When a message's shape or a type's name changes,
-`cargo test -p hamlet_protocol` rewrites
-`crates/hamlet_protocol/client_schema.fingerprint` and fails once, so
-commit the rewritten file.
+### Sandbox
 
-Versions are semver. Every version, the crates', the client, runtime
-and workspace protocols' and the realm database's, stays at 0.1.0
-until Hamlet's first release; none moves before it. Peers check that
-their versions are compatible by semver's caret.
-
-The client tests replay the faux sessions in `crates/hamlet_protocol/frames/`.
-See `docs/protocol.md` for their recording workflow.
-
-On Linux, tools run under bubblewrap rather than Seatbelt. After changing
-`crates/hamlet_sandbox/`, run the real sandbox acceptance tests
-on Linux with working bubblewrap, git, curl and Python 3. Linux checks do
-not prove macOS Seatbelt behavior. Windows has no server sandbox, so a
-Windows server runs only with `--insecure`, and Linux and macOS refuse
-the flag.
+After changing `crates/hamlet_sandbox/`, run the sandbox acceptance tests
+on Linux with working bubblewrap, git, curl and Python 3; they do not
+prove macOS Seatbelt. A Windows server runs only with `--insecure`;
+Linux and macOS refuse it.

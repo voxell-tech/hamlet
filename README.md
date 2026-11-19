@@ -23,68 +23,26 @@ and open-source forever.
 ## Features
 
 - **The Hand**: You are the chief and talk to the Hand, your own agent
-  above every hamlet. It founds hamlets, adds agents to them and starts
-  workers for small jobs.
-- **Profiles that learn**: Every agent but the Hand and the workers is
-  of a profile, a git repository of a character, memory and skills. An
-  agent works on a branch of its own, and what it learns is merged into
-  its profile's `main`. Tag versions, pin an agent to one, revert or fork
-  a profile.
-- **Hamlets that run themselves**: A hamlet's lead adds agents, directs
-  them and opens the channels their notifications and requests travel
-  along. Parents review the work of the agents under them.
-- **Agents that grow**: An agent starts with a sandboxed shell, a file
-  editor and its memory, and writes its own skills. A librarian shelves
-  the useful ones in a library every agent shares, and an idle profile
-  dreams to tidy what it knows.
-- **Point a hamlet at your code**: Give a hamlet a folder and its agents
-  work in it, as a coding agent does.
+  above every hamlet. It founds hamlets and starts workers for small
+  jobs.
+- **Profiles that learn**: An agent is of a profile, a git repository of
+  a character, memory and skills. It works on a branch of its own, and
+  what it learns is merged into the profile's `main`.
+- **Hamlets that run themselves**: A hamlet's lead adds and directs
+  agents.
+- **Agents that grow**: Agents write their own skills, shared through a
+  library.
+- **Your code**: Give a hamlet a folder and its agents work in it.
 - **You stay in charge**: In manual mode every edit and command waits for
-  your approval. In auto mode the sandbox keeps writes inside the folder.
-  An agent may object to an instruction, and the chief rules on it and can
-  overrule anything.
-- **Many hamlets at once**: Hamlets sit side by side, each with its own
-  agents, budget and folder.
+  your approval. In auto mode the sandbox keeps writes in the folder.
 - **Any model**: Any OpenAI-compatible endpoint, a local
   [Ollama](https://ollama.com) by default.
 
-## New here?
+The words are in [`CONTEXT.md`](CONTEXT.md).
 
-Hamlet's words in one minute:
-
-| Word | Meaning |
-| --- | --- |
-| **Chief** | You, the human who leads. |
-| **Realm** | Everything one server keeps: its chiefs, the Hand, the profiles and the hamlets. |
-| **Hand** | Your own agent, always there, above every hamlet. |
-| **Profile** | Who an agent is: a git repository of its character, memory and skills. |
-| **Hamlet** | Agents of profiles with a budget and, optionally, a folder to work in. |
-| **Lead** | The agent that leads a hamlet. |
-| **Channel** | A link between two agents that their messages travel along. |
-
-The shortest path to seeing it work:
-
-1. [Install Hamlet](#install), or follow the [Quick start](#quick-start)
-   to build it from source.
-2. Give Hamlet a model: an API key, a local model endpoint, or a sign-in
-   (see [Models and credentials](#models-and-credentials)).
-3. Talk to the Hand and say what you want done.
-4. Watch the agents work. Approve edits and commands as they ask.
-
-Not ready to install anything? [Try it without
-installing](#try-it-without-installing) uses a scratch folder that leaves
-your real files alone.
-
-## Status
-
-Early and moving fast.
-
-- **`hamlet_server`** (Rust) owns the realm: the agents, profiles'
-  repositories, channels, messages, library, approvals and budgets.
-- **pi harness** (Node processes) owns conversations and model calls.
-- **The window** is a protocol client. Closing it stops no agent.
-- **Tests** use faux and loopback providers. They do not establish
-  exhaustive behavior or platform coverage.
+Early and moving fast. The server owns the realm, the pi harness owns
+conversations and model calls, and the window is a protocol client:
+closing it stops no agent.
 
 ## Install
 
@@ -99,19 +57,13 @@ Each includes everything Hamlet needs, Node too.
 | Fedora | `hamlet-<version>-1.x86_64.rpm` | Open it with Software. |
 | Windows (x64) | `Hamlet-<version>-Setup.exe` | The app cannot start its server, since Windows has no sandbox; see [Tools and platforms](#tools-and-platforms). |
 
-Then open Hamlet from your applications. It starts its server and opens
-the window, which walks you through choosing a model. If Hamlet cannot
-start, it says why in a dialog. When a new release is out, the
-window offers to restart into it; on Linux the desktop asks for your
-password to install it.
-
-> [!NOTE]
-> Until a release is signed, macOS refuses the app the first time. Open
-> **System Settings → Privacy & Security** and choose **Open Anyway**
-> beside Hamlet. Windows may say it protected your PC: choose
-> **More info**, then **Run anyway**.
-
-The archives beside them hold the same programs for a terminal; see
+Open Hamlet from your applications. On macOS and Linux it starts its
+server and opens the window, which walks you through choosing a model.
+On Windows, start the server with `hamlet --insecure` in a terminal
+first. Until a release is
+signed, macOS refuses the app the first time: choose **Open Anyway** in
+**System Settings > Privacy & Security**. On Windows choose **More
+info**, then **Run anyway**. Archives for a terminal are in
 [releases](docs/releases.md).
 
 ## Quick start
@@ -124,12 +76,9 @@ cargo xtask install
 hamlet
 ```
 
-This installs pi's packages, puts `hamlet`, `hamlet_server` and
-`hamlet_app` in `~/.cargo/bin`, and starts your realm in `~/.hamlet`.
-
-> [!NOTE]
-> A source install uses the checkout's `harnesses/pi/`. Keep the checkout,
-> and run `cargo xtask install` again after pulling.
+This puts `hamlet`, `hamlet_server` and `hamlet_app` in `~/.cargo/bin`
+and starts your realm in `~/.hamlet`. It uses the checkout's
+`harnesses/pi/`: keep the checkout, and install again after pulling.
 
 ## Try it without installing
 
@@ -139,113 +88,54 @@ Use a scratch folder so your real `~/.hamlet` is untouched:
 HAMLET_HOME=/tmp/hamlet-try cargo xtask dev
 ```
 
-`dev` builds the local server and window, starts the server on a free
-port, and opens the window. No global npm command is needed.
-
-- The realm is kept between runs. The window's files go in
-  `$HAMLET_HOME/window`.
-- Closing the window leaves `hamlet dev` serving. Ctrl-C stops it.
-- `--hot` builds a window that reloads saved shaders and tuning files.
-- To run other commands without installing, use
-  `cargo run -p hamlet_cli -- <command>`.
-
-### Server and window separately
-
-After installing, use two terminals to keep the server apart from the
-window:
-
-```sh
-HAMLET_HOME=/tmp/hamlet-try hamlet server
-```
-
-```sh
-# In the other terminal:
-HAMLET_HOME=/tmp/hamlet-try HAMLET_VIEW=/tmp/hamlet-try/window hamlet window
-```
-
-`hamlet chat` is the terminal client. `hamlet --help` lists the commands.
+`dev` builds the local server and window and opens the window. Closing
+the window leaves `hamlet dev` serving; Ctrl-C stops it. Other commands
+run as `cargo run -p hamlet_cli -- <command>`; `hamlet --help` lists
+them. Run `hamlet server` and `hamlet window` apart with both
+`HAMLET_HOME` and `HAMLET_VIEW` set to scratch folders.
 
 ## Configuration
 
 ### Models and credentials
 
-Use an API key, a local model endpoint, or sign in with ChatGPT or
-OpenRouter. Credentials stay on the server, and subscription refreshes are
-saved there before the harness continues.
+Use an API key, a local model endpoint, or sign in with ChatGPT, Claude
+or OpenRouter. Credentials stay on the server.
 
 ### Tools and platforms
 
 - Local tools need Seatbelt on macOS or working bubblewrap on Linux.
-- Settings can select a remote workspace for the agents' tools and
-  worktrees. It takes effect on restart and never falls back to local
-  execution.
-- Windows has no sandbox. A Windows server starts only in insecure
-  mode, with `hamlet --insecure`, and agents' commands then reach whatever
-  your account can. Agents get `powershell`, and `bash` where Git for
-  Windows is installed. Linux and macOS refuse `--insecure`.
-- The window can connect to another machine's server.
+- A remote workspace chosen in Settings takes effect on restart and
+  never falls back to local execution.
+- Windows has no sandbox. A Windows server starts only with
+  `hamlet --insecure`, and agents' commands then reach whatever your
+  account can. Linux and macOS refuse `--insecure`.
 
 ### Environment variables
 
 | Variable | Meaning |
 | --- | --- |
-| `HAMLET_HOME` | The folder the server keeps its realm in. Defaults to `~/.hamlet`. Use a scratch folder when trying things out. |
-| `HAMLET_VIEW` | Where the window keeps its size, layout and look. Defaults to the OS's config folder for Hamlet. Set it to a scratch folder when running the window outside `hamlet dev`. |
-| `HAMLET_SERVER_BIN` | An existing server binary. Skips the server build in `dev`. |
-| `HAMLET_APP` | An existing window binary. Skips the window build in `dev`. |
+| `HAMLET_HOME` | The server's realm folder. Defaults to `~/.hamlet`. |
+| `HAMLET_VIEW` | The window's size, layout and theme. Defaults to the OS's config folder. |
+| `HAMLET_SERVER_BIN` | An existing server binary; `dev` skips its build. |
+| `HAMLET_APP` | An existing window binary; `dev` skips its build. |
 | `HAMLET_SERVER` | A remote WebSocket URL, never an executable. |
+| `HAMLET_TOKEN` | The remote realm's token, which `HAMLET_SERVER` needs. |
 | `HAMLET_PI_HARNESS` | Pi's `src/main.ts`. |
 | `HAMLET_NODE` | A Node executable. |
-| `HAMLET_NO_UPDATE` | Set to anything, an installed release stops looking for updates. |
-
-Installed commands look for the server and window beside the CLI, then on
-`PATH`. Without `HAMLET_PI_HARNESS`, the server prefers a sibling
-`pi/src/main.ts`, then the macOS bundle's `Contents/Resources/pi/src/main.ts`,
-then the build checkout's harness. Without `HAMLET_NODE`, it prefers the
-Node a release ships beside it, then Node on `PATH`.
-
-An installed app opens `hamlet_launch`, which starts or reuses the server
-and opens its sibling window, and shows a failure in a dialog. An
-installed release looks for updates while its window is open; see
-[releases](docs/releases.md#updates).
-
-## Using the window
-
-| To | Do this |
-| --- | --- |
-| Slide the ground | Drag it |
-| Turn | Drag with the right button |
-| Zoom | Scroll |
-| Talk to an agent | Click its robot |
-| See what can be done to something | Right-click it |
+| `HAMLET_NO_UPDATE` | Set, an installed release stops looking for [updates](docs/releases.md#updates). |
 
 ## Working on the code
 
-`vendor/fynix` is a git submodule: clone with `--recurse-submodules`, or
-run `git submodule update --init vendor/fynix` once. `cargo xtask`
-fetches it itself.
-
-`cargo xtask check` runs the same checks as CI, on your own system. CI
-runs them on Linux, macOS and Windows, so it can still catch what fails
-only on another system. `cargo xtask help` lists every task.
-
-- `rust-toolchain.toml` follows the latest stable, no older than
-  `rust-version` in `Cargo.toml`. If cargo says your compiler is too old,
-  run `rustup update stable`.
-- Formatting uses the latest nightly (`rustup update nightly`).
-- `deny` needs `cargo install --locked cargo-deny`.
-
-Where to read next:
-
-- [`docs/tour.md`](docs/tour.md) is the map of the code.
-- [`docs/`](docs/README.md) lists every page.
-- [`AGENTS.md`](AGENTS.md) has the rules for working here.
+Clone with `--recurse-submodules` (`vendor/fynix`). `cargo xtask check`
+runs the same checks as CI and `cargo xtask help` lists every task.
+[`docs/tour.md`](docs/tour.md) is the map of the code,
+[`docs/`](docs/README.md) lists every page and [`AGENTS.md`](AGENTS.md)
+has the rules for working here.
 
 ## Join the community!
 
-You can join us on the [Hamlet discord server](https://discord.gg/hJjjTkXRKw),
-or on the [Voxell discord server](https://discord.gg/Mhnyp6VYEQ) for
-everything we make.
+Join the [Hamlet](https://discord.gg/hJjjTkXRKw) or
+[Voxell](https://discord.gg/Mhnyp6VYEQ) discord server.
 
 ## License
 
@@ -256,7 +146,5 @@ everything we make.
 - Apache License, Version 2.0 ([LICENSE-APACHE](LICENSE-APACHE) or
   [http://www.apache.org/licenses/LICENSE-2.0](http://www.apache.org/licenses/LICENSE-2.0))
 
-This means you can select the license you prefer! This dual-licensing
-approach is the de-facto standard in the Rust ecosystem and there are
-[very good reasons](https://github.com/bevyengine/bevy/issues/2373) to
-include both.
+You can select the license you prefer. Dual licensing is the standard in
+the Rust ecosystem, for [good reasons](https://github.com/bevyengine/bevy/issues/2373).

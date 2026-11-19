@@ -12,5 +12,5 @@ from them again.
 | `icon/` | The app icon: the house on a rounded square, inside the margin macOS gives an icon. `.github/scripts/package.sh` makes the macOS icon from its PNG, and `crates/hamlet_desktop/src/icon.png` is the same at 256 pixels |
 | `screens/` | Pictures of the window, for the README |
 
-The PNGs are the SVGs beside them drawn with `rsvg-convert`, at the
-sizes they are now.
+The PNGs are the SVGs beside them drawn with `rsvg-convert`, at their
+current sizes.

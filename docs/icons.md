@@ -1,74 +1,34 @@
 # The icons of the panels
 
-The small pictures beside the words on buttons, tabs, menus and
-headings. They are one family of line drawings made in code, so
-there is no icon font, no file to load and no licence to carry.
+The small pictures beside the words on buttons, tabs, menus and headings: one
+family of line drawings made in code, with no icon font or file to load.
 
-## Where they live
-
-`hamlet_ui/src/widgets/icons.rs` is the only place an icon is drawn.
-
-- `Glyph` names every icon. A name says what the picture is (`Moon`,
-  `Bell`, `Check`) unless the picture is the hamlet's own thing (`Lead`,
-  `Hamlet`, `Hearth`).
-- `glyph(Glyph::Bell, 14.0)` is the icon as a view. It takes `.tone(...)`
-  like a label, and a button's look tints it with its lettering.
-- `icons::draw` draws every icon once at startup, at a few sizes and twice
-  the pixels.
-
-`styles.rs` holds the helpers that set an icon beside words, such as
-`marked` and `action`.
+`hamlet_ui/src/widgets/icons.rs` is the only place an icon is drawn, and
+`Glyph` names every icon. `glyph(Glyph::Bell, 14.0)` is the icon as a view; it
+takes `.tone(...)` like a label.
 
 ## The family
 
 Every icon is drawn in a square of 16 units from a short list of `Shape`s.
 
-- One round pen, a tenth of the icon's side wide, kept between 1.25 and
-  1.8 pixels.
-- Ink fills the square to about a unit from its edge and never touches it,
-  so every icon has the same optical size.
+- One round pen, a tenth of the icon's side wide, kept between 1.25 and 1.8
+  pixels.
+- Ink fills the square to about a unit from its edge and never touches it, so
+  every icon has the same optical size.
 - Outline, not silhouette. A solid part is small.
 - No colour of its own. An icon is white and takes a text tone.
 
 ## Where an icon goes
 
-An icon goes before a word that names an action or a state, where it lets
-the eye find the word sooner. It does not go on every row of a form, on
-the answers of a dialog, or in place of a word the chief reads. One place
-drops a word for an icon, and there the icon has a tooltip that names it:
-a tight stack of sliders for one thing's look, such as the volumetric fog
-on the Sight page of Settings.
+An icon goes before a word that names an action or a state. It does not go
+on every row of a form, on the answers of a dialog, or in place of a word the
+chief reads; where it does replace a word, it has a tooltip that names it.
 
-An agent's state has one glyph, tone and word wherever it is shown, set
-in `hamlet_app/src/standing.rs`: `Bell` waiting for the chief, `Stop`
-stopped, `Bolt` at work, `Moon` at rest, `Gone` gone or turned away,
-`Merge` merged into another agent. `Progress` (an
-open ring with a dot) is for an outcome in progress that is not an
-agent's state, and it spins wherever `glyph` draws it: once every
-1.2 seconds, with its dot still.
+An agent's state has one glyph, tone and word wherever it is shown, set in
+`hamlet_app/src/standing.rs`.
 
-## One meaning each
-
-An icon means one thing across the app, so the eye can trust it. Those
-that name a part of Hamlet:
-
-- `Tree` the Hub, `Globe` the world and the realm, `Hamlet` a hamlet,
-  `Profile` a profile and the city, `Anchor` the harbor, `Signpost`
-  channels, `Hearth` the chief's hearth.
-- `Tower` the Hand, `Lead` a lead and the parents, `HamletAgent` an agent of a hamlet,
-  `Worker` a worker, `Robot` agents in general, `Face` an agent's
-  character, `Notes` what it is told in writing (its prompt, memory
-  and the charter), `Book` skills, the library and a hamlet's limits.
-- `Chip` a model, `Fast` the fast tier, `Key` a provider's key and an
-  agent's tools, `Signal` a connection or a sign-in, `Shield` the sandbox
-  and approvals.
-- `Lens` a search, `ZoomIn` a picture opened at its full size,
-  `Sliders` settings, `Speaker` sound, `Eye` how
-  something looks or showing it, `Sun` the Sight page.
-- `Leave` closing the window.
-
-Before giving an icon a new use, search for `Glyph::<Name>` and keep to
-its meaning; draw a new one when none fits.
+An icon means one thing across the app. Before giving one a new use, search
+for `Glyph::<Name>` and keep to its meaning; draw a new one when none fits.
 
 ## Adding one
 

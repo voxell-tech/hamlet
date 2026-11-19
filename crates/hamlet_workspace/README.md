@@ -6,56 +6,29 @@ bearer token and runs each file or process operation confined by
 bubblewrap, with only the calling agent's worktree and, when granted, the
 shared project writable. Hamlet's server talks to it directly.
 
-The binary is Linux-only. Built for another system, it only reports
-that it is unsupported, so the Cargo workspace still builds there.
+The binary is Linux-only; elsewhere it only reports that it is
+unsupported, so the Cargo workspace still builds.
 
-This page covers packaging, configuration and operation. What agents
-and the chief see is in [`docs/sandbox.md`](../../docs/sandbox.md), and
-the protocol is the `hamlet_workspace_wire` crate
-([`../hamlet_workspace_wire/src/lib.rs`](../hamlet_workspace_wire/src/lib.rs)),
-which Hamlet's server uses too, with example messages and replies in
+What agents and the chief see is in
+[`docs/sandbox.md`](../../docs/sandbox.md). The protocol is the
+`hamlet_workspace_wire` crate, with examples in its
 [`fixtures/protocol.json`](../hamlet_workspace_wire/fixtures/protocol.json).
 
 ## Build the image
-
-From the repository root:
 
 ```sh
 cargo xtask workspace-image
 ```
 
-This tags the image `hamlet_workspace:<short commit>` and labels it
-`org.opencontainers.image.revision` with the full commit, so a deployed
-image tells which commit it holds. Arguments after the task go to `docker
-build`, such as `--platform linux/amd64`; a `-t` there replaces the
-default tag.
+This tags the image `hamlet_workspace:<short commit>`. Arguments after
+the task go to `docker build`, such as `--platform linux/amd64`. The
+build fails if `Cargo.lock` would change.
 
-The build stage copies the whole Cargo workspace, because Cargo needs
-every member to load it, then compiles only this crate with
-`cargo build --locked --release -p hamlet_workspace`. It fails if
-`Cargo.lock` would change.
-
-The runtime image is Debian 12 slim with:
-
-- `/usr/local/bin/hamlet_workspace` as the entrypoint, with no default
-  arguments;
-- `bubblewrap` pinned to `0.8.0-2+deb12u1` at `/usr/bin/bwrap`, the
-  path the worker calls;
-- `bash`, coreutils, findutils, grep, sed, gawk, diffutils, patch, file,
-  tar, gzip, xz, procps, less, git, curl, Python 3 and ripgrep for agent commands
-  and the shipped starter skills;
-- `socat` for the confined operation's loopback-to-Unix proxy relay;
-- `ca-certificates`, the public trust bundle network-granted commands
-  see.
-
-Both base images are pinned by index digest in the `ARG` lines. Commands
-run with only `/usr`, `/bin`, `/lib` and `/lib64` mounted read-only, so
-a tool is available to agents only if it is installed under those paths.
-Only `/etc/ssl/certs/ca-certificates.crt`, the public CA trust bundle,
-is additionally mounted read-only for network-granted commands. Other
-`/etc` contents remain hidden.
-
-The image holds no configuration and no tokens.
+The runtime image is Debian 12 slim, with `bubblewrap` at `/usr/bin/bwrap`
+and `socat` at `/usr/bin/socat`. Commands see only `/usr`, `/bin`, `/lib`
+and `/lib64` read-only, so a tool is available to agents only if it is
+installed under those paths. The image holds no configuration and no
+tokens.
 
 ## Configuration
 
@@ -67,68 +40,45 @@ unknown fields, so it cannot hold comments. See
 |---|---|
 | `listen` | Plain HTTP address for `POST /v1`. |
 | `root` | Durable data root, which must already exist; it is set to mode 0700. |
-| `realms` | Each realm's stable name (letters, digits, `-`, `_`, at most 128) and the bearer token its Hamlet sends: at least 16 characters, different for every realm. |
+| `realms` | Each realm's stable name (letters, digits, `-`, `_`, at most 128) and its bearer token: at least 16 characters, different for every realm. |
 
-Realms. One worker serves any number of Hamlet realms. The token alone
-tells the worker which realm is calling: two realms never share a file
-or an operation record, even when their hamlets have the same names. To
-add a realm, give it a name and a new random token in `realms` and
-restart the worker, then give its chief the worker's address and that
-token under Workspace in Hamlet's Settings. A realm's name must never
-change: its files are found by it. A realm taken out of `realms` is
-refused from the next start; its files stay until an operator deletes
-them.
+Realms. One worker serves any number of realms; the token alone tells it
+which is calling, and two realms never share a file. To add a realm, add a
+name and a new random token to `realms`, restart the worker, and give the
+chief the address and token under Workspace in Hamlet's Settings. A
+realm's name must never change, since its files are found by it. A realm
+removed from `realms` is refused from the next start; its files stay.
 
-Secrets. The realms' tokens sit in the configuration file, so mount it
-from a secret store, read-only. The worker holds no other credentials:
-no model, git or cloud credentials. Commands see none of the machine's
-files beyond their worktree, the project, the library and the system
-folders above.
+Secrets. The tokens sit in the configuration file, so mount it read-only
+from a secret store.
 
-Files. A workspace is a hamlet's, named by the hamlet's id, or the
-realm's own for agents of no hamlet, named `realm`. Worktrees live at
-`{root}/{realm}/{workspace}/worktrees/{agent}`, bound at `/worktree`, which
-is also the commands' `HOME`; the shared project at
-`{root}/{realm}/{workspace}/project`, bound at `/project`; the
-operation journal at `{root}/{realm}/operations` and library snapshots
-at `{root}/{realm}/.library/{sha256}`. Put `root` on persistent
-storage: the project lives only there, and its files are as durable as
-that storage.
+Files. A workspace is a hamlet's, named by its id, or `realm` for agents
+of no hamlet. Worktrees are under
+`{root}/{realm}/{workspace}/worktrees/{agent}`, bound at `/worktree`; the
+shared project is `{root}/{realm}/{workspace}/project`, bound at
+`/project`. Put `root` on persistent storage: the project lives only
+there.
 
-A remote worktree is a copy. The server keeps each worktree as a checkout of
-its agent's branch and stays its source: it pushes the worktree to the
-worker when the server's copy changes (a purge, a chief's
-edit, a job that checks the branch out again) and pulls it back after
-each tool call that may have written it. Dreams always run on the
-server.
-The worker holds `{root}/.control/lock` while running, so a second
-worker on the same root exits. A missing `root` stops the worker rather
-than starting it empty, but a root emptied by accident cannot be told
-from a new one.
+A remote worktree is a copy. The server stays its source: it pushes the
+worktree when its own copy changes and pulls it back after each tool call
+that may have written it. A second worker on the same root exits, and a
+root emptied by accident cannot be told from a new one.
 
-Journal. Each operation id is admitted once. The worker writes the
-id's marker durably before running it and the reply after it. A
-repeated id is never run again and answers `uncertain`, as does an id
-whose operation was cut short by a worker restart. A `cancel` received
-before its `execute` marks the id cancelled before acknowledging it, so
-it is never admitted, even after a restart; its `execute` answers
-`aborted`. A `cancel` of a running operation stops its whole process
-tree before the operation's reply is written. A supervisor still
-running 10 seconds after the cancel is killed instead, and its reply,
-an uncertain `confinement`, does not wait for the tree to end.
+Journal. Each operation id is admitted once. A repeated id is never run
+again and answers `uncertain`, as does one a restart cut short. A
+`cancel` received before its `execute` means the `execute` is never
+admitted, even after a restart, and answers `aborted`. A `cancel` of a
+running operation stops its whole process tree before the reply is
+written.
 
-TLS. The worker serves plain HTTP and does not terminate TLS. Hamlet
-accepts only an `https://` workspace URL or a loopback `http://` one.
-Either keep `listen` on the worker machine's loopback and reach it
-through an SSH tunnel from the server's machine:
+TLS. The worker serves plain HTTP; Hamlet accepts only an `https://`
+URL or a loopback `http://` one. Keep `listen` on loopback and tunnel:
 
 ```sh
 ssh -N -L 7420:127.0.0.1:7420 USER@WORKSPACE-HOST
 ```
 
-then choose `http://127.0.0.1:7420` and the realm's token under
-Workspace in Hamlet's Settings; or put a TLS proxy in front of it. Do
-not expose the plain port on a network.
+or put a TLS proxy in front. Never expose the plain port on a network.
 
 ## Running in Docker
 
@@ -142,102 +92,45 @@ docker run -d --name hamlet_workspace \
   hamlet_workspace:TAG worker /etc/hamlet_workspace/worker.json
 ```
 
-Inside the container, `listen` must be `0.0.0.0:7420` for the
-published port to reach it; `-p 127.0.0.1:…` keeps that port on the
-host's loopback. `root` is `/workspace`, the volume.
+Inside the container, `listen` must be `0.0.0.0:7420` and `root`
+`/workspace`, the volume.
 
-Every operation runs in a new user and network namespace with all
-capabilities dropped. Docker's default seccomp profile refuses those
-namespaces, and its masked `/proc` paths stop bubblewrap mounting a new
-`/proc`, hence the two options; neither is enough alone. The worker
-maps its own root into each namespace, which needs `SETFCAP`, part of
-Docker's default capabilities, so do not drop it. Without any of these
-every operation fails with `confinement`: nothing runs unconfined.
+Docker's default seccomp profile refuses the user and network
+namespaces each operation runs in, and its masked `/proc` paths stop
+bubblewrap mounting a new `/proc`, hence the two options; neither is
+enough alone. Do not drop `SETFCAP`. Without these every operation fails
+with `confinement`: nothing runs unconfined.
 
-This setup was checked on Docker 29.4 on arm64 Linux: confined commands
-saw only their own worktree, the shared project and the system folders, a
-denied command could not resolve a name, and a granted one reached a
-public HTTPS site through the proxy but not the metadata address. Hosts
-with AppArmor may need `--security-opt apparmor=unconfined` as well;
-that is not checked.
-
-Outside Docker the worker needs bubblewrap at `/usr/bin/bwrap`, socat
-at `/usr/bin/socat`, user namespaces it may create, and the tools
-agents use under `/usr`, `/bin`, `/lib` and `/lib64`. That is not
-checked either.
+Hosts with AppArmor may need `--security-opt apparmor=unconfined`; not
+checked. Outside Docker the worker needs bubblewrap and socat at the
+paths above.
 
 ## Deleting a workspace
 
 Hamlet never deletes a workspace. The operator does, with the worker
-stopped, by removing `{root}/{realm}/{workspace}`. Nothing remembers it:
-a later request for the same workspace starts it empty.
+stopped, by removing `{root}/{realm}/{workspace}`.
 
 ## Shared skills
 
-Hamlet owns the library on the server, outside the remote worktrees. It
-takes a snapshot of the library for each tool call and names it on an
-execute request by `library.sha256`, the digest of its files. The
-worker keeps each snapshot it was given under
-`{root}/{realm}/.library/{sha256}` and binds it read-only at
-`/library`.
-When it does not hold the named snapshot it answers `library_missing`,
-and Hamlet sends the request again with `library.files`: relative
-`path`, base64 `data` and permission `mode` for each regular file.
-Links, special files, more than 1024 entries and more than 4 MiB are
-refused, and files whose digest is not the named one are not kept. Only
-library files are transferred, never the server's credentials or other
-worktrees. A snapshot unused for 15 minutes is swept. Shelving and
-unshelving a skill change the digest, so they affect the next tool
-call; a running operation keeps its snapshot. Failed snapshot reads
-prevent the operation from being sent. The librarian's judgment and
-the shelving itself happen on the server, from the server's copy of
-the worktree.
+Hamlet names a snapshot of its library on each execute request by
+`library.sha256`; the worker binds it read-only at `/library`. If it lacks
+the snapshot it answers `library_missing` and Hamlet resends it with
+`library.files`. Links, special files, more than 1024 entries and more
+than 4 MiB are refused. An unused snapshot is swept after 15 minutes.
 
 ## Network grants
 
-Each operation has a private network namespace. A denied operation has
-no proxy socket or external route. A granted operation gets a Unix
-socket connected to the worker's HTTP proxy and a loopback relay on
-port 3128, advertised as `HTTP_PROXY` and `HTTPS_PROXY`. The proxy
-accepts public IPv4 and IPv6 destinations on ports 80 and 443 only,
-rejects private, loopback, link-local (metadata), shared and transition
-addresses, and connects to the exact checked DNS result. Direct
-external sockets and UDP remain unavailable. Clients must honor the
-proxy environment.
-
-The check is by address alone. A machine on a network that routes
-public-looking addresses privately needs those ranges blocked outside
-the worker before network grants are used; the worker has no list of
-extra ranges.
-
-The relay is part of the operation's process tree and cannot outlive
-its completion barrier. Proxy connections have a 120-second lifetime,
-a 16 KiB header limit and a 64-connection worker-wide bound. Killing the
-relay closes the corresponding upstream connections. CONNECT permits
-a byte tunnel on the allowed ports; it does not inspect TLS or promise
-that the tunneled application is HTTP.
+A denied operation has no route out. A granted one reaches the worker's
+HTTP proxy through a Unix socket and a loopback relay on port 3128
+(`HTTP_PROXY`, `HTTPS_PROXY`). The proxy allows public destinations on
+ports 80 and 443 only, rejecting private, loopback, link-local
+(metadata), shared and transition addresses. The check is by address
+alone: on a network that routes public-looking addresses privately, block
+those ranges outside the worker before using network grants.
 
 ## Tests
 
-On Linux, from the root:
-
-```sh
-cargo test -p hamlet_workspace
-```
-
-These cover the worker's tokens, its journal across restarts, its
-answers to the shared fixture's refusals, its no-follow file operations
-and its address checks. Hamlet's server tests against this protocol
-with a loopback double of the worker, in
-`crates/hamlet_server/tests/crashes/remote.rs`:
-
-```sh
-npm ci --prefix harnesses/pi
-cargo test -p hamlet_server --features harness --test crashes remote::
-```
-
-They cover the worktrees moved at a chief's word, an agent's tool writing
-its remote worktree and the server bringing that home beside what it
-kept, the library snapshot sent once, and a host path refused without
-running on the server. No automated test runs the server against the
-real worker.
+`cargo test -p hamlet_workspace` on Linux. The server's tests use a
+loopback double of the worker, in
+`crates/hamlet_server/tests/crashes/remote.rs`; no automated test runs the
+server against the real worker.

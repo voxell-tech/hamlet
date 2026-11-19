@@ -2,62 +2,34 @@
 
 The pointer is the chief's taper: a brass-handled taper whose flame leans
 toward what it points at. The tip of the flame is the hot spot. What is
-pressed or held is in the chief's glove, the same hand that lifts a robot
-in the world.
+pressed or held is in the chief's glove, the same hand that lifts a robot in
+the world.
 
-`cargo run --example cursor_sheet` writes every cursor to one sheet, large
-and at its own size.
+`cargo run --example cursor_sheet` writes every cursor to one sheet, large and
+at its own size. `Mode` in `hamlet_app/src/cursor.rs` names them.
 
-## The modes
-
-| Mode | Picture | When |
-|---|---|---|
-| `Point` | The glowing taper | Nothing else holds |
-| `Press` | The glove with one finger out | Over a button, a tab, a link, or a thing of the world that takes a click or can be selected |
-| `Grab` | The open glove | Over a robot that can be lifted, or a dock tab |
-| `Carry` | The closed glove | A robot is off the ground, or a dock tab is being dragged |
-| `Slide` | Four arrowheads | The left button drags the ground |
-| `Turn` | Two curved arrows | The right button turns the view |
-| `Write` | An upright bar | Over a text field |
-| `Resize(axis)` | A two-headed arrow | At an edge of the window, a divider, or a number field that is dragged |
-| `Refuse` | A barred ring | A panel refuses |
-| `Wait` | A flame with fireflies going round it | A request of the first-run page is out |
-
-The resize cursors are ours and not the system's, because they also show
-on dividers in the middle of the panels, where a white system arrow would
-break the set.
+The resize cursors are ours and not the system's, because they also show on
+dividers in the middle of the panels, where a white system arrow would break
+the set.
 
 ## Which mode wins
 
-`Mode::choose` in `hamlet_app/src/cursor.rs` decides, and the first of
-these that holds is shown:
+`Mode::choose` in `hamlet_app/src/cursor.rs` decides, and the first rule that
+holds is shown, in the order it lists them: a pending first-run request,
+a robot held (`Carry`, drawn faint so the robot is seen through it), a camera
+drag, the panels' own cursor (fynix sets a system cursor and
+`Mode::of_system` turns it into a mode), a robot the hand could take, a
+thing that takes a click, and otherwise the taper.
 
-1. A request of the first-run page is out: `Wait`.
-2. The hand holds a robot off the ground: `Carry`, drawn faint so the
-   robot is seen through it.
-3. A drag moves the camera: `Slide` or `Turn`.
-4. The panels ask for a cursor. Fynix sets a system cursor on the window,
-   and `Mode::of_system` turns it into a mode.
-5. The hand could take what is under the pointer: `Grab`.
-6. Something of the world takes the click, or a thing of the world is
-   under the pointer: `Press`.
-7. Otherwise `Point`.
+`cursor::dress` runs in `PostUpdate`, after fynix and the world have had their
+say.
 
-`cursor::dress` runs in `PostUpdate`, after fynix and the world have had
-their say, and replaces the window's cursor only when the wanted picture
-differs from the one shown.
-
-## Tuning
+## Changing one
 
 - **Colours** come from the dark variant of the theme picked, through
-  `cursor::inks()`, in light mode too: a light taper and glove with a
-  dark edge read over every panel and the world.
-- **Shapes** and **hot spots** are in `cursor/art.rs`. Each mode is a
-  short list of shapes in a square of 32 pixels.
-- **Size.** A cursor is 32 by 32 pixels, and winit takes no scale. On a
-  retina screen the system doubles it, so it is softer than a system
-  cursor there. A larger image would be a larger cursor, not a sharper
-  one.
+  `cursor::inks()`, in light mode too, so the cursor reads over every panel.
+- **Shapes** and **hot spots** are in `cursor/art.rs`, each mode a short list
+  of shapes in a square of 32 pixels.
 
-After a change, look at the small swatches on the sheet: a cursor that
-only reads at eight times its size does not read.
+After a change, look at the small swatches on the sheet: a cursor that only
+reads at eight times its size does not read.
