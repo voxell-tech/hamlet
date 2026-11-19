@@ -9,6 +9,7 @@ mod commands;
 mod frames;
 mod host;
 mod view;
+mod words;
 
 use std::collections::BTreeMap;
 use std::net::Ipv4Addr;

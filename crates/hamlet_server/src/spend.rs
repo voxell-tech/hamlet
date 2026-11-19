@@ -54,7 +54,7 @@ pub(crate) fn micros(dollars: f64) -> Micros {
     (dollars * 1_000_000.0).round() as i64
 }
 
-fn duration(ms: i64) -> String {
+pub(crate) fn duration(ms: i64) -> String {
     let seconds = ms / 1000;
     if seconds < 60 {
         format!("{seconds}s")
