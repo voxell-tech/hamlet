@@ -197,6 +197,7 @@ async fn a_worker_answers_its_starter_once_and_ends() {
                         name: Some(shown(FOUR).name),
                     },
                     text: "Counted: 3 files.".to_owned(),
+                    conversation: None,
                 },
             }
         )]
@@ -615,6 +616,7 @@ async fn a_chief_stops_a_worker_and_its_starter_hears_no_answer() {
                     name: Some(shown(FOUR).name),
                 },
                 text: "It gave no answer.".to_owned(),
+                conversation: None,
             }
         )]
     );

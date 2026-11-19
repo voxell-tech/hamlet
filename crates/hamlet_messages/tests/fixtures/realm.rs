@@ -1659,6 +1659,7 @@ fn the_calls_to_agents_and_profiles(fixtures: &mut Fixtures) {
                     name: Some("worker#15".into()),
                 },
                 text: "Three links are broken".into(),
+                conversation: Some(ConversationId("c1".into())),
             },
         ),
         (

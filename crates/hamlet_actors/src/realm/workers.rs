@@ -233,6 +233,7 @@ pub(super) async fn answer(
                 name: Some(record::agent_name(worker).name),
             },
             text: words(how, row.answer),
+            conversation: None,
         },
     };
     realm

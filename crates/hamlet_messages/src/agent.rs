@@ -143,8 +143,14 @@ pub enum Input {
         #[serde(default, skip_serializing_if = "Option::is_none")]
         conversation: Option<ConversationId>,
     },
-    /// The answer of a worker the agent started.
-    WorkerAnswer { from: Author, text: String },
+    /// The answer of a worker the agent started, for the conversation
+    /// it was started from; absent when its start named none.
+    WorkerAnswer {
+        from: Author,
+        text: String,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        conversation: Option<ConversationId>,
+    },
     Letter {
         from: Author,
         text: String,

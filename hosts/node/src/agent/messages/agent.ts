@@ -82,6 +82,7 @@ export type Input =
           readonly type: "worker_answer";
           readonly from: Author;
           readonly text: string;
+          readonly conversation?: string;
       }
     | {
           readonly type: "letter";
@@ -587,7 +588,15 @@ const INPUT = union([
         OPEN,
     ),
     obj({ type: lit("notice"), text: str(), conversation: opt(str()) }, OPEN),
-    obj({ type: lit("worker_answer"), from: AUTHOR, text: str() }, OPEN),
+    obj(
+        {
+            type: lit("worker_answer"),
+            from: AUTHOR,
+            text: str(),
+            conversation: opt(str()),
+        },
+        OPEN,
+    ),
     obj(
         {
             type: lit("letter"),

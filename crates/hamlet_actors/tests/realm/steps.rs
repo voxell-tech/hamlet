@@ -383,6 +383,7 @@ async fn a_worker_whose_agent_cannot_be_made_ends_and_its_starter_hears()
                 name: Some(shown(FOUR).name),
             },
             text: "It gave no answer.".to_owned(),
+            conversation: None,
         }
     );
     let (_, how) = hiring_and_how(&realm, FOUR).await;
