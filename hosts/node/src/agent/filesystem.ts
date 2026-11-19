@@ -95,6 +95,22 @@ export interface AgentFilesystem {
         path: string,
         context: Context,
     ): Promise<Result<Found<string>, FileError>>;
+    /**
+     * Every file at or below `path`, each from the folder, after at most
+     * `LOOKED` names looked at. It goes into no folder today's walk skips
+     * below `path`.
+     */
+    walk(
+        path: string,
+        context: Context,
+    ): Promise<
+        Result<
+            { readonly files: string[]; readonly capped: boolean },
+            FileError
+        >
+    >;
+    /** Removes the file, or the folder with all it holds. */
+    remove(path: string, context: Context): Promise<Result<void, FileError>>;
     /** Copies a file to another place in the agent's filesystem. */
     copy(
         from: string,

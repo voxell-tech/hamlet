@@ -41,6 +41,8 @@ export interface PromptSources {
     /** A file of the project, by its absolute path, through the workspace; `undefined` when the workspace failed. */
     readonly readFile: (path: string) => Promise<ReadAnswer | undefined>;
     readonly report: Peers["report"];
+    /** The library's checkout, by its absolute path. */
+    readonly library?: string;
     /** An errand's prompt is its own instructions only. */
     readonly errand?: string;
 }
@@ -226,6 +228,10 @@ async function memory(
     return text.trimEnd();
 }
 
+/**
+ * As today's `skills` (`crates/hamlet_server/src/talk/prompt.rs:411-458`):
+ * the agent's own skills, then the library's shelves, when they hold any.
+ */
 async function skills(
     sources: PromptSources,
     context: Context,
@@ -234,7 +240,8 @@ async function skills(
     // As today's `shelf`, a folder that cannot be listed shows no skills.
     const entries = (await listed(sources, "skills", context)) ?? [];
     const quoted = files.root.replaceAll("'", "'\\''");
-    const lines: string[] = [];
+    let text = "# Your skills\n";
+    let own = 0;
     for (const entry of entries) {
         if (entry.kind !== "directory") continue;
         const paper = await readText(
@@ -246,11 +253,24 @@ async function skills(
         const name = field(paper, "name:");
         const usage = field(paper, "usage:");
         const run = usage === "" ? "" : ` Run: \`cd '${quoted}' && ${usage}\``;
-        lines.push(
-            `- ${name === "" ? entry.name : name}: ${field(paper, "description:")}${run} (skills/${entry.name}/SKILL.md)`,
-        );
+        text += `- ${name === "" ? entry.name : name}: ${field(paper, "description:")}${run} (skills/${entry.name}/SKILL.md)\n`;
+        own += 1;
     }
-    return `# Your skills\n${lines.length === 0 ? "(none yet)" : lines.join("\n")}`;
+    if (own === 0) text += "(none yet)";
+    const { library } = sources;
+    const shared = (await sources.copies()).shelves ?? [];
+    if (library !== undefined && shared.length > 0) {
+        text += `\n# The library\nSkills every agent shares, kept in ${library}. Read one and run it from there; do not copy it into your lodge. You cannot write there. To share a skill of your own, use \`submit_skill\`.\n`;
+        for (const skill of shared) {
+            const there = `${library}/${skill.name}/`;
+            const run =
+                skill.usage === ""
+                    ? ""
+                    : ` Run: \`${skill.usage.replaceAll(`skills/${skill.name}/`, there)}\``;
+            text += `- ${skill.name}: ${skill.description}${run} (${there}SKILL.md)\n`;
+        }
+    }
+    return text.trimEnd();
 }
 
 const MESSAGES =

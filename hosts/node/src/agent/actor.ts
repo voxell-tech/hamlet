@@ -9,10 +9,13 @@ import {
     type ConversationId,
     type Cursor,
     createRegistry,
+    defineExtension,
     type EntryId,
     type Extension,
+    GenerationTask,
     type Harness,
     type HarnessSettings,
+    hook,
     type Registry,
     type SettledSubmissionRecord,
 } from "@earendil-works/pi-durable";
@@ -39,6 +42,7 @@ import {
     withHarness,
 } from "../pi/runtime.ts";
 import { migratePiTables } from "../pi/storage.ts";
+import { type Branch, branchOf, migrateBranch } from "./branch.ts";
 import { type ChatHandlers, chatActions } from "./chat.ts";
 import { compactionFor, cutOffRule } from "./compaction.ts";
 import {
@@ -64,10 +68,18 @@ import {
     type Ended,
     type Fill,
     type Finished,
+    type Moved,
+    OWN_PROFILE,
     type Place,
+    type ProfileId,
+    profileAt,
     type RealmTask,
+    type Removal,
+    type RemovePath,
     read,
+    readAnswer,
     SENDERS,
+    type ShelvesChanged,
     type Submit,
     type ToolName,
 } from "./messages.ts";
@@ -83,7 +95,10 @@ import { type Following, following, watching } from "./transcript.ts";
 import {
     type Admission,
     Closing,
+    conversationsOf,
     draftOf,
+    isBusy,
+    libraryCalls,
     NOTE_BREAK,
     type Peers,
     peersOf,
@@ -99,7 +114,8 @@ export interface AgentConfig {
     /** As `provider/modelId`. */
     readonly model: string;
     readonly files: (agent: number) => AgentFilesystem;
-    readonly fill?: (files: AgentFilesystem, fill: Fill) => Promise<void>;
+    /** The library's checkout, by its absolute path, which the prompt names. */
+    readonly library?: string;
     readonly settings?: HarnessSettings;
     /** The models the listing holds now. */
     readonly listed?: () => readonly Model<Api>[];
@@ -114,16 +130,19 @@ export type AgentCall = PiContext & ActionCaller;
 declare const taken: unique symbol;
 
 /**
- * Only `sentBy` makes one, so every action checks its sender and answers
- * `null`.
+ * Only `sentBy` makes one, so every action checks its sender, and answers
+ * `null` unless its message has an answer.
  */
-export type Taken<Args extends readonly unknown[]> = ((
+export type Taken<Args extends readonly unknown[], Answer = null> = ((
     c: AgentCall,
     ...args: Args
-) => Promise<null>) & { readonly [taken]: true };
+) => Promise<Answer>) & { readonly [taken]: true };
 
 export type AgentHandlers = {
-    readonly [N in keyof AgentActions]: Taken<Parameters<AgentActions[N]>>;
+    readonly [N in keyof AgentActions]: Taken<
+        Parameters<AgentActions[N]>,
+        ReturnType<AgentActions[N]>
+    >;
 } & ChatHandlers & { readonly pi: { readonly wake: Taken<[]> } };
 
 export type AgentDefinition = ActorDefinition<
@@ -192,6 +211,7 @@ function offered(extension: Extension, offer: Offer): Extension {
 /** Their order decides only the order the tools are offered in. */
 function parts(
     builtIns: BuiltIns | undefined,
+    branch: Branch,
     peers: Peers,
     prompt: PromptSources,
     withHarness: WithHarness,
@@ -219,7 +239,27 @@ function parts(
         ...builtIn,
         society(peers),
         timers(),
+        saving(branch, peers),
     ];
+}
+
+/** A turn that answered saves the filesystem to the branch. */
+function saving(branch: Branch, peers: Peers): Extension {
+    return defineExtension({
+        name: "hamlet.branch",
+        hooks: [
+            hook(GenerationTask, {
+                afterRun: async (_run, api) => {
+                    await branch
+                        .turnEnded(api.conversationId)
+                        .catch((error: unknown) =>
+                            peers.report("the filesystem was not saved", error),
+                        );
+                    return undefined;
+                },
+            }),
+        ],
+    });
 }
 
 function agentActions(config: AgentConfig): AgentHandlers {
@@ -228,11 +268,14 @@ function agentActions(config: AgentConfig): AgentHandlers {
             submit,
             finished,
             place,
-            fill: (c, message) => fill(c, config, message),
+            fill,
             copies,
+            moved,
+            remove_path,
+            shelves_changed,
         }),
         ...chatActions(config),
-        pi: { wake: sentBy(ALARM, "pi.wake", () => [], wakeTimers) },
+        pi: { wake: sentBy<[], null>(ALARM, "pi.wake", () => [], wakeTimers) },
     };
 }
 
@@ -259,40 +302,60 @@ export function agentActor(config: AgentConfig): AgentDefinition {
 /** The host's alarm calls with no caller. */
 const ALARM = null;
 
-function sentBy<Args extends readonly unknown[]>(
-    sender: Address | typeof ALARM,
+type Sender = Address | typeof OWN_PROFILE | typeof ALARM;
+
+async function isSender(
+    c: AgentCall,
+    sender: Sender,
+    caller: Caller | null,
+): Promise<boolean> {
+    if (sender === ALARM) return caller === null;
+    if (caller === null || caller === "client") return false;
+    if (sender !== OWN_PROFILE) return Address.equals(caller.actor, sender);
+    const profile = await profileOf(c);
+    return (
+        profile !== undefined &&
+        Address.equals(caller.actor, profileAt(profile))
+    );
+}
+
+function sentBy<Args extends readonly unknown[], Answer = null>(
+    sender: Sender,
     action: string,
     read: (raw: readonly unknown[]) => Args,
-    handle: (c: AgentCall, ...args: Args) => void | Promise<void>,
-): Taken<Args> {
-    const takenBy = async (c: AgentCall, ...raw: unknown[]): Promise<null> => {
+    handle: (
+        c: AgentCall,
+        ...args: Args
+    ) => Promise<Answer> | Promise<void> | void,
+): Taken<Args, Answer> {
+    const takenBy = async (
+        c: AgentCall,
+        ...raw: unknown[]
+    ): Promise<Answer | null> => {
         const caller = c.caller;
-        const right =
-            sender === ALARM
-                ? caller === null
-                : caller !== null &&
-                  caller !== "client" &&
-                  Address.equals(caller.actor, sender);
-        if (!right) throw wrongCaller(action, caller);
-        await handle(c, ...read(raw));
+        if (!(await isSender(c, sender, caller))) {
+            throw wrongCaller(action, caller);
+        }
         // Returning nothing answers `["$Undefined", 0]`, which a Rust `()`
         // cannot read.
-        return null;
+        return (await handle(c, ...read(raw))) ?? null;
     };
-    return takenBy as unknown as Taken<Args>;
+    return takenBy as unknown as Taken<Args, Answer>;
 }
 
 function taking<A extends { [N in keyof A]: (message: never) => unknown }>(
-    senders: { readonly [N in keyof A]: Address },
+    senders: { readonly [N in keyof A]: Address | typeof OWN_PROFILE },
     readers: { readonly [N in keyof A]: (raw: unknown) => Parameters<A[N]>[0] },
     handlers: {
         readonly [N in keyof A]: (
             c: AgentCall,
             message: Parameters<A[N]>[0],
-        ) => void | Promise<void>;
+        ) => Promise<ReturnType<A[N]>> | Promise<void> | void;
     },
-): { readonly [N in keyof A]: Taken<Parameters<A[N]>> } {
-    const actions = {} as { [N in keyof A]: Taken<Parameters<A[N]>> };
+): { readonly [N in keyof A]: Taken<Parameters<A[N]>, ReturnType<A[N]>> } {
+    const actions = {} as {
+        [N in keyof A]: Taken<Parameters<A[N]>, ReturnType<A[N]>>;
+    };
     for (const name of Object.keys(handlers) as (keyof A & string)[]) {
         const reader = readers[name];
         actions[name] = sentBy(
@@ -300,7 +363,10 @@ function taking<A extends { [N in keyof A]: (message: never) => unknown }>(
             name,
             (raw): [Parameters<A[typeof name]>[0]] => [reader(raw[0])],
             handlers[name],
-        ) as unknown as Taken<Parameters<A[typeof name]>>;
+        ) as unknown as Taken<
+            Parameters<A[typeof name]>,
+            ReturnType<A[typeof name]>
+        >;
     }
     return actions;
 }
@@ -326,6 +392,7 @@ async function migrateAgent(raw: Pick<RawAccess, "execute">): Promise<void> {
     await migratePiTables(raw);
     await migrateCopies(raw);
     await migrateChats(raw);
+    await migrateBranch(raw);
     await raw.execute(`
         CREATE TABLE IF NOT EXISTS agent (
             id INTEGER PRIMARY KEY CHECK (id = 1),
@@ -334,6 +401,7 @@ async function migrateAgent(raw: Pick<RawAccess, "execute">): Promise<void> {
             place_version INTEGER NOT NULL,
             tools_off TEXT NOT NULL CHECK (json_valid(tools_off)),
             place TEXT NOT NULL CHECK (json_valid(place)),
+            profile INTEGER,
             filled TEXT,
             epoch INTEGER NOT NULL DEFAULT 0,
             brief TEXT CHECK (brief IS NULL OR json_valid(brief))
@@ -407,6 +475,8 @@ export interface Generation {
     readonly peers: Peers;
     readonly registry: Registry;
     readonly copies: ReadCopies;
+    readonly prompt: PromptSources;
+    readonly branch: Branch;
     readonly following: Following;
     /**
      * Runs `work` once every earlier `work` has settled. What reads the
@@ -444,10 +514,21 @@ async function wake(c: AgentContext, config: AgentConfig): Promise<void> {
             c.log.warn({ msg: what, error: reasonOf(error) }),
     });
     const copies = copiesOf(c.db);
+    const branch = branchOf(c, peers, (except) =>
+        withHarness(async (harness, context) => {
+            for (const id of await conversationsOf(harness, context)) {
+                if (id !== except && (await isBusy(harness, id, context))) {
+                    return true;
+                }
+            }
+            return false;
+        }),
+    );
     const errand =
         row.kind === "errand" ? (row.brief?.instructions ?? "") : undefined;
     const prompt: PromptSources = {
         ...promptSources(c, copies, peers),
+        ...(config.library === undefined ? {} : { library: config.library }),
         ...(errand === undefined ? {} : { errand }),
     };
     const chief = () => current(c.db);
@@ -460,6 +541,7 @@ async function wake(c: AgentContext, config: AgentConfig): Promise<void> {
             : { listed: [workspaceTools(peers), ownFiles(peers)], offer };
     for (const part of parts(
         builtIns,
+        branch,
         peers,
         prompt,
         withHarness,
@@ -494,6 +576,8 @@ async function wake(c: AgentContext, config: AgentConfig): Promise<void> {
         peers,
         registry,
         copies,
+        prompt,
+        branch,
         following: follow,
         inTurn: oneAfterAnother(),
         retrying: undefined,
@@ -540,6 +624,13 @@ async function wake(c: AgentContext, config: AgentConfig): Promise<void> {
     void secretsRefreshed(peers.reach).catch((error: unknown) =>
         peers.report("the realm's secret list was not read", error),
     );
+    // Asking keeps the agent among the library's listeners, so only an
+    // agent that reads its shelves asks.
+    if (row.kind === "hand" || row.kind === "hire") {
+        void shelvesRead(c, peers).catch((error: unknown) =>
+            peers.report("the library's shelves were not read", error),
+        );
+    }
     if (
         (row.kind === "worker" || row.kind === "errand") &&
         row.brief !== undefined
@@ -770,18 +861,47 @@ async function place(c: AgentCall, message: Place): Promise<void> {
     }
 }
 
-async function fill(
-    c: AgentCall,
-    config: AgentConfig,
-    message: Fill,
-): Promise<void> {
-    const wanted = JSON.stringify(message.profile);
-    const row = await c.db.get<{ filled: string | null }>(
-        "SELECT filled FROM agent WHERE id = 1",
+async function fill(c: AgentCall, message: Fill): Promise<void> {
+    await generationOf(c).branch.fill(message.profile);
+}
+
+/** The profile the agent was filled from; absent before its fill. */
+async function profileOf(
+    c: Pick<AgentContext, "db">,
+): Promise<ProfileId | undefined> {
+    const row = await c.db.get<{ profile: ProfileId | null }>(
+        "SELECT profile FROM agent WHERE id = 1",
     );
-    if (row?.filled === wanted) return;
-    await config.fill?.(generationOf(c).peers.files, message);
-    await c.db.run("UPDATE agent SET filled = ? WHERE id = 1", wanted);
+    return row?.profile ?? undefined;
+}
+
+async function moved(c: AgentCall, message: Moved): Promise<void> {
+    if (message.character !== undefined) {
+        const { version, text } = message.character;
+        await keep(c, { character: { version, value: text } });
+    }
+    generationOf(c).branch.moved();
+}
+
+function remove_path(c: AgentCall, message: RemovePath): Promise<Removal> {
+    return generationOf(c).branch.remove(message.path);
+}
+
+async function shelvesRead(c: AgentContext, peers: Peers): Promise<void> {
+    const seen = await c.db.get<{ version: number }>(
+        "SELECT version FROM copy WHERE name = 'shelves'",
+    );
+    const list = readAnswer.shelves(
+        await libraryCalls(peers).shelves(seen?.version),
+    );
+    await keep(c, { shelves: { version: list.version, value: list.skills } });
+}
+
+async function shelves_changed(
+    c: AgentCall,
+    { list }: ShelvesChanged,
+): Promise<void> {
+    await keep(c, { shelves: { version: list.version, value: list.skills } });
 }
 
 async function copies(c: AgentCall, message: Copies): Promise<void> {

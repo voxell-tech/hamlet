@@ -24,7 +24,9 @@ import {
     type CredentialAnswer,
     type Done,
     type Kept,
+    LIBRARY,
     type OauthLogin,
+    profileAt,
     REALM,
     readClient,
     type SecretList,
@@ -35,6 +37,7 @@ import {
 } from "../src/agent/messages.ts";
 import {
     fakeCalls,
+    fakeFiles,
     from,
     named,
     priced,
@@ -85,11 +88,15 @@ async function turn(
         responses?: FauxResponseStep[];
         models?: (models: Models) => Models;
         offered?: string;
+        files?: Readonly<Record<string, string>>;
     },
 ): Promise<Woken> {
     const agent = await wakeAgent(t, {
         calls,
         input: HAND,
+        ...(given.files === undefined
+            ? {}
+            : { files: fakeFiles({ ...given.files }) }),
         responses: [
             ...(given.responses ?? []),
             fauxAssistantMessage(LAST_WORDS),
@@ -117,6 +124,8 @@ interface Written {
     readonly input?: Submit["input"];
     readonly tool?: readonly [name: string, args: ToolArgs];
     readonly answers?: Answers;
+    /** The agent's filesystem, by path. */
+    readonly files?: Readonly<Record<string, string>>;
     readonly offered?: string;
     readonly models?: (models: Models) => Models;
     /**
@@ -142,11 +151,14 @@ function ownForms(
     action: string,
 ): Readonly<Record<string, (value: unknown) => boolean>> {
     const call =
-        action === "charge"
-            ? /^m[0-9a-f]{8}(-[0-9a-f]{4}){3}-[0-9a-f]{12}$/
-            : /^t[1-9][0-9]*$/;
+        {
+            charge: /^m[0-9a-f]{8}(-[0-9a-f]{4}){3}-[0-9a-f]{12}$/,
+            save: /^[0-9a-f]{8}(-[0-9a-f]{4}){3}-[0-9a-f]{12}$/,
+        }[action] ?? /^t[1-9][0-9]*$/;
     return {
         call: (value) => typeof value === "string" && call.test(value),
+        part: (value) => Number.isInteger(value) && (value as number) >= 0,
+        last: (value) => typeof value === "boolean",
         conversation: (value) =>
             typeof value === "string" && /^[1-9][0-9]*$/.test(value),
         took_ms: (value) =>
@@ -381,6 +393,15 @@ async function signedIn(
     return agent;
 }
 
+/** Answers each call with the next of `answers`. */
+function answering<T>(...answers: T[]): () => T {
+    return () => {
+        const next = answers.shift();
+        assert.ok(next !== undefined, "asked more than was answered");
+        return next;
+    };
+}
+
 const WRITTEN: readonly Written[] = [
     {
         fixture: "workspace/run",
@@ -556,6 +577,231 @@ const WRITTEN: readonly Written[] = [
         answers: { realm: { hire: () => answer("realm/hire.hired") } },
         own: ["call", "conversation"],
     },
+    {
+        fixture: "realm/hire.at_a_version",
+        tool: ["hire", { scholar: "scholar#4@v1", purpose: "Check the links" }],
+        answers: { realm: { hire: () => answer("realm/hire.hired") } },
+        own: ["call", "conversation"],
+    },
+    {
+        fixture: "realm/create_profile",
+        tool: [
+            "create_scholar",
+            { name: "Ada", character: "You write careful tests." },
+        ],
+        answers: {
+            realm: {
+                create_profile: () => answer("realm/create_profile.made"),
+            },
+        },
+        own: ["call", "conversation"],
+    },
+    {
+        fixture: "realm/create_profile.realms_character",
+        tool: ["create_scholar", { name: "Ada" }],
+        answers: {
+            realm: {
+                create_profile: () => answer("realm/create_profile.made"),
+            },
+        },
+        own: ["call", "conversation"],
+    },
+    {
+        fixture: "realm/read_profile",
+        tool: ["read_scholar", { scholar: "scholar#4" }],
+        answers: {
+            realm: { read_profile: () => answer("realm/read_profile.listed") },
+        },
+        own: ["call", "conversation"],
+    },
+    {
+        fixture: "realm/read_profile.file",
+        tool: [
+            "read_scholar",
+            { scholar: "scholar#4", path: "memory/tests.md", version: "v1" },
+        ],
+        answers: {
+            realm: { read_profile: () => answer("realm/read_profile.text") },
+        },
+        own: ["call", "conversation"],
+    },
+    {
+        fixture: "realm/edit_profile",
+        tool: [
+            "edit_scholar",
+            {
+                scholar: "scholar#4",
+                path: "CHARACTER.md",
+                content: "You write careful tests.",
+                message: "Sharper",
+            },
+        ],
+        answers: {
+            realm: { edit_profile: () => answer("realm/edit_profile.done") },
+        },
+        own: ["call", "conversation"],
+    },
+    {
+        fixture: "realm/tag",
+        tool: [
+            "tag",
+            { scholar: "scholar#4", tag: "v1", note: "Before the refactor" },
+        ],
+        answers: { realm: { tag: () => answer("realm/tag.tagged") } },
+        own: ["call", "conversation"],
+    },
+    {
+        fixture: "realm/revert",
+        tool: [
+            "revert",
+            {
+                scholar: "scholar#4",
+                commit: "ab".repeat(20),
+                reason: "It broke the tests",
+            },
+        ],
+        answers: { realm: { revert: () => answer("realm/revert.reverted") } },
+        own: ["call", "conversation"],
+    },
+    {
+        fixture: "realm/ask_librarian",
+        tool: ["ask_librarian", { question: "How do I lint the docs?" }],
+        answers: {
+            realm: { ask_librarian: () => answer("realm/ask_librarian.done") },
+        },
+        own: ["call", "conversation"],
+    },
+    {
+        fixture: "realm/submit_skill",
+        tool: [
+            "submit_skill",
+            { skill: "lint-docs", reason: "It checks every link" },
+        ],
+        files: { "skills/lint-docs/SKILL.md": "---\nname: lint-docs\n---\n" },
+        answers: {
+            library: { offer: () => ({ type: "kept", offer: 3 }) },
+            realm: { submit_skill: () => answer("realm/submit_skill.done") },
+        },
+        own: ["call", "conversation"],
+    },
+    // The numbering of an offer's or a save's parts is `test/branch.test.ts`'s.
+    ...["library/offer", "library/offer.last"].map(
+        (fixture): Written => ({
+            fixture,
+            tool: [
+                "submit_skill",
+                { skill: "fixtures", reason: "Every hire writes fixtures" },
+            ],
+            files: { "skills/fixtures/SKILL.md": "---\nname: fixtures\n---\n" },
+            answers: {
+                library: { offer: () => answer("library/offer.kept") },
+                realm: {
+                    submit_skill: () => answer("realm/submit_skill.done"),
+                },
+            },
+            own: ["call", "part", "last"],
+        }),
+    ),
+    // Asked at each wake of a hand or a hire.
+    {
+        fixture: "library/shelves",
+        answers: { library: { shelves: () => answer("library/shelves") } },
+    },
+    {
+        fixture: "library/shelves.seen",
+        drive: async (t, calls) => {
+            const agent = await wakeAgent(t, { calls, input: HAND });
+            await agent.actions.shelves_changed(agent.by(from.library), {
+                list: { version: 4, skills: [] },
+            });
+            await agent.stop();
+            return agent.again();
+        },
+    },
+    {
+        fixture: "profile/files.tip",
+        drive: async (t, calls) => {
+            const agent = await wakeAgent(t, { calls, input: HAND });
+            await agent.actions.fill(agent.by(from.realm), { profile: 2 });
+            return agent;
+        },
+        answers: {
+            profile: { files: () => answer("profile/files.part.last") },
+        },
+    },
+    {
+        fixture: "profile/files.since",
+        drive: async (t, calls, sent) => {
+            const agent = await wakeAgent(t, { calls, input: HAND });
+            await agent.actions.fill(agent.by(from.realm), { profile: 2 });
+            await agent.actions.moved(agent.by(from.profile(2)), {
+                tip: "cd".repeat(20),
+            });
+            await until(() => named(sent, "files").length === 3);
+            return agent;
+        },
+        answers: {
+            profile: {
+                files: answering(
+                    {
+                        type: "part",
+                        tip: "12".repeat(20),
+                        files: [],
+                        removed: [],
+                    },
+                    answer("profile/files.part"),
+                    answer("profile/files.part.last"),
+                ),
+            },
+        },
+    },
+    ...["profile/save", "profile/save.last"].map(
+        (fixture): Written => ({
+            fixture,
+            drive: async (t, calls) => {
+                const files: Record<string, string> = {};
+                const agent = await wakeAgent(t, {
+                    calls,
+                    input: HAND,
+                    files: fakeFiles(files),
+                    responses: [fauxAssistantMessage(LAST_WORDS)],
+                });
+                await agent.actions.fill(agent.by(from.realm), { profile: 2 });
+                files["memory/tests.md"] = "# Notes\n";
+                delete files["memory/old.md"];
+                await agent.actions.submit(
+                    agent.by(from.realm),
+                    submitted(undefined),
+                );
+                await agent.idle();
+                return agent;
+            },
+            answers: {
+                profile: {
+                    files: answering(
+                        {
+                            type: "part",
+                            tip: "ab".repeat(20),
+                            files: ["memory/tests.md", "memory/old.md"].map(
+                                (path) => ({
+                                    path,
+                                    offset: 0,
+                                    bytes: Buffer.from("old\n").toString(
+                                        "base64",
+                                    ),
+                                    last: true,
+                                }),
+                            ),
+                            removed: [],
+                        },
+                        answer("profile/files.part.last"),
+                    ),
+                    save: () => answer("profile/save.saved"),
+                },
+            },
+            own: ["call", "part", "last"],
+        }),
+    ),
     {
         fixture: "realm/end",
         tool: ["end_hire", { hire: "hire#12" }],
@@ -799,9 +1045,16 @@ function field(
     return { holder, key };
 }
 
+/** The fixtures' profile is the one the agent was filled from. */
+const ADDRESSES: Readonly<Record<string, { kind: string; key: string }>> = {
+    workspace: WORKSPACE,
+    library: LIBRARY,
+    profile: profileAt(2),
+};
+
 function actionOf(name: string): { to: string; action: string } {
     const [folder = "", rest = ""] = name.split("/");
-    const to = folder === "workspace" ? WORKSPACE : REALM;
+    const to = ADDRESSES[folder] ?? REALM;
     return { to: `${to.kind}/${to.key}`, action: rest.split(".")[0] ?? "" };
 }
 
@@ -820,6 +1073,7 @@ for (const row of WRITTEN) {
                       ...(row.offered === undefined
                           ? {}
                           : { offered: row.offered }),
+                      ...(row.files === undefined ? {} : { files: row.files }),
                   })
                 : await row.drive(t, calls, sent);
         const { to, action } = actionOf(row.fixture);
@@ -863,10 +1117,12 @@ for (const row of WRITTEN) {
     });
 }
 
-test("the agent's addresses of the workspace and the realm equal their fixtures", () => {
+test("the agent's addresses of the workspace, the realm, the library and a profile equal their fixtures", () => {
     for (const [address, name] of [
         [WORKSPACE, "address/workspace"],
         [REALM, "address/realm"],
+        [LIBRARY, "library/address"],
+        [profileAt(2), "address/profile"],
     ] as const) {
         assert.deepStrictEqual(
             { kind: address.kind, key: address.key },
@@ -875,15 +1131,29 @@ test("the agent's addresses of the workspace and the realm equal their fixtures"
     }
 });
 
-const SENDER = {
-    submit: from.realm,
-    finished: from.workspace,
-    place: from.realm,
-    fill: from.realm,
+/** Each action the agent takes, by whom it is sent and the fixture of its answer. */
+const TAKERS = {
+    submit: { by: from.realm, answer: "agent/submit.answer" },
+    finished: { by: from.workspace, answer: "agent/finished.answer" },
+    place: { by: from.realm, answer: "agent/place.answer" },
+    fill: { by: from.realm, answer: "agent/fill.answer" },
+    moved: { by: from.profile(2), answer: "profile/moved.answer" },
+    remove_path: {
+        by: from.profile(2),
+        answer: "profile/remove_path.removed.answer",
+    },
+    shelves_changed: {
+        by: from.library,
+        answer: "library/shelves_changed.answer",
+    },
 } as const;
 
 const TAKEN = [
     "agent/fill",
+    "library/shelves_changed",
+    "profile/moved",
+    "profile/moved.tip",
+    "profile/remove_path",
     "agent/finished.change.changed",
     "agent/finished.change.failed",
     "agent/finished.change.not_run",
@@ -911,15 +1181,20 @@ const CREATED = [
 for (const call of TAKEN) {
     const name = `${call}.args`;
     test(`${name} is read and taken, and answered as its answer fixture holds`, async (t) => {
-        const action = actionOf(name).action as keyof typeof SENDER;
-        const { calls } = fakeCalls({
+        const action = actionOf(name).action as keyof typeof TAKERS;
+        const { calls, sent } = fakeCalls({
             realm: { reply: () => answer("realm/reply.done") },
+            profile: { files: () => answer("profile/files.part.last") },
         });
         const agent = await wakeAgent(t, {
             calls,
             input: HAND,
             responses: [fauxAssistantMessage(LAST_WORDS)],
         });
+        // A profile's message comes from the profile the agent was filled from.
+        if (name.startsWith("profile/")) {
+            await agent.actions.fill(agent.by(from.realm), { profile: 2 });
+        }
         const [message, ...more] = fixture(name) as unknown[];
         assert.equal(more.length, 0);
         const take = agent.actions[action] as (
@@ -927,9 +1202,13 @@ for (const call of TAKEN) {
             message: unknown,
         ) => Promise<unknown>;
         assert.deepStrictEqual(
-            await take(agent.by(SENDER[action]), message),
-            fixture(`agent/${action}.answer`),
+            await take(agent.by(TAKERS[action].by), message),
+            fixture(TAKERS[action].answer),
         );
+        // A move's pull follows its answer.
+        if (action === "moved") {
+            await until(() => named(sent, "files").length === 2);
+        }
         await agent.idle();
         assert.deepEqual(agent.reported, []);
         const entries = await agent.entries();
@@ -1021,6 +1300,13 @@ const ANSWERED_BY_TOOLS = [
     "realm/lay_road",
     "realm/take_up_road",
     "realm/set_tools",
+    "realm/create_profile",
+    "realm/read_profile",
+    "realm/edit_profile",
+    "realm/tag",
+    "realm/revert",
+    "realm/ask_librarian",
+    "realm/submit_skill",
 ] as const;
 
 function answersTo(action: string): string[] {
@@ -1050,13 +1336,18 @@ for (const action of ANSWERED_BY_TOOLS) {
         const queue = [...answers];
         const [folder = "", name = ""] = action.split("/");
         const { calls } = fakeCalls({
-            [folder]: { [name]: () => fixture(queue.shift() as string) },
+            ...row?.answers,
+            [folder]: {
+                ...row?.answers?.[folder as keyof Answers],
+                [name]: () => fixture(queue.shift() as string),
+            },
         });
         const agent = await turn(t, calls, {
             submit: submitted(row?.task),
             responses: answers.map((_, index) =>
                 toolCall(tool[0], tool[1], `c${index}`),
             ),
+            ...(row?.files === undefined ? {} : { files: row.files }),
         });
         const results = await toolResults(agent);
         await agent.stop();
@@ -1073,6 +1364,127 @@ for (const action of ANSWERED_BY_TOOLS) {
                 assert.doesNotMatch(result.text, NOT_WORDS, name);
             }
         });
+    });
+}
+
+for (const name of answersTo("profile/files")) {
+    test(`${name} is read by a pull: a part is written, and a gone commit is pulled whole`, async (t) => {
+        const given = fixture(name) as { type: string };
+        const whole = answer("profile/files.part.last");
+        const { calls, sent } = fakeCalls({
+            profile: {
+                files: answering(whole, given as never, whole, whole),
+            },
+        });
+        const agent = await wakeAgent(t, { calls, input: HAND });
+        await agent.actions.fill(agent.by(from.realm), { profile: 2 });
+        await agent.actions.moved(agent.by(from.profile(2)), {
+            tip: "cd".repeat(20),
+        });
+        const since = { since: "ab".repeat(20) };
+        const expected =
+            given.type === "refused"
+                ? [{}, since, {}]
+                : [
+                      {},
+                      since,
+                      ...("next" in given
+                          ? [
+                                {
+                                    ...since,
+                                    after: (given as { next: unknown }).next,
+                                },
+                            ]
+                          : []),
+                  ];
+        await until(() => named(sent, "files").length === expected.length);
+        await agent.stop();
+
+        assert.deepEqual(
+            named(sent, "files").map((call) => call.message),
+            expected,
+        );
+        assert.deepEqual(agent.reported, []);
+    });
+}
+
+for (const name of answersTo("profile/save")) {
+    test(`${name} is read by a save: a gone commit is filled again from nothing, and another refusal is reported in its words`, async (t) => {
+        const given = fixture(name) as {
+            type: string;
+            why?: { type: string };
+            words?: string;
+        };
+        const gone = given.why?.type === "commit_gone";
+        const files: Record<string, string> = {};
+        const { calls, sent } = fakeCalls({
+            profile: {
+                files: () => answer("profile/files.part.last"),
+                save: () => given as never,
+            },
+        });
+        const agent = await wakeAgent(t, {
+            calls,
+            input: HAND,
+            files: fakeFiles(files),
+            responses: [fauxAssistantMessage(LAST_WORDS)],
+        });
+        await agent.actions.fill(agent.by(from.realm), { profile: 2 });
+        files["memory/tests.md"] = "# Notes\n";
+        await agent.actions.submit(agent.by(from.realm), submitted(undefined));
+        await agent.idle();
+        await agent.stop();
+
+        assert.deepEqual(
+            agent.reported,
+            given.type === "refused" && !gone
+                ? [`the filesystem was not saved: ${given.words}`]
+                : [],
+        );
+        assert.deepEqual(
+            named(sent, "files").map((call) => call.message),
+            given.type !== "refused"
+                ? [{}, { since: "ab".repeat(20) }]
+                : gone
+                  ? [{}, {}]
+                  : [{}],
+        );
+    });
+}
+
+for (const name of answersTo("library/offer")) {
+    test(`${name} is read by submit_skill, as the answer to the first of its parts`, async (t) => {
+        const given = fixture(name) as { type: string; words?: string };
+        let offers = 0;
+        const { calls, sent } = fakeCalls({
+            library: {
+                offer: () =>
+                    offers++ === 0
+                        ? (given as never)
+                        : answer("library/offer.kept"),
+            },
+            realm: { submit_skill: () => answer("realm/submit_skill.done") },
+        });
+        const agent = await turn(t, calls, {
+            submit: submitted(undefined),
+            responses: [toolCall("submit_skill", { skill: "fixtures" })],
+            files: {
+                "skills/fixtures/SKILL.md": "---\nname: fixtures\n---\n",
+                "skills/fixtures/large.md": "a".repeat(800 * 1024),
+            },
+        });
+        const [result] = await toolResults(agent);
+        await agent.stop();
+        assert.ok(result && !threw(result.data), `${name} threw`);
+        if (given.type === "refused") {
+            assert.equal(result.text, given.words);
+            assert.equal(named(sent, "offer").length, 1);
+            assert.deepEqual(named(sent, "submit_skill"), []);
+        } else {
+            assert.equal(result.text, "The librarian is judging it.");
+            assert.ok(named(sent, "offer").length > 1);
+            assert.equal(named(sent, "submit_skill").length, 1);
+        }
     });
 }
 
@@ -1431,10 +1843,6 @@ const NOT_THE_AGENTS: readonly (readonly [RegExp, string])[] = [
         "an act that sends paths, which this agent does not write",
     ],
     [
-        /^realm\/hire\.at_a_version\.args$/,
-        "a hire at a version, which this agent does not write",
-    ],
-    [
         /^realm\/(seat|lay_road|take_up_road|set_tools)\.why\.args$/,
         "an act with its why, which this agent does not write",
     ],
@@ -1468,7 +1876,6 @@ const NOT_THE_AGENTS: readonly (readonly [RegExp, string])[] = [
         "the answer to the realm's set_reach",
     ],
     [/^address\/agent\./, "the agent's own address, which the host gives it"],
-    [/^address\/profile\./, "a profile's address, which the agent never calls"],
     [
         /^agent\/(read_chat|rewind\.rewound)\.answer$/,
         "an item with files and images, which no item of the agent's carries",
@@ -1482,28 +1889,12 @@ const NOT_THE_AGENTS: readonly (readonly [RegExp, string])[] = [
         "an item with both an author and a rewind, which no item of the agent's has: a chief's line names no author",
     ],
     [
-        /^library\/(shelves|offer)\./,
-        "an agent's call of the library, which this agent does not make",
-    ],
-    [
         /^library\/(read_shelves|verdict|unshelve)\./,
         "the realm's call of the library",
     ],
     [
-        /^library\/(shelves_changed|drop_copy)\./,
+        /^library\/drop_copy\./,
         "the library's call of an agent, an action this agent does not take",
-    ],
-    [
-        /^library\/address\./,
-        "the library's address, which the agent never calls",
-    ],
-    [
-        /^profile\/(files|save)\./,
-        "an agent's call of its profile, which this agent does not make",
-    ],
-    [
-        /^profile\/(moved|remove_path)\./,
-        "a profile's call of an agent, an action this agent does not take",
     ],
     [
         /^profile\/(branch|tag|pin|revert|purge|edit|prepare_dream|end_dream|versions|papers|read|erase)\./,
@@ -1530,7 +1921,7 @@ const NOT_THE_AGENTS: readonly (readonly [RegExp, string])[] = [
         "a /new, which leaves the waits of the session it left, as today's does",
     ],
     [
-        /^realm\/(agree_road|ask_chief|object|start_worker|read_budget|read_record|set_allowance|set_model|set_nickname|fetch_part|create_profile|read_profile|edit_profile|tag|revert|ask_librarian|submit_skill)\./,
+        /^realm\/(agree_road|ask_chief|object|start_worker|read_budget|read_record|set_allowance|set_model|set_nickname|fetch_part)\./,
         "an agent's call of the realm, which this agent does not make",
     ],
     [
@@ -1553,8 +1944,12 @@ test("every fixture is one the agent writes or takes, or is listed with its reas
         ...WRITTEN.map((row) => `${row.fixture}.args`),
         "address/workspace.answer",
         "address/realm.answer",
+        "address/profile.answer",
+        "library/address.answer",
         ...TAKEN.map((call) => `${call}.args`),
-        ...Object.keys(SENDER).map((action) => `agent/${action}.answer`),
+        ...Object.values(TAKERS).map((taker) => taker.answer),
+        // `test/branch.test.ts` compares it.
+        "profile/remove_path.later.answer",
         ...CREATED.map((input) => `${input}.input`),
         ...ANSWERED_BY_TOOLS.flatMap(answersTo),
         ...answersTo("realm/may_spend"),
@@ -1570,6 +1965,10 @@ test("every fixture is one the agent writes or takes, or is listed with its reas
             "realm/worker_done",
             "realm/errand_done",
             "workspace/cancel",
+            "library/shelves",
+            "library/offer",
+            "profile/files",
+            "profile/save",
         ].flatMap(answersTo),
         "agent/chat.event.letters.answer",
         "agent/chat.event.past.answer",

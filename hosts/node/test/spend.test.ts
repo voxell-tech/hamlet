@@ -116,7 +116,8 @@ test("a refused model call ends the turn with the realm's words and sends no req
                 (name) =>
                     name !== "list_tools" &&
                     name !== "read_copies" &&
-                    name !== "secrets",
+                    name !== "secrets" &&
+                    name !== "shelves",
             ),
         ["may_spend", "turn_failed"],
     );
@@ -482,7 +483,8 @@ test("a provider's stream that breaks is worded as the provider's failure, retri
                 (name) =>
                     name !== "list_tools" &&
                     name !== "read_copies" &&
-                    name !== "secrets",
+                    name !== "secrets" &&
+                    name !== "shelves",
             ),
         ["may_spend", "may_spend", "charge"],
     );

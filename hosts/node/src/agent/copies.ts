@@ -1,8 +1,8 @@
 /**
  * What the agent keeps of what the realm owns, the charter, its model and
- * its settings, and of what its profile owns, its character: each with the
- * version its owner gave it. Only `keep` writes the table, and an older or
- * equal version changes nothing.
+ * its settings, of what its profile owns, its character, and of what the
+ * library owns, its shelves: each with the version its owner gave it. Only
+ * `keep` writes the table, and an older or equal version changes nothing.
  */
 import type { RawAccess } from "../actor/db/mod.ts";
 import type { AgentContext } from "./actor.ts";
@@ -11,6 +11,7 @@ import {
     type Copies,
     type ModelChoice,
     read,
+    type Skill,
     type Versioned,
     type ReadCopies as Versions,
 } from "./messages.ts";
@@ -34,10 +35,17 @@ export interface Held {
     readonly character?: string;
     readonly model?: ModelChoice;
     readonly settings?: AgentSettings;
+    readonly shelves?: readonly Skill[];
 }
 
-/** What the agent keeps: the realm's copies, and the character its profile gives. */
-export type Kept = Copies & { readonly character?: Versioned<string> };
+/**
+ * What the agent keeps: the realm's copies, the character its profile
+ * gives, and the library's shelves.
+ */
+export type Kept = Copies & {
+    readonly character?: Versioned<string>;
+    readonly shelves?: Versioned<readonly Skill[]>;
+};
 
 export type Part = keyof Kept;
 
@@ -76,7 +84,7 @@ export function copiesOf(db: AgentContext["db"]): ReadCopies {
 /** The versions of the realm's parts held. */
 async function versionsOf(db: AgentContext["db"]): Promise<Versions> {
     const rows = await db.all<{ name: string; version: number }>(
-        "SELECT name, version FROM copy WHERE name <> 'character'",
+        "SELECT name, version FROM copy WHERE name NOT IN ('character', 'shelves')",
     );
     return Object.fromEntries(rows.map((row) => [row.name, row.version]));
 }

@@ -8,6 +8,7 @@ import {
 import type { SocietyActs, SocietyTool } from "../src/agent/messages.ts";
 import {
     fakeCalls,
+    fakeFiles,
     from,
     interrupted,
     named,
@@ -63,6 +64,7 @@ const PATHS = {
 };
 const address = { type: "string", description: ADDRESS };
 const text = (description: string) => ({ type: "string", description });
+const PROFILE_ADDRESS = text("The scholar's address, `scholar#<id>`.");
 
 /** Today's society tools as `crates/hamlet_server/src/calls/society.rs`'s `specs` offers them, typed out by hand. */
 const TODAY = [
@@ -191,6 +193,101 @@ const TODAY = [
             required: ["hire"],
         },
     },
+    {
+        name: "submit_skill",
+        description:
+            "Offer a skill from your skills/ folder to the library, where every agent can read it. The librarian judges it.",
+        parameters: {
+            type: "object",
+            properties: {
+                skill: text("The skill's folder name under skills/."),
+                reason: REASON,
+            },
+            required: ["skill"],
+        },
+    },
+    {
+        name: "ask_librarian",
+        description:
+            "Ask the librarian which skills in the library help with something.",
+        parameters: {
+            type: "object",
+            properties: { question: text("What you need a skill for.") },
+            required: ["question"],
+        },
+    },
+    {
+        name: "create_scholar",
+        description:
+            "Make a new scholar of the city, to hire next. Without a character it starts from the realm's own. A scholar you make may wait at the harbor until it is let into the city; its hires work all the same.",
+        parameters: {
+            type: "object",
+            properties: {
+                name: text(
+                    "A short name, one line with no colon. It is a label and may repeat.",
+                ),
+                character: text("Who the scholar is and how it works."),
+            },
+            required: ["name"],
+        },
+    },
+    {
+        name: "read_scholar",
+        description:
+            "List a scholar's files, or read one, at its `main` or a version.",
+        parameters: {
+            type: "object",
+            properties: {
+                scholar: PROFILE_ADDRESS,
+                path: text("A file to read."),
+                version: text("A version or commit."),
+            },
+            required: ["scholar"],
+        },
+    },
+    {
+        name: "edit_scholar",
+        description:
+            "Write a file of a scholar's `main`; a chief approves it first.",
+        parameters: {
+            type: "object",
+            properties: {
+                scholar: PROFILE_ADDRESS,
+                path: text("The file."),
+                content: text("Its new text; empty removes it."),
+                message: text("What the change does."),
+            },
+            required: ["scholar", "path", "content", "message"],
+        },
+    },
+    {
+        name: "tag",
+        description:
+            "Name the scholar's `main` as a version; a chief approves it first.",
+        parameters: {
+            type: "object",
+            properties: {
+                scholar: PROFILE_ADDRESS,
+                tag: text("The version's name."),
+                note: text("What it holds."),
+            },
+            required: ["scholar", "tag"],
+        },
+    },
+    {
+        name: "revert",
+        description:
+            "Undo a commit of a scholar's `main`; a chief approves it first.",
+        parameters: {
+            type: "object",
+            properties: {
+                scholar: PROFILE_ADDRESS,
+                commit: text("The commit or version to undo."),
+                reason: REASON,
+            },
+            required: ["scholar", "commit"],
+        },
+    },
 ];
 
 /**
@@ -199,7 +296,7 @@ const TODAY = [
  */
 const ACT_FIELDS = {
     found: ["name", "mayor", "tier", "purpose"],
-    hire: ["hamlet", "under", "profile", "purpose"],
+    hire: ["hamlet", "under", "profile", "version", "purpose"],
     end: ["hire", "why"],
     seat: ["hire"],
     tell: ["to", "text"],
@@ -208,6 +305,13 @@ const ACT_FIELDS = {
     take_up_road: ["a", "b"],
     request_road: ["to", "why"],
     set_tools: ["hire", "off", "on"],
+    create_profile: ["name", "character"],
+    read_profile: ["profile", "at", "path"],
+    edit_profile: ["profile", "path", "text", "message"],
+    tag: ["profile", "version", "note"],
+    revert: ["profile", "what", "reason"],
+    ask_librarian: ["question"],
+    submit_skill: ["offer", "skill", "reason"],
 } as const satisfies {
     readonly [N in SocietyTool]: readonly (keyof SocietyActs[N]["act"])[];
 };
@@ -228,6 +332,13 @@ const _everyField: {
     take_up_road: true,
     request_road: true,
     set_tools: true,
+    create_profile: true,
+    read_profile: true,
+    edit_profile: true,
+    tag: true,
+    revert: true,
+    ask_librarian: true,
+    submit_skill: true,
 };
 
 const DROPPED: Record<string, readonly string[]> = {
@@ -657,9 +768,13 @@ test("an input that arrives while the agent is busy waits, then has its own turn
 test("each society tool is offered with today's name, description and parameters, word for word", async (t) => {
     const agent = await wakeAgent(t, { calls: fakeCalls({}).calls });
     const names = TODAY.map((tool) => tool.name);
+    const byName = (a: { name: string }, b: { name: string }) =>
+        a.name.localeCompare(b.name);
     assert.deepEqual(
-        (await schemas(agent)).filter((tool) => names.includes(tool.name)),
-        TODAY,
+        (await schemas(agent))
+            .filter((tool) => names.includes(tool.name))
+            .sort(byName),
+        [...TODAY].sort(byName),
     );
     await agent.stop();
 });
@@ -797,7 +912,7 @@ test("every one of today's parameters leaves as a field of its act, but those th
     await agent.stop();
 });
 
-test("a scholar's address is read as today's server reads it, and one it cannot read is refused with its words", async (t) => {
+test("a scholar's address is read as today's server reads it, a pinned version is hired at it, and one it cannot read is refused with its words", async (t) => {
     const { calls, sent } = fakeCalls({
         realm: {
             hire: () => ({ type: "hired", agent: 22 }),
@@ -814,7 +929,6 @@ test("a scholar's address is read as today's server reads it, and one it cannot 
                 "c2",
             ),
             toolCall("hire", { scholar: "Ada", purpose: "Dig" }, "c3"),
-            // A pinned version has no field in the act, so it is refused, not hired at `main`.
             toolCall("hire", { scholar: "scholar#3@v1", purpose: "Dig" }, "c4"),
             toolCall(
                 "found_hamlet",
@@ -831,6 +945,7 @@ test("a scholar's address is read as today's server reads it, and one it cannot 
     assert.deepEqual(acts(sent, "hire"), [
         { purpose: "Dig", profile: 3 },
         { purpose: "Dig" },
+        { purpose: "Dig", profile: 3, version: "v1" },
     ]);
     assert.deepEqual(acts(sent, "found"), []);
     assert.deepEqual(
@@ -840,7 +955,7 @@ test("a scholar's address is read as today's server reads it, and one it cannot 
             .slice(2),
         [
             "`Ada` is not an address",
-            "`scholar#3@v1` is not an address",
+            "Hired `hire#22`. It is still being hired.",
             "`hire#3` is not an address",
         ],
     );
@@ -1090,4 +1205,309 @@ test("end_hire's reason is trimmed, and a blank one is left out", async (t) => {
         { hire: four, why: "Done." },
         { hire: four },
     ]);
+});
+
+const COMMIT = "ab".repeat(20);
+
+/** The text of each tool result of the agent's turns, in order. */
+async function resultTexts(agent: Woken): Promise<string[]> {
+    return (await agent.entries())
+        .filter((entry) => entry.kind === "pi.tool-result")
+        .map((entry) => entry.text);
+}
+
+test("the profile tools' arguments leave as their acts: a scholar's address as its profile, `main`, a commit or a version as a revision, and an empty path as a listing", async (t) => {
+    const { calls, sent } = fakeCalls({
+        realm: {
+            create_profile: () => ({
+                type: "made",
+                profile: 4,
+                label: "scholar#4 (Ada)",
+            }),
+            read_profile: () => ({ type: "listed", paths: [] }),
+            edit_profile: () => ({ type: "done" }),
+            tag: () => ({ type: "tagged", version: "v1", commit: COMMIT }),
+            revert: () => ({ type: "unchanged" }),
+        },
+    });
+    const agent = await wakeAgent(t, {
+        calls,
+        responses: [
+            toolCall("create_scholar", { name: " Ada ", character: "" }, "c1"),
+            toolCall(
+                "create_scholar",
+                { name: "Ada", character: "You write careful tests." },
+                "c2",
+            ),
+            toolCall(
+                "read_scholar",
+                { scholar: " scholar#4 ", path: "" },
+                "c3",
+            ),
+            toolCall(
+                "read_scholar",
+                {
+                    scholar: "scholar#4",
+                    path: "memory/tests.md",
+                    version: "v1",
+                },
+                "c4",
+            ),
+            toolCall(
+                "read_scholar",
+                { scholar: "scholar#4", version: "main" },
+                "c5",
+            ),
+            toolCall(
+                "read_scholar",
+                { scholar: "scholar#4", version: COMMIT },
+                "c6",
+            ),
+            toolCall(
+                "edit_scholar",
+                {
+                    scholar: "scholar#4",
+                    path: " CHARACTER.md ",
+                    content: "You write careful tests.",
+                    message: "Sharper",
+                },
+                "c7",
+            ),
+            toolCall(
+                "tag",
+                {
+                    scholar: "scholar#4",
+                    tag: " v1 ",
+                    note: "Before the refactor",
+                },
+                "c8",
+            ),
+            toolCall(
+                "revert",
+                {
+                    scholar: "scholar#4",
+                    commit: COMMIT,
+                    reason: "It broke the tests",
+                },
+                "c9",
+            ),
+            toolCall("revert", { scholar: "scholar#4", commit: "v1" }, "c10"),
+            toolCall("read_scholar", { scholar: "Ada" }, "c11"),
+            fauxAssistantMessage("Done."),
+        ],
+    });
+    await agent.actions.submit(agent.by(from.realm), line("input-1", "Go."));
+    await agent.idle();
+
+    assert.deepEqual(
+        {
+            create_profile: acts(sent, "create_profile"),
+            read_profile: acts(sent, "read_profile"),
+            edit_profile: acts(sent, "edit_profile"),
+            tag: acts(sent, "tag"),
+            revert: acts(sent, "revert"),
+        },
+        {
+            create_profile: [
+                { name: "Ada" },
+                { name: "Ada", character: "You write careful tests." },
+            ],
+            read_profile: [
+                { profile: 4 },
+                {
+                    profile: 4,
+                    at: { type: "version", version: "v1" },
+                    path: "memory/tests.md",
+                },
+                { profile: 4, at: { type: "main" } },
+                { profile: 4, at: { type: "commit", commit: COMMIT } },
+            ],
+            edit_profile: [
+                {
+                    profile: 4,
+                    path: "CHARACTER.md",
+                    text: "You write careful tests.",
+                    message: "Sharper",
+                },
+            ],
+            tag: [{ profile: 4, version: "v1", note: "Before the refactor" }],
+            revert: [
+                {
+                    profile: 4,
+                    what: { type: "commit", commit: COMMIT },
+                    reason: "It broke the tests",
+                },
+                { profile: 4, what: { type: "version", version: "v1" } },
+            ],
+        },
+    );
+    assert.equal((await resultTexts(agent)).at(-1), "`Ada` is not an address");
+    await agent.stop();
+});
+
+test("the profile tools answer in today's words", async (t) => {
+    const answers = {
+        read_profile: [
+            {
+                type: "listed",
+                paths: [{ path: "memory/a.md" }, { path: "skills/b/SKILL.md" }],
+            },
+            { type: "listed", paths: [] },
+            { type: "text", text: "# Tests\n", cut: false },
+            { type: "text", text: "# Tests", cut: true },
+        ],
+        revert: [
+            { type: "reverted", commit: COMMIT, clashes: [] },
+            {
+                type: "reverted",
+                commit: COMMIT,
+                clashes: [{ path: "memory/a.md" }, { path: "memory/b.md" }],
+            },
+        ],
+    } as const;
+    const { calls } = fakeCalls({
+        realm: {
+            create_profile: () => ({
+                type: "made",
+                profile: 4,
+                label: "scholar#4 (Ada)",
+            }),
+            read_profile: () => answers.read_profile[read++] as never,
+            edit_profile: () => ({ type: "done" }),
+            tag: () => ({ type: "tagged", version: "v1", commit: COMMIT }),
+            revert: () => answers.revert[reverted++] as never,
+            ask_librarian: () => ({ type: "done" }),
+        },
+    });
+    let read = 0;
+    let reverted = 0;
+    const addressed = { scholar: " scholar#4 " };
+    const agent = await wakeAgent(t, {
+        calls,
+        responses: [
+            toolCall("create_scholar", { name: "Ada" }, "c1"),
+            ...[2, 3, 4, 5].map((n) =>
+                toolCall(
+                    "read_scholar",
+                    { ...addressed, path: n > 3 ? "a" : "" },
+                    `c${n}`,
+                ),
+            ),
+            toolCall(
+                "edit_scholar",
+                {
+                    ...addressed,
+                    path: "memory/a.md",
+                    content: "A",
+                    message: "M",
+                },
+                "c6",
+            ),
+            toolCall("tag", { ...addressed, tag: "v1" }, "c7"),
+            toolCall("revert", { ...addressed, commit: "v1" }, "c8"),
+            toolCall("revert", { ...addressed, commit: "v1" }, "c9"),
+            toolCall(
+                "ask_librarian",
+                { question: "How do I lint the docs?" },
+                "c10",
+            ),
+            toolCall("ask_librarian", { question: "  " }, "c11"),
+            fauxAssistantMessage("Done."),
+        ],
+    });
+    await agent.actions.submit(agent.by(from.realm), line("input-1", "Go."));
+    await agent.idle();
+
+    assert.deepEqual(await resultTexts(agent), [
+        "The scholar scholar#4 (Ada) lives in the city; hire it next.",
+        "- memory/a.md\n- skills/b/SKILL.md",
+        "scholar#4 has no files.",
+        "# Tests\n",
+        "# Tests\n[cut here]",
+        "Wrote memory/a.md of scholar#4.",
+        "Tagged scholar#4's main as v1.",
+        "Reverted the commit on scholar#4's main.",
+        "Reverted the commit on scholar#4's main; these files changed again since and kept their later lines: memory/a.md, memory/b.md",
+        "The librarian is looking.",
+        "Say what you need a skill for.",
+    ]);
+    await agent.stop();
+});
+
+test("submit_skill offers its folder's files to the library under the tool's call, then names the kept offer to the realm; a name, a missing folder or the library's refusal is refused in today's words", async (t) => {
+    const { calls, sent } = fakeCalls({
+        library: {
+            offer: (offer) =>
+                offer.skill === "taken"
+                    ? {
+                          type: "refused",
+                          why: { type: "already_shelved", skill: "taken" },
+                          words: "a skill named `taken` is on the shelves already",
+                      }
+                    : { type: "kept", offer: 9 },
+        },
+        realm: { submit_skill: () => ({ type: "done" }) },
+    });
+    const files = fakeFiles({
+        "skills/fixtures/SKILL.md": "---\nname: fixtures\n---\n",
+        "skills/fixtures/bin/run.sh": "echo run\n",
+        "skills/taken/SKILL.md": "---\nname: taken\n---\n",
+        "memory/a.md": "Not a skill.",
+    });
+    const agent = await wakeAgent(t, {
+        calls,
+        files,
+        responses: [
+            toolCall(
+                "submit_skill",
+                { skill: " fixtures ", reason: "Every hire writes fixtures" },
+                "c1",
+            ),
+            toolCall("submit_skill", { skill: "../fixtures" }, "c2"),
+            toolCall("submit_skill", { skill: "missing" }, "c3"),
+            toolCall("submit_skill", { skill: "taken" }, "c4"),
+            fauxAssistantMessage("Done."),
+        ],
+    });
+    await agent.actions.submit(
+        agent.by(from.realm),
+        line("input-1", "Share it.", "task-1"),
+    );
+    await agent.idle();
+
+    const offers = named(sent, "offer").map((call) => call.message);
+    assert.deepEqual(offers[0], {
+        call: (offers[0] as { call: string }).call,
+        skill: "fixtures",
+        reason: "Every hire writes fixtures",
+        part: 0,
+        last: true,
+        files: [
+            {
+                path: "SKILL.md",
+                offset: 0,
+                bytes: Buffer.from("---\nname: fixtures\n---\n").toString(
+                    "base64",
+                ),
+                last: true,
+            },
+            {
+                path: "bin/run.sh",
+                offset: 0,
+                bytes: Buffer.from("echo run\n").toString("base64"),
+                last: true,
+            },
+        ],
+    });
+    assert.match((offers[0] as { call: string }).call, /^t[1-9][0-9]*$/);
+    assert.deepEqual(acts(sent, "submit_skill"), [
+        { offer: 9, skill: "fixtures", reason: "Every hire writes fixtures" },
+    ]);
+    assert.deepEqual(await resultTexts(agent), [
+        "The librarian is judging it.",
+        "`skill` is its folder under skills/, in letters, digits, hyphens and underscores.",
+        "no skill is named `missing`",
+        "a skill named `taken` is on the shelves already",
+    ]);
+    await agent.stop();
 });

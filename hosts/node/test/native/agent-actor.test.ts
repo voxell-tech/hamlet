@@ -78,6 +78,18 @@ const workspace = actor({
     },
 });
 
+/** A profile with no files, at one commit. */
+const profile = actor({
+    actions: {
+        files: () => ({
+            type: "part",
+            tip: "ab".repeat(20),
+            files: [],
+            removed: [],
+        }),
+    },
+});
+
 const HAND: AgentInput = {
     kind: "hand",
     task: "standing-1",
@@ -102,7 +114,7 @@ function kindsAnswering(responses: FauxResponseStep[]) {
             return fakeFiles({});
         },
     });
-    return { files, kinds: { agent, realm, workspace } };
+    return { files, kinds: { agent, realm, workspace, profile } };
 }
 
 async function startWithAgent(
@@ -161,6 +173,7 @@ test("every agent action answers null to its caller across the host", async () =
         const host = await startWithAgent(dir, kinds);
         const r = host.at("realm", "local");
         const w = host.at("workspace", "local");
+        await host.create(host.at("profile", "3"));
 
         const answers = {
             submit: await host.call(
@@ -175,12 +188,7 @@ test("every agent action answers null to its caller across the host", async () =
                 [1, "place", { ...HAND.place, version: 2 }],
                 CALL,
             ),
-            fill: await host.call(
-                r,
-                "send",
-                [1, "fill", { profile: 3, branch: "main" }],
-                CALL,
-            ),
+            fill: await host.call(r, "send", [1, "fill", { profile: 3 }], CALL),
             finished: await host.call(w, "send", [1, "finished", ENDED], CALL),
         };
         const alarm = await host.call(
