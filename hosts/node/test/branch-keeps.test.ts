@@ -1,8 +1,14 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { fauxAssistantMessage } from "@earendil-works/pi-ai";
-import { cappedFiles, fakeCalls, from, wakeAgent } from "./agent-testing.ts";
-import { A, part, profileAnswering, saves, say } from "./branch-testing.ts";
+import {
+    cappedFiles,
+    fakeCalls,
+    fakeFiles,
+    from,
+    wakeAgent,
+} from "./agent-testing.ts";
+import { A, B, part, profileAnswering, saves, say } from "./branch-testing.ts";
 
 test("a save whose walk stops at its cap saves what it walked, and reports that files past the cap were not saved", async (t) => {
     const { calls, sent } = fakeCalls({
@@ -26,5 +32,55 @@ test("a save whose walk stops at its cap saves what it walked, and reports that 
     assert.deepEqual(agent.reported, [
         "the filesystem was saved in part: the walk stopped after 20000 names, so files past them were not saved",
     ]);
+    await agent.stop();
+});
+
+test("a save whose answer is lost is sent again as it was, under its call, and an edit made since goes out after it under another", async (t) => {
+    let lost = true;
+    const { calls, sent } = fakeCalls({
+        profile: {
+            ...profileAnswering(
+                part({ tip: A }),
+                part({ tip: B }),
+                part({ tip: B }),
+            ),
+            save: () => {
+                if (lost) {
+                    lost = false;
+                    throw new Error("the answer was lost");
+                }
+                return { type: "saved", tip: B };
+            },
+        },
+    });
+    const files: Record<string, string> = {};
+    const agent = await wakeAgent(t, {
+        calls,
+        files: fakeFiles(files),
+        responses: [
+            fauxAssistantMessage("Saved."),
+            fauxAssistantMessage("Saved again."),
+        ],
+    });
+    await agent.actions.fill(agent.by(from.realm), { profile: 2 });
+    files["memory/a.md"] = "A.";
+    await say(agent, "Go.");
+    files["memory/b.md"] = "B.";
+
+    await say(agent, "Again.");
+
+    const [first, again, later] = saves(sent);
+    assert.deepEqual(again, first);
+    assert.deepEqual(
+        first?.changes.map(({ path }) => path),
+        ["memory/a.md"],
+    );
+    assert.notEqual(later?.call, first?.call);
+    assert.equal(later?.base, B);
+    assert.deepEqual(
+        later?.changes.map(({ path }) => path),
+        ["memory/b.md"],
+    );
+    assert.equal(saves(sent).length, 3);
     await agent.stop();
 });

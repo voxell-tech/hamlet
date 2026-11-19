@@ -132,6 +132,17 @@ export function branchOf(
     const files: AgentFilesystem = peers.files;
     const context = BACKGROUND_CONTEXT;
     let moved = false;
+    /** A save sent and not answered yet, its parts before `next` answered. */
+    let unanswered:
+        | {
+              readonly profile: ProfileId;
+              readonly base: CommitId;
+              readonly call: CallId;
+              readonly changes: readonly Change[];
+              readonly parts: readonly FileChange[][];
+              next: number;
+          }
+        | undefined;
     const removals = new Set<string>();
     let last: Promise<unknown> = Promise.resolve();
     let working = 0;
@@ -273,29 +284,49 @@ export function branchOf(
         return changes;
     };
 
+    /**
+     * Sends what changed since the commit the filesystem holds, or, while a
+     * save is unanswered, that save again under its call from the part whose
+     * answer was lost, then saves what changed since.
+     */
     const save = async (): Promise<void> => {
-        const row = await held();
-        if (row?.profile == null || row.filled === null) return;
-        const { profile, filled: base } = row;
-        const changes = await changed();
-        if (changes.length === 0) return;
-        const calls = profileCalls(peers, profile);
-        const call = randomUUID() as CallId;
-        const parts = inParts(changes);
-        for (const [part, changes] of parts.entries()) {
+        const resent = unanswered !== undefined;
+        if (unanswered === undefined) {
+            const row = await held();
+            if (row?.profile == null || row.filled === null) return;
+            const changes = await changed();
+            if (changes.length === 0) return;
+            unanswered = {
+                profile: row.profile,
+                base: row.filled,
+                call: randomUUID() as CallId,
+                changes,
+                parts: inParts(changes),
+                next: 0,
+            };
+        }
+        const sending = unanswered;
+        const calls = profileCalls(peers, sending.profile);
+        for (const [part, changes] of sending.parts.entries()) {
+            if (part < sending.next) continue;
             const answer = await calls.save({
-                call,
-                base,
+                call: sending.call,
+                base: sending.base,
                 part,
-                last: part === parts.length - 1,
+                last: part === sending.parts.length - 1,
                 changes,
             });
             if (answer.type === "refused") {
-                if (answer.why.type === "commit_gone") return pull(profile);
+                unanswered = undefined;
+                if (answer.why.type === "commit_gone") {
+                    return pull(sending.profile);
+                }
                 throw new Error(answer.words);
             }
+            sending.next = part + 1;
         }
-        for (const change of changes) {
+        unanswered = undefined;
+        for (const change of sending.changes) {
             if (change.bytes === undefined) await forget(change.path);
             else {
                 await c.db.run(
@@ -305,7 +336,8 @@ export function branchOf(
                 );
             }
         }
-        await pull(profile, base);
+        await pull(sending.profile, sending.base);
+        if (resent) await save();
     };
 
     const removeWaiting = async (): Promise<void> => {
