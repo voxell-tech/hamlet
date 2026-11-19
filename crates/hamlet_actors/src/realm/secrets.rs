@@ -144,9 +144,9 @@ impl Held {
         self.held().stored.version
     }
 
-    /// `text` with every secret the realm holds removed.
-    pub fn scrub(&self, text: &str) -> String {
-        hamlet_sandbox::scrub::scrub_text(&self.list().values, text)
+    /// Every secret the realm holds, longest first.
+    pub fn secrets(&self) -> Vec<String> {
+        self.list().values
     }
 
     /// Keeps `keep` as `by` sent it. A caller other than the Hand may

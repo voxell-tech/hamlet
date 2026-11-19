@@ -477,10 +477,12 @@ impl Handler<ReadPlace> for Realm {
         if let Numbered::Errand(_) = by.0.numbered() {
             return refuse(ReadPlace::NAME, by);
         }
-        let text =
-            act::run(&self, &ctx, by, None, ReadPlace::NAME, read)
-                .await?;
-        Ok(prompt::scrubbed(&self, text))
+        let reading = prompt::Reading {
+            read,
+            secrets: self.secrets.secrets(),
+        };
+        act::run(&self, &ctx, by, None, ReadPlace::NAME, reading)
+            .await
     }
 }
 

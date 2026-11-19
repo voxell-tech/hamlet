@@ -1,7 +1,7 @@
 //! The sections of an agent's prompt that tell who it is and where
 //! (C11, H17): its office, the hires above and under it, its roads,
 //! what it may not use, how its hamlet was run lately, and for the
-//! Hand and mayors the other hamlets and the scholars it may hire.
+//! Hand and mayors the other hamlets and the profiles it may hire.
 
 use anyhow::{Result, bail};
 use hamlet_actor::BindParam;
@@ -13,12 +13,14 @@ use hamlet_messages::realm::prompt::{
 use hamlet_messages::realm::{HamletId, ProfileId};
 use hamlet_messages::sender::Hand;
 use hamlet_messages::workspace::AgentNumber;
+use hamlet_sandbox::scrub::scrub_text;
+use serde::Serialize;
 
 use super::act::{Act, Decision, Unchanged};
 use super::calls::Made;
 use super::change::{self, Rows, number};
 use super::roads::{self, Way};
-use super::{Realm, chiefs, profiles, record, tasks, tree};
+use super::{chiefs, profiles, record, tasks, tree};
 
 /// How an agent reads what another agent sends it.
 const MESSAGES: &str =
@@ -75,17 +77,16 @@ const LINE_CHARS: usize = 160;
 
 const DAY_MS: i64 = 86_400_000;
 
-/// `text` with every secret the realm holds removed.
-pub(super) fn scrubbed(realm: &Realm, text: PlaceText) -> PlaceText {
-    let scrub = |text: &str| realm.secrets.scrub(text);
-    PlaceText {
-        place: scrub(&text.place),
-        realm: text.realm.as_deref().map(scrub),
-        scholars: text.scholars.as_deref().map(scrub),
-    }
+/// `read_place` as the realm takes it, with the secrets its text
+/// must not hold.
+#[derive(Serialize)]
+pub(super) struct Reading {
+    pub read: ReadPlace,
+    #[serde(skip)]
+    pub secrets: Vec<String>,
 }
 
-impl Act<Agent> for ReadPlace {
+impl Act<Agent> for Reading {
     type Output = PlaceText;
     type Loaded = PlaceText;
     type Done = Unchanged;
@@ -95,10 +96,15 @@ impl Act<Agent> for ReadPlace {
         by: &Agent,
         rows: &Rows<'_>,
     ) -> Result<PlaceText> {
+        let scrub = |text: &str| scrub_text(&self.secrets, text);
+        let place =
+            place(rows, by.0, &self.read, &self.secrets).await?;
+        let realm = realm(rows, by.0).await?;
+        let profiles = profiles_to_hire(rows, by.0).await?;
         Ok(PlaceText {
-            place: place(rows, by.0, self).await?,
-            realm: realm(rows, by.0).await?,
-            scholars: scholars(rows, by.0).await?,
+            place: scrub(&place),
+            realm: realm.as_deref().map(scrub),
+            scholars: profiles.as_deref().map(scrub),
         })
     }
 
@@ -120,6 +126,7 @@ async fn place(
     rows: &Rows<'_>,
     agent: AgentNumber,
     read: &ReadPlace,
+    secrets: &[String],
 ) -> Result<String> {
     let mut lines = vec!["# Your place".to_owned()];
     match tree::kind_of(rows, agent).await? {
@@ -152,7 +159,9 @@ async fn place(
             ));
             return Ok(lines.join("\n"));
         }
-        AgentKind::Hire => hire(rows, agent, &mut lines).await?,
+        AgentKind::Hire => {
+            hire(rows, agent, secrets, &mut lines).await?;
+        }
         AgentKind::Errand => bail!("errand {} has no place", agent.0),
     }
     let ways = ways(rows, agent).await?;
@@ -230,6 +239,7 @@ async fn ways(
 async fn hire(
     rows: &Rows<'_>,
     agent: AgentNumber,
+    secrets: &[String],
     lines: &mut Vec<String>,
 ) -> Result<()> {
     let lineage = tree::lineage_of(rows, agent).await?;
@@ -306,8 +316,10 @@ async fn hire(
     if !latest.is_empty() {
         lines.push(TOLD.into());
         for (_, each, text) in latest {
-            let text =
-                text.chars().take(LINE_CHARS).collect::<String>();
+            let text = scrub_text(secrets, text)
+                .chars()
+                .take(LINE_CHARS)
+                .collect::<String>();
             lines.push(format!(
                 "- {} was told: {text}",
                 record::name_of(rows, *each).await?
@@ -400,9 +412,9 @@ async fn mayor_of(
         .map(|_| hamlet))
 }
 
-/// The scholars of the city that `agent` may hire, for the Hand and
-/// for hires: what `hire` takes as `scholar`.
-async fn scholars(
+/// The shared profiles `agent` may hire, for the Hand and for hires:
+/// what `hire` takes as `scholar`.
+async fn profiles_to_hire(
     rows: &Rows<'_>,
     agent: AgentNumber,
 ) -> Result<Option<String>> {

@@ -422,7 +422,7 @@ async fn a_worker_is_told_who_started_it_and_nothing_else() {
 }
 
 #[tokio::test(flavor = "multi_thread")]
-async fn a_lead_and_the_hand_read_sixty_scholars_and_a_worker_none() {
+async fn a_lead_and_the_hand_read_sixty_profiles_and_a_worker_none() {
     let (realm, _) = hamlet_with(1).await;
     let profiles = (100..161)
         .map(|n| format!("({n}, 'shared', 'P{n}')"))
@@ -495,27 +495,28 @@ async fn a_key_a_chief_wrote_into_a_line_shows_as_removed_in_the_place_text()
         )
         .await
         .unwrap();
-    realm
-        .ask(&say(
-            &RequestId::new(),
-            THREE,
-            &format!("use {key} now"),
-        ))
-        .await
-        .unwrap();
+    let at_the_cut = "a".repeat(150);
+    for line in
+        [format!("use {key} now"), format!("{at_the_cut} {key}")]
+    {
+        realm
+            .ask(&say(&RequestId::new(), THREE, &line))
+            .await
+            .unwrap();
+    }
 
     let text = read(&realm, MAYOR, &chat()).await;
 
     let all = format!("{text:?}");
-    assert!(!all.contains(key), "{all}");
-    assert!(
-        text.place.contains(&format!(
-            "- {} was told: use [REDACTED] now",
-            name(THREE)
-        )),
-        "{}",
-        text.place
-    );
+    assert!(!all.contains(&key[..8]), "{all}");
+    let cut = format!("{at_the_cut} [REDACTED]")
+        .chars()
+        .take(160)
+        .collect::<String>();
+    for told in ["use [REDACTED] now", cut.as_str()] {
+        let told = format!("- {} was told: {told}\n", name(THREE));
+        assert!(text.place.contains(&told), "{}", text.place);
+    }
     realm.host.shutdown().await.unwrap();
 }
 
