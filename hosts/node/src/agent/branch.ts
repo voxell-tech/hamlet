@@ -108,6 +108,7 @@ export function inParts(changes: readonly Change[]): FileChange[][] {
                     offset,
                     bytes: Buffer.from(piece).toString("base64"),
                     last,
+                    ...(change.executable ? { executable: true } : {}),
                 },
                 piece.length,
             );
@@ -122,6 +123,7 @@ export function inParts(changes: readonly Change[]): FileChange[][] {
 export interface Change {
     readonly path: string;
     readonly bytes?: Uint8Array;
+    readonly executable?: boolean;
 }
 
 export function branchOf(
@@ -209,7 +211,12 @@ export function branchOf(
                 }
                 pieces.delete(piece.path);
                 const whole = Buffer.concat([...before, bytes]);
-                const wrote = await files.write(piece.path, whole, context);
+                const wrote = await files.write(
+                    piece.path,
+                    whole,
+                    context,
+                    piece.executable ?? false,
+                );
                 if (!wrote.ok) throw wrote.error;
                 await c.db.run(
                     "INSERT INTO filed (path, digest) VALUES (?, ?) ON CONFLICT (path) DO UPDATE SET digest = excluded.digest",
@@ -246,13 +253,18 @@ export function branchOf(
                 )
             ).map(({ path, digest }) => [path, digest]),
         );
+        const runs = new Set(walked.value.executable);
         const changes: Change[] = [];
         for (const path of walked.value.files) {
             if (withheld(path)) continue;
             const read = await files.read(path, context);
             if (!read.ok) continue;
             if (kept.get(path) !== digestOf(read.value)) {
-                changes.push({ path, bytes: read.value });
+                changes.push({
+                    path,
+                    bytes: read.value,
+                    executable: runs.has(path),
+                });
             }
             kept.delete(path);
         }

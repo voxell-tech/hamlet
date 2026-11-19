@@ -244,6 +244,26 @@ impl Directory {
         Os::remove_at(&self.0, name, removing)
     }
 
+    /// Removes the folder `name` with all it holds. A link in it is
+    /// removed itself, never what it names.
+    pub fn remove_tree(&self, name: &Name) -> io::Result<()> {
+        {
+            let child = self.child(name)?;
+            for inner in child.names()? {
+                match child.stat(&inner)?.map(|stat| stat.kind) {
+                    Some(Kind::Directory) => {
+                        child.remove_tree(&inner)?;
+                    }
+                    Some(_) => {
+                        child.remove(&inner, Removing::File)?;
+                    }
+                    None => {}
+                }
+            }
+        }
+        self.remove(name, Removing::Directory)
+    }
+
     /// The names in this directory, but `.` and `..`, each read as
     /// it is taken.
     pub fn listing(

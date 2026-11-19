@@ -80,9 +80,9 @@ export function openAgentFilesystem(
                 context,
                 async () => new Uint8Array(await folder.read(path)),
             ),
-        write: (path, content, context) =>
+        write: (path, content, context, executable) =>
             call(path, context, async () => {
-                await folder.write(path, Buffer.from(content));
+                await folder.write(path, Buffer.from(content), executable);
             }),
         edit: (path, edits, context) =>
             call(path, context, async () => {
@@ -145,17 +145,13 @@ export function openAgentFilesystem(
                 return {
                     files: walked.files.map((file) => file.path),
                     capped: walked.capped,
+                    executable: walked.files
+                        .filter((file) => file.executable)
+                        .map((file) => file.path),
                 };
             }),
-        // `AgentFolder` has no removal that keeps the folder's guarantees.
-        remove: async (path) =>
-            err(
-                new FileError(
-                    "permission_denied",
-                    `the agent's filesystem cannot remove a file: ${path}`,
-                    path,
-                ),
-            ),
+        remove: (path, context) =>
+            call(path, context, () => folder.remove(path)),
         copy: (from, to, context) =>
             call(from, context, async () => {
                 await folder.write(to, await folder.read(from));

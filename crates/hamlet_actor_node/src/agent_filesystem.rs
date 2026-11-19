@@ -7,7 +7,7 @@
 use std::io;
 use std::sync::Arc;
 
-use hamlet_os::fs::{Folder, Kind, Outside, system_error};
+use hamlet_os::fs::{Folder, Kind, Mode, Outside, system_error};
 use napi::bindgen_prelude::Buffer;
 use napi_derive::napi;
 use regex::Regex;
@@ -42,6 +42,9 @@ pub struct FolderEntry {
     /// `file`, `directory` or `symlink`.
     pub kind: String,
     pub size: f64,
+    /// Whether it is a file that runs. Never on Windows, which keeps
+    /// no such mode.
+    pub executable: bool,
 }
 
 /// A regular file, by its path from the agent's filesystem.
@@ -49,6 +52,8 @@ pub struct FolderEntry {
 pub struct FolderFile {
     pub path: String,
     pub size: f64,
+    /// As [`FolderEntry::executable`].
+    pub executable: bool,
 }
 
 #[napi(object)]
@@ -79,7 +84,12 @@ pub struct FolderMatches {
 /// starts with the system error's name, such as `ENOENT: `, or with
 /// `OUTSIDE: ` for a path that leaves the folder.
 #[napi]
-pub struct AgentFolder(Arc<Folder>);
+pub struct AgentFolder {
+    folder: Arc<Folder>,
+    /// The folders inside it that are made again where a removal
+    /// leaves them out.
+    kept: Arc<[String]>,
+}
 
 #[napi]
 impl AgentFolder {
@@ -92,38 +102,69 @@ impl AgentFolder {
     ) -> napi::Result<Self> {
         let folder = Folder::make(std::path::Path::new(&root))
             .map_err(refused)?;
-        for inside in folders {
-            folder.make_folder(&inside).map_err(refused)?;
+        for inside in &folders {
+            folder.make_folder(inside).map_err(refused)?;
         }
-        Ok(Self(Arc::new(folder)))
+        Ok(Self {
+            folder: Arc::new(folder),
+            kept: folders.into(),
+        })
     }
 
     /// The folder's absolute path, with `/` between names.
     #[napi(getter)]
     pub fn path(&self) -> String {
-        self.0.path().to_owned()
+        self.folder.path().to_owned()
     }
 
     #[napi]
     pub async fn read(&self, path: String) -> napi::Result<Buffer> {
-        blocking(&self.0, move |folder| folder.read(&path))
+        blocking(&self.folder, move |folder| folder.read(&path))
             .await
             .map(Buffer::from)
     }
 
     /// Writes the file whole, and answers whether nothing was there
-    /// before.
+    /// before. With `executable`, the file runs or does not; without
+    /// it, the file keeps the mode of the file it replaces. Windows
+    /// keeps no mode that runs, so there `executable` changes
+    /// nothing.
     #[napi]
     pub async fn write(
         &self,
         path: String,
         bytes: Buffer,
+        executable: Option<bool>,
     ) -> napi::Result<bool> {
         let bytes = bytes.to_vec();
-        blocking(&self.0, move |folder| {
+        blocking(&self.folder, move |folder| {
             let created = folder.stat(&path).is_err();
-            folder.write(&path, &bytes)?;
+            let mode = executable.map(|runs| {
+                if runs { Mode::PROGRAM } else { Mode::PRIVATE }
+            });
+            match mode {
+                Some(mode) => {
+                    folder.write_with_mode(&path, &bytes, mode)
+                }
+                None => folder.write(&path, &bytes),
+            }?;
             Ok(created)
+        })
+        .await
+    }
+
+    /// Removes the file at `path`, a link itself, or the folder there
+    /// with all it holds, and the folders on its way it leaves empty.
+    /// A folder `open` made is made again.
+    #[napi]
+    pub async fn remove(&self, path: String) -> napi::Result<()> {
+        let kept = Arc::clone(&self.kept);
+        blocking(&self.folder, move |folder| {
+            folder.remove(&path)?;
+            for inside in kept.iter() {
+                folder.make_folder(inside)?;
+            }
+            Ok(())
         })
         .await
     }
@@ -135,7 +176,7 @@ impl AgentFolder {
         &self,
         path: String,
     ) -> napi::Result<Vec<FolderEntry>> {
-        blocking(&self.0, move |folder| {
+        blocking(&self.folder, move |folder| {
             Ok(folder
                 .list(&path)?
                 .into_iter()
@@ -151,6 +192,8 @@ impl AgentFolder {
                         path: listed.path,
                         kind: kind.to_owned(),
                         size: listed.stat.size as f64,
+                        executable: listed.stat.kind == Kind::File
+                            && listed.stat.mode.is_executable(),
                     })
                 })
                 .collect())
@@ -172,7 +215,7 @@ impl AgentFolder {
         name: Option<String>,
     ) -> napi::Result<FolderFiles> {
         let name = name.as_deref().map(Name::new).transpose()?;
-        blocking(&self.0, move |folder| {
+        blocking(&self.folder, move |folder| {
             let walked =
                 folder.files(&path, most as usize, &SKIPPED)?;
             let start = walked.start;
@@ -186,6 +229,7 @@ impl AgentFolder {
                     .map(|found| FolderFile {
                         path: found.path,
                         size: found.size as f64,
+                        executable: found.mode.is_executable(),
                     })
                     .collect(),
                 capped: walked.capped,
@@ -217,7 +261,7 @@ impl AgentFolder {
         let regex = Regex::new(&source)
             .map_err(|error| failure("EINVAL", &error.to_string()))?;
         let name = name.as_deref().map(Name::new).transpose()?;
-        blocking(&self.0, move |folder| {
+        blocking(&self.folder, move |folder| {
             let walked =
                 folder.files(&path, looked as usize, &SKIPPED)?;
             let mut matches = Vec::new();

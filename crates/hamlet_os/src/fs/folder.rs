@@ -4,7 +4,7 @@ use std::sync::atomic::{AtomicU64, Ordering};
 
 use super::{
     Directory, Exists, Kind, LastLink, Missing, Mode, Name, Open,
-    Removing, Replace, Stat, TreePath, path,
+    Regular, Removing, Replace, Stat, TreePath, path,
 };
 
 /// What a write's new file is named until it is renamed into place.
@@ -64,6 +64,7 @@ pub struct Listed {
 pub struct Found {
     pub path: String,
     pub size: u64,
+    pub mode: Mode,
 }
 
 /// The files [`Folder::files`] found, and whether it stopped short.
@@ -175,19 +176,43 @@ impl Folder {
     /// Writes `bytes` whole at `given`, making its folders. The bytes
     /// go to a new file renamed over the name, so a link there, or a
     /// file with another name, is replaced and never written through.
+    /// The file keeps the mode of the regular file it replaces, else
+    /// is [`Mode::PRIVATE`].
     pub fn write(&self, given: &str, bytes: &[u8]) -> io::Result<()> {
+        self.put(given, bytes, None)
+    }
+
+    /// Writes `bytes` whole at `given` as [`Folder::write`] does, as
+    /// a file of `mode`.
+    pub fn write_with_mode(
+        &self,
+        given: &str,
+        bytes: &[u8],
+        mode: Mode,
+    ) -> io::Result<()> {
+        self.put(given, bytes, Some(mode))
+    }
+
+    fn put(
+        &self,
+        given: &str,
+        bytes: &[u8],
+        mode: Option<Mode>,
+    ) -> io::Result<()> {
         let (dir, name) =
             self.parent(given, Missing::Make(Mode::FOLDER))?;
-        if dir
-            .stat(&name)?
-            .is_some_and(|stat| stat.kind == Kind::Directory)
-        {
-            return Err(io::ErrorKind::IsADirectory.into());
-        }
-        let (incoming, mut file) = incoming(&dir)?;
+        let replaced = match dir.stat(&name)? {
+            Some(stat) if stat.kind == Kind::Directory => {
+                return Err(io::ErrorKind::IsADirectory.into());
+            }
+            Some(stat) if stat.kind == Kind::File => stat.mode,
+            _ => Mode::PRIVATE,
+        };
+        let (incoming, file) = incoming(&dir)?;
         let written = file
-            .write_all(bytes)
-            .and_then(|()| file.sync_all())
+            .set_mode(mode.unwrap_or(replaced))
+            .and_then(|()| file.file().write_all(bytes))
+            .and_then(|()| file.file().sync_all())
             .and_then(|()| {
                 dir.rename(&incoming, &dir, &name, Replace::Always)
             });
@@ -206,6 +231,39 @@ impl Folder {
         let (dir, name) =
             self.parent(given, Missing::Make(Mode::FOLDER))?;
         dir.make(&name, Mode::FOLDER, Exists::Open).map(drop)
+    }
+
+    /// Removes the file at `given`, a link itself rather than what it
+    /// names, or the folder there with all it holds, then each folder
+    /// on its way that it leaves empty, but this folder itself. A
+    /// missing name fails with `NotFound`.
+    pub fn remove(&self, given: &str) -> io::Result<()> {
+        let tree = self
+            .below(given)?
+            .ok_or(io::Error::from(io::ErrorKind::IsADirectory))?;
+        let (folders, last) = tree.split_last();
+        // The open folders on the way, this one first.
+        let mut held = vec![self.root.try_clone()?];
+        for name in folders {
+            let next = held[held.len() - 1].child(name)?;
+            held.push(next);
+        }
+        let dir = &held[held.len() - 1];
+        match dir.stat(last)? {
+            None => return Err(io::ErrorKind::NotFound.into()),
+            Some(stat) if stat.kind == Kind::Directory => {
+                dir.remove_tree(last)?;
+            }
+            Some(_) => dir.remove(last, Removing::File)?,
+        }
+        for name in folders.iter().rev() {
+            held.pop();
+            let parent = &held[held.len() - 1];
+            if parent.remove(name, Removing::Directory).is_err() {
+                break;
+            }
+        }
+        Ok(())
     }
 
     /// The names in the folder at `given`, sorted, each with its own
@@ -250,6 +308,7 @@ impl Folder {
                 walked.files.push(Found {
                     path: start,
                     size: stat.size,
+                    mode: stat.mode,
                 });
                 return Ok(walked);
             }
@@ -292,6 +351,7 @@ impl Folder {
                     walked.files.push(Found {
                         path: at,
                         size: stat.size,
+                        mode: stat.mode,
                     });
                 }
                 Kind::File | Kind::Link | Kind::Special => {}
@@ -324,7 +384,7 @@ fn to_look_at(dir: &Directory) -> io::Result<Vec<Name>> {
 }
 
 /// A new file in `dir` for a write, under a name no one else uses.
-fn incoming(dir: &Directory) -> io::Result<(Name, std::fs::File)> {
+fn incoming(dir: &Directory) -> io::Result<(Name, Regular)> {
     static NEXT: AtomicU64 = AtomicU64::new(0);
     loop {
         let name = Name::new(&format!(
@@ -333,7 +393,7 @@ fn incoming(dir: &Directory) -> io::Result<(Name, std::fs::File)> {
             NEXT.fetch_add(1, Ordering::Relaxed)
         ))?;
         match dir.file(&name, Open::New(Mode::PRIVATE)) {
-            Ok(file) => return Ok((name, file.into_file())),
+            Ok(file) => return Ok((name, file)),
             Err(error)
                 if error.kind() == io::ErrorKind::AlreadyExists => {}
             Err(error) => return Err(error),
@@ -434,6 +494,8 @@ mod tests {
             assert!(Outside::is(&refused), "{given}: {refused}");
             assert!(folder.list(given).is_err(), "{given}");
             assert!(folder.files(given, 10, &[]).is_err(), "{given}");
+            let refused = folder.remove(given).unwrap_err();
+            assert!(Outside::is(&refused), "{given}: {refused}");
         }
         assert!(folder.write("../made", b"x").is_err());
         assert!(folder.read("memory/notes.md\0").is_err());
@@ -465,6 +527,7 @@ mod tests {
         assert!(folder.list("skills/out").is_err());
         assert!(folder.files("skills/out", 10, &[]).is_err());
         assert!(folder.make_folder("skills/out/new").is_err());
+        assert!(folder.remove("skills/out/secret").is_err());
 
         let skills = folder.list("skills").unwrap();
         assert_eq!(skills.len(), 1);
@@ -474,14 +537,100 @@ mod tests {
             walked.files,
             [Found {
                 path: "memory/notes.md".into(),
-                size: 5
+                size: 5,
+                mode: Mode::PRIVATE.kept(Kind::File),
             }]
         );
 
         // A write at a link's name replaces the link, not its target.
         folder.write("memory/file", b"mine").unwrap();
         assert_eq!(folder.read("memory/file").unwrap(), b"mine");
+        folder.remove("skills/out").unwrap();
+        assert!(!scratch.join("inside/skills").exists());
         outside_is_untouched(&scratch);
+    }
+
+    #[test]
+    fn a_file_or_a_folder_is_removed_with_the_folders_it_empties() {
+        let (scratch, folder) = planted("folder-remove");
+        folder.write("skills/run/bin/run.sh", b"run").unwrap();
+        folder.write("skills/run/SKILL.md", b"skill").unwrap();
+        folder.write("skills/new/a/b/c.md", b"deep").unwrap();
+
+        folder.remove("skills/run/bin/run.sh").unwrap();
+        assert_eq!(
+            folder
+                .list("skills/run")
+                .unwrap()
+                .iter()
+                .map(|listed| listed.name.as_str())
+                .collect::<Vec<_>>(),
+            ["SKILL.md"]
+        );
+        folder.remove("skills/new/a/b/c.md").unwrap();
+        assert_eq!(
+            folder
+                .list("skills")
+                .unwrap()
+                .iter()
+                .map(|listed| listed.name.as_str())
+                .collect::<Vec<_>>(),
+            ["run"]
+        );
+        folder.remove("skills").unwrap();
+        assert!(!scratch.join("inside/skills").exists());
+        folder
+            .write("skills", b"a file where a folder was")
+            .unwrap();
+
+        let missing = folder.remove("memory/missing.md").unwrap_err();
+        assert_eq!(missing.kind(), io::ErrorKind::NotFound);
+        assert!(folder.remove("").is_err());
+        assert!(folder.remove("memory/notes.md/inner").is_err());
+        assert_eq!(folder.read("memory/notes.md").unwrap(), b"notes");
+        folder.remove("memory/notes.md").unwrap();
+        assert!(!scratch.join("inside/memory").exists());
+        assert!(scratch.join("inside").is_dir());
+        outside_is_untouched(&scratch);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_write_sets_or_keeps_whether_a_file_runs() {
+        let (scratch, folder) = planted("folder-mode");
+        let runs = |path: &str| {
+            folder.stat(path).unwrap().mode.is_executable()
+        };
+        folder
+            .write_with_mode(
+                "skills/run.sh",
+                b"#!/bin/sh\n",
+                Mode::PROGRAM,
+            )
+            .unwrap();
+        assert!(runs("skills/run.sh"));
+        folder.write("skills/run.sh", b"#!/bin/sh\necho\n").unwrap();
+        assert!(
+            runs("skills/run.sh"),
+            "a write keeps the mode it replaces"
+        );
+        assert!(
+            folder.list("skills").unwrap()[0]
+                .stat
+                .mode
+                .is_executable()
+        );
+        let walked = folder.files("skills", 10, &[]).unwrap();
+        assert!(walked.files[0].mode.is_executable());
+        folder
+            .write_with_mode("skills/run.sh", b"plain", Mode::PRIVATE)
+            .unwrap();
+        assert!(!runs("skills/run.sh"));
+        assert!(!runs("memory/notes.md"));
+        assert_eq!(
+            fs::read(scratch.join("inside/skills/run.sh")).unwrap(),
+            b"plain"
+        );
     }
 
     #[test]
@@ -573,6 +722,7 @@ mod tests {
                 Err(_) => refused += 1,
             }
             assert!(folder.read("memory/work/secret").is_err());
+            assert!(folder.remove("memory/work/secret").is_err());
             if let Ok(listed) = folder.list("memory/work") {
                 assert!(
                     listed
