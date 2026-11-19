@@ -58,7 +58,7 @@ export interface Branch {
 }
 
 /** Whether a turn runs in a conversation other than `except`. */
-export type Busy = (except?: ConversationId) => Promise<boolean>;
+type Busy = (except?: ConversationId) => Promise<boolean>;
 
 function withheld(path: string): boolean {
     return (

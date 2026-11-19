@@ -587,7 +587,7 @@ export interface ProfileActions {
     save(message: Save): SaveAnswer;
 }
 
-export type OfferId = number;
+type OfferId = number;
 
 export interface Skill {
     /** The skill's folder. */

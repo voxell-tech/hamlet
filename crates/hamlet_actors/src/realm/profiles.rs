@@ -705,35 +705,20 @@ impl ProfileChange for RevertProfile {
     }
 }
 
-impl ToolAct<Hand> for EditProfile {
-    type Run = Asking<Self>;
+/// A change a model makes is asked of its profile.
+macro_rules! asked_of_the_profile {
+    ($($change:ty),+) => {$(
+        impl ToolAct<Hand> for $change {
+            type Run = Asking<Self>;
 
-    fn run(self, called: &Called) -> Asking<Self> {
-        Asking {
-            called: called.clone(),
-            act: self,
+            fn run(self, called: &Called) -> Asking<Self> {
+                Asking {
+                    called: called.clone(),
+                    act: self,
+                }
+            }
         }
-    }
+    )+};
 }
 
-impl ToolAct<Hand> for TagProfile {
-    type Run = Asking<Self>;
-
-    fn run(self, called: &Called) -> Asking<Self> {
-        Asking {
-            called: called.clone(),
-            act: self,
-        }
-    }
-}
-
-impl ToolAct<Hand> for RevertProfile {
-    type Run = Asking<Self>;
-
-    fn run(self, called: &Called) -> Asking<Self> {
-        Asking {
-            called: called.clone(),
-            act: self,
-        }
-    }
-}
+asked_of_the_profile!(EditProfile, TagProfile, RevertProfile);

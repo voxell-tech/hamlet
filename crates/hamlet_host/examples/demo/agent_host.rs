@@ -187,8 +187,8 @@ fn routes() -> Routes {
             ],
         ),
         (kind(address::Workspace::KIND), &peers),
-        (kind(address::Profile::KIND), &peers),
-        (kind(address::Library::KIND), &peers),
+        (kind(address::Profile::KIND), &[address::Agent::KIND]),
+        (kind(address::Library::KIND), &[address::Agent::KIND]),
     ])
 }
 
