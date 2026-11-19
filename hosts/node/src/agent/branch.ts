@@ -66,6 +66,12 @@ function withheld(path: string): boolean {
     );
 }
 
+/** Whether the callee answered with an error, rather than the answer being lost. */
+function answeredWithError(error: unknown): boolean {
+    const { group, code } = error as { group?: unknown; code?: unknown };
+    return group === "core" && code === "internal_error";
+}
+
 function digestOf(bytes: Uint8Array): string {
     return createHash("sha256").update(bytes).digest("hex");
 }
@@ -365,13 +371,20 @@ export function branchOf(
         const calls = profileCalls(peers, sending.profile);
         for (const [part, changes] of sending.parts.entries()) {
             if (part < sending.next) continue;
-            const answer = await calls.save({
-                call: sending.call,
-                base: sending.base,
-                part,
-                last: part === sending.parts.length - 1,
-                changes,
-            });
+            const answer = await calls
+                .save({
+                    call: sending.call,
+                    base: sending.base,
+                    part,
+                    last: part === sending.parts.length - 1,
+                    changes,
+                })
+                .catch((error: unknown) => {
+                    // The profile ran the part and kept nothing: the next
+                    // settle saves under a new call.
+                    if (answeredWithError(error)) unanswered = undefined;
+                    throw error;
+                });
             if (answer.type === "refused") {
                 unanswered = undefined;
                 if (answer.why.type !== "commit_gone" || refilled) {

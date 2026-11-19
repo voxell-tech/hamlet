@@ -50,3 +50,40 @@ async fn an_ended_hires_parts_are_dropped_by_its_profile_and_the_library()
     );
     realm.host.shutdown().await.unwrap();
 }
+
+/// A hire ended before its Profile step was never filled, so it left
+/// no save; the library still drops its offers.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_hire_ended_before_its_profile_step_asks_no_profile_to_drop()
+ {
+    let (realm, _) = hamlet_with(1).await;
+    realm
+        .write(
+            "UPDATE step SET done = NULL WHERE kind = 'hire' AND n \
+             = 3;",
+        )
+        .await;
+
+    let ended = realm
+        .tool(
+            MAYOR,
+            &tool(
+                "e1",
+                End {
+                    hire: Named::Agent { agent: THREE },
+                    why: None,
+                },
+            ),
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(ended, Done::Done);
+    until("the library's drop", || !dropped(&realm).1.is_empty())
+        .await;
+    assert_eq!(
+        dropped(&realm),
+        (Vec::new(), vec![DropOfferParts { agent: THREE }])
+    );
+    realm.host.shutdown().await.unwrap();
+}

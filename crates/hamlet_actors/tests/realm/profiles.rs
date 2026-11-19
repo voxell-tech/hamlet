@@ -496,21 +496,48 @@ async fn the_hands_change_to_a_profile_runs_once_a_chief_allows_it() {
     realm.host.shutdown().await.unwrap();
 }
 
-/// The profile fails the first edit, and the Hand's agent the first
-/// notice, as actors not ready; the realm makes the notice again a
-/// second later each time, and with it the edit, which the profile
-/// answers the second time as a repeat.
+/// The profile fails the first edit as an actor not ready; the realm
+/// makes the notice again a second later, and with it the edit.
 #[tokio::test(flavor = "multi_thread")]
-async fn an_allowed_change_and_its_notice_are_made_again_until_done()
-{
+async fn an_allowed_change_that_fails_is_made_again_until_done() {
+    let edits =
+        allowed_once_failing(Callee::Edit, AgentNumber(3)).await;
+
+    let [(_, failed), (_, ran)] = &edits[..] else {
+        panic!("the failed edit and the one that ran");
+    };
+    assert_eq!(ran.id, failed.id, "made again with the same id");
+}
+
+/// The Hand's agent fails the first notice as an actor not ready; the
+/// realm makes the notice again a second later, and with it the edit,
+/// which the profile answers the second time as a repeat.
+#[tokio::test(flavor = "multi_thread")]
+async fn an_allowed_changes_notice_that_fails_is_made_again_until_taken()
+ {
+    let edits =
+        allowed_once_failing(Callee::Submit, Hand::NUMBER).await;
+
+    let [(_, ran), (_, repeat)] = &edits[..] else {
+        panic!("the edit that ran and its repeat");
+    };
+    assert_eq!(repeat.id, ran.id, "made again with the same id");
+}
+
+/// The edits the profile was asked for when the Hand's allowed edit
+/// ran with `callee` failing once for `agent`, after its notice was
+/// taken.
+async fn allowed_once_failing(
+    callee: Callee,
+    agent: AgentNumber,
+) -> Vec<(ProfileId, Edit)> {
     let (realm, _) = hamlet_with(0).await;
     create(&realm, Hand::NUMBER, "c1", "Mason", None).await;
     realm
         .tool(Hand::NUMBER, &in_turn("e1", edit(3, "notes.md"), None))
         .await
         .unwrap();
-    realm.seen.fail_once(Callee::Edit, AgentNumber(3));
-    realm.seen.fail_once(Callee::Submit, Hand::NUMBER);
+    realm.seen.fail_once(callee, agent);
 
     let allow = answer("#1", Choice::Allow, None);
     assert_eq!(realm.ask(&allow).await.unwrap(), Done::Done);
@@ -519,16 +546,9 @@ async fn an_allowed_change_and_its_notice_are_made_again_until_done()
         notices_until(&realm, 1).await,
         ["Wrote notes.md of scholar#3."]
     );
-    let [(_, failed), (_, ran), (_, repeat)] = &edits(&realm)[..]
-    else {
-        panic!("the failed edit, the one that ran, and its repeat");
-    };
-    assert_eq!(
-        (&ran.id, &repeat.id),
-        (&failed.id, &failed.id),
-        "made again with the same id"
-    );
+    let edits = edits(&realm);
     realm.host.shutdown().await.unwrap();
+    edits
 }
 
 #[tokio::test(flavor = "multi_thread")]

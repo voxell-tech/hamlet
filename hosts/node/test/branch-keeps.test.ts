@@ -95,6 +95,49 @@ test("a save whose answer is lost is sent again as it was, under its call, and a
     await agent.stop();
 });
 
+test("a save the profile answers with an error is sent again under another call, not resent", async (t) => {
+    let failed = false;
+    const { calls, sent } = fakeCalls({
+        profile: {
+            ...profileAnswering(part({ tip: A }), part({ tip: B })),
+            save: () => {
+                if (!failed) {
+                    failed = true;
+                    throw Object.assign(
+                        new Error("save again under a new call"),
+                        { group: "core", code: "internal_error" },
+                    );
+                }
+                return { type: "saved", tip: B };
+            },
+        },
+    });
+    const files: Record<string, string> = {};
+    const agent = await wakeAgent(t, {
+        calls,
+        files: fakeFiles(files),
+        responses: [
+            fauxAssistantMessage("Saved."),
+            fauxAssistantMessage("Saved again."),
+        ],
+    });
+    await agent.actions.fill(agent.by(from.realm), { profile: 2 });
+    files["memory/a.md"] = "A.";
+    await say(agent, "Go.");
+    files["memory/b.md"] = "B.";
+
+    await say(agent, "Again.");
+
+    const [first, again] = saves(sent);
+    assert.notEqual(again?.call, first?.call);
+    assert.deepEqual(
+        again?.changes.map(({ path }) => path),
+        ["memory/a.md", "memory/b.md"],
+    );
+    assert.equal(saves(sent).length, 2);
+    await agent.stop();
+});
+
 test("a pull after a save writes over no file changed while the save was under way, and the next save sends that change", async (t) => {
     const saving = Promise.withResolvers<void>();
     const saved = Promise.withResolvers<{ type: "saved"; tip: string }>();
