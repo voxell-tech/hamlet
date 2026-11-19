@@ -10,8 +10,9 @@ use hamlet_messages::realm::ProfileId;
 use hamlet_messages::workspace::AgentNumber;
 
 use super::change::{self, number};
+use super::hire;
 use super::peer::When;
-use super::steps::{Cx, Kind, StepId, Steps};
+use super::steps::{self, Cx, Kind, StepId, Steps};
 
 /// The row that drops what `agent` leaves.
 pub(super) fn row(agent: AgentNumber) -> StepId {
@@ -51,14 +52,20 @@ pub(super) async fn run(
     let agent = AgentNumber(u32::try_from(n)?);
     match step {
         Step::Profile => {
-            let profile = cx
-                .rows()?
+            let rows = cx.rows()?;
+            // A hire ended before its Profile step was filled from no
+            // profile and saved nothing; its profile may have no
+            // actor.
+            let filled = steps::row(&rows, hire::row(agent))
+                .await?
+                .is_none_or(|row| row.done.is_some());
+            let profile = rows
                 .value::<u32>(
                     "SELECT profile FROM hire WHERE agent = ?1",
                     vec![number(agent)],
                 )
                 .await?;
-            if let Some(profile) = profile {
+            if let Some(profile) = profile.filter(|_| filled) {
                 cx.peers()
                     .call(
                         &Profile(ProfileId(profile)),
