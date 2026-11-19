@@ -208,6 +208,61 @@ fn the_tree_heals_when_a_parent_ends() {
 }
 
 #[test]
+fn an_agent_moves_under_another_and_the_tree_stays_a_tree() {
+    let mut realm = Realm::new();
+    let (docs, lead) = found(&mut realm, "docs", "ada");
+    let a = add(&mut realm, &docs, lead, new("a")).unwrap().agent;
+    let b = add(&mut realm, &docs, lead, new("b")).unwrap().agent;
+    let c = add(&mut realm, &docs, a, new("c")).unwrap().agent;
+    let d = add(&mut realm, &docs, c, new("d")).unwrap().agent;
+    let (_, outsider) = found(&mut realm, "far", "bea");
+    let reparent = |realm: &mut Realm, actor, id, to| {
+        realm.by(actor, |cx| {
+            hamlet_agents::reparent(cx, id, to, "tidier")
+        })
+    };
+    // Where it is, itself, its own descendants, the lead, a stranger
+    // from another hamlet.
+    assert!(matches!(
+        reparent(&mut realm, Actor::Realm, c, a),
+        Err(Rejection::AlreadyUnder { .. })
+    ));
+    assert!(matches!(
+        reparent(&mut realm, Actor::Realm, a, a),
+        Err(Rejection::UnderItself { .. })
+    ));
+    assert!(matches!(
+        reparent(&mut realm, Actor::Realm, a, d),
+        Err(Rejection::UnderItself { .. })
+    ));
+    assert_eq!(
+        reparent(&mut realm, Actor::Realm, lead, b),
+        Err(Rejection::MovingLead)
+    );
+    assert!(matches!(
+        reparent(&mut realm, Actor::Realm, a, outsider),
+        Err(Rejection::OtherHamlet { .. })
+    ));
+    // A parent moves inside its own subtree only.
+    assert!(matches!(
+        reparent(&mut realm, Actor::Agent(a), c, b),
+        Err(Rejection::NotParent { .. })
+    ));
+    assert!(matches!(
+        reparent(&mut realm, Actor::Agent(b), c, b),
+        Err(Rejection::NotParent { .. })
+    ));
+    reparent(&mut realm, Actor::Agent(a), d, a).unwrap();
+    assert_eq!(tree::parent(realm.db(), d).unwrap(), Some(a));
+    // The lead moves anyone under anyone, and the agents under the
+    // one moved go with it.
+    reparent(&mut realm, Actor::Agent(lead), a, b).unwrap();
+    assert_eq!(tree::parent(realm.db(), a).unwrap(), Some(b));
+    assert!(tree::is_above(realm.db(), b, c).unwrap());
+    assert!(tree::is_above(realm.db(), b, d).unwrap());
+}
+
+#[test]
 fn a_new_lead_takes_the_root_and_the_old_one_stays_under_it() {
     let mut realm = Realm::new();
     let (docs, old) = found(&mut realm, "docs", "ada");

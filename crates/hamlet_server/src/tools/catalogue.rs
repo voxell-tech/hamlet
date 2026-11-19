@@ -30,6 +30,7 @@ pub(crate) enum Society {
     AgreeChannel,
     FoundHamlet,
     SetLead,
+    ReparentAgent,
     RemoveHamlet,
     RestoreHamlet,
     EraseHamlet,
@@ -174,7 +175,7 @@ impl Facts {
 }
 
 /// Every society tool, once.
-pub(crate) const FACTS: [Facts; 65] = {
+pub(crate) const FACTS: [Facts; 66] = {
     use Offered::{
         Chats, Everyone, HamletAgents, Hand, Leads, Parents,
     };
@@ -207,6 +208,7 @@ pub(crate) const FACTS: [Facts; 65] = {
         facts(S::SetTools, "set_tools", Parents),
         facts(S::SetAllowance, "set_allowance", Parents),
         facts(S::RenameAgent, "rename_agent", Parents),
+        facts(S::ReparentAgent, "reparent_agent", Parents),
         facts(S::OpenChannel, "open_channel", Parents)
             .reserved(Reserve::Limit(Limit::Channels)),
         facts(S::CloseChannel, "close_channel", Parents)

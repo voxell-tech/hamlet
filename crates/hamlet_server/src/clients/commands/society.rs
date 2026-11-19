@@ -80,6 +80,13 @@ pub(super) const SOCIETY: &[Command] = &[
         run: lead,
     },
     Command {
+        name: "reparent",
+        usage: "/reparent <address> <new parent> [reason]",
+        does: "Move an agent, and those under it, under another \
+               agent of its hamlet",
+        run: reparent,
+    },
+    Command {
         name: "add-agent",
         usage: "/add-agent <profile#id>[@<version>]|blank [in \
                 <hamlet>] [under <address>] [purpose]",
@@ -456,6 +463,25 @@ fn lead(core: &mut Core<'_, '_>, line: &Line) -> Answer {
             format!("`{text}` holds the office of `{id}`.")
         }),
     )
+}
+
+fn reparent(core: &mut Core<'_, '_>, line: &Line) -> Answer {
+    let words = line.words();
+    let [first, second, ..] = words.as_slice() else {
+        return usage(core, line);
+    };
+    let agent =
+        done!(core.resolve(first, line.here.as_ref(), Reach::Living));
+    let parent = done!(core.resolve(
+        second,
+        line.here.as_ref(),
+        Reach::Living
+    ));
+    let reason = line.tail(2);
+    let done = core.attempt(by(core), |cx, _| {
+        hamlet_agents::reparent(cx, agent, parent, &reason)
+    })?;
+    Ok(done.map(|()| format!("`{first}` is under `{second}` now.")))
 }
 
 fn add_agent(core: &mut Core<'_, '_>, line: &Line) -> Answer {

@@ -55,7 +55,8 @@ is committed to the branch, and the diff against `main` is what it learned.
 
 The agents of a hamlet form a tree under the lead. A parent has the lead's
 powers over its subtree (`set_model`, `set_tools`, `set_allowance`, adding,
-ending and merging agents, opening channels among them).
+ending and merging agents, opening channels among them, and moving them
+within the subtree with `reparent_agent` or a chief's `/reparent`).
 
 A worker is started for one task by any agent but a worker (`start_worker`)
 or by a chief (`/worker`). It has the built-in tools its starter gave it and
