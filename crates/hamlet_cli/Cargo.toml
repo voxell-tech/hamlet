@@ -6,6 +6,7 @@ license.workspace = true
 rust-version.workspace = true
 publish.workspace = true
 description = "Hamlet's command-line client and process manager"
+default-run = "hamlet"
 
 [[bin]]
 name = "hamlet"
