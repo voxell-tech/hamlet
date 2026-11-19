@@ -354,8 +354,9 @@ impl Door {
     }
 
     /// Sends `client` the page `open` asks for, and from then on the
-    /// changes of its chat, unless it watches that chat already.
+    /// changes of its chat, unless it follows that chat already.
     fn open(&mut self, client: u64, open: Open) {
+        self.unwatch(|watch| watch.task.is_finished());
         let host = self.host.clone();
         let frames = self.frames.clone();
         let credentials = self.credentials.clone();
