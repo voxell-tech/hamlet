@@ -685,6 +685,9 @@ pub enum HireRefusal {
         "`{label}` is a blank hire's own, not a scholar of the city"
     )]
     Apart { label: String },
+    /// `label` is `scholar#<id> (<name>)`.
+    #[error("`{label}` has no version `{}`", version.0)]
+    NoVersion { label: String, version: VersionName },
     #[error("say what it is for")]
     NoPurpose,
 }

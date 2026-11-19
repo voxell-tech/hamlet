@@ -471,7 +471,7 @@ where
     }
 }
 
-fn to_tool<O>(ran: Result<O, Stood>) -> O
+pub(super) fn to_tool<O>(ran: Result<O, Stood>) -> O
 where
     O: Refusable,
     O::Why: From<Standing> + From<Gate>,

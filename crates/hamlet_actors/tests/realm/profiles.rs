@@ -281,6 +281,48 @@ async fn a_hire_of_a_made_profile_at_a_version_starts_its_branch_there()
     realm.host.shutdown().await.unwrap();
 }
 
+#[tokio::test(flavor = "multi_thread")]
+async fn a_hire_at_a_version_its_profile_lacks_is_refused_by_name() {
+    let (realm, hamlet) = hamlet_with(0).await;
+    create(&realm, Hand::NUMBER, "c1", "Mason", None).await;
+    let branched = || realm.seen.branches.lock().unwrap().len();
+    let before = branched();
+    let at = |version: &str| Hire {
+        version: Some(VersionName(version.to_owned())),
+        ..of(3)
+    };
+    let refusal =
+        |answer: HireAnswer<LeadRefusal<HireRefusal>>| match answer {
+            HireAnswer::Refused { why } => why.to_string(),
+            HireAnswer::Hired { agent } => {
+                format!("hired {}", agent.0)
+            }
+        };
+
+    for version in ["v9", "main"] {
+        assert_eq!(
+            refusal(
+                hire_as_mayor(&realm, version, at(version)).await
+            ),
+            format!("`scholar#3 (Mason)` has no version `{version}`")
+        );
+    }
+    let by_the_chief =
+        match super::chief_hires(&realm, &hamlet, at("v9")).await {
+            HireAnswer::Refused { why } => why.to_string(),
+            HireAnswer::Hired { agent } => {
+                format!("hired {}", agent.0)
+            }
+        };
+    assert_eq!(
+        by_the_chief,
+        "`scholar#3 (Mason)` has no version `v9`"
+    );
+    assert_eq!(branched(), before);
+    assert_eq!(hire_as_mayor(&realm, "v1", at("v1")).await, hired(3));
+    realm.host.shutdown().await.unwrap();
+}
+
 type ReadProfileAnswer = ReadAnswer<AgentRefusal<ReadProfileRefusal>>;
 
 async fn read(

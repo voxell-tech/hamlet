@@ -17,7 +17,7 @@ use hamlet_messages::realm::{
 };
 use hamlet_messages::sender::Hand;
 use hamlet_messages::workspace::{AgentNumber, Numbered};
-pub(super) use lead::failed;
+pub(super) use lead::{Pinned, Pinning, failed};
 
 use super::callers::Decider;
 use super::change::{self, Affected, Rows, Writer, integer, number};

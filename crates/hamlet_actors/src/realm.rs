@@ -189,8 +189,8 @@ impl Actor for Realm {
     type Actions = (
         Asked<Found>,
         ByHand<Tool<Found>>,
-        Asked<Hire>,
-        Tool<Hire>,
+        tree::Pinning<Asked<Hire>>,
+        tree::Pinning<Tool<Hire>>,
         Asked<End>,
         Tool<End>,
         Asked<Seat>,

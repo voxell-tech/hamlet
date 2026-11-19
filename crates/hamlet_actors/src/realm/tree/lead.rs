@@ -1,28 +1,34 @@
 //! A lead's acts on the tree: hire, end and seat (H40, H5, H18).
 
 use std::collections::BTreeSet;
+use std::sync::Arc;
 
 use anyhow::{Context as _, Result};
-use hamlet_actor::BindParam;
+use hamlet_actor::{Action, BindParam, Ctx, Handler};
+use hamlet_messages::Message;
+use hamlet_messages::address::Profile;
 use hamlet_messages::agent::AgentKind;
+use hamlet_messages::profile::{VersionName, Versions};
 use hamlet_messages::realm::oversight::Permission;
 use hamlet_messages::realm::profiles::ProfileRefusal;
 use hamlet_messages::realm::{
-    Done, End, EndRefusal, HamletId, Hire, HireAnswer, HireRefusal,
-    HowEnded, Named, OnlyAHire, Refusable, Seat,
+    Asked, Done, End, EndRefusal, HamletId, Hire, HireAnswer,
+    HireRefusal, HowEnded, LeadRefusal, Named, OnlyAHire, Refusable,
+    Seat, Tool, ToolCall,
 };
-use hamlet_messages::sender::Hand;
+use hamlet_messages::sender::{Hand, sender};
 use hamlet_messages::workspace::AgentNumber;
 use serde::{Deserialize, Serialize};
 
-use super::super::act::{Act, Decided, Decision};
-use super::super::callers::{Lead, RealmWide};
+use super::super::act::{self, Act, Decided, Decision};
+use super::super::callers::{self, Lead, RealmWide};
 use super::super::calls::{Calls, Delivery, Made};
 use super::super::change::{self, Affected, Rows, Writer, number};
+use super::super::peer::When;
 use super::super::world::Part;
 use super::super::{
-    chiefs, drop_parts, hire, laid, oversight, record, roads, steps,
-    tasks, waits, workers,
+    Realm, chiefs, drop_parts, hire, laid, marker, oversight,
+    profiles, record, roads, steps, tasks, waits, workers,
 };
 use super::{Change, Lineage, Node, Of, Status};
 
@@ -45,19 +51,117 @@ pub(in crate::realm) struct Hiring {
     hamlet: Joining,
     under: Option<Lineage>,
     living: u32,
-    of: Result<Of, ProfileRefusal>,
+    of: Result<Of, HireRefusal>,
     agent: AgentNumber,
 }
 
-impl<By: Lead> Act<By> for Hire {
+/// A hire, with what the profile it is of answered of the version
+/// it names before the hire is decided.
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub(in crate::realm) struct Pinned {
+    pub hire: Hire,
+    /// The version it names, when a profile a hire may be made of
+    /// lacks it.
+    pub lacked: Option<VersionName>,
+}
+
+impl Pinned {
+    pub(in crate::realm) async fn asked(
+        realm: &Realm,
+        ctx: &Ctx<Realm>,
+        hire: Hire,
+    ) -> Result<Self> {
+        let mut lacked = None;
+        if let (Some(version), Some(named)) =
+            (&hire.version, hire.profile)
+            && let Ok(profile) =
+                profiles::shared(&Rows::outside(ctx)?, named).await?
+        {
+            let held = realm
+                .peers
+                .call(
+                    &Profile(profile),
+                    &Versions,
+                    When::BeforeAnswer,
+                )
+                .await?;
+            if !held
+                .versions
+                .iter()
+                .any(|seen| seen.version == *version)
+            {
+                lacked = Some(version.clone());
+            }
+        }
+        Ok(Self { hire, lacked })
+    }
+}
+
+/// A chief's or an agent's hire, run once the profile it is of has
+/// answered whether it has the version the hire names.
+#[derive(Serialize, Deserialize)]
+#[serde(transparent)]
+pub(in crate::realm) struct Pinning<M>(pub M);
+
+impl<M: Message> Action for Pinning<M> {
+    type Output = M::Output;
+    const NAME: &'static str = M::NAME;
+}
+
+impl<M: Message> Message for Pinning<M> {
+    type To = M::To;
+    type From = M::From;
+}
+
+impl Handler<Pinning<Asked<Hire>>> for Realm {
+    async fn handle(
+        self: Arc<Self>,
+        ctx: Ctx<Self>,
+        Pinning(asked): Pinning<Asked<Hire>>,
+    ) -> Result<HireAnswer<HireRefusal>> {
+        let name = <Asked<Hire> as Action>::NAME;
+        let by = sender(&ctx, &asked)?;
+        let id = marker::Id::Request(asked.id);
+        let key = marker::Key::of(&by, id, name, &asked.act)?;
+        let pinned = Pinned::asked(&self, &ctx, asked.act).await?;
+        act::run_keyed(&self, &ctx, by, Some(key), name, pinned).await
+    }
+}
+
+impl Handler<Pinning<Tool<Hire>>> for Realm {
+    async fn handle(
+        self: Arc<Self>,
+        ctx: Ctx<Self>,
+        Pinning(tool): Pinning<Tool<Hire>>,
+    ) -> Result<HireAnswer<LeadRefusal<HireRefusal>>> {
+        let name = <Tool<Hire> as Action>::NAME;
+        let by = sender(&ctx, &tool)?;
+        let (key, called, hire) = act::called(&by, name, tool)?;
+        let pinned = Pinned::asked(&self, &ctx, hire).await?;
+        let ran = act::run_called(
+            &self,
+            &ctx,
+            by,
+            (key, called),
+            name,
+            Hire::TOOL,
+            pinned,
+        )
+        .await?;
+        Ok(callers::to_tool(ran))
+    }
+}
+
+impl<By: Lead> Act<By> for Pinned {
     type Output = HireAnswer<By::Why<HireRefusal>>;
     type Loaded = Hiring;
     type Done = AgentNumber;
 
     async fn load(&self, by: &By, rows: &Rows<'_>) -> Result<Hiring> {
+        let hire = &self.hire;
         let caller = super::caller(by);
         let own = super::own_hamlet(rows, caller).await?;
-        let hamlet = match (&own, &self.hamlet) {
+        let hamlet = match (&own, &hire.hamlet) {
             (Some(own), _) => Joining::Hamlet(own.clone()),
             (None, Some(named)) => {
                 chiefs::hamlet(rows, named).await?.map_or_else(
@@ -67,7 +171,7 @@ impl<By: Lead> Act<By> for Hire {
             }
             (None, None) => Joining::Unnamed,
         };
-        let under = match (&self.under, caller, own) {
+        let under = match (&hire.under, caller, own) {
             (None, Some(caller), Some(_)) => {
                 super::lineage(rows, caller).await?
             }
@@ -83,12 +187,29 @@ impl<By: Lead> Act<By> for Hire {
             Some(hamlet) => super::living(rows, &hamlet.id).await?,
             None => 0,
         };
+        let made =
+            super::made_of(rows, hire.profile, hire.name.clone())
+                .await?;
+        let of = match (made, &self.lacked) {
+            (Ok(Of::Profile(profile)), Some(version)) => {
+                Err(HireRefusal::NoVersion {
+                    label: profiles::label_of(rows, profile).await?,
+                    version: version.clone(),
+                })
+            }
+            (Ok(of), _) => Ok(of),
+            (Err(ProfileRefusal::NoSuchProfile { profile }), _) => {
+                Err(HireRefusal::NoSuchProfile { profile })
+            }
+            (Err(ProfileRefusal::Apart { label }), _) => {
+                Err(HireRefusal::Apart { label })
+            }
+        };
         Ok(Hiring {
             hamlet,
             under,
             living,
-            of: super::made_of(rows, self.profile, self.name.clone())
-                .await?,
+            of,
             agent: super::fresh(rows).await?,
         })
     }
@@ -108,7 +229,8 @@ impl<By: Lead> Act<By> for Hire {
             Joining::Hamlet(hamlet) => Some(hamlet),
             Joining::Unnamed => None,
         };
-        let lead_named = self.under.as_ref().unwrap_or(&Named::Mayor);
+        let hire = &self.hire;
+        let lead_named = hire.under.as_ref().unwrap_or(&Named::Mayor);
         let no_such = || HireRefusal::NoSuchAgent {
             address: lead_named.to_string(),
         };
@@ -132,7 +254,7 @@ impl<By: Lead> Act<By> for Hire {
         {
             return Decision::Answer(HireAnswer::refused(not_a_lead));
         }
-        let purpose = super::given_purpose(self.purpose.as_deref());
+        let purpose = super::given_purpose(hire.purpose.as_deref());
         if purpose.is_none() && super::caller(by).is_some() {
             return refuse(HireRefusal::NoPurpose);
         }
@@ -153,14 +275,7 @@ impl<By: Lead> Act<By> for Hire {
         }
         let of = match hiring.of {
             Ok(of) => of,
-            Err(ProfileRefusal::NoSuchProfile { profile }) => {
-                return refuse(HireRefusal::NoSuchProfile {
-                    profile,
-                });
-            }
-            Err(ProfileRefusal::Apart { label }) => {
-                return refuse(HireRefusal::Apart { label });
-            }
+            Err(why) => return refuse(why),
         };
         let agent = hiring.agent;
         Decision::Change(
@@ -170,7 +285,7 @@ impl<By: Lead> Act<By> for Hire {
                     hamlet: hamlet.id.clone(),
                     lead: Some(lead),
                     of,
-                    version: self.version.clone(),
+                    version: hire.version.clone(),
                     purpose: purpose.clone(),
                 })
                 .change(tasks::Change::Standing {
@@ -621,7 +736,7 @@ mod tests {
             ..under_5("h")
         };
         let missing = Hiring {
-            of: Err(ProfileRefusal::NoSuchProfile {
+            of: Err(HireRefusal::NoSuchProfile {
                 profile: ProfileId(9),
             }),
             ..under_5("h")
@@ -662,14 +777,17 @@ mod tests {
         }
     }
 
-    fn hire_for(purpose: Option<&str>) -> Hire {
-        Hire {
-            hamlet: None,
-            under: None,
-            profile: None,
-            version: None,
-            purpose: purpose.map(str::to_owned),
-            name: None,
+    fn hire_for(purpose: Option<&str>) -> Pinned {
+        Pinned {
+            hire: Hire {
+                hamlet: None,
+                under: None,
+                profile: None,
+                version: None,
+                purpose: purpose.map(str::to_owned),
+                name: None,
+            },
+            lacked: None,
         }
     }
 

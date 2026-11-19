@@ -89,6 +89,16 @@ pub(super) fn label(profile: ProfileId, name: &str) -> String {
     format!("{} ({name})", address(profile))
 }
 
+pub(super) async fn label_of(
+    rows: &Rows<'_>,
+    profile: ProfileId,
+) -> Result<String> {
+    let kept = row(rows, profile).await?.with_context(|| {
+        format!("profile {} has no row", profile.0)
+    })?;
+    Ok(label(profile, &kept.name))
+}
+
 /// `named`, when it is a shared profile: one a hire may be made of,
 /// and a society tool may read or change.
 pub(super) async fn shared(

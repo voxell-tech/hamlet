@@ -29,6 +29,7 @@ use hamlet_messages::profile::{
     EditRefusal, EndDream, Missing, Path as FilePath, PrepareDream,
     Prepared, ProfileInput, Purge, PurgeAnswer, Read, ReadAnswer,
     Revert, RevertAnswer, Sha1, Tag, TagAnswer, TagRefusal,
+    VersionList, VersionName, VersionSeen, Versions,
 };
 use hamlet_messages::realm::budget::{
     BudgetLimit, Charge, MaySpend, SpendRefusal,
@@ -416,6 +417,7 @@ impl Actor for ProfileStandIn {
     type Input = Option<ProfileInput>;
     type Actions = (
         Branch,
+        Versions,
         Read,
         Edit,
         Tag,
@@ -481,6 +483,24 @@ impl Handler<Branch> for ProfileStandIn {
                 }
             }
             _ => Done::Done,
+        })
+    }
+}
+
+impl Handler<Versions> for ProfileStandIn {
+    async fn handle(
+        self: Arc<Self>,
+        _: Ctx<Self>,
+        _: Versions,
+    ) -> anyhow::Result<VersionList> {
+        Ok(VersionList {
+            versions: vec![VersionSeen {
+                version: VersionName(HELD_VERSION.to_owned()),
+                commit: COMMIT,
+                note: String::new(),
+                by: "chief:1".to_owned(),
+            }],
+            commits: Vec::new(),
         })
     }
 }

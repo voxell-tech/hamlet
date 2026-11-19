@@ -453,6 +453,13 @@ fn the_founding_and_the_hires(fixtures: &mut Fixtures) {
                     label: profiles::label(),
                 },
             ),
+            (
+                "no_version",
+                HireRefusal::NoVersion {
+                    label: profiles::label(),
+                    version: VersionName("v9".to_owned()),
+                },
+            ),
         ]
     };
     answers(
