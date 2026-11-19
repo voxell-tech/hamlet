@@ -8,10 +8,12 @@ mod calls;
 mod change;
 mod chiefs;
 mod documents;
+mod dreams;
 mod hire;
 mod laid;
 mod lanes;
 mod letters;
+mod librarian;
 mod marker;
 mod oversight;
 mod parcels;
@@ -34,7 +36,8 @@ mod waits;
 mod workers;
 mod world;
 
-use std::sync::Arc;
+use std::collections::HashMap;
+use std::sync::{Arc, Mutex, PoisonError};
 use std::time::Duration;
 
 use anyhow::Result;
@@ -62,19 +65,22 @@ use hamlet_messages::realm::oversight::{
 };
 use hamlet_messages::realm::parcels::FetchPart;
 use hamlet_messages::realm::profiles::{
-    EditProfile, ReadProfile, RevertProfile, TagProfile,
+    AskLibrarian, Dream, EditProfile, ReadProfile, RevertProfile,
+    SubmitSkill, TagProfile,
 };
 use hamlet_messages::realm::workers::{
     ErrandDone, SetAllowance, StartWorker, WorkerDone,
 };
 use hamlet_messages::realm::{
     AgreeRoad, Ask, Asked, End, Found, Hire, LayRoad, NeedsChief,
-    Reply, RequestRoad, Seat, Secrets, SetLimits, SetTier, SetTools,
-    TakeUpRoad, Tell, Tool,
+    ProfileId, Reply, RequestRoad, Seat, Secrets, SetLimits, SetTier,
+    SetTools, TakeUpRoad, Tell, Tool,
 };
 use serde::Serialize;
 
-use self::callers::{Bare, ByHand, Living, Looks, Relays};
+use self::callers::{
+    Bare, ByHand, Living, Looks, Relays, Unreserved,
+};
 
 const SCHEMA: &str = include_str!("realm/schema.sql");
 
@@ -89,6 +95,12 @@ const _: () = assert!(
         < SHORTEST_CALLER_DEADLINE.as_millis(),
     "a Say waits for the hire, then submits, inside a caller's \
      deadline"
+);
+
+const _: () = assert!(
+    peer::When::OverAgents.deadline().as_millis()
+        < SHORTEST_CALLER_DEADLINE.as_millis(),
+    "a purge is answered inside a caller's deadline"
 );
 
 /// The realm's settings, given by its host as a value of
@@ -152,6 +164,23 @@ struct Realm {
     drives: steps::Drives,
     lanes: lanes::Lanes,
     hiring_wait: Duration,
+    /// Per profile, held shared by each purge of it in flight, and
+    /// alone while a dream's folders are checked out of it.
+    purging: Mutex<HashMap<ProfileId, Arc<tokio::sync::RwLock<()>>>>,
+}
+
+impl Realm {
+    /// What keeps `profile`'s purges and its dream's checkout apart.
+    fn purging(
+        &self,
+        profile: ProfileId,
+    ) -> Arc<tokio::sync::RwLock<()>> {
+        let mut purging = self
+            .purging
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner);
+        Arc::clone(purging.entry(profile).or_default())
+    }
 }
 
 #[async_trait::async_trait]
@@ -226,6 +255,10 @@ impl Actor for Realm {
         Relays<Asked<EditProfile>>,
         Relays<Asked<TagProfile>>,
         Relays<Asked<RevertProfile>>,
+        profiles::Purging,
+        Asked<Dream>,
+        Unreserved<Tool<AskLibrarian>>,
+        Unreserved<Tool<SubmitSkill>>,
     );
     type Events = ();
     type ConnParams = Option<Caller>;
@@ -251,6 +284,7 @@ impl Actor for Realm {
                 world: world::Held::load(ctx).await?,
                 drives: steps::Drives::default(),
                 lanes: lanes::Lanes::default(),
+                purging: Mutex::default(),
             })
         }
         .await

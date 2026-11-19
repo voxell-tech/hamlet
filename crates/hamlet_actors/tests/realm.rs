@@ -20,10 +20,14 @@ use hamlet_messages::agent::copies::Copies;
 use hamlet_messages::agent::{
     AgentInput, Fill, Place, PlaceVersion, Submit,
 };
+use hamlet_messages::library::{
+    ReadShelves, ShelfList, Skill, Verdict, VerdictRefusal,
+};
 use hamlet_messages::profile::{
-    BadPath, Branch, CommitId, Edit, EditRefusal, Missing,
-    Path as FilePath, ProfileInput, Read, ReadAnswer, Revert,
-    RevertAnswer, Sha1, Tag, TagAnswer, TagRefusal,
+    BadPath, Branch, CommitId, DreamEnd, Edit, EditRefusal, EndDream,
+    Missing, Path as FilePath, PrepareDream, Prepared, ProfileInput,
+    Purge, PurgeAnswer, Read, ReadAnswer, Revert, RevertAnswer, Sha1,
+    Tag, TagAnswer, TagRefusal,
 };
 use hamlet_messages::realm::budget::{
     BudgetLimit, Charge, MaySpend, SpendRefusal,
@@ -32,8 +36,8 @@ use hamlet_messages::realm::client::{Answer, Say};
 use hamlet_messages::realm::world::{ReachSeen, Status};
 use hamlet_messages::realm::{
     Asked, Done, Found, FoundAnswer, HamletId, Hire, HireAnswer,
-    HireRefusal, Named, NeedsChief, ProfileId, SetLimits, Tell, Tier,
-    Tool,
+    HireRefusal, Named, NeedsChief, ProfileId, Refusable as _,
+    SetLimits, Tell, Tier, Tool,
 };
 use hamlet_messages::sender::Hand;
 use hamlet_messages::workspace::reach::Reach;
@@ -64,6 +68,8 @@ mod chiefs;
 mod choices;
 #[path = "realm/copies.rs"]
 mod copies;
+#[path = "realm/dreams.rs"]
+mod dreams;
 #[path = "realm/errands.rs"]
 mod errands;
 #[path = "realm/first_start.rs"]
@@ -76,6 +82,8 @@ mod laid;
 mod lead;
 #[path = "realm/letters.rs"]
 mod letters;
+#[path = "realm/librarian.rs"]
+mod librarian;
 #[path = "realm/living.rs"]
 mod living;
 #[path = "realm/oversight.rs"]
@@ -128,12 +136,20 @@ const FOUR: AgentNumber = AgentNumber(4);
 enum Callee {
     Branch,
     Create,
+    /// A profile's end of a dream, by the profile's number.
+    EndDream,
     Fill,
     /// The workspace's measure of a parcel, by its sender.
     Parcel,
     Place,
+    /// A profile's preparation of a dream, by the profile's number.
+    PrepareDream,
+    /// A profile's purge, by the profile's number.
+    Purge,
     SetReach,
     Submit,
+    /// The library's verdict, by the offer's number.
+    Verdict,
 }
 
 #[derive(Default)]
@@ -151,6 +167,13 @@ struct Seen {
     edits: Mutex<Vec<(ProfileId, Edit)>>,
     tags: Mutex<Vec<(ProfileId, Tag)>>,
     reverts: Mutex<Vec<(ProfileId, Revert)>>,
+    purges: Mutex<Vec<(ProfileId, Purge)>>,
+    /// Each preparation of a dream, with whether a purge was held
+    /// when it came.
+    prepares: Mutex<Vec<(ProfileId, PrepareDream, bool)>>,
+    dream_ends: Mutex<Vec<(ProfileId, EndDream)>>,
+    /// Each verdict the library was called with, failed calls too.
+    verdicts: Mutex<Vec<Verdict>>,
     failing: Mutex<HashSet<(Callee, AgentNumber)>>,
     /// The calls that fail every time, with an error of the callee's
     /// own.
@@ -378,7 +401,16 @@ struct ProfileStandIn {
 impl Actor for ProfileStandIn {
     /// `None` for a profile a test calls without making it.
     type Input = Option<ProfileInput>;
-    type Actions = (Branch, Read, Edit, Tag, Revert);
+    type Actions = (
+        Branch,
+        Read,
+        Edit,
+        Tag,
+        Revert,
+        Purge,
+        PrepareDream,
+        EndDream,
+    );
     type Events = ();
     type ConnParams = Option<Caller>;
     type Action = ();
@@ -477,6 +509,9 @@ const COMMIT: CommitId = CommitId(Sha1([7; 20]));
 /// A path a stand-in profile refuses to write.
 const NOT_A_PATH: &str = "../out";
 
+/// An offer the stand-in library does not hold.
+const NO_OFFER: u32 = 404;
+
 impl Handler<Edit> for ProfileStandIn {
     async fn handle(
         self: Arc<Self>,
@@ -532,6 +567,138 @@ impl Handler<Revert> for ProfileStandIn {
             clashes: vec![FilePath {
                 path: "notes.md".to_owned(),
             }],
+        })
+    }
+}
+
+/// The hire every stand-in profile's purge leaves holding the path.
+const STILL_HOLDS: AgentNumber = AgentNumber(3);
+
+impl Handler<Purge> for ProfileStandIn {
+    async fn handle(
+        self: Arc<Self>,
+        _: Ctx<Self>,
+        purge: Purge,
+    ) -> anyhow::Result<PurgeAnswer> {
+        self.seen
+            .called(Callee::Purge, AgentNumber(self.profile.0))
+            .await?;
+        let path = purge.path.clone();
+        self.seen.purges.lock().unwrap().push((self.profile, purge));
+        Ok(if path == NOT_A_PATH {
+            PurgeAnswer::Refused {
+                why: BadPath::NotAPath { path }.into(),
+            }
+        } else {
+            PurgeAnswer::Purged {
+                branches: 2,
+                still_hold: vec![STILL_HOLDS],
+            }
+        })
+    }
+}
+
+impl Handler<PrepareDream> for ProfileStandIn {
+    async fn handle(
+        self: Arc<Self>,
+        _: Ctx<Self>,
+        prepare: PrepareDream,
+    ) -> anyhow::Result<Prepared> {
+        let purging = self
+            .seen
+            .waiting
+            .lock()
+            .unwrap()
+            .iter()
+            .any(|&(callee, _)| callee == Callee::Purge);
+        self.seen
+            .called(Callee::PrepareDream, AgentNumber(self.profile.0))
+            .await?;
+        let dream = prepare.dream.0;
+        self.seen.prepares.lock().unwrap().push((
+            self.profile,
+            prepare,
+            purging,
+        ));
+        Ok(Prepared::Ready {
+            main: format!("dreams/{dream}/main"),
+            hire: None,
+        })
+    }
+}
+
+impl Handler<EndDream> for ProfileStandIn {
+    async fn handle(
+        self: Arc<Self>,
+        _: Ctx<Self>,
+        end: EndDream,
+    ) -> anyhow::Result<DreamEnd> {
+        self.seen
+            .called(Callee::EndDream, AgentNumber(self.profile.0))
+            .await?;
+        self.seen
+            .dream_ends
+            .lock()
+            .unwrap()
+            .push((self.profile, end));
+        Ok(DreamEnd::Nothing)
+    }
+}
+
+struct LibraryStandIn {
+    seen: Arc<Seen>,
+}
+
+#[async_trait::async_trait]
+impl Actor for LibraryStandIn {
+    type Input = ();
+    type Actions = (ReadShelves, Verdict);
+    type Events = ();
+    type ConnParams = Option<Caller>;
+    type Action = ();
+
+    async fn create(ctx: &Ctx<Self>) -> anyhow::Result<Self> {
+        Ok(Self { seen: seen(ctx)? })
+    }
+}
+
+/// The one skill on every stand-in library's shelves.
+fn shelved() -> Skill {
+    Skill {
+        name: "dig".to_owned(),
+        description: "Digs a well.".to_owned(),
+        usage: "dig <depth>".to_owned(),
+    }
+}
+
+impl Handler<ReadShelves> for LibraryStandIn {
+    async fn handle(
+        self: Arc<Self>,
+        _: Ctx<Self>,
+        _: ReadShelves,
+    ) -> anyhow::Result<ShelfList> {
+        Ok(ShelfList {
+            version: 1,
+            skills: vec![shelved()],
+        })
+    }
+}
+
+impl Handler<Verdict> for LibraryStandIn {
+    async fn handle(
+        self: Arc<Self>,
+        _: Ctx<Self>,
+        verdict: Verdict,
+    ) -> anyhow::Result<Done<VerdictRefusal>> {
+        let offer = verdict.offer;
+        self.seen.verdicts.lock().unwrap().push(verdict);
+        self.seen
+            .called(Callee::Verdict, AgentNumber(offer.0))
+            .await?;
+        Ok(if offer.0 == NO_OFFER {
+            Done::refused(VerdictRefusal::NoSuchOffer { offer })
+        } else {
+            Done::Done
         })
     }
 }
@@ -626,6 +793,10 @@ async fn open(
             address::Workspace::KIND.to_owned(),
             kind::<WorkspaceStandIn>(address::Workspace::KIND),
         ),
+        (
+            address::Library::KIND.to_owned(),
+            kind::<LibraryStandIn>(address::Library::KIND),
+        ),
     ]);
     let mut host_options =
         HostOptions::default().with_value(seen.clone());
@@ -633,9 +804,12 @@ async fn open(
         host_options = host_options.with_value(options.clone());
     }
     let host = Host::open_with(dir, kinds, host_options).unwrap();
-    host.get_or_start(&address::Workspace.address().unwrap())
-        .await
-        .unwrap();
+    for started in [
+        address::Workspace.address().unwrap(),
+        address::Library.address().unwrap(),
+    ] {
+        host.get_or_start(&started).await.unwrap();
+    }
     host
 }
 

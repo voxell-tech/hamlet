@@ -298,3 +298,21 @@ CREATE TABLE IF NOT EXISTS parcel_file (
 	size INTEGER NOT NULL,
 	sha256 BLOB NOT NULL,
 	PRIMARY KEY (parcel, file)) STRICT;
+
+-- dreams.rs
+CREATE TABLE IF NOT EXISTS dream (
+	id INTEGER PRIMARY KEY,
+	profile INTEGER NOT NULL,
+	hire INTEGER,
+	at INTEGER NOT NULL) STRICT;
+
+-- librarian.rs
+CREATE TABLE IF NOT EXISTS librarian (
+	errand INTEGER PRIMARY KEY,
+	asker INTEGER NOT NULL,
+	call TEXT NOT NULL,
+	conversation TEXT,
+	offer INTEGER,
+	skill TEXT,
+	accepted INTEGER,
+	words TEXT) STRICT;

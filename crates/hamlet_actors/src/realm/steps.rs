@@ -16,7 +16,10 @@ use super::calls::{Calls, Delivery, Made};
 use super::change::{self, Affected, Rows, Writer};
 use super::peer::{self, Peers, When};
 use super::workers::errands;
-use super::{Realm, calls, hire, parcels, reviews, tree, workers};
+use super::{
+    Realm, calls, dreams, hire, librarian, parcels, reviews, tree,
+    workers,
+};
 
 #[derive(
     Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize,
@@ -28,6 +31,8 @@ pub(super) enum Kind {
     Errand,
     Review,
     Parcel,
+    Dream,
+    Verdict,
 }
 
 #[derive(
@@ -288,7 +293,8 @@ where
 
 /// Ends the row that failed for good: its hire or worker ends as
 /// failed, its errand as one that gave no answer, its review as
-/// failed and its parcel as refused.
+/// failed, its parcel as refused, and its dream or its verdict as
+/// closed.
 async fn end_failed(
     realm: &Arc<Realm>,
     ctx: &Ctx<Realm>,
@@ -310,6 +316,9 @@ async fn end_failed(
         }
         Kind::Review => (reviews::failed(row.n)?, Calls::none()),
         Kind::Parcel => parcels::failed(&rows, row.n).await?,
+        Kind::Dream | Kind::Verdict => {
+            (vec![Change::Close { row }.into()], Calls::none())
+        }
     };
     if changes.is_empty() {
         return Ok(());
@@ -354,6 +363,18 @@ async fn walk_row(
         Kind::Parcel => {
             walk(&cx, row, async move |cx: &Cx<'_>, step| {
                 parcels::run(cx, row.n, step).await
+            })
+            .await
+        }
+        Kind::Dream => {
+            walk(&cx, row, async move |cx: &Cx<'_>, step| {
+                dreams::run(cx, row.n, step).await
+            })
+            .await
+        }
+        Kind::Verdict => {
+            walk(&cx, row, async move |cx: &Cx<'_>, step| {
+                librarian::run(cx, row.n, step).await
             })
             .await
         }

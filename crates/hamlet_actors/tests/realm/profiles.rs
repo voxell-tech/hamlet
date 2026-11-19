@@ -177,7 +177,7 @@ async fn a_hire_of_a_blank_hires_profile_names_it_by_its_label() {
 
 type CreateAnswer = Made<AgentRefusal<CreateRefusal>>;
 
-async fn create(
+pub(super) async fn create(
     realm: &Realm,
     by: AgentNumber,
     call: &str,
@@ -539,7 +539,7 @@ async fn only_the_hand_changes_a_profile() {
     realm.host.shutdown().await.unwrap();
 }
 
-async fn asked<T: ChiefRequest>(
+pub(super) async fn asked<T: ChiefRequest>(
     realm: &Realm,
     id: &RequestId,
     act: T,

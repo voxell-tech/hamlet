@@ -30,6 +30,8 @@ const WRITERS: &[(&str, &[&str])] = &[
     ("documents.rs", &["document"]),
     ("settings.rs", &["settings"]),
     ("parcels.rs", &["parcel", "parcel_file"]),
+    ("dreams.rs", &["dream"]),
+    ("librarian.rs", &["librarian"]),
 ];
 
 /// The handlers that run outside `Act`, by module: each writes
@@ -40,6 +42,7 @@ const OUTSIDE_ACT: &[(&str, &str)] = &[
     ("settings.rs", "Asked"),
     ("parcels.rs", "FetchPart"),
     ("profiles.rs", "Create"),
+    ("profiles.rs", "Purging"),
 ];
 
 #[test]

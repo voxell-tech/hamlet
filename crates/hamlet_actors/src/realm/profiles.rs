@@ -9,21 +9,21 @@ use hamlet_actor::{Action, BindParam, Ctx, Handler};
 use hamlet_messages::Message;
 use hamlet_messages::address::{Agent, Profile};
 use hamlet_messages::profile::{
-    By, Edit, ProfileInput, Read, ReadAnswer, Revert, RevertAnswer,
-    Tag, TagAnswer,
+    By, DreamOpen, Edit, ProfileInput, Purge, PurgeAnswer, Read,
+    ReadAnswer, Revert, RevertAnswer, Tag, TagAnswer,
 };
 use hamlet_messages::realm::profiles::{
     CreateProfile, CreateRefusal, EditProfile, EditProfileRefusal,
-    Made, ProfileRefusal, ReadProfile, ReadProfileRefusal,
-    RevertProfile, RevertProfileRefusal, TagProfile,
-    TagProfileRefusal,
+    Made, ProfileRefusal, PurgeProfile, PurgeProfileRefusal,
+    ReadProfile, ReadProfileRefusal, RevertProfile,
+    RevertProfileRefusal, TagProfile, TagProfileRefusal,
 };
 use hamlet_messages::realm::world::WaitId;
 use hamlet_messages::realm::{
     AgentRefusal, Asked, ChiefRequest, Done, Gate, ProfileId,
     Refusable, Tool, ToolCall,
 };
-use hamlet_messages::sender::{Client, Hand};
+use hamlet_messages::sender::{Client, Hand, sender};
 use hamlet_messages::workspace::{AgentNumber, CallId};
 use hamlet_protocol::client::RequestId;
 use serde::{Deserialize, Serialize};
@@ -36,7 +36,7 @@ use super::chiefs::hamlet;
 use super::oversight::reserved::{self, Kept};
 use super::peer::When;
 use super::steps::Cx;
-use super::{Realm, calls, settings};
+use super::{Realm, calls, dreams, settings};
 
 /// The character the Hand's profile starts from.
 const HAND_CHARACTER: &str =
@@ -371,7 +371,7 @@ async fn asked<T: ProfileChange>(
 
 /// The id `agent`'s call `call` is asked under: the same for each
 /// repeat of the call.
-fn request_id(
+pub(super) fn request_id(
     agent: AgentNumber,
     call: &CallId,
 ) -> Result<RequestId> {
@@ -398,6 +398,88 @@ impl<T: ProfileChange> Relay<Client> for Asked<T> {
 
     fn answer(answer: <T::Call as Action>::Output) -> Self::Output {
         T::answered(answer)
+    }
+}
+
+impl Relay<Client> for Asked<PurgeProfile> {
+    type Call = Purge;
+    type Output = PurgeAnswer<PurgeProfileRefusal>;
+
+    async fn ask(
+        &self,
+        _by: &Client,
+        rows: &Rows<'_>,
+    ) -> Result<Result<(ProfileId, Purge), Self::Output>> {
+        let profile = match shared(rows, self.act.profile).await? {
+            Ok(profile) => profile,
+            Err(why) => {
+                return Ok(Err(PurgeAnswer::refused(why.into())));
+            }
+        };
+        if let Some((dream, _)) = dreams::open(rows)
+            .await?
+            .filter(|&(_, over)| over == profile)
+        {
+            let why = DreamOpen::Dreaming { dream };
+            return Ok(Err(PurgeAnswer::refused(why.into())));
+        }
+        Ok(Ok((
+            profile,
+            Purge {
+                id: self.id.clone(),
+                path: self.act.path.clone(),
+                by: By::Chief { chief: CHIEF },
+            },
+        )))
+    }
+
+    fn answer(answer: PurgeAnswer) -> Self::Output {
+        match answer {
+            PurgeAnswer::Purged {
+                branches,
+                still_hold,
+            } => PurgeAnswer::Purged {
+                branches,
+                still_hold,
+            },
+            PurgeAnswer::Refused { why } => {
+                PurgeAnswer::refused(why.into())
+            }
+        }
+    }
+}
+
+/// A chief's purge, answered from the profile's answer once it has
+/// asked every hire to remove the path. It is refused while a dream
+/// of the profile is open, and no dream's folders are checked out of
+/// the profile while it is in flight.
+#[derive(Serialize, Deserialize)]
+#[serde(transparent)]
+pub(super) struct Purging(pub Asked<PurgeProfile>);
+
+impl Action for Purging {
+    type Output = <Asked<PurgeProfile> as Action>::Output;
+    const NAME: &'static str = <Asked<PurgeProfile> as Action>::NAME;
+}
+
+impl Message for Purging {
+    type To = <Asked<PurgeProfile> as Message>::To;
+    type From = <Asked<PurgeProfile> as Message>::From;
+}
+
+impl Handler<Purging> for Realm {
+    async fn handle(
+        self: Arc<Self>,
+        ctx: Ctx<Self>,
+        Purging(asked): Purging,
+    ) -> Result<<Purging as Action>::Output> {
+        let by = sender(&ctx, &asked)?;
+        // Fails only while a dream's folders are checked out of the
+        // profile, a dream `ask` refuses as open.
+        let _purging =
+            self.purging(asked.act.profile).try_read_owned().ok();
+        callers::relay(&self, &ctx, &by, &asked, When::OverAgents)
+            .await
     }
 }
 

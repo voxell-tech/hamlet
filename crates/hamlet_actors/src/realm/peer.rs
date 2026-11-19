@@ -14,6 +14,9 @@ use crate::cbor;
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(super) enum When {
     BeforeAnswer,
+    /// Before the answer, to a callee that first asks agents, each
+    /// within [`BEFORE_ANSWER`].
+    OverAgents,
     AfterAnswer,
 }
 
@@ -21,6 +24,7 @@ impl When {
     pub const fn deadline(self) -> Duration {
         match self {
             Self::BeforeAnswer => BEFORE_ANSWER,
+            Self::OverAgents => Duration::from_secs(8),
             Self::AfterAnswer => Duration::from_secs(10),
         }
     }

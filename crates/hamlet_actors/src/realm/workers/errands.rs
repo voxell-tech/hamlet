@@ -21,7 +21,7 @@ use super::super::change::{
 };
 use super::super::steps::{self, Cx, Kind, StepId, Steps};
 use super::super::tasks::TaskId;
-use super::super::{callers, documents, reviews};
+use super::super::{callers, documents, librarian, reviews};
 
 const ANSWERED: &str = "answered";
 
@@ -30,11 +30,17 @@ const FAILED: &str = "failed";
 /// Today's words for an errand that ended with no answer.
 const NO_ANSWER: &str = "the errand gave no answer";
 
+/// The cap of an errand that has none of its own today: only its
+/// task's budget bounds it.
+pub(in crate::realm) const UNCAPPED: u64 = i64::MAX.unsigned_abs();
+
 /// What an errand is for, which decides what its end does.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(in crate::realm) enum Purpose {
     /// The review of the line held on `task`.
     Review { task: TaskId },
+    /// The librarian, for the call its `librarian` row names.
+    Librarian,
 }
 
 impl Purpose {
@@ -42,12 +48,14 @@ impl Purpose {
     fn columns(&self) -> (&'static str, Option<TaskId>) {
         match self {
             Self::Review { task } => ("review", Some(*task)),
+            Self::Librarian => ("librarian", None),
         }
     }
 
     fn of(purpose: &str, subject: Option<TaskId>) -> Result<Self> {
         match (purpose, subject) {
             ("review", Some(task)) => Ok(Self::Review { task }),
+            ("librarian", None) => Ok(Self::Librarian),
             _ => bail!("an errand for `{purpose}` on {subject:?}"),
         }
     }
@@ -194,6 +202,7 @@ fn ending(
 ) -> Vec<change::Change> {
     let made = match purpose {
         Purpose::Review { task } => reviews::ended(task, &ended),
+        Purpose::Librarian => librarian::ended(n, &ended),
     };
     [
         Change::End { n, ended }.into(),
@@ -368,11 +377,18 @@ pub(in crate::realm) async fn run(
         Step::Create => {
             let rows = cx.rows()?;
             let errand = errand_of(&rows, n).await?;
+            let mut brief = brief(&rows, n).await?;
+            if errand.purpose == Purpose::Librarian {
+                brief.instructions = Some(
+                    librarian::instructions(cx, brief.instructions)
+                        .await?,
+                );
+            }
             let input = AgentInput {
                 kind: AgentKind::Errand,
                 task: errand.task.on_the_wire(),
                 place: outside(),
-                brief: Some(brief(&rows, n).await?),
+                brief: Some(brief),
                 copies: documents::for_agent(&rows, n.agent())
                     .await?,
             };
