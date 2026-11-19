@@ -49,6 +49,7 @@ async fn a_dreams_errand_works_in_its_folder_and_nowhere_else_in_the_realm()
     put(&folder.join("hire/memory/kept.md"), "kept");
     std::fs::create_dir_all(folder.join("main/memory")).unwrap();
     let credentials = dir.join("credentials.json");
+    let outside = scratch.join("outside.md");
     let notes = dir.join("actors/agent/9.fs/notes.md");
     let other_dream = dir.join("dreams/4/main/memory/other.md");
     put(&credentials, CREDENTIALS);
@@ -83,6 +84,7 @@ async fn a_dreams_errand_works_in_its_folder_and_nowhere_else_in_the_realm()
         format!("printf changed > {}", quoted(&credentials)),
         format!("printf changed > {}", quoted(&other_dream)),
         format!("ls {}", quoted(&dir.join("dreams"))),
+        format!("printf out > {}", quoted(&outside)),
     ]
     .into_iter()
     .enumerate()
@@ -111,7 +113,9 @@ async fn a_dreams_errand_works_in_its_folder_and_nowhere_else_in_the_realm()
         reads.push(answer);
     }
     let mut changes = Vec::new();
-    for (n, path) in [&other_dream, &notes].iter().enumerate() {
+    for (n, path) in
+        [&other_dream, &notes, &outside].iter().enumerate()
+    {
         let answer: ChangeAnswer<WriteRefusal> = ask(
             &host,
             &agent(AGENT),
@@ -177,7 +181,87 @@ async fn a_dreams_errand_works_in_its_folder_and_nowhere_else_in_the_realm()
             refused(PathRefusal::<ToChange>::AgentFilesystem {
                 path: notes.clone()
             }),
+            refused(PathRefusal::OutsideReach {
+                path: outside.clone(),
+                access: ToChange::Change,
+            }),
         ]
     );
     assert_eq!(read(&notes), OTHER);
+    assert!(!outside.exists());
+}
+
+#[cfg(unix)]
+#[tokio::test(flavor = "multi_thread")]
+async fn a_dreams_folder_named_through_a_linked_realm_folder_works() {
+    let scratch = Scratch::new("workspace-dream-linked");
+    let real = scratch.join("var/realm");
+    put(&real.join("dreams/3/hire/memory/kept.md"), "kept");
+    put(&real.join("credentials.json"), CREDENTIALS);
+    let dir = scratch.join("realm");
+    std::os::unix::fs::symlink(&real, &dir).unwrap();
+    let folder = dir.join("dreams/3");
+    let host = host(&dir).await;
+    realm_sets(
+        &host,
+        1,
+        Reach::Dream {
+            folder: folder.clone(),
+            secrets: SecretsVersion(1),
+        },
+    )
+    .await;
+
+    let moved = agent_runs(
+        &host,
+        &run("m1", "mkdir -p main && mv hire/memory/kept.md main/"),
+    )
+    .await;
+    let wrote: ChangeAnswer<WriteRefusal> = ask(
+        &host,
+        &agent(AGENT),
+        &write("w1", &folder.join("main/new.md"), "new"),
+    )
+    .await;
+    let read_back: ReadAnswer = ask(
+        &host,
+        &agent(AGENT),
+        &reading(&folder.join("main/kept.md")),
+    )
+    .await;
+    let credentials = done(
+        agent_runs(
+            &host,
+            &run(
+                "c1",
+                &format!(
+                    "cat {}",
+                    quoted(&dir.join("credentials.json"))
+                ),
+            ),
+        )
+        .await,
+    );
+    host.shutdown().await.unwrap();
+
+    assert_eq!(done(moved).exit, Exit::Code { code: 0 });
+    assert_eq!(read(&real.join("dreams/3/main/kept.md")), "kept");
+    assert!(
+        matches!(
+            wrote,
+            ChangeAnswer::Ended {
+                end: ChangeEnd::Changed(_)
+            }
+        ),
+        "{wrote:?}"
+    );
+    assert_eq!(read(&real.join("dreams/3/main/new.md")), "new");
+    assert!(
+        matches!(
+            &read_back,
+            ReadAnswer::Text(read) if read.text.contains("kept")
+        ),
+        "{read_back:?}"
+    );
+    assert!(!credentials.output.contains(CREDENTIALS));
 }

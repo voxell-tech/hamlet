@@ -2,7 +2,7 @@
 //! table, its steps and its errand. One dream is open in the realm
 //! at a time.
 
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 use anyhow::{Context as _, Result};
 use hamlet_actor::BindParam;
@@ -373,7 +373,7 @@ async fn start(
     let main = home.join(main);
     let (instructions, agent, payer, model) = match hire {
         Some(hire) => {
-            let lodge = home.join(
+            let hire_side = home.join(
                 side.context("a hire's dream has no hire side")?,
             );
             let who = record::name_of(&rows, hire).await?;
@@ -400,7 +400,7 @@ async fn start(
                  true `description:` on every memory file. Do not \
                  change CHARACTER.md. When done, answer in one line \
                  what you brought home, or `Nothing to bring home.`",
-                lodge.display(),
+                hire_side.display(),
                 main.display()
             );
             (instructions, hire, payer, model)
@@ -504,6 +504,24 @@ pub(super) async fn tools(
         .collect())
 }
 
+/// The folder errand `n` dreams in, under `home`, while it has not
+/// ended.
+pub(super) async fn folder(
+    rows: &Rows<'_>,
+    n: ErrandNumber,
+    home: &Path,
+) -> Result<Option<PathBuf>> {
+    Ok(rows
+        .value::<String>(
+            "SELECT dream.folder FROM dream JOIN errand ON errand.n \
+             = dream.errand WHERE dream.errand = ?1 AND \
+             errand.ended IS NULL",
+            vec![integer(n.get())?],
+        )
+        .await?
+        .map(|folder| home.join(folder)))
+}
+
 /// The reach of errand `n`: its dream's folder under `home` while it
 /// has not ended.
 pub(super) async fn reach(
@@ -512,17 +530,8 @@ pub(super) async fn reach(
     home: &Path,
     secrets: SecretsVersion,
 ) -> Result<Reach> {
-    let folder = rows
-        .value::<String>(
-            "SELECT dream.folder FROM dream JOIN errand ON errand.n \
-             = dream.errand WHERE dream.errand = ?1 AND \
-             errand.ended IS NULL",
-            vec![integer(n.get())?],
-        )
-        .await?;
-    Ok(folder.map_or(Reach::Ended, |folder| Reach::Dream {
-        folder: home.join(folder),
-        secrets,
+    Ok(folder(rows, n, home).await?.map_or(Reach::Ended, |folder| {
+        Reach::Dream { folder, secrets }
     }))
 }
 

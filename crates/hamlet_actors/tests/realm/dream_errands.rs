@@ -1,20 +1,27 @@
 use std::sync::atomic::Ordering;
 
 use hamlet_messages::agent::{AgentInput, AgentKind, BuiltIn};
-use hamlet_messages::profile::{DreamId, EndDream};
+use hamlet_messages::profile::{
+    DreamId, DreamOpen, EndDream, PurgeAnswer,
+};
 use hamlet_messages::realm::budget::{Budget, Payer, SpendRefusal};
-use hamlet_messages::realm::profiles::{Dream, Dreamer};
+use hamlet_messages::realm::profiles::{
+    Dream, DreamAskedRefusal, DreamRefusal, Dreamer, PurgeProfile,
+};
 use hamlet_messages::realm::workers::{BUILT_IN, Ended, ErrandDone};
-use hamlet_messages::realm::{Done, ProfileId};
+use hamlet_messages::realm::{
+    Done, ProfileId, Refusable as _, SetTools, ToolName,
+};
 use hamlet_messages::sender::Hand;
 use hamlet_messages::workspace::reach::Reach;
 use hamlet_messages::workspace::{AgentNumber, ErrandNumber};
+use hamlet_protocol::client::RequestId;
 
 use super::chiefs::chief;
-use super::profiles::create;
+use super::profiles::{asked, create};
 use super::{
-    Realm, THREE, charge, hamlet_with, made, made_until, may_spend,
-    until,
+    Callee, Realm, THREE, charge, hamlet_with, made, made_until,
+    may_spend, to, until,
 };
 
 /// The most a dream may spend, in millionths of a dollar, as today's
@@ -95,6 +102,7 @@ async fn an_answered_dream_errand_ends_the_dream_done_with_its_first_line()
     .await;
 
     assert_eq!(made.kind, AgentKind::Errand);
+    assert_eq!(made.place.folder, Some(folder.clone()));
     let brief = made.brief.unwrap();
     let label = "scholar#3 (Hire 1)";
     assert_eq!(
@@ -234,5 +242,93 @@ async fn a_dreams_errand_spends_no_more_than_a_dream_may() {
             }),
         }
     );
+    realm.host.shutdown().await.unwrap();
+}
+
+/// A second dream and a purge of the dream's profile are refused
+/// while its errand runs, and a dream starts again once it ended.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_dream_stays_open_while_its_errand_runs() {
+    let (realm, _) = hamlet_with(0).await;
+    create(&realm, Hand::NUMBER, "c1", "Mason", None).await;
+    let of_mason = || Dream {
+        of: Dreamer::Profile {
+            profile: ProfileId(3),
+        },
+    };
+    assert_eq!(chief(&realm, of_mason()).await, Done::Done);
+    made_until(&realm, errand(0)).await;
+
+    let second = chief(&realm, of_mason()).await;
+    let purge = PurgeProfile {
+        profile: ProfileId(3),
+        path: "memory/notes.md".to_owned(),
+    };
+    let purged = asked(&realm, &RequestId::new(), purge).await;
+    errand_ends(
+        &realm,
+        0,
+        Ended::Failed {
+            why: "its turn was stopped".to_owned(),
+        },
+    )
+    .await;
+    ends(&realm).await;
+    let third = chief(&realm, of_mason()).await;
+
+    assert_eq!(
+        second,
+        Done::Refused {
+            why: DreamAskedRefusal::Dream(DreamRefusal::Running),
+        }
+    );
+    assert_eq!(
+        purged,
+        PurgeAnswer::refused(
+            DreamOpen::Dreaming { dream: DreamId(1) }.into()
+        )
+    );
+    assert_eq!(third, Done::Done);
+    made_until(&realm, errand(1)).await;
+    realm.host.shutdown().await.unwrap();
+}
+
+/// A dream whose folders cannot be checked out ends not done, and the
+/// next dream starts.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_dream_that_cannot_be_prepared_ends_not_done() {
+    let (realm, _) = hamlet_with(1).await;
+    realm
+        .seen
+        .fail_for_good(Callee::PrepareDream, AgentNumber(3));
+
+    assert_eq!(chief(&realm, of_hire(THREE)).await, Done::Done);
+    assert_eq!(ends(&realm).await, [ended(false, "")]);
+    let next = chief(&realm, of_hire(THREE)).await;
+
+    assert_eq!(next, Done::Done);
+    assert!(made(&realm, errand(0)).is_none());
+    realm.host.shutdown().await.unwrap();
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn a_dreams_errand_has_no_tool_its_hires_lead_turned_off() {
+    let (realm, _) = hamlet_with(1).await;
+    let off = SetTools {
+        hire: to(THREE),
+        off: vec![ToolName {
+            name: "bash".to_owned(),
+        }],
+        on: Vec::new(),
+        why: None,
+    };
+    assert_eq!(chief(&realm, off).await, Done::Done);
+
+    assert_eq!(chief(&realm, of_hire(THREE)).await, Done::Done);
+    let brief = made_until(&realm, errand(0)).await.brief.unwrap();
+
+    let mut kept = built_ins();
+    kept.retain(|tool| tool.name != "bash");
+    assert_eq!(brief.tools, kept);
     realm.host.shutdown().await.unwrap();
 }

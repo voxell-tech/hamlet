@@ -383,6 +383,7 @@ pub(in crate::realm) async fn run(
             let rows = cx.rows()?;
             let errand = errand_of(&rows, n).await?;
             let mut brief = brief(&rows, n).await?;
+            let mut place = outside();
             match errand.purpose {
                 Purpose::Librarian => {
                     brief.instructions = Some(
@@ -395,6 +396,9 @@ pub(in crate::realm) async fn run(
                 }
                 Purpose::Dream => {
                     brief.tools = dreams::tools(&rows, n).await?;
+                    place.folder =
+                        dreams::folder(&rows, n, &cx.realm.folder)
+                            .await?;
                     cx.want_reach(n.agent()).await?;
                 }
                 Purpose::Review { .. } => {}
@@ -402,7 +406,7 @@ pub(in crate::realm) async fn run(
             let input = AgentInput {
                 kind: AgentKind::Errand,
                 task: errand.task.on_the_wire(),
-                place: outside(),
+                place,
                 brief: Some(brief),
                 copies: documents::for_agent(&rows, n.agent())
                     .await?,
