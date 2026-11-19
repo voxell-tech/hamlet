@@ -9,10 +9,10 @@ use hamlet_protocol::client::{
     LoginReply, LoginStart, LoginStep, New, Open, Read, ReadResult,
     ReplyKind, RequestId, Resume, Retry, Say, ServerMessage, Stop,
 };
-use hamlet_testing::{Models, Scratch, Server};
+use hamlet_testing::{Scratch, Server};
 use serde_json::json;
 
-use super::{SERVER, serve};
+use super::{serve, serve_with};
 
 /// What the faux model answers the first line it is given.
 const REPLY: &str = "The door carried this reply.";
@@ -413,6 +413,26 @@ async fn a_sign_in_answer_from_another_connection_is_refused() {
 }
 
 #[tokio::test(flavor = "multi_thread")]
+async fn a_line_holding_a_key_given_in_a_sign_in_reaches_no_client() {
+    let (mut server, _home, _side) = serve_signing_in().await;
+    let mut chief = Client::join(&server).await;
+    let start = start_sign_in(&mut chief).await;
+    finish_sign_in(&mut chief, &start).await;
+    let hand = chief.hand();
+    chief.open(&chat(hand)).await;
+    let said = chief.say(hand, &format!("my key is {KEY}")).await;
+    assert_eq!(said.kind, ReplyKind::Notice, "{}", said.text);
+    let frames = frames(&chief);
+    chief.close().await;
+    assert_eq!(server.stop().await, Some(0), "{}", server.log());
+    assert!(
+        frames.iter().any(|frame| frame.contains("my key is")),
+        "the line reached its watcher"
+    );
+    keeps_the_key_to_itself(&server, &frames);
+}
+
+#[tokio::test(flavor = "multi_thread")]
 async fn a_sign_in_to_a_subscription_shows_each_step_once() {
     let (mut server, _home, _side) = serve_signing_in().await;
     let mut chief = Client::join(&server).await;
@@ -526,23 +546,7 @@ async fn a_sign_in_cancelled_from_another_connection_goes_on() {
 /// A server as [`serve`] starts it, whose Node host also lists two
 /// loopback providers to sign in to.
 async fn serve_signing_in() -> (Server, Scratch, Scratch) {
-    let home = Scratch::new("front-home");
-    let side = Scratch::new("front-side");
-    let script = side.join("faux.json");
-    std::fs::write(
-        &script,
-        json!({ "responses": [REPLY] }).to_string(),
-    )
-    .unwrap();
-    let server = Server::start(
-        &[SERVER.to_owned(), "--actors".to_owned()],
-        &home,
-        Models::Faux(&script),
-        &[("HAMLET_DEMO_SIGN_IN", "1")],
-    )
-    .await
-    .unwrap_or_else(|failure| panic!("{failure}"));
-    (server, home, side)
+    serve_with(json!([REPLY]), &[("HAMLET_DEMO_SIGN_IN", "1")]).await
 }
 
 /// Starts a sign-in with a key on the loopback provider, and waits

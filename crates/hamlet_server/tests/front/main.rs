@@ -25,6 +25,14 @@ const SERVER: &str = env!("CARGO_BIN_EXE_hamlet_server");
 async fn serve(
     responses: serde_json::Value,
 ) -> (Server, Scratch, Scratch) {
+    serve_with(responses, &[]).await
+}
+
+/// [`serve`], with the variables `env` set for the server.
+async fn serve_with(
+    responses: serde_json::Value,
+    env: &[(&str, &str)],
+) -> (Server, Scratch, Scratch) {
     let home = Scratch::new("front-home");
     let side = Scratch::new("front-side");
     let script = side.join("faux.json");
@@ -37,7 +45,7 @@ async fn serve(
         &[SERVER.to_owned(), "--actors".to_owned()],
         &home,
         Models::Faux(&script),
-        &[],
+        env,
     )
     .await
     .unwrap_or_else(|failure| panic!("{failure}"));
