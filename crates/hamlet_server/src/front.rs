@@ -469,6 +469,9 @@ impl Door {
                 answer,
                 after,
             } = call;
+            if let After::Began(agent) = after {
+                asker.hub.begin(agent);
+            }
             let message =
                 match asker.calls.send(&to, action, args).await {
                     Ok(answered) => {
@@ -481,6 +484,9 @@ impl Door {
                     Err(error) => failed(&request, &error),
                 };
             asker.send(message);
+            if let After::Began(agent) = after {
+                asker.hub.began(agent).await;
+            }
         });
     }
 
@@ -545,6 +551,17 @@ impl Door {
                 }
             };
             let id = asked.id();
+            let began = match &asked {
+                Asked::Command(say)
+                    if commands::parse::is_new(&say.text) =>
+                {
+                    route::number(say.to)
+                }
+                _ => None,
+            };
+            if let Some(agent) = began {
+                asker.hub.begin(agent);
+            }
             let message = match ran.await {
                 Ok(outcome) => {
                     asker
@@ -558,6 +575,9 @@ impl Door {
                 Err(error) => failed(id, &error),
             };
             asker.send(message);
+            if let Some(agent) = began {
+                asker.hub.began(agent).await;
+            }
         }
     }
 
@@ -770,7 +790,9 @@ impl Asker {
     async fn after(&self, after: After) {
         match after {
             After::Nothing => {}
-            After::Show => self.show(To::Welcomed).await,
+            After::Show | After::Began(_) => {
+                self.show(To::Welcomed).await;
+            }
             After::Reread(agent) => {
                 self.show(To::Welcomed).await;
                 self.hub.reread(agent).await;

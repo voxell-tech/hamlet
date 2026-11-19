@@ -83,16 +83,19 @@ pub(crate) struct Call {
 pub(crate) type Words =
     fn(&RequestId, &[u8], &Own) -> Result<ServerMessage>;
 
-/// What the door does once a call is answered, before it sends the
-/// answer's frame.
+/// What the door does once a call is answered, around the answer's
+/// frame.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum After {
     Nothing,
     /// The realm may have changed: every client is shown it again.
     Show,
     /// As `Show`, and the agent's chat began again: the watchers of
-    /// its current session read it again.
+    /// its current session read it again before the answer is sent.
     Reread(AgentNumber),
+    /// As `Show`, and the agent began a new session: its watchers
+    /// read it after the answer is sent.
+    Began(AgentNumber),
 }
 
 /// What `message`, from a client that said hello, becomes.
@@ -139,7 +142,7 @@ pub(crate) fn route(message: ClientMessage) -> Result<Route> {
                 &id,
                 NewSession(new),
                 frames::began,
-                After::Reread,
+                After::Began,
             )?
         }
         ClientMessage::Resume(resume) => {
@@ -366,7 +369,7 @@ mod tests {
             panic!("`new` is a call of the agent");
         };
         assert_eq!(call.action, "new_session");
-        assert_eq!(call.after, After::Reread(AgentNumber(1)));
+        assert_eq!(call.after, After::Began(AgentNumber(1)));
     }
 
     #[test]

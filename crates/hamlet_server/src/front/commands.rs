@@ -44,7 +44,7 @@ pub(crate) struct Outcome {
     /// The words of the command's reply, or of its refusal.
     pub(crate) reply: Result<String, Refusal>,
     /// The agent whose chat its watchers read again, as after
-    /// `/new`.
+    /// `/resume`.
     pub(crate) reread: Option<AgentNumber>,
 }
 
@@ -220,10 +220,7 @@ async fn perform(
                     &NewSession(protocol::New { id: id.clone(), to }),
                 )
                 .await?;
-            return Ok(Outcome {
-                reply: Ok(words::began(began.number)),
-                reread: Some(speaker),
-            });
+            Ok(words::began(began.number))
         }
         Act::Sessions => {
             let history =

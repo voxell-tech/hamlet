@@ -57,6 +57,12 @@ struct Followed {
     /// The last status of the chief's current chat: the change that
     /// told it, and whether the agent was idle.
     status: Option<(Mark, bool)>,
+    /// New sessions asked of the agent whose reply is not sent yet:
+    /// its chats are read again once each is.
+    beginning: u32,
+    /// Whether its chats were reset while a new session's reply was
+    /// not sent.
+    deferred: bool,
 }
 
 /// A chat a client watches.
@@ -64,8 +70,7 @@ struct Watch {
     client: u64,
     chat: protocol::ChatRef,
     /// The last change its page and the turns after it hold; none
-    /// until the page is sent. A turn that resets the chat holds no
-    /// page, so it leaves this where it was.
+    /// until the page is sent.
     seen: Option<Mark>,
 }
 
@@ -278,6 +283,23 @@ impl Hub {
         let _ = found.jobs.send(Job::Look);
     }
 
+    /// Holds back a reset of `agent`'s chats from their watchers
+    /// until [`Hub::began`], as a new session is asked of it.
+    pub(crate) fn begin(&self, agent: AgentNumber) {
+        if let Some(found) = self.shared.followed().get_mut(&agent) {
+            found.beginning += 1;
+        }
+    }
+
+    /// Sends the watchers of `agent`'s chats what a reset held back
+    /// since [`Hub::begin`], once the new session's reply is sent.
+    pub(crate) async fn began(&self, agent: AgentNumber) {
+        if let Some(found) = self.shared.followed().get_mut(&agent) {
+            found.beginning = found.beginning.saturating_sub(1);
+        }
+        self.reread(agent).await;
+    }
+
     /// Sends the watchers of `agent`'s current session that session
     /// read again, as after it began again.
     pub(crate) async fn reread(&self, agent: AgentNumber) {
@@ -325,6 +347,8 @@ impl Shared {
                 watches: Vec::new(),
                 owed: Vec::new(),
                 status: None,
+                beginning: 0,
+                deferred: false,
             }
         })
     }
@@ -373,11 +397,17 @@ impl Shared {
                 },
                 item = subscription.next() => match item {
                     Ok(Item::Event(args)) => {
-                        if self.event(agent, &args) {
+                        if self.event(agent, &args)
+                            && self.reads_again(agent)
+                        {
                             self.reread_all(agent, false).await;
                         }
                     }
-                    Ok(Item::Gap) => self.reread_all(agent, false).await,
+                    Ok(Item::Gap) => {
+                        if self.reads_again(agent) {
+                            self.reread_all(agent, false).await;
+                        }
+                    }
                     Err(error) => {
                         self.tell(format!(
                             "agent {}'s chat ended: {error:#}",
@@ -435,7 +465,14 @@ impl Shared {
                 let _ = held.send(());
             }
             Job::Reread(told) => {
-                self.reread_all(agent, true).await;
+                let all = self
+                    .followed()
+                    .get_mut(&agent)
+                    .is_some_and(|found| {
+                        found.beginning == 0
+                            && std::mem::take(&mut found.deferred)
+                    });
+                self.reread_all(agent, !all).await;
                 let _ = told.send(());
             }
             Job::Look => {}
@@ -486,10 +523,23 @@ impl Shared {
         }
     }
 
+    /// Whether `agent`'s chats are read again now. While a new
+    /// session's reply is not sent, they are read once it is.
+    fn reads_again(&self, agent: AgentNumber) -> bool {
+        match self.followed().get_mut(&agent) {
+            Some(found) if found.beginning > 0 => {
+                found.deferred = true;
+                false
+            }
+            _ => true,
+        }
+    }
+
     /// Takes in a change of `agent`'s chats: a turn to each watcher
     /// of its chat, and an idle status of the chief's current chat
     /// ends the work on the lines taken before it. `true` when the
-    /// agent says its chats must be read again.
+    /// agent says its chats must be read again, which its watchers
+    /// are sent as a page, as today, and not as a turn.
     fn event(&self, agent: AgentNumber, args: &[u8]) -> bool {
         let event =
             match ciborium::from_reader::<(ChatEvent,), _>(args) {
@@ -516,6 +566,9 @@ impl Shared {
             }
             _ => None,
         });
+        if reset {
+            return true;
+        }
         let mut followed = self.followed();
         let Some(found) = followed.get_mut(&agent) else {
             return false;
@@ -526,9 +579,7 @@ impl Shared {
             }
             match frames::turn(event.clone(), &watch.chat) {
                 Ok(Some(turn)) => {
-                    if !reset {
-                        watch.seen = Some(mark);
-                    }
+                    watch.seen = Some(mark);
                     self.send(
                         watch.client,
                         ServerMessage::Turn(turn),
@@ -549,7 +600,7 @@ impl Shared {
                 });
             }
         }
-        reset
+        false
     }
 
     /// Answers each line taken whose work `ends` says ended.

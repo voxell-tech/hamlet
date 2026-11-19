@@ -9,7 +9,7 @@ use hamlet_protocol::client::{
     ChatRef, Check, Choice, ClientMessage, Edit, ItemKind, Login,
     LoginMethod, LoginReply, LoginStart, LoginStep, New, Open, Read,
     ReadResult, ReplyKind, RequestId, Resume, Retry, Say,
-    ServerMessage, Stop,
+    ServerMessage, Stop, TranscriptOperation,
 };
 use hamlet_testing::{Scratch, Server};
 use serde_json::json;
@@ -222,6 +222,9 @@ async fn a_stop_is_answered_while_a_line_waits_for_its_agent() {
 }
 
 #[tokio::test(flavor = "multi_thread")]
+/// After `/new`, and after the `new` message, a client following the
+/// chief's chat gets the reply, then the new session once, which
+/// holds its notice, as today: no turn resets the chat.
 async fn a_new_session_is_shown_to_its_watcher_once() {
     let (mut server, _home, _side) = serve(json!(["Hello."])).await;
     let mut chief = Client::join(&server).await;
@@ -243,21 +246,39 @@ async fn a_new_session_is_shown_to_its_watcher_once() {
         };
         assert_eq!(began, format!("Session {number} began."));
         chief.settle(Duration::from_secs(1)).await;
-        let shown = chief.messages()[asked..]
+        let after = &chief.messages()[asked..];
+        let shown = after
             .iter()
-            .filter(|message| {
-                matches!(
-                    message,
-                    ServerMessage::Transcript(page)
-                        if page.to.is_none() && page.chat == chat
-                )
+            .filter_map(|message| match message {
+                ServerMessage::Reply(reply)
+                    if reply.text == began =>
+                {
+                    Some("reply".to_owned())
+                }
+                ServerMessage::Transcript(page)
+                    if page.to.is_none() && page.chat == chat =>
+                {
+                    let items = page
+                        .items
+                        .iter()
+                        .map(|item| item.text.as_str())
+                        .collect::<Vec<_>>();
+                    Some(format!("page {items:?}"))
+                }
+                ServerMessage::Turn(turn)
+                    if turn.operations.iter().any(|op| {
+                        matches!(op, TranscriptOperation::Reset {})
+                    }) =>
+                {
+                    Some("reset".to_owned())
+                }
+                _ => None,
             })
-            .count();
+            .collect::<Vec<_>>();
         assert_eq!(
             shown,
-            1,
-            "session {number} was shown {shown} times: {:#?}",
-            &chief.messages()[asked..]
+            ["reply", r#"page ["Started a new session."]"#],
+            "session {number}: {after:#?}"
         );
     }
     chief.close().await;

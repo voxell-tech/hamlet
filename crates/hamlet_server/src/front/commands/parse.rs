@@ -140,6 +140,11 @@ pub(crate) fn is_at_once(line: &str) -> bool {
         || (ANSWERS.contains(&name) && rest.starts_with('#'))
 }
 
+/// Whether `line` begins a new session.
+pub(crate) fn is_new(line: &str) -> bool {
+    split(line).0 == "new"
+}
+
 /// A command's name, and the rest of its line.
 fn split(line: &str) -> (&str, &str) {
     let line = line.trim().trim_start_matches('/');
