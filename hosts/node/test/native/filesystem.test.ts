@@ -10,8 +10,10 @@ import {
 import { join } from "node:path";
 import { test } from "node:test";
 import type { AgentFilesystem } from "../../src/agent/filesystem.ts";
+import type { FilesAnswer, Piece } from "../../src/agent/messages.ts";
 import { openAgentFilesystem } from "../../src/agent/native-filesystem.ts";
-import { context, scratchFolder } from "../testing.ts";
+import { fakeCalls, from, until, wakeAgent } from "../agent-testing.ts";
+import { context, fixture, scratchFolder } from "../testing.ts";
 
 async function walked(filesystem: AgentFilesystem) {
     const walk = await filesystem.walk("", context);
@@ -112,4 +114,69 @@ test("a native write sets whether a file runs or keeps it, and the walk says whi
     );
     assert.equal(runs("skills/run.sh"), false);
     assert.deepEqual((await walked(filesystem)).executable, []);
+});
+
+function piece(path: string, text: string, executable?: boolean): Piece {
+    return {
+        path,
+        offset: 0,
+        bytes: Buffer.from(text).toString("base64"),
+        last: true,
+        ...(executable === undefined ? {} : { executable }),
+    };
+}
+
+test("a native agent fills a file that runs, removes what a pull removes, and removes a folder its profile asks it to", async (t) => {
+    const A = "ab".repeat(20);
+    const B = "cd".repeat(20);
+    const answers: FilesAnswer[] = [
+        {
+            type: "part",
+            tip: A,
+            files: [
+                piece("skills/run/run.sh", "#!/bin/sh\n", true),
+                piece("skills/old/SKILL.md", "old"),
+                piece("memory/notes.md", "notes"),
+            ],
+            removed: [],
+        },
+        {
+            type: "part",
+            tip: B,
+            files: [],
+            removed: [{ path: "skills/old/SKILL.md" }],
+        },
+    ];
+    const { calls } = fakeCalls({
+        profile: {
+            files: () => {
+                const next = answers.shift();
+                assert.ok(next, "the profile was asked for more files");
+                return next;
+            },
+            save: () => ({ type: "saved", tip: B }),
+        },
+    });
+    const filesystem = openAgentFilesystem(scratchFolder(t), 1);
+    const agent = await wakeAgent(t, { calls, files: filesystem });
+    await agent.actions.fill(agent.by(from.realm), { profile: 2 });
+    if (process.platform !== "win32") {
+        assert.deepEqual((await walked(filesystem)).executable, [
+            "skills/run/run.sh",
+        ]);
+    }
+
+    await agent.actions.moved(agent.by(from.profile(2)), { tip: B });
+    await until(
+        async () => (await names(filesystem, "skills")).join() === "run",
+    );
+    assert.equal(
+        await agent.actions.remove_path(agent.by(from.profile(2)), {
+            path: "skills",
+        }),
+        fixture("profile/remove_path.removed.answer"),
+    );
+    assert.deepEqual((await walked(filesystem)).files, ["memory/notes.md"]);
+    assert.deepEqual(agent.reported, []);
+    await agent.stop();
 });

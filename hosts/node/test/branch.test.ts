@@ -1,6 +1,8 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { fauxAssistantMessage } from "@earendil-works/pi-ai";
+import { ok } from "@earendil-works/pi-durable/env";
+import type { AgentFilesystem } from "../src/agent/filesystem.ts";
 import type {
     FilesAnswer,
     FilesPart,
@@ -195,6 +197,99 @@ test("after a turn, a save sends what the filesystem changed since the fill on t
     );
     assert.deepEqual(named(sent, "files").at(-1)?.message, { since: A });
     assert.equal(await filled(agent), B);
+    assert.deepEqual(agent.reported, []);
+    await agent.stop();
+});
+
+/** `fakeFiles` that keeps which files run, as a filesystem with modes does. */
+function filesThatRun(files: Record<string, string>) {
+    const fake = fakeFiles(files);
+    const runs = new Set<string>();
+    const filesystem: AgentFilesystem = {
+        ...fake,
+        write: async (path, content, context, executable) => {
+            if (executable === true) runs.add(path);
+            if (executable === false) runs.delete(path);
+            return fake.write(path, content, context);
+        },
+        walk: async (path, context) => {
+            const walked = await fake.walk(path, context);
+            if (!walked.ok) return walked;
+            const executable = walked.value.files.filter((file) =>
+                runs.has(file),
+            );
+            return ok({ ...walked.value, executable });
+        },
+    };
+    return { filesystem, runs };
+}
+
+test("a fill and a pull write whether each file runs, and a save sends it for each changed file that runs", async (t) => {
+    const { calls, sent } = fakeCalls({
+        profile: profileAnswering(
+            part({
+                tip: A,
+                files: [
+                    {
+                        path: "skills/run/run.sh",
+                        offset: 0,
+                        bytes: bytes("#!/bin/sh\n"),
+                        last: true,
+                        executable: true,
+                    },
+                    {
+                        path: "memory/tests.md",
+                        offset: 0,
+                        bytes: bytes("# Notes\n"),
+                        last: true,
+                    },
+                ],
+            }),
+            part({
+                tip: B,
+                files: [
+                    {
+                        path: "skills/run/run.sh",
+                        offset: 0,
+                        bytes: bytes("#!/bin/sh\necho run\n"),
+                        last: true,
+                    },
+                ],
+            }),
+        ),
+    });
+    const files: Record<string, string> = {};
+    const { filesystem, runs } = filesThatRun(files);
+    const agent = await wakeAgent(t, {
+        calls,
+        files: filesystem,
+        responses: [fauxAssistantMessage("Saved.")],
+    });
+    await agent.actions.fill(agent.by(from.realm), { profile: 2 });
+    assert.deepEqual([...runs], ["skills/run/run.sh"]);
+    files["skills/run/run.sh"] = "#!/bin/sh\necho\n";
+    files["memory/tests.md"] = "# Tests\n";
+
+    await say(agent, "Go.");
+
+    assert.deepEqual(saves(sent)[0]?.changes, [
+        {
+            type: "write",
+            path: "skills/run/run.sh",
+            offset: 0,
+            bytes: bytes("#!/bin/sh\necho\n"),
+            last: true,
+            executable: true,
+        },
+        {
+            type: "write",
+            path: "memory/tests.md",
+            offset: 0,
+            bytes: bytes("# Tests\n"),
+            last: true,
+        },
+    ]);
+    assert.deepEqual([...runs], [], "a pull of a file that does not run");
     assert.deepEqual(agent.reported, []);
     await agent.stop();
 });
