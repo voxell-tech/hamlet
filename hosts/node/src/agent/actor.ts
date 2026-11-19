@@ -68,6 +68,7 @@ import {
     type Copies,
     type Fill,
     type Finished,
+    type Input,
     type Moved,
     type Place,
     type Removal,
@@ -922,15 +923,20 @@ function admissionOf(message: Submit): Admission {
             ? `\`hire#${author.agent}\``
             : `${author.name} (\`hire#${author.agent}\`)`;
     switch (input.type) {
-        case "line":
+        case "line": {
+            const line = {
+                ...base,
+                ...attachedOf(input),
+                kind: "line" as const,
+            };
             return input.note === undefined
-                ? { ...base, kind: "line", content: input.text }
+                ? { ...line, content: input.text }
                 : {
-                      ...base,
-                      kind: "line",
+                      ...line,
                       note: input.note,
                       content: `${input.text}${NOTE_BREAK}${input.note}`,
                   };
+        }
         case "notice":
             return { ...base, kind: "notice", content: input.text };
         // As `crates/hamlet_server/src/talk/letters.rs:334` words it, with
@@ -939,7 +945,7 @@ function admissionOf(message: Submit): Admission {
             return {
                 ...base,
                 kind: "worker-answer",
-                from: { agent: input.from.agent },
+                from: input.from,
                 content: `worker#${input.from.agent} answers: ${input.text}`,
             };
         case "letter":
@@ -965,4 +971,21 @@ function admissionOf(message: Submit): Admission {
                 content: `${from(input.from)} answers your question:\n\n${input.text}`,
             };
     }
+}
+
+/** A line's images and files as its item shows them. */
+function attachedOf(
+    line: Extract<Input, { type: "line" }>,
+): Pick<Admission, "images" | "files"> {
+    return {
+        images: (line.images ?? []).map(({ id, at }) =>
+            at === undefined ? { id } : { id, at },
+        ),
+        files: (line.files ?? []).map(({ id, at, name, size }) => ({
+            id,
+            ...(at === undefined ? {} : { at }),
+            name: name ?? "",
+            size: size ?? 0,
+        })),
+    };
 }

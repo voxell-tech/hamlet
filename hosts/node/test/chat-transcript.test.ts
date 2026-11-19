@@ -21,13 +21,13 @@ import type {
     ChatRef,
     Input,
 } from "../src/agent/messages/agent.ts";
-import { REFLECT } from "../src/agent/reflect.ts";
 import { conversationOfChat } from "../src/agent/sessions.ts";
 import {
     FAKE_ROOT,
     fakeCalls,
     fakeFiles,
     from,
+    reflecting,
     toolCall,
     until,
     type Woken,
@@ -121,26 +121,6 @@ function shown(items: readonly ChatItem[]): string[] {
             ? `${item.kind}: ${item.text}`
             : `tool ${item.tool.name}: exit ${item.tool.exit ?? "none"}`,
     );
-}
-
-/**
- * Answers the reflection a `/new` or a `/resume` asks "Kept.", and every
- * other request from `answers` in order, whichever conversation asks first.
- */
-function reflecting(answers: string[]): FauxResponseStep[] {
-    const step: FauxResponseStep = (request) => {
-        const last = request.messages.at(-1);
-        const text =
-            typeof last?.content === "string"
-                ? last.content
-                : (last?.content ?? [])
-                      .map((part) => (part.type === "text" ? part.text : ""))
-                      .join("");
-        return fauxAssistantMessage(
-            text === REFLECT ? "Kept." : (answers.shift() ?? "Nothing left."),
-        );
-    };
-    return Array.from({ length: answers.length + 2 }, () => step);
 }
 
 async function wake(
@@ -578,6 +558,44 @@ test("/new begins its session with its notice, and a follower hears of it after 
     await agent.idle();
 });
 
+/**
+ * The follower reaches the new session within one turn of the event loop
+ * while `/new` is held; the test waits fifty, ten times and more the turn
+ * it needs.
+ */
+test("a follower hears of the session /new begins, though it reaches the session before /new keeps it", async (t) => {
+    const agent = await wake(t, reflecting(["One."]));
+    await sender(agent)(line("a"));
+    const before = chatEvents(agent).length;
+    // `/new` reads the realm's copies between making its session and keeping it.
+    const held = agent.holdRead("SELECT name, value FROM copy");
+    const answer = agent.actions.new_session(agent.by(from.client), {
+        id: "new-1",
+        to: 7,
+    });
+    await held.reached;
+    for (let turn = 0; turn < 50; turn += 1) {
+        await new Promise<void>((resolve) => setImmediate(resolve));
+    }
+    held.release();
+    assert.deepEqual(await answer, { number: 2 });
+
+    await until(async () =>
+        chatEvents(agent)
+            .slice(before)
+            .some(
+                (event) =>
+                    event.chat.past === undefined &&
+                    event.chat.from === undefined &&
+                    event.ops.some((op) => op.type === "reset"),
+            ),
+    );
+    assert.deepEqual(shown((await read(agent, CHIEF)).items), [
+        "notice: Started a new session.",
+    ]);
+    await agent.idle();
+});
+
 test("/new waiting behind another command holds no follower back", async (t) => {
     const reached = Promise.withResolvers<void>();
     const held = Promise.withResolvers<void>();
@@ -683,64 +701,6 @@ function wordsOf(message: Message): string {
               .map((part) => (part.type === "text" ? part.text : ""))
               .join("");
 }
-
-test("a letter's, a question's and an answer's item names its author as today", async (t) => {
-    const agent = await wakeAgent(t, {
-        calls: fakeCalls({ realm: { reply: () => ({ type: "done" }) } }).calls,
-        files: fakeFiles({}),
-        responses: [
-            fauxAssistantMessage("One."),
-            fauxAssistantMessage("Dear Ada."),
-            fauxAssistantMessage("Three."),
-            fauxAssistantMessage("Thanks."),
-        ],
-    });
-    t.after(() => agent.stop());
-    const send = sender(agent);
-    await send(line("a"));
-    await send(letter("Hello."));
-    await send({
-        type: "question",
-        letter: 5,
-        from: { agent: 4 },
-        text: "How many?",
-    });
-    const chief = await conversationOfChat(agent.by(from.client), CHIEF);
-    await send({
-        type: "answer",
-        question: 6,
-        from: { agent: 3, name: "Ada" },
-        text: "Three.",
-        conversation: String(chief),
-    });
-    // As `crates/hamlet_server/src/society/addresses.rs`'s `name_of` shows a sender.
-    const authors = (items: readonly ChatItem[]) =>
-        items.filter((item) => item.kind === "user").map((item) => item.author);
-    assert.deepEqual(authors((await read(agent, LETTERS)).items), [
-        "hire#3 (Ada)",
-    ]);
-    assert.deepEqual(
-        authors(
-            (await read(agent, { with: 7, from: 4, kind: "questions" })).items,
-        ),
-        ["hire#4"],
-    );
-    assert.deepEqual(authors((await read(agent, CHIEF)).items), [
-        undefined,
-        "hire#3 (Ada)",
-    ]);
-    const added = chatEvents(agent).flatMap((event) =>
-        event.ops.flatMap((op) =>
-            op.type === "add" && op.item.kind === "user" ? [op.item] : [],
-        ),
-    );
-    assert.deepEqual(authors(added), [
-        undefined,
-        "hire#3 (Ada)",
-        "hire#4",
-        "hire#3 (Ada)",
-    ]);
-});
 
 async function observed(
     t: TestContext,

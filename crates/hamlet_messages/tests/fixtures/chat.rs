@@ -471,10 +471,26 @@ fn event() -> ChatEvent {
         ops: vec![
             ChatOp::Add {
                 item: Box::new(ChatItem {
-                    author: Some("hire#3".into()),
                     rewindable: Some(true),
+                    images: images(),
+                    files: files(),
                     ..item("i8", protocol::ItemKind::User, "Go on")
                 }),
+                replaces: None,
+            },
+            ChatOp::Add {
+                item: Box::new(ChatItem {
+                    author: Some("hire#3 (Ada)".into()),
+                    ..item("i8b", protocol::ItemKind::User, "Hello.")
+                }),
+                replaces: None,
+            },
+            ChatOp::Add {
+                item: Box::new(item(
+                    "i8c",
+                    protocol::ItemKind::Assistant,
+                    "Going on.",
+                )),
                 replaces: Some("p1".into()),
             },
             ChatOp::Append {

@@ -1725,14 +1725,14 @@ function formOf(value: unknown): unknown {
     return typeof value;
 }
 
-test("the agent's chat events equal their fixtures, and its status, usage and reset have their fixture's form", async (t) => {
+test("the agent's chat events equal their fixtures, and its items, status, usage and reset have their fixture's form", async (t) => {
     const { calls } = fakeCalls(COMMANDED);
     const agent = await wakeAgent(t, {
         calls,
         key: "12",
         input: HAND,
-        responses: ["Hello back.", "One.", "Kept.", "Two."].map((text) =>
-            fauxAssistantMessage(text),
+        responses: ["Hello back.", "One.", "Kept.", "Two.", "Three."].map(
+            (text) => fauxAssistantMessage(text),
         ),
     });
     const send = async (id: string, input: Submit["input"]) => {
@@ -1745,7 +1745,20 @@ test("the agent's chat events equal their fixtures, and its status, usage and re
         id: uuid(2),
         to: 12,
     });
-    await send("input-3", { type: "line", text: "Again." });
+    await send("input-3", {
+        type: "line",
+        text: "Again.",
+        images: [{ id: "ab".repeat(32), at: 6 }, { id: "cd".repeat(32) }],
+        files: [
+            { id: "12".repeat(32), at: 0, name: "notes/plan.md", size: 2048 },
+            { id: "34".repeat(32), name: "log.txt", size: 0 },
+        ],
+    });
+    await send("input-5", {
+        type: "worker_answer",
+        from: { agent: 9, name: "worker#9" },
+        text: "Found.",
+    });
     const harness = await agent.harness();
     // A harness reopened after a failed commit resets every chat.
     const lost = agent.failNextCommit();
@@ -1788,8 +1801,16 @@ test("the agent's chat events equal their fixtures, and its status, usage and re
     const ops = events()
         .filter((event) => isDeepStrictEqual(event.chat, whole.chat))
         .flatMap((event) => event.ops);
-    // An append needs a stream held mid-answer, as `chat-transcript.test.ts`
-    // holds one.
+    // An append, and an answer that replaces the one being written, need a
+    // stream held mid-answer, as `chat-transcript.test.ts` holds one.
+    for (const op of whole.ops.filter(
+        (one) => one.type === "add" && one.replaces === undefined,
+    )) {
+        assert.ok(
+            ops.some((one) => isDeepStrictEqual(formOf(one), formOf(op))),
+            `the agent added no item of the form of ${JSON.stringify(op)}`,
+        );
+    }
     for (const op of whole.ops.filter(
         (one) => one.type !== "add" && one.type !== "append",
     )) {
@@ -1887,14 +1908,6 @@ const NOT_THE_AGENTS: readonly (readonly [RegExp, string])[] = [
         "the answer to the realm's set_reach",
     ],
     [/^address\/agent\./, "the agent's own address, which the host gives it"],
-    [
-        /^agent\/(read_chat|rewind\.rewound)\.answer$/,
-        "an item with files and images, which no item of the agent's carries",
-    ],
-    [
-        /^agent\/chat\.event\.answer$/,
-        "an item with both an author and a rewind, which no item of the agent's has: a chief's line names no author",
-    ],
     [
         /^library\/(read_shelves|read_offer|verdict|unshelve|drop_offer_parts)\./,
         "the realm's call of the library",
@@ -1994,6 +2007,7 @@ test("every fixture is one the agent writes or takes, or is listed with its reas
             "profile/files",
             "profile/save",
         ].flatMap(answersTo),
+        "agent/chat.event.answer",
         "agent/chat.event.letters.answer",
         "agent/chat.event.past.answer",
         ...fixtures(CLIENT_CALLS).filter((name) => !listed(name)),

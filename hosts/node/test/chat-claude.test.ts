@@ -20,6 +20,7 @@ import { withClaude } from "../src/agent/claude.ts";
 import { signIns } from "../src/agent/login.ts";
 import type { ChatPage, Login } from "../src/agent/messages/agent.ts";
 import type { Kept } from "../src/agent/messages/realm.ts";
+import { remember } from "../src/agent/models.ts";
 import {
     credentialsFile,
     dumped,
@@ -508,6 +509,34 @@ test("a program that dies with its tokens on stderr shows them nowhere", async (
         "relayed stderr": written.filter((line) => line.startsWith("claude: ")),
     };
     assert.deepEqual(holding(seen, tokens), []);
+    await claude.agent.stop();
+});
+
+test("a token split across two chunks of the program's stderr is relayed scrubbed", async (t) => {
+    const tokens = madeUpTokens("split-stderr");
+    const written = stderrWrites(t);
+    const claude = await claudeAgent(t, [
+        [
+            {
+                die: [
+                    `fatal: bad token ${tokens.token.slice(0, 12)}`,
+                    `${tokens.token.slice(12)} here\n`,
+                ],
+            },
+        ],
+    ]);
+    marked(claude);
+    remember(tokens.token);
+    await claude.say("Hello");
+    await until(
+        () => written.some((line) => line.includes("here")),
+        SESSION_ENDS_MS,
+    );
+    const relayed = written
+        .filter((line) => line.startsWith("claude: "))
+        .map((line) => line.slice("claude: ".length))
+        .join("");
+    assert.match(relayed, /fatal: bad token \[REDACTED\] here/);
     await claude.agent.stop();
 });
 

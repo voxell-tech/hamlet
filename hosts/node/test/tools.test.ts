@@ -1201,6 +1201,7 @@ test("a workspace write and edit answer in today's words, in the call and later"
             output: "Successfully wrote to /work/a.md",
             isError: false,
             diagnostics: [],
+            details: { created: true },
         },
         {
             output: "Successfully replaced 2 block(s) in /work/a.md.",

@@ -155,12 +155,9 @@ class SignIn {
     #asking:
         | {
               readonly step: LoginStep;
-              readonly secret: boolean;
               readonly answer: (value: string) => void;
           }
         | undefined;
-    /** The chief's typed answers, scrubbed from this sign-in's failure. */
-    readonly #answers: string[] = [];
     #end: End | undefined;
     #changed = Promise.withResolvers<void>();
     #start: Answered | undefined;
@@ -206,10 +203,9 @@ class SignIn {
         const asking = this.#asking;
         if (asking === undefined || asking.step !== this.#given) return;
         this.#asking = undefined;
-        this.#answers.push(value);
-        // Only a secret: a choice or a name such as `default` would be
-        // scrubbed from everything the host shows.
-        if (asking.secret) remember(value);
+        // Every answer, as today (`crates/hamlet_server/src/providers.rs`),
+        // since a later step or a failure can quote it.
+        remember(value);
         asking.answer(value);
     }
 
@@ -230,7 +226,7 @@ class SignIn {
         const given = (step: LoginStep): LoginAnswer => ({
             type: "step",
             login,
-            step: scrub(step, this.#answers),
+            step: scrub(step),
         });
         const stop = new AbortController();
         const late = this.#waited(stop.signal).then(() => true);
@@ -260,7 +256,7 @@ class SignIn {
     async #close(login: string, end: End, keep: Keep): Promise<LoginAnswer> {
         this.closed = true;
         if ("failed" in end) {
-            return failed(login, scrub(end.failed, this.#answers));
+            return failed(login, scrub(end.failed));
         }
         try {
             await keep({ provider: this.provider, value: end.kept });
@@ -291,7 +287,7 @@ class SignIn {
                 prompt: prompt.message + choices,
                 secret,
             };
-            this.#asking = { step, secret, answer: resolve };
+            this.#asking = { step, answer: resolve };
             signal.addEventListener(
                 "abort",
                 () => {
