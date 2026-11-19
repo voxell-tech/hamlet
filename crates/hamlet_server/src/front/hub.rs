@@ -626,7 +626,11 @@ impl Shared {
                 continue;
             };
             for watch in &mut found.watches {
-                if watch.chat == chat && watch.seen.is_some() {
+                // A watcher sent this page already holds it, since
+                // only a page moves `seen`.
+                if watch.chat == chat
+                    && watch.seen.is_some_and(|seen| seen != mark)
+                {
                     watch.seen = Some(mark);
                     self.send(
                         watch.client,

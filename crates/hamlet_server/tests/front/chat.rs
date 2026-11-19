@@ -224,6 +224,49 @@ async fn a_stop_is_answered_while_a_line_waits_for_its_agent() {
     assert_eq!(server.stop().await, Some(0), "{}", server.log());
 }
 
+/// After `/new`, and after the `new` message, the watcher of the
+/// chief's chat is sent the new session once.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_new_session_is_shown_to_its_watcher_once() {
+    let (mut server, _home, _side) = serve(json!(["Hello."])).await;
+    let mut chief = Client::join(&server).await;
+    let hand = chief.hand();
+    let chat = chat(hand);
+    chief.open(&chat).await;
+    chief.say(hand, "Hello.").await;
+    for (number, slash) in [(2, true), (3, false)] {
+        let asked = chief.messages().len();
+        let began = if slash {
+            chief.command(hand, "/new").await
+        } else {
+            chief
+                .request(|id| {
+                    ClientMessage::New(New { id, to: hand })
+                })
+                .await
+                .text
+        };
+        assert_eq!(began, format!("Session {number} began."));
+        chief.settle(Duration::from_secs(1)).await;
+        let shown = chief.messages()[asked..]
+            .iter()
+            .filter(|message| {
+                matches!(
+                    message,
+                    ServerMessage::Transcript(page)
+                        if page.to.is_none() && page.chat == chat
+                )
+            })
+            .count();
+        assert_eq!(
+            shown, 1,
+            "session {number} was shown {shown} times"
+        );
+    }
+    chief.close().await;
+    assert_eq!(server.stop().await, Some(0), "{}", server.log());
+}
+
 #[tokio::test(flavor = "multi_thread")]
 async fn a_request_sent_again_after_a_drop_opens_one_task() {
     let (mut server, _home, _side) =
