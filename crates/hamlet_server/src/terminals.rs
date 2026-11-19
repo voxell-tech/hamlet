@@ -101,10 +101,10 @@ pub(crate) enum Printed {
         seq: u64,
         bytes: Vec<u8>,
     },
-    Ended {
-        id: String,
-        code: i64,
-    },
+    /// The shell could not start; the terminal stays, showing why.
+    Ended { id: String, code: i64 },
+    /// The shell ran and exited, with any code; the terminal closes.
+    Exited { id: String },
 }
 
 /// Where a terminal's output goes: its screen, then the server.
@@ -385,6 +385,9 @@ impl Terminals {
                         changed = true;
                         self.keep(&id);
                     }
+                }
+                Printed::Exited { id } => {
+                    changed |= self.close(&id);
                 }
             }
         }

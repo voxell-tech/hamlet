@@ -22,7 +22,8 @@ pub struct TerminalView {
     pub cols: u16,
     /// The folder its shell started in.
     pub cwd: String,
-    /// The exit code of its shell, once the shell ended.
+    /// -1 once its shell could not start or start again. A shell
+    /// that ran and exited closes its terminal.
     #[serde(deserialize_with = "Option::deserialize")]
     pub exit: Option<i64>,
     /// The hamlet of the agent whose commands it shows. None for the

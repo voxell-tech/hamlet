@@ -65,11 +65,10 @@ pub(super) fn start(
                 }
             }
         }
-        let code = match session.ended().await {
-            Ok(status) => exit_code(status),
-            Err(_) => -1,
-        };
-        ended(&feed, code);
+        let _ = session.ended().await;
+        feed.report(Printed::Exited {
+            id: feed.id.clone(),
+        });
     });
     let writer = tokio::spawn(async move {
         while let Some(key) = typed.recv().await {
@@ -94,16 +93,6 @@ fn ended(feed: &Feed, code: i64) {
         id: feed.id.clone(),
         code,
     });
-}
-
-fn exit_code(status: std::process::ExitStatus) -> i64 {
-    #[cfg(unix)]
-    if let Some(signal) =
-        std::os::unix::process::ExitStatusExt::signal(&status)
-    {
-        return 128 + i64::from(signal);
-    }
-    status.code().map_or(-1, i64::from)
 }
 
 /// The environment every shell gets on top of its own.

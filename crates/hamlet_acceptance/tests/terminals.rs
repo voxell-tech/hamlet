@@ -376,3 +376,28 @@ async fn a_restart_keeps_a_terminal_s_output_below_a_new_shell() {
     shows(&mut chief, &id, "after-16").await;
     chief.settle(Duration::from_millis(100)).await;
 }
+
+#[tokio::test]
+async fn a_shell_that_exits_closes_its_terminal_whatever_its_code() {
+    let mut home = Home::new();
+    let mut server = serve(&mut home, &Faux::new()).await;
+    let mut chief = Client::join(&server).await;
+    let done = open(&mut chief).await;
+    let failed = open(&mut chief).await;
+    view(&mut chief, &failed).await;
+    type_in(&mut chief, &done, "exit\r").await;
+    type_in(&mut chief, &failed, "exit 3\r").await;
+    let gone = |c: &Client| {
+        !c.realm()
+            .terminals
+            .iter()
+            .any(|t| t.id == done || t.id == failed)
+    };
+    chief.until("both terminals closed", gone).await;
+    chief.close().await;
+    server.stop().await;
+    let server = serve(&mut home, &Faux::new()).await;
+    let mut chief = Client::join(&server).await;
+    chief.settle(Duration::from_millis(100)).await;
+    assert!(gone(&chief), "a closed terminal came back");
+}
