@@ -558,6 +558,11 @@ test("/new begins its session with its notice, and a follower hears of it after 
     await agent.idle();
 });
 
+/**
+ * The follower reaches the new session within one turn of the event loop
+ * while `/new` is held; the test waits fifty, ten times and more the turn
+ * it needs.
+ */
 test("a follower hears of the session /new begins, though it reaches the session before /new keeps it", async (t) => {
     const agent = await wake(t, reflecting(["One."]));
     await sender(agent)(line("a"));
@@ -569,8 +574,6 @@ test("a follower hears of the session /new begins, though it reaches the session
         to: 7,
     });
     await held.reached;
-    // The follower reaches the new session within one turn of the event
-    // loop; fifty leave the margin.
     for (let turn = 0; turn < 50; turn += 1) {
         await new Promise<void>((resolve) => setImmediate(resolve));
     }

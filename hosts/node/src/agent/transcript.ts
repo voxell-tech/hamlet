@@ -593,7 +593,7 @@ class Fold {
         const text = result.content
             .map((part) => (part.type === "text" ? part.text : ""))
             .join("");
-        return [
+        const ops = [
             added({
                 ...item,
                 tool: {
@@ -607,6 +607,20 @@ class Fold {
                 },
             }),
         ];
+        // As `crates/hamlet_server/src/clients/fold.rs` shows the chief's answer.
+        const said =
+            result.toolName === "ask_chief" ? chiefSaid(text) : undefined;
+        if (said !== undefined) {
+            ops.push(
+                added({
+                    id: `${entry.id}:0`,
+                    at: timeOf(entry),
+                    kind: "answered",
+                    text: said,
+                }),
+            );
+        }
+        return ops;
     }
 
     #partial(message: AssistantMessage | undefined): ChatOp[] {
@@ -792,6 +806,16 @@ function blocksOf(
         }
     }
     return shown;
+}
+
+/** `crates/hamlet_server/src/talk/asking.rs`'s `ANSWERS`. */
+const ANSWERS = "The chief answers:";
+
+/** What the chief said in an `ask_chief` result, as `talk/asking.rs`'s `said` reads it. */
+function chiefSaid(result: string): string | undefined {
+    if (!result.startsWith(ANSWERS)) return undefined;
+    const words = result.slice(ANSWERS.length).trim();
+    return words === "" ? undefined : words;
 }
 
 function timeOf(entry: EntryRecord): number {

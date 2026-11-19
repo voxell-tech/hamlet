@@ -365,7 +365,8 @@ export async function wakeAgent(
     const address = Address.of("agent", given.key ?? "7");
     const start = async (
         first: boolean,
-        database: RawAccess = commits.database,
+        file: string,
+        commits: ReturnType<typeof failing>,
     ): Promise<Woken> => {
         const alarms: number[] = [];
         const reported: string[] = [];
@@ -374,7 +375,7 @@ export async function wakeAgent(
             actorId: `agent-${address.key}`,
             address,
             call: given.calls.call,
-            db: database,
+            db: commits.database,
             vars: { [PI_RUNTIME]: createPiRuntime() },
             conns: new Map(),
             log: {
@@ -414,7 +415,7 @@ export async function wakeAgent(
             failNextCommit: commits.failNext,
             holdRead: commits.holdRead,
             stop: () => definition.onDestroy(c),
-            again: () => start(false),
+            again: () => start(false, file, commits),
             killed: async () => {
                 const copy = scratchFile(t);
                 for (const suffix of ["", "-journal"]) {
@@ -423,11 +424,11 @@ export async function wakeAgent(
                     }
                 }
                 await definition.onDestroy(c);
-                return start(false, plainDatabase(copy));
+                return start(false, copy, failing(plainDatabase(copy)));
             },
         };
     };
-    return start(true);
+    return start(true, file, commits);
 }
 
 export interface Held {
