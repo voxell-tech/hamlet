@@ -145,6 +145,8 @@ enum Callee {
     /// A profile's drop of an agent's save under way, by the agent's
     /// number.
     DropSaveParts,
+    /// A profile's edit, by the profile's number.
+    Edit,
     /// A profile's end of a dream, by the profile's number.
     EndDream,
     Fill,
@@ -542,6 +544,9 @@ impl Handler<Edit> for ProfileStandIn {
     ) -> anyhow::Result<Done<EditRefusal>> {
         let path = edit.path.clone();
         self.seen.edits.lock().unwrap().push((self.profile, edit));
+        self.seen
+            .called(Callee::Edit, AgentNumber(self.profile.0))
+            .await?;
         Ok(if path == NOT_A_PATH {
             Done::Refused {
                 why: BadPath::NotAPath { path }.into(),

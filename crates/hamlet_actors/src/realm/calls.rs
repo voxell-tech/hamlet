@@ -52,10 +52,17 @@ pub(super) enum Delivery {
 
 impl Delivery {
     /// Whether the realm makes it again after a failure in passing:
-    /// the chief was told its line was taken, or the sender its
-    /// parcel was sent, so no repeat of theirs carries it.
+    /// the chief was told its line was taken, the sender its parcel
+    /// was sent, or the chief its wait was closed, so no repeat of
+    /// theirs carries it. A wait's notice made again makes the
+    /// allowed act again, under the id its first run asked with.
     fn owed(&self) -> bool {
-        matches!(self, Self::Kept(_) | Self::ParcelRefused { .. })
+        matches!(
+            self,
+            Self::Kept(_)
+                | Self::ParcelRefused { .. }
+                | Self::Notice(_)
+        )
     }
 }
 

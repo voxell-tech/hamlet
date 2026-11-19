@@ -21,8 +21,8 @@ use super::chiefs::chief;
 use super::reserved::{in_turn, notices, waits};
 use super::steps::hiring_and_how;
 use super::{
-    MAYOR, Realm, THREE, answer, founded, hamlet_with, hire, hired,
-    tell, to, tool, until, words,
+    Callee, MAYOR, Realm, THREE, answer, founded, hamlet_with, hire,
+    hired, tell, to, tool, until, words,
 };
 
 const CHARACTER: &str = "You dig wells and keep them clean.";
@@ -493,6 +493,41 @@ async fn the_hands_change_to_a_profile_runs_once_a_chief_allows_it() {
     assert_eq!(first.id, again.id, "a repeat asks with the same id");
     let tags = realm.seen.tags.lock().unwrap().clone();
     assert_ne!(tags[0].1.id, first.id, "each call has its own id");
+    realm.host.shutdown().await.unwrap();
+}
+
+/// The profile fails the first edit, and the Hand's agent the first
+/// notice, as actors not ready; the realm makes the notice again a
+/// second later each time, and with it the edit, which the profile
+/// answers the second time as a repeat.
+#[tokio::test(flavor = "multi_thread")]
+async fn an_allowed_change_and_its_notice_are_made_again_until_done()
+{
+    let (realm, _) = hamlet_with(0).await;
+    create(&realm, Hand::NUMBER, "c1", "Mason", None).await;
+    realm
+        .tool(Hand::NUMBER, &in_turn("e1", edit(3, "notes.md"), None))
+        .await
+        .unwrap();
+    realm.seen.fail_once(Callee::Edit, AgentNumber(3));
+    realm.seen.fail_once(Callee::Submit, Hand::NUMBER);
+
+    let allow = answer("#1", Choice::Allow, None);
+    assert_eq!(realm.ask(&allow).await.unwrap(), Done::Done);
+
+    assert_eq!(
+        notices_until(&realm, 1).await,
+        ["Wrote notes.md of scholar#3."]
+    );
+    let [(_, failed), (_, ran), (_, repeat)] = &edits(&realm)[..]
+    else {
+        panic!("the failed edit, the one that ran, and its repeat");
+    };
+    assert_eq!(
+        (&ran.id, &repeat.id),
+        (&failed.id, &failed.id),
+        "made again with the same id"
+    );
     realm.host.shutdown().await.unwrap();
 }
 
