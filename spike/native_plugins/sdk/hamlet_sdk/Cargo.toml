@@ -1,0 +1,11 @@
+[package]
+name = "hamlet_sdk"
+version.workspace = true
+edition.workspace = true
+publish.workspace = true
+
+[lib]
+crate-type = ["dylib"]
+
+[dependencies]
+bevy.workspace = true
