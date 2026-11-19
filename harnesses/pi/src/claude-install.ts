@@ -26,7 +26,6 @@ export interface Locked {
     dependencies?: Record<string, string>;
     optionalDependencies?: Record<string, string>;
     peerDependencies?: Record<string, string>;
-    peerDependenciesMeta?: Record<string, { optional?: boolean }>;
     os?: string[];
     cpu?: string[];
     libc?: string[];
@@ -71,7 +70,15 @@ export function machine(): Machine {
     };
 }
 
-function fits(entry: Locked, on: Machine): boolean {
+const PROGRAM = "@anthropic-ai/claude-agent-sdk-";
+
+/** The Claude program's package names its C library only by a `-musl` suffix, not in the lockfile's `libc`. */
+export function forLibc(name: string, libc: string | undefined): boolean {
+    if (libc === undefined || !name.startsWith(`${PROGRAM}linux-`)) return true;
+    return name.endsWith("-musl") === (libc === "musl");
+}
+
+function fits(key: string, entry: Locked, on: Machine): boolean {
     // npm's lists name what a package runs on, or with `!` what it does not.
     const allows = (list: string[] | undefined, value: string | undefined) => {
         if (list === undefined || value === undefined) return true;
@@ -79,10 +86,12 @@ function fits(entry: Locked, on: Machine): boolean {
         const named = list.filter((item) => !item.startsWith("!"));
         return named.length === 0 || named.includes(value);
     };
+    const name = key.slice(key.lastIndexOf("node_modules/") + 13);
     return (
         allows(entry.os, on.os) &&
         allows(entry.cpu, on.cpu) &&
-        allows(entry.libc, on.libc)
+        allows(entry.libc, on.libc) &&
+        forLibc(name, on.libc)
     );
 }
 
@@ -116,18 +125,16 @@ export function needed(
             throw new Error(`pi's lockfile has no ${name}`);
         }
         const entry = packages[key] as Locked;
-        if (found.has(key) || !fits(entry, on)) return;
+        if (found.has(key) || !fits(key, entry, on)) return;
         found.set(key, entry);
         for (const dependency of Object.keys(entry.dependencies ?? {}))
             visit(key, dependency, false);
-        for (const dependency of Object.keys(entry.optionalDependencies ?? {}))
+        // A peer the lockfile does not install, as with legacy peer handling, is not needed.
+        for (const dependency of Object.keys({
+            ...entry.optionalDependencies,
+            ...entry.peerDependencies,
+        }))
             visit(key, dependency, true);
-        for (const dependency of Object.keys(entry.peerDependencies ?? {}))
-            visit(
-                key,
-                dependency,
-                entry.peerDependenciesMeta?.[dependency]?.optional === true,
-            );
     };
     for (const name of names) visit("", name, false);
     return [...found];
@@ -139,9 +146,8 @@ export function downloadable(): boolean {
         const on = machine();
         return needed(lockfile(), roots(), on).some(
             ([key, entry]) =>
-                key.startsWith(
-                    "node_modules/@anthropic-ai/claude-agent-sdk-",
-                ) && entry.os !== undefined,
+                key.startsWith(`node_modules/${PROGRAM}`) &&
+                entry.os !== undefined,
         );
     } catch {
         return false;
@@ -160,9 +166,22 @@ export function downloaded(home: string): string | undefined {
     return existsSync(join(at, "complete")) ? at : undefined;
 }
 
-const downloads = new Map<string, Promise<string>>();
+/** How long a download may go without a byte before it fails. */
+const STALL_MS = 60_000;
 
-/** Downloads the packages into `home` unless they are there, reporting each step to `progress`. */
+/** A download under way, shared by every caller, with whom it reports to and its last report. */
+interface Running {
+    done: Promise<string>;
+    listeners: Set<(message: string) => void>;
+    last?: string;
+}
+
+const downloads = new Map<string, Running>();
+
+/**
+ * Downloads the packages into `home` unless they are there, reporting each step to `progress`. Callers share one
+ * download; `signal` stops only this caller's wait, so another's call or sign-in still gets the program.
+ */
 export function download(
     home: string,
     progress: (message: string) => void,
@@ -173,18 +192,40 @@ export function download(
     if (ready !== undefined) return Promise.resolve(ready);
     let running = downloads.get(at);
     if (running === undefined) {
-        running = fetchAll(at, progress, signal).finally(() =>
-            downloads.delete(at),
-        );
-        downloads.set(at, running);
+        const started: Running = {
+            done: Promise.resolve(at),
+            listeners: new Set(),
+        };
+        started.done = fetchAll(at, (message) => {
+            started.last = message;
+            for (const listener of started.listeners) listener(message);
+        }).finally(() => downloads.delete(at));
+        downloads.set(at, started);
+        running = started;
     }
-    return running;
+    if (running.last !== undefined) progress(running.last);
+    const { listeners, done } = running;
+    // Each wait has its own listener, so one caller's progress may be another's too.
+    const listener = (message: string) => progress(message);
+    listeners.add(listener);
+    return new Promise<string>((resolve, reject) => {
+        const leave = () => {
+            listeners.delete(listener);
+            signal?.removeEventListener("abort", stop);
+        };
+        const stop = () => {
+            leave();
+            reject(signal?.reason);
+        };
+        if (signal?.aborted) return stop();
+        signal?.addEventListener("abort", stop, { once: true });
+        done.then(resolve, reject).finally(leave);
+    });
 }
 
 async function fetchAll(
     at: string,
     progress: (message: string) => void,
-    signal: AbortSignal | undefined,
 ): Promise<string> {
     const packages = needed(lockfile(), roots(), machine());
     // Built beside the folder and moved in whole, so a stopped download leaves no half-made folder.
@@ -195,7 +236,7 @@ async function fetchAll(
             progress(
                 `Downloading Claude's program from npm, once: ${index + 1} of ${packages.length}.`,
             );
-            await unpack(key, entry, building, signal);
+            await unpack(key, entry, building);
         }
         writeFileSync(join(building, "complete"), "");
         if (!existsSync(at)) renameSync(building, at);
@@ -206,23 +247,34 @@ async function fetchAll(
     return at;
 }
 
-async function unpack(
-    key: string,
-    entry: Locked,
-    into: string,
-    signal: AbortSignal | undefined,
-): Promise<void> {
+/** The file at `url`, failing when no byte comes for `STALL_MS`. */
+async function fetchFile(key: string, url: string): Promise<Buffer> {
+    const stop = new AbortController();
+    const timer = setTimeout(
+        () => stop.abort(new Error(`Downloading ${key} stalled`)),
+        STALL_MS,
+    );
+    try {
+        const response = await fetch(url, { signal: stop.signal });
+        if (!response.ok || response.body === null)
+            throw new Error(
+                `Downloading ${key} failed: ${response.status} ${response.statusText}`,
+            );
+        const chunks: Uint8Array[] = [];
+        for await (const chunk of response.body) {
+            chunks.push(chunk);
+            timer.refresh();
+        }
+        return Buffer.concat(chunks);
+    } finally {
+        clearTimeout(timer);
+    }
+}
+
+async function unpack(key: string, entry: Locked, into: string): Promise<void> {
     if (entry.resolved === undefined || entry.integrity === undefined)
         throw new Error(`pi's lockfile gives no file for ${key}`);
-    const response = await fetch(
-        entry.resolved,
-        signal === undefined ? {} : { signal },
-    );
-    if (!response.ok)
-        throw new Error(
-            `Downloading ${key} failed: ${response.status} ${response.statusText}`,
-        );
-    const file = Buffer.from(await response.arrayBuffer());
+    const file = await fetchFile(key, entry.resolved);
     const [algorithm, digest] = entry.integrity.split(" ")[0]?.split("-") ?? [];
     if (
         algorithm === undefined ||

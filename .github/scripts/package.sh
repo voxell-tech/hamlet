@@ -114,7 +114,7 @@ cp "$node_dir/LICENSE" "$stage/LICENSE-node"
 cp -R harnesses/pi/src "$pi/"
 cp harnesses/pi/{package.json,package-lock.json,.nvmrc} "$pi/"
 # The Claude program is Anthropic's, under its own terms: pi downloads its
-# optional packages when Claude is first signed in to (ADR 0014).
+# optional packages when Claude is first signed in to or called (ADR 0014).
 npm ci --omit=dev --omit=optional --prefix "$pi"
 cat > "$stage/README.txt" <<INFO
 Hamlet $version

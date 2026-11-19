@@ -85,7 +85,7 @@ the agents do though the plan bills no tokens.
 - Signing out in Hamlet forgets the marker, not the Claude program's login.
 - The Claude program is not in Hamlet's release archives: its packages are
   optional. Where they are not installed, pi downloads them from npm into
-  the realm when Claude is first signed in to, so each chief gets
+  the realm when Claude is first signed in to or called, so each chief gets
   Anthropic's program from Anthropic's package.
 - A hosted Hamlet needs Anthropic's agreement first, as ADR 0006 says of
   ChatGPT's sign-in.
