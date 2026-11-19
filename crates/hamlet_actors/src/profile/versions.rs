@@ -1,17 +1,17 @@
 //! A chief's changes to the profile's history and `main`: a tag, a
 //! revert, an edit, a purge and the erase, and the reads of its
-//! versions and its papers.
+//! versions, its papers and its files.
 
 use anyhow::{Context, Result};
 use hamlet_git::{Change, Joined, MAIN};
 use hamlet_messages::address::Agent;
 use hamlet_messages::profile::{
     BadCommit, BadPath, By as Who, CommitSeen, DreamId, DreamOpen,
-    Edit, EditRefusal, Erase, MOST_COMMITS_SEEN, Missing, Paper,
-    PaperList, Papers, Path, Protected, Purge, PurgeAnswer, Removal,
-    RemovePath, Revert, RevertAnswer, RevertRefusal, Revision, Tag,
-    TagAnswer, TagRefusal, TooLong, VersionList, VersionName,
-    VersionSeen, Versions,
+    Edit, EditRefusal, Erase, MOST_COMMITS_SEEN, MOST_READ, Missing,
+    Paper, PaperList, Papers, Path, Protected, Purge, PurgeAnswer,
+    Read, ReadAnswer, Removal, RemovePath, Revert, RevertAnswer,
+    RevertRefusal, Revision, Tag, TagAnswer, TagRefusal, TooLong,
+    VersionList, VersionName, VersionSeen, Versions,
 };
 use hamlet_messages::realm::{Done, ProfileId};
 use hamlet_messages::workspace::AgentNumber;
@@ -65,9 +65,10 @@ fn tag(
     let (at, seen, taken) = {
         let git = unit.git()?;
         let at = match tag.at {
-            Some(at) => Some(git_commit(at)?)
-                .filter(|found| git.has(*found).unwrap_or(false))
-                .ok_or(at),
+            Some(at) => {
+                let found = git_commit(at)?;
+                if git.has(found)? { Ok(found) } else { Err(at) }
+            }
             None => {
                 Ok(git.tip(MAIN)?.context("a profile has a main")?)
             }
@@ -217,32 +218,83 @@ fn undone(
     what: &Revision,
     profile: ProfileId,
 ) -> Result<Result<hamlet_git::CommitId, RevertRefusal>> {
-    let commit = match what {
-        Revision::Version { version } => {
-            match hires::version_at(git, version)? {
-                Some(commit) => commit,
-                None => {
-                    let version = version.clone();
-                    let why = Missing::NoVersion { profile, version };
-                    return Ok(Err(why.into()));
-                }
-            }
-        }
-        Revision::Commit { commit } => {
-            let at = git_commit(*commit)?;
-            if !git.has(at)? {
-                let commit = *commit;
-                let why = BadCommit::NoCommit { profile, commit };
-                return Ok(Err(why.into()));
-            }
-            at
-        }
+    let commit = match commit_of(git, what, profile)? {
+        Ok(commit) => commit,
+        Err(why) => return Ok(Err(why)),
     };
     if !git.holds(MAIN, commit)? {
         let commit = commit_id(commit)?;
         return Ok(Err(BadCommit::NotOnMain { commit }.into()));
     }
     Ok(Ok(commit))
+}
+
+/// The commit `what` names, or the refusal of a version or a commit
+/// the profile does not have.
+fn commit_of<W: From<Missing> + From<BadCommit>>(
+    git: &Reads,
+    what: &Revision,
+    profile: ProfileId,
+) -> Result<Result<hamlet_git::CommitId, W>> {
+    Ok(match what {
+        Revision::Version { version } => {
+            hires::version_at(git, version)?.ok_or_else(|| {
+                let version = version.clone();
+                Missing::NoVersion { profile, version }.into()
+            })
+        }
+        Revision::Commit { commit } => {
+            let at = git_commit(*commit)?;
+            if git.has(at)? {
+                Ok(at)
+            } else {
+                let commit = *commit;
+                Err(BadCommit::NoCommit { profile, commit }.into())
+            }
+        }
+    })
+}
+
+impl Takes<Read> for Profile {
+    async fn take(call: Call<Self, Read>) -> Result<Reply<Read>> {
+        let own = call.owner().own.0;
+        call.read(move |look| read(look, own)).await
+    }
+}
+
+/// The paths of the files at the revision asked, `main` when none
+/// is, or the text of the file asked there.
+fn read(
+    look: &Look<'_, Profile, Read>,
+    own: ProfileId,
+) -> Result<ReadAnswer> {
+    let Read { at, path } = look.message();
+    let git = look.git()?;
+    let at = match at {
+        Some(what) => match commit_of(git, what, own)? {
+            Ok(at) => at,
+            Err(why) => return Ok(ReadAnswer::Refused { why }),
+        },
+        None => git.tip(MAIN)?.context("a profile has a main")?,
+    };
+    let Some(path) = path else {
+        let paths = git
+            .entries(at)?
+            .into_iter()
+            .map(|entry| Path { path: entry.path })
+            .collect();
+        return Ok(ReadAnswer::Listed { paths });
+    };
+    let Some(bytes) = git.read(at, path)? else {
+        let path = path.clone();
+        let why = BadPath::NotAPath { path }.into();
+        return Ok(ReadAnswer::Refused { why });
+    };
+    let mut text = String::from_utf8_lossy(&bytes).into_owned();
+    let most = MOST_READ as usize;
+    let cut = text.len() > most;
+    text.truncate(text.floor_char_boundary(most));
+    Ok(ReadAnswer::Text { text, cut })
 }
 
 impl Takes<Edit> for Profile {

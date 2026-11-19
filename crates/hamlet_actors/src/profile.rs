@@ -18,7 +18,7 @@ use hamlet_messages::Message;
 use hamlet_messages::address::{self, Party, Realm};
 use hamlet_messages::profile::{
     Branch, CommitId, Edit, EndDream, Erase, Files, Papers, Pin,
-    PrepareDream, ProfileInput, Purge, Revert, Save, Sha1, Tag,
+    PrepareDream, ProfileInput, Purge, Read, Revert, Save, Sha1, Tag,
     TooLong, Versions,
 };
 #[cfg(test)]
@@ -76,6 +76,7 @@ impl Actor for Profile {
         Pin,
         PrepareDream,
         Purge,
+        Read,
         Revert,
         Save,
         Tag,
@@ -294,6 +295,10 @@ mod tests {
                 by: By::Chief { chief: 3 },
             }),
             args(&Papers),
+            args(&Read {
+                at: None,
+                path: None,
+            }),
             args(&Erase {
                 id: RequestId::new(),
             }),
