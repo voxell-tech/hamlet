@@ -21,23 +21,4 @@ number after the highest in its file.
 A requirement says what is true, not how. Values in brackets are the
 defaults, which the chief's limits or the settings change.
 
-### Retired
-
-**H13** (votes) is retired with votes, ballots and the pass fraction; its ID
-is not used again. The rebuilt society changed what some requirements
-govern, not what they are about: C8 and C9 name the worktree and the agent's id
-where they named a house and a hamlet-and-number; C10 names profiles; H18,
-H19, H14 and H6 lost votes, requests to remove another hamlet's and moving an
-agent between hamlets (`agree_move`); H5 and H20 govern agents of hamlets.
-
-### Added
-
-In `server.md`: **S21** (a harness runs only while its server does, which code
-already cited), **S26** to **S28** (records in one transaction, effects as
-jobs, versions in semver), **S29** (images and files kept once by hash) and **S30**
-(a model's image capability and limits). In `core.md`: **C33** (images
-and files attached to a line) and **C34** (the read tool shows an image). In
-`hamlet.md`: **H37** (the Hand), **H38** (the city),
-**H39** (versions), **H40** (agents of hamlets), **H41** (the tree and parents), **H42**
-(workers), **H43** (dreams), **H44** (allowances) and **H45**
-(newcomers at the harbor).
+**H13** (votes) is retired, and its ID is not used again.

@@ -15,11 +15,10 @@ these may run under the chief's own git later.
 
 - A clone Hamlet keeps, whose `origin` is a git proxy in the server that
   holds the real token and adds it to each push. Rejected on the chief's
-  machine: more machinery than one chief's local tool needs, and the
-  chief's git already has the credentials.
-- Pass the SSH agent into the sandbox and hide `~/.ssh`, so commands can use
-  the key but not copy it. Not taken: the key stays readable.
-- A lock on `.git/hooks` and `.git/config`. Not taken: the lock prevents
+  machine: more machinery than one chief's local tool needs.
+- Pass the SSH agent into the sandbox and hide `~/.ssh`, so commands can
+  use the key but not copy it. Not taken: the key stays readable.
+- A lock on `.git/hooks` and `.git/config`. Not taken: it prevents
   `git init`, cloning into the folder, `git config` and `git remote add`.
   Under bubblewrap it needs a scan before every command and still misses a
   repository made during one.

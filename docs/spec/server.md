@@ -1,7 +1,7 @@
 # The server: where agents run
 
-Agents run on a server and keep working whether or not a window is open; the
-window is how chiefs see and steer them. The decisions behind these
+Agents run on a server and keep working whether or not a window is open;
+the window is how chiefs see and steer them. The decisions behind these
 requirements are in [`docs/adr/`](../adr/).
 
 ## The server and the window
@@ -9,13 +9,12 @@ requirements are in [`docs/adr/`](../adr/).
 **S1.** Agents run on a server, apart from the window. Closing every window
 stops no agent; stopping the server stops them all.
 
-**S2.** One server keeps one realm, and a realm is claimed by one server at a
-time. The harnesses a server runs are part of its claim: each opens only
+**S2.** One server keeps one realm, and a realm is claimed by one server at
+a time. The harnesses a server runs are part of its claim: each opens only
 its own store, only while that server runs.
 
 **S21.** A harness goes on working only while its server runs: one whose
-connection to the server closes stops its work and exits, so no agent runs
-without its server.
+connection to the server closes stops its work and exits.
 
 **S3.** Nothing an agent does is shown before it is kept. A server that
 stops mid-turn, in an orderly way or not, carries the work on from where it
@@ -29,53 +28,53 @@ the token.
 
 **S5.** A window shows what the server sends and holds no rules of its own:
 the state of the realm (the Hand, hamlets, profiles, living and ended
-agents, channels, budgets, the shared library, removed hamlets and what waits)
-and its changes, the live events of turns (C30), and an agent's one
-conversation on request, with the notifications, requests and responses in it and
-the inputs that wait for a turn (C22, C23). A
-window that joins late or connects again starts from the state as it is now.
-A window always matches what the server last sent, including a skill leaving
-the library, a hamlet closing or coming back, and an agent leaving.
+agents, channels, budgets, the shared library, removed hamlets and what
+waits) and its changes, the live events of turns (C30), and an agent's one
+conversation on request, with the notifications, requests and responses in
+it and the inputs that wait for a turn (C22, C23). A window that joins late
+or connects again starts from the state as it is now, and always matches
+what the server last sent, including a skill leaving the library, a hamlet
+closing or coming back, and an agent leaving.
 
 **S6.** Everything a chief does goes to the server: typed lines and
-commands, answers to what waits, stopping, taking a conversation back, where
-a chief sets a hamlet or a house down in the world, and edits to the charter,
-characters, memory, limits and settings.
+commands, answers to what waits, stopping, taking a conversation back,
+where a chief sets a hamlet or a house down in the world, and edits to the
+charter, characters, memory, limits and settings.
 
 **S15.** Local chat links and pictures resolve on the window's machine,
-from existing absolute paths or paths under the received work folder.
-A path inside the server's realm folder is never a link, even when
-reached through a symbolic link.
+from existing absolute paths or paths under the received work folder. A path
+inside the server's realm folder is never a link, even through a symbolic
+link.
 
-**S29.** An image a chief sends is kept once in the realm's folder, under the
-SHA-256 of its bytes, however often it is sent. A client sends an image
-once, in parts, and then names it by that id on each line; the conversation
-keeps ids and never bytes, and a client fetches an image by its id to show
-it. Only a PNG, JPEG, WebP or GIF of at most 20 MiB is kept (C33). The
-server also keeps a small copy of each image, made once when a client first
-asks for it, which the transcript shows; the image itself is read only when a
+**S29.** An image a chief sends is kept once in the realm's folder, under
+the SHA-256 of its bytes, however often it is sent. A client sends an image
+once, in parts, then names it by that id on each line; the conversation
+keeps ids and never bytes, and a client fetches an image by id to show it.
+Only a PNG, JPEG, WebP or GIF of at most 20 MiB is kept (C33). The server
+also keeps a small copy of each image, made once when a client first asks
+for it, which the transcript shows; the image itself is read only when a
 chief opens it. An image given to an agent is copied into that agent's own
-folder, inside its sandbox's reach, and into its remote workspace when there is
-one (an image too large to send there is only named); the realm's own folder of
-images is never in any agent's reach. An image no kept input, transcript item or
-agent's folder names, and that was last touched a day ago, is removed, which
-includes uploads never sent with a line.
+folder, inside its sandbox's reach, and into its remote workspace when there
+is one (an image too large to send there is only named); the realm's own
+folder of images is never in any agent's reach. An image no kept input,
+transcript item or agent's folder names, and last touched a day ago, is
+removed, uploads never sent with a line included.
 
 A file a chief attaches (C33) is kept the same way in the realm's `files/`
 folder, of any kind and at most 256 MiB, and a client names it by its id and
-the name the agent finds it under. The server copies each file named by a line
-into the `inbox/` of the agent's worktree, and into its remote workspace when
-there is one; the realm's folder of files is never in any agent's reach. A
-file named by no kept input, transcript item or tool result, last touched a day
-ago, is removed.
+the name the agent finds it under. The server copies each file a line names
+into the `inbox/` of the agent's worktree, and into its remote workspace
+when there is one; the realm's folder of files is never in any agent's
+reach. A file named by no kept input, transcript item or tool result, last
+touched a day ago, is removed.
 
-**S30.** The server knows from its listing of a model whether it takes images,
-and its limits: the width, height and bytes of one image and how many a message
-holds. A chief can say that a model takes images and set its limits, as a model
-of a custom endpoint, whose listing says none, needs; the server keeps what the
-chief said until they clear it, and a later listing leaves it alone. It refuses
-a line with images to a model that takes none, and gives a model each image
-only once made to fit within its limits.
+**S30.** The server knows from its listing of a model whether it takes
+images, and its limits: the width, height and bytes of one image and how
+many a message holds. A chief can say that a model takes images and set its
+limits, as a custom endpoint, whose listing says none, needs; the server
+keeps what the chief said until they clear it, and a later listing leaves
+it alone. It refuses a line with images to a model that takes none, and
+gives a model each image only once made to fit within its limits.
 
 ## Credentials
 
@@ -83,12 +82,12 @@ only once made to fit within its limits.
 the connection token, the remote workspace's token) in one file of the
 realm that only its owner can read, written whole on each change. No
 credential the server keeps is ever in a store of the realm, in a
-conversation (C32), or in a sandbox. The chief's own
-credentials on the machine are covered by S16.
+conversation (C32), or in a sandbox. The chief's own credentials on the
+machine are covered by S16.
 
-**S8.** A chief can reach any model provider pi-ai supports with an API key.
-A chief can also sign in with a subscription where the provider offers that
-to open-source apps: "Sign in with ChatGPT". Hamlet signs in as itself, under
+**S8.** A chief can reach any model provider pi-ai supports with an API key,
+and can sign in with a subscription where the provider offers that to
+open-source apps: "Sign in with ChatGPT". Hamlet signs in as itself, under
 its own name and an installation ID of its own, and the server refreshes the
 login on its own.
 
@@ -97,35 +96,35 @@ login on its own.
 **S12.** Tools reach files and processes only through one interface, so
 where they run can change without the agent noticing. On a chief's own
 machine they run in the sandbox of C18: bubblewrap on Linux, Seatbelt on
-macOS. Windows has only insecure mode, and Linux and macOS have no insecure
-mode (ADR 0008).
+macOS. Windows has only insecure mode, and Linux and macOS have none
+(ADR 0008).
 
 ## The realm's records and effects
 
 **S26.** Everything the server keeps about who exists, who answers to whom,
-channels, conversations, waits and spend is in one database, and a profile's
-knowledge is in git (ADR 0011). Every change to the database is one
-transaction and is checked in one place before it is made; a change that is
-refused leaves nothing. What the clients see again after a change is what that
-transaction touched.
+channels, conversations, waits and spend is in one database, and a
+profile's knowledge is in git (ADR 0011). Every change to the database is
+one transaction and is checked in one place before it is made; a refused
+change leaves nothing. What the clients see again after a change is what
+that transaction touched.
 
 **S27.** A change that needs an effect after it commits, such as making a
 repository, checking out or committing a worktree, merging or erasing, keeps
 the effect as a job in the same transaction. Jobs run after the commit, on a
-thread of their own, and again after a crash until they are done, and each is
-safe to run twice (ADR 0012). A repository or a worktree is changed only by
-the server.
+thread of their own, and again after a crash until they are done, and each
+is safe to run twice (ADR 0012). A repository or a worktree is changed only
+by the server.
 
-**S28.** The client protocol, the runtime protocol, the workspace protocol and
-the realm's database each carry a version in semver, and all stay at 0.1.0
-until Hamlet's first release (ADR 0013). A peer, or a database, is taken on
-only when its version is compatible with the server's by semver's caret; one
-that is not is refused in words.
+**S28.** The client protocol, the runtime protocol, the workspace protocol
+and the realm's database each carry a version in semver, and all stay at
+0.1.0 until Hamlet's first release (ADR 0013). A peer or database is taken
+on only when its version is compatible with the server's by semver's caret;
+one that is not is refused in words.
 
 ## Harnesses
 
-An agent's conversations run in a harness, apart from the server that
-keeps the rules (ADR 0001).
+An agent's conversations run in a harness, apart from the server that keeps
+the rules (ADR 0001).
 
 **S17.** An agent has a harness for its new conversations. A conversation
 stays with the harness, and the version of it, it began in, for as long as
@@ -148,8 +147,8 @@ harness recorded is not yet charged.
 
 **S22.** A harness that fails stops only the conversations it runs. The
 rest of the realm goes on, and work waiting on an answer from those
-conversations waits. They carry on from where they stopped when the
-harness runs again (S3).
+conversations waits. They carry on from where they stopped when the harness
+runs again (S3).
 
 **S23.** A typed line, notification, request, response, reflection,
 worker's task or dream is taken into its conversation once, in order,
@@ -167,26 +166,25 @@ an error, never replaced by an empty one.
 
 ## Working on Hamlet
 
-**S13.** The `hamlet` command is a Rust binary in `crates/hamlet_cli`,
-run with `cargo run -p hamlet_cli -- <command>` or installed with
+**S13.** The `hamlet` command is a Rust binary in `crates/hamlet_cli`, run
+with `cargo run -p hamlet_cli -- <command>` or installed with
 `cargo xtask install`. It manages the server and window as separate
-processes and uses the client protocol for terminal operations.
-The server needs Node for the pi harness. `HAMLET_HOME` names the realm's
-folder; development uses a scratch folder.
-The window's executable is `hamlet_app`; the app is called Hamlet.
+processes and uses the client protocol for terminal operations. The server
+needs Node for the pi harness. `HAMLET_HOME` names the realm's folder;
+development uses a scratch folder. The window's executable is `hamlet_app`.
 Bare `hamlet` serves the realm in the background, or reuses its running
-server, and opens a window. Closing the window or terminal stops no agent.
-`hamlet stop` stops the server; `hamlet status` reports it.
+server, and opens a window; closing the window or terminal stops no agent.
+`hamlet stop` stops the server and `hamlet status` reports it. The commands
+and their flags are in [`cli.md`](../cli.md):
 
 | Command | Does |
 |---|---|
 | `hamlet [--insecure]` | Serves the realm in the background or reuses its server, and opens a window |
-| `stop` | Stops the realm's server and waits for it to close in order |
-| `status` | Reports whether the realm's server runs |
+| `stop`, `status` | Stops the realm's server and waits for it to close in order; reports whether it runs |
 | `server [--port <n>] [--faux <script.json>] [--insecure]` | Serves the realm; stopping it closes in order, and a second stop signal exits at once |
 | `chat [--to <hand\|agent#id\|lead@hamlet>] [--attach <path>]...` | Chats with the Hand or the named agent and answers what waits, with no window; end of input waits for that client's submissions and leaves the server running |
-| `import [--file <export>] [--all] [--sessions \| --suggested \| <project or conversation id>...]` | Lists the projects other programs worked on, or brings the suggested or named ones in as hamlets, each with an agent for each conversation (C35) |
-| `dev [--port <n>] [--faux <script.json>] [--home <dir>] [--insecure] [--hot]` | Builds the checkout's server and window unless `HAMLET_SERVER_BIN` and `HAMLET_APP` select them respectively, serves a scratch realm and opens its window; closing the window leaves the server running, and stopping the command closes both in order; `--hot` builds a window that reloads saved shaders and tuning files |
+| `import [--file <export>] [--all] [--sessions \| --suggested \| <project or conversation id>...]` | Lists the projects other programs worked on, or brings in the suggested or named ones (C35) |
+| `dev [--port <n>] [--faux <script.json>] [--home <dir>] [--insecure] [--hot]` | Builds the checkout's server and window unless `HAMLET_SERVER_BIN` and `HAMLET_APP` select them, serves a scratch realm and opens its window; closing the window leaves the server running, and stopping the command closes both in order; `--hot` builds a window that reloads saved shaders and tuning files |
 | `window` | Opens a window connected to a running server |
 | `edit <charter\|limits\|settings>` (`limits --hamlet <id>` for a hamlet's), `edit character <profile#id>`, `edit memory <profile#id\|agent#id> [path]` | Opens the chief's document in `$EDITOR` and saves it through the server |
 | `login <provider> [--key]` | Gives a key, or follows an offered sign-in |
@@ -199,9 +197,9 @@ developer asks for by name.
 ## Git on the chief's machine
 
 **S16.** In the folder (C20), agents use the chief's own git and whatever
-credentials the chief's machine has, which their commands can read.
-Reaching a git host needs the network like any other command (C19, H11).
-Agents may write hooks and config, including in nested repositories; the
-chief accepts that these may run under the chief's own git later (C18,
-ADR 0007). Profiles' repositories are another matter: the server alone
-writes them, and no git program is run on them (ADR 0011).
+credentials the chief's machine has, which their commands can read. Reaching
+a git host needs the network like any other command (C19, H11). Agents may
+write hooks and config, including in nested repositories; the chief accepts
+that these may run under the chief's own git later (C18, ADR 0007).
+Profiles' repositories are another matter: the server alone writes them, and
+no git program is run on them (ADR 0011).

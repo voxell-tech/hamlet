@@ -12,9 +12,8 @@ turns and transcripts on request) over one WebSocket that needs a token even
 on localhost. The window fills its components from it and holds no rules of
 its own.
 
-The messages are defined once, as the Rust types of `hamlet_protocol`;
-the server derives from them the JSON Schema it checks each client
-message against.
+The messages are defined once, as the Rust types of `hamlet_protocol`; the
+server derives the JSON Schema it checks each client message against.
 
 ## Considered options
 
@@ -22,9 +21,7 @@ message against.
   rules of its own. Rejected: the rules would live twice, one copy writing
   the records and one reading them, and the two would have to agree
   forever.
-- The window starting the server itself. Left for later as a convenience:
-  a window that only connects behaves the same against a local server and a
-  deployed one.
+- The window starting the server itself. Left for later as a convenience.
 
 ## Consequences
 

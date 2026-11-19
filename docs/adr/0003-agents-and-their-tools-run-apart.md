@@ -6,12 +6,10 @@ status: accepted
 
 An agent's conversation runs in its harness, and its tools touch files and
 processes only through the server, which runs each under the agent's
-policy: in the sandbox on the chief's machine, bubblewrap on Linux and
-Seatbelt on macOS, or in a remote workspace. In the pi harness, Hamlet's
-`ExecutionEnv` sends each operation to the server.
-
-Keeping the tools behind that one interface means where they run can
-change without the agent noticing.
+policy: in the sandbox on the chief's machine (bubblewrap on Linux,
+Seatbelt on macOS), or in a remote workspace. In the pi harness, Hamlet's
+`ExecutionEnv` sends each operation to the server. Behind that one
+interface, where tools run can change without the agent noticing.
 
 ## Considered options
 

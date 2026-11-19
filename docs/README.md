@@ -1,61 +1,45 @@
 # The docs
 
-How Hamlet is built and how to work on it. The pages here describe the
-project as it stands. Two folders hold the rest: `spec/` the design and
-`adr/` the decisions that are hard to reverse. Proposals for what is not
-built, and what is left for later, are kept outside this repository.
+How Hamlet is built, as it stands. `spec/` holds the design and `adr/`
+the decisions that are hard to reverse.
 
 ## Start here
 
-1. [`../README.md`](../README.md): what Hamlet is and how to run it.
-2. [`tour.md`](tour.md): the map of the code. Where everything is, where to
-   change what, the server modules and their interfaces, how a change
-   travels from a typed line to the drawn world, and how to see your work
-   without a window.
-3. [`../AGENTS.md`](../AGENTS.md): the checks to run before a commit and
-   the rules of working here.
-
-Run `HAMLET_HOME=/tmp/hamlet-try cargo xtask dev`. It installs pi's dependencies,
-then the Rust CLI builds the server and window, starts a scratch server
-and opens the window with its own scratch view folder.
-Closing the window leaves the server running; Ctrl-C stops it. The full
-setup is in [`../README.md`](../README.md#try-it-without-installing).
-
-Then read the page for the part you are about to touch.
+1. [`../README.md`](../README.md): what Hamlet is and how to run it
+   ([scratch run](../README.md#try-it-without-installing)).
+2. [`tour.md`](tour.md): the map of the code.
+3. [`../AGENTS.md`](../AGENTS.md): the checks and the rules of working
+   here.
 
 ## The parts
 
 | Page | What it explains |
 |---|---|
-| [`realm.md`](realm.md) | The realm on disk: its folder, database, profiles and worktrees, credentials and claim |
-| [`cli.md`](cli.md) | The `hamlet` command: serving, stopping, chatting, editing, signing in, and finding the server and the window |
-| [`sandbox.md`](sandbox.md) | What an agent's tools can reach: the sandbox, the network, a folder a hamlet works on, manual and auto |
-| [`prompt.md`](prompt.md) | What an agent is told every turn: the charter, its character, its memory and skills, and how the chief reads and edits them |
-| [`islands.md`](islands.md) | The city and hamlet islands, the harbor between them, the ground everything stands on, founding and moving a hamlet |
-| [`robots.md`](robots.md) | How the robots move: their motions, blending, rolling on their wheels, and what one costs |
-| [`working-alone.md`](working-alone.md) | What a robot does in its yard while its agent works |
-| [`chief.md`](chief.md) | The chief in the world: the Hearth, the mascot and Wickstep |
-| [`sound.md`](sound.md) | Every sound and the music, all made in code |
-| [`ui-warmth.md`](ui-warmth.md) | How the panels glow and answer the hand |
-| [`society.md`](society.md) | The Hand, the city of profiles, hamlets and their agents, channels, dreams, the shared library and what waits |
-| [`harness.md`](harness.md) | The harness: runtimes, bindings, the runtime protocol, its IDs and what a harness must be able to do |
-| [`protocol.md`](protocol.md) | The client protocol: transport, messages, watched conversations and errors |
-| [`chat.md`](chat.md) | An agent's one conversation, its queue, compaction and merges, paging, drawing, local links and pictures, and rewinds through the server |
-| [`icons.md`](icons.md) | The icons of the panels: where they are drawn, the rules of the family, how to add one |
-| [`cursors.md`](cursors.md) | The pointer and its modes |
-| [`releases.md`](releases.md) | Packaging the CLI, server, window and pi for Linux, macOS and Windows, and a release updating itself |
+| [`realm.md`](realm.md) | The realm on disk |
+| [`cli.md`](cli.md) | The `hamlet` command |
+| [`sandbox.md`](sandbox.md) | What an agent's tools can reach |
+| [`prompt.md`](prompt.md) | What an agent is told every turn |
+| [`islands.md`](islands.md) | The islands, the harbor and the ground |
+| [`robots.md`](robots.md) | How the robots move |
+| [`working-alone.md`](working-alone.md) | A robot in its yard |
+| [`chief.md`](chief.md) | The Hearth, the mascot and Wickstep |
+| [`sound.md`](sound.md) | The sounds and the music |
+| [`ui-warmth.md`](ui-warmth.md) | How the panels glow |
+| [`society.md`](society.md) | The Hand, profiles, hamlets, channels, dreams, the library |
+| [`harness.md`](harness.md) | Runtimes and the runtime protocol |
+| [`protocol.md`](protocol.md) | The client protocol |
+| [`chat.md`](chat.md) | An agent's conversation |
+| [`icons.md`](icons.md) | The panels' icons |
+| [`cursors.md`](cursors.md) | The pointer |
+| [`releases.md`](releases.md) | Packaging, releases and self-update |
 
 ## The rules
 
 | Page | What it sets |
 |---|---|
-| [`bevy.md`](bevy.md) | What Bevy 0.20 offers, which tool fits which job, and the habits that keep a frame cheap |
-| [`code_convention.md`](code_convention.md) | How code is written here: the guidelines base, names, errors, ownership, lints, tests, plugins, tuning values, shaders |
-| [`comment_convention.md`](comment_convention.md) | How comments are written here |
+| [`bevy.md`](bevy.md) | Which Bevy tool fits which job |
+| [`code_convention.md`](code_convention.md) | How code is written |
+| [`comment_convention.md`](comment_convention.md) | How comments are written |
 
-## Adding a page
-
-A page here explains something that exists. It has no status line, no
-"not yet" list and no screenshots: a design for something not built, and
-what is unfinished, are kept outside this repository.
-Add the new page to the table above.
+A page here explains something that exists: no status line, no "not
+yet" list, no screenshots. Add new pages to the tables.

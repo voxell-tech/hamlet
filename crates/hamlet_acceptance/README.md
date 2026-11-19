@@ -1,21 +1,19 @@
 # hamlet_acceptance
 
 The acceptance suite for Hamlet's server. Each scenario starts a server
-process on a scratch realm and checks what it does from outside: through
-the client protocol over the authenticated WebSocket, with `hamlet_protocol`'s
-generated types, and through the `hamlet` command. It checks behaviour
-only, never the server's insides. The default server is `hamlet server`.
-
-Every message a server sends is parsed into `ServerMessage`, written back
-and compared with what arrived, so a field outside the client protocol fails the
-scenario that received it.
+process on a scratch realm and checks its behaviour from outside: through
+the client protocol over the authenticated WebSocket, and through the
+`hamlet` command. Every message a server sends is parsed into
+`ServerMessage`, written back and compared with what arrived, so a field
+outside the client protocol fails the scenario that received it.
 
 ## Running it
 
-The scenarios are compiled only with the `acceptance` feature, so plain
+The scenarios compile only with the `acceptance` feature, so plain
 `cargo test` neither builds nor runs them. They need the built `hamlet`
 and `hamlet_server`, Node from `harnesses/pi/.nvmrc`, and
-`npm ci --prefix harnesses/pi`. `cargo xtask check` runs them. By hand, at the root:
+`npm ci --prefix harnesses/pi`. `cargo xtask acceptance` runs them. By
+hand, at the root:
 
 ```sh
 cargo build -p hamlet_cli -p hamlet_server
@@ -27,79 +25,41 @@ loopback endpoint in `hamlet_testing`'s `src/openai.rs`.
 
 | Variable | Selects |
 |---|---|
-| `HAMLET_ACCEPTANCE_SERVER` | The command that starts a server, split on whitespace. Unset or empty: the `hamlet` command's `server`. |
-| `HAMLET_CLI` | The `hamlet` command, for the default server and the CLI scenarios. Unset: `target/debug/hamlet`. |
+| `HAMLET_ACCEPTANCE_SERVER` | The command that starts a server, split on whitespace. Unset or empty: `hamlet server`. |
+| `HAMLET_CLI` | The `hamlet` command. Unset: `target/debug/hamlet`. |
 
-A server that cannot be started fails its scenario, with the end of what
-it printed. Nothing is skipped.
+A server that cannot be started fails its scenario. Nothing is skipped.
 
 ## Starting a server
 
-The suite runs the command with `--port 0` and `--faux <file>`, or, for
-the scenarios that use the loopback endpoint, without `--faux` and with
-`HAMLET_MODEL` and `HAMLET_BASE_URL` set. Its environment is the suite's
-own with the ambient overrides named by `hamlet_testing::OVERRIDES`
-removed. It then sets `HAMLET_HOME` to a scratch folder and
-`HAMLET_REFLECT_EVERY=0` unless a scenario says otherwise. The server
-is ready when `<realm folder>/server.json` names the process the suite
+The suite runs the command with `--port 0` and `--faux <file>`; scenarios
+using the loopback endpoint omit `--faux` and set `HAMLET_MODEL` and
+`HAMLET_BASE_URL`. `HAMLET_HOME` is a scratch folder and
+`HAMLET_REFLECT_EVERY=0` unless a scenario says otherwise. The server is
+ready when `<realm folder>/server.json` names the process the suite
 started.
-Stdin is closed; stdout and stderr go to a log shown on failure.
 
 ## Faux scripts
 
-`Faux` writes the JSON the server's faux model reads:
+`Faux` writes the JSON the server's faux model reads: `agents` (answers by
+agent id; the Hand is 1, the first lead 2), `kinds` (by conversation kind)
+and `responses` (everyone else). A conversation takes its agent's list
+first, then its kind's, then `responses`. An exhausted list answers with
+an error and never falls back.
 
-- `agents`: answers by agent id, as in `Faux::agent(2, [...])`. The Hand
-  is 1; the first lead is 2.
-- `kinds`: answers by conversation kind (`chat`, `worker`, `errand`,
-  `dream`), as in `Faux::kind("dream", [...])`.
-- `responses`: answers for everyone else.
-
-A conversation takes its agent's list first, then its kind's, then
-`responses`. An exhausted list answers with an error and never falls back.
-
-A hamlet's id is made only once it is founded, so a script names it as
+A hamlet's id exists only once it is founded, so a script names it as
 `{{name}}` in a step's call arguments, and the step is
-`.filled_from(NAMES)`: `Session::found` and `Session::named` keep each
-hamlet's id under its name in that file beside the script.
-A faux model costs nothing, so the spend scenarios use the loopback
-endpoint, which bills a fixed price per answer.
+`.filled_from(NAMES)`. A faux model costs nothing, so the spend scenarios
+use the loopback endpoint, which bills a fixed price per answer.
 
-## Scenarios
-
-| File | Covers |
-|---|---|
-| `connection` | Token, version, hello order, malformed and oversized messages, shared changes, shutdown, one server per realm. |
-| `city` | The empty realm, founding hamlets, the agent tree, removing, restoring and erasing profiles and hamlets, hamlet administration. |
-| `chats` | Answers, `/retry`, `/stop`, `Rewind`, reflection. |
-| `oversight` | Network approvals and grants, manual and auto modes, `request_chief`, objections. |
-| `society` | The Hand's and a parent's tools, notify and request, workers, reserved acts, channels. |
-| `files` | Files on a line saved in the inbox and named in its item, files sent with `notify`, and a send over the cap held for a chief. |
-| `images` | Images on a line uploaded in parts, kept once by hash, carried by the line's item and read back by id. |
-| `documents` | Charter, character, memory, limits, settings, catalogue, and the prompt that follows them. |
-| `spend` | The realm budget, a task's cap, an agent's allowance. |
-| `sandbox` | Confinement of reads, writes and the network. |
-| `restart` | Waits and the realm across a crash and a stop. |
-| `models` | Model and connection checks, key sign-in, listings and prices, refusals. |
-| `oauth` | Sign-in prompts and token rotation. |
-| `versions` | `/tag`, `/versions`, `/pin`, `/revert`, `/fork` and `/purge`. |
-| `merges` | `/merge` and the split by `/restore`. |
-| `library` | `submit_skill` judged by the librarian, `request_librarian` and `/unshelve`. |
-| `review` | A parent's review of a chief's line to an agent, and a chief's `/worker`. |
-| `dreams` | `/dream` of an agent and of a profile. |
-| `terminals` | The chief's own terminals, the read-only commands of an agent's shell tool, and what a restart keeps of them. |
-| `cli` | `hamlet chat`, `hamlet edit`, switching agents, approvals across a crash, and the bare, dev and insecure commands. |
+The scenarios are the files in `tests/`, one per area.
 
 ## Recording protocol frames
 
-`tests/frames/` records 18 real server sessions through the client protocol:
-the Hand's chats, an agent's approvals, reads and edits, sign-in, spend,
-notifications and requests, leaving and merging, hamlets and
-channels, the library, and the questions and objections that wait for a chief.
-It uses scratch realms, faux responses and a loopback endpoint, never a live
-provider. Both wire directions are saved as JSONL; connection tokens and the
-fake sign-in key are redacted. IDs, timestamps and stream boundaries come
-from the running server.
+`tests/frames/` records real server sessions through the client protocol,
+on scratch realms with faux responses and a loopback endpoint, never a
+live provider. Both wire directions are saved as JSONL, with tokens
+redacted.
 
 From the repository root, using the Node version in `harnesses/pi/.nvmrc`:
 
@@ -110,11 +70,9 @@ cargo test -p hamlet_acceptance --features acceptance --test frames -- --ignored
 cargo test -p hamlet_protocol -p hamlet_client
 ```
 
-For a custom Cargo target directory, set `HAMLET_CLI` to the absolute path of
-that build's `hamlet`. Recording overwrites
-`crates/hamlet_protocol/frames/*.jsonl`; ordinary tests never do. To inspect
-new captures without replacing the checked-in fixtures, set
-`HAMLET_FRAME_DIR` to an absolute scratch directory for the recorder and
-the schema package's `npm test`. Rust client replay reads the checked-in
-fixtures. Review replacements before keeping them; changing server code
-does not by itself require fixture churn.
+For a custom Cargo target directory, set `HAMLET_CLI` to the absolute path
+of that build's `hamlet`. Recording overwrites
+`crates/hamlet_protocol/frames/*.jsonl`; ordinary tests never do. To
+inspect new captures first, set `HAMLET_FRAME_DIR` to an absolute scratch
+directory for the recorder and the schema package's `npm test`. Review
+replacements before keeping them.
