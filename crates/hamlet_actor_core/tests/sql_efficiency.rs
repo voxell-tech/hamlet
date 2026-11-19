@@ -350,641 +350,489 @@ fn execute_with_status(
     }
 }
 
+#[rustfmt::skip]
 fn query_catalog() -> Vec<QueryCase> {
     let all_schedules = &["_actor_schedule_events"];
     let all_history = &["_actor_schedule_history"];
     let all_user_kv = &["_actor_user_kv"];
     vec![
-        QueryCase {
-            id: "actor.startup",
-            sql: internal_storage::LOAD_ACTOR_STARTUP_SQL.into(),
-            params: vec![
-                text(internal_storage::KV_IMPORT_STATE_META_KEY),
-                text(internal_storage::RUN_WAKE_AT_META_KEY),
-                text(crate::actor::fork::FORK_STATE_META_KEY),
-                text(crate::actor::fork::FORK_START_META_KEY),
-            ],
-            expectation: indexed(
-                None,
-                &[
-                    "_actor_actor",
-                    "_actor_actor_state",
-                    "_actor_runtime",
-                    "_actor_meta",
-                ],
-            ),
-        },
-        QueryCase {
-            id: "connection.list",
-            sql: internal_storage::LOAD_CONNECTIONS_SQL.into(),
-            params: vec![],
-            expectation: bounded_scan(&[AllowedScan {
-                table: "c",
-                reason: "actor startup restores every live \
-                         connection",
-                bound: "rows are lifecycle-bounded to currently \
-                        live or hibernated connections and are \
-                        deleted on disconnect",
-            }]),
-        },
-        QueryCase {
-            id: "schedule.reset",
-            sql: internal_storage::RESET_SCHEDULES_SQL.into(),
-            params: vec![],
-            expectation: bounded_scan(&[AllowedScan {
-                table: "_actor_schedule_events",
-                reason: "a legacy import replaces the complete \
-                         pre-import schedule set, and a fork's copy \
-                         drops the schedule it copied",
-                bound: "rows are the actor's own schedule, each one \
-                        a timer it set",
-            }]),
-        },
-        QueryCase {
-            id: "queue.next_id",
-            sql: internal_storage::LOAD_QUEUE_NEXT_ID_SQL.into(),
-            params: vec![],
-            expectation: indexed(None, &["_actor_runtime"]),
-        },
-        QueryCase {
-            id: "queue.stats",
-            sql: internal_storage::LOAD_QUEUE_STATS_SQL.into(),
-            params: vec![],
-            expectation: bounded_scan(&[AllowedScan {
-                table: "_actor_queue",
-                reason: "startup validates persisted queue \
-                         cardinality and maximum id",
-                bound: "ActorConfig.max_queue_size caps queue rows \
-                        (default 1,000)",
-            }]),
-        },
-        QueryCase {
-            id: "queue.list",
-            sql: internal_storage::LOAD_QUEUE_MESSAGES_SQL.into(),
-            params: vec![],
-            expectation: bounded_scan(&[AllowedScan {
-                table: "_actor_queue",
-                reason: "startup restores queued messages in \
-                         primary-key order",
-                bound: "ActorConfig.max_queue_size caps queue rows \
-                        (default 1,000)",
-            }]),
-        },
-        QueryCase {
-            id: "queue.receive",
-            sql: internal_storage::LOAD_QUEUE_MESSAGES_LIMITED_SQL
-                .into(),
-            params: vec![5_i64.into()],
-            expectation: bounded_scan(&[AllowedScan {
-                table: "_actor_queue",
-                reason: "unfiltered queue receive walks global \
-                         enqueue order",
-                bound: "LIMIT caps returned message bodies; \
-                        ActorConfig.max_queue_size caps the queue",
-            }]),
-        },
-        QueryCase {
-            id: "queue.receive_name",
-            sql: internal_storage::LOAD_QUEUE_MESSAGES_FOR_NAME_SQL
-                .into(),
-            params: vec![text("message"), 5_i64.into()],
-            expectation: indexed(
-                Some("_actor_queue_name_id"),
-                &["_actor_queue"],
-            ),
-        },
-        QueryCase {
-            id: "queue.available_name",
-            sql: internal_storage::HAS_QUEUE_MESSAGES_FOR_NAME_SQL
-                .into(),
-            params: vec![text("message")],
-            expectation: indexed(
-                Some("_actor_queue_name_id"),
-                &["_actor_queue"],
-            ),
-        },
-        QueryCase {
-            id: "queue.filter_metadata_page",
-            sql:
-                internal_storage::LOAD_QUEUE_MESSAGE_METADATA_PAGE_SQL
-                    .into(),
-            params: vec![0_i64.into(), 128_i64.into()],
-            expectation: indexed(None, &["_actor_queue"]),
-        },
-        QueryCase {
-            id: "queue.load_name",
-            sql: internal_storage::LOAD_QUEUE_MESSAGE_NAME_SQL.into(),
-            params: vec![1_i64.into()],
-            expectation: indexed(None, &["_actor_queue"]),
-        },
-        QueryCase {
-            id: "queue.load_ids",
-            sql: internal_storage::load_queue_messages_by_ids_sql(3),
-            params: vec![1_i64.into(), 2_i64.into(), 3_i64.into()],
-            expectation: indexed(None, &["_actor_queue"]),
-        },
-        QueryCase {
-            id: "queue.available",
-            sql: internal_storage::HAS_QUEUE_MESSAGES_SQL.into(),
-            params: vec![],
-            expectation: bounded_scan(&[AllowedScan {
-                table: "_actor_queue",
-                reason: "unfiltered availability checks stop at the \
-                         first queue row",
-                bound: "LIMIT 1",
-            }]),
-        },
-        QueryCase {
-            id: "queue.delete",
-            sql: internal_storage::DELETE_QUEUE_MESSAGE_SQL.into(),
-            params: vec![1_i64.into()],
-            expectation: indexed(None, &["_actor_queue"]),
-        },
-        QueryCase {
-            id: "queue.reset",
-            sql: internal_storage::RESET_QUEUE_SQL.into(),
-            params: vec![],
-            expectation: bounded_scan(&[AllowedScan {
-                table: "_actor_queue",
-                reason: "explicit reset removes the complete \
-                         logical queue",
-                bound: "ActorConfig.max_queue_size caps queue rows \
-                        (default 1,000)",
-            }]),
-        },
-        QueryCase {
-            id: "user_kv.batch_get",
-            sql: internal_storage::user_kv_batch_get_sql(3),
-            params: vec![
-                Value::Blob(b"00000001".to_vec()),
-                Value::Blob(b"00005000".to_vec()),
-                Value::Blob(b"00009999".to_vec()),
-            ],
-            expectation: indexed(None, all_user_kv),
-        },
-        QueryCase {
-            id: "user_kv.delete",
-            sql: internal_storage::DELETE_USER_KV_SQL.into(),
-            params: vec![Value::Blob(b"00000001".to_vec())],
-            expectation: indexed(None, all_user_kv),
-        },
-        QueryCase {
-            id: "user_kv.delete_range",
-            sql: internal_storage::DELETE_USER_KV_RANGE_SQL.into(),
-            params: vec![
-                Value::Blob(b"00000010".to_vec()),
-                Value::Blob(b"00000020".to_vec()),
-            ],
-            expectation: indexed(None, all_user_kv),
-        },
-        QueryCase {
-            id: "user_kv.list_range",
-            sql: internal_storage::user_kv_list_sql(
-                "WHERE key >= ? AND key < ?",
-                false,
-                true,
-            ),
-            params: vec![
-                Value::Blob(b"00000010".to_vec()),
-                Value::Blob(b"00000100".to_vec()),
-                20_i64.into(),
-            ],
-            expectation: indexed(None, all_user_kv),
-        },
-        QueryCase {
-            id: "user_kv.list_prefix_open",
-            sql: internal_storage::user_kv_list_sql(
-                "WHERE key >= ?",
-                true,
-                true,
-            ),
-            params: vec![
-                Value::Blob(b"00009900".to_vec()),
-                20_i64.into(),
-            ],
-            expectation: indexed(None, all_user_kv),
-        },
-        QueryCase {
-            id: "user_kv.list_prefix",
-            sql: internal_storage::user_kv_list_sql(
-                "WHERE key >= ? AND key < ?",
-                false,
-                false,
-            ),
-            params: vec![
-                Value::Blob(b"000000".to_vec()),
-                Value::Blob(b"000001".to_vec()),
-            ],
-            expectation: indexed(None, all_user_kv),
-        },
-        QueryCase {
-            id: "user_kv.list_all",
-            sql: internal_storage::user_kv_list_sql("", false, false),
-            params: vec![],
-            expectation: bounded_scan(&[AllowedScan {
-                table: "_actor_user_kv",
-                reason: "the explicit list-all API returns the \
-                         complete actor KV namespace in primary-key \
-                         order",
-                bound: "callers can set ListOpts.limit when they do \
-                        not want to materialize the complete \
-                        namespace",
-            }]),
-        },
-        QueryCase {
-            id: "connection.delete_state",
-            sql: internal_storage::DELETE_CONN_STATE_SQL.into(),
-            params: vec![text("00000001")],
-            expectation: indexed(None, &["_actor_conn_state"]),
-        },
-        QueryCase {
-            id: "connection.delete",
-            sql: internal_storage::DELETE_CONN_SQL.into(),
-            params: vec![text("00000001")],
-            expectation: indexed(None, &["_actor_conns"]),
-        },
-        QueryCase {
-            id: "workflow.kv_get",
-            sql: internal_storage::LOAD_WORKFLOW_KV_SQL.into(),
-            params: vec![Value::Blob(
-                crate::actor::keys::WORKFLOW_TRACE_CONTEXT_KEY
-                    .to_vec(),
-            )],
-            expectation: indexed(None, &["_actor_wf_kv"]),
-        },
-        QueryCase {
-            id: "runtime.inspector_token",
-            sql: internal_storage::LOAD_INSPECTOR_TOKEN_SQL.into(),
-            params: vec![],
-            expectation: indexed(None, &["_actor_runtime"]),
-        },
-        QueryCase {
-            id: "meta.get",
-            sql: internal_storage::LOAD_META_TEXT_SQL.into(),
-            params: vec![text("fixture")],
-            expectation: indexed(None, &["_actor_meta"]),
-        },
-        QueryCase {
-            id: "meta.delete",
-            sql: internal_storage::DELETE_META_SQL.into(),
-            params: vec![text("fixture")],
-            expectation: indexed(None, &["_actor_meta"]),
-        },
-        QueryCase {
-            id: "schedule.cancel",
-            sql: queries::CANCEL_SCHEDULE_SQL.into(),
-            params: vec![
-                text("at:00000000"),
-                0_i64.into(),
-                1_i64.into(),
-            ],
-            expectation: indexed(None, all_schedules),
-        },
-        QueryCase {
-            id: "schedule.end_one_shot",
-            sql: queries::END_ONE_SHOT_SQL.into(),
-            params: vec![text("at:00000000"), 0_i64.into()],
-            expectation: indexed(None, all_schedules),
-        },
-        QueryCase {
-            id: "schedule.get_one_shot",
-            sql: queries::GET_SCHEDULED_EVENT_SQL.into(),
-            params: vec![
-                text("at:00000000"),
-                0_i64.into(),
-                1_i64.into(),
-            ],
-            expectation: indexed(None, all_schedules),
-        },
-        QueryCase {
-            id: "schedule.list_one_shots",
-            sql: queries::LIST_SCHEDULED_EVENTS_SQL.into(),
-            params: vec![0_i64.into(), 1_i64.into()],
-            expectation: bounded_scan(&[AllowedScan {
-                table: "_actor_schedule_events",
-                reason: "the API enumerates all one-shot schedules \
-                         in trigger order",
-                bound: "ActorConfig.max_schedules caps all \
-                        schedules (default 1,000)",
-            }]),
-        },
-        QueryCase {
-            id: "schedule.delete_cron_history",
-            sql: queries::DELETE_CRON_HISTORY_SQL.into(),
-            params: vec![
-                text("cron:00000001"),
-                text("cron:00000001"),
-                0_i64.into(),
-            ],
-            expectation: indexed(
-                Some("_actor_schedule_history_schedule"),
-                all_history,
-            ),
-        },
-        QueryCase {
-            id: "schedule.delete_cron",
-            sql: queries::DELETE_CRON_SQL.into(),
-            params: vec![text("cron:00000001"), 0_i64.into()],
-            expectation: indexed(None, all_schedules),
-        },
-        QueryCase {
-            id: "schedule.delete_cron_if_action",
-            sql: queries::DELETE_CRON_IF_ACTION_SQL.into(),
-            params: vec![
-                text("cron:00000001"),
-                0_i64.into(),
-                text("run"),
-            ],
-            expectation: indexed(None, all_schedules),
-        },
-        QueryCase {
-            id: "schedule.list_recurring",
-            sql: queries::LIST_CRONS_SQL.into(),
-            params: vec![0_i64.into()],
-            expectation: bounded_scan(&[AllowedScan {
-                table: "_actor_schedule_events",
-                reason: "the API enumerates all recurring schedules \
-                         in trigger order",
-                bound: "ActorConfig.max_schedules caps all \
-                        schedules (default 1,000)",
-            }]),
-        },
-        QueryCase {
-            id: "schedule.history",
-            sql: queries::CRON_HISTORY_SQL.into(),
-            params: vec![text("cron:0001"), 20_i64.into()],
-            expectation: indexed(
-                Some("_actor_schedule_history_schedule"),
-                all_history,
-            ),
-        },
-        QueryCase {
-            id: "schedule.get",
-            sql: queries::LOAD_SCHEDULE_SQL.into(),
-            params: vec![text("cron:00000001")],
-            expectation: indexed(None, all_schedules),
-        },
-        QueryCase {
-            id: "schedule.count",
-            sql: queries::COUNT_SCHEDULES_SQL.into(),
-            params: vec![],
-            expectation: bounded_scan(&[
-                AllowedScan {
-                    table: "_actor_schedule_events",
-                    reason: "SQLite represents its optimized \
-                             COUNT(*) opcode as a covering-index \
-                             scan in the query plan",
-                    bound: "runtime VM-step scaling verifies \
-                            row-count-independent work; \
-                            ActorConfig.max_schedules also caps rows",
-                },
-                AllowedScan {
-                    table: "_actor_schedule_set_aside",
-                    reason: "set-aside one-shots count toward the \
-                             cap; SQLite represents its optimized \
-                             COUNT(*) opcode as a scan",
-                    bound: "ActorConfig.max_schedules caps the rows \
-                            of both schedule tables",
-                },
-            ]),
-        },
-        QueryCase {
-            id: "schedule.set_aside",
-            sql: queries::SET_ASIDE_ONE_SHOT_SQL.into(),
-            params: vec![
-                5_i64.into(),
-                text("at:00000000"),
-                0_i64.into(),
-                5_i64.into(),
-            ],
-            expectation: indexed(
-                None,
-                &[
-                    "_actor_schedule_events",
-                    "_actor_schedule_set_aside",
-                ],
-            ),
-        },
-        QueryCase {
-            id: "schedule.keep_one_shot",
-            sql: queries::KEEP_ONE_SHOT_SQL.into(),
-            params: vec![
-                text("actor.dropped_reply"),
-                text("at:00000000"),
-                0_i64.into(),
-                1_i64.into(),
-            ],
-            expectation: indexed(None, all_schedules),
-        },
-        QueryCase {
-            id: "schedule.list_set_aside",
-            sql: queries::LIST_SET_ASIDE_SQL.into(),
-            params: vec![],
-            expectation: bounded_scan(&[AllowedScan {
-                table: "_actor_schedule_set_aside",
-                reason: "lists every set-aside one-shot, in primary \
-                         key order",
-                bound: "ActorConfig.max_schedules caps the rows of \
-                        both schedule tables",
-            }]),
-        },
-        QueryCase {
-            id: "schedule.rearm_set_aside",
-            sql: queries::REARM_SET_ASIDE_SQL.into(),
-            params: vec![
-                5_i64.into(),
-                0_i64.into(),
-                text("aside:00000000"),
-            ],
-            expectation: indexed(
-                None,
-                &[
-                    "_actor_schedule_events",
-                    "_actor_schedule_set_aside",
-                ],
-            ),
-        },
-        QueryCase {
-            id: "schedule.reset_set_aside",
-            sql: queries::RESET_SET_ASIDE_SQL.into(),
-            params: vec![],
-            expectation: bounded_scan(&[AllowedScan {
-                table: "_actor_schedule_set_aside",
-                reason: "a fork's copy drops the set-aside \
-                         one-shots it copied",
-                bound: "rows are one-shots the actor set that ran \
-                        out of tries",
-            }]),
-        },
-        QueryCase {
-            id: "schedule.delete_set_aside",
-            sql: queries::DELETE_SET_ASIDE_SQL.into(),
-            params: vec![text("aside:00000000")],
-            expectation: indexed(
-                None,
-                &["_actor_schedule_set_aside"],
-            ),
-        },
-        QueryCase {
-            id: "schedule.due",
-            sql: queries::TAKE_DUE_SCHEDULES_SQL.into(),
-            params: vec![5_i64.into(), 1_i64.into()],
-            expectation: indexed(
-                Some("_actor_schedule_events_trigger_at"),
-                all_schedules,
-            ),
-        },
-        QueryCase {
-            id: "schedule.claim_one_shots",
-            sql: queries::claim_one_shots_sql(3),
-            params: vec![
-                1_i64.into(),
-                0_i64.into(),
-                text("at:00000000"),
-                0_i64.into(),
-                text("at:00000003"),
-                3_i64.into(),
-                text("at:00000006"),
-                6_i64.into(),
-            ],
-            expectation: indexed(None, all_schedules),
-        },
-        QueryCase {
-            id: "schedule.advance_skipped",
-            sql: queries::ADVANCE_SKIPPED_SCHEDULE_SQL.into(),
-            params: vec![20_000_i64.into(), text("cron:00000001")],
-            expectation: indexed(None, all_schedules),
-        },
-        QueryCase {
-            id: "schedule.advance",
-            sql: queries::ADVANCE_SCHEDULE_SQL.into(),
-            params: vec![
-                20_000_i64.into(),
-                10_000_i64.into(),
-                text("cron:00000002"),
-            ],
-            expectation: indexed(None, all_schedules),
-        },
-        QueryCase {
-            id: "schedule.finish_history",
-            sql: queries::FINISH_HISTORY_SQL.into(),
-            params: vec![
-                20_000_i64.into(),
-                1_i64.into(),
-                Value::Null,
-                Value::Null,
-                Value::Null,
-                Value::Null,
-                1_i64.into(),
-                0_i64.into(),
-            ],
-            expectation: indexed(None, all_history),
-        },
-        QueryCase {
-            id: "schedule.recover_history",
-            sql: queries::RECOVER_HISTORY_SQL.into(),
-            params: vec![
-                20_000_i64.into(),
-                2_i64.into(),
-                text("schedule"),
-                text("interrupted"),
-                text("interrupted"),
-                Value::Null,
-            ],
-            expectation: indexed(
-                Some("_actor_schedule_history_running"),
-                all_history,
-            ),
-        },
-        QueryCase {
-            id: "schedule.next_future",
-            sql: queries::NEXT_FUTURE_SCHEDULE_SQL.into(),
-            params: vec![5_000_i64.into()],
-            expectation: indexed(
-                Some("_actor_schedule_events_trigger_at"),
-                all_schedules,
-            ),
-        },
-        QueryCase {
-            id: "schedule.next",
-            sql: queries::NEXT_SCHEDULE_SQL.into(),
-            params: vec![1_i64.into()],
-            expectation: QueryPlanExpectation {
-                expected_index: Some(
-                    "_actor_schedule_events_trigger_at",
-                ),
-                ..bounded_scan(&[AllowedScan {
-                    table: "_actor_schedule_events",
-                    reason: "the index walk in trigger order steps \
-                             over the one-shots this generation \
-                             claimed before it reaches the next row",
-                    bound: "a generation claims only due one-shots, \
-                            and each leaves when its action ends; \
-                            ActorConfig.max_schedules caps all \
-                            schedules (default 1,000)",
-                }])
-            },
-        },
-        QueryCase {
-            id: "schedule.prune",
-            sql: queries::PRUNE_SCHEDULE_HISTORY_SQL.into(),
-            params: vec![text("cron:0001"), 20_i64.into()],
-            expectation: indexed(
-                Some("_actor_schedule_history_schedule"),
-                all_history,
-            ),
-        },
-        QueryCase {
-            id: "schedule.prune_global",
-            sql: queries::PRUNE_GLOBAL_HISTORY_SQL.into(),
-            params: vec![
-                schedule::GLOBAL_HISTORY_RETAINED_ROWS.into(),
-            ],
-            expectation: QueryPlanExpectation {
-                forbid_full_scan_of: all_history,
-                forbid_temp_sort: true,
-                forbid_auto_index: true,
-                expected_index: Some(
-                    "_actor_schedule_history_fired_at",
-                ),
-                allowed_scans: &[AllowedScan {
-                    table: "_actor_schedule_history",
-                    reason: "global pruning walks the history \
-                             ordering index to skip retained rows \
-                             and delete only the overflow",
-                    bound: "periodic pruning retains 9,900 rows, \
-                            leaving headroom beneath \
-                            MAX_ACTOR_HISTORY",
-                }],
-            },
-        },
-        QueryCase {
-            id: "cleanup.select_chunk",
-            sql: internal_storage::clear_table_select_sql(
-                "_actor_user_kv",
-                "key",
-                "length(key) + length(value)",
-                internal_storage::KV_TX_MAX_ROWS,
-            ),
-            params: vec![],
-            expectation: bounded_scan(&[AllowedScan {
-                table: "_actor_user_kv",
-                reason: "interrupted legacy import cleanup walks \
-                         one primary-key chunk",
-                bound: "each statement is limited to KV_TX_MAX_ROWS \
-                        (128)",
-            }]),
-        },
-        QueryCase {
-            id: "cleanup.delete_row",
-            sql: internal_storage::clear_table_delete_sql(
-                "_actor_user_kv",
-                "key",
-            ),
-            params: vec![Value::Blob(b"00000001".to_vec())],
-            expectation: indexed(None, all_user_kv),
-        },
-    ]
+		QueryCase {
+			id: "actor.startup",
+			sql: internal_storage::LOAD_ACTOR_STARTUP_SQL.into(),
+			params: vec![
+				text(internal_storage::KV_IMPORT_STATE_META_KEY),
+				text(internal_storage::RUN_WAKE_AT_META_KEY),
+				text(crate::actor::fork::FORK_STATE_META_KEY),
+				text(crate::actor::fork::FORK_START_META_KEY),
+			],
+			expectation: indexed(
+				None,
+				&["_actor_actor", "_actor_actor_state", "_actor_runtime", "_actor_meta"],
+			),
+		},
+		QueryCase {
+			id: "connection.list",
+			sql: internal_storage::LOAD_CONNECTIONS_SQL.into(),
+			params: vec![],
+			expectation: bounded_scan(&[AllowedScan {
+				table: "c",
+				reason: "actor startup restores every live connection",
+				bound: "rows are lifecycle-bounded to currently live or hibernated connections and are deleted on disconnect",
+			}]),
+		},
+		QueryCase {
+			id: "migration.reset_schedules",
+			sql: internal_storage::RESET_SCHEDULES_SQL.into(),
+			params: vec![],
+			expectation: bounded_scan(&[AllowedScan {
+				table: "_actor_schedule_events",
+				reason: "one-time legacy import replaces the complete pre-import schedule set, and a fork's copy drops the schedule it copied",
+				bound: "the legacy actor snapshot containing the source schedule vector is capped at 256 KiB",
+			}]),
+		},
+		QueryCase {
+			id: "queue.next_id",
+			sql: internal_storage::LOAD_QUEUE_NEXT_ID_SQL.into(),
+			params: vec![],
+			expectation: indexed(None, &["_actor_runtime"]),
+		},
+		QueryCase {
+			id: "queue.stats",
+			sql: internal_storage::LOAD_QUEUE_STATS_SQL.into(),
+			params: vec![],
+			expectation: bounded_scan(&[AllowedScan {
+				table: "_actor_queue",
+				reason: "startup validates persisted queue cardinality and maximum id",
+				bound: "ActorConfig.max_queue_size caps queue rows (default 1,000)",
+			}]),
+		},
+		QueryCase {
+			id: "queue.list",
+			sql: internal_storage::LOAD_QUEUE_MESSAGES_SQL.into(),
+			params: vec![],
+			expectation: bounded_scan(&[AllowedScan {
+				table: "_actor_queue",
+				reason: "startup restores queued messages in primary-key order",
+				bound: "ActorConfig.max_queue_size caps queue rows (default 1,000)",
+			}]),
+		},
+		QueryCase {
+			id: "queue.receive",
+			sql: internal_storage::LOAD_QUEUE_MESSAGES_LIMITED_SQL.into(),
+			params: vec![5_i64.into()],
+			expectation: bounded_scan(&[AllowedScan {
+				table: "_actor_queue",
+				reason: "unfiltered queue receive walks global enqueue order",
+				bound: "LIMIT caps returned message bodies; ActorConfig.max_queue_size caps the queue",
+			}]),
+		},
+		QueryCase {
+			id: "queue.receive_name",
+			sql: internal_storage::LOAD_QUEUE_MESSAGES_FOR_NAME_SQL.into(),
+			params: vec![text("message"), 5_i64.into()],
+			expectation: indexed(Some("_actor_queue_name_id"), &["_actor_queue"]),
+		},
+		QueryCase {
+			id: "queue.available_name",
+			sql: internal_storage::HAS_QUEUE_MESSAGES_FOR_NAME_SQL.into(),
+			params: vec![text("message")],
+			expectation: indexed(Some("_actor_queue_name_id"), &["_actor_queue"]),
+		},
+		QueryCase {
+			id: "queue.filter_metadata_page",
+			sql: internal_storage::LOAD_QUEUE_MESSAGE_METADATA_PAGE_SQL.into(),
+			params: vec![0_i64.into(), 128_i64.into()],
+			expectation: indexed(None, &["_actor_queue"]),
+		},
+		QueryCase {
+			id: "queue.load_name",
+			sql: internal_storage::LOAD_QUEUE_MESSAGE_NAME_SQL.into(),
+			params: vec![1_i64.into()],
+			expectation: indexed(None, &["_actor_queue"]),
+		},
+		QueryCase {
+			id: "queue.load_ids",
+			sql: internal_storage::load_queue_messages_by_ids_sql(3),
+			params: vec![1_i64.into(), 2_i64.into(), 3_i64.into()],
+			expectation: indexed(None, &["_actor_queue"]),
+		},
+		QueryCase {
+			id: "queue.available",
+			sql: internal_storage::HAS_QUEUE_MESSAGES_SQL.into(),
+			params: vec![],
+			expectation: bounded_scan(&[AllowedScan {
+				table: "_actor_queue",
+				reason: "unfiltered availability checks stop at the first queue row",
+				bound: "LIMIT 1",
+			}]),
+		},
+		QueryCase {
+			id: "queue.delete",
+			sql: internal_storage::DELETE_QUEUE_MESSAGE_SQL.into(),
+			params: vec![1_i64.into()],
+			expectation: indexed(None, &["_actor_queue"]),
+		},
+		QueryCase {
+			id: "queue.reset",
+			sql: internal_storage::RESET_QUEUE_SQL.into(),
+			params: vec![],
+			expectation: bounded_scan(&[AllowedScan {
+				table: "_actor_queue",
+				reason: "explicit reset removes the complete logical queue",
+				bound: "ActorConfig.max_queue_size caps queue rows (default 1,000)",
+			}]),
+		},
+		QueryCase {
+			id: "user_kv.batch_get",
+			sql: internal_storage::user_kv_batch_get_sql(3),
+			params: vec![
+				Value::Blob(b"00000001".to_vec()),
+				Value::Blob(b"00005000".to_vec()),
+				Value::Blob(b"00009999".to_vec()),
+			],
+			expectation: indexed(None, all_user_kv),
+		},
+		QueryCase {
+			id: "user_kv.delete",
+			sql: internal_storage::DELETE_USER_KV_SQL.into(),
+			params: vec![Value::Blob(b"00000001".to_vec())],
+			expectation: indexed(None, all_user_kv),
+		},
+		QueryCase {
+			id: "user_kv.delete_range",
+			sql: internal_storage::DELETE_USER_KV_RANGE_SQL.into(),
+			params: vec![
+				Value::Blob(b"00000010".to_vec()),
+				Value::Blob(b"00000020".to_vec()),
+			],
+			expectation: indexed(None, all_user_kv),
+		},
+		QueryCase {
+			id: "user_kv.list_range",
+			sql: internal_storage::user_kv_list_sql("WHERE key >= ? AND key < ?", false, true),
+			params: vec![
+				Value::Blob(b"00000010".to_vec()),
+				Value::Blob(b"00000100".to_vec()),
+				20_i64.into(),
+			],
+			expectation: indexed(None, all_user_kv),
+		},
+		QueryCase {
+			id: "user_kv.list_prefix_open",
+			sql: internal_storage::user_kv_list_sql("WHERE key >= ?", true, true),
+			params: vec![Value::Blob(b"00009900".to_vec()), 20_i64.into()],
+			expectation: indexed(None, all_user_kv),
+		},
+		QueryCase {
+			id: "user_kv.list_prefix",
+			sql: internal_storage::user_kv_list_sql("WHERE key >= ? AND key < ?", false, false),
+			params: vec![
+				Value::Blob(b"000000".to_vec()),
+				Value::Blob(b"000001".to_vec()),
+			],
+			expectation: indexed(None, all_user_kv),
+		},
+		QueryCase {
+			id: "user_kv.list_all",
+			sql: internal_storage::user_kv_list_sql("", false, false),
+			params: vec![],
+			expectation: bounded_scan(&[AllowedScan {
+				table: "_actor_user_kv",
+				reason: "the explicit list-all API returns the complete actor KV namespace in primary-key order",
+				bound: "callers can set ListOpts.limit when they do not want to materialize the complete namespace",
+			}]),
+		},
+		QueryCase {
+			id: "connection.delete_state",
+			sql: internal_storage::DELETE_CONN_STATE_SQL.into(),
+			params: vec![text("00000001")],
+			expectation: indexed(None, &["_actor_conn_state"]),
+		},
+		QueryCase {
+			id: "connection.delete",
+			sql: internal_storage::DELETE_CONN_SQL.into(),
+			params: vec![text("00000001")],
+			expectation: indexed(None, &["_actor_conns"]),
+		},
+		QueryCase {
+			id: "workflow.kv_get",
+			sql: internal_storage::LOAD_WORKFLOW_KV_SQL.into(),
+			params: vec![Value::Blob(
+				crate::actor::keys::WORKFLOW_TRACE_CONTEXT_KEY.to_vec(),
+			)],
+			expectation: indexed(None, &["_actor_wf_kv"]),
+		},
+		QueryCase {
+			id: "runtime.inspector_token",
+			sql: internal_storage::LOAD_INSPECTOR_TOKEN_SQL.into(),
+			params: vec![],
+			expectation: indexed(None, &["_actor_runtime"]),
+		},
+		QueryCase {
+			id: "meta.get",
+			sql: internal_storage::LOAD_META_TEXT_SQL.into(),
+			params: vec![text("fixture")],
+			expectation: indexed(None, &["_actor_meta"]),
+		},
+		QueryCase {
+			id: "meta.delete",
+			sql: internal_storage::DELETE_META_SQL.into(),
+			params: vec![text("fixture")],
+			expectation: indexed(None, &["_actor_meta"]),
+		},
+		QueryCase {
+			id: "schedule.cancel",
+			sql: queries::CANCEL_SCHEDULE_SQL.into(),
+			params: vec![text("at:00000000"), 0_i64.into(), 1_i64.into()],
+			expectation: indexed(None, all_schedules),
+		},
+		QueryCase {
+			id: "schedule.end_one_shot",
+			sql: queries::END_ONE_SHOT_SQL.into(),
+			params: vec![text("at:00000000"), 0_i64.into()],
+			expectation: indexed(None, all_schedules),
+		},
+		QueryCase {
+			id: "schedule.get_one_shot",
+			sql: queries::GET_SCHEDULED_EVENT_SQL.into(),
+			params: vec![text("at:00000000"), 0_i64.into(), 1_i64.into()],
+			expectation: indexed(None, all_schedules),
+		},
+		QueryCase {
+			id: "schedule.list_one_shots",
+			sql: queries::LIST_SCHEDULED_EVENTS_SQL.into(),
+			params: vec![0_i64.into(), 1_i64.into()],
+			expectation: bounded_scan(&[AllowedScan {
+				table: "_actor_schedule_events",
+				reason: "the API enumerates all one-shot schedules in trigger order",
+				bound: "ActorConfig.max_schedules caps all schedules (default 1,000)",
+			}]),
+		},
+		QueryCase {
+			id: "schedule.delete_cron_history",
+			sql: queries::DELETE_CRON_HISTORY_SQL.into(),
+			params: vec![text("cron:00000001"), text("cron:00000001"), 0_i64.into()],
+			expectation: indexed(Some("_actor_schedule_history_schedule"), all_history),
+		},
+		QueryCase {
+			id: "schedule.delete_cron",
+			sql: queries::DELETE_CRON_SQL.into(),
+			params: vec![text("cron:00000001"), 0_i64.into()],
+			expectation: indexed(None, all_schedules),
+		},
+		QueryCase {
+			id: "schedule.delete_cron_if_action",
+			sql: queries::DELETE_CRON_IF_ACTION_SQL.into(),
+			params: vec![text("cron:00000001"), 0_i64.into(), text("run")],
+			expectation: indexed(None, all_schedules),
+		},
+		QueryCase {
+			id: "schedule.list_recurring",
+			sql: queries::LIST_CRONS_SQL.into(),
+			params: vec![0_i64.into()],
+			expectation: bounded_scan(&[AllowedScan {
+				table: "_actor_schedule_events",
+				reason: "the API enumerates all recurring schedules in trigger order",
+				bound: "ActorConfig.max_schedules caps all schedules (default 1,000)",
+			}]),
+		},
+		QueryCase {
+			id: "schedule.history",
+			sql: queries::CRON_HISTORY_SQL.into(),
+			params: vec![text("cron:0001"), 20_i64.into()],
+			expectation: indexed(Some("_actor_schedule_history_schedule"), all_history),
+		},
+		QueryCase {
+			id: "schedule.get",
+			sql: queries::LOAD_SCHEDULE_SQL.into(),
+			params: vec![text("cron:00000001")],
+			expectation: indexed(None, all_schedules),
+		},
+		QueryCase {
+			id: "schedule.count",
+			sql: queries::COUNT_SCHEDULES_SQL.into(),
+			params: vec![],
+			expectation: bounded_scan(&[
+				AllowedScan {
+					table: "_actor_schedule_events",
+					reason: "SQLite represents its optimized COUNT(*) opcode as a covering-index scan in the query plan",
+					bound: "runtime VM-step scaling verifies row-count-independent work; ActorConfig.max_schedules also caps rows",
+				},
+				AllowedScan {
+					table: "_actor_schedule_set_aside",
+					reason: "set-aside one-shots count toward the cap; SQLite represents its optimized COUNT(*) opcode as a scan",
+					bound: "ActorConfig.max_schedules caps the rows of both schedule tables",
+				},
+			]),
+		},
+		QueryCase {
+			id: "schedule.set_aside",
+			sql: queries::SET_ASIDE_ONE_SHOT_SQL.into(),
+			params: vec![5_i64.into(), text("at:00000000"), 0_i64.into(), 5_i64.into()],
+			expectation: indexed(None, &["_actor_schedule_events", "_actor_schedule_set_aside"]),
+		},
+		QueryCase {
+			id: "schedule.keep_one_shot",
+			sql: queries::KEEP_ONE_SHOT_SQL.into(),
+			params: vec![text("actor.dropped_reply"), text("at:00000000"), 0_i64.into(), 1_i64.into()],
+			expectation: indexed(None, all_schedules),
+		},
+		QueryCase {
+			id: "schedule.list_set_aside",
+			sql: queries::LIST_SET_ASIDE_SQL.into(),
+			params: vec![],
+			expectation: bounded_scan(&[AllowedScan {
+				table: "_actor_schedule_set_aside",
+				reason: "lists every set-aside one-shot, in primary key order",
+				bound: "ActorConfig.max_schedules caps the rows of both schedule tables",
+			}]),
+		},
+		QueryCase {
+			id: "schedule.rearm_set_aside",
+			sql: queries::REARM_SET_ASIDE_SQL.into(),
+			params: vec![5_i64.into(), 0_i64.into(), text("aside:00000000")],
+			expectation: indexed(None, &["_actor_schedule_events", "_actor_schedule_set_aside"]),
+		},
+		QueryCase {
+			id: "schedule.reset_set_aside",
+			sql: queries::RESET_SET_ASIDE_SQL.into(),
+			params: vec![],
+			expectation: bounded_scan(&[AllowedScan {
+				table: "_actor_schedule_set_aside",
+				reason: "a fork's copy drops the set-aside one-shots it copied",
+				bound: "rows are one-shots the actor set that ran out of tries",
+			}]),
+		},
+		QueryCase {
+			id: "schedule.delete_set_aside",
+			sql: queries::DELETE_SET_ASIDE_SQL.into(),
+			params: vec![text("aside:00000000")],
+			expectation: indexed(None, &["_actor_schedule_set_aside"]),
+		},
+		QueryCase {
+			id: "schedule.due",
+			sql: queries::TAKE_DUE_SCHEDULES_SQL.into(),
+			params: vec![5_i64.into(), 1_i64.into()],
+			expectation: indexed(Some("_actor_schedule_events_trigger_at"), all_schedules),
+		},
+		QueryCase {
+			id: "schedule.claim_one_shots",
+			sql: queries::claim_one_shots_sql(3),
+			params: vec![
+				1_i64.into(),
+				0_i64.into(),
+				text("at:00000000"),
+				0_i64.into(),
+				text("at:00000003"),
+				3_i64.into(),
+				text("at:00000006"),
+				6_i64.into(),
+			],
+			expectation: indexed(None, all_schedules),
+		},
+		QueryCase {
+			id: "schedule.advance_skipped",
+			sql: queries::ADVANCE_SKIPPED_SCHEDULE_SQL.into(),
+			params: vec![20_000_i64.into(), text("cron:00000001")],
+			expectation: indexed(None, all_schedules),
+		},
+		QueryCase {
+			id: "schedule.advance",
+			sql: queries::ADVANCE_SCHEDULE_SQL.into(),
+			params: vec![20_000_i64.into(), 10_000_i64.into(), text("cron:00000002")],
+			expectation: indexed(None, all_schedules),
+		},
+		QueryCase {
+			id: "schedule.finish_history",
+			sql: queries::FINISH_HISTORY_SQL.into(),
+			params: vec![
+				20_000_i64.into(),
+				1_i64.into(),
+				Value::Null,
+				Value::Null,
+				Value::Null,
+				Value::Null,
+				1_i64.into(),
+				0_i64.into(),
+			],
+			expectation: indexed(None, all_history),
+		},
+		QueryCase {
+			id: "schedule.recover_history",
+			sql: queries::RECOVER_HISTORY_SQL.into(),
+			params: vec![
+				20_000_i64.into(),
+				2_i64.into(),
+				text("schedule"),
+				text("interrupted"),
+				text("interrupted"),
+				Value::Null,
+			],
+			expectation: indexed(Some("_actor_schedule_history_running"), all_history),
+		},
+		QueryCase {
+			id: "schedule.next_future",
+			sql: queries::NEXT_FUTURE_SCHEDULE_SQL.into(),
+			params: vec![5_000_i64.into()],
+			expectation: indexed(Some("_actor_schedule_events_trigger_at"), all_schedules),
+		},
+		QueryCase {
+			id: "schedule.next",
+			sql: queries::NEXT_SCHEDULE_SQL.into(),
+			params: vec![1_i64.into()],
+			expectation: QueryPlanExpectation {
+				expected_index: Some("_actor_schedule_events_trigger_at"),
+				..bounded_scan(&[AllowedScan {
+					table: "_actor_schedule_events",
+					reason: "the index walk in trigger order steps over the one-shots this generation claimed before it reaches the next row",
+					bound: "a generation claims only due one-shots, and each leaves when its action ends; ActorConfig.max_schedules caps all schedules (default 1,000)",
+				}])
+			},
+		},
+		QueryCase {
+			id: "schedule.prune",
+			sql: queries::PRUNE_SCHEDULE_HISTORY_SQL.into(),
+			params: vec![text("cron:0001"), 20_i64.into()],
+			expectation: indexed(Some("_actor_schedule_history_schedule"), all_history),
+		},
+		QueryCase {
+			id: "schedule.prune_global",
+			sql: queries::PRUNE_GLOBAL_HISTORY_SQL.into(),
+			params: vec![schedule::GLOBAL_HISTORY_RETAINED_ROWS.into()],
+			expectation: QueryPlanExpectation {
+				forbid_full_scan_of: all_history,
+				forbid_temp_sort: true,
+				forbid_auto_index: true,
+				expected_index: Some("_actor_schedule_history_fired_at"),
+				allowed_scans: &[AllowedScan {
+					table: "_actor_schedule_history",
+					reason: "global pruning walks the history ordering index to skip retained rows and delete only the overflow",
+					bound: "periodic pruning retains 9,900 rows, leaving headroom beneath MAX_ACTOR_HISTORY",
+				}],
+			},
+		},
+		QueryCase {
+			id: "cleanup.select_chunk",
+			sql: internal_storage::clear_table_select_sql(
+				"_actor_user_kv",
+				"key",
+				"length(key) + length(value)",
+				internal_storage::KV_TX_MAX_ROWS,
+			),
+			params: vec![],
+			expectation: bounded_scan(&[AllowedScan {
+				table: "_actor_user_kv",
+				reason: "interrupted legacy import cleanup walks one primary-key chunk",
+				bound: "each statement is limited to KV_TX_MAX_ROWS (128)",
+			}]),
+		},
+		QueryCase {
+			id: "cleanup.delete_row",
+			sql: internal_storage::clear_table_delete_sql("_actor_user_kv", "key"),
+			params: vec![Value::Blob(b"00000001".to_vec())],
+			expectation: indexed(None, all_user_kv),
+		},
+	]
 }
 
 #[test]
